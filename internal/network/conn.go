@@ -1,0 +1,495 @@
+// Package network provides TCP connectivity with telnet negotiation and
+// MUD2 auto-login for mucka.
+package network
+
+import (
+	"bufio"
+	"bytes"
+	"fmt"
+	"net"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"github.com/kfsone/mucka/internal/ansi"
+	"github.com/kfsone/mucka/internal/config"
+	"github.com/kfsone/mucka/internal/core"
+	"github.com/kfsone/mucka/internal/fes"
+)
+
+// Telnet command bytes.
+const (
+	telnetSE   = 240
+	telnetSB   = 250
+	telnetWILL = 251
+	telnetWONT = 252
+	telnetDO   = 253
+	telnetDONT = 254
+	telnetIAC  = 255
+
+	// Option codes.
+	optEcho         = 1
+	optSGA          = 3
+	optTermType     = 24
+	optNAWS         = 31
+)
+
+// loginState tracks where we are in the MUD2 auto-login sequence.
+type loginState int
+
+const (
+	stateWaitLogin   loginState = iota
+	stateWaitAccount            // received "login: ", sent login
+	stateWaitPassword           // received "Account ID: ", sent account
+	stateDone                   // received "assword:", sent password
+)
+
+// Conn manages a single TCP connection to a MUD server.
+type Conn struct {
+	sink          core.TextSink
+	invalidate    func()
+	sendCh        chan string
+	closeCh       chan struct{}
+	conn          net.Conn
+	mu            sync.Mutex
+	sgaDone       bool // WILL SGA has been responded to once
+	connected     atomic.Bool
+	connecting    atomic.Bool
+	stats         fes.Stats
+	// StatsUpdated is called (from the reader goroutine) whenever stats change
+	// due to a FES packet or a matched ScanLine. May be nil.
+	StatsUpdated  func(*fes.Stats)
+	// DreamWordUpdated is called when the dream word is set or cleared.
+	// Empty string means cleared. May be nil. Called from reader goroutine.
+	DreamWordUpdated func(string)
+
+	dreamWordMu  sync.RWMutex // protects dreamWordStr
+	dreamWordStr string
+}
+
+// NewConn creates a Conn that posts output to sink and calls invalidate after
+// each update. invalidate must be non-nil; use (&core.NopInvalidator{}).Invalidate
+// in headless contexts.
+func NewConn(sink core.TextSink, invalidate func()) *Conn {
+	return &Conn{
+		sink:       sink,
+		invalidate: invalidate,
+		sendCh:     make(chan string, 64),
+		closeCh:    make(chan struct{}),
+	}
+}
+
+// IsConnected reports whether the connection is currently active.
+func (c *Conn) IsConnected() bool {
+	return c.connected.Load()
+}
+
+// DreamWord returns the current dream word, or "" if none.
+func (c *Conn) DreamWord() string {
+	c.dreamWordMu.RLock()
+	defer c.dreamWordMu.RUnlock()
+	return c.dreamWordStr
+}
+
+func (c *Conn) updateDreamWord(word string) {
+	c.dreamWordMu.Lock()
+	c.dreamWordStr = word
+	c.dreamWordMu.Unlock()
+	if c.DreamWordUpdated != nil {
+		c.DreamWordUpdated(word)
+	}
+}
+
+// IsConnecting reports whether a dial is currently in progress.
+func (c *Conn) IsConnecting() bool {
+	return c.connecting.Load()
+}
+
+// Connect dials the server described by profile in a background goroutine,
+// returning immediately. Status messages are delivered via the TextSink.
+func (c *Conn) Connect(profile config.ServerProfile) {
+	addr := net.JoinHostPort(profile.Host, fmt.Sprintf("%d", profile.Port))
+	c.sink.AppendText(fmt.Sprintf("Connecting to %s...", addr))
+	c.invalidate()
+	c.connecting.Store(true)
+	go func() {
+		conn, err := net.DialTimeout("tcp", addr, 10*time.Second)
+		if err != nil {
+			c.connecting.Store(false)
+			c.sink.AppendText("\x1b[31mConnection failed: " + err.Error() + "\x1b[0m")
+			c.invalidate()
+			return
+		}
+		c.mu.Lock()
+		c.conn = conn
+		c.sgaDone = false
+		c.mu.Unlock()
+		c.connecting.Store(false)
+		c.connected.Store(true)
+		c.sink.AppendText("Connected.")
+		c.invalidate()
+		go c.reader(conn, profile)
+		go c.writer(conn)
+	}()
+}
+
+// Send queues a line for transmission. A trailing "\r\n" is appended automatically.
+func (c *Conn) Send(line string) {
+	if c.IsConnected() {
+		c.sendCh <- line + "\r\n"
+	}
+}
+
+// Close terminates the connection.
+func (c *Conn) Close() {
+	if !c.connected.Swap(false) {
+		return
+	}
+	close(c.closeCh)
+	c.mu.Lock()
+	if c.conn != nil {
+		c.conn.Close()
+	}
+	c.mu.Unlock()
+}
+
+// fesPollLoop sends a FES trigger every 10 seconds while connected and in game,
+// mirroring Clio's behaviour. Exits when done or closeCh is closed.
+func (c *Conn) fesPollLoop(done <-chan struct{}) {
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-c.closeCh:
+			return
+		case <-done:
+			return
+		case <-ticker.C:
+			if c.IsConnected() {
+				c.sendCh <- string(fes.TriggerBytes)
+			}
+		}
+	}
+}
+
+// mud2ClientModeBytes are the ESC-X sequences MUD2 sends to signal "return to
+// client menu". Clio's telnet.l matches ESC-C, ESC-R, ESC-r, ESC-K.
+var mud2ClientModeBytes = [][]byte{
+	{0x1b, '-', 'C'},
+	{0x1b, '-', 'R'},
+	{0x1b, '-', 'r'},
+	{0x1b, '-', 'K'},
+}
+
+// isClientModeSignal returns true if the raw line bytes contain a MUD2
+// client-mode escape sequence or the "Option: " menu prompt text.
+func isClientModeSignal(raw []byte, plain string) bool {
+	for _, seq := range mud2ClientModeBytes {
+		if bytes.Contains(raw, seq) {
+			return true
+		}
+	}
+	return strings.Contains(plain, "Option: ")
+}
+
+// writer drains sendCh and writes to the TCP connection.
+func (c *Conn) writer(conn net.Conn) {
+	for {
+		select {
+		case <-c.closeCh:
+			return
+		case data := <-c.sendCh:
+			if _, err := fmt.Fprint(conn, data); err != nil {
+				return
+			}
+		}
+	}
+}
+
+// reader reads from the TCP connection, strips telnet negotiation, buffers
+// lines, and appends them to the panel.
+func (c *Conn) reader(conn net.Conn, profile config.ServerProfile) {
+	br := bufio.NewReader(conn)
+	var (
+		lineBuf     []byte
+		state       = stateWaitLogin
+		ansiState   ansi.State
+		gameEntered bool
+		fesDone     chan struct{} // non-nil while FES polling is active
+	)
+
+	// exitGame stops FES polling and resets state so re-entry can restart it.
+	exitGame := func() {
+		if gameEntered {
+			gameEntered = false
+			close(fesDone)
+			fesDone = nil
+		}
+	}
+
+	defer func() {
+		c.updateDreamWord("") // clear dream word on disconnect
+		c.connected.Store(false)
+		exitGame() // stop fesPollLoop if still running
+	}()
+
+	for {
+		b, err := br.ReadByte()
+		if err != nil {
+			if c.IsConnected() {
+				c.sink.AppendText("\x1b[31mConnection closed.\x1b[0m")
+				c.invalidate()
+			}
+			return
+		}
+
+		if b == telnetIAC {
+			// IAC IAC = escaped literal 0xFF byte in the data stream.
+			if peeked, err := br.Peek(1); err == nil && len(peeked) == 1 && peeked[0] == telnetIAC {
+				br.ReadByte() //nolint:errcheck // consume the second IAC
+				lineBuf = append(lineBuf, telnetIAC)
+			} else {
+				resp := c.handleTelnet(br)
+				if len(resp) > 0 {
+					c.mu.Lock()
+					conn.Write(resp) //nolint:errcheck
+					c.mu.Unlock()
+				}
+			}
+			continue
+		}
+
+		lineBuf = append(lineBuf, b)
+
+		// Check for login automaton triggers after every byte.
+		if state != stateDone {
+			line := latin1ToUTF8(lineBuf)
+			state = c.runLoginAutomaton(state, line, profile)
+		}
+
+		if b == '\n' {
+			// Strip dream-word protocol bytes before display.
+			if processed, finalWord, changed := extractDreamWord(lineBuf); changed {
+				lineBuf = processed
+				c.updateDreamWord(finalWord)
+			}
+			text := strings.TrimRight(latin1ToUTF8(lineBuf), "\r\n")
+
+			// Check for FES packet: strip ANSI codes, strip leading '*' chars (MUD prompt),
+			// then attempt to parse as 15-field FES data. The server embeds FES fields on
+			// the prompt line so the '*' prefix is expected.
+			stateCopy := ansiState
+			spans := ansi.ParseStateful(text, &stateCopy)
+			plainText := spansToText(spans)
+			body := strings.TrimLeft(plainText, "*")
+			ansiState = stateCopy // advance ANSI state regardless of FES or not
+
+			if len(body) < len(plainText) && (len(body) == 0 || fes.ParsePacket([]byte(body), &c.stats)) {
+				// FES packet or bare prompt terminator (server sends *\r\n before the
+				// FES response line): update stats if valid data, but do not display.
+				if len(body) > 0 && c.StatsUpdated != nil {
+					c.StatsUpdated(&c.stats)
+				}
+			} else {
+				// Normal text line: display and scan for embedded stats.
+				c.sink.AppendSpans(spans)
+				c.invalidate()
+				if fes.ScanLine(plainText, &c.stats) && c.StatsUpdated != nil {
+					c.StatsUpdated(&c.stats)
+				}
+				// MUD2 client-mode escape or "Option:" menu prompt: stop FES polling
+				// so we don't spam the server while at the client menu.
+				if gameEntered && isClientModeSignal(lineBuf, plainText) {
+					exitGame()
+				}
+				// Detect game entry via the starting room name; send initial FES
+				// trigger and start the 10-second polling loop (mirrors Clio).
+				if !gameEntered && state == stateDone && strings.Contains(text, "Elizabethan") {
+					gameEntered = true
+					fesDone = make(chan struct{})
+					c.sendCh <- string(fes.TriggerBytes)
+					go c.fesPollLoop(fesDone)
+				}
+			}
+			lineBuf = lineBuf[:0]
+		} else if br.Buffered() == 0 {
+			// No more data available right now — flush as partial so prompts appear.
+			// Strip dream-word protocol bytes before display.
+			if processed, finalWord, changed := extractDreamWord(lineBuf); changed {
+				lineBuf = processed
+				c.updateDreamWord(finalWord)
+			}
+			text := strings.TrimRight(latin1ToUTF8(lineBuf), "\r")
+			stateCopy := ansiState // snapshot: don't advance real state
+			spans := ansi.ParseStateful(text, &stateCopy)
+			plainText := spansToText(spans)
+			c.sink.UpdatePartial(spans)
+			c.invalidate()
+			// Also catch client-mode signals that arrive as prompts (no trailing \n).
+			if gameEntered && isClientModeSignal(lineBuf, plainText) {
+				exitGame()
+			}
+		}
+	}
+}
+
+// spansToText concatenates the plain text from a slice of ANSI spans.
+func spansToText(spans []ansi.Span) string {
+	if len(spans) == 0 {
+		return ""
+	}
+	var sb strings.Builder
+	for _, sp := range spans {
+		sb.WriteString(sp.Text)
+	}
+	return sb.String()
+}
+
+// min returns the smaller of a and b.
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+// runLoginAutomaton checks the accumulated line buffer for login prompts and
+// sends credentials. Returns the updated state.
+func (c *Conn) runLoginAutomaton(state loginState, line string, profile config.ServerProfile) loginState {
+	switch state {
+	case stateWaitLogin:
+		if strings.Contains(line, "login: ") {
+			c.sendCh <- profile.Login + "\r\n"
+			return stateWaitAccount
+		}
+	case stateWaitAccount:
+		if strings.Contains(line, "Account ID: ") {
+			c.sendCh <- profile.Account + "\r\n"
+			return stateWaitPassword
+		}
+	case stateWaitPassword:
+		if strings.Contains(line, "assword:") {
+			c.sendCh <- profile.Password + "\r\n"
+			return stateDone
+		}
+	}
+	return state
+}
+
+// handleTelnet reads the rest of a telnet command (IAC already consumed) and
+// returns the bytes to send back, or nil.
+func (c *Conn) handleTelnet(br *bufio.Reader) []byte {
+	cmd, err := br.ReadByte()
+	if err != nil {
+		return nil
+	}
+
+	switch cmd {
+	case telnetWILL:
+		return c.handleWill(br)
+	case telnetWONT:
+		br.ReadByte() // consume option, ignore
+		return nil
+	case telnetDO:
+		return c.handleDo(br)
+	case telnetDONT:
+		br.ReadByte() // consume option, ignore
+		return nil
+	case telnetSB:
+		return c.handleSB(br)
+	default:
+		return nil
+	}
+}
+
+// handleWill processes IAC WILL <opt>.
+func (c *Conn) handleWill(br *bufio.Reader) []byte {
+	opt, err := br.ReadByte()
+	if err != nil {
+		return nil
+	}
+	switch opt {
+	case optSGA:
+		// Only respond once to avoid loops.
+		c.mu.Lock()
+		done := c.sgaDone
+		c.sgaDone = true
+		c.mu.Unlock()
+		if !done {
+			return []byte{telnetIAC, telnetDO, opt}
+		}
+		return nil
+	default:
+		return []byte{telnetIAC, telnetDONT, opt}
+	}
+}
+
+// handleDo processes IAC DO <opt>.
+func (c *Conn) handleDo(br *bufio.Reader) []byte {
+	opt, err := br.ReadByte()
+	if err != nil {
+		return nil
+	}
+	switch opt {
+	case optEcho:
+		return []byte{telnetIAC, telnetWONT, opt}
+	case optTermType:
+		return []byte{telnetIAC, telnetWILL, opt}
+	case optNAWS:
+		// Agree and send window size (80×21).
+		return []byte{
+			telnetIAC, telnetWILL, optNAWS,
+			telnetIAC, telnetSB, optNAWS, 0, 80, 0, 21, telnetIAC, telnetSE,
+		}
+	case 32, 33, 35, 36, 37, 39:
+		return []byte{telnetIAC, telnetWONT, opt}
+	default:
+		return []byte{telnetIAC, telnetWONT, opt}
+	}
+}
+
+// handleSB reads and processes an IAC SB ... IAC SE sub-negotiation.
+func (c *Conn) handleSB(br *bufio.Reader) []byte {
+	opt, err := br.ReadByte()
+	if err != nil {
+		return nil
+	}
+
+	// Read until IAC SE, collecting the sub-option bytes.
+	var sub []byte
+	for {
+		b, err := br.ReadByte()
+		if err != nil {
+			return nil
+		}
+		if b == telnetIAC {
+			end, err := br.ReadByte()
+			if err != nil {
+				return nil
+			}
+			if end == telnetSE {
+				break
+			}
+			sub = append(sub, b, end)
+		} else {
+			sub = append(sub, b)
+		}
+	}
+
+	// Handle TERMINAL-TYPE SEND (1).
+	if opt == optTermType && len(sub) > 0 && sub[0] == 1 {
+		termName := []byte("ansi")
+		resp := []byte{telnetIAC, telnetSB, optTermType, 0}
+		resp = append(resp, termName...)
+		resp = append(resp, telnetIAC, telnetSE)
+		return resp
+	}
+
+	return nil
+}
+
+// contains is a small wrapper kept for clarity inside this file.
+func contains(s, sub string) bool {
+	return strings.Contains(s, sub)
+}

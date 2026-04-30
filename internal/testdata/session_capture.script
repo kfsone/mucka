@@ -1,0 +1,22 @@
+# MUD2 luniboy session capture - connects via -profile mud2-uk-qb
+# Run: mucka -headless -profile mud2-uk-qb -script internal/testdata/session_capture.script
+sleep 5s
+p
+sleep 2s
+1
+sleep 5s
+wave
+sleep 2500ms
+act, testily
+sleep 4s
+n
+sleep 5s
+score
+sleep 2s
+qq
+sleep 1s
+q
+sleep 1s
+.disconnect
+sleep 1s
+.quit

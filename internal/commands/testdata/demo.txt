@@ -1,0 +1,6 @@
+# This is a comment — should be skipped
+\e[1;32mWelcome to the stream demo\e[0m
+\e[31mThis line is red\e[0m
+# Another comment
+\e[33mThis line is yellow\e[0m
+Plain text (reset to normal)
