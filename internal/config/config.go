@@ -162,7 +162,7 @@ func applyDefaults(cfg *Config) {
 		cfg.General.FontName = "Go Mono"
 	}
 	if cfg.General.FontSize == 0 {
-		cfg.General.FontSize = 14
+		cfg.General.FontSize = 13
 	}
 	if cfg.General.Width == 0 {
 		cfg.General.Width = 80
