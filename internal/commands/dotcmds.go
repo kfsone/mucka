@@ -65,6 +65,8 @@ func dotConnectHandler(d *Dispatcher) HandlerFunc {
 			d.u.TextPanel.AppendText(fmt.Sprintf("Unknown server profile: %q", profileName))
 			return
 		}
+		profile.Width = d.cfg.General.Width
+		profile.Height = d.cfg.General.Height
 		conn := network.NewConn(d.u.TextPanel, d.w.Invalidate)
 		conn.StatsUpdated = func(s *fes.Stats) {
 			d.u.SetStats(s)

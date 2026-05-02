@@ -58,6 +58,7 @@ type Conn struct {
 	connected     atomic.Bool
 	connecting    atomic.Bool
 	stats         fes.Stats
+	profile       config.ServerProfile // active connection profile (Width/Height used for NAWS)
 	// fesPending counts FES triggers that have been sent but whose FES packet
 	// response has not yet been received. Incremented before each trigger is
 	// queued; decremented when the matching packet arrives. While > 0, any
@@ -225,6 +226,7 @@ func (c *Conn) writer(conn net.Conn) {
 // reader reads from the TCP connection, strips telnet negotiation, buffers
 // lines, and appends them to the panel.
 func (c *Conn) reader(conn net.Conn, profile config.ServerProfile) {
+	c.profile = profile
 	br := bufio.NewReader(conn)
 	var (
 		lineBuf     []byte
@@ -494,10 +496,19 @@ func (c *Conn) handleDo(br *bufio.Reader) []byte {
 	case optTermType:
 		return []byte{telnetIAC, telnetWILL, opt}
 	case optNAWS:
-		// Agree and send window size (80×21).
+		// Agree and send window size using the configured dimensions.
+		w, h := uint16(c.profile.Width), uint16(c.profile.Height)
+		if w == 0 {
+			w = 80
+		}
+		if h == 0 {
+			h = 40
+		}
 		return []byte{
 			telnetIAC, telnetWILL, optNAWS,
-			telnetIAC, telnetSB, optNAWS, 0, 80, 0, 21, telnetIAC, telnetSE,
+			telnetIAC, telnetSB, optNAWS,
+			byte(w >> 8), byte(w), byte(h >> 8), byte(h),
+			telnetIAC, telnetSE,
 		}
 	case 32, 33, 35, 36, 37, 39:
 		return []byte{telnetIAC, telnetWONT, opt}

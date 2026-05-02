@@ -76,6 +76,8 @@ func Run(cfg *config.Config, profileName, scriptFile string) error {
 		if !ok {
 			return fmt.Errorf("profile %q not found in config", profileName)
 		}
+		profile.Width = cfg.General.Width
+		profile.Height = cfg.General.Height
 		conn.Connect(profile)
 		// Poll until connected or 15s timeout.
 		deadline := time.Now().Add(15 * time.Second)

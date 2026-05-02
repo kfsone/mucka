@@ -147,6 +147,8 @@ type ServerProfile struct {
 	Login    string `ini:"login"`
 	Account  string `ini:"account"`
 	Password string `ini:"password"`
+	Width    int    // terminal width; populated from General.Width
+	Height   int    // terminal height; populated from General.Height
 }
 
 // Config is the top-level configuration object.
