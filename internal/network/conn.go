@@ -498,12 +498,6 @@ func (c *Conn) handleDo(br *bufio.Reader) []byte {
 	case optNAWS:
 		// Agree and send window size using the configured dimensions.
 		w, h := uint16(c.profile.Width), uint16(c.profile.Height)
-		if w == 0 {
-			w = 80
-		}
-		if h == 0 {
-			h = 40
-		}
 		return []byte{
 			telnetIAC, telnetWILL, optNAWS,
 			telnetIAC, telnetSB, optNAWS,
