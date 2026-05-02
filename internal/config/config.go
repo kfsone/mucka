@@ -156,6 +156,8 @@ type ServerProfile struct {
 	Login    string `ini:"login"`
 	Account  string `ini:"account"`
 	Password string `ini:"password"`
+	Width    int    `ini:"width"`  // terminal width; defaults to General.Width when 0
+	Height   int    `ini:"height"` // terminal height; defaults to General.Height when 0
 }
 
 // Config is the top-level configuration object.
@@ -181,6 +183,17 @@ func applyDefaults(cfg *Config) {
 	}
 	if cfg.General.History == 0 {
 		cfg.General.History = DefaultHistory
+	}
+	// Propagate General terminal dimensions into any server profile that does
+	// not override them explicitly.
+	for name, sp := range cfg.Servers {
+		if sp.Width == 0 {
+			sp.Width = cfg.General.Width
+		}
+		if sp.Height == 0 {
+			sp.Height = cfg.General.Height
+		}
+		cfg.Servers[name] = sp
 	}
 }
 

@@ -89,6 +89,54 @@ password = testpass
 	if sp.Password != "testpass" {
 		t.Errorf("Password: got %q", sp.Password)
 	}
+	// Width/Height not set in profile → inherit General defaults (80×40).
+	if sp.Width != 80 {
+		t.Errorf("Width: got %d, want 80 (inherited from General default)", sp.Width)
+	}
+	if sp.Height != 40 {
+		t.Errorf("Height: got %d, want 40 (inherited from General default)", sp.Height)
+	}
+}
+
+// TestServerProfileInheritsGeneralDimensions verifies that a server profile
+// without explicit width/height inherits General values, while a profile with
+// explicit values keeps its own.
+func TestServerProfileInheritsGeneralDimensions(t *testing.T) {
+	iniInput := `
+[general]
+width = 120
+height = 50
+
+[default-size]
+host = example.com
+port = 4000
+
+[custom-size]
+host = other.com
+port = 4000
+width = 200
+height = 60
+`
+	cfg, err := parse([]byte(iniInput))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+
+	def := cfg.Servers["default-size"]
+	if def.Width != 120 {
+		t.Errorf("default-size Width: got %d, want 120 (from General)", def.Width)
+	}
+	if def.Height != 50 {
+		t.Errorf("default-size Height: got %d, want 50 (from General)", def.Height)
+	}
+
+	custom := cfg.Servers["custom-size"]
+	if custom.Width != 200 {
+		t.Errorf("custom-size Width: got %d, want 200 (per-profile override)", custom.Width)
+	}
+	if custom.Height != 60 {
+		t.Errorf("custom-size Height: got %d, want 60 (per-profile override)", custom.Height)
+	}
 }
 
 func TestParseMultipleServers(t *testing.T) {

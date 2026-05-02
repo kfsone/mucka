@@ -18,6 +18,7 @@ func newTestConn() *Conn {
 		invalidate: (&core.NopInvalidator{}).Invalidate,
 		sendCh:     make(chan string, 64),
 		closeCh:    make(chan struct{}),
+		profile:    config.ServerProfile{Width: 132, Height: 50},
 	}
 }
 
@@ -120,14 +121,17 @@ func TestTelnetSBTerminalTypeResponse(t *testing.T) {
 
 // TestTelnetDoNAWSResponse: IAC DO 31 (NAWS) → IAC WILL 31 + window size SB.
 func TestTelnetDoNAWSResponse(t *testing.T) {
-	c := newTestConn()
+	c := newTestConn() // profile has Width=132, Height=50
 	resp := callHandleTelnet(c, []byte{telnetDO, optNAWS})
-	if len(resp) == 0 {
-		t.Fatal("NAWS: expected non-empty response")
+	// Expected: IAC WILL NAWS + IAC SB NAWS <w_hi> <w_lo> <h_hi> <h_lo> IAC SE
+	want := []byte{
+		telnetIAC, telnetWILL, optNAWS,
+		telnetIAC, telnetSB, optNAWS,
+		0, 132, 0, 50,
+		telnetIAC, telnetSE,
 	}
-	// Must start with IAC WILL NAWS.
-	if resp[0] != telnetIAC || resp[1] != telnetWILL || resp[2] != optNAWS {
-		t.Errorf("NAWS: expected IAC WILL NAWS at start, got %v", resp[:3])
+	if !bytes.Equal(resp, want) {
+		t.Errorf("NAWS: got %v, want %v", resp, want)
 	}
 }
 
