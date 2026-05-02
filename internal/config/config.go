@@ -15,7 +15,8 @@ const (
 	DefaultFontSize = 13
 	DefaultWidth    = 80
 	DefaultHeight   = 40
-	DefaultHistory  = 2000
+	DefaultHistory    = 2000
+	DefaultScrollback = 5000
 )
 
 // General holds application-wide settings.
@@ -25,7 +26,8 @@ type General struct {
 	LogDir   string `ini:"log-dir"`
 	Width    int    `ini:"width"`   // default DefaultWidth
 	Height   int    `ini:"height"`  // default DefaultHeight
-	History  int    `ini:"history"` // default DefaultHistory
+	History    int    `ini:"history"`    // default DefaultHistory
+	Scrollback int    `ini:"scrollback"` // default DefaultScrollback
 	LogFileT string `ini:"log-file-t"`
 	LogFmt   string `ini:"log-fmt"`
 }
@@ -183,6 +185,9 @@ func applyDefaults(cfg *Config) {
 	}
 	if cfg.General.History == 0 {
 		cfg.General.History = DefaultHistory
+	}
+	if cfg.General.Scrollback == 0 {
+		cfg.General.Scrollback = DefaultScrollback
 	}
 	// Propagate General terminal dimensions into any server profile that does
 	// not override them explicitly.
