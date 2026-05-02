@@ -240,3 +240,194 @@ func TestFESPacket_MalformedBody(t *testing.T) {
 		t.Error("StatsUpdated should not be called for malformed FES body")
 	}
 }
+
+// TestFESBarePromptClearsPartial verifies that when the server sends a bare
+// "*\n" prompt terminator (FES bare prompt), the stale partial prompt
+// character is cleared from the sink rather than left visible.
+func TestFESBarePromptClearsPartial(t *testing.T) {
+	sink := &core.BufferSink{}
+	c := &Conn{
+		sink:       sink,
+		invalidate: (&core.NopInvalidator{}).Invalidate,
+		sendCh:     make(chan string, 64),
+		closeCh:    make(chan struct{}),
+	}
+	c.connected.Store(true)
+
+	server, client := net.Pipe()
+	defer server.Close()
+	defer client.Close()
+
+	go c.reader(client, config.ServerProfile{})
+
+	// Phase 1: server sends a bare prompt — reader flushes it as partial.
+	server.Write([]byte("*"))
+	if !waitFor(func() bool { return sink.SnapshotPartial() == "*" }) {
+		t.Fatalf("phase 1: partial not set to '*': got %q", sink.SnapshotPartial())
+	}
+
+	// Phase 2: server sends bare FES prompt terminator "*\n".
+	// The "*\n" line is a bare prompt — it must be suppressed AND the stale
+	// partial must be cleared.
+	server.Write([]byte("\n"))
+	if !waitFor(func() bool { return sink.SnapshotPartial() == "" }) {
+		t.Errorf("phase 2: partial not cleared after bare FES prompt: got %q", sink.SnapshotPartial())
+	}
+
+	// No complete lines should have been added for the bare prompt.
+	for _, line := range sink.Snapshot() {
+		if line == "*" {
+			t.Errorf("bare FES prompt leaked into complete lines: %q", line)
+		}
+	}
+}
+
+// TestFESPacketClearsPartial verifies that when a valid FES packet is received
+// (**stats\n), the stale partial prompt character is cleared from the sink.
+func TestFESPacketClearsPartial(t *testing.T) {
+	sink := &core.BufferSink{}
+	c := &Conn{
+		sink:       sink,
+		invalidate: (&core.NopInvalidator{}).Invalidate,
+		sendCh:     make(chan string, 64),
+		closeCh:    make(chan struct{}),
+	}
+	c.connected.Store(true)
+
+	called := make(chan *fes.Stats, 1)
+	c.StatsUpdated = func(s *fes.Stats) {
+		cp := *s
+		called <- &cp
+	}
+
+	server, client := net.Pipe()
+	defer server.Close()
+	defer client.Close()
+
+	go c.reader(client, config.ServerProfile{})
+
+	// Phase 1: server sends a bare prompt — reader flushes it as partial.
+	server.Write([]byte("*"))
+	if !waitFor(func() bool { return sink.SnapshotPartial() == "*" }) {
+		t.Fatalf("phase 1: partial not set to '*': got %q", sink.SnapshotPartial())
+	}
+
+	// Phase 2: FES packet arrives — partial must be cleared, stats callback fired.
+	server.Write([]byte("**25 30 100 100 95 95 0 0 5000 N N N N 44 F\n"))
+	if !waitFor(func() bool { return sink.SnapshotPartial() == "" }) {
+		t.Errorf("phase 2: partial not cleared after FES packet: got %q", sink.SnapshotPartial())
+	}
+	select {
+	case s := <-called:
+		if s.Stamina != 25 {
+			t.Errorf("Stamina = %d, want 25", s.Stamina)
+		}
+	default:
+		t.Error("StatsUpdated was not called after FES packet")
+	}
+	// The FES packet must not appear as a text line.
+	for _, line := range sink.Snapshot() {
+		if strings.Contains(line, "5000") {
+			t.Errorf("FES data leaked into complete lines: %q", line)
+		}
+	}
+}
+
+// TestFESTextFormatSuppressedWhenPending verifies that text-format FES response
+// lines (e.g. "*Your stamina is 25.") are suppressed from the display panel
+// while a FES trigger is in flight (fesPending > 0), but stats are still
+// extracted via ScanLine so the status bar remains accurate.
+func TestFESTextFormatSuppressedWhenPending(t *testing.T) {
+	sink := &core.BufferSink{}
+	c := &Conn{
+		sink:       sink,
+		invalidate: (&core.NopInvalidator{}).Invalidate,
+		sendCh:     make(chan string, 64),
+		closeCh:    make(chan struct{}),
+	}
+	c.connected.Store(true)
+
+	// Simulate an in-flight FES trigger.
+	c.fesPending.Store(1)
+
+	called := make(chan *fes.Stats, 4)
+	c.StatsUpdated = func(s *fes.Stats) {
+		cp := *s
+		called <- &cp
+	}
+
+	server, client := net.Pipe()
+	defer server.Close()
+	defer client.Close()
+
+	go c.reader(client, config.ServerProfile{})
+
+	// Server sends text-format FES response lines followed by the FES packet.
+	server.Write([]byte("*Your stamina is 25.\n"))
+	server.Write([]byte("*(Persona saved on 01/01 with score 5000)\n"))
+	server.Write([]byte("**25 30 100 100 95 95 0 0 5000 N N N N 44 F\n"))
+	time.Sleep(100 * time.Millisecond)
+	server.Close()
+	time.Sleep(20 * time.Millisecond)
+
+	// None of the FES response lines (text-format or packet) must appear in
+	// the text panel.
+	for _, line := range sink.Snapshot() {
+		if strings.Contains(line, "stamina") || strings.Contains(line, "Persona") || strings.Contains(line, "5000") {
+			t.Errorf("FES response line leaked into text panel: %q", line)
+		}
+	}
+
+	// Stats must have been extracted (Stamina updated by ScanLine or packet).
+	if c.stats.Stamina != 25 {
+		t.Errorf("Stamina = %d, want 25 (not updated from suppressed FES response)", c.stats.Stamina)
+	}
+	// StatsUpdated callback should have been called at least once.
+	if len(called) == 0 {
+		t.Error("StatsUpdated was never called for any suppressed FES response line")
+	}
+}
+
+// TestFESTextFormatShownWhenNotPending verifies that text-format stat lines
+// starting with '*' are displayed normally when no FES trigger is in flight
+// (e.g. the user manually typed "sc"). Stats must also be extracted.
+func TestFESTextFormatShownWhenNotPending(t *testing.T) {
+	sink := &core.BufferSink{}
+	c := &Conn{
+		sink:       sink,
+		invalidate: (&core.NopInvalidator{}).Invalidate,
+		sendCh:     make(chan string, 64),
+		closeCh:    make(chan struct{}),
+	}
+	c.connected.Store(true)
+	// fesPending is 0 (no in-flight trigger).
+
+	server, client := net.Pipe()
+	defer server.Close()
+	defer client.Close()
+
+	go c.reader(client, config.ServerProfile{})
+
+	server.Write([]byte("*Your stamina is 42.\n"))
+	time.Sleep(80 * time.Millisecond)
+	server.Close()
+	time.Sleep(20 * time.Millisecond)
+
+	// The line must appear in the text panel.
+	found := false
+	for _, line := range sink.Snapshot() {
+		if strings.Contains(line, "stamina") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("text-format stat line not shown when no FES trigger is in flight")
+	}
+
+	// Stats must also be updated.
+	if c.stats.Stamina != 42 {
+		t.Errorf("Stamina = %d, want 42", c.stats.Stamina)
+	}
+}
+
