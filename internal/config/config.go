@@ -180,6 +180,13 @@ func Path() string {
 	return filepath.Join(os.Getenv("USERPROFILE"), "mucka.ini")
 }
 
+// Default returns a new Config populated entirely with default values.
+func Default() *Config {
+	cfg := &Config{}
+	applyDefaults(cfg)
+	return cfg
+}
+
 // Load reads %USERPROFILE%\mucka.ini and returns a populated Config.
 // If the file does not exist, defaults are returned with no error.
 func Load() (*Config, error) {
