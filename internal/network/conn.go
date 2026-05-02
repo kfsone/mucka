@@ -403,14 +403,6 @@ func (c *Conn) decrementFesPending() {
 	}
 }
 
-// min returns the smaller of a and b.
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
 // runLoginAutomaton checks the accumulated line buffer for login prompts and
 // sends credentials. Returns the updated state.
 func (c *Conn) runLoginAutomaton(state loginState, line string, profile config.ServerProfile) loginState {
@@ -546,7 +538,3 @@ func (c *Conn) handleSB(br *bufio.Reader) []byte {
 	return nil
 }
 
-// contains is a small wrapper kept for clarity inside this file.
-func contains(s, sub string) bool {
-	return strings.Contains(s, sub)
-}
