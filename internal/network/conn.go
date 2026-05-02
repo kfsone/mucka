@@ -311,12 +311,11 @@ func (c *Conn) reader(conn net.Conn, profile config.ServerProfile) {
 				c.sink.UpdatePartial(nil)
 				c.invalidate()
 
-			case len(body) < len(plainText) && c.fesPending.Load() > 0:
+			case len(body) < len(plainText) && c.fesPending.Load() > 0 && fes.ScanLine(plainText, &c.stats):
 				// Text-format FES response line (e.g. "*Your stamina is 25.",
-				// "*(Persona saved on …)"): sent by the server alongside the FES packet
-				// in response to the FES trigger. Suppress from the display panel but
-				// still extract stats via ScanLine so the status bar stays current.
-				if fes.ScanLine(plainText, &c.stats) && c.StatsUpdated != nil {
+				// "*(Persona saved on …)"): positively identified by ScanLine.
+				// Suppress from display; stats already updated by ScanLine above.
+				if c.StatsUpdated != nil {
 					c.StatsUpdated(&c.stats)
 				}
 				c.sink.UpdatePartial(nil)

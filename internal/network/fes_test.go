@@ -431,3 +431,44 @@ func TestFESTextFormatShownWhenNotPending(t *testing.T) {
 	}
 }
 
+// TestFESUnknownStarredLineShownWhenPending verifies that a '*'-prefixed line
+// that is NOT a recognised FES text-format line is displayed normally even
+// while a FES trigger is in flight. Previously the over-broad suppression
+// would silently discard such lines.
+func TestFESUnknownStarredLineShownWhenPending(t *testing.T) {
+	sink := &core.BufferSink{}
+	c := &Conn{
+		sink:       sink,
+		invalidate: (&core.NopInvalidator{}).Invalidate,
+		sendCh:     make(chan string, 64),
+		closeCh:    make(chan struct{}),
+	}
+	c.connected.Store(true)
+	c.fesPending.Store(1) // Simulate an in-flight trigger.
+
+	server, client := net.Pipe()
+	defer server.Close()
+	defer client.Close()
+
+	go c.reader(client, config.ServerProfile{})
+
+	// Send a '*'-prefixed line that ScanLine will NOT recognise as a FES response.
+	server.Write([]byte("*Unknown game message.\n"))
+	time.Sleep(80 * time.Millisecond)
+	server.Close()
+	time.Sleep(20 * time.Millisecond)
+
+	// The unrecognised line must still reach the text panel.
+	found := false
+	for _, line := range sink.Snapshot() {
+		if strings.Contains(line, "Unknown game message") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("unrecognised '*'-prefixed line was incorrectly suppressed while fesPending > 0")
+	}
+}
+
+
