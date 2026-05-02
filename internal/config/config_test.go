@@ -13,8 +13,8 @@ func TestDefaultsOnEmptyConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse empty: %v", err)
 	}
-	if cfg.General.FontSize != 14 {
-		t.Errorf("FontSize: got %d, want 14", cfg.General.FontSize)
+	if cfg.General.FontSize != 13 {
+		t.Errorf("FontSize: got %d, want 13", cfg.General.FontSize)
 	}
 	if cfg.General.Width != 80 {
 		t.Errorf("Width: got %d, want 80", cfg.General.Width)
@@ -88,6 +88,54 @@ password = testpass
 	}
 	if sp.Password != "testpass" {
 		t.Errorf("Password: got %q", sp.Password)
+	}
+	// Width/Height not set in profile → inherit General defaults (80×40).
+	if sp.Width != 80 {
+		t.Errorf("Width: got %d, want 80 (inherited from General default)", sp.Width)
+	}
+	if sp.Height != 40 {
+		t.Errorf("Height: got %d, want 40 (inherited from General default)", sp.Height)
+	}
+}
+
+// TestServerProfileInheritsGeneralDimensions verifies that a server profile
+// without explicit width/height inherits General values, while a profile with
+// explicit values keeps its own.
+func TestServerProfileInheritsGeneralDimensions(t *testing.T) {
+	iniInput := `
+[general]
+width = 120
+height = 50
+
+[default-size]
+host = example.com
+port = 4000
+
+[custom-size]
+host = other.com
+port = 4000
+width = 200
+height = 60
+`
+	cfg, err := parse([]byte(iniInput))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+
+	def := cfg.Servers["default-size"]
+	if def.Width != 120 {
+		t.Errorf("default-size Width: got %d, want 120 (from General)", def.Width)
+	}
+	if def.Height != 50 {
+		t.Errorf("default-size Height: got %d, want 50 (from General)", def.Height)
+	}
+
+	custom := cfg.Servers["custom-size"]
+	if custom.Width != 200 {
+		t.Errorf("custom-size Width: got %d, want 200 (per-profile override)", custom.Width)
+	}
+	if custom.Height != 60 {
+		t.Errorf("custom-size Height: got %d, want 60 (per-profile override)", custom.Height)
 	}
 }
 
@@ -173,8 +221,8 @@ func TestLoadMissingFileReturnsDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error on empty input: %v", err)
 	}
-	if cfg.General.FontSize != 14 {
-		t.Errorf("default FontSize: got %d, want 14", cfg.General.FontSize)
+	if cfg.General.FontSize != 13 {
+		t.Errorf("default FontSize: got %d, want 13", cfg.General.FontSize)
 	}
 }
 
@@ -434,6 +482,29 @@ f1 = inventory
 	}
 	if cfg.General.FontSize != 14 {
 		t.Errorf("FontSize: got %d, want 14", cfg.General.FontSize)
+	}
+}
+
+// TestDefault verifies that Default returns a non-nil Config with all defaults applied.
+func TestDefault(t *testing.T) {
+	cfg := Default()
+	if cfg == nil {
+		t.Fatal("Default() returned nil")
+	}
+	if cfg.General.FontName != "Go Mono" {
+		t.Errorf("FontName: got %q, want %q", cfg.General.FontName, "Go Mono")
+	}
+	if cfg.General.FontSize != 14 {
+		t.Errorf("FontSize: got %d, want 14", cfg.General.FontSize)
+	}
+	if cfg.General.Width != 80 {
+		t.Errorf("Width: got %d, want 80", cfg.General.Width)
+	}
+	if cfg.General.Height != 40 {
+		t.Errorf("Height: got %d, want 40", cfg.General.Height)
+	}
+	if cfg.General.History != 2000 {
+		t.Errorf("History: got %d, want 2000", cfg.General.History)
 	}
 }
 

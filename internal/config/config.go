@@ -9,14 +9,23 @@ import (
 	"gopkg.in/ini.v1"
 )
 
+// Default values for General settings.
+const (
+	DefaultFontName = "Go Mono"
+	DefaultFontSize = 13
+	DefaultWidth    = 80
+	DefaultHeight   = 40
+	DefaultHistory  = 2000
+)
+
 // General holds application-wide settings.
 type General struct {
-	FontName string `ini:"font-name"` // default "Go Mono"
-	FontSize int    `ini:"font-size"` // default 14
+	FontName string `ini:"font-name"` // default DefaultFontName
+	FontSize int    `ini:"font-size"` // default DefaultFontSize
 	LogDir   string `ini:"log-dir"`
-	Width    int    `ini:"width"`   // default 80
-	Height   int    `ini:"height"`  // default 40
-	History  int    `ini:"history"` // default 2000
+	Width    int    `ini:"width"`   // default DefaultWidth
+	Height   int    `ini:"height"`  // default DefaultHeight
+	History  int    `ini:"history"` // default DefaultHistory
 	LogFileT string `ini:"log-file-t"`
 	LogFmt   string `ini:"log-fmt"`
 }
@@ -147,6 +156,8 @@ type ServerProfile struct {
 	Login    string `ini:"login"`
 	Account  string `ini:"account"`
 	Password string `ini:"password"`
+	Width    int    `ini:"width"`  // terminal width; defaults to General.Width when 0
+	Height   int    `ini:"height"` // terminal height; defaults to General.Height when 0
 }
 
 // Config is the top-level configuration object.
@@ -159,25 +170,43 @@ type Config struct {
 // applyDefaults fills in zero-value fields with their defaults.
 func applyDefaults(cfg *Config) {
 	if cfg.General.FontName == "" {
-		cfg.General.FontName = "Go Mono"
+		cfg.General.FontName = DefaultFontName
 	}
 	if cfg.General.FontSize == 0 {
-		cfg.General.FontSize = 14
+		cfg.General.FontSize = DefaultFontSize
 	}
 	if cfg.General.Width == 0 {
-		cfg.General.Width = 80
+		cfg.General.Width = DefaultWidth
 	}
 	if cfg.General.Height == 0 {
-		cfg.General.Height = 40
+		cfg.General.Height = DefaultHeight
 	}
 	if cfg.General.History == 0 {
-		cfg.General.History = 2000
+		cfg.General.History = DefaultHistory
+	}
+	// Propagate General terminal dimensions into any server profile that does
+	// not override them explicitly.
+	for name, sp := range cfg.Servers {
+		if sp.Width == 0 {
+			sp.Width = cfg.General.Width
+		}
+		if sp.Height == 0 {
+			sp.Height = cfg.General.Height
+		}
+		cfg.Servers[name] = sp
 	}
 }
 
 // Path returns the path to the mucka config file (%USERPROFILE%\mucka.ini).
 func Path() string {
 	return filepath.Join(os.Getenv("USERPROFILE"), "mucka.ini")
+}
+
+// Default returns a new Config populated entirely with default values.
+func Default() *Config {
+	cfg := &Config{}
+	applyDefaults(cfg)
+	return cfg
 }
 
 // Load reads %USERPROFILE%\mucka.ini and returns a populated Config.

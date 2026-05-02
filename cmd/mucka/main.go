@@ -51,7 +51,7 @@ func run() error {
 	cfg, err := config.Load()
 	if err != nil {
 		log.Printf("config: %v (using defaults)", err)
-		cfg, _ = config.Load() // reload with defaults on error
+		cfg = config.Default()
 	}
 
 	w := new(app.Window)
@@ -66,12 +66,11 @@ func run() error {
 
 	u := ui.New()
 	u.SetFont(cfg.General.FontName)
+	u.SetFontSize(unit.Sp(cfg.General.FontSize))
 	u.InputLine.SetHistoryLimit(cfg.General.History)
 	u.TextPanel.AppendText("\x1b[1;32m" + version.AppName + " v" + version.Version + "\x1b[0m — type .help for commands")
 
 	_ = commands.NewDispatcher(w, u, cfg, fonts)
-
-	_ = unit.Sp(cfg.General.FontSize) // font size available for future use
 
 	var ops op.Ops
 	for {

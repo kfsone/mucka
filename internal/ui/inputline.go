@@ -68,7 +68,7 @@ type InputLine struct {
 
 // NewInputLine returns a configured InputLine.
 func NewInputLine() *InputLine {
-	il := &InputLine{hint: "Type here and press Enter\u2026", fontName: "Go Mono", historyLimit: defaultHistoryLimit}
+	il := &InputLine{hint: "Type here and press Enter\u2026", fontName: defaultFontName, historyLimit: defaultHistoryLimit}
 	il.editor.SingleLine = true
 	il.editor.Submit = true
 	return il

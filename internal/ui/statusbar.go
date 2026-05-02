@@ -28,7 +28,7 @@ type StatusBar struct {
 // NewStatusBar returns an initialised StatusBar.
 func NewStatusBar() *StatusBar {
 	return &StatusBar{
-		fontName: "Go Mono",
+		fontName: defaultFontName,
 	}
 }
 
@@ -57,7 +57,7 @@ func (s *StatusBar) SetDreamWord(word string) {
 	}
 }
 
-// ratioColorreturns a green/yellow/red color based on cur/max ratio.
+// ratioColor returns a green/yellow/red color based on cur/max ratio.
 // If max is 0 the ratio is treated as 100% (green).
 func ratioColor(cur, max int) color.NRGBA {
 	if max == 0 || cur*100/max >= 75 {
@@ -173,7 +173,7 @@ func (s *StatusBar) Layout(gtx layout.Context, th *material.Theme, connecting, c
 
 	makeLabel := func(text string, col color.NRGBA) layout.Widget {
 		return func(gtx layout.Context) layout.Dimensions {
-			lbl := material.Label(th, unit.Sp(13), text)
+			lbl := material.Label(th, defaultFontSize, text)
 			lbl.Font.Typeface = face
 			lbl.Color = col
 			return lbl.Layout(gtx)

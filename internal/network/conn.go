@@ -17,7 +17,7 @@ import (
 	"github.com/kfsone/mucka/internal/core"
 	"github.com/kfsone/mucka/internal/fes"
 )
-
+			
 // Telnet command bytes.
 const (
 	telnetSE   = 240
@@ -58,6 +58,7 @@ type Conn struct {
 	connected     atomic.Bool
 	connecting    atomic.Bool
 	stats         fes.Stats
+	profile       config.ServerProfile // active connection profile (Width/Height used for NAWS)
 	// fesPending counts FES triggers that have been sent but whose FES packet
 	// response has not yet been received. Incremented before each trigger is
 	// queued; decremented when the matching packet arrives. While > 0, any
@@ -225,6 +226,7 @@ func (c *Conn) writer(conn net.Conn) {
 // reader reads from the TCP connection, strips telnet negotiation, buffers
 // lines, and appends them to the panel.
 func (c *Conn) reader(conn net.Conn, profile config.ServerProfile) {
+	c.profile = profile
 	br := bufio.NewReader(conn)
 	var (
 		lineBuf     []byte
@@ -279,8 +281,10 @@ func (c *Conn) reader(conn net.Conn, profile config.ServerProfile) {
 
 		lineBuf = append(lineBuf, b)
 
-		// Check for login automaton triggers after every byte.
-		if state != stateDone {
+		// Check for login automaton triggers only on space bytes: all
+		// login prompts ("login: ", "Account ID: ", "assword: ") end
+		// with a space, so this avoids an allocation on every byte.
+		if state != stateDone && b == ' ' {
 			line := latin1ToUTF8(lineBuf)
 			state = c.runLoginAutomaton(state, line, profile)
 		}
@@ -403,14 +407,6 @@ func (c *Conn) decrementFesPending() {
 	}
 }
 
-// min returns the smaller of a and b.
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
 // runLoginAutomaton checks the accumulated line buffer for login prompts and
 // sends credentials. Returns the updated state.
 func (c *Conn) runLoginAutomaton(state loginState, line string, profile config.ServerProfile) loginState {
@@ -494,14 +490,15 @@ func (c *Conn) handleDo(br *bufio.Reader) []byte {
 	case optTermType:
 		return []byte{telnetIAC, telnetWILL, opt}
 	case optNAWS:
-		// Agree and send window size (80×21).
+		// Agree and send window size using the configured dimensions.
+		w, h := uint16(c.profile.Width), uint16(c.profile.Height)
 		return []byte{
 			telnetIAC, telnetWILL, optNAWS,
-			telnetIAC, telnetSB, optNAWS, 0, 80, 0, 21, telnetIAC, telnetSE,
+			telnetIAC, telnetSB, optNAWS,
+			byte(w >> 8), byte(w), byte(h >> 8), byte(h),
+			telnetIAC, telnetSE,
 		}
-	case 32, 33, 35, 36, 37, 39:
-		return []byte{telnetIAC, telnetWONT, opt}
-	default:
+	default:  // esp 32, 33, 35, 36, 37, 39:
 		return []byte{telnetIAC, telnetWONT, opt}
 	}
 }
@@ -546,7 +543,3 @@ func (c *Conn) handleSB(br *bufio.Reader) []byte {
 	return nil
 }
 
-// contains is a small wrapper kept for clarity inside this file.
-func contains(s, sub string) bool {
-	return strings.Contains(s, sub)
-}

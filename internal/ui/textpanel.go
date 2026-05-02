@@ -15,8 +15,15 @@ import (
 	"gioui.org/widget/material"
 
 	"github.com/kfsone/mucka/internal/ansi"
+	"github.com/kfsone/mucka/internal/config"
 	"github.com/kfsone/mucka/internal/core"
 )
+
+// defaultFontSize is the Sp used when no size has been configured.
+const defaultFontSize unit.Sp = config.DefaultFontSize
+
+// defaultFontName is the typeface used when no font has been configured.
+const defaultFontName = config.DefaultFontName
 
 // Compile-time assertion: *TextPanel must implement core.TextSink.
 var _ core.TextSink = (*TextPanel)(nil)
@@ -36,6 +43,7 @@ type TextPanel struct {
 	partialPending bool        // true when pendingPartial has been updated
 	partial        []ansi.Span // current live partial line (main goroutine only)
 	fontName       string
+	fontSize       unit.Sp
 }
 
 // NewTextPanel returns an initialised TextPanel that auto-scrolls to the
@@ -47,7 +55,8 @@ func NewTextPanel() *TextPanel {
 			Axis:        layout.Vertical,
 			ScrollToEnd: true,
 		},
-		fontName: "Go Mono",
+		fontName: config.DefaultFontName,
+		fontSize: defaultFontSize,
 	}
 }
 
@@ -58,6 +67,9 @@ func (p *TextPanel) SetMaxLines(n int) { p.maxLines = n }
 
 // SetFont sets the typeface used when rendering text spans.
 func (p *TextPanel) SetFont(name string) { p.fontName = name }
+
+// SetFontSize sets the font size used when rendering text and empty lines.
+func (p *TextPanel) SetFontSize(sp unit.Sp) { p.fontSize = sp }
 
 // AppendText parses s for ANSI SGR sequences and enqueues the result for
 // display on the next frame. Goroutine-safe.
@@ -123,15 +135,15 @@ func (p *TextPanel) Layout(gtx layout.Context, th *material.Theme) layout.Dimens
 		} else {
 			spans = p.partial
 		}
-		return layoutLine(gtx, th, spans, p.fontName)
+		return layoutLine(gtx, th, spans, p.fontName, p.fontSize)
 	})
 }
 
 // layoutLine renders a single line as a horizontal sequence of styled spans.
-func layoutLine(gtx layout.Context, th *material.Theme, spans []ansi.Span, fontName string) layout.Dimensions {
+func layoutLine(gtx layout.Context, th *material.Theme, spans []ansi.Span, fontName string, fontSize unit.Sp) layout.Dimensions {
 	if len(spans) == 0 {
 		// Empty line: just emit a line-height worth of space.
-		h := gtx.Sp(unit.Sp(14))
+		h := gtx.Sp(fontSize)
 		return layout.Dimensions{Size: image.Point{Y: h}}
 	}
 
@@ -139,17 +151,17 @@ func layoutLine(gtx layout.Context, th *material.Theme, spans []ansi.Span, fontN
 	for idx, s := range spans {
 		s := s // capture for closure
 		children[idx] = layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return layoutSpan(gtx, th, s, fontName)
+			return layoutSpan(gtx, th, s, fontName, fontSize)
 		})
 	}
 	return layout.Flex{Axis: layout.Horizontal}.Layout(gtx, children...)
 }
 
 // layoutSpan renders one Span: background rectangle + foreground text label.
-func layoutSpan(gtx layout.Context, th *material.Theme, s ansi.Span, fontName string) layout.Dimensions {
+func layoutSpan(gtx layout.Context, th *material.Theme, s ansi.Span, fontName string, fontSize unit.Sp) layout.Dimensions {
 	// Measure the text first, then fill the background, then replay the text.
 	macro := op.Record(gtx.Ops)
-	lbl := material.Label(th, unit.Sp(13), s.Text)
+	lbl := material.Label(th, fontSize, s.Text)
 	lbl.Font.Typeface = font.Typeface(fontName)
 	lbl.Color = s.FG
 	dims := lbl.Layout(gtx)
