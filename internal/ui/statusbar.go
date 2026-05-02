@@ -57,7 +57,7 @@ func (s *StatusBar) SetDreamWord(word string) {
 	}
 }
 
-// ratioColorreturns a green/yellow/red color based on cur/max ratio.
+// ratioColor returns a green/yellow/red color based on cur/max ratio.
 // If max is 0 the ratio is treated as 100% (green).
 func ratioColor(cur, max int) color.NRGBA {
 	if max == 0 || cur*100/max >= 75 {
