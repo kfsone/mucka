@@ -28,10 +28,14 @@ const defaultFontName = config.DefaultFontName
 // Compile-time assertion: *TextPanel must implement core.TextSink.
 var _ core.TextSink = (*TextPanel)(nil)
 
+// defaultMaxLines is the default scrollback limit for TextPanel.
+const defaultMaxLines = 5000
+
 // TextPanel is an append-only, vertically-scrolling panel that renders
 // lines of ANSI-styled Spans.
 type TextPanel struct {
 	lines          [][]ansi.Span
+	maxLines       int // maximum number of lines to keep; 0 = unlimited
 	list           layout.List
 	pendingMu      sync.Mutex
 	pendingLines   [][]ansi.Span
@@ -46,6 +50,7 @@ type TextPanel struct {
 // newest content.
 func NewTextPanel() *TextPanel {
 	return &TextPanel{
+		maxLines: defaultMaxLines,
 		list: layout.List{
 			Axis:        layout.Vertical,
 			ScrollToEnd: true,
@@ -54,6 +59,11 @@ func NewTextPanel() *TextPanel {
 		fontSize: defaultFontSize,
 	}
 }
+
+// SetMaxLines sets the maximum number of lines the panel keeps in memory.
+// Older lines are discarded when the limit is exceeded. A value of 0 disables
+// the limit (unbounded). The new limit takes effect on the next drainPending call.
+func (p *TextPanel) SetMaxLines(n int) { p.maxLines = n }
 
 // SetFont sets the typeface used when rendering text spans.
 func (p *TextPanel) SetFont(name string) { p.fontName = name }
@@ -97,6 +107,12 @@ func (p *TextPanel) drainPending() {
 	p.partialPending = false
 	p.pendingMu.Unlock()
 	p.lines = append(p.lines, pending...)
+	if p.maxLines > 0 && len(p.lines) > p.maxLines {
+		excess := len(p.lines) - p.maxLines
+		fresh := make([][]ansi.Span, p.maxLines)
+		copy(fresh, p.lines[excess:])
+		p.lines = fresh
+	}
 	if hasPartial {
 		p.partial = partial // may be nil = clear
 	}

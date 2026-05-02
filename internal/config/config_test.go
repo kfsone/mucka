@@ -494,8 +494,8 @@ func TestDefault(t *testing.T) {
 	if cfg.General.FontName != "Go Mono" {
 		t.Errorf("FontName: got %q, want %q", cfg.General.FontName, "Go Mono")
 	}
-	if cfg.General.FontSize != 14 {
-		t.Errorf("FontSize: got %d, want 14", cfg.General.FontSize)
+	if cfg.General.FontSize != 13 {
+		t.Errorf("FontSize: got %d, want 13", cfg.General.FontSize)
 	}
 	if cfg.General.Width != 80 {
 		t.Errorf("Width: got %d, want 80", cfg.General.Width)

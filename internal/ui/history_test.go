@@ -367,9 +367,60 @@ func TestHistIdx_NeverBelowZero(t *testing.T) {
 	}
 }
 
-// ── reset-minutes format ──────────────────────────────────────────────────
+// ── history cap ───────────────────────────────────────────────────────────
 
-// TestResetMinutesFormat verifies the string format used in Layout.
+func TestAppendHistory_CapEnforced(t *testing.T) {
+	il := NewInputLine()
+	il.SetHistoryLimit(3)
+	for _, cmd := range []string{"a", "b", "c", "d"} {
+		il.appendHistory(cmd)
+	}
+	if len(il.history) != 3 {
+		t.Fatalf("history length = %d, want 3 after cap of 3", len(il.history))
+	}
+	if il.history[0] != "b" || il.history[1] != "c" || il.history[2] != "d" {
+		t.Errorf("history = %v, want [b c d]", il.history)
+	}
+	if il.histIdx != 3 {
+		t.Errorf("histIdx = %d, want 3", il.histIdx)
+	}
+}
+
+func TestAppendHistory_CapZeroUnlimited(t *testing.T) {
+	il := NewInputLine()
+	il.SetHistoryLimit(0)
+	for i := 0; i < 5000; i++ {
+		il.appendHistory(fmt.Sprintf("cmd%d", i))
+	}
+	if len(il.history) != 5000 {
+		t.Errorf("history length = %d, want 5000 with unlimited cap", len(il.history))
+	}
+}
+
+func TestAppendHistory_CapAdjustsHistIdx(t *testing.T) {
+	il := NewInputLine()
+	il.SetHistoryLimit(3)
+	il.appendHistory("a")
+	il.appendHistory("b")
+	il.appendHistory("c")
+	il.histIdx = 1 // simulating browsing at index 1
+
+	// Appending "d" should trim "a", shifting histIdx from 1 to 0.
+	il.appendHistory("d")
+	// After appendHistory, histIdx is always reset to len(history).
+	if il.histIdx != 3 {
+		t.Errorf("histIdx = %d after cap trim, want 3 (len)", il.histIdx)
+	}
+}
+
+func TestSetHistoryLimit_DefaultIs2000(t *testing.T) {
+	il := NewInputLine()
+	if il.historyLimit != 2000 {
+		t.Errorf("default historyLimit = %d, want 2000", il.historyLimit)
+	}
+}
+
+// ── reset-minutes format ──────────────────────────────────────────────────
 // The actual widget rendering requires a Gio context, so we test the
 // formatting logic directly.
 func TestResetMinutesFormat(t *testing.T) {
