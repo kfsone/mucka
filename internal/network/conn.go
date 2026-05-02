@@ -279,8 +279,10 @@ func (c *Conn) reader(conn net.Conn, profile config.ServerProfile) {
 
 		lineBuf = append(lineBuf, b)
 
-		// Check for login automaton triggers after every byte.
-		if state != stateDone {
+		// Check for login automaton triggers only on space bytes: all
+		// login prompts ("login: ", "Account ID: ", "assword: ") end
+		// with a space, so this avoids an allocation on every byte.
+		if state != stateDone && b == ' ' {
 			line := latin1ToUTF8(lineBuf)
 			state = c.runLoginAutomaton(state, line, profile)
 		}
