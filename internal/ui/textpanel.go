@@ -15,8 +15,15 @@ import (
 	"gioui.org/widget/material"
 
 	"github.com/kfsone/mucka/internal/ansi"
+	"github.com/kfsone/mucka/internal/config"
 	"github.com/kfsone/mucka/internal/core"
 )
+
+// defaultFontSize is the Sp used when no size has been configured.
+const defaultFontSize unit.Sp = config.DefaultFontSize
+
+// defaultFontName is the typeface used when no font has been configured.
+const defaultFontName = config.DefaultFontName
 
 // Compile-time assertion: *TextPanel must implement core.TextSink.
 var _ core.TextSink = (*TextPanel)(nil)
@@ -43,8 +50,8 @@ func NewTextPanel() *TextPanel {
 			Axis:        layout.Vertical,
 			ScrollToEnd: true,
 		},
-		fontName: "Go Mono",
-		fontSize: unit.Sp(13),
+		fontName: config.DefaultFontName,
+		fontSize: defaultFontSize,
 	}
 }
 

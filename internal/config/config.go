@@ -9,14 +9,23 @@ import (
 	"gopkg.in/ini.v1"
 )
 
+// Default values for General settings.
+const (
+	DefaultFontName = "Go Mono"
+	DefaultFontSize = 13
+	DefaultWidth    = 80
+	DefaultHeight   = 40
+	DefaultHistory  = 2000
+)
+
 // General holds application-wide settings.
 type General struct {
-	FontName string `ini:"font-name"` // default "Go Mono"
-	FontSize int    `ini:"font-size"` // default 14
+	FontName string `ini:"font-name"` // default DefaultFontName
+	FontSize int    `ini:"font-size"` // default DefaultFontSize
 	LogDir   string `ini:"log-dir"`
-	Width    int    `ini:"width"`   // default 80
-	Height   int    `ini:"height"`  // default 40
-	History  int    `ini:"history"` // default 2000
+	Width    int    `ini:"width"`   // default DefaultWidth
+	Height   int    `ini:"height"`  // default DefaultHeight
+	History  int    `ini:"history"` // default DefaultHistory
 	LogFileT string `ini:"log-file-t"`
 	LogFmt   string `ini:"log-fmt"`
 }
@@ -159,19 +168,19 @@ type Config struct {
 // applyDefaults fills in zero-value fields with their defaults.
 func applyDefaults(cfg *Config) {
 	if cfg.General.FontName == "" {
-		cfg.General.FontName = "Go Mono"
+		cfg.General.FontName = DefaultFontName
 	}
 	if cfg.General.FontSize == 0 {
-		cfg.General.FontSize = 13
+		cfg.General.FontSize = DefaultFontSize
 	}
 	if cfg.General.Width == 0 {
-		cfg.General.Width = 80
+		cfg.General.Width = DefaultWidth
 	}
 	if cfg.General.Height == 0 {
-		cfg.General.Height = 40
+		cfg.General.Height = DefaultHeight
 	}
 	if cfg.General.History == 0 {
-		cfg.General.History = 2000
+		cfg.General.History = DefaultHistory
 	}
 }
 
