@@ -1,0 +1,45 @@
+name: CI
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    name: Build and Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update && sudo apt-get install -y \
+            libxkbcommon-dev \
+            libwayland-dev \
+            libvulkan-dev \
+            libegl1-mesa-dev \
+            libgles2-mesa-dev \
+            pkg-config \
+            xorg-dev
+
+      - name: Build
+        run: go build ./...
+
+      - name: Test
+        run: go test $(go list ./... | grep -v 'cmd/')
