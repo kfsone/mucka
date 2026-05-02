@@ -7,25 +7,10 @@ import (
 
 // parseFirstInt extracts the first integer found in s, ignoring leading
 // non-digit characters.  Returns 0, false if no integer is found.
+// The parsed value is expected to fit within int's range (it represents small game stats).
 func parseFirstInt(s string) (int, bool) {
-	s = strings.TrimSpace(s)
-	start := -1
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if c >= '0' && c <= '9' {
-			if start < 0 {
-				start = i
-			}
-		} else if start >= 0 {
-			n, err := strconv.Atoi(s[start:i])
-			return n, err == nil
-		}
-	}
-	if start >= 0 {
-		n, err := strconv.Atoi(s[start:])
-		return n, err == nil
-	}
-	return 0, false
+	n, ok := parseFirstInt64(s)
+	return int(n), ok
 }
 
 // parseFirstInt64 extracts the first int64 found in s.
