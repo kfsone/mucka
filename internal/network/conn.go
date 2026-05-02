@@ -17,7 +17,7 @@ import (
 	"github.com/kfsone/mucka/internal/core"
 	"github.com/kfsone/mucka/internal/fes"
 )
-
+			
 // Telnet command bytes.
 const (
 	telnetSE   = 240
@@ -501,9 +501,7 @@ func (c *Conn) handleDo(br *bufio.Reader) []byte {
 			telnetIAC, telnetWILL, optNAWS,
 			telnetIAC, telnetSB, optNAWS, 0, 80, 0, 21, telnetIAC, telnetSE,
 		}
-	case 32, 33, 35, 36, 37, 39:
-		return []byte{telnetIAC, telnetWONT, opt}
-	default:
+	default:  // esp 32, 33, 35, 36, 37, 39:
 		return []byte{telnetIAC, telnetWONT, opt}
 	}
 }
