@@ -17,6 +17,12 @@ the Clio client.
 go build ./cmd/mucka
 ```
 
+To embed the version from the latest git tag:
+
+```
+go build -ldflags "-X github.com/kfsone/mucka/internal/version.Version=$(git describe --tags --always)" ./cmd/mucka
+```
+
 ## Configuration
 
 mucka reads `%USERPROFILE%\mucka.ini` on startup and creates sensible defaults

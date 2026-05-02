@@ -61,15 +61,25 @@ type connector interface {
 	Close()
 }
 
-// Run executes the headless client loop. If scriptFile != "", commands are
-// read from that file; otherwise from os.Stdin. profileName, if non-empty,
-// triggers an automatic .connect before the script/stdin loop begins.
+// Run executes the headless client loop using NDJSON (AgentEmitter) output.
+// If scriptFile != "", commands are read from that file; otherwise from os.Stdin.
+// profileName, if non-empty, triggers an automatic .connect before the loop.
 func Run(cfg *config.Config, profileName, scriptFile string) error {
-	emitter := NewAgentEmitter(os.Stdout)
+	return runWithEmitter(cfg, profileName, scriptFile, NewAgentEmitter(os.Stdout))
+}
+
+// RunStdio executes the headless client loop using plain-text (PlainEmitter) output,
+// suitable for LLM harness use.
+func RunStdio(cfg *config.Config, profileName, scriptFile string) error {
+	return runWithEmitter(cfg, profileName, scriptFile, NewPlainEmitter(os.Stdout))
+}
+
+// runWithEmitter is the shared implementation used by Run and RunStdio.
+func runWithEmitter(cfg *config.Config, profileName, scriptFile string, e emitter) error {
 	nop := &core.NopInvalidator{}
-	conn := network.NewConn(emitter, nop.Invalidate)
-	conn.StatsUpdated = emitter.EmitStats
-	conn.DreamWordUpdated = emitter.EmitDreamWord
+	conn := network.NewConn(e, nop.Invalidate)
+	conn.StatsUpdated = e.EmitStats
+	conn.DreamWordUpdated = e.EmitDreamWord
 
 	if profileName != "" {
 		profile, ok := cfg.Servers[profileName]
@@ -99,12 +109,12 @@ func Run(cfg *config.Config, profileName, scriptFile string) error {
 		input = os.Stdin
 	}
 
-	return runScript(conn, emitter, bufio.NewScanner(input))
+	return runScript(conn, e, bufio.NewScanner(input))
 }
 
 // runScript drives the main read-and-execute loop over scanner lines.
-// emitter may be nil, in which case sent/error events are silently suppressed.
-func runScript(conn connector, emitter *AgentEmitter, scanner *bufio.Scanner) error {
+// e may be nil, in which case sent/error events are silently suppressed.
+func runScript(conn connector, e emitter, scanner *bufio.Scanner) error {
 	for scanner.Scan() {
 		o := ParseLine(scanner.Text())
 		switch o.kind {
@@ -120,12 +130,12 @@ func runScript(conn connector, emitter *AgentEmitter, scanner *bufio.Scanner) er
 		case opSend:
 			if conn.IsConnected() {
 				conn.Send(o.text)
-				if emitter != nil {
-					emitter.EmitSent(o.text)
+				if e != nil {
+					e.EmitSent(o.text)
 				}
 			} else {
-				if emitter != nil {
-					emitter.EmitError("not connected: " + o.text)
+				if e != nil {
+					e.EmitError("not connected: " + o.text)
 				} else {
 					fmt.Fprintf(os.Stderr, "not connected: %s\n", o.text)
 				}
