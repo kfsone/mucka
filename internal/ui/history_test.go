@@ -420,9 +420,7 @@ func TestSetHistoryLimit_DefaultIs2000(t *testing.T) {
 	}
 }
 
-
-
-// TestResetMinutesFormat verifies the string format used in Layout.
+// ── reset-minutes format ──────────────────────────────────────────────────
 // The actual widget rendering requires a Gio context, so we test the
 // formatting logic directly.
 func TestResetMinutesFormat(t *testing.T) {
