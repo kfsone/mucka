@@ -68,6 +68,7 @@ func run() error {
 	u.SetFont(cfg.General.FontName)
 	u.SetFontSize(unit.Sp(cfg.General.FontSize))
 	u.InputLine.SetHistoryLimit(cfg.General.History)
+	u.TextPanel.SetMaxLines(cfg.General.Scrollback)
 	u.TextPanel.AppendText("\x1b[1;32m" + version.AppName + " v" + version.Version + "\x1b[0m — type .help for commands")
 
 	_ = commands.NewDispatcher(w, u, cfg, fonts)
