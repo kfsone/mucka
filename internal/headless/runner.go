@@ -10,7 +10,6 @@ import (
 
 	"github.com/kfsone/mucka/internal/config"
 	"github.com/kfsone/mucka/internal/core"
-	"github.com/kfsone/mucka/internal/fes"
 	"github.com/kfsone/mucka/internal/network"
 )
 
@@ -66,17 +65,11 @@ type connector interface {
 // read from that file; otherwise from os.Stdin. profileName, if non-empty,
 // triggers an automatic .connect before the script/stdin loop begins.
 func Run(cfg *config.Config, profileName, scriptFile string) error {
-	sink := &core.StdioSink{}
+	emitter := NewAgentEmitter(os.Stdout)
 	nop := &core.NopInvalidator{}
-	conn := network.NewConn(sink, nop.Invalidate)
-	conn.StatsUpdated = func(st *fes.Stats) {
-		fmt.Printf("[STATS] sta=%d/%d str=%d/%d dex=%d/%d mag=%d/%d score=%d rank=%s\n",
-			st.Stamina, st.MaxStamina,
-			st.Strength, st.MaxStrength,
-			st.Dexterity, st.MaxDexterity,
-			st.Magic, st.MaxMagic,
-			st.Score, st.Rank)
-	}
+	conn := network.NewConn(emitter, nop.Invalidate)
+	conn.StatsUpdated = emitter.EmitStats
+	conn.DreamWordUpdated = emitter.EmitDreamWord
 
 	if profileName != "" {
 		profile, ok := cfg.Servers[profileName]
@@ -106,11 +99,12 @@ func Run(cfg *config.Config, profileName, scriptFile string) error {
 		input = os.Stdin
 	}
 
-	return runScript(conn, bufio.NewScanner(input))
+	return runScript(conn, emitter, bufio.NewScanner(input))
 }
 
 // runScript drives the main read-and-execute loop over scanner lines.
-func runScript(conn connector, scanner *bufio.Scanner) error {
+// emitter may be nil, in which case sent/error events are silently suppressed.
+func runScript(conn connector, emitter *AgentEmitter, scanner *bufio.Scanner) error {
 	for scanner.Scan() {
 		o := ParseLine(scanner.Text())
 		switch o.kind {
@@ -126,9 +120,15 @@ func runScript(conn connector, scanner *bufio.Scanner) error {
 		case opSend:
 			if conn.IsConnected() {
 				conn.Send(o.text)
-				fmt.Printf(">>> %s\n", o.text)
+				if emitter != nil {
+					emitter.EmitSent(o.text)
+				}
 			} else {
-				fmt.Fprintf(os.Stderr, "not connected: %s\n", o.text)
+				if emitter != nil {
+					emitter.EmitError("not connected: " + o.text)
+				} else {
+					fmt.Fprintf(os.Stderr, "not connected: %s\n", o.text)
+				}
 			}
 		}
 	}

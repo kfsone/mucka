@@ -124,7 +124,7 @@ func TestRunScript_Sequence(t *testing.T) {
 
 	conn := &mockConn{connected: true}
 	scanner := bufio.NewScanner(strings.NewReader(script))
-	if err := runScript(conn, scanner); err != nil {
+	if err := runScript(conn, nil, scanner); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -152,7 +152,7 @@ func TestRunScript_DisconnectContinues(t *testing.T) {
 
 	conn := &mockConn{connected: true}
 	scanner := bufio.NewScanner(strings.NewReader(script))
-	if err := runScript(conn, scanner); err != nil {
+	if err := runScript(conn, nil, scanner); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(conn.sent) != 0 {
@@ -169,7 +169,7 @@ func TestRunScript_SendWhenDisconnected(t *testing.T) {
 
 	conn := &mockConn{connected: false}
 	scanner := bufio.NewScanner(strings.NewReader(script))
-	if err := runScript(conn, scanner); err != nil {
+	if err := runScript(conn, nil, scanner); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(conn.sent) != 0 {
