@@ -138,12 +138,9 @@ func (il *InputLine) appendHistory(text string) {
 		il.history = append(il.history, text)
 		if il.historyLimit > 0 && len(il.history) > il.historyLimit {
 			excess := len(il.history) - il.historyLimit
-			copy(il.history, il.history[excess:])
-			il.history = il.history[:il.historyLimit]
-			il.histIdx -= excess
-			if il.histIdx < 0 {
-				il.histIdx = 0
-			}
+			fresh := make([]string, il.historyLimit)
+			copy(fresh, il.history[excess:])
+			il.history = fresh
 		}
 	}
 	il.histIdx = len(il.history)
