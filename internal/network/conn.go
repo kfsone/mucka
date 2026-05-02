@@ -58,6 +58,12 @@ type Conn struct {
 	connected     atomic.Bool
 	connecting    atomic.Bool
 	stats         fes.Stats
+	// fesPending counts FES triggers that have been sent but whose FES packet
+	// response has not yet been received. Incremented before each trigger is
+	// queued; decremented when the matching packet arrives. While > 0, any
+	// *-prefixed line that is not itself a valid FES packet is treated as a
+	// text-format FES response line and suppressed from the display.
+	fesPending atomic.Int32
 	// StatsUpdated is called (from the reader goroutine) whenever stats change
 	// due to a FES packet or a matched ScanLine. May be nil.
 	StatsUpdated  func(*fes.Stats)
@@ -175,6 +181,7 @@ func (c *Conn) fesPollLoop(done <-chan struct{}) {
 			return
 		case <-ticker.C:
 			if c.IsConnected() {
+				c.fesPending.Add(1)
 				c.sendCh <- string(fes.TriggerBytes)
 			}
 		}
@@ -233,6 +240,7 @@ func (c *Conn) reader(conn net.Conn, profile config.ServerProfile) {
 			gameEntered = false
 			close(fesDone)
 			fesDone = nil
+			c.fesPending.Store(0)
 		}
 	}
 
@@ -294,13 +302,35 @@ func (c *Conn) reader(conn net.Conn, profile config.ServerProfile) {
 			body := strings.TrimLeft(plainText, "*")
 			ansiState = stateCopy // advance ANSI state regardless of FES or not
 
-			if len(body) < len(plainText) && (len(body) == 0 || fes.ParsePacket([]byte(body), &c.stats)) {
-				// FES packet or bare prompt terminator (server sends *\r\n before the
-				// FES response line): update stats if valid data, but do not display.
-				if len(body) > 0 && c.StatsUpdated != nil {
+			switch {
+			case len(body) < len(plainText) && len(body) == 0:
+				// Bare prompt terminator (*\r\n): server closes the current prompt line
+				// before sending the FES response. Suppress from display, clear any
+				// stale partial prompt character.
+				c.sink.UpdatePartial(nil)
+				c.invalidate()
+
+			case len(body) < len(plainText) && fes.ParsePacket([]byte(body), &c.stats):
+				// Valid FES packet (**stats or ANSI+*stats): suppress from display,
+				// decrement the pending-trigger counter, and notify the callback.
+				c.decrementFesPending()
+				if c.StatsUpdated != nil {
 					c.StatsUpdated(&c.stats)
 				}
-			} else {
+				c.sink.UpdatePartial(nil)
+				c.invalidate()
+
+			case len(body) < len(plainText) && c.fesPending.Load() > 0 && fes.ScanLine(plainText, &c.stats):
+				// Text-format FES response line (e.g. "*Your stamina is 25.",
+				// "*(Persona saved on …)"): positively identified by ScanLine.
+				// Suppress from display; stats already updated by ScanLine above.
+				if c.StatsUpdated != nil {
+					c.StatsUpdated(&c.stats)
+				}
+				c.sink.UpdatePartial(nil)
+				c.invalidate()
+
+			default:
 				// Normal text line: display and scan for embedded stats.
 				c.sink.AppendSpans(spans)
 				c.invalidate()
@@ -317,6 +347,7 @@ func (c *Conn) reader(conn net.Conn, profile config.ServerProfile) {
 				if !gameEntered && state == stateDone && strings.Contains(text, "Elizabethan") {
 					gameEntered = true
 					fesDone = make(chan struct{})
+					c.fesPending.Add(1)
 					c.sendCh <- string(fes.TriggerBytes)
 					go c.fesPollLoop(fesDone)
 				}
@@ -353,6 +384,23 @@ func spansToText(spans []ansi.Span) string {
 		sb.WriteString(sp.Text)
 	}
 	return sb.String()
+}
+
+// decrementFesPending decrements fesPending by one, clamping the result at
+// zero so that an unexpected extra FES packet never leaves the counter
+// negative. A compare-and-swap loop ensures the decrement is fully atomic
+// even when the poll goroutine is concurrently incrementing the counter.
+func (c *Conn) decrementFesPending() {
+	for {
+		old := c.fesPending.Load()
+		if old <= 0 {
+			c.fesPending.Store(0)
+			return
+		}
+		if c.fesPending.CompareAndSwap(old, old-1) {
+			return
+		}
+	}
 }
 
 // min returns the smaller of a and b.
