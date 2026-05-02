@@ -19,12 +19,27 @@ type sourceOp struct {
 
 // sourceTokens converts a $source file line into a slice of (kind, value) pairs.
 // Special tokens: {enter} → submit, {bs} → backspace, {clear} → clear.
-// Other tokens → opText.
+// Everything else (including spaces) is emitted as a single OpText span.
 func sourceTokens(line string) []sourceOp {
-	tokens := strings.Fields(line)
 	var ops []sourceOp
-	for _, tok := range tokens {
-		switch tok {
+	for {
+		start := strings.IndexByte(line, '{')
+		if start < 0 {
+			if line != "" {
+				ops = append(ops, sourceOp{ui.OpText, line})
+			}
+			break
+		}
+		if start > 0 {
+			ops = append(ops, sourceOp{ui.OpText, line[:start]})
+		}
+		end := strings.IndexByte(line[start:], '}')
+		if end < 0 {
+			ops = append(ops, sourceOp{ui.OpText, line[start:]})
+			break
+		}
+		end += start + 1
+		switch line[start:end] {
 		case "{enter}":
 			ops = append(ops, sourceOp{ui.OpSubmit, ""})
 		case "{bs}":
@@ -32,8 +47,9 @@ func sourceTokens(line string) []sourceOp {
 		case "{clear}":
 			ops = append(ops, sourceOp{ui.OpClear, ""})
 		default:
-			ops = append(ops, sourceOp{ui.OpText, tok})
+			ops = append(ops, sourceOp{ui.OpText, line[start:end]})
 		}
+		line = line[end:]
 	}
 	return ops
 }

@@ -9,8 +9,7 @@ import (
 func TestSourceTokensPlain(t *testing.T) {
 	ops := sourceTokens("hello world")
 	want := []sourceOp{
-		{ui.OpText, "hello"},
-		{ui.OpText, "world"},
+		{ui.OpText, "hello world"},
 	}
 	if len(ops) != len(want) {
 		t.Fatalf("expected %d ops, got %d: %v", len(want), len(ops), ops)
@@ -46,10 +45,9 @@ func TestSourceTokensSpecial(t *testing.T) {
 func TestSourceTokensMixed(t *testing.T) {
 	ops := sourceTokens("go north {enter} look")
 	want := []sourceOp{
-		{ui.OpText, "go"},
-		{ui.OpText, "north"},
+		{ui.OpText, "go north "},
 		{ui.OpSubmit, ""},
-		{ui.OpText, "look"},
+		{ui.OpText, " look"},
 	}
 	if len(ops) != len(want) {
 		t.Fatalf("expected %d ops, got %d: %v", len(want), len(ops), ops)
@@ -72,7 +70,9 @@ func TestSourceTokensOnlySpecials(t *testing.T) {
 	ops := sourceTokens("{bs} {clear} {enter}")
 	want := []sourceOp{
 		{ui.OpBS, ""},
+		{ui.OpText, " "},
 		{ui.OpClear, ""},
+		{ui.OpText, " "},
 		{ui.OpSubmit, ""},
 	}
 	if len(ops) != len(want) {
@@ -96,5 +96,22 @@ func TestSourceTokensUnknownToken(t *testing.T) {
 	}
 	if ops[0].value != "{blah}" {
 		t.Errorf("expected value %q, got %q", "{blah}", ops[0].value)
+	}
+}
+
+// TestSourceTokensUnclosedMarker verifies that an unclosed '{' is preserved as OpText.
+func TestSourceTokensUnclosedMarker(t *testing.T) {
+	ops := sourceTokens("hello {world")
+	want := []sourceOp{
+		{ui.OpText, "hello "},
+		{ui.OpText, "{world"},
+	}
+	if len(ops) != len(want) {
+		t.Fatalf("expected %d ops, got %d: %v", len(want), len(ops), ops)
+	}
+	for i, op := range ops {
+		if op != want[i] {
+			t.Errorf("op[%d]: got %v, want %v", i, op, want[i])
+		}
 	}
 }
