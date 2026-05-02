@@ -109,8 +109,9 @@ func (p *TextPanel) drainPending() {
 	p.lines = append(p.lines, pending...)
 	if p.maxLines > 0 && len(p.lines) > p.maxLines {
 		excess := len(p.lines) - p.maxLines
-		copy(p.lines, p.lines[excess:])
-		p.lines = p.lines[:p.maxLines]
+		fresh := make([][]ansi.Span, p.maxLines)
+		copy(fresh, p.lines[excess:])
+		p.lines = fresh
 	}
 	if hasPartial {
 		p.partial = partial // may be nil = clear
