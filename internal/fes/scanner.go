@@ -68,24 +68,20 @@ func ScanLine(line string, s *Stats) bool {
 	updated := false
 
 	// "effective strength:" → Strength (current effective value).
-	effectiveStrengthFound := strings.Contains(lower, "effective strength:")
-	if effectiveStrengthFound {
-		if idx := strings.Index(lower, "effective strength:"); idx >= 0 {
-			if n, ok := parseFirstInt(line[idx+len("effective strength:"):]); ok {
-				s.Strength = n
-				updated = true
-			}
+	effectiveStrengthIdx := strings.Index(lower, "effective strength:")
+	if effectiveStrengthIdx >= 0 {
+		if n, ok := parseFirstInt(line[effectiveStrengthIdx+len("effective strength:"):]); ok {
+			s.Strength = n
+			updated = true
 		}
 	}
 
 	// "effective dexterity:" → Dexterity (current effective value).
-	effectiveDexterityFound := strings.Contains(lower, "effective dexterity:")
-	if effectiveDexterityFound {
-		if idx := strings.Index(lower, "effective dexterity:"); idx >= 0 {
-			if n, ok := parseFirstInt(line[idx+len("effective dexterity:"):]); ok {
-				s.Dexterity = n
-				updated = true
-			}
+	effectiveDexterityIdx := strings.Index(lower, "effective dexterity:")
+	if effectiveDexterityIdx >= 0 {
+		if n, ok := parseFirstInt(line[effectiveDexterityIdx+len("effective dexterity:"):]); ok {
+			s.Dexterity = n
+			updated = true
 		}
 	}
 
@@ -139,7 +135,7 @@ func ScanLine(line string, s *Stats) bool {
 	}
 	// When MaxStrength was updated but no "effective strength:" on this line,
 	// treat Strength as equal to MaxStrength (full base stat, no debuff).
-	if maxStrengthUpdated && !effectiveStrengthFound {
+	if maxStrengthUpdated && effectiveStrengthIdx < 0 {
 		s.Strength = s.MaxStrength
 	}
 
@@ -165,7 +161,7 @@ func ScanLine(line string, s *Stats) bool {
 	}
 	// When MaxDexterity was updated but no "effective dexterity:" on this line,
 	// treat Dexterity as equal to MaxDexterity.
-	if maxDexterityUpdated && !effectiveDexterityFound {
+	if maxDexterityUpdated && effectiveDexterityIdx < 0 {
 		s.Dexterity = s.MaxDexterity
 	}
 
