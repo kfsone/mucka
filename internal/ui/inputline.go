@@ -33,6 +33,9 @@ type pendingOp struct {
 	value string
 }
 
+// defaultHistoryLimit is the default maximum number of history entries.
+const defaultHistoryLimit = 2000
+
 // InputLine wraps a single-line editor widget.
 // After Layout is called, Submitted and SubmitText reflect the most recently
 // submitted line (if any).  The caller should read and reset them.
@@ -43,9 +46,10 @@ type InputLine struct {
 	focusedOnce bool
 	everUsed    bool // true once the user has typed or submitted anything
 
-	history    []string // submitted commands, oldest first
-	histIdx    int      // current position; len(history) = "not browsing"
-	savedInput string   // text buffered before history browsing began
+	history      []string // submitted commands, oldest first
+	historyLimit int      // maximum entries; 0 = unlimited
+	histIdx      int      // current position; len(history) = "not browsing"
+	savedInput   string   // text buffered before history browsing began
 
 	pendingMu  sync.Mutex
 	pendingOps []pendingOp
@@ -64,11 +68,16 @@ type InputLine struct {
 
 // NewInputLine returns a configured InputLine.
 func NewInputLine() *InputLine {
-	il := &InputLine{hint: "Type here and press Enter\u2026", fontName: "Go Mono"}
+	il := &InputLine{hint: "Type here and press Enter\u2026", fontName: "Go Mono", historyLimit: defaultHistoryLimit}
 	il.editor.SingleLine = true
 	il.editor.Submit = true
 	return il
 }
+
+// SetHistoryLimit sets the maximum number of history entries to keep.
+// Older entries are dropped when the limit is exceeded. A value of 0 disables
+// the limit (unbounded).
+func (il *InputLine) SetHistoryLimit(n int) { il.historyLimit = n }
 
 // SetFont sets the typeface used in the editor.
 func (il *InputLine) SetFont(name string) { il.fontName = name }
@@ -127,6 +136,15 @@ func (il *InputLine) appendHistory(text string) {
 	}
 	if len(il.history) == 0 || il.history[len(il.history)-1] != text {
 		il.history = append(il.history, text)
+		if il.historyLimit > 0 && len(il.history) > il.historyLimit {
+			excess := len(il.history) - il.historyLimit
+			copy(il.history, il.history[excess:])
+			il.history = il.history[:il.historyLimit]
+			il.histIdx -= excess
+			if il.histIdx < 0 {
+				il.histIdx = 0
+			}
+		}
 	}
 	il.histIdx = len(il.history)
 	il.savedInput = ""
