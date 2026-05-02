@@ -51,6 +51,7 @@ type Conn struct {
 	invalidate    func()
 	sendCh        chan string
 	closeCh       chan struct{}
+	closeOnce     sync.Once
 	conn          net.Conn
 	mu            sync.Mutex
 	sgaDone       bool // WILL SGA has been responded to once
@@ -141,17 +142,24 @@ func (c *Conn) Send(line string) {
 	}
 }
 
-// Close terminates the connection.
-func (c *Conn) Close() {
-	if !c.connected.Swap(false) {
-		return
-	}
-	close(c.closeCh)
+// closeConn signals the writer goroutine and closes the underlying TCP
+// connection. Safe to call from multiple goroutines; closeCh is closed at
+// most once via closeOnce.
+func (c *Conn) closeConn() {
+	c.closeOnce.Do(func() { close(c.closeCh) })
 	c.mu.Lock()
 	if c.conn != nil {
 		c.conn.Close()
 	}
 	c.mu.Unlock()
+}
+
+// Close terminates the connection.
+func (c *Conn) Close() {
+	if !c.connected.Swap(false) {
+		return
+	}
+	c.closeConn()
 }
 
 // fesPollLoop sends a FES trigger every 10 seconds while connected and in game,
@@ -232,6 +240,7 @@ func (c *Conn) reader(conn net.Conn, profile config.ServerProfile) {
 		c.updateDreamWord("") // clear dream word on disconnect
 		c.connected.Store(false)
 		exitGame() // stop fesPollLoop if still running
+		c.closeConn()
 	}()
 
 	for {
