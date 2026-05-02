@@ -437,6 +437,29 @@ f1 = inventory
 	}
 }
 
+// TestDefault verifies that Default returns a non-nil Config with all defaults applied.
+func TestDefault(t *testing.T) {
+	cfg := Default()
+	if cfg == nil {
+		t.Fatal("Default() returned nil")
+	}
+	if cfg.General.FontName != "Go Mono" {
+		t.Errorf("FontName: got %q, want %q", cfg.General.FontName, "Go Mono")
+	}
+	if cfg.General.FontSize != 14 {
+		t.Errorf("FontSize: got %d, want 14", cfg.General.FontSize)
+	}
+	if cfg.General.Width != 80 {
+		t.Errorf("Width: got %d, want 80", cfg.General.Width)
+	}
+	if cfg.General.Height != 40 {
+		t.Errorf("Height: got %d, want 40", cfg.General.Height)
+	}
+	if cfg.General.History != 2000 {
+		t.Errorf("History: got %d, want 2000", cfg.General.History)
+	}
+}
+
 // TestSaveFKeysPreservesExistingContent verifies that SaveFKeys does not destroy
 // other sections (e.g. [general], server profiles) already present in the file.
 func TestSaveFKeysPreservesExistingContent(t *testing.T) {

@@ -51,7 +51,7 @@ func run() error {
 	cfg, err := config.Load()
 	if err != nil {
 		log.Printf("config: %v (using defaults)", err)
-		cfg, _ = config.Load() // reload with defaults on error
+		cfg = config.Default()
 	}
 
 	w := new(app.Window)
