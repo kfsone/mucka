@@ -28,7 +28,7 @@ type StatusBar struct {
 // NewStatusBar returns an initialised StatusBar.
 func NewStatusBar() *StatusBar {
 	return &StatusBar{
-		fontName: "Go Mono",
+		fontName: defaultFontName,
 	}
 }
 
@@ -173,7 +173,7 @@ func (s *StatusBar) Layout(gtx layout.Context, th *material.Theme, connecting, c
 
 	makeLabel := func(text string, col color.NRGBA) layout.Widget {
 		return func(gtx layout.Context) layout.Dimensions {
-			lbl := material.Label(th, unit.Sp(13), text)
+			lbl := material.Label(th, defaultFontSize, text)
 			lbl.Font.Typeface = face
 			lbl.Color = col
 			return lbl.Layout(gtx)

@@ -2,6 +2,7 @@ package ui
 
 import (
 	"gioui.org/layout"
+	"gioui.org/unit"
 	"gioui.org/widget/material"
 
 	"github.com/kfsone/mucka/internal/fes"
@@ -33,6 +34,11 @@ func (u *UI) SetFont(name string) {
 	u.TextPanel.SetFont(name)
 	u.InputLine.SetFont(name)
 	u.StatusBar.SetFont(name)
+}
+
+// SetFontSize sets the font size used by the text panel.
+func (u *UI) SetFontSize(sp unit.Sp) {
+	u.TextPanel.SetFontSize(sp)
 }
 
 // SetStats forwards live character stats to the status bar for display.

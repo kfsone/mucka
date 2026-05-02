@@ -66,11 +66,10 @@ func run() error {
 
 	u := ui.New()
 	u.SetFont(cfg.General.FontName)
+	u.SetFontSize(unit.Sp(cfg.General.FontSize))
 	u.TextPanel.AppendText("\x1b[1;32m" + version.AppName + " v" + version.Version + "\x1b[0m — type .help for commands")
 
 	_ = commands.NewDispatcher(w, u, cfg, fonts)
-
-	_ = unit.Sp(cfg.General.FontSize) // font size available for future use
 
 	var ops op.Ops
 	for {

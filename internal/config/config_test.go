@@ -13,8 +13,8 @@ func TestDefaultsOnEmptyConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse empty: %v", err)
 	}
-	if cfg.General.FontSize != 14 {
-		t.Errorf("FontSize: got %d, want 14", cfg.General.FontSize)
+	if cfg.General.FontSize != 13 {
+		t.Errorf("FontSize: got %d, want 13", cfg.General.FontSize)
 	}
 	if cfg.General.Width != 80 {
 		t.Errorf("Width: got %d, want 80", cfg.General.Width)
@@ -173,8 +173,8 @@ func TestLoadMissingFileReturnsDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error on empty input: %v", err)
 	}
-	if cfg.General.FontSize != 14 {
-		t.Errorf("default FontSize: got %d, want 14", cfg.General.FontSize)
+	if cfg.General.FontSize != 13 {
+		t.Errorf("default FontSize: got %d, want 13", cfg.General.FontSize)
 	}
 }
 

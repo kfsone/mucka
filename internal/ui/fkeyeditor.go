@@ -177,7 +177,7 @@ func (ed *FKeyEditor) layoutRow(gtx layout.Context, th *material.Theme, i int) l
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				gtx.Constraints.Min.X = gtx.Dp(unit.Dp(40))
 				gtx.Constraints.Max.X = gtx.Dp(unit.Dp(40))
-				lbl := material.Label(th, unit.Sp(13), label)
+				lbl := material.Label(th, defaultFontSize, label)
 				lbl.Color = color.NRGBA{R: 0xCC, G: 0xFF, B: 0xCC, A: 255}
 				return lbl.Layout(gtx)
 			}),
