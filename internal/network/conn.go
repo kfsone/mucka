@@ -499,8 +499,6 @@ func (c *Conn) handleDo(br *bufio.Reader) []byte {
 			telnetIAC, telnetWILL, optNAWS,
 			telnetIAC, telnetSB, optNAWS, 0, 80, 0, 21, telnetIAC, telnetSE,
 		}
-	case 32, 33, 35, 36, 37, 39:
-		return []byte{telnetIAC, telnetWONT, opt}
 	default:
 		return []byte{telnetIAC, telnetWONT, opt}
 	}
