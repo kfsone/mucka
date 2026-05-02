@@ -116,7 +116,7 @@ func (p *TextPanel) Layout(gtx layout.Context, th *material.Theme) layout.Dimens
 func layoutLine(gtx layout.Context, th *material.Theme, spans []ansi.Span, fontName string) layout.Dimensions {
 	if len(spans) == 0 {
 		// Empty line: just emit a line-height worth of space.
-		h := gtx.Sp(unit.Sp(14))
+		h := gtx.Sp(unit.Sp(13))
 		return layout.Dimensions{Size: image.Point{Y: h}}
 	}
 
