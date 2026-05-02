@@ -22,6 +22,7 @@ import (
 
 func main() {
 	headlessFlag := flag.Bool("headless", false, "run without GUI, stdin/stdout mode")
+	stdioFlag := flag.Bool("stdio", false, "plain-text LLM-harness mode (stdin/stdout, human-readable)")
 	profileFlag := flag.String("profile", "", "auto-connect to this server profile")
 	scriptFlag := flag.String("script", "", "script file to execute (headless mode)")
 	flag.Parse()
@@ -30,6 +31,17 @@ func main() {
 		cfg, _ := config.Load()
 		os.Exit(func() int {
 			if err := headless.Run(cfg, *profileFlag, *scriptFlag); err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				return 1
+			}
+			return 0
+		}())
+	}
+
+	if *stdioFlag {
+		cfg, _ := config.Load()
+		os.Exit(func() int {
+			if err := headless.RunStdio(cfg, *profileFlag, *scriptFlag); err != nil {
 				fmt.Fprintln(os.Stderr, err)
 				return 1
 			}
