@@ -39,6 +39,10 @@ const defaultMaxLines = 5000
 // monospace cell width. A longer sample reduces per-character rounding error.
 const cellMeasureN = 80
 
+// unconstrainedWidth is used as the max-X constraint when measuring text to
+// prevent the label from wrapping; it represents an effectively infinite width.
+const unconstrainedWidth = 1 << 20
+
 // TextPanel is an append-only, vertically-scrolling panel that renders
 // lines of ANSI-styled Spans.
 type TextPanel struct {
@@ -203,10 +207,10 @@ func (p *TextPanel) Layout(gtx layout.Context, th *material.Theme) layout.Dimens
 // and used to derive per-column pixel positions, eliminating the sub-pixel
 // rounding drift that accumulates when each ANSI span is measured separately.
 func measureCellRef(gtx layout.Context, th *material.Theme, fontName string, fontSize unit.Sp) int {
-	const sample = "MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM" // cellMeasureN M's
+	sample := strings.Repeat("M", cellMeasureN)
 	// Use unconstrained width so the label never wraps.
 	mgtx := gtx
-	mgtx.Constraints.Max.X = 1 << 20
+	mgtx.Constraints.Max.X = unconstrainedWidth
 	macro := op.Record(mgtx.Ops)
 	lbl := material.Label(th, fontSize, sample)
 	lbl.Font.Typeface = font.Typeface(fontName)
