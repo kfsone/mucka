@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"gioui.org/app"
 	"gioui.org/font"
@@ -15,6 +16,7 @@ import (
 const (
 	modeNormal = 0
 	modeLess   = 1
+	modeModal  = 2 // waiting for repeat/retry/cancel input after connection failure
 )
 
 // Dispatcher wires the command Registry to the UI.
@@ -31,6 +33,11 @@ type Dispatcher struct {
 	savedHint string
 	fonts     []font.FontFace
 
+	// SPM (Single Profile Mode) state
+	spmProfile   string // non-empty = SPM active; holds current profile name
+	modalProfile string // profile name shown in modal prompt
+	pendingModal atomic.Pointer[string] // set from background goroutine; drained in Handle
+
 	fkeysMu sync.RWMutex
 	fkeys   config.FKeyConfig
 
@@ -39,7 +46,8 @@ type Dispatcher struct {
 }
 
 // NewDispatcher creates a Dispatcher, registers all commands, and sets up UI.OnSubmit.
-func NewDispatcher(w *app.Window, u *ui.UI, cfg *config.Config, fonts []font.FontFace) *Dispatcher {
+// If initialProfile is non-empty, SPM is activated and a connection attempt is made immediately.
+func NewDispatcher(w *app.Window, u *ui.UI, cfg *config.Config, fonts []font.FontFace, initialProfile string) *Dispatcher {
 	d := &Dispatcher{
 		w:      w,
 		u:      u,
@@ -57,6 +65,7 @@ func NewDispatcher(w *app.Window, u *ui.UI, cfg *config.Config, fonts []font.Fon
 	d.dotReg.Register(".help", "list available commands", dotHelpHandler(d))
 	d.dotReg.Register(".quit", "exit the application", dotQuitHandler())
 	d.dotReg.Register(".connect", "connect to a server profile", dotConnectHandler(d))
+	d.dotReg.Register(".disconnect", "disconnect from server", dotDisconnectHandler(d))
 	d.dotReg.Register(".fkeys", "open the F-key binding editor", func(args []string) { dotFKeysHandler(d) })
 
 	u.OnSubmit = d.Handle
@@ -70,6 +79,12 @@ func NewDispatcher(w *app.Window, u *ui.UI, cfg *config.Config, fonts []font.Fon
 	u.InputLine.FKeyProvider = func(mod, key string) string {
 		return d.GetFKey(mod, key)
 	}
+
+	if initialProfile != "" {
+		d.spmProfile = initialProfile
+		connectToProfile(d, initialProfile)
+	}
+
 	return d
 }
 
@@ -120,6 +135,11 @@ func (d *Dispatcher) ConnStatus() (connecting, connected bool) {
 
 // Handle dispatches a submitted input string.
 func (d *Dispatcher) Handle(text string) {
+	// Drain any pending modal request posted from a background goroutine.
+	if ptr := d.pendingModal.Swap(nil); ptr != nil {
+		d.enterModalMode(*ptr)
+	}
+
 	switch d.mode {
 	case modeLess:
 		switch strings.TrimSpace(text) {
@@ -140,6 +160,25 @@ func (d *Dispatcher) Handle(text string) {
 				d.u.TextPanel.AppendText("-- END --")
 				d.exitLessMode()
 			}
+		}
+		return
+
+	case modeModal:
+		t := strings.TrimSpace(text)
+		switch {
+		case t == "r" || strings.EqualFold(t, "repeat"):
+			d.mode = modeNormal
+			connectToProfile(d, d.modalProfile)
+		case t == "R" || strings.EqualFold(t, "retry"):
+			d.mode = modeNormal
+			cfg, _ := config.Load()
+			d.cfg = cfg
+			connectToProfile(d, d.modalProfile)
+		default: // c, cancel, or anything else
+			d.mode = modeNormal
+			d.spmProfile = ""
+			d.modalProfile = ""
+			d.u.TextPanel.AppendText("Connection cancelled.")
 		}
 		return
 	}
@@ -179,5 +218,11 @@ func (d *Dispatcher) exitLessMode() {
 	d.mode = modeNormal
 	d.u.InputLine.SetHint(d.savedHint)
 	d.lessPages = nil
+}
+
+func (d *Dispatcher) enterModalMode(profile string) {
+	d.mode = modeModal
+	d.modalProfile = profile
+	d.u.TextPanel.AppendText("Connection failed. [r]epeat / [R]etry (reload config) / [c]ancel:")
 }
 
