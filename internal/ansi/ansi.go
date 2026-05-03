@@ -187,8 +187,12 @@ func applyParams(params string, fg, bg color.NRGBA, bold bool, fgStdIdx int) (co
 		case n >= 30 && n <= 37:
 			fg = standardColors[n-30]
 			fgStdIdx = n - 30
+		case n == 39:
+			fg, fgStdIdx = DefaultFG, -1
 		case n >= 40 && n <= 47:
 			bg = standardColors[n-40]
+		case n == 49:
+			bg = DefaultBG
 		case n >= 90 && n <= 97:
 			fg = brightColors[n-90]
 			fgStdIdx = -1 // explicit bright — not eligible for bold promotion
