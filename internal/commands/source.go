@@ -55,7 +55,7 @@ func sourceTokens(line string) []sourceOp {
 }
 
 // sourceHandler returns a HandlerFunc that replays file tokens into the InputLine.
-func sourceHandler(w *app.Window, panel *ui.TextPanel, il *ui.InputLine) HandlerFunc {
+func sourceHandler(w *app.Window, panel *ui.TextPanel, il *ui.InputLine, d *Dispatcher) HandlerFunc {
 	return func(args []string) {
 		if len(args) == 0 {
 			panel.AppendText("$source: filename required")
@@ -67,17 +67,26 @@ func sourceHandler(w *app.Window, panel *ui.TextPanel, il *ui.InputLine) Handler
 			panel.AppendText(fmt.Sprintf("$source: %v", err))
 			return
 		}
+		ctx := d.newStreamCtx()
 		go func() {
 			for _, line := range lines {
 				for _, op := range sourceTokens(line) {
 					il.EnqueueOp(op.kind, op.value)
 					w.Invalidate()
-					time.Sleep(SourceDelay)
+					select {
+					case <-ctx.Done():
+						return
+					case <-time.After(SourceDelay):
+					}
 				}
 				// Implicit Enter at end of each line.
 				il.EnqueueOp(ui.OpSubmit, "")
 				w.Invalidate()
-				time.Sleep(SourceDelay)
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(SourceDelay):
+				}
 			}
 		}()
 	}
