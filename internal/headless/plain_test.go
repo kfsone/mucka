@@ -8,6 +8,7 @@ import (
 
 	"github.com/kfsone/mucka/internal/ansi"
 	"github.com/kfsone/mucka/internal/fes"
+	"github.com/kfsone/mucka/internal/mud2"
 )
 
 func TestPlainEmitter_AppendText_StripsANSI(t *testing.T) {
@@ -41,6 +42,81 @@ func TestPlainEmitter_AppendSpans(t *testing.T) {
 	got := strings.TrimRight(buf.String(), "\n")
 	if got != "foobar" {
 		t.Errorf("AppendSpans = %q, want %q", got, "foobar")
+	}
+}
+
+func TestPlainEmitter_AppendSpans_SemanticTag(t *testing.T) {
+	var buf bytes.Buffer
+	p := NewPlainEmitter(&buf)
+
+	// Build a color map: cyan FG on default BG → type 6 (OBJECT).
+	cm := mud2.NewColorMap()
+	cm.ParseALLine("/ASCn6")
+	p.SetColorMap(cm)
+
+	cyanFG := ansi.StandardColor(6) // SGR 36 cyan
+	spans := []ansi.Span{{Text: "a sword", FG: cyanFG, BG: ansi.DefaultBG}}
+	p.AppendSpans(spans)
+
+	got := strings.TrimRight(buf.String(), "\n")
+	want := "[OBJECT] a sword"
+	if got != want {
+		t.Errorf("AppendSpans with color map = %q, want %q", got, want)
+	}
+}
+
+func TestPlainEmitter_AppendSpans_NoTagForUnmappedColor(t *testing.T) {
+	var buf bytes.Buffer
+	p := NewPlainEmitter(&buf)
+
+	// Color map present but the span color is not in it.
+	cm := mud2.NewColorMap()
+	p.SetColorMap(cm)
+
+	spans := []ansi.Span{{Text: "hello", FG: ansi.StandardColor(1), BG: ansi.DefaultBG}} // red
+	p.AppendSpans(spans)
+
+	got := strings.TrimRight(buf.String(), "\n")
+	if got != "hello" {
+		t.Errorf("AppendSpans with empty map = %q, want %q", got, "hello")
+	}
+}
+
+func TestPlainEmitter_AppendText_SemanticTag(t *testing.T) {
+	var buf bytes.Buffer
+	p := NewPlainEmitter(&buf)
+
+	// ANSI SGR 33 = yellow (standard yellow FG on default BG) → type 13 (SAY).
+	cm := mud2.NewColorMap()
+	cm.ParseALLine("/ASYn13")
+	p.SetColorMap(cm)
+
+	// \x1b[33m applies SGR 33 (standard yellow).
+	p.AppendText("\x1b[33mhello there\x1b[0m")
+
+	got := strings.TrimRight(buf.String(), "\n")
+	want := "[SAY] hello there"
+	if got != want {
+		t.Errorf("AppendText with color map = %q, want %q", got, want)
+	}
+}
+
+func TestPlainEmitter_SetColorMap_NilDisablesTags(t *testing.T) {
+	var buf bytes.Buffer
+	p := NewPlainEmitter(&buf)
+
+	cm := mud2.NewColorMap()
+	cm.ParseALLine("/ASCn6")
+	p.SetColorMap(cm)
+	p.SetColorMap(nil) // disable
+
+	cyanFG := ansi.StandardColor(6)
+	spans := []ansi.Span{{Text: "a sword", FG: cyanFG, BG: ansi.DefaultBG}}
+	p.AppendSpans(spans)
+
+	got := strings.TrimRight(buf.String(), "\n")
+	if got != "a sword" {
+		t.Errorf("AppendSpans after SetColorMap(nil) = %q, want %q", got, "a sword")
 	}
 }
 

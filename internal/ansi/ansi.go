@@ -248,3 +248,23 @@ func cubeStep(i int) uint8 {
 	}
 	return uint8(95 + 40*(i-1))
 }
+
+// StandardColor returns the NRGBA value for standard SGR foreground color
+// index 0–7 (matching SGR codes 30–37: black, red, green, yellow, blue,
+// magenta, cyan, white). Out-of-range values return DefaultFG.
+func StandardColor(idx int) color.NRGBA {
+	if idx < 0 || idx > 7 {
+		return DefaultFG
+	}
+	return standardColors[idx]
+}
+
+// BrightColor returns the NRGBA value for bright SGR foreground color
+// index 0–7 (matching SGR codes 90–97 or bold-promoted 30–37).
+// Out-of-range values return DefaultFG.
+func BrightColor(idx int) color.NRGBA {
+	if idx < 0 || idx > 7 {
+		return DefaultFG
+	}
+	return brightColors[idx]
+}

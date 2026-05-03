@@ -9,18 +9,29 @@ import (
 
 	"github.com/kfsone/mucka/internal/ansi"
 	"github.com/kfsone/mucka/internal/fes"
+	"github.com/kfsone/mucka/internal/mud2"
 )
 
 // AgentEmitter writes self-describing NDJSON events to an io.Writer.
 // It implements core.TextSink and is safe for concurrent use.
 type AgentEmitter struct {
-	mu sync.Mutex
-	w  io.Writer
+	mu       sync.Mutex
+	w        io.Writer
+	colorMap *mud2.ColorMap
 }
 
 // NewAgentEmitter returns an AgentEmitter writing to w.
 func NewAgentEmitter(w io.Writer) *AgentEmitter {
 	return &AgentEmitter{w: w}
+}
+
+// SetColorMap sets the ANSI color→semantic-type map used to add a "semantic"
+// field to text/span NDJSON events. Pass nil to disable the field.
+// Safe to call concurrently with other methods.
+func (a *AgentEmitter) SetColorMap(cm *mud2.ColorMap) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.colorMap = cm
 }
 
 // emit marshals fields as a JSON object with an injected RFC3339Nano timestamp
@@ -47,20 +58,36 @@ func spansToText(spans []ansi.Span) string {
 }
 
 // AppendText strips ANSI escapes from text and emits an event:"text" line.
+// A "semantic" field is added when the color map maps the text's color to a
+// labeled type.
 func (a *AgentEmitter) AppendText(text string) {
 	spans := ansi.Parse(text)
-	a.emit(map[string]any{
-		"event": "text",
-		"text":  spansToText(spans),
-	})
+	a.emitTextSpans(spans)
 }
 
 // AppendSpans emits an event:"text" line from pre-parsed spans.
+// A "semantic" field is added when the color map maps the first span's color
+// to a labeled type.
 func (a *AgentEmitter) AppendSpans(spans []ansi.Span) {
-	a.emit(map[string]any{
+	a.emitTextSpans(spans)
+}
+
+// emitTextSpans builds and emits an event:"text" JSON line for spans,
+// adding a "semantic" field when the color map provides a tag.
+func (a *AgentEmitter) emitTextSpans(spans []ansi.Span) {
+	// Read colorMap under the lock to get a consistent snapshot.
+	a.mu.Lock()
+	cm := a.colorMap
+	a.mu.Unlock()
+
+	fields := map[string]any{
 		"event": "text",
 		"text":  spansToText(spans),
-	})
+	}
+	if tag := semanticTagLower(spans, cm); tag != "" {
+		fields["semantic"] = tag
+	}
+	a.emit(fields)
 }
 
 // UpdatePartial emits an event:"partial" line with the current incomplete line.

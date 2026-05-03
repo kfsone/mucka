@@ -65,6 +65,10 @@ type Conn struct {
 	// *-prefixed line that is not itself a valid FES packet is treated as a
 	// text-format FES response line and suppressed from the display.
 	fesPending atomic.Int32
+	// ColorMap, when non-nil, receives the ANSI color→semantic-type mappings
+	// parsed from /AL responses. It is populated at game entry (after /AL is
+	// sent automatically) and updated in-place as /ASfbN lines arrive.
+	ColorMap *mud2.ColorMap
 	// StatsUpdated is called (from the reader goroutine) whenever stats change
 	// due to a FES packet or a matched ScanLine. May be nil.
 	StatsUpdated  func(*fes.Stats)
@@ -327,24 +331,35 @@ func (c *Conn) reader(conn net.Conn, profile config.ServerProfile) {
 				c.invalidate()
 
 			default:
-				// Normal text line: display and scan for embedded stats.
-				c.sink.AppendSpans(spans)
-				c.invalidate()
-				if fes.ScanLine(plainText, &c.stats) && c.StatsUpdated != nil {
-					c.StatsUpdated(&c.stats)
-				}
-				// MUD2 client-mode escape or "Option:" menu prompt: stop FES polling
-				// so we don't spam the server while at the client menu.
-				if gameEntered && mud2.IsClientModeSignal(lineBuf, plainText) {
-					exitGame()
-				}
-				// Detect game entry via the opening room name and start FES polling.
-				if !gameEntered && state == stateDone && mud2.IsGameEntry(plainText) {
-					gameEntered = true
-					fesDone = make(chan struct{})
-					c.fesPending.Add(1)
-					c.sendCh <- string(fes.TriggerBytes)
-					go c.fesPollLoop(fesDone)
+				// Normal text line: check for /AL color-map response first.
+				if c.ColorMap != nil && c.ColorMap.ParseALLine(plainText) {
+					// /ASfbN color-map response: update the map and suppress from display.
+					c.sink.UpdatePartial(nil)
+					c.invalidate()
+				} else {
+					// Regular text: display and scan for embedded stats.
+					c.sink.AppendSpans(spans)
+					c.invalidate()
+					if fes.ScanLine(plainText, &c.stats) && c.StatsUpdated != nil {
+						c.StatsUpdated(&c.stats)
+					}
+					// MUD2 client-mode escape or "Option:" menu prompt: stop FES polling
+					// so we don't spam the server while at the client menu.
+					if gameEntered && mud2.IsClientModeSignal(lineBuf, plainText) {
+						exitGame()
+					}
+					// Detect game entry via the opening room name and start FES polling.
+					if !gameEntered && state == stateDone && mud2.IsGameEntry(plainText) {
+						gameEntered = true
+						fesDone = make(chan struct{})
+						c.fesPending.Add(1)
+						c.sendCh <- string(fes.TriggerBytes)
+						if c.ColorMap != nil {
+							// Request the full color→semantic-type map from the server.
+							c.sendCh <- "/AL\r\n"
+						}
+						go c.fesPollLoop(fesDone)
+					}
 				}
 			}
 			lineBuf = lineBuf[:0]

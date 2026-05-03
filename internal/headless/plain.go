@@ -7,6 +7,7 @@ import (
 
 	"github.com/kfsone/mucka/internal/ansi"
 	"github.com/kfsone/mucka/internal/fes"
+	"github.com/kfsone/mucka/internal/mud2"
 )
 
 // PlainEmitter writes plain-text, LLM-friendly output to an io.Writer.
@@ -15,6 +16,7 @@ type PlainEmitter struct {
 	mu         sync.Mutex
 	w          io.Writer
 	lastPrompt string
+	colorMap   *mud2.ColorMap
 }
 
 // NewPlainEmitter returns a PlainEmitter writing to w.
@@ -22,21 +24,41 @@ func NewPlainEmitter(w io.Writer) *PlainEmitter {
 	return &PlainEmitter{w: w}
 }
 
-// AppendText strips ANSI escapes from text and prints the plain line.
-func (p *PlainEmitter) AppendText(text string) {
-	spans := ansi.Parse(text)
-	plain := spansToText(spans)
+// SetColorMap sets the ANSI color→semantic-type map used to prefix output
+// lines with their semantic tag (e.g. "[ROOM-NAME]"). Pass nil to disable
+// tagging. Safe to call concurrently with other methods.
+func (p *PlainEmitter) SetColorMap(cm *mud2.ColorMap) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	fmt.Fprintln(p.w, plain)
+	p.colorMap = cm
 }
 
-// AppendSpans concatenates span text and prints the plain line.
-func (p *PlainEmitter) AppendSpans(spans []ansi.Span) {
+// appendSpansLocked writes spans as a (possibly tagged) line to p.w.
+// The caller must hold p.mu.
+func (p *PlainEmitter) appendSpansLocked(spans []ansi.Span) {
 	text := spansToText(spans)
+	if tag := spansSemanticTag(spans, p.colorMap); tag != "" {
+		fmt.Fprintf(p.w, "[%s] %s\n", tag, text)
+	} else {
+		fmt.Fprintln(p.w, text)
+	}
+}
+
+// AppendText strips ANSI escapes from text and prints the plain line,
+// prefixed with a semantic tag if the color map maps the text's color.
+func (p *PlainEmitter) AppendText(text string) {
+	spans := ansi.Parse(text)
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	fmt.Fprintln(p.w, text)
+	p.appendSpansLocked(spans)
+}
+
+// AppendSpans concatenates span text and prints the plain line, prefixed
+// with a semantic tag if the color map maps the first span's color.
+func (p *PlainEmitter) AppendSpans(spans []ansi.Span) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.appendSpansLocked(spans)
 }
 
 // UpdatePartial prints "[PROMPT] <text>" followed by a blank line when the

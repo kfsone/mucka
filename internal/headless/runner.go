@@ -10,6 +10,7 @@ import (
 
 	"github.com/kfsone/mucka/internal/config"
 	"github.com/kfsone/mucka/internal/core"
+	"github.com/kfsone/mucka/internal/mud2"
 	"github.com/kfsone/mucka/internal/network"
 )
 
@@ -80,6 +81,12 @@ func runWithEmitter(cfg *config.Config, profileName, scriptFile string, e emitte
 	conn := network.NewConn(e, nop.Invalidate)
 	conn.StatsUpdated = e.EmitStats
 	conn.DreamWordUpdated = e.EmitDreamWord
+
+	// Shared color map: populated from /AL server responses and consulted by
+	// the emitter to tag output lines with their semantic type.
+	colorMap := mud2.NewColorMap()
+	e.SetColorMap(colorMap)
+	conn.ColorMap = colorMap
 
 	if profileName != "" {
 		profile, deprecated, ok := config.LookupProfile(cfg.Servers, profileName)

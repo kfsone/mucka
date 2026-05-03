@@ -10,6 +10,7 @@ import (
 
 	"github.com/kfsone/mucka/internal/ansi"
 	"github.com/kfsone/mucka/internal/fes"
+	"github.com/kfsone/mucka/internal/mud2"
 )
 
 // decodeOne asserts that buf contains exactly one complete JSON object,
@@ -68,6 +69,95 @@ func TestAgentEmitter_TextFromSpans(t *testing.T) {
 	}
 	if m["text"] != "hello spans" {
 		t.Errorf("text = %q, want %q", m["text"], "hello spans")
+	}
+}
+
+func TestAgentEmitter_AppendSpans_SemanticField(t *testing.T) {
+	var buf bytes.Buffer
+	a := NewAgentEmitter(&buf)
+
+	// green FG on default BG → type 3 (ROOM-NAME).
+	cm := mud2.NewColorMap()
+	cm.ParseALLine("/ASGn3")
+	a.SetColorMap(cm)
+
+	greenFG := ansi.StandardColor(2) // SGR 32 green
+	spans := []ansi.Span{{Text: "Elizabethan tearoom", FG: greenFG, BG: ansi.DefaultBG}}
+	a.AppendSpans(spans)
+
+	m := decodeOne(t, &buf)
+	if m["event"] != "text" {
+		t.Errorf("event = %q, want %q", m["event"], "text")
+	}
+	if m["text"] != "Elizabethan tearoom" {
+		t.Errorf("text = %q, want %q", m["text"], "Elizabethan tearoom")
+	}
+	if m["semantic"] != "room-name" {
+		t.Errorf("semantic = %q, want %q", m["semantic"], "room-name")
+	}
+}
+
+func TestAgentEmitter_AppendText_SemanticField(t *testing.T) {
+	var buf bytes.Buffer
+	a := NewAgentEmitter(&buf)
+
+	// ANSI SGR 33 = yellow (standard yellow) → type 13 (SAY).
+	cm := mud2.NewColorMap()
+	cm.ParseALLine("/ASYn13")
+	a.SetColorMap(cm)
+
+	a.AppendText("\x1b[33mhello there\x1b[0m")
+
+	m := decodeOne(t, &buf)
+	if m["semantic"] != "say" {
+		t.Errorf("semantic = %q, want %q", m["semantic"], "say")
+	}
+}
+
+func TestAgentEmitter_NoSemanticFieldWhenUnmapped(t *testing.T) {
+	var buf bytes.Buffer
+	a := NewAgentEmitter(&buf)
+
+	cm := mud2.NewColorMap() // empty map
+	a.SetColorMap(cm)
+
+	spans := []ansi.Span{{Text: "hello", FG: ansi.StandardColor(1), BG: ansi.DefaultBG}}
+	a.AppendSpans(spans)
+
+	m := decodeOne(t, &buf)
+	if _, ok := m["semantic"]; ok {
+		t.Errorf("unexpected 'semantic' field in output for unmapped color")
+	}
+}
+
+func TestAgentEmitter_NoSemanticFieldWhenNoColorMap(t *testing.T) {
+	var buf bytes.Buffer
+	a := NewAgentEmitter(&buf)
+	// No color map set.
+	a.AppendSpans(ansi.Parse("hello"))
+
+	m := decodeOne(t, &buf)
+	if _, ok := m["semantic"]; ok {
+		t.Errorf("unexpected 'semantic' field when no color map is set")
+	}
+}
+
+func TestAgentEmitter_SetColorMap_NilDisablesField(t *testing.T) {
+	var buf bytes.Buffer
+	a := NewAgentEmitter(&buf)
+
+	cm := mud2.NewColorMap()
+	cm.ParseALLine("/ASGn3")
+	a.SetColorMap(cm)
+	a.SetColorMap(nil)
+
+	greenFG := ansi.StandardColor(2)
+	spans := []ansi.Span{{Text: "room", FG: greenFG, BG: ansi.DefaultBG}}
+	a.AppendSpans(spans)
+
+	m := decodeOne(t, &buf)
+	if _, ok := m["semantic"]; ok {
+		t.Errorf("unexpected 'semantic' field after SetColorMap(nil)")
 	}
 }
 
