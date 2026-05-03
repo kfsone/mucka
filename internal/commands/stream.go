@@ -36,7 +36,7 @@ func readFileLines(filename string) ([]string, error) {
 }
 
 // streamHandler returns a HandlerFunc that streams the given file to the panel.
-func streamHandler(w *app.Window, panel *ui.TextPanel) HandlerFunc {
+func streamHandler(w *app.Window, panel *ui.TextPanel, d *Dispatcher) HandlerFunc {
 	return func(args []string) {
 		if len(args) == 0 {
 			panel.AppendText("$stream: filename required")
@@ -48,11 +48,16 @@ func streamHandler(w *app.Window, panel *ui.TextPanel) HandlerFunc {
 			panel.AppendText(fmt.Sprintf("$stream: %v", err))
 			return
 		}
+		ctx := d.newStreamCtx()
 		go func() {
 			for _, rawLine := range lines {
 				panel.AppendText(unescapeStreamLine(rawLine))
 				w.Invalidate()
-				time.Sleep(StreamDelay)
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(StreamDelay):
+				}
 			}
 		}()
 	}
