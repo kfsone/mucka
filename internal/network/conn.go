@@ -71,6 +71,12 @@ type Conn struct {
 	// DreamWordUpdated is called when the dream word is set or cleared.
 	// Empty string means cleared. May be nil. Called from reader goroutine.
 	DreamWordUpdated func(string)
+	// ConnFailed is called from the Connect goroutine when net.DialTimeout returns
+	// an error (after the error message is written to sink). May be nil.
+	ConnFailed func()
+	// ConnLost is called from the reader goroutine when an established connection
+	// drops due to a read error (after "Connection closed." is written). May be nil.
+	ConnLost func()
 
 	dreamWordMu  sync.RWMutex // protects dreamWordStr
 	dreamWordStr string
@@ -127,6 +133,9 @@ func (c *Conn) Connect(profile config.ServerProfile) {
 			c.connecting.Store(false)
 			c.sink.AppendText("\x1b[31mConnection failed: " + err.Error() + "\x1b[0m")
 			c.invalidate()
+			if c.ConnFailed != nil {
+				c.ConnFailed()
+			}
 			return
 		}
 		c.mu.Lock()
@@ -239,6 +248,9 @@ func (c *Conn) reader(conn net.Conn, profile config.ServerProfile) {
 			if c.IsConnected() {
 				c.sink.AppendText("\x1b[31mConnection closed.\x1b[0m")
 				c.invalidate()
+				if c.ConnLost != nil {
+					c.ConnLost()
+				}
 			}
 			return
 		}
