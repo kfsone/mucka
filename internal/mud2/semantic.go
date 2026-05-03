@@ -41,7 +41,7 @@ var semanticTags = [61]string{
 // number. Returns "" for type 0 (default text), out-of-range values, and
 // types that have no assigned label.
 func SemanticTag(typeNum int) string {
-	if typeNum <= 0 || typeNum >= len(semanticTags) {
+	if typeNum < 0 || typeNum >= len(semanticTags) {
 		return ""
 	}
 	return semanticTags[typeNum]

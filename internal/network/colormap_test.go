@@ -100,4 +100,3 @@ func TestColorMapLine_NotSuppressedWithoutColorMap(t *testing.T) {
 		t.Errorf("/ASfbN line should pass through to sink when no ColorMap is attached")
 	}
 }
-
