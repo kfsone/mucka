@@ -337,3 +337,29 @@ func TestScanLine_PersonaSaved_WithCommas(t *testing.T) {
 		t.Errorf("Score = %d, want 1234567", s.Score)
 	}
 }
+
+func TestScanLine_PersonaSaved_PointGain(t *testing.T) {
+	// Delta format when points are gained: "(Persona saved on +114 = 4,883)."
+	var s Stats
+	s.Score = 4769
+	line := "(Persona saved on +114 = 4,883)."
+	if !ScanLine(line, &s) {
+		t.Fatal("should have matched")
+	}
+	if s.Score != 4883 {
+		t.Errorf("Score = %d, want 4883", s.Score)
+	}
+}
+
+func TestScanLine_PersonaSaved_PointLoss(t *testing.T) {
+	// Delta format when points are lost: "(Persona saved on -10 = 110)."
+	var s Stats
+	s.Score = 120
+	line := "(Persona saved on -10 = 110)."
+	if !ScanLine(line, &s) {
+		t.Fatal("should have matched")
+	}
+	if s.Score != 110 {
+		t.Errorf("Score = %d, want 110", s.Score)
+	}
+}

@@ -47,7 +47,8 @@ func parseFirstInt64(s string) (int64, bool) {
 //	"score:"                → Score (commas stripped)
 //	"level:"                → Level (integer) and Rank (next token), or just Rank for old format
 //	"Your stamina is "      → Stamina
-//	"(Persona saved on "    → Score (first number after "score" in line, commas stripped)
+//	"(Persona saved on "    → Score: "score N" format (commas stripped), or
+//	                          delta format "+N = M" / "-N = M" where M is the new score
 func ScanLine(line string, s *Stats) bool {
 	lower := strings.ToLower(line)
 	updated := false
@@ -187,13 +188,30 @@ func ScanLine(line string, s *Stats) bool {
 		}
 	}
 
-	// "(Persona saved on " → Score (first number after "score" in the line, commas stripped).
-	if strings.Contains(lower, "(persona saved on ") {
-		if scoreIdx := strings.Index(lower, "score"); scoreIdx >= 0 {
-			noCommas := strings.ReplaceAll(line[scoreIdx+len("score"):], ",", "")
+	// "(Persona saved on " → Score.
+	// Handles two formats:
+	//   - "score N" anywhere in the line (commas stripped)
+	//   - delta format: "+N = M" or "-N = M" where M is the new score
+	if idx := strings.Index(lower, "(persona saved on "); idx >= 0 {
+		suffix := line[idx+len("(persona saved on "):]
+		lowerSuffix := lower[idx+len("(persona saved on "):]
+		if scoreIdx := strings.Index(lowerSuffix, "score"); scoreIdx >= 0 {
+			noCommas := strings.ReplaceAll(suffix[scoreIdx+len("score"):], ",", "")
 			if n, ok := parseFirstInt64(noCommas); ok {
 				s.Score = n
 				updated = true
+			}
+		} else {
+			// Delta format: "(Persona saved on +114 = 4,883)." or "(Persona saved on -10 = 110)."
+			trimmed := strings.TrimSpace(suffix)
+			if len(trimmed) > 0 && (trimmed[0] == '+' || trimmed[0] == '-') {
+				if eqIdx := strings.IndexByte(suffix, '='); eqIdx >= 0 {
+					noCommas := strings.ReplaceAll(suffix[eqIdx+1:], ",", "")
+					if n, ok := parseFirstInt64(noCommas); ok {
+						s.Score = n
+						updated = true
+					}
+				}
 			}
 		}
 	}
