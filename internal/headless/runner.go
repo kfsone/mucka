@@ -82,9 +82,13 @@ func runWithEmitter(cfg *config.Config, profileName, scriptFile string, e emitte
 	conn.DreamWordUpdated = e.EmitDreamWord
 
 	if profileName != "" {
-		profile, ok := cfg.Servers[profileName]
+		profile, deprecated, ok := config.LookupProfile(cfg.Servers, profileName)
 		if !ok {
 			return fmt.Errorf("profile %q not found in config", profileName)
+		}
+		if deprecated {
+			fmt.Fprintf(os.Stderr, "warning: profile name %q is deprecated; please use %q\n",
+				profileName, config.ProfilePrefix+profileName)
 		}
 		conn.Connect(profile)
 		// Poll until connected or 15s timeout.
