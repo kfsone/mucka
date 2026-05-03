@@ -8,3 +8,14 @@ package version
 var Version = "dev"
 
 const AppName = "mucka"
+
+// String returns Version in a display-friendly format.
+// Bare semver strings (starting with a digit) are prefixed with "v".
+// Versions already starting with "v" or non-numeric identifiers (e.g. "dev")
+// are returned unchanged.
+func String() string {
+	if len(Version) > 0 && Version[0] >= '0' && Version[0] <= '9' {
+		return "v" + Version
+	}
+	return Version
+}

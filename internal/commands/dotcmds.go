@@ -100,7 +100,7 @@ func connectToProfile(d *Dispatcher, profileName string) {
 	d.cancelStreams()
 	conn.Connect(profile)
 	if d.w != nil {
-		d.w.Option(app.Title(version.AppName + " v" + version.Version + " — " + profileName))
+		d.w.Option(app.Title(version.AppName + " " + version.String() + " — " + profileName))
 	}
 	d.conn = conn
 }
