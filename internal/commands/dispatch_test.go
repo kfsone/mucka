@@ -1,12 +1,17 @@
 package commands
 
 import (
+	"bytes"
+	"io"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 	"unsafe"
 
 	"github.com/kfsone/mucka/internal/ansi"
+	"github.com/kfsone/mucka/internal/config"
 	"github.com/kfsone/mucka/internal/ui"
 )
 
@@ -264,4 +269,199 @@ func TestDispatchUnknownDotCommandNotInDotReg(t *testing.T) {
 	if lines[0] != want {
 		t.Errorf("expected %q, got %q", want, lines[0])
 	}
+}
+
+// ── .log command tests ────────────────────────────────────────────────────
+
+// logTestDispatcher builds a Dispatcher with .log registered and no window.
+func logTestDispatcher(cfg *config.Config) (*Dispatcher, *ui.UI) {
+	u := ui.New()
+	d := &Dispatcher{
+		w:      nil,
+		u:      u,
+		cfg:    cfg,
+		reg:    NewRegistry(),
+		dotReg: NewRegistry(),
+	}
+	d.dotReg.Register(".log", "start/stop logging", dotLogHandler(d))
+	return d, u
+}
+
+// nopWriteCloser wraps a *bytes.Buffer as an io.WriteCloser for testing.
+type nopWriteCloser struct{ *bytes.Buffer }
+
+func (nopWriteCloser) Close() error { return nil }
+
+var _ io.WriteCloser = nopWriteCloser{}
+
+func TestDotLogNoArgsNoTemplateShowsUsage(t *testing.T) {
+	d, u := logTestDispatcher(nil)
+	d.Handle(".log")
+	lines := panelText(u.TextPanel)
+	if len(lines) == 0 {
+		t.Fatal("expected output from .log with no args and no config")
+	}
+	if !strings.Contains(lines[0], "Usage") {
+		t.Errorf("expected usage message, got %q", lines[0])
+	}
+}
+
+func TestDotLogOffWhenNotLogging(t *testing.T) {
+	d, u := logTestDispatcher(nil)
+	d.Handle(".log off")
+	lines := panelText(u.TextPanel)
+	if len(lines) == 0 {
+		t.Fatal("expected output from .log off when not logging")
+	}
+	if !strings.Contains(lines[0], "Not currently logging") {
+		t.Errorf("expected 'Not currently logging' message, got %q", lines[0])
+	}
+}
+
+func TestDotLogOffIsCaseInsensitive(t *testing.T) {
+	d, u := logTestDispatcher(nil)
+	d.Handle(".log OFF")
+	lines := panelText(u.TextPanel)
+	if len(lines) == 0 || !strings.Contains(lines[0], "Not currently logging") {
+		t.Errorf("expected 'Not currently logging', got %v", lines)
+	}
+}
+
+func TestDotLogFilenameOpensFile(t *testing.T) {
+	tmp := t.TempDir()
+	logPath := filepath.Join(tmp, "test.log")
+
+	d, u := logTestDispatcher(nil)
+	d.Handle(".log " + logPath)
+
+	lines := panelText(u.TextPanel)
+	if len(lines) == 0 || !strings.Contains(lines[0], logPath) {
+		t.Errorf("expected confirmation with path %q, got %v", logPath, lines)
+	}
+	if d.logFileName != logPath {
+		t.Errorf("logFileName = %q, want %q", d.logFileName, logPath)
+	}
+
+	// Ensure the file was actually created.
+	if _, err := os.Stat(logPath); err != nil {
+		t.Errorf("log file not created: %v", err)
+	}
+
+	// Clean up.
+	d.u.TextPanel.StopLog()
+}
+
+func TestDotLogWritesToFile(t *testing.T) {
+	tmp := t.TempDir()
+	logPath := filepath.Join(tmp, "out.log")
+
+	d, _ := logTestDispatcher(nil)
+	d.Handle(".log " + logPath)
+
+	// Append text after logging started.
+	d.u.TextPanel.AppendText("logged line")
+
+	d.u.TextPanel.StopLog()
+	d.logFileName = ""
+
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("reading log file: %v", err)
+	}
+	// The "Logging to …" confirmation line and "logged line" should both appear.
+	if !strings.Contains(string(data), "logged line") {
+		t.Errorf("log file missing 'logged line'; content: %q", string(data))
+	}
+}
+
+func TestDotLogOffStopsLogging(t *testing.T) {
+	tmp := t.TempDir()
+	logPath := filepath.Join(tmp, "stop.log")
+
+	d, _ := logTestDispatcher(nil)
+	d.Handle(".log " + logPath)
+	d.Handle(".log off")
+
+	if d.logFileName != "" {
+		t.Errorf("logFileName should be empty after .log off, got %q", d.logFileName)
+	}
+}
+
+func TestDotLogNoArgsShowsStatusWhenLogging(t *testing.T) {
+	tmp := t.TempDir()
+	logPath := filepath.Join(tmp, "status.log")
+
+	d, u := logTestDispatcher(nil)
+	d.Handle(".log " + logPath)
+
+	// Clear panel lines seen so far via a fresh read.
+	_ = panelText(u.TextPanel)
+
+	// Calling .log with no args while logging should report the filename.
+	d.Handle(".log")
+	lines := panelText(u.TextPanel)
+	// Find the status message (last appended).
+	found := false
+	for _, l := range lines {
+		if strings.Contains(l, logPath) && strings.Contains(l, "Logging to") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected status line with %q, got %v", logPath, lines)
+	}
+
+	d.u.TextPanel.StopLog()
+}
+
+func TestDotLogWithLogDir(t *testing.T) {
+	tmp := t.TempDir()
+	cfg := config.Default()
+	cfg.General.LogDir = tmp
+
+	d, u := logTestDispatcher(cfg)
+	d.Handle(".log myfile.log")
+
+	lines := panelText(u.TextPanel)
+	wantPath := filepath.Join(tmp, "myfile.log")
+	if d.logFileName != wantPath {
+		t.Errorf("logFileName = %q, want %q", d.logFileName, wantPath)
+	}
+	found := false
+	for _, l := range lines {
+		if strings.Contains(l, wantPath) {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected confirmation with %q, got %v", wantPath, lines)
+	}
+
+	d.u.TextPanel.StopLog()
+}
+
+func TestDotLogNoArgsUsesLogFileTemplate(t *testing.T) {
+	tmp := t.TempDir()
+	cfg := config.Default()
+	cfg.General.LogDir = tmp
+	// Use a fixed suffix so we know what the generated name looks like.
+	cfg.General.LogFileT = "session-2006.log"
+
+	d, u := logTestDispatcher(cfg)
+	d.Handle(".log")
+
+	lines := panelText(u.TextPanel)
+	if len(lines) == 0 {
+		t.Fatal("expected output after .log with log-file-t configured")
+	}
+	if strings.Contains(lines[0], "Usage") {
+		t.Errorf("did not expect usage message when log-file-t is set; got %q", lines[0])
+	}
+	if d.logFileName == "" {
+		t.Error("expected logFileName to be set after auto-start from template")
+	}
+
+	d.u.TextPanel.StopLog()
 }

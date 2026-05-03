@@ -557,7 +557,29 @@ port = 4000
 	}
 }
 
-// TestDeprecatedSectionWarning verifies that old-style INI sections without the
+// TestParseLogFileTAndLogFmt verifies that log-file-t and log-fmt are read from
+// the [general] section correctly.
+func TestParseLogFileTAndLogFmt(t *testing.T) {
+	iniInput := `
+[general]
+log-dir    = /tmp/logs
+log-file-t = mud2-2006-01-02.log
+log-fmt    = [15:04:05]
+`
+	cfg, err := parse([]byte(iniInput))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if cfg.General.LogDir != "/tmp/logs" {
+		t.Errorf("LogDir: got %q, want /tmp/logs", cfg.General.LogDir)
+	}
+	if cfg.General.LogFileT != "mud2-2006-01-02.log" {
+		t.Errorf("LogFileT: got %q, want mud2-2006-01-02.log", cfg.General.LogFileT)
+	}
+	if cfg.General.LogFmt != "[15:04:05]" {
+		t.Errorf("LogFmt: got %q, want [15:04:05]", cfg.General.LogFmt)
+	}
+}
 // "profile." prefix are still loaded but generate a deprecation warning.
 func TestDeprecatedSectionWarning(t *testing.T) {
 	iniInput := `

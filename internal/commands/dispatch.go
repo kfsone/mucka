@@ -43,6 +43,8 @@ type Dispatcher struct {
 
 	streamMu     sync.Mutex
 	cancelStream context.CancelFunc
+
+	logFileName string // non-empty = currently logging; holds the open file path
 }
 
 // NewDispatcher creates a Dispatcher, registers all commands, and sets up UI.OnSubmit.
@@ -67,6 +69,7 @@ func NewDispatcher(w *app.Window, u *ui.UI, cfg *config.Config, fonts []font.Fon
 	d.dotReg.Register(".connect", "connect to a server profile", dotConnectHandler(d))
 	d.dotReg.Register(".disconnect", "disconnect from server", dotDisconnectHandler(d))
 	d.dotReg.Register(".fkeys", "open the F-key binding editor", func(args []string) { dotFKeysHandler(d) })
+	d.dotReg.Register(".log", "start/stop logging to a file", dotLogHandler(d))
 
 	u.OnSubmit = d.Handle
 	u.ConnStatus = d.ConnStatus
