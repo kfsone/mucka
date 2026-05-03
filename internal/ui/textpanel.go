@@ -123,7 +123,7 @@ func (p *TextPanel) AppendSpans(spans []ansi.Span) {
 		for _, sp := range spans {
 			sb.WriteString(sp.Text)
 		}
-		fmt.Fprintln(p.logWriter, sb.String())
+		fmt.Fprintf(p.logWriter, "%s\n", sb.String())
 	}
 	p.logMu.Unlock()
 
