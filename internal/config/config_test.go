@@ -279,9 +279,9 @@ func TestFKeySetGetSet(t *testing.T) {
 // TestFKeyConfigGetCmd verifies GetCmd for all three modifiers and all 12 keys.
 func TestFKeyConfigGetCmd(t *testing.T) {
 	var cfg FKeyConfig
-	cfg.None.F1 = "say hello"
-	cfg.Shift.F3 = "north"
-	cfg.Ctrl.F12 = "quit"
+	cfg.None[0] = "say hello"
+	cfg.Shift[2] = "north"
+	cfg.Ctrl[11] = "quit"
 
 	tests := []struct {
 		mod, key, want string
@@ -307,9 +307,9 @@ func TestFKeyConfigGetCmd(t *testing.T) {
 // TestFKeyConfigSetByIndex verifies SetByIndex returns the correct FKeySet pointer.
 func TestFKeyConfigSetByIndex(t *testing.T) {
 	var cfg FKeyConfig
-	cfg.None.F1 = "none"
-	cfg.Shift.F1 = "shift"
-	cfg.Ctrl.F1 = "ctrl"
+	cfg.None[0] = "none"
+	cfg.Shift[0] = "shift"
+	cfg.Ctrl[0] = "ctrl"
 
 	if cfg.SetByIndex(0) != &cfg.None {
 		t.Error("SetByIndex(0) should return &cfg.None")
@@ -332,10 +332,10 @@ func TestSaveFKeysRoundtrip(t *testing.T) {
 	path := filepath.Join(tmp, "mucka.ini")
 
 	fkeys := FKeyConfig{}
-	fkeys.None.F1 = "say hello"
-	fkeys.None.F5 = "look"
-	fkeys.Shift.F2 = "north"
-	fkeys.Ctrl.F12 = "quit"
+	fkeys.None[0] = "say hello"
+	fkeys.None[4] = "look"
+	fkeys.Shift[1] = "north"
+	fkeys.Ctrl[11] = "quit"
 
 	if err := SaveFKeys(path, fkeys); err != nil {
 		t.Fatalf("SaveFKeys: %v", err)
@@ -350,17 +350,17 @@ func TestSaveFKeysRoundtrip(t *testing.T) {
 		t.Fatalf("parse after save: %v", err)
 	}
 
-	if cfg.FKeys.None.F1 != "say hello" {
-		t.Errorf("None.F1: got %q, want %q", cfg.FKeys.None.F1, "say hello")
+	if cfg.FKeys.None[0] != "say hello" {
+		t.Errorf("None.F1: got %q, want %q", cfg.FKeys.None[0], "say hello")
 	}
-	if cfg.FKeys.None.F5 != "look" {
-		t.Errorf("None.F5: got %q, want %q", cfg.FKeys.None.F5, "look")
+	if cfg.FKeys.None[4] != "look" {
+		t.Errorf("None.F5: got %q, want %q", cfg.FKeys.None[4], "look")
 	}
-	if cfg.FKeys.Shift.F2 != "north" {
-		t.Errorf("Shift.F2: got %q, want %q", cfg.FKeys.Shift.F2, "north")
+	if cfg.FKeys.Shift[1] != "north" {
+		t.Errorf("Shift.F2: got %q, want %q", cfg.FKeys.Shift[1], "north")
 	}
-	if cfg.FKeys.Ctrl.F12 != "quit" {
-		t.Errorf("Ctrl.F12: got %q, want %q", cfg.FKeys.Ctrl.F12, "quit")
+	if cfg.FKeys.Ctrl[11] != "quit" {
+		t.Errorf("Ctrl.F12: got %q, want %q", cfg.FKeys.Ctrl[11], "quit")
 	}
 }
 
@@ -388,13 +388,13 @@ f12 = quit
 		got   string
 		want  string
 	}{
-		{"None.F1", cfg.FKeys.None.F1, "say hello"},
-		{"None.F5", cfg.FKeys.None.F5, "look"},
-		{"None.F2", cfg.FKeys.None.F2, ""},
-		{"Shift.F2", cfg.FKeys.Shift.F2, "north"},
-		{"Shift.F3", cfg.FKeys.Shift.F3, "south"},
-		{"Ctrl.F12", cfg.FKeys.Ctrl.F12, "quit"},
-		{"Ctrl.F1", cfg.FKeys.Ctrl.F1, ""},
+		{"None.F1", cfg.FKeys.None[0], "say hello"},
+		{"None.F5", cfg.FKeys.None[4], "look"},
+		{"None.F2", cfg.FKeys.None[1], ""},
+		{"Shift.F2", cfg.FKeys.Shift[1], "north"},
+		{"Shift.F3", cfg.FKeys.Shift[2], "south"},
+		{"Ctrl.F12", cfg.FKeys.Ctrl[11], "quit"},
+		{"Ctrl.F1", cfg.FKeys.Ctrl[0], ""},
 	}
 	for _, tc := range tests {
 		if tc.got != tc.want {
@@ -447,8 +447,8 @@ f1 = inventory
 	}
 
 	fkeys := FKeyConfig{}
-	fkeys.None.F1 = "look"
-	fkeys.None.F2 = "north"
+	fkeys.None[0] = "look"
+	fkeys.None[1] = "north"
 
 	if err := SaveFKeys(path, fkeys); err != nil {
 		t.Fatalf("SaveFKeys: %v", err)
@@ -478,11 +478,11 @@ f1 = inventory
 	if err != nil {
 		t.Fatalf("parse after save: %v", err)
 	}
-	if cfg.FKeys.None.F1 != "look" {
-		t.Errorf("None.F1: got %q, want %q", cfg.FKeys.None.F1, "look")
+	if cfg.FKeys.None[0] != "look" {
+		t.Errorf("None.F1: got %q, want %q", cfg.FKeys.None[0], "look")
 	}
-	if cfg.FKeys.None.F2 != "north" {
-		t.Errorf("None.F2: got %q, want %q", cfg.FKeys.None.F2, "north")
+	if cfg.FKeys.None[1] != "north" {
+		t.Errorf("None.F2: got %q, want %q", cfg.FKeys.None[1], "north")
 	}
 	if cfg.General.FontSize != 14 {
 		t.Errorf("FontSize: got %d, want 14", cfg.General.FontSize)
@@ -531,7 +531,7 @@ port = 4000
 	}
 
 	fkeys := FKeyConfig{}
-	fkeys.None.F1 = "inventory"
+	fkeys.None[0] = "inventory"
 
 	if err := SaveFKeys(path, fkeys); err != nil {
 		t.Fatalf("SaveFKeys: %v", err)
@@ -552,8 +552,8 @@ port = 4000
 	if _, ok := cfg.Servers["profile.myserver"]; !ok {
 		t.Error("expected profile.myserver profile to be preserved")
 	}
-	if cfg.FKeys.None.F1 != "inventory" {
-		t.Errorf("None.F1: got %q, want %q", cfg.FKeys.None.F1, "inventory")
+	if cfg.FKeys.None[0] != "inventory" {
+		t.Errorf("None.F1: got %q, want %q", cfg.FKeys.None[0], "inventory")
 	}
 }
 

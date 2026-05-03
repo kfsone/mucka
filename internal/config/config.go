@@ -39,80 +39,20 @@ type General struct {
 }
 
 // FKeySet holds the 12 function key bindings for one modifier combination.
-type FKeySet struct {
-	F1  string `ini:"f1"`
-	F2  string `ini:"f2"`
-	F3  string `ini:"f3"`
-	F4  string `ini:"f4"`
-	F5  string `ini:"f5"`
-	F6  string `ini:"f6"`
-	F7  string `ini:"f7"`
-	F8  string `ini:"f8"`
-	F9  string `ini:"f9"`
-	F10 string `ini:"f10"`
-	F11 string `ini:"f11"`
-	F12 string `ini:"f12"`
-}
+type FKeySet [12]string
 
-// Get returns the binding at index 1-12.
+// Get returns the binding at index 1-12; returns "" for out-of-range values.
 func (s *FKeySet) Get(i int) string {
-	switch i {
-	case 1:
-		return s.F1
-	case 2:
-		return s.F2
-	case 3:
-		return s.F3
-	case 4:
-		return s.F4
-	case 5:
-		return s.F5
-	case 6:
-		return s.F6
-	case 7:
-		return s.F7
-	case 8:
-		return s.F8
-	case 9:
-		return s.F9
-	case 10:
-		return s.F10
-	case 11:
-		return s.F11
-	case 12:
-		return s.F12
-	default:
+	if i < 1 || i > 12 {
 		return ""
 	}
+	return s[i-1]
 }
 
 // Set updates the binding at index 1-12.
 func (s *FKeySet) Set(i int, v string) {
-	switch i {
-	case 1:
-		s.F1 = v
-	case 2:
-		s.F2 = v
-	case 3:
-		s.F3 = v
-	case 4:
-		s.F4 = v
-	case 5:
-		s.F5 = v
-	case 6:
-		s.F6 = v
-	case 7:
-		s.F7 = v
-	case 8:
-		s.F8 = v
-	case 9:
-		s.F9 = v
-	case 10:
-		s.F10 = v
-	case 11:
-		s.F11 = v
-	case 12:
-		s.F12 = v
+	if i >= 1 && i <= 12 {
+		s[i-1] = v
 	}
 }
 
@@ -266,6 +206,13 @@ var iniLoadOptions = ini.LoadOptions{
 	IgnoreInlineComment: true,
 }
 
+// parseFKeySection reads f1..f12 keys from an ini section into a FKeySet.
+func parseFKeySection(sec *ini.Section, set *FKeySet) {
+	for i := 1; i <= 12; i++ {
+		set.Set(i, sec.Key(fmt.Sprintf("f%d", i)).Value())
+	}
+}
+
 // parse decodes raw INI bytes into a Config, applying defaults afterwards.
 // Sections [general], [fkeys.none], [fkeys.shift], [fkeys.ctrl] are mapped to
 // their typed structs; all other sections become server profiles.
@@ -294,17 +241,11 @@ func parse(data []byte) (*Config, error) {
 				return nil, fmt.Errorf("general section: %w", err)
 			}
 		case "fkeys.none":
-			if err := sec.MapTo(&cfg.FKeys.None); err != nil {
-				return nil, fmt.Errorf("fkeys.none section: %w", err)
-			}
+			parseFKeySection(sec, &cfg.FKeys.None)
 		case "fkeys.shift":
-			if err := sec.MapTo(&cfg.FKeys.Shift); err != nil {
-				return nil, fmt.Errorf("fkeys.shift section: %w", err)
-			}
+			parseFKeySection(sec, &cfg.FKeys.Shift)
 		case "fkeys.ctrl":
-			if err := sec.MapTo(&cfg.FKeys.Ctrl); err != nil {
-				return nil, fmt.Errorf("fkeys.ctrl section: %w", err)
-			}
+			parseFKeySection(sec, &cfg.FKeys.Ctrl)
 		default:
 			var sp ServerProfile
 			if err := sec.MapTo(&sp); err != nil {
