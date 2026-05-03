@@ -1,5 +1,8 @@
 name: Tag
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 on:
   push:
     branches: [main]
@@ -10,12 +13,12 @@ permissions:
 jobs:
   tag:
     name: Create version tag
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0  # needed to read full git history for conventional commits
-      - uses: mathieudutour/github-tag-action@v6.2
+      - uses: mathieudutour/github-tag-action@a22cf08638b34d5badda920f9daf6e72c477b07b  # v6.2
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           default_bump: patch
