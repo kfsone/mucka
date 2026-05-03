@@ -60,10 +60,13 @@ func dotConnectHandler(d *Dispatcher) HandlerFunc {
 			d.u.TextPanel.AppendText("No configuration loaded.")
 			return
 		}
-		profile, ok := d.cfg.Servers[profileName]
+		profile, deprecated, ok := config.LookupProfile(d.cfg.Servers, profileName)
 		if !ok {
 			d.u.TextPanel.AppendText(fmt.Sprintf("Unknown server profile: %q", profileName))
 			return
+		}
+		if deprecated {
+			d.u.TextPanel.AppendText(fmt.Sprintf("Warning: profile name %q is deprecated; please use %q", profileName, config.ProfilePrefix+profileName))
 		}
 		conn := network.NewConn(d.u.TextPanel, d.w.Invalidate)
 		conn.StatsUpdated = func(s *fes.Stats) {

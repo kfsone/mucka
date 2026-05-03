@@ -59,7 +59,7 @@ log-dir = /tmp/logs
 
 func TestParseServerProfile(t *testing.T) {
 	ini := `
-[mud2-uk]
+[profile.mud2-uk]
 host = mudii.co.uk
 port = 27750
 login = testlogin
@@ -70,9 +70,9 @@ password = testpass
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	sp, ok := cfg.Servers["mud2-uk"]
+	sp, ok := cfg.Servers["profile.mud2-uk"]
 	if !ok {
-		t.Fatal("expected 'mud2-uk' server profile")
+		t.Fatal("expected 'profile.mud2-uk' server profile")
 	}
 	if sp.Host != "mudii.co.uk" {
 		t.Errorf("Host: got %q, want %q", sp.Host, "mudii.co.uk")
@@ -96,6 +96,10 @@ password = testpass
 	if sp.Height != 40 {
 		t.Errorf("Height: got %d, want 40 (inherited from General default)", sp.Height)
 	}
+	// New-format sections should not generate parse warnings.
+	if len(cfg.ParseWarnings) != 0 {
+		t.Errorf("unexpected ParseWarnings: %v", cfg.ParseWarnings)
+	}
 }
 
 // TestServerProfileInheritsGeneralDimensions verifies that a server profile
@@ -107,11 +111,11 @@ func TestServerProfileInheritsGeneralDimensions(t *testing.T) {
 width = 120
 height = 50
 
-[default-size]
+[profile.default-size]
 host = example.com
 port = 4000
 
-[custom-size]
+[profile.custom-size]
 host = other.com
 port = 4000
 width = 200
@@ -122,7 +126,7 @@ height = 60
 		t.Fatalf("parse: %v", err)
 	}
 
-	def := cfg.Servers["default-size"]
+	def := cfg.Servers["profile.default-size"]
 	if def.Width != 120 {
 		t.Errorf("default-size Width: got %d, want 120 (from General)", def.Width)
 	}
@@ -130,7 +134,7 @@ height = 60
 		t.Errorf("default-size Height: got %d, want 50 (from General)", def.Height)
 	}
 
-	custom := cfg.Servers["custom-size"]
+	custom := cfg.Servers["profile.custom-size"]
 	if custom.Width != 200 {
 		t.Errorf("custom-size Width: got %d, want 200 (per-profile override)", custom.Width)
 	}
@@ -144,11 +148,11 @@ func TestParseMultipleServers(t *testing.T) {
 [general]
 font-size = 16
 
-[mud2-uk]
+[profile.mud2-uk]
 host = mudii.co.uk
 port = 27750
 
-[local]
+[profile.local]
 host = localhost
 port = 4000
 `
@@ -162,11 +166,11 @@ port = 4000
 	if len(cfg.Servers) != 2 {
 		t.Errorf("expected 2 servers, got %d", len(cfg.Servers))
 	}
-	if _, ok := cfg.Servers["mud2-uk"]; !ok {
-		t.Error("expected mud2-uk server")
+	if _, ok := cfg.Servers["profile.mud2-uk"]; !ok {
+		t.Error("expected profile.mud2-uk server")
 	}
-	if _, ok := cfg.Servers["local"]; !ok {
-		t.Error("expected local server")
+	if _, ok := cfg.Servers["profile.local"]; !ok {
+		t.Error("expected profile.local server")
 	}
 }
 
@@ -403,7 +407,7 @@ f12 = quit
 // truncated by inline-comment stripping (IgnoreInlineComment must be set).
 func TestPasswordSpecialChars(t *testing.T) {
 	iniInput := `
-[myserver]
+[profile.myserver]
 host = example.com
 port = 4000
 password = s3cr3t#1;foo
@@ -412,9 +416,9 @@ password = s3cr3t#1;foo
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	sp, ok := cfg.Servers["myserver"]
+	sp, ok := cfg.Servers["profile.myserver"]
 	if !ok {
-		t.Fatal("expected myserver profile")
+		t.Fatal("expected profile.myserver profile")
 	}
 	if sp.Password != "s3cr3t#1;foo" {
 		t.Errorf("Password: got %q, want %q", sp.Password, "s3cr3t#1;foo")
@@ -518,7 +522,7 @@ func TestSaveFKeysPreservesExistingContent(t *testing.T) {
 	initial := `[general]
 font-size = 18
 
-[myserver]
+[profile.myserver]
 host = example.com
 port = 4000
 `
@@ -545,10 +549,140 @@ port = 4000
 	if cfg.General.FontSize != 18 {
 		t.Errorf("FontSize preserved: got %d, want 18", cfg.General.FontSize)
 	}
-	if _, ok := cfg.Servers["myserver"]; !ok {
-		t.Error("expected myserver profile to be preserved")
+	if _, ok := cfg.Servers["profile.myserver"]; !ok {
+		t.Error("expected profile.myserver profile to be preserved")
 	}
 	if cfg.FKeys.None.F1 != "inventory" {
 		t.Errorf("None.F1: got %q, want %q", cfg.FKeys.None.F1, "inventory")
+	}
+}
+
+// TestDeprecatedSectionWarning verifies that old-style INI sections without the
+// "profile." prefix are still loaded but generate a deprecation warning.
+func TestDeprecatedSectionWarning(t *testing.T) {
+	iniInput := `
+[mud2-uk]
+host = mudii.co.uk
+port = 27750
+`
+	cfg, err := parse([]byte(iniInput))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	// Profile should still be loaded under the unprefixed key.
+	sp, ok := cfg.Servers["mud2-uk"]
+	if !ok {
+		t.Fatal("expected deprecated 'mud2-uk' profile to be loaded")
+	}
+	if sp.Host != "mudii.co.uk" {
+		t.Errorf("Host: got %q, want %q", sp.Host, "mudii.co.uk")
+	}
+	// Exactly one deprecation warning should have been generated.
+	if len(cfg.ParseWarnings) != 1 {
+		t.Fatalf("expected 1 ParseWarning, got %d: %v", len(cfg.ParseWarnings), cfg.ParseWarnings)
+	}
+	if !strings.Contains(cfg.ParseWarnings[0], "mud2-uk") {
+		t.Errorf("warning should mention section name, got: %q", cfg.ParseWarnings[0])
+	}
+	if !strings.Contains(cfg.ParseWarnings[0], ProfilePrefix) {
+		t.Errorf("warning should mention ProfilePrefix, got: %q", cfg.ParseWarnings[0])
+	}
+}
+
+// TestDeprecatedSectionMixedWarnings verifies that only unprefixed sections
+// generate warnings when mixed with properly prefixed ones.
+func TestDeprecatedSectionMixedWarnings(t *testing.T) {
+	iniInput := `
+[profile.mud2-uk]
+host = mudii.co.uk
+port = 27750
+
+[local]
+host = localhost
+port = 4000
+`
+	cfg, err := parse([]byte(iniInput))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(cfg.Servers) != 2 {
+		t.Errorf("expected 2 servers, got %d", len(cfg.Servers))
+	}
+	// Only the unprefixed section should warn.
+	if len(cfg.ParseWarnings) != 1 {
+		t.Fatalf("expected 1 ParseWarning, got %d: %v", len(cfg.ParseWarnings), cfg.ParseWarnings)
+	}
+	if !strings.Contains(cfg.ParseWarnings[0], "local") {
+		t.Errorf("warning should mention [local], got: %q", cfg.ParseWarnings[0])
+	}
+}
+
+// TestLookupProfileDirect verifies that LookupProfile finds profiles stored
+// with the canonical "profile." prefix directly (no deprecated fallback).
+func TestLookupProfileDirect(t *testing.T) {
+	servers := map[string]ServerProfile{
+		"profile.mud2": {Host: "mud2.example.com", Port: 4242},
+	}
+	sp, deprecated, ok := LookupProfile(servers, "profile.mud2")
+	if !ok {
+		t.Fatal("expected profile to be found")
+	}
+	if deprecated {
+		t.Error("expected no deprecation for direct lookup by prefixed name")
+	}
+	if sp.Host != "mud2.example.com" {
+		t.Errorf("Host: got %q, want %q", sp.Host, "mud2.example.com")
+	}
+}
+
+// TestLookupProfileDeprecatedFallback verifies that LookupProfile finds a
+// "profile.NAME" entry when the user passes just "NAME" (without prefix),
+// and signals that a deprecated fallback was used.
+func TestLookupProfileDeprecatedFallback(t *testing.T) {
+	servers := map[string]ServerProfile{
+		"profile.mud2": {Host: "mud2.example.com", Port: 4242},
+	}
+	// User passes "mud2" (no prefix) — should find "profile.mud2" as fallback.
+	sp, deprecated, ok := LookupProfile(servers, "mud2")
+	if !ok {
+		t.Fatal("expected deprecated fallback to find profile.mud2")
+	}
+	if !deprecated {
+		t.Error("expected deprecated=true when fallback was used")
+	}
+	if sp.Host != "mud2.example.com" {
+		t.Errorf("Host: got %q, want %q", sp.Host, "mud2.example.com")
+	}
+}
+
+// TestLookupProfileOldFormatDirect verifies that LookupProfile finds profiles
+// stored under the old (deprecated) unprefixed key directly, without triggering
+// the deprecated-fallback path.
+func TestLookupProfileOldFormatDirect(t *testing.T) {
+	// Simulate a config loaded from an old INI (deprecated section [mud2]).
+	servers := map[string]ServerProfile{
+		"mud2": {Host: "mud2.example.com", Port: 4242},
+	}
+	sp, deprecated, ok := LookupProfile(servers, "mud2")
+	if !ok {
+		t.Fatal("expected profile to be found via direct lookup")
+	}
+	if deprecated {
+		t.Error("expected deprecated=false for direct lookup (even of an old-format entry)")
+	}
+	if sp.Host != "mud2.example.com" {
+		t.Errorf("Host: got %q, want %q", sp.Host, "mud2.example.com")
+	}
+}
+
+// TestLookupProfileNotFound verifies that LookupProfile returns not-found when
+// the profile does not exist under either lookup path.
+func TestLookupProfileNotFound(t *testing.T) {
+	servers := map[string]ServerProfile{
+		"profile.mud2": {Host: "mud2.example.com"},
+	}
+	_, _, ok := LookupProfile(servers, "unknown")
+	if ok {
+		t.Error("expected not-found for unknown profile")
 	}
 }

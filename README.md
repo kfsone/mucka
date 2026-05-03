@@ -43,7 +43,7 @@ f2 = score
 [fkeys.shift]         ; Shift+F1–F12
 [fkeys.ctrl]          ; Ctrl+F1–F12
 
-[mud2]                ; one section per server profile (name used with .connect)
+[profile.mud2]        ; one section per server profile — prefix "profile." is required
 host     = mud2.example.com
 port     = 4242
 login    = mylogin
@@ -57,18 +57,22 @@ to ignore them.
 ## Connecting
 
 ```
-.connect mud2
+.connect profile.mud2
 ```
 
-Replaces the profile name with whichever `[section]` you defined in the INI.
+Replaces the profile name with whichever `[profile.section]` you defined in the INI.
 Auto-login sends your login, account, and password in sequence.
+
+> **Note:** Using a profile name without the `profile.` prefix (e.g. `.connect mud2`)
+> is deprecated and will print a warning. Update your commands to use the full name
+> (e.g. `.connect profile.mud2`).
 
 ## Commands
 
 | Prefix | Example | Description |
 |--------|---------|-------------|
 | *(none)* | `go north` | Sent to the server (or echoed locally if not connected) |
-| `.` | `.connect mud2` | Local client command |
+| `.` | `.connect profile.mud2` | Local client command |
 | `$` | `$stream greet.txt` | Utility command |
 
 ### Dot commands
@@ -128,7 +132,7 @@ and from plain-text stat lines in the server output.
 ## Headless mode
 
 ```
-mucka -headless -profile mud2 -script actions.txt
+mucka -headless -profile profile.mud2 -script actions.txt
 ```
 
 Runs without a GUI.  Output goes to stdout; stats updates are printed as

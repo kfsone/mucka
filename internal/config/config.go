@@ -5,9 +5,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"gopkg.in/ini.v1"
 )
+
+// ProfilePrefix is the required prefix for server profile sections in the INI.
+// e.g. [profile.mud2-uk] defines a profile named "profile.mud2-uk".
+const ProfilePrefix = "profile."
 
 // Default values for General settings.
 const (
@@ -164,9 +169,30 @@ type ServerProfile struct {
 
 // Config is the top-level configuration object.
 type Config struct {
-	General General
-	FKeys   FKeyConfig
-	Servers map[string]ServerProfile
+	General       General
+	FKeys         FKeyConfig
+	Servers       map[string]ServerProfile
+	ParseWarnings []string // deprecation/parse warnings collected during Load/parse
+}
+
+// LookupProfile finds a server profile by name, with a deprecated fallback for
+// names without the "profile." prefix. Returns the profile, a bool indicating
+// whether the deprecated fallback was used (caller should warn the user), and
+// a bool indicating whether any profile was found at all.
+func LookupProfile(servers map[string]ServerProfile, name string) (ServerProfile, bool, bool) {
+	// Direct lookup first (handles both "profile.NAME" and old-style "NAME" keys).
+	if sp, ok := servers[name]; ok {
+		return sp, false, true
+	}
+	// Deprecated fallback: if name has no "profile." prefix, try prepending it.
+	// This supports users who connect via ".connect mud2-uk" after updating their
+	// INI to use the new "[profile.mud2-uk]" section format.
+	if !strings.HasPrefix(name, ProfilePrefix) {
+		if sp, ok := servers[ProfilePrefix+name]; ok {
+			return sp, true, true
+		}
+	}
+	return ServerProfile{}, false, false
 }
 
 // applyDefaults fills in zero-value fields with their defaults.
@@ -280,7 +306,16 @@ func parse(data []byte) (*Config, error) {
 			if err := sec.MapTo(&sp); err != nil {
 				return nil, fmt.Errorf("server profile %q: %w", name, err)
 			}
-			cfg.Servers[name] = sp
+			if strings.HasPrefix(name, ProfilePrefix) {
+				// New canonical format: [profile.NAME]
+				cfg.Servers[name] = sp
+			} else {
+				// Deprecated format: [NAME] without the "profile." prefix.
+				// Still loaded for backwards compatibility, but a warning is recorded.
+				cfg.ParseWarnings = append(cfg.ParseWarnings,
+					fmt.Sprintf("deprecated: section [%s] should be renamed to [%s%s]", name, ProfilePrefix, name))
+				cfg.Servers[name] = sp
+			}
 		}
 	}
 
