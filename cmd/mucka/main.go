@@ -78,7 +78,7 @@ func run(initialProfile string) error {
 
 	w := new(app.Window)
 	w.Option(
-		app.Title(version.AppName+" v"+version.Version),
+		app.Title(version.AppName+" "+version.String()),
 		app.Size(unit.Dp(900), unit.Dp(600)),
 	)
 
@@ -91,7 +91,7 @@ func run(initialProfile string) error {
 	u.SetFontSize(unit.Sp(cfg.General.FontSize))
 	u.InputLine.SetHistoryLimit(cfg.General.History)
 	u.TextPanel.SetMaxLines(cfg.General.Scrollback)
-	u.TextPanel.AppendText("\x1b[1;32m" + version.AppName + " v" + version.Version + "\x1b[0m — type .help for commands")
+	u.TextPanel.AppendText("\x1b[1;32m" + version.AppName + " " + version.String() + "\x1b[0m — type .help for commands")
 
 	_ = commands.NewDispatcher(w, u, cfg, fonts, initialProfile)
 
