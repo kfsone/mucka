@@ -42,7 +42,7 @@ const (
 	stateWaitLogin   loginState = iota
 	stateWaitAccount            // received "login: ", sent login
 	stateWaitPassword           // received "Account ID: ", sent account
-	stateDone                   // received "assword:", sent password
+	stateDone                   // matched "assword:" substring (tolerates password:/Password: capitalisation), sent password
 )
 
 // Conn manages a single TCP connection to a MUD server.
