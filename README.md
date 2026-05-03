@@ -30,11 +30,14 @@ if the file is absent.
 
 ```ini
 [general]
-font-name = Go Mono   ; any TrueType/OpenType font installed on the system
-font-size = 14
-width     = 80
-height    = 40
-history   = 2000
+font-name  = Go Mono   ; any TrueType/OpenType font installed on the system
+font-size  = 14
+width      = 80
+height     = 40
+history    = 2000
+log-dir    = C:\Users\Me\logs         ; directory for log files (optional)
+log-file-t = mud2-2006-01-02.log      ; default log filename template (Go time format)
+log-fmt    = [15:04:05]               ; per-line timestamp prefix (Go time format, optional; a space is appended automatically)
 
 [fkeys.none]          ; unmodified F1–F12 bindings
 f1 = inventory
@@ -80,8 +83,10 @@ Auto-login sends your login, account, and password in sequence.
 | Command | Description |
 |---------|-------------|
 | `.connect <profile>` | Connect to a server profile |
+| `.disconnect` | Disconnect from the server |
 | `.fkeys` | Open the F-key binding editor |
 | `.help` | List dot-commands |
+| `.log [<filename>\|off]` | Start logging to a file, or stop logging (`off`). With no argument, auto-starts using `log-file-t` from config if set. |
 | `.quit` | Exit |
 
 ### Dollar commands

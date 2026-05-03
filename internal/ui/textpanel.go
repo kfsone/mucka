@@ -2,8 +2,11 @@
 package ui
 
 import (
+	"fmt"
 	"image"
 	"image/color"
+	"io"
+	"strings"
 	"sync"
 
 	"gioui.org/font"
@@ -44,6 +47,10 @@ type TextPanel struct {
 	partial        []ansi.Span // current live partial line (main goroutine only)
 	fontName       string
 	fontSize       unit.Sp
+
+	logMu       sync.Mutex
+	logWriter   io.WriteCloser
+	logLineFunc func() string // returns line prefix; nil = no prefix
 }
 
 // NewTextPanel returns an initialised TextPanel that auto-scrolls to the
@@ -71,6 +78,33 @@ func (p *TextPanel) SetFont(name string) { p.fontName = name }
 // SetFontSize sets the font size used when rendering text and empty lines.
 func (p *TextPanel) SetFontSize(sp unit.Sp) { p.fontSize = sp }
 
+// SetLogWriter begins logging appended lines to w. Each line is prefixed with
+// the return value of linePrefix (if non-nil). If a log writer is already open
+// it is closed first. Goroutine-safe.
+func (p *TextPanel) SetLogWriter(w io.WriteCloser, linePrefix func() string) {
+	p.logMu.Lock()
+	defer p.logMu.Unlock()
+	if p.logWriter != nil {
+		p.logWriter.Close()
+	}
+	p.logWriter = w
+	p.logLineFunc = linePrefix
+}
+
+// StopLog closes the current log writer and stops logging.
+// Returns true if logging was active. Goroutine-safe.
+func (p *TextPanel) StopLog() bool {
+	p.logMu.Lock()
+	defer p.logMu.Unlock()
+	if p.logWriter == nil {
+		return false
+	}
+	p.logWriter.Close()
+	p.logWriter = nil
+	p.logLineFunc = nil
+	return true
+}
+
 // AppendText parses s for ANSI SGR sequences and enqueues the result for
 // display on the next frame. Goroutine-safe.
 func (p *TextPanel) AppendText(s string) {
@@ -80,6 +114,19 @@ func (p *TextPanel) AppendText(s string) {
 // AppendSpans enqueues a pre-parsed line of spans for display on the next
 // frame, and clears any in-progress partial. Goroutine-safe.
 func (p *TextPanel) AppendSpans(spans []ansi.Span) {
+	p.logMu.Lock()
+	if p.logWriter != nil {
+		var sb strings.Builder
+		if p.logLineFunc != nil {
+			sb.WriteString(p.logLineFunc())
+		}
+		for _, sp := range spans {
+			sb.WriteString(sp.Text)
+		}
+		fmt.Fprintf(p.logWriter, "%s\n", sb.String())
+	}
+	p.logMu.Unlock()
+
 	p.pendingMu.Lock()
 	p.pendingLines = append(p.pendingLines, spans)
 	p.pendingPartial = nil
