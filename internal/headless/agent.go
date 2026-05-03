@@ -5,6 +5,7 @@ import (
 	"io"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/kfsone/mucka/internal/ansi"
@@ -17,7 +18,7 @@ import (
 type AgentEmitter struct {
 	mu       sync.Mutex
 	w        io.Writer
-	colorMap *mud2.ColorMap
+	colorMap atomic.Pointer[mud2.ColorMap]
 }
 
 // NewAgentEmitter returns an AgentEmitter writing to w.
@@ -29,9 +30,7 @@ func NewAgentEmitter(w io.Writer) *AgentEmitter {
 // field to text/span NDJSON events. Pass nil to disable the field.
 // Safe to call concurrently with other methods.
 func (a *AgentEmitter) SetColorMap(cm *mud2.ColorMap) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	a.colorMap = cm
+	a.colorMap.Store(cm)
 }
 
 // emit marshals fields as a JSON object with an injected RFC3339Nano timestamp
@@ -75,10 +74,7 @@ func (a *AgentEmitter) AppendSpans(spans []ansi.Span) {
 // emitTextSpans builds and emits an event:"text" JSON line for spans,
 // adding a "semantic" field when the color map provides a tag.
 func (a *AgentEmitter) emitTextSpans(spans []ansi.Span) {
-	// Read colorMap under the lock to get a consistent snapshot.
-	a.mu.Lock()
-	cm := a.colorMap
-	a.mu.Unlock()
+	cm := a.colorMap.Load()
 
 	fields := map[string]any{
 		"event": "text",

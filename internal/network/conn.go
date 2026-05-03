@@ -332,6 +332,9 @@ func (c *Conn) reader(conn net.Conn, profile config.ServerProfile) {
 
 			default:
 				// Normal text line: check for /AL color-map response first.
+				// ParseALLine validates the full /ASfbN format (two color letters +
+				// type number 0–60) before returning true, so false positives on
+				// arbitrary game text are extremely unlikely.
 				if c.ColorMap != nil && c.ColorMap.ParseALLine(plainText) {
 					// /ASfbN color-map response: update the map and suppress from display.
 					c.sink.UpdatePartial(nil)
