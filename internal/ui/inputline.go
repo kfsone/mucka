@@ -130,6 +130,9 @@ func (il *InputLine) drainOps() {
 
 // splitPhrases splits s on commas that are not inside double-quoted strings.
 // Each segment is returned as-is (no trimming).
+// Note: backslash-escaped quotes inside strings are not supported; a `\"`
+// sequence will toggle the in-quote state. This matches MUD command conventions
+// where escaped quotes are not used.
 func splitPhrases(s string) []string {
 	var phrases []string
 	var cur strings.Builder
