@@ -26,15 +26,30 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Cache apt packages
+        id: cache-apt
+        uses: actions/cache@v4
+        with:
+          path: /var/cache/apt/archives
+          key: apt-gioui-${{ runner.os }}-v1
+
+      - name: Update apt package lists
+        if: steps.cache-apt.outputs.cache-hit != 'true'
+        run: sudo apt-get update -qq
 
       - name: Install system dependencies
         run: |
-          sudo apt-get update && sudo apt-get install -y \
+          sudo apt-get install -y --no-install-recommends \
             libxkbcommon-dev \
+            libxkbcommon-x11-dev \
             libwayland-dev \
             libvulkan-dev \
             libegl1-mesa-dev \
             libgles2-mesa-dev \
+            libx11-xcb-dev \
             pkg-config \
             xorg-dev
 
