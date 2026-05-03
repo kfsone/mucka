@@ -27,10 +27,20 @@ func main() {
 	scriptFlag := flag.String("script", "", "script file to execute (headless mode)")
 	flag.Parse()
 
+	// Resolve initial profile: flag wins over positional arg.
+	positionalProfile := ""
+	if args := flag.Args(); len(args) > 0 {
+		positionalProfile = args[0]
+	}
+	initialProfile := *profileFlag
+	if initialProfile == "" {
+		initialProfile = positionalProfile
+	}
+
 	if *headlessFlag {
 		cfg, _ := config.Load()
 		os.Exit(func() int {
-			if err := headless.Run(cfg, *profileFlag, *scriptFlag); err != nil {
+			if err := headless.Run(cfg, initialProfile, *scriptFlag); err != nil {
 				fmt.Fprintln(os.Stderr, err)
 				return 1
 			}
@@ -41,7 +51,7 @@ func main() {
 	if *stdioFlag {
 		cfg, _ := config.Load()
 		os.Exit(func() int {
-			if err := headless.RunStdio(cfg, *profileFlag, *scriptFlag); err != nil {
+			if err := headless.RunStdio(cfg, initialProfile, *scriptFlag); err != nil {
 				fmt.Fprintln(os.Stderr, err)
 				return 1
 			}
@@ -50,7 +60,7 @@ func main() {
 	}
 
 	go func() {
-		if err := run(); err != nil {
+		if err := run(initialProfile); err != nil {
 			log.Println(err)
 			os.Exit(1)
 		}
@@ -59,7 +69,7 @@ func main() {
 	app.Main()
 }
 
-func run() error {
+func run(initialProfile string) error {
 	cfg, err := config.Load()
 	if err != nil {
 		log.Printf("config: %v (using defaults)", err)
@@ -83,7 +93,7 @@ func run() error {
 	u.TextPanel.SetMaxLines(cfg.General.Scrollback)
 	u.TextPanel.AppendText("\x1b[1;32m" + version.AppName + " v" + version.Version + "\x1b[0m — type .help for commands")
 
-	_ = commands.NewDispatcher(w, u, cfg, fonts)
+	_ = commands.NewDispatcher(w, u, cfg, fonts, initialProfile)
 
 	var ops op.Ops
 	for {
