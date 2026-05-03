@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 
 	"gopkg.in/ini.v1"
 )
@@ -70,8 +71,11 @@ func (c *FKeyConfig) GetCmd(mod, key string) string {
 	default:
 		return ""
 	}
-	var n int
-	if _, err := fmt.Sscanf(key, "F%d", &n); err != nil {
+	if len(key) < 2 || key[0] != 'F' {
+		return ""
+	}
+	n, err := strconv.Atoi(key[1:])
+	if err != nil {
 		return ""
 	}
 	return set.Get(n)
