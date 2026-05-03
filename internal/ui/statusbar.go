@@ -86,15 +86,15 @@ func weatherLabel(w byte) (string, color.NRGBA) {
 	case 'C':
 		return "☁", color.NRGBA{R: 0xCC, G: 0xCC, B: 0xCC, A: 0xFF}
 	case 'R':
-		return "🌧", color.NRGBA{R: 0x44, G: 0x88, B: 0xFF, A: 0xFF}
+		return "Rain", color.NRGBA{R: 0x44, G: 0x88, B: 0xFF, A: 0xFF}
 	case 'S':
 		return "❄", color.NRGBA{R: 0xAA, G: 0xDD, B: 0xFF, A: 0xFF}
 	case 'O':
-		return "🌥", color.NRGBA{R: 0x99, G: 0x99, B: 0xAA, A: 0xFF}
+		return "Ocast", color.NRGBA{R: 0x99, G: 0x99, B: 0xAA, A: 0xFF}
 	case 'T':
-		return "⛈", color.NRGBA{R: 0x44, G: 0x88, B: 0xFF, A: 0xFF}
+		return "Storm", color.NRGBA{R: 0x44, G: 0x88, B: 0xFF, A: 0xFF}
 	case 'B':
-		return "🌨", color.NRGBA{R: 0xCC, G: 0xEE, B: 0xFF, A: 0xFF}
+		return "Bliz", color.NRGBA{R: 0xCC, G: 0xEE, B: 0xFF, A: 0xFF}
 	default:
 		return "", color.NRGBA{}
 	}
