@@ -24,8 +24,8 @@ func TestExtractDreamWord_NoMarkers(t *testing.T) {
 }
 
 func TestExtractDreamWord_SetOnly(t *testing.T) {
-	// SET marker: \xAA\x9B\x9B\xFF followed by word
-	raw := []byte{0xAA, 0x9B, 0x9B, 0xFF, 'f', 'r', 'o', 'g'}
+	// SET marker: \xAA\x9B\x9B followed by word
+	raw := []byte{0xAA, 0x9B, 0x9B, 'f', 'r', 'o', 'g'}
 	got, word, changed := extractDreamWord(raw)
 	if !changed {
 		t.Error("expected changed=true")
@@ -40,8 +40,8 @@ func TestExtractDreamWord_SetOnly(t *testing.T) {
 }
 
 func TestExtractDreamWord_ClearOnly(t *testing.T) {
-	// CLEAR marker: \xAA\x9B\x9C\xFF
-	raw := []byte{0xAA, 0x9B, 0x9C, 0xFF}
+	// CLEAR marker: \xAA\x9B\x9C
+	raw := []byte{0xAA, 0x9B, 0x9C}
 	got, word, changed := extractDreamWord(raw)
 	if !changed {
 		t.Error("expected changed=true")
@@ -56,7 +56,7 @@ func TestExtractDreamWord_ClearOnly(t *testing.T) {
 
 func TestExtractDreamWord_SetThenClear(t *testing.T) {
 	// SET "foo" then CLEAR → last wins: empty
-	raw := []byte{0xAA, 0x9B, 0x9B, 0xFF, 'f', 'o', 'o', 0xAA, 0x9B, 0x9C, 0xFF}
+	raw := []byte{0xAA, 0x9B, 0x9B, 'f', 'o', 'o', 0xAA, 0x9B, 0x9C}
 	_, word, changed := extractDreamWord(raw)
 	if !changed {
 		t.Error("expected changed=true")
@@ -68,7 +68,7 @@ func TestExtractDreamWord_SetThenClear(t *testing.T) {
 
 func TestExtractDreamWord_ClearThenSet(t *testing.T) {
 	// CLEAR then SET "foo" → last wins: "foo"
-	raw := []byte{0xAA, 0x9B, 0x9C, 0xFF, 0xAA, 0x9B, 0x9B, 0xFF, 'f', 'o', 'o'}
+	raw := []byte{0xAA, 0x9B, 0x9C, 0xAA, 0x9B, 0x9B, 'f', 'o', 'o'}
 	_, word, changed := extractDreamWord(raw)
 	if !changed {
 		t.Error("expected changed=true")
@@ -79,8 +79,8 @@ func TestExtractDreamWord_ClearThenSet(t *testing.T) {
 }
 
 func TestExtractDreamWord_SetNoFollowingLetters(t *testing.T) {
-	// \xAA\x9B\x9B\xFF with no letters after — no word extracted, treated as raw bytes
-	raw := []byte{0xAA, 0x9B, 0x9B, 0xFF, '!'}
+	// \xAA\x9B\x9B with no letters after — no word extracted, treated as raw bytes
+	raw := []byte{0xAA, 0x9B, 0x9B, '!'}
 	got, word, changed := extractDreamWord(raw)
 	if changed {
 		t.Error("expected changed=false when SET has no letters")
@@ -94,8 +94,8 @@ func TestExtractDreamWord_SetNoFollowingLetters(t *testing.T) {
 }
 
 func TestExtractDreamWord_SetAtEndOfBuffer(t *testing.T) {
-	// Partial marker at end — i+3 < len(raw) check fails, treated as raw
-	raw := []byte{0xAA, 0x9B, 0x9B} // only 3 bytes, need i+3 < len for check
+	// Partial marker at end — i+2 < len(raw) check fails, treated as raw
+	raw := []byte{0xAA, 0x9B} // only 2 bytes, need i+2 < len for check
 	got, word, changed := extractDreamWord(raw)
 	if changed {
 		t.Error("expected changed=false for partial marker at end")
@@ -111,8 +111,8 @@ func TestExtractDreamWord_SetAtEndOfBuffer(t *testing.T) {
 func TestExtractDreamWord_MultipleSetMarkers(t *testing.T) {
 	// Multiple SET markers — last word wins
 	raw := []byte{
-		0xAA, 0x9B, 0x9B, 0xFF, 'a', 'b', 'c',
-		0xAA, 0x9B, 0x9B, 0xFF, 'x', 'y', 'z',
+		0xAA, 0x9B, 0x9B, 'a', 'b', 'c',
+		0xAA, 0x9B, 0x9B, 'x', 'y', 'z',
 	}
 	_, word, changed := extractDreamWord(raw)
 	if !changed {
@@ -141,7 +141,7 @@ func TestExtractDreamWord_WrongSequence(t *testing.T) {
 func TestExtractDreamWord_14CharWord(t *testing.T) {
 	// Maximum 14-char word
 	longWord := []byte("abcdefghijklmn") // 14 chars
-	raw := append([]byte{0xAA, 0x9B, 0x9B, 0xFF}, longWord...)
+	raw := append([]byte{0xAA, 0x9B, 0x9B}, longWord...)
 	_, word, changed := extractDreamWord(raw)
 	if !changed {
 		t.Error("expected changed=true")
@@ -154,7 +154,7 @@ func TestExtractDreamWord_14CharWord(t *testing.T) {
 func TestExtractDreamWord_WordWithSurroundingText(t *testing.T) {
 	// Text before and after the marker should be preserved
 	prefix := []byte("before ")
-	marker := []byte{0xAA, 0x9B, 0x9B, 0xFF, 'w', 'o', 'r', 'd'}
+	marker := []byte{0xAA, 0x9B, 0x9B, 'w', 'o', 'r', 'd'}
 	suffix := []byte(" after")
 	raw := append(append(prefix, marker...), suffix...)
 	got, word, changed := extractDreamWord(raw)
@@ -186,9 +186,9 @@ func TestExtractDreamWord_NoAA(t *testing.T) {
 }
 
 func TestExtractDreamWord_SetExactHeader_NoWord(t *testing.T) {
-	// Complete 4-byte SET header with absolutely nothing after it.
+	// Complete 3-byte SET header with absolutely nothing after it.
 	// Should be consumed silently: changed=false, raw returned.
-	raw := []byte{0xAA, 0x9B, 0x9B, 0xFF}
+	raw := []byte{0xAA, 0x9B, 0x9B}
 	got, word, changed := extractDreamWord(raw)
 	if changed {
 		t.Error("expected changed=false for 4-byte SET header with no letters")
@@ -203,8 +203,8 @@ func TestExtractDreamWord_SetExactHeader_NoWord(t *testing.T) {
 
 func TestExtractDreamWord_MalformedSetThenClear(t *testing.T) {
 	// Malformed SET (no following letters) then CLEAR.
-	// The 4 protocol bytes must NOT leak into the output.
-	raw := []byte{0xAA, 0x9B, 0x9B, 0xFF, '!', 0xAA, 0x9B, 0x9C, 0xFF}
+	// The 3 protocol bytes must NOT leak into the output.
+	raw := []byte{0xAA, 0x9B, 0x9B, '!', 0xAA, 0x9B, 0x9C}
 	got, word, changed := extractDreamWord(raw)
 	if !changed {
 		t.Error("expected changed=true (CLEAR was found)")
@@ -221,7 +221,7 @@ func TestExtractDreamWord_MalformedSetThenClear(t *testing.T) {
 
 func TestExtractDreamWord_MalformedSetThenSet(t *testing.T) {
 	// Malformed SET (no letters) then valid SET: protocol bytes must not appear in output.
-	raw := []byte{0xAA, 0x9B, 0x9B, 0xFF, '!', 0xAA, 0x9B, 0x9B, 0xFF, 'c', 'a', 't'}
+	raw := []byte{0xAA, 0x9B, 0x9B, '!', 0xAA, 0x9B, 0x9B, 'c', 'a', 't'}
 	got, word, changed := extractDreamWord(raw)
 	if !changed {
 		t.Error("expected changed=true")
@@ -239,7 +239,7 @@ func TestExtractDreamWord_WordOver14Chars(t *testing.T) {
 	// The spec says 1–14 chars; the implementation is lenient and accepts more.
 	// This test documents the current (permissive) behaviour.
 	longWord := []byte("abcdefghijklmno") // 15 chars
-	raw := append([]byte{0xAA, 0x9B, 0x9B, 0xFF}, longWord...)
+	raw := append([]byte{0xAA, 0x9B, 0x9B}, longWord...)
 	_, word, changed := extractDreamWord(raw)
 	if !changed {
 		t.Error("expected changed=true")
