@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"context"
 	"strings"
 	"sync"
 
@@ -32,6 +33,9 @@ type Dispatcher struct {
 
 	fkeysMu sync.RWMutex
 	fkeys   config.FKeyConfig
+
+	streamMu     sync.Mutex
+	cancelStream context.CancelFunc
 }
 
 // NewDispatcher creates a Dispatcher, registers all commands, and sets up UI.OnSubmit.
@@ -45,8 +49,8 @@ func NewDispatcher(w *app.Window, u *ui.UI, cfg *config.Config, fonts []font.Fon
 		fonts:  fonts,
 		fkeys:  cfg.FKeys,
 	}
-	d.reg.Register("$stream", "stream a file to the text panel line by line", streamHandler(w, u.TextPanel))
-	d.reg.Register("$source", "replay input tokens from a file", sourceHandler(w, u.TextPanel, u.InputLine))
+	d.reg.Register("$stream", "stream a file to the text panel line by line", streamHandler(w, u.TextPanel, d))
+	d.reg.Register("$source", "replay input tokens from a file", sourceHandler(w, u.TextPanel, u.InputLine, d))
 	d.reg.Register("$less", "page through a file", lessHandler(d))
 	d.reg.Register("$help", "list available $ commands", dollarHelpHandler(d))
 
@@ -81,6 +85,29 @@ func (d *Dispatcher) SetFKeys(fk config.FKeyConfig) {
 	d.fkeysMu.Lock()
 	d.fkeys = fk
 	d.fkeysMu.Unlock()
+}
+
+// newStreamCtx cancels any in-flight $stream/$source goroutine and returns a
+// fresh context for the new one.
+func (d *Dispatcher) newStreamCtx() context.Context {
+	d.streamMu.Lock()
+	defer d.streamMu.Unlock()
+	if d.cancelStream != nil {
+		d.cancelStream()
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	d.cancelStream = cancel
+	return ctx
+}
+
+// cancelStreams cancels any in-flight $stream/$source goroutines without
+// starting a new one.
+func (d *Dispatcher) cancelStreams() {
+	d.streamMu.Lock()
+	defer d.streamMu.Unlock()
+	if d.cancelStream != nil {
+		d.cancelStream()
+	}
 }
 
 // ConnStatus returns the current connection state for use by the status bar.

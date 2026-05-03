@@ -77,6 +77,7 @@ func dotConnectHandler(d *Dispatcher) HandlerFunc {
 			d.u.SetDreamWord(word)
 			d.w.Invalidate()
 		}
+		d.cancelStreams()
 		conn.Connect(profile)
 		if d.w != nil {
 			d.w.Option(app.Title(version.AppName + " v" + version.Version + " — " + profileName))
