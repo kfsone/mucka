@@ -248,3 +248,33 @@ func TestExtractDreamWord_WordOver14Chars(t *testing.T) {
 		t.Errorf("got %q", word)
 	}
 }
+
+func TestExtractDreamWord_AAAloneAtEndOfBuffer(t *testing.T) {
+	// Single 0xAA byte with nothing after it — partial header, treated as raw.
+	raw := []byte{0xAA}
+	got, word, changed := extractDreamWord(raw)
+	if changed {
+		t.Error("expected changed=false for lone 0xAA")
+	}
+	if word != "" {
+		t.Errorf("expected empty word, got %q", word)
+	}
+	if !bytes.Equal(got, raw) {
+		t.Errorf("expected raw returned, got %v", got)
+	}
+}
+
+func TestExtractDreamWord_UnknownThirdByte(t *testing.T) {
+	// 0xAA 0x9B followed by an unrecognised third byte — all bytes treated as raw.
+	raw := []byte{0xAA, 0x9B, 0x05, 'h', 'i'}
+	got, word, changed := extractDreamWord(raw)
+	if changed {
+		t.Error("expected changed=false for unknown 3rd byte")
+	}
+	if word != "" {
+		t.Errorf("expected empty word, got %q", word)
+	}
+	if !bytes.Equal(got, raw) {
+		t.Errorf("expected raw returned, got %v", got)
+	}
+}
