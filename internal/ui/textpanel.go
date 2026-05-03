@@ -8,6 +8,7 @@ import (
 	"io"
 	"strings"
 	"sync"
+	"unicode/utf8"
 
 	"gioui.org/font"
 	"gioui.org/layout"
@@ -34,6 +35,10 @@ var _ core.TextSink = (*TextPanel)(nil)
 // defaultMaxLines is the default scrollback limit for TextPanel.
 const defaultMaxLines = 5000
 
+// cellMeasureN is the number of reference characters used to measure the
+// monospace cell width. A longer sample reduces per-character rounding error.
+const cellMeasureN = 80
+
 // TextPanel is an append-only, vertically-scrolling panel that renders
 // lines of ANSI-styled Spans.
 type TextPanel struct {
@@ -47,6 +52,7 @@ type TextPanel struct {
 	partial        []ansi.Span // current live partial line (main goroutine only)
 	fontName       string
 	fontSize       unit.Sp
+	cellRefW       int // pixel width of cellMeasureN reference chars; 0 = unmeasured
 
 	logMu       sync.Mutex
 	logWriter   io.WriteCloser
@@ -73,10 +79,10 @@ func NewTextPanel() *TextPanel {
 func (p *TextPanel) SetMaxLines(n int) { p.maxLines = n }
 
 // SetFont sets the typeface used when rendering text spans.
-func (p *TextPanel) SetFont(name string) { p.fontName = name }
+func (p *TextPanel) SetFont(name string) { p.fontName = name; p.cellRefW = 0 }
 
 // SetFontSize sets the font size used when rendering text and empty lines.
-func (p *TextPanel) SetFontSize(sp unit.Sp) { p.fontSize = sp }
+func (p *TextPanel) SetFontSize(sp unit.Sp) { p.fontSize = sp; p.cellRefW = 0 }
 
 // SetLogWriter begins logging appended lines to w. Each line is prefixed with
 // the return value of linePrefix (if non-nil). If a log writer is already open
@@ -168,6 +174,10 @@ func (p *TextPanel) drainPending() {
 // Layout renders the text panel into the current constraints.
 func (p *TextPanel) Layout(gtx layout.Context, th *material.Theme) layout.Dimensions {
 	p.drainPending()
+	// Measure monospace cell width on the first frame (or after font change).
+	if p.cellRefW == 0 {
+		p.cellRefW = measureCellRef(gtx, th, p.fontName, p.fontSize)
+	}
 	// Draw background matching the Campbell terminal background (#0C0C0C).
 	panelBG := color.NRGBA{R: 0x0C, G: 0x0C, B: 0x0C, A: 255}
 	paint.FillShape(gtx.Ops, panelBG, clip.Rect{Max: gtx.Constraints.Max}.Op())
@@ -176,6 +186,7 @@ func (p *TextPanel) Layout(gtx layout.Context, th *material.Theme) layout.Dimens
 	if len(p.partial) > 0 {
 		count++
 	}
+	cellRefW := p.cellRefW
 	return p.list.Layout(gtx, count, func(gtx layout.Context, i int) layout.Dimensions {
 		var spans []ansi.Span
 		if i < len(p.lines) {
@@ -183,30 +194,79 @@ func (p *TextPanel) Layout(gtx layout.Context, th *material.Theme) layout.Dimens
 		} else {
 			spans = p.partial
 		}
-		return layoutLine(gtx, th, spans, p.fontName, p.fontSize)
+		return layoutLine(gtx, th, spans, p.fontName, p.fontSize, cellRefW)
 	})
 }
 
+// measureCellRef renders a cellMeasureN-character reference string off-screen
+// and returns its total pixel width. The result is cached in TextPanel.cellRefW
+// and used to derive per-column pixel positions, eliminating the sub-pixel
+// rounding drift that accumulates when each ANSI span is measured separately.
+func measureCellRef(gtx layout.Context, th *material.Theme, fontName string, fontSize unit.Sp) int {
+	const sample = "MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM" // cellMeasureN M's
+	// Use unconstrained width so the label never wraps.
+	mgtx := gtx
+	mgtx.Constraints.Max.X = 1 << 20
+	macro := op.Record(mgtx.Ops)
+	lbl := material.Label(th, fontSize, sample)
+	lbl.Font.Typeface = font.Typeface(fontName)
+	dims := lbl.Layout(mgtx)
+	macro.Stop() // discard: we only needed the dimensions
+	return dims.Size.X
+}
+
 // layoutLine renders a single line as a horizontal sequence of styled spans.
-func layoutLine(gtx layout.Context, th *material.Theme, spans []ansi.Span, fontName string, fontSize unit.Sp) layout.Dimensions {
+// cellRefW is the measured pixel width of cellMeasureN reference characters;
+// when non-zero each span's width is derived from column position so that
+// accumulated sub-pixel rounding errors never cause column drift.
+func layoutLine(gtx layout.Context, th *material.Theme, spans []ansi.Span, fontName string, fontSize unit.Sp, cellRefW int) layout.Dimensions {
 	if len(spans) == 0 {
 		// Empty line: just emit a line-height worth of space.
 		h := gtx.Sp(fontSize)
 		return layout.Dimensions{Size: image.Point{Y: h}}
 	}
 
-	children := make([]layout.FlexChild, len(spans))
-	for idx, s := range spans {
-		s := s // capture for closure
-		children[idx] = layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return layoutSpan(gtx, th, s, fontName, fontSize)
-		})
+	col := 0
+	var maxH int
+	for _, s := range spans {
+		spanRunes := utf8.RuneCountInString(s.Text)
+		if spanRunes == 0 {
+			continue
+		}
+
+		// Derive the exact pixel start/end for this span from the reference
+		// measurement. Using (col*refW)/N rather than per-span measurement
+		// prevents integer-truncation errors from accumulating across spans.
+		startX := col * cellRefW / cellMeasureN
+		endX := (col + spanRunes) * cellRefW / cellMeasureN
+		spanW := endX - startX
+
+		// Position the span at its exact column origin.
+		stack := op.Offset(image.Point{X: startX}).Push(gtx.Ops)
+
+		spanGtx := gtx
+		spanGtx.Constraints = layout.Constraints{
+			Min: image.Point{X: spanW, Y: 0},
+			Max: image.Point{X: spanW, Y: gtx.Constraints.Max.Y},
+		}
+		dims := layoutSpan(spanGtx, th, s, fontName, fontSize, spanW)
+		stack.Pop()
+
+		if dims.Size.Y > maxH {
+			maxH = dims.Size.Y
+		}
+		col += spanRunes
 	}
-	return layout.Flex{Axis: layout.Horizontal}.Layout(gtx, children...)
+
+	totalX := col * cellRefW / cellMeasureN
+	return layout.Dimensions{Size: image.Point{X: totalX, Y: maxH}}
 }
 
 // layoutSpan renders one Span: background rectangle + foreground text label.
-func layoutSpan(gtx layout.Context, th *material.Theme, s ansi.Span, fontName string, fontSize unit.Sp) layout.Dimensions {
+// spanW overrides the returned X dimension so the caller's column arithmetic
+// is authoritative (the text may be up to 1 px narrower or wider due to
+// Bresenham-style distribution of the reference-width rounding remainder).
+func layoutSpan(gtx layout.Context, th *material.Theme, s ansi.Span, fontName string, fontSize unit.Sp, spanW int) layout.Dimensions {
 	// Measure the text first, then fill the background, then replay the text.
 	macro := op.Record(gtx.Ops)
 	lbl := material.Label(th, fontSize, s.Text)
@@ -214,6 +274,11 @@ func layoutSpan(gtx layout.Context, th *material.Theme, s ansi.Span, fontName st
 	lbl.Color = s.FG
 	dims := lbl.Layout(gtx)
 	call := macro.Stop()
+
+	// Use the column-derived width so the flex origin of the next span is exact.
+	if spanW > 0 {
+		dims.Size.X = spanW
+	}
 
 	// Fill background if non-default (skip for pure-black to avoid overdraw).
 	if s.BG != ansi.DefaultBG {
