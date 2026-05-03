@@ -51,6 +51,9 @@ type InputLine struct {
 	histIdx      int      // current position; len(history) = "not browsing"
 	savedInput   string   // text buffered before history browsing began
 
+	prevLine     string // pre-expansion text of the last submitted line
+	prevPrevLine string // pre-expansion text of the line before prevLine
+
 	pendingMu  sync.Mutex
 	pendingOps []pendingOp
 	hint       string
@@ -120,13 +123,76 @@ func (il *InputLine) drainOps() {
 		case OpClear:
 			il.editor.SetText("")
 		case OpSubmit:
-			il.SubmitText = il.editor.Text()
-			il.Submitted = true
-			il.everUsed = true
-			il.appendHistory(il.SubmitText)
-			il.editor.SetText("")
+			il.doSubmit(il.editor.Text())
 		}
 	}
+}
+
+// splitPhrases splits s on commas that are not inside double-quoted strings.
+// Each segment is returned as-is (no trimming).
+func splitPhrases(s string) []string {
+	var phrases []string
+	var cur strings.Builder
+	inQuote := false
+	for _, ch := range s {
+		switch {
+		case ch == '"':
+			inQuote = !inQuote
+			cur.WriteRune(ch)
+		case ch == ',' && !inQuote:
+			phrases = append(phrases, cur.String())
+			cur.Reset()
+		default:
+			cur.WriteRune(ch)
+		}
+	}
+	phrases = append(phrases, cur.String())
+	return phrases
+}
+
+// lastPhrase returns the last comma-separated phrase of s (double-quote aware).
+// Returns "" if s is empty.
+func lastPhrase(s string) string {
+	if s == "" {
+		return ""
+	}
+	p := splitPhrases(s)
+	return p[len(p)-1]
+}
+
+// expandMacros replaces history macros in line, resolving them left-to-right.
+// prev is the previous submitted raw line; prevPrev is the one before that.
+// Missing history expands to "".
+//
+// Macros:
+//
+//	{!!}   full previous line
+//	{!-}   full last-but-one line
+//	{!$}   last phrase of previous line
+//	{!-$}  last phrase of last-but-one line
+func expandMacros(line, prev, prevPrev string) string {
+	// {!-$} must be listed before {!-} so the longer pattern wins.
+	r := strings.NewReplacer(
+		"{!-$}", lastPhrase(prevPrev),
+		"{!-}", prevPrev,
+		"{!$}", lastPhrase(prev),
+		"{!!}", prev,
+	)
+	return r.Replace(line)
+}
+
+// doSubmit records raw as the new previous line, expands macros, sets
+// SubmitText to the expanded result, and appends raw to the up/down history.
+// The editor is cleared.
+func (il *InputLine) doSubmit(raw string) {
+	expanded := expandMacros(raw, il.prevLine, il.prevPrevLine)
+	il.prevPrevLine = il.prevLine
+	il.prevLine = raw
+	il.SubmitText = expanded
+	il.Submitted = true
+	il.everUsed = true
+	il.appendHistory(raw)
+	il.editor.SetText("")
 }
 
 // appendHistory adds text to history, skipping exact consecutive duplicates.
@@ -242,12 +308,7 @@ func (il *InputLine) Layout(gtx layout.Context, th *material.Theme) layout.Dimen
 		if ke, ok := e.(key.Event); ok && ke.State == key.Press {
 			if il.DreamWordProvider != nil {
 				if word := il.DreamWordProvider(); word != "" {
-					cmd := fmt.Sprintf(`say "%s"`, word)
-					il.SubmitText = cmd
-					il.Submitted = true
-					il.everUsed = true
-					il.appendHistory(cmd)
-					il.editor.SetText("")
+					il.doSubmit(fmt.Sprintf(`say "%s"`, word))
 				}
 			}
 		}
@@ -283,11 +344,7 @@ func (il *InputLine) Layout(gtx layout.Context, th *material.Theme) layout.Dimen
 					mod = "none"
 				}
 				if cmd := il.FKeyProvider(mod, name); cmd != "" {
-					il.SubmitText = cmd
-					il.Submitted = true
-					il.everUsed = true
-					il.appendHistory(cmd)
-					il.editor.SetText("")
+					il.doSubmit(cmd)
 				}
 			}
 		}
@@ -314,11 +371,7 @@ func (il *InputLine) Layout(gtx layout.Context, th *material.Theme) layout.Dimen
 			break
 		}
 		if _, isSubmit := ev.(widget.SubmitEvent); isSubmit {
-			il.SubmitText = il.editor.Text()
-			il.Submitted = true
-			il.everUsed = true
-			il.appendHistory(il.SubmitText)
-			il.editor.SetText("")
+			il.doSubmit(il.editor.Text())
 		}
 	}
 
