@@ -287,6 +287,13 @@ func (c *Conn) reader(conn net.Conn, profile config.ServerProfile) {
 				lineBuf = processed
 				c.updateDreamWord(finalWord)
 			}
+			// Strip ctrl-d weather protocol bytes before display.
+			weatherUpdated := false
+			if processed, code, changed := extractWeather(lineBuf); changed {
+				lineBuf = processed
+				c.stats.Weather = code
+				weatherUpdated = true
+			}
 			text := strings.TrimRight(latin1ToUTF8(lineBuf), "\r\n")
 
 			// Check for FES packet: strip ANSI codes, strip leading '*' chars (MUD prompt),
@@ -330,7 +337,7 @@ func (c *Conn) reader(conn net.Conn, profile config.ServerProfile) {
 				// Normal text line: display and scan for embedded stats.
 				c.sink.AppendSpans(spans)
 				c.invalidate()
-				if fes.ScanLine(plainText, &c.stats) && c.StatsUpdated != nil {
+				if (fes.ScanLine(plainText, &c.stats) || weatherUpdated) && c.StatsUpdated != nil {
 					c.StatsUpdated(&c.stats)
 				}
 				// MUD2 client-mode escape or "Option:" menu prompt: stop FES polling
@@ -354,6 +361,11 @@ func (c *Conn) reader(conn net.Conn, profile config.ServerProfile) {
 			if processed, finalWord, changed := extractDreamWord(lineBuf); changed {
 				lineBuf = processed
 				c.updateDreamWord(finalWord)
+			}
+			// Strip ctrl-d weather protocol bytes before display.
+			if processed, code, changed := extractWeather(lineBuf); changed {
+				lineBuf = processed
+				c.stats.Weather = code
 			}
 			text := strings.TrimRight(latin1ToUTF8(lineBuf), "\r")
 			stateCopy := ansiState // snapshot: don't advance real state

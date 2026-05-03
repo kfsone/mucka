@@ -471,4 +471,125 @@ func TestFESUnknownStarredLineShownWhenPending(t *testing.T) {
 	}
 }
 
+// TestCtrlDWeather_UpdatesStatsAndStripsFromDisplay verifies that a ctrl-d
+// (0x04) weather sequence embedded in a server line is stripped from displayed
+// text and used to update c.stats.Weather, then StatsUpdated is fired.
+func TestCtrlDWeather_UpdatesStatsAndStripsFromDisplay(t *testing.T) {
+	sink := &core.BufferSink{}
+	c := &Conn{
+		sink:       sink,
+		invalidate: (&core.NopInvalidator{}).Invalidate,
+		sendCh:     make(chan string, 64),
+		closeCh:    make(chan struct{}),
+	}
+	c.connected.Store(true)
 
+	called := make(chan *fes.Stats, 4)
+	c.StatsUpdated = func(s *fes.Stats) {
+		cp := *s
+		called <- &cp
+	}
+
+	server, client := net.Pipe()
+	defer server.Close()
+	defer client.Close()
+
+	go c.reader(client, config.ServerProfile{})
+
+	// Server sends a normal line that contains a ctrl-d weather marker.
+	// The 0x04 + 'F' pair must be stripped from display and Weather set to 'F'.
+	server.Write(append([]byte("The sky is clear."), 0x04, 'F', '\n'))
+	time.Sleep(80 * time.Millisecond)
+	server.Close()
+	time.Sleep(20 * time.Millisecond)
+
+	// The ctrl-d bytes must not appear in the text panel.
+	for _, line := range sink.Snapshot() {
+		if strings.ContainsRune(line, 0x04) {
+			t.Errorf("ctrl-d byte leaked into text sink: %q", line)
+		}
+	}
+
+	// The line must reach the text panel (without the ctrl-d bytes).
+	found := false
+	for _, line := range sink.Snapshot() {
+		if strings.Contains(line, "The sky is clear.") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("normal text line was suppressed (expected in sink)")
+	}
+
+	// StatsUpdated must have been called with Weather='F'.
+	select {
+	case s := <-called:
+		if s.Weather != 'F' {
+			t.Errorf("Weather = %d (%c), want %d ('F')", s.Weather, s.Weather, byte('F'))
+		}
+	default:
+		t.Error("StatsUpdated was not called after ctrl-d weather sequence")
+	}
+
+	// c.stats.Weather must also be 'F' directly.
+	if c.stats.Weather != 'F' {
+		t.Errorf("c.stats.Weather = %d, want %d ('F')", c.stats.Weather, byte('F'))
+	}
+}
+
+// TestCtrlDWeather_FESPacketPreservesCtrlDWeather verifies that when a FES
+// packet's weather field is integer 0, the ctrl-d-sourced Weather value is
+// preserved rather than overwritten.
+func TestCtrlDWeather_FESPacketPreservesCtrlDWeather(t *testing.T) {
+	sink := &core.BufferSink{}
+	c := &Conn{
+		sink:       sink,
+		invalidate: (&core.NopInvalidator{}).Invalidate,
+		sendCh:     make(chan string, 64),
+		closeCh:    make(chan struct{}),
+	}
+	c.connected.Store(true)
+
+	called := make(chan *fes.Stats, 4)
+	c.StatsUpdated = func(s *fes.Stats) {
+		cp := *s
+		called <- &cp
+	}
+
+	server, client := net.Pipe()
+	defer server.Close()
+	defer client.Close()
+
+	go c.reader(client, config.ServerProfile{})
+
+	// Phase 1: ctrl-d sets weather to 'R'.
+	server.Write(append([]byte("It starts to rain."), 0x04, 'R', '\n'))
+	time.Sleep(60 * time.Millisecond)
+
+	// Phase 2: FES packet arrives with weather field = 0 (should NOT overwrite 'R').
+	server.Write([]byte("**25 30 100 100 95 95 0 0 5000 N N N N 44 0\n"))
+	time.Sleep(80 * time.Millisecond)
+	server.Close()
+	time.Sleep(20 * time.Millisecond)
+
+	// Drain the callback channel; find the last stats update.
+	var lastStats *fes.Stats
+	for {
+		select {
+		case s := <-called:
+			lastStats = s
+			continue
+		default:
+		}
+		break
+	}
+
+	if lastStats == nil {
+		t.Fatal("StatsUpdated was never called")
+	}
+	if lastStats.Weather != 'R' {
+		t.Errorf("Weather = %d (%c), want %d ('R') — FES packet with weather=0 should not overwrite ctrl-d value",
+			lastStats.Weather, lastStats.Weather, byte('R'))
+	}
+}
