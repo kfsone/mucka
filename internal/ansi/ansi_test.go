@@ -596,6 +596,53 @@ func TestSGR_BoldPlusExplicitBrightNoDoublePromotion(t *testing.T) {
 	}
 }
 
+// TestSGR39_DefaultFG verifies that SGR 39 resets FG to DefaultFG.
+func TestSGR39_DefaultFG(t *testing.T) {
+	// Set red, then reset FG with SGR 39; trailing text should be DefaultFG.
+	spans := Parse("\x1b[31mred\x1b[39mdefault")
+	if len(spans) != 2 {
+		t.Fatalf("expected 2 spans, got %d: %+v", len(spans), spans)
+	}
+	if spans[0].FG != standardColors[1] {
+		t.Errorf("span0: expected red, got %v", spans[0].FG)
+	}
+	if spans[1].FG != DefaultFG {
+		t.Errorf("span1: expected DefaultFG after SGR 39, got %v", spans[1].FG)
+	}
+}
+
+// TestSGR39_ClearsBoldPromotion verifies that SGR 39 also clears fgStdIdx so
+// bold no longer promotes the previous standard color.
+func TestSGR39_ClearsBoldPromotion(t *testing.T) {
+	// Bold + blue, then reset FG; bold remains but promotion must not apply.
+	spans := Parse("\x1b[1;34mA\x1b[39mB")
+	if len(spans) != 2 {
+		t.Fatalf("expected 2 spans, got %d: %+v", len(spans), spans)
+	}
+	if spans[0].FG != brightColors[4] {
+		t.Errorf("span0: expected bright blue (bold promotion), got %v", spans[0].FG)
+	}
+	// After SGR 39, FG is DefaultFG even though bold is still set.
+	if spans[1].FG != DefaultFG {
+		t.Errorf("span1: expected DefaultFG after SGR 39 (no promotion), got %v", spans[1].FG)
+	}
+}
+
+// TestSGR49_DefaultBG verifies that SGR 49 resets BG to DefaultBG.
+func TestSGR49_DefaultBG(t *testing.T) {
+	// Set blue BG, then reset with SGR 49; trailing text should have DefaultBG.
+	spans := Parse("\x1b[44mblue-bg\x1b[49mdefault-bg")
+	if len(spans) != 2 {
+		t.Fatalf("expected 2 spans, got %d: %+v", len(spans), spans)
+	}
+	if spans[0].BG != standardColors[4] {
+		t.Errorf("span0: expected blue BG, got %v", spans[0].BG)
+	}
+	if spans[1].BG != DefaultBG {
+		t.Errorf("span1: expected DefaultBG after SGR 49, got %v", spans[1].BG)
+	}
+}
+
 // TestParseStatefulBoldPlusFGPromotionCarries verifies that when bold + standard FG
 // are set on line 1, the bold-promotion is applied on line 2 even though line 2
 // contains no escape codes (fgStdIdx must be carried by State).
