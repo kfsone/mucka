@@ -1,9 +1,12 @@
 package commands
 
 import (
+	"net"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/kfsone/mucka/internal/config"
 	"github.com/kfsone/mucka/internal/ui"
 )
 
@@ -242,5 +245,120 @@ func TestPendingModalDrainedInHandle(t *testing.T) {
 	}
 	if d.spmProfile != "" {
 		t.Errorf("spmProfile should be cleared after cancel")
+	}
+}
+
+// TestModalModeRepeatPreservesSPMProfile verifies that 'r' leaves spmProfile
+// set — SPM must remain active so a subsequent ConnFailed can still post a modal.
+func TestModalModeRepeatPreservesSPMProfile(t *testing.T) {
+	d, _ := newSPMDispatcher("myprofile", "myprofile")
+	d.Handle("r")
+	if d.spmProfile != "myprofile" {
+		t.Errorf("spmProfile: got %q, want %q — SPM must stay active after repeat", d.spmProfile, "myprofile")
+	}
+}
+
+// TestModalModeRetryPreservesSPMProfile verifies that 'R' leaves spmProfile
+// set — SPM must remain active so a subsequent ConnFailed can still post a modal.
+func TestModalModeRetryPreservesSPMProfile(t *testing.T) {
+	d, _ := newSPMDispatcher("myprofile", "myprofile")
+	d.Handle("R")
+	if d.spmProfile != "myprofile" {
+		t.Errorf("spmProfile: got %q, want %q — SPM must stay active after retry", d.spmProfile, "myprofile")
+	}
+}
+
+// TestPendingModalOverwriteWhileAlreadyModal verifies that a second ConnFailed
+// firing while already in modeModal (pendingModal overwrite) is handled: the
+// next Handle drains the new profile and re-presents the modal, then the text
+// passed to Handle is processed as the modal response.
+func TestPendingModalOverwriteWhileAlreadyModal(t *testing.T) {
+	u := ui.New()
+	d := &Dispatcher{u: u, reg: NewRegistry(), dotReg: NewRegistry(), spmProfile: "profile1"}
+	d.enterModalMode("profile1")
+
+	// Simulate a second ConnFailed before the user has responded.
+	prof2 := "profile2"
+	d.pendingModal.Store(&prof2)
+
+	// Handle("c") drains pendingModal (re-enters modal for profile2), then
+	// processes "c" as the modal response → cancel.
+	d.Handle("c")
+
+	if d.mode != modeNormal {
+		t.Errorf("mode: got %d, want modeNormal after cancel", d.mode)
+	}
+	if d.spmProfile != "" {
+		t.Errorf("spmProfile should be cleared after cancel, got %q", d.spmProfile)
+	}
+}
+
+// newRefusedProfile creates a TCP listener, closes it immediately so that a
+// dial to that address will be refused, and returns a minimal Config and
+// profile name targeting that address.
+func newRefusedProfile(t *testing.T) (*config.Config, string) {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	addr := ln.Addr().(*net.TCPAddr)
+	ln.Close()
+	cfg := &config.Config{
+		Servers: map[string]config.ServerProfile{
+			"profile.testprof": {Host: addr.IP.String(), Port: addr.Port},
+		},
+	}
+	return cfg, "testprof"
+}
+
+// TestConnFailedSetsModalWhenSPMActive verifies the end-to-end path: when a
+// dial fails and spmProfile is set, ConnFailed posts to pendingModal.
+func TestConnFailedSetsModalWhenSPMActive(t *testing.T) {
+	cfg, profName := newRefusedProfile(t)
+	u := ui.New()
+	d := &Dispatcher{u: u, cfg: cfg, reg: NewRegistry(), dotReg: NewRegistry()}
+	// SPM active before connecting (mirrors the NewDispatcher initialProfile path).
+	d.spmProfile = profName
+	connectToProfile(d, profName)
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if d.pendingModal.Load() != nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	if d.pendingModal.Load() == nil {
+		t.Error("expected pendingModal to be set after ConnFailed with SPM active")
+	}
+	if ptr := d.pendingModal.Load(); ptr != nil && *ptr != profName {
+		t.Errorf("pendingModal profile: got %q, want %q", *ptr, profName)
+	}
+}
+
+// TestConnFailedNoModalWhenSPMInactive verifies that ConnFailed is a no-op
+// (pendingModal stays nil) when spmProfile is empty at callback time.
+func TestConnFailedNoModalWhenSPMInactive(t *testing.T) {
+	cfg, profName := newRefusedProfile(t)
+	u := ui.New()
+	d := &Dispatcher{u: u, cfg: cfg, reg: NewRegistry(), dotReg: NewRegistry()}
+	// spmProfile stays "" — SPM is not active.
+	connectToProfile(d, profName)
+
+	// Wait for the dial to fail and the goroutine to finish.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if d.conn != nil && !d.conn.IsConnecting() {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	// Give ConnFailed a moment to run.
+	time.Sleep(20 * time.Millisecond)
+
+	if d.pendingModal.Load() != nil {
+		t.Error("pendingModal should NOT be set when SPM is inactive (spmProfile empty)")
 	}
 }

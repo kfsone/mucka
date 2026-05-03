@@ -68,7 +68,11 @@ func connectToProfile(d *Dispatcher, profileName string) {
 	if d.conn != nil {
 		d.conn.Close()
 	}
-	conn := network.NewConn(d.u.TextPanel, d.w.Invalidate)
+	invalidate := func() {}
+	if d.w != nil {
+		invalidate = d.w.Invalidate
+	}
+	conn := network.NewConn(d.u.TextPanel, invalidate)
 	conn.StatsUpdated = func(s *fes.Stats) {
 		d.u.SetStats(s)
 		d.w.Invalidate()
