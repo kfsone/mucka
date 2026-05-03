@@ -68,6 +68,9 @@ func dotConnectHandler(d *Dispatcher) HandlerFunc {
 		if deprecated {
 			d.u.TextPanel.AppendText(fmt.Sprintf("Warning: profile name %q is deprecated; please use %q", profileName, config.ProfilePrefix+profileName))
 		}
+		if d.conn != nil {
+			d.conn.Close()
+		}
 		conn := network.NewConn(d.u.TextPanel, d.w.Invalidate)
 		conn.StatsUpdated = func(s *fes.Stats) {
 			d.u.SetStats(s)
