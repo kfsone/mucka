@@ -4,7 +4,6 @@ package network
 
 import (
 	"bufio"
-	"bytes"
 	"fmt"
 	"net"
 	"strings"
@@ -16,6 +15,7 @@ import (
 	"github.com/kfsone/mucka/internal/config"
 	"github.com/kfsone/mucka/internal/core"
 	"github.com/kfsone/mucka/internal/fes"
+	"github.com/kfsone/mucka/internal/mud2"
 )
 			
 // Telnet command bytes.
@@ -189,26 +189,6 @@ func (c *Conn) fesPollLoop(done <-chan struct{}) {
 	}
 }
 
-// mud2ClientModeBytes are the ESC-X sequences MUD2 sends to signal "return to
-// client menu". Clio's telnet.l matches ESC-C, ESC-R, ESC-r, ESC-K.
-var mud2ClientModeBytes = [][]byte{
-	{0x1b, '-', 'C'},
-	{0x1b, '-', 'R'},
-	{0x1b, '-', 'r'},
-	{0x1b, '-', 'K'},
-}
-
-// isClientModeSignal returns true if the raw line bytes contain a MUD2
-// client-mode escape sequence or the "Option: " menu prompt text.
-func isClientModeSignal(raw []byte, plain string) bool {
-	for _, seq := range mud2ClientModeBytes {
-		if bytes.Contains(raw, seq) {
-			return true
-		}
-	}
-	return strings.Contains(plain, "Option: ")
-}
-
 // writer drains sendCh and writes to the TCP connection.
 func (c *Conn) writer(conn net.Conn) {
 	for {
@@ -343,12 +323,11 @@ func (c *Conn) reader(conn net.Conn, profile config.ServerProfile) {
 				}
 				// MUD2 client-mode escape or "Option:" menu prompt: stop FES polling
 				// so we don't spam the server while at the client menu.
-				if gameEntered && isClientModeSignal(lineBuf, plainText) {
+				if gameEntered && mud2.IsClientModeSignal(lineBuf, plainText) {
 					exitGame()
 				}
-				// Detect game entry via the starting room name; send initial FES
-				// trigger and start the 10-second polling loop (mirrors Clio).
-				if !gameEntered && state == stateDone && strings.Contains(text, "Elizabethan") {
+				// Detect game entry via the opening room name and start FES polling.
+				if !gameEntered && state == stateDone && mud2.IsGameEntry(plainText) {
 					gameEntered = true
 					fesDone = make(chan struct{})
 					c.fesPending.Add(1)
@@ -371,7 +350,7 @@ func (c *Conn) reader(conn net.Conn, profile config.ServerProfile) {
 			c.sink.UpdatePartial(spans)
 			c.invalidate()
 			// Also catch client-mode signals that arrive as prompts (no trailing \n).
-			if gameEntered && isClientModeSignal(lineBuf, plainText) {
+			if gameEntered && mud2.IsClientModeSignal(lineBuf, plainText) {
 				exitGame()
 			}
 		}
