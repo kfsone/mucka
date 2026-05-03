@@ -102,7 +102,7 @@ func ParsePacket(data []byte, s *Stats) bool {
 	// Integer 0 means "no update in this packet" — preserve the existing s.Weather
 	// value (which may have been set by a ctrl-d weather sequence in the stream).
 	if n, err := strconv.Atoi(fields[14]); err == nil {
-		if n != 0 {
+		if n > 0 && n <= 255 {
 			s.Weather = byte(n)
 		}
 	} else if len(fields[14]) > 0 {

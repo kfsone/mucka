@@ -28,6 +28,9 @@ func extractWeather(raw []byte) (processed []byte, weatherCode byte, changed boo
 		out = append(out, b)
 		i++
 	}
+	// Guard: bytes.IndexByte guarantees at least one 0x04 exists, but if it is
+	// the last byte (no following code byte), the loop condition i+1 < len(raw)
+	// prevents changed from being set. Return the original slice in that case.
 	if !changed {
 		return raw, 0, false
 	}
