@@ -1,7 +1,12 @@
 package ui
 
 import (
+	"image"
+	"image/color"
+
 	"gioui.org/layout"
+	"gioui.org/op/clip"
+	"gioui.org/op/paint"
 	"gioui.org/unit"
 	"gioui.org/widget/material"
 
@@ -53,6 +58,14 @@ func (u *UI) SetDreamWord(word string) {
 	u.StatusBar.SetDreamWord(word)
 }
 
+// separator draws a 1dp horizontal rule at #a0a0a0 across the full window width.
+func separator(gtx layout.Context) layout.Dimensions {
+	height := gtx.Dp(unit.Dp(1))
+	size := image.Point{X: gtx.Constraints.Max.X, Y: height}
+	paint.FillShape(gtx.Ops, color.NRGBA{R: 0xa0, G: 0xa0, B: 0xa0, A: 0xff}, clip.Rect{Max: size}.Op())
+	return layout.Dimensions{Size: size}
+}
+
 // Layout renders the 3-zone layout:
 //
 //	┌─────────────────────┐
@@ -74,9 +87,11 @@ func (u *UI) Layout(gtx layout.Context, th *material.Theme) layout.Dimensions {
 			}
 			return u.StatusBar.Layout(gtx, th, connecting, connected)
 		}),
+		layout.Rigid(separator),
 		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 			return u.TextPanel.Layout(gtx, th)
 		}),
+		layout.Rigid(separator),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			dims := u.InputLine.Layout(gtx, th)
 			if u.InputLine.Submitted {
