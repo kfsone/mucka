@@ -344,6 +344,9 @@ func (c *Conn) reader(conn net.Conn, profile config.ServerProfile) {
 					fesDone = make(chan struct{})
 					c.fesPending.Add(1)
 					c.sendCh <- string(fes.TriggerBytes)
+					// FES binary packets omit rank/level; request sc once so the status
+					// bar shows rank immediately without waiting for a manual 'sc'.
+					c.sendCh <- "sc\r\n"
 					go c.fesPollLoop(fesDone)
 				}
 			}
