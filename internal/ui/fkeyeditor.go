@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"image/color"
 	"log"
 
@@ -210,32 +211,8 @@ func (ed *FKeyEditor) layoutButtons(gtx layout.Context, th *material.Theme) layo
 
 // fkeyLabel returns a label string like "F1:" for index 1-12.
 func fkeyLabel(n int) string {
-	switch n {
-	case 1:
-		return "F1:"
-	case 2:
-		return "F2:"
-	case 3:
-		return "F3:"
-	case 4:
-		return "F4:"
-	case 5:
-		return "F5:"
-	case 6:
-		return "F6:"
-	case 7:
-		return "F7:"
-	case 8:
-		return "F8:"
-	case 9:
-		return "F9:"
-	case 10:
-		return "F10:"
-	case 11:
-		return "F11:"
-	case 12:
-		return "F12:"
-	default:
+	if n < 1 || n > 12 {
 		return ""
 	}
+	return fmt.Sprintf("F%d:", n)
 }
