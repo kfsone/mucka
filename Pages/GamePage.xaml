@@ -1,0 +1,182 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:vm="clr-namespace:Mucka.ViewModels"
+             x:Class="Mucka.Pages.GamePage"
+             Title="mucka"
+             BackgroundColor="#0C0C0C"
+             NavigationPage.HasNavigationBar="False">
+
+    <Grid RowDefinitions="Auto,*,Auto,Auto,Auto">
+
+        <!-- ── Status bar ───────────────────────────────────────────── -->
+        <Border Grid.Row="0"
+                BackgroundColor="#161b22"
+                Padding="6,4" StrokeThickness="0">
+            <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,*,Auto,Auto">
+
+                <Label Grid.Column="0"
+                       Text="{Binding StaText}"
+                       TextColor="#58a6ff" VerticalOptions="Center" Margin="0,0,8,0"/>
+
+                <Label Grid.Column="1"
+                       Text="{Binding TtrText}"
+                       TextColor="#c084fc" VerticalOptions="Center" Margin="0,0,8,0"/>
+
+                <Label Grid.Column="2"
+                       Text="{Binding WeatherText}"
+                       TextColor="#79c0ff" VerticalOptions="Center" Margin="0,0,8,0"/>
+
+                <Label Grid.Column="3"
+                       Text="{Binding StrText}"
+                       TextColor="#3fb950" VerticalOptions="Center" Margin="0,0,8,0"/>
+
+                <Label Grid.Column="4"
+                       Text="{Binding DexText}"
+                       TextColor="#e3b341" VerticalOptions="Center" Margin="0,0,8,0"/>
+
+                <Label Grid.Column="5"
+                       Text="{Binding ScoreText}"
+                       TextColor="#cccccc" VerticalOptions="Center" Margin="0,0,8,0"/>
+
+                <Label Grid.Column="6"
+                       Text="{Binding Rank}"
+                       TextColor="#888888" VerticalOptions="Center" FontSize="12"/>
+
+                <!-- Capture toggle — debug builds only -->
+                <Button Grid.Column="7"
+                        Text="⏺"
+                        Command="{Binding ToggleCaptureCommand}"
+                        IsVisible="{Binding IsCaptureFacilityAvailable}"
+                        SemanticProperties.Description="Toggle capture"
+                        SemanticProperties.Hint="Starts or stops capture"
+                        BackgroundColor="#2d333b" TextColor="#888888"
+                        FontSize="11" WidthRequest="30" HeightRequest="24"
+                        CornerRadius="3" Padding="0" Margin="0,0,4,0">
+                    <Button.Triggers>
+                        <DataTrigger TargetType="Button" Binding="{Binding IsCapturing}" Value="True">
+                            <Setter Property="BackgroundColor" Value="#c02020"/>
+                            <Setter Property="TextColor" Value="White"/>
+                        </DataTrigger>
+                    </Button.Triggers>
+                </Button>
+
+                <!-- Dreamword chip — tap to load into input; shows placeholder when no word known -->
+                <Border Grid.Column="8"
+                        BackgroundColor="#1f6feb"
+                        Stroke="Transparent" StrokeThickness="0"
+                        Padding="8,2">
+                    <Border.StrokeShape>
+                        <RoundRectangle CornerRadius="4"/>
+                    </Border.StrokeShape>
+                    <Border.GestureRecognizers>
+                        <TapGestureRecognizer Command="{Binding SpeakDreamwordCommand}"/>
+                    </Border.GestureRecognizers>
+                    <Label Text="{Binding DreamwordDisplay}"
+                           TextColor="White"
+                           FontSize="12" VerticalOptions="Center">
+                        <Label.Triggers>
+                            <DataTrigger TargetType="Label"
+                                         Binding="{Binding DreamwordIsPlaceholder}" Value="True">
+                                <Setter Property="TextColor" Value="Gray"/>
+                            </DataTrigger>
+                        </Label.Triggers>
+                    </Label>
+                </Border>
+
+            </Grid>
+        </Border>
+
+        <!-- ── Scrollback — WebView gives native selection, right-click, and scroll-lock ── -->
+        <WebView Grid.Row="1"
+                 x:Name="ScrollbackWebView"
+                 BackgroundColor="#0C0C0C"/>
+
+        <!-- ── F-key bar (collapsible) ──────────────────────────────── -->
+        <ScrollView Grid.Row="2"
+                    x:Name="FkeyBar"
+                    Orientation="Horizontal"
+                    BackgroundColor="#161b22"
+                    HeightRequest="38"
+                    IsVisible="{Binding FkeysVisible}">
+            <HorizontalStackLayout BindableLayout.ItemsSource="{Binding FkeyItems}"
+                                   Spacing="3" Padding="4,3">
+                <BindableLayout.ItemTemplate>
+                    <DataTemplate x:DataType="vm:FkeyItem">
+                        <Button Text="{Binding Label}"
+                                Command="{Binding Source={RelativeSource AncestorType={x:Type ContentPage}},
+                                                  Path=BindingContext.FkeyCommand}"
+                                CommandParameter="{Binding Index, StringFormat='{0}'}"
+                                FontSize="11" HeightRequest="30" WidthRequest="44"
+                                Padding="0"
+                                BackgroundColor="#2d333b" TextColor="#cccccc"
+                                CornerRadius="3"/>
+                    </DataTemplate>
+                </BindableLayout.ItemTemplate>
+            </HorizontalStackLayout>
+        </ScrollView>
+
+        <!-- ── Scroll mode banner — overlays the input row when scroll mode is active ── -->
+        <Border Grid.Row="3"
+                IsVisible="{Binding IsScrollMode}"
+                BackgroundColor="#2d1b00"
+                StrokeThickness="0"
+                Padding="8,6">
+            <Border.GestureRecognizers>
+                <TapGestureRecognizer Tapped="OnScrollModeBannerTapped"/>
+            </Border.GestureRecognizers>
+            <Label Text="Scroll Mode — Press Esc or Tap to Exit"
+                   TextColor="#e3b341"
+                   HorizontalOptions="Center"
+                   FontAttributes="Bold"
+                   FontSize="13"/>
+        </Border>
+
+        <!-- ── Input row — hidden while scroll mode is active ───────── -->
+        <Grid Grid.Row="4"
+              IsVisible="{Binding IsNotScrollMode}"
+              ColumnDefinitions="Auto,*,Auto"
+              BackgroundColor="#161b22"
+              Padding="4,4">
+
+            <!-- Toggle F-key bar -->
+            <Button Grid.Column="0"
+                    Text="Fn"
+                    Command="{Binding ToggleFkeysCommand}"
+                    BackgroundColor="#2d333b" TextColor="#888888"
+                    FontSize="11" WidthRequest="36" HeightRequest="36"
+                    CornerRadius="3" Padding="0" Margin="0,0,4,0"/>
+
+            <Entry Grid.Column="1"
+                   x:Name="InputEntry"
+                   Text="{Binding InputText, Mode=TwoWay}"
+                   TextColor="#CCCCCC"
+                   BackgroundColor="#0C0C0C"
+                   PlaceholderColor="#444444"
+                   Placeholder="enter command…"
+                   ReturnCommand="{Binding SendCommand}"
+                   ReturnType="Send"
+                   ClearButtonVisibility="WhileEditing"
+                   Keyboard="Plain"
+                   IsSpellCheckEnabled="False"
+                   IsTextPredictionEnabled="False"
+                   Focused="OnInputEntryFocused">
+                <Entry.FontFamily>
+                    <OnPlatform x:TypeArguments="x:String">
+                        <On Platform="Android"      Value="monospace"/>
+                        <On Platform="MacCatalyst"  Value="Menlo-Regular"/>
+                        <On Platform="WinUI"        Value="Cascadia Mono"/>
+                    </OnPlatform>
+                </Entry.FontFamily>
+            </Entry>
+
+            <Button Grid.Column="2"
+                    Text="▶"
+                    Command="{Binding SendCommand}"
+                    BackgroundColor="#1f6feb" TextColor="White"
+                    CornerRadius="4" WidthRequest="44" Margin="4,0,0,0"/>
+
+        </Grid>
+    </Grid>
+</ContentPage>
+

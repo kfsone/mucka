@@ -1,0 +1,37 @@
+<Project>
+  <!--
+    Version is computed from version.json (stage + baseVersion) + git depth + Conventional Commits.
+    See scripts/Get-Version.ps1 for the algorithm.
+    Stage → pre-release number range:
+      alpha   :       depth  (0–499)
+      beta    : 500 + depth  (500–999)
+      rc      : 1000+ depth  (1000–9998)
+      release : no pre-release suffix (clean M.m.P)
+    To promote a stage, run the "Promote Stage" workflow_dispatch workflow on main.
+  -->
+  <Target Name="ComputeCustomVersion" BeforeTargets="GetAssemblyVersion;GetAssemblyAttributes;GenerateAssemblyInfo;PrepareForBuild;MauiGeneratePackageAppxManifest">
+    <PropertyGroup>
+      <_VersionScript>$([MSBuild]::NormalizePath('$(MSBuildThisFileDirectory)scripts/Get-Version.ps1'))</_VersionScript>
+    </PropertyGroup>
+    <!-- In CI release builds, MUCKA_RELEASE_VERSION is set to the tag version (e.g. 0.2.0).
+         Skip the script so the build uses the tag version directly. -->
+    <Exec Condition="'$(MUCKA_RELEASE_VERSION)' == ''"
+          Command="pwsh -NoProfile -File &quot;$(_VersionScript)&quot;"
+          ConsoleToMSBuild="true"
+          WorkingDirectory="$(MSBuildThisFileDirectory)"
+          EchoOff="true">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_ComputedVersion" />
+    </Exec>
+    <PropertyGroup>
+      <_ComputedVersion Condition="'$(MUCKA_RELEASE_VERSION)' != ''">$(MUCKA_RELEASE_VERSION)</_ComputedVersion>
+      <Version>$(_ComputedVersion.Trim())</Version>
+      <PackageVersion>$(Version)</PackageVersion>
+      <!-- MAUI Resizetizer requires ApplicationDisplayVersion to be a plain M.m.P number
+           (no pre-release suffix). Strip the pre-release for display; the full semver
+           is still in $(Version) / $(PackageVersion).
+           ApplicationVersion (Android versionCode) is overridden in CI with the run number. -->
+      <ApplicationDisplayVersion>$([System.Text.RegularExpressions.Regex]::Match('$(Version)', '^\d+\.\d+\.\d+').Value)</ApplicationDisplayVersion>
+    </PropertyGroup>
+    <Message Text="[mucka] Version: $(Version)" Importance="high" />
+  </Target>
+</Project>

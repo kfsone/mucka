@@ -1,0 +1,219 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:vm="clr-namespace:Mucka.ViewModels"
+             xmlns:core="clr-namespace:Mucka.Core"
+             x:Class="Mucka.Pages.ConnectPage"
+             Title="mucka"
+             BackgroundColor="#0C0C0C">
+
+    <Grid RowDefinitions="{OnIdiom Phone='Auto,1,*', Default='*'}"
+          ColumnDefinitions="{OnIdiom Phone='*', Default='200,1,*'}">
+
+        <!-- Profile list on the left -->
+        <CollectionView Grid.Row="0"
+                        Grid.Column="0"
+                        x:Name="ProfileList"
+                        ItemsSource="{Binding SavedProfiles}"
+                        SelectionMode="Single"
+                        SelectionChanged="OnProfileSelected"
+                        BackgroundColor="#111111">
+            <CollectionView.Header>
+                <Label Text="Saved profiles"
+                       TextColor="#555555"
+                       FontSize="12"
+                       Padding="12,8,12,4" />
+            </CollectionView.Header>
+            <CollectionView.ItemTemplate>
+                <DataTemplate x:DataType="core:Profile">
+                    <VerticalStackLayout Padding="12,6" Spacing="2">
+                        <Label Text="{Binding Name}"
+                               TextColor="#cccccc" />
+                        <Label Text="{Binding Host}"
+                               TextColor="#555555"
+                               FontSize="11" />
+                    </VerticalStackLayout>
+                </DataTemplate>
+            </CollectionView.ItemTemplate>
+        </CollectionView>
+
+        <!-- Vertical separator -->
+        <BoxView Grid.Row="{OnIdiom Phone=1, Default=0}"
+                 Grid.Column="{OnIdiom Phone=0, Default=1}"
+                 Color="#333333"
+                 WidthRequest="{OnIdiom Phone=-1, Default=1}"
+                 HeightRequest="{OnIdiom Phone=1, Default=-1}" />
+
+        <!-- Main form on the right -->
+        <ScrollView Grid.Row="{OnIdiom Phone=2, Default=0}"
+                    Grid.Column="{OnIdiom Phone=0, Default=2}"
+                    VerticalOptions="Center">
+            <VerticalStackLayout HorizontalOptions="{OnIdiom Phone=Fill, Default=Center}"
+                                 Spacing="16"
+                                 Padding="24">
+                <Grid ColumnDefinitions="80,*"
+                      RowDefinitions="Auto,Auto,Auto,Auto,Auto"
+                      RowSpacing="10"
+                      ColumnSpacing="10">
+
+                    <!-- Profile name: full-width, no label -->
+                    <Entry Grid.Row="0"
+                           Grid.Column="0"
+                           Grid.ColumnSpan="2"
+                           Text="{Binding ProfileName}"
+                           TextColor="White"
+                           BackgroundColor="#161b22"
+                           PlaceholderColor="#444444"
+                           Placeholder="profile name"
+                           SemanticProperties.Description="Profile name"
+                           ReturnType="Next" />
+
+                    <!-- Host + Port side by side -->
+                    <Label Grid.Row="1"
+                           Grid.Column="0"
+                           Text="Host"
+                           TextColor="#888888"
+                           VerticalOptions="Center" />
+                    <Grid Grid.Row="1"
+                          Grid.Column="1"
+                          ColumnDefinitions="*,80"
+                          ColumnSpacing="8">
+                        <Entry Grid.Column="0"
+                               x:Name="HostEntry"
+                               Text="{Binding Host}"
+                               TextColor="White"
+                               BackgroundColor="#161b22"
+                               PlaceholderColor="#444444"
+                               Placeholder="mud2.co.uk"
+                               Keyboard="Url"
+                               ReturnType="Next" />
+                        <Entry Grid.Column="1"
+                               Text="{Binding Port}"
+                               TextColor="White"
+                               BackgroundColor="#161b22"
+                               Keyboard="Numeric"
+                               SemanticProperties.Description="Port"
+                               ReturnType="Next" />
+                    </Grid>
+
+                    <!-- Account + Password side by side -->
+                    <Label Grid.Row="2"
+                           Grid.Column="0"
+                           Text="Account"
+                           TextColor="#888888"
+                           VerticalOptions="Center" />
+                    <Grid Grid.Row="2"
+                          Grid.Column="1"
+                          ColumnDefinitions="*,*"
+                          ColumnSpacing="8">
+                        <Entry Grid.Column="0"
+                               Text="{Binding AccountId}"
+                               TextColor="White"
+                               BackgroundColor="#161b22"
+                               PlaceholderColor="#444444"
+                               Placeholder="account id"
+                               ReturnType="Next" />
+                        <Entry Grid.Column="1"
+                               Text="{Binding Password}"
+                               IsPassword="True"
+                               TextColor="White"
+                               BackgroundColor="#161b22"
+                               PlaceholderColor="#444444"
+                               Placeholder="password (optional)"
+                               ToolTipProperties.Text="password (optional)"
+                               SemanticProperties.Description="Password (optional)"
+                               ReturnType="Done" />
+                    </Grid>
+
+                    <!-- Remember Password -->
+                    <Grid Grid.Row="3"
+                          Grid.Column="0"
+                          Grid.ColumnSpan="2"
+                          ColumnDefinitions="Auto,Auto"
+                          HorizontalOptions="Start"
+                          ColumnSpacing="8">
+                        <CheckBox Grid.Column="0"
+                                  IsChecked="{Binding RememberPassword}"
+                                  Color="#1f6feb"
+                                  VerticalOptions="Center"/>
+                        <Label Grid.Column="1"
+                               Text="Remember Password"
+                               TextColor="#888888"
+                               VerticalOptions="Center"/>
+                    </Grid>
+
+                    <!-- Telnet Login: checkbox + label + login-name entry + help, all on one row -->
+                    <Grid Grid.Row="4"
+                          Grid.Column="0"
+                          Grid.ColumnSpan="2"
+                          ColumnDefinitions="Auto,*,80,Auto"
+                          ColumnSpacing="8">
+                        <CheckBox Grid.Column="0"
+                                  IsChecked="{Binding TelnetLoginEnabled}"
+                                  Color="#1f6feb"
+                                  VerticalOptions="Center"/>
+                        <Label Grid.Column="1"
+                               Text="Telnet Login (MUSE games)"
+                               TextColor="#888888"
+                               VerticalOptions="Center"/>
+                        <Entry Grid.Column="2"
+                               Text="{Binding TelnetLoginName}"
+                               IsEnabled="{Binding TelnetLoginEnabled}"
+                               TextColor="White"
+                               BackgroundColor="#161b22"
+                               PlaceholderColor="#444444"
+                               Placeholder="mud"
+                               SemanticProperties.Description="Telnet login name"/>
+                        <Label Grid.Column="3"
+                               Text="ⓘ"
+                               TextColor="#1f6feb"
+                               FontSize="16"
+                               VerticalOptions="Center">
+                            <Label.GestureRecognizers>
+                                <TapGestureRecognizer Command="{Binding ShowTelnetHelpCommand}"/>
+                            </Label.GestureRecognizers>
+                        </Label>
+                    </Grid>
+
+                </Grid>
+
+                <Grid ColumnDefinitions="*,Auto"
+                      ColumnSpacing="8">
+                    <Button Grid.Column="0"
+                            Text="Connect  ▶"
+                            Command="{Binding ConnectCommand}"
+                            IsEnabled="{Binding CanConnect}"
+                            BackgroundColor="#1f6feb"
+                            TextColor="White"
+                            CornerRadius="6"
+                            HeightRequest="48" />
+                    <Button Grid.Column="1"
+                            Text="{Binding CaptureButtonText}"
+                            Command="{Binding ToggleCaptureCommand}"
+                            IsVisible="{Binding IsCaptureFacilityAvailable}"
+                            BackgroundColor="#2d333b"
+                            TextColor="#cccccc"
+                            CornerRadius="6"
+                            HeightRequest="48"
+                            Padding="10,0"
+                            SemanticProperties.Description="Toggle pre-connect capture"
+                            SemanticProperties.Hint="Arms or disarms session capture before connecting">
+                        <Button.Triggers>
+                            <DataTrigger TargetType="Button" Binding="{Binding IsCaptureRequested}" Value="True">
+                                <Setter Property="BackgroundColor" Value="#c02020"/>
+                                <Setter Property="TextColor" Value="White"/>
+                            </DataTrigger>
+                        </Button.Triggers>
+                    </Button>
+                </Grid>
+
+                <Label Text="{Binding StatusText}"
+                       TextColor="#f85149"
+                       IsVisible="{Binding HasError}"
+                       HorizontalOptions="Center" />
+
+            </VerticalStackLayout>
+        </ScrollView>
+
+    </Grid>
+</ContentPage>
