@@ -35,6 +35,7 @@ public sealed class MudStream
     {
         Normal,
         Esc,
+        EscDash,
         Csi,
         IacSeen,
         IacCmd,
@@ -68,6 +69,12 @@ public sealed class MudStream
         C98DataFF2,
         C1GenSeq,
         C1GenFF1,
+        // Prompt-preamble suppression: entered only when {C01}{C255} (0x9C 0xFF 0xFF) is seen alone,
+        // which is the unique opener of MUD2's complex prompt sequence.
+        PromptPreText,
+        PromptPreTextFF1,
+        PromptText,
+        PromptTextFF1,
     }
 
     private State _state = State.Normal;
@@ -77,6 +84,17 @@ public sealed class MudStream
     private readonly List<byte> _sbPayload = new(32);
     private byte _c99Fg;
     private byte _c99Bg;
+
+    // C1 sequence tracking for color application and prompt detection.
+    private byte _c1StartByte;
+    private byte _c1SecondByte;
+
+    // Prompt suppression: set when the MUD2 prompt-preamble opener {C01}{C255} is recognised.
+    // Text buffered here is discarded if confirmed as prompt content; committed if it turns
+    // out to be normal game text (e.g. ended by \n rather than {C255}).
+    private bool _inPromptPreamble;
+    private bool _inPromptText;
+    private readonly StringBuilder _provBuf = new(16);
 
     private bool _clientModeRequested;
     private bool _accountIdSent;
@@ -158,10 +176,15 @@ public sealed class MudStream
                 else if (b >= 0x9B && b <= 0xFE)
                 {
                     FlushSpan();
+                    _c1StartByte = b;
+                    _c1SecondByte = 0;
                     _state = State.C1GenSeq;
                 }
                 else if (b == '\n')
                 {
+                    CommitProvisional();
+                    _inPromptPreamble = false;
+                    _inPromptText = false;
                     FlushSpan();
                     EmitLine();
                 }
@@ -170,7 +193,20 @@ public sealed class MudStream
                 }
                 else if ((b >= 0x20 && b != 0x7F) || b == '\t')
                 {
-                    _spanText.Append((char)b);
+                    if (_inPromptText)
+                    {
+                        _provBuf.Append((char)b);
+                        _state = State.PromptText;
+                    }
+                    else if (_inPromptPreamble)
+                    {
+                        _provBuf.Append((char)b);
+                        _state = State.PromptPreText;
+                    }
+                    else
+                    {
+                        _spanText.Append((char)b);
+                    }
                 }
 
                 break;
@@ -181,11 +217,21 @@ public sealed class MudStream
                     _paramBuf.Clear();
                     _state = State.Csi;
                 }
+                else if (b == '-')
+                {
+                    _state = State.EscDash;
+                }
                 else
                 {
-                    _state = State.Normal;
+                    ReprocessFromNormal(b);
                 }
 
+                break;
+
+            case State.EscDash:
+                // ESC-C = client mode / clear screen, ESC-R/r = reverse video, ESC-K = erase EOL.
+                // Our HTML renderer has no screen model; consume the command byte silently.
+                _state = State.Normal;
                 break;
 
             case State.Csi:
@@ -218,7 +264,7 @@ public sealed class MudStream
                 }
                 else if (b == IAC)
                 {
-                    _spanText.Append((char)0xFF);
+                    // IAC IAC in MUD2 is never a literal data byte; consume silently.
                     _state = State.Normal;
                 }
                 else
@@ -512,6 +558,7 @@ public sealed class MudStream
             case State.C1GenSeq:
                 if (b >= 0x9B && b <= 0xFE)
                 {
+                    _c1SecondByte = b;
                     _state = State.C1GenSeq;
                 }
                 else if (b == 0xFF)
@@ -528,11 +575,152 @@ public sealed class MudStream
             case State.C1GenFF1:
                 if (b == 0xFF)
                 {
+                    ApplyC1Color();
+
+                    if (_inPromptPreamble)
+                    {
+                        if (_c1StartByte == 0x9C)
+                        {
+                            // {C01}{C01/C02/C03}{C255} = prompt type indicator → prompt text follows
+                            if (_c1SecondByte == 0x9C || _c1SecondByte == 0x9D || _c1SecondByte == 0x9E)
+                            {
+                                _inPromptText = true;
+                                _inPromptPreamble = false;
+                            }
+                            // else: {C01}{C255} or {C01}{C04/C05}{C255} = preamble continuation
+                        }
+                        else
+                        {
+                            // Non-C01 sequence in preamble: not a prompt, commit any buffered text
+                            CommitProvisional();
+                            _inPromptPreamble = false;
+                        }
+                    }
+                    else if (_c1StartByte == 0x9C && _c1SecondByte == 0)
+                    {
+                        // Bare {C01}{C255}: the unique prompt-preamble opener
+                        _inPromptPreamble = true;
+                    }
+
                     _state = State.Normal;
                 }
                 else
                 {
+                    if (_inPromptPreamble)
+                    {
+                        CommitProvisional();
+                        _inPromptPreamble = false;
+                    }
+
                     ReprocessFromNormal(b);
+                }
+
+                break;
+
+            case State.PromptPreText:
+                // Buffering preamble text (& or > characters in the prompt prefix).
+                if (b == 0xFF)
+                {
+                    _state = State.PromptPreTextFF1;
+                }
+                else if (b == '\n')
+                {
+                    CommitProvisional();
+                    _inPromptPreamble = false;
+                    FlushSpan();
+                    EmitLine();
+                    _state = State.Normal;
+                }
+                else if (b == '\r')
+                {
+                }
+                else if (b >= 0x9B && b <= 0xFE)
+                {
+                    // C1 byte: could be the type indicator — keep provBuf, process C1.
+                    // C1GenFF1 will commit or discard based on what the sequence turns out to be.
+                    _c1StartByte = b;
+                    _c1SecondByte = 0;
+                    _state = State.C1GenSeq;
+                }
+                else
+                {
+                    _provBuf.Append((char)b);
+                }
+
+                break;
+
+            case State.PromptPreTextFF1:
+                if (b == 0xFF)
+                {
+                    // {C255}: preamble text confirmed (& or >), discard it
+                    _provBuf.Clear();
+                    _state = State.Normal; // _inPromptPreamble stays true
+                }
+                else
+                {
+                    // Real IAC command: commit preamble text as game text and handle it
+                    CommitProvisional();
+                    _inPromptPreamble = false;
+                    FlushSpan();
+                    _state = State.IacSeen;
+                    ProcessByte(b);
+                }
+
+                break;
+
+            case State.PromptText:
+                // Buffering the actual prompt text (typically just '*').
+                if (b == 0xFF)
+                {
+                    _state = State.PromptTextFF1;
+                }
+                else if (b == '\n')
+                {
+                    // Fallback: prompt text ended with newline — display it
+                    CommitProvisional();
+                    _inPromptText = false;
+                    FlushSpan();
+                    EmitLine();
+                    _state = State.Normal;
+                }
+                else if (b == '\r')
+                {
+                }
+                else if (b >= 0x9B && b <= 0xFE)
+                {
+                    // C1 byte mid-prompt-text: unexpected — surface the text and process C1
+                    CommitProvisional();
+                    _inPromptText = false;
+                    FlushSpan();
+                    _c1StartByte = b;
+                    _c1SecondByte = 0;
+                    _state = State.C1GenSeq;
+                }
+                else
+                {
+                    _provBuf.Append((char)b);
+                }
+
+                break;
+
+            case State.PromptTextFF1:
+                if (b == 0xFF)
+                {
+                    // {C255}: prompt text confirmed — discard it and reset colour.
+                    // Simulates the double colour-stack pop back to WHITE that clio performs.
+                    _provBuf.Clear();
+                    _inPromptText = false;
+                    _fg = 7; _bg = 0; _bold = false;
+                    _state = State.Normal;
+                }
+                else
+                {
+                    // Real IAC: surface the text and handle the IAC command
+                    CommitProvisional();
+                    _inPromptText = false;
+                    FlushSpan();
+                    _state = State.IacSeen;
+                    ProcessByte(b);
                 }
 
                 break;
@@ -762,6 +950,54 @@ public sealed class MudStream
     private static byte ClampColorIndex(int colorIndex)
         => (byte)Math.Clamp(colorIndex, 0, 15);
 
+    /// <summary>
+    /// Applies colour based on the C1 sequence just consumed (_c1StartByte / _c1SecondByte).
+    /// Called from C1GenFF1 after the full {Cx...}{C255} terminator is confirmed.
+    /// Colour mappings follow clio telnet.l lines 434–810 (ANSI indices).
+    /// </summary>
+    private void ApplyC1Color()
+    {
+        FlushSpan();
+        switch (_c1StartByte)
+        {
+            case 0x9B: // C00 = init_stack(WHITE, BLACK)
+                _fg = 7; _bg = 0; _bold = false;
+                break;
+            case 0x9C: // C01 variants
+                _bg = 0; _bold = false;
+                _fg = _c1SecondByte switch
+                {
+                    0 => 4,      // {C01}{C255}        = BLUE
+                    0x9C => 12,  // {C01}{C01}{C255}   = LT_BLUE
+                    0x9D => 12,  // {C01}{C02}{C255}   = LT_BLUE
+                    0x9E => 12,  // {C01}{C03}{C255}   = LT_BLUE
+                    _ => 4,      // other C01+x        = BLUE
+                };
+                break;
+            case 0x9E: // C03 = cyan (room/location text)
+                _fg = _c1SecondByte == 0x9C ? (byte)14 : (byte)6;
+                _bg = 0; _bold = false;
+                break;
+            case 0xA0: // C05 = red (combat/damage)
+                _fg = 9; _bg = 0; _bold = false;
+                break;
+            case 0xA2: // C07 = bright red (important messages)
+                _fg = 9; _bg = 0; _bold = true;
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Moves any provisional (prompt-candidate) text into the real span buffer,
+    /// making it visible as normal game text.
+    /// </summary>
+    private void CommitProvisional()
+    {
+        if (_provBuf.Length == 0) return;
+        _spanText.Append(_provBuf);
+        _provBuf.Clear();
+    }
+
     private void SendNewEnvironIs()
     {
         var user = AutoLogin?.EnvUser;
@@ -810,6 +1046,7 @@ public sealed class MudStream
     /// </summary>
     public void EmitPartial()
     {
+        CommitProvisional();
         FlushSpan();
         if (_line.Spans.Count == 0) return;
 
