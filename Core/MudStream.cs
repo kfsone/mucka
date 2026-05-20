@@ -61,6 +61,7 @@ public sealed class MudStream
         GameModePrefix4,
         GameModeC02C02FF1,
         GameModeC02C02FF2,
+        GameModeC02BareFF1,
         C99Fg,
         C99FgBgOrTerm,
         C99Term1,
@@ -467,6 +468,11 @@ public sealed class MudStream
                 {
                     _state = State.GameModeC02C02FF1;
                 }
+                else if (b == 0xFF)
+                {
+                    // {C02}{C255}: bare C02 colour sequence = LT_GREEN (same base as game-mode entry)
+                    _state = State.GameModeC02BareFF1;
+                }
                 else
                 {
                     ReprocessFromNormal(b);
@@ -523,6 +529,20 @@ public sealed class MudStream
                     ReprocessFromNormal(b);
                 }
 
+                break;
+
+            case State.GameModeC02BareFF1:
+                if (b == 0xFF)
+                {
+                    FlushSpan();
+                    _fg = 10; _bg = 0; _bold = false;
+                }
+                else
+                {
+                    ReprocessFromNormal(b);
+                }
+
+                _state = State.Normal;
                 break;
 
             case State.C99Fg:
