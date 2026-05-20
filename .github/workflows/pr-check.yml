@@ -1,0 +1,66 @@
+name: PR Check
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-windows:
+    name: Build (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # MinVer needs full history to resolve version from tags
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-windows-${{ hashFiles('**/*.csproj', 'Directory.Build.props') }}
+          restore-keys: nuget-windows-
+
+      - name: Install MAUI Windows workload
+        run: dotnet workload install maui-windows
+
+      - name: Build
+        run: dotnet build -f net10.0-windows10.0.19041.0 -c Release "-p:TargetFrameworks=net10.0-windows10.0.19041.0"
+
+      - name: Test
+        shell: pwsh
+        run: |
+          $tests = Get-ChildItem -Recurse -Filter "*.Tests.csproj" -ErrorAction SilentlyContinue
+          if ($tests.Count -gt 0) {
+            dotnet test --no-build -c Release --logger "console;verbosity=normal"
+          } else {
+            Write-Host "No test projects found — skipping"
+          }
+
+  build-android:
+    name: Build (Android)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-android-${{ hashFiles('**/*.csproj', 'Directory.Build.props') }}
+          restore-keys: nuget-android-
+
+      - name: Install MAUI Android workload
+        run: dotnet workload install maui-android
+
+      - name: Build
+        run: dotnet build -f net10.0-android -c Release -p:TargetFrameworks=net10.0-android -p:EnableWindowsTargeting=true

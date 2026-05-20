@@ -1,0 +1,32 @@
+.clion
+.idea
+.vs
+.vscode
+
+bin/
+obj/
+
+# Visual Studio
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.DotSettings.user
+
+# NuGet
+*.nupkg
+packages/
+project.lock.json
+
+# Android generated
+Platforms/Android/Resources/Resource.designer.cs
+
+# Windows packaging
+AppPackages/
+*.appx
+*.appxbundle
+*.msix
+*.msixbundle
+
+# macOS
+.DS_Store

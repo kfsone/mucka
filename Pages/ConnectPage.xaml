@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:vm="clr-namespace:Mucka.ViewModels"
+             xmlns:core="clr-namespace:Mucka.Core"
+             x:Class="Mucka.Pages.ConnectPage"
+             Title="mucka"
+             BackgroundColor="#0C0C0C">
+
+    <Grid RowDefinitions="*,Auto">
+        <ScrollView Grid.Row="0" VerticalOptions="Center">
+            <VerticalStackLayout HorizontalOptions="Center"
+                                 WidthRequest="320"
+                                 Spacing="16"
+                                 Padding="24">
+                <BoxView HeightRequest="1" Color="#333333" Margin="0,8" />
+
+                <Label Text="{Binding VersionText}"
+                       TextColor="#444444"
+                       FontSize="11"
+                       HorizontalOptions="Center" />
+
+                <Grid ColumnDefinitions="80,*"
+                      RowDefinitions="Auto,Auto,Auto"
+                      RowSpacing="10"
+                      ColumnSpacing="10">
+                    <Label Grid.Row="0"
+                           Grid.Column="0"
+                           Text="Host"
+                           TextColor="#888888"
+                           VerticalOptions="Center" />
+                    <Entry Grid.Row="0"
+                           Grid.Column="1"
+                           x:Name="HostEntry"
+                           Text="{Binding Host}"
+                           TextColor="White"
+                           BackgroundColor="#161b22"
+                           PlaceholderColor="#444444"
+                           Placeholder="mud2.co.uk"
+                           Keyboard="Url"
+                           ReturnType="Next" />
+
+                    <Label Grid.Row="1"
+                           Grid.Column="0"
+                           Text="Port"
+                           TextColor="#888888"
+                           VerticalOptions="Center" />
+                    <Entry Grid.Row="1"
+                           Grid.Column="1"
+                           Text="{Binding Port}"
+                           TextColor="White"
+                           BackgroundColor="#161b22"
+                           Keyboard="Numeric"
+                           ReturnType="Next" />
+
+                    <Label Grid.Row="2"
+                           Grid.Column="0"
+                           Text="Name"
+                           TextColor="#888888"
+                           VerticalOptions="Center" />
+                    <Entry Grid.Row="2"
+                           Grid.Column="1"
+                           Text="{Binding ProfileName}"
+                           TextColor="White"
+                           BackgroundColor="#161b22"
+                           PlaceholderColor="#444444"
+                           Placeholder="profile name"
+                           ReturnType="Done" />
+                </Grid>
+
+                <Button Text="Connect  ▶"
+                        Command="{Binding ConnectCommand}"
+                        IsEnabled="{Binding CanConnect}"
+                        BackgroundColor="#1f6feb"
+                        TextColor="White"
+                        CornerRadius="6"
+                        HeightRequest="48" />
+
+                <Label Text="{Binding StatusText}"
+                       TextColor="#f85149"
+                       IsVisible="{Binding HasError}"
+                       HorizontalOptions="Center" />
+            </VerticalStackLayout>
+        </ScrollView>
+
+        <Border Grid.Row="1"
+                BackgroundColor="#161b22"
+                Stroke="#333333"
+                StrokeThickness="1"
+                MaximumHeightRequest="200">
+            <CollectionView x:Name="ProfileList"
+                            ItemsSource="{Binding SavedProfiles}"
+                            SelectionMode="Single"
+                            SelectionChanged="OnProfileSelected">
+                <CollectionView.Header>
+                    <Label Text="Saved profiles"
+                           TextColor="#555555"
+                           FontSize="12"
+                           Padding="12,8,12,4" />
+                </CollectionView.Header>
+                <CollectionView.ItemTemplate>
+                    <DataTemplate x:DataType="core:Profile">
+                        <Grid ColumnDefinitions="*,Auto" Padding="12,6">
+                            <Label Grid.Column="0"
+                                   Text="{Binding Name}"
+                                   TextColor="#cccccc" />
+                            <Label Grid.Column="1"
+                                   Text="{Binding Host}"
+                                   TextColor="#555555"
+                                   FontSize="12" />
+                        </Grid>
+                    </DataTemplate>
+                </CollectionView.ItemTemplate>
+            </CollectionView>
+        </Border>
+    </Grid>
+</ContentPage>

@@ -1,0 +1,153 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      version_tag:
+        description: 'Version label (e.g. v0.1.0) — for artifact naming only, not a real tag'
+        required: false
+        default: 'manual'
+
+env:
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.version_tag || github.ref_name }}
+
+permissions:
+  contents: write
+
+jobs:
+  # ── Windows ──────────────────────────────────────────────────────────────
+  release-windows:
+    name: Release (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-windows-${{ hashFiles('**/*.csproj', 'Directory.Build.props') }}
+          restore-keys: nuget-windows-
+
+      - name: Install MAUI Windows workload
+        run: dotnet workload install maui-windows
+
+      - name: Publish (Windows)
+        run: >
+          dotnet publish -f net10.0-windows10.0.19041.0 -c Release
+          "-p:TargetFrameworks=net10.0-windows10.0.19041.0"
+          -p:ApplicationVersion=${{ github.run_number }}
+
+      - name: Zip Windows build
+        shell: pwsh
+        run: |
+          $src = "bin/Release/net10.0-windows10.0.19041.0/win-x64/publish"
+          $zip = "mucka-windows-${{ env.RELEASE_TAG }}.zip"
+          Compress-Archive -Path "$src/*" -DestinationPath $zip
+          Write-Host "Created $zip"
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-release
+          path: mucka-windows-${{ env.RELEASE_TAG }}.zip
+
+  # ── Android ──────────────────────────────────────────────────────────────
+  release-android:
+    name: Release (Android)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-android-${{ hashFiles('**/*.csproj', 'Directory.Build.props') }}
+          restore-keys: nuget-android-
+
+      - name: Install MAUI Android workload
+        run: dotnet workload install maui-android
+
+      - name: Decode keystore
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > mucka-release.jks
+            echo "HAVE_KEYSTORE=true" >> "$GITHUB_ENV"
+          fi
+
+      - name: Publish (Android)
+        env:
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+        run: |
+          if [ "${HAVE_KEYSTORE}" = "true" ]; then
+            dotnet publish -f net10.0-android -c Release \
+              -p:TargetFrameworks=net10.0-android \
+              -p:EnableWindowsTargeting=true \
+              -p:ApplicationVersion=${{ github.run_number }} \
+              -p:AndroidKeyStore=true \
+              -p:AndroidSigningKeyStore=mucka-release.jks \
+              "-p:AndroidSigningKeyAlias=${ANDROID_KEY_ALIAS}" \
+              "-p:AndroidSigningKeyPass=${ANDROID_KEY_PASSWORD}" \
+              "-p:AndroidSigningStorePass=${ANDROID_STORE_PASSWORD}"
+          else
+            dotnet publish -f net10.0-android -c Release \
+              -p:TargetFrameworks=net10.0-android \
+              -p:EnableWindowsTargeting=true \
+              -p:ApplicationVersion=${{ github.run_number }}
+          fi
+
+      - name: Locate APK
+        id: apk
+        shell: bash
+        run: |
+          apk=$(find bin/Release/net10.0-android -name "*.apk" | head -1)
+          echo "path=$apk" >> "$GITHUB_OUTPUT"
+          cp "$apk" "mucka-android-${{ github.ref_name }}.apk"
+
+      - name: Upload Android artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-release
+          path: mucka-android-${{ github.ref_name }}.apk
+
+  # ── GitHub Release ────────────────────────────────────────────────────────
+  create-release:
+    name: Create GitHub Release
+    needs: [release-windows, release-android]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+          merge-multiple: true
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: mucka ${{ github.ref_name }}
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          generate_release_notes: true
+          files: release-artifacts/*

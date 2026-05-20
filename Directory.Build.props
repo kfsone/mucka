@@ -1,0 +1,11 @@
+<Project>
+  <PropertyGroup>
+    <!-- MinVer reads the nearest ancestor git tag (e.g. v0.1.0) and sets $(Version).
+         Untagged local builds get 0.0.0-dev.N where N is commits since last tag. -->
+    <MinVerTagPrefix>v</MinVerTagPrefix>
+    <MinVerDefaultPreReleaseIdentifiers>dev</MinVerDefaultPreReleaseIdentifiers>
+    <!-- Wire the MinVer version into the MAUI ApplicationDisplayVersion.
+         ApplicationVersion (Android versionCode) is overridden in CI with the run number. -->
+    <ApplicationDisplayVersion>$(Version)</ApplicationDisplayVersion>
+  </PropertyGroup>
+</Project>
