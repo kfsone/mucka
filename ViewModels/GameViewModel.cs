@@ -95,6 +95,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         conn.Stream.LineReady += OnLineReady;
         conn.Stream.StatsUpdated += OnStatsUpdated;
         conn.Stream.GameModeEntered += OnGameModeEntered;
+        conn.Stream.GameModeExited += OnGameModeExited;
         conn.Disconnected += OnDisconnected;
         conn.ConnectionError += OnConnectionError;
 
@@ -119,6 +120,17 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             _fesHeartbeat.Interval = TimeSpan.FromSeconds(10);
             _fesHeartbeat.Tick += (_, _) => _conn.Stream.RequestFesSubscription();
             _fesHeartbeat.Start();
+        });
+    }
+
+    private void OnGameModeExited()
+    {
+        // Stop the FES heartbeat so it doesn't fire while at the login menu.
+        // _fesHeartbeat is set to null so OnGameModeEntered can start a fresh timer.
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            _fesHeartbeat?.Stop();
+            _fesHeartbeat = null;
         });
     }
 
@@ -280,6 +292,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _conn.Stream.LineReady -= OnLineReady;
         _conn.Stream.StatsUpdated -= OnStatsUpdated;
         _conn.Stream.GameModeEntered -= OnGameModeEntered;
+        _conn.Stream.GameModeExited -= OnGameModeExited;
         _conn.Disconnected -= OnDisconnected;
         _conn.ConnectionError -= OnConnectionError;
         await _conn.DisposeAsync();
