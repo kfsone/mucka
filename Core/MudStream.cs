@@ -110,6 +110,8 @@ public sealed class MudStream
     private bool _requestFes;
     // Whether the prompt currently being parsed should be shown (first after \n) or suppressed.
     private bool _showPrompt;
+    // Set after a shown '*' prompt; subsequent text on the same line is the player's echoed input.
+    private bool _afterShownPrompt;
 
     private byte _fg = 7;
     private byte _bg = 0;
@@ -753,9 +755,15 @@ public sealed class MudStream
                 {
                     // {C255}: prompt text confirmed — show if first-after-newline, suppress if heartbeat.
                     if (_showPrompt)
-                        CommitProvisional();    // emit the '*' as game text
+                    {
+                        CommitProvisional();    // emit the '*' to _spanText
+                        FlushSpan();            // flush '*' as a normal (non-echo) span before arming echo mode
+                        _afterShownPrompt = true;
+                    }
                     else
+                    {
                         _provBuf.Clear();       // suppress heartbeat prompt
+                    }
                     _showPrompt = false;
                     _inPromptText = false;
                     _fg = 7; _bg = 0; _bold = false;
@@ -1058,6 +1066,7 @@ public sealed class MudStream
         _inGameMode = false;
         _promptAllowed = true;
         _requestFes = false;
+        _afterShownPrompt = false;
         _clientModeRequested = false;   // allow client-mode re-send on next "Option" prompt
         _accountIdSent = false;
         _passwordSent = false;
@@ -1184,7 +1193,7 @@ public sealed class MudStream
     {
         if (_spanText.Length == 0) return;
         byte fg = _bold && _fg < 8 ? (byte)(_fg | 8) : _fg;
-        _line.Add(new StyledSpan { Text = _spanText.ToString(), Fg = fg, Bg = _bg, Bold = _bold });
+        _line.Add(new StyledSpan { Text = _spanText.ToString(), Fg = fg, Bg = _bg, Bold = _bold, Echo = _afterShownPrompt });
         _spanText.Clear();
     }
 
@@ -1192,6 +1201,7 @@ public sealed class MudStream
     {
         FlushSpan();
         _promptAllowed = true;
+        _afterShownPrompt = false;
         CheckOutOfBandStamina(string.Concat(_line.Spans.Select(static span => span.Text)));
         LineReady?.Invoke(_line);
         _line = new StyledLine();

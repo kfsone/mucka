@@ -41,6 +41,7 @@ public static class HtmlScrollback
         }
         #out { padding:4px 6px; }
         .ln, .lnp { display:block; min-height:1.35em; white-space:pre-wrap; word-break:break-all; }
+        .echo { color:#767676; font-style:italic; }
         </style>
         </head>
         <body>
@@ -56,6 +57,11 @@ public static class HtmlScrollback
         var sb = new StringBuilder(line.Spans.Count * 40);
         foreach (var span in line.Spans)
         {
+            if (span.Echo)
+            {
+                sb.Append($"<span class=\"echo\">{HtmlEncode(span.Text)}</span>");
+                continue;
+            }
             string fg = HexColors[span.Fg < 16 ? span.Fg : 7];
             var style = new StringBuilder($"color:{fg}");
             if (span.Bg != 0) style.Append($";background:{HexColors[span.Bg < 16 ? span.Bg : 0]}");

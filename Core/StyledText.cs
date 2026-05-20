@@ -7,6 +7,8 @@ public sealed class StyledSpan
     public byte Fg { get; init; } = 7;
     public byte Bg { get; init; } = 0;
     public bool Bold { get; init; }
+    /// <summary>True when this span is the server's echo of the player's own input (rendered gray italic).</summary>
+    public bool Echo { get; init; }
 }
 
 /// <summary>A single display line made of styled spans. May be partial (no newline received yet).</summary>
