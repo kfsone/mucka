@@ -9,6 +9,7 @@ public sealed class MudConnection : IAsyncDisposable
     private NetworkStream? _stream;
     private CancellationTokenSource? _cts;
     private readonly MudStream _parser = new();
+    private readonly SemaphoreSlim _writeLock = new(1, 1);
 
     public MudStream Stream => _parser;
     public bool IsConnected => _client?.Connected ?? false;
@@ -26,10 +27,7 @@ public sealed class MudConnection : IAsyncDisposable
         {
             try
             {
-                if (_stream != null)
-                {
-                    await _stream.WriteAsync(bytes);
-                }
+                await WriteAsync(bytes);
             }
             catch
             {
@@ -42,13 +40,24 @@ public sealed class MudConnection : IAsyncDisposable
 
     public async Task SendAsync(string text)
     {
-        if (_stream == null)
-        {
-            return;
-        }
-
         var bytes = Encoding.Latin1.GetBytes(text);
-        await _stream.WriteAsync(bytes);
+        await WriteAsync(bytes);
+    }
+
+    private async Task WriteAsync(byte[] bytes)
+    {
+        await _writeLock.WaitAsync();
+        try
+        {
+            if (_stream != null)
+            {
+                await _stream.WriteAsync(bytes);
+            }
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
     }
 
     private async Task ReadLoopAsync(CancellationToken ct)
@@ -87,6 +96,7 @@ public sealed class MudConnection : IAsyncDisposable
         _cts?.Dispose();
         _stream?.Dispose();
         _client?.Dispose();
+        _writeLock.Dispose();
         await Task.CompletedTask;
     }
 }

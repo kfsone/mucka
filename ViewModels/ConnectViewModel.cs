@@ -12,6 +12,12 @@ public sealed class ConnectViewModel : BaseViewModel
     private string _statusText = string.Empty;
     private bool _isConnecting;
     private bool _hasError;
+    private string _accountId = string.Empty;
+    private string _password = string.Empty;
+    private bool _rememberPassword;
+    private bool _telnetLoginEnabled = true;
+    private string _telnetLoginName = "mud";
+    private bool _advancedVisible;
 
     public string ProfileName { get => _profileName; set => Set(ref _profileName, value); }
     public string Host { get => _host; set => Set(ref _host, value); }
@@ -20,12 +26,34 @@ public sealed class ConnectViewModel : BaseViewModel
     public bool IsConnecting { get => _isConnecting; set => Set(ref _isConnecting, value); }
     public string VersionText => $"v{AppInfo.VersionString}";
     public bool HasError { get => _hasError; set => Set(ref _hasError, value); }
+    public string AccountId { get => _accountId; set => Set(ref _accountId, value); }
+    public string Password { get => _password; set => Set(ref _password, value); }
+    public bool RememberPassword { get => _rememberPassword; set => Set(ref _rememberPassword, value); }
+    public bool TelnetLoginEnabled { get => _telnetLoginEnabled; set => Set(ref _telnetLoginEnabled, value); }
+    public string TelnetLoginName { get => _telnetLoginName; set => Set(ref _telnetLoginName, value); }
+    public bool AdvancedVisible
+    {
+        get => _advancedVisible;
+        set
+        {
+            if (Set(ref _advancedVisible, value))
+            {
+                OnPropertyChanged(nameof(AdvancedChevron));
+            }
+        }
+    }
+
+    public string AdvancedChevron => AdvancedVisible ? "▼  Advanced" : "▶  Advanced";
     public bool CanConnect => !_isConnecting;
 
     public ObservableCollection<Profile> SavedProfiles { get; } = new();
 
     public ICommand ConnectCommand { get; }
     public ICommand SelectProfileCommand { get; }
+    public ICommand ToggleAdvancedCommand { get; }
+    public ICommand ShowTelnetHelpCommand { get; }
+
+    public Func<PasswordPromptArgs, Task<PasswordResult?>>? PasswordRequired;
 
     public event Action<MudConnection, Profile>? Connected;
 
@@ -33,6 +61,18 @@ public sealed class ConnectViewModel : BaseViewModel
     {
         ConnectCommand = new AsyncCommand(ConnectAsync);
         SelectProfileCommand = new Command<Profile>(SelectProfile);
+        ToggleAdvancedCommand = new Command(() => AdvancedVisible = !AdvancedVisible);
+        ShowTelnetHelpCommand = new Command(async () =>
+        {
+            var page = Application.Current?.Windows.FirstOrDefault()?.Page;
+            if (page != null)
+            {
+                await page.DisplayAlertAsync(
+                    "Telnet Login",
+                    "MUSE games (MUD2, MUD1) require a telnet login of \"mud\" followed by your Account ID and password.\n\nLeave checked for automatic login. Uncheck to log in by hand.\n\nFor anything else, please file an issue on GitHub.",
+                    "OK");
+            }
+        });
         _ = LoadProfilesAsync();
     }
 
@@ -44,10 +84,54 @@ public sealed class ConnectViewModel : BaseViewModel
         OnPropertyChanged(nameof(CanConnect));
         try
         {
+            var accountId = AccountId.Trim();
+            var loginName = TelnetLoginName.Trim();
+
+            string resolvedPassword = Password;
+            if (TelnetLoginEnabled && !string.IsNullOrEmpty(accountId) && string.IsNullOrEmpty(resolvedPassword))
+            {
+                if (PasswordRequired == null)
+                {
+                    StatusText = "Password required. Please enter your password.";
+                    HasError = true;
+                    return;
+                }
+
+                var result = await PasswordRequired(new PasswordPromptArgs(ProfileName, Host.Trim(), Port, accountId));
+                if (result == null) return;
+                resolvedPassword = result.Password;
+                Password = resolvedPassword;
+                if (result.Remember)
+                {
+                    RememberPassword = true;
+                    await ProfileStore.SetPasswordAsync(ProfileName, resolvedPassword);
+                }
+            }
+
+            AutoLoginConfig? autoLogin = null;
+            if (TelnetLoginEnabled && !string.IsNullOrEmpty(accountId))
+            {
+                // EnvUser: send TelnetLoginName as NEW-ENVIRON USER (null = don't send USER env)
+                var envUser = !string.IsNullOrEmpty(loginName) ? loginName : (string?)null;
+                autoLogin = new AutoLoginConfig(envUser, accountId, string.IsNullOrEmpty(resolvedPassword) ? null : resolvedPassword);
+            }
+
             var conn = new MudConnection();
+            conn.Stream.AutoLogin = autoLogin;
             await conn.ConnectAsync(Host.Trim(), Port);
-            var profile = new Profile { Name = ProfileName, Host = Host.Trim(), Port = Port };
-            await SaveCurrentProfileAsync(profile);
+
+            var profile = new Profile
+            {
+                Name = ProfileName,
+                Host = Host.Trim(),
+                Port = Port,
+                AccountId = accountId,
+                RememberPassword = RememberPassword,
+                TelnetLoginEnabled = TelnetLoginEnabled,
+                TelnetLoginName = loginName,
+                Fkeys = SavedProfiles.FirstOrDefault(p => p.Name == ProfileName)?.Fkeys ?? new string[10]
+            };
+            await SaveCurrentProfileAsync(profile, RememberPassword ? resolvedPassword : null);
             Connected?.Invoke(conn, profile);
         }
         catch (Exception ex)
@@ -67,6 +151,23 @@ public sealed class ConnectViewModel : BaseViewModel
         ProfileName = p.Name;
         Host = p.Host;
         Port = p.Port;
+        AccountId = p.AccountId;
+        RememberPassword = p.RememberPassword;
+        TelnetLoginEnabled = p.TelnetLoginEnabled;
+        TelnetLoginName = string.IsNullOrEmpty(p.TelnetLoginName) ? "mud" : p.TelnetLoginName;
+        _ = LoadProfilePasswordAsync(p);
+    }
+
+    private async Task LoadProfilePasswordAsync(Profile p)
+    {
+        if (p.RememberPassword)
+        {
+            Password = await ProfileStore.GetPasswordAsync(p.Name) ?? string.Empty;
+        }
+        else
+        {
+            Password = string.Empty;
+        }
     }
 
     private async Task LoadProfilesAsync()
@@ -84,20 +185,27 @@ public sealed class ConnectViewModel : BaseViewModel
         }
     }
 
-    private async Task SaveCurrentProfileAsync(Profile incoming)
+    private async Task SaveCurrentProfileAsync(Profile incoming, string? password)
     {
         var existing = SavedProfiles.FirstOrDefault(p =>
             string.Equals(p.Name, incoming.Name, StringComparison.OrdinalIgnoreCase));
         if (existing != null)
         {
+            existing.Name = incoming.Name;
             existing.Host = incoming.Host;
             existing.Port = incoming.Port;
+            existing.AccountId = incoming.AccountId;
+            existing.RememberPassword = incoming.RememberPassword;
+            existing.TelnetLoginEnabled = incoming.TelnetLoginEnabled;
+            existing.TelnetLoginName = incoming.TelnetLoginName;
+            existing.Fkeys = incoming.Fkeys;
         }
         else
         {
             SavedProfiles.Add(incoming);
         }
 
+        await ProfileStore.SetPasswordAsync(incoming.Name, password);
         await ProfileStore.SaveAsync(SavedProfiles.ToList());
     }
 }

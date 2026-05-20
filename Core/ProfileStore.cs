@@ -29,6 +29,21 @@ public static class ProfileStore
         await File.WriteAllTextAsync(FilePath, json);
     }
 
+    public static async Task<string?> GetPasswordAsync(string profileName)
+    {
+        try { return await SecureStorage.GetAsync($"pwd:{profileName}"); }
+        catch { return null; }
+    }
+
+    public static async Task SetPasswordAsync(string profileName, string? password)
+    {
+        var key = $"pwd:{profileName}";
+        if (string.IsNullOrEmpty(password))
+            SecureStorage.Remove(key);
+        else
+            await SecureStorage.SetAsync(key, password);
+    }
+
     private static List<Profile> Defaults() => new()
     {
         new Profile { Name = "MUD2 UK", Host = "mud2.co.uk", Port = 23 },

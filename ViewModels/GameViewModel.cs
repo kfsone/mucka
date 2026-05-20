@@ -15,8 +15,19 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private int _stamina;
     private int _maxStamina;
     private int _strength;
+    private int _maxStrength;
     private int _dexterity;
+    private int _maxDexterity;
+    private int _magic;
+    private int _maxMagic;
     private long _score;
+    private bool _blind;
+    private bool _deaf;
+    private bool _crippled;
+    private bool _dumb;
+    private int _minutesToReset;
+    private char _weather;
+    private byte _staminaColour;
     private string _rank = string.Empty;
     private string _dreamword = string.Empty;
     private bool _isConnected = true;
@@ -26,13 +37,26 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private readonly ConcurrentQueue<StyledLine> _pendingLines = new();
     // History buffer for the (future) history panel — kept separately from the live view.
     private readonly List<StyledLine> _historyBuffer = new();
+    // FES heartbeat — started once on game-mode entry, sends FES every 10 s.
+    private IDispatcherTimer? _fesHeartbeat;
 
     public string InputText { get => _inputText; set => Set(ref _inputText, value); }
     public int Stamina { get => _stamina; set { Set(ref _stamina, value); OnPropertyChanged(nameof(StaText)); } }
     public int MaxStamina { get => _maxStamina; set { Set(ref _maxStamina, value); OnPropertyChanged(nameof(StaText)); } }
     public int Strength { get => _strength; set { Set(ref _strength, value); OnPropertyChanged(nameof(StrText)); } }
+    public int MaxStrength { get => _maxStrength; set => Set(ref _maxStrength, value); }
     public int Dexterity { get => _dexterity; set { Set(ref _dexterity, value); OnPropertyChanged(nameof(DexText)); } }
+    public int MaxDexterity { get => _maxDexterity; set => Set(ref _maxDexterity, value); }
+    public int Magic { get => _magic; set => Set(ref _magic, value); }
+    public int MaxMagic { get => _maxMagic; set => Set(ref _maxMagic, value); }
     public long Score { get => _score; set { Set(ref _score, value); OnPropertyChanged(nameof(ScoreText)); } }
+    public bool Blind { get => _blind; set => Set(ref _blind, value); }
+    public bool Deaf { get => _deaf; set => Set(ref _deaf, value); }
+    public bool Crippled { get => _crippled; set => Set(ref _crippled, value); }
+    public bool Dumb { get => _dumb; set => Set(ref _dumb, value); }
+    public int MinutesToReset { get => _minutesToReset; set => Set(ref _minutesToReset, value); }
+    public char Weather { get => _weather; set => Set(ref _weather, value); }
+    public byte StaminaColour { get => _staminaColour; set => Set(ref _staminaColour, value); }
     public string Rank { get => _rank; set => Set(ref _rank, value); }
     public string Dreamword { get => _dreamword; set => Set(ref _dreamword, value); }
     public bool IsConnected { get => _isConnected; set => Set(ref _isConnected, value); }
@@ -64,8 +88,13 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             FkeyItems.Add(new FkeyItem(i, i < profile.Fkeys.Length ? profile.Fkeys[i] ?? string.Empty : string.Empty));
         }
 
+        // Pre-populate the input box with the account ID for manual login.
+        if (!profile.TelnetLoginEnabled && !string.IsNullOrEmpty(profile.AccountId))
+            _inputText = profile.AccountId;
+
         conn.Stream.LineReady += OnLineReady;
         conn.Stream.StatsUpdated += OnStatsUpdated;
+        conn.Stream.GameModeEntered += OnGameModeEntered;
         conn.Disconnected += OnDisconnected;
         conn.ConnectionError += OnConnectionError;
 
@@ -79,6 +108,19 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
 
     // Called from the TCP read thread — must not touch UI directly.
     private void OnLineReady(StyledLine line) => _pendingLines.Enqueue(line);
+
+    private void OnGameModeEntered()
+    {
+        // Start the FES heartbeat on the UI thread (IDispatcherTimer requires it).
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            if (_fesHeartbeat != null) return;
+            _fesHeartbeat = Application.Current!.Dispatcher.CreateTimer();
+            _fesHeartbeat.Interval = TimeSpan.FromSeconds(10);
+            _fesHeartbeat.Tick += (_, _) => _conn.Stream.RequestFesSubscription();
+            _fesHeartbeat.Start();
+        });
+    }
 
     /// <summary>
     /// Called by GamePage's 50ms timer on the UI thread.
@@ -109,13 +151,21 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             Stamina = stats.Stamina;
             MaxStamina = stats.MaxStamina;
             Strength = stats.Strength;
+            MaxStrength = stats.MaxStrength;
             Dexterity = stats.Dexterity;
+            MaxDexterity = stats.MaxDexterity;
+            Magic = stats.Magic;
+            MaxMagic = stats.MaxMagic;
             Score = stats.Score;
+            Blind = stats.Blind;
+            Deaf = stats.Deaf;
+            Crippled = stats.Crippled;
+            Dumb = stats.Dumb;
+            MinutesToReset = stats.MinutesToReset;
+            Weather = stats.Weather;
+            StaminaColour = stats.StaminaColour;
             Rank = stats.Rank;
-            if (!string.IsNullOrEmpty(stats.Dreamword))
-            {
-                Dreamword = stats.Dreamword;
-            }
+            Dreamword = stats.Dreamword;
         });
     }
 
@@ -225,8 +275,11 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        _fesHeartbeat?.Stop();
+        _fesHeartbeat = null;
         _conn.Stream.LineReady -= OnLineReady;
         _conn.Stream.StatsUpdated -= OnStatsUpdated;
+        _conn.Stream.GameModeEntered -= OnGameModeEntered;
         _conn.Disconnected -= OnDisconnected;
         _conn.ConnectionError -= OnConnectionError;
         await _conn.DisposeAsync();

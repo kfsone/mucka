@@ -13,6 +13,18 @@ public partial class ConnectPage : ContentPage
         _vm = new ConnectViewModel();
         BindingContext = _vm;
         _vm.Connected += OnConnected;
+        _vm.PasswordRequired = PromptPasswordAsync;
+    }
+
+    private async Task<PasswordResult?> PromptPasswordAsync(PasswordPromptArgs args)
+    {
+        var tcs = new TaskCompletionSource<PasswordResult?>();
+        await MainThread.InvokeOnMainThreadAsync(async () =>
+        {
+            var page = new PasswordPage(args, tcs);
+            await Navigation.PushModalAsync(page);
+        });
+        return await tcs.Task;
     }
 
     private void OnConnected(MudConnection conn, Profile profile)
@@ -20,7 +32,7 @@ public partial class ConnectPage : ContentPage
         // Create GameViewModel on the UI thread so Dispatcher.CreateTimer() is available.
         MainThread.BeginInvokeOnMainThread(async () =>
         {
-            var gameVm   = new GameViewModel(conn, profile);
+            var gameVm = new GameViewModel(conn, profile);
             var gamePage = new GamePage(gameVm);
             await Navigation.PushAsync(gamePage);
         });

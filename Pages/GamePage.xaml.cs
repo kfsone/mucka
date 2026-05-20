@@ -126,7 +126,7 @@ public partial class GamePage : ContentPage
         {
             if (wv2.CoreWebView2 is null)
                 await wv2.EnsureCoreWebView2Async();
-            await wv2.CoreWebView2.ExecuteScriptAsync(script);
+            await (wv2.CoreWebView2 ?? throw new InvalidOperationException("CoreWebView2 unavailable")).ExecuteScriptAsync(script);
             return;
         }
 #endif
