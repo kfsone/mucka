@@ -111,7 +111,11 @@ public sealed class MudStream
     // Whether the prompt currently being parsed should be shown (first after \n) or suppressed.
     private bool _showPrompt;
     // Set after a shown '*' prompt; subsequent text on the same line is the player's echoed input.
+    // Cleared as soon as any C1/control colour code arrives — those bytes signal game activity text,
+    // not player echo (player echo is always plain text with no embedded colour codes).
     private bool _afterShownPrompt;
+    // Lines queued here are discarded when received from the server (suppress echo of our own sends).
+    private readonly Queue<string> _suppressEchoQueue = new();
 
     private byte _fg = 7;
     private byte _bg = 0;
@@ -159,42 +163,42 @@ public sealed class MudStream
             case State.Normal:
                 if (b == 0x1B)
                 {
-                    FlushSpan();
+                    FlushSpan(); _afterShownPrompt = false;
                     _state = State.Esc;
                 }
                 else if (b == IAC)
                 {
-                    FlushSpan();
+                    FlushSpan(); _afterShownPrompt = false;
                     _state = State.IacSeen;
                 }
                 else if (b == 0x9D)
                 {
-                    FlushSpan();
+                    FlushSpan(); _afterShownPrompt = false;
                     _state = State.GameModePrefix2;
                 }
                 else if (b == 0xA7)
                 {
-                    FlushSpan();
+                    FlushSpan(); _afterShownPrompt = false;
                     _state = State.FesPrefix2;
                 }
                 else if (b == 0xAA)
                 {
-                    FlushSpan();
+                    FlushSpan(); _afterShownPrompt = false;
                     _state = State.DreamPrefix2;
                 }
                 else if (b == 0xFE)
                 {
-                    FlushSpan();
+                    FlushSpan(); _afterShownPrompt = false;
                     _state = State.C99Fg;
                 }
                 else if (b == 0xFD)
                 {
-                    FlushSpan();
+                    FlushSpan(); _afterShownPrompt = false;
                     _state = State.C98Data;
                 }
                 else if (b >= 0x9B && b <= 0xFE)
                 {
-                    FlushSpan();
+                    FlushSpan(); _afterShownPrompt = false;
                     _c1StartByte = b;
                     _c1SecondByte = 0;
                     _state = State.C1GenSeq;
@@ -483,6 +487,7 @@ public sealed class MudStream
                     var wasInGame = _inGameMode;
                     _inGameMode = true;
                     _promptAllowed = true;
+                    _suppressEchoQueue.Clear();     // pre-game echo suppression is done
                     ForceRequestFesSubscription();
                     if (!wasInGame) GameModeEntered?.Invoke();
                     _state = State.Normal;
@@ -804,6 +809,7 @@ public sealed class MudStream
     private void HandleSgr(string param)
     {
         FlushSpan();
+        _afterShownPrompt = false;
         var parts = param.Length == 0 ? new[] { "0" } : param.Split(';');
         foreach (var part in parts)
         {
@@ -1169,6 +1175,7 @@ public sealed class MudStream
                     && loginText.StartsWith("Account ID:", StringComparison.Ordinal))
                 {
                     _accountIdSent = true;
+                    _suppressEchoQueue.Enqueue(AutoLogin.AccountId);
                     ResponseReady?.Invoke(Encoding.Latin1.GetBytes(AutoLogin.AccountId + "\r\n"));
                 }
                 else if (!_passwordSent && _accountIdSent && AutoLogin.Password != null
@@ -1176,6 +1183,7 @@ public sealed class MudStream
                              || loginText.StartsWith("password:", StringComparison.Ordinal)))
                 {
                     _passwordSent = true;
+                    _suppressEchoQueue.Enqueue(AutoLogin.Password);
                     ResponseReady?.Invoke(Encoding.Latin1.GetBytes(AutoLogin.Password + "\r\n"));
                 }
             }
@@ -1202,7 +1210,14 @@ public sealed class MudStream
         FlushSpan();
         _promptAllowed = true;
         _afterShownPrompt = false;
-        CheckOutOfBandStamina(string.Concat(_line.Spans.Select(static span => span.Text)));
+        var text = string.Concat(_line.Spans.Select(static span => span.Text));
+        if (_suppressEchoQueue.Count > 0 && _suppressEchoQueue.Peek() == text)
+        {
+            _suppressEchoQueue.Dequeue();
+            _line = new StyledLine();
+            return;
+        }
+        CheckOutOfBandStamina(text);
         LineReady?.Invoke(_line);
         _line = new StyledLine();
     }
