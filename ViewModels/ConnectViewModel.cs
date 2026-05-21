@@ -6,6 +6,8 @@ namespace Mucka.ViewModels;
 
 public sealed class ConnectViewModel : BaseViewModel
 {
+    private readonly CommandLineArgs _cmdArgs = CommandLineArgs.Current;
+    private readonly Task _loadProfilesTask;
     private string _profileName = string.Empty;
     private string _host = "mud2.co.uk";
     private int _port = 23;
@@ -55,6 +57,8 @@ public sealed class ConnectViewModel : BaseViewModel
 
     public string AdvancedChevron => AdvancedVisible ? "▼  Advanced" : "▶  Advanced";
     public bool CanConnect => !_isConnecting;
+    public bool IsDirectConnectMode => _cmdArgs.Error == null && _cmdArgs.HasDirectConnectOptions;
+    public Task LoadProfilesTask => _loadProfilesTask;
 
     public ObservableCollection<Profile> SavedProfiles { get; } = new();
 
@@ -89,7 +93,7 @@ public sealed class ConnectViewModel : BaseViewModel
                     "OK");
             }
         });
-        _ = LoadProfilesAsync();
+        _loadProfilesTask = LoadProfilesAsync();
     }
 
     private async Task ConnectAsync()
@@ -154,7 +158,10 @@ public sealed class ConnectViewModel : BaseViewModel
                 TelnetLoginName = loginName,
                 Fkeys = SavedProfiles.FirstOrDefault(p => p.Name == ProfileName)?.Fkeys ?? new string[10]
             };
-            await SaveCurrentProfileAsync(profile, RememberPassword ? resolvedPassword : null);
+            if (!IsDirectConnectMode)
+            {
+                await SaveCurrentProfileAsync(profile, RememberPassword ? resolvedPassword : null);
+            }
             Connected?.Invoke(conn, profile);
         }
         catch (Exception ex)
@@ -171,6 +178,12 @@ public sealed class ConnectViewModel : BaseViewModel
 
     private void SelectProfile(Profile p)
     {
+        ApplyProfile(p);
+        _ = LoadProfilePasswordAsync(p);
+    }
+
+    private void ApplyProfile(Profile p)
+    {
         ProfileName = p.Name;
         Host = p.Host;
         Port = p.Port;
@@ -178,7 +191,15 @@ public sealed class ConnectViewModel : BaseViewModel
         RememberPassword = p.RememberPassword;
         TelnetLoginEnabled = p.TelnetLoginEnabled;
         TelnetLoginName = string.IsNullOrEmpty(p.TelnetLoginName) ? "mud" : p.TelnetLoginName;
-        _ = LoadProfilePasswordAsync(p);
+    }
+
+    private async Task SelectProfileAsync(Profile p, bool loadPassword)
+    {
+        ApplyProfile(p);
+        if (loadPassword)
+        {
+            await LoadProfilePasswordAsync(p);
+        }
     }
 
     private async Task LoadProfilePasswordAsync(Profile p)
@@ -196,16 +217,48 @@ public sealed class ConnectViewModel : BaseViewModel
     private async Task LoadProfilesAsync()
     {
         var list = await ProfileStore.LoadAsync();
+        var loadPasswordFromStore = _cmdArgs.Password == null;
         SavedProfiles.Clear();
         foreach (var p in list)
         {
             SavedProfiles.Add(p);
         }
 
-        if (SavedProfiles.Count > 0)
+        if (_cmdArgs.Error != null)
         {
-            SelectProfile(SavedProfiles[0]);
+            StatusText = _cmdArgs.Error;
+            HasError = true;
+            return;
         }
+
+        if (!string.IsNullOrEmpty(_cmdArgs.Profile))
+        {
+            var match = SavedProfiles.FirstOrDefault(p =>
+                string.Equals(p.Name, _cmdArgs.Profile, StringComparison.OrdinalIgnoreCase));
+            if (match != null)
+                await SelectProfileAsync(match, loadPasswordFromStore);
+            else if (SavedProfiles.Count > 0)
+                await SelectProfileAsync(SavedProfiles[0], loadPasswordFromStore);
+        }
+        else if (SavedProfiles.Count > 0)
+        {
+            await SelectProfileAsync(SavedProfiles[0], loadPasswordFromStore);
+        }
+
+        // Apply individual command-line overrides on top of the selected profile.
+        if (_cmdArgs.Host != null) Host = _cmdArgs.Host;
+        if (_cmdArgs.Port.HasValue) Port = _cmdArgs.Port.Value;
+        if (_cmdArgs.User != null) TelnetLoginName = _cmdArgs.User;
+        if (_cmdArgs.Account != null) AccountId = _cmdArgs.Account;
+        if (_cmdArgs.Password != null) Password = _cmdArgs.Password;
+
+#if DEBUG
+        if (_cmdArgs.Record)
+        {
+            IsCaptureRequested = true;
+            OnPropertyChanged(nameof(CaptureButtonText));
+        }
+#endif
     }
 
     private async Task SaveCurrentProfileAsync(Profile incoming, string? password)
