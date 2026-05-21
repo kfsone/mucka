@@ -3,24 +3,15 @@ name: Release
 on:
   push:
     tags:
-      - 'v*.*.*'
-  workflow_dispatch:
-    inputs:
-      version_tag:
-        description: 'Version label (e.g. v0.1.0) — for artifact naming only, not a real tag'
-        required: false
-        default: 'manual'
-
-env:
-  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.version_tag || github.ref_name }}
+      - 'v[0-9]+.[0-9]+.[0-9]+'
 
 permissions:
   contents: write
 
 jobs:
   # ── Windows ──────────────────────────────────────────────────────────────
-  release-windows:
-    name: Release (Windows)
+  windows-zip:
+    name: Windows (zip)
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v6
@@ -41,48 +32,34 @@ jobs:
       - name: Install MAUI Windows workload
         run: dotnet workload install maui-windows
 
-      - name: Publish (Windows installer)
+      - name: Publish
         shell: pwsh
         run: |
-          dotnet publish -f net10.0-windows10.0.19041.0 -c Release `
-            "-p:TargetFrameworks=net10.0-windows10.0.19041.0" `
-            -p:ApplicationVersion=${{ github.run_number }} `
-            -p:CreateWindowsInstaller=true `
-            -p:GenerateAppxPackageOnBuild=true `
-            -p:UapAppxPackageBuildMode=SideloadOnly `
-            -p:AppxBundle=Never `
-            -p:AppxPackageBuildPlatform=x64 `
-            -p:RuntimeIdentifierOverride=win10-x64 `
-            -p:EnableMsixTooling=true
+          $version = "${{ github.ref_name }}" -replace '^v', ''
+          dotnet publish Mucka.csproj -f net10.0-windows10.0.19041.0 -c Release `
+            -p:MUCKA_RELEASE_VERSION=$version `
+            -p:ApplicationVersion=${{ github.run_number }}
 
-      - name: Zip Windows installer
+      - name: Zip
         shell: pwsh
         run: |
-          $pkgDir = Get-ChildItem -Path "bin" -Filter "Add-AppDevPackage.ps1" -File -Recurse -ErrorAction SilentlyContinue |
-            Where-Object {
-              $_.Directory.Name -like "*_Test" -and
-              (Get-ChildItem -Path $_.Directory.FullName -Filter "*.msix" -File -ErrorAction SilentlyContinue | Select-Object -First 1)
-            } |
+          $exe = Get-ChildItem -Path bin\Release -Recurse -Filter Mucka.exe |
+            Where-Object { $_.FullName -notlike '*\ref\*' } |
             Sort-Object LastWriteTime -Descending |
-            Select-Object -First 1 -ExpandProperty Directory
+            Select-Object -First 1
+          if (-not $exe) { throw "Mucka.exe not found after publish" }
+          $zip = "mucka-windows-${{ github.ref_name }}.zip"
+          Compress-Archive -Path "$($exe.DirectoryName)\*" -DestinationPath $zip
+          Write-Host "Zipped $($exe.DirectoryName) → $zip"
 
-          if (-not $pkgDir) {
-            throw "No *_Test AppPackage under bin containing Add-AppDevPackage.ps1 and an .msix was found."
-          }
-
-          $zip = "mucka-windows-${{ env.RELEASE_TAG }}.zip"
-          Compress-Archive -Path "$($pkgDir.FullName)/*" -DestinationPath $zip
-          Write-Host "Created $zip from $($pkgDir.FullName)"
-
-      - name: Upload Windows artifact
-        uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@v7
         with:
-          name: windows-installer
-          path: mucka-windows-${{ env.RELEASE_TAG }}.zip
+          name: windows-zip
+          path: mucka-windows-${{ github.ref_name }}.zip
 
   # ── Android ──────────────────────────────────────────────────────────────
-  release-android:
-    name: Release (Android)
+  android-apk:
+    name: Android (APK)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -112,16 +89,18 @@ jobs:
             echo "HAVE_KEYSTORE=true" >> "$GITHUB_ENV"
           fi
 
-      - name: Publish (Android)
+      - name: Publish
         env:
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
           ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
         run: |
+          version="${{ github.ref_name }}"
+          version="${version#v}"
           if [ "${HAVE_KEYSTORE}" = "true" ]; then
-            dotnet publish -f net10.0-android -c Release \
-              -p:TargetFrameworks=net10.0-android \
+            dotnet publish Mucka.csproj -f net10.0-android -c Release \
               -p:EnableWindowsTargeting=true \
+              -p:MUCKA_RELEASE_VERSION="${version}" \
               -p:ApplicationVersion=${{ github.run_number }} \
               -p:AndroidKeyStore=true \
               -p:AndroidSigningKeyStore=mucka-release.jks \
@@ -129,44 +108,37 @@ jobs:
               "-p:AndroidSigningKeyPass=${ANDROID_KEY_PASSWORD}" \
               "-p:AndroidSigningStorePass=${ANDROID_STORE_PASSWORD}"
           else
-            dotnet publish -f net10.0-android -c Release \
-              -p:TargetFrameworks=net10.0-android \
+            dotnet publish Mucka.csproj -f net10.0-android -c Release \
               -p:EnableWindowsTargeting=true \
+              -p:MUCKA_RELEASE_VERSION="${version}" \
               -p:ApplicationVersion=${{ github.run_number }}
           fi
 
-      - name: Locate APK
-        id: apk
-        shell: bash
+      - name: Rename APK
         run: |
-          apk=$(find bin/Release/net10.0-android -name "*.apk" | head -1)
-          echo "path=$apk" >> "$GITHUB_OUTPUT"
+          apk=$(find bin -name "*.apk" | head -1)
+          if [ -z "$apk" ]; then echo "No APK found"; exit 1; fi
           cp "$apk" "mucka-android-${{ github.ref_name }}.apk"
+          echo "APK: $apk"
 
-      - name: Upload Android artifact
-        uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@v7
         with:
-          name: android-release
+          name: android-apk
           path: mucka-android-${{ github.ref_name }}.apk
 
   # ── GitHub Release ────────────────────────────────────────────────────────
   create-release:
     name: Create GitHub Release
-    needs: [release-windows, release-android]
+    needs: [windows-zip, android-apk]
     runs-on: ubuntu-latest
     steps:
-      - name: Download all artifacts
+      - name: Download artifacts
         uses: actions/download-artifact@v8
         with:
-          path: release-artifacts
+          path: artifacts
           merge-multiple: true
 
-      - name: Create release
-        uses: softprops/action-gh-release@v3
+      - uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ github.ref_name }}
-          name: mucka ${{ github.ref_name }}
-          draft: false
-          prerelease: ${{ contains(github.ref_name, '-') }}
           generate_release_notes: true
-          files: release-artifacts/*
+          files: artifacts/*
