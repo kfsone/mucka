@@ -58,15 +58,20 @@ jobs:
       - name: Zip Windows installer
         shell: pwsh
         run: |
-          $pkgDir = Get-ChildItem -Path "AppPackages" -Directory -Recurse |
-            Where-Object { $_.Name -like "*_Test" } |
-            Sort-Object LastWriteTime -Descending |
-            Select-Object -First 1
+          $testPackages = Get-ChildItem -Path "AppPackages" -Directory -Recurse |
+            Where-Object {
+              $_.Name -like "*_Test" -and
+              (Test-Path (Join-Path $_.FullName "Add-AppDevPackage.ps1")) -and
+              (Get-ChildItem -Path $_.FullName -Filter "*.msix" -File -ErrorAction SilentlyContinue | Select-Object -First 1)
+            } |
+            Sort-Object LastWriteTime -Descending
+
+          $pkgDir = $testPackages | Select-Object -First 1
           if (-not $pkgDir) {
             throw "No Windows installer package directory was produced."
           }
 
-          $zip = "mucka-windows-${{ env.RELEASE_TAG }}-installer.zip"
+          $zip = "mucka-windows-${{ env.RELEASE_TAG }}.zip"
           Compress-Archive -Path "$($pkgDir.FullName)/*" -DestinationPath $zip
           Write-Host "Created $zip from $($pkgDir.FullName)"
 
@@ -74,7 +79,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: windows-installer
-          path: mucka-windows-${{ env.RELEASE_TAG }}-installer.zip
+          path: mucka-windows-${{ env.RELEASE_TAG }}.zip
 
   # ── Android ──────────────────────────────────────────────────────────────
   release-android:
