@@ -116,7 +116,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         SpeakDreamwordCommand = new Command(SpeakDreamword);
         HistoryUpCommand      = new Command(HistoryUp);
         HistoryDownCommand    = new Command(HistoryDown);
-        ToggleFkeysCommand    = new Command(() => FkeysVisible = !FkeysVisible);
+        ToggleFkeysCommand    = new Command(() => { FkeysVisible = !FkeysVisible; RequestFocus?.Invoke(); });
         ToggleCaptureCommand  = new Command(ToggleCapture);
     }
 
@@ -249,6 +249,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     {
         if (!int.TryParse(indexStr, out var i) || i < 0 || i >= FkeyItems.Count)
         {
+            RequestFocus?.Invoke();
             return;
         }
 
@@ -257,6 +258,8 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         {
             _ = _conn.SendAsync(cmd.EndsWith("\r\n") ? cmd : cmd + "\r\n");
         }
+
+        RequestFocus?.Invoke();
     }
 
     private void SpeakDreamword()
@@ -265,6 +268,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         {
             InputText = $"\"{Dreamword}";
         }
+        RequestFocus?.Invoke();
     }
 
     private void HistoryUp()
@@ -319,6 +323,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
                 AddSystemLine($"Capture failed: {error}", 9);
             }
         }
+        RequestFocus?.Invoke();
     }
 
     public async ValueTask DisposeAsync()
