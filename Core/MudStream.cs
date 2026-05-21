@@ -77,6 +77,11 @@ public sealed class MudStream
         C98DataFF2,
         C1GenSeq,
         C1GenFF1,
+        // C95 (0xFA) data-block states:
+        // {C95}{C255} introduces 5 lines of client-mode info (licence, min/max level, account, privs).
+        // {C95}{C03}{C255} is an account-logout notice with 1 trailing line; consumed silently.
+        C95ClientModeData,
+        C95AccountLogoutLine,
         // Prompt-preamble suppression: entered only when {C01}{C255} (0x9C 0xFF 0xFF) is seen alone,
         // which is the unique opener of MUD2's complex prompt sequence.
         PromptPreText,
@@ -96,6 +101,8 @@ public sealed class MudStream
     // C1 sequence tracking for color application and prompt detection.
     private byte _c1StartByte;
     private byte _c1SecondByte;
+    // Lines remaining to consume in a C95 client-mode data block.
+    private int _c95LinesRemaining;
 
     // Prompt suppression: set when the MUD2 prompt-preamble opener {C01}{C255} is recognised.
     // Text buffered here is discarded if confirmed as prompt content; committed if it turns
@@ -679,6 +686,23 @@ public sealed class MudStream
                         }
                         // else: not in game mode — just a colour change (BLUE), no suppression
                     }
+                    else if (_c1StartByte == 0xFA)
+                    {
+                        // {C95}{C255}: client-mode start — the next 5 newline-terminated lines carry
+                        // structured data (licence, min/max level, account, privs); consume silently.
+                        // {C95}{C03}{C255}: account-logout notice — one trailing line; consume silently.
+                        if (_c1SecondByte == 0)
+                        {
+                            _c95LinesRemaining = 5;
+                            _state = State.C95ClientModeData;
+                            break;
+                        }
+                        else if (_c1SecondByte == 0x9E)
+                        {
+                            _state = State.C95AccountLogoutLine;
+                            break;
+                        }
+                    }
 
                     _state = State.Normal;
                 }
@@ -694,6 +718,18 @@ public sealed class MudStream
                     ReprocessFromNormal(b);
                 }
 
+                break;
+
+            case State.C95ClientModeData:
+                // Silently consume the 5-line data block that follows {C95}{C255}.
+                if (b == '\n' && --_c95LinesRemaining == 0)
+                    _state = State.Normal;
+                break;
+
+            case State.C95AccountLogoutLine:
+                // Silently consume the single trailing line of an account-logout notification.
+                if (b == '\n')
+                    _state = State.Normal;
                 break;
 
             case State.PromptPreText:
