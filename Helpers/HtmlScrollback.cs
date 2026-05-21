@@ -49,17 +49,22 @@ public static class HtmlScrollback
         <script>
         window._atBottom=true;
         (function(){
+          function scrollRoot(){
+            return document.scrollingElement||document.documentElement||document.body;
+          }
           function chk(){
-            var d=document.documentElement.scrollHeight-window.scrollY-window.innerHeight;
+            var s=scrollRoot();
+            var d=s.scrollHeight-s.scrollTop-s.clientHeight;
             var b=d<5;
             if(b===window._atBottom)return;
             window._atBottom=b;
             window.location=b?'mucka://scroll/resume':'mucka://scroll/pause';
           }
-          document.addEventListener('scroll',chk,{passive:true});
+          window.addEventListener('scroll',chk,{passive:true});
           document.addEventListener('keydown',function(e){
             if(e.key==='Escape'&&!window._atBottom){
-              window.scrollTo(0,document.body.scrollHeight);
+              var s=scrollRoot();
+              s.scrollTop=s.scrollHeight;
             }
           });
         })();

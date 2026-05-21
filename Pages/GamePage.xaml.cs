@@ -17,6 +17,7 @@ public partial class GamePage : ContentPage
     // Re-entrancy guard: prevents the 50ms timer from firing a second injection
     // while the first EvaluateJavaScriptAsync/ExecuteScriptAsync is still awaiting.
     private bool _injecting;
+    private readonly SemaphoreSlim _scriptExecutionLock = new(1, 1);
 
     public GamePage(GameViewModel vm)
     {
@@ -176,17 +177,25 @@ public partial class GamePage : ContentPage
     /// </summary>
     private async Task ExecuteScriptAsync(string script)
     {
-#if WINDOWS
-        if (ScrollbackWebView.Handler?.PlatformView is
-            Microsoft.UI.Xaml.Controls.WebView2 wv2)
+        await _scriptExecutionLock.WaitAsync();
+        try
         {
-            if (wv2.CoreWebView2 is null)
-                await wv2.EnsureCoreWebView2Async();
-            await (wv2.CoreWebView2 ?? throw new InvalidOperationException("CoreWebView2 unavailable")).ExecuteScriptAsync(script);
-            return;
-        }
+#if WINDOWS
+            if (ScrollbackWebView.Handler?.PlatformView is
+                Microsoft.UI.Xaml.Controls.WebView2 wv2)
+            {
+                if (wv2.CoreWebView2 is null)
+                    await wv2.EnsureCoreWebView2Async();
+                await (wv2.CoreWebView2 ?? throw new InvalidOperationException("CoreWebView2 unavailable")).ExecuteScriptAsync(script);
+                return;
+            }
 #endif
-        await ScrollbackWebView.EvaluateJavaScriptAsync(script);
+            await ScrollbackWebView.EvaluateJavaScriptAsync(script);
+        }
+        finally
+        {
+            _scriptExecutionLock.Release();
+        }
     }
 
     private void FocusInput() => InputEntry.Focus();
@@ -201,5 +210,4 @@ public partial class GamePage : ContentPage
         });
     }
 }
-
 
