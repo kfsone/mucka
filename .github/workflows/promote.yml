@@ -99,12 +99,15 @@ jobs:
         if: inputs.new_stage != 'release'
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
           $info       = Get-Content version.json | ConvertFrom-Json
           $info.stage = "${{ inputs.new_stage }}"
           $info | ConvertTo-Json -Depth 5 | Set-Content version.json
           git add version.json
           git commit -m "chore(version): promote stage → ${{ inputs.new_stage }}"
+          if ($LASTEXITCODE -ne 0) { throw "git commit failed (exit $LASTEXITCODE)" }
           git push
+          if ($LASTEXITCODE -ne 0) { throw "git push failed (exit $LASTEXITCODE)" }
 
       # ══ Release promotion ═════════════════════════════════════════════════
       # Step 1: stamp version.json as stage=release and tag that commit.
@@ -112,12 +115,14 @@ jobs:
         if: inputs.new_stage == 'release'
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
           $next = "${{ steps.ver.outputs.next_version }}"
           $info       = Get-Content version.json | ConvertFrom-Json
           $info.stage = 'release'
           $info | ConvertTo-Json -Depth 5 | Set-Content version.json
           git add version.json
           git commit -m "chore(release): $next"
+          if ($LASTEXITCODE -ne 0) { throw "git commit failed (exit $LASTEXITCODE)" }
 
       - name: Create release tag
         if: inputs.new_stage == 'release'
@@ -131,6 +136,7 @@ jobs:
         if: inputs.new_stage == 'release'
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
           $next       = "${{ steps.ver.outputs.next_version }}"
           $info       = Get-Content version.json | ConvertFrom-Json
           $info.stage       = 'alpha'
@@ -138,6 +144,7 @@ jobs:
           $info | ConvertTo-Json -Depth 5 | Set-Content version.json
           git add version.json
           git commit -m "chore(version): begin post-$next development"
+          if ($LASTEXITCODE -ne 0) { throw "git commit failed (exit $LASTEXITCODE)" }
 
       - name: Push commits and tag
         if: inputs.new_stage == 'release'

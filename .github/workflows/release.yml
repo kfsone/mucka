@@ -141,13 +141,13 @@ jobs:
         run: |
           apk=$(find bin/Release/net10.0-android -name "*.apk" | head -1)
           echo "path=$apk" >> "$GITHUB_OUTPUT"
-          cp "$apk" "mucka-android-${{ github.ref_name }}.apk"
+          cp "$apk" "mucka-android-${{ env.RELEASE_TAG }}.apk"
 
       - name: Upload Android artifact
         uses: actions/upload-artifact@v7
         with:
           name: android-release
-          path: mucka-android-${{ github.ref_name }}.apk
+          path: mucka-android-${{ env.RELEASE_TAG }}.apk
 
   # ── GitHub Release ────────────────────────────────────────────────────────
   create-release:
@@ -164,9 +164,9 @@ jobs:
       - name: Create release
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ github.ref_name }}
-          name: mucka ${{ github.ref_name }}
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: mucka ${{ env.RELEASE_TAG }}
           draft: false
-          prerelease: ${{ contains(github.ref_name, '-') }}
+          prerelease: ${{ contains(env.RELEASE_TAG, '-') }}
           generate_release_notes: true
           files: release-artifacts/*
