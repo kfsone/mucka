@@ -39,19 +39,22 @@ public sealed class AsyncCommand<T> : ICommand
 {
     private readonly Func<T, Task> _execute;
     private bool _isExecuting;
+    private static readonly bool AcceptsNullParameter = default(T) is null;
 
     public AsyncCommand(Func<T, Task> execute) => _execute = execute;
 
     public event EventHandler? CanExecuteChanged;
-    public bool CanExecute(object? _) => !_isExecuting;
+    public bool CanExecute(object? parameter) =>
+        !_isExecuting && (parameter is T || (parameter is null && AcceptsNullParameter));
 
     public async void Execute(object? parameter)
     {
-        if (_isExecuting || parameter is not T typed)
+        if (!CanExecute(parameter))
         {
             return;
         }
 
+        var typed = (T)parameter!;
         _isExecuting = true;
         CanExecuteChanged?.Invoke(this, EventArgs.Empty);
         try
