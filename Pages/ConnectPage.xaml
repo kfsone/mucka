@@ -36,7 +36,7 @@
         </CollectionView>
 
         <!-- Vertical separator -->
-        <BoxView Grid.Column="1" BackgroundColor="#333333" />
+        <BoxView Grid.Column="1" Color="#333333" />
 
         <!-- Main form on the right -->
         <ScrollView Grid.Column="2" VerticalOptions="Center">
