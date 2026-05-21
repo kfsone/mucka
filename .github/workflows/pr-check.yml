@@ -92,5 +92,5 @@ jobs:
       - name: Install MAUI macOS Catalyst workload
         run: dotnet workload install maui-maccatalyst
 
-      - name: Build
+      - name: Build (macOS Catalyst)
         run: dotnet build -f net10.0-maccatalyst -c Release -p:RuntimeIdentifier=maccatalyst-arm64
