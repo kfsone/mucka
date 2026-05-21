@@ -16,7 +16,7 @@
 		<integer>2</integer>
 	</array>
 	<key>LSApplicationCategoryType</key>
-	<string>public.app-category.lifestyle</string>
+	<string>public.app-category.games</string>
 	<key>UIRequiredDeviceCapabilities</key>
 	<array>
 		<string>arm64</string>
