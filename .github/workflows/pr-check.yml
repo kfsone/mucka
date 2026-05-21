@@ -28,7 +28,7 @@ jobs:
         run: dotnet workload install maui-windows
 
       - name: Build
-        run: dotnet build -f net10.0-windows10.0.19041.0 -c Release "-p:TargetFrameworks=net10.0-windows10.0.19041.0"
+        run: dotnet build -f net10.0-windows10.0.19041.0 -c Release
 
       - name: Test
         shell: pwsh
@@ -63,14 +63,11 @@ jobs:
         run: dotnet workload install maui-android
 
       - name: Build
-        run: dotnet build -f net10.0-android -c Release -p:TargetFrameworks=net10.0-android -p:EnableWindowsTargeting=true
+        run: dotnet build -f net10.0-android -c Release
 
   build-maccatalyst:
-    name: Build (macOS Catalyst - ${{ matrix.rid }})
+    name: Build (macOS Catalyst)
     runs-on: macos-latest
-    strategy:
-      matrix:
-        rid: [maccatalyst-arm64, maccatalyst-x64]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -89,11 +86,11 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.nuget/packages
-          key: ${{ runner.os }}-nuget-maccatalyst-${{ matrix.rid }}-${{ hashFiles('**/*.csproj', 'Directory.Build.props') }}
-          restore-keys: ${{ runner.os }}-nuget-maccatalyst-${{ matrix.rid }}-
+          key: ${{ runner.os }}-nuget-maccatalyst-${{ hashFiles('**/*.csproj', 'Directory.Build.props') }}
+          restore-keys: ${{ runner.os }}-nuget-maccatalyst-
 
       - name: Install MAUI macOS Catalyst workload
         run: dotnet workload install maui-maccatalyst
 
-      - name: Build (macOS Catalyst)
-        run: dotnet build -f net10.0-maccatalyst -c Release -p:RuntimeIdentifier=${{ matrix.rid }}
+      - name: Build
+        run: dotnet build -f net10.0-maccatalyst -c Release -p:RuntimeIdentifier=maccatalyst-arm64
