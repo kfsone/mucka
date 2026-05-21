@@ -130,7 +130,7 @@ public partial class GamePage : ContentPage
         sb.Append("while(o.querySelectorAll('.ln').length>120){var f=o.querySelector('.ln');if(f)f.remove();else break;}");
         // Auto-scroll only when not in scroll mode.
         if (!_vm.IsScrollMode)
-            sb.Append("window.scrollTo(0,document.body.scrollHeight);");
+            sb.Append("(function(){var s=document.scrollingElement||document.documentElement||document.body;s.scrollTop=s.scrollHeight;})();");
         sb.Append("})();");
 
         await ExecuteScriptAsync(sb.ToString());
@@ -141,14 +141,14 @@ public partial class GamePage : ContentPage
     /// </summary>
     private async Task ExitScrollModeAsync()
     {
-        _vm.IsScrollMode = false;
         try
         {
             await ExecuteScriptAsync("window._atBottom=true;(function(){var s=document.scrollingElement||document.documentElement||document.body;s.scrollTop=s.scrollHeight;})();");
+            _vm.IsScrollMode = false;
         }
         catch
         {
-            // WebView not ready — scroll mode is cleared; auto-scroll resumes on the next inject tick.
+            // WebView not ready — leave scroll mode enabled until we can scroll to the bottom.
         }
     }
 
