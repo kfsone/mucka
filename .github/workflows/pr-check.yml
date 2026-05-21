@@ -67,10 +67,10 @@ jobs:
 
   build-maccatalyst:
     name: Build (macOS Catalyst)
-    # The .NET 10 MacCatalyst SDK packs now require Xcode 26.5+, which ships
-    # with macOS 26 (Tahoe). macos-latest resolves to macOS 26 and carries the
-    # required Xcode. macos-15 (Sequoia) only has Xcode 16.x and is too old.
-    runs-on: macos-latest
+    # .NET 10 MacCatalyst SDK packs (26.5.x) require Xcode 26.5, which ships
+    # with macOS 26 (Tahoe). macos-latest resolves to macos-15 (Xcode 16.4);
+    # macos-26 is the explicit label for the macOS 26 Arm64 runner with Xcode 26.x.
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
         with:
