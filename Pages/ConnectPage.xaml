@@ -7,10 +7,12 @@
              Title="mucka"
              BackgroundColor="#0C0C0C">
 
-    <Grid ColumnDefinitions="200,1,*">
+    <Grid RowDefinitions="{OnIdiom Phone='Auto,1,*', Default='*'}"
+          ColumnDefinitions="{OnIdiom Phone='*', Default='200,1,*'}">
 
         <!-- Profile list on the left -->
-        <CollectionView Grid.Column="0"
+        <CollectionView Grid.Row="0"
+                        Grid.Column="0"
                         x:Name="ProfileList"
                         ItemsSource="{Binding SavedProfiles}"
                         SelectionMode="Single"
@@ -36,12 +38,17 @@
         </CollectionView>
 
         <!-- Vertical separator -->
-        <BoxView Grid.Column="1" Color="#333333" />
+        <BoxView Grid.Row="{OnIdiom Phone=1, Default=0}"
+                 Grid.Column="{OnIdiom Phone=0, Default=1}"
+                 Color="#333333"
+                 WidthRequest="{OnIdiom Phone=-1, Default=1}"
+                 HeightRequest="{OnIdiom Phone=1, Default=-1}" />
 
         <!-- Main form on the right -->
-        <ScrollView Grid.Column="2" VerticalOptions="Center">
-            <VerticalStackLayout HorizontalOptions="Center"
-                                 WidthRequest="360"
+        <ScrollView Grid.Row="{OnIdiom Phone=2, Default=0}"
+                    Grid.Column="{OnIdiom Phone=0, Default=2}"
+                    VerticalOptions="Center">
+            <VerticalStackLayout HorizontalOptions="{OnIdiom Phone=Fill, Default=Center}"
                                  Spacing="16"
                                  Padding="24">
 
