@@ -70,7 +70,7 @@ public sealed class ConnectViewModel : BaseViewModel
 
     public Func<PasswordPromptArgs, Task<PasswordResult?>>? PasswordRequired;
 
-    public event Action<MudConnection, Profile>? Connected;
+    public event Action<MuckaConnection, Profile>? Connected;
 
     public ConnectViewModel()
     {
@@ -128,15 +128,10 @@ public sealed class ConnectViewModel : BaseViewModel
                 }
             }
 
-            AutoLoginConfig? autoLogin = null;
-            if (TelnetLoginEnabled && !string.IsNullOrEmpty(accountId))
-            {
-                // EnvUser: send TelnetLoginName as NEW-ENVIRON USER (null = don't send USER env)
-                var envUser = !string.IsNullOrEmpty(loginName) ? loginName : (string?)null;
-                autoLogin = new AutoLoginConfig(envUser, accountId, string.IsNullOrEmpty(resolvedPassword) ? null : resolvedPassword);
-            }
-
-            var conn = new MudConnection();
+            var autoLogin = TelnetLoginEnabled && !string.IsNullOrEmpty(accountId) && !string.IsNullOrEmpty(resolvedPassword);
+            var conn = new MuckaConnection(
+                autoLogin ? accountId : null,
+                autoLogin ? resolvedPassword : null);
             if (IsCaptureRequested && !conn.TryStartCapture(Host.Trim(), out var captureError))
             {
                 StatusText = $"Capture start failed: {captureError}";
@@ -144,7 +139,6 @@ public sealed class ConnectViewModel : BaseViewModel
                 return;
             }
 
-            conn.Stream.AutoLogin = autoLogin;
             await conn.ConnectAsync(Host.Trim(), Port);
 
             var profile = new Profile

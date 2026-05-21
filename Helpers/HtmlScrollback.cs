@@ -1,5 +1,5 @@
 using System.Text;
-using Mucka.Core;
+using MudSharp.Models;
 
 namespace Mucka.Helpers;
 
@@ -80,15 +80,16 @@ public static class HtmlScrollback
         var sb = new StringBuilder(line.Spans.Count * 40);
         foreach (var span in line.Spans)
         {
-            if (span.Echo)
-            {
-                sb.Append($"<span class=\"echo\">{HtmlEncode(span.Text)}</span>");
-                continue;
-            }
-            string fg = HexColors[span.Fg < 16 ? span.Fg : 7];
-            var style = new StringBuilder($"color:{fg}");
-            if (span.Bg != 0) style.Append($";background:{HexColors[span.Bg < 16 ? span.Bg : 0]}");
-            if (span.Bold) style.Append(";font-weight:bold");
+            var fg = span.Style.Foreground == AnsiColor.Default ? 7 : (int)span.Style.Foreground;
+            // Classic "bold=bright": SGR 1 + a normal-intensity colour (slots 0–7) renders
+            // as the bright/intense variant (slots 8–15), matching 1990s terminals and
+            // Windows Terminal default behaviour.
+            if (span.Style.Bold && fg >= 0 && fg < 8) fg += 8;
+            var bg = span.Style.Background == AnsiColor.Default ? -1 : (int)span.Style.Background;
+            string fgHex = HexColors[fg >= 0 && fg < 16 ? fg : 7];
+            var style = new StringBuilder($"color:{fgHex}");
+            if (bg >= 0 && bg < 16) style.Append($";background:{HexColors[bg]}");
+            if (span.Style.Bold) style.Append(";font-weight:bold");
             sb.Append($"<span style=\"{style}\">{HtmlEncode(span.Text)}</span>");
         }
         return sb.ToString();

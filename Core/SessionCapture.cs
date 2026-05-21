@@ -21,9 +21,7 @@ public sealed class SessionCapture : IDisposable
     {
         // Desktop capture files are transient debug artifacts; keep them in temp, not roaming app data.
         if (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS() || OperatingSystem.IsMacCatalyst())
-        {
             return Path.Combine(Path.GetTempPath(), "mucka");
-        }
 
         return Path.Combine(FileSystem.Current.CacheDirectory, "mucka");
     }

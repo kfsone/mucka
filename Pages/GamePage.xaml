@@ -13,30 +13,38 @@
         <Border Grid.Row="0"
                 BackgroundColor="#161b22"
                 Padding="6,4" StrokeThickness="0">
-            <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,*,Auto,Auto">
+            <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,*,Auto,Auto">
 
                 <Label Grid.Column="0"
                        Text="{Binding StaText}"
                        TextColor="#58a6ff" VerticalOptions="Center" Margin="0,0,8,0"/>
 
                 <Label Grid.Column="1"
+                       Text="{Binding TtrText}"
+                       TextColor="#c084fc" VerticalOptions="Center" Margin="0,0,8,0"/>
+
+                <Label Grid.Column="2"
+                       Text="{Binding WeatherText}"
+                       TextColor="#79c0ff" VerticalOptions="Center" Margin="0,0,8,0"/>
+
+                <Label Grid.Column="3"
                        Text="{Binding StrText}"
                        TextColor="#3fb950" VerticalOptions="Center" Margin="0,0,8,0"/>
 
-                <Label Grid.Column="2"
+                <Label Grid.Column="4"
                        Text="{Binding DexText}"
                        TextColor="#e3b341" VerticalOptions="Center" Margin="0,0,8,0"/>
 
-                <Label Grid.Column="3"
+                <Label Grid.Column="5"
                        Text="{Binding ScoreText}"
                        TextColor="#cccccc" VerticalOptions="Center" Margin="0,0,8,0"/>
 
-                <Label Grid.Column="4"
+                <Label Grid.Column="6"
                        Text="{Binding Rank}"
                        TextColor="#888888" VerticalOptions="Center" FontSize="12"/>
 
                 <!-- Capture toggle — debug builds only -->
-                <Button Grid.Column="5"
+                <Button Grid.Column="7"
                         Text="⏺"
                         Command="{Binding ToggleCaptureCommand}"
                         IsVisible="{Binding IsCaptureFacilityAvailable}"
@@ -53,8 +61,8 @@
                     </Button.Triggers>
                 </Button>
 
-                <!-- Dreamword chip — tap to load into input -->
-                <Border Grid.Column="6"
+                <!-- Dreamword chip — tap to load into input; shows placeholder when no word known -->
+                <Border Grid.Column="8"
                         BackgroundColor="#1f6feb"
                         Stroke="Transparent" StrokeThickness="0"
                         Padding="8,2">
@@ -64,10 +72,16 @@
                     <Border.GestureRecognizers>
                         <TapGestureRecognizer Command="{Binding SpeakDreamwordCommand}"/>
                     </Border.GestureRecognizers>
-                    <Label Text="{Binding Dreamword}"
-                           TextColor="White" FontAttributes="Bold"
-                           FontSize="12" VerticalOptions="Center"
-                           IsVisible="{Binding Dreamword, Converter={StaticResource StringNotEmptyConverter}}"/>
+                    <Label Text="{Binding DreamwordDisplay}"
+                           TextColor="White"
+                           FontSize="12" VerticalOptions="Center">
+                        <Label.Triggers>
+                            <DataTrigger TargetType="Label"
+                                         Binding="{Binding DreamwordIsPlaceholder}" Value="True">
+                                <Setter Property="TextColor" Value="Gray"/>
+                            </DataTrigger>
+                        </Label.Triggers>
+                    </Label>
                 </Border>
 
             </Grid>
@@ -102,7 +116,7 @@
             </HorizontalStackLayout>
         </ScrollView>
 
-        <!-- ── Scroll mode banner — visible only when scroll mode is active ── -->
+        <!-- ── Scroll mode banner — overlays the input row when scroll mode is active ── -->
         <Border Grid.Row="3"
                 IsVisible="{Binding IsScrollMode}"
                 BackgroundColor="#2d1b00"
@@ -111,15 +125,16 @@
             <Border.GestureRecognizers>
                 <TapGestureRecognizer Tapped="OnScrollModeBannerTapped"/>
             </Border.GestureRecognizers>
-            <Label Text="── SCROLL Mode ── Press ESC or tap here to resume ──"
+            <Label Text="Scroll Mode — Press Esc or Tap to Exit"
                    TextColor="#e3b341"
                    HorizontalOptions="Center"
                    FontAttributes="Bold"
                    FontSize="13"/>
         </Border>
 
-        <!-- ── Input row ────────────────────────────────────────────── -->
+        <!-- ── Input row — hidden while scroll mode is active ───────── -->
         <Grid Grid.Row="4"
+              IsVisible="{Binding IsNotScrollMode}"
               ColumnDefinitions="Auto,*,Auto"
               BackgroundColor="#161b22"
               Padding="4,4">
@@ -142,6 +157,9 @@
                    ReturnCommand="{Binding SendCommand}"
                    ReturnType="Send"
                    ClearButtonVisibility="WhileEditing"
+                   Keyboard="Plain"
+                   IsSpellCheckEnabled="False"
+                   IsTextPredictionEnabled="False"
                    Focused="OnInputEntryFocused">
                 <Entry.FontFamily>
                     <OnPlatform x:TypeArguments="x:String">

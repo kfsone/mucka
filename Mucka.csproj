@@ -80,4 +80,8 @@
 		<PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="10.0.0" />
 	</ItemGroup>
 
+	<ItemGroup>
+		<ProjectReference Include="..\mudsharp\mudsharp\mudsharp.csproj" />
+	</ItemGroup>
+
 </Project>

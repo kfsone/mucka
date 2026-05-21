@@ -9,7 +9,7 @@
       release : no pre-release suffix (clean M.m.P)
     To promote a stage, run the "Promote Stage" workflow_dispatch workflow on main.
   -->
-  <Target Name="ComputeCustomVersion" BeforeTargets="GetAssemblyVersion;GenerateAssemblyInfo;PrepareForBuild">
+  <Target Name="ComputeCustomVersion" BeforeTargets="GetAssemblyVersion;GetAssemblyAttributes;GenerateAssemblyInfo;PrepareForBuild;MauiGeneratePackageAppxManifest">
     <PropertyGroup>
       <_VersionScript>$([MSBuild]::NormalizePath('$(MSBuildThisFileDirectory)scripts/Get-Version.ps1'))</_VersionScript>
     </PropertyGroup>

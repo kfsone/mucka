@@ -43,7 +43,7 @@ public partial class ConnectPage : ContentPage
         return await tcs.Task;
     }
 
-    private void OnConnected(MudConnection conn, Profile profile)
+    private void OnConnected(MuckaConnection conn, Profile profile)
     {
         // Create GameViewModel on the UI thread so Dispatcher.CreateTimer() is available.
         MainThread.BeginInvokeOnMainThread(async () =>

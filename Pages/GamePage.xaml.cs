@@ -1,8 +1,8 @@
 using System.Text;
 using System.Text.Json;
-using Mucka.Core;
 using Mucka.Helpers;
 using Mucka.ViewModels;
+using MudSharp.Models;
 
 namespace Mucka.Pages;
 
@@ -34,15 +34,31 @@ public partial class GamePage : ContentPage
         _vm.Disconnected += OnDisconnected;
         _vm.RequestFocus += FocusInput;
 
-        ScrollbackWebView.Source = new HtmlWebViewSource { Html = HtmlScrollback.InitialPage };
-        ScrollbackWebView.Navigating += OnScrollbackNavigating;
+        ScrollbackWebView.Source    = new HtmlWebViewSource { Html = HtmlScrollback.InitialPage };
+        ScrollbackWebView.Navigating  += OnScrollbackNavigating;
+        ScrollbackWebView.Navigated   += OnScrollbackNavigated;
+        ScrollbackWebView.Focused     += OnScrollbackFocused;
 
         _flushTimer = Dispatcher.CreateTimer();
         _flushTimer.Interval = TimeSpan.FromMilliseconds(50);
         _flushTimer.Tick += OnFlushTick;
         _flushTimer.Start();
 
-        Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(200), FocusInput);
+        if (Window is not null)
+            Window.Activated += OnWindowActivated;
+
+#if WINDOWS
+        // Hook the native TextBox so Up/Down arrow keys cycle through command history.
+        InputEntry.HandlerChanged += OnInputHandlerChanged;
+#endif
+    }
+
+    protected override void OnNavigatedTo(NavigatedToEventArgs args)
+    {
+        base.OnNavigatedTo(args);
+        // Navigation is complete at this point — the shell Back button has given up focus,
+        // so focusing the entry here wins reliably.
+        FocusInput();
     }
 
     protected override void OnDisappearing()
@@ -51,8 +67,15 @@ public partial class GamePage : ContentPage
         _flushTimer?.Stop();
         _flushTimer = null;
         ScrollbackWebView.Navigating -= OnScrollbackNavigating;
+        ScrollbackWebView.Navigated  -= OnScrollbackNavigated;
+        ScrollbackWebView.Focused    -= OnScrollbackFocused;
         _vm.Disconnected -= OnDisconnected;
         _vm.RequestFocus -= FocusInput;
+        if (Window is not null)
+            Window.Activated -= OnWindowActivated;
+#if WINDOWS
+        InputEntry.HandlerChanged -= OnInputHandlerChanged;
+#endif
         _ = _vm.DisposeAsync();
     }
 
@@ -77,6 +100,10 @@ public partial class GamePage : ContentPage
         // Move new lines from the ViewModel queue into our local buffer.
         var newLines = _vm.FlushPendingLines();
         if (newLines != null) _pendingInjection.AddRange(newLines);
+
+        // While in scroll mode, buffer lines but don't inject them into the WebView.
+        if (_vm.IsScrollMode) return;
+
         if (_pendingInjection.Count == 0) return;
 
         _injecting = true;
@@ -105,7 +132,7 @@ public partial class GamePage : ContentPage
 
         foreach (var line in lines)
         {
-            if (line.IsClearScreen)
+            if (line.PlainText.Contains('\f'))
             {
                 sb.Append("o.innerHTML='';");
                 continue;
@@ -130,10 +157,11 @@ public partial class GamePage : ContentPage
 
         // Trim to 120 permanent lines.
         sb.Append("while(o.querySelectorAll('.ln').length>120){var f=o.querySelector('.ln');if(f)f.remove();else break;}");
-        // Auto-scroll only when not in scroll mode.
-        if (!_vm.IsScrollMode)
-            sb.Append("(function(){var s=document.scrollingElement||document.documentElement||document.body;s.scrollTop=s.scrollHeight;})();");
         sb.Append("})();");
+        // Scroll AFTER the IIFE so it runs even if earlier operations short-circuit.
+        // window.scrollTo is unambiguous on WebView2 regardless of scrollingElement.
+        if (!_vm.IsScrollMode)
+            sb.Append("window.scrollTo(0,document.body.scrollHeight);");
 
         await ExecuteScriptAsync(sb.ToString());
     }
@@ -201,6 +229,43 @@ public partial class GamePage : ContentPage
     }
 
     private void FocusInput() => InputEntry.Focus();
+
+    // Redirect focus back to the typing box whenever the WebView captures it
+    // (e.g. on initial load or when the user clicks the scrollback area).
+    private void OnScrollbackFocused(object? sender, FocusEventArgs e) => FocusInput();
+
+    // Focus the typing box once the WebView finishes its initial page load
+    // (WebView2 grabs focus during first load; this wins it back).
+    private void OnScrollbackNavigated(object? sender, WebNavigatedEventArgs e)
+    {
+        if (e.Result == WebNavigationResult.Success)
+            FocusInput();
+    }
+
+    // Re-focus the typing box when the window regains activation (Alt+Tab back, etc.).
+    private void OnWindowActivated(object? sender, EventArgs e) => FocusInput();
+
+#if WINDOWS
+    private void OnInputHandlerChanged(object? sender, EventArgs e)
+    {
+        if (InputEntry.Handler?.PlatformView is Microsoft.UI.Xaml.Controls.TextBox tb)
+            tb.PreviewKeyDown += OnInputPreviewKeyDown;
+    }
+
+    private void OnInputPreviewKeyDown(object sender, Microsoft.UI.Xaml.Input.KeyRoutedEventArgs e)
+    {
+        if (e.Key == Windows.System.VirtualKey.Up)
+        {
+            _vm.HistoryUpCommand.Execute(null);
+            e.Handled = true;
+        }
+        else if (e.Key == Windows.System.VirtualKey.Down)
+        {
+            _vm.HistoryDownCommand.Execute(null);
+            e.Handled = true;
+        }
+    }
+#endif
 
     private void OnDisconnected()
     {
