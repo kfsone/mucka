@@ -231,6 +231,9 @@ public sealed class MudStream
                 {
                     FlushSpan();
                     LineReady?.Invoke(new StyledLine { IsClearScreen = true });
+#if DEBUG
+                    Capture?.Annotate("screen: clear");
+#endif
                 }
                 else if ((b >= 0x20 && b != 0x7F) || b == '\t')
                 {
