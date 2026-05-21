@@ -13,13 +13,17 @@
     <PropertyGroup>
       <_VersionScript>$([MSBuild]::NormalizePath('$(MSBuildThisFileDirectory)scripts/Get-Version.ps1'))</_VersionScript>
     </PropertyGroup>
-    <Exec Command="pwsh -NoProfile -File &quot;$(_VersionScript)&quot;"
+    <!-- In CI release builds, MUCKA_RELEASE_VERSION is set to the tag version (e.g. 0.2.0).
+         Skip the script so the build uses the tag version directly. -->
+    <Exec Condition="'$(MUCKA_RELEASE_VERSION)' == ''"
+          Command="pwsh -NoProfile -File &quot;$(_VersionScript)&quot;"
           ConsoleToMSBuild="true"
           WorkingDirectory="$(MSBuildThisFileDirectory)"
           EchoOff="true">
       <Output TaskParameter="ConsoleOutput" PropertyName="_ComputedVersion" />
     </Exec>
     <PropertyGroup>
+      <_ComputedVersion Condition="'$(MUCKA_RELEASE_VERSION)' != ''">$(MUCKA_RELEASE_VERSION)</_ComputedVersion>
       <Version>$(_ComputedVersion.Trim())</Version>
       <PackageVersion>$(Version)</PackageVersion>
       <!-- MAUI Resizetizer requires ApplicationDisplayVersion to be a plain M.m.P number
