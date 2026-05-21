@@ -203,10 +203,36 @@ public sealed class ConnectViewModel : BaseViewModel
             SavedProfiles.Add(p);
         }
 
-        if (SavedProfiles.Count > 0)
+        var cmdArgs = CommandLineArgs.Current;
+
+        if (!string.IsNullOrEmpty(cmdArgs.Profile))
+        {
+            var match = SavedProfiles.FirstOrDefault(p =>
+                string.Equals(p.Name, cmdArgs.Profile, StringComparison.OrdinalIgnoreCase));
+            if (match != null)
+                SelectProfile(match);
+            else if (SavedProfiles.Count > 0)
+                SelectProfile(SavedProfiles[0]);
+        }
+        else if (SavedProfiles.Count > 0)
         {
             SelectProfile(SavedProfiles[0]);
         }
+
+        // Apply individual command-line overrides on top of the selected profile.
+        if (cmdArgs.Host != null)    Host             = cmdArgs.Host;
+        if (cmdArgs.Port.HasValue)   Port             = cmdArgs.Port.Value;
+        if (cmdArgs.User != null)    TelnetLoginName  = cmdArgs.User;
+        if (cmdArgs.Account != null) AccountId        = cmdArgs.Account;
+        if (cmdArgs.Password != null) Password        = cmdArgs.Password;
+
+#if DEBUG
+        if (cmdArgs.Record)
+        {
+            IsCaptureRequested = true;
+            OnPropertyChanged(nameof(CaptureButtonText));
+        }
+#endif
     }
 
     private async Task SaveCurrentProfileAsync(Profile incoming, string? password)
