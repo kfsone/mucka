@@ -213,9 +213,32 @@ public sealed class ConnectViewModel : BaseViewModel
 
     private async Task DeleteProfileAsync(Profile p)
     {
-        SavedProfiles.Remove(p);
-        await ProfileStore.SetPasswordAsync(p.Name, null);
-        await ProfileStore.SaveAsync(SavedProfiles.ToList());
+        var existingProfiles = SavedProfiles.ToList();
+        var updatedProfiles = existingProfiles.Where(existing => !ReferenceEquals(existing, p)).ToList();
+
+        try
+        {
+            await ProfileStore.SetPasswordAsync(p.Name, null);
+            await ProfileStore.SaveAsync(updatedProfiles);
+        }
+        catch (Exception ex)
+        {
+            SavedProfiles.Clear();
+            foreach (var existing in existingProfiles)
+            {
+                SavedProfiles.Add(existing);
+            }
+
+            StatusText = $"Failed to delete profile: {ex.Message}";
+            HasError = true;
+            return;
+        }
+
+        SavedProfiles.Clear();
+        foreach (var updated in updatedProfiles)
+        {
+            SavedProfiles.Add(updated);
+        }
 
         if (string.Equals(ProfileName, p.Name, StringComparison.OrdinalIgnoreCase))
         {
