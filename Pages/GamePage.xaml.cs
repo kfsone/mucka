@@ -32,6 +32,7 @@ public partial class GamePage : ContentPage
         _vm.RequestFocus += FocusInput;
 
         ScrollbackWebView.Source = new HtmlWebViewSource { Html = HtmlScrollback.InitialPage };
+        ScrollbackWebView.Navigating += OnScrollbackNavigating;
 
         _flushTimer = Dispatcher.CreateTimer();
         _flushTimer.Interval = TimeSpan.FromMilliseconds(50);
@@ -46,9 +47,24 @@ public partial class GamePage : ContentPage
         base.OnDisappearing();
         _flushTimer?.Stop();
         _flushTimer = null;
+        ScrollbackWebView.Navigating -= OnScrollbackNavigating;
         _vm.Disconnected -= OnDisconnected;
         _vm.RequestFocus -= FocusInput;
         _ = _vm.DisposeAsync();
+    }
+
+    /// <summary>
+    /// Intercept mucka:// navigation messages sent from the WebView's scroll-detection script.
+    /// mucka://scroll/pause  — user has scrolled away from the bottom; enter scroll mode.
+    /// mucka://scroll/resume — user has returned to the bottom (or pressed ESC); exit scroll mode.
+    /// </summary>
+    private void OnScrollbackNavigating(object? sender, WebNavigatingEventArgs e)
+    {
+        if (!e.Url.StartsWith("mucka://scroll/", StringComparison.Ordinal))
+            return;
+
+        e.Cancel = true;
+        _vm.IsScrollMode = e.Url == "mucka://scroll/pause";
     }
 
     private async void OnFlushTick(object? sender, EventArgs e)
@@ -111,11 +127,46 @@ public partial class GamePage : ContentPage
 
         // Trim to 120 permanent lines.
         sb.Append("while(o.querySelectorAll('.ln').length>120){var f=o.querySelector('.ln');if(f)f.remove();else break;}");
-        // Auto-scroll.
-        sb.Append("window.scrollTo(0,document.body.scrollHeight);");
+        // Auto-scroll only when not in scroll mode.
+        if (!_vm.IsScrollMode)
+            sb.Append("window.scrollTo(0,document.body.scrollHeight);");
         sb.Append("})();");
 
         await ExecuteScriptAsync(sb.ToString());
+    }
+
+    /// <summary>
+    /// Exit scroll mode: re-enable auto-scroll and scroll immediately to the bottom.
+    /// </summary>
+    private async Task ExitScrollModeAsync()
+    {
+        _vm.IsScrollMode = false;
+        try
+        {
+            await ExecuteScriptAsync("window._atBottom=true;window.scrollTo(0,document.body.scrollHeight);");
+        }
+        catch
+        {
+            // WebView not ready — scroll mode is cleared; auto-scroll resumes on the next inject tick.
+        }
+    }
+
+    /// <summary>
+    /// Called when the user taps the scroll-mode banner — exits scroll mode and returns focus to input.
+    /// </summary>
+    private void OnScrollModeBannerTapped(object? sender, TappedEventArgs e)
+    {
+        _ = ExitScrollModeAsync();
+        FocusInput();
+    }
+
+    /// <summary>
+    /// Called when the input entry gains focus — exits scroll mode if active.
+    /// </summary>
+    private void OnInputEntryFocused(object? sender, FocusEventArgs e)
+    {
+        if (_vm.IsScrollMode)
+            _ = ExitScrollModeAsync();
     }
 
     /// <summary>

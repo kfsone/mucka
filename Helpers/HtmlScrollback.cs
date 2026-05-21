@@ -46,6 +46,24 @@ public static class HtmlScrollback
         </head>
         <body>
         <div id="out"></div>
+        <script>
+        window._atBottom=true;
+        (function(){
+          function chk(){
+            var d=document.documentElement.scrollHeight-window.scrollY-window.innerHeight;
+            var b=d<5;
+            if(b===window._atBottom)return;
+            window._atBottom=b;
+            window.location=b?'mucka://scroll/resume':'mucka://scroll/pause';
+          }
+          document.addEventListener('scroll',chk,{passive:true});
+          document.addEventListener('keydown',function(e){
+            if(e.key==='Escape'&&!window._atBottom){
+              window.scrollTo(0,document.body.scrollHeight);
+            }
+          });
+        })();
+        </script>
         </body>
         </html>
         """;
