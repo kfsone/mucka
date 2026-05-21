@@ -77,7 +77,7 @@ public sealed class ConnectViewModel : BaseViewModel
     {
         ConnectCommand = new AsyncCommand(ConnectAsync);
         SelectProfileCommand = new Command<Profile>(SelectProfile);
-        DeleteProfileCommand = new AsyncCommand<Profile>(DeleteProfileAsync);
+        DeleteProfileCommand = new AsyncCommand<Profile?>(DeleteProfileAsync);
         ToggleAdvancedCommand = new Command(() => AdvancedVisible = !AdvancedVisible);
         ToggleCaptureCommand = new Command(() =>
         {
@@ -263,10 +263,16 @@ public sealed class ConnectViewModel : BaseViewModel
 #endif
     }
 
-    private async Task DeleteProfileAsync(Profile p)
+    private async Task DeleteProfileAsync(Profile? p)
     {
+        HasError = false;
+        StatusText = string.Empty;
+
+        if (p == null) return;
+
         var existingProfiles = SavedProfiles.ToList();
-        var updatedProfiles = existingProfiles.Where(existing => !ReferenceEquals(existing, p)).ToList();
+        var updatedProfiles = existingProfiles.Where(existing =>
+            !string.Equals(existing.Name, p.Name, StringComparison.OrdinalIgnoreCase)).ToList();
 
         try
         {
