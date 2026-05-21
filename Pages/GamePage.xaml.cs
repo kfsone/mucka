@@ -32,6 +32,7 @@ public partial class GamePage : ContentPage
         _vm.RequestFocus += FocusInput;
 
         ScrollbackWebView.Source = new HtmlWebViewSource { Html = HtmlScrollback.InitialPage };
+        ScrollbackWebView.Focused += OnScrollbackFocused;
 
         _flushTimer = Dispatcher.CreateTimer();
         _flushTimer.Interval = TimeSpan.FromMilliseconds(50);
@@ -48,6 +49,7 @@ public partial class GamePage : ContentPage
         _flushTimer = null;
         _vm.Disconnected -= OnDisconnected;
         _vm.RequestFocus -= FocusInput;
+        ScrollbackWebView.Focused -= OnScrollbackFocused;
         _ = _vm.DisposeAsync();
     }
 
@@ -132,6 +134,8 @@ public partial class GamePage : ContentPage
 #endif
         await ScrollbackWebView.EvaluateJavaScriptAsync(script);
     }
+
+    private void OnScrollbackFocused(object? sender, FocusEventArgs e) => FocusInput();
 
     private void FocusInput() => InputEntry.Focus();
 
