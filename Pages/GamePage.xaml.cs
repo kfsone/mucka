@@ -144,7 +144,7 @@ public partial class GamePage : ContentPage
         _vm.IsScrollMode = false;
         try
         {
-            await ExecuteScriptAsync("window._atBottom=true;window.scrollTo(0,document.body.scrollHeight);");
+            await ExecuteScriptAsync("window._atBottom=true;(function(){var s=document.scrollingElement||document.documentElement||document.body;s.scrollTop=s.scrollHeight;})();");
         }
         catch
         {
@@ -210,4 +210,3 @@ public partial class GamePage : ContentPage
         });
     }
 }
-
