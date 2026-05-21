@@ -13,7 +13,7 @@
         <Border Grid.Row="0"
                 BackgroundColor="#161b22"
                 Padding="6,4" StrokeThickness="0">
-            <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,*,Auto">
+            <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,*,Auto,Auto">
 
                 <Label Grid.Column="0"
                        Text="{Binding StaText}"
@@ -35,8 +35,24 @@
                        Text="{Binding Rank}"
                        TextColor="#888888" VerticalOptions="Center" FontSize="12"/>
 
+                <!-- Capture toggle — debug builds only -->
+                <Button Grid.Column="5"
+                        Text="⏺"
+                        Command="{Binding ToggleCaptureCommand}"
+                        IsVisible="{Binding IsCaptureFacilityAvailable}"
+                        BackgroundColor="#2d333b" TextColor="#888888"
+                        FontSize="11" WidthRequest="30" HeightRequest="24"
+                        CornerRadius="3" Padding="0" Margin="0,0,4,0">
+                    <Button.Triggers>
+                        <DataTrigger TargetType="Button" Binding="{Binding IsCapturing}" Value="True">
+                            <Setter Property="BackgroundColor" Value="#c02020"/>
+                            <Setter Property="TextColor" Value="White"/>
+                        </DataTrigger>
+                    </Button.Triggers>
+                </Button>
+
                 <!-- Dreamword chip — tap to load into input -->
-                <Border Grid.Column="5"
+                <Border Grid.Column="6"
                         BackgroundColor="#1f6feb"
                         Stroke="Transparent" StrokeThickness="0"
                         Padding="8,2">
