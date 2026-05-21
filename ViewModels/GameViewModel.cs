@@ -249,6 +249,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     {
         if (!int.TryParse(indexStr, out var i) || i < 0 || i >= FkeyItems.Count)
         {
+            RequestFocus?.Invoke();
             return;
         }
 
