@@ -16,7 +16,7 @@ public partial class App : Application
             BarBackgroundColor = Color.FromArgb("#161b22"),
             BarTextColor = Colors.White,
         });
-        window.Title = "mucka";
+        window.Title = $"mucka {AppInfo.VersionString}";
 
 #if WINDOWS
         window.HandlerChanged += (s, e) => SetWindowIcon(window);
