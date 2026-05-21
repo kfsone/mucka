@@ -86,6 +86,11 @@ public partial class GamePage : ContentPage
 
         foreach (var line in lines)
         {
+            if (line.IsClearScreen)
+            {
+                sb.Append("o.innerHTML='';");
+                continue;
+            }
             var html     = HtmlScrollback.LineToHtml(line);
             var cls      = line.IsPartial ? "lnp" : "ln";
             var jsonHtml = JsonSerializer.Serialize($"<span class='{cls}'>{html}\u200b</span>");

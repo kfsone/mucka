@@ -19,5 +19,7 @@ public sealed class StyledLine
     public string PlainText => string.Concat(_spans.Select(s => s.Text));
     /// <summary>True if this line has not yet been terminated by a newline (e.g. a login prompt).</summary>
     public bool IsPartial { get; set; }
+    /// <summary>True when this line is a clear-screen sentinel (form feed) rather than display text.</summary>
+    public bool IsClearScreen { get; init; }
     public void Add(StyledSpan span) => _spans.Add(span);
 }
