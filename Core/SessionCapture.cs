@@ -22,7 +22,8 @@ public sealed class SessionCapture : IDisposable
         lock (_lock)
         {
             if (_isRecording) return;
-            var safeHost = string.Concat(hostname.Select(c => Path.GetInvalidFileNameChars().Contains(c) ? '_' : c));
+            var invalidChars = new HashSet<char>(Path.GetInvalidFileNameChars());
+            var safeHost = new string(hostname.Select(c => invalidChars.Contains(c) ? '_' : c).ToArray());
             var timestamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
             var filename = $"session-rec.{safeHost}.{timestamp}.jsonl";
             FilePath = Path.Combine(FileSystem.Current.AppDataDirectory, filename);

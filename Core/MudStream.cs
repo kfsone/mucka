@@ -1132,13 +1132,16 @@ public sealed class MudStream
 
     private void NegotiateResponse(byte cmd, byte option)
     {
-        var cmdName = cmd switch { WILL => "WILL", WONT => "WONT", DO => "DO", DONT => "DONT", _ => $"0x{cmd:X2}" };
-        var optName = option switch
+        if (Capture != null)
         {
-            OPT_ECHO => "ECHO", OPT_SGA => "SGA", OPT_TERMINAL_TYPE => "TERMINAL-TYPE",
-            OPT_NAWS => "NAWS", OPT_NEW_ENVIRON => "NEW-ENVIRON", _ => $"0x{option:X2}"
-        };
-        Capture?.Annotate($"telnet: {cmdName} {optName}");
+            var cmdName = cmd switch { WILL => "WILL", WONT => "WONT", DO => "DO", DONT => "DONT", _ => $"0x{cmd:X2}" };
+            var optName = option switch
+            {
+                OPT_ECHO => "ECHO", OPT_SGA => "SGA", OPT_TERMINAL_TYPE => "TERMINAL-TYPE",
+                OPT_NAWS => "NAWS", OPT_NEW_ENVIRON => "NEW-ENVIRON", _ => $"0x{option:X2}"
+            };
+            Capture.Annotate($"telnet: {cmdName} {optName}");
+        }
         switch (cmd)
         {
             case WILL:
