@@ -54,7 +54,7 @@ public sealed class AsyncCommand<T> : ICommand
             return;
         }
 
-        var typed = (T)parameter!;
+        var typed = parameter is T value ? value : (T)(object?)parameter;
         _isExecuting = true;
         CanExecuteChanged?.Invoke(this, EventArgs.Empty);
         try
