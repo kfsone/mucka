@@ -25,7 +25,6 @@ public sealed class ConnectViewModel : BaseViewModel
     public int Port { get => _port; set => Set(ref _port, value); }
     public string StatusText { get => _statusText; set => Set(ref _statusText, value); }
     public bool IsConnecting { get => _isConnecting; set => Set(ref _isConnecting, value); }
-    public string VersionText => $"v{AppInfo.VersionString}";
     public bool HasError { get => _hasError; set => Set(ref _hasError, value); }
     public string AccountId { get => _accountId; set => Set(ref _accountId, value); }
     public string Password { get => _password; set => Set(ref _password, value); }

@@ -45,8 +45,10 @@ $basePatch = [int]$Matches[3]
 
 # ─── Depth from base release tag ────────────────────────────────────────────
 $tag = "v$baseVersion"
-# git tag --list returns the tag name if it exists, empty string otherwise
-$tagExists = (git -C $Root tag --list $tag 2>$null) -eq $tag
+# Use -contains for robust array membership test; trim each line to guard
+# against CRLF line endings that can cause string equality to silently fail.
+$tagList   = @(git -C $Root tag --list $tag 2>$null | ForEach-Object { $_.Trim() })
+$tagExists = $tagList -contains $tag
 
 if ($tagExists) {
     $depth = [int](git -C $Root rev-list "${tag}..HEAD" --count 2>$null)

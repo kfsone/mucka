@@ -51,7 +51,6 @@
             <VerticalStackLayout HorizontalOptions="{OnIdiom Phone=Fill, Default=Center}"
                                  Spacing="16"
                                  Padding="24">
-
                 <Grid ColumnDefinitions="80,*"
                       RowDefinitions="Auto,Auto,Auto,Auto,Auto"
                       RowSpacing="10"
