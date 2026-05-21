@@ -13,6 +13,9 @@ namespace Mucka.Core;
 /// </summary>
 public sealed class CommandLineArgs
 {
+    /// <summary>Error encountered while parsing command-line arguments.</summary>
+    public string? Error { get; private set; }
+
     /// <summary>Name of a saved profile to load.</summary>
     public string? Profile { get; private set; }
 
@@ -91,7 +94,10 @@ public sealed class CommandLineArgs
             {
                 value = string.Empty;
                 if (i + 1 >= args.Count || IsRecognizedFlag(args[i + 1]))
+                {
+                    result.Error = $"Missing value for command-line option: {flag}";
                     return false;
+                }
 
                 value = args[++i];
                 return true;
@@ -127,6 +133,14 @@ public sealed class CommandLineArgs
                     if (TryTakeValue(out var password))
                         result.Password = password;
                     break;
+                default:
+                    result.Error = $"Unknown command-line option: {flag}";
+                    break;
+            }
+
+            if (result.Error != null)
+            {
+                break;
             }
         }
 

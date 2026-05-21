@@ -58,7 +58,7 @@ public sealed class ConnectViewModel : BaseViewModel
 
     public string AdvancedChevron => AdvancedVisible ? "▼  Advanced" : "▶  Advanced";
     public bool CanConnect => !_isConnecting;
-    public bool IsDirectConnectMode => _cmdArgs.HasDirectConnectOptions;
+    public bool IsDirectConnectMode => _cmdArgs.Error == null && _cmdArgs.HasDirectConnectOptions;
     public Task LoadProfilesTask => _loadProfilesTask;
 
     public ObservableCollection<Profile> SavedProfiles { get; } = new();
@@ -223,6 +223,13 @@ public sealed class ConnectViewModel : BaseViewModel
         foreach (var p in list)
         {
             SavedProfiles.Add(p);
+        }
+
+        if (_cmdArgs.Error != null)
+        {
+            StatusText = _cmdArgs.Error;
+            HasError = true;
+            return;
         }
 
         if (!string.IsNullOrEmpty(_cmdArgs.Profile))
