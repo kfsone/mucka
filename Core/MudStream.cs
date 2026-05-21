@@ -27,6 +27,8 @@ public sealed class MudStream
     public event Action<byte[]>? ResponseReady;
     /// <summary>Fired when the server sends the C02·C01·C255 game-mode entry signal.</summary>
     public event Action? GameModeEntered;
+    /// <summary>Fired when the server signals game-mode exit (ESC-C, ESC^F, or "Option" menu text).</summary>
+    public event Action? GameModeExited;
 
     /// <summary>Auto-login credentials to send in response to server prompts.</summary>
     public AutoLoginConfig? AutoLogin { get; set; }
@@ -35,6 +37,7 @@ public sealed class MudStream
     {
         Normal,
         Esc,
+        EscDash,
         Csi,
         IacSeen,
         IacCmd,
@@ -58,6 +61,7 @@ public sealed class MudStream
         GameModePrefix4,
         GameModeC02C02FF1,
         GameModeC02C02FF2,
+        GameModeC02BareFF1,
         C99Fg,
         C99FgBgOrTerm,
         C99Term1,
@@ -68,6 +72,12 @@ public sealed class MudStream
         C98DataFF2,
         C1GenSeq,
         C1GenFF1,
+        // Prompt-preamble suppression: entered only when {C01}{C255} (0x9C 0xFF 0xFF) is seen alone,
+        // which is the unique opener of MUD2's complex prompt sequence.
+        PromptPreText,
+        PromptPreTextFF1,
+        PromptText,
+        PromptTextFF1,
     }
 
     private State _state = State.Normal;
@@ -78,9 +88,35 @@ public sealed class MudStream
     private byte _c99Fg;
     private byte _c99Bg;
 
+    // C1 sequence tracking for color application and prompt detection.
+    private byte _c1StartByte;
+    private byte _c1SecondByte;
+
+    // Prompt suppression: set when the MUD2 prompt-preamble opener {C01}{C255} is recognised.
+    // Text buffered here is discarded if confirmed as prompt content; committed if it turns
+    // out to be normal game text (e.g. ended by \n rather than {C255}).
+    private bool _inPromptPreamble;
+    private bool _inPromptText;
+    private readonly StringBuilder _provBuf = new(16);
+
     private bool _clientModeRequested;
     private bool _accountIdSent;
     private bool _passwordSent;
+
+    // Game-mode state tracking (mirrors clio's `mode` variable)
+    private bool _inGameMode;
+    // Prompt display: true after each \r\n; first complex prompt resets to false and shows '*'.
+    private bool _promptAllowed = true;
+    // Set by heartbeat prompts; EmitPartial sends FES when true (after mode-exit check).
+    private bool _requestFes;
+    // Whether the prompt currently being parsed should be shown (first after \n) or suppressed.
+    private bool _showPrompt;
+    // Set after a shown '*' prompt; subsequent text on the same line is the player's echoed input.
+    // Cleared as soon as any C1/control colour code arrives — those bytes signal game activity text,
+    // not player echo (player echo is always plain text with no embedded colour codes).
+    private bool _afterShownPrompt;
+    // Lines queued here are discarded when received from the server (suppress echo of our own sends).
+    private readonly Queue<string> _suppressEchoQueue = new();
 
     private byte _fg = 7;
     private byte _bg = 0;
@@ -113,6 +149,12 @@ public sealed class MudStream
     }
 
     public void RequestFesSubscription()
+    {
+        if (!_inGameMode) return;
+        ResponseReady?.Invoke((byte[])FesSubscriptionRequestBytes.Clone());
+    }
+
+    private void ForceRequestFesSubscription()
         => ResponseReady?.Invoke((byte[])FesSubscriptionRequestBytes.Clone());
 
     private void ProcessByte(byte b)
@@ -122,46 +164,51 @@ public sealed class MudStream
             case State.Normal:
                 if (b == 0x1B)
                 {
-                    FlushSpan();
+                    FlushSpan(); _afterShownPrompt = false;
                     _state = State.Esc;
                 }
                 else if (b == IAC)
                 {
-                    FlushSpan();
+                    FlushSpan(); _afterShownPrompt = false;
                     _state = State.IacSeen;
                 }
                 else if (b == 0x9D)
                 {
-                    FlushSpan();
+                    FlushSpan(); _afterShownPrompt = false;
                     _state = State.GameModePrefix2;
                 }
                 else if (b == 0xA7)
                 {
-                    FlushSpan();
+                    FlushSpan(); _afterShownPrompt = false;
                     _state = State.FesPrefix2;
                 }
                 else if (b == 0xAA)
                 {
-                    FlushSpan();
+                    FlushSpan(); _afterShownPrompt = false;
                     _state = State.DreamPrefix2;
                 }
                 else if (b == 0xFE)
                 {
-                    FlushSpan();
+                    FlushSpan(); _afterShownPrompt = false;
                     _state = State.C99Fg;
                 }
                 else if (b == 0xFD)
                 {
-                    FlushSpan();
+                    FlushSpan(); _afterShownPrompt = false;
                     _state = State.C98Data;
                 }
                 else if (b >= 0x9B && b <= 0xFE)
                 {
-                    FlushSpan();
+                    FlushSpan(); _afterShownPrompt = false;
+                    _c1StartByte = b;
+                    _c1SecondByte = 0;
                     _state = State.C1GenSeq;
                 }
                 else if (b == '\n')
                 {
+                    CommitProvisional();
+                    _inPromptPreamble = false;
+                    _inPromptText = false;
                     FlushSpan();
                     EmitLine();
                 }
@@ -170,7 +217,20 @@ public sealed class MudStream
                 }
                 else if ((b >= 0x20 && b != 0x7F) || b == '\t')
                 {
-                    _spanText.Append((char)b);
+                    if (_inPromptText)
+                    {
+                        _provBuf.Append((char)b);
+                        _state = State.PromptText;
+                    }
+                    else if (_inPromptPreamble)
+                    {
+                        _provBuf.Append((char)b);
+                        _state = State.PromptPreText;
+                    }
+                    else
+                    {
+                        _spanText.Append((char)b);
+                    }
                 }
 
                 break;
@@ -181,11 +241,27 @@ public sealed class MudStream
                     _paramBuf.Clear();
                     _state = State.Csi;
                 }
-                else
+                else if (b == '-')
                 {
+                    _state = State.EscDash;
+                }
+                else if (b == 0x06)
+                {
+                    // ESC^F = request client mode; signals game-mode exit
+                    ExitGameMode();
                     _state = State.Normal;
                 }
+                else
+                {
+                    ReprocessFromNormal(b);
+                }
 
+                break;
+
+            case State.EscDash:
+                // ESC-C = client mode / clear screen (game-mode exit), ESC-R/r = reverse video, ESC-K = erase EOL.
+                if (b == (byte)'C') ExitGameMode();
+                _state = State.Normal;
                 break;
 
             case State.Csi:
@@ -218,7 +294,7 @@ public sealed class MudStream
                 }
                 else if (b == IAC)
                 {
-                    _spanText.Append((char)0xFF);
+                    // IAC IAC in MUD2 is never a literal data byte; consume silently.
                     _state = State.Normal;
                 }
                 else
@@ -392,6 +468,11 @@ public sealed class MudStream
                 {
                     _state = State.GameModeC02C02FF1;
                 }
+                else if (b == 0xFF)
+                {
+                    // {C02}{C255}: bare C02 colour sequence = LT_GREEN (same base as game-mode entry)
+                    _state = State.GameModeC02BareFF1;
+                }
                 else
                 {
                     ReprocessFromNormal(b);
@@ -406,8 +487,15 @@ public sealed class MudStream
             case State.GameModePrefix4:
                 if (b == 0xFF)
                 {
-                    RequestFesSubscription();
-                    GameModeEntered?.Invoke();
+                    // {C02}{C01}{C255}: game-mode entry — push LT_GREEN (clio colour stack)
+                    FlushSpan();
+                    _fg = 10; _bg = 0; _bold = false;
+                    var wasInGame = _inGameMode;
+                    _inGameMode = true;
+                    _promptAllowed = true;
+                    _suppressEchoQueue.Clear();     // pre-game echo suppression is done
+                    ForceRequestFesSubscription();
+                    if (!wasInGame) GameModeEntered?.Invoke();
                     _state = State.Normal;
                 }
                 else
@@ -432,6 +520,8 @@ public sealed class MudStream
             case State.GameModeC02C02FF2:
                 if (b == 0xFF)
                 {
+                    FlushSpan();
+                    _fg = 2; _bg = 0; _bold = false;
                     _state = State.Normal;
                 }
                 else
@@ -439,6 +529,20 @@ public sealed class MudStream
                     ReprocessFromNormal(b);
                 }
 
+                break;
+
+            case State.GameModeC02BareFF1:
+                if (b == 0xFF)
+                {
+                    FlushSpan();
+                    _fg = 10; _bg = 0; _bold = false;
+                }
+                else
+                {
+                    ReprocessFromNormal(b);
+                }
+
+                _state = State.Normal;
                 break;
 
             case State.C99Fg:
@@ -512,6 +616,7 @@ public sealed class MudStream
             case State.C1GenSeq:
                 if (b >= 0x9B && b <= 0xFE)
                 {
+                    _c1SecondByte = b;
                     _state = State.C1GenSeq;
                 }
                 else if (b == 0xFF)
@@ -528,11 +633,176 @@ public sealed class MudStream
             case State.C1GenFF1:
                 if (b == 0xFF)
                 {
+                    ApplyC1Color();
+
+                    if (_inPromptPreamble)
+                    {
+                        if (_c1StartByte == 0x9C)
+                        {
+                            // {C01}{C01/C02/C03}{C255} = prompt type indicator → prompt text follows
+                            if (_c1SecondByte == 0x9C || _c1SecondByte == 0x9D || _c1SecondByte == 0x9E)
+                            {
+                                _inPromptText = true;
+                                _inPromptPreamble = false;
+                            }
+                            // else: {C01}{C04/C05}{C255} = preamble continuation
+                        }
+                        else
+                        {
+                            // Non-C01 sequence in preamble: not a prompt, commit any buffered text
+                            CommitProvisional();
+                            _inPromptPreamble = false;
+                            _showPrompt = false;
+                        }
+                    }
+                    else if (_c1StartByte == 0x9C && _c1SecondByte == 0)
+                    {
+                        // Bare {C01}{C255}: MUD2 prompt-preamble opener
+                        if (_inGameMode)
+                        {
+                            // Show only if this is the first prompt after a \n (_promptAllowed).
+                            _showPrompt = _promptAllowed;
+                            _promptAllowed = false;
+                            _inPromptPreamble = true;
+                            if (!_showPrompt) _requestFes = true;
+                        }
+                        // else: not in game mode — just a colour change (BLUE), no suppression
+                    }
+
                     _state = State.Normal;
                 }
                 else
                 {
+                    if (_inPromptPreamble)
+                    {
+                        CommitProvisional();
+                        _inPromptPreamble = false;
+                        _showPrompt = false;
+                    }
+
                     ReprocessFromNormal(b);
+                }
+
+                break;
+
+            case State.PromptPreText:
+                // Buffering preamble text (& or > characters in the prompt prefix).
+                if (b == 0xFF)
+                {
+                    _state = State.PromptPreTextFF1;
+                }
+                else if (b == '\n')
+                {
+                    CommitProvisional();
+                    _inPromptPreamble = false;
+                    _showPrompt = false;
+                    FlushSpan();
+                    EmitLine();
+                    _state = State.Normal;
+                }
+                else if (b == '\r')
+                {
+                }
+                else if (b >= 0x9B && b <= 0xFE)
+                {
+                    // C1 byte: could be the type indicator — keep provBuf, process C1.
+                    // C1GenFF1 will commit or discard based on what the sequence turns out to be.
+                    _c1StartByte = b;
+                    _c1SecondByte = 0;
+                    _state = State.C1GenSeq;
+                }
+                else
+                {
+                    _provBuf.Append((char)b);
+                }
+
+                break;
+
+            case State.PromptPreTextFF1:
+                if (b == 0xFF)
+                {
+                    // {C255}: preamble text confirmed (& or >), discard it
+                    _provBuf.Clear();
+                    _state = State.Normal; // _inPromptPreamble stays true
+                }
+                else
+                {
+                    // Real IAC command: commit preamble text as game text and handle it
+                    CommitProvisional();
+                    _inPromptPreamble = false;
+                    _showPrompt = false;
+                    FlushSpan();
+                    _state = State.IacSeen;
+                    ProcessByte(b);
+                }
+
+                break;
+
+            case State.PromptText:
+                // Buffering the actual prompt text (typically just '*').
+                if (b == 0xFF)
+                {
+                    _state = State.PromptTextFF1;
+                }
+                else if (b == '\n')
+                {
+                    // Fallback: prompt text ended with newline — display it
+                    CommitProvisional();
+                    _inPromptText = false;
+                    _showPrompt = false;
+                    FlushSpan();
+                    EmitLine();
+                    _state = State.Normal;
+                }
+                else if (b == '\r')
+                {
+                }
+                else if (b >= 0x9B && b <= 0xFE)
+                {
+                    // C1 byte mid-prompt-text: unexpected — surface the text and process C1
+                    CommitProvisional();
+                    _inPromptText = false;
+                    _showPrompt = false;
+                    FlushSpan();
+                    _c1StartByte = b;
+                    _c1SecondByte = 0;
+                    _state = State.C1GenSeq;
+                }
+                else
+                {
+                    _provBuf.Append((char)b);
+                }
+
+                break;
+
+            case State.PromptTextFF1:
+                if (b == 0xFF)
+                {
+                    // {C255}: prompt text confirmed — show if first-after-newline, suppress if heartbeat.
+                    if (_showPrompt)
+                    {
+                        CommitProvisional();    // emit the '*' to _spanText
+                        FlushSpan();            // flush '*' as a normal (non-echo) span before arming echo mode
+                        _afterShownPrompt = true;
+                    }
+                    else
+                    {
+                        _provBuf.Clear();       // suppress heartbeat prompt
+                    }
+                    _showPrompt = false;
+                    _inPromptText = false;
+                    _fg = 7; _bg = 0; _bold = false;
+                    _state = State.Normal;
+                }
+                else
+                {
+                    // Real IAC: surface the text and handle the IAC command
+                    CommitProvisional();
+                    _showPrompt = false;
+                    _inPromptText = false;
+                    FlushSpan();
+                    _state = State.IacSeen;
+                    ProcessByte(b);
                 }
 
                 break;
@@ -559,6 +829,7 @@ public sealed class MudStream
     private void HandleSgr(string param)
     {
         FlushSpan();
+        _afterShownPrompt = false;
         var parts = param.Length == 0 ? new[] { "0" } : param.Split(';');
         foreach (var part in parts)
         {
@@ -692,7 +963,8 @@ public sealed class MudStream
     {
         _stats.Dreamword = string.Empty;
         StatsUpdated?.Invoke(_stats);
-        RequestFesSubscription();
+        // Do NOT call RequestFesSubscription() here — this fires during the game-exit sequence
+        // before mode tracking resets, which causes the server to interpret "FES" as a persona name.
     }
 
     private static bool TrySetInt(string text, Action<int> setter)
@@ -762,6 +1034,75 @@ public sealed class MudStream
     private static byte ClampColorIndex(int colorIndex)
         => (byte)Math.Clamp(colorIndex, 0, 15);
 
+    /// <summary>
+    /// Applies colour based on the C1 sequence just consumed (_c1StartByte / _c1SecondByte).
+    /// Called from C1GenFF1 after the full {Cx...}{C255} terminator is confirmed.
+    /// Colour mappings follow clio telnet.l lines 434–810 (ANSI indices).
+    /// </summary>
+    private void ApplyC1Color()
+    {
+        FlushSpan();
+        switch (_c1StartByte)
+        {
+            case 0x9B: // C00 = init_stack(WHITE, BLACK)
+                _fg = 7; _bg = 0; _bold = false;
+                break;
+            case 0x9C: // C01 variants
+                _bg = 0; _bold = false;
+                _fg = _c1SecondByte switch
+                {
+                    0 => 4,      // {C01}{C255}        = BLUE
+                    0x9C => 12,  // {C01}{C01}{C255}   = LT_BLUE
+                    0x9D => 12,  // {C01}{C02}{C255}   = LT_BLUE
+                    0x9E => 12,  // {C01}{C03}{C255}   = LT_BLUE
+                    _ => 4,      // other C01+x        = BLUE
+                };
+                break;
+            case 0x9E: // C03 = cyan (room/location text)
+                _fg = _c1SecondByte == 0x9C ? (byte)14 : (byte)6;
+                _bg = 0; _bold = false;
+                break;
+            case 0xA0: // C05 = red (combat/damage)
+                _fg = 9; _bg = 0; _bold = false;
+                break;
+            case 0xA2: // C07 = bright red (important messages)
+                _fg = 9; _bg = 0; _bold = true;
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Moves any provisional (prompt-candidate) text into the real span buffer,
+    /// making it visible as normal game text.
+    /// </summary>
+    private void CommitProvisional()
+    {
+        if (_provBuf.Length == 0) return;
+        _spanText.Append(_provBuf);
+        _provBuf.Clear();
+    }
+
+    /// <summary>
+    /// Transitions out of game mode (ESC-C, ESC^F, or "Option" menu text detected).
+    /// Resets prompt and login state; fires GameModeExited if we were actually in game mode.
+    /// </summary>
+    private void ExitGameMode()
+    {
+        if (!_inGameMode) return;
+        _inGameMode = false;
+        _promptAllowed = true;
+        _requestFes = false;
+        _afterShownPrompt = false;
+        _clientModeRequested = false;   // allow client-mode re-send on next "Option" prompt
+        _accountIdSent = false;
+        _passwordSent = false;
+        _inPromptPreamble = false;
+        _inPromptText = false;
+        _showPrompt = false;
+        _provBuf.Clear();
+        GameModeExited?.Invoke();
+    }
+
     private void SendNewEnvironIs()
     {
         var user = AutoLogin?.EnvUser;
@@ -810,56 +1151,93 @@ public sealed class MudStream
     /// </summary>
     public void EmitPartial()
     {
+        // Do not commit provisional text while mid-prompt — it hasn't been confirmed as game text yet.
+        if (!_inPromptPreamble && !_inPromptText) CommitProvisional();
         FlushSpan();
-        if (_line.Spans.Count == 0) return;
 
-        var snapshot = new StyledLine { IsPartial = true };
-        foreach (var s in _line.Spans) snapshot.Add(s);
+        // Capture the FES request flag before we potentially clear it below.
+        var tryFes = _requestFes;
+        _requestFes = false;
 
-        if (!_clientModeRequested)
+        if (_line.Spans.Count > 0)
         {
-            var text = snapshot.PlainText;
-            if (text.StartsWith("Option:", StringComparison.Ordinal) ||
-                text.StartsWith("Option (H for help):", StringComparison.Ordinal))
+            var snapshot = new StyledLine { IsPartial = true };
+            foreach (var s in _line.Spans) snapshot.Add(s);
+
+            if (!_clientModeRequested)
             {
-                _clientModeRequested = true;
-                ResponseReady?.Invoke((byte[])ClientModeRequestBytes.Clone());
+                var text = snapshot.PlainText;
+                if (text.StartsWith("Option:", StringComparison.Ordinal) ||
+                    text.StartsWith("Option (H for help):", StringComparison.Ordinal))
+                {
+                    _clientModeRequested = true;
+                    _accountIdSent = false;
+                    _passwordSent = false;
+                    tryFes = false;     // at login menu — no FES
+                    if (_inGameMode)
+                    {
+                        _inGameMode = false;
+                        _promptAllowed = true;
+                        _inPromptPreamble = false;
+                        _inPromptText = false;
+                        _showPrompt = false;
+                        _provBuf.Clear();
+                        GameModeExited?.Invoke();
+                    }
+                    ResponseReady?.Invoke((byte[])ClientModeRequestBytes.Clone());
+                }
             }
+
+            if (AutoLogin != null)
+            {
+                var loginText = snapshot.PlainText.TrimStart('\r');
+                if (!_accountIdSent && AutoLogin.AccountId != null
+                    && loginText.StartsWith("Account ID:", StringComparison.Ordinal))
+                {
+                    _accountIdSent = true;
+                    _suppressEchoQueue.Enqueue(AutoLogin.AccountId);
+                    ResponseReady?.Invoke(Encoding.Latin1.GetBytes(AutoLogin.AccountId + "\r\n"));
+                }
+                else if (!_passwordSent && _accountIdSent && AutoLogin.Password != null
+                         && (loginText.StartsWith("Password:", StringComparison.Ordinal)
+                             || loginText.StartsWith("password:", StringComparison.Ordinal)))
+                {
+                    _passwordSent = true;
+                    _suppressEchoQueue.Enqueue(AutoLogin.Password);
+                    ResponseReady?.Invoke(Encoding.Latin1.GetBytes(AutoLogin.Password + "\r\n"));
+                }
+            }
+
+            LineReady?.Invoke(snapshot);
         }
 
-        if (AutoLogin != null)
-        {
-            var loginText = snapshot.PlainText.TrimStart('\r');
-            if (!_accountIdSent && AutoLogin.AccountId != null
-                && loginText.StartsWith("Account ID:", StringComparison.Ordinal))
-            {
-                _accountIdSent = true;
-                ResponseReady?.Invoke(Encoding.Latin1.GetBytes(AutoLogin.AccountId + "\r\n"));
-            }
-            else if (!_passwordSent && _accountIdSent && AutoLogin.Password != null
-                     && (loginText.StartsWith("Password:", StringComparison.Ordinal)
-                         || loginText.StartsWith("password:", StringComparison.Ordinal)))
-            {
-                _passwordSent = true;
-                ResponseReady?.Invoke(Encoding.Latin1.GetBytes(AutoLogin.Password + "\r\n"));
-            }
-        }
-
-        LineReady?.Invoke(snapshot);
+        // Send queued FES only after mode-exit checks; ForceRequest bypasses the _inGameMode gate
+        // because _requestFes is only set by heartbeat prompts that already require _inGameMode.
+        if (tryFes && _inGameMode)
+            ForceRequestFesSubscription();
     }
 
     private void FlushSpan()
     {
         if (_spanText.Length == 0) return;
         byte fg = _bold && _fg < 8 ? (byte)(_fg | 8) : _fg;
-        _line.Add(new StyledSpan { Text = _spanText.ToString(), Fg = fg, Bg = _bg, Bold = _bold });
+        _line.Add(new StyledSpan { Text = _spanText.ToString(), Fg = fg, Bg = _bg, Bold = _bold, Echo = _afterShownPrompt });
         _spanText.Clear();
     }
 
     private void EmitLine()
     {
         FlushSpan();
-        CheckOutOfBandStamina(string.Concat(_line.Spans.Select(static span => span.Text)));
+        _promptAllowed = true;
+        _afterShownPrompt = false;
+        var text = string.Concat(_line.Spans.Select(static span => span.Text));
+        if (_suppressEchoQueue.Count > 0 && _suppressEchoQueue.Peek() == text)
+        {
+            _suppressEchoQueue.Dequeue();
+            _line = new StyledLine();
+            return;
+        }
+        CheckOutOfBandStamina(text);
         LineReady?.Invoke(_line);
         _line = new StyledLine();
     }

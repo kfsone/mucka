@@ -17,6 +17,23 @@ public partial class App : Application
             BarTextColor = Colors.White,
         });
         window.Title = $"mucka {AppInfo.VersionString}";
+
+#if WINDOWS
+        window.HandlerChanged += (s, e) => SetWindowIcon(window);
+#endif
+
         return window;
     }
+
+#if WINDOWS
+    static void SetWindowIcon(Window window)
+    {
+        var nativeWindow = window.Handler?.PlatformView as Microsoft.UI.Xaml.Window;
+        if (nativeWindow is null) return;
+
+        var icoPath = System.IO.Path.Combine(AppContext.BaseDirectory, "muckabase.ico");
+        if (System.IO.File.Exists(icoPath))
+            nativeWindow.AppWindow.SetIcon(icoPath);
+    }
+#endif
 }
