@@ -61,6 +61,7 @@ public sealed class ConnectViewModel : BaseViewModel
 
     public ICommand ConnectCommand { get; }
     public ICommand SelectProfileCommand { get; }
+    public ICommand DeleteProfileCommand { get; }
     public ICommand ToggleAdvancedCommand { get; }
     public ICommand ShowTelnetHelpCommand { get; }
     public ICommand ToggleCaptureCommand { get; }
@@ -73,6 +74,7 @@ public sealed class ConnectViewModel : BaseViewModel
     {
         ConnectCommand = new AsyncCommand(ConnectAsync);
         SelectProfileCommand = new Command<Profile>(SelectProfile);
+        DeleteProfileCommand = new AsyncCommand<Profile>(DeleteProfileAsync);
         ToggleAdvancedCommand = new Command(() => AdvancedVisible = !AdvancedVisible);
         ToggleCaptureCommand = new Command(() =>
         {
@@ -206,6 +208,30 @@ public sealed class ConnectViewModel : BaseViewModel
         if (SavedProfiles.Count > 0)
         {
             SelectProfile(SavedProfiles[0]);
+        }
+    }
+
+    private async Task DeleteProfileAsync(Profile p)
+    {
+        SavedProfiles.Remove(p);
+        await ProfileStore.SetPasswordAsync(p.Name, null);
+        await ProfileStore.SaveAsync(SavedProfiles.ToList());
+
+        if (string.Equals(ProfileName, p.Name, StringComparison.OrdinalIgnoreCase))
+        {
+            if (SavedProfiles.Count > 0)
+                SelectProfile(SavedProfiles[0]);
+            else
+            {
+                ProfileName = string.Empty;
+                Host = "mud2.co.uk";
+                Port = 23;
+                AccountId = string.Empty;
+                Password = string.Empty;
+                RememberPassword = false;
+                TelnetLoginEnabled = true;
+                TelnetLoginName = "mud";
+            }
         }
     }
 

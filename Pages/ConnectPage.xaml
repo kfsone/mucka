@@ -27,6 +27,13 @@
             <CollectionView.ItemTemplate>
                 <DataTemplate x:DataType="core:Profile">
                     <VerticalStackLayout Padding="12,6" Spacing="2">
+                        <FlyoutBase.ContextFlyout>
+                            <MenuFlyout>
+                                <MenuFlyoutItem Text="Delete"
+                                               Command="{Binding Source={x:Reference ProfileList}, Path=BindingContext.DeleteProfileCommand}"
+                                               CommandParameter="{Binding .}" />
+                            </MenuFlyout>
+                        </FlyoutBase.ContextFlyout>
                         <Label Text="{Binding Name}"
                                TextColor="#cccccc" />
                         <Label Text="{Binding Host}"
