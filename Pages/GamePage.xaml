@@ -40,6 +40,8 @@
                         Text="⏺"
                         Command="{Binding ToggleCaptureCommand}"
                         IsVisible="{Binding IsCaptureFacilityAvailable}"
+                        AutomationProperties.Name="Toggle capture"
+                        AutomationProperties.HelpText="Starts or stops capture"
                         BackgroundColor="#2d333b" TextColor="#888888"
                         FontSize="11" WidthRequest="30" HeightRequest="24"
                         CornerRadius="3" Padding="0" Margin="0,0,4,0">
