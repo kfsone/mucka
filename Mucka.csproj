@@ -1,8 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
 	<PropertyGroup>
-		<!-- Each CI runner declares only its own platform TFM.
-		     Android is built on ubuntu; macOS Catalyst on macos; Windows on windows. -->
+		<!-- Each runner builds only its own target:
+		     Windows runner  → net10.0-windows
+		     macOS runner    → net10.0-maccatalyst
+		     Linux runner    → net10.0-android  -->
 		<TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('windows'))">net10.0-windows10.0.19041.0</TargetFrameworks>
 		<TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('osx'))">net10.0-maccatalyst</TargetFrameworks>
 		<TargetFrameworks Condition="!$([MSBuild]::IsOSPlatform('windows')) and !$([MSBuild]::IsOSPlatform('osx'))">net10.0-android</TargetFrameworks>
