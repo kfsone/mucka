@@ -197,8 +197,8 @@
                             CornerRadius="6"
                             HeightRequest="48"
                             Padding="10,0"
-                            AutomationProperties.Name="Toggle pre-connect capture"
-                            AutomationProperties.HelpText="Arms or disarms session capture before connecting">
+                            SemanticProperties.Description="Toggle pre-connect capture"
+                            SemanticProperties.Hint="Arms or disarms session capture before connecting">
                         <Button.Triggers>
                             <DataTrigger TargetType="Button" Binding="{Binding IsCaptureRequested}" Value="True">
                                 <Setter Property="BackgroundColor" Value="#c02020"/>
