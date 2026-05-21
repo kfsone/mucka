@@ -227,6 +227,11 @@ public sealed class MudStream
                 else if (b == '\r')
                 {
                 }
+                else if (b == '\f')  // form feed = clear screen
+                {
+                    FlushSpan();
+                    LineReady?.Invoke(new StyledLine { IsClearScreen = true });
+                }
                 else if ((b >= 0x20 && b != 0x7F) || b == '\t')
                 {
                     if (_inPromptText)

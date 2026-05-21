@@ -160,7 +160,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         while (_pendingLines.TryDequeue(out var line))
         {
             batch.Add(line);
-            if (!line.IsPartial)
+            if (!line.IsPartial && !line.IsClearScreen)
             {
                 _historyBuffer.Add(line);
                 if (_historyBuffer.Count > 1000) _historyBuffer.RemoveAt(0);
