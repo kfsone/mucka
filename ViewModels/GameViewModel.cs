@@ -32,6 +32,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private string _dreamword = string.Empty;
     private bool _isConnected = true;
     private bool _fkeysVisible = DeviceInfo.Platform != DevicePlatform.WinUI;
+    private bool _isCapturing;
 
     // Lines from the TCP thread are enqueued here; the UI timer flushes them in batches.
     private readonly ConcurrentQueue<StyledLine> _pendingLines = new();
@@ -61,6 +62,15 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public string Dreamword { get => _dreamword; set => Set(ref _dreamword, value); }
     public bool IsConnected { get => _isConnected; set => Set(ref _isConnected, value); }
     public bool FkeysVisible { get => _fkeysVisible; set => Set(ref _fkeysVisible, value); }
+    public bool IsCapturing { get => _isCapturing; private set => Set(ref _isCapturing, value); }
+
+    /// <summary>True only in debug builds — controls visibility of the capture button.</summary>
+    public bool IsCaptureFacilityAvailable { get; } =
+#if DEBUG
+        true;
+#else
+        false;
+#endif
 
     public string StaText => $"Sta: {Stamina}/{MaxStamina}";
     public string StrText => $"Str: {Strength}";
@@ -75,6 +85,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public ICommand HistoryUpCommand { get; }
     public ICommand HistoryDownCommand { get; }
     public ICommand ToggleFkeysCommand { get; }
+    public ICommand ToggleCaptureCommand { get; }
 
     public event Action? Disconnected;
     public event Action? RequestFocus;
@@ -82,6 +93,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public GameViewModel(MudConnection conn, Profile profile)
     {
         _conn = conn;
+        IsCapturing = _conn.IsCapturing;
 
         for (var i = 0; i < 10; i++)
         {
@@ -105,6 +117,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         HistoryUpCommand      = new Command(HistoryUp);
         HistoryDownCommand    = new Command(HistoryDown);
         ToggleFkeysCommand    = new Command(() => FkeysVisible = !FkeysVisible);
+        ToggleCaptureCommand  = new Command(ToggleCapture);
     }
 
     // Called from the TCP read thread — must not touch UI directly.
@@ -283,6 +296,29 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         var line = new StyledLine();
         line.Add(new StyledSpan { Text = $"|mucka| {msg}", Fg = fg });
         OnLineReady(line);
+    }
+
+    private void ToggleCapture()
+    {
+        if (_conn.IsCapturing)
+        {
+            var path = _conn.CaptureFilePath;
+            _conn.StopCapture();
+            IsCapturing = false;
+            AddSystemLine($"Capture stopped. File: {path}", 14);
+        }
+        else
+        {
+            if (_conn.TryStartCapture(null, out var error))
+            {
+                IsCapturing = true;
+                AddSystemLine($"Capture started. File: {_conn.CaptureFilePath}", 10);
+            }
+            else
+            {
+                AddSystemLine($"Capture failed: {error}", 9);
+            }
+        }
     }
 
     public async ValueTask DisposeAsync()

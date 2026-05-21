@@ -18,6 +18,7 @@ public sealed class ConnectViewModel : BaseViewModel
     private bool _telnetLoginEnabled = true;
     private string _telnetLoginName = "mud";
     private bool _advancedVisible;
+    private bool _captureRequested;
 
     public string ProfileName { get => _profileName; set => Set(ref _profileName, value); }
     public string Host { get => _host; set => Set(ref _host, value); }
@@ -31,6 +32,16 @@ public sealed class ConnectViewModel : BaseViewModel
     public bool RememberPassword { get => _rememberPassword; set => Set(ref _rememberPassword, value); }
     public bool TelnetLoginEnabled { get => _telnetLoginEnabled; set => Set(ref _telnetLoginEnabled, value); }
     public string TelnetLoginName { get => _telnetLoginName; set => Set(ref _telnetLoginName, value); }
+    public bool IsCaptureRequested { get => _captureRequested; set => Set(ref _captureRequested, value); }
+
+    public bool IsCaptureFacilityAvailable { get; } =
+#if DEBUG
+        true;
+#else
+        false;
+#endif
+
+    public string CaptureButtonText => IsCaptureRequested ? "Capture: Armed" : "Capture: Off";
     public bool AdvancedVisible
     {
         get => _advancedVisible;
@@ -52,6 +63,7 @@ public sealed class ConnectViewModel : BaseViewModel
     public ICommand SelectProfileCommand { get; }
     public ICommand ToggleAdvancedCommand { get; }
     public ICommand ShowTelnetHelpCommand { get; }
+    public ICommand ToggleCaptureCommand { get; }
 
     public Func<PasswordPromptArgs, Task<PasswordResult?>>? PasswordRequired;
 
@@ -62,6 +74,11 @@ public sealed class ConnectViewModel : BaseViewModel
         ConnectCommand = new AsyncCommand(ConnectAsync);
         SelectProfileCommand = new Command<Profile>(SelectProfile);
         ToggleAdvancedCommand = new Command(() => AdvancedVisible = !AdvancedVisible);
+        ToggleCaptureCommand = new Command(() =>
+        {
+            IsCaptureRequested = !IsCaptureRequested;
+            OnPropertyChanged(nameof(CaptureButtonText));
+        });
         ShowTelnetHelpCommand = new Command(async () =>
         {
             var page = Application.Current?.Windows.FirstOrDefault()?.Page;
@@ -117,6 +134,13 @@ public sealed class ConnectViewModel : BaseViewModel
             }
 
             var conn = new MudConnection();
+            if (IsCaptureRequested && !conn.TryStartCapture(Host.Trim(), out var captureError))
+            {
+                StatusText = $"Capture start failed: {captureError}";
+                HasError = true;
+                return;
+            }
+
             conn.Stream.AutoLogin = autoLogin;
             await conn.ConnectAsync(Host.Trim(), Port);
 

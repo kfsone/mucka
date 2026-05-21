@@ -33,6 +33,11 @@ public sealed class MudStream
     /// <summary>Auto-login credentials to send in response to server prompts.</summary>
     public AutoLoginConfig? AutoLogin { get; set; }
 
+#if DEBUG
+    /// <summary>When set, notable stream events (game-mode, FES, telnet) are annotated in the capture.</summary>
+    public SessionCapture? Capture { get; set; }
+#endif
+
     private enum State
     {
         Normal,
@@ -495,7 +500,13 @@ public sealed class MudStream
                     _promptAllowed = true;
                     _suppressEchoQueue.Clear();     // pre-game echo suppression is done
                     ForceRequestFesSubscription();
-                    if (!wasInGame) GameModeEntered?.Invoke();
+                    if (!wasInGame)
+                    {
+                        GameModeEntered?.Invoke();
+#if DEBUG
+                        Capture?.Annotate("mode: game-mode entered");
+#endif
+                    }
                     _state = State.Normal;
                 }
                 else
@@ -936,6 +947,9 @@ public sealed class MudStream
         if (updated)
         {
             StatsUpdated?.Invoke(_stats);
+#if DEBUG
+            Capture?.Annotate($"fes: sta={_stats.Stamina}/{_stats.MaxStamina} str={_stats.Strength} dex={_stats.Dexterity} magic={_stats.Magic} score={_stats.Score} weather={_stats.Weather}");
+#endif
         }
     }
 
@@ -957,12 +971,18 @@ public sealed class MudStream
 
         _stats.Dreamword = dreamword;
         StatsUpdated?.Invoke(_stats);
+#if DEBUG
+        Capture?.Annotate($"dreamword: set={dreamword}");
+#endif
     }
 
     private void HandleDreamwordCleared()
     {
         _stats.Dreamword = string.Empty;
         StatsUpdated?.Invoke(_stats);
+    #if DEBUG
+        Capture?.Annotate("dreamword: cleared");
+    #endif
         // Do NOT call RequestFesSubscription() here — this fires during the game-exit sequence
         // before mode tracking resets, which causes the server to interpret "FES" as a persona name.
     }
@@ -1101,6 +1121,9 @@ public sealed class MudStream
         _showPrompt = false;
         _provBuf.Clear();
         GameModeExited?.Invoke();
+#if DEBUG
+        Capture?.Annotate("mode: game-mode exited");
+#endif
     }
 
     private void SendNewEnvironIs()
@@ -1121,6 +1144,18 @@ public sealed class MudStream
 
     private void NegotiateResponse(byte cmd, byte option)
     {
+#if DEBUG
+        if (Capture != null)
+        {
+            var cmdName = cmd switch { WILL => "WILL", WONT => "WONT", DO => "DO", DONT => "DONT", _ => $"0x{cmd:X2}" };
+            var optName = option switch
+            {
+                OPT_ECHO => "ECHO", OPT_SGA => "SGA", OPT_TERMINAL_TYPE => "TERMINAL-TYPE",
+                OPT_NAWS => "NAWS", OPT_NEW_ENVIRON => "NEW-ENVIRON", _ => $"0x{option:X2}"
+            };
+            Capture.Annotate($"telnet: {cmdName} {optName}");
+        }
+#endif
         switch (cmd)
         {
             case WILL:
