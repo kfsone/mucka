@@ -6,4 +6,6 @@ inspired by Ian Peattie's "Clio".
 
 Clio is Copyright (C) Ian Peattie 2023.
 
+Windows release builds now include a simple installer zip. Extract it and run
+`Add-AppDevPackage.ps1` to install the packaged app.
 

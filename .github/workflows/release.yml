@@ -41,25 +41,40 @@ jobs:
       - name: Install MAUI Windows workload
         run: dotnet workload install maui-windows
 
-      - name: Publish (Windows)
-        run: >
-          dotnet publish -f net10.0-windows10.0.19041.0 -c Release
-          "-p:TargetFrameworks=net10.0-windows10.0.19041.0"
-          -p:ApplicationVersion=${{ github.run_number }}
-
-      - name: Zip Windows build
+      - name: Publish (Windows installer)
         shell: pwsh
         run: |
-          $src = "bin/Release/net10.0-windows10.0.19041.0/win-x64/publish"
-          $zip = "mucka-windows-${{ env.RELEASE_TAG }}.zip"
-          Compress-Archive -Path "$src/*" -DestinationPath $zip
-          Write-Host "Created $zip"
+          dotnet publish -f net10.0-windows10.0.19041.0 -c Release `
+            "-p:TargetFrameworks=net10.0-windows10.0.19041.0" `
+            -p:ApplicationVersion=${{ github.run_number }} `
+            -p:CreateWindowsInstaller=true `
+            -p:GenerateAppxPackageOnBuild=true `
+            -p:UapAppxPackageBuildMode=SideloadOnly `
+            -p:AppxBundle=Never `
+            -p:AppxPackageBuildPlatform=x64 `
+            -p:RuntimeIdentifierOverride=win10-x64 `
+            -p:EnableMsixTooling=true
+
+      - name: Zip Windows installer
+        shell: pwsh
+        run: |
+          $pkgDir = Get-ChildItem -Path "AppPackages" -Directory -Recurse |
+            Where-Object { $_.Name -like "*_Test" } |
+            Sort-Object LastWriteTime -Descending |
+            Select-Object -First 1
+          if (-not $pkgDir) {
+            throw "No Windows installer package directory was produced."
+          }
+
+          $zip = "mucka-windows-${{ env.RELEASE_TAG }}-installer.zip"
+          Compress-Archive -Path "$($pkgDir.FullName)/*" -DestinationPath $zip
+          Write-Host "Created $zip from $($pkgDir.FullName)"
 
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v7
         with:
-          name: windows-release
-          path: mucka-windows-${{ env.RELEASE_TAG }}.zip
+          name: windows-installer
+          path: mucka-windows-${{ env.RELEASE_TAG }}-installer.zip
 
   # ── Android ──────────────────────────────────────────────────────────────
   release-android:
