@@ -67,7 +67,7 @@ jobs:
             Select-Object -First 1 -ExpandProperty Directory
 
           if (-not $pkgDir) {
-            throw "No Windows installer package directory was produced."
+            throw "No Windows installer package with Add-AppDevPackage.ps1 was found under bin."
           }
 
           $zip = "mucka-windows-${{ env.RELEASE_TAG }}.zip"
