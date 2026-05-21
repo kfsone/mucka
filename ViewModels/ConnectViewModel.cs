@@ -199,10 +199,15 @@ public sealed class ConnectViewModel : BaseViewModel
             existing.TelnetLoginEnabled = incoming.TelnetLoginEnabled;
             existing.TelnetLoginName = incoming.TelnetLoginName;
             existing.Fkeys = incoming.Fkeys;
+            var idx = SavedProfiles.IndexOf(existing);
+            if (idx > 0)
+            {
+                SavedProfiles.Move(idx, 0);
+            }
         }
         else
         {
-            SavedProfiles.Add(incoming);
+            SavedProfiles.Insert(0, incoming);
         }
 
         await ProfileStore.SetPasswordAsync(incoming.Name, password);
