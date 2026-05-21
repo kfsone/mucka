@@ -6,6 +6,7 @@ namespace Mucka.Pages;
 public partial class ConnectPage : ContentPage
 {
     private readonly ConnectViewModel _vm;
+    private bool _autoConnectAttempted;
 
     public ConnectPage()
     {
@@ -14,6 +15,22 @@ public partial class ConnectPage : ContentPage
         BindingContext = _vm;
         _vm.Connected += OnConnected;
         _vm.PasswordRequired = PromptPasswordAsync;
+    }
+
+    protected override async void OnAppearing()
+    {
+        base.OnAppearing();
+        if (_autoConnectAttempted || !_vm.IsDirectConnectMode)
+        {
+            return;
+        }
+
+        _autoConnectAttempted = true;
+        await _vm.LoadProfilesTask;
+        if (_vm.ConnectCommand.CanExecute(null))
+        {
+            _vm.ConnectCommand.Execute(null);
+        }
     }
 
     private async Task<PasswordResult?> PromptPasswordAsync(PasswordPromptArgs args)
@@ -33,7 +50,7 @@ public partial class ConnectPage : ContentPage
         MainThread.BeginInvokeOnMainThread(async () =>
         {
             var gameVm = new GameViewModel(conn, profile);
-            var gamePage = new GamePage(gameVm);
+            var gamePage = new GamePage(gameVm, _vm.IsDirectConnectMode);
             await Navigation.PushAsync(gamePage);
         });
     }

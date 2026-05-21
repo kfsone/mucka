@@ -9,6 +9,7 @@ namespace Mucka.Pages;
 public partial class GamePage : ContentPage
 {
     private readonly GameViewModel _vm;
+    private readonly bool _exitOnDisconnect;
     private IDispatcherTimer?      _flushTimer;
 
     // Lines pulled from the ViewModel queue but not yet successfully injected.
@@ -18,10 +19,11 @@ public partial class GamePage : ContentPage
     // while the first EvaluateJavaScriptAsync/ExecuteScriptAsync is still awaiting.
     private bool _injecting;
 
-    public GamePage(GameViewModel vm)
+    public GamePage(GameViewModel vm, bool exitOnDisconnect = false)
     {
         InitializeComponent();
         _vm = vm;
+        _exitOnDisconnect = exitOnDisconnect;
         BindingContext = vm;
     }
 
@@ -146,9 +148,18 @@ public partial class GamePage : ContentPage
         MainThread.BeginInvokeOnMainThread(async () =>
         {
             await DisplayAlertAsync("Disconnected", "The server closed the connection.", "OK");
+            if (_exitOnDisconnect)
+            {
+                var window = Window ?? Application.Current?.Windows.FirstOrDefault();
+                if (window != null)
+                {
+                    Application.Current?.CloseWindow(window);
+                }
+                return;
+            }
+
             await Navigation.PopAsync();
         });
     }
 }
-
 

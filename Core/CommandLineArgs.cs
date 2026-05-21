@@ -5,6 +5,9 @@ namespace Mucka.Core;
 /// Usage:
 ///   mucka -profile &lt;name&gt;
 ///   mucka [-host &lt;host&gt;] [-port &lt;port&gt;] [-user &lt;name&gt;] [-account &lt;id&gt;] [-password &lt;pwd&gt;]
+/// Warning:
+///   -password exposes credentials via process listings, shell history, and crash reports.
+///   Prefer a saved profile or the interactive password prompt when possible.
 /// Debug builds only:
 ///   mucka [-record]
 /// </summary>
@@ -27,6 +30,10 @@ public sealed class CommandLineArgs
 
     /// <summary>Override the password.</summary>
     public string? Password { get; private set; }
+
+    /// <summary>Whether startup arguments request a direct connection instead of showing the profile page.</summary>
+    public bool HasDirectConnectOptions =>
+        Profile != null || Host != null || Port.HasValue || User != null || Account != null || Password != null;
 
 #if DEBUG
     /// <summary>Arm session recording before connecting (debug builds only).</summary>
@@ -61,32 +68,35 @@ public sealed class CommandLineArgs
             }
 #endif
 
-            // All remaining flags require a value argument.
-            if (i + 1 >= args.Count)
-                continue;
-
-            var value = args[++i];
-
             switch (name)
             {
                 case "profile":
-                    result.Profile = value;
+                    if (i + 1 < args.Count)
+                        result.Profile = args[++i];
                     break;
                 case "host":
-                    result.Host = value;
+                    if (i + 1 < args.Count)
+                        result.Host = args[++i];
                     break;
                 case "port":
-                    if (int.TryParse(value, out var port))
+                    if (i + 1 < args.Count
+                        && int.TryParse(args[++i], out var port)
+                        && port is >= 1 and <= 65535)
+                    {
                         result.Port = port;
+                    }
                     break;
                 case "user":
-                    result.User = value;
+                    if (i + 1 < args.Count)
+                        result.User = args[++i];
                     break;
                 case "account":
-                    result.Account = value;
+                    if (i + 1 < args.Count)
+                        result.Account = args[++i];
                     break;
                 case "password":
-                    result.Password = value;
+                    if (i + 1 < args.Count)
+                        result.Password = args[++i];
                     break;
             }
         }
