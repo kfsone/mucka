@@ -40,6 +40,31 @@ jobs:
             -p:MUCKA_RELEASE_VERSION=$version `
             -p:ApplicationVersion=${{ github.run_number }}
 
+      - name: Sign executable
+        if: ${{ secrets.WINDOWS_CERT_PFX_BASE64 != '' }}
+        shell: pwsh
+        env:
+          PFX_B64: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
+          PFX_PASS: ${{ secrets.WINDOWS_CERT_PFX_PASSWORD }}
+        run: |
+          $exe = Get-ChildItem -Path bin\Release -Recurse -Filter Mucka.exe |
+            Where-Object { $_.FullName -notlike '*\ref\*' } |
+            Sort-Object LastWriteTime -Descending |
+            Select-Object -First 1 -ExpandProperty FullName
+          if (-not $exe) { throw "Mucka.exe not found for signing" }
+
+          $pfx = [System.IO.Path]::GetTempFileName() + ".pfx"
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:PFX_B64))
+          try {
+            signtool sign /fd SHA256 /f $pfx /p $env:PFX_PASS `
+              /t "http://timestamp.digicert.com" `
+              /d "Mucka" $exe
+            signtool verify /pa $exe
+            Write-Host "Signed: $exe"
+          } finally {
+            Remove-Item $pfx -Force
+          }
+
       - name: Zip
         shell: pwsh
         run: |
