@@ -218,6 +218,7 @@ public sealed class ConnectViewModel : BaseViewModel
     private async Task LoadProfilesAsync()
     {
         var list = await ProfileStore.LoadAsync();
+        var loadPasswordFromStore = _cmdArgs.Password == null;
         SavedProfiles.Clear();
         foreach (var p in list)
         {
@@ -229,13 +230,13 @@ public sealed class ConnectViewModel : BaseViewModel
             var match = SavedProfiles.FirstOrDefault(p =>
                 string.Equals(p.Name, _cmdArgs.Profile, StringComparison.OrdinalIgnoreCase));
             if (match != null)
-                await SelectProfileAsync(match, _cmdArgs.Password == null);
+                await SelectProfileAsync(match, loadPasswordFromStore);
             else if (SavedProfiles.Count > 0)
-                await SelectProfileAsync(SavedProfiles[0], _cmdArgs.Password == null);
+                await SelectProfileAsync(SavedProfiles[0], loadPasswordFromStore);
         }
         else if (SavedProfiles.Count > 0)
         {
-            await SelectProfileAsync(SavedProfiles[0], _cmdArgs.Password == null);
+            await SelectProfileAsync(SavedProfiles[0], loadPasswordFromStore);
         }
 
         // Apply individual command-line overrides on top of the selected profile.

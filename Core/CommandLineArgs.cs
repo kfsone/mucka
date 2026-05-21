@@ -51,6 +51,25 @@ public sealed class CommandLineArgs
     public static CommandLineArgs Parse(IReadOnlyList<string> args)
     {
         var result = new CommandLineArgs();
+        static bool IsRecognizedFlag(string arg)
+        {
+            if (!arg.StartsWith('-'))
+                return false;
+
+            return arg.TrimStart('-').ToLowerInvariant() switch
+            {
+                "profile" => true,
+                "host" => true,
+                "port" => true,
+                "user" => true,
+                "account" => true,
+                "password" => true,
+#if DEBUG
+                "record" => true,
+#endif
+                _ => false
+            };
+        }
 
         for (int i = 0; i < args.Count; i++)
         {
@@ -68,35 +87,45 @@ public sealed class CommandLineArgs
             }
 #endif
 
+            bool TryTakeValue(out string value)
+            {
+                value = string.Empty;
+                if (i + 1 >= args.Count || IsRecognizedFlag(args[i + 1]))
+                    return false;
+
+                value = args[++i];
+                return true;
+            }
+
             switch (name)
             {
                 case "profile":
-                    if (i + 1 < args.Count)
-                        result.Profile = args[++i];
+                    if (TryTakeValue(out var profile))
+                        result.Profile = profile;
                     break;
                 case "host":
-                    if (i + 1 < args.Count)
-                        result.Host = args[++i];
+                    if (TryTakeValue(out var host))
+                        result.Host = host;
                     break;
                 case "port":
-                    if (i + 1 < args.Count
-                        && int.TryParse(args[++i], out var port)
+                    if (TryTakeValue(out var portValue)
+                        && int.TryParse(portValue, out var port)
                         && port is >= 1 and <= 65535)
                     {
                         result.Port = port;
                     }
                     break;
                 case "user":
-                    if (i + 1 < args.Count)
-                        result.User = args[++i];
+                    if (TryTakeValue(out var user))
+                        result.User = user;
                     break;
                 case "account":
-                    if (i + 1 < args.Count)
-                        result.Account = args[++i];
+                    if (TryTakeValue(out var account))
+                        result.Account = account;
                     break;
                 case "password":
-                    if (i + 1 < args.Count)
-                        result.Password = args[++i];
+                    if (TryTakeValue(out var password))
+                        result.Password = password;
                     break;
             }
         }

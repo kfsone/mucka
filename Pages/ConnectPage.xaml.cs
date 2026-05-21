@@ -6,7 +6,7 @@ namespace Mucka.Pages;
 public partial class ConnectPage : ContentPage
 {
     private readonly ConnectViewModel _vm;
-    private bool _autoConnectAttempted;
+    private int _autoConnectAttempted;
 
     public ConnectPage()
     {
@@ -20,12 +20,11 @@ public partial class ConnectPage : ContentPage
     protected override async void OnAppearing()
     {
         base.OnAppearing();
-        if (_autoConnectAttempted || !_vm.IsDirectConnectMode)
+        if (!_vm.IsDirectConnectMode || Interlocked.Exchange(ref _autoConnectAttempted, 1) != 0)
         {
             return;
         }
 
-        _autoConnectAttempted = true;
         await _vm.LoadProfilesTask;
         if (_vm.ConnectCommand.CanExecute(null))
         {
