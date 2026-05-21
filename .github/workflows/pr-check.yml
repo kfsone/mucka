@@ -28,7 +28,7 @@ jobs:
         run: dotnet workload install maui-windows
 
       - name: Build
-        run: dotnet build -f net10.0-windows10.0.19041.0 -c Release "-p:TargetFrameworks=net10.0-windows10.0.19041.0"
+        run: dotnet build -f net10.0-windows10.0.19041.0 -c Release
 
       - name: Test
         shell: pwsh
@@ -63,4 +63,32 @@ jobs:
         run: dotnet workload install maui-android
 
       - name: Build
-        run: dotnet build -f net10.0-android -c Release -p:TargetFrameworks=net10.0-android -p:EnableWindowsTargeting=true
+        run: dotnet build -f net10.0-android -c Release
+
+  build-maccatalyst:
+    name: Build (macOS Catalyst)
+    # .NET 10 MacCatalyst SDK packs (26.5.x) require Xcode 26.5, which ships
+    # with macOS 26 (Tahoe). macos-latest resolves to macos-15 (Xcode 16.4);
+    # macos-26 is the explicit label for the macOS 26 Arm64 runner with Xcode 26.x.
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-maccatalyst-${{ hashFiles('**/*.csproj', 'Directory.Build.props') }}
+          restore-keys: ${{ runner.os }}-nuget-maccatalyst-
+
+      - name: Install MAUI macOS Catalyst workload
+        run: dotnet workload install maui-maccatalyst
+
+      - name: Build
+        run: dotnet build -f net10.0-maccatalyst -c Release -p:RuntimeIdentifier=maccatalyst-arm64

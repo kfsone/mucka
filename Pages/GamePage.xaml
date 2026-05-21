@@ -110,8 +110,9 @@
                    ClearButtonVisibility="WhileEditing">
                 <Entry.FontFamily>
                     <OnPlatform x:TypeArguments="x:String">
-                        <On Platform="Android" Value="monospace"/>
-                        <On Platform="WinUI"   Value="Cascadia Mono"/>
+                        <On Platform="Android"      Value="monospace"/>
+                        <On Platform="MacCatalyst"  Value="Menlo-Regular"/>
+                        <On Platform="WinUI"        Value="Cascadia Mono"/>
                     </OnPlatform>
                 </Entry.FontFamily>
             </Entry>
