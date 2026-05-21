@@ -7,7 +7,7 @@
              BackgroundColor="#0C0C0C"
              NavigationPage.HasNavigationBar="False">
 
-    <Grid RowDefinitions="Auto,*,Auto,Auto">
+    <Grid RowDefinitions="Auto,*,Auto,Auto,Auto">
 
         <!-- ── Status bar ───────────────────────────────────────────── -->
         <Border Grid.Row="0"
@@ -40,8 +40,8 @@
                         Text="⏺"
                         Command="{Binding ToggleCaptureCommand}"
                         IsVisible="{Binding IsCaptureFacilityAvailable}"
-                        AutomationProperties.Name="Toggle capture"
-                        AutomationProperties.HelpText="Starts or stops capture"
+                        SemanticProperties.Description="Toggle capture"
+                        SemanticProperties.Hint="Starts or stops capture"
                         BackgroundColor="#2d333b" TextColor="#888888"
                         FontSize="11" WidthRequest="30" HeightRequest="24"
                         CornerRadius="3" Padding="0" Margin="0,0,4,0">
@@ -102,8 +102,24 @@
             </HorizontalStackLayout>
         </ScrollView>
 
+        <!-- ── Scroll mode banner — visible only when scroll mode is active ── -->
+        <Border Grid.Row="3"
+                IsVisible="{Binding IsScrollMode}"
+                BackgroundColor="#2d1b00"
+                StrokeThickness="0"
+                Padding="8,6">
+            <Border.GestureRecognizers>
+                <TapGestureRecognizer Tapped="OnScrollModeBannerTapped"/>
+            </Border.GestureRecognizers>
+            <Label Text="── SCROLL Mode ── Press ESC or tap here to resume ──"
+                   TextColor="#e3b341"
+                   HorizontalOptions="Center"
+                   FontAttributes="Bold"
+                   FontSize="13"/>
+        </Border>
+
         <!-- ── Input row ────────────────────────────────────────────── -->
-        <Grid Grid.Row="3"
+        <Grid Grid.Row="4"
               ColumnDefinitions="Auto,*,Auto"
               BackgroundColor="#161b22"
               Padding="4,4">
@@ -125,7 +141,8 @@
                    Placeholder="enter command…"
                    ReturnCommand="{Binding SendCommand}"
                    ReturnType="Send"
-                   ClearButtonVisibility="WhileEditing">
+                   ClearButtonVisibility="WhileEditing"
+                   Focused="OnInputEntryFocused">
                 <Entry.FontFamily>
                     <OnPlatform x:TypeArguments="x:String">
                         <On Platform="Android"      Value="monospace"/>

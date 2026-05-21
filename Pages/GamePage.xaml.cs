@@ -18,6 +18,7 @@ public partial class GamePage : ContentPage
     // Re-entrancy guard: prevents the 50ms timer from firing a second injection
     // while the first EvaluateJavaScriptAsync/ExecuteScriptAsync is still awaiting.
     private bool _injecting;
+    private readonly SemaphoreSlim _scriptExecutionLock = new(1, 1);
 
     public GamePage(GameViewModel vm, bool exitOnDisconnect = false)
     {
@@ -34,6 +35,7 @@ public partial class GamePage : ContentPage
         _vm.RequestFocus += FocusInput;
 
         ScrollbackWebView.Source = new HtmlWebViewSource { Html = HtmlScrollback.InitialPage };
+        ScrollbackWebView.Navigating += OnScrollbackNavigating;
 
         _flushTimer = Dispatcher.CreateTimer();
         _flushTimer.Interval = TimeSpan.FromMilliseconds(50);
@@ -48,9 +50,24 @@ public partial class GamePage : ContentPage
         base.OnDisappearing();
         _flushTimer?.Stop();
         _flushTimer = null;
+        ScrollbackWebView.Navigating -= OnScrollbackNavigating;
         _vm.Disconnected -= OnDisconnected;
         _vm.RequestFocus -= FocusInput;
         _ = _vm.DisposeAsync();
+    }
+
+    /// <summary>
+    /// Intercept mucka:// navigation messages sent from the WebView's scroll-detection script.
+    /// mucka://scroll/pause  — user has scrolled away from the bottom; enter scroll mode.
+    /// mucka://scroll/resume — user has returned to the bottom (or pressed ESC); exit scroll mode.
+    /// </summary>
+    private void OnScrollbackNavigating(object? sender, WebNavigatingEventArgs e)
+    {
+        if (!e.Url.StartsWith("mucka://scroll/", StringComparison.Ordinal))
+            return;
+
+        e.Cancel = true;
+        _vm.IsScrollMode = e.Url == "mucka://scroll/pause";
     }
 
     private async void OnFlushTick(object? sender, EventArgs e)
@@ -113,11 +130,46 @@ public partial class GamePage : ContentPage
 
         // Trim to 120 permanent lines.
         sb.Append("while(o.querySelectorAll('.ln').length>120){var f=o.querySelector('.ln');if(f)f.remove();else break;}");
-        // Auto-scroll.
-        sb.Append("window.scrollTo(0,document.body.scrollHeight);");
+        // Auto-scroll only when not in scroll mode.
+        if (!_vm.IsScrollMode)
+            sb.Append("(function(){var s=document.scrollingElement||document.documentElement||document.body;s.scrollTop=s.scrollHeight;})();");
         sb.Append("})();");
 
         await ExecuteScriptAsync(sb.ToString());
+    }
+
+    /// <summary>
+    /// Exit scroll mode: re-enable auto-scroll and scroll immediately to the bottom.
+    /// </summary>
+    private async Task ExitScrollModeAsync()
+    {
+        try
+        {
+            await ExecuteScriptAsync("window._atBottom=true;(function(){var s=document.scrollingElement||document.documentElement||document.body;s.scrollTop=s.scrollHeight;})();");
+            _vm.IsScrollMode = false;
+        }
+        catch
+        {
+            // WebView not ready — leave scroll mode enabled until we can scroll to the bottom.
+        }
+    }
+
+    /// <summary>
+    /// Called when the user taps the scroll-mode banner — exits scroll mode and returns focus to input.
+    /// </summary>
+    private void OnScrollModeBannerTapped(object? sender, TappedEventArgs e)
+    {
+        _ = ExitScrollModeAsync();
+        FocusInput();
+    }
+
+    /// <summary>
+    /// Called when the input entry gains focus — exits scroll mode if active.
+    /// </summary>
+    private void OnInputEntryFocused(object? sender, FocusEventArgs e)
+    {
+        if (_vm.IsScrollMode)
+            _ = ExitScrollModeAsync();
     }
 
     /// <summary>
@@ -127,17 +179,25 @@ public partial class GamePage : ContentPage
     /// </summary>
     private async Task ExecuteScriptAsync(string script)
     {
-#if WINDOWS
-        if (ScrollbackWebView.Handler?.PlatformView is
-            Microsoft.UI.Xaml.Controls.WebView2 wv2)
+        await _scriptExecutionLock.WaitAsync();
+        try
         {
-            if (wv2.CoreWebView2 is null)
-                await wv2.EnsureCoreWebView2Async();
-            await (wv2.CoreWebView2 ?? throw new InvalidOperationException("CoreWebView2 unavailable")).ExecuteScriptAsync(script);
-            return;
-        }
+#if WINDOWS
+            if (ScrollbackWebView.Handler?.PlatformView is
+                Microsoft.UI.Xaml.Controls.WebView2 wv2)
+            {
+                if (wv2.CoreWebView2 is null)
+                    await wv2.EnsureCoreWebView2Async();
+                await (wv2.CoreWebView2 ?? throw new InvalidOperationException("CoreWebView2 unavailable")).ExecuteScriptAsync(script);
+                return;
+            }
 #endif
-        await ScrollbackWebView.EvaluateJavaScriptAsync(script);
+            await ScrollbackWebView.EvaluateJavaScriptAsync(script);
+        }
+        finally
+        {
+            _scriptExecutionLock.Release();
+        }
     }
 
     private void FocusInput() => InputEntry.Focus();
@@ -162,4 +222,3 @@ public partial class GamePage : ContentPage
         });
     }
 }
-

@@ -33,6 +33,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private bool _isConnected = true;
     private bool _fkeysVisible = DeviceInfo.Platform != DevicePlatform.WinUI;
     private bool _isCapturing;
+    private bool _isScrollMode;
 
     // Lines from the TCP thread are enqueued here; the UI timer flushes them in batches.
     private readonly ConcurrentQueue<StyledLine> _pendingLines = new();
@@ -63,6 +64,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public bool IsConnected { get => _isConnected; set => Set(ref _isConnected, value); }
     public bool FkeysVisible { get => _fkeysVisible; set => Set(ref _fkeysVisible, value); }
     public bool IsCapturing { get => _isCapturing; private set => Set(ref _isCapturing, value); }
+    public bool IsScrollMode { get => _isScrollMode; set => Set(ref _isScrollMode, value); }
 
     /// <summary>True only in debug builds — controls visibility of the capture button.</summary>
     public bool IsCaptureFacilityAvailable { get; } =
