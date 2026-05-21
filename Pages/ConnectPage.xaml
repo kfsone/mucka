@@ -15,11 +15,6 @@
                                  Padding="24">
                 <BoxView HeightRequest="1" Color="#333333" Margin="0,8" />
 
-                <Label Text="{Binding VersionText}"
-                       TextColor="#444444"
-                       FontSize="11"
-                       HorizontalOptions="Center" />
-
                 <Grid ColumnDefinitions="80,*"
                       RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto"
                       RowSpacing="10"
