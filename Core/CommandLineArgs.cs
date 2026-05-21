@@ -90,31 +90,29 @@ public sealed class CommandLineArgs
             }
 #endif
 
-            bool TryTakeValue(out string value)
+            string? TakeValue()
             {
-                value = string.Empty;
                 if (i + 1 >= args.Count || IsRecognizedFlag(args[i + 1]))
                 {
                     result.Error = $"Missing value for command-line option: {flag}";
-                    return false;
+                    return null;
                 }
 
-                value = args[++i];
-                return true;
+                return args[++i];
             }
 
             switch (name)
             {
                 case "profile":
-                    if (TryTakeValue(out var profile))
+                    if (TakeValue() is { } profile)
                         result.Profile = profile;
                     break;
                 case "host":
-                    if (TryTakeValue(out var host))
+                    if (TakeValue() is { } host)
                         result.Host = host;
                     break;
                 case "port":
-                    if (TryTakeValue(out var portValue)
+                    if (TakeValue() is { } portValue
                         && int.TryParse(portValue, out var port)
                         && port is >= 1 and <= 65535)
                     {
@@ -122,15 +120,15 @@ public sealed class CommandLineArgs
                     }
                     break;
                 case "user":
-                    if (TryTakeValue(out var user))
+                    if (TakeValue() is { } user)
                         result.User = user;
                     break;
                 case "account":
-                    if (TryTakeValue(out var account))
+                    if (TakeValue() is { } account)
                         result.Account = account;
                     break;
                 case "password":
-                    if (TryTakeValue(out var password))
+                    if (TakeValue() is { } password)
                         result.Password = password;
                     break;
                 default:
@@ -140,7 +138,7 @@ public sealed class CommandLineArgs
 
             if (result.Error != null)
             {
-                break;
+                return result;
             }
         }
 
