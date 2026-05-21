@@ -93,6 +93,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public GameViewModel(MudConnection conn, Profile profile)
     {
         _conn = conn;
+        IsCapturing = _conn.IsCapturing;
 
         for (var i = 0; i < 10; i++)
         {
@@ -308,9 +309,15 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         }
         else
         {
-            _conn.StartCapture();
-            IsCapturing = true;
-            AddSystemLine($"Capture started. File: {_conn.CaptureFilePath}", 10);
+            if (_conn.TryStartCapture(null, out var error))
+            {
+                IsCapturing = true;
+                AddSystemLine($"Capture started. File: {_conn.CaptureFilePath}", 10);
+            }
+            else
+            {
+                AddSystemLine($"Capture failed: {error}", 9);
+            }
         }
     }
 

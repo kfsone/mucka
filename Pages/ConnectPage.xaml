@@ -113,13 +113,36 @@
                     </Grid>
                 </Grid>
 
-                <Button Text="Connect  ▶"
-                        Command="{Binding ConnectCommand}"
-                        IsEnabled="{Binding CanConnect}"
-                        BackgroundColor="#1f6feb"
-                        TextColor="White"
-                        CornerRadius="6"
-                        HeightRequest="48" />
+                            <Grid ColumnDefinitions="*,Auto"
+                                     ColumnSpacing="8">
+                                   <Button Grid.Column="0"
+                                                 Text="Connect  ▶"
+                                                 Command="{Binding ConnectCommand}"
+                                                 IsEnabled="{Binding CanConnect}"
+                                                 BackgroundColor="#1f6feb"
+                                                 TextColor="White"
+                                                 CornerRadius="6"
+                                                 HeightRequest="48" />
+
+                                   <Button Grid.Column="1"
+                                                 Text="{Binding CaptureButtonText}"
+                                                 Command="{Binding ToggleCaptureCommand}"
+                                                 IsVisible="{Binding IsCaptureFacilityAvailable}"
+                                                 BackgroundColor="#2d333b"
+                                                 TextColor="#cccccc"
+                                                 CornerRadius="6"
+                                                 HeightRequest="48"
+                                                 Padding="10,0"
+                                                 AutomationProperties.Name="Toggle pre-connect capture"
+                                                 AutomationProperties.HelpText="Arms or disarms session capture before connecting">
+                                          <Button.Triggers>
+                                                 <DataTrigger TargetType="Button" Binding="{Binding IsCaptureRequested}" Value="True">
+                                                        <Setter Property="BackgroundColor" Value="#c02020"/>
+                                                        <Setter Property="TextColor" Value="White"/>
+                                                 </DataTrigger>
+                                          </Button.Triggers>
+                                   </Button>
+                            </Grid>
 
                 <Label Text="{Binding StatusText}"
                        TextColor="#f85149"
