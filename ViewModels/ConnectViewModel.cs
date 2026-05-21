@@ -220,11 +220,11 @@ public sealed class ConnectViewModel : BaseViewModel
         }
 
         // Apply individual command-line overrides on top of the selected profile.
-        if (cmdArgs.Host != null)    Host             = cmdArgs.Host;
-        if (cmdArgs.Port.HasValue)   Port             = cmdArgs.Port.Value;
-        if (cmdArgs.User != null)    TelnetLoginName  = cmdArgs.User;
-        if (cmdArgs.Account != null) AccountId        = cmdArgs.Account;
-        if (cmdArgs.Password != null) Password        = cmdArgs.Password;
+        if (cmdArgs.Host != null) Host = cmdArgs.Host;
+        if (cmdArgs.Port.HasValue) Port = cmdArgs.Port.Value;
+        if (cmdArgs.User != null) TelnetLoginName = cmdArgs.User;
+        if (cmdArgs.Account != null) AccountId = cmdArgs.Account;
+        if (cmdArgs.Password != null) Password = cmdArgs.Password;
 
 #if DEBUG
         if (cmdArgs.Record)
