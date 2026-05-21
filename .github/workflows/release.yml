@@ -58,7 +58,7 @@ jobs:
       - name: Zip Windows installer
         shell: pwsh
         run: |
-          $pkgDir = Get-ChildItem -Path "." -Filter "Add-AppDevPackage.ps1" -File -Recurse |
+          $pkgDir = Get-ChildItem -Path "bin" -Filter "Add-AppDevPackage.ps1" -File -Recurse |
             Where-Object {
               $_.Directory.Name -like "*_Test" -and
               (Get-ChildItem -Path $_.Directory.FullName -Filter "*.msix" -File -ErrorAction SilentlyContinue | Select-Object -First 1)
