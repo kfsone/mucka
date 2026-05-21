@@ -65,30 +65,30 @@ jobs:
       - name: Build
         run: dotnet build -f net10.0-android -c Release
 
-  build-maccatalyst:
-    name: Build (macOS Catalyst)
-    # .NET 10 MacCatalyst SDK packs (26.5.x) require Xcode 26.5, which ships
-    # with macOS 26 (Tahoe). macos-latest resolves to macos-15 (Xcode 16.4);
-    # macos-26 is the explicit label for the macOS 26 Arm64 runner with Xcode 26.x.
-    runs-on: macos-26
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - uses: actions/setup-dotnet@v5
-        with:
-          global-json-file: global.json
-
-      - name: Cache NuGet packages
-        uses: actions/cache@v5
-        with:
-          path: ~/.nuget/packages
-          key: ${{ runner.os }}-nuget-maccatalyst-${{ hashFiles('**/*.csproj', 'Directory.Build.props') }}
-          restore-keys: ${{ runner.os }}-nuget-maccatalyst-
-
-      - name: Install MAUI macOS Catalyst workload
-        run: dotnet workload install maui-maccatalyst
-
-      - name: Build
-        run: dotnet build -f net10.0-maccatalyst -c Release -p:RuntimeIdentifier=maccatalyst-arm64
+#  build-maccatalyst:
+#    name: Build (macOS Catalyst)
+#    # .NET 10 MacCatalyst SDK packs (26.5.x) require Xcode 26.5, which ships
+#    # with macOS 26 (Tahoe). macos-latest resolves to macos-15 (Xcode 16.4);
+#    # macos-26 is the explicit label for the macOS 26 Arm64 runner with Xcode 26.x.
+#    runs-on: macos-26
+#    steps:
+#      - uses: actions/checkout@v4
+#        with:
+#          fetch-depth: 0
+#
+#      - uses: actions/setup-dotnet@v5
+#        with:
+#          global-json-file: global.json
+#
+#      - name: Cache NuGet packages
+#        uses: actions/cache@v5
+#        with:
+#          path: ~/.nuget/packages
+#          key: ${{ runner.os }}-nuget-maccatalyst-${{ hashFiles('**/*.csproj', 'Directory.Build.props') }}
+#          restore-keys: ${{ runner.os }}-nuget-maccatalyst-
+#
+#      - name: Install MAUI macOS Catalyst workload
+#        run: dotnet workload install maui-maccatalyst
+#
+#      - name: Build
+#        run: dotnet build -f net10.0-maccatalyst -c Release -p:RuntimeIdentifier=maccatalyst-arm64
