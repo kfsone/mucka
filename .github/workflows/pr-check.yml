@@ -11,7 +11,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          fetch-depth: 0          # MinVer needs full history to resolve version from tags
+          fetch-depth: 0
 
       - uses: actions/setup-dotnet@v5
         with:
@@ -24,18 +24,28 @@ jobs:
           key: nuget-windows-${{ hashFiles('**/*.csproj', 'Directory.Build.props') }}
           restore-keys: nuget-windows-
 
+      - name: Cache MAUI workload packs
+        id: workload-cache
+        uses: actions/cache@v5
+        with:
+          path: |
+            ${{ env.DOTNET_ROOT }}/packs
+            ${{ env.DOTNET_ROOT }}/sdk-manifests
+          key: workloads-maui-windows-${{ runner.os }}-${{ hashFiles('global.json') }}
+
       - name: Install MAUI Windows workload
-        run: dotnet workload install maui-windows
+        if: steps.workload-cache.outputs.cache-hit != 'true'
+        run: dotnet workload install maui-windows --skip-sign-check
 
       - name: Build
-        run: dotnet build -f net10.0-windows10.0.19041.0 -c Release
+        run: dotnet build -f net10.0-windows10.0.19041.0 -c Debug
 
       - name: Test
         shell: pwsh
         run: |
           $tests = Get-ChildItem -Recurse -Filter "*.Tests.csproj" -ErrorAction SilentlyContinue
           if ($tests.Count -gt 0) {
-            dotnet test --no-build -c Release --logger "console;verbosity=normal"
+            dotnet test --no-build -c Debug --logger "console;verbosity=normal"
           } else {
             Write-Host "No test projects found — skipping"
           }
@@ -59,11 +69,21 @@ jobs:
           key: nuget-android-${{ hashFiles('**/*.csproj', 'Directory.Build.props') }}
           restore-keys: nuget-android-
 
+      - name: Cache MAUI workload packs
+        id: workload-cache
+        uses: actions/cache@v5
+        with:
+          path: |
+            ${{ env.DOTNET_ROOT }}/packs
+            ${{ env.DOTNET_ROOT }}/sdk-manifests
+          key: workloads-maui-android-${{ runner.os }}-${{ hashFiles('global.json') }}
+
       - name: Install MAUI Android workload
-        run: dotnet workload install maui-android
+        if: steps.workload-cache.outputs.cache-hit != 'true'
+        run: dotnet workload install maui-android --skip-sign-check
 
       - name: Build
-        run: dotnet build -f net10.0-android -c Release
+        run: dotnet build -f net10.0-android -c Debug
 
 #  build-maccatalyst:
 #    name: Build (macOS Catalyst)
