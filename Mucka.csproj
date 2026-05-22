@@ -28,7 +28,7 @@
 		<ApplicationTitle>Mucka</ApplicationTitle>
 
 		<!-- App Identifier -->
-		<ApplicationId>uk.co.mud2.mucka</ApplicationId>
+		<ApplicationId>org.kfs.mucka</ApplicationId>
 
 		<!-- Versions — ApplicationDisplayVersion is set from $(Version) via Directory.Build.props
 		     (MinVer reads the nearest git tag, e.g. v0.1.0).
@@ -59,7 +59,7 @@
 		<MauiIcon Include="Resources\AppIcon\muckabase.png" />
 
 		<!-- Splash Screen -->
-		<MauiSplashScreen Include="Resources\Splash\splash.svg" Color="#512BD4" BaseSize="128,128" />
+		<MauiSplashScreen Include="Resources\AppIcon\muckabase.png" Color="#512BD4" BaseSize="256,256" />
 
 		<!-- Images -->
 		<MauiImage Include="Resources\Images\*" />

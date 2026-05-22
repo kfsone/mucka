@@ -44,9 +44,12 @@ public sealed class MuckaConnection : IAsyncDisposable
 #if DEBUG
     public bool IsCapturing => _capture.IsRecording;
     public string? CaptureFilePath => _capture.FilePath;
+    /// <summary>Write a free-text annotation into the active capture log.</summary>
+    public void Annotate(string message) => _capture.Annotate(message);
 #else
     public bool IsCapturing => false;
     public string? CaptureFilePath => null;
+    public void Annotate(string message) { }
 #endif
 
     public MuckaConnection(string? accountId = null, string? password = null)
@@ -169,7 +172,16 @@ public sealed class MuckaConnection : IAsyncDisposable
         _session.StatsUpdated       += s => StatsUpdated?.Invoke(s);
         _session.GameModeEntered    += () => GameModeEntered?.Invoke();
         _session.GameModeExited     += () => GameModeExited?.Invoke();
-        _session.DreamwordChanged   += w => DreamwordChanged?.Invoke(w);
+        _session.DreamwordChanged   += w =>
+        {
+#if DEBUG
+            if (w != null)
+                _capture.Annotate($"dreamword detected: {w}");
+            else
+                _capture.Annotate("dreamword cleared");
+#endif
+            DreamwordChanged?.Invoke(w);
+        };
         _session.ClientModeReceived += d => ClientModeReceived?.Invoke(d);
     }
 }

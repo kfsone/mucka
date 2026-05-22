@@ -256,7 +256,10 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private void SpeakDreamword()
     {
         if (!string.IsNullOrEmpty(_dreamword))
+        {
+            _conn.Annotate($"dreamword spoken: {_dreamword}");
             _conn.SendLine($"\"{_dreamword}\"");
+        }
         RequestFocus?.Invoke();
     }
 
