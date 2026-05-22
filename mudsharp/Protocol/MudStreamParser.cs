@@ -1,0 +1,331 @@
+using MudSharp.Models;
+using System.Text;
+
+namespace MudSharp.Protocol;
+
+/// <summary>
+/// Incremental byte-stream parser for the MUD2 telnet protocol.
+///
+/// THREADING CONTRACT:
+/// All events fire synchronously on the thread that called <see cref="Feed"/>.
+/// Consumers are responsible for marshaling to their own UI or processing thread.
+/// MudStreamParser is NOT thread-safe; Feed() must not be called concurrently.
+/// </summary>
+public sealed class MudStreamParser
+{
+    // ── Events ────────────────────────────────────────────────────────────────
+    /// <summary>A line (or partial line) of styled text is ready to display.</summary>
+    public event Action<StyledLine>? LineReady;
+
+    /// <summary>FES stats snapshot has been updated.</summary>
+    public event Action<GameStatsSnapshot>? StatsUpdated;
+
+    /// <summary>Server signalled game-mode entry (0x9D 0x9C 0xFF 0xFF).</summary>
+    public event Action? GameModeEntered;
+
+    /// <summary>Parser has exited game mode (via Reset()).</summary>
+    public event Action? GameModeExited;
+
+    /// <summary>Parser wants to send bytes to the server.</summary>
+    public event Action<byte[]>? OutgoingBytes;
+
+    /// <summary>Dreamword has changed. Null means cleared.</summary>
+    public event Action<string?>? DreamwordChanged;
+
+    /// <summary>C95 client-mode data block received.</summary>
+    public event Action<string>? ClientModeReceived;
+
+    // ── Sub-parsers (set by internal wiring, replaceable for testing) ─────────
+    internal TelnetNegotiator Telnet { get; }
+    internal AnsiSgrState Ansi { get; }
+    internal Mud2C1Decoder C1 { get; }
+    internal GameLineAnalyzer LineAnalyzer { get; }
+
+    // ── Parser state ──────────────────────────────────────────────────────────
+    private ParserState _state = ParserState.Normal;
+    private readonly List<byte> _iacSbBuf = new();
+    private readonly List<byte> _c1Buf = new();
+    private byte _c1Lead;
+
+    // Pending reprocess: a byte queued by a sub-parser to be replayed in Normal after its call returns.
+    private byte? _pendingReprocess;
+
+    // ── Text accumulation ─────────────────────────────────────────────────────
+    private readonly List<StyledSpan> _spans = new();
+    private readonly StringBuilder _text = new();
+    private bool _inGameMode;
+
+    // ── Game state ────────────────────────────────────────────────────────────
+    public bool InGameMode => _inGameMode;
+
+    /// <summary>
+    /// Mirrors Clio's prompt_allowed flag.
+    /// Set to true by each newline and by C98; set to false by the prompt preamble detector.
+    /// </summary>
+    internal bool PromptAllowed { get; set; } = true;
+
+    /// <summary>
+    /// When true, EmitChar discards non-newline characters.
+    /// Set by the C01 game-mode dispatch when PromptAllowed is false (suppress end-of-frame prompt).
+    /// Cleared by the first PopColour call after being set.
+    /// </summary>
+    internal bool SuppressNextText { get; set; }
+
+    /// <summary>
+    /// When true, the next PopColour call will emit a partial line then clear spans.
+    /// Set by the C01 game-mode dispatch when PromptAllowed is true (show prompt once).
+    /// Cleared by the first PopColour call after being set.
+    /// </summary>
+    internal bool EmitPartialOnPop { get; set; }
+    /// <summary>Current dreamword (updated by C15 sequences; included in FES snapshots).</summary>
+    internal string? CurrentDreamword { get; private set; }
+
+    /// <summary>Account ID from the last C95 Rule A block; included in FES snapshots.</summary>
+    internal string? CurrentAccountId { get; private set; }
+
+    /// <summary>Privilege level from the last C95 Rule A block; included in FES snapshots.</summary>
+    internal int CurrentPrivs { get; private set; }
+
+    /// <summary>Most recent FES weather char; used by C14 conditional txfes logic.</summary>
+    internal char CurrentWeather { get; private set; }
+
+    // ── Constructor ────────────────────────────────────────────────────────────
+    public MudStreamParser()
+    {
+        Ansi = new AnsiSgrState();
+        Telnet = new TelnetNegotiator(send => OutgoingBytes?.Invoke(send));
+        C1 = new Mud2C1Decoder(this);
+        LineAnalyzer = new GameLineAnalyzer();
+    }
+
+    // ── Public API ─────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Feed raw bytes from the network into the parser.
+    /// May emit events synchronously before returning.
+    /// </summary>
+    public void Feed(ReadOnlySpan<byte> data)
+    {
+        foreach (var b in data)
+            ProcessByte(b);
+    }
+
+    /// <summary>
+    /// Reset all parser state. Call on disconnect before reuse.
+    /// Fires <see cref="GameModeExited"/> if currently in game mode.
+    /// </summary>
+    public void Reset()
+    {
+        if (_inGameMode)
+        {
+            _inGameMode = false;
+            GameModeExited?.Invoke();
+        }
+        _state = ParserState.Normal;
+        _iacSbBuf.Clear();
+        _c1Buf.Clear();
+        _spans.Clear();
+        _text.Clear();
+        _pendingReprocess = null;
+        PromptAllowed = true;
+        SuppressNextText = false;
+        EmitPartialOnPop = false;
+        CurrentDreamword = null;
+        CurrentAccountId = null;
+        CurrentPrivs = 0;
+        CurrentWeather = '\0';
+        Ansi.Reset();
+        Telnet.Reset();
+        C1.Reset();
+    }
+
+    // ── Internal helpers (called by sub-parsers) ───────────────────────────────
+
+    internal void EmitChar(char ch)
+    {
+        if (ch == '\n')
+        {
+            FlushSpan();
+            // In game mode, suppress all-asterisk lines entirely (Clio: prompt_allowed / preamble
+            // suppression — telnet.l:438-444). These are MUD2 prompt-preamble separator lines.
+            bool isAsteriskPreamble = _inGameMode && SpansAreAllAsterisks();
+            var line = new StyledLine(_spans.ToArray(), isPartial: false);
+            _spans.Clear();
+            PromptAllowed = true;   // Clio: prompt_allowed = 1 on each newline
+                SuppressNextText = false;
+                EmitPartialOnPop = false;
+                if (isAsteriskPreamble) return;
+            var stats = LineAnalyzer.Analyze(line);
+            if (stats != null) StatsUpdated?.Invoke(stats);
+            LineReady?.Invoke(line);
+        }
+        else if (ch == '\r')
+        {
+            // Suppress bare CR
+        }
+        else
+        {
+            // Discard characters when inside a suppressed end-of-frame prompt preamble
+            if (SuppressNextText) return;
+            _text.Append(ch);
+        }
+    }
+
+    internal void FlushSpan()
+    {
+        if (_text.Length == 0) return;
+        _spans.Add(new StyledSpan(_text.ToString(), Ansi.CurrentStyle));
+        _text.Clear();
+    }
+
+    internal void EmitPartialLine()
+    {
+        FlushSpan();
+        if (_spans.Count == 0) return;
+        // Do NOT clear _spans — the partial line keeps accumulating until a '\n' finalises it.
+        var line = new StyledLine(_spans.ToArray(), isPartial: true);
+        LineReady?.Invoke(line);
+    }
+
+    internal void EnterGameMode()
+    {
+        if (_inGameMode) return;
+        _inGameMode = true;
+        GameModeEntered?.Invoke();
+    }
+
+    /// <summary>Clear accumulated spans (used after emitting the prompt partial line).</summary>
+    internal void ClearSpans() => _spans.Clear();
+
+    internal void EmitStatsUpdate(GameStatsSnapshot stats) => StatsUpdated?.Invoke(stats);
+    internal void EmitOutgoing(byte[] bytes) => OutgoingBytes?.Invoke(bytes);
+    internal void EmitDreamwordChanged(string? word)
+    {
+        CurrentDreamword = word;
+        DreamwordChanged?.Invoke(word);
+    }
+    internal void EmitClientMode(string data) => ClientModeReceived?.Invoke(data);
+    internal void SetAccountInfo(string? accountId, int privs)
+    {
+        CurrentAccountId = accountId;
+        CurrentPrivs = privs;
+    }
+    internal void SetWeather(char weather) => CurrentWeather = weather;
+
+    /// <summary>
+    /// Emits a partial line if PromptAllowed is true (mirrors Clio's show_prompt behaviour).
+    /// Called by the C98 handler after setting PromptAllowed = true.
+    /// </summary>
+    internal void ShowPrompt()
+    {
+        if (PromptAllowed)
+            EmitPartialLine();
+    }
+
+    /// <summary>
+    /// Queue a byte to be replayed through the main ProcessByte loop immediately after
+    /// the current sub-parser call returns.  Safe for at most one pending byte.
+    /// </summary>
+    internal void QueueReprocessByte(byte b) => _pendingReprocess = b;
+
+    /// <summary>
+    /// Returns true when every accumulated span contains only '*' characters and at least
+    /// one span is non-empty — i.e. the current line is the MUD2 ready-prompt re-echo.
+    /// </summary>
+    private bool SpansAreAllAsterisks()
+    {
+        bool hasContent = false;
+        foreach (var span in _spans)
+        {
+            foreach (var c in span.Text)
+            {
+                if (c != '*') return false;
+            }
+            if (span.Text.Length > 0) hasContent = true;
+        }
+        return hasContent;
+    }
+
+    // ── Byte dispatch ──────────────────────────────────────────────────────────
+    private void ProcessByte(byte b)
+    {
+        switch (_state)
+        {
+            case ParserState.Normal:
+                ProcessNormal(b);
+                break;
+            case ParserState.Ff1:
+                if (b == 0xFF)
+                {
+                    // Bare FF FF: Clio C255 rule — pop colour stack (telnet.l:1040)
+                    C1.PopColour();
+                    _state = ParserState.Normal;
+                }
+                else
+                {
+                    // First 0xFF was a telnet IAC; route second byte as the IAC command
+                    _state = Telnet.ProcessByte(b, ParserState.Iac, _iacSbBuf);
+                }
+                break;
+            case ParserState.Iac:
+            case ParserState.IacDo:
+            case ParserState.IacDont:
+            case ParserState.IacWill:
+            case ParserState.IacWont:
+            case ParserState.IacSb:
+            case ParserState.IacSbData:
+            case ParserState.IacSbIac:
+                _state = Telnet.ProcessByte(b, _state, _iacSbBuf);
+                break;
+            case ParserState.Escape:
+            case ParserState.EscapeBracket:
+            case ParserState.CsiParam:
+                _state = Ansi.ProcessByte(b, _state);
+                break;
+            case ParserState.C1Seq:
+            case ParserState.C1Data:
+            case ParserState.C1Ff1:
+            case ParserState.FesData:
+            case ParserState.DreamwordData:
+            case ParserState.C95Data:
+            case ParserState.C95LogoutLine:
+                _state = C1.ProcessByte(b, _state, _c1Lead, _c1Buf);
+                break;
+            default:
+                _state = ParserState.Normal;
+                break;
+        }
+
+        // A sub-parser may queue one byte for replay (e.g. dreamword terminator).
+        if (_pendingReprocess.HasValue)
+        {
+            var replay = _pendingReprocess.Value;
+            _pendingReprocess = null;
+            ProcessByte(replay);
+        }
+    }
+
+    private void ProcessNormal(byte b)
+    {
+        switch (b)
+        {
+            case 0xFF: // first byte of FF FF — may be bare C255 pop or telnet IAC
+                FlushSpan();
+                _state = ParserState.Ff1;
+                break;
+            case 0x1B: // ESC
+                FlushSpan();
+                _state = ParserState.Escape;
+                break;
+            case >= 0x9B and <= 0xFE: // MUD2 C1 lead byte
+                FlushSpan();
+                _c1Lead = b;
+                _c1Buf.Clear();
+                _state = ParserState.C1Seq;
+                break;
+            default:
+                EmitChar((char)b);
+                break;
+        }
+    }
+}

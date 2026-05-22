@@ -38,17 +38,10 @@ jobs:
         run: dotnet workload install maui-windows --skip-sign-check
 
       - name: Build
-        run: dotnet build -f net10.0-windows10.0.19041.0 -c Debug
+        run: dotnet build Mucka.slnx -c Debug
 
       - name: Test
-        shell: pwsh
-        run: |
-          $tests = Get-ChildItem -Recurse -Filter "*.Tests.csproj" -ErrorAction SilentlyContinue
-          if ($tests.Count -gt 0) {
-            dotnet test --no-build -c Debug --logger "console;verbosity=normal"
-          } else {
-            Write-Host "No test projects found — skipping"
-          }
+        run: dotnet test Mucka.slnx --no-build -c Debug --logger "console;verbosity=normal"
 
   build-android:
     name: Build (Android)
@@ -83,7 +76,10 @@ jobs:
         run: dotnet workload install maui-android --skip-sign-check
 
       - name: Build
-        run: dotnet build -f net10.0-android -c Debug
+        run: dotnet build Mucka.slnx -c Debug
+
+      - name: Test
+        run: dotnet test Mucka.slnx --no-build -c Debug --logger "console;verbosity=normal"
 
 #  build-maccatalyst:
 #    name: Build (macOS Catalyst)

@@ -81,7 +81,19 @@
 	</ItemGroup>
 
 	<ItemGroup>
-		<ProjectReference Include="..\mudsharp\mudsharp\mudsharp.csproj" />
+		<Compile Remove="mudsharp\**" />
+		<Compile Remove="mudsharp.Tests\**" />
+		<Compile Remove="mudsharp.Demo\**" />
+		<EmbeddedResource Remove="mudsharp\**" />
+		<EmbeddedResource Remove="mudsharp.Tests\**" />
+		<EmbeddedResource Remove="mudsharp.Demo\**" />
+		<None Remove="mudsharp\**" />
+		<None Remove="mudsharp.Tests\**" />
+		<None Remove="mudsharp.Demo\**" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<ProjectReference Include="mudsharp\mudsharp.csproj" />
 	</ItemGroup>
 
 </Project>
