@@ -295,6 +295,11 @@ public partial class GamePage : ContentPage
             _vm.HistoryDownCommand.Execute(null);
             e.Handled = true;
         }
+        else if (e.Key == Windows.System.VirtualKey.Escape)
+        {
+            _vm.InputText = string.Empty;
+            e.Handled = true;
+        }
     }
 #endif
 

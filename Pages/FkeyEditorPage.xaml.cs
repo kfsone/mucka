@@ -18,12 +18,25 @@ public partial class FkeyEditorPage : ContentPage
 #endif
     }
 
+    protected override void OnAppearing()
+    {
+        base.OnAppearing();
+#if WINDOWS
+        if (Window?.Handler?.PlatformView is Microsoft.UI.Xaml.Window win &&
+            win.Content is Microsoft.UI.Xaml.UIElement root)
+            root.PreviewKeyDown += OnWindowPreviewKeyDown;
+#endif
+    }
+
     protected override void OnDisappearing()
     {
         base.OnDisappearing();
         _vm.CloseRequested -= OnCloseRequested;
 #if WINDOWS
         ImportButton.Clicked -= OnImportClickedAsync;
+        if (Window?.Handler?.PlatformView is Microsoft.UI.Xaml.Window win &&
+            win.Content is Microsoft.UI.Xaml.UIElement root)
+            root.PreviewKeyDown -= OnWindowPreviewKeyDown;
 #endif
     }
 
@@ -31,6 +44,15 @@ public partial class FkeyEditorPage : ContentPage
         MainThread.BeginInvokeOnMainThread(async () => await Navigation.PopModalAsync());
 
 #if WINDOWS
+    private void OnWindowPreviewKeyDown(object sender, Microsoft.UI.Xaml.Input.KeyRoutedEventArgs e)
+    {
+        if (e.Key == Windows.System.VirtualKey.Escape)
+        {
+            e.Handled = true;
+            _vm.CancelCommand.Execute(null);
+        }
+    }
+
     private async void OnImportClickedAsync(object? sender, EventArgs e)
     {
         try
