@@ -56,6 +56,20 @@ internal sealed class Mud2C1Decoder
     // Clamp a raw C99 color byte to a color index: byte - 0x9B (C00 base)
     private static int C99Color(byte b) => Math.Clamp(b - 0x9B, 0, 15);
 
+    // ── Sound helpers (Clio sound.c formula) ─────────────────────────────────
+
+    private static string SoundFile(int n1, int n2 = 255, int n3 = 255)
+    {
+        if (n3 == 255)
+            return n2 == 255
+                ? $"sounds/clio.{n1:D2}.wav"
+                : $"sounds/clio.{n1:D2}{n2:D2}.wav";
+        return $"sounds/clio.{n1:D2}{n2:D2}{n3:D2}.wav";
+    }
+
+    private void Sound(int n1, int n2 = 255, int n3 = 255)
+        => _parser.EmitSound(SoundFile(n1, n2, n3));
+
     // ── Public entry point ────────────────────────────────────────────────────
 
     /// <summary>
@@ -342,17 +356,26 @@ internal sealed class Mud2C1Decoder
             // ── C06 (0xA1): LT_BLUE (magical/special) + txfes ───────────────
             // Exception: {C06}{C06}{C255} ("Something magical") → LT_BLUE only, no txfes (Clio:581-584)
             // All other variants → txfes (Clio:562-580)
+            // All variants → sound(6) (Clio sound.c)
             case 0xA1:
                 Apply(LT_BLUE, BLACK);
                 if (!(count == 1 && b0 == 0xA1))
                     _parser.EmitOutgoing(FesSubscription);
+                Sound(6);
                 return ParserState.Normal;
 
             // ── C07 (0xA2): RED/BLACK + txfes (important messages) ──────────
             // All C07 variants trigger txfes (Clio telnet.l:587-620)
+            // Sound payload: count==0 → 070000, count==1 → 07NN, count==2 → 07NNMM (Clio sound.c)
             case 0xA2:
                 Apply(RED, BLACK);
                 _parser.EmitOutgoing(FesSubscription);
+                switch (count)
+                {
+                    case 0: Sound(7, 0, 0); break;
+                    case 1: Sound(7, b0 - 0x9B); break;
+                    case 2: Sound(7, b0 - 0x9B, b1 - 0x9B); break;
+                }
                 return ParserState.Normal;
 
             // ── C08 (0xA3): RED / WHITE / BLACK+RED (combat/death) ────────────
@@ -377,6 +400,9 @@ internal sealed class Mud2C1Decoder
                 // NOT C00, C02, C04 (Clio:633-636 — plain RED, no txfes)
                 if (b0 is 0x9C or 0x9E or 0xA3 or 0xA5 or 0xA6 or 0xA7)
                     _parser.EmitOutgoing(FesSubscription);
+                // Sound: C01→0801, C03→0803 (Clio sound.c)
+                if (b0 == 0x9C) Sound(8, 1);
+                else if (b0 == 0x9E) Sound(8, 3);
                 return ParserState.Normal;
 
             // ── C09 (0xA4): YELLOW / LT_YELLOW ──────────────────────────────
@@ -396,11 +422,14 @@ internal sealed class Mud2C1Decoder
 
             // ── C11 (0xA6): LT_RED (spells/abilities) ────────────────────────
             // {C11}{C255}|{C11}{C06}{C255}|{C11}{C09}{C255}|{C11}{C14}{C255} → LT_RED, no txfes (Clio:675-685)
-            // All other single-byte payload variants → LT_RED + txfes (Clio:687-713)
+            // All other single-byte payload variants → LT_RED + txfes + sound(11,NN) (Clio:687-713)
             case 0xA6:
                 Apply(LT_RED, BLACK);
                 if (count == 1 && b0 is not (0xA1 or 0xA4 or 0xA9))
+                {
                     _parser.EmitOutgoing(FesSubscription);
+                    Sound(11, b0 - 0x9B);
+                }
                 return ParserState.Normal;
 
             // ── C12 (0xA7): WHITE/GREEN/YELLOW shades + FES packet ────────────
@@ -428,8 +457,10 @@ internal sealed class Mud2C1Decoder
 
             // ── C13 (0xA8): WHITE / BLACK+WHITE ──────────────────────────────
             // {C13}{C255}|{C13}..{C255} → WHITE/BLACK  (except wireplay: BLACK/WHITE; skip wireplay)
+            // {C13}{CNi}{CNj}{C255} → sound(13,i) where i=buf[0]-0x9B (Clio sound.c)
             case 0xA8:
                 Apply(WHITE, BLACK);
+                if (count == 2) Sound(13, b0 - 0x9B);
                 return ParserState.Normal;
 
             // ── C14 (0xA9): GREEN / BLACK+WHITE (weather/outdoor) + txfes ──────
@@ -492,6 +523,9 @@ internal sealed class Mud2C1Decoder
                 }
                 if (emitTxFes)
                     _parser.EmitOutgoing(FesSubscription);
+                // Sound: C14+C03+C02+C255 → rain on trees 140302 (Clio sound.c)
+                if (count == 2 && b0 == 0x9E && b1 == 0x9D)
+                    Sound(14, 3, 2);
                 return ParserState.Normal;
             }
 
@@ -528,11 +562,14 @@ internal sealed class Mud2C1Decoder
                 return ParserState.Normal;
 
             // ── C18 (0xAD): WHITE + txfes (misc system messages) ────────────
-            // {C18}{C00..C06}{C255} → WHITE/BLACK + txfes (Clio telnet.l:944-957)
+            // {C18}{C00..C06}{C255} → WHITE/BLACK + txfes + sound(18,NN) (Clio telnet.l:944-957, sound.c)
             case 0xAD:
                 Apply(WHITE, BLACK);
                 if (count == 1 && b0 >= 0x9B && b0 <= 0xA1) // C00..C06
+                {
                     _parser.EmitOutgoing(FesSubscription);
+                    Sound(18, b0 - 0x9B);
+                }
                 return ParserState.Normal;
 
             // ── C19 (0xAE): LT_WHITE+BLUE ────────────────────────────────────

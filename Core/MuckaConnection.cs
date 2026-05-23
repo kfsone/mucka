@@ -36,6 +36,7 @@ public sealed class MuckaConnection : IAsyncDisposable
     public event Action? GameModeExited;
     public event Action<string?>? DreamwordChanged;
     public event Action<string>? ClientModeReceived;
+    public event Action<string>? SoundRequested;
     /// <summary>Fired when the connection is lost (read loop ended). Null = clean disconnect.</summary>
     public event Action<Exception?>? Disconnected;
 
@@ -183,5 +184,6 @@ public sealed class MuckaConnection : IAsyncDisposable
             DreamwordChanged?.Invoke(w);
         };
         _session.ClientModeReceived += d => ClientModeReceived?.Invoke(d);
+        _session.SoundRequested     += s => SoundRequested?.Invoke(s);
     }
 }

@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
 using System.Windows.Input;
 using Microsoft.Maui.Graphics;
+using Mucka.Audio;
 using Mucka.Core;
 using MudSharp.Models;
 
@@ -204,6 +205,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _conn.GameModeExited   += OnGameModeExited;
         _conn.DreamwordChanged += OnDreamwordChanged;
         _conn.Disconnected     += OnDisconnected;
+        _conn.SoundRequested   += OnSoundRequested;
 
         SendCommand           = new Command(SendNow);
         FkeyCommand           = new Command<string>(SendFkey);
@@ -310,6 +312,9 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             IsConnected = false;
             Disconnected?.Invoke();
         });
+
+    // Called from the TCP read thread — fire-and-forget, never block.
+    private static void OnSoundRequested(string assetName) => SoundService.Play(assetName);
 
     private void SendNow()
     {
@@ -459,6 +464,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _conn.GameModeExited   -= OnGameModeExited;
         _conn.DreamwordChanged -= OnDreamwordChanged;
         _conn.Disconnected     -= OnDisconnected;
+        _conn.SoundRequested   -= OnSoundRequested;
         await _conn.DisposeAsync();
     }
 }

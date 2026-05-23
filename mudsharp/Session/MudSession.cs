@@ -31,6 +31,7 @@ public sealed class MudSession : IDisposable
     public event Action<byte[]>? OutgoingBytes;
     public event Action<string?>? DreamwordChanged;
     public event Action<string>? ClientModeReceived;
+    public event Action<string>? SoundRequested;
 
     // ── Public state ───────────────────────────────────────────────────────────
     public GameStatsSnapshot CurrentStats => _currentStats;
@@ -88,6 +89,7 @@ public sealed class MudSession : IDisposable
         _parser.OutgoingBytes += bytes => OutgoingBytes?.Invoke(bytes);
         _parser.DreamwordChanged += OnDreamwordChanged;
         _parser.ClientModeReceived += data => ClientModeReceived?.Invoke(data);
+        _parser.SoundRequested += s => SoundRequested?.Invoke(s);
     }
 
     private void MergeStats(GameStatsSnapshot partial)

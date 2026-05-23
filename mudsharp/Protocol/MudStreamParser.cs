@@ -35,6 +35,9 @@ public sealed class MudStreamParser
     /// <summary>C95 client-mode data block received.</summary>
     public event Action<string>? ClientModeReceived;
 
+    /// <summary>A sound effect should be played. Payload is the app-package-relative asset path, e.g. "sounds/clio.1311.wav".</summary>
+    public event Action<string>? SoundRequested;
+
     // ── Sub-parsers (set by internal wiring, replaceable for testing) ─────────
     internal TelnetNegotiator Telnet { get; }
     internal AnsiSgrState Ansi { get; }
@@ -173,6 +176,7 @@ public sealed class MudStreamParser
                 if (isAsteriskPreamble) return;
             var stats = LineAnalyzer.Analyze(line);
             if (stats != null) StatsUpdated?.Invoke(stats);
+            if (_inGameMode) { var sf = LineAnalyzer.CheckSoundTrigger(line); if (sf != null) EmitSound(sf); }
             LineReady?.Invoke(line);
         }
         else if (ch == '\r')
@@ -221,6 +225,7 @@ public sealed class MudStreamParser
         DreamwordChanged?.Invoke(word);
     }
     internal void EmitClientMode(string data) => ClientModeReceived?.Invoke(data);
+    internal void EmitSound(string assetPath) => SoundRequested?.Invoke(assetPath);
     internal void SetAccountInfo(string? accountId, int privs)
     {
         CurrentAccountId = accountId;
