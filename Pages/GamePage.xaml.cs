@@ -12,6 +12,18 @@ public partial class GamePage : ContentPage
     private readonly bool _exitOnDisconnect;
     private IDispatcherTimer?      _flushTimer;
 
+#if ANDROID
+    // Set while this page is active so MainActivity can route hardware F-key presses.
+    private static Action<int>? _androidFkeyHandler;
+
+    public static bool TryFireFkeyHandler(int absoluteIndex)
+    {
+        if (_androidFkeyHandler is null) return false;
+        _androidFkeyHandler(absoluteIndex);
+        return true;
+    }
+#endif
+
     // Lines pulled from the ViewModel queue but not yet successfully injected.
     // Kept here so they aren't lost if the WebView isn't ready yet.
     private readonly List<StyledLine> _pendingInjection = new();
@@ -54,12 +66,20 @@ public partial class GamePage : ContentPage
                 Window.Activated += OnWindowActivated;
 
 #if WINDOWS
-            // Hook the native TextBox so Up/Down arrow keys cycle through command history.
+            // Hook window root for F1-F12 physical key events (fires regardless of focus).
+            if (Window?.Handler?.PlatformView is Microsoft.UI.Xaml.Window fwin &&
+                fwin.Content is Microsoft.UI.Xaml.UIElement froot)
+                froot.PreviewKeyDown += OnRootPreviewKeyDown;
+            // Hook the native TextBox so Up/Down/Esc keys work in the entry.
             InputEntry.HandlerChanged += OnInputHandlerChanged;
 #endif
         }
 
         FocusInput();
+
+#if ANDROID
+        _androidFkeyHandler = _vm.SendFkeyAbsolute;
+#endif
     }
 
     protected override void OnNavigatedTo(NavigatedToEventArgs args)
@@ -73,6 +93,9 @@ public partial class GamePage : ContentPage
     protected override void OnDisappearing()
     {
         base.OnDisappearing();
+#if ANDROID
+        _androidFkeyHandler = null;
+#endif
         if (_isFkeyEditorOpen)
             return;
 
@@ -87,6 +110,9 @@ public partial class GamePage : ContentPage
         if (Window is not null)
             Window.Activated -= OnWindowActivated;
 #if WINDOWS
+        if (Window?.Handler?.PlatformView is Microsoft.UI.Xaml.Window fwin &&
+            fwin.Content is Microsoft.UI.Xaml.UIElement froot)
+            froot.PreviewKeyDown -= OnRootPreviewKeyDown;
         InputEntry.HandlerChanged -= OnInputHandlerChanged;
 #endif
         _ = _vm.DisposeAsync();
@@ -277,6 +303,25 @@ public partial class GamePage : ContentPage
     private void OnWindowActivated(object? sender, EventArgs e) => FocusInput();
 
 #if WINDOWS
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern short GetKeyState(int nVirtKey);
+
+    private void OnRootPreviewKeyDown(object sender, Microsoft.UI.Xaml.Input.KeyRoutedEventArgs e)
+    {
+        if (_isFkeyEditorOpen) return;
+        var key = e.Key;
+        if (key < Windows.System.VirtualKey.F1 || key > Windows.System.VirtualKey.F12)
+            return;
+
+        int fkeyNum = (int)key - (int)Windows.System.VirtualKey.F1; // 0-11
+        bool ctrl  = (GetKeyState((int)Windows.System.VirtualKey.Control) & 0x8000) != 0;
+        bool shift = (GetKeyState((int)Windows.System.VirtualKey.Shift)   & 0x8000) != 0;
+        int absoluteIndex = ctrl ? 24 + fkeyNum : shift ? 12 + fkeyNum : fkeyNum;
+
+        _vm.SendFkeyAbsolute(absoluteIndex);
+        e.Handled = true;
+    }
+
     private void OnInputHandlerChanged(object? sender, EventArgs e)
     {
         if (InputEntry.Handler?.PlatformView is Microsoft.UI.Xaml.Controls.TextBox tb)

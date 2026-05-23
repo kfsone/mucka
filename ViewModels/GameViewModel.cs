@@ -364,6 +364,23 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         RequestFocus?.Invoke();
     }
 
+    /// <summary>
+    /// Send the fkey macro at the given absolute index (0-11=None, 12-23=Shift, 24-35=Ctrl).
+    /// Called by the keyboard handler in GamePage on Windows.
+    /// </summary>
+    public void SendFkeyAbsolute(int absoluteIndex)
+    {
+        if (absoluteIndex < 0 || absoluteIndex >= _allFkeys.Length)
+        {
+            RequestFocus?.Invoke();
+            return;
+        }
+        var cmd = _allFkeys[absoluteIndex];
+        if (!string.IsNullOrWhiteSpace(cmd))
+            _conn.SendLine(cmd.TrimEnd('\r', '\n'));
+        RequestFocus?.Invoke();
+    }
+
     private void SpeakDreamword()
     {
         if (!string.IsNullOrEmpty(_dreamword))
