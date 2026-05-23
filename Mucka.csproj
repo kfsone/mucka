@@ -56,7 +56,7 @@
 
 	<ItemGroup>
 		<!-- App Icon -->
-		<MauiIcon Include="Resources\AppIcon\muckabase.png" Color="#512BD4" />
+		<MauiIcon Include="Resources\AppIcon\muckabase.png" Color="#512BD4" Alias="appicon" />
 
 		<!-- Splash Screen -->
 		<MauiSplashScreen Include="Resources\AppIcon\muckabase.png" Color="#512BD4" BaseSize="256,256" />
