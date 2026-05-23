@@ -54,10 +54,13 @@ public sealed class MuckaConnection : IAsyncDisposable
     public void Annotate(string message) { }
 #endif
 
+    private int _windowCols;
+
     public MuckaConnection(string? accountId = null, string? password = null, int maxCols = 80)
     {
+        _windowCols = Math.Clamp(maxCols, 20, 160);
         _session = new MudSession();
-        _session.SetWindowSize(Math.Clamp(maxCols, 20, 160), 21);
+        _session.SetWindowSize(_windowCols, 21);
         WireSessionEvents();
         if (!string.IsNullOrEmpty(accountId))
             _loginHandler = new MudLoginHandler(this, accountId, password ?? string.Empty);
@@ -120,7 +123,17 @@ public sealed class MuckaConnection : IAsyncDisposable
     /// Update the advertised terminal window size. May be called from any thread.
     /// Sends an updated NAWS subnegotiation if NAWS has been negotiated with the server.
     /// </summary>
-    public void SetWindowSize(int cols, int rows) => _session.SetWindowSize(cols, rows);
+    public void SetWindowSize(int cols, int rows)
+    {
+        _windowCols = cols;
+        _session.SetWindowSize(cols, rows);
+    }
+
+    /// <summary>
+    /// Re-send the current NAWS window size to the server (if NAWS has been negotiated).
+    /// Called at the Option menu to ensure the server has the effective cols before client-mode entry.
+    /// </summary>
+    internal void ResendWindowSize() => _session.SetWindowSize(_windowCols, 21);
 
     public async ValueTask DisposeAsync()
     {

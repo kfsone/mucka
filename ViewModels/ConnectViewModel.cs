@@ -22,6 +22,8 @@ public sealed class ConnectViewModel : BaseViewModel
     private bool _advancedVisible;
     private bool _captureRequested;
     private int _maxColumns = 80;
+    private int _antiIdleSeconds = 0;
+    private bool _keepScreenOn = false;
 
     public string ProfileName { get => _profileName; set => Set(ref _profileName, value); }
     public string Host { get => _host; set => Set(ref _host, value); }
@@ -35,6 +37,8 @@ public sealed class ConnectViewModel : BaseViewModel
     public bool TelnetLoginEnabled { get => _telnetLoginEnabled; set => Set(ref _telnetLoginEnabled, value); }
     public string TelnetLoginName { get => _telnetLoginName; set => Set(ref _telnetLoginName, value); }
     public int MaxColumns { get => _maxColumns; set => Set(ref _maxColumns, Math.Clamp(value, 20, 160)); }
+    public int AntiIdleSeconds { get => _antiIdleSeconds; set => Set(ref _antiIdleSeconds, Math.Clamp(value, 0, 3600)); }
+    public bool KeepScreenOn { get => _keepScreenOn; set => Set(ref _keepScreenOn, value); }
     public bool IsCaptureRequested { get => _captureRequested; set => Set(ref _captureRequested, value); }
 
     public bool IsCaptureFacilityAvailable { get; } =
@@ -154,6 +158,8 @@ public sealed class ConnectViewModel : BaseViewModel
                 TelnetLoginEnabled = TelnetLoginEnabled,
                 TelnetLoginName = loginName,
                 MaxColumns = MaxColumns,
+                AntiIdleSeconds = AntiIdleSeconds,
+                KeepScreenOn = KeepScreenOn,
                 Fkeys = SavedProfiles.FirstOrDefault(p => p.Name == ProfileName)?.Fkeys ?? new string[36]
             };
             if (!IsDirectConnectMode)
@@ -190,6 +196,8 @@ public sealed class ConnectViewModel : BaseViewModel
         TelnetLoginEnabled = p.TelnetLoginEnabled;
         TelnetLoginName = string.IsNullOrEmpty(p.TelnetLoginName) ? "mud" : p.TelnetLoginName;
         MaxColumns = p.MaxColumns;
+        AntiIdleSeconds = p.AntiIdleSeconds;
+        KeepScreenOn = p.KeepScreenOn;
     }
 
     private async Task SelectProfileAsync(Profile p, bool loadPassword)
@@ -283,6 +291,8 @@ public sealed class ConnectViewModel : BaseViewModel
             existing.TelnetLoginEnabled = incoming.TelnetLoginEnabled;
             existing.TelnetLoginName = incoming.TelnetLoginName;
             existing.MaxColumns = incoming.MaxColumns;
+            existing.AntiIdleSeconds = incoming.AntiIdleSeconds;
+            existing.KeepScreenOn = incoming.KeepScreenOn;
             existing.Fkeys = incoming.Fkeys;
             var idx = SavedProfiles.IndexOf(existing);
             if (idx > 0)
