@@ -20,7 +20,8 @@ public sealed record GameStatsSnapshot(
     string? DreamWord = null,
     bool PersonaSaved = false,
     string? AccountId = null,
-    int Privs = 0
+    int Privs = 0,
+    byte StaminaColor = 0
 )
 {
     public static readonly GameStatsSnapshot Empty = new();

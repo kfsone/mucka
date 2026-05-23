@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
 using System.Windows.Input;
+using Microsoft.Maui.Graphics;
 using Mucka.Core;
 using MudSharp.Models;
 
@@ -9,7 +10,9 @@ namespace Mucka.ViewModels;
 public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
 {
     private readonly MuckaConnection _conn;
+    private readonly Func<string[], Task>? _saveFkeysAsync;
     private readonly List<string> _history = new();
+    private readonly string[] _allFkeys = new string[36];
     private int _historyIndex = -1;
 
     private string _inputText = string.Empty;
@@ -22,6 +25,8 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private int _magic;
     private int _maxMagic;
     private int _score;
+    private int _baseScore = -1;
+    private byte _staminaColor;
     private bool _blind;
     private bool _deaf;
     private bool _crippled;
@@ -41,21 +46,21 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private readonly List<StyledLine> _historyBuffer = new();
 
     public string InputText { get => _inputText; set => Set(ref _inputText, value); }
-    public int Stamina { get => _stamina; set { Set(ref _stamina, value); OnPropertyChanged(nameof(StaText)); } }
-    public int MaxStamina { get => _maxStamina; set { Set(ref _maxStamina, value); OnPropertyChanged(nameof(StaText)); } }
-    public int Strength { get => _strength; set { Set(ref _strength, value); OnPropertyChanged(nameof(StrText)); } }
-    public int MaxStrength { get => _maxStrength; set => Set(ref _maxStrength, value); }
-    public int Dexterity { get => _dexterity; set { Set(ref _dexterity, value); OnPropertyChanged(nameof(DexText)); } }
-    public int MaxDexterity { get => _maxDexterity; set => Set(ref _maxDexterity, value); }
-    public int Magic { get => _magic; set => Set(ref _magic, value); }
-    public int MaxMagic { get => _maxMagic; set => Set(ref _maxMagic, value); }
-    public int Score { get => _score; set { Set(ref _score, value); OnPropertyChanged(nameof(ScoreText)); } }
+    public int Stamina { get => _stamina; set { Set(ref _stamina, value); OnPropertyChanged(nameof(StaText)); OnPropertyChanged(nameof(StaValue)); OnPropertyChanged(nameof(StaColor)); } }
+    public int MaxStamina { get => _maxStamina; set { Set(ref _maxStamina, value); OnPropertyChanged(nameof(StaText)); OnPropertyChanged(nameof(StaValue)); } }
+    public int Strength { get => _strength; set { Set(ref _strength, value); OnPropertyChanged(nameof(StrText)); OnPropertyChanged(nameof(StrValue)); OnPropertyChanged(nameof(StrColor)); } }
+    public int MaxStrength { get => _maxStrength; set { Set(ref _maxStrength, value); OnPropertyChanged(nameof(StrText)); OnPropertyChanged(nameof(StrValue)); OnPropertyChanged(nameof(StrColor)); } }
+    public int Dexterity { get => _dexterity; set { Set(ref _dexterity, value); OnPropertyChanged(nameof(DexText)); OnPropertyChanged(nameof(DexValue)); OnPropertyChanged(nameof(DexColor)); } }
+    public int MaxDexterity { get => _maxDexterity; set { Set(ref _maxDexterity, value); OnPropertyChanged(nameof(DexText)); OnPropertyChanged(nameof(DexValue)); OnPropertyChanged(nameof(DexColor)); } }
+    public int Magic { get => _magic; set { Set(ref _magic, value); OnPropertyChanged(nameof(MagText)); OnPropertyChanged(nameof(MagValue)); OnPropertyChanged(nameof(MagColor)); OnPropertyChanged(nameof(MagVisible)); } }
+    public int MaxMagic { get => _maxMagic; set { Set(ref _maxMagic, value); OnPropertyChanged(nameof(MagText)); OnPropertyChanged(nameof(MagValue)); OnPropertyChanged(nameof(MagColor)); } }
+    public int Score { get => _score; set { Set(ref _score, value); if (_baseScore < 0 && value > 0) _baseScore = value; OnPropertyChanged(nameof(ScoreText)); OnPropertyChanged(nameof(ScoreValue)); OnPropertyChanged(nameof(ScoreColor)); } }
     public bool Blind { get => _blind; set => Set(ref _blind, value); }
     public bool Deaf { get => _deaf; set => Set(ref _deaf, value); }
     public bool Crippled { get => _crippled; set => Set(ref _crippled, value); }
     public bool Dumb { get => _dumb; set => Set(ref _dumb, value); }
-    public int TimeToReset { get => _timeToReset; set { Set(ref _timeToReset, value); OnPropertyChanged(nameof(TtrText)); } }
-    public char Weather { get => _weather; set { Set(ref _weather, value); OnPropertyChanged(nameof(WeatherText)); } }
+    public int TimeToReset { get => _timeToReset; set { Set(ref _timeToReset, value); OnPropertyChanged(nameof(TtrText)); OnPropertyChanged(nameof(TtrVisible)); OnPropertyChanged(nameof(AnyRightStatVisible)); } }
+    public char Weather { get => _weather; set { Set(ref _weather, value); OnPropertyChanged(nameof(WeatherText)); OnPropertyChanged(nameof(WeatherColor)); OnPropertyChanged(nameof(WeatherVisible)); OnPropertyChanged(nameof(AnyRightStatVisible)); } }
     /// <summary>Rank is no longer supplied by the mudsharp protocol layer; always empty.</summary>
     public string Rank { get => _rank; set => Set(ref _rank, value); }
     public string Dreamword { get => _dreamword; set { Set(ref _dreamword, value); OnPropertyChanged(nameof(DreamwordDisplay)); OnPropertyChanged(nameof(DreamwordIsPlaceholder)); } }
@@ -73,11 +78,83 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         false;
 #endif
 
-    public string StaText => $"Sta: {Stamina}/{MaxStamina}";
-    public string StrText => $"Str: {Strength}";
-    public string DexText => $"Dex: {Dexterity}";
-    public string ScoreText => Score > 0 ? $"Score: {Score:N0}" : "Score: —";
-    public string TtrText => TimeToReset > 0 ? $"TTR: {TimeToReset}m" : string.Empty;
+    public string StaText  => $"Sta: {Stamina}/{MaxStamina}";
+    public string MagText  => $"Mag: {Magic}/{MaxMagic}";
+    public string StrText  => $"Str: {Strength}/{MaxStrength}";
+    public string DexText  => $"Dex: {Dexterity}/{MaxDexterity}";
+    public string ScoreText => Score <= 0 ? "Score: —"
+        : _baseScore < 0 ? $"Score: {Score}"
+        : $"Score: {Score} ({ScoreDeltaStr(Score - _baseScore)})";
+
+    // Value-only strings (no label prefix) for FormattedString spans in the status bar.
+    public string StaValue   => $"{Stamina}/{MaxStamina}";
+    public string MagValue   => $"{Magic}/{MaxMagic}";
+    public string StrValue   => $"{Strength}/{MaxStrength}";
+    public string DexValue   => $"{Dexterity}/{MaxDexterity}";
+    public string ScoreValue => Score <= 0 ? "—"
+        : _baseScore < 0 ? $"{Score}"
+        : $"{Score} ({ScoreDeltaStr(Score - _baseScore)})";
+
+    public bool   MagVisible  => _magic > 0;
+    public string TtrText     => TimeToReset > 0 ? $"{TimeToReset}m" : string.Empty;
+    public bool   TtrVisible  => _timeToReset > 0;
+    public bool   WeatherVisible => _weather is not (' ' or '\0' or (char)0);
+    public bool   AnyRightStatVisible => WeatherVisible || TtrVisible;
+
+    // Campbell-palette colours matching Clio's terminal colour constants.
+    private static readonly Color CampbellRed          = Color.FromArgb("#C50F1F");
+    private static readonly Color CampbellGreen         = Color.FromArgb("#13A10E");
+    private static readonly Color CampbellYellow        = Color.FromArgb("#C19C00");
+    private static readonly Color CampbellWhite         = Color.FromArgb("#CCCCCC");
+    private static readonly Color CampbellBrightBlack   = Color.FromArgb("#767676");
+    private static readonly Color CampbellBrightRed     = Color.FromArgb("#E74856");
+    private static readonly Color CampbellBrightGreen   = Color.FromArgb("#16C60C");
+    private static readonly Color CampbellBrightYellow  = Color.FromArgb("#F9F1A5");
+
+    /// <summary>Maps a Clio ANSI colour index (from the C99 0xFE stamina hint byte) to a display colour.</summary>
+    private static Color AnsiToColor(byte ansi) => ansi switch
+    {
+        1  => CampbellRed,
+        2  => CampbellGreen,
+        3  => CampbellYellow,
+        9  => CampbellBrightRed,
+        10 => CampbellBrightGreen,
+        11 => CampbellBrightYellow,
+        _  => CampbellBrightGreen,
+    };
+
+    /// <summary>Port of Clio's colourcode() — colours a stat by its eff/max ratio.</summary>
+    private static Color StatColor(int eff, int max)
+    {
+        if (eff <= 0 || max <= 0) return CampbellBrightGreen;
+        int ratio = eff * 100 / max;
+        if (ratio >= 100) return CampbellBrightGreen;
+        if (ratio >= 76)  return CampbellGreen;
+        if (ratio >= 36)  return CampbellBrightYellow;
+        if (ratio >= 16)  return CampbellYellow;
+        if (ratio >= 6)   return CampbellRed;
+        return CampbellBrightRed;
+    }
+
+    public Color StaColor     => _staminaColor == 0 ? CampbellBrightGreen : AnsiToColor(_staminaColor);
+    public Color MagColor     => StatColor(Magic, MaxMagic);
+    public Color StrColor     => StatColor(Strength, MaxStrength);
+    public Color DexColor     => StatColor(Dexterity, MaxDexterity);
+    public Color ScoreColor   => _baseScore < 0 || _score == _baseScore ? CampbellYellow
+        : _score > _baseScore ? CampbellGreen
+        : CampbellRed;
+    public Color WeatherColor => _weather switch
+    {
+        'F' => CampbellBrightYellow,   // Sunny  — LT_YELLOW
+        'C' => CampbellWhite,           // Cloud  — WHITE
+        'R' => CampbellGreen,           // Rain   — GREEN
+        'S' => CampbellWhite,           // Snow   — BLACK on WHITE → white
+        'O' => CampbellBrightBlack,     // Ocast  — LT_BLACK (dark grey)
+        'T' => CampbellGreen,           // Storm  — GREEN
+        'B' => CampbellWhite,           // Blizd  — BLACK on WHITE → white
+        _   => CampbellWhite,
+    };
+
     public string WeatherText => _weather switch
     {
         'F' => "Sunny",
@@ -93,6 +170,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public bool DreamwordIsPlaceholder => string.IsNullOrEmpty(_dreamword);
 
     public ObservableCollection<FkeyItem> FkeyItems { get; } = new();
+    public bool CanSaveFkeys => _saveFkeysAsync != null;
 
     public ICommand SendCommand { get; }
     public ICommand FkeyCommand { get; }
@@ -101,19 +179,20 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public ICommand HistoryDownCommand { get; }
     public ICommand ToggleFkeysCommand { get; }
     public ICommand ToggleCaptureCommand { get; }
+    public ICommand EditFkeysCommand { get; }
 
     public event Action? Disconnected;
     public event Action? RequestFocus;
+    public event Action? EditFkeysRequested;
+    public event Action? ClearScreenRequested;
 
-    public GameViewModel(MuckaConnection conn, Profile profile)
+    public GameViewModel(MuckaConnection conn, Profile profile, Func<string[], Task>? saveFkeysAsync = null)
     {
         _conn = conn;
+        _saveFkeysAsync = saveFkeysAsync;
         IsCapturing = _conn.IsCapturing;
 
-        for (var i = 0; i < 10; i++)
-        {
-            FkeyItems.Add(new FkeyItem(i, i < profile.Fkeys.Length ? profile.Fkeys[i] ?? string.Empty : string.Empty));
-        }
+        ApplyFkeys(profile.Fkeys);
 
         // Pre-populate the input box with the account ID for manual login.
         if (!profile.TelnetLoginEnabled && !string.IsNullOrEmpty(profile.AccountId))
@@ -133,6 +212,37 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         HistoryDownCommand    = new Command(HistoryDown);
         ToggleFkeysCommand    = new Command(() => { FkeysVisible = !FkeysVisible; RequestFocus?.Invoke(); });
         ToggleCaptureCommand  = new Command(ToggleCapture);
+        EditFkeysCommand      = new Command(() => EditFkeysRequested?.Invoke());
+    }
+
+    public string[] GetAllFkeys()
+    {
+        var fkeys = new string[_allFkeys.Length];
+        Array.Copy(_allFkeys, fkeys, _allFkeys.Length);
+        return fkeys;
+    }
+
+    public void ApplyFkeys(string[] fkeys)
+    {
+        for (var i = 0; i < _allFkeys.Length; i++)
+            _allFkeys[i] = i < fkeys.Length ? fkeys[i] ?? string.Empty : string.Empty;
+
+        if (FkeyItems.Count == 0)
+        {
+            for (var i = 0; i < 12; i++)
+                FkeyItems.Add(new FkeyItem(i, _allFkeys[i]));
+            return;
+        }
+
+        for (var i = 0; i < 12; i++)
+            FkeyItems[i].Command = _allFkeys[i];
+    }
+
+    public async Task SaveFkeysAsync(string[] fkeys)
+    {
+        ApplyFkeys(fkeys);
+        if (_saveFkeysAsync != null)
+            await _saveFkeysAsync(GetAllFkeys());
     }
 
     // Called from the TCP read thread — must not touch UI directly.
@@ -184,6 +294,8 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             Dumb         = stats.IsDumb;
             TimeToReset  = stats.TimeToReset;
             Weather      = stats.Weather;
+            _staminaColor = stats.StaminaColor;
+            OnPropertyChanged(nameof(StaColor));
             if (stats.DreamWord != null)
                 Dreamword = stats.DreamWord;
         });
@@ -253,13 +365,36 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         RequestFocus?.Invoke();
     }
 
-    private void SpeakDreamword()
+    /// <summary>
+    /// Send the fkey macro at the given absolute index (0-11=None, 12-23=Shift, 24-35=Ctrl).
+    /// Called by the keyboard handler in GamePage on Windows.
+    /// </summary>
+    public void SendFkeyAbsolute(int absoluteIndex)
+    {
+        if (absoluteIndex < 0 || absoluteIndex >= _allFkeys.Length)
+        {
+            RequestFocus?.Invoke();
+            return;
+        }
+        var cmd = _allFkeys[absoluteIndex];
+        if (!string.IsNullOrWhiteSpace(cmd))
+            _conn.SendLine(cmd.TrimEnd('\r', '\n'));
+        RequestFocus?.Invoke();
+    }
+
+    public void SpeakDreamword()
     {
         if (!string.IsNullOrEmpty(_dreamword))
         {
             _conn.Annotate($"dreamword spoken: {_dreamword}");
             _conn.SendLine($"\"{_dreamword}\"");
         }
+        RequestFocus?.Invoke();
+    }
+
+    public void ClearScreen()
+    {
+        ClearScreenRequested?.Invoke();
         RequestFocus?.Invoke();
     }
 
@@ -305,6 +440,9 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         }
         RequestFocus?.Invoke();
     }
+
+    private static string ScoreDeltaStr(int delta) =>
+        delta >= 0 ? $"+{delta}" : $"{delta}";
 
     private void AddSystemLine(string msg, byte fg = 14)
     {

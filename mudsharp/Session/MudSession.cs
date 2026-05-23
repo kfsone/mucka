@@ -92,6 +92,13 @@ public sealed class MudSession : IDisposable
 
     private void MergeStats(GameStatsSnapshot partial)
     {
+        // Keep _currentDreamword in sync when the dreamword arrives via text analysis
+        // (pre-game path, DreamwordLineRegex) rather than the binary C15 decoder.
+        // In game mode the C15 path fires DreamwordChanged which updates _currentDreamword
+        // directly; in pre-game mode the text path is the only source.
+        if (partial.DreamWord != null)
+            _currentDreamword = partial.DreamWord;
+
         // Merge: only overwrite fields that differ from zero/default in the partial snapshot.
         _currentStats = new GameStatsSnapshot(
             Stamina:      partial.Stamina     != 0 ? partial.Stamina     : _currentStats.Stamina,
@@ -109,10 +116,11 @@ public sealed class MudSession : IDisposable
             IsDumb:       partial.IsDumb      || _currentStats.IsDumb,
             Weather:      partial.Weather     != ' ' ? partial.Weather   : _currentStats.Weather,
             TimeToReset:  partial.TimeToReset != 0 ? partial.TimeToReset : _currentStats.TimeToReset,
-            DreamWord:    partial.DreamWord   ?? _currentStats.DreamWord,
+            DreamWord:    _currentDreamword,
             PersonaSaved: partial.PersonaSaved || _currentStats.PersonaSaved,
             AccountId:    partial.AccountId   ?? _currentStats.AccountId,
-            Privs:        partial.Privs       != 0 ? partial.Privs       : _currentStats.Privs
+            Privs:        partial.Privs       != 0 ? partial.Privs       : _currentStats.Privs,
+            StaminaColor: partial.StaminaColor != 0 ? partial.StaminaColor : _currentStats.StaminaColor
         );
         StatsUpdated?.Invoke(_currentStats);
     }
