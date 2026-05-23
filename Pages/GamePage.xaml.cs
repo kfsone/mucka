@@ -62,6 +62,8 @@ public partial class GamePage : ContentPage
         _isFkeyEditorOpen = false;
         base.OnAppearing();
 
+        DeviceDisplay.Current.KeepScreenOn = _vm.KeepScreenOn;
+
         if (_flushTimer == null)
         {
             _vm.Disconnected += OnDisconnected;
@@ -120,6 +122,7 @@ public partial class GamePage : ContentPage
         if (_isFkeyEditorOpen)
             return;
 
+        DeviceDisplay.Current.KeepScreenOn = false;
         _flushTimer?.Stop();
         _flushTimer = null;
         ScrollbackWebView.Navigating -= OnScrollbackNavigating;
@@ -156,6 +159,8 @@ public partial class GamePage : ContentPage
 
     private async void OnFlushTick(object? sender, EventArgs e)
     {
+        _vm.AntiIdleTick();
+
         if (_injecting) return;   // previous injection still in flight — pick up lines next tick
 
         // Move new lines from the ViewModel queue into our local buffer.

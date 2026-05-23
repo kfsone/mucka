@@ -43,6 +43,10 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private int _maxColumns;
     private int _effCols = 80;
     private double _widthDp;
+    private int _antiIdleSeconds;
+    private bool _keepScreenOn;
+    private bool _inGameMode;
+    private DateTime _lastSentUtc;
 
     // Lines from the TCP thread are enqueued here; the UI timer flushes them in batches.
     private readonly ConcurrentQueue<StyledLine> _pendingLines = new();
@@ -75,6 +79,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public bool IsCapturing { get => _isCapturing; private set => Set(ref _isCapturing, value); }
     public int MaxColumns => _maxColumns;
     public int EffCols => _effCols;
+    public bool KeepScreenOn => _keepScreenOn;
 
     /// <summary>True only in debug builds — controls visibility of the capture button.</summary>
     public bool IsCaptureFacilityAvailable { get; } =
@@ -302,6 +307,9 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         IsCapturing = _conn.IsCapturing;
         _maxColumns = Math.Clamp(profile.MaxColumns, 20, 160);
         _effCols = _maxColumns;
+        _antiIdleSeconds = Math.Clamp(profile.AntiIdleSeconds, 0, 3600);
+        _keepScreenOn = profile.KeepScreenOn;
+        _lastSentUtc = DateTime.UtcNow;
 
         ApplyFkeys(profile.Fkeys);
 
@@ -355,9 +363,17 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     // Called from the TCP read thread — must not touch UI directly.
     private void OnLineReady(StyledLine line) => _pendingLines.Enqueue(line);
 
-    // MudSession owns the FES heartbeat — nothing to do in GameViewModel on mode transitions.
-    private void OnGameModeEntered() { }
-    private void OnGameModeExited()  { }
+    // MudSession owns the FES heartbeat — nothing to do in GameViewModel on mode transitions
+    // beyond tracking game mode for anti-idle. Events fire on the TCP thread; marshal to UI.
+    private void OnGameModeEntered()
+        => MainThread.BeginInvokeOnMainThread(() =>
+        {
+            _inGameMode = true;
+            _lastSentUtc = DateTime.UtcNow;
+        });
+
+    private void OnGameModeExited()
+        => MainThread.BeginInvokeOnMainThread(() => _inGameMode = false);
 
     /// <summary>
     /// Called by GamePage's 50ms timer on the UI thread.
@@ -414,6 +430,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private void OnDisconnected(Exception? error)
         => MainThread.BeginInvokeOnMainThread(() =>
         {
+            _inGameMode = false;
             IsConnected = false;
             Disconnected?.Invoke();
         });
@@ -430,6 +447,8 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         var trimmed = text.Trim();
         if (!HandleCommand(trimmed))
             _conn.SendLine(text);
+
+        _lastSentUtc = DateTime.UtcNow;
 
         if (!string.IsNullOrWhiteSpace(trimmed))
         {
@@ -470,7 +489,10 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
 
         var cmd = FkeyItems[i].Command;
         if (!string.IsNullOrWhiteSpace(cmd))
+        {
             _conn.SendLine(cmd.TrimEnd('\r', '\n'));
+            _lastSentUtc = DateTime.UtcNow;
+        }
 
         RequestFocus?.Invoke();
     }
@@ -488,7 +510,10 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         }
         var cmd = _allFkeys[absoluteIndex];
         if (!string.IsNullOrWhiteSpace(cmd))
+        {
             _conn.SendLine(cmd.TrimEnd('\r', '\n'));
+            _lastSentUtc = DateTime.UtcNow;
+        }
         RequestFocus?.Invoke();
     }
 
@@ -498,6 +523,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         {
             _conn.Annotate($"dreamword spoken: {_dreamword}");
             _conn.SendLine($"\"{_dreamword}\"");
+            _lastSentUtc = DateTime.UtcNow;
         }
         RequestFocus?.Invoke();
     }
@@ -506,6 +532,16 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     {
         ClearScreenRequested?.Invoke();
         RequestFocus?.Invoke();
+    }
+
+    public void AntiIdleTick()
+    {
+        if (_antiIdleSeconds <= 0 || !_inGameMode || !_conn.IsConnected)
+            return;
+        if ((DateTime.UtcNow - _lastSentUtc).TotalSeconds < _antiIdleSeconds)
+            return;
+        _lastSentUtc = DateTime.UtcNow;
+        _conn.SendLine(string.Empty);
     }
 
     private void HistoryUp()

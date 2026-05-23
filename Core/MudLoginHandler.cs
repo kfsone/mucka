@@ -87,6 +87,7 @@ internal sealed class MudLoginHandler
         if (!_clientModeSent && text.Contains("Option", StringComparison.Ordinal))
         {
             _clientModeSent = true;
+            _conn.ResendWindowSize();   // ensure server has effective cols before entering client mode
             _conn.SendBytes(ClientModeEntry);
         }
     }
