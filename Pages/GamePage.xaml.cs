@@ -146,14 +146,20 @@ public partial class GamePage : ContentPage
                 var innerJson = JsonSerializer.Serialize(html + "\u200b");
                 sb.Append($"(function(){{var p=o.querySelector('.lnp');if(p){{p.innerHTML={innerJson};}}else{{o.insertAdjacentHTML('beforeend',{jsonHtml});}}}})();");
             }
+            else if (string.IsNullOrEmpty(html))
+            {
+                // Empty complete line (e.g. blank Enter): if there is a live partial prompt,
+                // just promote it — do not insert a blank line between consecutive prompts.
+                // If there is no partial, insert the blank line as normal paragraph spacing.
+                sb.Append($"(function(){{var p=o.querySelector('.lnp');if(p){{p.className='ln';}}else{{o.insertAdjacentHTML('beforeend',{jsonHtml});}}}})();");
+            }
             else
             {
-                // Finalise any existing partial span (promote .lnp → .ln, keep its content so
-                // the prompt character remains visible on its own line), then always append the
-                // new complete line.  Replacing the partial's content with the echo text would
-                // make the prompt disappear; promoting + appending matches Clio's output model
-                // where the prompt and the command echo occupy separate lines.
-                sb.Append($"(function(){{var p=o.querySelector('.lnp');if(p)p.className='ln';o.insertAdjacentHTML('beforeend',{jsonHtml});}})();");
+                // Non-empty complete line: if there is a live partial prompt, merge this line's
+                // content into it (prompt + echo on one line) and promote to .ln.
+                // If there is no partial, append as a new line.
+                var innerJson = JsonSerializer.Serialize(html + "\u200b");
+                sb.Append($"(function(){{var p=o.querySelector('.lnp');if(p){{p.insertAdjacentHTML('beforeend',{innerJson});p.className='ln';}}else{{o.insertAdjacentHTML('beforeend',{jsonHtml});}}}})();");
             }
         }
 
