@@ -65,6 +65,12 @@ public sealed class MudSession : IDisposable
     /// <summary>Send raw bytes to the server.</summary>
     public void Send(byte[] bytes) => OutgoingBytes?.Invoke(bytes);
 
+    /// <summary>
+    /// Update the advertised terminal window size. Sends an updated NAWS subnegotiation if
+    /// NAWS has already been negotiated with the server. May be called from any thread.
+    /// </summary>
+    public void SetWindowSize(int cols, int rows) => _parser.SetWindowSize(cols, rows);
+
     /// <summary>Reset parser state (call on disconnect).</summary>
     public void Reset()
     {

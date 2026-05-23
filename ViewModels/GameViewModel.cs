@@ -37,9 +37,12 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private string _rank = string.Empty;
     private string _dreamword = string.Empty;
     private bool _isConnected = true;
-    private bool _fkeysVisible = DeviceInfo.Platform != DevicePlatform.WinUI;
+    private bool _fkeysVisible;
     private bool _isScrollMode;
     private bool _isCapturing;
+    private int _maxColumns;
+    private int _effCols = 80;
+    private double _widthDp;
 
     // Lines from the TCP thread are enqueued here; the UI timer flushes them in batches.
     private readonly ConcurrentQueue<StyledLine> _pendingLines = new();
@@ -55,13 +58,13 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public int MaxDexterity { get => _maxDexterity; set { Set(ref _maxDexterity, value); OnPropertyChanged(nameof(DexText)); OnPropertyChanged(nameof(DexValue)); OnPropertyChanged(nameof(DexColor)); } }
     public int Magic { get => _magic; set { Set(ref _magic, value); OnPropertyChanged(nameof(MagText)); OnPropertyChanged(nameof(MagValue)); OnPropertyChanged(nameof(MagColor)); OnPropertyChanged(nameof(MagVisible)); } }
     public int MaxMagic { get => _maxMagic; set { Set(ref _maxMagic, value); OnPropertyChanged(nameof(MagText)); OnPropertyChanged(nameof(MagValue)); OnPropertyChanged(nameof(MagColor)); } }
-    public int Score { get => _score; set { Set(ref _score, value); if (_baseScore < 0 && value > 0) _baseScore = value; OnPropertyChanged(nameof(ScoreText)); OnPropertyChanged(nameof(ScoreValue)); OnPropertyChanged(nameof(ScoreColor)); } }
+    public int Score { get => _score; set { Set(ref _score, value); if (_baseScore < 0 && value > 0) _baseScore = value; OnPropertyChanged(nameof(ScoreText)); OnPropertyChanged(nameof(ScoreValue)); OnPropertyChanged(nameof(ScoreDisplayValue)); OnPropertyChanged(nameof(ScoreColor)); } }
     public bool Blind { get => _blind; set => Set(ref _blind, value); }
     public bool Deaf { get => _deaf; set => Set(ref _deaf, value); }
     public bool Crippled { get => _crippled; set => Set(ref _crippled, value); }
     public bool Dumb { get => _dumb; set => Set(ref _dumb, value); }
     public int TimeToReset { get => _timeToReset; set { Set(ref _timeToReset, value); OnPropertyChanged(nameof(TtrText)); OnPropertyChanged(nameof(TtrVisible)); OnPropertyChanged(nameof(AnyRightStatVisible)); } }
-    public char Weather { get => _weather; set { Set(ref _weather, value); OnPropertyChanged(nameof(WeatherText)); OnPropertyChanged(nameof(WeatherColor)); OnPropertyChanged(nameof(WeatherVisible)); OnPropertyChanged(nameof(AnyRightStatVisible)); } }
+    public char Weather { get => _weather; set { Set(ref _weather, value); OnPropertyChanged(nameof(WeatherText)); OnPropertyChanged(nameof(WeatherGlyph)); OnPropertyChanged(nameof(WeatherTooltip)); OnPropertyChanged(nameof(WeatherDisplayText)); OnPropertyChanged(nameof(WeatherColor)); OnPropertyChanged(nameof(WeatherVisible)); OnPropertyChanged(nameof(AnyRightStatVisible)); } }
     /// <summary>Rank is no longer supplied by the mudsharp protocol layer; always empty.</summary>
     public string Rank { get => _rank; set => Set(ref _rank, value); }
     public string Dreamword { get => _dreamword; set { Set(ref _dreamword, value); OnPropertyChanged(nameof(DreamwordDisplay)); OnPropertyChanged(nameof(DreamwordIsPlaceholder)); } }
@@ -70,6 +73,8 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public bool IsScrollMode { get => _isScrollMode; set { Set(ref _isScrollMode, value); OnPropertyChanged(nameof(IsNotScrollMode)); } }
     public bool IsNotScrollMode => !_isScrollMode;
     public bool IsCapturing { get => _isCapturing; private set => Set(ref _isCapturing, value); }
+    public int MaxColumns => _maxColumns;
+    public int EffCols => _effCols;
 
     /// <summary>True only in debug builds — controls visibility of the capture button.</summary>
     public bool IsCaptureFacilityAvailable { get; } =
@@ -96,11 +101,86 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         : _baseScore < 0 ? $"{Score}"
         : $"{Score} ({ScoreDeltaStr(Score - _baseScore)})";
 
+    /// <summary>Score value for display — drops the delta suffix when effcols &lt; 70.</summary>
+    public string ScoreDisplayValue => Score <= 0 ? "—"
+        : _baseScore < 0 || _effCols < 70 ? $"{Score}"
+        : $"{Score} ({ScoreDeltaStr(Score - _baseScore)})";
+
     public bool   MagVisible  => _magic > 0;
     public string TtrText     => TimeToReset > 0 ? $"{TimeToReset}m" : string.Empty;
     public bool   TtrVisible  => _timeToReset > 0;
     public bool   WeatherVisible => _weather is not (' ' or '\0' or (char)0);
     public bool   AnyRightStatVisible => WeatherVisible || TtrVisible;
+
+    /// <summary>Effective columns: min(160, MaxColumns, displayable chars). Updated by GamePage on resize.</summary>
+    public bool IsCompactStats    => _effCols < 76;
+    public bool IsNotCompactStats => _effCols >= 76;
+    public bool IsCompactWeather  => _effCols < 80;
+    public bool IsVeryCompact     => _effCols < 50;
+    /// <summary>Font size for stat values in compact layout — shrinks when effcols &lt; 50.</summary>
+    public double StatsValueFontSize => _effCols < 50 ? 11.0 : 13.0;
+
+    // ── Fkey toolbar density — three tiers shrinking with effcols ────────────
+    // Returns (fontSize, buttonRightMargin, cfgWidth, totalHorizPad).
+    private (double Font, double Bm, double Cfg, double PadH) FkeyDensity() => _effCols switch
+    {
+        >= 76 => (11.0, 3.0, 44.0, 8.0),
+        >= 50 => (10.0, 2.0, 38.0, 4.0),
+        _     => ( 9.0, 1.0, 32.0, 2.0),
+    };
+
+    public double    FkeyFontSize     => FkeyDensity().Font;
+    public double    FkeyCfgWidth     => FkeyDensity().Cfg;
+    public Thickness FkeyButtonMargin => new Thickness(0, 0, FkeyDensity().Bm, FkeyDensity().Bm);
+    public Thickness FkeyBarPadding   { get { var d = FkeyDensity(); return new Thickness(d.PadH / 2, d.Bm, d.PadH / 2, d.Bm); } }
+
+    // How many F-keys to show — drop from the high end as space shrinks, min 8.
+    private int  FkeyCount() => _effCols switch
+    {
+        >= 76 => 12,
+        >= 63 => 11,
+        >= 50 => 10,
+        >= 38 =>  9,
+        _     =>  8,
+    };
+    // Whether to show the "F" prefix on buttons (loses it below 50 cols).
+    private bool FkeyShowPrefix() => _effCols >= 50;
+
+    /// <summary>
+    /// Adds/removes items from FkeyItems and refreshes labels to match current effcols tier.
+    /// Safe to call any time _effCols changes; must run on the UI thread.
+    /// </summary>
+    private void UpdateFkeyItems()
+    {
+        int  count = FkeyCount();
+        bool showF = FkeyShowPrefix();
+
+        while (FkeyItems.Count > count)
+            FkeyItems.RemoveAt(FkeyItems.Count - 1);
+
+        for (int i = 0; i < FkeyItems.Count; i++)
+            FkeyItems[i].Label = showF ? $"F{i + 1}" : $"{i + 1}";
+
+        while (FkeyItems.Count < count)
+        {
+            int i = FkeyItems.Count;
+            FkeyItems.Add(new FkeyItem(i, _allFkeys[i], showF));
+        }
+        UpdateFkeyItemWidths(_widthDp);
+    }
+
+    /// <summary>Recomputes each button's WidthRequest from the current page width and density tier.</summary>
+    private void UpdateFkeyItemWidths(double widthDp)
+    {
+        if (FkeyItems.Count == 0 || widthDp <= 0) return;
+        var d = FkeyDensity();
+        // Subtract: symmetric bar padding (d.PadH total), Cfg button width + its right margin.
+        double available = widthDp - d.PadH - d.Cfg - d.Bm;
+        double slot      = Math.Floor(available / FkeyItems.Count);
+        double btnWidth  = Math.Max(20.0, slot - d.Bm);
+        foreach (var item in FkeyItems)
+            item.Width = btnWidth;
+    }
 
     // Campbell-palette colours matching Clio's terminal colour constants.
     private static readonly Color CampbellRed          = Color.FromArgb("#C50F1F");
@@ -167,6 +247,34 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         'B' => "Blizd",
         _   => string.Empty,
     };
+
+    public string WeatherGlyph => _weather switch
+    {
+        'F' => "\u2600\uFE0E",  // Sun
+        'C' => "\u26C5\uFE0E",  // Sun behind cloud
+        'R' => "\u2602\uFE0E",  // Umbrella (rain)
+        'S' => "\u2744\uFE0E",  // Snowflake
+        'O' => "\u2601\uFE0E",  // Cloud (overcast)
+        'T' => "\u26A1\uFE0E",  // Lightning (storm)
+        'B' => "\u2603\uFE0E",  // Snowman (blizzard)
+        _   => string.Empty,
+    };
+
+    public string WeatherTooltip => _weather switch
+    {
+        'F' => "Fine weather",
+        'C' => "Cloudy",
+        'R' => "Raining",
+        'S' => "Snowing",
+        'O' => "Overcast",
+        'T' => "Stormy",
+        'B' => "Blizzard",
+        _   => string.Empty,
+    };
+
+    public string WeatherDisplayText => WeatherVisible
+        ? (IsCompactWeather ? WeatherGlyph : $"{WeatherGlyph} {WeatherText}")
+        : string.Empty;
     public string DreamwordDisplay => string.IsNullOrEmpty(_dreamword) ? "..zzZZZzz.." : _dreamword;
     public bool DreamwordIsPlaceholder => string.IsNullOrEmpty(_dreamword);
 
@@ -192,6 +300,8 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _conn = conn;
         _saveFkeysAsync = saveFkeysAsync;
         IsCapturing = _conn.IsCapturing;
+        _maxColumns = Math.Clamp(profile.MaxColumns, 20, 160);
+        _effCols = _maxColumns;
 
         ApplyFkeys(profile.Fkeys);
 
@@ -229,15 +339,10 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         for (var i = 0; i < _allFkeys.Length; i++)
             _allFkeys[i] = i < fkeys.Length ? fkeys[i] ?? string.Empty : string.Empty;
 
-        if (FkeyItems.Count == 0)
-        {
-            for (var i = 0; i < 12; i++)
-                FkeyItems.Add(new FkeyItem(i, _allFkeys[i]));
-            return;
-        }
-
-        for (var i = 0; i < 12; i++)
+        for (var i = 0; i < FkeyItems.Count; i++)
             FkeyItems[i].Command = _allFkeys[i];
+
+        UpdateFkeyItems();
     }
 
     public async Task SaveFkeysAsync(string[] fkeys)
@@ -448,6 +553,39 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
 
     private static string ScoreDeltaStr(int delta) =>
         delta >= 0 ? $"+{delta}" : $"{delta}";
+
+    /// <summary>
+    /// Called by GamePage on each SizeAllocated. Updates effective columns and notifies
+    /// the server of the new terminal width if it changed.
+    /// </summary>
+    public void NotifyWindowSize(double widthDp, int displayableCols)
+    {
+        var clamped       = Math.Clamp(Math.Min(_maxColumns, displayableCols), 20, 160);
+        var effColChanged = clamped != _effCols;
+        _widthDp = widthDp;
+        if (effColChanged)
+        {
+            _effCols = clamped;
+            _conn.SetWindowSize(_effCols, 21);
+            OnPropertyChanged(nameof(EffCols));
+            OnPropertyChanged(nameof(IsCompactStats));
+            OnPropertyChanged(nameof(IsNotCompactStats));
+            OnPropertyChanged(nameof(IsCompactWeather));
+            OnPropertyChanged(nameof(IsVeryCompact));
+            OnPropertyChanged(nameof(StatsValueFontSize));
+            OnPropertyChanged(nameof(FkeyFontSize));
+            OnPropertyChanged(nameof(FkeyCfgWidth));
+            OnPropertyChanged(nameof(FkeyButtonMargin));
+            OnPropertyChanged(nameof(FkeyBarPadding));
+            OnPropertyChanged(nameof(ScoreDisplayValue));
+            OnPropertyChanged(nameof(WeatherDisplayText));
+            UpdateFkeyItems();  // also calls UpdateFkeyItemWidths
+        }
+        else
+        {
+            UpdateFkeyItemWidths(widthDp);
+        }
+    }
 
     private void AddSystemLine(string msg, byte fg = 14)
     {

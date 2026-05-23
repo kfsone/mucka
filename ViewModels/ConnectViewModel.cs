@@ -21,6 +21,7 @@ public sealed class ConnectViewModel : BaseViewModel
     private string _telnetLoginName = "mud";
     private bool _advancedVisible;
     private bool _captureRequested;
+    private int _maxColumns = 80;
 
     public string ProfileName { get => _profileName; set => Set(ref _profileName, value); }
     public string Host { get => _host; set => Set(ref _host, value); }
@@ -33,6 +34,7 @@ public sealed class ConnectViewModel : BaseViewModel
     public bool RememberPassword { get => _rememberPassword; set => Set(ref _rememberPassword, value); }
     public bool TelnetLoginEnabled { get => _telnetLoginEnabled; set => Set(ref _telnetLoginEnabled, value); }
     public string TelnetLoginName { get => _telnetLoginName; set => Set(ref _telnetLoginName, value); }
+    public int MaxColumns { get => _maxColumns; set => Set(ref _maxColumns, Math.Clamp(value, 20, 160)); }
     public bool IsCaptureRequested { get => _captureRequested; set => Set(ref _captureRequested, value); }
 
     public bool IsCaptureFacilityAvailable { get; } =
@@ -131,7 +133,8 @@ public sealed class ConnectViewModel : BaseViewModel
             var autoLogin = TelnetLoginEnabled && !string.IsNullOrEmpty(accountId) && !string.IsNullOrEmpty(resolvedPassword);
             var conn = new MuckaConnection(
                 autoLogin ? accountId : null,
-                autoLogin ? resolvedPassword : null);
+                autoLogin ? resolvedPassword : null,
+                MaxColumns);
             if (IsCaptureRequested && !conn.TryStartCapture(Host.Trim(), out var captureError))
             {
                 StatusText = $"Capture start failed: {captureError}";
@@ -150,6 +153,7 @@ public sealed class ConnectViewModel : BaseViewModel
                 RememberPassword = RememberPassword,
                 TelnetLoginEnabled = TelnetLoginEnabled,
                 TelnetLoginName = loginName,
+                MaxColumns = MaxColumns,
                 Fkeys = SavedProfiles.FirstOrDefault(p => p.Name == ProfileName)?.Fkeys ?? new string[36]
             };
             if (!IsDirectConnectMode)
@@ -185,6 +189,7 @@ public sealed class ConnectViewModel : BaseViewModel
         RememberPassword = p.RememberPassword;
         TelnetLoginEnabled = p.TelnetLoginEnabled;
         TelnetLoginName = string.IsNullOrEmpty(p.TelnetLoginName) ? "mud" : p.TelnetLoginName;
+        MaxColumns = p.MaxColumns;
     }
 
     private async Task SelectProfileAsync(Profile p, bool loadPassword)
@@ -277,6 +282,7 @@ public sealed class ConnectViewModel : BaseViewModel
             existing.RememberPassword = incoming.RememberPassword;
             existing.TelnetLoginEnabled = incoming.TelnetLoginEnabled;
             existing.TelnetLoginName = incoming.TelnetLoginName;
+            existing.MaxColumns = incoming.MaxColumns;
             existing.Fkeys = incoming.Fkeys;
             var idx = SavedProfiles.IndexOf(existing);
             if (idx > 0)

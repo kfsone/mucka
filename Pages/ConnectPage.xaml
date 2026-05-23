@@ -52,7 +52,7 @@
                                  Spacing="16"
                                  Padding="24">
                 <Grid ColumnDefinitions="80,*"
-                      RowDefinitions="Auto,Auto,Auto,Auto,Auto"
+                      RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto"
                       RowSpacing="10"
                       ColumnSpacing="10">
 
@@ -165,7 +165,7 @@
                                Placeholder="mud"
                                SemanticProperties.Description="Telnet login name"/>
                         <Label Grid.Column="3"
-                               Text="ⓘ"
+                               Text="&#x24D8;"
                                TextColor="#1f6feb"
                                FontSize="16"
                                VerticalOptions="Center">
@@ -173,6 +173,31 @@
                                 <TapGestureRecognizer Command="{Binding ShowTelnetHelpCommand}"/>
                             </Label.GestureRecognizers>
                         </Label>
+                    </Grid>
+
+                    <!-- Max Columns: how wide a terminal to advertise via NAWS -->
+                    <Label Grid.Row="5"
+                           Grid.Column="0"
+                           Text="Max Cols"
+                           TextColor="#888888"
+                           VerticalOptions="Center"/>
+                    <Grid Grid.Row="5"
+                          Grid.Column="1"
+                          ColumnDefinitions="80,*"
+                          ColumnSpacing="8">
+                        <Entry Grid.Column="0"
+                               Text="{Binding MaxColumns}"
+                               TextColor="White"
+                               BackgroundColor="#161b22"
+                               Keyboard="Numeric"
+                               SemanticProperties.Description="Max terminal columns"
+                               ToolTipProperties.Text="Terminal width advertised to server via NAWS (20–160)"
+                               ReturnType="Done"/>
+                        <Label Grid.Column="1"
+                               Text="20&#x2013;160 (default 80)"
+                               TextColor="#555555"
+                               FontSize="11"
+                               VerticalOptions="Center"/>
                     </Grid>
 
                 </Grid>

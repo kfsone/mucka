@@ -1,4 +1,6 @@
-﻿using Microsoft.Extensions.Logging;
+using System.Diagnostics;
+using Microsoft.Extensions.Logging;
+using Mucka.Core;
 
 namespace Mucka;
 
@@ -17,6 +19,15 @@ public static class MauiProgram
 
 #if DEBUG
         builder.Logging.AddDebug();
+#endif
+
+#if WINDOWS
+        if (CommandLineArgs.Current.LogPath is { } logPath)
+        {
+            var writer = new StreamWriter(logPath, append: false) { AutoFlush = true };
+            Trace.Listeners.Add(new TextWriterTraceListener(writer, "mucka-file-log"));
+            Trace.AutoFlush = true;
+        }
 #endif
 
         return builder.Build();

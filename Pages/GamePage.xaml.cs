@@ -251,6 +251,17 @@ public partial class GamePage : ContentPage
         }
     }
 
+    private const double CharWidthDp = 8.0;
+
+    protected override void OnSizeAllocated(double width, double height)
+    {
+        base.OnSizeAllocated(width, height);
+        if (width <= 0) return;
+        var displayableCols = (int)Math.Floor(width / CharWidthDp);
+        _vm.NotifyWindowSize(width, displayableCols);
+    }
+
+
     /// <summary>
     /// Called when the user taps the scroll-mode banner — exits scroll mode and returns focus to input.
     /// </summary>
@@ -350,6 +361,12 @@ public partial class GamePage : ContentPage
             e.Handled = true;
             return;
         }
+        if (ctrl && (int)key == 0xC0)  // Ctrl+` (OEM_3 / backtick)
+        {
+            _ = TakeSelfieAsync();
+            e.Handled = true;
+            return;
+        }
 
         if (key < Windows.System.VirtualKey.F1 || key > Windows.System.VirtualKey.F12)
             return;
@@ -383,6 +400,59 @@ public partial class GamePage : ContentPage
         {
             _vm.InputText = string.Empty;
             e.Handled = true;
+        }
+    }
+
+    /// <summary>
+    /// Capture the current window content as a PNG (Ctrl+`).
+    /// Saves to a timestamped file in TEMP and records the path in mucka-latest-selfie.txt
+    /// so the ux-diligence skill can locate it without a file-system search.
+    /// </summary>
+    private async Task TakeSelfieAsync()
+    {
+        try
+        {
+            var nativeWindow = Window?.Handler?.PlatformView as Microsoft.UI.Xaml.Window;
+            if (nativeWindow?.Content is not Microsoft.UI.Xaml.UIElement root) return;
+
+            var rtb = new Microsoft.UI.Xaml.Media.Imaging.RenderTargetBitmap();
+            await rtb.RenderAsync(root);
+            var pixels = await rtb.GetPixelsAsync();
+
+            var ts      = DateTime.Now.ToString("yyyyMMdd-HHmmss");
+            var outPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"mucka-selfie-{ts}.png");
+            var ptrFile = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "mucka-latest-selfie.txt");
+
+            using (var fs = System.IO.File.OpenWrite(outPath))
+            {
+                var winrtStream = fs.AsRandomAccessStream();
+                var encoder = await Windows.Graphics.Imaging.BitmapEncoder.CreateAsync(
+                    Windows.Graphics.Imaging.BitmapEncoder.PngEncoderId, winrtStream);
+                encoder.SetPixelData(
+                    Windows.Graphics.Imaging.BitmapPixelFormat.Bgra8,
+                    Windows.Graphics.Imaging.BitmapAlphaMode.Premultiplied,
+                    (uint)rtb.PixelWidth, (uint)rtb.PixelHeight,
+                    96, 96,
+                    System.Runtime.InteropServices.WindowsRuntime.WindowsRuntimeBufferExtensions.ToArray(pixels));
+                await encoder.FlushAsync();
+            }
+
+            // Record the path so the ux-diligence skill can find it without a search.
+            System.IO.File.WriteAllText(ptrFile, outPath);
+            System.Diagnostics.Trace.WriteLine($"[selfie] {outPath}");
+
+            // Flash the window title briefly so the user knows the selfie was taken.
+            if (Application.Current?.Windows.FirstOrDefault() is Window win)
+            {
+                var origTitle = win.Title;
+                win.Title = $"selfie \u2192 {System.IO.Path.GetFileName(outPath)}";
+                await Task.Delay(3000);
+                win.Title = origTitle;
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Trace.WriteLine($"[selfie] Failed: {ex.Message}");
         }
     }
 #endif

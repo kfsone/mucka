@@ -20,28 +20,37 @@ After any change that affects the Mucka user interface, capture a screenshot of 
 ### 1. Build
 
 ```powershell
-dotnet build -f net10.0-windows10.0.19041.0 -c Debug
+dotnet build Mucka.csproj -f net10.0-windows10.0.19041.0 -c Debug
 ```
 
 Fix any build errors before proceeding.
 
-### 2. Launch the app
+### 2. Ask the user to navigate
+
+The app runs locally on the user's machine. **Do not attempt to automate mouse clicks or keyboard input.**
+Instead, use `ask_user` to tell them where to navigate:
+
+> "Please open Mucka (rebuild if needed) and navigate to [the screen you want to verify]. When it's visible, press **Ctrl+`** (backtick) to take a selfie, then let me know."
+
+The selfie is saved automatically to `%TEMP%\mucka-selfie-<timestamp>.png`, and the path is written to `%TEMP%\mucka-latest-selfie.txt`.
+
+### 3. Read the selfie path and view it
+
+Once the user confirms they've taken the selfie:
 
 ```powershell
-$proc = Start-Process -PassThru (Get-ChildItem "bin\Debug\net10.0-windows10.0.19041.0\*\Mucka.exe" | Select-Object -First 1).FullName
-Start-Sleep -Seconds 3   # wait for window to appear
+$shot = Get-Content "$env:TEMP\mucka-latest-selfie.txt" -Raw
+$shot = $shot.Trim()
+Write-Host "Selfie: $shot"
 ```
 
-### 3. Capture a screenshot
+Then **view** `$shot` — the `view` tool renders PNG files inline.
 
-Use the bundled helper script:
+If the file doesn't exist (app not running or selfie not taken), fall back to the capture script:
 
 ```powershell
 $shot = & .\.github\skills\ux-diligence\scripts\capture-window.ps1
-Write-Host "Screenshot saved: $shot"
 ```
-
-Then **view** the file path returned — the `view` tool renders images inline.
 
 ### 4. Verify
 
@@ -52,20 +61,12 @@ Look at the screenshot and check:
 
 ### 5. Iterate or close
 
-- If something looks wrong, fix the code and repeat from step 1.
+- If something looks wrong, fix the code, ask the user to rebuild and take a fresh selfie, then repeat from step 3.
 - If the UI looks correct, the task is done.
-
-### 6. Clean up
-
-Stop the test process when finished:
-
-```powershell
-if ($proc -and !$proc.HasExited) { Stop-Process -Id $proc.Id }
-```
 
 ## Tips
 
-- Pass `-WindowTitle` to target a specific window title fragment (default: `"mucka"`).
-- Pass `-OutputPath` to control where the PNG is saved.
-- Pass `-FullScreen` to capture the whole desktop if the window isn't found.
-- The helper script brings the window to the foreground before capturing, so minimise other windows if you want a clean shot.
+- Launch with `-logs <path>` on Windows to capture trace output to a file: e.g. `Mucka.exe -logs C:\tmp\mucka.log`
+- The selfie (Ctrl+`) captures only the MAUI page content (no window chrome). For a full window shot, use the PS capture script.
+- Pass `-WindowTitle` to the capture script to target a specific window title fragment (default: `"mucka"`).
+- Pass `-FullScreen` to the script if the window isn't found.
