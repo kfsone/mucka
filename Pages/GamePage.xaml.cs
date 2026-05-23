@@ -13,13 +13,29 @@ public partial class GamePage : ContentPage
     private IDispatcherTimer?      _flushTimer;
 
 #if ANDROID
-    // Set while this page is active so MainActivity can route hardware F-key presses.
+    // Set while this page is active so MainActivity can route hardware key events.
     private static Action<int>? _androidFkeyHandler;
+    private static Action? _androidCtrlDHandler;
+    private static Action? _androidCtrlLHandler;
 
     public static bool TryFireFkeyHandler(int absoluteIndex)
     {
         if (_androidFkeyHandler is null) return false;
         _androidFkeyHandler(absoluteIndex);
+        return true;
+    }
+
+    public static bool TryFireCtrlD()
+    {
+        if (_androidCtrlDHandler is null) return false;
+        _androidCtrlDHandler();
+        return true;
+    }
+
+    public static bool TryFireCtrlL()
+    {
+        if (_androidCtrlLHandler is null) return false;
+        _androidCtrlLHandler();
         return true;
     }
 #endif
@@ -51,6 +67,7 @@ public partial class GamePage : ContentPage
             _vm.Disconnected += OnDisconnected;
             _vm.RequestFocus += FocusInput;
             _vm.EditFkeysRequested += OnEditFkeysRequested;
+            _vm.ClearScreenRequested += OnClearScreenRequested;
 
             ScrollbackWebView.Source = new HtmlWebViewSource { Html = HtmlScrollback.InitialPage };
             ScrollbackWebView.Navigating += OnScrollbackNavigating;
@@ -79,6 +96,8 @@ public partial class GamePage : ContentPage
 
 #if ANDROID
         _androidFkeyHandler = _vm.SendFkeyAbsolute;
+        _androidCtrlDHandler = _vm.SpeakDreamword;
+        _androidCtrlLHandler = _vm.ClearScreen;
 #endif
     }
 
@@ -95,6 +114,8 @@ public partial class GamePage : ContentPage
         base.OnDisappearing();
 #if ANDROID
         _androidFkeyHandler = null;
+        _androidCtrlDHandler = null;
+        _androidCtrlLHandler = null;
 #endif
         if (_isFkeyEditorOpen)
             return;
@@ -107,6 +128,7 @@ public partial class GamePage : ContentPage
         _vm.Disconnected -= OnDisconnected;
         _vm.RequestFocus -= FocusInput;
         _vm.EditFkeysRequested -= OnEditFkeysRequested;
+        _vm.ClearScreenRequested -= OnClearScreenRequested;
         if (Window is not null)
             Window.Activated -= OnWindowActivated;
 #if WINDOWS
@@ -302,6 +324,9 @@ public partial class GamePage : ContentPage
     // Re-focus the typing box when the window regains activation (Alt+Tab back, etc.).
     private void OnWindowActivated(object? sender, EventArgs e) => FocusInput();
 
+    private async void OnClearScreenRequested()
+        => await ExecuteScriptAsync("document.getElementById('out').innerHTML=''");
+
 #if WINDOWS
     [System.Runtime.InteropServices.DllImport("user32.dll")]
     private static extern short GetKeyState(int nVirtKey);
@@ -310,12 +335,26 @@ public partial class GamePage : ContentPage
     {
         if (_isFkeyEditorOpen) return;
         var key = e.Key;
+        bool ctrl  = (GetKeyState((int)Windows.System.VirtualKey.Control) & 0x8000) != 0;
+        bool shift = (GetKeyState((int)Windows.System.VirtualKey.Shift)   & 0x8000) != 0;
+
+        if (ctrl && key == Windows.System.VirtualKey.D)
+        {
+            _vm.SpeakDreamword();
+            e.Handled = true;
+            return;
+        }
+        if (ctrl && key == Windows.System.VirtualKey.L)
+        {
+            _vm.ClearScreen();
+            e.Handled = true;
+            return;
+        }
+
         if (key < Windows.System.VirtualKey.F1 || key > Windows.System.VirtualKey.F12)
             return;
 
         int fkeyNum = (int)key - (int)Windows.System.VirtualKey.F1; // 0-11
-        bool ctrl  = (GetKeyState((int)Windows.System.VirtualKey.Control) & 0x8000) != 0;
-        bool shift = (GetKeyState((int)Windows.System.VirtualKey.Shift)   & 0x8000) != 0;
         int absoluteIndex = ctrl ? 24 + fkeyNum : shift ? 12 + fkeyNum : fkeyNum;
 
         _vm.SendFkeyAbsolute(absoluteIndex);

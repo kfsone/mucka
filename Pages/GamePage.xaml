@@ -92,11 +92,12 @@
                     </Button.Triggers>
                 </Button>
 
-                <!-- Dreamword chip — tap to load into input -->
+                <!-- Dreamword chip — tap to speak; Ctrl+D from keyboard -->
                 <Border Grid.Column="8"
                         BackgroundColor="#1f6feb"
                         Stroke="Transparent" StrokeThickness="0"
                         Padding="6,1" VerticalOptions="Center">
+                    <ToolTipProperties.Text>Speak dreamword (Ctrl+D)</ToolTipProperties.Text>
                     <Border.StrokeShape>
                         <RoundRectangle CornerRadius="4"/>
                     </Border.StrokeShape>

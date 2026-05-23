@@ -184,6 +184,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public event Action? Disconnected;
     public event Action? RequestFocus;
     public event Action? EditFkeysRequested;
+    public event Action? ClearScreenRequested;
 
     public GameViewModel(MuckaConnection conn, Profile profile, Func<string[], Task>? saveFkeysAsync = null)
     {
@@ -381,13 +382,19 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         RequestFocus?.Invoke();
     }
 
-    private void SpeakDreamword()
+    public void SpeakDreamword()
     {
         if (!string.IsNullOrEmpty(_dreamword))
         {
             _conn.Annotate($"dreamword spoken: {_dreamword}");
             _conn.SendLine($"\"{_dreamword}\"");
         }
+        RequestFocus?.Invoke();
+    }
+
+    public void ClearScreen()
+    {
+        ClearScreenRequested?.Invoke();
         RequestFocus?.Invoke();
     }
 

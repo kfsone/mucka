@@ -36,6 +36,10 @@ public class MainActivity : MauiAppCompatActivity
                 if (Pages.GamePage.TryFireFkeyHandler(absoluteIndex))
                     return true;
             }
+            if (e.IsCtrlPressed && e.KeyCode == Keycode.D && Pages.GamePage.TryFireCtrlD())
+                return true;
+            if (e.IsCtrlPressed && e.KeyCode == Keycode.L && Pages.GamePage.TryFireCtrlL())
+                return true;
         }
         return base.DispatchKeyEvent(e);
     }
