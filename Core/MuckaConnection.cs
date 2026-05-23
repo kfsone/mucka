@@ -24,6 +24,7 @@ public sealed class MuckaConnection : IAsyncDisposable
     private Task? _readLoop;
     private CancellationTokenSource? _cts;
     private string _host = string.Empty;
+    private readonly object _writeLock = new();
 
 #if DEBUG
     private readonly SessionCapture _capture = new();
@@ -53,9 +54,10 @@ public sealed class MuckaConnection : IAsyncDisposable
     public void Annotate(string message) { }
 #endif
 
-    public MuckaConnection(string? accountId = null, string? password = null)
+    public MuckaConnection(string? accountId = null, string? password = null, int maxCols = 80)
     {
         _session = new MudSession();
+        _session.SetWindowSize(Math.Clamp(maxCols, 20, 160), 21);
         WireSessionEvents();
         if (!string.IsNullOrEmpty(accountId))
             _loginHandler = new MudLoginHandler(this, accountId, password ?? string.Empty);
@@ -114,6 +116,12 @@ public sealed class MuckaConnection : IAsyncDisposable
     /// <summary>Send raw bytes to the server (no transformation applied).</summary>
     public void SendBytes(byte[] bytes) => _session.Send(bytes);
 
+    /// <summary>
+    /// Update the advertised terminal window size. May be called from any thread.
+    /// Sends an updated NAWS subnegotiation if NAWS has been negotiated with the server.
+    /// </summary>
+    public void SetWindowSize(int cols, int rows) => _session.SetWindowSize(cols, rows);
+
     public async ValueTask DisposeAsync()
     {
         await DisconnectAsync();
@@ -157,14 +165,17 @@ public sealed class MuckaConnection : IAsyncDisposable
 
     private void SendBytesSync(byte[] bytes)
     {
-        try
+        lock (_writeLock)
         {
+            try
+            {
 #if DEBUG
-            _capture.RecordTx(bytes);
+                _capture.RecordTx(bytes);
 #endif
-            _stream?.Write(bytes, 0, bytes.Length);
+                _stream?.Write(bytes, 0, bytes.Length);
+            }
+            catch { /* connection lost — read loop will handle */ }
         }
-        catch { /* connection lost — read loop will handle */ }
     }
 
     private void WireSessionEvents()

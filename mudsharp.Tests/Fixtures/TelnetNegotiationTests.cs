@@ -160,4 +160,59 @@ public class TelnetNegotiationTests
         h.Feed(IAC, DO, OPT_NAWS);
         Assert.Equal(6, h.Outgoing.Count);
     }
+
+    [Fact]
+    public void DoNaws_WithCustomSize_SendsCustomSize()
+    {
+        // SetWindowSize before DO NAWS stores the size; DO NAWS uses it.
+        var h = new ParserHarness();
+        h.Parser.SetWindowSize(120, 24);
+        h.Feed(IAC, DO, OPT_NAWS);
+
+        Assert.Equal(2, h.Outgoing.Count);
+        // Width 120 = 0x0078, Height 24 = 0x0018
+        var expected = new byte[] { IAC, SB, OPT_NAWS, 0x00, 0x78, 0x00, 0x18, IAC, SE };
+        Assert.Equal(expected, h.Outgoing[1]);
+    }
+
+    [Fact]
+    public void SetWindowSize_AfterNaws_SendsUpdatePacket()
+    {
+        // SetWindowSize after negotiation sends a new NAWS subneg without re-sending WILL NAWS.
+        var h = new ParserHarness();
+        h.Feed(IAC, DO, OPT_NAWS);
+        Assert.Equal(2, h.Outgoing.Count);
+
+        h.Parser.SetWindowSize(60, 21);
+        Assert.Equal(3, h.Outgoing.Count);
+        // Width 60 = 0x003C, Height 21 = 0x0015
+        var expected = new byte[] { IAC, SB, OPT_NAWS, 0x00, 0x3C, 0x00, 0x15, IAC, SE };
+        Assert.Equal(expected, h.Outgoing[2]);
+    }
+
+    [Fact]
+    public void SetWindowSize_BeforeNaws_NoExtraPacket()
+    {
+        // SetWindowSize before server sends DO NAWS does not trigger any outgoing packet.
+        var h = new ParserHarness();
+        h.Parser.SetWindowSize(120, 24);
+        Assert.Empty(h.Outgoing);
+    }
+
+    [Fact]
+    public void Reset_PreservesConfiguredWindowSize()
+    {
+        // After Reset() the stored window size is preserved; the next DO NAWS uses it.
+        var h = new ParserHarness();
+        h.Parser.SetWindowSize(100, 30);
+        h.Feed(IAC, DO, OPT_NAWS);
+        Assert.Equal(2, h.Outgoing.Count);
+
+        h.Reset();
+        h.Feed(IAC, DO, OPT_NAWS);
+        Assert.Equal(4, h.Outgoing.Count);
+        // Width 100 = 0x0064, Height 30 = 0x001E
+        var expected = new byte[] { IAC, SB, OPT_NAWS, 0x00, 0x64, 0x00, 0x1E, IAC, SE };
+        Assert.Equal(expected, h.Outgoing[3]);
+    }
 }

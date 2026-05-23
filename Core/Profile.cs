@@ -11,6 +11,8 @@ public class Profile
     public bool RememberPassword { get; set; }
     public bool TelnetLoginEnabled { get; set; } = true;
     public string TelnetLoginName { get; set; } = "mud";
+    /// <summary>Maximum terminal columns to advertise via NAWS. Clamped to 20–160.</summary>
+    public int MaxColumns { get; set; } = 80;
     public string[] Fkeys { get => _fkeys; set => _fkeys = NormalizeFkeys(value); }
 
     private static string[] CreateEmptyFkeys() => new string[36];

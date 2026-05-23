@@ -8,6 +8,8 @@ namespace Mucka.Core;
 /// Warning:
 ///   -password exposes credentials via process listings, shell history, and crash reports.
 ///   Prefer a saved profile or the interactive password prompt when possible.
+/// Windows only:
+///   mucka -logs &lt;path&gt;   — write trace/log output to the specified file (appended, auto-flushed)
 /// Debug builds only:
 ///   mucka [-record]
 /// </summary>
@@ -33,6 +35,11 @@ public sealed class CommandLineArgs
 
     /// <summary>Override the password.</summary>
     public string? Password { get; private set; }
+
+#if WINDOWS
+    /// <summary>If set, trace/log output is written to this file (Windows only).</summary>
+    public string? LogPath { get; private set; }
+#endif
 
     /// <summary>Whether startup arguments request a direct connection instead of showing the profile page.</summary>
     public bool HasDirectConnectOptions =>
@@ -67,6 +74,9 @@ public sealed class CommandLineArgs
                 "user" => true,
                 "account" => true,
                 "password" => true,
+#if WINDOWS
+                "logs" => true,
+#endif
 #if DEBUG
                 "record" => true,
 #endif
@@ -131,6 +141,12 @@ public sealed class CommandLineArgs
                     if (TakeValue() is { } password)
                         result.Password = password;
                     break;
+#if WINDOWS
+                case "logs":
+                    if (TakeValue() is { } logPath)
+                        result.LogPath = logPath;
+                    break;
+#endif
                 default:
                     result.Error = $"Unknown command-line option: {flag}";
                     break;

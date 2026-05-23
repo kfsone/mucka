@@ -128,7 +128,12 @@ public sealed class MudStreamParser
     }
 
     /// <summary>
-    /// Reset all parser state. Call on disconnect before reuse.
+    /// Update the advertised terminal window size. Sends an updated NAWS subnegotiation if
+    /// NAWS has already been negotiated. May be called from any thread.
+    /// </summary>
+    public void SetWindowSize(int cols, int rows) => Telnet.SetWindowSize(cols, rows);
+
+    /// <summary>Reset all parser state. Call on disconnect before reuse.
     /// Fires <see cref="GameModeExited"/> if currently in game mode.
     /// </summary>
     public void Reset()

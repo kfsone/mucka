@@ -16,166 +16,292 @@
         </Style>
     </ContentPage.Resources>
 
-    <Grid RowDefinitions="Auto,*,Auto,Auto,Auto">
+    <Grid RowDefinitions="Auto,Auto,*,Auto,Auto,Auto">
 
         <!-- ── Status bar ───────────────────────────────────────────── -->
         <Border Grid.Row="0"
                 BackgroundColor="#161b22"
                 Padding="6,4" StrokeThickness="0">
-            <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,*,Auto,Auto,Auto,Auto,Auto,Auto">
+            <Grid>
+                <!-- Normal stats bar: visible when effcols >= 76 -->
+                <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,*,Auto,Auto,Auto,Auto,Auto,Auto"
+                      IsVisible="{Binding IsNotCompactStats}">
 
-                <!-- Left: stats -->
-                <Label Grid.Column="0" Style="{StaticResource StatLabelStyle}" Margin="0,0,8,0">
-                    <Label.FormattedText>
-                        <FormattedString>
-                            <Span Text="Sta: " TextColor="#58a6ff"/>
-                            <Span Text="{Binding StaValue}" TextColor="{Binding StaColor}"/>
-                        </FormattedString>
-                    </Label.FormattedText>
-                </Label>
-                <Label Grid.Column="1" Style="{StaticResource StatLabelStyle}" Margin="0,0,8,0"
-                       IsVisible="{Binding MagVisible}">
-                    <Label.FormattedText>
-                        <FormattedString>
-                            <Span Text="Mag: " TextColor="#58a6ff"/>
-                            <Span Text="{Binding MagValue}" TextColor="{Binding MagColor}"/>
-                        </FormattedString>
-                    </Label.FormattedText>
-                </Label>
-                <Label Grid.Column="2" Style="{StaticResource StatLabelStyle}" Margin="0,0,8,0">
-                    <Label.FormattedText>
-                        <FormattedString>
-                            <Span Text="Str: " TextColor="#58a6ff"/>
-                            <Span Text="{Binding StrValue}" TextColor="{Binding StrColor}"/>
-                        </FormattedString>
-                    </Label.FormattedText>
-                </Label>
-                <Label Grid.Column="3" Style="{StaticResource StatLabelStyle}" Margin="0,0,8,0">
-                    <Label.FormattedText>
-                        <FormattedString>
-                            <Span Text="Dex: " TextColor="#58a6ff"/>
-                            <Span Text="{Binding DexValue}" TextColor="{Binding DexColor}"/>
-                        </FormattedString>
-                    </Label.FormattedText>
-                </Label>
+                    <!-- Left: stats -->
+                    <Label Grid.Column="0" Style="{StaticResource StatLabelStyle}" Margin="0,0,8,0">
+                        <Label.FormattedText>
+                            <FormattedString>
+                                <Span Text="Sta: " TextColor="#58a6ff"/>
+                                <Span Text="{Binding StaValue}" TextColor="{Binding StaColor}"/>
+                            </FormattedString>
+                        </Label.FormattedText>
+                    </Label>
+                    <Label Grid.Column="1" Style="{StaticResource StatLabelStyle}" Margin="0,0,8,0"
+                           IsVisible="{Binding MagVisible}">
+                        <Label.FormattedText>
+                            <FormattedString>
+                                <Span Text="Mag: " TextColor="#58a6ff"/>
+                                <Span Text="{Binding MagValue}" TextColor="{Binding MagColor}"/>
+                            </FormattedString>
+                        </Label.FormattedText>
+                    </Label>
+                    <Label Grid.Column="2" Style="{StaticResource StatLabelStyle}" Margin="0,0,8,0">
+                        <Label.FormattedText>
+                            <FormattedString>
+                                <Span Text="Str: " TextColor="#58a6ff"/>
+                                <Span Text="{Binding StrValue}" TextColor="{Binding StrColor}"/>
+                            </FormattedString>
+                        </Label.FormattedText>
+                    </Label>
+                    <Label Grid.Column="3" Style="{StaticResource StatLabelStyle}" Margin="0,0,8,0">
+                        <Label.FormattedText>
+                            <FormattedString>
+                                <Span Text="Dex: " TextColor="#58a6ff"/>
+                                <Span Text="{Binding DexValue}" TextColor="{Binding DexColor}"/>
+                            </FormattedString>
+                        </Label.FormattedText>
+                    </Label>
 
-                <Label Grid.Column="4" Text="|"
-                       Style="{StaticResource StatLabelStyle}" TextColor="#444444" Margin="0,0,8,0"/>
+                    <Label Grid.Column="4" Text="|"
+                           Style="{StaticResource StatLabelStyle}" TextColor="#444444" Margin="0,0,8,0"/>
 
-                <Label Grid.Column="5" Style="{StaticResource StatLabelStyle}">
-                    <Label.FormattedText>
-                        <FormattedString>
-                            <Span Text="Score: " TextColor="#58a6ff"/>
-                            <Span Text="{Binding ScoreValue}" TextColor="{Binding ScoreColor}"/>
-                        </FormattedString>
-                    </Label.FormattedText>
-                </Label>
+                    <Label Grid.Column="5" Style="{StaticResource StatLabelStyle}">
+                        <Label.FormattedText>
+                            <FormattedString>
+                                <Span Text="Score: " TextColor="#58a6ff"/>
+                                <Span Text="{Binding ScoreValue}" TextColor="{Binding ScoreColor}"/>
+                            </FormattedString>
+                        </Label.FormattedText>
+                    </Label>
 
-                <!-- Spacer -->
-                <BoxView Grid.Column="6" Color="Transparent"/>
+                    <!-- Spacer -->
+                    <BoxView Grid.Column="6" Color="Transparent"/>
 
-                <!-- Right: Rec (debug capture, optional) -->
-                <Button Grid.Column="7"
-                        Text="Rec"
-                        Command="{Binding ToggleCaptureCommand}"
-                        IsVisible="{Binding IsCaptureFacilityAvailable}"
-                        SemanticProperties.Description="Toggle capture"
-                        SemanticProperties.Hint="Starts or stops capture"
-                        BackgroundColor="#2d333b" TextColor="#888888"
-                        FontSize="11" WidthRequest="34" HeightRequest="20"
-                        CornerRadius="3" Padding="0" Margin="0,0,4,0">
-                    <Button.Triggers>
-                        <DataTrigger TargetType="Button" Binding="{Binding IsCapturing}" Value="True">
-                            <Setter Property="BackgroundColor" Value="#c02020"/>
-                            <Setter Property="TextColor" Value="White"/>
-                        </DataTrigger>
-                    </Button.Triggers>
-                </Button>
+                    <!-- Rec (debug capture, optional) -->
+                    <Button Grid.Column="7"
+                            Text="Rec"
+                            Command="{Binding ToggleCaptureCommand}"
+                            IsVisible="{Binding IsCaptureFacilityAvailable}"
+                            SemanticProperties.Description="Toggle capture"
+                            SemanticProperties.Hint="Starts or stops capture"
+                            BackgroundColor="#2d333b" TextColor="#888888"
+                            FontSize="11" WidthRequest="34" HeightRequest="20"
+                            CornerRadius="3" Padding="0" Margin="0,0,4,0">
+                        <Button.Triggers>
+                            <DataTrigger TargetType="Button" Binding="{Binding IsCapturing}" Value="True">
+                                <Setter Property="BackgroundColor" Value="#c02020"/>
+                                <Setter Property="TextColor" Value="White"/>
+                            </DataTrigger>
+                        </Button.Triggers>
+                    </Button>
 
-                <!-- Dreamword chip — tap to speak; Ctrl+D from keyboard -->
-                <Border Grid.Column="8"
-                        BackgroundColor="#1f6feb"
-                        Stroke="Transparent" StrokeThickness="0"
-                        Padding="6,1" VerticalOptions="Center">
-                    <ToolTipProperties.Text>Speak dreamword (Ctrl+D)</ToolTipProperties.Text>
-                    <Border.StrokeShape>
-                        <RoundRectangle CornerRadius="4"/>
-                    </Border.StrokeShape>
-                    <Border.GestureRecognizers>
-                        <TapGestureRecognizer Command="{Binding SpeakDreamwordCommand}"/>
-                    </Border.GestureRecognizers>
-                    <Label Text="{Binding DreamwordDisplay}"
-                           TextColor="White"
-                           FontSize="12" VerticalOptions="Center"/>
-                </Border>
+                    <!-- Dreamword chip — tap to speak; Ctrl+D from keyboard -->
+                    <Border Grid.Column="8"
+                            BackgroundColor="#1f6feb"
+                            Stroke="Transparent" StrokeThickness="0"
+                            Padding="6,1" VerticalOptions="Center">
+                        <ToolTipProperties.Text>Speak dreamword (Ctrl+D)</ToolTipProperties.Text>
+                        <Border.StrokeShape>
+                            <RoundRectangle CornerRadius="4"/>
+                        </Border.StrokeShape>
+                        <Border.GestureRecognizers>
+                            <TapGestureRecognizer Command="{Binding SpeakDreamwordCommand}"/>
+                        </Border.GestureRecognizers>
+                        <Label Text="{Binding DreamwordDisplay}"
+                               TextColor="White"
+                               FontSize="12" VerticalOptions="Center"/>
+                    </Border>
 
-                <!-- Separator before weather/TTR group -->
-                <Label Grid.Column="9" Text="|"
-                       Style="{StaticResource StatLabelStyle}" TextColor="#444444"
-                       IsVisible="{Binding AnyRightStatVisible}"
-                       Margin="6,0"/>
+                    <!-- Separator before weather/TTR group -->
+                    <Label Grid.Column="9" Text="|"
+                           Style="{StaticResource StatLabelStyle}" TextColor="#444444"
+                           IsVisible="{Binding AnyRightStatVisible}"
+                           Margin="6,0"/>
 
-                <!-- Weather -->
-                <Label Grid.Column="10" Text="{Binding WeatherText}"
-                       TextColor="{Binding WeatherColor}"
-                       Style="{StaticResource StatLabelStyle}"
-                       IsVisible="{Binding WeatherVisible}"
-                       Margin="0,0,6,0"/>
+                    <!-- Weather: glyph + text (or glyph-only when effcols < 80) -->
+                    <Label Grid.Column="10" Text="{Binding WeatherDisplayText}"
+                           TextColor="{Binding WeatherColor}"
+                           Style="{StaticResource StatLabelStyle}"
+                           IsVisible="{Binding WeatherVisible}"
+                           ToolTipProperties.Text="{Binding WeatherTooltip}"
+                           Margin="0,0,6,0"/>
 
-                <!-- Separator before TTR -->
-                <Label Grid.Column="11" Text="|"
-                       Style="{StaticResource StatLabelStyle}" TextColor="#444444"
-                       IsVisible="{Binding TtrVisible}"
-                       Margin="0,0,6,0"/>
+                    <!-- Separator before TTR -->
+                    <Label Grid.Column="11" Text="|"
+                           Style="{StaticResource StatLabelStyle}" TextColor="#444444"
+                           IsVisible="{Binding TtrVisible}"
+                           Margin="0,0,6,0"/>
 
-                <!-- Time to reset strength -->
-                <Label Grid.Column="12" Text="{Binding TtrText}"
-                       Style="{StaticResource StatLabelStyle}"
-                       IsVisible="{Binding TtrVisible}"
-                       ToolTipProperties.Text="Time to reset strength"/>
+                    <!-- Time to reset strength -->
+                    <Label Grid.Column="12" Text="{Binding TtrText}"
+                           Style="{StaticResource StatLabelStyle}"
+                           IsVisible="{Binding TtrVisible}"
+                           ToolTipProperties.Text="Time to reset strength"/>
 
+                </Grid>
+
+                <!-- Compact stats bar: two rows when effcols < 76 -->
+                <Grid RowDefinitions="Auto,Auto"
+                      ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,*,Auto,Auto,Auto,Auto,Auto"
+                      IsVisible="{Binding IsCompactStats}">
+
+                    <!-- ── Labels row (2pt smaller font) ── -->
+                    <Label Grid.Row="0" Grid.Column="0"
+                           Text="Sta" TextColor="#58a6ff" FontSize="11"
+                           VerticalOptions="End" HorizontalOptions="Center" Margin="0,0,4,0"/>
+                    <Label Grid.Row="0" Grid.Column="1"
+                           Text="Mag" TextColor="#58a6ff" FontSize="11"
+                           IsVisible="{Binding MagVisible}"
+                           VerticalOptions="End" HorizontalOptions="Center" Margin="0,0,4,0"/>
+                    <Label Grid.Row="0" Grid.Column="2"
+                           Text="Str" TextColor="#58a6ff" FontSize="11"
+                           VerticalOptions="End" HorizontalOptions="Center" Margin="0,0,4,0"/>
+                    <Label Grid.Row="0" Grid.Column="3"
+                           Text="Dex" TextColor="#58a6ff" FontSize="11"
+                           VerticalOptions="End" HorizontalOptions="Center" Margin="0,0,4,0"/>
+                    <!-- col 4: | separator — label row spacer -->
+                    <Label Grid.Row="0" Grid.Column="5"
+                           Text="Score" TextColor="#58a6ff" FontSize="11"
+                           VerticalOptions="End" HorizontalOptions="Center" Margin="0,0,4,0"/>
+                    <!-- col 6: * spacer -->
+                    <Label Grid.Row="0" Grid.Column="7"
+                           Text="Dream" TextColor="#58a6ff" FontSize="11"
+                           VerticalOptions="End" HorizontalOptions="Center" Margin="0,0,4,0"/>
+                    <Label Grid.Row="0" Grid.Column="9"
+                           Text="Weath" TextColor="#58a6ff" FontSize="11"
+                           IsVisible="{Binding WeatherVisible}"
+                           VerticalOptions="End" HorizontalOptions="Center" Margin="0,0,4,0"/>
+                    <Label Grid.Row="0" Grid.Column="11"
+                           Text="Rst" TextColor="#58a6ff" FontSize="11"
+                           IsVisible="{Binding TtrVisible}"
+                           VerticalOptions="End" HorizontalOptions="Center"/>
+
+                    <!-- ── Values row ── -->
+                    <Label Grid.Row="1" Grid.Column="0"
+                           Text="{Binding StaValue}" TextColor="{Binding StaColor}"
+                           Style="{StaticResource StatLabelStyle}"
+                           FontSize="{Binding StatsValueFontSize}"
+                           HorizontalOptions="Center" Margin="0,0,4,0"/>
+                    <Label Grid.Row="1" Grid.Column="1"
+                           Text="{Binding MagValue}" TextColor="{Binding MagColor}"
+                           Style="{StaticResource StatLabelStyle}"
+                           FontSize="{Binding StatsValueFontSize}"
+                           IsVisible="{Binding MagVisible}"
+                           HorizontalOptions="Center" Margin="0,0,4,0"/>
+                    <Label Grid.Row="1" Grid.Column="2"
+                           Text="{Binding StrValue}" TextColor="{Binding StrColor}"
+                           Style="{StaticResource StatLabelStyle}"
+                           FontSize="{Binding StatsValueFontSize}"
+                           HorizontalOptions="Center" Margin="0,0,4,0"/>
+                    <Label Grid.Row="1" Grid.Column="3"
+                           Text="{Binding DexValue}" TextColor="{Binding DexColor}"
+                           Style="{StaticResource StatLabelStyle}"
+                           FontSize="{Binding StatsValueFontSize}"
+                           HorizontalOptions="Center" Margin="0,0,4,0"/>
+
+                    <Label Grid.Row="1" Grid.Column="4" Text="|"
+                           Style="{StaticResource StatLabelStyle}" TextColor="#444444"
+                           Margin="0,0,4,0"/>
+
+                    <Label Grid.Row="1" Grid.Column="5"
+                           Text="{Binding ScoreDisplayValue}" TextColor="{Binding ScoreColor}"
+                           Style="{StaticResource StatLabelStyle}"
+                           FontSize="{Binding StatsValueFontSize}"
+                           MaxLines="1" LineBreakMode="TailTruncation"
+                           HorizontalOptions="Center" Margin="0,0,4,0"/>
+
+                    <!-- * spacer col 6 -->
+                    <BoxView Grid.Row="1" Grid.Column="6" Color="Transparent"/>
+
+                    <!-- Dreamword: tappable label -->
+                    <Label Grid.Row="1" Grid.Column="7"
+                           Text="{Binding DreamwordDisplay}"
+                           TextColor="#7db9f5"
+                           Style="{StaticResource StatLabelStyle}"
+                           MaxLines="1" LineBreakMode="TailTruncation"
+                           HorizontalOptions="Center" Margin="0,0,4,0">
+                        <Label.GestureRecognizers>
+                            <TapGestureRecognizer Command="{Binding SpeakDreamwordCommand}"/>
+                        </Label.GestureRecognizers>
+                        <ToolTipProperties.Text>Speak dreamword (Ctrl+D)</ToolTipProperties.Text>
+                    </Label>
+
+                    <Label Grid.Row="1" Grid.Column="8" Text="|"
+                           Style="{StaticResource StatLabelStyle}" TextColor="#444444"
+                           IsVisible="{Binding AnyRightStatVisible}"
+                           Margin="0,0,4,0"/>
+
+                    <Label Grid.Row="1" Grid.Column="9"
+                           Text="{Binding WeatherGlyph}" TextColor="{Binding WeatherColor}"
+                           Style="{StaticResource StatLabelStyle}"
+                           IsVisible="{Binding WeatherVisible}"
+                           ToolTipProperties.Text="{Binding WeatherTooltip}"
+                           HorizontalOptions="Center" Margin="0,0,4,0"/>
+
+                    <Label Grid.Row="1" Grid.Column="10" Text="|"
+                           Style="{StaticResource StatLabelStyle}" TextColor="#444444"
+                           IsVisible="{Binding TtrVisible}"
+                           Margin="0,0,4,0"/>
+
+                    <Label Grid.Row="1" Grid.Column="11"
+                           Text="{Binding TtrText}"
+                           Style="{StaticResource StatLabelStyle}"
+                           IsVisible="{Binding TtrVisible}"
+                           ToolTipProperties.Text="Time to reset strength"
+                           HorizontalOptions="Center"/>
+
+                </Grid>
             </Grid>
         </Border>
 
+        <!-- ── White separator ──────────────────────────────────────── -->
+        <BoxView Grid.Row="1" Color="White" HeightRequest="1" HorizontalOptions="Fill"/>
+
         <!-- ── Scrollback — WebView gives native selection, right-click, and scroll-lock ── -->
-        <WebView Grid.Row="1"
+        <WebView Grid.Row="2"
                  x:Name="ScrollbackWebView"
                  BackgroundColor="#0C0C0C"/>
 
-        <!-- ── F-key bar (collapsible) ──────────────────────────────── -->
-        <ScrollView Grid.Row="2"
-                    x:Name="FkeyBar"
-                    Orientation="Horizontal"
-                    BackgroundColor="#161b22"
-                    HeightRequest="38"
-                    IsVisible="{Binding FkeysVisible}">
-            <HorizontalStackLayout Spacing="3" Padding="4,3">
-                <Button Text="Cfg"
-                        Command="{Binding EditFkeysCommand}"
-                        FontSize="11" HeightRequest="30" WidthRequest="44"
-                        Padding="0"
-                        BackgroundColor="#2d333b" TextColor="#888888"
-                        CornerRadius="3"/>
-                <HorizontalStackLayout BindableLayout.ItemsSource="{Binding FkeyItems}"
-                                       Spacing="3">
-                    <BindableLayout.ItemTemplate>
-                        <DataTemplate x:DataType="vm:FkeyItem">
-                            <Button Text="{Binding Label}"
-                                    Command="{Binding Source={RelativeSource AncestorType={x:Type ContentPage}},
-                                                      Path=BindingContext.FkeyCommand}"
-                                    CommandParameter="{Binding Index, StringFormat='{0}'}"
-                                    FontSize="11" HeightRequest="30" WidthRequest="44"
-                                    Padding="0"
-                                    BackgroundColor="#2d333b" TextColor="#cccccc"
-                                    CornerRadius="3"/>
-                        </DataTemplate>
-                    </BindableLayout.ItemTemplate>
-                </HorizontalStackLayout>
+        <!-- ── Toolbar (collapsible, wraps to fit width) ──────────── -->
+        <Grid Grid.Row="3"
+              x:Name="FkeyBar"
+              ColumnDefinitions="Auto,*"
+              BackgroundColor="#161b22"
+              Padding="{Binding FkeyBarPadding}"
+              IsVisible="{Binding FkeysVisible}">
+            <Button Grid.Column="0"
+                    Text="Cfg"
+                    Command="{Binding EditFkeysCommand}"
+                    FontSize="{Binding FkeyFontSize}" HeightRequest="26" WidthRequest="{Binding FkeyCfgWidth}"
+                    Padding="0"
+                    BackgroundColor="#2d333b" TextColor="#888888"
+                    CornerRadius="3" Margin="{Binding FkeyButtonMargin}"
+                    VerticalOptions="Start"/>
+            <HorizontalStackLayout Grid.Column="1"
+                        x:Name="FkeyFlexLayout"
+                        BindableLayout.ItemsSource="{Binding FkeyItems}">
+                <BindableLayout.ItemTemplate>
+                    <DataTemplate x:DataType="vm:FkeyItem">
+                        <Button Text="{Binding Label}"
+                                Command="{Binding Source={RelativeSource AncestorType={x:Type ContentPage}},
+                                                  Path=BindingContext.FkeyCommand}"
+                                CommandParameter="{Binding Index, StringFormat='{0}'}"
+                                FontSize="{Binding Source={RelativeSource AncestorType={x:Type ContentPage}},
+                                                   Path=BindingContext.FkeyFontSize}"
+                                WidthRequest="{Binding Width}"
+                                HeightRequest="22"
+                                Padding="0"
+                                BackgroundColor="#2d333b" TextColor="#cccccc"
+                                CornerRadius="3"
+                                Margin="{Binding Source={RelativeSource AncestorType={x:Type ContentPage}},
+                                                 Path=BindingContext.FkeyButtonMargin}"/>
+                    </DataTemplate>
+                </BindableLayout.ItemTemplate>
             </HorizontalStackLayout>
-        </ScrollView>
+        </Grid>
 
         <!-- ── Scroll mode banner — overlays the input row when scroll mode is active ── -->
-        <Border Grid.Row="3"
+        <Border Grid.Row="4"
                 IsVisible="{Binding IsScrollMode}"
                 BackgroundColor="#2d1b00"
                 StrokeThickness="0"
@@ -183,7 +309,7 @@
             <Border.GestureRecognizers>
                 <TapGestureRecognizer Tapped="OnScrollModeBannerTapped"/>
             </Border.GestureRecognizers>
-            <Label Text="Scroll Mode — Press Esc or Tap to Exit"
+            <Label Text="Scroll Mode &#x2014; Press Esc or Tap to Exit"
                    TextColor="#e3b341"
                    HorizontalOptions="Center"
                    FontAttributes="Bold"
@@ -191,15 +317,15 @@
         </Border>
 
         <!-- ── Input row — hidden while scroll mode is active ───────── -->
-        <Grid Grid.Row="4"
+        <Grid Grid.Row="5"
               IsVisible="{Binding IsNotScrollMode}"
               ColumnDefinitions="Auto,*,Auto"
               BackgroundColor="#161b22"
               Padding="4,4">
 
-            <!-- Toggle F-key bar -->
+            <!-- Toggle toolbar -->
             <Button Grid.Column="0"
-                    Text="Fn"
+                    Text="&#x2699;&#xFE0E;"
                     Command="{Binding ToggleFkeysCommand}"
                     BackgroundColor="#2d333b" TextColor="#888888"
                     FontSize="11" WidthRequest="36" HeightRequest="36"
@@ -211,7 +337,7 @@
                    TextColor="#CCCCCC"
                    BackgroundColor="#0C0C0C"
                    PlaceholderColor="#444444"
-                   Placeholder="enter command…"
+                   Placeholder="enter command&#x2026;"
                    ReturnCommand="{Binding SendCommand}"
                    ReturnType="Send"
                    ClearButtonVisibility="WhileEditing"
@@ -229,7 +355,7 @@
             </Entry>
 
             <Button Grid.Column="2"
-                    Text="▶"
+                    Text="&#x25B6;"
                     Command="{Binding SendCommand}"
                     BackgroundColor="#1f6feb" TextColor="White"
                     CornerRadius="4" WidthRequest="44" Margin="4,0,0,0"/>
@@ -237,4 +363,3 @@
         </Grid>
     </Grid>
 </ContentPage>
-

@@ -10,7 +10,11 @@ internal sealed class TelnetNegotiator
 
     // One-shot guards (cf Clio's telnet.l lines 210–219)
     private bool _ttypeSent;
-    private bool _nawsSent;
+    private volatile bool _nawsSent;
+
+    // Configured window size — set before connect; updated on resize; preserved across Reset().
+    private int _nawsCols = 80;
+    private int _nawsRows = 21;
 
     // Telnet option codes
     private const byte OPT_ECHO  = 1;
@@ -57,6 +61,19 @@ internal sealed class TelnetNegotiator
     {
         _ttypeSent = false;
         _nawsSent  = false;
+        // _nawsCols / _nawsRows intentionally preserved — configured size survives reconnect.
+    }
+
+    /// <summary>
+    /// Update the advertised window size. Sends an updated NAWS subnegotiation immediately
+    /// if NAWS has already been negotiated with the server. Thread-safe: called from UI thread.
+    /// </summary>
+    internal void SetWindowSize(int cols, int rows)
+    {
+        _nawsCols = cols;
+        _nawsRows = rows;
+        if (_nawsSent)
+            SendNaws((ushort)cols, (ushort)rows);
     }
 
     // ── IAC dispatch ──────────────────────────────────────────────────────────
@@ -96,12 +113,12 @@ internal sealed class TelnetNegotiator
                 break;
 
             case OPT_NAWS:
-                // terminal size negotaition aka Negotiate About Window Size
+                // Negotiate About Window Size one-shot WILL, then subnegotiatie
                 if (!_nawsSent)
                 {
+                    _nawsSent = true;   // set before send to narrow the cross-thread race window
                     Send(IAC, WILL, OPT_NAWS);
-                    SendNaws(80, 21);
-                    _nawsSent = true;
+                    SendNaws((ushort)_nawsCols, (ushort)_nawsRows);
                 }
                 break;
 
