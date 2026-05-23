@@ -7,51 +7,82 @@
              BackgroundColor="#0C0C0C"
              NavigationPage.HasNavigationBar="False">
 
+    <ContentPage.Resources>
+        <Style x:Key="StatLabelStyle" TargetType="Label">
+            <Setter Property="TextColor" Value="White"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="VerticalOptions" Value="Center"/>
+            <Setter Property="FontFamily" Value="{OnPlatform Android='monospace', WinUI='Cascadia Mono', MacCatalyst='Menlo-Regular'}"/>
+        </Style>
+    </ContentPage.Resources>
+
     <Grid RowDefinitions="Auto,*,Auto,Auto,Auto">
 
         <!-- ── Status bar ───────────────────────────────────────────── -->
         <Border Grid.Row="0"
                 BackgroundColor="#161b22"
                 Padding="6,4" StrokeThickness="0">
-            <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,*,Auto,Auto">
+            <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,*,Auto,Auto,Auto,Auto,Auto,Auto">
 
-                <Label Grid.Column="0"
-                       Text="{Binding StaText}"
-                       TextColor="#58a6ff" VerticalOptions="Center" Margin="0,0,8,0"/>
+                <!-- Left: stats -->
+                <Label Grid.Column="0" Style="{StaticResource StatLabelStyle}" Margin="0,0,8,0">
+                    <Label.FormattedText>
+                        <FormattedString>
+                            <Span Text="Sta: " TextColor="#58a6ff"/>
+                            <Span Text="{Binding StaValue}" TextColor="{Binding StaColor}"/>
+                        </FormattedString>
+                    </Label.FormattedText>
+                </Label>
+                <Label Grid.Column="1" Style="{StaticResource StatLabelStyle}" Margin="0,0,8,0"
+                       IsVisible="{Binding MagVisible}">
+                    <Label.FormattedText>
+                        <FormattedString>
+                            <Span Text="Mag: " TextColor="#58a6ff"/>
+                            <Span Text="{Binding MagValue}" TextColor="{Binding MagColor}"/>
+                        </FormattedString>
+                    </Label.FormattedText>
+                </Label>
+                <Label Grid.Column="2" Style="{StaticResource StatLabelStyle}" Margin="0,0,8,0">
+                    <Label.FormattedText>
+                        <FormattedString>
+                            <Span Text="Str: " TextColor="#58a6ff"/>
+                            <Span Text="{Binding StrValue}" TextColor="{Binding StrColor}"/>
+                        </FormattedString>
+                    </Label.FormattedText>
+                </Label>
+                <Label Grid.Column="3" Style="{StaticResource StatLabelStyle}" Margin="0,0,8,0">
+                    <Label.FormattedText>
+                        <FormattedString>
+                            <Span Text="Dex: " TextColor="#58a6ff"/>
+                            <Span Text="{Binding DexValue}" TextColor="{Binding DexColor}"/>
+                        </FormattedString>
+                    </Label.FormattedText>
+                </Label>
 
-                <Label Grid.Column="1"
-                       Text="{Binding TtrText}"
-                       TextColor="#c084fc" VerticalOptions="Center" Margin="0,0,8,0"/>
+                <Label Grid.Column="4" Text="|"
+                       Style="{StaticResource StatLabelStyle}" TextColor="#444444" Margin="0,0,8,0"/>
 
-                <Label Grid.Column="2"
-                       Text="{Binding WeatherText}"
-                       TextColor="#79c0ff" VerticalOptions="Center" Margin="0,0,8,0"/>
+                <Label Grid.Column="5" Style="{StaticResource StatLabelStyle}">
+                    <Label.FormattedText>
+                        <FormattedString>
+                            <Span Text="Score: " TextColor="#58a6ff"/>
+                            <Span Text="{Binding ScoreValue}" TextColor="{Binding ScoreColor}"/>
+                        </FormattedString>
+                    </Label.FormattedText>
+                </Label>
 
-                <Label Grid.Column="3"
-                       Text="{Binding StrText}"
-                       TextColor="#3fb950" VerticalOptions="Center" Margin="0,0,8,0"/>
+                <!-- Spacer -->
+                <BoxView Grid.Column="6" Color="Transparent"/>
 
-                <Label Grid.Column="4"
-                       Text="{Binding DexText}"
-                       TextColor="#e3b341" VerticalOptions="Center" Margin="0,0,8,0"/>
-
-                <Label Grid.Column="5"
-                       Text="{Binding ScoreText}"
-                       TextColor="#cccccc" VerticalOptions="Center" Margin="0,0,8,0"/>
-
-                <Label Grid.Column="6"
-                       Text="{Binding Rank}"
-                       TextColor="#888888" VerticalOptions="Center" FontSize="12"/>
-
-                <!-- Capture toggle — debug builds only -->
+                <!-- Right: Rec (debug capture, optional) -->
                 <Button Grid.Column="7"
-                        Text="⏺"
+                        Text="Rec"
                         Command="{Binding ToggleCaptureCommand}"
                         IsVisible="{Binding IsCaptureFacilityAvailable}"
                         SemanticProperties.Description="Toggle capture"
                         SemanticProperties.Hint="Starts or stops capture"
                         BackgroundColor="#2d333b" TextColor="#888888"
-                        FontSize="11" WidthRequest="30" HeightRequest="24"
+                        FontSize="11" WidthRequest="34" HeightRequest="20"
                         CornerRadius="3" Padding="0" Margin="0,0,4,0">
                     <Button.Triggers>
                         <DataTrigger TargetType="Button" Binding="{Binding IsCapturing}" Value="True">
@@ -61,11 +92,11 @@
                     </Button.Triggers>
                 </Button>
 
-                <!-- Dreamword chip — tap to load into input; shows placeholder when no word known -->
+                <!-- Dreamword chip — tap to load into input -->
                 <Border Grid.Column="8"
                         BackgroundColor="#1f6feb"
                         Stroke="Transparent" StrokeThickness="0"
-                        Padding="8,2">
+                        Padding="6,1" VerticalOptions="Center">
                     <Border.StrokeShape>
                         <RoundRectangle CornerRadius="4"/>
                     </Border.StrokeShape>
@@ -74,15 +105,33 @@
                     </Border.GestureRecognizers>
                     <Label Text="{Binding DreamwordDisplay}"
                            TextColor="White"
-                           FontSize="12" VerticalOptions="Center">
-                        <Label.Triggers>
-                            <DataTrigger TargetType="Label"
-                                         Binding="{Binding DreamwordIsPlaceholder}" Value="True">
-                                <Setter Property="TextColor" Value="Gray"/>
-                            </DataTrigger>
-                        </Label.Triggers>
-                    </Label>
+                           FontSize="12" VerticalOptions="Center"/>
                 </Border>
+
+                <!-- Separator before weather/TTR group -->
+                <Label Grid.Column="9" Text="|"
+                       Style="{StaticResource StatLabelStyle}" TextColor="#444444"
+                       IsVisible="{Binding AnyRightStatVisible}"
+                       Margin="6,0"/>
+
+                <!-- Weather -->
+                <Label Grid.Column="10" Text="{Binding WeatherText}"
+                       TextColor="{Binding WeatherColor}"
+                       Style="{StaticResource StatLabelStyle}"
+                       IsVisible="{Binding WeatherVisible}"
+                       Margin="0,0,6,0"/>
+
+                <!-- Separator before TTR -->
+                <Label Grid.Column="11" Text="|"
+                       Style="{StaticResource StatLabelStyle}" TextColor="#444444"
+                       IsVisible="{Binding TtrVisible}"
+                       Margin="0,0,6,0"/>
+
+                <!-- Time to reset strength -->
+                <Label Grid.Column="12" Text="{Binding TtrText}"
+                       Style="{StaticResource StatLabelStyle}"
+                       IsVisible="{Binding TtrVisible}"
+                       ToolTipProperties.Text="Time to reset strength"/>
 
             </Grid>
         </Border>

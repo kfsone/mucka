@@ -706,7 +706,8 @@ internal sealed class Mud2C1Decoder
             DreamWord:    _parser.CurrentDreamword,
             PersonaSaved: false,
             AccountId:    _parser.CurrentAccountId,
-            Privs:        _parser.CurrentPrivs
+            Privs:        _parser.CurrentPrivs,
+            StaminaColor: staColorHint
         );
         _parser.SetWeather(weather);
         _parser.EmitStatsUpdate(snapshot);
