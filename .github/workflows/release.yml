@@ -41,7 +41,7 @@ jobs:
             -p:ApplicationVersion=${{ github.run_number }}
 
       - name: Sign executable
-        if: ${{ secrets.WINDOWS_CERT_PFX_BASE64 != '' }}
+        if: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
         shell: pwsh
         env:
           PFX_B64: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
