@@ -71,6 +71,22 @@ public sealed class FkeyEditorViewModel : BaseViewModel
         CloseRequested?.Invoke();
     }
 
+    /// <summary>
+    /// Populates all editor fields from an imported fkeys array (e.g. from clio.ini).
+    /// Shorter arrays are padded with empty strings; existing entries beyond the provided
+    /// length are cleared to empty.
+    /// </summary>
+    public void ImportFkeys(string[] fkeys)
+    {
+        for (int mod = 0; mod < 3; mod++)
+            for (int k = 0; k < 12; k++)
+            {
+                int idx = mod * 12 + k;
+                _pages[mod][k].Command = idx < fkeys.Length ? fkeys[idx] ?? string.Empty : string.Empty;
+            }
+        OnPropertyChanged(nameof(CurrentPageItems));
+    }
+
     private string[] CollectFkeys()
     {
         var result = new string[36];

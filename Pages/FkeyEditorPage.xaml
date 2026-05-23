@@ -81,8 +81,18 @@
             </VerticalStackLayout>
         </ScrollView>
 
-        <Grid Grid.Row="2" ColumnDefinitions="*,*,*" ColumnSpacing="8">
+        <!-- Import button: shown on Windows only; wired in code-behind via #if WINDOWS -->
+        <Grid Grid.Row="2" ColumnDefinitions="*,*,*,*" ColumnSpacing="8">
             <Button Grid.Column="0"
+                    x:Name="ImportButton"
+                    Text="Import"
+                    ToolTipProperties.Text="Import from clio.ini"
+                    IsVisible="False"
+                    BackgroundColor="#2d333b"
+                    TextColor="#cccccc"
+                    CornerRadius="4"
+                    HeightRequest="44" />
+            <Button Grid.Column="1"
                     Text="Save"
                     Command="{Binding SaveCommand}"
                     IsEnabled="{Binding CanSave}"
@@ -90,14 +100,14 @@
                     TextColor="White"
                     CornerRadius="4"
                     HeightRequest="44" />
-            <Button Grid.Column="1"
+            <Button Grid.Column="2"
                     Text="Apply"
                     Command="{Binding ApplyCommand}"
                     BackgroundColor="#2d333b"
                     TextColor="#cccccc"
                     CornerRadius="4"
                     HeightRequest="44" />
-            <Button Grid.Column="2"
+            <Button Grid.Column="3"
                     Text="Cancel"
                     Command="{Binding CancelCommand}"
                     BackgroundColor="#2d333b"
