@@ -1,3 +1,5 @@
+using MudSharp.Models;
+
 namespace MudSharp.Tests.Fixtures;
 
 /// <summary>
@@ -10,6 +12,10 @@ namespace MudSharp.Tests.Fixtures;
 /// ({C01}{C255}{C01}{C02}{C255}*{C255}{C255}) — which arrives WITHOUT a trailing
 /// newline — so the '*' must never accumulate in the span buffer and leak into the
 /// next real game line.
+///
+/// The emission rule: a wire prompt is shown only when the same received TCP packet
+/// (Feed() call) contains a '\n' before the preamble. FES heartbeat responses arrive
+/// as a bare prompt preamble (no '\n') and are always suppressed.
 /// </summary>
 public class GamePromptTests
 {
@@ -33,6 +39,14 @@ public class GamePromptTests
         0xFF, 0xFF,             // C255 → pop LT_BLUE
         0xFF, 0xFF,             // C255 → pop BLUE
     ];
+
+    /// <summary>
+    /// Return a single byte[] combining Latin-1 encoded <paramref name="text"/> with the
+    /// wire prompt preamble. This simulates a server packet that contains game output
+    /// followed immediately by the prompt (the normal case: same TCP segment).
+    /// </summary>
+    private static byte[] WithPrompt(string text)
+        => [..System.Text.Encoding.Latin1.GetBytes(text), ..WirePromptPreamble];
 
     [Fact]
     public void AllAsteriskLine_InGameMode_Suppressed()
@@ -121,15 +135,11 @@ public class GamePromptTests
     [Fact]
     public void WirePrompt_FirstAfterNewline_EmittedAsPartial()
     {
-        // After a newline PromptAllowed=true; the first wire prompt should appear as
-        // a partial line (the visible '*' game prompt).
+        // Newline and wire prompt arrive in the same TCP packet — the prompt is shown.
         var h = InGameMode();
-        h.Feed("You arrive in the tearoom.\n");
-        h.Lines.Clear();
-        h.Feed(WirePromptPreamble);
-        Assert.Single(h.Lines);
-        Assert.True(h.Lines[0].IsPartial);
-        Assert.Equal("*", string.Concat(h.Lines[0].Spans.Select(s => s.Text)));
+        h.Feed(WithPrompt("You arrive in the tearoom.\n"));
+        var line = Assert.Single(h.Lines, l => l.IsPartial);
+        Assert.Equal("*", string.Concat(line.Spans.Select(s => s.Text)));
     }
 
     [Fact]
@@ -137,11 +147,9 @@ public class GamePromptTests
     {
         // After the first wire prompt, PromptAllowed=false; subsequent ones must be swallowed.
         var h = InGameMode();
-        h.Feed("You arrive in the tearoom.\n");
+        h.Feed(WithPrompt("You arrive in the tearoom.\n")); // first → partial '*' emitted
         h.Lines.Clear();
-        h.Feed(WirePromptPreamble); // first → partial '*' emitted
-        h.Lines.Clear();
-        h.Feed(WirePromptPreamble); // second → suppress
+        h.Feed(WirePromptPreamble); // second (bare, no '\n') → suppress
         Assert.Empty(h.Lines);
     }
 
@@ -151,9 +159,7 @@ public class GamePromptTests
         // Core regression: '*' from the wire prompt must NOT appear at the start of the
         // next game line.  Before this fix, spans accumulated and were prepended.
         var h = InGameMode();
-        h.Feed("You arrive in the tearoom.\n");
-        h.Lines.Clear();
-        h.Feed(WirePromptPreamble); // emit '*' as partial, clear spans
+        h.Feed(WithPrompt("You arrive in the tearoom.\n")); // emit '*' as partial, clear spans
         h.Lines.Clear();
         h.Feed("OK, you wave.\n");  // real game output
         Assert.Single(h.Lines);
@@ -167,9 +173,7 @@ public class GamePromptTests
     {
         // Same regression check but via the suppressed (second) prompt path.
         var h = InGameMode();
-        h.Feed("You arrive in the tearoom.\n");
-        h.Lines.Clear();
-        h.Feed(WirePromptPreamble); // first
+        h.Feed(WithPrompt("You arrive in the tearoom.\n")); // first
         h.Feed(WirePromptPreamble); // second → suppressed
         h.Lines.Clear();
         h.Feed("Drizzle the wobbly mage arrives.\n");
@@ -183,16 +187,73 @@ public class GamePromptTests
     public void WirePrompt_NewlineResetsAllowed_PromptVisibleAgain()
     {
         // After a real game line (which emits \n and resets PromptAllowed), the next
-        // wire prompt must again be shown as a partial.
+        // wire prompt in the same packet must again be shown as a partial.
         var h = InGameMode();
-        h.Feed("You arrive in the tearoom.\n");
-        h.Lines.Clear();
-        h.Feed(WirePromptPreamble); // first → partial
+        h.Feed(WithPrompt("You arrive in the tearoom.\n")); // first → partial
         h.Feed(WirePromptPreamble); // second → suppressed
-        h.Feed("OK, you wave.\n");  // newline resets PromptAllowed=true
         h.Lines.Clear();
-        h.Feed(WirePromptPreamble); // next frame's prompt → partial again
+        h.Feed(WithPrompt("OK, you wave.\n")); // newline + prompt in same packet → partial again
+        var line = Assert.Single(h.Lines, l => l.IsPartial);
+        Assert.Equal("*", string.Concat(line.Spans.Select(s => s.Text)));
+    }
+
+    // ── FES heartbeat suppression tests ──────────────────────────────────────
+
+    [Fact]
+    public void WirePrompt_FesHeartbeat_BarePromptPacket_Suppressed()
+    {
+        // A FES heartbeat response is a bare wire prompt preamble with no preceding '\n'.
+        // It must be suppressed even when PromptAllowed=true (e.g. after a command echo).
+        var h = InGameMode();
+        h.Feed("score\r\n");           // command echo: PromptAllowed=true, but separate packet
+        h.Feed(WirePromptPreamble);    // FES heartbeat response: no '\n' in this packet → suppress
+        Assert.DoesNotContain(h.Lines, l => l.IsPartial);
+    }
+
+    [Fact]
+    public void WirePrompt_FesHeartbeat_DoesNotConsumePromptAllowed()
+    {
+        // A suppressed FES heartbeat must NOT consume PromptAllowed.
+        // The next real server packet (game text + wire prompt in same segment) must still emit.
+        var h = InGameMode();
+        h.Feed("score\r\n");           // command echo
+        h.Feed(WirePromptPreamble);    // FES heartbeat → suppressed
+        h.Lines.Clear();
+        h.Feed(WithPrompt("You scored 42 points.\n")); // real response with prompt in same packet
+        var line = Assert.Single(h.Lines, l => l.IsPartial);
+        Assert.Equal("*", string.Concat(line.Spans.Select(s => s.Text)));
+    }
+
+    [Fact]
+    public void WirePrompt_FesHeartbeat_DoesNotLeakAsteriskIntoNextLine()
+    {
+        // Suppressed FES heartbeat must not leave '*' in the span buffer.
+        var h = InGameMode();
+        h.Feed("score\r\n");
+        h.Feed(WirePromptPreamble);    // FES heartbeat → suppressed
+        h.Lines.Clear();
+        h.Feed("You scored 42 points.\n");
         Assert.Single(h.Lines);
-        Assert.True(h.Lines[0].IsPartial);
+        var text = string.Concat(h.Lines[0].Spans.Select(s => s.Text));
+        Assert.DoesNotContain("*", text);
+        Assert.Contains("42 points", text);
+    }
+
+    [Fact]
+    public void WirePrompt_AfterPrompt_NextTextIsNotPromptColour()
+    {
+        // After the wire prompt's two C1 pops complete, subsequent text must not inherit
+        // the prompt's BLUE or LT_BLUE colour.  The PopColour() stack unwind must restore
+        // either the pre-prompt colour (if any) or TextStyle.Default (if the stack is empty),
+        // never stale prompt blue.
+        var h = InGameMode();   // pushes LT_GREEN (BrightGreen) as base game-mode colour
+        h.Feed(WithPrompt("You arrive in the tearoom.\n"));
+        h.Lines.Clear();
+        h.Feed("go north\r\n");
+        var line = Assert.Single(h.Lines);
+        Assert.All(line.Spans, span => {
+            Assert.NotEqual(AnsiColor.Blue,       span.Style.Foreground);
+            Assert.NotEqual(AnsiColor.BrightBlue, span.Style.Foreground);
+        });
     }
 }

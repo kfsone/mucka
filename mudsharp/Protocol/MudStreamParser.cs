@@ -55,6 +55,11 @@ public sealed class MudStreamParser
     private readonly StringBuilder _text = new();
     private bool _inGameMode;
 
+    // True if the current Feed() call has processed a '\n' — used to gate wire-prompt
+    // emission. A FES heartbeat response contains only the prompt preamble (no '\n'),
+    // so this flag is false when it arrives and the prompt is suppressed.
+    private bool _hadNewlineInCurrentFeed;
+
     // ── Game state ────────────────────────────────────────────────────────────
     public bool InGameMode => _inGameMode;
 
@@ -63,6 +68,14 @@ public sealed class MudStreamParser
     /// Set to true by each newline and by C98; set to false by the prompt preamble detector.
     /// </summary>
     internal bool PromptAllowed { get; set; } = true;
+
+    /// <summary>
+    /// True if a '\n' has been processed in the current <see cref="Feed"/> call.
+    /// Cleared at the start of every Feed(). Used by the C01 game-mode dispatch to
+    /// distinguish a real prompt (preceded by content in the same packet) from a
+    /// FES heartbeat response (which contains only the prompt preamble, no '\n').
+    /// </summary>
+    internal bool HadNewlineInCurrentFeed => _hadNewlineInCurrentFeed;
 
     /// <summary>
     /// When true, EmitChar discards non-newline characters.
@@ -106,6 +119,7 @@ public sealed class MudStreamParser
     /// </summary>
     public void Feed(ReadOnlySpan<byte> data)
     {
+        _hadNewlineInCurrentFeed = false;
         foreach (var b in data)
             ProcessByte(b);
     }
@@ -130,6 +144,7 @@ public sealed class MudStreamParser
         PromptAllowed = true;
         SuppressNextText = false;
         EmitPartialOnPop = false;
+        _hadNewlineInCurrentFeed = false;
         CurrentDreamword = null;
         CurrentAccountId = null;
         CurrentPrivs = 0;
@@ -152,6 +167,7 @@ public sealed class MudStreamParser
             var line = new StyledLine(_spans.ToArray(), isPartial: false);
             _spans.Clear();
             PromptAllowed = true;   // Clio: prompt_allowed = 1 on each newline
+            _hadNewlineInCurrentFeed = true;
                 SuppressNextText = false;
                 EmitPartialOnPop = false;
                 if (isAsteriskPreamble) return;

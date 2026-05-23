@@ -82,6 +82,13 @@ internal sealed class Mud2C1Decoder
             _parser.EmitPartialOnPop = false;
         }
         _parser.SuppressNextText = false;
+
+        // Restore style to default when the C1 colour stack is fully unwound.
+        // Clio ignores this case (pop() == -1, commented out), but we must explicitly reset
+        // Ansi.CurrentStyle or subsequent text inherits the last C1 colour (e.g. BLUE from
+        // the wire prompt preamble, making command echoes appear in prompt colour).
+        if (_colourStack.Count == 0)
+            _parser.Ansi.SetStyle(TextStyle.Default);
     }
 
     /// <summary>
@@ -265,12 +272,18 @@ internal sealed class Mud2C1Decoder
                     _parser.EnterGameMode();
                     if (wasAlreadyInGameMode)
                     {
-                        if (!_parser.PromptAllowed)
-                            _parser.SuppressNextText = true;
-                        else
+                        // Gate prompt emission on whether this packet contained a '\n' before
+                        // the preamble (Clio: prompt_allowed gate, telnet.l:438-444).
+                        // FES heartbeat responses arrive as a bare prompt preamble with no
+                        // preceding newline; _hadNewlineInCurrentFeed catches that case.
+                        if (_parser.PromptAllowed && _parser.HadNewlineInCurrentFeed)
                         {
                             _parser.PromptAllowed = false;
                             _parser.EmitPartialOnPop = true;
+                        }
+                        else
+                        {
+                            _parser.SuppressNextText = true;
                         }
                     }
                 }

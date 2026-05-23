@@ -148,10 +148,12 @@ public partial class GamePage : ContentPage
             }
             else
             {
-                // If a partial span exists, finalise it (update content + promote to .ln).
-                // Only append a new span when there is no partial to avoid duplicates.
-                var innerJson = JsonSerializer.Serialize(html + "\u200b");
-                sb.Append($"(function(){{var p=o.querySelector('.lnp');if(p){{p.innerHTML={innerJson};p.className='ln';}}else{{o.insertAdjacentHTML('beforeend',{jsonHtml});}}}})();");
+                // Finalise any existing partial span (promote .lnp → .ln, keep its content so
+                // the prompt character remains visible on its own line), then always append the
+                // new complete line.  Replacing the partial's content with the echo text would
+                // make the prompt disappear; promoting + appending matches Clio's output model
+                // where the prompt and the command echo occupy separate lines.
+                sb.Append($"(function(){{var p=o.querySelector('.lnp');if(p)p.className='ln';o.insertAdjacentHTML('beforeend',{jsonHtml});}})();");
             }
         }
 
