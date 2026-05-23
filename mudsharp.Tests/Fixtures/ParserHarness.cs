@@ -18,6 +18,7 @@ internal sealed class ParserHarness
     public int GameModeEnteredAtLineIndex { get; private set; } = -1;
     public List<string?> Dreamwords { get; } = new();
     public List<string> ClientModeData { get; } = new();
+    public List<string> Sounds { get; } = new();
 
     public ParserHarness()
     {
@@ -28,6 +29,7 @@ internal sealed class ParserHarness
         Parser.OutgoingBytes      += b => Outgoing.Add(b);
         Parser.DreamwordChanged   += w => Dreamwords.Add(w);
         Parser.ClientModeReceived += d => ClientModeData.Add(d);
+        Parser.SoundRequested     += s => Sounds.Add(s);
     }
 
     public void Feed(params byte[] data) => Parser.Feed(data);

@@ -160,4 +160,17 @@ internal sealed class GameLineAnalyzer
             if (c != ',') buf[len++] = c;
         return int.TryParse(buf[..len], out var val) ? val : 0;
     }
+
+    // Text triggers mirror Clio's sound.c pattern matches (game mode only).
+    internal string? CheckSoundTrigger(StyledLine line)
+    {
+        var text = line.PlainText;
+        if (text.StartsWith("Out from the end of the cannon flies a projectile, which smashes", StringComparison.Ordinal))
+            return "sounds/clio.1313.wav";
+        if (text.StartsWith("HAWUMPH! The dragon incinerates you with its fiery breath.", StringComparison.Ordinal))
+            return "sounds/clio.1325.wav";
+        if (text.StartsWith("You hear a near-deafening crash, as if millions of gallons of water", StringComparison.Ordinal))
+            return "sounds/clio.1326.wav";
+        return null;
+    }
 }
