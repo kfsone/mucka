@@ -41,12 +41,12 @@ jobs:
             -p:ApplicationVersion=${{ github.run_number }}
 
       - name: Sign executable
-        if: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
         shell: pwsh
         env:
           PFX_B64: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
           PFX_PASS: ${{ secrets.WINDOWS_CERT_PFX_PASSWORD }}
         run: |
+          if (-not $env:PFX_B64) { Write-Host "No signing cert configured, skipping."; exit 0 }
           $exe = Get-ChildItem -Path bin\Release -Recurse -Filter Mucka.exe |
             Where-Object { $_.FullName -notlike '*\ref\*' } |
             Sort-Object LastWriteTime -Descending |
