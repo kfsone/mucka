@@ -109,6 +109,37 @@ public partial class GamePage : ContentPage
         FocusInput();
     }
 
+    protected override bool OnBackButtonPressed()
+    {
+        // If the fkey editor is open, allow back button to close it (it's handled by the page itself)
+        if (_isFkeyEditorOpen)
+            return false;
+
+        // If in game mode, prompt for confirmation before disconnecting
+        if (_vm.IsInGameMode)
+        {
+            _ = ConfirmDisconnectAsync();
+            return true; // Consume the back button press
+        }
+
+        return false; // Allow default back behavior
+    }
+
+    private async Task ConfirmDisconnectAsync()
+    {
+        var result = await DisplayAlertAsync(
+            "Disconnect?",
+            "You are in the game. Do you want to disconnect?",
+            "Disconnect",
+            "Cancel");
+
+        if (result)
+        {
+            // User confirmed disconnect — proceed with navigation
+            await Navigation.PopAsync();
+        }
+    }
+
     protected override void OnDisappearing()
     {
         base.OnDisappearing();

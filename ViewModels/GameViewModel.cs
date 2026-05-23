@@ -40,6 +40,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private bool _fkeysVisible = DeviceInfo.Platform != DevicePlatform.WinUI;
     private bool _isScrollMode;
     private bool _isCapturing;
+    private bool _isInGameMode;
 
     // Lines from the TCP thread are enqueued here; the UI timer flushes them in batches.
     private readonly ConcurrentQueue<StyledLine> _pendingLines = new();
@@ -70,6 +71,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public bool IsScrollMode { get => _isScrollMode; set { Set(ref _isScrollMode, value); OnPropertyChanged(nameof(IsNotScrollMode)); } }
     public bool IsNotScrollMode => !_isScrollMode;
     public bool IsCapturing { get => _isCapturing; private set => Set(ref _isCapturing, value); }
+    public bool IsInGameMode { get => _isInGameMode; private set => Set(ref _isInGameMode, value); }
 
     /// <summary>True only in debug builds — controls visibility of the capture button.</summary>
     public bool IsCaptureFacilityAvailable { get; } =
@@ -251,8 +253,8 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private void OnLineReady(StyledLine line) => _pendingLines.Enqueue(line);
 
     // MudSession owns the FES heartbeat — nothing to do in GameViewModel on mode transitions.
-    private void OnGameModeEntered() { }
-    private void OnGameModeExited()  { }
+    private void OnGameModeEntered() => IsInGameMode = true;
+    private void OnGameModeExited() => IsInGameMode = false;
 
     /// <summary>
     /// Called by GamePage's 50ms timer on the UI thread.
