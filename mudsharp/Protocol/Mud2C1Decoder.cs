@@ -186,13 +186,13 @@ internal sealed class Mud2C1Decoder
             return ParserState.DreamwordData;
         }
 
-        // End of dreamword — emit and reprocess the terminating byte
+        // End of dreamword — emit and reprocess the terminating byte.
+        // C (BLACK/CYAN) was already pushed onto the stack when we entered DreamwordData;
+        // do NOT call Apply again or the stack will have an extra entry that the server's
+        // subsequent \xFF\xFF pop cannot balance, leaving CYAN active for the rest of the line.
         if (buf.Count > 0)
         {
             var word = Encoding.ASCII.GetString(buf.ToArray());
-            // Apply BLACK/CYAN and emit the dreamword as visible text (per Clio wdisplay)
-            _parser.FlushSpan();
-            Apply(BLACK, CYAN);
             foreach (var ch in word)
                 _parser.EmitChar(ch);
             _parser.EmitDreamwordChanged(word);
@@ -653,10 +653,12 @@ internal sealed class Mud2C1Decoder
             var b2 = rawBytes[i];
             if (b2 == 0xFE && i + 1 < rawBytes.Count)
             {
-                // C99 color marker — record first occurrence as the stamina color hint.
-                if (staColorHint == 0)
-                    staColorHint = rawBytes[i + 1];
-                i++; // skip the color byte; do not emit either byte as text
+                // C99 c marker — record first occurrence as the stamina c hint.
+                // The byte following 0xFE is a C1 byte (0x9B + ANSI index); subtract 0x9B
+                // to produce the 0–15 ANSI index expected by GameViewModel.AnsiToColor.
+                if (staCHint == 0)
+                    staCHint = (byte)Math.Clamp(rawBytes[i + 1] - 0x9B, 0, 15);
+                i++; // skip the c byte; do not emit either byte as text
                 continue;
             }
             // Skip other C1 leads (>= 0x9B) and 0xFF (C255 / IAC terminator).
