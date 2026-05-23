@@ -10,7 +10,9 @@ namespace Mucka.ViewModels;
 public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
 {
     private readonly MuckaConnection _conn;
+    private readonly Func<string[], Task>? _saveFkeysAsync;
     private readonly List<string> _history = new();
+    private readonly string[] _allFkeys = new string[36];
     private int _historyIndex = -1;
 
     private string _inputText = string.Empty;
@@ -168,6 +170,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public bool DreamwordIsPlaceholder => string.IsNullOrEmpty(_dreamword);
 
     public ObservableCollection<FkeyItem> FkeyItems { get; } = new();
+    public bool CanSaveFkeys => _saveFkeysAsync != null;
 
     public ICommand SendCommand { get; }
     public ICommand FkeyCommand { get; }
@@ -176,19 +179,20 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public ICommand HistoryDownCommand { get; }
     public ICommand ToggleFkeysCommand { get; }
     public ICommand ToggleCaptureCommand { get; }
+    public ICommand EditFkeysCommand { get; }
 
     public event Action? Disconnected;
     public event Action? RequestFocus;
+    public event Action? EditFkeysRequested;
+    public event Action? ClearScreenRequested;
 
-    public GameViewModel(MuckaConnection conn, Profile profile)
+    public GameViewModel(MuckaConnection conn, Profile profile, Func<string[], Task>? saveFkeysAsync = null)
     {
         _conn = conn;
+        _saveFkeysAsync = saveFkeysAsync;
         IsCapturing = _conn.IsCapturing;
 
-        for (var i = 0; i < 10; i++)
-        {
-            FkeyItems.Add(new FkeyItem(i, i < profile.Fkeys.Length ? profile.Fkeys[i] ?? string.Empty : string.Empty));
-        }
+        ApplyFkeys(profile.Fkeys);
 
         // Pre-populate the input box with the account ID for manual login.
         if (!profile.TelnetLoginEnabled && !string.IsNullOrEmpty(profile.AccountId))
@@ -208,6 +212,37 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         HistoryDownCommand    = new Command(HistoryDown);
         ToggleFkeysCommand    = new Command(() => { FkeysVisible = !FkeysVisible; RequestFocus?.Invoke(); });
         ToggleCaptureCommand  = new Command(ToggleCapture);
+        EditFkeysCommand      = new Command(() => EditFkeysRequested?.Invoke());
+    }
+
+    public string[] GetAllFkeys()
+    {
+        var fkeys = new string[_allFkeys.Length];
+        Array.Copy(_allFkeys, fkeys, _allFkeys.Length);
+        return fkeys;
+    }
+
+    public void ApplyFkeys(string[] fkeys)
+    {
+        for (var i = 0; i < _allFkeys.Length; i++)
+            _allFkeys[i] = i < fkeys.Length ? fkeys[i] ?? string.Empty : string.Empty;
+
+        if (FkeyItems.Count == 0)
+        {
+            for (var i = 0; i < 12; i++)
+                FkeyItems.Add(new FkeyItem(i, _allFkeys[i]));
+            return;
+        }
+
+        for (var i = 0; i < 12; i++)
+            FkeyItems[i].Command = _allFkeys[i];
+    }
+
+    public async Task SaveFkeysAsync(string[] fkeys)
+    {
+        ApplyFkeys(fkeys);
+        if (_saveFkeysAsync != null)
+            await _saveFkeysAsync(GetAllFkeys());
     }
 
     // Called from the TCP read thread — must not touch UI directly.
@@ -330,13 +365,36 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         RequestFocus?.Invoke();
     }
 
-    private void SpeakDreamword()
+    /// <summary>
+    /// Send the fkey macro at the given absolute index (0-11=None, 12-23=Shift, 24-35=Ctrl).
+    /// Called by the keyboard handler in GamePage on Windows.
+    /// </summary>
+    public void SendFkeyAbsolute(int absoluteIndex)
+    {
+        if (absoluteIndex < 0 || absoluteIndex >= _allFkeys.Length)
+        {
+            RequestFocus?.Invoke();
+            return;
+        }
+        var cmd = _allFkeys[absoluteIndex];
+        if (!string.IsNullOrWhiteSpace(cmd))
+            _conn.SendLine(cmd.TrimEnd('\r', '\n'));
+        RequestFocus?.Invoke();
+    }
+
+    public void SpeakDreamword()
     {
         if (!string.IsNullOrEmpty(_dreamword))
         {
             _conn.Annotate($"dreamword spoken: {_dreamword}");
             _conn.SendLine($"\"{_dreamword}\"");
         }
+        RequestFocus?.Invoke();
+    }
+
+    public void ClearScreen()
+    {
+        ClearScreenRequested?.Invoke();
         RequestFocus?.Invoke();
     }
 

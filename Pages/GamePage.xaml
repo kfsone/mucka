@@ -92,11 +92,12 @@
                     </Button.Triggers>
                 </Button>
 
-                <!-- Dreamword chip — tap to load into input -->
+                <!-- Dreamword chip — tap to speak; Ctrl+D from keyboard -->
                 <Border Grid.Column="8"
                         BackgroundColor="#1f6feb"
                         Stroke="Transparent" StrokeThickness="0"
                         Padding="6,1" VerticalOptions="Center">
+                    <ToolTipProperties.Text>Speak dreamword (Ctrl+D)</ToolTipProperties.Text>
                     <Border.StrokeShape>
                         <RoundRectangle CornerRadius="4"/>
                     </Border.StrokeShape>
@@ -148,20 +149,28 @@
                     BackgroundColor="#161b22"
                     HeightRequest="38"
                     IsVisible="{Binding FkeysVisible}">
-            <HorizontalStackLayout BindableLayout.ItemsSource="{Binding FkeyItems}"
-                                   Spacing="3" Padding="4,3">
-                <BindableLayout.ItemTemplate>
-                    <DataTemplate x:DataType="vm:FkeyItem">
-                        <Button Text="{Binding Label}"
-                                Command="{Binding Source={RelativeSource AncestorType={x:Type ContentPage}},
-                                                  Path=BindingContext.FkeyCommand}"
-                                CommandParameter="{Binding Index, StringFormat='{0}'}"
-                                FontSize="11" HeightRequest="30" WidthRequest="44"
-                                Padding="0"
-                                BackgroundColor="#2d333b" TextColor="#cccccc"
-                                CornerRadius="3"/>
-                    </DataTemplate>
-                </BindableLayout.ItemTemplate>
+            <HorizontalStackLayout Spacing="3" Padding="4,3">
+                <Button Text="Cfg"
+                        Command="{Binding EditFkeysCommand}"
+                        FontSize="11" HeightRequest="30" WidthRequest="44"
+                        Padding="0"
+                        BackgroundColor="#2d333b" TextColor="#888888"
+                        CornerRadius="3"/>
+                <HorizontalStackLayout BindableLayout.ItemsSource="{Binding FkeyItems}"
+                                       Spacing="3">
+                    <BindableLayout.ItemTemplate>
+                        <DataTemplate x:DataType="vm:FkeyItem">
+                            <Button Text="{Binding Label}"
+                                    Command="{Binding Source={RelativeSource AncestorType={x:Type ContentPage}},
+                                                      Path=BindingContext.FkeyCommand}"
+                                    CommandParameter="{Binding Index, StringFormat='{0}'}"
+                                    FontSize="11" HeightRequest="30" WidthRequest="44"
+                                    Padding="0"
+                                    BackgroundColor="#2d333b" TextColor="#cccccc"
+                                    CornerRadius="3"/>
+                        </DataTemplate>
+                    </BindableLayout.ItemTemplate>
+                </HorizontalStackLayout>
             </HorizontalStackLayout>
         </ScrollView>
 

@@ -12,12 +12,41 @@ public partial class GamePage : ContentPage
     private readonly bool _exitOnDisconnect;
     private IDispatcherTimer?      _flushTimer;
 
+#if ANDROID
+    // Set while this page is active so MainActivity can route hardware key events.
+    private static Action<int>? _androidFkeyHandler;
+    private static Action? _androidCtrlDHandler;
+    private static Action? _androidCtrlLHandler;
+
+    public static bool TryFireFkeyHandler(int absoluteIndex)
+    {
+        if (_androidFkeyHandler is null) return false;
+        _androidFkeyHandler(absoluteIndex);
+        return true;
+    }
+
+    public static bool TryFireCtrlD()
+    {
+        if (_androidCtrlDHandler is null) return false;
+        _androidCtrlDHandler();
+        return true;
+    }
+
+    public static bool TryFireCtrlL()
+    {
+        if (_androidCtrlLHandler is null) return false;
+        _androidCtrlLHandler();
+        return true;
+    }
+#endif
+
     // Lines pulled from the ViewModel queue but not yet successfully injected.
     // Kept here so they aren't lost if the WebView isn't ready yet.
     private readonly List<StyledLine> _pendingInjection = new();
     // Re-entrancy guard: prevents the 50ms timer from firing a second injection
     // while the first EvaluateJavaScriptAsync/ExecuteScriptAsync is still awaiting.
     private bool _injecting;
+    private bool _isFkeyEditorOpen;
     private readonly SemaphoreSlim _scriptExecutionLock = new(1, 1);
 
     public GamePage(GameViewModel vm, bool exitOnDisconnect = false)
@@ -30,26 +59,45 @@ public partial class GamePage : ContentPage
 
     protected override void OnAppearing()
     {
+        _isFkeyEditorOpen = false;
         base.OnAppearing();
-        _vm.Disconnected += OnDisconnected;
-        _vm.RequestFocus += FocusInput;
 
-        ScrollbackWebView.Source    = new HtmlWebViewSource { Html = HtmlScrollback.InitialPage };
-        ScrollbackWebView.Navigating  += OnScrollbackNavigating;
-        ScrollbackWebView.Navigated   += OnScrollbackNavigated;
-        ScrollbackWebView.Focused     += OnScrollbackFocused;
+        if (_flushTimer == null)
+        {
+            _vm.Disconnected += OnDisconnected;
+            _vm.RequestFocus += FocusInput;
+            _vm.EditFkeysRequested += OnEditFkeysRequested;
+            _vm.ClearScreenRequested += OnClearScreenRequested;
 
-        _flushTimer = Dispatcher.CreateTimer();
-        _flushTimer.Interval = TimeSpan.FromMilliseconds(50);
-        _flushTimer.Tick += OnFlushTick;
-        _flushTimer.Start();
+            ScrollbackWebView.Source = new HtmlWebViewSource { Html = HtmlScrollback.InitialPage };
+            ScrollbackWebView.Navigating += OnScrollbackNavigating;
+            ScrollbackWebView.Navigated += OnScrollbackNavigated;
+            ScrollbackWebView.Focused += OnScrollbackFocused;
 
-        if (Window is not null)
-            Window.Activated += OnWindowActivated;
+            _flushTimer = Dispatcher.CreateTimer();
+            _flushTimer.Interval = TimeSpan.FromMilliseconds(50);
+            _flushTimer.Tick += OnFlushTick;
+            _flushTimer.Start();
+
+            if (Window is not null)
+                Window.Activated += OnWindowActivated;
 
 #if WINDOWS
-        // Hook the native TextBox so Up/Down arrow keys cycle through command history.
-        InputEntry.HandlerChanged += OnInputHandlerChanged;
+            // Hook window root for F1-F12 physical key events (fires regardless of focus).
+            if (Window?.Handler?.PlatformView is Microsoft.UI.Xaml.Window fwin &&
+                fwin.Content is Microsoft.UI.Xaml.UIElement froot)
+                froot.PreviewKeyDown += OnRootPreviewKeyDown;
+            // Hook the native TextBox so Up/Down/Esc keys work in the entry.
+            InputEntry.HandlerChanged += OnInputHandlerChanged;
+#endif
+        }
+
+        FocusInput();
+
+#if ANDROID
+        _androidFkeyHandler = _vm.SendFkeyAbsolute;
+        _androidCtrlDHandler = _vm.SpeakDreamword;
+        _androidCtrlLHandler = _vm.ClearScreen;
 #endif
     }
 
@@ -64,16 +112,29 @@ public partial class GamePage : ContentPage
     protected override void OnDisappearing()
     {
         base.OnDisappearing();
+#if ANDROID
+        _androidFkeyHandler = null;
+        _androidCtrlDHandler = null;
+        _androidCtrlLHandler = null;
+#endif
+        if (_isFkeyEditorOpen)
+            return;
+
         _flushTimer?.Stop();
         _flushTimer = null;
         ScrollbackWebView.Navigating -= OnScrollbackNavigating;
-        ScrollbackWebView.Navigated  -= OnScrollbackNavigated;
-        ScrollbackWebView.Focused    -= OnScrollbackFocused;
+        ScrollbackWebView.Navigated -= OnScrollbackNavigated;
+        ScrollbackWebView.Focused -= OnScrollbackFocused;
         _vm.Disconnected -= OnDisconnected;
         _vm.RequestFocus -= FocusInput;
+        _vm.EditFkeysRequested -= OnEditFkeysRequested;
+        _vm.ClearScreenRequested -= OnClearScreenRequested;
         if (Window is not null)
             Window.Activated -= OnWindowActivated;
 #if WINDOWS
+        if (Window?.Handler?.PlatformView is Microsoft.UI.Xaml.Window fwin &&
+            fwin.Content is Microsoft.UI.Xaml.UIElement froot)
+            froot.PreviewKeyDown -= OnRootPreviewKeyDown;
         InputEntry.HandlerChanged -= OnInputHandlerChanged;
 #endif
         _ = _vm.DisposeAsync();
@@ -236,6 +297,16 @@ public partial class GamePage : ContentPage
         }
     }
 
+    private async void OnEditFkeysRequested()
+    {
+        Func<string[], Task>? onSave = _vm.CanSaveFkeys
+            ? fkeys => _vm.SaveFkeysAsync(fkeys)
+            : null;
+        var editorVm = new FkeyEditorViewModel(_vm.GetAllFkeys(), _vm.ApplyFkeys, onSave);
+        _isFkeyEditorOpen = true;
+        await Navigation.PushModalAsync(new FkeyEditorPage(editorVm));
+    }
+
     private void FocusInput() => InputEntry.Focus();
 
     // Redirect focus back to the typing box whenever the WebView captures it
@@ -253,7 +324,43 @@ public partial class GamePage : ContentPage
     // Re-focus the typing box when the window regains activation (Alt+Tab back, etc.).
     private void OnWindowActivated(object? sender, EventArgs e) => FocusInput();
 
+    private async void OnClearScreenRequested()
+        => await ExecuteScriptAsync("document.getElementById('out').innerHTML=''");
+
 #if WINDOWS
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern short GetKeyState(int nVirtKey);
+
+    private void OnRootPreviewKeyDown(object sender, Microsoft.UI.Xaml.Input.KeyRoutedEventArgs e)
+    {
+        if (_isFkeyEditorOpen) return;
+        var key = e.Key;
+        bool ctrl  = (GetKeyState((int)Windows.System.VirtualKey.Control) & 0x8000) != 0;
+        bool shift = (GetKeyState((int)Windows.System.VirtualKey.Shift)   & 0x8000) != 0;
+
+        if (ctrl && key == Windows.System.VirtualKey.D)
+        {
+            _vm.SpeakDreamword();
+            e.Handled = true;
+            return;
+        }
+        if (ctrl && key == Windows.System.VirtualKey.L)
+        {
+            _vm.ClearScreen();
+            e.Handled = true;
+            return;
+        }
+
+        if (key < Windows.System.VirtualKey.F1 || key > Windows.System.VirtualKey.F12)
+            return;
+
+        int fkeyNum = (int)key - (int)Windows.System.VirtualKey.F1; // 0-11
+        int absoluteIndex = ctrl ? 24 + fkeyNum : shift ? 12 + fkeyNum : fkeyNum;
+
+        _vm.SendFkeyAbsolute(absoluteIndex);
+        e.Handled = true;
+    }
+
     private void OnInputHandlerChanged(object? sender, EventArgs e)
     {
         if (InputEntry.Handler?.PlatformView is Microsoft.UI.Xaml.Controls.TextBox tb)
@@ -270,6 +377,11 @@ public partial class GamePage : ContentPage
         else if (e.Key == Windows.System.VirtualKey.Down)
         {
             _vm.HistoryDownCommand.Execute(null);
+            e.Handled = true;
+        }
+        else if (e.Key == Windows.System.VirtualKey.Escape)
+        {
+            _vm.InputText = string.Empty;
             e.Handled = true;
         }
     }

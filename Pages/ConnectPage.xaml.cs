@@ -48,7 +48,11 @@ public partial class ConnectPage : ContentPage
         // Create GameViewModel on the UI thread so Dispatcher.CreateTimer() is available.
         MainThread.BeginInvokeOnMainThread(async () =>
         {
-            var gameVm = new GameViewModel(conn, profile);
+            var vm = _vm;
+            Func<string[], Task>? saveFkeys = _vm.IsDirectConnectMode
+                ? null
+                : async fkeys => await vm.SaveProfileFkeysAsync(profile.Name, fkeys);
+            var gameVm = new GameViewModel(conn, profile, saveFkeys);
             var gamePage = new GamePage(gameVm, _vm.IsDirectConnectMode);
             await Navigation.PushAsync(gamePage);
         });
