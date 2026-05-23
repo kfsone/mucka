@@ -150,7 +150,7 @@ public sealed class ConnectViewModel : BaseViewModel
                 RememberPassword = RememberPassword,
                 TelnetLoginEnabled = TelnetLoginEnabled,
                 TelnetLoginName = loginName,
-                Fkeys = SavedProfiles.FirstOrDefault(p => p.Name == ProfileName)?.Fkeys ?? new string[10]
+                Fkeys = SavedProfiles.FirstOrDefault(p => p.Name == ProfileName)?.Fkeys ?? new string[36]
             };
             if (!IsDirectConnectMode)
             {
@@ -253,6 +253,15 @@ public sealed class ConnectViewModel : BaseViewModel
             OnPropertyChanged(nameof(CaptureButtonText));
         }
 #endif
+    }
+
+    public async Task SaveProfileFkeysAsync(string profileName, string[] fkeys)
+    {
+        var existing = SavedProfiles.FirstOrDefault(p =>
+            string.Equals(p.Name, profileName, StringComparison.OrdinalIgnoreCase));
+        if (existing != null)
+            existing.Fkeys = fkeys;
+        await ProfileStore.SaveAsync(SavedProfiles.ToList());
     }
 
     private async Task SaveCurrentProfileAsync(Profile incoming, string? password)

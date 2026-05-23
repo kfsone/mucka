@@ -18,6 +18,7 @@ public partial class GamePage : ContentPage
     // Re-entrancy guard: prevents the 50ms timer from firing a second injection
     // while the first EvaluateJavaScriptAsync/ExecuteScriptAsync is still awaiting.
     private bool _injecting;
+    private bool _isFkeyEditorOpen;
     private readonly SemaphoreSlim _scriptExecutionLock = new(1, 1);
 
     public GamePage(GameViewModel vm, bool exitOnDisconnect = false)
@@ -30,27 +31,35 @@ public partial class GamePage : ContentPage
 
     protected override void OnAppearing()
     {
+        _isFkeyEditorOpen = false;
         base.OnAppearing();
-        _vm.Disconnected += OnDisconnected;
-        _vm.RequestFocus += FocusInput;
 
-        ScrollbackWebView.Source    = new HtmlWebViewSource { Html = HtmlScrollback.InitialPage };
-        ScrollbackWebView.Navigating  += OnScrollbackNavigating;
-        ScrollbackWebView.Navigated   += OnScrollbackNavigated;
-        ScrollbackWebView.Focused     += OnScrollbackFocused;
+        if (_flushTimer == null)
+        {
+            _vm.Disconnected += OnDisconnected;
+            _vm.RequestFocus += FocusInput;
+            _vm.EditFkeysRequested += OnEditFkeysRequested;
 
-        _flushTimer = Dispatcher.CreateTimer();
-        _flushTimer.Interval = TimeSpan.FromMilliseconds(50);
-        _flushTimer.Tick += OnFlushTick;
-        _flushTimer.Start();
+            ScrollbackWebView.Source = new HtmlWebViewSource { Html = HtmlScrollback.InitialPage };
+            ScrollbackWebView.Navigating += OnScrollbackNavigating;
+            ScrollbackWebView.Navigated += OnScrollbackNavigated;
+            ScrollbackWebView.Focused += OnScrollbackFocused;
 
-        if (Window is not null)
-            Window.Activated += OnWindowActivated;
+            _flushTimer = Dispatcher.CreateTimer();
+            _flushTimer.Interval = TimeSpan.FromMilliseconds(50);
+            _flushTimer.Tick += OnFlushTick;
+            _flushTimer.Start();
+
+            if (Window is not null)
+                Window.Activated += OnWindowActivated;
 
 #if WINDOWS
-        // Hook the native TextBox so Up/Down arrow keys cycle through command history.
-        InputEntry.HandlerChanged += OnInputHandlerChanged;
+            // Hook the native TextBox so Up/Down arrow keys cycle through command history.
+            InputEntry.HandlerChanged += OnInputHandlerChanged;
 #endif
+        }
+
+        FocusInput();
     }
 
     protected override void OnNavigatedTo(NavigatedToEventArgs args)
@@ -64,13 +73,17 @@ public partial class GamePage : ContentPage
     protected override void OnDisappearing()
     {
         base.OnDisappearing();
+        if (_isFkeyEditorOpen)
+            return;
+
         _flushTimer?.Stop();
         _flushTimer = null;
         ScrollbackWebView.Navigating -= OnScrollbackNavigating;
-        ScrollbackWebView.Navigated  -= OnScrollbackNavigated;
-        ScrollbackWebView.Focused    -= OnScrollbackFocused;
+        ScrollbackWebView.Navigated -= OnScrollbackNavigated;
+        ScrollbackWebView.Focused -= OnScrollbackFocused;
         _vm.Disconnected -= OnDisconnected;
         _vm.RequestFocus -= FocusInput;
+        _vm.EditFkeysRequested -= OnEditFkeysRequested;
         if (Window is not null)
             Window.Activated -= OnWindowActivated;
 #if WINDOWS
@@ -234,6 +247,16 @@ public partial class GamePage : ContentPage
         {
             _scriptExecutionLock.Release();
         }
+    }
+
+    private async void OnEditFkeysRequested()
+    {
+        Func<string[], Task>? onSave = _vm.CanSaveFkeys
+            ? fkeys => _vm.SaveFkeysAsync(fkeys)
+            : null;
+        var editorVm = new FkeyEditorViewModel(_vm.GetAllFkeys(), _vm.ApplyFkeys, onSave);
+        _isFkeyEditorOpen = true;
+        await Navigation.PushModalAsync(new FkeyEditorPage(editorVm));
     }
 
     private void FocusInput() => InputEntry.Focus();
