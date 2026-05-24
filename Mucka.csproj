@@ -45,6 +45,12 @@
 		<TargetPlatformMinVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</TargetPlatformMinVersion>
 	</PropertyGroup>
 
+	<PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android' and '$(Configuration)' == 'Release'">
+		<!-- arm64-v8a covers every Android phone since ~2015; omitting 32-bit/x86 slashes APK size significantly -->
+		<AndroidSupportedAbis>arm64-v8a</AndroidSupportedAbis>
+		<PublishTrimmed>true</PublishTrimmed>
+	</PropertyGroup>
+
 	<PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows' and '$(CreateWindowsInstaller)' == 'true'">
 		<WindowsPackageType>MSIX</WindowsPackageType>
 		<AppxPackageSigningEnabled>False</AppxPackageSigningEnabled>
