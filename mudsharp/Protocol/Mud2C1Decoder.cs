@@ -1,4 +1,5 @@
 using MudSharp.Models;
+using System.Diagnostics;
 using System.Text;
 
 namespace MudSharp.Protocol;
@@ -122,8 +123,13 @@ internal sealed class Mud2C1Decoder
             _                      => ParserState.Normal,
         };
 
-    internal void Reset()
+    internal void Reset(ref ParserState parserState)
     {
+        // If we were collecting C95 lines, the counter is now stale; force the parser
+        // back to Normal so the zeroed counter cannot immediately satisfy the completion
+        // check on the next byte.
+        if (parserState == ParserState.C95Data)
+            parserState = ParserState.Normal;
         _c95LinesRemaining = 0;
         _colourStack.Clear();
     }
@@ -144,6 +150,8 @@ internal sealed class Mud2C1Decoder
         return ParserState.C1Data;
     }
 
+    private const int C1BufMaxBytes = 8192;
+
     private ParserState OnC1Data(byte b, byte lead, List<byte> buf)
     {
         if (b == 0xFF) return ParserState.C1Ff1;
@@ -156,6 +164,11 @@ internal sealed class Mud2C1Decoder
             var next = Dispatch(lead, buf);
             buf.Clear();
             return next;
+        }
+        if (buf.Count > C1BufMaxBytes)
+        {
+            buf.Clear();
+            return ParserState.Normal;
         }
         return ParserState.C1Data;
     }
@@ -711,21 +724,24 @@ internal sealed class Mud2C1Decoder
         var fields = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         if (fields.Length < 15) return;
 
-        _ = int.TryParse(fields[0],  out int sta);
-        _ = int.TryParse(fields[1],  out int msta);
-        _ = int.TryParse(fields[2],  out int str);
-        _ = int.TryParse(fields[3],  out int mstr);
-        _ = int.TryParse(fields[4],  out int dex);
-        _ = int.TryParse(fields[5],  out int mdex);
-        _ = int.TryParse(fields[6],  out int mag);
-        _ = int.TryParse(fields[7],  out int mmag);
+        int? sta   = int.TryParse(fields[0],  out int _sta)   ? _sta   : null;
+        int? msta  = int.TryParse(fields[1],  out int _msta)  ? _msta  : null;
+        int? str   = int.TryParse(fields[2],  out int _str)   ? _str   : null;
+        int? mstr  = int.TryParse(fields[3],  out int _mstr)  ? _mstr  : null;
+        int? dex   = int.TryParse(fields[4],  out int _dex)   ? _dex   : null;
+        int? mdex  = int.TryParse(fields[5],  out int _mdex)  ? _mdex  : null;
+        int? mag   = int.TryParse(fields[6],  out int _mag)   ? _mag   : null;
+        int? mmag  = int.TryParse(fields[7],  out int _mmag)  ? _mmag  : null;
         _ = long.TryParse(fields[8], out long score);
         bool blind    = fields[9]  == "Y";
         bool deaf     = fields[10] == "Y";
         bool crippled = fields[11] == "Y";
         bool dumb     = fields[12] == "Y";
-        _ = int.TryParse(fields[13], out int reset);
+        int? reset = int.TryParse(fields[13], out int _reset) ? _reset : null;
         char weather  = fields[14].Length > 0 ? fields[14][0] : ' ';
+
+        if (score > int.MaxValue || score < int.MinValue)
+            Debug.WriteLine($"[Mud2C1Decoder] FES score {score} exceeds int32 range; clamping to {(score > int.MaxValue ? int.MaxValue : int.MinValue)}");
 
         var snapshot = new GameStatsSnapshot(
             Stamina:      sta,

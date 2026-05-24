@@ -99,6 +99,11 @@ public partial class GamePage : ContentPage
             InputEntry.HandlerChanged += OnInputHandlerChanged;
 #endif
         }
+        else
+        {
+            // Returning from FkeyEditor: events and platform hooks are still active; just resume the timer.
+            _flushTimer.Start();
+        }
 
         FocusInput();
 
@@ -127,9 +132,9 @@ public partial class GamePage : ContentPage
 #endif
         if (_isFkeyEditorOpen)
         {
+            // Pause the timer while the modal is open. Keep it non-null so OnAppearing
+            // knows not to reinitialize the WebView or re-hook events on return.
             _flushTimer?.Stop();
-            _flushTimer = null;
-            _eventsSubscribed = false;
             return;
         }
 

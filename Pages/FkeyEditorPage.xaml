@@ -4,116 +4,144 @@
              xmlns:vm="clr-namespace:Mucka.ViewModels"
              x:Class="Mucka.Pages.FkeyEditorPage"
              x:DataType="vm:FkeyEditorViewModel"
-             Title="Function Keys"
+             Title="Settings"
              BackgroundColor="#0C0C0C">
-    <Grid RowDefinitions="Auto,*,Auto" Padding="16" RowSpacing="12">
-        <Grid Grid.Row="0" ColumnDefinitions="*,*,*" ColumnSpacing="8">
-            <Button Grid.Column="0"
-                    Text="None"
-                    Command="{Binding SetModifierCommand}"
-                    CommandParameter="0"
-                    BackgroundColor="#2d333b"
-                    TextColor="#cccccc"
-                    CornerRadius="4"
-                    HeightRequest="40">
-                <Button.Triggers>
-                    <DataTrigger TargetType="Button" Binding="{Binding ActiveModifier}" Value="0">
-                        <Setter Property="BackgroundColor" Value="#1f6feb" />
-                        <Setter Property="TextColor" Value="White" />
-                    </DataTrigger>
-                </Button.Triggers>
-            </Button>
-            <Button Grid.Column="1"
-                    Text="Shift"
-                    Command="{Binding SetModifierCommand}"
-                    CommandParameter="1"
-                    BackgroundColor="#2d333b"
-                    TextColor="#cccccc"
-                    CornerRadius="4"
-                    HeightRequest="40">
-                <Button.Triggers>
-                    <DataTrigger TargetType="Button" Binding="{Binding ActiveModifier}" Value="1">
-                        <Setter Property="BackgroundColor" Value="#1f6feb" />
-                        <Setter Property="TextColor" Value="White" />
-                    </DataTrigger>
-                </Button.Triggers>
-            </Button>
-            <Button Grid.Column="2"
-                    Text="Ctrl"
-                    Command="{Binding SetModifierCommand}"
-                    CommandParameter="2"
-                    BackgroundColor="#2d333b"
-                    TextColor="#cccccc"
-                    CornerRadius="4"
-                    HeightRequest="40">
-                <Button.Triggers>
-                    <DataTrigger TargetType="Button" Binding="{Binding ActiveModifier}" Value="2">
-                        <Setter Property="BackgroundColor" Value="#1f6feb" />
-                        <Setter Property="TextColor" Value="White" />
-                    </DataTrigger>
-                </Button.Triggers>
-            </Button>
+
+    <Grid RowDefinitions="Auto,*,Auto">
+
+        <!-- ── Tab bar ──────────────────────────────────────────────── -->
+        <Border Grid.Row="0"
+                BackgroundColor="#161b22"
+                StrokeThickness="0"
+                Padding="12,6">
+            <HorizontalStackLayout Spacing="4">
+                <Border BackgroundColor="#1f6feb"
+                        Stroke="Transparent" StrokeThickness="0"
+                        Padding="14,5">
+                    <Border.StrokeShape><RoundRectangle CornerRadius="4"/></Border.StrokeShape>
+                    <Label Text="Hotkeys" TextColor="White" FontSize="13" FontAttributes="Bold"
+                           VerticalOptions="Center"/>
+                </Border>
+                <!-- Future tabs (General, Connection, …) go here -->
+            </HorizontalStackLayout>
+        </Border>
+
+        <!-- ── Content ──────────────────────────────────────────────── -->
+        <Grid Grid.Row="1" RowDefinitions="Auto,*" Padding="12,10,12,0">
+
+            <!-- Modifier selector — compact pill row, not full-width -->
+            <HorizontalStackLayout Grid.Row="0" Spacing="6" Margin="0,0,0,10">
+                <Button Text="None"
+                        Command="{Binding SetModifierCommand}"
+                        CommandParameter="0"
+                        BackgroundColor="#2d333b" TextColor="#cccccc"
+                        FontSize="12" WidthRequest="72" HeightRequest="30"
+                        CornerRadius="4" Padding="0">
+                    <Button.Triggers>
+                        <DataTrigger TargetType="Button" Binding="{Binding ActiveModifier}" Value="0">
+                            <Setter Property="BackgroundColor" Value="#1f6feb"/>
+                            <Setter Property="TextColor" Value="White"/>
+                        </DataTrigger>
+                    </Button.Triggers>
+                </Button>
+                <Button Text="Shift"
+                        Command="{Binding SetModifierCommand}"
+                        CommandParameter="1"
+                        BackgroundColor="#2d333b" TextColor="#cccccc"
+                        FontSize="12" WidthRequest="72" HeightRequest="30"
+                        CornerRadius="4" Padding="0">
+                    <Button.Triggers>
+                        <DataTrigger TargetType="Button" Binding="{Binding ActiveModifier}" Value="1">
+                            <Setter Property="BackgroundColor" Value="#1f6feb"/>
+                            <Setter Property="TextColor" Value="White"/>
+                        </DataTrigger>
+                    </Button.Triggers>
+                </Button>
+                <Button Text="Ctrl"
+                        Command="{Binding SetModifierCommand}"
+                        CommandParameter="2"
+                        BackgroundColor="#2d333b" TextColor="#cccccc"
+                        FontSize="12" WidthRequest="72" HeightRequest="30"
+                        CornerRadius="4" Padding="0">
+                    <Button.Triggers>
+                        <DataTrigger TargetType="Button" Binding="{Binding ActiveModifier}" Value="2">
+                            <Setter Property="BackgroundColor" Value="#1f6feb"/>
+                            <Setter Property="TextColor" Value="White"/>
+                        </DataTrigger>
+                    </Button.Triggers>
+                </Button>
+            </HorizontalStackLayout>
+
+            <!-- F-key list -->
+            <ScrollView Grid.Row="1">
+                <VerticalStackLayout BindableLayout.ItemsSource="{Binding CurrentPageItems}" Spacing="6">
+                    <BindableLayout.ItemTemplate>
+                        <DataTemplate x:DataType="vm:FkeyEditorItem">
+                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                                <Label Grid.Column="0"
+                                       Text="{Binding Label}"
+                                       TextColor="#888888"
+                                       FontSize="12"
+                                       VerticalOptions="Center"
+                                       WidthRequest="36"/>
+                                <Entry Grid.Column="1"
+                                       Text="{Binding Command, Mode=TwoWay}"
+                                       TextColor="White"
+                                       BackgroundColor="#161b22"
+                                       Placeholder="Enter command"
+                                       PlaceholderColor="#444444"
+                                       ClearButtonVisibility="WhileEditing"
+                                       Keyboard="Plain"
+                                       IsSpellCheckEnabled="False"
+                                       IsTextPredictionEnabled="False"/>
+                            </Grid>
+                        </DataTemplate>
+                    </BindableLayout.ItemTemplate>
+                </VerticalStackLayout>
+            </ScrollView>
         </Grid>
 
-        <ScrollView Grid.Row="1">
-            <VerticalStackLayout BindableLayout.ItemsSource="{Binding CurrentPageItems}" Spacing="8">
-                <BindableLayout.ItemTemplate>
-                    <DataTemplate x:DataType="vm:FkeyEditorItem">
-                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
-                            <Label Grid.Column="0"
-                                   Text="{Binding Label}"
-                                   TextColor="#cccccc"
-                                   VerticalOptions="Center"
-                                   WidthRequest="40" />
-                            <Entry Grid.Column="1"
-                                   Text="{Binding Command, Mode=TwoWay}"
-                                   TextColor="White"
-                                   BackgroundColor="#161b22"
-                                   Placeholder="Enter command"
-                                   PlaceholderColor="#666666"
-                                   ClearButtonVisibility="WhileEditing"
-                                   Keyboard="Plain"
-                                   IsSpellCheckEnabled="False"
-                                   IsTextPredictionEnabled="False" />
-                        </Grid>
-                    </DataTemplate>
-                </BindableLayout.ItemTemplate>
-            </VerticalStackLayout>
-        </ScrollView>
+        <!-- ── Action bar ────────────────────────────────────────────── -->
+        <Border Grid.Row="2"
+                BackgroundColor="#161b22"
+                StrokeThickness="0"
+                Padding="12,8">
+            <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto" ColumnSpacing="6">
 
-        <!-- Import button: shown on Windows only; wired in code-behind via #if WINDOWS -->
-        <Grid Grid.Row="2" ColumnDefinitions="*,*,*,*" ColumnSpacing="8">
-            <Button Grid.Column="0"
-                    x:Name="ImportButton"
-                    Text="Import"
-                    ToolTipProperties.Text="Import from clio.ini"
-                    IsVisible="False"
-                    BackgroundColor="#2d333b"
-                    TextColor="#cccccc"
-                    CornerRadius="4"
-                    HeightRequest="44" />
-            <Button Grid.Column="1"
-                    Text="Save"
-                    Command="{Binding SaveCommand}"
-                    IsEnabled="{Binding CanSave}"
-                    BackgroundColor="#1f6feb"
-                    TextColor="White"
-                    CornerRadius="4"
-                    HeightRequest="44" />
-            <Button Grid.Column="2"
-                    Text="Apply"
-                    Command="{Binding ApplyCommand}"
-                    BackgroundColor="#2d333b"
-                    TextColor="#cccccc"
-                    CornerRadius="4"
-                    HeightRequest="44" />
-            <Button Grid.Column="3"
-                    Text="Cancel"
-                    Command="{Binding CancelCommand}"
-                    BackgroundColor="#2d333b"
-                    TextColor="#cccccc"
-                    CornerRadius="4"
-                    HeightRequest="44" />
-        </Grid>
+                <!-- Import: Windows only; visibility wired in code-behind via #if WINDOWS -->
+                <Button Grid.Column="0"
+                        x:Name="ImportButton"
+                        Text="Import"
+                        ToolTipProperties.Text="Import from clio.ini"
+                        IsVisible="False"
+                        BackgroundColor="#2d333b" TextColor="#888888"
+                        FontSize="13" WidthRequest="80" HeightRequest="34"
+                        CornerRadius="4" Padding="0"/>
+
+                <!-- Spacer: Grid.Column="1" -->
+
+                <Button Grid.Column="2"
+                        Text="Cancel"
+                        Command="{Binding CancelCommand}"
+                        BackgroundColor="#2d333b" TextColor="#cccccc"
+                        FontSize="13" WidthRequest="80" HeightRequest="34"
+                        CornerRadius="4" Padding="0"/>
+
+                <Button Grid.Column="3"
+                        Text="Apply"
+                        Command="{Binding ApplyCommand}"
+                        BackgroundColor="#2d333b" TextColor="#cccccc"
+                        FontSize="13" WidthRequest="80" HeightRequest="34"
+                        CornerRadius="4" Padding="0"/>
+
+                <Button Grid.Column="4"
+                        Text="Save"
+                        Command="{Binding SaveCommand}"
+                        IsEnabled="{Binding CanSave}"
+                        BackgroundColor="#1f6feb" TextColor="White"
+                        FontSize="13" WidthRequest="80" HeightRequest="34"
+                        CornerRadius="4" Padding="0"/>
+            </Grid>
+        </Border>
     </Grid>
 </ContentPage>

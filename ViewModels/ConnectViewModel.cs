@@ -73,6 +73,7 @@ public sealed class ConnectViewModel : BaseViewModel
     public ICommand ToggleAdvancedCommand { get; }
     public ICommand ShowTelnetHelpCommand { get; }
     public ICommand ToggleCaptureCommand { get; }
+    public ICommand DeleteProfileCommand { get; }
 
     public Func<PasswordPromptArgs, Task<PasswordResult?>>? PasswordRequired;
 
@@ -88,6 +89,7 @@ public sealed class ConnectViewModel : BaseViewModel
             IsCaptureRequested = !IsCaptureRequested;
             OnPropertyChanged(nameof(CaptureButtonText));
         });
+        DeleteProfileCommand = new AsyncCommand(DeleteProfileAsync);
         ShowTelnetHelpCommand = new Command(async () =>
         {
             var page = Application.Current?.Windows.FirstOrDefault()?.Page;
@@ -219,6 +221,45 @@ public sealed class ConnectViewModel : BaseViewModel
         {
             Password = string.Empty;
         }
+    }
+
+    private async Task DeleteProfileAsync()
+    {
+        var page = Application.Current?.Windows.FirstOrDefault()?.Page;
+        if (page == null) return;
+
+        var name = ProfileName;
+        if (string.IsNullOrWhiteSpace(name)) return;
+
+        var input = await page.DisplayPromptAsync(
+            "Delete Profile",
+            $"Type \"{name}\" to confirm deletion.",
+            accept: "Delete",
+            cancel: "Cancel",
+            placeholder: name,
+            initialValue: string.Empty);
+
+        if (input == null || input != name) return;
+
+        var existing = SavedProfiles.FirstOrDefault(p =>
+            string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase));
+        if (existing == null) return;
+
+        SavedProfiles.Remove(existing);
+        await ProfileStore.SetPasswordAsync(name, null);
+
+        if (SavedProfiles.Count == 0)
+        {
+            var def = new Profile { Name = "Default", Host = "mud2.co.uk", Port = 23 };
+            SavedProfiles.Add(def);
+            ApplyProfile(def);
+        }
+        else
+        {
+            ApplyProfile(SavedProfiles[0]);
+        }
+
+        await ProfileStore.SaveAsync(SavedProfiles.ToList());
     }
 
     private async Task LoadProfilesAsync()
