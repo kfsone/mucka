@@ -47,6 +47,7 @@ public partial class GamePage : ContentPage
     // while the first EvaluateJavaScriptAsync/ExecuteScriptAsync is still awaiting.
     private bool _injecting;
     private bool _isFkeyEditorOpen;
+    private bool _isConfirmingDisconnect;
     private readonly SemaphoreSlim _scriptExecutionLock = new(1, 1);
 
     public GamePage(GameViewModel vm, bool exitOnDisconnect = false)
@@ -116,7 +117,7 @@ public partial class GamePage : ContentPage
             return false;
 
         // If in game mode, prompt for confirmation before disconnecting
-        if (_vm.IsInGameMode)
+        if (_vm.IsInGameMode && !_isConfirmingDisconnect)
         {
             _ = ConfirmDisconnectAsync();
             return true; // Consume the back button press
@@ -127,16 +128,24 @@ public partial class GamePage : ContentPage
 
     private async Task ConfirmDisconnectAsync()
     {
-        var result = await DisplayAlertAsync(
-            "Disconnect?",
-            "You are in the game. Do you want to disconnect?",
-            "Disconnect",
-            "Cancel");
-
-        if (result)
+        _isConfirmingDisconnect = true;
+        try
         {
-            // User confirmed disconnect — proceed with navigation
-            await Navigation.PopAsync();
+            var result = await DisplayAlertAsync(
+                "Disconnect?",
+                "You are in the game. Do you want to disconnect?",
+                "Disconnect",
+                "Cancel");
+
+            if (result)
+            {
+                // User confirmed disconnect — proceed with navigation
+                await Navigation.PopAsync();
+            }
+        }
+        finally
+        {
+            _isConfirmingDisconnect = false;
         }
     }
 

@@ -357,9 +357,9 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     // Called from the TCP read thread — must not touch UI directly.
     private void OnLineReady(StyledLine line) => _pendingLines.Enqueue(line);
 
-    // MudSession owns the FES heartbeat — nothing to do in GameViewModel on mode transitions.
-    private void OnGameModeEntered() => IsInGameMode = true;
-    private void OnGameModeExited()  => IsInGameMode = false;
+    // Called from the TCP read thread — marshal IsInGameMode update onto the UI thread.
+    private void OnGameModeEntered() => MainThread.BeginInvokeOnMainThread(() => IsInGameMode = true);
+    private void OnGameModeExited()  => MainThread.BeginInvokeOnMainThread(() => IsInGameMode = false);
 
     /// <summary>
     /// Called by GamePage's 50ms timer on the UI thread.
