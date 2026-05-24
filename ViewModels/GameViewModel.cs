@@ -311,7 +311,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _keepScreenOn = profile.KeepScreenOn;
         _lastSentUtc = DateTime.UtcNow;
 
-        ApplyFkeys(profile.Fkeys);
+        ApplyFkeys(profile.GetEffectiveFkeys());
 
         // Pre-populate the input box with the account ID for manual login.
         if (!profile.TelnetLoginEnabled && !string.IsNullOrEmpty(profile.AccountId))
@@ -404,24 +404,24 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         {
             // Write all backing fields directly to avoid per-property cascading notifications,
             // then raise all affected property-changed events in one batch at the end.
-            _stamina      = stats.Stamina;
-            _maxStamina   = stats.MaxStamina;
-            _strength     = stats.Strength;
-            _maxStrength  = stats.MaxStrength;
-            _dexterity    = stats.Dexterity;
-            _maxDexterity = stats.MaxDexterity;
-            _magic        = stats.CurrentMagic;
-            _maxMagic     = stats.MaxMagic;
+            _stamina      = stats.Stamina      ?? 0;
+            _maxStamina   = stats.MaxStamina   ?? 0;
+            _strength     = stats.Strength     ?? 0;
+            _maxStrength  = stats.MaxStrength  ?? 0;
+            _dexterity    = stats.Dexterity    ?? 0;
+            _maxDexterity = stats.MaxDexterity ?? 0;
+            _magic        = stats.CurrentMagic ?? 0;
+            _maxMagic     = stats.MaxMagic     ?? 0;
 
             var prevScore = _score;
-            _score        = stats.Score;
+            _score        = stats.Score ?? 0;
             if (_baseScore < 0 && _score > 0) _baseScore = _score;
 
             _blind        = stats.IsBlind;
             _deaf         = stats.IsDeaf;
             _crippled     = stats.IsCrippled;
             _dumb         = stats.IsDumb;
-            _timeToReset  = stats.TimeToReset;
+            _timeToReset  = stats.TimeToReset ?? 0;
             _weather      = stats.Weather;
             _staminaColor = stats.StaminaColor;
 

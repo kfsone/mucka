@@ -143,6 +143,19 @@ public sealed class MudStreamParser
             _inGameMode = false;
             GameModeExited?.Invoke();
         }
+
+        // If we were mid-sequence when the connection dropped, surface whatever plain text
+        // was accumulated so the caller can at least show what was received. Binary C1
+        // payload in _c1Buf is not recoverable and is silently dropped.
+        if (_text.Length > 0 || _spans.Count > 0)
+            EmitPartialLine();
+
+        // Reset sub-parsers before clearing _state so they can inspect the current state.
+        // C1.Reset takes _state by ref and may correct it (e.g. C95Data → Normal).
+        Ansi.Reset();
+        Telnet.Reset();
+        C1.Reset(ref _state);
+
         _state = ParserState.Normal;
         _iacSbBuf.Clear();
         _c1Buf.Clear();
@@ -157,9 +170,6 @@ public sealed class MudStreamParser
         CurrentAccountId = null;
         CurrentPrivs = 0;
         CurrentWeather = '\0';
-        Ansi.Reset();
-        Telnet.Reset();
-        C1.Reset();
     }
 
     // ── Internal helpers (called by sub-parsers) ───────────────────────────────

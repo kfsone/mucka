@@ -107,27 +107,29 @@ public sealed class MudSession : IDisposable
         if (partial.DreamWord != null)
             _currentDreamword = partial.DreamWord;
 
-        // Merge: only overwrite fields that differ from zero/default in the partial snapshot.
+        // Merge: only overwrite fields that are non-null in the partial snapshot.
+        // Nullable int? means null="absent" rather than 0="actual zero", so a death
+        // that legitimately sets Stamina=0 is correctly written to _currentStats.
         _currentStats = new GameStatsSnapshot(
-            Stamina:      partial.Stamina     != 0 ? partial.Stamina     : _currentStats.Stamina,
-            MaxStamina:   partial.MaxStamina  != 0 ? partial.MaxStamina  : _currentStats.MaxStamina,
-            Score:        partial.Score       != 0 ? partial.Score       : _currentStats.Score,
-            Strength:     partial.Strength    != 0 ? partial.Strength    : _currentStats.Strength,
-            MaxStrength:  partial.MaxStrength != 0 ? partial.MaxStrength : _currentStats.MaxStrength,
-            Dexterity:    partial.Dexterity   != 0 ? partial.Dexterity   : _currentStats.Dexterity,
-            MaxDexterity: partial.MaxDexterity != 0 ? partial.MaxDexterity : _currentStats.MaxDexterity,
-            CurrentMagic: partial.CurrentMagic != 0 ? partial.CurrentMagic : _currentStats.CurrentMagic,
-            MaxMagic:     partial.MaxMagic    != 0 ? partial.MaxMagic    : _currentStats.MaxMagic,
-            IsBlind:      partial.IsBlind     || _currentStats.IsBlind,
-            IsDeaf:       partial.IsDeaf      || _currentStats.IsDeaf,
-            IsCrippled:   partial.IsCrippled  || _currentStats.IsCrippled,
-            IsDumb:       partial.IsDumb      || _currentStats.IsDumb,
+            Stamina:      partial.Stamina      ?? _currentStats.Stamina,
+            MaxStamina:   partial.MaxStamina   ?? _currentStats.MaxStamina,
+            Score:        partial.Score        ?? _currentStats.Score,
+            Strength:     partial.Strength     ?? _currentStats.Strength,
+            MaxStrength:  partial.MaxStrength  ?? _currentStats.MaxStrength,
+            Dexterity:    partial.Dexterity    ?? _currentStats.Dexterity,
+            MaxDexterity: partial.MaxDexterity ?? _currentStats.MaxDexterity,
+            CurrentMagic: partial.CurrentMagic ?? _currentStats.CurrentMagic,
+            MaxMagic:     partial.MaxMagic     ?? _currentStats.MaxMagic,
+            IsBlind:      partial.IsBlind      || _currentStats.IsBlind,
+            IsDeaf:       partial.IsDeaf       || _currentStats.IsDeaf,
+            IsCrippled:   partial.IsCrippled   || _currentStats.IsCrippled,
+            IsDumb:       partial.IsDumb       || _currentStats.IsDumb,
             Weather:      partial.Weather     != ' ' ? partial.Weather   : _currentStats.Weather,
-            TimeToReset:  partial.TimeToReset != 0 ? partial.TimeToReset : _currentStats.TimeToReset,
+            TimeToReset:  partial.TimeToReset  ?? _currentStats.TimeToReset,
             DreamWord:    _currentDreamword,
             PersonaSaved: partial.PersonaSaved || _currentStats.PersonaSaved,
-            AccountId:    partial.AccountId   ?? _currentStats.AccountId,
-            Privs:        partial.Privs       != 0 ? partial.Privs       : _currentStats.Privs,
+            AccountId:    partial.AccountId    ?? _currentStats.AccountId,
+            Privs:        partial.Privs        ?? _currentStats.Privs,
             StaminaColor: partial.StaminaColor != 0 ? partial.StaminaColor : _currentStats.StaminaColor
         );
         StatsUpdated?.Invoke(_currentStats);
