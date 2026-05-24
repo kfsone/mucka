@@ -71,7 +71,9 @@ public sealed class MuckaConnection : IAsyncDisposable
     {
         _host = host;
         _client = new TcpClient();
-        await _client.ConnectAsync(host, port, cancellationToken);
+        using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        using var linkedCts  = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
+        await _client.ConnectAsync(host, port, linkedCts.Token).ConfigureAwait(false);
         _stream = _client.GetStream();
         _cts = new CancellationTokenSource();
 

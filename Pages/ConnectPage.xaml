@@ -4,6 +4,7 @@
              xmlns:vm="clr-namespace:Mucka.ViewModels"
              xmlns:core="clr-namespace:Mucka.Core"
              x:Class="Mucka.Pages.ConnectPage"
+             x:DataType="vm:ConnectViewModel"
              Title="mucka"
              BackgroundColor="#0C0C0C">
 

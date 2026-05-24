@@ -8,10 +8,10 @@ public partial class ConnectPage : ContentPage
     private readonly ConnectViewModel _vm;
     private int _autoConnectAttempted;
 
-    public ConnectPage()
+    public ConnectPage(ConnectViewModel vm)
     {
         InitializeComponent();
-        _vm = new ConnectViewModel();
+        _vm = vm;
         BindingContext = _vm;
         _vm.Connected += OnConnected;
         _vm.PasswordRequired = PromptPasswordAsync;

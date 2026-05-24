@@ -54,27 +54,27 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private readonly List<StyledLine> _historyBuffer = new();
 
     public string InputText { get => _inputText; set => Set(ref _inputText, value); }
-    public int Stamina { get => _stamina; set { Set(ref _stamina, value); OnPropertyChanged(nameof(StaText)); OnPropertyChanged(nameof(StaValue)); OnPropertyChanged(nameof(StaColor)); } }
-    public int MaxStamina { get => _maxStamina; set { Set(ref _maxStamina, value); OnPropertyChanged(nameof(StaText)); OnPropertyChanged(nameof(StaValue)); } }
-    public int Strength { get => _strength; set { Set(ref _strength, value); OnPropertyChanged(nameof(StrText)); OnPropertyChanged(nameof(StrValue)); OnPropertyChanged(nameof(StrColor)); } }
-    public int MaxStrength { get => _maxStrength; set { Set(ref _maxStrength, value); OnPropertyChanged(nameof(StrText)); OnPropertyChanged(nameof(StrValue)); OnPropertyChanged(nameof(StrColor)); } }
-    public int Dexterity { get => _dexterity; set { Set(ref _dexterity, value); OnPropertyChanged(nameof(DexText)); OnPropertyChanged(nameof(DexValue)); OnPropertyChanged(nameof(DexColor)); } }
-    public int MaxDexterity { get => _maxDexterity; set { Set(ref _maxDexterity, value); OnPropertyChanged(nameof(DexText)); OnPropertyChanged(nameof(DexValue)); OnPropertyChanged(nameof(DexColor)); } }
-    public int Magic { get => _magic; set { Set(ref _magic, value); OnPropertyChanged(nameof(MagText)); OnPropertyChanged(nameof(MagValue)); OnPropertyChanged(nameof(MagColor)); OnPropertyChanged(nameof(MagVisible)); } }
-    public int MaxMagic { get => _maxMagic; set { Set(ref _maxMagic, value); OnPropertyChanged(nameof(MagText)); OnPropertyChanged(nameof(MagValue)); OnPropertyChanged(nameof(MagColor)); } }
-    public int Score { get => _score; set { Set(ref _score, value); if (_baseScore < 0 && value > 0) _baseScore = value; OnPropertyChanged(nameof(ScoreText)); OnPropertyChanged(nameof(ScoreValue)); OnPropertyChanged(nameof(ScoreDisplayValue)); OnPropertyChanged(nameof(ScoreColor)); } }
-    public bool Blind { get => _blind; set => Set(ref _blind, value); }
-    public bool Deaf { get => _deaf; set => Set(ref _deaf, value); }
+    public int Stamina    { get => _stamina;    set => SetAndNotify(ref _stamina,    value, [nameof(StaText), nameof(StaValue), nameof(StaColor)]); }
+    public int MaxStamina { get => _maxStamina; set => SetAndNotify(ref _maxStamina, value, [nameof(StaText), nameof(StaValue)]); }
+    public int Strength    { get => _strength;    set => SetAndNotify(ref _strength,    value, [nameof(StrText), nameof(StrValue), nameof(StrColor)]); }
+    public int MaxStrength { get => _maxStrength; set => SetAndNotify(ref _maxStrength, value, [nameof(StrText), nameof(StrValue), nameof(StrColor)]); }
+    public int Dexterity    { get => _dexterity;    set => SetAndNotify(ref _dexterity,    value, [nameof(DexText), nameof(DexValue), nameof(DexColor)]); }
+    public int MaxDexterity { get => _maxDexterity; set => SetAndNotify(ref _maxDexterity, value, [nameof(DexText), nameof(DexValue), nameof(DexColor)]); }
+    public int Magic    { get => _magic;    set => SetAndNotify(ref _magic,    value, [nameof(MagText), nameof(MagValue), nameof(MagColor), nameof(MagVisible)]); }
+    public int MaxMagic { get => _maxMagic; set => SetAndNotify(ref _maxMagic, value, [nameof(MagText), nameof(MagValue), nameof(MagColor)]); }
+    public int Score    { get => _score;    set { if (Set(ref _score, value)) { if (_baseScore < 0 && value > 0) _baseScore = value; OnPropertiesChanged(nameof(ScoreText), nameof(ScoreValue), nameof(ScoreDisplayValue), nameof(ScoreColor)); } } }
+    public bool Blind    { get => _blind;    set => Set(ref _blind,    value); }
+    public bool Deaf     { get => _deaf;     set => Set(ref _deaf,     value); }
     public bool Crippled { get => _crippled; set => Set(ref _crippled, value); }
-    public bool Dumb { get => _dumb; set => Set(ref _dumb, value); }
-    public int TimeToReset { get => _timeToReset; set { Set(ref _timeToReset, value); OnPropertyChanged(nameof(TtrText)); OnPropertyChanged(nameof(TtrVisible)); OnPropertyChanged(nameof(AnyRightStatVisible)); } }
-    public char Weather { get => _weather; set { Set(ref _weather, value); OnPropertyChanged(nameof(WeatherText)); OnPropertyChanged(nameof(WeatherGlyph)); OnPropertyChanged(nameof(WeatherTooltip)); OnPropertyChanged(nameof(WeatherDisplayText)); OnPropertyChanged(nameof(WeatherColor)); OnPropertyChanged(nameof(WeatherVisible)); OnPropertyChanged(nameof(AnyRightStatVisible)); } }
+    public bool Dumb     { get => _dumb;     set => Set(ref _dumb,     value); }
+    public int TimeToReset { get => _timeToReset; set => SetAndNotify(ref _timeToReset, value, [nameof(TtrText), nameof(TtrVisible), nameof(AnyRightStatVisible)]); }
+    public char Weather { get => _weather; set => SetAndNotify(ref _weather, value, [nameof(WeatherText), nameof(WeatherGlyph), nameof(WeatherTooltip), nameof(WeatherDisplayText), nameof(WeatherColor), nameof(WeatherVisible), nameof(AnyRightStatVisible)]); }
     /// <summary>Rank is no longer supplied by the mudsharp protocol layer; always empty.</summary>
-    public string Rank { get => _rank; set => Set(ref _rank, value); }
-    public string Dreamword { get => _dreamword; set { Set(ref _dreamword, value); OnPropertyChanged(nameof(DreamwordDisplay)); OnPropertyChanged(nameof(DreamwordIsPlaceholder)); } }
-    public bool IsConnected { get => _isConnected; set => Set(ref _isConnected, value); }
+    public string Rank     { get => _rank;     set => Set(ref _rank,     value); }
+    public string Dreamword { get => _dreamword; set => SetAndNotify(ref _dreamword, value, [nameof(DreamwordDisplay), nameof(DreamwordIsPlaceholder)]); }
+    public bool IsConnected  { get => _isConnected;  set => Set(ref _isConnected,  value); }
     public bool FkeysVisible { get => _fkeysVisible; set => Set(ref _fkeysVisible, value); }
-    public bool IsScrollMode { get => _isScrollMode; set { Set(ref _isScrollMode, value); OnPropertyChanged(nameof(IsNotScrollMode)); } }
+    public bool IsScrollMode { get => _isScrollMode; set => SetAndNotify(ref _isScrollMode, value, [nameof(IsNotScrollMode)]); }
     public bool IsNotScrollMode => !_isScrollMode;
     public bool IsCapturing { get => _isCapturing; private set => Set(ref _isCapturing, value); }
     public int MaxColumns => _maxColumns;
@@ -402,25 +402,53 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     {
         MainThread.BeginInvokeOnMainThread(() =>
         {
-            Stamina      = stats.Stamina;
-            MaxStamina   = stats.MaxStamina;
-            Strength     = stats.Strength;
-            MaxStrength  = stats.MaxStrength;
-            Dexterity    = stats.Dexterity;
-            MaxDexterity = stats.MaxDexterity;
-            Magic        = stats.CurrentMagic;
-            MaxMagic     = stats.MaxMagic;
-            Score        = stats.Score;
-            Blind        = stats.IsBlind;
-            Deaf         = stats.IsDeaf;
-            Crippled     = stats.IsCrippled;
-            Dumb         = stats.IsDumb;
-            TimeToReset  = stats.TimeToReset;
-            Weather      = stats.Weather;
+            // Write all backing fields directly to avoid per-property cascading notifications,
+            // then raise all affected property-changed events in one batch at the end.
+            _stamina      = stats.Stamina;
+            _maxStamina   = stats.MaxStamina;
+            _strength     = stats.Strength;
+            _maxStrength  = stats.MaxStrength;
+            _dexterity    = stats.Dexterity;
+            _maxDexterity = stats.MaxDexterity;
+            _magic        = stats.CurrentMagic;
+            _maxMagic     = stats.MaxMagic;
+
+            var prevScore = _score;
+            _score        = stats.Score;
+            if (_baseScore < 0 && _score > 0) _baseScore = _score;
+
+            _blind        = stats.IsBlind;
+            _deaf         = stats.IsDeaf;
+            _crippled     = stats.IsCrippled;
+            _dumb         = stats.IsDumb;
+            _timeToReset  = stats.TimeToReset;
+            _weather      = stats.Weather;
             _staminaColor = stats.StaminaColor;
-            OnPropertyChanged(nameof(StaColor));
+
             if (stats.DreamWord != null)
-                Dreamword = stats.DreamWord;
+                _dreamword = stats.DreamWord;
+
+            // Single consolidated batch of notifications.
+            OnPropertiesChanged(
+                nameof(Stamina),    nameof(MaxStamina),
+                nameof(StaText),    nameof(StaValue),    nameof(StaColor),
+                nameof(Strength),   nameof(MaxStrength),
+                nameof(StrText),    nameof(StrValue),    nameof(StrColor),
+                nameof(Dexterity),  nameof(MaxDexterity),
+                nameof(DexText),    nameof(DexValue),    nameof(DexColor),
+                nameof(Magic),      nameof(MaxMagic),
+                nameof(MagText),    nameof(MagValue),    nameof(MagColor),    nameof(MagVisible),
+                nameof(Score),
+                nameof(ScoreText),  nameof(ScoreValue),  nameof(ScoreDisplayValue), nameof(ScoreColor),
+                nameof(Blind),      nameof(Deaf),        nameof(Crippled),    nameof(Dumb),
+                nameof(TimeToReset),
+                nameof(TtrText),    nameof(TtrVisible),
+                nameof(Weather),
+                nameof(WeatherText), nameof(WeatherGlyph), nameof(WeatherTooltip),
+                nameof(WeatherDisplayText), nameof(WeatherColor), nameof(WeatherVisible),
+                nameof(AnyRightStatVisible),
+                nameof(Dreamword),  nameof(DreamwordDisplay), nameof(DreamwordIsPlaceholder)
+            );
         });
     }
 

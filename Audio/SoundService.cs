@@ -10,11 +10,13 @@ internal static class SoundService
     public static void Play(string assetName)
     {
         // Fire-and-forget; never block or throw on the caller (TCP) thread.
-        _ = Task.Run(async () =>
-        {
-            try { await PlayCoreAsync(assetName).ConfigureAwait(false); }
-            catch { /* sound failure is non-critical */ }
-        });
+        _ = PlaySafeAsync(assetName);
+    }
+
+    private static async Task PlaySafeAsync(string assetName)
+    {
+        try { await PlayCoreAsync(assetName).ConfigureAwait(false); }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[SoundService] Play failed for '{assetName}': {ex.Message}"); }
     }
 
 #if WINDOWS

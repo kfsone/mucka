@@ -13,7 +13,7 @@ public static class ProfileStore
         try
         {
             if (!File.Exists(FilePath)) return Defaults();
-            var json = await File.ReadAllTextAsync(FilePath);
+            var json = await File.ReadAllTextAsync(FilePath).ConfigureAwait(false);
             return JsonSerializer.Deserialize<List<Profile>>(json) ?? Defaults();
         }
         catch
@@ -26,12 +26,12 @@ public static class ProfileStore
     {
         var json = JsonSerializer.Serialize(profiles,
             new JsonSerializerOptions { WriteIndented = true });
-        await File.WriteAllTextAsync(FilePath, json);
+        await File.WriteAllTextAsync(FilePath, json).ConfigureAwait(false);
     }
 
     public static async Task<string?> GetPasswordAsync(string profileName)
     {
-        try { return await SecureStorage.GetAsync($"pwd:{profileName}"); }
+        try { return await SecureStorage.GetAsync($"pwd:{profileName}").ConfigureAwait(false); }
         catch { return null; }
     }
 
@@ -41,7 +41,7 @@ public static class ProfileStore
         if (string.IsNullOrEmpty(password))
             SecureStorage.Remove(key);
         else
-            await SecureStorage.SetAsync(key, password);
+            await SecureStorage.SetAsync(key, password).ConfigureAwait(false);
     }
 
     private static List<Profile> Defaults() => new()
