@@ -47,6 +47,7 @@ public partial class GamePage : ContentPage
     // while the first EvaluateJavaScriptAsync/ExecuteScriptAsync is still awaiting.
     private bool _injecting;
     private bool _isFkeyEditorOpen;
+    private bool _eventsSubscribed;
     private readonly SemaphoreSlim _scriptExecutionLock = new(1, 1);
 
     public GamePage(GameViewModel vm, bool exitOnDisconnect = false)
@@ -66,10 +67,15 @@ public partial class GamePage : ContentPage
 
         if (_flushTimer == null)
         {
-            _vm.Disconnected += OnDisconnected;
-            _vm.RequestFocus += FocusInput;
-            _vm.EditFkeysRequested += OnEditFkeysRequested;
-            _vm.ClearScreenRequested += OnClearScreenRequested;
+            // Unsubscribe before subscribing to guard against any double-subscribe scenario.
+            if (!_eventsSubscribed)
+            {
+                _vm.Disconnected        += OnDisconnected;
+                _vm.RequestFocus        += FocusInput;
+                _vm.EditFkeysRequested  += OnEditFkeysRequested;
+                _vm.ClearScreenRequested += OnClearScreenRequested;
+                _eventsSubscribed = true;
+            }
 
             ScrollbackWebView.Source = new HtmlWebViewSource { Html = HtmlScrollback.InitialPage };
             ScrollbackWebView.Navigating += OnScrollbackNavigating;
@@ -120,7 +126,12 @@ public partial class GamePage : ContentPage
         _androidCtrlLHandler = null;
 #endif
         if (_isFkeyEditorOpen)
+        {
+            _flushTimer?.Stop();
+            _flushTimer = null;
+            _eventsSubscribed = false;
             return;
+        }
 
         DeviceDisplay.Current.KeepScreenOn = false;
         _flushTimer?.Stop();
@@ -128,10 +139,11 @@ public partial class GamePage : ContentPage
         ScrollbackWebView.Navigating -= OnScrollbackNavigating;
         ScrollbackWebView.Navigated -= OnScrollbackNavigated;
         ScrollbackWebView.Focused -= OnScrollbackFocused;
-        _vm.Disconnected -= OnDisconnected;
-        _vm.RequestFocus -= FocusInput;
-        _vm.EditFkeysRequested -= OnEditFkeysRequested;
+        _vm.Disconnected        -= OnDisconnected;
+        _vm.RequestFocus        -= FocusInput;
+        _vm.EditFkeysRequested  -= OnEditFkeysRequested;
         _vm.ClearScreenRequested -= OnClearScreenRequested;
+        _eventsSubscribed = false;
         if (Window is not null)
             Window.Activated -= OnWindowActivated;
 #if WINDOWS
