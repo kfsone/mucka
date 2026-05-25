@@ -9,15 +9,10 @@ namespace Mucka.Core;
 ///   1. "login:"    → send "mud"                   (Linux shell login)
 ///   2. "account id"→ send account ID              (MUD2 application)
 ///   3. "password"  → send password                (MUD2 application)
-///   4. "Option"    → send ESC Ctrl-F ESC-T         (Clio client-mode entry, one-shot)
+///   4. "Option"    → send ESC-[ ESC^F ESC-T ESC-N /T{cols} ESC-] (client-mode entry, one-shot)
 /// </remarks>
 internal sealed class MudLoginHandler
 {
-    // Client-mode entry sequence from Clio telnet.l line 397:
-    //   tx(tid,"\033\006\033-T",5)
-    //   ESC(0x1B) Ctrl-F(0x06) ESC(0x1B) '-'(0x2D) 'T'(0x54)
-    private static readonly byte[] ClientModeEntry = { 0x1B, 0x06, 0x1B, 0x2D, 0x54 };
-
     private readonly MuckaConnection _conn;
     private readonly string _accountId;
     private readonly string _password;
@@ -87,8 +82,7 @@ internal sealed class MudLoginHandler
         if (!_clientModeSent && text.Contains("Option", StringComparison.Ordinal))
         {
             _clientModeSent = true;
-            _conn.ResendWindowSize();   // ensure server has effective cols before entering client mode
-            _conn.SendBytes(ClientModeEntry);
+            _conn.SendClientModeEntry();
         }
     }
 

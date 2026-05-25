@@ -1,6 +1,7 @@
 using MudSharp.Models;
 using MudSharp.Session;
 using System.Net.Sockets;
+using System.Text;
 
 namespace Mucka.Core;
 
@@ -132,10 +133,31 @@ public sealed class MuckaConnection : IAsyncDisposable
     }
 
     /// <summary>
-    /// Re-send the current NAWS window size to the server (if NAWS has been negotiated).
-    /// Called at the Option menu to ensure the server has the effective cols before client-mode entry.
+    /// Send the NAWS window-size update followed by the client-mode entry interrupt:
+    ///   ESC-[ ESC^F ESC-T ESC-N /T{cols} ESC-]
+    /// This enters best-client mode, selects normal mode (so cols are honoured), and
+    /// tells the MUD shell the effective terminal width — all without a trailing newline.
     /// </summary>
-    internal void ResendWindowSize() => _session.SetWindowSize(_windowCols, 21);
+    internal void SendClientModeEntry()
+    {
+        _session.SetWindowSize(_windowCols, 21);
+
+        // ESC-[  = begin command interrupt
+        // ESC^F  = best-client mode (binary activation)
+        // ESC-T  = text mode (colour ANSI baseline)
+        // ESC-N  = normal mode (server honours our column count)
+        // /T{n}  = MUD shell command: set terminal width
+        // ESC-]  = end command interrupt
+        byte[] prefix = { 0x1B, 0x2D, 0x5B, 0x1B, 0x06, 0x1B, 0x2D, 0x54, 0x1B, 0x2D, 0x4E };
+        byte[] colCmd = Encoding.ASCII.GetBytes($"/T{_windowCols}");
+        byte[] suffix = { 0x1B, 0x2D, 0x5D };
+
+        var seq = new byte[prefix.Length + colCmd.Length + suffix.Length];
+        Buffer.BlockCopy(prefix, 0, seq, 0, prefix.Length);
+        Buffer.BlockCopy(colCmd, 0, seq, prefix.Length, colCmd.Length);
+        Buffer.BlockCopy(suffix, 0, seq, prefix.Length + colCmd.Length, suffix.Length);
+        _session.Send(seq);
+    }
 
     public async ValueTask DisposeAsync()
     {
