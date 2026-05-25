@@ -13,11 +13,6 @@ namespace Mucka.Core;
 /// </remarks>
 internal sealed class MudLoginHandler
 {
-    // Client-emulation mode entry sequence, see telnet.l line 397:
-    //   tx(tid,"\033\006\033-T",5)
-    //   ESC(0x1B) Ctrl-F(0x06) ESC(0x1B) '-'(0x2D) 'T'(0x54)
-    private static readonly byte[] ClientModeEntry = { 0x1B, 0x06, 0x1B, 0x2D, 0x54 };
-
     private readonly MuckaConnection _conn;
     private readonly string _accountId;
     private readonly string _password;
@@ -87,8 +82,7 @@ internal sealed class MudLoginHandler
         if (!_clientModeSent && text.Contains("Option", StringComparison.Ordinal))
         {
             _clientModeSent = true;
-            _conn.ResendWindowSize();   // ensure server has effective cols before entering client mode
-            _conn.SendBytes(ClientModeEntry);
+            _conn.SendClientModeEntry();
         }
     }
 

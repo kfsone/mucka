@@ -219,8 +219,7 @@ public class Mud2C1Tests
         Assert.True(h.Lines[0].IsPartial);
 
         // Text emitted after C98 should carry the BLACK/BLUE color.
-        // EmitPartialLine retains spans, so Lines[1] has: Spans[0]="prompt: " (Default),
-        // Spans[1]="after" (Black/Blue from C98's Apply).
+        // EmitPartialLine clears spans, so Lines[1] only has the new "after" span (Black/Blue).
         h.Feed("after\n");
         Assert.Equal(2, h.Lines.Count);
         var style = h.Lines[1].Spans.Last().Style;

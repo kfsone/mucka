@@ -91,8 +91,7 @@ internal sealed class Mud2C1Decoder
         // Both flags are cleared after the first pop that follows the '*' prompt text.
         if (_parser.EmitPartialOnPop)
         {
-            _parser.EmitPartialLine();  // show '*' as live partial-line prompt
-            _parser.ClearSpans();       // remove '*' from spans so it doesn't leak into next line
+            _parser.EmitPartialLine();  // show '*' as live partial-line prompt; clears spans internally
             _parser.EmitPartialOnPop = false;
         }
         _parser.SuppressNextText = false;
