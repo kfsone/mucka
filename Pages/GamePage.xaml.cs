@@ -156,6 +156,10 @@ public partial class GamePage : ContentPage
                 await Navigation.PopAsync();
             }
         }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Trace.WriteLine($"[GamePage] ConfirmDisconnectAsync failed: {ex.Message}");
+        }
         finally
         {
             _isConfirmingDisconnect = false;
