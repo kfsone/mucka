@@ -47,11 +47,8 @@ public partial class GamePage : ContentPage
     // while the first EvaluateJavaScriptAsync/ExecuteScriptAsync is still awaiting.
     private bool _injecting;
     private bool _isFkeyEditorOpen;
-<<<<<<< HEAD
     private bool _isConfirmingDisconnect;
-=======
     private bool _eventsSubscribed;
->>>>>>> origin/main
     private readonly SemaphoreSlim _scriptExecutionLock = new(1, 1);
 
     public GamePage(GameViewModel vm, bool exitOnDisconnect = false)

@@ -46,7 +46,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private double _widthDp;
     private int _antiIdleSeconds;
     private bool _keepScreenOn;
-    private bool _inGameMode;
     private DateTime _lastSentUtc;
 
     // Lines from the TCP thread are enqueued here; the UI timer flushes them in batches.
@@ -365,23 +364,17 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     // Called from the TCP read thread — must not touch UI directly.
     private void OnLineReady(StyledLine line) => _pendingLines.Enqueue(line);
 
-<<<<<<< HEAD
     // Called from the TCP read thread — marshal IsInGameMode update onto the UI thread.
-    private void OnGameModeEntered() => MainThread.BeginInvokeOnMainThread(() => IsInGameMode = true);
-    private void OnGameModeExited()  => MainThread.BeginInvokeOnMainThread(() => IsInGameMode = false);
-=======
-    // MudSession owns the FES heartbeat — nothing to do in GameViewModel on mode transitions
-    // beyond tracking game mode for anti-idle. Events fire on the TCP thread; marshal to UI.
+    // Also reset _lastSentUtc on game-mode entry so anti-idle starts fresh.
     private void OnGameModeEntered()
         => MainThread.BeginInvokeOnMainThread(() =>
         {
-            _inGameMode = true;
+            IsInGameMode = true;
             _lastSentUtc = DateTime.UtcNow;
         });
 
     private void OnGameModeExited()
-        => MainThread.BeginInvokeOnMainThread(() => _inGameMode = false);
->>>>>>> origin/main
+        => MainThread.BeginInvokeOnMainThread(() => IsInGameMode = false);
 
     /// <summary>
     /// Called by GamePage's 50ms timer on the UI thread.
@@ -466,7 +459,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private void OnDisconnected(Exception? error)
         => MainThread.BeginInvokeOnMainThread(() =>
         {
-            _inGameMode = false;
+            IsInGameMode = false;
             IsConnected = false;
             Disconnected?.Invoke();
         });
@@ -572,7 +565,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
 
     public void AntiIdleTick()
     {
-        if (_antiIdleSeconds <= 0 || !_inGameMode || !_conn.IsConnected)
+        if (_antiIdleSeconds <= 0 || !_isInGameMode || !_conn.IsConnected)
             return;
         if ((DateTime.UtcNow - _lastSentUtc).TotalSeconds < _antiIdleSeconds)
             return;
