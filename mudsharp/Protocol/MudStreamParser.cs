@@ -217,8 +217,8 @@ public sealed class MudStreamParser
     {
         FlushSpan();
         if (_spans.Count == 0) return;
-        // Do NOT clear _spans — the partial line keeps accumulating until a '\n' finalises it.
         var line = new StyledLine(_spans.ToArray(), isPartial: true);
+        _spans.Clear();   // snapshot: next text accumulates fresh so the complete line only holds new content
         LineReady?.Invoke(line);
     }
 
