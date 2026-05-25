@@ -22,6 +22,8 @@ public sealed class ConnectViewModel : BaseViewModel
     private bool _advancedVisible;
     private bool _captureRequested;
     private int _maxColumns = 80;
+    private int _antiIdleSeconds = 0;
+    private bool _keepScreenOn = false;
 
     public string ProfileName { get => _profileName; set => Set(ref _profileName, value); }
     public string Host { get => _host; set => Set(ref _host, value); }
@@ -35,6 +37,8 @@ public sealed class ConnectViewModel : BaseViewModel
     public bool TelnetLoginEnabled { get => _telnetLoginEnabled; set => Set(ref _telnetLoginEnabled, value); }
     public string TelnetLoginName { get => _telnetLoginName; set => Set(ref _telnetLoginName, value); }
     public int MaxColumns { get => _maxColumns; set => Set(ref _maxColumns, Math.Clamp(value, 20, 160)); }
+    public int AntiIdleSeconds { get => _antiIdleSeconds; set => Set(ref _antiIdleSeconds, Math.Clamp(value, 0, 3600)); }
+    public bool KeepScreenOn { get => _keepScreenOn; set => Set(ref _keepScreenOn, value); }
     public bool IsCaptureRequested { get => _captureRequested; set => Set(ref _captureRequested, value); }
 
     public bool IsCaptureFacilityAvailable { get; } =
@@ -69,6 +73,7 @@ public sealed class ConnectViewModel : BaseViewModel
     public ICommand ToggleAdvancedCommand { get; }
     public ICommand ShowTelnetHelpCommand { get; }
     public ICommand ToggleCaptureCommand { get; }
+    public ICommand DeleteProfileCommand { get; }
 
     public Func<PasswordPromptArgs, Task<PasswordResult?>>? PasswordRequired;
 
@@ -84,6 +89,7 @@ public sealed class ConnectViewModel : BaseViewModel
             IsCaptureRequested = !IsCaptureRequested;
             OnPropertyChanged(nameof(CaptureButtonText));
         });
+        DeleteProfileCommand = new AsyncCommand(DeleteProfileAsync);
         ShowTelnetHelpCommand = new Command(async () =>
         {
             var page = Application.Current?.Windows.FirstOrDefault()?.Page;
@@ -154,6 +160,8 @@ public sealed class ConnectViewModel : BaseViewModel
                 TelnetLoginEnabled = TelnetLoginEnabled,
                 TelnetLoginName = loginName,
                 MaxColumns = MaxColumns,
+                AntiIdleSeconds = AntiIdleSeconds,
+                KeepScreenOn = KeepScreenOn,
                 Fkeys = SavedProfiles.FirstOrDefault(p => p.Name == ProfileName)?.Fkeys ?? new string[36]
             };
             if (!IsDirectConnectMode)
@@ -190,6 +198,8 @@ public sealed class ConnectViewModel : BaseViewModel
         TelnetLoginEnabled = p.TelnetLoginEnabled;
         TelnetLoginName = string.IsNullOrEmpty(p.TelnetLoginName) ? "mud" : p.TelnetLoginName;
         MaxColumns = p.MaxColumns;
+        AntiIdleSeconds = p.AntiIdleSeconds;
+        KeepScreenOn = p.KeepScreenOn;
     }
 
     private async Task SelectProfileAsync(Profile p, bool loadPassword)
@@ -211,6 +221,45 @@ public sealed class ConnectViewModel : BaseViewModel
         {
             Password = string.Empty;
         }
+    }
+
+    private async Task DeleteProfileAsync()
+    {
+        var page = Application.Current?.Windows.FirstOrDefault()?.Page;
+        if (page == null) return;
+
+        var name = ProfileName;
+        if (string.IsNullOrWhiteSpace(name)) return;
+
+        var input = await page.DisplayPromptAsync(
+            "Delete Profile",
+            $"Type \"{name}\" to confirm deletion.",
+            accept: "Delete",
+            cancel: "Cancel",
+            placeholder: name,
+            initialValue: string.Empty);
+
+        if (input == null || input != name) return;
+
+        var existing = SavedProfiles.FirstOrDefault(p =>
+            string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase));
+        if (existing == null) return;
+
+        SavedProfiles.Remove(existing);
+        await ProfileStore.SetPasswordAsync(name, null);
+
+        if (SavedProfiles.Count == 0)
+        {
+            var def = new Profile { Name = "Default", Host = "mud2.co.uk", Port = 23 };
+            SavedProfiles.Add(def);
+            ApplyProfile(def);
+        }
+        else
+        {
+            ApplyProfile(SavedProfiles[0]);
+        }
+
+        await ProfileStore.SaveAsync(SavedProfiles.ToList());
     }
 
     private async Task LoadProfilesAsync()
@@ -283,6 +332,8 @@ public sealed class ConnectViewModel : BaseViewModel
             existing.TelnetLoginEnabled = incoming.TelnetLoginEnabled;
             existing.TelnetLoginName = incoming.TelnetLoginName;
             existing.MaxColumns = incoming.MaxColumns;
+            existing.AntiIdleSeconds = incoming.AntiIdleSeconds;
+            existing.KeepScreenOn = incoming.KeepScreenOn;
             existing.Fkeys = incoming.Fkeys;
             var idx = SavedProfiles.IndexOf(existing);
             if (idx > 0)

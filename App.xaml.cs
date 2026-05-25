@@ -1,4 +1,5 @@
-﻿using Mucka.Pages;
+﻿using Microsoft.Extensions.DependencyInjection;
+using Mucka.Pages;
 
 namespace Mucka;
 
@@ -11,7 +12,8 @@ public partial class App : Application
 
     protected override Window CreateWindow(IActivationState? activationState)
     {
-        var window = new Window(new NavigationPage(new ConnectPage())
+        var connectPage = IPlatformApplication.Current!.Services.GetRequiredService<ConnectPage>();
+        var window = new Window(new NavigationPage(connectPage)
         {
             BarBackgroundColor = Color.FromArgb("#161b22"),
             BarTextColor = Colors.White,

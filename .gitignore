@@ -1,3 +1,4 @@
+.claude
 .clion
 .idea
 .vs
@@ -31,3 +32,6 @@ AppPackages/
 
 # macOS
 .DS_Store
+
+# Misc
+MUD-ClientProto.md

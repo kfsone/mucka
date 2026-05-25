@@ -3,6 +3,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              xmlns:vm="clr-namespace:Mucka.ViewModels"
              x:Class="Mucka.Pages.GamePage"
+             x:DataType="vm:GameViewModel"
              Title="mucka"
              BackgroundColor="#0C0C0C"
              NavigationPage.HasNavigationBar="False">
@@ -77,23 +78,36 @@
                     <!-- Spacer -->
                     <BoxView Grid.Column="6" Color="Transparent"/>
 
-                    <!-- Rec (debug capture, optional) -->
-                    <Button Grid.Column="7"
-                            Text="Rec"
-                            Command="{Binding ToggleCaptureCommand}"
+                    <!-- Rec capture indicator — Border+tap avoids WinUI's minimum button height -->
+                    <Border Grid.Column="7"
                             IsVisible="{Binding IsCaptureFacilityAvailable}"
+                            BackgroundColor="#2d333b"
+                            Stroke="Transparent" StrokeThickness="0"
+                            Padding="5,2" Margin="0,0,4,0"
+                            VerticalOptions="Center"
                             SemanticProperties.Description="Toggle capture"
-                            SemanticProperties.Hint="Starts or stops capture"
-                            BackgroundColor="#2d333b" TextColor="#888888"
-                            FontSize="11" WidthRequest="34" HeightRequest="20"
-                            CornerRadius="3" Padding="0" Margin="0,0,4,0">
-                        <Button.Triggers>
-                            <DataTrigger TargetType="Button" Binding="{Binding IsCapturing}" Value="True">
+                            SemanticProperties.Hint="Starts or stops capture">
+                        <ToolTipProperties.Text>Toggle capture</ToolTipProperties.Text>
+                        <Border.StrokeShape><RoundRectangle CornerRadius="3"/></Border.StrokeShape>
+                        <Border.GestureRecognizers>
+                            <TapGestureRecognizer Command="{Binding ToggleCaptureCommand}"/>
+                        </Border.GestureRecognizers>
+                        <Border.Triggers>
+                            <DataTrigger TargetType="Border" Binding="{Binding IsCapturing}" Value="True">
                                 <Setter Property="BackgroundColor" Value="#c02020"/>
-                                <Setter Property="TextColor" Value="White"/>
                             </DataTrigger>
-                        </Button.Triggers>
-                    </Button>
+                        </Border.Triggers>
+                        <Label Text="rec" FontSize="10" HorizontalOptions="Center" VerticalOptions="Center">
+                            <Label.Triggers>
+                                <DataTrigger TargetType="Label" Binding="{Binding IsCapturing}" Value="True">
+                                    <Setter Property="TextColor" Value="White"/>
+                                </DataTrigger>
+                                <DataTrigger TargetType="Label" Binding="{Binding IsCapturing}" Value="False">
+                                    <Setter Property="TextColor" Value="#888888"/>
+                                </DataTrigger>
+                            </Label.Triggers>
+                        </Label>
+                    </Border>
 
                     <!-- Dreamword chip — tap to speak; Ctrl+D from keyboard -->
                     <Border Grid.Column="8"

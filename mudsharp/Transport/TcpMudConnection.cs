@@ -102,7 +102,7 @@ public sealed class TcpMudConnection : IAsyncDisposable
     private void SendBytesSync(byte[] bytes)
     {
         try { _stream?.Write(bytes, 0, bytes.Length); }
-        catch { /* connection lost — read loop will handle */ }
+        catch { _cts?.Cancel(); }
     }
 
     private void WireSessionEvents()

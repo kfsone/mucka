@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using Microsoft.Extensions.Logging;
 using Mucka.Core;
+using Mucka.Pages;
+using Mucka.ViewModels;
 
 namespace Mucka;
 
@@ -16,6 +18,11 @@ public static class MauiProgram
                 fonts.AddFont("OpenSans-Regular.ttf",  "OpenSansRegular");
                 fonts.AddFont("OpenSans-Semibold.ttf", "OpenSansSemibold");
             });
+
+        // Register ViewModels and Pages for dependency injection.
+        // ConnectViewModel is transient so each navigation creates a fresh instance.
+        builder.Services.AddTransient<ConnectViewModel>();
+        builder.Services.AddTransient<ConnectPage>();
 
 #if DEBUG
         builder.Logging.AddDebug();

@@ -4,11 +4,12 @@
              xmlns:vm="clr-namespace:Mucka.ViewModels"
              xmlns:core="clr-namespace:Mucka.Core"
              x:Class="Mucka.Pages.ConnectPage"
+             x:DataType="vm:ConnectViewModel"
              Title="mucka"
              BackgroundColor="#0C0C0C">
 
     <Grid RowDefinitions="{OnIdiom Phone='Auto,1,*', Default='*'}"
-          ColumnDefinitions="{OnIdiom Phone='*', Default='200,1,*'}">
+          ColumnDefinitions="{OnIdiom Phone='*', Default='256,1,*'}">
 
         <!-- Profile list on the left -->
         <CollectionView Grid.Row="0"
@@ -19,10 +20,15 @@
                         SelectionChanged="OnProfileSelected"
                         BackgroundColor="#111111">
             <CollectionView.Header>
-                <Label Text="Saved profiles"
-                       TextColor="#555555"
-                       FontSize="12"
-                       Padding="12,8,12,4" />
+                <VerticalStackLayout Padding="0" BackgroundColor="#111111">
+                    <Image Source="mucka_logo.png"
+                           HorizontalOptions="Fill"
+                           Aspect="AspectFit"/>
+                    <Label Text="Saved profiles"
+                           TextColor="#555555"
+                           FontSize="12"
+                           Padding="12,4,12,4" />
+                </VerticalStackLayout>
             </CollectionView.Header>
             <CollectionView.ItemTemplate>
                 <DataTemplate x:DataType="core:Profile">
@@ -142,46 +148,13 @@
                                VerticalOptions="Center"/>
                     </Grid>
 
-                    <!-- Telnet Login: checkbox + label + login-name entry + help, all on one row -->
-                    <Grid Grid.Row="4"
-                          Grid.Column="0"
-                          Grid.ColumnSpan="2"
-                          ColumnDefinitions="Auto,*,80,Auto"
-                          ColumnSpacing="8">
-                        <CheckBox Grid.Column="0"
-                                  IsChecked="{Binding TelnetLoginEnabled}"
-                                  Color="#1f6feb"
-                                  VerticalOptions="Center"/>
-                        <Label Grid.Column="1"
-                               Text="Telnet Login (MUSE games)"
-                               TextColor="#888888"
-                               VerticalOptions="Center"/>
-                        <Entry Grid.Column="2"
-                               Text="{Binding TelnetLoginName}"
-                               IsEnabled="{Binding TelnetLoginEnabled}"
-                               TextColor="White"
-                               BackgroundColor="#161b22"
-                               PlaceholderColor="#444444"
-                               Placeholder="mud"
-                               SemanticProperties.Description="Telnet login name"/>
-                        <Label Grid.Column="3"
-                               Text="&#x24D8;"
-                               TextColor="#1f6feb"
-                               FontSize="16"
-                               VerticalOptions="Center">
-                            <Label.GestureRecognizers>
-                                <TapGestureRecognizer Command="{Binding ShowTelnetHelpCommand}"/>
-                            </Label.GestureRecognizers>
-                        </Label>
-                    </Grid>
-
-                    <!-- Max Columns: how wide a terminal to advertise via NAWS -->
-                    <Label Grid.Row="5"
+                    <!-- Line Width: terminal columns advertised via NAWS -->
+                    <Label Grid.Row="4"
                            Grid.Column="0"
-                           Text="Max Cols"
+                           Text="Line Width"
                            TextColor="#888888"
                            VerticalOptions="Center"/>
-                    <Grid Grid.Row="5"
+                    <Grid Grid.Row="4"
                           Grid.Column="1"
                           ColumnDefinitions="80,*"
                           ColumnSpacing="8">
@@ -190,8 +163,8 @@
                                TextColor="White"
                                BackgroundColor="#161b22"
                                Keyboard="Numeric"
-                               SemanticProperties.Description="Max terminal columns"
-                               ToolTipProperties.Text="Terminal width advertised to server via NAWS (20–160)"
+                               SemanticProperties.Description="Terminal line width"
+                               ToolTipProperties.Text="Terminal width advertised to server via NAWS (20&#x2013;160)"
                                ReturnType="Done"/>
                         <Label Grid.Column="1"
                                Text="20&#x2013;160 (default 80)"
@@ -200,12 +173,36 @@
                                VerticalOptions="Center"/>
                     </Grid>
 
+                    <!-- Anti-Idle: keep-alive interval -->
+                    <Label Grid.Row="5"
+                           Grid.Column="0"
+                           Text="Anti-Idle"
+                           TextColor="#888888"
+                           VerticalOptions="Center"/>
+                    <Grid Grid.Row="5"
+                          Grid.Column="1"
+                          ColumnDefinitions="80,*"
+                          ColumnSpacing="8">
+                        <Entry Grid.Column="0"
+                               Text="{Binding AntiIdleSeconds}"
+                               TextColor="White"
+                               BackgroundColor="#161b22"
+                               Keyboard="Numeric"
+                               SemanticProperties.Description="Anti-idle interval in seconds"
+                               ToolTipProperties.Text="Seconds of inactivity before sending a keep-alive (0 = disabled)"
+                               ReturnType="Done"/>
+                        <Label Grid.Column="1"
+                               Text="seconds (0=off)"
+                               TextColor="#555555"
+                               FontSize="11"
+                               VerticalOptions="Center"/>
+                    </Grid>
                 </Grid>
 
                 <Grid ColumnDefinitions="*,Auto"
                       ColumnSpacing="8">
                     <Button Grid.Column="0"
-                            Text="Connect  ▶"
+                            Text="Connect  &#x25B6;"
                             Command="{Binding ConnectCommand}"
                             IsEnabled="{Binding CanConnect}"
                             BackgroundColor="#1f6feb"
@@ -231,6 +228,91 @@
                         </Button.Triggers>
                     </Button>
                 </Grid>
+
+                <!-- Advanced toggle -->
+                <Button Text="{Binding AdvancedChevron}"
+                        Command="{Binding ToggleAdvancedCommand}"
+                        BackgroundColor="#1a1a1a"
+                        TextColor="#555555"
+                        BorderColor="#333333"
+                        BorderWidth="1"
+                        CornerRadius="4"
+                        HeightRequest="36"
+                        HorizontalOptions="Fill"
+                        FontSize="13"
+                        Padding="12,0"/>
+
+                <!-- Advanced section -->
+                <VerticalStackLayout IsVisible="{Binding AdvancedVisible}"
+                                     Spacing="10">
+
+                    <!-- MUD Login: checkbox + label + help -->
+                    <Grid ColumnDefinitions="Auto,*,Auto"
+                          ColumnSpacing="8">
+                        <CheckBox Grid.Column="0"
+                                  IsChecked="{Binding TelnetLoginEnabled}"
+                                  Color="#1f6feb"
+                                  VerticalOptions="Center"/>
+                        <Label Grid.Column="1"
+                               Text="MUD Login"
+                               TextColor="#888888"
+                               VerticalOptions="Center"/>
+                        <Label Grid.Column="2"
+                               Text="&#x24D8;"
+                               TextColor="#1f6feb"
+                               FontSize="16"
+                               VerticalOptions="Center">
+                            <Label.GestureRecognizers>
+                                <TapGestureRecognizer Command="{Binding ShowTelnetHelpCommand}"/>
+                            </Label.GestureRecognizers>
+                        </Label>
+                    </Grid>
+
+                    <!-- MUD User (TelnetLoginName) -->
+                    <Grid ColumnDefinitions="80,*"
+                          ColumnSpacing="10">
+                        <Label Grid.Column="0"
+                               Text="MUD User"
+                               TextColor="#888888"
+                               VerticalOptions="Center"/>
+                        <Entry Grid.Column="1"
+                               Text="{Binding TelnetLoginName}"
+                               IsEnabled="{Binding TelnetLoginEnabled}"
+                               TextColor="White"
+                               BackgroundColor="#161b22"
+                               PlaceholderColor="#444444"
+                               Placeholder="mud"
+                               SemanticProperties.Description="MUD login username"
+                               ReturnType="Done"/>
+                    </Grid>
+
+                    <!-- Keep Screen On (Android only) -->
+                    <Grid ColumnDefinitions="Auto,Auto"
+                          HorizontalOptions="Start"
+                          ColumnSpacing="8"
+                          IsVisible="{OnPlatform Default=False, Android=True}">
+                        <CheckBox Grid.Column="0"
+                                  IsChecked="{Binding KeepScreenOn}"
+                                  Color="#1f6feb"
+                                  VerticalOptions="Center"/>
+                        <Label Grid.Column="1"
+                               Text="Keep Screen On"
+                               TextColor="#888888"
+                               VerticalOptions="Center"/>
+                    </Grid>
+
+                    <!-- Delete Profile -->
+                    <Button Text="Delete Profile"
+                            Command="{Binding DeleteProfileCommand}"
+                            BackgroundColor="#3d1a1a"
+                            TextColor="#f85149"
+                            BorderColor="#5a2020"
+                            BorderWidth="1"
+                            CornerRadius="6"
+                            HeightRequest="44"
+                            HorizontalOptions="Fill"/>
+
+                </VerticalStackLayout>
 
                 <Label Text="{Binding StatusText}"
                        TextColor="#f85149"

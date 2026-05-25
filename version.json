@@ -1,4 +1,4 @@
 {
-  "stage": "rc",
-  "baseVersion": "0.2.02"
+  "stage": "release",
+  "baseVersion": "0.3.00"
 }

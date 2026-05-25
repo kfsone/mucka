@@ -47,7 +47,11 @@ public partial class GamePage : ContentPage
     // while the first EvaluateJavaScriptAsync/ExecuteScriptAsync is still awaiting.
     private bool _injecting;
     private bool _isFkeyEditorOpen;
+<<<<<<< HEAD
     private bool _isConfirmingDisconnect;
+=======
+    private bool _eventsSubscribed;
+>>>>>>> origin/main
     private readonly SemaphoreSlim _scriptExecutionLock = new(1, 1);
 
     public GamePage(GameViewModel vm, bool exitOnDisconnect = false)
@@ -63,12 +67,19 @@ public partial class GamePage : ContentPage
         _isFkeyEditorOpen = false;
         base.OnAppearing();
 
+        DeviceDisplay.Current.KeepScreenOn = _vm.KeepScreenOn;
+
         if (_flushTimer == null)
         {
-            _vm.Disconnected += OnDisconnected;
-            _vm.RequestFocus += FocusInput;
-            _vm.EditFkeysRequested += OnEditFkeysRequested;
-            _vm.ClearScreenRequested += OnClearScreenRequested;
+            // Unsubscribe before subscribing to guard against any double-subscribe scenario.
+            if (!_eventsSubscribed)
+            {
+                _vm.Disconnected        += OnDisconnected;
+                _vm.RequestFocus        += FocusInput;
+                _vm.EditFkeysRequested  += OnEditFkeysRequested;
+                _vm.ClearScreenRequested += OnClearScreenRequested;
+                _eventsSubscribed = true;
+            }
 
             ScrollbackWebView.Source = new HtmlWebViewSource { Html = HtmlScrollback.InitialPage };
             ScrollbackWebView.Navigating += OnScrollbackNavigating;
@@ -91,6 +102,11 @@ public partial class GamePage : ContentPage
             // Hook the native TextBox so Up/Down/Esc keys work in the entry.
             InputEntry.HandlerChanged += OnInputHandlerChanged;
 #endif
+        }
+        else
+        {
+            // Returning from FkeyEditor: events and platform hooks are still active; just resume the timer.
+            _flushTimer.Start();
         }
 
         FocusInput();
@@ -158,17 +174,24 @@ public partial class GamePage : ContentPage
         _androidCtrlLHandler = null;
 #endif
         if (_isFkeyEditorOpen)
+        {
+            // Pause the timer while the modal is open. Keep it non-null so OnAppearing
+            // knows not to reinitialize the WebView or re-hook events on return.
+            _flushTimer?.Stop();
             return;
+        }
 
+        DeviceDisplay.Current.KeepScreenOn = false;
         _flushTimer?.Stop();
         _flushTimer = null;
         ScrollbackWebView.Navigating -= OnScrollbackNavigating;
         ScrollbackWebView.Navigated -= OnScrollbackNavigated;
         ScrollbackWebView.Focused -= OnScrollbackFocused;
-        _vm.Disconnected -= OnDisconnected;
-        _vm.RequestFocus -= FocusInput;
-        _vm.EditFkeysRequested -= OnEditFkeysRequested;
+        _vm.Disconnected        -= OnDisconnected;
+        _vm.RequestFocus        -= FocusInput;
+        _vm.EditFkeysRequested  -= OnEditFkeysRequested;
         _vm.ClearScreenRequested -= OnClearScreenRequested;
+        _eventsSubscribed = false;
         if (Window is not null)
             Window.Activated -= OnWindowActivated;
 #if WINDOWS
@@ -196,6 +219,8 @@ public partial class GamePage : ContentPage
 
     private async void OnFlushTick(object? sender, EventArgs e)
     {
+        _vm.AntiIdleTick();
+
         if (_injecting) return;   // previous injection still in flight — pick up lines next tick
 
         // Move new lines from the ViewModel queue into our local buffer.

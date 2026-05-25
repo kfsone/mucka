@@ -32,6 +32,4 @@ internal enum ParserState
     C95Data,        // after C95+C255: collecting 5 newline-terminated client-mode lines
     C95LogoutLine,  // after C95+C03+C255: consuming 1 line (account-logout, silent)
 
-    // Login suppression
-    LoginPrompt,    // detecting/suppressing "login:" auto-reply
 }
