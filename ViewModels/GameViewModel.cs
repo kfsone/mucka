@@ -81,13 +81,18 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public int EffCols => _effCols;
     public bool KeepScreenOn => _keepScreenOn;
 
-    /// <summary>True only in debug builds — controls visibility of the capture button.</summary>
+    /// <summary>True in debug builds and on Windows release — controls visibility of the capture button.</summary>
     public bool IsCaptureFacilityAvailable { get; } =
-#if DEBUG
+#if DEBUG || WINDOWS
         true;
 #else
         false;
 #endif
+
+    public bool IsInGameMode => _inGameMode;
+
+    /// <summary>True when the capture button should be shown: facility available AND currently in-game.</summary>
+    public bool IsRecordingButtonVisible => IsCaptureFacilityAvailable && _inGameMode;
 
     public string StaText  => $"Sta: {Stamina}/{MaxStamina}";
     public string MagText  => $"Mag: {Magic}/{MaxMagic}";
@@ -370,10 +375,15 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         {
             _inGameMode = true;
             _lastSentUtc = DateTime.UtcNow;
+            OnPropertiesChanged(nameof(IsInGameMode), nameof(IsRecordingButtonVisible));
         });
 
     private void OnGameModeExited()
-        => MainThread.BeginInvokeOnMainThread(() => _inGameMode = false);
+        => MainThread.BeginInvokeOnMainThread(() =>
+        {
+            _inGameMode = false;
+            OnPropertiesChanged(nameof(IsInGameMode), nameof(IsRecordingButtonVisible));
+        });
 
     /// <summary>
     /// Called by GamePage's 50ms timer on the UI thread.
@@ -460,6 +470,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         {
             _inGameMode = false;
             IsConnected = false;
+            OnPropertiesChanged(nameof(IsInGameMode), nameof(IsRecordingButtonVisible));
             Disconnected?.Invoke();
         });
 

@@ -80,7 +80,7 @@
 
                     <!-- Rec capture indicator — Border+tap avoids WinUI's minimum button height -->
                     <Border Grid.Column="7"
-                            IsVisible="{Binding IsCaptureFacilityAvailable}"
+                            IsVisible="{Binding IsRecordingButtonVisible}"
                             BackgroundColor="#2d333b"
                             Stroke="Transparent" StrokeThickness="0"
                             Padding="5,2" Margin="0,0,4,0"

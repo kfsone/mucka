@@ -27,7 +27,7 @@ public sealed class MuckaConnection : IAsyncDisposable
     private string _host = string.Empty;
     private readonly object _writeLock = new();
 
-#if DEBUG
+#if DEBUG || WINDOWS
     private readonly SessionCapture _capture = new();
 #endif
 
@@ -44,7 +44,7 @@ public sealed class MuckaConnection : IAsyncDisposable
 
     public bool IsConnected => _client?.Connected ?? false;
 
-#if DEBUG
+#if DEBUG || WINDOWS
     public bool IsCapturing => _capture.IsRecording;
     public string? CaptureFilePath => _capture.FilePath;
     /// <summary>Write a free-text annotation into the active capture log.</summary>
@@ -99,7 +99,7 @@ public sealed class MuckaConnection : IAsyncDisposable
 
     public bool TryStartCapture(string? hostOverride, out string? error)
     {
-#if DEBUG
+#if DEBUG || WINDOWS
         var host = string.IsNullOrWhiteSpace(hostOverride) ? _host : hostOverride!.Trim();
         if (string.IsNullOrWhiteSpace(host)) host = "unknown";
         return _capture.TryStart(host, out error);
@@ -111,7 +111,7 @@ public sealed class MuckaConnection : IAsyncDisposable
 
     public void StopCapture()
     {
-#if DEBUG
+#if DEBUG || WINDOWS
         _capture.Stop();
 #endif
     }
@@ -165,7 +165,7 @@ public sealed class MuckaConnection : IAsyncDisposable
         _loginHandler?.Detach();
         _session.Dispose();
         _cts?.Dispose();
-#if DEBUG
+#if DEBUG || WINDOWS
         _capture.Dispose();
 #endif
     }
@@ -182,7 +182,7 @@ public sealed class MuckaConnection : IAsyncDisposable
             {
                 int read = await _stream!.ReadAsync(buf, ct);
                 if (read == 0) break; // server closed connection
-#if DEBUG
+#if DEBUG || WINDOWS
                 _capture.RecordRx(buf.AsSpan(0, read));
 #endif
                 // Feed raw bytes into MudSession AFTER capturing — parser sees unmodified bytes.
@@ -206,7 +206,7 @@ public sealed class MuckaConnection : IAsyncDisposable
         {
             try
             {
-#if DEBUG
+#if DEBUG || WINDOWS
                 _capture.RecordTx(bytes);
 #endif
                 _stream?.Write(bytes, 0, bytes.Length);
@@ -223,7 +223,7 @@ public sealed class MuckaConnection : IAsyncDisposable
         _session.GameModeExited     += () => GameModeExited?.Invoke();
         _session.DreamwordChanged   += w =>
         {
-#if DEBUG
+#if DEBUG || WINDOWS
             if (w != null)
                 _capture.Annotate($"dreamword detected: {w}");
             else
