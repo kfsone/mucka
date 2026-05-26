@@ -138,11 +138,7 @@ public sealed class MudStreamParser
     /// </summary>
     public void Reset()
     {
-        if (_inGameMode)
-        {
-            _inGameMode = false;
-            GameModeExited?.Invoke();
-        }
+        ExitGameMode();
 
         // If we were mid-sequence when the connection dropped, surface whatever plain text
         // was accumulated so the caller can at least show what was received. Binary C1
@@ -227,6 +223,13 @@ public sealed class MudStreamParser
         if (_inGameMode) return;
         _inGameMode = true;
         GameModeEntered?.Invoke();
+    }
+
+    internal void ExitGameMode()
+    {
+        if (!_inGameMode) return;
+        _inGameMode = false;
+        GameModeExited?.Invoke();
     }
 
     /// <summary>Clear accumulated spans (used after emitting the prompt partial line).</summary>

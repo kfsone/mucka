@@ -11,7 +11,7 @@ namespace Mucka.Core;
 /// Windows only:
 ///   mucka -logs &lt;path&gt;   — write trace/log output to the specified file (appended, auto-flushed)
 /// Debug builds only:
-///   mucka [-record]
+///   mucka [-record]   — arm session recording before connecting (also available via the in-game rec button on Windows)
 /// </summary>
 public sealed class CommandLineArgs
 {

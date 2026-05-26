@@ -618,8 +618,11 @@ internal sealed class Mud2C1Decoder
                     _c95LinesRemaining = 5;
                     return ParserState.C95Data;
                 }
-                if (count == 1 && b0 == 0x9E) // C03
+                if (count == 1 && b0 == 0x9E) // C03 → account logout, transition to Options menu
+                {
+                    _parser.ExitGameMode();
                     return ParserState.C95LogoutLine;
+                }
                 Apply(WHITE, BLACK);
                 return ParserState.Normal;
 
