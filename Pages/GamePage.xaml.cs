@@ -174,7 +174,7 @@ public partial class GamePage : ContentPage
         _vm.IsScrollMode = e.Url == "mucka://scroll/pause";
     }
 
-    private async void OnFlushTick(object? sender, EventArgs e)
+    private void OnFlushTick(object? sender, EventArgs e)
     {
         _vm.AntiIdleTick();
 
@@ -190,9 +190,34 @@ public partial class GamePage : ContentPage
         if (_pendingInjection.Count == 0) return;
 
         _injecting = true;
+        ScheduleInjection();
+    }
+
+    private void ScheduleInjection()
+    {
+#if WINDOWS
+        // Low priority lets queued keyboard events drain before the JS string-building
+        // work runs, preventing key-repeat stutter when game output arrives.
+        Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread()
+            .TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, RunInjectionAsync);
+#else
+        _ = RunInjectionTaskAsync();
+#endif
+    }
+
+#if WINDOWS
+    private async void RunInjectionAsync()
+#else
+    private async Task RunInjectionTaskAsync()
+#endif
+    {
+        if (_pendingInjection.Count == 0) { _injecting = false; return; }
+        var lines    = _pendingInjection.ToList();
+        var atBottom = !_vm.IsScrollMode;
         try
         {
-            await InjectLinesAsync(_pendingInjection);
+            var script = await Task.Run(() => BuildInjectionScript(lines, atBottom));
+            await ExecuteScriptAsync(script);
             _pendingInjection.Clear();
         }
         catch
@@ -205,10 +230,7 @@ public partial class GamePage : ContentPage
         }
     }
 
-    /// <summary>
-    /// Inject a batch of lines using insertAdjacentHTML — no pre-defined JS function needed.
-    /// </summary>
-    private async Task InjectLinesAsync(List<StyledLine> lines)
+    private static string BuildInjectionScript(IReadOnlyList<StyledLine> lines, bool atBottom)
     {
         var sb = new StringBuilder(lines.Count * 100);
         sb.Append("(function(){var o=document.getElementById('out');if(!o)return;");
@@ -249,12 +271,9 @@ public partial class GamePage : ContentPage
         // Trim to 120 permanent lines.
         sb.Append("while(o.querySelectorAll('.ln').length>120){var f=o.querySelector('.ln');if(f)f.remove();else break;}");
         sb.Append("})();");
-        // Scroll AFTER the IIFE so it runs even if earlier operations short-circuit.
-        // window.scrollTo is unambiguous on WebView2 regardless of scrollingElement.
-        if (!_vm.IsScrollMode)
+        if (atBottom)
             sb.Append("window.scrollTo(0,document.body.scrollHeight);");
-
-        await ExecuteScriptAsync(sb.ToString());
+        return sb.ToString();
     }
 
     /// <summary>
@@ -403,7 +422,13 @@ public partial class GamePage : ContentPage
     private void OnInputHandlerChanged(object? sender, EventArgs e)
     {
         if (InputEntry.Handler?.PlatformView is Microsoft.UI.Xaml.Controls.TextBox tb)
+        {
             tb.PreviewKeyDown += OnInputPreviewKeyDown;
+            // Null the ReturnCommand so MAUI's KeyDown handler (registered with
+            // handledEventsToo:true) doesn't fire a second send after our PreviewKeyDown.
+            // Enter is handled exclusively via OnInputPreviewKeyDown on Windows.
+            InputEntry.ReturnCommand = null;
+        }
     }
 
     private void OnInputPreviewKeyDown(object sender, Microsoft.UI.Xaml.Input.KeyRoutedEventArgs e)
@@ -421,6 +446,15 @@ public partial class GamePage : ContentPage
         else if (e.Key == Windows.System.VirtualKey.Escape)
         {
             _vm.InputText = string.Empty;
+            e.Handled = true;
+        }
+        else if (e.Key == Windows.System.VirtualKey.Enter)
+        {
+            // Handle Enter here via the tunneling PreviewKeyDown so MAUI's KeyDown-based
+            // ReturnCommand handler never fires. That handler triggers the Send button's
+            // visual pressed state, introducing a brief gap that lets fast typists race
+            // their next keystroke in before the input box is cleared.
+            _vm.SendCommand.Execute(null);
             e.Handled = true;
         }
     }

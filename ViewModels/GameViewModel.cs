@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
+using System.Linq;
 using System.Windows.Input;
 using Microsoft.Maui.Graphics;
 using Mucka.Audio;
@@ -14,6 +15,9 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private readonly Func<string[], Task>? _saveFkeysAsync;
     private readonly List<string> _history = new();
     private readonly string[] _allFkeys = new string[36];
+#if WINDOWS
+    private readonly WatchwordStore _watchwords;
+#endif
     private int _historyIndex = -1;
 
     private string _inputText = string.Empty;
@@ -310,6 +314,9 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _conn = conn;
         _saveFkeysAsync = saveFkeysAsync;
         IsCapturing = _conn.IsCapturing;
+#if WINDOWS
+        _watchwords = WatchwordStore.Load();
+#endif
         _maxColumns = Math.Clamp(profile.MaxColumns, 20, 160);
         _effCols = _maxColumns;
         _antiIdleSeconds = Math.Clamp(profile.AntiIdleSeconds, 0, 3600);
@@ -485,7 +492,13 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
 
         var trimmed = text.Trim();
         if (!HandleCommand(trimmed))
-            _conn.SendLine(text);
+        {
+#if WINDOWS
+            _conn.SendLine(_watchwords.ExpandSlots(trimmed));
+#else
+            _conn.SendLine(trimmed);
+#endif
+        }
 
         _lastSentUtc = DateTime.UtcNow;
 
@@ -499,24 +512,87 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
 
     private bool HandleCommand(string text)
     {
-        if (!text.StartsWith("/!"))
+        if (text.StartsWith("/!"))
+        {
+            if (text.Equals("/!sleep", StringComparison.OrdinalIgnoreCase))
+            {
+                AddSystemLine("[sleep] not yet implemented", 14);
+                return true;
+            }
             return false;
-
-        if (text.StartsWith("/!speak ", StringComparison.OrdinalIgnoreCase))
-        {
-            var slot = text[8..].Trim();
-            AddSystemLine($"[speak] watchword engine not yet wired — slot '{slot}'", 14);
-            return true;
         }
 
-        if (text.Equals("/!sleep", StringComparison.OrdinalIgnoreCase))
+#if WINDOWS
+        if (text.StartsWith('$'))
         {
-            AddSystemLine("[sleep] not yet implemented", 14);
+            var name = text[1..];
+            if (name == "?")
+            {
+                var names = _watchwords.SlotNames;
+                AddSystemLine(names.Length == 0
+                    ? "[watchword] no slots loaded"
+                    : $"[watchword] {string.Join("  ", names.Select(n => $"${n}"))}", 14);
+            }
+            else if (name == "<")
+                ScanHistory();
+            else
+                SpeakWatchword(name);
             return true;
         }
+#endif
 
         return false;
     }
+
+#if WINDOWS
+    private void ScanHistory()
+    {
+        var count  = _historyBuffer.Count;
+        var start  = Math.Max(0, count - 80);
+        var lines  = _historyBuffer.GetRange(start, count - start);
+
+        // Join consecutive non-blank lines into blocks to unwrap word-wrapped paragraphs.
+        var blocks  = new List<string>();
+        var current = new System.Text.StringBuilder();
+        foreach (var line in lines)
+        {
+            var plain = line.PlainText.TrimEnd();
+            if (plain.Length == 0)
+            {
+                if (current.Length > 0) { blocks.Add(current.ToString()); current.Clear(); }
+            }
+            else
+            {
+                if (current.Length > 0) current.Append(' ');
+                current.Append(plain);
+            }
+        }
+        if (current.Length > 0) blocks.Add(current.ToString());
+
+        int found = 0;
+        foreach (var block in blocks)
+            foreach (var (slotName, answer) in _watchwords.ScanAll(block))
+            {
+                AddSystemLine($"[watchword] queued \"{answer}\" → ${slotName}", 14);
+                found++;
+            }
+
+        if (found == 0)
+            AddSystemLine("[watchword] no matches in recent history", 14);
+    }
+
+    private void SpeakWatchword(string slotName)
+    {
+        var answer = _watchwords.Speak(slotName);
+        if (answer != null)
+        {
+            _conn.SendLine($"\"{answer}");
+            _lastSentUtc = DateTime.UtcNow;
+        }
+        else
+            AddSystemLine($"[watchword] nothing queued for ${slotName}", 14);
+    }
+#endif
 
     private void SendFkey(string indexStr)
     {
@@ -529,8 +605,19 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         var cmd = FkeyItems[i].Command;
         if (!string.IsNullOrWhiteSpace(cmd))
         {
-            _conn.SendLine(cmd.TrimEnd('\r', '\n'));
+            cmd = cmd.TrimEnd('\r', '\n');
+#if WINDOWS
+            if (cmd.StartsWith('$'))
+                SpeakWatchword(cmd[1..]);
+            else
+            {
+                _conn.SendLine(_watchwords.ExpandSlots(cmd));
+                _lastSentUtc = DateTime.UtcNow;
+            }
+#else
+            _conn.SendLine(cmd);
             _lastSentUtc = DateTime.UtcNow;
+#endif
         }
 
         RequestFocus?.Invoke();
@@ -550,8 +637,19 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         var cmd = _allFkeys[absoluteIndex];
         if (!string.IsNullOrWhiteSpace(cmd))
         {
-            _conn.SendLine(cmd.TrimEnd('\r', '\n'));
+            cmd = cmd.TrimEnd('\r', '\n');
+#if WINDOWS
+            if (cmd.StartsWith('$'))
+                SpeakWatchword(cmd[1..]);
+            else
+            {
+                _conn.SendLine(_watchwords.ExpandSlots(cmd));
+                _lastSentUtc = DateTime.UtcNow;
+            }
+#else
+            _conn.SendLine(cmd);
             _lastSentUtc = DateTime.UtcNow;
+#endif
         }
         RequestFocus?.Invoke();
     }
