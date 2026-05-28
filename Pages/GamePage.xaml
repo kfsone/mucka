@@ -276,6 +276,172 @@
                  x:Name="ScrollbackWebView"
                  BackgroundColor="#0C0C0C"/>
 
+        <!-- ── Side panel (overlays scrollback) ─────────────────────── -->
+        <!-- Collapse/expand toggle — always visible at top-right -->
+        <Border Grid.Row="2"
+                HorizontalOptions="End" VerticalOptions="Start"
+                Margin="0,8,8,0"
+                BackgroundColor="#CC2d333b"
+                Stroke="Transparent" StrokeThickness="0"
+                Padding="8,5">
+            <Border.StrokeShape><RoundRectangle CornerRadius="4"/></Border.StrokeShape>
+            <Border.GestureRecognizers>
+                <TapGestureRecognizer Command="{Binding SidePanel.TogglePanelCommand}"/>
+            </Border.GestureRecognizers>
+            <Label Text="{Binding SidePanel.PanelToggleGlyph}"
+                   TextColor="#888888" FontSize="11" VerticalOptions="Center"/>
+        </Border>
+
+        <!-- Expanded panel — floats over scrollback -->
+        <Border Grid.Row="2"
+                IsVisible="{Binding SidePanel.IsPanelExpanded}"
+                HorizontalOptions="End" VerticalOptions="Start"
+                Margin="0,38,8,0"
+                WidthRequest="260" HeightRequest="280"
+                BackgroundColor="#E8161b22"
+                Stroke="#2d333b" StrokeThickness="1">
+            <Border.StrokeShape><RoundRectangle CornerRadius="6"/></Border.StrokeShape>
+            <Grid RowDefinitions="Auto,*">
+
+                <!-- Panel tab bar -->
+                <Border Grid.Row="0" BackgroundColor="#C00C0C0C" StrokeThickness="0" Padding="6,4">
+                    <HorizontalStackLayout Spacing="2">
+
+                        <Border Padding="8,3" Stroke="Transparent" StrokeThickness="0">
+                            <Border.StrokeShape><RoundRectangle CornerRadius="3"/></Border.StrokeShape>
+                            <Border.GestureRecognizers>
+                                <TapGestureRecognizer Command="{Binding SidePanel.SetTabCommand}" CommandParameter="0"/>
+                            </Border.GestureRecognizers>
+                            <Border.Triggers>
+                                <DataTrigger TargetType="Border" Binding="{Binding SidePanel.IsWhoTab}" Value="True">
+                                    <Setter Property="BackgroundColor" Value="#1f6feb"/>
+                                </DataTrigger>
+                                <DataTrigger TargetType="Border" Binding="{Binding SidePanel.IsWhoTab}" Value="False">
+                                    <Setter Property="BackgroundColor" Value="Transparent"/>
+                                </DataTrigger>
+                            </Border.Triggers>
+                            <Label Text="Who" FontSize="11" VerticalOptions="Center">
+                                <Label.Triggers>
+                                    <DataTrigger TargetType="Label" Binding="{Binding SidePanel.IsWhoTab}" Value="True">
+                                        <Setter Property="TextColor" Value="White"/>
+                                    </DataTrigger>
+                                    <DataTrigger TargetType="Label" Binding="{Binding SidePanel.IsWhoTab}" Value="False">
+                                        <Setter Property="TextColor" Value="#888888"/>
+                                    </DataTrigger>
+                                </Label.Triggers>
+                            </Label>
+                        </Border>
+
+                        <Border Padding="8,3" Stroke="Transparent" StrokeThickness="0">
+                            <Border.StrokeShape><RoundRectangle CornerRadius="3"/></Border.StrokeShape>
+                            <Border.GestureRecognizers>
+                                <TapGestureRecognizer Command="{Binding SidePanel.SetTabCommand}" CommandParameter="1"/>
+                            </Border.GestureRecognizers>
+                            <Border.Triggers>
+                                <DataTrigger TargetType="Border" Binding="{Binding SidePanel.IsKillsTab}" Value="True">
+                                    <Setter Property="BackgroundColor" Value="#1f6feb"/>
+                                </DataTrigger>
+                                <DataTrigger TargetType="Border" Binding="{Binding SidePanel.IsKillsTab}" Value="False">
+                                    <Setter Property="BackgroundColor" Value="Transparent"/>
+                                </DataTrigger>
+                            </Border.Triggers>
+                            <Label Text="Kills" FontSize="11" VerticalOptions="Center">
+                                <Label.Triggers>
+                                    <DataTrigger TargetType="Label" Binding="{Binding SidePanel.IsKillsTab}" Value="True">
+                                        <Setter Property="TextColor" Value="White"/>
+                                    </DataTrigger>
+                                    <DataTrigger TargetType="Label" Binding="{Binding SidePanel.IsKillsTab}" Value="False">
+                                        <Setter Property="TextColor" Value="#888888"/>
+                                    </DataTrigger>
+                                </Label.Triggers>
+                            </Label>
+                        </Border>
+
+                        <Border Padding="8,3" Stroke="Transparent" StrokeThickness="0">
+                            <Border.StrokeShape><RoundRectangle CornerRadius="3"/></Border.StrokeShape>
+                            <Border.GestureRecognizers>
+                                <TapGestureRecognizer Command="{Binding SidePanel.SetTabCommand}" CommandParameter="2"/>
+                            </Border.GestureRecognizers>
+                            <Border.Triggers>
+                                <DataTrigger TargetType="Border" Binding="{Binding SidePanel.IsFightTab}" Value="True">
+                                    <Setter Property="BackgroundColor" Value="#1f6feb"/>
+                                </DataTrigger>
+                                <DataTrigger TargetType="Border" Binding="{Binding SidePanel.IsFightTab}" Value="False">
+                                    <Setter Property="BackgroundColor" Value="Transparent"/>
+                                </DataTrigger>
+                            </Border.Triggers>
+                            <Label Text="Fight" FontSize="11" VerticalOptions="Center">
+                                <Label.Triggers>
+                                    <DataTrigger TargetType="Label" Binding="{Binding SidePanel.IsFightTab}" Value="True">
+                                        <Setter Property="TextColor" Value="White"/>
+                                    </DataTrigger>
+                                    <DataTrigger TargetType="Label" Binding="{Binding SidePanel.IsFightTab}" Value="False">
+                                        <Setter Property="TextColor" Value="#888888"/>
+                                    </DataTrigger>
+                                </Label.Triggers>
+                            </Label>
+                        </Border>
+
+                        <Border Padding="8,3" Stroke="Transparent" StrokeThickness="0">
+                            <Border.StrokeShape><RoundRectangle CornerRadius="3"/></Border.StrokeShape>
+                            <Border.GestureRecognizers>
+                                <TapGestureRecognizer Command="{Binding SidePanel.SetTabCommand}" CommandParameter="3"/>
+                            </Border.GestureRecognizers>
+                            <Border.Triggers>
+                                <DataTrigger TargetType="Border" Binding="{Binding SidePanel.IsPtsTab}" Value="True">
+                                    <Setter Property="BackgroundColor" Value="#1f6feb"/>
+                                </DataTrigger>
+                                <DataTrigger TargetType="Border" Binding="{Binding SidePanel.IsPtsTab}" Value="False">
+                                    <Setter Property="BackgroundColor" Value="Transparent"/>
+                                </DataTrigger>
+                            </Border.Triggers>
+                            <Label Text="Pts" FontSize="11" VerticalOptions="Center">
+                                <Label.Triggers>
+                                    <DataTrigger TargetType="Label" Binding="{Binding SidePanel.IsPtsTab}" Value="True">
+                                        <Setter Property="TextColor" Value="White"/>
+                                    </DataTrigger>
+                                    <DataTrigger TargetType="Label" Binding="{Binding SidePanel.IsPtsTab}" Value="False">
+                                        <Setter Property="TextColor" Value="#888888"/>
+                                    </DataTrigger>
+                                </Label.Triggers>
+                            </Label>
+                        </Border>
+
+                    </HorizontalStackLayout>
+                </Border>
+
+                <!-- Panel content -->
+                <ScrollView Grid.Row="1" Padding="8,6">
+                    <Grid>
+                        <!-- Who tab: raw lines from "few" poll -->
+                        <VerticalStackLayout IsVisible="{Binding SidePanel.IsWhoTab}" Spacing="2"
+                                             BindableLayout.ItemsSource="{Binding SidePanel.WhosList}">
+                            <BindableLayout.ItemTemplate>
+                                <DataTemplate x:DataType="x:String">
+                                    <Label Text="{Binding .}"
+                                           TextColor="#CCCCCC" FontSize="11"
+                                           FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
+                                </DataTemplate>
+                            </BindableLayout.ItemTemplate>
+                        </VerticalStackLayout>
+
+                        <Label IsVisible="{Binding SidePanel.IsKillsTab}"
+                               Text="Soon" TextColor="#555555" FontSize="13" FontAttributes="Italic"
+                               HorizontalOptions="Center" Margin="0,20"/>
+
+                        <Label IsVisible="{Binding SidePanel.IsFightTab}"
+                               Text="Soon" TextColor="#555555" FontSize="13" FontAttributes="Italic"
+                               HorizontalOptions="Center" Margin="0,20"/>
+
+                        <Label IsVisible="{Binding SidePanel.IsPtsTab}"
+                               Text="Soon" TextColor="#555555" FontSize="13" FontAttributes="Italic"
+                               HorizontalOptions="Center" Margin="0,20"/>
+                    </Grid>
+                </ScrollView>
+
+            </Grid>
+        </Border>
+
         <!-- ── Toolbar (collapsible, wraps to fit width) ──────────── -->
         <Grid Grid.Row="3"
               x:Name="FkeyBar"

@@ -51,6 +51,9 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private bool _keepScreenOn;
     private bool _inGameMode;
     private DateTime _lastSentUtc;
+    private int _fontSize;
+    private int _volume;
+    private int _statUpdateFrequency;
 
     // Lines from the TCP thread are enqueued here; the UI timer flushes them in batches.
     private readonly ConcurrentQueue<StyledLine> _pendingLines = new();
@@ -84,6 +87,9 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public int MaxColumns => _maxColumns;
     public int EffCols => _effCols;
     public bool KeepScreenOn => _keepScreenOn;
+    public int FontSize => _fontSize;
+    public int Volume => _volume;
+    public int StatUpdateFrequency => _statUpdateFrequency;
 
     /// <summary>True in debug builds and on Windows release — controls visibility of the capture button.</summary>
     public bool IsCaptureFacilityAvailable { get; } =
@@ -294,6 +300,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
 
     public ObservableCollection<FkeyItem> FkeyItems { get; } = new();
     public bool CanSaveFkeys => _saveFkeysAsync != null;
+    public SidePanelViewModel SidePanel { get; }
 
     public ICommand SendCommand { get; }
     public ICommand FkeyCommand { get; }
@@ -303,11 +310,27 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public ICommand ToggleFkeysCommand { get; }
     public ICommand ToggleCaptureCommand { get; }
     public ICommand EditFkeysCommand { get; }
+    public ICommand ConfigCommand { get; }
 
     public event Action? Disconnected;
     public event Action? RequestFocus;
     public event Action? EditFkeysRequested;
+    public event Action? ConfigRequested;
     public event Action? ClearScreenRequested;
+#if WINDOWS
+    public event Action? OpenRawConsoleRequested;
+    public event Action<byte[]>? RawBytesReceived
+    {
+        add    => _conn.RawBytesReceived += value;
+        remove => _conn.RawBytesReceived -= value;
+    }
+    public event Action<byte[]>? RawBytesSent
+    {
+        add    => _conn.RawBytesSent += value;
+        remove => _conn.RawBytesSent -= value;
+    }
+    public void SendRawBytes(byte[] bytes) => _conn.SendBytes(bytes);
+#endif
 
     public GameViewModel(MuckaConnection conn, Profile profile, Func<string[], Task>? saveFkeysAsync = null)
     {
@@ -322,6 +345,14 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _antiIdleSeconds = Math.Clamp(profile.AntiIdleSeconds, 0, 3600);
         _keepScreenOn = profile.KeepScreenOn;
         _lastSentUtc = DateTime.UtcNow;
+        _fontSize = profile.FontSize > 0 ? profile.FontSize : 15;
+        _volume = Math.Clamp(profile.Volume, 0, 100);
+        _statUpdateFrequency = Math.Clamp(profile.StatUpdateFrequency, 0, 30);
+
+        SidePanel = new SidePanelViewModel();
+
+        // Align session FES timer with profile value (overrides MudSessionOptions default).
+        _conn.SetFesInterval(_statUpdateFrequency);
 
         ApplyFkeys(profile.GetEffectiveFkeys());
 
@@ -336,6 +367,8 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _conn.DreamwordChanged += OnDreamwordChanged;
         _conn.Disconnected     += OnDisconnected;
         _conn.SoundRequested   += OnSoundRequested;
+        _conn.FewPlayerReady   += SidePanel.OnFewPlayerReceived;
+        _conn.FewListStarting  += SidePanel.OnFewListStarting;
 
         SendCommand           = new Command(SendNow);
         FkeyCommand           = new Command<string>(SendFkey);
@@ -345,6 +378,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         ToggleFkeysCommand    = new Command(() => { FkeysVisible = !FkeysVisible; RequestFocus?.Invoke(); });
         ToggleCaptureCommand  = new Command(ToggleCapture);
         EditFkeysCommand      = new Command(() => EditFkeysRequested?.Invoke());
+        ConfigCommand         = new Command(() => ConfigRequested?.Invoke());
     }
 
     public string[] GetAllFkeys()
@@ -535,6 +569,8 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             }
             else if (name == "<")
                 ScanHistory();
+            else if (name == "con")
+                OpenRawConsoleRequested?.Invoke();
             else
                 SpeakWatchword(name);
             return true;
@@ -547,35 +583,27 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
 #if WINDOWS
     private void ScanHistory()
     {
-        var count  = _historyBuffer.Count;
-        var start  = Math.Max(0, count - 80);
-        var lines  = _historyBuffer.GetRange(start, count - start);
+        var count     = _historyBuffer.Count;
+        var scanStart = Math.Max(0, count - 80);
 
-        // Join consecutive non-blank lines into blocks to unwrap word-wrapped paragraphs.
-        var blocks  = new List<string>();
-        var current = new System.Text.StringBuilder();
-        foreach (var line in lines)
+        // Join all recent lines into one string, skipping blank lines.
+        // No block-splitting: a blank line inside a wrapped paragraph would otherwise
+        // break matching when the trigger's opening quote and capture span the gap.
+        var sb = new System.Text.StringBuilder();
+        for (var i = scanStart; i < count; i++)
         {
-            var plain = line.PlainText.TrimEnd();
-            if (plain.Length == 0)
-            {
-                if (current.Length > 0) { blocks.Add(current.ToString()); current.Clear(); }
-            }
-            else
-            {
-                if (current.Length > 0) current.Append(' ');
-                current.Append(plain);
-            }
+            var plain = _historyBuffer[i].PlainText.TrimEnd();
+            if (plain.Length == 0) continue;
+            if (sb.Length > 0) sb.Append(' ');
+            sb.Append(plain);
         }
-        if (current.Length > 0) blocks.Add(current.ToString());
 
         int found = 0;
-        foreach (var block in blocks)
-            foreach (var (slotName, answer) in _watchwords.ScanAll(block))
-            {
-                AddSystemLine($"[watchword] queued \"{answer}\" → ${slotName}", 14);
-                found++;
-            }
+        foreach (var (slotName, answer) in _watchwords.ScanAll(sb.ToString()))
+        {
+            AddSystemLine($"[watchword] queued \"{answer}\" → ${slotName}", 14);
+            found++;
+        }
 
         if (found == 0)
             AddSystemLine("[watchword] no matches in recent history", 14);
@@ -760,6 +788,30 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         }
     }
 
+    /// <summary>Updates the FES heartbeat interval. Zero disables the heartbeat.</summary>
+    public void ApplyStatUpdateFrequency(int secs)
+    {
+        _statUpdateFrequency = Math.Clamp(secs, 0, 30);
+        _conn.SetFesInterval(_statUpdateFrequency);
+        OnPropertyChanged(nameof(StatUpdateFrequency));
+    }
+
+    /// <summary>
+    /// Applies a new maximum column count, sends the /T escape sequence to the server,
+    /// and recalculates the effective column layout.
+    /// </summary>
+    public void ApplyMaxColumns(int cols)
+    {
+        cols = Math.Clamp(cols, 40, 160);
+        _maxColumns = cols;
+        _conn.SendTerminalWidth(cols);
+        OnPropertyChanged(nameof(MaxColumns));
+        if (_widthDp > 0)
+            NotifyWindowSize(_widthDp, (int)(_widthDp / 8.0));
+    }
+
+    public void Annotate(string message) => _conn.Annotate(message);
+
     private void AddSystemLine(string msg, byte fg = 14)
     {
         var style = new TextStyle(Foreground: (AnsiColor)fg);
@@ -769,6 +821,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        SidePanel.Dispose();
         _conn.LineReady        -= OnLineReady;
         _conn.StatsUpdated     -= OnStatsUpdated;
         _conn.GameModeEntered  -= OnGameModeEntered;
@@ -776,6 +829,8 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _conn.DreamwordChanged -= OnDreamwordChanged;
         _conn.Disconnected     -= OnDisconnected;
         _conn.SoundRequested   -= OnSoundRequested;
+        _conn.FewPlayerReady   -= SidePanel.OnFewPlayerReceived;
+        _conn.FewListStarting  -= SidePanel.OnFewListStarting;
         await _conn.DisposeAsync();
     }
 }
