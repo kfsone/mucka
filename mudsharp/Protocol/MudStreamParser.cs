@@ -38,6 +38,15 @@ public sealed class MudStreamParser
     /// <summary>A sound effect should be played. Payload is the app-package-relative asset path, e.g. "sounds/clio.1311.wav".</summary>
     public event Action<string>? SoundRequested;
 
+    /// <summary>A player name decoded from the WHO-list (FEW response) is ready.</summary>
+    public event Action<string>? FewPlayerReady;
+
+    /// <summary>
+    /// A FEW-response context (C12+C08+C05 wrapper) has just opened.
+    /// The WHO list should be cleared before new names arrive via <see cref="FewPlayerReady"/>.
+    /// </summary>
+    public event Action? FewListStarting;
+
     // ── Sub-parsers (set by internal wiring, replaceable for testing) ─────────
     internal TelnetNegotiator Telnet { get; }
     internal AnsiSgrState Ansi { get; }
@@ -58,27 +67,37 @@ public sealed class MudStreamParser
     private readonly StringBuilder _text = new();
     private bool _inGameMode;
 
-    // True if the current Feed() call has processed a '\n' — used to gate wire-prompt
-    // emission. A FES heartbeat response contains only the prompt preamble (no '\n'),
-    // so this flag is false when it arrives and the prompt is suppressed.
-    private bool _hadNewlineInCurrentFeed;
-
     // ── Game state ────────────────────────────────────────────────────────────
     public bool InGameMode => _inGameMode;
 
-    /// <summary>
-    /// Mirrors Clio's prompt_allowed flag.
-    /// Set to true by each newline and by C98; set to false by the prompt preamble detector.
-    /// </summary>
-    internal bool PromptAllowed { get; set; } = true;
+    // ── FEW-response suppression ──────────────────────────────────────────────
+    // Set when the parser enters a C12+C08+C05 (FE WHO) context block. While active,
+    // display output is suppressed but FewPlayerReady events still fire.
+    // Cleared when the color stack returns to the depth it was at before the push.
+    private bool _inFewResponseContext;
+    private int _fewContextDepth;
+
+    internal bool InFewResponseContext => _inFewResponseContext;
+    internal int FewContextDepth => _fewContextDepth;
+    internal void EnterFewContext(int targetDepth)
+    {
+        _inFewResponseContext = true;
+        _fewContextDepth = targetDepth;
+    }
+    internal void ExitFewContext() => _inFewResponseContext = false;
+    internal void EmitFewListStarting() => FewListStarting?.Invoke();
 
     /// <summary>
-    /// True if a '\n' has been processed in the current <see cref="Feed"/> call.
-    /// Cleared at the start of every Feed(). Used by the C01 game-mode dispatch to
-    /// distinguish a real prompt (preceded by content in the same packet) from a
-    /// FES heartbeat response (which contains only the prompt preamble, no '\n').
+    /// Mirrors Clio's prompt_allowed flag.
+    /// Set to true by each real game '\n' (via EmitChar); set to false by the C01
+    /// game-mode dispatch when it shows the '*' prompt. Persists across TCP packet
+    /// boundaries — this is what lets the C01 gate distinguish a real prompt (which
+    /// follows a game newline, possibly in a previous packet) from a FES heartbeat
+    /// (which arrives when no real '\n' has occurred since the last prompt display).
+    /// C98 must NOT set this; doing so would make every FES heartbeat appear as a
+    /// real prompt because C98 always precedes the C01 prompt preamble bytes.
     /// </summary>
-    internal bool HadNewlineInCurrentFeed => _hadNewlineInCurrentFeed;
+    internal bool PromptAllowed { get; set; } = true;
 
     /// <summary>
     /// When true, EmitChar discards non-newline characters.
@@ -122,7 +141,13 @@ public sealed class MudStreamParser
     /// </summary>
     public void Feed(ReadOnlySpan<byte> data)
     {
-        _hadNewlineInCurrentFeed = false;
+        // In game mode, reset PromptAllowed at packet boundaries so that a '\n' from an
+        // earlier packet does not allow a later bare prompt preamble (FES heartbeat) to be
+        // shown. The prompt is only displayed when a real game '\n' preceded it in the same
+        // TCP segment. Login-mode (pre-game) prompts are handled by C98/ShowPrompt which fires
+        // unconditionally and does not depend on PromptAllowed.
+        if (_inGameMode)
+            PromptAllowed = false;
         foreach (var b in data)
             ProcessByte(b);
     }
@@ -161,7 +186,7 @@ public sealed class MudStreamParser
         PromptAllowed = true;
         SuppressNextText = false;
         EmitPartialOnPop = false;
-        _hadNewlineInCurrentFeed = false;
+        _inFewResponseContext = false;
         CurrentDreamword = null;
         CurrentAccountId = null;
         CurrentPrivs = 0;
@@ -175,16 +200,24 @@ public sealed class MudStreamParser
         if (ch == '\n')
         {
             FlushSpan();
+            if (_inFewResponseContext)
+            {
+                // Discard the line but still tick PromptAllowed so the next prompt frame works.
+                _spans.Clear();
+                PromptAllowed = true;
+                SuppressNextText = false;
+                EmitPartialOnPop = false;
+                return;
+            }
             // In game mode, suppress all-asterisk lines entirely (Clio: prompt_allowed / preamble
             // suppression — telnet.l:438-444). These are MUD2 prompt-preamble separator lines.
             bool isAsteriskPreamble = _inGameMode && SpansAreAllAsterisks();
             var line = new StyledLine(_spans.ToArray(), isPartial: false);
             _spans.Clear();
             PromptAllowed = true;   // Clio: prompt_allowed = 1 on each newline
-            _hadNewlineInCurrentFeed = true;
-                SuppressNextText = false;
-                EmitPartialOnPop = false;
-                if (isAsteriskPreamble) return;
+            SuppressNextText = false;
+            EmitPartialOnPop = false;
+            if (isAsteriskPreamble) return;
             var stats = LineAnalyzer.Analyze(line);
             if (stats != null) StatsUpdated?.Invoke(stats);
             if (_inGameMode) { var sf = LineAnalyzer.CheckSoundTrigger(line); if (sf != null) EmitSound(sf); }
@@ -196,8 +229,8 @@ public sealed class MudStreamParser
         }
         else
         {
-            // Discard characters when inside a suppressed end-of-frame prompt preamble
-            if (SuppressNextText) return;
+            // Discard characters when inside a suppressed end-of-frame prompt preamble or FEW response.
+            if (SuppressNextText || _inFewResponseContext) return;
             _text.Append(ch);
         }
     }
@@ -244,6 +277,7 @@ public sealed class MudStreamParser
     }
     internal void EmitClientMode(string data) => ClientModeReceived?.Invoke(data);
     internal void EmitSound(string assetPath) => SoundRequested?.Invoke(assetPath);
+    internal void EmitFewPlayer(string name) => FewPlayerReady?.Invoke(name);
     internal void SetAccountInfo(string? accountId, int privs)
     {
         CurrentAccountId = accountId;
@@ -252,14 +286,12 @@ public sealed class MudStreamParser
     internal void SetWeather(char weather) => CurrentWeather = weather;
 
     /// <summary>
-    /// Emits a partial line if PromptAllowed is true (mirrors Clio's show_prompt behaviour).
-    /// Called by the C98 handler after setting PromptAllowed = true.
+    /// Emits the current accumulated text as a partial line.
+    /// C98 is an explicit "show prompt" signal — it fires unconditionally so that login-phase
+    /// prompts ("Account ID:", etc.) always surface. Game-mode prompts are additionally gated
+    /// by the C01+C02 PromptAllowed mechanism; ShowPrompt itself has no gate.
     /// </summary>
-    internal void ShowPrompt()
-    {
-        if (PromptAllowed)
-            EmitPartialLine();
-    }
+    internal void ShowPrompt() => EmitPartialLine();
 
     /// <summary>
     /// Queue a byte to be replayed through the main ProcessByte loop immediately after
@@ -325,6 +357,7 @@ public sealed class MudStreamParser
             case ParserState.C1Data:
             case ParserState.C1Ff1:
             case ParserState.FesData:
+            case ParserState.FewPlayerData:
             case ParserState.DreamwordData:
             case ParserState.C95Data:
             case ParserState.C95LogoutLine:

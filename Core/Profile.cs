@@ -19,6 +19,14 @@ public class Profile
     public bool KeepScreenOn { get; set; } = false;
     /// <summary>Fill unpopulated hotkey slots with built-in defaults at session start.</summary>
     public bool DefaultHotkeys { get; set; } = true;
+    /// <summary>Terminal font size in pixels. 0 = use the built-in default (15px).</summary>
+    public int FontSize { get; set; } = 0;
+    /// <summary>Sound volume, 0–100. Default 75.</summary>
+    public int Volume { get; set; } = 75;
+    /// <summary>FES stats-update heartbeat interval in seconds. 0 = disabled. Default 10.</summary>
+    public int StatUpdateFrequency { get; set; } = 10;
+    /// <summary>FEW who-list poll interval in seconds. 0 = disabled. Default 15.</summary>
+    public int FewRefreshInterval { get; set; } = 15;
     public string[] Fkeys { get => _fkeys; set => _fkeys = NormalizeFkeys(value); }
 
     private static readonly Dictionary<int, string> s_defaultFkeys = new()
