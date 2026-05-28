@@ -28,6 +28,7 @@ internal enum ParserState
     C1Ff1,          // received first 0xFF in C1 terminator
     // C1 sub-states handled by Mud2C1Decoder
     FesData,        // after C12+C08+C01+C255: collecting raw FES text line (until '\n')
+    FewPlayerData,  // after WHO-list color code (C04/C05+C00/C01+C06+C255): collecting player name
     DreamwordData,  // after C15+C00+C00+C255: collecting [a-z]{1,14} dreamword letters
     C95Data,        // after C95+C255: collecting 5 newline-terminated client-mode lines
     C95LogoutLine,  // after C95+C03+C255: consuming 1 line (account-logout, silent)
