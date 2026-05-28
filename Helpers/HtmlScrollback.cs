@@ -86,11 +86,13 @@ public static class HtmlScrollback
             // Windows Terminal default behaviour.
             if (span.Style.Bold && fg >= 0 && fg < 8) fg += 8;
             var bg = span.Style.Background == AnsiColor.Default ? -1 : (int)span.Style.Background;
-            string fgHex = HexColors[fg >= 0 && fg < 16 ? fg : 7];
-            var style = new StringBuilder($"color:{fgHex}");
-            if (bg >= 0 && bg < 16) style.Append($";background:{HexColors[bg]}");
-            if (span.Style.Bold) style.Append(";font-weight:bold");
-            sb.Append($"<span style=\"{style}\">{HtmlEncode(span.Text)}</span>");
+            sb.Append("<span style=\"color:");
+            sb.Append(HexColors[fg >= 0 && fg < 16 ? fg : 7]);
+            if (bg >= 0 && bg < 16) { sb.Append(";background:"); sb.Append(HexColors[bg]); }
+            if (span.Style.Bold) sb.Append(";font-weight:bold");
+            sb.Append("\">");
+            sb.Append(HtmlEncode(span.Text));
+            sb.Append("</span>");
         }
         return sb.ToString();
     }
