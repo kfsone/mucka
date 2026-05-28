@@ -4,7 +4,7 @@
              xmlns:vm="clr-namespace:Mucka.ViewModels"
              x:Class="Mucka.Pages.FkeyEditorPage"
              x:DataType="vm:FkeyEditorViewModel"
-             Title="Settings"
+             Title="Config"
              BackgroundColor="#0C0C0C">
 
     <Grid RowDefinitions="Auto,*,Auto">
@@ -15,90 +15,225 @@
                 StrokeThickness="0"
                 Padding="12,6">
             <HorizontalStackLayout Spacing="4">
-                <Border BackgroundColor="#1f6feb"
-                        Stroke="Transparent" StrokeThickness="0"
-                        Padding="14,5">
+
+                <!-- Settings tab -->
+                <Border Stroke="Transparent" StrokeThickness="0" Padding="14,5">
                     <Border.StrokeShape><RoundRectangle CornerRadius="4"/></Border.StrokeShape>
-                    <Label Text="Hotkeys" TextColor="White" FontSize="13" FontAttributes="Bold"
-                           VerticalOptions="Center"/>
+                    <Border.GestureRecognizers>
+                        <TapGestureRecognizer Command="{Binding SetTabCommand}" CommandParameter="0"/>
+                    </Border.GestureRecognizers>
+                    <Border.Triggers>
+                        <DataTrigger TargetType="Border" Binding="{Binding IsSettingsTabActive}" Value="True">
+                            <Setter Property="BackgroundColor" Value="#1f6feb"/>
+                        </DataTrigger>
+                        <DataTrigger TargetType="Border" Binding="{Binding IsSettingsTabActive}" Value="False">
+                            <Setter Property="BackgroundColor" Value="#2d333b"/>
+                        </DataTrigger>
+                    </Border.Triggers>
+                    <Label Text="Settings" FontSize="13" FontAttributes="Bold" VerticalOptions="Center">
+                        <Label.Triggers>
+                            <DataTrigger TargetType="Label" Binding="{Binding IsSettingsTabActive}" Value="True">
+                                <Setter Property="TextColor" Value="White"/>
+                            </DataTrigger>
+                            <DataTrigger TargetType="Label" Binding="{Binding IsSettingsTabActive}" Value="False">
+                                <Setter Property="TextColor" Value="#888888"/>
+                            </DataTrigger>
+                        </Label.Triggers>
+                    </Label>
                 </Border>
-                <!-- Future tabs (General, Connection, …) go here -->
+
+                <!-- Hotkeys tab -->
+                <Border Stroke="Transparent" StrokeThickness="0" Padding="14,5">
+                    <Border.StrokeShape><RoundRectangle CornerRadius="4"/></Border.StrokeShape>
+                    <Border.GestureRecognizers>
+                        <TapGestureRecognizer Command="{Binding SetTabCommand}" CommandParameter="1"/>
+                    </Border.GestureRecognizers>
+                    <Border.Triggers>
+                        <DataTrigger TargetType="Border" Binding="{Binding IsHotkeysTabActive}" Value="True">
+                            <Setter Property="BackgroundColor" Value="#1f6feb"/>
+                        </DataTrigger>
+                        <DataTrigger TargetType="Border" Binding="{Binding IsHotkeysTabActive}" Value="False">
+                            <Setter Property="BackgroundColor" Value="#2d333b"/>
+                        </DataTrigger>
+                    </Border.Triggers>
+                    <Label Text="Hotkeys" FontSize="13" FontAttributes="Bold" VerticalOptions="Center">
+                        <Label.Triggers>
+                            <DataTrigger TargetType="Label" Binding="{Binding IsHotkeysTabActive}" Value="True">
+                                <Setter Property="TextColor" Value="White"/>
+                            </DataTrigger>
+                            <DataTrigger TargetType="Label" Binding="{Binding IsHotkeysTabActive}" Value="False">
+                                <Setter Property="TextColor" Value="#888888"/>
+                            </DataTrigger>
+                        </Label.Triggers>
+                    </Label>
+                </Border>
+
+                <!-- Friends tab -->
+                <Border Stroke="Transparent" StrokeThickness="0" Padding="14,5">
+                    <Border.StrokeShape><RoundRectangle CornerRadius="4"/></Border.StrokeShape>
+                    <Border.GestureRecognizers>
+                        <TapGestureRecognizer Command="{Binding SetTabCommand}" CommandParameter="2"/>
+                    </Border.GestureRecognizers>
+                    <Border.Triggers>
+                        <DataTrigger TargetType="Border" Binding="{Binding IsFriendsTabActive}" Value="True">
+                            <Setter Property="BackgroundColor" Value="#1f6feb"/>
+                        </DataTrigger>
+                        <DataTrigger TargetType="Border" Binding="{Binding IsFriendsTabActive}" Value="False">
+                            <Setter Property="BackgroundColor" Value="#2d333b"/>
+                        </DataTrigger>
+                    </Border.Triggers>
+                    <Label Text="Friends" FontSize="13" FontAttributes="Bold" VerticalOptions="Center">
+                        <Label.Triggers>
+                            <DataTrigger TargetType="Label" Binding="{Binding IsFriendsTabActive}" Value="True">
+                                <Setter Property="TextColor" Value="White"/>
+                            </DataTrigger>
+                            <DataTrigger TargetType="Label" Binding="{Binding IsFriendsTabActive}" Value="False">
+                                <Setter Property="TextColor" Value="#888888"/>
+                            </DataTrigger>
+                        </Label.Triggers>
+                    </Label>
+                </Border>
+
             </HorizontalStackLayout>
         </Border>
 
         <!-- ── Content ──────────────────────────────────────────────── -->
-        <Grid Grid.Row="1" RowDefinitions="Auto,*" Padding="12,10,12,0">
+        <Grid Grid.Row="1" Padding="12,10,12,0">
 
-            <!-- Modifier selector — compact pill row, not full-width -->
-            <HorizontalStackLayout Grid.Row="0" Spacing="6" Margin="0,0,0,10">
-                <Button Text="None"
-                        Command="{Binding SetModifierCommand}"
-                        CommandParameter="0"
-                        BackgroundColor="#2d333b" TextColor="#cccccc"
-                        FontSize="12" WidthRequest="72" HeightRequest="30"
-                        CornerRadius="4" Padding="0">
-                    <Button.Triggers>
-                        <DataTrigger TargetType="Button" Binding="{Binding ActiveModifier}" Value="0">
-                            <Setter Property="BackgroundColor" Value="#1f6feb"/>
-                            <Setter Property="TextColor" Value="White"/>
-                        </DataTrigger>
-                    </Button.Triggers>
-                </Button>
-                <Button Text="Shift"
-                        Command="{Binding SetModifierCommand}"
-                        CommandParameter="1"
-                        BackgroundColor="#2d333b" TextColor="#cccccc"
-                        FontSize="12" WidthRequest="72" HeightRequest="30"
-                        CornerRadius="4" Padding="0">
-                    <Button.Triggers>
-                        <DataTrigger TargetType="Button" Binding="{Binding ActiveModifier}" Value="1">
-                            <Setter Property="BackgroundColor" Value="#1f6feb"/>
-                            <Setter Property="TextColor" Value="White"/>
-                        </DataTrigger>
-                    </Button.Triggers>
-                </Button>
-                <Button Text="Ctrl"
-                        Command="{Binding SetModifierCommand}"
-                        CommandParameter="2"
-                        BackgroundColor="#2d333b" TextColor="#cccccc"
-                        FontSize="12" WidthRequest="72" HeightRequest="30"
-                        CornerRadius="4" Padding="0">
-                    <Button.Triggers>
-                        <DataTrigger TargetType="Button" Binding="{Binding ActiveModifier}" Value="2">
-                            <Setter Property="BackgroundColor" Value="#1f6feb"/>
-                            <Setter Property="TextColor" Value="White"/>
-                        </DataTrigger>
-                    </Button.Triggers>
-                </Button>
-            </HorizontalStackLayout>
+            <!-- ── SETTINGS TAB ──────────────────────────────────────── -->
+            <ScrollView IsVisible="{Binding IsSettingsTabActive}">
+                <VerticalStackLayout Spacing="20" Padding="0,0,0,12">
 
-            <!-- F-key list -->
-            <ScrollView Grid.Row="1">
-                <VerticalStackLayout BindableLayout.ItemsSource="{Binding CurrentPageItems}" Spacing="6">
-                    <BindableLayout.ItemTemplate>
-                        <DataTemplate x:DataType="vm:FkeyEditorItem">
-                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
-                                <Label Grid.Column="0"
-                                       Text="{Binding Label}"
-                                       TextColor="#888888"
-                                       FontSize="12"
-                                       VerticalOptions="Center"
-                                       WidthRequest="36"/>
-                                <Entry Grid.Column="1"
-                                       Text="{Binding Command, Mode=TwoWay}"
-                                       TextColor="White"
-                                       BackgroundColor="#161b22"
-                                       Placeholder="Enter command"
-                                       PlaceholderColor="#444444"
-                                       ClearButtonVisibility="WhileEditing"
-                                       Keyboard="Plain"
-                                       IsSpellCheckEnabled="False"
-                                       IsTextPredictionEnabled="False"/>
-                            </Grid>
-                        </DataTemplate>
-                    </BindableLayout.ItemTemplate>
+                    <!-- Font Size -->
+                    <Grid ColumnDefinitions="140,*" ColumnSpacing="12">
+                        <Label Grid.Column="0" Text="Font Size" TextColor="#888888" FontSize="13" VerticalOptions="Center"/>
+                        <HorizontalStackLayout Grid.Column="1" Spacing="12" VerticalOptions="Center">
+                            <Label Text="{Binding FontSizeDisplay}" TextColor="White" FontSize="13"
+                                   WidthRequest="28" VerticalOptions="Center"/>
+                            <Stepper Minimum="9" Maximum="24" Increment="1"
+                                     Value="{Binding FontSize, Mode=TwoWay}"/>
+                        </HorizontalStackLayout>
+                    </Grid>
+
+                    <!-- Columns -->
+                    <Grid ColumnDefinitions="140,*" ColumnSpacing="12">
+                        <Label Grid.Column="0" Text="Columns" TextColor="#888888" FontSize="13" VerticalOptions="Center"/>
+                        <HorizontalStackLayout Grid.Column="1" Spacing="12" VerticalOptions="Center">
+                            <Label Text="{Binding ColumnsDisplay}" TextColor="White" FontSize="13"
+                                   WidthRequest="28" VerticalOptions="Center"/>
+                            <Stepper Minimum="40" Maximum="160" Increment="1"
+                                     Value="{Binding Columns, Mode=TwoWay}"/>
+                        </HorizontalStackLayout>
+                    </Grid>
+
+                    <!-- Volume -->
+                    <Grid ColumnDefinitions="140,*" ColumnSpacing="12">
+                        <Label Grid.Column="0" Text="Volume" TextColor="#888888" FontSize="13" VerticalOptions="Center"/>
+                        <HorizontalStackLayout Grid.Column="1" Spacing="12" VerticalOptions="Center">
+                            <Label Text="{Binding VolumeDisplay}" TextColor="White" FontSize="13"
+                                   WidthRequest="28" VerticalOptions="Center"/>
+                            <Slider Minimum="0" Maximum="100" WidthRequest="160"
+                                    Value="{Binding Volume, Mode=TwoWay}"/>
+                        </HorizontalStackLayout>
+                    </Grid>
+
+                    <!-- Stat Update (FES) frequency -->
+                    <Grid ColumnDefinitions="140,*" ColumnSpacing="12">
+                        <Label Grid.Column="0" Text="Stat Update (FES)" TextColor="#888888" FontSize="13" VerticalOptions="Center"/>
+                        <HorizontalStackLayout Grid.Column="1" Spacing="12" VerticalOptions="Center">
+                            <Label Text="{Binding StatUpdateFrequencyDisplay}" TextColor="White" FontSize="13"
+                                   WidthRequest="28" VerticalOptions="Center"/>
+                            <Stepper Minimum="0" Maximum="30" Increment="5"
+                                     Value="{Binding StatUpdateFrequency, Mode=TwoWay}"/>
+                        </HorizontalStackLayout>
+                    </Grid>
+
                 </VerticalStackLayout>
             </ScrollView>
+
+            <!-- ── HOTKEYS TAB ───────────────────────────────────────── -->
+            <Grid RowDefinitions="Auto,*" IsVisible="{Binding IsHotkeysTabActive}">
+
+                <!-- Modifier selector — compact pill row, not full-width -->
+                <HorizontalStackLayout Grid.Row="0" Spacing="6" Margin="0,0,0,10">
+                    <Button Text="None"
+                            Command="{Binding SetModifierCommand}"
+                            CommandParameter="0"
+                            BackgroundColor="#2d333b" TextColor="#cccccc"
+                            FontSize="12" WidthRequest="72" HeightRequest="30"
+                            CornerRadius="4" Padding="0">
+                        <Button.Triggers>
+                            <DataTrigger TargetType="Button" Binding="{Binding ActiveModifier}" Value="0">
+                                <Setter Property="BackgroundColor" Value="#1f6feb"/>
+                                <Setter Property="TextColor" Value="White"/>
+                            </DataTrigger>
+                        </Button.Triggers>
+                    </Button>
+                    <Button Text="Shift"
+                            Command="{Binding SetModifierCommand}"
+                            CommandParameter="1"
+                            BackgroundColor="#2d333b" TextColor="#cccccc"
+                            FontSize="12" WidthRequest="72" HeightRequest="30"
+                            CornerRadius="4" Padding="0">
+                        <Button.Triggers>
+                            <DataTrigger TargetType="Button" Binding="{Binding ActiveModifier}" Value="1">
+                                <Setter Property="BackgroundColor" Value="#1f6feb"/>
+                                <Setter Property="TextColor" Value="White"/>
+                            </DataTrigger>
+                        </Button.Triggers>
+                    </Button>
+                    <Button Text="Ctrl"
+                            Command="{Binding SetModifierCommand}"
+                            CommandParameter="2"
+                            BackgroundColor="#2d333b" TextColor="#cccccc"
+                            FontSize="12" WidthRequest="72" HeightRequest="30"
+                            CornerRadius="4" Padding="0">
+                        <Button.Triggers>
+                            <DataTrigger TargetType="Button" Binding="{Binding ActiveModifier}" Value="2">
+                                <Setter Property="BackgroundColor" Value="#1f6feb"/>
+                                <Setter Property="TextColor" Value="White"/>
+                            </DataTrigger>
+                        </Button.Triggers>
+                    </Button>
+                </HorizontalStackLayout>
+
+                <!-- F-key list -->
+                <ScrollView Grid.Row="1">
+                    <VerticalStackLayout BindableLayout.ItemsSource="{Binding CurrentPageItems}" Spacing="6">
+                        <BindableLayout.ItemTemplate>
+                            <DataTemplate x:DataType="vm:FkeyEditorItem">
+                                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                                    <Label Grid.Column="0"
+                                           Text="{Binding Label}"
+                                           TextColor="#888888"
+                                           FontSize="12"
+                                           VerticalOptions="Center"
+                                           WidthRequest="36"/>
+                                    <Entry Grid.Column="1"
+                                           Text="{Binding Command, Mode=TwoWay}"
+                                           TextColor="White"
+                                           BackgroundColor="#161b22"
+                                           Placeholder="Enter command"
+                                           PlaceholderColor="#444444"
+                                           ClearButtonVisibility="WhileEditing"
+                                           Keyboard="Plain"
+                                           IsSpellCheckEnabled="False"
+                                           IsTextPredictionEnabled="False"/>
+                                </Grid>
+                            </DataTemplate>
+                        </BindableLayout.ItemTemplate>
+                    </VerticalStackLayout>
+                </ScrollView>
+            </Grid>
+
+            <!-- ── FRIENDS TAB ───────────────────────────────────────── -->
+            <Label Text="Soon!"
+                   IsVisible="{Binding IsFriendsTabActive}"
+                   TextColor="#555555"
+                   FontSize="24"
+                   HorizontalOptions="Center"
+                   VerticalOptions="Center"/>
+
         </Grid>
 
         <!-- ── Action bar ────────────────────────────────────────────── -->

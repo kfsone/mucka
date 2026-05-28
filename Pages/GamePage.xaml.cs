@@ -49,6 +49,9 @@ public partial class GamePage : ContentPage
     private bool _isFkeyEditorOpen;
     private bool _eventsSubscribed;
     private readonly SemaphoreSlim _scriptExecutionLock = new(1, 1);
+#if WINDOWS
+    private Window? _rawConsoleWindow;
+#endif
 
     public GamePage(GameViewModel vm, bool exitOnDisconnect = false)
     {
@@ -73,6 +76,7 @@ public partial class GamePage : ContentPage
                 _vm.Disconnected        += OnDisconnected;
                 _vm.RequestFocus        += FocusInput;
                 _vm.EditFkeysRequested  += OnEditFkeysRequested;
+                _vm.ConfigRequested     += OnConfigRequested;
                 _vm.ClearScreenRequested += OnClearScreenRequested;
                 _eventsSubscribed = true;
             }
@@ -97,6 +101,7 @@ public partial class GamePage : ContentPage
                 froot.PreviewKeyDown += OnRootPreviewKeyDown;
             // Hook the native TextBox so Up/Down/Esc keys work in the entry.
             InputEntry.HandlerChanged += OnInputHandlerChanged;
+            _vm.OpenRawConsoleRequested += OnOpenRawConsoleRequested;
 #endif
         }
         else
@@ -147,6 +152,7 @@ public partial class GamePage : ContentPage
         _vm.Disconnected        -= OnDisconnected;
         _vm.RequestFocus        -= FocusInput;
         _vm.EditFkeysRequested  -= OnEditFkeysRequested;
+        _vm.ConfigRequested     -= OnConfigRequested;
         _vm.ClearScreenRequested -= OnClearScreenRequested;
         _eventsSubscribed = false;
         if (Window is not null)
@@ -156,6 +162,7 @@ public partial class GamePage : ContentPage
             fwin.Content is Microsoft.UI.Xaml.UIElement froot)
             froot.PreviewKeyDown -= OnRootPreviewKeyDown;
         InputEntry.HandlerChanged -= OnInputHandlerChanged;
+        _vm.OpenRawConsoleRequested -= OnOpenRawConsoleRequested;
 #endif
         _ = _vm.DisposeAsync();
     }
@@ -349,15 +356,29 @@ public partial class GamePage : ContentPage
         }
     }
 
-    private async void OnEditFkeysRequested()
+    private Task OpenConfigAsync(int initialTab)
     {
         Func<string[], Task>? onSave = _vm.CanSaveFkeys
             ? fkeys => _vm.SaveFkeysAsync(fkeys)
             : null;
-        var editorVm = new FkeyEditorViewModel(_vm.GetAllFkeys(), _vm.ApplyFkeys, onSave);
+        var editorVm = new FkeyEditorViewModel(
+            _vm.GetAllFkeys(),
+            _vm.FontSize, _vm.MaxColumns, _vm.Volume,
+            _vm.StatUpdateFrequency,
+            _vm.ApplyFkeys,
+            onSave,
+            _vm.ApplyMaxColumns,
+            _vm.ApplyStatUpdateFrequency)
+        {
+            ActiveTab = initialTab
+        };
         _isFkeyEditorOpen = true;
-        await Navigation.PushModalAsync(new FkeyEditorPage(editorVm));
+        return Navigation.PushModalAsync(new FkeyEditorPage(editorVm));
     }
+
+    private async void OnEditFkeysRequested() => await OpenConfigAsync(initialTab: 1);
+
+    private async void OnConfigRequested() => await OpenConfigAsync(initialTab: 0);
 
     private void FocusInput() => InputEntry.Focus();
 
@@ -510,6 +531,21 @@ public partial class GamePage : ContentPage
         {
             System.Diagnostics.Trace.WriteLine($"[selfie] Failed: {ex.Message}");
         }
+    }
+
+    private void OnOpenRawConsoleRequested()
+    {
+        // Reuse existing window if it is still open.
+        if (_rawConsoleWindow != null &&
+            Application.Current?.Windows.Contains(_rawConsoleWindow) == true)
+            return;
+        _rawConsoleWindow = new Window(new RawConsolePage(_vm))
+        {
+            Title  = "Mucka — Raw Console",
+            Width  = 900,
+            Height = 550,
+        };
+        Application.Current?.OpenWindow(_rawConsoleWindow);
     }
 #endif
 
