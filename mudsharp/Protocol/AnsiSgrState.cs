@@ -8,6 +8,12 @@ internal sealed class AnsiSgrState
 {
     public TextStyle CurrentStyle { get; private set; } = TextStyle.Default;
 
+    /// <summary>
+    /// Invoked when the server confirms the terminal width via ESC-<n>W.
+    /// Payload is the confirmed width value.
+    /// </summary>
+    internal Action<int>? WidthConfirmed;
+
     // Campbell color palette hex values for HTML/UI consumers.
     public static readonly IReadOnlyDictionary<AnsiColor, string> CampbellHex =
         new Dictionary<AnsiColor, string>
@@ -53,13 +59,33 @@ internal sealed class AnsiSgrState
                 return ParserState.Normal;
 
             case ParserState.EscapeDash:
-                // Consume the command letter. ESC-i introduces a width parameter (e.g. ESC-iNNNW).
-                if (b == (byte)'i') return ParserState.EscapeDashWidth;
+                // A digit starts the server's terminal-width confirmation (ESC-<n>W).
+                if (b is >= (byte)'0' and <= (byte)'9')
+                {
+                    _paramBuf.Clear();
+                    _paramBuf.Append((char)b);
+                    return ParserState.EscapeDashWidth;
+                }
+                // Any other byte is a named shell command letter — consume it silently.
                 return ParserState.Normal;
 
             case ParserState.EscapeDashWidth:
-                // Consume decimal digits of the width value; the final non-digit letter ends it.
-                if (b is >= (byte)'0' and <= (byte)'9') return ParserState.EscapeDashWidth;
+                // Accumulate additional digits.
+                if (b is >= (byte)'0' and <= (byte)'9')
+                {
+                    _paramBuf.Append((char)b);
+                    return ParserState.EscapeDashWidth;
+                }
+                // 'W' = server confirms the new terminal width.
+                if (b == (byte)'W')
+                {
+                    if (int.TryParse(_paramBuf.ToString(), out int w))
+                        WidthConfirmed?.Invoke(w);
+                    _paramBuf.Clear();
+                    return ParserState.EscapeDashAnnotation;
+                }
+                // Any other terminator — discard collected digits.
+                _paramBuf.Clear();
                 return ParserState.Normal;
 
             case ParserState.EscapeBracket:

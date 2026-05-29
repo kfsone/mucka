@@ -43,6 +43,11 @@ public sealed class MudSession : IDisposable
     public event Action<string>? FeiItemReady;
     public event Action? FeiListStarting;
     public event Action? FeiListComplete;
+    /// <summary>
+    /// Server confirmed the terminal width (ESC-<n>W response or "[New terminal width is N]" annotation).
+    /// Payload is the confirmed column count.
+    /// </summary>
+    public event Action<int>? TerminalWidthConfirmed;
 
     // ── Public state ───────────────────────────────────────────────────────────
     public GameStatsSnapshot CurrentStats => _currentStats;
@@ -132,6 +137,7 @@ public sealed class MudSession : IDisposable
         _parser.FeiItemReady     += item => FeiItemReady?.Invoke(item);
         _parser.FeiListStarting  += () => FeiListStarting?.Invoke();
         _parser.FeiListComplete  += () => FeiListComplete?.Invoke();
+        _parser.TerminalWidthConfirmed += w => TerminalWidthConfirmed?.Invoke(w);
     }
 
     private void MergeStats(GameStatsSnapshot partial)

@@ -46,6 +46,13 @@ public sealed class MudStreamParser
     /// <summary>A BEL character (0x07) was received in the stream.</summary>
     public event Action? BellReceived;
 
+    /// <summary>
+    /// Server confirmed the terminal width with an ESC-<n>W response, or the parser
+    /// detected the server's "[New terminal width is N]" annotation line.
+    /// The payload is the confirmed column count.
+    /// </summary>
+    public event Action<int>? TerminalWidthConfirmed;
+
     /// <summary>Dreamword has changed. Null means cleared.</summary>
     public event Action<string?>? DreamwordChanged;
 
@@ -209,6 +216,7 @@ public sealed class MudStreamParser
     public MudStreamParser()
     {
         Ansi = new AnsiSgrState();
+        Ansi.WidthConfirmed = w => TerminalWidthConfirmed?.Invoke(w);
         Telnet = new TelnetNegotiator(send => OutgoingBytes?.Invoke(send));
         C1 = new Mud2C1Decoder(this);
         LineAnalyzer = new GameLineAnalyzer();
@@ -302,6 +310,11 @@ public sealed class MudStreamParser
                 EmitPartialOnPop = false;
                 return;
             }
+            // Pre-game terminal-width confirmation line: "[New terminal width is N]"
+            // Arrives without an ESC-<n>W prefix on plain-mud connections; swallow it and
+            // fire TerminalWidthConfirmed so callers can verify the requested width.
+            if (!_inGameMode && TryEmitTerminalWidthLine())
+                return;
             // In game mode, suppress all-asterisk lines entirely (Clio: prompt_allowed / preamble
             // suppression — telnet.l:438-444). These are MUD2 prompt-preamble separator lines.
             bool isAsteriskPreamble = _inGameMode && SpansAreAllAsterisks();
@@ -421,6 +434,49 @@ public sealed class MudStreamParser
     internal void QueueReprocessByte(byte b) => _pendingReprocess = b;
 
     /// <summary>
+    /// Checks whether the accumulated spans form the server's pre-game width-confirmation
+    /// annotation "[New terminal width is N]". If so, fires <see cref="TerminalWidthConfirmed"/>,
+    /// resets line-boundary state, and returns true (caller should skip LineReady).
+    /// </summary>
+    private bool TryEmitTerminalWidthLine()
+    {
+        const string prefix = "[New terminal width is ";
+        // Build plain text only if the line could plausibly be the width notification.
+        // _spans has already been flushed by the caller (FlushSpan was called).
+        if (_spans.Count == 0) return false;
+
+        // Build plain text without LINQ to keep it allocation-lean.
+        int totalLen = 0;
+        foreach (var s in _spans) totalLen += s.Text.Length;
+        if (totalLen <= prefix.Length + 1) return false;
+
+        // Quick prefix check using the first span before building the full string.
+        var first = _spans[0].Text;
+        if (!first.StartsWith(prefix[..Math.Min(first.Length, prefix.Length)], StringComparison.Ordinal)
+            && _spans.Count > 1)
+            return false;
+
+        var sb = new System.Text.StringBuilder(totalLen);
+        foreach (var s in _spans) sb.Append(s.Text);
+        var text = sb.ToString();
+
+        if (!text.StartsWith(prefix, StringComparison.Ordinal) || text[^1] != ']')
+            return false;
+
+        var numSpan = text.AsSpan(prefix.Length, text.Length - prefix.Length - 1);
+        if (!int.TryParse(numSpan, out int w))
+            return false;
+
+        TerminalWidthConfirmed?.Invoke(w);
+        _spans.Clear();
+        PromptAllowed = true;
+        SuppressNextText = false;
+        EmitPartialOnPop = false;
+        _atLineStart = true;
+        return true;
+    }
+
+    /// <summary>
     /// Returns true when every accumulated span contains only '*' characters and at least
     /// one span is non-empty — i.e. the current line is the MUD2 ready-prompt re-echo.
     /// </summary>
@@ -475,6 +531,11 @@ public sealed class MudStreamParser
             case ParserState.EscapeDash:
             case ParserState.EscapeDashWidth:
                 _state = Ansi.ProcessByte(b, _state);
+                break;
+            case ParserState.EscapeDashAnnotation:
+                // Swallow the server's "[New terminal width is N]\r\n" annotation.
+                // The ESC-<n>W already fired TerminalWidthConfirmed; just discard text until \n.
+                if (b == '\n') _state = ParserState.Normal;
                 break;
             case ParserState.C1Seq:
             case ParserState.C1Data:

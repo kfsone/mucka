@@ -111,4 +111,66 @@ public class AnsiSgrTests
             Assert.Matches(@"^#[0-9A-Fa-f]{6}$", map[color]);
         }
     }
+
+    [Fact]
+    public void TerminalWidth_EscDashNW_FiresConfirmedEvent()
+    {
+        // ESC-80W = server confirming terminal width 80.
+        // Should fire TerminalWidthConfirmed(80) and suppress all display output.
+        var h = new ParserHarness();
+        h.Feed("\x1B-80W[New terminal width is 80]\r\n");
+        Assert.Single(h.ConfirmedWidths);
+        Assert.Equal(80, h.ConfirmedWidths[0]);
+        Assert.Empty(h.Lines);
+    }
+
+    [Fact]
+    public void TerminalWidth_EscDashNW_SwallowsAnnotationText()
+    {
+        // Text after ESC-<n>W (the "[New terminal width is N]" annotation) must not
+        // appear as a display line. Anything after the annotation \n resumes normally.
+        var h = new ParserHarness();
+        h.Feed("\x1B-80W[New terminal width is 80]\r\nsome text\n");
+        Assert.Single(h.ConfirmedWidths);
+        Assert.Single(h.Lines);
+        Assert.Equal("some text", h.Lines[0].PlainText);
+    }
+
+    [Fact]
+    public void TerminalWidth_TextLine_FiresConfirmedEvent()
+    {
+        // Plain "[New terminal width is N]" line (mud-mode, no ESC- prefix):
+        // should fire TerminalWidthConfirmed(N) and suppress LineReady.
+        var h = new ParserHarness();
+        h.Feed("[New terminal width is 80]\r\n");
+        Assert.Single(h.ConfirmedWidths);
+        Assert.Equal(80, h.ConfirmedWidths[0]);
+        Assert.Empty(h.Lines);
+    }
+
+    [Fact]
+    public void TerminalWidth_TextLine_OnlyInPreGame()
+    {
+        // In game mode the "[New terminal width is N]" pattern is not suppressed —
+        // extremely unusual to receive in-game, and we must not silently eat game output.
+        var h = new ParserHarness();
+        // Enter game mode via C02+C01+C255
+        h.Feed("\x9D\x9C\xFF\xFF");
+        h.ClearCounters();
+        h.Feed("[New terminal width is 80]\r\n");
+        Assert.Empty(h.ConfirmedWidths);
+        Assert.Single(h.Lines);
+    }
+
+    [Fact]
+    public void TerminalWidth_EscDash_OtherLetter_Consumed()
+    {
+        // ESC-C (a named server command letter) must be silently consumed; the text
+        // that follows is unrelated and should be displayed normally.
+        var h = new ParserHarness();
+        h.Feed("\x1B-Chello\n");
+        Assert.Single(h.Lines);
+        Assert.Equal("hello", h.Lines[0].PlainText);
+        Assert.Empty(h.ConfirmedWidths);
+    }
 }

@@ -296,5 +296,16 @@ public sealed class MuckaConnection : IAsyncDisposable
         _session.FeiListStarting    += () => FeiListStarting?.Invoke();
         _session.FeiItemReady       += item => FeiItemReady?.Invoke(item);
         _session.FeiListComplete    += () => FeiListComplete?.Invoke();
+        _session.TerminalWidthConfirmed += OnTerminalWidthConfirmed;
+    }
+
+    private void OnTerminalWidthConfirmed(int confirmedWidth)
+    {
+        if (confirmedWidth != _windowCols)
+            System.Diagnostics.Debug.WriteLine(
+                $"[MuckaConnection] Terminal width mismatch: requested {_windowCols}, confirmed {confirmedWidth}");
+#if DEBUG || WINDOWS
+        _capture.Annotate($"terminal width confirmed: {confirmedWidth}");
+#endif
     }
 }
