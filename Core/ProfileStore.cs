@@ -46,6 +46,7 @@ public static class ProfileStore
 
     private static List<Profile> Defaults() => new()
     {
-        new Profile { Name = "MUD2 UK", Host = "mud2.co.uk", Port = 23 },
+        new Profile { Name = "MUD2 UK",  Host = "mud2.co.uk",  Port = 23    },
+        new Profile { Name = "MUD2.COM", Host = "www.mud2.com", Port = 27723 },
     };
 }
