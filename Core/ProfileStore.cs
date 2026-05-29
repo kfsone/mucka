@@ -16,9 +16,14 @@ public static class ProfileStore
             var json = await File.ReadAllTextAsync(FilePath).ConfigureAwait(false);
             return JsonSerializer.Deserialize<List<Profile>>(json) ?? Defaults();
         }
-        catch
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
         {
             return Defaults();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[ProfileStore] failed to load profiles: {ex}");
+            throw;
         }
     }
 
@@ -26,13 +31,20 @@ public static class ProfileStore
     {
         var json = JsonSerializer.Serialize(profiles,
             new JsonSerializerOptions { WriteIndented = true });
-        await File.WriteAllTextAsync(FilePath, json).ConfigureAwait(false);
+        var tmpPath = FilePath + ".tmp";
+        await File.WriteAllTextAsync(tmpPath, json).ConfigureAwait(false);
+        // File.Move has no async overload; this is an atomic metadata-only rename on the same volume.
+        File.Move(tmpPath, FilePath, overwrite: true);
     }
 
     public static async Task<string?> GetPasswordAsync(string profileName)
     {
         try { return await SecureStorage.GetAsync($"pwd:{profileName}").ConfigureAwait(false); }
-        catch { return null; }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[ProfileStore] SecureStorage.GetAsync failed for '{profileName}': {ex}");
+            throw;
+        }
     }
 
     public static async Task SetPasswordAsync(string profileName, string? password)
