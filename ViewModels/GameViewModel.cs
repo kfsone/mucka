@@ -13,6 +13,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
 {
     private readonly MuckaConnection _conn;
     private readonly Func<string[], Task>? _saveFkeysAsync;
+    private readonly Func<bool, Task>? _saveMuteAsync;
     private readonly List<string> _history = new();
     private readonly string[] _allFkeys = new string[36];
 #if WINDOWS
@@ -51,9 +52,12 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private bool _keepScreenOn;
     private bool _inGameMode;
     private DateTime _lastSentUtc;
+    private DateTime _lastBellUtc = DateTime.MinValue;
     private int _fontSize;
     private int _volume;
     private int _statUpdateFrequency;
+    private bool _muteBeepSession;
+    private bool _muteBeepPermanently;
 
     // Lines from the TCP thread are enqueued here; the UI timer flushes them in batches.
     private readonly ConcurrentQueue<StyledLine> _pendingLines = new();
@@ -90,6 +94,8 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public int FontSize => _fontSize;
     public int Volume => _volume;
     public int StatUpdateFrequency => _statUpdateFrequency;
+    public bool MuteBeepSession     { get => _muteBeepSession;     set => _muteBeepSession = value; }
+    public bool MuteBeepPermanently => _muteBeepPermanently;
 
     /// <summary>True in debug builds and on Windows release — controls visibility of the capture button.</summary>
     public bool IsCaptureFacilityAvailable { get; } =
@@ -332,10 +338,11 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public void SendRawBytes(byte[] bytes) => _conn.SendBytes(bytes);
 #endif
 
-    public GameViewModel(MuckaConnection conn, Profile profile, Func<string[], Task>? saveFkeysAsync = null)
+    public GameViewModel(MuckaConnection conn, Profile profile, Func<string[], Task>? saveFkeysAsync = null, Func<bool, Task>? saveMuteAsync = null)
     {
         _conn = conn;
         _saveFkeysAsync = saveFkeysAsync;
+        _saveMuteAsync = saveMuteAsync;
         IsCapturing = _conn.IsCapturing;
 #if WINDOWS
         _watchwords = WatchwordStore.Load();
@@ -348,6 +355,8 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _fontSize = profile.FontSize > 0 ? profile.FontSize : 15;
         _volume = Math.Clamp(profile.Volume, 0, 100);
         _statUpdateFrequency = Math.Clamp(profile.StatUpdateFrequency, 0, 30);
+        _muteBeepPermanently = profile.MuteBeepPermanently;
+        _muteBeepSession     = profile.MuteBeepPermanently;
 
         SidePanel = new SidePanelViewModel();
 
@@ -367,8 +376,10 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _conn.DreamwordChanged += OnDreamwordChanged;
         _conn.Disconnected     += OnDisconnected;
         _conn.SoundRequested   += OnSoundRequested;
+        _conn.BellReceived     += OnBellReceived;
         _conn.FewPlayerReady   += SidePanel.OnFewPlayerReceived;
         _conn.FewListStarting  += SidePanel.OnFewListStarting;
+        _conn.FewListComplete  += SidePanel.OnFewListComplete;
 
         SendCommand           = new Command(SendNow);
         FkeyCommand           = new Command<string>(SendFkey);
@@ -474,7 +485,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             _dumb         = stats.IsDumb;
             _timeToReset  = stats.TimeToReset ?? 0;
             _weather      = stats.Weather;
-            _staminaColor = stats.StaminaColor;
+            _staminaColor = stats.StaminaColor ?? 0;
 
             if (stats.DreamWord != null)
                 _dreamword = stats.DreamWord;
@@ -517,6 +528,15 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
 
     // Called from the TCP read thread — fire-and-forget, never block.
     private static void OnSoundRequested(string assetName) => SoundService.Play(assetName);
+
+    private void OnBellReceived()
+    {
+        if (_muteBeepSession || _muteBeepPermanently) return;
+        var now = DateTime.UtcNow;
+        if (now - _lastBellUtc < TimeSpan.FromSeconds(2)) return;
+        _lastBellUtc = now;
+        SoundService.Play("beep.wav");
+    }
 
     private void SendNow()
     {
@@ -796,6 +816,14 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         OnPropertyChanged(nameof(StatUpdateFrequency));
     }
 
+    /// <summary>Persists the permanent-mute flag and updates the in-memory state.</summary>
+    public void ApplyMutePermanently(bool mute)
+    {
+        _muteBeepPermanently = mute;
+        if (mute) _muteBeepSession = true;
+        _ = _saveMuteAsync?.Invoke(mute);
+    }
+
     /// <summary>
     /// Applies a new maximum column count, sends the /T escape sequence to the server,
     /// and recalculates the effective column layout.
@@ -829,8 +857,10 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _conn.DreamwordChanged -= OnDreamwordChanged;
         _conn.Disconnected     -= OnDisconnected;
         _conn.SoundRequested   -= OnSoundRequested;
+        _conn.BellReceived     -= OnBellReceived;
         _conn.FewPlayerReady   -= SidePanel.OnFewPlayerReceived;
         _conn.FewListStarting  -= SidePanel.OnFewListStarting;
+        _conn.FewListComplete  -= SidePanel.OnFewListComplete;
         await _conn.DisposeAsync();
     }
 }

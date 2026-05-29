@@ -214,9 +214,22 @@ internal sealed class TelnetNegotiator
 
     private void Send(params byte[] bytes) => _send(bytes);
 
-    private void SendNaws(ushort width, ushort height) =>
-        Send(IAC, SB, OPT_NAWS,
-             (byte)(width  >> 8), (byte)(width  & 0xFF),
-             (byte)(height >> 8), (byte)(height & 0xFF),
-             IAC, SE);
+    private void SendNaws(ushort width, ushort height)
+    {
+        // RFC 854: 0xFF bytes inside subnegotiation payload must be doubled (IAC IAC).
+        var payload = new List<byte> { IAC, SB, OPT_NAWS };
+        AppendNawsParam(payload, width);
+        AppendNawsParam(payload, height);
+        payload.Add(IAC);
+        payload.Add(SE);
+        Send(payload.ToArray());
+    }
+
+    private static void AppendNawsParam(List<byte> buf, ushort value)
+    {
+        byte hi = (byte)(value >> 8);
+        byte lo = (byte)(value & 0xFF);
+        buf.Add(hi); if (hi == IAC) buf.Add(IAC);
+        buf.Add(lo); if (lo == IAC) buf.Add(IAC);
+    }
 }

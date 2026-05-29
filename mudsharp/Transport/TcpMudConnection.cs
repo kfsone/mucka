@@ -89,6 +89,12 @@ public sealed class TcpMudConnection : IAsyncDisposable
                 int read = await _stream!.ReadAsync(buf, ct);
                 if (read == 0) break; // server closed connection
                 _session.Feed(buf.AsSpan(0, read));
+                // In pre-game mode (login/account phase), surface partial lines such as
+                // "Account ID:" that arrive without a trailing newline or C98 signal.
+                // In game mode, partial lines are managed by the C01+C02 protocol; calling
+                // EmitPartial unconditionally would fragment in-game lines split across packets.
+                if (!_session.InGameMode)
+                    _session.EmitPartial();
             }
         }
         catch (OperationCanceledException) { /* clean disconnect */ }

@@ -34,14 +34,19 @@ public sealed class MuckaConnection : IAsyncDisposable
     // ── Public events (forwarded from MudSession) ─────────────────────────────
     public event Action<StyledLine>? LineReady;
     public event Action<GameStatsSnapshot>? StatsUpdated;
+    public event Action? BellReceived;
     public event Action? GameModeEntered;
     public event Action? GameModeExited;
     public event Action<string?>? DreamwordChanged;
     public event Action<string>? ClientModeReceived;
     public event Action<string>? SoundRequested;
     public event Action<string>? FewPlayerReady;
-    /// <summary>Fired when a FEW-response context opens (C12+C08+C05). Who list should be cleared.</summary>
+    /// <summary>Fired when a FEW-response context opens (C12+C08+C05). Start accumulating names.</summary>
     public event Action? FewListStarting;
+    /// <summary>Fired when the FEW-response context closes — all names delivered. Replace the visible list now.</summary>
+    public event Action? FewListComplete;
+    /// <summary>Fired when a room short (C02+C01) appears at frame start — player is at or has entered a room.</summary>
+    public event Action? RoomEntered;
     /// <summary>Fired when the connection is lost (read loop ended). Null = clean disconnect.</summary>
     public event Action<Exception?>? Disconnected;
 #if WINDOWS
@@ -66,14 +71,14 @@ public sealed class MuckaConnection : IAsyncDisposable
 
     private int _windowCols;
 
-    public MuckaConnection(string? accountId = null, string? password = null, int maxCols = 80)
+    public MuckaConnection(string? accountId = null, string? password = null, int maxCols = 80, string loginName = "mud")
     {
         _windowCols = Math.Clamp(maxCols, 20, 160);
         _session = new MudSession();
         _session.SetWindowSize(_windowCols, 21);
         WireSessionEvents();
         if (!string.IsNullOrEmpty(accountId))
-            _loginHandler = new MudLoginHandler(this, accountId, password ?? string.Empty);
+            _loginHandler = new MudLoginHandler(this, loginName, accountId, password ?? string.Empty);
     }
 
     /// <summary>Connect to the server and start the read loop.</summary>
@@ -222,9 +227,11 @@ public sealed class MuckaConnection : IAsyncDisposable
 #endif
                 // Feed raw bytes into MudSession AFTER capturing — parser sees unmodified bytes.
                 _session.Feed(buf.AsSpan(0, read));
-                // Force-emit any buffered text that has no trailing newline as a partial line
-                // (e.g. "Account ID:" login prompts that arrive without a C98 game-mode signal).
-                _session.EmitPartial();
+                // In pre-game mode, surface partial lines (e.g. "Account ID:") that arrive
+                // without a trailing newline. In game mode, the C01+C02 protocol owns prompt
+                // emission; unconditional EmitPartial would fragment lines split across packets.
+                if (!_session.InGameMode)
+                    _session.EmitPartial();
             }
         }
         catch (OperationCanceledException) { /* clean disconnect */ }
@@ -257,6 +264,7 @@ public sealed class MuckaConnection : IAsyncDisposable
     {
         _session.LineReady          += l => LineReady?.Invoke(l);
         _session.StatsUpdated       += s => StatsUpdated?.Invoke(s);
+        _session.BellReceived       += () => BellReceived?.Invoke();
         _session.GameModeEntered    += () => GameModeEntered?.Invoke();
         _session.GameModeExited     += () => GameModeExited?.Invoke();
         _session.DreamwordChanged   += w =>
@@ -273,5 +281,7 @@ public sealed class MuckaConnection : IAsyncDisposable
         _session.SoundRequested     += s => SoundRequested?.Invoke(s);
         _session.FewPlayerReady     += n => FewPlayerReady?.Invoke(n);
         _session.FewListStarting    += () => FewListStarting?.Invoke();
+        _session.FewListComplete    += () => FewListComplete?.Invoke();
+        _session.RoomEntered        += () => RoomEntered?.Invoke();
     }
 }

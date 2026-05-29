@@ -14,6 +14,7 @@ namespace Mucka.Core;
 internal sealed class MudLoginHandler
 {
     private readonly MuckaConnection _conn;
+    private readonly string _loginName;
     private readonly string _accountId;
     private readonly string _password;
 
@@ -22,9 +23,10 @@ internal sealed class MudLoginHandler
     private bool _passwordSent;
     private bool _clientModeSent;
 
-    public MudLoginHandler(MuckaConnection conn, string accountId, string password)
+    public MudLoginHandler(MuckaConnection conn, string loginName, string accountId, string password)
     {
         _conn = conn;
+        _loginName = loginName;
         _accountId = accountId;
         _password = password;
 
@@ -55,10 +57,10 @@ internal sealed class MudLoginHandler
 
         var text = line.PlainText;
 
-        // 1. Shell login prompt — send "mud" (Clio telnet.l line 352–361, clioluser = "mud")
+        // 1. Shell login prompt — send the configured login name (Clio telnet.l line 352–361)
         if (text.Contains("login:", StringComparison.OrdinalIgnoreCase))
         {
-            _conn.SendLine("mud");
+            _conn.SendLine(_loginName);
             return;
         }
 

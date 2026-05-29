@@ -61,11 +61,12 @@ internal sealed class GameLineAnalyzer
     /// Analyse a completed line for embedded stat tokens (per Clio scan_game_line()).
     /// Returns a snapshot containing any found stats, or null if no stats were found.
     /// </summary>
-    /// <remarks>
-    /// TimeToReset comes from the FES binary protocol field, not text lines, so it is
-    /// not extracted here. DreamWord is set by the binary C1 decoder, not game text.
-    /// </remarks>
-    internal GameStatsSnapshot? Analyze(StyledLine line)
+    /// <param name="line">The styled line to analyse.</param>
+    /// <param name="inGameMode">
+    /// When true, the dreamword regex is skipped. In game mode dreamwords arrive exclusively
+    /// via the binary C15+C00+C00+C255 sequence; the text regex only applies pre-game.
+    /// </param>
+    internal GameStatsSnapshot? Analyze(StyledLine line, bool inGameMode = false)
     {
         var text = line.PlainText;
         if (text.Length == 0)
@@ -144,10 +145,15 @@ internal sealed class GameLineAnalyzer
                 return GameStatsSnapshot.Empty with { Stamina = sta, MaxStamina = msta };
         }
 
-        // `passes you a note which says "word"` — dreamword delivered as game text
-        m = DreamwordLineRegex.Match(text);
-        if (m.Success)
-            return GameStatsSnapshot.Empty with { DreamWord = m.Groups[1].Value };
+        // `passes you a note which says "word"` — dreamword delivered as game text.
+        // Only matched outside game mode; in game mode dreamwords arrive exclusively
+        // via the binary C15+C00+C00+C255 sequence in Mud2C1Decoder.
+        if (!inGameMode)
+        {
+            m = DreamwordLineRegex.Match(text);
+            if (m.Success)
+                return GameStatsSnapshot.Empty with { DreamWord = m.Groups[1].Value };
+        }
 
         return null;
     }

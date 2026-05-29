@@ -26,8 +26,18 @@ public sealed class MudStreamParser
     /// <summary>Parser has exited game mode (via Reset()).</summary>
     public event Action? GameModeExited;
 
+    /// <summary>
+    /// A room-short sequence (C02+C01) appeared at frame start — the player has entered or
+    /// is looking at the current room. The room name follows via <see cref="LineReady"/>.
+    /// Not fired for C02+C01 that appears mid-frame (exits/look-around).
+    /// </summary>
+    public event Action? RoomEntered;
+
     /// <summary>Parser wants to send bytes to the server.</summary>
     public event Action<byte[]>? OutgoingBytes;
+
+    /// <summary>A BEL character (0x07) was received in the stream.</summary>
+    public event Action? BellReceived;
 
     /// <summary>Dreamword has changed. Null means cleared.</summary>
     public event Action<string?>? DreamwordChanged;
@@ -43,9 +53,15 @@ public sealed class MudStreamParser
 
     /// <summary>
     /// A FEW-response context (C12+C08+C05 wrapper) has just opened.
-    /// The WHO list should be cleared before new names arrive via <see cref="FewPlayerReady"/>.
+    /// Consumers should start accumulating names; do not replace the visible list yet.
     /// </summary>
     public event Action? FewListStarting;
+
+    /// <summary>
+    /// A FEW-response context has just closed — all names for this response have been
+    /// delivered via <see cref="FewPlayerReady"/>. Replace the visible list atomically now.
+    /// </summary>
+    public event Action? FewListComplete;
 
     // ── Sub-parsers (set by internal wiring, replaceable for testing) ─────────
     internal TelnetNegotiator Telnet { get; }
@@ -70,6 +86,16 @@ public sealed class MudStreamParser
     // ── Game state ────────────────────────────────────────────────────────────
     public bool InGameMode => _inGameMode;
 
+    // ── Frame tracking ────────────────────────────────────────────────────────
+    // Set after the game '*' prompt is shown (EmitPartialOnPop in PopColour).
+    // Cleared when the first C1 dispatch or printable text arrives in the new frame.
+    // Used to distinguish a room-short (C02+C01) "where you are" from one that appears
+    // mid-frame as exits or look-around info.
+    private bool _atFrameStart;
+    internal bool AtFrameStart => _atFrameStart;
+    internal void SetFrameStart() => _atFrameStart = true;
+    internal void ClearFrameStart() => _atFrameStart = false;
+
     // ── FEW-response suppression ──────────────────────────────────────────────
     // Set when the parser enters a C12+C08+C05 (FE WHO) context block. While active,
     // display output is suppressed but FewPlayerReady events still fire.
@@ -86,6 +112,7 @@ public sealed class MudStreamParser
     }
     internal void ExitFewContext() => _inFewResponseContext = false;
     internal void EmitFewListStarting() => FewListStarting?.Invoke();
+    internal void EmitFewListComplete() => FewListComplete?.Invoke();
 
     /// <summary>
     /// Mirrors Clio's prompt_allowed flag.
@@ -141,13 +168,6 @@ public sealed class MudStreamParser
     /// </summary>
     public void Feed(ReadOnlySpan<byte> data)
     {
-        // In game mode, reset PromptAllowed at packet boundaries so that a '\n' from an
-        // earlier packet does not allow a later bare prompt preamble (FES heartbeat) to be
-        // shown. The prompt is only displayed when a real game '\n' preceded it in the same
-        // TCP segment. Login-mode (pre-game) prompts are handled by C98/ShowPrompt which fires
-        // unconditionally and does not depend on PromptAllowed.
-        if (_inGameMode)
-            PromptAllowed = false;
         foreach (var b in data)
             ProcessByte(b);
     }
@@ -187,6 +207,7 @@ public sealed class MudStreamParser
         SuppressNextText = false;
         EmitPartialOnPop = false;
         _inFewResponseContext = false;
+        _atFrameStart = false;
         CurrentDreamword = null;
         CurrentAccountId = null;
         CurrentPrivs = 0;
@@ -218,7 +239,7 @@ public sealed class MudStreamParser
             SuppressNextText = false;
             EmitPartialOnPop = false;
             if (isAsteriskPreamble) return;
-            var stats = LineAnalyzer.Analyze(line);
+            var stats = LineAnalyzer.Analyze(line, _inGameMode);
             if (stats != null) StatsUpdated?.Invoke(stats);
             if (_inGameMode) { var sf = LineAnalyzer.CheckSoundTrigger(line); if (sf != null) EmitSound(sf); }
             LineReady?.Invoke(line);
@@ -231,6 +252,7 @@ public sealed class MudStreamParser
         {
             // Discard characters when inside a suppressed end-of-frame prompt preamble or FEW response.
             if (SuppressNextText || _inFewResponseContext) return;
+            _atFrameStart = false;
             _text.Append(ch);
         }
     }
@@ -270,6 +292,7 @@ public sealed class MudStreamParser
 
     internal void EmitStatsUpdate(GameStatsSnapshot stats) => StatsUpdated?.Invoke(stats);
     internal void EmitOutgoing(byte[] bytes) => OutgoingBytes?.Invoke(bytes);
+    internal void EmitBell() => BellReceived?.Invoke();
     internal void EmitDreamwordChanged(string? word)
     {
         CurrentDreamword = word;
@@ -278,6 +301,7 @@ public sealed class MudStreamParser
     internal void EmitClientMode(string data) => ClientModeReceived?.Invoke(data);
     internal void EmitSound(string assetPath) => SoundRequested?.Invoke(assetPath);
     internal void EmitFewPlayer(string name) => FewPlayerReady?.Invoke(name);
+    internal void EmitRoomEntered() => RoomEntered?.Invoke();
     internal void SetAccountInfo(string? accountId, int privs)
     {
         CurrentAccountId = accountId;
@@ -351,6 +375,8 @@ public sealed class MudStreamParser
             case ParserState.Escape:
             case ParserState.EscapeBracket:
             case ParserState.CsiParam:
+            case ParserState.EscapeDash:
+            case ParserState.EscapeDashWidth:
                 _state = Ansi.ProcessByte(b, _state);
                 break;
             case ParserState.C1Seq:
@@ -381,6 +407,9 @@ public sealed class MudStreamParser
     {
         switch (b)
         {
+            case 0x07: // BEL
+                EmitBell();
+                break;
             case 0xFF: // first byte of FF FF — may be bare C255 pop or telnet IAC
                 FlushSpan();
                 _state = ParserState.Ff1;

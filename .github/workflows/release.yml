@@ -51,14 +51,34 @@ jobs:
             -p:ApplicationVersion=${{ github.run_number }}
 
       - name: Sign executable
-        uses: dlemstra/code-sign-action@v1
-        with:
-          certificate: '${{ secrets.WINDOWS_CERT_PFX_BASE64 }}'
-          password: '${{ secrets.WINDOWS_CERT_PFX_PASSWORD }}'
-          folder: 'bin\Release'
-          recursive: true
-          files: |
-            Mucka.exe
+        shell: pwsh
+        env:
+          CERT_PFX_B64:  ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
+          CERT_PFX_PASS: ${{ secrets.WINDOWS_CERT_PFX_PASSWORD }}
+        run: |
+          $pfxPath = [IO.Path]::Combine([IO.Path]::GetTempPath(), "mucka-sign.pfx")
+          [IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($env:CERT_PFX_B64))
+          try {
+            $tool = Get-Command signtool.exe -ErrorAction SilentlyContinue |
+              Select-Object -ExpandProperty Source -ErrorAction SilentlyContinue
+            if (-not $tool) {
+              $tool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits" -Recurse -Filter signtool.exe `
+                        -ErrorAction SilentlyContinue |
+                Where-Object { $_.FullName -match 'x64' } |
+                Sort-Object LastWriteTime -Descending |
+                Select-Object -First 1 -ExpandProperty FullName
+            }
+            if (-not $tool) { throw "signtool.exe not found" }
+            $exe = Get-ChildItem bin\Release -Recurse -Filter Mucka.exe |
+              Where-Object { $_.FullName -notlike '*\ref\*' } |
+              Select-Object -First 1
+            if (-not $exe) { throw "Mucka.exe not found" }
+            & $tool sign /f $pfxPath /p $env:CERT_PFX_PASS `
+              /tr http://timestamp.digicert.com /td sha256 /fd sha256 $exe.FullName
+            if ($LASTEXITCODE -ne 0) { throw "signtool exited $LASTEXITCODE" }
+          } finally {
+            Remove-Item $pfxPath -Force -ErrorAction SilentlyContinue
+          }
 
       - name: Zip
         shell: pwsh

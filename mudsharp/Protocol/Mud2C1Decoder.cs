@@ -23,6 +23,10 @@ internal sealed class Mud2C1Decoder
     // C95 line counter (how many newline-terminated lines remain to collect)
     private int _c95LinesRemaining;
 
+    // After the C95-logout line's '\n', absorb the trailing 0xFF 0xFF colour-terminator
+    // that the server appends before returning to Normal.
+    private bool _c95LogoutSeenNewline;
+
     internal Mud2C1Decoder(MudStreamParser parser) { _parser = parser; }
 
     // ── Clio colour index constants ───────────────────────────────────────────
@@ -92,7 +96,10 @@ internal sealed class Mud2C1Decoder
         // before the C12+C08+C05 context push. The nested pushes (C12+C03, C05+C00+C06 etc.)
         // all pop before this point, so the final pop to FewContextDepth ends the context.
         if (_parser.InFewResponseContext && _colourStack.Count <= _parser.FewContextDepth)
+        {
             _parser.ExitFewContext();
+            _parser.EmitFewListComplete();
+        }
 
         // Handle prompt-preamble flags set by the C01 game-mode dispatch (Clio telnet.l:438-444).
         // Both flags are cleared after the first pop that follows the '*' prompt text.
@@ -100,6 +107,7 @@ internal sealed class Mud2C1Decoder
         {
             _parser.EmitPartialLine();  // show '*' as live partial-line prompt; clears spans internally
             _parser.EmitPartialOnPop = false;
+            _parser.SetFrameStart();    // game prompt shown: next C1 dispatch may be a room short
         }
         _parser.SuppressNextText = false;
 
@@ -137,6 +145,7 @@ internal sealed class Mud2C1Decoder
         if (parserState == ParserState.C95Data)
             parserState = ParserState.Normal;
         _c95LinesRemaining = 0;
+        _c95LogoutSeenNewline = false;
         _colourStack.Clear();
     }
 
@@ -283,8 +292,23 @@ internal sealed class Mud2C1Decoder
 
     // ── C95 account-logout line (after C95+C03+C255) ─────────────────────────
 
-    private static ParserState OnC95LogoutLine(byte b)
-        => b == '\n' ? ParserState.Normal : ParserState.C95LogoutLine;
+    private ParserState OnC95LogoutLine(byte b)
+    {
+        if (_c95LogoutSeenNewline)
+        {
+            // Absorb trailing 0xFF bytes (colour-terminator) the server appends after the line.
+            if (b == 0xFF) return ParserState.C95LogoutLine;
+            _c95LogoutSeenNewline = false;
+            _parser.QueueReprocessByte(b);
+            return ParserState.Normal;
+        }
+        if (b == '\n')
+        {
+            _c95LogoutSeenNewline = true;
+            return ParserState.C95LogoutLine;
+        }
+        return ParserState.C95LogoutLine;
+    }
 
     // ── C1 dispatch ───────────────────────────────────────────────────────────
 
@@ -296,6 +320,8 @@ internal sealed class Mud2C1Decoder
     private ParserState Dispatch(byte lead, List<byte> buf)
     {
         _parser.FlushSpan();
+        bool wasAtFrameStart = _parser.AtFrameStart;
+        _parser.ClearFrameStart();
 
         int count = buf.Count;
         byte b0 = count > 0 ? buf[0] : (byte)0;
@@ -359,6 +385,7 @@ internal sealed class Mud2C1Decoder
                     case 0x9C when count == 1:
                         Apply(LT_GREEN, BLACK);
                         _parser.EnterGameMode();
+                        if (wasAtFrameStart) _parser.EmitRoomEntered();
                         break;
                     case 0x9D when count == 1:
                         Apply(GREEN, BLACK);
@@ -649,7 +676,13 @@ internal sealed class Mud2C1Decoder
                 Apply(WHITE, BLACK);
                 return ParserState.Normal;
 
-            // ── C90 (0xF5): catch()/throw() → consume, WHITE ─────────────────
+            // ── C90 (0xF5): catch()/throw() — colour-stack save/restore ─────
+            // Clio telnet.l uses these to bracket sections where a colour change must
+            // be reverted; catch() snapshots the stack and throw() restores it.
+            // Full save/restore requires knowing whether this is catch or throw from
+            // the payload — deferred until we can verify against the server wire format.
+            // Current behaviour: treat as a colour reset (WHITE/BLACK), which at least
+            // avoids colour corruption from unbalanced push/pop sequences.
             case 0xF5:
                 Apply(WHITE, BLACK);
                 return ParserState.Normal;
@@ -660,10 +693,16 @@ internal sealed class Mud2C1Decoder
                 return ParserState.Normal;
 
             // ── C95 (0xFA): client-mode data block ───────────────────────────
-            // {C95}{C255} → 5 lines of: licence, min-level, max-level, account, privs
-            // {C95}{C03}{C255} → account-logout notice (1 trailing line, silent)
+            // {C95}{C255}           → 5 lines: licence, min-level, max-level, account, privs
+            // {C95}{C02}{C255}      → account change; new 5-line Rule A block follows
+            // {C95}{C03}{C255}      → account-logout notice (1 trailing line, silent)
             case 0xFA:
                 if (count == 0)
+                {
+                    _c95LinesRemaining = 5;
+                    return ParserState.C95Data;
+                }
+                if (count == 1 && b0 == 0x9D) // C02 → account change; collect new Rule A block
                 {
                     _c95LinesRemaining = 5;
                     return ParserState.C95Data;
@@ -750,7 +789,7 @@ internal sealed class Mud2C1Decoder
         // finds the digit start with strpbrk (telnet.l:725-734). We do the same: build a
         // plain-ASCII copy for field splitting by extracting only printable ASCII bytes,
         // while separately capturing the C99 (0xFE + 1-byte) stamina colour hint.
-        byte staColourHint = 0; // TODO: pass to GameStatsSnapshot when display colouring is implemented
+        byte? staColourHint = null;
         var textBytes = new List<byte>(rawBytes.Count);
         for (var i = 0; i < rawBytes.Count; i++)
         {
@@ -760,7 +799,7 @@ internal sealed class Mud2C1Decoder
                 // C99 colour marker — record first occurrence as the stamina colour hint.
                 // The byte following 0xFE is a C1 byte (0x9B + ANSI index); subtract 0x9B
                 // to produce the 0–15 ANSI index expected by GameViewModel.AnsiToColor.
-                if (staColourHint == 0)
+                if (staColourHint is null)
                     staColourHint = (byte)Math.Clamp(rawBytes[i + 1] - 0x9B, 0, 15);
                 i++; // skip the colour byte; do not emit either byte as text
                 continue;
@@ -817,7 +856,7 @@ internal sealed class Mud2C1Decoder
             AccountId:    _parser.CurrentAccountId,
             Privs:        _parser.CurrentPrivs,
             StaminaColor: staColourHint
-        );
+        ) { HasFesStats = true };
         _parser.SetWeather(weather);
         _parser.EmitStatsUpdate(snapshot);
     }
