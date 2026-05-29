@@ -379,9 +379,14 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _conn.Disconnected     += OnDisconnected;
         _conn.SoundRequested   += OnSoundRequested;
         _conn.BellReceived     += OnBellReceived;
+        _conn.RoomEntered      += OnRoomEntered;
+        _conn.RoomShortReady   += SidePanel.OnRoomNameReady;
         _conn.FewPlayerReady   += SidePanel.OnFewPlayerReceived;
         _conn.FewListStarting  += SidePanel.OnFewListStarting;
         _conn.FewListComplete  += SidePanel.OnFewListComplete;
+        _conn.FeiListStarting  += SidePanel.OnFeiListStarting;
+        _conn.FeiItemReady     += SidePanel.OnFeiItemReady;
+        _conn.FeiListComplete  += SidePanel.OnFeiListComplete;
 
         SendCommand           = new Command(SendNow);
         FkeyCommand           = new Command<string>(SendFkey);
@@ -420,6 +425,8 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     }
 
     // Called from the TCP read thread — must not touch UI directly.
+    private void OnRoomEntered() { /* reserved for future use */ }
+
     private void OnLineReady(StyledLine line) => _pendingLines.Enqueue(line);
 
     // MudSession owns the FES heartbeat — nothing to do in GameViewModel on mode transitions

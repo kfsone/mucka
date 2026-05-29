@@ -19,11 +19,11 @@ public sealed class MudSession : IDisposable
     private TimeSpan _fesInterval;
     private GameStatsSnapshot _currentStats = GameStatsSnapshot.Empty;
     private string? _currentDreamword;
-    // Periodic probe: ESC-[FES,FEW ESC-] — fetches stats and who-list together.
+    // Periodic probe: ESC-[FES,FEW,FEI ESC-] — fetches stats, who-list, and inventory together.
     // Reactive C1-triggered FES sends (in Mud2C1Decoder) still use FES-only to avoid clearing
     // the who list during combat/spell events.
     private static readonly byte[] FesAndFewSubscription =
-        [0x1B, 0x2D, 0x5B, 0x46, 0x45, 0x53, 0x2C, 0x46, 0x45, 0x57, 0x1B, 0x2D, 0x5D];
+        [0x1B, 0x2D, 0x5B, 0x46, 0x45, 0x53, 0x2C, 0x46, 0x45, 0x57, 0x2C, 0x46, 0x45, 0x49, 0x1B, 0x2D, 0x5D];
 
     // ── Public events (forwarded from parser) ─────────────────────────────────
     public event Action<StyledLine>? LineReady;
@@ -35,10 +35,14 @@ public sealed class MudSession : IDisposable
     public event Action<string?>? DreamwordChanged;
     public event Action<string>? ClientModeReceived;
     public event Action<string>? SoundRequested;
-    public event Action<string>? FewPlayerReady;
+    public event Action<string, AnsiColor>? FewPlayerReady;
     public event Action? FewListStarting;
     public event Action? FewListComplete;
     public event Action? RoomEntered;
+    public event Action<string>? RoomShortReady;
+    public event Action<string>? FeiItemReady;
+    public event Action? FeiListStarting;
+    public event Action? FeiListComplete;
 
     // ── Public state ───────────────────────────────────────────────────────────
     public GameStatsSnapshot CurrentStats => _currentStats;
@@ -117,10 +121,14 @@ public sealed class MudSession : IDisposable
         _parser.DreamwordChanged += OnDreamwordChanged;
         _parser.ClientModeReceived += data => ClientModeReceived?.Invoke(data);
         _parser.SoundRequested += s => SoundRequested?.Invoke(s);
-        _parser.FewPlayerReady += name => FewPlayerReady?.Invoke(name);
+        _parser.FewPlayerReady += (name, color) => FewPlayerReady?.Invoke(name, color);
         _parser.FewListStarting  += () => FewListStarting?.Invoke();
         _parser.FewListComplete  += () => FewListComplete?.Invoke();
         _parser.RoomEntered      += () => RoomEntered?.Invoke();
+        _parser.RoomShortReady   += name => RoomShortReady?.Invoke(name);
+        _parser.FeiItemReady     += item => FeiItemReady?.Invoke(item);
+        _parser.FeiListStarting  += () => FeiListStarting?.Invoke();
+        _parser.FeiListComplete  += () => FeiListComplete?.Invoke();
     }
 
     private void MergeStats(GameStatsSnapshot partial)
