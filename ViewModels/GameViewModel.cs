@@ -92,6 +92,8 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public int EffCols => _effCols;
     public bool KeepScreenOn => _keepScreenOn;
     public int FontSize => _fontSize;
+    // Character width in MAUI logical pixels: calibrated at 8.0 dp for the default 15 px font size.
+    public double CharWidthDp => _fontSize * 8.0 / 15.0;
     public int Volume => _volume;
     public int StatUpdateFrequency => _statUpdateFrequency;
     public bool MuteBeepSession     { get => _muteBeepSession;     set => _muteBeepSession = value; }
@@ -835,7 +837,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _conn.SendTerminalWidth(cols);
         OnPropertyChanged(nameof(MaxColumns));
         if (_widthDp > 0)
-            NotifyWindowSize(_widthDp, (int)(_widthDp / 8.0));
+            NotifyWindowSize(_widthDp, (int)(_widthDp / CharWidthDp));
     }
 
     public void Annotate(string message) => _conn.Annotate(message);

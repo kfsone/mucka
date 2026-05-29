@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using Mucka.Helpers;
@@ -52,6 +53,12 @@ public partial class GamePage : ContentPage
 #if WINDOWS
     private Window? _rawConsoleWindow;
     private Microsoft.UI.Xaml.Controls.TextBox? _inputTextBox;
+    // ── Window minimum-size enforcement ─────────────────────────────────────
+    // Must match the WidthRequest of the side-panel Border in GamePage.xaml.
+    private const double SidePanelWidthDp = 260.0;
+    private int              _minWindowWidthPx;
+    private IntPtr           _hwnd = IntPtr.Zero;
+    private WndProcDelegate? _wndProcDelegate;
 #endif
 
     public GamePage(GameViewModel vm, bool exitOnDisconnect = false)
@@ -82,7 +89,7 @@ public partial class GamePage : ContentPage
                 _eventsSubscribed = true;
             }
 
-            ScrollbackWebView.Source = new HtmlWebViewSource { Html = HtmlScrollback.InitialPage };
+            ScrollbackWebView.Source = new HtmlWebViewSource { Html = HtmlScrollback.GeneratePage(_vm.FontSize) };
             ScrollbackWebView.Navigating += OnScrollbackNavigating;
             ScrollbackWebView.Navigated += OnScrollbackNavigated;
             ScrollbackWebView.Focused += OnScrollbackFocused;
@@ -103,6 +110,9 @@ public partial class GamePage : ContentPage
             // Hook the native TextBox so Up/Down/Esc keys work in the entry.
             InputEntry.HandlerChanged += OnInputHandlerChanged;
             _vm.OpenRawConsoleRequested += OnOpenRawConsoleRequested;
+            // Enforce minimum window width based on the configured terminal columns.
+            _vm.SidePanel.PropertyChanged += OnSidePanelPropertyChanged;
+            SetupWindowMinimumSize();
 #endif
         }
         else
@@ -169,6 +179,8 @@ public partial class GamePage : ContentPage
         }
         InputEntry.HandlerChanged -= OnInputHandlerChanged;
         _vm.OpenRawConsoleRequested -= OnOpenRawConsoleRequested;
+        _vm.SidePanel.PropertyChanged -= OnSidePanelPropertyChanged;
+        TeardownWindowMinimumSize();
 #endif
         _ = _vm.DisposeAsync();
     }
@@ -305,7 +317,9 @@ public partial class GamePage : ContentPage
         }
     }
 
-    private const double CharWidthDp = 8.0;
+    // Character width in MAUI logical pixels — delegates to the view-model so both
+    // the column-count calculation and the minimum-width enforcement use one formula.
+    private double CharWidthDp => _vm.CharWidthDp;
 
     protected override void OnSizeAllocated(double width, double height)
     {
@@ -414,6 +428,124 @@ public partial class GamePage : ContentPage
     }
 
 #if WINDOWS
+    // ── Win32 types and imports for minimum-window-size enforcement ──────────
+
+    private delegate IntPtr WndProcDelegate(
+        IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam, IntPtr uIdSubclass, IntPtr dwRefData);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct WinPoint { public int x, y; }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MinMaxInfo
+    {
+        public WinPoint ptReserved;
+        public WinPoint ptMaxSize;
+        public WinPoint ptMaxPosition;
+        public WinPoint ptMinTrackSize;
+        public WinPoint ptMaxTrackSize;
+    }
+
+    [DllImport("comctl32.dll", SetLastError = true)]
+    private static extern bool SetWindowSubclass(IntPtr hwnd, WndProcDelegate pfnSubclass, IntPtr uIdSubclass, IntPtr dwRefData);
+
+    [DllImport("comctl32.dll", SetLastError = true)]
+    private static extern IntPtr DefSubclassProc(IntPtr hwnd, uint uMsg, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("comctl32.dll", SetLastError = true)]
+    private static extern bool RemoveWindowSubclass(IntPtr hwnd, WndProcDelegate pfnSubclass, IntPtr uIdSubclass);
+
+    [DllImport("user32.dll")]
+    private static extern uint GetDpiForWindow(IntPtr hwnd);
+
+    // ── Window minimum-size methods ──────────────────────────────────────────
+
+    /// <summary>
+    /// Attaches a Win32 window subclass on first call so that WM_GETMINMAXINFO can be
+    /// intercepted to enforce the minimum window width, then applies the initial constraint.
+    /// Safe to call multiple times — the subclass is only registered once.
+    /// </summary>
+    private void SetupWindowMinimumSize()
+    {
+        if (_hwnd != IntPtr.Zero) return; // already set up
+        var nativeWindow = Window?.Handler?.PlatformView as Microsoft.UI.Xaml.Window;
+        if (nativeWindow is null) return;
+        _hwnd = WinRT.Interop.WindowNative.GetWindowHandle(nativeWindow);
+        if (_hwnd == IntPtr.Zero) return;
+        _wndProcDelegate = GameWindowSubclassProc;
+        if (!SetWindowSubclass(_hwnd, _wndProcDelegate, IntPtr.Zero, IntPtr.Zero))
+        {
+            // Subclass registration failed — minimum-size enforcement unavailable.
+            _hwnd = IntPtr.Zero;
+            _wndProcDelegate = null;
+            return;
+        }
+        UpdateWindowMinimumWidth();
+    }
+
+    /// <summary>
+    /// Recomputes the required minimum window width (in physical pixels) and, if the window
+    /// is currently narrower, resizes it to the new minimum.
+    /// </summary>
+    private void UpdateWindowMinimumWidth()
+    {
+        if (_hwnd == IntPtr.Zero) return;
+        var nativeWindow = Window?.Handler?.PlatformView as Microsoft.UI.Xaml.Window;
+        if (nativeWindow is null) return;
+
+        var panelExpanded = _vm.SidePanel.IsPanelExpanded;
+        var minDp  = _vm.MaxColumns * CharWidthDp + (panelExpanded ? SidePanelWidthDp : 0.0);
+        var dpi    = GetDpiForWindow(_hwnd);
+        _minWindowWidthPx = (int)Math.Ceiling(minDp * dpi / 96.0);
+
+        // Resize now if the window is already narrower than the new minimum.
+        var appWindow = nativeWindow.AppWindow;
+        if (appWindow.Size.Width < _minWindowWidthPx)
+            appWindow.Resize(new Windows.Graphics.SizeInt32(_minWindowWidthPx, appWindow.Size.Height));
+    }
+
+    /// <summary>Removes the Win32 window subclass registered by SetupWindowMinimumSize.</summary>
+    private void TeardownWindowMinimumSize()
+    {
+        if (_hwnd != IntPtr.Zero && _wndProcDelegate is not null)
+        {
+            RemoveWindowSubclass(_hwnd, _wndProcDelegate, IntPtr.Zero);
+            _hwnd           = IntPtr.Zero;
+            _wndProcDelegate = null;
+        }
+    }
+
+    /// <summary>
+    /// Win32 subclass procedure: intercepts WM_GETMINMAXINFO to prevent the user from
+    /// resizing the window narrower than the configured terminal width (plus side panel
+    /// when it is open).
+    /// </summary>
+    private IntPtr GameWindowSubclassProc(
+        IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam, IntPtr uIdSubclass, IntPtr dwRefData)
+    {
+        const uint WM_GETMINMAXINFO = 0x0024;
+        if (msg == WM_GETMINMAXINFO && lParam != IntPtr.Zero && _minWindowWidthPx > 0)
+        {
+            var info = Marshal.PtrToStructure<MinMaxInfo>(lParam);
+            if (info.ptMinTrackSize.x < _minWindowWidthPx)
+            {
+                info.ptMinTrackSize.x = _minWindowWidthPx;
+                Marshal.StructureToPtr(info, lParam, false);
+            }
+        }
+        return DefSubclassProc(hwnd, msg, wParam, lParam);
+    }
+
+    /// <summary>
+    /// Responds to SidePanelViewModel property changes: updates the minimum window width
+    /// (and resizes if needed) whenever the panel is expanded or collapsed.
+    /// </summary>
+    private void OnSidePanelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(SidePanelViewModel.IsPanelExpanded))
+            UpdateWindowMinimumWidth();
+    }
+
     [System.Runtime.InteropServices.DllImport("user32.dll")]
     private static extern short GetKeyState(int nVirtKey);
 

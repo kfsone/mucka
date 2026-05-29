@@ -22,7 +22,7 @@ public static class HtmlScrollback
         "#3B78FF", "#B4009E", "#61D6D6", "#F2F2F2",
     };
 
-    public static readonly string InitialPage = """
+    public static string GeneratePage(int fontSize) => $$"""
         <!DOCTYPE html>
         <html>
         <head>
@@ -33,7 +33,7 @@ public static class HtmlScrollback
         html, body {
           background:#0C0C0C;
           font-family:'Cascadia Mono','Consolas',monospace;
-          font-size:15px;
+          font-size:{{fontSize}}px;
           line-height:1.35;
           color:#CCCCCC;
           overflow-x:auto;
