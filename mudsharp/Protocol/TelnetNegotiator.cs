@@ -11,16 +11,21 @@ internal sealed class TelnetNegotiator
     // One-shot guards (cf Clio's telnet.l lines 210–219)
     private bool _ttypeSent;
     private volatile bool _nawsSent;
+    private bool _newEnvironSent;
+
+    // Login username advertised via NEW-ENVIRON USER when the server opts in (RFC 1572).
+    internal string? LoginUser { get; set; }
 
     // Configured window size — set before connect; updated on resize; preserved across Reset().
     private int _nawsCols = 80;
     private int _nawsRows = 21;
 
     // Telnet option codes
-    private const byte OPT_ECHO  = 1;
-    private const byte OPT_SGA   = 3;
-    private const byte OPT_TTYPE = 24;
-    private const byte OPT_NAWS  = 31;
+    private const byte OPT_ECHO        =  1;
+    private const byte OPT_SGA         =  3;
+    private const byte OPT_TTYPE       = 24;
+    private const byte OPT_NAWS        = 31;
+    private const byte OPT_NEW_ENVIRON = 39;
 
     // Telnet command bytes (https://datatracker.ietf.org/doc/html/rfc854)
     private const byte IAC  = 255; // \377
@@ -59,9 +64,11 @@ internal sealed class TelnetNegotiator
 
     internal void Reset()
     {
-        _ttypeSent = false;
-        _nawsSent  = false;
+        _ttypeSent      = false;
+        _nawsSent       = false;
+        _newEnvironSent = false;
         // _nawsCols / _nawsRows intentionally preserved — configured size survives reconnect.
+        // LoginUser intentionally preserved — caller re-sets it only on profile change.
     }
 
     /// <summary>
@@ -120,6 +127,18 @@ internal sealed class TelnetNegotiator
                     Send(IAC, WILL, OPT_NAWS);
                     SendNaws((ushort)_nawsCols, (ushort)_nawsRows);
                 }
+                break;
+
+            case OPT_NEW_ENVIRON:
+                // RFC 1572: accept if we have a login user to advertise; refuse otherwise.
+                // One-shot: second DO after we've already sent WILL is silently ignored.
+                if (!string.IsNullOrEmpty(LoginUser) && !_newEnvironSent)
+                {
+                    _newEnvironSent = true;
+                    Send(IAC, WILL, OPT_NEW_ENVIRON);
+                }
+                else if (!_newEnvironSent)
+                    Send(IAC, WONT, OPT_NEW_ENVIRON);
                 break;
 
             default:
@@ -208,6 +227,28 @@ internal sealed class TelnetNegotiator
                  (byte)'a', (byte)'n', (byte)'s', (byte)'i',
                  IAC, SE);
         }
+        else if (opt == OPT_NEW_ENVIRON && code == ENV_SEND)
+        {
+            SendNewEnvironIs();
+        }
+    }
+
+    private void SendNewEnvironIs()
+    {
+        var user = LoginUser;
+        if (string.IsNullOrEmpty(user)) return;
+        // IAC SB NEW-ENVIRON IS VAR "USER" VALUE <user> IAC SE  (RFC 1572 §3)
+        // VAR=0, VALUE=1 — bytes 0–3 inside values must be ESC-prefixed, but login
+        // names are alphanumeric so no escaping is needed in practice.
+        var buf = new List<byte> { IAC, SB, OPT_NEW_ENVIRON, ENV_IS,
+                                   0,                                          // VAR
+                                   (byte)'U', (byte)'S', (byte)'E', (byte)'R',
+                                   1 };                                        // VALUE
+        foreach (var c in user)
+            buf.Add((byte)c);
+        buf.Add(IAC);
+        buf.Add(SE);
+        Send(buf.ToArray());
     }
 
     // ── Send helpers ──────────────────────────────────────────────────────────

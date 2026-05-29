@@ -94,14 +94,57 @@ public class TelnetNegotiationTests
     }
 
     [Fact]
-    public void DoNewEnviron_RespondsWont()
+    public void DoNewEnviron_NoLoginUser_RespondsWont()
     {
-        // Option 39 (NEW_ENVIRON) has no explicit case; falls through to the default WONT handler.
-        // Wire behaviour is identical to Clio telnet.l line 227–228.
+        // Without a LoginUser set, we refuse NEW-ENVIRON (matching the original Clio behaviour).
         var h = new ParserHarness();
         h.Feed(IAC, DO, OPT_NEW_ENVIRON);
         Assert.Single(h.Outgoing);
         Assert.Equal(new byte[] { IAC, WONT, OPT_NEW_ENVIRON }, h.Outgoing[0]);
+    }
+
+    [Fact]
+    public void DoNewEnviron_WithLoginUser_RespondsWill()
+    {
+        // With a LoginUser set, we accept NEW-ENVIRON with WILL.
+        var h = new ParserHarness();
+        h.Parser.SetLoginUser("mud");
+        h.Feed(IAC, DO, OPT_NEW_ENVIRON);
+        Assert.Single(h.Outgoing);
+        Assert.Equal(new byte[] { IAC, WILL, OPT_NEW_ENVIRON }, h.Outgoing[0]);
+    }
+
+    [Fact]
+    public void DoNewEnviron_WithLoginUser_ThenSend_RespondsWithUserVar()
+    {
+        // After WILL, server sends SB NEW-ENVIRON SEND IAC SE → we reply IS VAR "USER" VALUE "mud" IAC SE.
+        var h = new ParserHarness();
+        h.Parser.SetLoginUser("mud");
+        h.Feed(IAC, DO, OPT_NEW_ENVIRON);
+        h.Feed(IAC, SB, OPT_NEW_ENVIRON, ENV_SEND, IAC, SE);
+        Assert.Equal(2, h.Outgoing.Count);
+        var expected = new byte[]
+        {
+            IAC, SB, OPT_NEW_ENVIRON, ENV_IS,
+            0,                                      // VAR
+            (byte)'U', (byte)'S', (byte)'E', (byte)'R',
+            1,                                      // VALUE
+            (byte)'m', (byte)'u', (byte)'d',
+            IAC, SE,
+        };
+        Assert.Equal(expected, h.Outgoing[1]);
+    }
+
+    [Fact]
+    public void DoNewEnviron_WithLoginUser_SecondRequest_Ignored()
+    {
+        // One-shot guard: second DO NEW-ENVIRON sends nothing.
+        var h = new ParserHarness();
+        h.Parser.SetLoginUser("mud");
+        h.Feed(IAC, DO, OPT_NEW_ENVIRON);
+        Assert.Single(h.Outgoing);
+        h.Feed(IAC, DO, OPT_NEW_ENVIRON);
+        Assert.Single(h.Outgoing);
     }
 
     [Fact]
@@ -149,16 +192,19 @@ public class TelnetNegotiationTests
     [Fact]
     public void Reset_ClearsOneShotGuards()
     {
-        // After Reset(), TTYPE and NAWS guards re-arm and respond again
+        // After Reset(), TTYPE, NAWS, and NEW-ENVIRON guards re-arm and respond again.
         var h = new ParserHarness();
+        h.Parser.SetLoginUser("mud");
         h.Feed(IAC, DO, OPT_TTYPE);
         h.Feed(IAC, DO, OPT_NAWS);
-        Assert.Equal(3, h.Outgoing.Count);
+        h.Feed(IAC, DO, OPT_NEW_ENVIRON);
+        Assert.Equal(4, h.Outgoing.Count); // WILL TTYPE, WILL NAWS, NAWS subneg, WILL NEW-ENVIRON
 
         h.Reset();
         h.Feed(IAC, DO, OPT_TTYPE);
         h.Feed(IAC, DO, OPT_NAWS);
-        Assert.Equal(6, h.Outgoing.Count);
+        h.Feed(IAC, DO, OPT_NEW_ENVIRON);
+        Assert.Equal(8, h.Outgoing.Count);
     }
 
     [Fact]

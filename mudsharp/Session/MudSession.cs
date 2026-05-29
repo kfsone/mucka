@@ -72,6 +72,9 @@ public sealed class MudSession : IDisposable
     /// <summary>Feed raw bytes from the network. Thread-safe relative to the FES timer — Feed() itself is not thread-safe.</summary>
     public void Feed(ReadOnlySpan<byte> data) => _parser.Feed(data);
 
+    /// <summary>Set the login username advertised via NEW-ENVIRON USER during telnet negotiation.</summary>
+    public void SetLoginUser(string? user) => _parser.SetLoginUser(user);
+
     /// <summary>
     /// Emit any buffered partial text as a partial <see cref="StyledLine"/>.
     /// Call after each <see cref="Feed"/> to surface non-game-mode prompts

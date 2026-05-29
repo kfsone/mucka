@@ -232,6 +232,9 @@ public sealed class MudStreamParser
     /// </summary>
     public void SetWindowSize(int cols, int rows) => Telnet.SetWindowSize(cols, rows);
 
+    /// <summary>Set the login username advertised via NEW-ENVIRON USER during telnet negotiation.</summary>
+    public void SetLoginUser(string? user) => Telnet.LoginUser = user;
+
     /// <summary>Reset all parser state. Call on disconnect before reuse.
     /// Fires <see cref="GameModeExited"/> if currently in game mode.
     /// </summary>

@@ -84,6 +84,7 @@ public sealed class MuckaConnection : IAsyncDisposable
         _windowCols = Math.Clamp(maxCols, 20, 160);
         _session = new MudSession();
         _session.SetWindowSize(_windowCols, 21);
+        _session.SetLoginUser(loginName);
         WireSessionEvents();
         if (!string.IsNullOrEmpty(accountId))
             _loginHandler = new MudLoginHandler(this, loginName, accountId, password ?? string.Empty);
