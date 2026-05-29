@@ -484,24 +484,44 @@ public partial class GamePage : ContentPage
     }
 
     /// <summary>
-    /// Recomputes the required minimum window width (in physical pixels) and, if the window
-    /// is currently narrower, resizes it to the new minimum.
+    /// Recomputes the required minimum window width (in physical pixels) and adjusts the
+    /// window size accordingly.
+    /// <para>
+    /// When <paramref name="panelToggled"/> is <c>false</c> (initial setup) the window is
+    /// only grown, never shrunk.  When <paramref name="panelToggled"/> is <c>true</c> the
+    /// full expand/collapse behaviour is applied: the window grows to fit when the panel
+    /// opens and shrinks by the panel width when the panel closes.
+    /// </para>
     /// </summary>
-    private void UpdateWindowMinimumWidth()
+    private void UpdateWindowMinimumWidth(bool panelToggled = false)
     {
         if (_hwnd == IntPtr.Zero) return;
         var nativeWindow = Window?.Handler?.PlatformView as Microsoft.UI.Xaml.Window;
         if (nativeWindow is null) return;
 
         var panelExpanded = _vm.SidePanel.IsPanelExpanded;
-        var minDp  = _vm.MaxColumns * CharWidthDp + (panelExpanded ? SidePanelWidthDp : 0.0);
-        var dpi    = GetDpiForWindow(_hwnd);
-        _minWindowWidthPx = (int)Math.Ceiling(minDp * dpi / 96.0);
+        var dpi       = GetDpiForWindow(_hwnd);
+        var textMinPx = (int)Math.Ceiling(_vm.MaxColumns * CharWidthDp * dpi / 96.0);
+        var panelPx   = (int)Math.Ceiling(SidePanelWidthDp * dpi / 96.0);
+        _minWindowWidthPx = panelExpanded ? textMinPx + panelPx : textMinPx;
 
-        // Resize now if the window is already narrower than the new minimum.
-        var appWindow = nativeWindow.AppWindow;
-        if (appWindow.Size.Width < _minWindowWidthPx)
-            appWindow.Resize(new Windows.Graphics.SizeInt32(_minWindowWidthPx, appWindow.Size.Height));
+        var appWindow    = nativeWindow.AppWindow;
+        var currentWidth = appWindow.Size.Width;
+
+        if (panelExpanded)
+        {
+            // Panel is open: grow the window if it is too narrow.
+            if (currentWidth < _minWindowWidthPx)
+                appWindow.Resize(new Windows.Graphics.SizeInt32(_minWindowWidthPx, appWindow.Size.Height));
+        }
+        else if (panelToggled)
+        {
+            // Panel just closed: remove the panel's contribution from the window width,
+            // but never shrink below the text-only minimum.
+            var targetWidth = Math.Max(currentWidth - panelPx, textMinPx);
+            if (currentWidth > targetWidth)
+                appWindow.Resize(new Windows.Graphics.SizeInt32(targetWidth, appWindow.Size.Height));
+        }
     }
 
     /// <summary>Removes the Win32 window subclass registered by SetupWindowMinimumSize.</summary>
@@ -543,7 +563,7 @@ public partial class GamePage : ContentPage
     private void OnSidePanelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
         if (e.PropertyName == nameof(SidePanelViewModel.IsPanelExpanded))
-            UpdateWindowMinimumWidth();
+            UpdateWindowMinimumWidth(panelToggled: true);
     }
 
     [System.Runtime.InteropServices.DllImport("user32.dll")]
