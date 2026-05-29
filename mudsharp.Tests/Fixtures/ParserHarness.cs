@@ -52,6 +52,28 @@ internal sealed class ParserHarness
     public void Feed(string ascii) => Feed(System.Text.Encoding.Latin1.GetBytes(ascii));
     public void Reset() => Parser.Reset();
 
+    /// <summary>
+    /// Clears all captured event data (lines, stats, counters) without resetting the
+    /// underlying parser state. Use this after feeding setup bytes to discard noise.
+    /// </summary>
+    public void ClearCounters()
+    {
+        Lines.Clear();
+        Stats.Clear();
+        Outgoing.Clear();
+        Dreamwords.Clear();
+        ClientModeData.Clear();
+        Sounds.Clear();
+        FewPlayers.Clear();
+        FewListStartingCount = 0;
+        FewListCompleteCount = 0;
+        RoomEnteredCount = 0;
+        RoomShorts.Clear();
+        FeiItems.Clear();
+        FeiListStartingCount = 0;
+        FeiListCompleteCount = 0;
+    }
+
     /// <summary>Bytes helper: concatenate multiple byte arrays.</summary>
     public static byte[] Bytes(params byte[] b) => b;
 }

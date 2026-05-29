@@ -112,7 +112,7 @@ internal sealed class Mud2C1Decoder
         {
             _parser.EmitPartialLine();  // show '*' as live partial-line prompt; clears spans internally
             _parser.EmitPartialOnPop = false;
-            _parser.SetFrameStart();    // game prompt shown: next C1 dispatch may be a room short
+            _parser.SetLineStart();     // game prompt shown: next line (column 0) may be a room short
         }
         _parser.SuppressNextText = false;
 
@@ -325,8 +325,6 @@ internal sealed class Mud2C1Decoder
     private ParserState Dispatch(byte lead, List<byte> buf)
     {
         _parser.FlushSpan();
-        bool wasAtFrameStart = _parser.AtFrameStart;
-        _parser.ClearFrameStart();
 
         int count = buf.Count;
         byte b0 = count > 0 ? buf[0] : (byte)0;
@@ -336,12 +334,11 @@ internal sealed class Mud2C1Decoder
         {
             // ── C00 (0x9B): init_stack → reset to WHITE/BLACK ─────────────────
             // Clio sends C00+C255 at the start of every game-output frame (before the room
-            // short description, text, etc.) as a c-stack reset. It must NOT consume
-            // the frame-start flag so that the room-short C02+C01+C255 that follows still
-            // sees wasAtFrameStart=true. Re-arm the flag when it was set on entry.
+            // short description, text, etc.) as a color-stack reset. C1 sequences do not
+            // advance the display column, so _atLineStart is untouched here and everywhere
+            // else in Dispatch — only text characters clear it.
             case 0x9B:
                 Apply(WHITE, BLACK);
-                if (wasAtFrameStart) _parser.SetFrameStart();
                 return ParserState.Normal;
 
             // ── C01 (0x9C): BLUE or LT_BLUE prompt/location colors ───────────
@@ -395,7 +392,18 @@ internal sealed class Mud2C1Decoder
                     case 0x9C when count == 1:
                         Apply(LT_GREEN, BLACK);
                         _parser.EnterGameMode();
-                        if (wasAtFrameStart) _parser.EmitRoomEntered();
+                        // Fire RoomEntered if C02+C01 arrived at line start (column 0).
+                        // This applies on game-entry too — the first C02+C01 from the server
+                        // is the room-short line for the room the player logged in to.
+                        // ClearLineStart() prevents a second consecutive C02+C01 on the same
+                        // line from double-firing. SetPendingRoomShort() is read at '\n' emission
+                        // to gate RoomShortReady — only fired for line-start room shorts.
+                        if (_parser.AtLineStart)
+                        {
+                            _parser.ClearLineStart();
+                            _parser.EmitRoomEntered();
+                            _parser.SetPendingRoomShort();
+                        }
                         break;
                     case 0x9D when count == 1:
                         Apply(GREEN, BLACK);

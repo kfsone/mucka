@@ -380,6 +380,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _conn.SoundRequested   += OnSoundRequested;
         _conn.BellReceived     += OnBellReceived;
         _conn.RoomEntered      += OnRoomEntered;
+        _conn.RoomEntered      += SidePanel.OnRoomEntered;
         _conn.RoomShortReady   += SidePanel.OnRoomNameReady;
         _conn.FewPlayerReady   += SidePanel.OnFewPlayerReceived;
         _conn.FewListStarting  += SidePanel.OnFewListStarting;
