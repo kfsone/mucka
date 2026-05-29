@@ -1,6 +1,7 @@
 using MudSharp.Models;
 using MudSharp.Session;
 using System.Net.Sockets;
+using System.Text;
 
 namespace Mucka.Core;
 
@@ -26,7 +27,7 @@ public sealed class MuckaConnection : IAsyncDisposable
     private string _host = string.Empty;
     private readonly object _writeLock = new();
 
-#if DEBUG
+#if DEBUG || WINDOWS
     private readonly SessionCapture _capture = new();
 #endif
 
@@ -38,12 +39,21 @@ public sealed class MuckaConnection : IAsyncDisposable
     public event Action<string?>? DreamwordChanged;
     public event Action<string>? ClientModeReceived;
     public event Action<string>? SoundRequested;
+    public event Action<string>? FewPlayerReady;
+    /// <summary>Fired when a FEW-response context opens (C12+C08+C05). Who list should be cleared.</summary>
+    public event Action? FewListStarting;
     /// <summary>Fired when the connection is lost (read loop ended). Null = clean disconnect.</summary>
     public event Action<Exception?>? Disconnected;
+#if WINDOWS
+    /// <summary>Fires on the read-loop thread with each raw chunk received from the server.</summary>
+    public event Action<byte[]>? RawBytesReceived;
+    /// <summary>Fires on the caller thread with each raw chunk about to be written to the server.</summary>
+    public event Action<byte[]>? RawBytesSent;
+#endif
 
     public bool IsConnected => _client?.Connected ?? false;
 
-#if DEBUG
+#if DEBUG || WINDOWS
     public bool IsCapturing => _capture.IsRecording;
     public string? CaptureFilePath => _capture.FilePath;
     /// <summary>Write a free-text annotation into the active capture log.</summary>
@@ -98,7 +108,7 @@ public sealed class MuckaConnection : IAsyncDisposable
 
     public bool TryStartCapture(string? hostOverride, out string? error)
     {
-#if DEBUG
+#if DEBUG || WINDOWS
         var host = string.IsNullOrWhiteSpace(hostOverride) ? _host : hostOverride!.Trim();
         if (string.IsNullOrWhiteSpace(host)) host = "unknown";
         return _capture.TryStart(host, out error);
@@ -110,7 +120,7 @@ public sealed class MuckaConnection : IAsyncDisposable
 
     public void StopCapture()
     {
-#if DEBUG
+#if DEBUG || WINDOWS
         _capture.Stop();
 #endif
     }
@@ -120,6 +130,29 @@ public sealed class MuckaConnection : IAsyncDisposable
 
     /// <summary>Send raw bytes to the server (no transformation applied).</summary>
     public void SendBytes(byte[] bytes) => _session.Send(bytes);
+
+    /// <summary>
+    /// Sends the terminal-width MUD shell command: ESC-[ /T{cols} ESC-]
+    /// Used to notify the server of a column-count change mid-session.
+    /// </summary>
+    public void SendTerminalWidth(int cols)
+    {
+        byte[] prefix = { 0x1B, 0x2D, 0x5B };
+        byte[] colCmd = Encoding.ASCII.GetBytes($"/T{cols}");
+        byte[] suffix = { 0x1B, 0x2D, 0x5D };
+        var seq = new byte[prefix.Length + colCmd.Length + suffix.Length];
+        Buffer.BlockCopy(prefix, 0, seq, 0, prefix.Length);
+        Buffer.BlockCopy(colCmd, 0, seq, prefix.Length, colCmd.Length);
+        Buffer.BlockCopy(suffix, 0, seq, prefix.Length + colCmd.Length, suffix.Length);
+        _session.Send(seq);
+    }
+
+    /// <summary>
+    /// Update the FES stats-update heartbeat interval. Zero disables the heartbeat.
+    /// Takes effect immediately if already in game mode.
+    /// </summary>
+    public void SetFesInterval(int seconds)
+        => _session.UpdateFesInterval(seconds <= 0 ? TimeSpan.Zero : TimeSpan.FromSeconds(seconds));
 
     /// <summary>
     /// Update the advertised terminal window size. May be called from any thread.
@@ -132,10 +165,31 @@ public sealed class MuckaConnection : IAsyncDisposable
     }
 
     /// <summary>
-    /// Re-send the current NAWS window size to the server (if NAWS has been negotiated).
-    /// Called at the Option menu to ensure the server has the effective cols before client-mode entry.
+    /// Send the NAWS window-size update followed by the client-mode entry interrupt:
+    ///   ESC-[ ESC^F ESC-T ESC-N /T{cols} ESC-]
+    /// This enters best-client mode, selects normal mode (so cols are honoured), and
+    /// tells the MUD shell the effective terminal width — all without a trailing newline.
     /// </summary>
-    internal void ResendWindowSize() => _session.SetWindowSize(_windowCols, 21);
+    internal void SendClientModeEntry()
+    {
+        _session.SetWindowSize(_windowCols, 21);
+
+        // ESC-[  = begin command interrupt
+        // ESC^F  = best-client mode (binary activation)
+        // ESC-T  = text mode (colour ANSI baseline)
+        // ESC-N  = normal mode (server honours our column count)
+        // /T{n}  = MUD shell command: set terminal width
+        // ESC-]  = end command interrupt
+        byte[] prefix = { 0x1B, 0x2D, 0x5B, 0x1B, 0x06, 0x1B, 0x2D, 0x54, 0x1B, 0x2D, 0x4E };
+        byte[] colCmd = Encoding.ASCII.GetBytes($"/T{_windowCols}");
+        byte[] suffix = { 0x1B, 0x2D, 0x5D };
+
+        var seq = new byte[prefix.Length + colCmd.Length + suffix.Length];
+        Buffer.BlockCopy(prefix, 0, seq, 0, prefix.Length);
+        Buffer.BlockCopy(colCmd, 0, seq, prefix.Length, colCmd.Length);
+        Buffer.BlockCopy(suffix, 0, seq, prefix.Length + colCmd.Length, suffix.Length);
+        _session.Send(seq);
+    }
 
     public async ValueTask DisposeAsync()
     {
@@ -143,7 +197,7 @@ public sealed class MuckaConnection : IAsyncDisposable
         _loginHandler?.Detach();
         _session.Dispose();
         _cts?.Dispose();
-#if DEBUG
+#if DEBUG || WINDOWS
         _capture.Dispose();
 #endif
     }
@@ -160,8 +214,11 @@ public sealed class MuckaConnection : IAsyncDisposable
             {
                 int read = await _stream!.ReadAsync(buf, ct);
                 if (read == 0) break; // server closed connection
-#if DEBUG
+#if DEBUG || WINDOWS
                 _capture.RecordRx(buf.AsSpan(0, read));
+#endif
+#if WINDOWS
+                RawBytesReceived?.Invoke(buf[..read].ToArray());
 #endif
                 // Feed raw bytes into MudSession AFTER capturing — parser sees unmodified bytes.
                 _session.Feed(buf.AsSpan(0, read));
@@ -184,8 +241,11 @@ public sealed class MuckaConnection : IAsyncDisposable
         {
             try
             {
-#if DEBUG
+#if DEBUG || WINDOWS
                 _capture.RecordTx(bytes);
+#endif
+#if WINDOWS
+                RawBytesSent?.Invoke(bytes);
 #endif
                 _stream?.Write(bytes, 0, bytes.Length);
             }
@@ -201,7 +261,7 @@ public sealed class MuckaConnection : IAsyncDisposable
         _session.GameModeExited     += () => GameModeExited?.Invoke();
         _session.DreamwordChanged   += w =>
         {
-#if DEBUG
+#if DEBUG || WINDOWS
             if (w != null)
                 _capture.Annotate($"dreamword detected: {w}");
             else
@@ -211,5 +271,7 @@ public sealed class MuckaConnection : IAsyncDisposable
         };
         _session.ClientModeReceived += d => ClientModeReceived?.Invoke(d);
         _session.SoundRequested     += s => SoundRequested?.Invoke(s);
+        _session.FewPlayerReady     += n => FewPlayerReady?.Invoke(n);
+        _session.FewListStarting    += () => FewListStarting?.Invoke();
     }
 }

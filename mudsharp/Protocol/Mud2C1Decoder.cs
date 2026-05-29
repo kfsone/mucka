@@ -88,12 +88,17 @@ internal sealed class Mud2C1Decoder
             _parser.Ansi.SetStyle(_colourStack.Peek());
         // If stack is empty after pop, silently ignore (Clio: if (pop() == -1) { /* commented out */ })
 
+        // Exit FEW-response suppression when the colour stack returns to the depth it was at
+        // before the C12+C08+C05 context push. The nested pushes (C12+C03, C05+C00+C06 etc.)
+        // all pop before this point, so the final pop to FewContextDepth ends the context.
+        if (_parser.InFewResponseContext && _colourStack.Count <= _parser.FewContextDepth)
+            _parser.ExitFewContext();
+
         // Handle prompt-preamble flags set by the C01 game-mode dispatch (Clio telnet.l:438-444).
         // Both flags are cleared after the first pop that follows the '*' prompt text.
         if (_parser.EmitPartialOnPop)
         {
-            _parser.EmitPartialLine();  // show '*' as live partial-line prompt
-            _parser.ClearSpans();       // remove '*' from spans so it doesn't leak into next line
+            _parser.EmitPartialLine();  // show '*' as live partial-line prompt; clears spans internally
             _parser.EmitPartialOnPop = false;
         }
         _parser.SuppressNextText = false;
@@ -117,6 +122,7 @@ internal sealed class Mud2C1Decoder
             ParserState.C1Data     => OnC1Data(b, lead, buf),
             ParserState.C1Ff1      => OnC1Ff1(b, lead, buf),
             ParserState.FesData    => OnFesData(b, buf),
+            ParserState.FewPlayerData   => OnFewPlayerData(b, buf),
             ParserState.DreamwordData   => OnDreamwordData(b, buf),
             ParserState.C95Data    => OnC95Data(b, buf),
             ParserState.C95LogoutLine   => OnC95LogoutLine(b),
@@ -202,6 +208,28 @@ internal sealed class Mud2C1Decoder
         if (b != '\r')
             buf.Add(b);
         return ParserState.FesData;
+    }
+
+    // ── FEW player-name data state (after WHO-list color code + C255) ────────
+
+    private ParserState OnFewPlayerData(byte b, List<byte> buf)
+    {
+        if (b >= 0x20 && b < 0x7F)
+        {
+            if (!_parser.InFewResponseContext)
+                _parser.EmitChar((char)b);
+            buf.Add(b);
+            return ParserState.FewPlayerData;
+        }
+        if (buf.Count > 0)
+        {
+            var name = Encoding.ASCII.GetString(buf.ToArray()).Trim();
+            buf.Clear();
+            if (name.Length > 0)
+                _parser.EmitFewPlayer(name);
+        }
+        _parser.QueueReprocessByte(b);
+        return ParserState.Normal;
     }
 
     // ── Dreamword data state (after C15+C00+C00+C255) ────────────────────────
@@ -299,11 +327,12 @@ internal sealed class Mud2C1Decoder
                     _parser.EnterGameMode();
                     if (wasAlreadyInGameMode)
                     {
-                        // Gate prompt emission on whether this packet contained a '\n' before
-                        // the preamble (Clio: prompt_allowed gate, telnet.l:438-444).
-                        // FES heartbeat responses arrive as a bare prompt preamble with no
-                        // preceding newline; _hadNewlineInCurrentFeed catches that case.
-                        if (_parser.PromptAllowed && _parser.HadNewlineInCurrentFeed)
+                        // Gate prompt emission on Clio's prompt_allowed flag (telnet.l:438-444).
+                        // PromptAllowed is set true by every real game '\n' and cleared when the
+                        // prompt is shown; it persists across TCP packet boundaries.
+                        // FES heartbeat prompt preambles arrive when PromptAllowed is still false
+                        // (no real '\n' since the last prompt display), so they are suppressed.
+                        if (_parser.PromptAllowed)
                         {
                             _parser.PromptAllowed = false;
                             _parser.EmitPartialOnPop = true;
@@ -351,16 +380,25 @@ internal sealed class Mud2C1Decoder
                 return ParserState.Normal;
 
             // ── C04 (0x9F): MAGENTA / LT_MAGENTA ─────────────────────────────
+            // {C04}{C00}{C06}{C255} → MAGENTA/BLACK   + WHO-list creature name follows
+            // {C04}{C01}{C06}{C255} → LT_MAGENTA/BLACK + WHO-list wiz-creature name follows
             // {C04}{C01}{C255} or {C04}{C01}..{C255} → LT_MAGENTA/BLACK
             // everything else → MAGENTA/BLACK
             case 0x9F:
                 Apply(b0 == 0x9C ? LT_MAGENTA : MAGENTA, BLACK);
-                return ParserState.Normal;
+                return count == 2 && b1 == 0xA1 ? ParserState.FewPlayerData : ParserState.Normal;
 
             // ── C05 (0xA0): RED / LT_RED / LT_YELLOW (combat/damage) ─────────
+            // {C05}{C00}{C06}{C255} → RED/BLACK    + WHO-list mortal name follows
+            // {C05}{C01}{C06}{C255} → LT_RED/BLACK + WHO-list wiz name follows
             // {C05}{C00+variants}{C255} → RED/BLACK (except C00+C09 → LT_YELLOW)
             // {C05}{C01+variants}{C255} → LT_RED/BLACK (except C01+C09 → LT_YELLOW)
             case 0xA0:
+                if (count == 2 && b1 == 0xA1)                    // C00/C01+C06: WHO-list player
+                {
+                    Apply(b0 == 0x9C ? LT_RED : RED, BLACK);
+                    return ParserState.FewPlayerData;
+                }
                 if (count == 2 && b0 == 0x9B && b1 == 0xA4) Apply(LT_YELLOW, BLACK);  // C00+C09
                 else if (count == 2 && b0 == 0x9C && b1 == 0xA4) Apply(LT_YELLOW, BLACK); // C01+C09
                 else if (b0 == 0x9C) Apply(LT_RED, BLACK);
@@ -453,12 +491,22 @@ internal sealed class Mud2C1Decoder
             // {C12}{C07}{C255} → LT_YELLOW/BLACK
             // {C12}{C08}{C01}{C255} → FES data line follows
             // {C12}{C08}{C02..C04/C09/C10}{C255} → WHITE/BLACK
+            // {C12}{C08}{C05}{C255} → FEW response context: suppress display, capture names
             case 0xA7:
                 if (count == 2 && b0 == 0xA3 && b1 == 0x9C)
                 {
                     // FES packet: C12+C08+C01+C255, data line follows (up to '\n')
                     // Colour applied after parsing (WHITE/BLACK applied in OnFesData)
                     return ParserState.FesData;
+                }
+                if (count == 2 && b0 == 0xA3 && b1 == 0xA0)
+                {
+                    // FEW response: C12+C08+C05+C255 — suppress display output; FewPlayerReady still fires.
+                    // Record the pre-push stack depth so PopColour can detect when this context closes.
+                    Apply(WHITE, BLACK);
+                    _parser.EnterFewContext(_colourStack.Count - 1);
+                    _parser.EmitFewListStarting();
+                    return ParserState.Normal;
                 }
                 switch (b0)
                 {
@@ -620,8 +668,11 @@ internal sealed class Mud2C1Decoder
                     _c95LinesRemaining = 5;
                     return ParserState.C95Data;
                 }
-                if (count == 1 && b0 == 0x9E) // C03
+                if (count == 1 && b0 == 0x9E) // C03 → account logout, transition to Options menu
+                {
+                    _parser.ExitGameMode();
                     return ParserState.C95LogoutLine;
+                }
                 Apply(WHITE, BLACK);
                 return ParserState.Normal;
 
@@ -635,9 +686,12 @@ internal sealed class Mud2C1Decoder
                 Apply(WHITE, BLACK);
                 return ParserState.Normal;
 
-            // ── C98 (0xFD): BLACK+BLUE or BLACK+MAGENTA + prompt_allowed=1 ───
+            // ── C98 (0xFD): BLACK+BLUE or BLACK+MAGENTA ──────────────────────
             // {C98}.{C255}: even payload byte → BLACK/BLUE, odd → BLACK/MAGENTA
-            // CRITICAL: also sets PromptAllowed = true (Clio: prompt_allowed = 1)
+            // Do NOT set PromptAllowed here — PromptAllowed must only be set by real game
+            // '\n' bytes so that the C01 prompt gate can distinguish a real prompt (which
+            // follows game content) from a FES heartbeat (which arrives with PromptAllowed=false
+            // because no game '\n' has occurred since the last prompt was displayed).
             case 0xFD:
                 if (count == 1)
                 {
@@ -648,7 +702,6 @@ internal sealed class Mud2C1Decoder
                 {
                     Apply(WHITE, BLACK);
                 }
-                _parser.PromptAllowed = true;
                 _parser.ShowPrompt();
                 return ParserState.Normal;
 

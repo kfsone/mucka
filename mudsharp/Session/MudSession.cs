@@ -16,12 +16,14 @@ public sealed class MudSession : IDisposable
     private readonly MudStreamParser _parser;
     private readonly MudSessionOptions _options;
     private Timer? _fesTimer;
+    private TimeSpan _fesInterval;
     private GameStatsSnapshot _currentStats = GameStatsSnapshot.Empty;
     private string? _currentDreamword;
-    // FES subscription bytes: ESC-[FES ESC-]  (0x1B 0x2D 0x5B 0x46 0x45 0x53 0x1B 0x2D 0x5D)
-    // Source: Mucka MudStream.cs FesSubscriptionRequestBytes; verified against Clio telnet.l txfes sequence.
-    private static readonly byte[] FesSubscription =
-        [0x1B, 0x2D, 0x5B, 0x46, 0x45, 0x53, 0x1B, 0x2D, 0x5D];
+    // Periodic probe: ESC-[FES,FEW ESC-] — fetches stats and who-list together.
+    // Reactive C1-triggered FES sends (in Mud2C1Decoder) still use FES-only to avoid clearing
+    // the who list during combat/spell events.
+    private static readonly byte[] FesAndFewSubscription =
+        [0x1B, 0x2D, 0x5B, 0x46, 0x45, 0x53, 0x2C, 0x46, 0x45, 0x57, 0x1B, 0x2D, 0x5D];
 
     // ── Public events (forwarded from parser) ─────────────────────────────────
     public event Action<StyledLine>? LineReady;
@@ -32,6 +34,8 @@ public sealed class MudSession : IDisposable
     public event Action<string?>? DreamwordChanged;
     public event Action<string>? ClientModeReceived;
     public event Action<string>? SoundRequested;
+    public event Action<string>? FewPlayerReady;
+    public event Action? FewListStarting;
 
     // ── Public state ───────────────────────────────────────────────────────────
     public GameStatsSnapshot CurrentStats => _currentStats;
@@ -41,8 +45,21 @@ public sealed class MudSession : IDisposable
     public MudSession(MudSessionOptions? options = null)
     {
         _options = options ?? new MudSessionOptions();
+        _fesInterval = _options.FesHeartbeatInterval;
         _parser = new MudStreamParser();
         WireParserEvents();
+    }
+
+    /// <summary>
+    /// Update the FES heartbeat interval at runtime. Zero or negative disables the heartbeat.
+    /// If already in game mode the running timer is replaced immediately.
+    /// </summary>
+    public void UpdateFesInterval(TimeSpan interval)
+    {
+        _fesInterval = interval;
+        StopFesTimer();
+        if (InGameMode && _fesInterval > TimeSpan.Zero)
+            _fesTimer = new Timer(_ => SendFesSubscription(), null, _fesInterval, _fesInterval);
     }
 
     /// <summary>Feed raw bytes from the network. Thread-safe relative to the FES timer — Feed() itself is not thread-safe.</summary>
@@ -96,6 +113,8 @@ public sealed class MudSession : IDisposable
         _parser.DreamwordChanged += OnDreamwordChanged;
         _parser.ClientModeReceived += data => ClientModeReceived?.Invoke(data);
         _parser.SoundRequested += s => SoundRequested?.Invoke(s);
+        _parser.FewPlayerReady += name => FewPlayerReady?.Invoke(name);
+        _parser.FewListStarting += () => FewListStarting?.Invoke();
     }
 
     private void MergeStats(GameStatsSnapshot partial)
@@ -138,9 +157,11 @@ public sealed class MudSession : IDisposable
     private void OnGameModeEntered()
     {
         GameModeEntered?.Invoke();
-        SendFesSubscription();
-        _fesTimer = new Timer(_ => SendFesSubscription(), null,
-            _options.FesHeartbeatInterval, _options.FesHeartbeatInterval);
+        if (_fesInterval > TimeSpan.Zero)
+        {
+            SendFesSubscription();
+            _fesTimer = new Timer(_ => SendFesSubscription(), null, _fesInterval, _fesInterval);
+        }
     }
 
     private void OnGameModeExited()
@@ -155,7 +176,7 @@ public sealed class MudSession : IDisposable
         DreamwordChanged?.Invoke(word);
     }
 
-    private void SendFesSubscription() => OutgoingBytes?.Invoke(FesSubscription);
+    private void SendFesSubscription() => OutgoingBytes?.Invoke(FesAndFewSubscription);
 
     private void StopFesTimer()
     {
