@@ -85,17 +85,25 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     // ── Room name ─────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Called on the TCP read thread when a room-short sequence fires at frame start.
-    /// The next non-partial line from the parser is the room name.
-    /// Marshals to the UI thread before updating the binding.
+    /// Called on the TCP read thread when the player has entered (or can now see) a room.
+    /// Clears the "Here" (room items) list. InventoryList is intentionally preserved —
+    /// carried items do not change just because the room changes.
+    /// </summary>
+    public void OnRoomEntered()
+        => MainThread.BeginInvokeOnMainThread(() =>
+        {
+            RoomItemsList.Clear();
+            OnPropertiesChanged(nameof(HasRoomItems), nameof(NoRoomItems));
+        });
+
+    /// <summary>
+    /// Called on the TCP read thread when a room-short line arrives at line start.
+    /// Updates the displayed room name. Room-items clearing is done by OnRoomEntered(),
+    /// which fires earlier (at C02+C01 dispatch time, before the line name is known).
     /// </summary>
     public void OnRoomNameReady(string name)
         => MainThread.BeginInvokeOnMainThread(() =>
         {
-            RoomItemsList.Clear();
-            InventoryList.Clear();
-            OnPropertiesChanged(nameof(HasRoomItems), nameof(NoRoomItems),
-                                nameof(HasInventory),  nameof(NoInventory));
             CurrentRoom = name;
         });
 

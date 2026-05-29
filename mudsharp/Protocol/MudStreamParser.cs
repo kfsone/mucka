@@ -102,15 +102,32 @@ public sealed class MudStreamParser
     // ── Game state ────────────────────────────────────────────────────────────
     public bool InGameMode => _inGameMode;
 
-    // ── Frame tracking ────────────────────────────────────────────────────────
-    // Set after the game '*' prompt is shown (EmitPartialOnPop in PopColour).
-    // Cleared when the first C1 dispatch or printable text arrives in the new frame.
-    // Used to distinguish a room-short (C02+C01) "where you are" from one that appears
-    // mid-frame as exits or look-around info.
-    private bool _atFrameStart;
-    internal bool AtFrameStart => _atFrameStart;
-    internal void SetFrameStart() => _atFrameStart = true;
-    internal void ClearFrameStart() => _atFrameStart = false;
+    // ── Line-start tracking ───────────────────────────────────────────────────
+    // True when no text characters have been output on the current display line yet
+    // (i.e. the cursor is at column 0). Mirrors Clio's column-0 rule for room-short
+    // detection (telnet.l:1218-1226: bold+GREEN at column 0 = room short description).
+    //
+    // Set to true:
+    //   - On parser construction (start of first line).
+    //   - By SetLineStart() — called from PopColour when the '*' prompt partial line
+    //     is emitted, marking the start of the next game-output frame.
+    //   - After each real '\n' line is emitted (end of EmitChar newline path).
+    //
+    // Set to false:
+    //   - When any printable text character is appended (_text.Append or _feiLine.Append).
+    //   - By ClearLineStart() — called from C02+C01 dispatch after consuming line-start
+    //     to prevent a second consecutive C02+C01 in the same line from double-firing.
+    //
+    // C1 colour sequences do NOT touch _atLineStart (they don't advance display column).
+    private bool _atLineStart = true;
+    internal bool AtLineStart => _atLineStart;
+    internal void SetLineStart() => _atLineStart = true;
+    internal void ClearLineStart() => _atLineStart = false;
+
+    // True when C02+C01 arrived at line start on the current line but the line has not
+    // yet ended. Cleared (and RoomShortReady fired) when '\n' is processed.
+    private bool _pendingRoomShort;
+    internal void SetPendingRoomShort() => _pendingRoomShort = true;
 
     // ── FEW-response suppression ──────────────────────────────────────────────
     // Set when the parser enters a C12+C08+C05 (FE WHO) context block. While active,
@@ -247,7 +264,8 @@ public sealed class MudStreamParser
         _inFeiResponseContext = false;
         _feiContextDepth = 0;
         _feiLine.Clear();
-        _atFrameStart = false;
+        _atLineStart = true;
+        _pendingRoomShort = false;
         CurrentDreamword = null;
         CurrentAccountId = null;
         CurrentPrivs = 0;
@@ -293,18 +311,24 @@ public sealed class MudStreamParser
             var stats = LineAnalyzer.Analyze(line, _inGameMode);
             if (stats != null) StatsUpdated?.Invoke(stats);
             if (_inGameMode) { var sf = LineAnalyzer.CheckSoundTrigger(line); if (sf != null) EmitSound(sf); }
-            // Detect room short description by LT_GREEN foreground on first non-empty span
-            // (mirrors Clio telnet.l:1218-1226: bold+GREEN at column 0 = room short desc).
-            if (_inGameMode && line.Spans.Count > 0)
+            if (_inGameMode)
             {
-                foreach (var span in line.Spans)
+                // Fire RoomShortReady only when C02+C01 appeared at line start on this line
+                // (mirrors Clio telnet.l:1218-1226: bold+GREEN at column 0 = room short desc).
+                // Mid-line room-name mentions (e.g. "look around" exits) do not set the flag.
+                if (_pendingRoomShort)
                 {
-                    if (span.Text.Length == 0) continue;
-                    if (span.Style.Foreground == AnsiColor.BrightGreen)
-                        RoomShortReady?.Invoke(line.PlainText);
-                    break;
+                    _pendingRoomShort = false;
+                    RoomShortReady?.Invoke(line.PlainText);
+                }
+                // "Too dark" signals the player has entered a room they cannot see.
+                // Treat it as a room transition so the Here list is cleared.
+                else if (line.PlainText == "It's too dark to see now!")
+                {
+                    RoomEntered?.Invoke();
                 }
             }
+            _atLineStart = true;    // next line starts at column 0
             LineReady?.Invoke(line);
         }
         else if (ch == '\r')
@@ -320,10 +344,10 @@ public sealed class MudStreamParser
             if (_inFeiResponseContext)
             {
                 if (ch != '\0') _feiLine.Append(ch);
-                _atFrameStart = false;
+                _atLineStart = false;
                 return;
             }
-            _atFrameStart = false;
+            _atLineStart = false;
             _text.Append(ch);
         }
     }

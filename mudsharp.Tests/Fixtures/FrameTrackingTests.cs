@@ -1,16 +1,21 @@
 namespace MudSharp.Tests.Fixtures;
 
 /// <summary>
-/// Tests for frame-start tracking and the RoomEntered event.
+/// Tests for line-start tracking and the RoomEntered / RoomShortReady events.
 ///
-/// A "frame" is the content between two prompt sequences. The game '*' prompt marks the
-/// end of one frame and the start of the next. A C02+C01 sequence (0x9D 0x9C 0xFF 0xFF)
-/// at frame start means the player is at (or has just entered) a room; the same sequence
-/// mid-frame indicates exits or look-around output.
+/// The MUD2 room-short rule (Clio telnet.l:1218-1226): bold+GREEN (C02+C01) at column 0
+/// of a display line = the player is in this room. Column 0 means no text characters have
+/// been output on that line yet. Pure C1 colour sequences do not advance the column.
 ///
-/// Also covers FEW-response suppression: C12+C08+C05+C255 (0xA7 0xA3 0xA0 0xFF 0xFF)
-/// wraps the WHO-list interrupt response. Text within that context is suppressed (not shown
-/// to the user) but player names are still captured via FewPlayerReady.
+/// "At line start" is set:
+///   - When the game '*' prompt partial line is emitted (SetLineStart from PopColour).
+///   - After each real '\n' line is emitted.
+/// "At line start" is cleared:
+///   - When any text character is appended (_atLineStart = false).
+///   - When C02+C01 consumes line start (ClearLineStart), preventing double-fire.
+///
+/// Contrast with "look around" or mid-sentence room names, where the room short C02+C01
+/// arrives mid-line (text precedes it without a newline) -- those do not fire RoomEntered.
 /// </summary>
 public class FrameTrackingTests
 {
@@ -28,7 +33,7 @@ public class FrameTrackingTests
     {
         var h = new ParserHarness();
         h.Feed(0x9D, 0x9C, 0xFF, 0xFF);  // Enter game mode (sets LT_GREEN colour)
-        h.Feed(0x9B, 0xFF, 0xFF);          // C00: init_stack → reset colour to WHITE/BLACK
+        h.Feed(0x9B, 0xFF, 0xFF);          // C00: init_stack -> reset colour to WHITE/BLACK
         h.Lines.Clear();
         return h;
     }
@@ -39,7 +44,7 @@ public class FrameTrackingTests
     // C02+C01 = room-short sequence: 0x9D 0x9C 0xFF 0xFF
     private static readonly byte[] RoomShort = [0x9D, 0x9C, 0xFF, 0xFF];
 
-    // ── Frame start tracking ──────────────────────────────────────────────────
+    // -- RoomEntered: line-start tracking -------------------------------------
 
     [Fact]
     public void RoomEntered_FiresWhenRoomShortFollowsPrompt()
@@ -53,99 +58,126 @@ public class FrameTrackingTests
     [Fact]
     public void RoomEntered_NotFiredAtGameModeEntry()
     {
-        // The initial 0x9D 0x9C that enters game mode is NOT a frame-start room short.
+        // The initial 0x9D 0x9C that enters game mode is NOT a room short.
+        // EnterGameMode is called before the room-short check; game-mode entry
+        // does not fire RoomEntered.
         var h = new ParserHarness();
         h.Feed(0x9D, 0x9C, 0xFF, 0xFF);
         Assert.Equal(0, h.RoomEnteredCount);
     }
 
     [Fact]
-    public void RoomEntered_NotFiredMidFrame()
+    public void RoomEntered_FiredAtLineStartMidFrame()
     {
-        // C02+C01 that arrives without a preceding game prompt is mid-frame exits/look-around.
+        // A room short that arrives at the start of a NEW LINE mid-frame is a valid
+        // room transition. E.g.: "It's light enough to see now!\n" followed by the
+        // room short line -- the room short is at column 0 of the second line.
         var h = InGameMode();
+        h.Feed(WithPrompt("Some text.\n"));
+        // "Some game text\n": 'S' clears _atLineStart, '\n' restores it to true
         h.Feed("Some game text\n");
-        h.Feed(RoomShort);
-        Assert.Equal(0, h.RoomEnteredCount);
+        h.Feed(RoomShort);  // at column 0 of new line -> must fire
+        Assert.Equal(1, h.RoomEnteredCount);
     }
 
     [Fact]
-    public void RoomEntered_NotFiredAfterSuppressedPrompt()
+    public void RoomEntered_NotFiredForMidLineRoomShort()
     {
-        // A bare wire prompt (FES heartbeat — no '\n' in packet) is suppressed; it must NOT
-        // set the frame-start flag, so a subsequent room short fires no RoomEntered.
-        // Use WithPrompt to show a real prompt first (PromptAllowed=false, _atFrameStart=true),
-        // then feed a bare prompt preamble — no preceding '\n' so PromptAllowed stays false
-        // and the prompt is suppressed, no SetFrameStart. The first C01 dispatch inside
-        // the heartbeat packet clears the existing frame-start flag, so RoomShort is mid-frame.
+        // A room short that arrives AFTER text on the same line (no preceding \n)
+        // is a mid-line mention (e.g. "look around" exit descriptions).
         var h = InGameMode();
-        h.Feed(WithPrompt("You gain a point.\n")); // real prompt → shown, PromptAllowed=false
-        h.Feed(WirePromptPreamble);               // FES heartbeat: bare prompt → suppressed, no SetFrameStart
-        h.Feed(RoomShort);                        // _atFrameStart cleared by heartbeat → must NOT fire
+        h.Feed(WithPrompt("You attack.\n"));
+        h.Feed(System.Text.Encoding.Latin1.GetBytes("You see "));  // text, no \n -> _atLineStart=false
+        h.Feed(RoomShort);  // mid-line -> must NOT fire
         Assert.Equal(0, h.RoomEnteredCount);
     }
 
     [Fact]
-    public void RoomEntered_FiresOnlyOncePerPrompt()
+    public void RoomEntered_FiresOnlyOncePerLine()
     {
-        // After the prompt (SetFrameStart), the first Dispatch clears the flag.
-        // A second room short in the same frame must not fire again.
+        // C02+C01 consumes _atLineStart (ClearLineStart); a second consecutive
+        // C02+C01 with no text or \n between them does not re-fire.
         var h = InGameMode();
         h.Feed(WithPrompt("You enter the room.\n"));
-        h.Feed(RoomShort);  // frame start → fires
-        h.Feed(RoomShort);  // mid-frame → does not fire
+        h.Feed(RoomShort);  // line start -> fires, clears _atLineStart
+        h.Feed(RoomShort);  // _atLineStart still false -> no fire
         Assert.Equal(1, h.RoomEnteredCount);
     }
 
     [Fact]
     public void RoomEntered_FiresAgainAfterNextPrompt()
     {
-        // Each real game prompt resets the frame-start flag.
+        // Each real game prompt (via SetLineStart) restores _atLineStart for the next line.
         var h = InGameMode();
         h.Feed(WithPrompt("Content.\n"));
-        h.Feed(RoomShort);  // frame 1 → fires
+        h.Feed(RoomShort);  // frame 1 -> fires
         h.Feed(WithPrompt("More content.\n"));
-        h.Feed(RoomShort);  // frame 2 → fires again
+        h.Feed(RoomShort);  // frame 2 -> fires again
         Assert.Equal(2, h.RoomEnteredCount);
     }
 
     [Fact]
-    public void RoomEntered_NotFiredWhenTextArrivesFirstAfterPrompt()
+    public void RoomEntered_FiresForRoomShortAfterSuppressedPrompt()
     {
-        // If plain text arrives before a C02+C01, we're already into frame content;
-        // the room short is mid-frame (exits/look-around), not a "where you are".
+        // A suppressed FES heartbeat prompt is transparent to _atLineStart (no text
+        // is emitted). A room short following it sees _atLineStart=true (still at
+        // line start from the preceding real \n) and fires.
         var h = InGameMode();
-        h.Feed(WithPrompt("You attack.\n"));
-        h.Feed("You miss!\n");  // text clears frame-start flag
-        h.Feed(RoomShort);
-        Assert.Equal(0, h.RoomEnteredCount);
-    }
-
-    [Fact]
-    public void RoomEntered_NotFiredWhenOtherC1ArrivesFirstAfterPrompt()
-    {
-        // A non-C02+C01 dispatch at frame start clears the flag but fires no event.
-        var h = InGameMode();
-        h.Feed(WithPrompt("You look around.\n"));
-        h.Feed(0xA0, 0x9B, 0xFF, 0xFF);  // C05+C00 (some other colour)
-        h.Feed(RoomShort);               // now mid-frame — no event
-        Assert.Equal(0, h.RoomEnteredCount);
+        h.Feed(WithPrompt("You gain a point.\n")); // real prompt -> shown
+        h.Feed(WirePromptPreamble);                // FES heartbeat: suppressed, no text -> transparent
+        h.Feed(RoomShort);                         // _atLineStart still true -> fires
+        Assert.Equal(1, h.RoomEnteredCount);
     }
 
     [Fact]
     public void RoomEntered_FiredWhenC00InitStackPrecedesRoomShort()
     {
         // Clio sends C00+C255 (init_stack) at the start of every game-output frame,
-        // immediately before the room short C02+C01+C255. C00 must be transparent
-        // to the frame-start flag so the following RoomShort still fires the event.
+        // immediately before the room short C02+C01+C255. C1 sequences do not advance
+        // the display column, so _atLineStart remains true for the room short.
         var h = InGameMode();
         h.Feed(WithPrompt("You go north.\n"));
-        h.Feed(0x9B, 0xFF, 0xFF);  // C00 (init_stack) — transparent, preserves frame-start
-        h.Feed(RoomShort);         // C02+C01 at frame start → must still fire
+        h.Feed(0x9B, 0xFF, 0xFF);  // C00 (init_stack) -- transparent, preserves _atLineStart
+        h.Feed(RoomShort);         // C02+C01 at line start -> must still fire
         Assert.Equal(1, h.RoomEnteredCount);
     }
 
-    // ── RoomShortReady (colour-based) ─────────────────────────────────────────
+    [Fact]
+    public void RoomEntered_FiredEvenWhenOtherC1ArrivesFirst()
+    {
+        // Any C1 colour sequence that is not C02+C01 is transparent to _atLineStart.
+        // A room short following it still sees column 0.
+        var h = InGameMode();
+        h.Feed(WithPrompt("You look around.\n"));
+        h.Feed(0xA0, 0x9B, 0xFF, 0xFF);  // C05+C00 (some colour) -- transparent
+        h.Feed(RoomShort);               // still at column 0 -> must fire
+        Assert.Equal(1, h.RoomEnteredCount);
+    }
+
+    // -- RoomEntered: "too dark" ----------------------------------------------
+
+    [Fact]
+    public void RoomEntered_FiredForTooDarkMessage()
+    {
+        // "It's too dark to see now!" signals a dark-room entry.
+        // The Here list must be cleared even though no room-short colour line follows.
+        var h = InGameMode();
+        h.Feed(WithPrompt("You go north.\n"));
+        h.Feed("It's too dark to see now!\n");
+        Assert.Equal(1, h.RoomEnteredCount);
+    }
+
+    [Fact]
+    public void RoomShortReady_NotFiredForTooDarkMessage()
+    {
+        // "Too dark" fires RoomEntered but not RoomShortReady (no room name is known).
+        var h = InGameMode();
+        h.Feed(WithPrompt("You go north.\n"));
+        h.Feed("It's too dark to see now!\n");
+        Assert.Empty(h.RoomShorts);
+    }
+
+    // -- RoomShortReady (line-start colour-based) -----------------------------
 
     // A room short line: C02+C01 (LT_GREEN) set before text, then text + '\n'
     private static byte[] RoomShortLine(string name)
@@ -160,13 +192,13 @@ public class FrameTrackingTests
     }
 
     [Fact]
-    public void RoomShortReady_FiredAfterCommandEchoClearsFrameStart()
+    public void RoomShortReady_FiredAfterCommandEchoClearsLineStart()
     {
-        // Regression test: command echo ('n\n') clears _atFrameStart before the room
-        // colour arrives — colour-based detection must still fire regardless.
+        // Regression: command echo ('n\n') clears _atLineStart, but the '\n' restores
+        // it so the room short on the next line still fires.
         var h = InGameMode();
         h.Feed(WithPrompt("You go north.\n"));
-        h.Feed("n\n");                           // echo clears frame-start flag
+        h.Feed("n\n");                           // echo: 'n' clears flag, '\n' restores it
         h.Feed(RoomShortLine("Dark forest"));
         Assert.Equal(["Dark forest"], h.RoomShorts);
     }
@@ -189,33 +221,44 @@ public class FrameTrackingTests
         Assert.Equal(["Room A", "Room B"], h.RoomShorts);
     }
 
-    // ── FEW response suppression ──────────────────────────────────────────────
+    [Fact]
+    public void RoomShortReady_NotFiredForMidLineRoomShort()
+    {
+        // A room short embedded mid-line (look-around exits) must NOT fire RoomShortReady.
+        var h = InGameMode();
+        h.Feed(WithPrompt("Some text.\n"));
+        // Build: "You see " + C02+C01 + "Some room\n" + pop
+        var line = new System.Collections.Generic.List<byte>();
+        line.AddRange(System.Text.Encoding.Latin1.GetBytes("You see "));
+        line.AddRange(RoomShort);
+        line.AddRange(System.Text.Encoding.Latin1.GetBytes("Some room\n"));
+        line.AddRange([0xFF, 0xFF]);
+        h.Feed([.. line]);
+        Assert.Empty(h.RoomShorts);
+    }
 
-    // C12+C08+C05+C255 — opens the FEW (WHO-list interrupt) response context
+    // -- FEW response suppression ---------------------------------------------
+
+    // C12+C08+C05+C255 -- opens the FEW (WHO-list interrupt) response context
     private static readonly byte[] FewContextOpen = [0xA7, 0xA3, 0xA0, 0xFF, 0xFF];
 
-    // C04+C00+C06+C255 — WHO-list mortal player name follows (RED colour)
-    private static readonly byte[] FewPlayerPrefix = [0x9F, 0x9B, 0xA1, 0xFF, 0xFF];
-
-    // C05+C00+C06+C255 — WHO-list mortal player name follows (RED colour)
+    // C05+C00+C06+C255 -- WHO-list mortal player name follows (RED colour)
     private static readonly byte[] FewPlayerRedPrefix = [0xA0, 0x9B, 0xA1, 0xFF, 0xFF];
 
     [Fact]
     public void FewResponse_PlayerNamesEmittedAsFewPlayerReady()
     {
-        // C12+C08+C05 opens context; names inside fire FewPlayerReady regardless.
         var h = InGameMode();
         h.Feed(FewContextOpen);
         h.Feed(FewPlayerRedPrefix);
-        h.Feed("Gandalf");         // player name bytes; terminated by next C1 or non-ASCII
-        h.Feed(0xFF, 0xFF);        // end of player-name subcontext (pop)
+        h.Feed("Gandalf");
+        h.Feed(0xFF, 0xFF);
         Assert.Contains("Gandalf", h.FewPlayers);
     }
 
     [Fact]
     public void FewResponse_PlayerNamesNotEmittedAsLines()
     {
-        // While inside C12+C08+C05 context, display output is suppressed.
         var h = InGameMode();
         var linesBefore = h.Lines.Count;
         h.Feed(FewContextOpen);
@@ -251,17 +294,16 @@ public class FrameTrackingTests
     [Fact]
     public void FewResponse_AfterContextCloses_DisplayResumes()
     {
-        // After the FEW context stack unwinds, normal display resumes.
         var h = InGameMode();
         h.Feed(FewContextOpen);
-        h.Feed(0xFF, 0xFF);  // pop C05 → stack returns to entry depth → context exits
-        h.Feed(0xFF, 0xFF);  // pop C12+C08 wrapper
+        h.Feed(0xFF, 0xFF);
+        h.Feed(0xFF, 0xFF);
         h.Lines.Clear();
         h.Feed("Normal text\n");
         Assert.Single(h.Lines);
     }
 
-    // ── FewListComplete ───────────────────────────────────────────────────────
+    // -- FewListComplete ------------------------------------------------------
 
     [Fact]
     public void FewListComplete_FiredWhenContextCloses()
@@ -269,18 +311,13 @@ public class FrameTrackingTests
         var h = InGameMode();
         h.Feed(FewContextOpen);
         Assert.Equal(0, h.FewListCompleteCount);
-        h.Feed(0xFF, 0xFF);  // pop back to entry depth → ExitFewContext → FewListComplete
+        h.Feed(0xFF, 0xFF);
         Assert.Equal(1, h.FewListCompleteCount);
     }
 
     [Fact]
     public void FewListComplete_FiredAfterAllNamesDelivered()
     {
-        // FewListComplete must come AFTER all FewPlayerReady events for the same response.
-        // Each player name is wrapped in its own colour push+pop (C05+C00+C06 / C255).
-        // Those pops only unwind the per-name colour entry, not the outer C12+C08+C05 wrapper.
-        // A final C255 (0xFF 0xFF) pops the WHITE/BLACK pushed by FewContextOpen, which
-        // returns the stack to its entry depth and fires ExitFewContext → FewListComplete.
         var h = InGameMode();
         var completeSeenAfterNames = false;
         h.Parser.FewListComplete += () =>
@@ -289,11 +326,11 @@ public class FrameTrackingTests
         h.Feed(FewContextOpen);
         h.Feed(FewPlayerRedPrefix);
         h.Feed("Alice");
-        h.Feed(0xFF, 0xFF);  // ends player data, pops per-name colour — context still open
+        h.Feed(0xFF, 0xFF);
         h.Feed(FewPlayerRedPrefix);
         h.Feed("Bob");
-        h.Feed(0xFF, 0xFF);  // ends player data, pops per-name colour — context still open
-        h.Feed(0xFF, 0xFF);  // pops FEW context wrapper (WHITE/BLACK) → ExitFewContext → Complete
+        h.Feed(0xFF, 0xFF);
+        h.Feed(0xFF, 0xFF);
 
         Assert.True(completeSeenAfterNames);
         Assert.Equal(2, h.FewPlayers.Count);
@@ -302,7 +339,6 @@ public class FrameTrackingTests
     [Fact]
     public void FewListComplete_FiredOncePerResponse()
     {
-        // Opening and closing the context twice should fire Complete twice.
         var h = InGameMode();
         h.Feed(FewContextOpen);
         h.Feed(0xFF, 0xFF);
@@ -314,16 +350,15 @@ public class FrameTrackingTests
     [Fact]
     public void FewListComplete_NotFiredWithoutFewContext()
     {
-        // Bare pops outside of a FEW context must not trigger FewListComplete.
         var h = InGameMode();
-        h.Feed(0x9B, 0xFF, 0xFF);   // C00+C255 → push/pop cycle, no FEW context
+        h.Feed(0x9B, 0xFF, 0xFF);
         h.Feed(0xFF, 0xFF);
         Assert.Equal(0, h.FewListCompleteCount);
     }
 
-    // ── FEI response capture ──────────────────────────────────────────────────
+    // -- FEI response capture -------------------------------------------------
 
-    // C12+C08+C03+C255 — opens the FEI (inventory) response context
+    // C12+C08+C03+C255 -- opens the FEI (inventory) response context
     private static readonly byte[] FeiContextOpen = [0xA7, 0xA3, 0x9E, 0xFF, 0xFF];
 
     [Fact]
@@ -357,7 +392,6 @@ public class FrameTrackingTests
     [Fact]
     public void FeiResponse_ItemsNotEmittedAsLines()
     {
-        // FEI text must not appear in scrollback (LineReady).
         var h = InGameMode();
         var linesBefore = h.Lines.Count;
         h.Feed(FeiContextOpen);
@@ -371,7 +405,7 @@ public class FrameTrackingTests
     {
         var h = InGameMode();
         h.Feed(FeiContextOpen);
-        h.Feed(0xFF, 0xFF);  // bare pop returns stack to entry depth → FeiListComplete
+        h.Feed(0xFF, 0xFF);
         Assert.Equal(1, h.FeiListCompleteCount);
     }
 
