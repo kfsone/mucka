@@ -9,7 +9,9 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     private bool _isPanelExpanded;
     private int _activeTab;
     private string _characterName = "";
-    private string _currentRoom = "";
+    private string _currentRoom  = "";
+    private string _previousRoom = "Option Menu";
+    private string _oldestRoom   = "Logging in";
 
     public bool IsPanelExpanded
     {
@@ -44,6 +46,9 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     }
     public bool HasCurrentRoom => !string.IsNullOrEmpty(_currentRoom);
     public bool NoCurrentRoom  => string.IsNullOrEmpty(_currentRoom);
+
+    public string PreviousRoom { get => _previousRoom; private set => Set(ref _previousRoom, value); }
+    public string OldestRoom   { get => _oldestRoom;   private set => Set(ref _oldestRoom,   value); }
 
     public string AppVersion => AppInfo.VersionString;
 
@@ -163,14 +168,26 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
 
     /// <summary>
     /// Called on the TCP read thread when a room-short line arrives at line start.
-    /// Updates the displayed room name. Room-items clearing is done by OnRoomEntered(),
-    /// which fires earlier (at C02+C01 dispatch time, before the line name is known).
+    /// Pushes the current room into history (if non-empty) and updates CurrentRoom.
     /// </summary>
     public void OnRoomNameReady(string name)
         => MainThread.BeginInvokeOnMainThread(() =>
         {
+            if (!string.IsNullOrEmpty(_currentRoom))
+            {
+                OldestRoom   = PreviousRoom;
+                PreviousRoom = _currentRoom;
+            }
             CurrentRoom = name;
         });
+
+    /// <summary>
+    /// Called when the player exits game mode (e.g. types 'qq').
+    /// Sets CurrentRoom to "Option Menu" so the Extras tab reflects the player's new location.
+    /// Does not push history — history shifts on the next real room entry.
+    /// </summary>
+    public void OnGameModeExited()
+        => MainThread.BeginInvokeOnMainThread(() => CurrentRoom = "Option Menu");
 
     // ── WHO list (FEW) ────────────────────────────────────────────────────────
 

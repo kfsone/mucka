@@ -375,6 +375,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _conn.StatsUpdated     += OnStatsUpdated;
         _conn.GameModeEntered  += OnGameModeEntered;
         _conn.GameModeExited   += OnGameModeExited;
+        _conn.GameModeExited   += SidePanel.OnGameModeExited;
         _conn.DreamwordChanged += OnDreamwordChanged;
         _conn.Disconnected     += OnDisconnected;
         _conn.SoundRequested   += OnSoundRequested;
@@ -864,6 +865,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _conn.StatsUpdated     -= OnStatsUpdated;
         _conn.GameModeEntered  -= OnGameModeEntered;
         _conn.GameModeExited   -= OnGameModeExited;
+        _conn.GameModeExited   -= SidePanel.OnGameModeExited;
         _conn.DreamwordChanged -= OnDreamwordChanged;
         _conn.Disconnected     -= OnDisconnected;
         _conn.SoundRequested   -= OnSoundRequested;

@@ -376,15 +376,21 @@
                                            TextColor="#e3b341" FontSize="13" FontAttributes="Bold"
                                            FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
 
-                                    <!-- Room short description: shown in LT_GREEN (MUD2 standard), replaces "Last Room" label -->
-                                    <Label Text="{Binding SidePanel.CurrentRoom}"
-                                          IsVisible="{Binding SidePanel.HasCurrentRoom}"
-                                          TextColor="#00ff00" FontSize="12" FontAttributes="Bold"
-                                          FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"
-                                          Margin="0,4,0,0"/>
-                                    <Label Text="—" IsVisible="{Binding SidePanel.NoCurrentRoom}"
-                                          TextColor="#555555" FontSize="11" FontAttributes="Italic"
-                                          Margin="0,4,0,0"/>
+                                    <!-- Room breadcrumb: oldest → previous → current, top to bottom -->
+                                    <VerticalStackLayout Spacing="1" Margin="0,4,0,0">
+                                        <Label Text="{Binding SidePanel.OldestRoom}"
+                                               TextColor="#00a000" FontSize="10" FontAttributes="Bold"
+                                               FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
+                                        <Label Text="{Binding SidePanel.PreviousRoom}"
+                                               TextColor="#00c000" FontSize="11" FontAttributes="Bold"
+                                               FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
+                                        <Label Text="{Binding SidePanel.CurrentRoom}"
+                                               IsVisible="{Binding SidePanel.HasCurrentRoom}"
+                                               TextColor="#00ff00" FontSize="12" FontAttributes="Bold"
+                                               FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
+                                        <Label Text="—" IsVisible="{Binding SidePanel.NoCurrentRoom}"
+                                               TextColor="#555555" FontSize="11" FontAttributes="Italic"/>
+                                    </VerticalStackLayout>
 
                                     <!-- Items here + Carrying (FEI) — fades when stale (>15 s without refresh) -->
                                     <VerticalStackLayout Spacing="4" Opacity="{Binding SidePanel.FeiSectionOpacity}">
