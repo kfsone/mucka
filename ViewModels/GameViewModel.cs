@@ -84,7 +84,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public bool IsScrollMode { get => _isScrollMode; set => SetAndNotify(ref _isScrollMode, value, [nameof(IsNotScrollMode)]); }
     public bool IsNotScrollMode => !_isScrollMode;
     public bool IsCapturing { get => _isCapturing; private set => Set(ref _isCapturing, value); }
-    public bool IsInGameMode { get => _isInGameMode; private set => Set(ref _isInGameMode, value); }
+    public bool IsInGameMode { get => _isInGameMode; private set => SetAndNotify(ref _isInGameMode, value, [nameof(IsRecordingButtonVisible)]); }
     public int MaxColumns => _maxColumns;
     public int EffCols => _effCols;
     public bool KeepScreenOn => _keepScreenOn;
@@ -100,10 +100,8 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         false;
 #endif
 
-    public bool IsInGameMode => _inGameMode;
-
     /// <summary>True when the capture button should be shown: facility available AND currently in-game.</summary>
-    public bool IsRecordingButtonVisible => IsCaptureFacilityAvailable && _inGameMode;
+    public bool IsRecordingButtonVisible => IsCaptureFacilityAvailable && IsInGameMode;
 
     public string StaText  => $"Sta: {Stamina}/{MaxStamina}";
     public string MagText  => $"Mag: {Magic}/{MaxMagic}";
@@ -417,19 +415,10 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         {
             IsInGameMode = true;
             _lastSentUtc = DateTime.UtcNow;
-            OnPropertiesChanged(nameof(IsInGameMode), nameof(IsRecordingButtonVisible));
         });
 
     private void OnGameModeExited()
-<<<<<<< HEAD
         => MainThread.BeginInvokeOnMainThread(() => IsInGameMode = false);
-=======
-        => MainThread.BeginInvokeOnMainThread(() =>
-        {
-            _inGameMode = false;
-            OnPropertiesChanged(nameof(IsInGameMode), nameof(IsRecordingButtonVisible));
-        });
->>>>>>> origin/main
 
     /// <summary>
     /// Called by GamePage's 50ms timer on the UI thread.
@@ -516,7 +505,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         {
             IsInGameMode = false;
             IsConnected = false;
-            OnPropertiesChanged(nameof(IsInGameMode), nameof(IsRecordingButtonVisible));
             Disconnected?.Invoke();
         });
 
