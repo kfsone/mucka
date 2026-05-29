@@ -361,40 +361,86 @@
                     </Border>
 
                     <!-- Panel content -->
-                    <ScrollView Grid.Row="1" Padding="8,6">
-                        <Grid>
+                    <Grid Grid.Row="1">
 
-                            <!-- Extras tab -->
-                            <VerticalStackLayout IsVisible="{Binding SidePanel.IsExtrasTab}" Spacing="4">
+                        <!-- ── Extras tab: scrollable info + bottom-pinned online list ── -->
+                        <Grid IsVisible="{Binding SidePanel.IsExtrasTab}" RowDefinitions="*,Auto">
 
-                                <!-- Character name — empty until the session provides it -->
-                                <Label Text="{Binding SidePanel.CharacterName}"
-                                       IsVisible="{Binding SidePanel.HasCharacterName}"
-                                       TextColor="#e3b341" FontSize="13" FontAttributes="Bold"
-                                       FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
+                            <!-- Top: scrollable character / room / item info -->
+                            <ScrollView Grid.Row="0" Padding="8,6,8,4">
+                                <VerticalStackLayout Spacing="4">
 
-                                <Label Text="Last Room" TextColor="#58a6ff" FontSize="11" Margin="0,6,0,0"/>
-                                <Label Text="—" TextColor="#555555" FontSize="11" FontAttributes="Italic"/>
+                                    <!-- Character name -->
+                                    <Label Text="{Binding SidePanel.CharacterName}"
+                                           IsVisible="{Binding SidePanel.HasCharacterName}"
+                                           TextColor="#e3b341" FontSize="13" FontAttributes="Bold"
+                                           FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
 
-                                <Label Text="Inventory" TextColor="#58a6ff" FontSize="11" Margin="0,6,0,0"/>
-                                <Label Text="—" TextColor="#555555" FontSize="11" FontAttributes="Italic"/>
+                                    <!-- Room short description: shown in LT_GREEN (MUD2 standard), replaces "Last Room" label -->
+                                    <Label Text="{Binding SidePanel.CurrentRoom}"
+                                          IsVisible="{Binding SidePanel.HasCurrentRoom}"
+                                          TextColor="#00ff00" FontSize="12" FontAttributes="Bold"
+                                          FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"
+                                          Margin="0,4,0,0"/>
+                                    <Label Text="—" IsVisible="{Binding SidePanel.NoCurrentRoom}"
+                                          TextColor="#555555" FontSize="11" FontAttributes="Italic"
+                                          Margin="0,4,0,0"/>
 
-                                <Label Text="Online" TextColor="#58a6ff" FontSize="11" Margin="0,6,0,0"/>
-                                <VerticalStackLayout Spacing="2"
-                                                     BindableLayout.ItemsSource="{Binding SidePanel.WhosList}">
-                                    <BindableLayout.ItemTemplate>
-                                        <DataTemplate x:DataType="x:String">
-                                            <Label Text="{Binding .}"
-                                                   TextColor="#CCCCCC" FontSize="11"
-                                                   FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
-                                        </DataTemplate>
-                                    </BindableLayout.ItemTemplate>
+                                    <!-- Items here -->
+                                    <Label Text="Here" TextColor="#58a6ff" FontSize="11" Margin="0,6,0,0"/>
+                                    <Label Text="—" IsVisible="{Binding SidePanel.NoRoomItems}"
+                                           TextColor="#555555" FontSize="11" FontAttributes="Italic"/>
+                                    <VerticalStackLayout Spacing="1" IsVisible="{Binding SidePanel.HasRoomItems}"
+                                                         BindableLayout.ItemsSource="{Binding SidePanel.RoomItemsList}">
+                                        <BindableLayout.ItemTemplate>
+                                            <DataTemplate x:DataType="x:String">
+                                                <Label Text="{Binding .}" TextColor="#cccccc" FontSize="11"
+                                                       FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
+                                            </DataTemplate>
+                                        </BindableLayout.ItemTemplate>
+                                    </VerticalStackLayout>
+
+                                    <!-- Carrying -->
+                                    <Label Text="Carrying" TextColor="#58a6ff" FontSize="11" Margin="0,6,0,0"/>
+                                    <Label Text="—" IsVisible="{Binding SidePanel.NoInventory}"
+                                           TextColor="#555555" FontSize="11" FontAttributes="Italic"/>
+                                    <VerticalStackLayout Spacing="1" IsVisible="{Binding SidePanel.HasInventory}"
+                                                         BindableLayout.ItemsSource="{Binding SidePanel.InventoryList}">
+                                        <BindableLayout.ItemTemplate>
+                                            <DataTemplate x:DataType="x:String">
+                                                <Label Text="{Binding .}" TextColor="#cccccc" FontSize="11"
+                                                       FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
+                                            </DataTemplate>
+                                        </BindableLayout.ItemTemplate>
+                                    </VerticalStackLayout>
+
                                 </VerticalStackLayout>
+                            </ScrollView>
 
+                            <!-- Bottom: online players, pinned, grows upward -->
+                            <VerticalStackLayout Grid.Row="1" Padding="8,4,8,6" Spacing="2">
+                                <BoxView Color="#2d333b" HeightRequest="1" Margin="0,0,0,4"/>
+                                <Label Text="Online" TextColor="#58a6ff" FontSize="11"/>
+                                <ScrollView MaximumHeightRequest="180">
+                                    <VerticalStackLayout Spacing="1"
+                                                         BindableLayout.ItemsSource="{Binding SidePanel.WhosList}">
+                                        <BindableLayout.ItemTemplate>
+                                            <DataTemplate x:DataType="vm:WhoEntry">
+                                                <Label Text="{Binding Name}"
+                                                       TextColor="{Binding Color}"
+                                                       FontSize="11"
+                                                       FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
+                                            </DataTemplate>
+                                        </BindableLayout.ItemTemplate>
+                                    </VerticalStackLayout>
+                                </ScrollView>
                             </VerticalStackLayout>
 
-                            <!-- About tab -->
-                            <VerticalStackLayout IsVisible="{Binding SidePanel.IsAboutTab}" Spacing="4">
+                        </Grid>
+
+                        <!-- ── About tab ── -->
+                        <ScrollView IsVisible="{Binding SidePanel.IsAboutTab}" Padding="8,6">
+                            <VerticalStackLayout Spacing="4">
 
                                 <Label Text="Mucka" TextColor="White" FontSize="14" FontAttributes="Bold"/>
                                 <Label Text="a muddy client" TextColor="#888888" FontSize="11" FontAttributes="Italic"/>
@@ -455,9 +501,9 @@
                                 <Label Text="WORK IN PROGRESS" TextColor="#e3b341" FontSize="11" FontAttributes="Bold"/>
 
                             </VerticalStackLayout>
+                        </ScrollView>
 
-                        </Grid>
-                    </ScrollView>
+                    </Grid>
 
                 </Grid>
             </Border>

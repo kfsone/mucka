@@ -40,13 +40,21 @@ public sealed class MuckaConnection : IAsyncDisposable
     public event Action<string?>? DreamwordChanged;
     public event Action<string>? ClientModeReceived;
     public event Action<string>? SoundRequested;
-    public event Action<string>? FewPlayerReady;
+    public event Action<string, AnsiColor>? FewPlayerReady;
     /// <summary>Fired when a FEW-response context opens (C12+C08+C05). Start accumulating names.</summary>
     public event Action? FewListStarting;
     /// <summary>Fired when the FEW-response context closes — all names delivered. Replace the visible list now.</summary>
     public event Action? FewListComplete;
     /// <summary>Fired when a room short (C02+C01) appears at frame start — player is at or has entered a room.</summary>
     public event Action? RoomEntered;
+    /// <summary>Fired when a room short description line is received (LT_GREEN foreground). Payload is the room name.</summary>
+    public event Action<string>? RoomShortReady;
+    /// <summary>Fired when a FEI-response context opens. Start accumulating items.</summary>
+    public event Action? FeiListStarting;
+    /// <summary>Fired for each item line in the FEI response. "========" is the room/carry separator.</summary>
+    public event Action<string>? FeiItemReady;
+    /// <summary>Fired when the FEI-response context closes — all items delivered.</summary>
+    public event Action? FeiListComplete;
     /// <summary>Fired when the connection is lost (read loop ended). Null = clean disconnect.</summary>
     public event Action<Exception?>? Disconnected;
 #if WINDOWS
@@ -279,9 +287,13 @@ public sealed class MuckaConnection : IAsyncDisposable
         };
         _session.ClientModeReceived += d => ClientModeReceived?.Invoke(d);
         _session.SoundRequested     += s => SoundRequested?.Invoke(s);
-        _session.FewPlayerReady     += n => FewPlayerReady?.Invoke(n);
+        _session.FewPlayerReady     += (n, c) => FewPlayerReady?.Invoke(n, c);
         _session.FewListStarting    += () => FewListStarting?.Invoke();
         _session.FewListComplete    += () => FewListComplete?.Invoke();
         _session.RoomEntered        += () => RoomEntered?.Invoke();
+        _session.RoomShortReady     += name => RoomShortReady?.Invoke(name);
+        _session.FeiListStarting    += () => FeiListStarting?.Invoke();
+        _session.FeiItemReady       += item => FeiItemReady?.Invoke(item);
+        _session.FeiListComplete    += () => FeiListComplete?.Invoke();
     }
 }

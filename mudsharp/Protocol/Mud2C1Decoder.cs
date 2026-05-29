@@ -101,13 +101,19 @@ internal sealed class Mud2C1Decoder
             _parser.EmitFewListComplete();
         }
 
+        if (_parser.InFeiResponseContext && _colourStack.Count <= _parser.FeiContextDepth)
+        {
+            _parser.ExitFeiContext();
+            _parser.EmitFeiListComplete();
+        }
+
         // Handle prompt-preamble flags set by the C01 game-mode dispatch (Clio telnet.l:438-444).
         // Both flags are cleared after the first pop that follows the '*' prompt text.
         if (_parser.EmitPartialOnPop)
         {
             _parser.EmitPartialLine();  // show '*' as live partial-line prompt; clears spans internally
             _parser.EmitPartialOnPop = false;
-            _parser.SetFrameStart();    // game prompt shown: next C1 dispatch may be a room short
+            _parser.SetLineStart();     // game prompt shown: next line (column 0) may be a room short
         }
         _parser.SuppressNextText = false;
 
@@ -235,7 +241,7 @@ internal sealed class Mud2C1Decoder
             var name = Encoding.ASCII.GetString(buf.ToArray()).Trim();
             buf.Clear();
             if (name.Length > 0)
-                _parser.EmitFewPlayer(name);
+                _parser.EmitFewPlayer(name, _parser.Ansi.CurrentStyle.Foreground);
         }
         _parser.QueueReprocessByte(b);
         return ParserState.Normal;
@@ -320,8 +326,6 @@ internal sealed class Mud2C1Decoder
     private ParserState Dispatch(byte lead, List<byte> buf)
     {
         _parser.FlushSpan();
-        bool wasAtFrameStart = _parser.AtFrameStart;
-        _parser.ClearFrameStart();
 
         int count = buf.Count;
         byte b0 = count > 0 ? buf[0] : (byte)0;
@@ -330,6 +334,10 @@ internal sealed class Mud2C1Decoder
         switch (lead)
         {
             // ── C00 (0x9B): init_stack → reset to WHITE/BLACK ─────────────────
+            // Clio sends C00+C255 at the start of every game-output frame (before the room
+            // short description, text, etc.) as a colour-stack reset. C1 sequences do not
+            // advance the display column, so _atLineStart is untouched here and everywhere
+            // else in Dispatch — only text characters clear it.
             case 0x9B:
                 Apply(WHITE, BLACK);
                 return ParserState.Normal;
@@ -384,8 +392,21 @@ internal sealed class Mud2C1Decoder
                         break;
                     case 0x9C when count == 1:
                         Apply(LT_GREEN, BLACK);
+                        // Fire RoomEntered only when already in game mode. The very first C02+C01
+                        // sequence merely establishes game mode (pre-game login prompt or initial
+                        // handshake) and is not a room description.
+                        bool wasInGameMode = _parser.InGameMode;
                         _parser.EnterGameMode();
-                        if (wasAtFrameStart) _parser.EmitRoomEntered();
+                        // Fire RoomEntered if C02+C01 arrived at line start (column 0).
+                        // ClearLineStart() prevents a second consecutive C02+C01 on the same
+                        // line from double-firing. SetPendingRoomShort() is read at '\n' emission
+                        // to gate RoomShortReady — only fired for line-start room shorts.
+                        if (wasInGameMode && _parser.AtLineStart)
+                        {
+                            _parser.ClearLineStart();
+                            _parser.EmitRoomEntered();
+                            _parser.SetPendingRoomShort();
+                        }
                         break;
                     case 0x9D when count == 1:
                         Apply(GREEN, BLACK);
@@ -533,6 +554,15 @@ internal sealed class Mud2C1Decoder
                     Apply(WHITE, BLACK);
                     _parser.EnterFewContext(_colourStack.Count - 1);
                     _parser.EmitFewListStarting();
+                    return ParserState.Normal;
+                }
+                if (count == 2 && b0 == 0xA3 && b1 == 0x9E)
+                {
+                    // FEI response: C12+C08+C03+C255 — item lines (plain text) follow until stack
+                    // returns to entry depth. "========" separates room items from carried items.
+                    Apply(WHITE, BLACK);
+                    _parser.EnterFeiContext(_colourStack.Count - 1);
+                    _parser.EmitFeiListStarting();
                     return ParserState.Normal;
                 }
                 switch (b0)
