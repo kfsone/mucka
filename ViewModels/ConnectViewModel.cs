@@ -219,10 +219,26 @@ public sealed class ConnectViewModel : BaseViewModel
     {
         if (p.RememberPassword)
         {
-            var pw = await ProfileStore.GetPasswordAsync(p.Name) ?? string.Empty;
+            string? pw;
+            try
+            {
+                pw = await ProfileStore.GetPasswordAsync(p.Name);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[ConnectViewModel] password load failed for '{p.Name}': {ex}");
+                // Guard against a stale load completing after the user switched profiles.
+                if (ProfileName == p.Name)
+                {
+                    Password = string.Empty;
+                    StatusText = "Password could not be retrieved from secure storage. Please re-enter your password or check your device security settings.";
+                    HasError = true;
+                }
+                return;
+            }
             // Guard against a stale load completing after the user switched profiles.
             if (ProfileName == p.Name)
-                Password = pw;
+                Password = pw ?? string.Empty;
         }
         else if (ProfileName == p.Name)
         {
@@ -271,7 +287,17 @@ public sealed class ConnectViewModel : BaseViewModel
 
     private async Task LoadProfilesAsync()
     {
-        var list = await ProfileStore.LoadAsync();
+        List<Profile> list;
+        try
+        {
+            list = await ProfileStore.LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            StatusText = $"Failed to load profiles: {ex.Message}";
+            HasError = true;
+            return;
+        }
         var loadPasswordFromStore = _cmdArgs.Password == null;
         SavedProfiles.Clear();
         foreach (var p in list)
