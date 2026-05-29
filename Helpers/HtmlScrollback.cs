@@ -22,52 +22,52 @@ public static class HtmlScrollback
         "#3B78FF", "#B4009E", "#61D6D6", "#F2F2F2",
     };
 
-    public static readonly string InitialPage = """
+    public static string GeneratePage(int fontSize) => $"""
         <!DOCTYPE html>
         <html>
         <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width,initial-scale=1">
         <style>
-        * { margin:0; padding:0; box-sizing:border-box; }
-        html, body {
+        * {{ margin:0; padding:0; box-sizing:border-box; }}
+        html, body {{
           background:#0C0C0C;
           font-family:'Cascadia Mono','Consolas',monospace;
-          font-size:15px;
+          font-size:{fontSize}px;
           line-height:1.35;
           color:#CCCCCC;
           overflow-x:auto;
           overflow-y:auto;
-        }
-        #out { padding:4px 6px; }
-        .ln, .lnp { display:block; min-height:1.35em; white-space:pre-wrap; word-break:break-all; }
-        .echo { color:#767676; font-style:italic; }
+        }}
+        #out {{ padding:4px 6px; }}
+        .ln, .lnp {{ display:block; min-height:1.35em; white-space:pre-wrap; word-break:break-all; }}
+        .echo {{ color:#767676; font-style:italic; }}
         </style>
         </head>
         <body>
         <div id="out"></div>
         <script>
         window._atBottom=true;
-        (function(){
-          function scrollRoot(){
+        (function(){{
+          function scrollRoot(){{
             return document.scrollingElement||document.documentElement||document.body;
-          }
-          function chk(){
+          }}
+          function chk(){{
             var s=scrollRoot();
             var d=s.scrollHeight-s.scrollTop-s.clientHeight;
             var b=d<5;
             if(b===window._atBottom)return;
             window._atBottom=b;
             window.location=b?'mucka://scroll/resume':'mucka://scroll/pause';
-          }
-          window.addEventListener('scroll',chk,{passive:true});
-          document.addEventListener('keydown',function(e){
-            if(e.key==='Escape'&&!window._atBottom){
+          }}
+          window.addEventListener('scroll',chk,{{passive:true}});
+          document.addEventListener('keydown',function(e){{
+            if(e.key==='Escape'&&!window._atBottom){{
               var s=scrollRoot();
               s.scrollTop=s.scrollHeight;
-            }
-          });
-        })();
+            }}
+          }});
+        }})();
         </script>
         </body>
         </html>

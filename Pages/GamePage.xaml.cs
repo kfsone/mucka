@@ -89,7 +89,7 @@ public partial class GamePage : ContentPage
                 _eventsSubscribed = true;
             }
 
-            ScrollbackWebView.Source = new HtmlWebViewSource { Html = HtmlScrollback.InitialPage };
+            ScrollbackWebView.Source = new HtmlWebViewSource { Html = HtmlScrollback.GeneratePage(_vm.FontSize) };
             ScrollbackWebView.Navigating += OnScrollbackNavigating;
             ScrollbackWebView.Navigated += OnScrollbackNavigated;
             ScrollbackWebView.Focused += OnScrollbackFocused;
@@ -317,7 +317,9 @@ public partial class GamePage : ContentPage
         }
     }
 
-    private const double CharWidthDp = 8.0;
+    // Character width in MAUI logical pixels — delegates to the view-model so both
+    // the column-count calculation and the minimum-width enforcement use one formula.
+    private double CharWidthDp => _vm.CharWidthDp;
 
     protected override void OnSizeAllocated(double width, double height)
     {
