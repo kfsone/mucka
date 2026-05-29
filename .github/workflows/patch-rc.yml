@@ -1,0 +1,61 @@
+name: Patch RC
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_PAT || secrets.GITHUB_TOKEN }}
+
+      - name: Compute and write next patch RC version
+        id: ver
+        run: |
+          python3 - <<'PYEOF'
+          import json, re, subprocess, os
+
+          with open('version.json') as f:
+              v = json.load(f)
+          current = v['version']
+
+          base = re.sub(r'-rc\d+$', '', current)
+          major, minor, patch = (int(x) for x in base.split('.'))
+
+          # Bump patch only if not already in an RC for this version
+          if '-rc' not in current:
+              patch += 1
+
+          target = f"{major}.{minor}.{patch}"
+
+          tags = subprocess.check_output(['git', 'tag', '-l', f'v{target}-rc*']).decode().split()
+          nums = [int(m.group(1)) for t in tags if (m := re.search(r'rc(\d+)$', t))]
+          rc = (max(nums) + 1) if nums else 1
+
+          new_version = f"{target}-rc{rc}"
+          print(f"Next version: {new_version}")
+
+          v['version'] = new_version
+          with open('version.json', 'w') as f:
+              json.dump(v, f, indent=2)
+              f.write('\n')
+
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f"version={new_version}\n")
+          PYEOF
+
+      - name: Commit, tag, push
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add version.json
+          git commit -m "chore: release candidate v${{ steps.ver.outputs.version }}"
+          git tag -a "v${{ steps.ver.outputs.version }}" -m "Release candidate ${{ steps.ver.outputs.version }}"
+          git push
+          git push origin "v${{ steps.ver.outputs.version }}"
