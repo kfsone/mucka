@@ -23,6 +23,10 @@ internal sealed class ParserHarness
     public int FewListStartingCount { get; private set; }
     public int FewListCompleteCount { get; private set; }
     public int RoomEnteredCount { get; private set; }
+    public List<string> RoomShorts { get; } = new();
+    public List<string> FeiItems { get; } = new();
+    public int FeiListStartingCount { get; private set; }
+    public int FeiListCompleteCount { get; private set; }
 
     public ParserHarness()
     {
@@ -34,10 +38,14 @@ internal sealed class ParserHarness
         Parser.DreamwordChanged   += w => Dreamwords.Add(w);
         Parser.ClientModeReceived += d => ClientModeData.Add(d);
         Parser.SoundRequested     += s => Sounds.Add(s);
-        Parser.FewPlayerReady     += n => FewPlayers.Add(n);
+        Parser.FewPlayerReady     += (n, _) => FewPlayers.Add(n);
         Parser.FewListStarting    += () => FewListStartingCount++;
         Parser.FewListComplete    += () => FewListCompleteCount++;
         Parser.RoomEntered        += () => RoomEnteredCount++;
+        Parser.RoomShortReady     += name => RoomShorts.Add(name);
+        Parser.FeiItemReady       += item => FeiItems.Add(item);
+        Parser.FeiListStarting    += () => FeiListStartingCount++;
+        Parser.FeiListComplete    += () => FeiListCompleteCount++;
     }
 
     public void Feed(params byte[] data) => Parser.Feed(data);

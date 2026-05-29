@@ -27,7 +27,8 @@ public class FrameTrackingTests
     private static ParserHarness InGameMode()
     {
         var h = new ParserHarness();
-        h.Feed(0x9D, 0x9C, 0xFF, 0xFF);
+        h.Feed(0x9D, 0x9C, 0xFF, 0xFF);  // Enter game mode (sets LT_GREEN colour)
+        h.Feed(0x9B, 0xFF, 0xFF);          // C00: init_stack → reset colour to WHITE/BLACK
         h.Lines.Clear();
         return h;
     }
@@ -129,6 +130,63 @@ public class FrameTrackingTests
         h.Feed(0xA0, 0x9B, 0xFF, 0xFF);  // C05+C00 (some other colour)
         h.Feed(RoomShort);               // now mid-frame — no event
         Assert.Equal(0, h.RoomEnteredCount);
+    }
+
+    [Fact]
+    public void RoomEntered_FiredWhenC00InitStackPrecedesRoomShort()
+    {
+        // Clio sends C00+C255 (init_stack) at the start of every game-output frame,
+        // immediately before the room short C02+C01+C255. C00 must be transparent
+        // to the frame-start flag so the following RoomShort still fires the event.
+        var h = InGameMode();
+        h.Feed(WithPrompt("You go north.\n"));
+        h.Feed(0x9B, 0xFF, 0xFF);  // C00 (init_stack) — transparent, preserves frame-start
+        h.Feed(RoomShort);         // C02+C01 at frame start → must still fire
+        Assert.Equal(1, h.RoomEnteredCount);
+    }
+
+    // ── RoomShortReady (colour-based) ─────────────────────────────────────────
+
+    // A room short line: C02+C01 (LT_GREEN) set before text, then text + '\n'
+    private static byte[] RoomShortLine(string name)
+        => [..RoomShort, ..System.Text.Encoding.Latin1.GetBytes(name + "\n"), 0xFF, 0xFF];
+
+    [Fact]
+    public void RoomShortReady_FiredForLtGreenLine()
+    {
+        var h = InGameMode();
+        h.Feed(RoomShortLine("Elizabethan tearoom"));
+        Assert.Equal(["Elizabethan tearoom"], h.RoomShorts);
+    }
+
+    [Fact]
+    public void RoomShortReady_FiredAfterCommandEchoClearsFrameStart()
+    {
+        // Regression test: command echo ('n\n') clears _atFrameStart before the room
+        // colour arrives — colour-based detection must still fire regardless.
+        var h = InGameMode();
+        h.Feed(WithPrompt("You go north.\n"));
+        h.Feed("n\n");                           // echo clears frame-start flag
+        h.Feed(RoomShortLine("Dark forest"));
+        Assert.Equal(["Dark forest"], h.RoomShorts);
+    }
+
+    [Fact]
+    public void RoomShortReady_NotFiredForNonGreenLine()
+    {
+        // Normal white game-mode text must not trigger RoomShortReady.
+        var h = InGameMode();
+        h.Feed(WithPrompt("You swing your sword.\n"));
+        Assert.Empty(h.RoomShorts);
+    }
+
+    [Fact]
+    public void RoomShortReady_UpdatesOnEachMove()
+    {
+        var h = InGameMode();
+        h.Feed(RoomShortLine("Room A"));
+        h.Feed(RoomShortLine("Room B"));
+        Assert.Equal(["Room A", "Room B"], h.RoomShorts);
     }
 
     // ── FEW response suppression ──────────────────────────────────────────────
@@ -261,5 +319,96 @@ public class FrameTrackingTests
         h.Feed(0x9B, 0xFF, 0xFF);   // C00+C255 → push/pop cycle, no FEW context
         h.Feed(0xFF, 0xFF);
         Assert.Equal(0, h.FewListCompleteCount);
+    }
+
+    // ── FEI response capture ──────────────────────────────────────────────────
+
+    // C12+C08+C03+C255 — opens the FEI (inventory) response context
+    private static readonly byte[] FeiContextOpen = [0xA7, 0xA3, 0x9E, 0xFF, 0xFF];
+
+    [Fact]
+    public void FeiResponse_FeiListStartingFiredOnContextOpen()
+    {
+        var h = InGameMode();
+        h.Feed(FeiContextOpen);
+        Assert.Equal(1, h.FeiListStartingCount);
+    }
+
+    [Fact]
+    public void FeiResponse_ItemLinesEmittedAsFeiItemReady()
+    {
+        var h = InGameMode();
+        h.Feed(FeiContextOpen);
+        h.Feed("bouncy-ball\r\n");
+        h.Feed("postcard\r\n");
+        Assert.Contains("bouncy-ball", h.FeiItems);
+        Assert.Contains("postcard", h.FeiItems);
+    }
+
+    [Fact]
+    public void FeiResponse_SeparatorEmittedAsItem()
+    {
+        var h = InGameMode();
+        h.Feed(FeiContextOpen);
+        h.Feed("========\r\n");
+        Assert.Contains("========", h.FeiItems);
+    }
+
+    [Fact]
+    public void FeiResponse_ItemsNotEmittedAsLines()
+    {
+        // FEI text must not appear in scrollback (LineReady).
+        var h = InGameMode();
+        var linesBefore = h.Lines.Count;
+        h.Feed(FeiContextOpen);
+        h.Feed("brand19\r\n");
+        h.Feed("========\r\n");
+        Assert.Equal(linesBefore, h.Lines.Count);
+    }
+
+    [Fact]
+    public void FeiResponse_FeiListCompleteFiredWhenContextCloses()
+    {
+        var h = InGameMode();
+        h.Feed(FeiContextOpen);
+        h.Feed(0xFF, 0xFF);  // bare pop returns stack to entry depth → FeiListComplete
+        Assert.Equal(1, h.FeiListCompleteCount);
+    }
+
+    [Fact]
+    public void FeiResponse_AllItemsDeliveredBeforeComplete()
+    {
+        var h = InGameMode();
+        var completeSeenAfterItems = false;
+        h.Parser.FeiListComplete += () => completeSeenAfterItems = h.FeiItems.Count > 0;
+        h.Feed(FeiContextOpen);
+        h.Feed("sword\r\n");
+        h.Feed("========\r\n");
+        h.Feed("shield\r\n");
+        h.Feed(0xFF, 0xFF);
+        Assert.True(completeSeenAfterItems);
+        Assert.Equal(3, h.FeiItems.Count);
+    }
+
+    [Fact]
+    public void FeiResponse_AfterContextCloses_DisplayResumes()
+    {
+        var h = InGameMode();
+        h.Feed(FeiContextOpen);
+        h.Feed(0xFF, 0xFF);
+        h.Lines.Clear();
+        h.Feed("Normal text\n");
+        Assert.Single(h.Lines);
+    }
+
+    [Fact]
+    public void FeiResponse_NullBytesIgnored()
+    {
+        // Wire format uses \r\0\r\n; NUL bytes must not appear in emitted items.
+        var h = InGameMode();
+        h.Feed(FeiContextOpen);
+        h.Feed(new byte[] { (byte)'s', (byte)'w', (byte)'o', (byte)'r', (byte)'d', 0x0D, 0x00, 0x0D, 0x0A });
+        Assert.Single(h.FeiItems);
+        Assert.Equal("sword", h.FeiItems[0]);
     }
 }

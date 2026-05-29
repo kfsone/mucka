@@ -27,6 +27,13 @@ public sealed class MudStreamParser
     public event Action? GameModeExited;
 
     /// <summary>
+    /// A room-short description line was received: the player has entered or looked at a room.
+    /// Detected by LT_GREEN foreground colour on the first span (mirrors Clio telnet.l:1218-1226).
+    /// The payload is the plain-text room name.
+    /// </summary>
+    public event Action<string>? RoomShortReady;
+
+    /// <summary>
     /// A room-short sequence (C02+C01) appeared at frame start — the player has entered or
     /// is looking at the current room. The room name follows via <see cref="LineReady"/>.
     /// Not fired for C02+C01 that appears mid-frame (exits/look-around).
@@ -49,7 +56,7 @@ public sealed class MudStreamParser
     public event Action<string>? SoundRequested;
 
     /// <summary>A player name decoded from the WHO-list (FEW response) is ready.</summary>
-    public event Action<string>? FewPlayerReady;
+    public event Action<string, AnsiColor>? FewPlayerReady;
 
     /// <summary>
     /// A FEW-response context (C12+C08+C05 wrapper) has just opened.
@@ -62,6 +69,15 @@ public sealed class MudStreamParser
     /// delivered via <see cref="FewPlayerReady"/>. Replace the visible list atomically now.
     /// </summary>
     public event Action? FewListComplete;
+
+    /// <summary>A single item line from the FEI inventory response is ready. "========" is the room/carry separator.</summary>
+    public event Action<string>? FeiItemReady;
+
+    /// <summary>A FEI-response context has opened. Consumers should clear accumulation buffers.</summary>
+    public event Action? FeiListStarting;
+
+    /// <summary>A FEI-response context has closed — all item lines have been delivered.</summary>
+    public event Action? FeiListComplete;
 
     // ── Sub-parsers (set by internal wiring, replaceable for testing) ─────────
     internal TelnetNegotiator Telnet { get; }
@@ -113,6 +129,27 @@ public sealed class MudStreamParser
     internal void ExitFewContext() => _inFewResponseContext = false;
     internal void EmitFewListStarting() => FewListStarting?.Invoke();
     internal void EmitFewListComplete() => FewListComplete?.Invoke();
+
+    // ── FEI-response capture ──────────────────────────────────────────────────
+    // Set when the parser enters a C12+C08+C03 (FE INVENTORY) context block.
+    // Item text accumulates in _feiLine (bypasses the span machinery to avoid
+    // capturing stale spans from before the opener). Each '\n' emits one item.
+    // Cleared when the colour stack returns to the depth it was at before the push.
+    private bool _inFeiResponseContext;
+    private int _feiContextDepth;
+    private readonly StringBuilder _feiLine = new();
+
+    internal bool InFeiResponseContext => _inFeiResponseContext;
+    internal int FeiContextDepth => _feiContextDepth;
+    internal void EnterFeiContext(int targetDepth)
+    {
+        _inFeiResponseContext = true;
+        _feiContextDepth = targetDepth;
+        _feiLine.Clear();
+    }
+    internal void ExitFeiContext() => _inFeiResponseContext = false;
+    internal void EmitFeiListStarting() => FeiListStarting?.Invoke();
+    internal void EmitFeiListComplete() => FeiListComplete?.Invoke();
 
     /// <summary>
     /// Mirrors Clio's prompt_allowed flag.
@@ -207,6 +244,9 @@ public sealed class MudStreamParser
         SuppressNextText = false;
         EmitPartialOnPop = false;
         _inFewResponseContext = false;
+        _inFeiResponseContext = false;
+        _feiContextDepth = 0;
+        _feiLine.Clear();
         _atFrameStart = false;
         CurrentDreamword = null;
         CurrentAccountId = null;
@@ -220,6 +260,17 @@ public sealed class MudStreamParser
     {
         if (ch == '\n')
         {
+            if (_inFeiResponseContext)
+            {
+                // Emit the accumulated FEI item line; reset prompt-state flags as for a real newline.
+                var itemText = _feiLine.ToString();
+                _feiLine.Clear();
+                PromptAllowed = true;
+                SuppressNextText = false;
+                EmitPartialOnPop = false;
+                if (itemText.Length > 0) FeiItemReady?.Invoke(itemText);
+                return;
+            }
             FlushSpan();
             if (_inFewResponseContext)
             {
@@ -242,6 +293,18 @@ public sealed class MudStreamParser
             var stats = LineAnalyzer.Analyze(line, _inGameMode);
             if (stats != null) StatsUpdated?.Invoke(stats);
             if (_inGameMode) { var sf = LineAnalyzer.CheckSoundTrigger(line); if (sf != null) EmitSound(sf); }
+            // Detect room short description by LT_GREEN foreground on first non-empty span
+            // (mirrors Clio telnet.l:1218-1226: bold+GREEN at column 0 = room short desc).
+            if (_inGameMode && line.Spans.Count > 0)
+            {
+                foreach (var span in line.Spans)
+                {
+                    if (span.Text.Length == 0) continue;
+                    if (span.Style.Foreground == AnsiColor.BrightGreen)
+                        RoomShortReady?.Invoke(line.PlainText);
+                    break;
+                }
+            }
             LineReady?.Invoke(line);
         }
         else if (ch == '\r')
@@ -252,6 +315,14 @@ public sealed class MudStreamParser
         {
             // Discard characters when inside a suppressed end-of-frame prompt preamble or FEW response.
             if (SuppressNextText || _inFewResponseContext) return;
+            // FEI items accumulate in a dedicated buffer — bypasses the span machinery to avoid
+            // capturing any stale spans that may remain from before the FEI context opened.
+            if (_inFeiResponseContext)
+            {
+                if (ch != '\0') _feiLine.Append(ch);
+                _atFrameStart = false;
+                return;
+            }
             _atFrameStart = false;
             _text.Append(ch);
         }
@@ -300,9 +371,8 @@ public sealed class MudStreamParser
     }
     internal void EmitClientMode(string data) => ClientModeReceived?.Invoke(data);
     internal void EmitSound(string assetPath) => SoundRequested?.Invoke(assetPath);
-    internal void EmitFewPlayer(string name) => FewPlayerReady?.Invoke(name);
-    internal void EmitRoomEntered() => RoomEntered?.Invoke();
-    internal void SetAccountInfo(string? accountId, int privs)
+    internal void EmitFewPlayer(string name, AnsiColor color) => FewPlayerReady?.Invoke(name, color);
+    internal void EmitRoomEntered() => RoomEntered?.Invoke();    internal void SetAccountInfo(string? accountId, int privs)
     {
         CurrentAccountId = accountId;
         CurrentPrivs = privs;
