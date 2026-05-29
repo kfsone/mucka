@@ -54,6 +54,7 @@ public partial class GamePage : ContentPage
     private Window? _rawConsoleWindow;
     private Microsoft.UI.Xaml.Controls.TextBox? _inputTextBox;
     // ── Window minimum-size enforcement ─────────────────────────────────────
+    // Must match the WidthRequest of the side-panel Border in GamePage.xaml.
     private const double SidePanelWidthDp = 260.0;
     private int              _minWindowWidthPx;
     private IntPtr           _hwnd = IntPtr.Zero;
@@ -470,7 +471,13 @@ public partial class GamePage : ContentPage
         _hwnd = WinRT.Interop.WindowNative.GetWindowHandle(nativeWindow);
         if (_hwnd == IntPtr.Zero) return;
         _wndProcDelegate = GameWindowSubclassProc;
-        SetWindowSubclass(_hwnd, _wndProcDelegate, IntPtr.Zero, IntPtr.Zero);
+        if (!SetWindowSubclass(_hwnd, _wndProcDelegate, IntPtr.Zero, IntPtr.Zero))
+        {
+            // Subclass registration failed — minimum-size enforcement unavailable.
+            _hwnd = IntPtr.Zero;
+            _wndProcDelegate = null;
+            return;
+        }
         UpdateWindowMinimumWidth();
     }
 
