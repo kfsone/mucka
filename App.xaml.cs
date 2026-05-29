@@ -1,4 +1,5 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
+using Mucka.Audio;
 using Mucka.Pages;
 
 namespace Mucka;
@@ -12,6 +13,8 @@ public partial class App : Application
 
     protected override Window CreateWindow(IActivationState? activationState)
     {
+        SoundService.Play("mucka_theme.wav");
+
         var connectPage = IPlatformApplication.Current!.Services.GetRequiredService<ConnectPage>();
         var window = new Window(new NavigationPage(connectPage)
         {

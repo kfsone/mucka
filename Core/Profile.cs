@@ -27,6 +27,8 @@ public class Profile
     public int StatUpdateFrequency { get; set; } = 10;
     /// <summary>FEW who-list poll interval in seconds. 0 = disabled. Default 15.</summary>
     public int FewRefreshInterval { get; set; } = 15;
+    /// <summary>Permanently suppress the bell/beep sound. Persisted per profile.</summary>
+    public bool MuteBeepPermanently { get; set; }
     public string[] Fkeys { get => _fkeys; set => _fkeys = NormalizeFkeys(value); }
 
     private static readonly Dictionary<int, string> s_defaultFkeys = new()

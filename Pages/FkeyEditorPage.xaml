@@ -148,15 +148,62 @@
                         </HorizontalStackLayout>
                     </Grid>
 
+                    <!-- Beep mute -->
+                    <VerticalStackLayout Spacing="6">
+
+                        <!-- Session mute: not persisted -->
+                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
+                            <CheckBox Grid.Column="0"
+                                      IsChecked="{Binding MuteBeepSession, Mode=TwoWay}"
+                                      Color="#1f6feb"
+                                      VerticalOptions="Start"/>
+                            <Label Grid.Column="1"
+                                   Text="Hey, that gong-like 'beep' sound was funny at first but it gets annoying, how about you just not?"
+                                   TextColor="#888888" FontSize="12"
+                                   VerticalOptions="Center"/>
+                        </Grid>
+
+                        <!-- Permanent mute: persisted; only shown when session mute is on -->
+                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8"
+                              Margin="28,0,0,0"
+                              IsVisible="{Binding MuteBeepSession}">
+                            <CheckBox Grid.Column="0"
+                                      IsChecked="{Binding MuteBeepPermanently, Mode=TwoWay}"
+                                      Color="#1f6feb"
+                                      VerticalOptions="Center"/>
+                            <Label Grid.Column="1"
+                                   Text="Like, ever?"
+                                   TextColor="#888888" FontSize="12"
+                                   VerticalOptions="Center"/>
+                        </Grid>
+
+                        <!-- "Hear it" link: always visible -->
+                        <Label Margin="28,0,0,0" FontSize="12">
+                            <Label.FormattedText>
+                                <FormattedString>
+                                    <Span Text="Wait, what beep-gong sound? I want to " TextColor="#888888"/>
+                                    <Span Text="hear" TextColor="#1f6feb" TextDecorations="Underline">
+                                        <Span.GestureRecognizers>
+                                            <TapGestureRecognizer Command="{Binding PlayBeepCommand}"/>
+                                        </Span.GestureRecognizers>
+                                    </Span>
+                                    <Span Text=" it!" TextColor="#888888"/>
+                                </FormattedString>
+                            </Label.FormattedText>
+                        </Label>
+
+                    </VerticalStackLayout>
+
                 </VerticalStackLayout>
             </ScrollView>
 
             <!-- ── HOTKEYS TAB ───────────────────────────────────────── -->
             <Grid RowDefinitions="Auto,*" IsVisible="{Binding IsHotkeysTabActive}">
 
-                <!-- Modifier selector — compact pill row, not full-width -->
-                <HorizontalStackLayout Grid.Row="0" Spacing="6" Margin="0,0,0,10">
-                    <Button Text="None"
+                <!-- Modifier selector — pills on the left, Import on the right -->
+                <Grid Grid.Row="0" ColumnDefinitions="Auto,Auto,Auto,*,Auto" ColumnSpacing="6" Margin="0,0,0,10">
+                    <Button Grid.Column="0"
+                            Text="None"
                             Command="{Binding SetModifierCommand}"
                             CommandParameter="0"
                             BackgroundColor="#2d333b" TextColor="#cccccc"
@@ -169,7 +216,8 @@
                             </DataTrigger>
                         </Button.Triggers>
                     </Button>
-                    <Button Text="Shift"
+                    <Button Grid.Column="1"
+                            Text="Shift"
                             Command="{Binding SetModifierCommand}"
                             CommandParameter="1"
                             BackgroundColor="#2d333b" TextColor="#cccccc"
@@ -182,7 +230,8 @@
                             </DataTrigger>
                         </Button.Triggers>
                     </Button>
-                    <Button Text="Ctrl"
+                    <Button Grid.Column="2"
+                            Text="Ctrl"
                             Command="{Binding SetModifierCommand}"
                             CommandParameter="2"
                             BackgroundColor="#2d333b" TextColor="#cccccc"
@@ -195,7 +244,16 @@
                             </DataTrigger>
                         </Button.Triggers>
                     </Button>
-                </HorizontalStackLayout>
+                    <!-- Column 3 is the * spacer -->
+                    <Button Grid.Column="4"
+                            x:Name="ImportButton"
+                            Text="Import"
+                            ToolTipProperties.Text="Import from clio.ini"
+                            IsVisible="False"
+                            BackgroundColor="#2d333b" TextColor="#888888"
+                            FontSize="12" WidthRequest="72" HeightRequest="30"
+                            CornerRadius="4" Padding="0"/>
+                </Grid>
 
                 <!-- F-key list -->
                 <ScrollView Grid.Row="1">
@@ -241,35 +299,25 @@
                 BackgroundColor="#161b22"
                 StrokeThickness="0"
                 Padding="12,8">
-            <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto" ColumnSpacing="6">
+            <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="6">
 
-                <!-- Import: Windows only; visibility wired in code-behind via #if WINDOWS -->
-                <Button Grid.Column="0"
-                        x:Name="ImportButton"
-                        Text="Import"
-                        ToolTipProperties.Text="Import from clio.ini"
-                        IsVisible="False"
-                        BackgroundColor="#2d333b" TextColor="#888888"
-                        FontSize="13" WidthRequest="80" HeightRequest="34"
-                        CornerRadius="4" Padding="0"/>
+                <!-- Spacer: Grid.Column="0" -->
 
-                <!-- Spacer: Grid.Column="1" -->
-
-                <Button Grid.Column="2"
+                <Button Grid.Column="1"
                         Text="Cancel"
                         Command="{Binding CancelCommand}"
                         BackgroundColor="#2d333b" TextColor="#cccccc"
                         FontSize="13" WidthRequest="80" HeightRequest="34"
                         CornerRadius="4" Padding="0"/>
 
-                <Button Grid.Column="3"
+                <Button Grid.Column="2"
                         Text="Apply"
                         Command="{Binding ApplyCommand}"
                         BackgroundColor="#2d333b" TextColor="#cccccc"
                         FontSize="13" WidthRequest="80" HeightRequest="34"
                         CornerRadius="4" Padding="0"/>
 
-                <Button Grid.Column="4"
+                <Button Grid.Column="3"
                         Text="Save"
                         Command="{Binding SaveCommand}"
                         IsEnabled="{Binding CanSave}"

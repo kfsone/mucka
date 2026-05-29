@@ -21,6 +21,8 @@ internal enum ParserState
     Escape,         // received 0x1B
     EscapeBracket,  // received ESC [  (CSI)
     CsiParam,       // accumulating CSI parameter bytes
+    EscapeDash,     // received ESC - (MUD2 shell command prefix, server-to-client)
+    EscapeDashWidth, // received ESC - i (set-width; accumulating decimal digit(s) before final letter)
 
     // MUD2 C1 proprietary protocol (0x9B-0xFE)
     C1Seq,          // received C1 lead byte

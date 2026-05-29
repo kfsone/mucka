@@ -51,6 +51,7 @@ public partial class GamePage : ContentPage
     private readonly SemaphoreSlim _scriptExecutionLock = new(1, 1);
 #if WINDOWS
     private Window? _rawConsoleWindow;
+    private Microsoft.UI.Xaml.Controls.TextBox? _inputTextBox;
 #endif
 
     public GamePage(GameViewModel vm, bool exitOnDisconnect = false)
@@ -161,6 +162,11 @@ public partial class GamePage : ContentPage
         if (Window?.Handler?.PlatformView is Microsoft.UI.Xaml.Window fwin &&
             fwin.Content is Microsoft.UI.Xaml.UIElement froot)
             froot.PreviewKeyDown -= OnRootPreviewKeyDown;
+        if (_inputTextBox != null)
+        {
+            _inputTextBox.PreviewKeyDown -= OnInputPreviewKeyDown;
+            _inputTextBox = null;
+        }
         InputEntry.HandlerChanged -= OnInputHandlerChanged;
         _vm.OpenRawConsoleRequested -= OnOpenRawConsoleRequested;
 #endif
@@ -368,7 +374,11 @@ public partial class GamePage : ContentPage
             _vm.ApplyFkeys,
             onSave,
             _vm.ApplyMaxColumns,
-            _vm.ApplyStatUpdateFrequency)
+            _vm.ApplyStatUpdateFrequency,
+            muteBeepSession: _vm.MuteBeepSession,
+            muteBeepPermanently: _vm.MuteBeepPermanently,
+            onMuteSessionApplied: b => _vm.MuteBeepSession = b,
+            onMutePermanentlyApplied: b => _vm.ApplyMutePermanently(b))
         {
             ActiveTab = initialTab
         };
@@ -376,7 +386,7 @@ public partial class GamePage : ContentPage
         return Navigation.PushModalAsync(new FkeyEditorPage(editorVm));
     }
 
-    private async void OnEditFkeysRequested() => await OpenConfigAsync(initialTab: 1);
+    private async void OnEditFkeysRequested() => await OpenConfigAsync(initialTab: 0);
 
     private async void OnConfigRequested() => await OpenConfigAsync(initialTab: 0);
 
@@ -398,7 +408,10 @@ public partial class GamePage : ContentPage
     private void OnWindowActivated(object? sender, EventArgs e) => FocusInput();
 
     private async void OnClearScreenRequested()
-        => await ExecuteScriptAsync("document.getElementById('out').innerHTML=''");
+    {
+        try { await ExecuteScriptAsync("document.getElementById('out').innerHTML=''"); }
+        catch { /* ignore: WebView may not be ready */ }
+    }
 
 #if WINDOWS
     [System.Runtime.InteropServices.DllImport("user32.dll")]
@@ -442,8 +455,14 @@ public partial class GamePage : ContentPage
 
     private void OnInputHandlerChanged(object? sender, EventArgs e)
     {
+        if (_inputTextBox != null)
+        {
+            _inputTextBox.PreviewKeyDown -= OnInputPreviewKeyDown;
+            _inputTextBox = null;
+        }
         if (InputEntry.Handler?.PlatformView is Microsoft.UI.Xaml.Controls.TextBox tb)
         {
+            _inputTextBox = tb;
             tb.PreviewKeyDown += OnInputPreviewKeyDown;
             // Null the ReturnCommand so MAUI's KeyDown handler (registered with
             // handledEventsToo:true) doesn't fire a second send after our PreviewKeyDown.

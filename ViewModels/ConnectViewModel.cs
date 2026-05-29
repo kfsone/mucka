@@ -132,7 +132,8 @@ public sealed class ConnectViewModel : BaseViewModel
                 if (result.Remember)
                 {
                     RememberPassword = true;
-                    await ProfileStore.SetPasswordAsync(ProfileName, resolvedPassword);
+                    // Password is persisted below via SaveCurrentProfileAsync,
+                    // which is skipped in direct-connect mode — intentionally.
                 }
             }
 
@@ -140,7 +141,8 @@ public sealed class ConnectViewModel : BaseViewModel
             var conn = new MuckaConnection(
                 autoLogin ? accountId : null,
                 autoLogin ? resolvedPassword : null,
-                MaxColumns);
+                MaxColumns,
+                loginName);
             if (IsCaptureRequested && !conn.TryStartCapture(Host.Trim(), out var captureError))
             {
                 StatusText = $"Capture start failed: {captureError}";
@@ -185,7 +187,9 @@ public sealed class ConnectViewModel : BaseViewModel
     private void SelectProfile(Profile p)
     {
         ApplyProfile(p);
-        _ = LoadProfilePasswordAsync(p);
+        var _ = LoadProfilePasswordAsync(p).ContinueWith(
+            t => System.Diagnostics.Debug.WriteLine($"[SelectProfile] password load failed: {t.Exception}"),
+            TaskContinuationOptions.OnlyOnFaulted);
     }
 
     private void ApplyProfile(Profile p)
@@ -215,9 +219,12 @@ public sealed class ConnectViewModel : BaseViewModel
     {
         if (p.RememberPassword)
         {
-            Password = await ProfileStore.GetPasswordAsync(p.Name) ?? string.Empty;
+            var pw = await ProfileStore.GetPasswordAsync(p.Name) ?? string.Empty;
+            // Guard against a stale load completing after the user switched profiles.
+            if (ProfileName == p.Name)
+                Password = pw;
         }
-        else
+        else if (ProfileName == p.Name)
         {
             Password = string.Empty;
         }
@@ -315,6 +322,15 @@ public sealed class ConnectViewModel : BaseViewModel
             string.Equals(p.Name, profileName, StringComparison.OrdinalIgnoreCase));
         if (existing != null)
             existing.Fkeys = fkeys;
+        await ProfileStore.SaveAsync(SavedProfiles.ToList());
+    }
+
+    public async Task SaveProfileMuteAsync(string profileName, bool mute)
+    {
+        var existing = SavedProfiles.FirstOrDefault(p =>
+            string.Equals(p.Name, profileName, StringComparison.OrdinalIgnoreCase));
+        if (existing != null)
+            existing.MuteBeepPermanently = mute;
         await ProfileStore.SaveAsync(SavedProfiles.ToList());
     }
 

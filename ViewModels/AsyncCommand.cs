@@ -31,6 +31,10 @@ public sealed class AsyncCommand : ICommand
         {
             await _execute();
         }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[AsyncCommand] unhandled exception: {ex}");
+        }
         finally
         {
             _isExecuting = false;

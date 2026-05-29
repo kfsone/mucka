@@ -31,11 +31,14 @@ public sealed class MudSession : IDisposable
     public event Action? GameModeEntered;
     public event Action? GameModeExited;
     public event Action<byte[]>? OutgoingBytes;
+    public event Action? BellReceived;
     public event Action<string?>? DreamwordChanged;
     public event Action<string>? ClientModeReceived;
     public event Action<string>? SoundRequested;
     public event Action<string>? FewPlayerReady;
     public event Action? FewListStarting;
+    public event Action? FewListComplete;
+    public event Action? RoomEntered;
 
     // ── Public state ───────────────────────────────────────────────────────────
     public GameStatsSnapshot CurrentStats => _currentStats;
@@ -109,12 +112,15 @@ public sealed class MudSession : IDisposable
         _parser.StatsUpdated += MergeStats;
         _parser.GameModeEntered += OnGameModeEntered;
         _parser.GameModeExited += OnGameModeExited;
-        _parser.OutgoingBytes += bytes => OutgoingBytes?.Invoke(bytes);
+        _parser.OutgoingBytes  += bytes => OutgoingBytes?.Invoke(bytes);
+        _parser.BellReceived   += () => BellReceived?.Invoke();
         _parser.DreamwordChanged += OnDreamwordChanged;
         _parser.ClientModeReceived += data => ClientModeReceived?.Invoke(data);
         _parser.SoundRequested += s => SoundRequested?.Invoke(s);
         _parser.FewPlayerReady += name => FewPlayerReady?.Invoke(name);
-        _parser.FewListStarting += () => FewListStarting?.Invoke();
+        _parser.FewListStarting  += () => FewListStarting?.Invoke();
+        _parser.FewListComplete  += () => FewListComplete?.Invoke();
+        _parser.RoomEntered      += () => RoomEntered?.Invoke();
     }
 
     private void MergeStats(GameStatsSnapshot partial)
@@ -139,17 +145,20 @@ public sealed class MudSession : IDisposable
             MaxDexterity: partial.MaxDexterity ?? _currentStats.MaxDexterity,
             CurrentMagic: partial.CurrentMagic ?? _currentStats.CurrentMagic,
             MaxMagic:     partial.MaxMagic     ?? _currentStats.MaxMagic,
-            IsBlind:      partial.IsBlind      || _currentStats.IsBlind,
-            IsDeaf:       partial.IsDeaf       || _currentStats.IsDeaf,
-            IsCrippled:   partial.IsCrippled   || _currentStats.IsCrippled,
-            IsDumb:       partial.IsDumb       || _currentStats.IsDumb,
+            // Boolean flags from FES are authoritative (replace); from text-analysis they OR-accumulate.
+            // This lets FES N-snapshots clear IsBlind/IsDeaf/IsCrippled/IsDumb/PersonaSaved when
+            // the condition is gone, while text-analysis mentions (rare pre-game path) still set them.
+            IsBlind:      partial.HasFesStats ? partial.IsBlind      : (partial.IsBlind      || _currentStats.IsBlind),
+            IsDeaf:       partial.HasFesStats ? partial.IsDeaf       : (partial.IsDeaf       || _currentStats.IsDeaf),
+            IsCrippled:   partial.HasFesStats ? partial.IsCrippled   : (partial.IsCrippled   || _currentStats.IsCrippled),
+            IsDumb:       partial.HasFesStats ? partial.IsDumb       : (partial.IsDumb       || _currentStats.IsDumb),
             Weather:      partial.Weather     != ' ' ? partial.Weather   : _currentStats.Weather,
             TimeToReset:  partial.TimeToReset  ?? _currentStats.TimeToReset,
             DreamWord:    _currentDreamword,
-            PersonaSaved: partial.PersonaSaved || _currentStats.PersonaSaved,
+            PersonaSaved: partial.HasFesStats ? partial.PersonaSaved : (partial.PersonaSaved || _currentStats.PersonaSaved),
             AccountId:    partial.AccountId    ?? _currentStats.AccountId,
             Privs:        partial.Privs        ?? _currentStats.Privs,
-            StaminaColor: partial.StaminaColor != 0 ? partial.StaminaColor : _currentStats.StaminaColor
+            StaminaColor: partial.StaminaColor ?? _currentStats.StaminaColor
         );
         StatsUpdated?.Invoke(_currentStats);
     }

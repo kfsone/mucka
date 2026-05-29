@@ -47,7 +47,7 @@
 
 	<PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android' and '$(Configuration)' == 'Release'">
 		<!-- arm64-v8a covers every Android phone since ~2015; omitting 32-bit/x86 slashes APK size significantly -->
-		<AndroidSupportedAbis>arm64-v8a</AndroidSupportedAbis>
+		<RuntimeIdentifiers>android-arm64</RuntimeIdentifiers>
 		<PublishTrimmed>true</PublishTrimmed>
 		<!-- AOT defaults to enabled for MonoVM Release builds, adding several MB of native .so files.
 		     Disable it: a MUD terminal client has no startup-perf requirement. -->

@@ -48,7 +48,18 @@ internal sealed class AnsiSgrState
                     _paramBuf.Clear();
                     return ParserState.EscapeBracket;
                 }
+                if (b == 0x2D) return ParserState.EscapeDash; // ESC - (MUD2 shell command)
                 // Any other byte after ESC is unrecognised — consume and return to Normal.
+                return ParserState.Normal;
+
+            case ParserState.EscapeDash:
+                // Consume the command letter. ESC-i introduces a width parameter (e.g. ESC-iNNNW).
+                if (b == (byte)'i') return ParserState.EscapeDashWidth;
+                return ParserState.Normal;
+
+            case ParserState.EscapeDashWidth:
+                // Consume decimal digits of the width value; the final non-digit letter ends it.
+                if (b is >= (byte)'0' and <= (byte)'9') return ParserState.EscapeDashWidth;
                 return ParserState.Normal;
 
             case ParserState.EscapeBracket:

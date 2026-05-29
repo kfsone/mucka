@@ -21,8 +21,16 @@ public sealed record GameStatsSnapshot(
     bool PersonaSaved = false,
     string? AccountId = null,
     int? Privs = null,
-    byte StaminaColor = 0
+    byte? StaminaColor = null
 )
 {
     public static readonly GameStatsSnapshot Empty = new();
+
+    /// <summary>
+    /// True when this snapshot originates from a FES binary data packet.
+    /// When true, boolean flags (IsBlind, IsDeaf, IsCrippled, IsDumb, PersonaSaved)
+    /// represent authoritative server state and replace — not OR — the current values
+    /// in MergeStats. Text-analysis snapshots leave this false and are OR-merged.
+    /// </summary>
+    public bool HasFesStats { get; init; }
 }

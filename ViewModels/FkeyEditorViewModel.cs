@@ -1,4 +1,5 @@
 using System.Windows.Input;
+using Mucka.Audio;
 
 namespace Mucka.ViewModels;
 
@@ -9,12 +10,16 @@ public sealed class FkeyEditorViewModel : BaseViewModel
     private readonly Func<string[], Task>? _onSave;
     private readonly Action<int>? _onColumnsChanged;
     private readonly Action<int>? _onFesChanged;
+    private readonly Action<bool>? _onMuteSessionApplied;
+    private readonly Action<bool>? _onMutePermanentlyApplied;
     private int _activeModifier;
     private int _activeTab = 1;
     private double _fontSize;
     private double _columns;
     private double _volume;
     private double _statUpdateFrequency;
+    private bool _muteBeepSession;
+    private bool _muteBeepPermanently;
 
     public int ActiveModifier
     {
@@ -69,6 +74,22 @@ public sealed class FkeyEditorViewModel : BaseViewModel
     public int    VolumeDisplay              => (int)Math.Round(_volume);
     public string StatUpdateFrequencyDisplay => _statUpdateFrequency <= 0 ? "Off" : $"{(int)Math.Round(_statUpdateFrequency)}s";
 
+    public bool MuteBeepSession
+    {
+        get => _muteBeepSession;
+        set
+        {
+            if (Set(ref _muteBeepSession, value) && !value)
+                MuteBeepPermanently = false;
+        }
+    }
+
+    public bool MuteBeepPermanently
+    {
+        get => _muteBeepPermanently;
+        set => Set(ref _muteBeepPermanently, value);
+    }
+
     public FkeyEditorItem[] CurrentPageItems => _pages[_activeModifier];
     public bool CanSave { get; }
 
@@ -77,6 +98,7 @@ public sealed class FkeyEditorViewModel : BaseViewModel
     public ICommand ApplyCommand { get; }
     public AsyncCommand SaveCommand { get; }
     public ICommand CancelCommand { get; }
+    public ICommand PlayBeepCommand { get; }
 
     public event Action? CloseRequested;
 
@@ -87,18 +109,26 @@ public sealed class FkeyEditorViewModel : BaseViewModel
         Action<string[]> onApply,
         Func<string[], Task>? onSave,
         Action<int>? onColumnsChanged = null,
-        Action<int>? onFesChanged = null)
+        Action<int>? onFesChanged = null,
+        bool muteBeepSession = false,
+        bool muteBeepPermanently = false,
+        Action<bool>? onMuteSessionApplied = null,
+        Action<bool>? onMutePermanentlyApplied = null)
     {
         _onApply = onApply;
         _onSave = onSave;
         _onColumnsChanged = onColumnsChanged;
         _onFesChanged = onFesChanged;
+        _onMuteSessionApplied = onMuteSessionApplied;
+        _onMutePermanentlyApplied = onMutePermanentlyApplied;
         CanSave = onSave != null;
 
         _fontSize = Math.Clamp(Math.Round(fontSize), 9, 24);
         _columns  = Math.Clamp(Math.Round(columns), 40, 160);
         _volume   = Math.Clamp(volume, 0, 100);
         _statUpdateFrequency = statUpdateFreq <= 0 ? 0 : Math.Clamp(Math.Round(statUpdateFreq / 5.0) * 5, 5, 30);
+        _muteBeepSession     = muteBeepSession;
+        _muteBeepPermanently = muteBeepPermanently;
 
         var fkeys = new string[36];
         for (int i = 0; i < 36; i++)
@@ -130,12 +160,15 @@ public sealed class FkeyEditorViewModel : BaseViewModel
         });
         SaveCommand = new AsyncCommand(SaveAsync, () => CanSave);
         CancelCommand = new Command(() => CloseRequested?.Invoke());
+        PlayBeepCommand = new Command(() => SoundService.Play("beep.wav"));
     }
 
     private void ApplySettings()
     {
         _onColumnsChanged?.Invoke((int)Math.Round(_columns));
         _onFesChanged?.Invoke((int)Math.Round(_statUpdateFrequency));
+        _onMuteSessionApplied?.Invoke(_muteBeepSession);
+        _onMutePermanentlyApplied?.Invoke(_muteBeepPermanently);
     }
 
     private async Task SaveAsync()

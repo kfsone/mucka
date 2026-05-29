@@ -202,24 +202,27 @@ public class GamePromptTests
     [Fact]
     public void WirePrompt_FesHeartbeat_BarePromptPacket_Suppressed()
     {
-        // A FES heartbeat response is a bare wire prompt preamble with no preceding '\n'.
-        // It must be suppressed even when PromptAllowed=true (e.g. after a command echo).
+        // FES heartbeat scenario: the last wire prompt was shown (PromptAllowed=false).
+        // A subsequent bare wire prompt preamble — no preceding '\n' in this packet — must
+        // be suppressed because PromptAllowed is still false from the last shown prompt.
         var h = InGameMode();
-        h.Feed("score\r\n");           // command echo: PromptAllowed=true, but separate packet
-        h.Feed(WirePromptPreamble);    // FES heartbeat response: no '\n' in this packet → suppress
+        h.Feed(WithPrompt("You arrive in the tearoom.\n")); // first prompt → shown, PromptAllowed=false
+        h.Lines.Clear();
+        h.Feed(WirePromptPreamble); // FES heartbeat: no '\n' before preamble → suppress
         Assert.DoesNotContain(h.Lines, l => l.IsPartial);
     }
 
     [Fact]
     public void WirePrompt_FesHeartbeat_DoesNotConsumePromptAllowed()
     {
-        // A suppressed FES heartbeat must NOT consume PromptAllowed.
-        // The next real server packet (game text + wire prompt in same segment) must still emit.
+        // A suppressed FES heartbeat must not consume PromptAllowed — the next real game
+        // packet containing '\n' and a wire prompt in the same segment must still show the prompt.
         var h = InGameMode();
-        h.Feed("score\r\n");           // command echo
-        h.Feed(WirePromptPreamble);    // FES heartbeat → suppressed
+        h.Feed(WithPrompt("You arrive in the tearoom.\n")); // first prompt → shown, PromptAllowed=false
         h.Lines.Clear();
-        h.Feed(WithPrompt("You scored 42 points.\n")); // real response with prompt in same packet
+        h.Feed(WirePromptPreamble); // FES heartbeat → suppressed
+        h.Lines.Clear();
+        h.Feed(WithPrompt("You scored 42 points.\n")); // '\n' re-allows; prompt in same packet → shown
         var line = Assert.Single(h.Lines, l => l.IsPartial);
         Assert.Equal("*", string.Concat(line.Spans.Select(s => s.Text)));
     }
@@ -229,8 +232,9 @@ public class GamePromptTests
     {
         // Suppressed FES heartbeat must not leave '*' in the span buffer.
         var h = InGameMode();
-        h.Feed("score\r\n");
-        h.Feed(WirePromptPreamble);    // FES heartbeat → suppressed
+        h.Feed(WithPrompt("You arrive in the tearoom.\n")); // first prompt
+        h.Lines.Clear();
+        h.Feed(WirePromptPreamble); // FES heartbeat → suppressed
         h.Lines.Clear();
         h.Feed("You scored 42 points.\n");
         Assert.Single(h.Lines);
