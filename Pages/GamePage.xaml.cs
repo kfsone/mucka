@@ -57,6 +57,7 @@ public partial class GamePage : ContentPage
     // Must match the WidthRequest of the side-panel Border in GamePage.xaml.
     private const double SidePanelWidthDp = 260.0;
     private int              _minWindowWidthPx;
+    private int              _panelAutoAddedPx;
     private IntPtr           _hwnd = IntPtr.Zero;
     private WndProcDelegate? _wndProcDelegate;
 #endif
@@ -510,17 +511,25 @@ public partial class GamePage : ContentPage
 
         if (panelExpanded)
         {
-            // Panel is open: grow the window if it is too narrow.
+            // Panel is open: grow the window if it is too narrow, and record how much we added.
             if (currentWidth < _minWindowWidthPx)
+            {
+                _panelAutoAddedPx = _minWindowWidthPx - currentWidth;
                 appWindow.Resize(new Windows.Graphics.SizeInt32(_minWindowWidthPx, appWindow.Size.Height));
+            }
+            else
+            {
+                _panelAutoAddedPx = 0;
+            }
         }
         else if (panelToggled)
         {
-            // Panel just closed: remove the panel's contribution from the window width,
+            // Panel just closed: remove only what was auto-added when it opened,
             // but never shrink below the text-only minimum.
-            var targetWidth = Math.Max(currentWidth - panelPx, textMinPx);
-            if (currentWidth > targetWidth)
+            var targetWidth = Math.Max(currentWidth - _panelAutoAddedPx, textMinPx);
+            if (targetWidth != currentWidth)
                 appWindow.Resize(new Windows.Graphics.SizeInt32(targetWidth, appWindow.Size.Height));
+            _panelAutoAddedPx = 0;
         }
     }
 
