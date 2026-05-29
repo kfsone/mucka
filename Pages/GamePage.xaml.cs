@@ -98,6 +98,7 @@ public partial class GamePage : ContentPage
             _flushTimer.Interval = TimeSpan.FromMilliseconds(50);
             _flushTimer.Tick += OnFlushTick;
             _flushTimer.Start();
+            _vm.SidePanel.InitializeFadeTimer(Dispatcher);
 
             if (Window is not null)
                 Window.Activated += OnWindowActivated;

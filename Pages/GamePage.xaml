@@ -386,39 +386,45 @@
                                           TextColor="#555555" FontSize="11" FontAttributes="Italic"
                                           Margin="0,4,0,0"/>
 
-                                    <!-- Items here -->
-                                    <Label Text="Here" TextColor="#58a6ff" FontSize="11" Margin="0,6,0,0"/>
-                                    <Label Text="—" IsVisible="{Binding SidePanel.NoRoomItems}"
-                                           TextColor="#555555" FontSize="11" FontAttributes="Italic"/>
-                                    <VerticalStackLayout Spacing="1" IsVisible="{Binding SidePanel.HasRoomItems}"
-                                                         BindableLayout.ItemsSource="{Binding SidePanel.RoomItemsList}">
-                                        <BindableLayout.ItemTemplate>
-                                            <DataTemplate x:DataType="x:String">
-                                                <Label Text="{Binding .}" TextColor="#cccccc" FontSize="11"
-                                                       FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
-                                            </DataTemplate>
-                                        </BindableLayout.ItemTemplate>
-                                    </VerticalStackLayout>
+                                    <!-- Items here + Carrying (FEI) — fades when stale (>15 s without refresh) -->
+                                    <VerticalStackLayout Spacing="4" Opacity="{Binding SidePanel.FeiSectionOpacity}">
 
-                                    <!-- Carrying -->
-                                    <Label Text="Carrying" TextColor="#58a6ff" FontSize="11" Margin="0,6,0,0"/>
-                                    <Label Text="—" IsVisible="{Binding SidePanel.NoInventory}"
-                                           TextColor="#555555" FontSize="11" FontAttributes="Italic"/>
-                                    <VerticalStackLayout Spacing="1" IsVisible="{Binding SidePanel.HasInventory}"
-                                                         BindableLayout.ItemsSource="{Binding SidePanel.InventoryList}">
-                                        <BindableLayout.ItemTemplate>
-                                            <DataTemplate x:DataType="x:String">
-                                                <Label Text="{Binding .}" TextColor="#cccccc" FontSize="11"
-                                                       FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
-                                            </DataTemplate>
-                                        </BindableLayout.ItemTemplate>
+                                        <!-- Items here -->
+                                        <Label Text="Here" TextColor="#58a6ff" FontSize="11" Margin="0,6,0,0"/>
+                                        <Label Text="—" IsVisible="{Binding SidePanel.NoRoomItems}"
+                                               TextColor="#555555" FontSize="11" FontAttributes="Italic"/>
+                                        <VerticalStackLayout Spacing="1" IsVisible="{Binding SidePanel.HasRoomItems}"
+                                                             BindableLayout.ItemsSource="{Binding SidePanel.RoomItemsList}">
+                                            <BindableLayout.ItemTemplate>
+                                                <DataTemplate x:DataType="x:String">
+                                                    <Label Text="{Binding .}" TextColor="#cccccc" FontSize="11"
+                                                           FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
+                                                </DataTemplate>
+                                            </BindableLayout.ItemTemplate>
+                                        </VerticalStackLayout>
+
+                                        <!-- Carrying -->
+                                        <Label Text="Carrying" TextColor="#58a6ff" FontSize="11" Margin="0,6,0,0"/>
+                                        <Label Text="—" IsVisible="{Binding SidePanel.NoInventory}"
+                                               TextColor="#555555" FontSize="11" FontAttributes="Italic"/>
+                                        <VerticalStackLayout Spacing="1" IsVisible="{Binding SidePanel.HasInventory}"
+                                                             BindableLayout.ItemsSource="{Binding SidePanel.InventoryList}">
+                                            <BindableLayout.ItemTemplate>
+                                                <DataTemplate x:DataType="x:String">
+                                                    <Label Text="{Binding .}" TextColor="#cccccc" FontSize="11"
+                                                           FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
+                                                </DataTemplate>
+                                            </BindableLayout.ItemTemplate>
+                                        </VerticalStackLayout>
+
                                     </VerticalStackLayout>
 
                                 </VerticalStackLayout>
                             </ScrollView>
 
                             <!-- Bottom: online players, pinned, grows upward -->
-                            <VerticalStackLayout Grid.Row="1" Padding="8,4,8,6" Spacing="2">
+                            <VerticalStackLayout Grid.Row="1" Padding="8,4,8,6" Spacing="2"
+                                                 Opacity="{Binding SidePanel.FewSectionOpacity}">
                                 <BoxView Color="#2d333b" HeightRequest="1" Margin="0,0,0,4"/>
                                 <Label Text="Online" TextColor="#58a6ff" FontSize="11"/>
                                 <ScrollView MaximumHeightRequest="180">
@@ -428,6 +434,7 @@
                                             <DataTemplate x:DataType="vm:WhoEntry">
                                                 <Label Text="{Binding Name}"
                                                        TextColor="{Binding Color}"
+                                                       Opacity="{Binding Opacity}"
                                                        FontSize="11"
                                                        FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
                                             </DataTemplate>

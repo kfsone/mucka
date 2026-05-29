@@ -63,6 +63,22 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     public bool NoInventory   => InventoryList.Count  == 0;
     public bool NoRoomItems   => RoomItemsList.Count  == 0;
 
+    // ── Stale-fade state ──────────────────────────────────────────────────────
+    // Last time each list type was fully refreshed (set on UI thread; null = never refreshed).
+    private DateTime? _feiLastRefresh;
+    private DateTime? _fewLastRefresh;
+
+    private double _feiSectionOpacity = 1.0;
+    private double _fewSectionOpacity = 1.0;
+
+    /// <summary>Opacity of the Here / Carrying section; fades to 0.7 when FEI data is stale (>15 s).</summary>
+    public double FeiSectionOpacity { get => _feiSectionOpacity; private set => Set(ref _feiSectionOpacity, value); }
+
+    /// <summary>Opacity of the Online section; fades to 0.7 when FEW data is stale (>15 s).</summary>
+    public double FewSectionOpacity { get => _fewSectionOpacity; private set => Set(ref _fewSectionOpacity, value); }
+
+    private IDispatcherTimer? _fadeTimer;
+
     public ICommand TogglePanelCommand { get; }
     public ICommand SetTabCommand { get; }
     public ICommand OpenLinkCommand { get; }
@@ -80,6 +96,55 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             if (!string.IsNullOrWhiteSpace(url))
                 _ = Launcher.OpenAsync(new Uri(url));
         });
+    }
+
+    /// <summary>
+    /// Creates and starts the UI-thread fade timer.  Must be called once from the UI thread
+    /// after game-mode is entered (mirrors the lifecycle of the GamePage flush timer).
+    /// </summary>
+    public void InitializeFadeTimer(IDispatcher dispatcher)
+    {
+        if (_fadeTimer is not null) return;
+        _fadeTimer = dispatcher.CreateTimer();
+        _fadeTimer.Interval = TimeSpan.FromMilliseconds(100);
+        _fadeTimer.Tick += OnFadeTick;
+        _fadeTimer.Start();
+    }
+
+    private void OnFadeTick(object? sender, EventArgs e)
+    {
+        var now = DateTime.UtcNow;
+
+        FeiSectionOpacity = ComputeStaleOpacity(_feiLastRefresh, now);
+        FewSectionOpacity = ComputeStaleOpacity(_fewLastRefresh, now);
+
+        // Advance player departure animations; iterate in reverse so removal by index is safe.
+        const double departureDurationSec = 2.5;
+        for (int i = WhosList.Count - 1; i >= 0; i--)
+        {
+            var entry = WhosList[i];
+            if (entry.DepartingSince is not { } since) continue;
+
+            double elapsed = (now - since).TotalSeconds;
+            if (elapsed >= departureDurationSec)
+                WhosList.RemoveAt(i);
+            else
+                entry.Opacity = 1.0 - elapsed / departureDurationSec;
+        }
+    }
+
+    /// <summary>
+    /// Computes the stale-fade opacity for a section.
+    /// Returns 1.0 until 15 s after the last refresh, then linearly fades to 0.7 over the next 5 s.
+    /// Returns 1.0 when the section has never been refreshed (no data yet — nothing to fade).
+    /// </summary>
+    private static double ComputeStaleOpacity(DateTime? lastRefresh, DateTime now)
+    {
+        if (lastRefresh is null) return 1.0;
+        double elapsed = (now - lastRefresh.Value).TotalSeconds;
+        if (elapsed <= 15.0) return 1.0;
+        if (elapsed >= 20.0) return 0.7;
+        return 1.0 - 0.3 * (elapsed - 15.0) / 5.0;
     }
 
     // ── Room name ─────────────────────────────────────────────────────────────
@@ -126,8 +191,10 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
 
     /// <summary>
     /// Called when the FEW-response context closes — all names have been delivered.
-    /// Snapshots the pending buffer on the read-loop thread, then marshals a single
-    /// atomic WhosList replacement to the UI thread.
+    /// Diffs the incoming snapshot against the current WhosList:
+    ///   • Players no longer in the snapshot are marked departing and fade out over 2.5 s.
+    ///   • Players that reappear before their fade completes have their departure cancelled.
+    ///   • New arrivals are appended.
     /// </summary>
     public void OnFewListComplete()
     {
@@ -135,9 +202,36 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         _pendingWhos.Clear();
         MainThread.BeginInvokeOnMainThread(() =>
         {
-            WhosList.Clear();
+            _fewLastRefresh = DateTime.UtcNow;
+
+            var newNames = new HashSet<string>(
+                snapshot.Select(w => w.Name), StringComparer.OrdinalIgnoreCase);
+
+            // Mark departing players; cancel departure for players that reappeared.
+            foreach (var existing in WhosList)
+            {
+                if (newNames.Contains(existing.Name))
+                {
+                    if (existing.DepartingSince is not null)
+                    {
+                        existing.DepartingSince = null;
+                        existing.Opacity = 1.0;
+                    }
+                }
+                else if (existing.DepartingSince is null)
+                {
+                    existing.DepartingSince = DateTime.UtcNow;
+                }
+            }
+
+            // Append new arrivals (not already in the list, including after a full-removal cycle).
+            var currentNames = new HashSet<string>(
+                WhosList.Select(w => w.Name), StringComparer.OrdinalIgnoreCase);
             foreach (var entry in snapshot)
-                WhosList.Add(entry);
+            {
+                if (!currentNames.Contains(entry.Name))
+                    WhosList.Add(entry);
+            }
         });
     }
 
@@ -176,6 +270,8 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         _pendingInventory.Clear();
         MainThread.BeginInvokeOnMainThread(() =>
         {
+            _feiLastRefresh = DateTime.UtcNow;
+
             RoomItemsList.Clear();
             foreach (var item in snapRoom)
                 RoomItemsList.Add(item);
@@ -190,6 +286,13 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         });
     }
 
-    public void Dispose() { }
+    public void Dispose()
+    {
+        if (_fadeTimer is null) return;
+        _fadeTimer.Stop();
+        _fadeTimer.Tick -= OnFadeTick;
+        _fadeTimer = null;
+    }
 }
+
 
