@@ -109,8 +109,13 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
 
     public bool IsInGameMode => _inGameMode;
 
-    /// <summary>True when the capture button should be shown: facility available AND currently in-game.</summary>
-    public bool IsRecordingButtonVisible => IsCaptureFacilityAvailable && _inGameMode;
+    /// <summary>True when the capture button should be shown. Debug: always when facility available; Release: also requires game mode.</summary>
+    public bool IsRecordingButtonVisible =>
+#if DEBUG
+        IsCaptureFacilityAvailable;
+#else
+        IsCaptureFacilityAvailable && _inGameMode;
+#endif
 
     public string StaText  => $"Sta: {Stamina}/{MaxStamina}";
     public string MagText  => $"Mag: {Magic}/{MaxMagic}";
