@@ -2,7 +2,7 @@
 ;   ISCC.exe /DMyAppVersion=0.4.3 /DMyAppDir=path\to\publish installer.iss
 
 #define MyAppName      "Mucka"
-#define MyAppPublisher "kfsone"
+#define MyAppPublisher "Oliver 'kfsone' Smith"
 #define MyAppExeName   "Mucka.exe"
 #define MyAppURL       "https://github.com/kfsone/mucka"
 
