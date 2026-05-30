@@ -131,30 +131,41 @@ jobs:
         if: steps.cache-maui-windows.outputs.cache-hit != 'true'
         run: dotnet workload install maui-windows
 
-      - name: Publish (MSIX)
+      - name: Publish and sign (MSIX)
         shell: pwsh
         env:
           CERT_PFX_B64:  ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
           CERT_PFX_PASS: ${{ secrets.WINDOWS_CERT_PFX_PASSWORD }}
         run: |
-          $pfxBytes = [Convert]::FromBase64String($env:CERT_PFX_B64)
-          $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($pfxBytes, $env:CERT_PFX_PASS)
-          $publisher = $cert.Subject
-          Write-Host "Publisher: $publisher"
-          $version = "${{ github.ref_name }}" -replace '^v', ''
-          dotnet publish Mucka.csproj -f net10.0-windows10.0.19041.0 -c Release `
-            -p:MUCKA_RELEASE_VERSION=$version `
-            -p:ApplicationVersion=${{ github.run_number }} `
-            -p:CreateWindowsInstaller=true `
-            -p:GenerateTemporaryStoreCertificate=false `
-            "-p:WindowsPackagePublisherName=$publisher"
+          $pfxPath = [IO.Path]::Combine([IO.Path]::GetTempPath(), "mucka-sign.pfx")
+          [IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($env:CERT_PFX_B64))
+          try {
+            $version = "${{ github.ref_name }}" -replace '^v', ''
+            # AppxPackageSigningEnabled=true hands the cert to MAUI's build system,
+            # which reads the Subject from the cert and injects it as the MSIX Publisher
+            # automatically — avoiding the manual Publisher-match problem.
+            dotnet publish Mucka.csproj -f net10.0-windows10.0.19041.0 -c Release `
+              -p:MUCKA_RELEASE_VERSION=$version `
+              -p:ApplicationVersion=${{ github.run_number }} `
+              -p:CreateWindowsInstaller=true `
+              -p:GenerateTemporaryStoreCertificate=false `
+              -p:AppxPackageSigningEnabled=true `
+              "-p:PackageCertificateKeyFile=$pfxPath" `
+              "-p:PackageCertificatePassword=$env:CERT_PFX_PASS"
+          } finally {
+            Remove-Item $pfxPath -Force -ErrorAction SilentlyContinue
+          }
 
-      - name: Sign and collect MSIX
+      - name: Timestamp and collect MSIX
         shell: pwsh
         env:
           CERT_PFX_B64:  ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
           CERT_PFX_PASS: ${{ secrets.WINDOWS_CERT_PFX_PASSWORD }}
         run: |
+          $msix = Get-ChildItem bin\Release -Recurse -Include *.msix,*.msixbundle |
+            Sort-Object LastWriteTime -Descending |
+            Select-Object -First 1
+          if (-not $msix) { throw "No .msix / .msixbundle found under bin\Release" }
           $pfxPath = [IO.Path]::Combine([IO.Path]::GetTempPath(), "mucka-sign.pfx")
           [IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($env:CERT_PFX_B64))
           try {
@@ -168,19 +179,16 @@ jobs:
                 Select-Object -First 1 -ExpandProperty FullName
             }
             if (-not $tool) { throw "signtool.exe not found" }
-            $msix = Get-ChildItem bin\Release -Recurse -Include *.msix,*.msixbundle |
-              Sort-Object LastWriteTime -Descending |
-              Select-Object -First 1
-            if (-not $msix) { throw "No .msix / .msixbundle found under bin\Release" }
+            # Re-sign with an RFC 3161 timestamp; MAUI's internal signtool call omits this.
             & $tool sign /f $pfxPath /p $env:CERT_PFX_PASS `
               /tr http://timestamp.digicert.com /td sha256 /fd sha256 $msix.FullName
             if ($LASTEXITCODE -ne 0) { throw "signtool exited $LASTEXITCODE" }
-            $dest = "mucka-windows-${{ github.ref_name }}-setup$($msix.Extension)"
-            Copy-Item $msix.FullName $dest
-            Write-Host "Signed → $dest"
           } finally {
             Remove-Item $pfxPath -Force -ErrorAction SilentlyContinue
           }
+          $dest = "mucka-windows-${{ github.ref_name }}-setup$($msix.Extension)"
+          Copy-Item $msix.FullName $dest
+          Write-Host "Timestamped → $dest"
 
       - uses: actions/upload-artifact@v7
         with:
