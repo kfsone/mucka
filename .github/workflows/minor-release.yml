@@ -5,6 +5,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 jobs:
   bump:
@@ -58,3 +59,8 @@ jobs:
           git tag -a "v${{ steps.ver.outputs.version }}" -m "Release ${{ steps.ver.outputs.version }}"
           git push
           git push origin "v${{ steps.ver.outputs.version }}"
+
+      - name: Trigger release build
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PAT || secrets.GITHUB_TOKEN }}
+        run: gh workflow run release.yml --ref "v${{ steps.ver.outputs.version }}"
