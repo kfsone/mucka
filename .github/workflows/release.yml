@@ -139,20 +139,25 @@ jobs:
         run: |
           $pfxPath = [IO.Path]::Combine([IO.Path]::GetTempPath(), "mucka-sign.pfx")
           [IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($env:CERT_PFX_B64))
+          $thumbprint = $null
           try {
+            # PackageCertificateKeyFile doesn't support password-protected PFX files.
+            # Import into the user store so MAUI can read the cert (and its Subject for
+            # the MSIX Publisher field) without needing the password at build time.
+            $ss = ConvertTo-SecureString $env:CERT_PFX_PASS -AsPlainText -Force
+            $cert = Import-PfxCertificate -FilePath $pfxPath -CertStoreLocation Cert:\CurrentUser\My -Password $ss
+            $thumbprint = $cert.Thumbprint
+            Write-Host "Imported cert: $thumbprint  Subject: $($cert.Subject)"
             $version = "${{ github.ref_name }}" -replace '^v', ''
-            # AppxPackageSigningEnabled=true hands the cert to MAUI's build system,
-            # which reads the Subject from the cert and injects it as the MSIX Publisher
-            # automatically — avoiding the manual Publisher-match problem.
             dotnet publish Mucka.csproj -f net10.0-windows10.0.19041.0 -c Release `
               -p:MUCKA_RELEASE_VERSION=$version `
               -p:ApplicationVersion=${{ github.run_number }} `
               -p:CreateWindowsInstaller=true `
               -p:GenerateTemporaryStoreCertificate=false `
               -p:AppxPackageSigningEnabled=true `
-              "-p:PackageCertificateKeyFile=$pfxPath" `
-              "-p:PackageCertificatePassword=$env:CERT_PFX_PASS"
+              "-p:PackageCertificateThumbprint=$thumbprint"
           } finally {
+            if ($thumbprint) { Remove-Item "Cert:\CurrentUser\My\$thumbprint" -Force -ErrorAction SilentlyContinue }
             Remove-Item $pfxPath -Force -ErrorAction SilentlyContinue
           }
 
