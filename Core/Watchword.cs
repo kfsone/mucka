@@ -124,6 +124,8 @@ internal sealed class WatchwordStore
             else if (state == 2 && current != null)
             {
                 if (current.Answers.Count >= MaxAnswers) continue;
+                if (key.Length >= 2 && key[0] == '"' && key[^1] == '"')
+                    key = key[1..^1];
                 var prefix    = key.EndsWith("...", StringComparison.Ordinal);
                 var entryKey  = prefix ? key[..^3] : key;
                 var entryAns  = val.Length > MaxAnswer ? val[..MaxAnswer] : val;
