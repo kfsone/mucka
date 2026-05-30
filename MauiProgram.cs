@@ -16,6 +16,11 @@ public static class MauiProgram
             .ConfigureFonts(fonts =>
             {
                 fonts.AddFont("OpenSans-Regular.ttf", "OpenSansRegular");
+                // Registering as an embedded font prevents MAUI's Windows FontManager from
+                // treating the name as a file path (FindFontFamilyName with a relative URI),
+                // which would throw InvalidOperationException and corrupt the handler context,
+                // causing a downstream NullReferenceException in WebView2Proxy.OnCoreWebView2Initialized.
+                fonts.AddFont("CascadiaMono.ttf", "Cascadia Mono");
             });
 
         // Register ViewModels and Pages for dependency injection.
