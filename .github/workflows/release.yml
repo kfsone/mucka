@@ -98,7 +98,7 @@ jobs:
           name: windows-zip
           path: mucka-windows-${{ github.ref_name }}.zip
 
-  # ── Windows Installer (MSIX) ─────────────────────────────────────────────
+  # ── Windows Installer (Inno Setup) ───────────────────────────────────────
   windows-installer:
     name: Windows (installer)
     runs-on: windows-latest
@@ -131,46 +131,35 @@ jobs:
         if: steps.cache-maui-windows.outputs.cache-hit != 'true'
         run: dotnet workload install maui-windows
 
-      - name: Publish and sign (MSIX)
+      - name: Publish
         shell: pwsh
-        env:
-          CERT_PFX_B64:  ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
-          CERT_PFX_PASS: ${{ secrets.WINDOWS_CERT_PFX_PASSWORD }}
         run: |
-          $pfxPath = [IO.Path]::Combine([IO.Path]::GetTempPath(), "mucka-sign.pfx")
-          [IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($env:CERT_PFX_B64))
-          $thumbprint = $null
-          try {
-            # PackageCertificateKeyFile doesn't support password-protected PFX files.
-            # Import into the user store so MAUI can read the cert (and its Subject for
-            # the MSIX Publisher field) without needing the password at build time.
-            $ss = ConvertTo-SecureString $env:CERT_PFX_PASS -AsPlainText -Force
-            $cert = Import-PfxCertificate -FilePath $pfxPath -CertStoreLocation Cert:\CurrentUser\My -Password $ss
-            $thumbprint = $cert.Thumbprint
-            Write-Host "Imported cert: $thumbprint  Subject: $($cert.Subject)"
-            $version = "${{ github.ref_name }}" -replace '^v', ''
-            dotnet publish Mucka.csproj -f net10.0-windows10.0.19041.0 -c Release `
-              -p:MUCKA_RELEASE_VERSION=$version `
-              -p:ApplicationVersion=${{ github.run_number }} `
-              -p:CreateWindowsInstaller=true `
-              -p:GenerateTemporaryStoreCertificate=false `
-              -p:AppxPackageSigningEnabled=true `
-              "-p:PackageCertificateThumbprint=$thumbprint"
-          } finally {
-            if ($thumbprint) { Remove-Item "Cert:\CurrentUser\My\$thumbprint" -Force -ErrorAction SilentlyContinue }
-            Remove-Item $pfxPath -Force -ErrorAction SilentlyContinue
-          }
+          $version = "${{ github.ref_name }}" -replace '^v', ''
+          dotnet publish Mucka.csproj -f net10.0-windows10.0.19041.0 -c Release `
+            -p:MUCKA_RELEASE_VERSION=$version `
+            -p:ApplicationVersion=${{ github.run_number }}
 
-      - name: Timestamp and collect MSIX
+      - name: Build installer
         shell: pwsh
-        env:
-          CERT_PFX_B64:  ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
-          CERT_PFX_PASS: ${{ secrets.WINDOWS_CERT_PFX_PASSWORD }}
         run: |
-          $msix = Get-ChildItem bin\Release -Recurse -Include *.msix,*.msixbundle |
+          $version = "${{ github.ref_name }}" -replace '^v', ''
+          $exe = Get-ChildItem bin\Release -Recurse -Filter Mucka.exe |
+            Where-Object { $_.FullName -notlike '*\ref\*' } |
             Sort-Object LastWriteTime -Descending |
             Select-Object -First 1
-          if (-not $msix) { throw "No .msix / .msixbundle found under bin\Release" }
+          if (-not $exe) { throw "Mucka.exe not found" }
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" `
+            "/DMyAppVersion=$version" `
+            "/DMyAppDir=$($exe.DirectoryName)" `
+            installer.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC exited $LASTEXITCODE" }
+
+      - name: Sign installer
+        shell: pwsh
+        env:
+          CERT_PFX_B64:  ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
+          CERT_PFX_PASS: ${{ secrets.WINDOWS_CERT_PFX_PASSWORD }}
+        run: |
           $pfxPath = [IO.Path]::Combine([IO.Path]::GetTempPath(), "mucka-sign.pfx")
           [IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($env:CERT_PFX_B64))
           try {
@@ -184,21 +173,20 @@ jobs:
                 Select-Object -First 1 -ExpandProperty FullName
             }
             if (-not $tool) { throw "signtool.exe not found" }
-            # Re-sign with an RFC 3161 timestamp; MAUI's internal signtool call omits this.
+            $dest = "mucka-windows-${{ github.ref_name }}-setup.exe"
+            Rename-Item mucka-setup.exe $dest
             & $tool sign /f $pfxPath /p $env:CERT_PFX_PASS `
-              /tr http://timestamp.digicert.com /td sha256 /fd sha256 $msix.FullName
+              /tr http://timestamp.digicert.com /td sha256 /fd sha256 $dest
             if ($LASTEXITCODE -ne 0) { throw "signtool exited $LASTEXITCODE" }
+            Write-Host "Signed → $dest"
           } finally {
             Remove-Item $pfxPath -Force -ErrorAction SilentlyContinue
           }
-          $dest = "mucka-windows-${{ github.ref_name }}-setup$($msix.Extension)"
-          Copy-Item $msix.FullName $dest
-          Write-Host "Timestamped → $dest"
 
       - uses: actions/upload-artifact@v7
         with:
           name: windows-installer
-          path: mucka-windows-${{ github.ref_name }}-setup.*
+          path: mucka-windows-${{ github.ref_name }}-setup.exe
 
   # ── Android ──────────────────────────────────────────────────────────────
   android-apk:
