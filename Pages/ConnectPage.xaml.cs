@@ -46,19 +46,41 @@ public partial class ConnectPage : ContentPage
     private void OnConnected(MuckaConnection conn, Profile profile)
     {
         // Create GameViewModel on the UI thread so Dispatcher.CreateTimer() is available.
+        // The lambda is async void (BeginInvokeOnMainThread takes Action) — any unhandled
+        // exception here would propagate to the WinUI 3 dispatcher and crash the process
+        // (0xc000027b), so we catch explicitly and surface the error instead.
         MainThread.BeginInvokeOnMainThread(async () =>
         {
-            var vm = _vm;
-            Func<string[], Task>? saveFkeys = _vm.IsDirectConnectMode
-                ? null
-                : async fkeys => await vm.SaveProfileFkeysAsync(profile.Name, fkeys);
-            Func<bool, Task>? saveMute = _vm.IsDirectConnectMode
-                ? null
-                : async mute => await vm.SaveProfileMuteAsync(profile.Name, mute);
-            var gameVm = new GameViewModel(conn, profile, saveFkeys, saveMute);
-            var gamePage = new GamePage(gameVm, _vm.IsDirectConnectMode);
-            await Navigation.PushAsync(gamePage);
+            try
+            {
+                var vm = _vm;
+                Func<string[], Task>? saveFkeys = _vm.IsDirectConnectMode
+                    ? null
+                    : async fkeys => await vm.SaveProfileFkeysAsync(profile.Name, fkeys);
+                Func<bool, Task>? saveMute = _vm.IsDirectConnectMode
+                    ? null
+                    : async mute => await vm.SaveProfileMuteAsync(profile.Name, mute);
+                var gameVm = new GameViewModel(conn, profile, saveFkeys, saveMute);
+                var gamePage = new GamePage(gameVm, _vm.IsDirectConnectMode);
+                await Navigation.PushAsync(gamePage);
+            }
+            catch (Exception ex)
+            {
+                LogCrash("OnConnected", ex);
+                await DisplayAlert("Launch Error", $"Could not open the game screen:\n{ex.Message}", "OK");
+            }
         });
+    }
+
+    private static void LogCrash(string context, Exception ex)
+    {
+        try
+        {
+            var path = Path.Combine(Path.GetTempPath(), "mucka-crash.txt");
+            File.WriteAllText(path, $"{DateTimeOffset.Now:o}  [{context}]\n{ex}\n");
+            System.Diagnostics.Trace.WriteLine($"[Mucka] crash log: {path}");
+        }
+        catch { }
     }
 
     private void OnProfileSelected(object? sender, SelectionChangedEventArgs e)

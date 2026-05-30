@@ -74,7 +74,8 @@ public partial class GamePage : ContentPage
         _isFkeyEditorOpen = false;
         base.OnAppearing();
 
-        DeviceDisplay.Current.KeepScreenOn = _vm.KeepScreenOn;
+        try { DeviceDisplay.Current.KeepScreenOn = _vm.KeepScreenOn; }
+        catch (Exception ex) { LogCrash("KeepScreenOn", ex); }
 
         if (_flushTimer == null)
         {
@@ -104,16 +105,20 @@ public partial class GamePage : ContentPage
                 Window.Activated += OnWindowActivated;
 
 #if WINDOWS
-            // Hook window root for F1-F12 physical key events (fires regardless of focus).
-            if (Window?.Handler?.PlatformView is Microsoft.UI.Xaml.Window fwin &&
-                fwin.Content is Microsoft.UI.Xaml.UIElement froot)
-                froot.PreviewKeyDown += OnRootPreviewKeyDown;
-            // Hook the native TextBox so Up/Down/Esc keys work in the entry.
-            InputEntry.HandlerChanged += OnInputHandlerChanged;
-            _vm.OpenRawConsoleRequested += OnOpenRawConsoleRequested;
-            // Enforce minimum window width based on the configured terminal columns.
-            _vm.SidePanel.PropertyChanged += OnSidePanelPropertyChanged;
-            SetupWindowMinimumSize();
+            try
+            {
+                // Hook window root for F1-F12 physical key events (fires regardless of focus).
+                if (Window?.Handler?.PlatformView is Microsoft.UI.Xaml.Window fwin &&
+                    fwin.Content is Microsoft.UI.Xaml.UIElement froot)
+                    froot.PreviewKeyDown += OnRootPreviewKeyDown;
+                // Hook the native TextBox so Up/Down/Esc keys work in the entry.
+                InputEntry.HandlerChanged += OnInputHandlerChanged;
+                _vm.OpenRawConsoleRequested += OnOpenRawConsoleRequested;
+                // Enforce minimum window width based on the configured terminal columns.
+                _vm.SidePanel.PropertyChanged += OnSidePanelPropertyChanged;
+                SetupWindowMinimumSize();
+            }
+            catch (Exception ex) { LogCrash("OnAppearing/Windows", ex); }
 #endif
         }
         else
@@ -700,6 +705,17 @@ public partial class GamePage : ContentPage
         Application.Current?.OpenWindow(_rawConsoleWindow);
     }
 #endif
+
+    private static void LogCrash(string context, Exception ex)
+    {
+        try
+        {
+            var path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "mucka-crash.txt");
+            System.IO.File.AppendAllText(path, $"{DateTimeOffset.Now:o}  [{context}]\n{ex}\n\n");
+            System.Diagnostics.Trace.WriteLine($"[Mucka] crash log: {path}");
+        }
+        catch { }
+    }
 
     private void OnDisconnected()
     {
