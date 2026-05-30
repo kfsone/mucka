@@ -67,7 +67,7 @@ public partial class ConnectPage : ContentPage
             catch (Exception ex)
             {
                 LogCrash("OnConnected", ex);
-                await DisplayAlert("Launch Error", $"Could not open the game screen:\n{ex.Message}", "OK");
+                await DisplayAlertAsync("Launch Error", $"Could not open the game screen:\n{ex.Message}", "OK");
             }
         });
     }
