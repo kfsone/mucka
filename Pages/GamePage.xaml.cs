@@ -51,6 +51,7 @@ public partial class GamePage : ContentPage
     private bool _eventsSubscribed;
     private readonly SemaphoreSlim _scriptExecutionLock = new(1, 1);
 #if WINDOWS
+    private bool _scrollbackHtmlLoaded;
     private Window? _rawConsoleWindow;
     private Microsoft.UI.Xaml.Controls.TextBox? _inputTextBox;
     // ── Window minimum-size enforcement ─────────────────────────────────────
@@ -370,7 +371,19 @@ public partial class GamePage : ContentPage
             {
                 if (wv2.CoreWebView2 is null)
                     await wv2.EnsureCoreWebView2Async();
-                await (wv2.CoreWebView2 ?? throw new InvalidOperationException("CoreWebView2 unavailable")).ExecuteScriptAsync(script);
+                var core = wv2.CoreWebView2 ?? throw new InvalidOperationException("CoreWebView2 unavailable");
+                if (!_scrollbackHtmlLoaded)
+                {
+                    // MAUI's WebView.Source = HtmlWebViewSource path fails silently due to a bug
+                    // in WebView2Proxy.OnCoreWebView2Initialized — the LoadHtml continuation is
+                    // scheduled but the handler crashes before it completes. Navigate directly
+                    // on the CoreWebView2 instead. Throw so RunInjectionAsync retries next tick
+                    // while the navigation is in flight.
+                    core.NavigateToString(HtmlScrollback.GeneratePage(_vm.FontSize));
+                    _scrollbackHtmlLoaded = true;
+                    throw new InvalidOperationException("Scrollback HTML navigation started; retry next tick.");
+                }
+                await core.ExecuteScriptAsync(script);
                 return;
             }
 #endif
