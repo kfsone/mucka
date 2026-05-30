@@ -439,7 +439,7 @@
                                         <BindableLayout.ItemTemplate>
                                             <DataTemplate x:DataType="vm:WhoEntry">
                                                 <Label Text="{Binding Name}"
-                                                       TextColor="{Binding Color}"
+                                                       TextColor="{Binding DisplayColor}"
                                                        Opacity="{Binding Opacity}"
                                                        FontSize="11"
                                                        FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>

@@ -123,18 +123,33 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         FeiSectionOpacity = ComputeStaleOpacity(_feiLastRefresh, now);
         FewSectionOpacity = ComputeStaleOpacity(_fewLastRefresh, now);
 
-        // Advance player departure animations; iterate in reverse so removal by index is safe.
-        const double departureDurationSec = 2.5;
+        const double transitionSec = 4.0;
+
+        // Advance player departure fades and arrival/update glows.
+        // Iterate in reverse so removal by index is safe.
         for (int i = WhosList.Count - 1; i >= 0; i--)
         {
             var entry = WhosList[i];
-            if (entry.DepartingSince is not { } since) continue;
 
-            double elapsed = (now - since).TotalSeconds;
-            if (elapsed >= departureDurationSec)
-                WhosList.RemoveAt(i);
-            else
-                entry.Opacity = 1.0 - elapsed / departureDurationSec;
+            if (entry.DepartingSince is { } since)
+            {
+                double elapsed = (now - since).TotalSeconds;
+                if (elapsed >= transitionSec)
+                    WhosList.RemoveAt(i);
+                else
+                    entry.Opacity = 1.0 - elapsed / transitionSec;
+            }
+            else if (entry.GlowSince is { } glowSince)
+            {
+                double elapsed = (now - glowSince).TotalSeconds;
+                if (elapsed >= transitionSec)
+                {
+                    entry.GlowSince = null;
+                    entry.SetGlowProgress(1.0f);
+                }
+                else
+                    entry.SetGlowProgress((float)(elapsed / transitionSec));
+            }
         }
     }
 
@@ -168,12 +183,13 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
 
     /// <summary>
     /// Called on the TCP read thread when a room-short line arrives at line start.
-    /// Pushes the current room into history (if non-empty) and updates CurrentRoom.
+    /// Pushes the current room into history only when the name differs from the current room,
+    /// suppressing history bumps for repeated looks at the same room.
     /// </summary>
     public void OnRoomNameReady(string name)
         => MainThread.BeginInvokeOnMainThread(() =>
         {
-            if (!string.IsNullOrEmpty(_currentRoom))
+            if (name != _currentRoom && !string.IsNullOrEmpty(_currentRoom))
             {
                 OldestRoom   = PreviousRoom;
                 PreviousRoom = _currentRoom;
@@ -209,9 +225,10 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     /// <summary>
     /// Called when the FEW-response context closes — all names have been delivered.
     /// Diffs the incoming snapshot against the current WhosList:
-    ///   • Players no longer in the snapshot are marked departing and fade out over 2.5 s.
+    ///   • Players no longer in the snapshot are marked departing and fade out over 4 s.
     ///   • Players that reappear before their fade completes have their departure cancelled.
-    ///   • New arrivals are appended.
+    ///   • New arrivals are appended with a white→color glow over 4 s.
+    ///   • Players whose name or color changed (e.g. level-up) are updated in-place with a glow.
     /// </summary>
     public void OnFewListComplete()
     {
@@ -221,19 +238,27 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         {
             _fewLastRefresh = DateTime.UtcNow;
 
-            var newNames = new HashSet<string>(
-                snapshot.Select(w => w.Name), StringComparer.OrdinalIgnoreCase);
+            // Key by persona name (first word) so a level-up — which changes the
+            // description suffix — is treated as the same player, not a departure + arrival.
+            var newByPersona = snapshot.ToDictionary(
+                w => w.PersonaName, StringComparer.OrdinalIgnoreCase);
 
-            // Mark departing players; cancel departure for players that reappeared.
+            // Mark departing players; cancel departure and refresh display for returnees.
             foreach (var existing in WhosList)
             {
-                if (newNames.Contains(existing.Name))
+                if (newByPersona.TryGetValue(existing.PersonaName, out var updated))
                 {
                     if (existing.DepartingSince is not null)
                     {
                         existing.DepartingSince = null;
                         existing.Opacity = 1.0;
                     }
+                    // Reflect a level-up or colour change with a glow.
+                    var nameChanged  = existing.Name  != updated.Name;
+                    var colorChanged = existing.Color != updated.Color;
+                    if (nameChanged)  existing.Name  = updated.Name;
+                    if (colorChanged) existing.Color = updated.Color;
+                    if (nameChanged || colorChanged)  existing.StartGlow();
                 }
                 else if (existing.DepartingSince is null)
                 {
@@ -242,12 +267,15 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             }
 
             // Append new arrivals (not already in the list, including after a full-removal cycle).
-            var currentNames = new HashSet<string>(
-                WhosList.Select(w => w.Name), StringComparer.OrdinalIgnoreCase);
+            var currentPersonas = new HashSet<string>(
+                WhosList.Select(w => w.PersonaName), StringComparer.OrdinalIgnoreCase);
             foreach (var entry in snapshot)
             {
-                if (!currentNames.Contains(entry.Name))
+                if (!currentPersonas.Contains(entry.PersonaName))
+                {
+                    entry.StartGlow();
                     WhosList.Add(entry);
+                }
             }
         });
     }
