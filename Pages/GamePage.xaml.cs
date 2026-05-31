@@ -213,6 +213,19 @@ public partial class GamePage : ContentPage
 
     private void OnFlushTick(object? sender, EventArgs e)
     {
+#if WINDOWS
+        // The DispatcherTimer fires at Normal priority — the same level as keyboard routing.
+        // Post the actual work at Low priority so queued key events drain first, keeping
+        // character input smooth even when game output is arriving simultaneously.
+        Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread()
+            .TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, DoFlushWork);
+#else
+        DoFlushWork();
+#endif
+    }
+
+    private void DoFlushWork()
+    {
         _vm.AntiIdleTick();
 
         if (_injecting) return;   // previous injection still in flight — pick up lines next tick
@@ -435,7 +448,7 @@ public partial class GamePage : ContentPage
 
     private async void OnConfigRequested() => await OpenConfigAsync(initialTab: 0);
 
-    private void FocusInput() => InputEntry.Focus();
+    private void FocusInput() { if (!InputEntry.IsFocused) InputEntry.Focus(); }
 
     // Redirect focus back to the typing box whenever the WebView captures it
     // (e.g. on initial load or when the user clicks the scrollback area).
@@ -627,10 +640,11 @@ public partial class GamePage : ContentPage
         {
             _inputTextBox = tb;
             tb.PreviewKeyDown += OnInputPreviewKeyDown;
-            // Null the ReturnCommand so MAUI's KeyDown handler (registered with
-            // handledEventsToo:true) doesn't fire a second send after our PreviewKeyDown.
+            // Remove the ReturnCommand binding entirely — MAUI's KeyDown handler is registered
+            // with handledEventsToo:true so it would fire even after e.Handled = true.
             // Enter is handled exclusively via OnInputPreviewKeyDown on Windows.
-            InputEntry.ReturnCommand = null;
+            // RemoveBinding (not just null-assign) ensures MAUI can't restore it on a binding refresh.
+            InputEntry.RemoveBinding(Entry.ReturnCommandProperty);
         }
     }
 
@@ -653,10 +667,11 @@ public partial class GamePage : ContentPage
         }
         else if (e.Key == Windows.System.VirtualKey.Enter)
         {
-            // Handle Enter here via the tunneling PreviewKeyDown so MAUI's KeyDown-based
-            // ReturnCommand handler never fires. That handler triggers the Send button's
-            // visual pressed state, introducing a brief gap that lets fast typists race
-            // their next keystroke in before the input box is cleared.
+            // Sync from the native TextBox before capturing — the TwoWay binding propagation
+            // for the last-typed character may not have reached the ViewModel yet, which would
+            // drop that character ("hell" sent instead of "hello" on fast typing).
+            if (_inputTextBox is not null)
+                _vm.InputText = _inputTextBox.Text;
             _vm.SendCommand.Execute(null);
             e.Handled = true;
         }
