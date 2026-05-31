@@ -52,6 +52,7 @@ public partial class GamePage : ContentPage
     private readonly SemaphoreSlim _scriptExecutionLock = new(1, 1);
 #if WINDOWS
     private bool _scrollbackHtmlLoaded;
+    private bool _scrollbackNavigated;
     private Window? _rawConsoleWindow;
     private Microsoft.UI.Xaml.Controls.TextBox? _inputTextBox;
     // ── Window minimum-size enforcement ─────────────────────────────────────
@@ -377,12 +378,19 @@ public partial class GamePage : ContentPage
                     // MAUI's WebView.Source = HtmlWebViewSource path fails silently due to a bug
                     // in WebView2Proxy.OnCoreWebView2Initialized — the LoadHtml continuation is
                     // scheduled but the handler crashes before it completes. Navigate directly
-                    // on the CoreWebView2 instead. Throw so RunInjectionAsync retries next tick
-                    // while the navigation is in flight.
+                    // on the CoreWebView2 instead.
+                    // Subscribe to NavigationCompleted BEFORE calling NavigateToString so we
+                    // never miss the event. Throw so RunInjectionAsync retries next tick.
+                    core.NavigationCompleted += OnScrollbackCoreNavigated;
                     core.NavigateToString(HtmlScrollback.GeneratePage(_vm.FontSize));
                     _scrollbackHtmlLoaded = true;
                     throw new InvalidOperationException("Scrollback HTML navigation started; retry next tick.");
                 }
+                // Keep retrying (lines stay in _pendingInjection) until the navigation
+                // completes. Without this guard, ExecuteScriptAsync would succeed but the
+                // JS would exit early on `if(!o)return` and the lines would be cleared.
+                if (!_scrollbackNavigated)
+                    throw new InvalidOperationException("Scrollback HTML navigation in progress; retry next tick.");
                 await core.ExecuteScriptAsync(script);
                 return;
             }
@@ -716,6 +724,16 @@ public partial class GamePage : ContentPage
             Height = 550,
         };
         Application.Current?.OpenWindow(_rawConsoleWindow);
+    }
+#endif
+
+#if WINDOWS
+    private void OnScrollbackCoreNavigated(
+        Microsoft.Web.WebView2.Core.CoreWebView2 sender,
+        Microsoft.Web.WebView2.Core.CoreWebView2NavigationCompletedEventArgs args)
+    {
+        sender.NavigationCompleted -= OnScrollbackCoreNavigated;
+        _scrollbackNavigated = args.IsSuccess;
     }
 #endif
 
