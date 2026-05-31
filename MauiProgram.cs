@@ -10,6 +10,14 @@ public static class MauiProgram
 {
     public static MauiApp CreateMauiApp()
     {
+#if WINDOWS
+        // WebView2's default user data folder sits next to the exe, which is read-only when
+        // installed to Program Files. Point it at a writable per-user location instead.
+        Environment.SetEnvironmentVariable(
+            "WEBVIEW2_USER_DATA_FOLDER",
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                         "Mucka", "WebView2"));
+#endif
         var builder = MauiApp.CreateBuilder();
         builder
             .UseMauiApp<App>()

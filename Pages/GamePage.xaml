@@ -560,25 +560,8 @@
             </HorizontalStackLayout>
         </Grid>
 
-        <!-- ── Scroll mode banner — overlays the input row when scroll mode is active ── -->
-        <Border Grid.Row="4"
-                IsVisible="{Binding IsScrollMode}"
-                BackgroundColor="#2d1b00"
-                StrokeThickness="0"
-                Padding="8,6">
-            <Border.GestureRecognizers>
-                <TapGestureRecognizer Tapped="OnScrollModeBannerTapped"/>
-            </Border.GestureRecognizers>
-            <Label Text="Scroll Mode &#x2014; Press Esc or Tap to Exit"
-                   TextColor="#e3b341"
-                   HorizontalOptions="Center"
-                   FontAttributes="Bold"
-                   FontSize="13"/>
-        </Border>
-
-        <!-- ── Input row — hidden while scroll mode is active ───────── -->
+        <!-- ── Input row ───────────────────────────────────────────── -->
         <Grid Grid.Row="5"
-              IsVisible="{Binding IsNotScrollMode}"
               ColumnDefinitions="Auto,*,Auto"
               BackgroundColor="#161b22"
               Padding="4,4">
@@ -603,8 +586,7 @@
                    ClearButtonVisibility="WhileEditing"
                    Keyboard="Plain"
                    IsSpellCheckEnabled="False"
-                   IsTextPredictionEnabled="False"
-                   Focused="OnInputEntryFocused">
+                   IsTextPredictionEnabled="False">
                 <Entry.FontFamily>
                     <OnPlatform x:TypeArguments="x:String">
                         <On Platform="Android"      Value="monospace"/>

@@ -43,7 +43,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private string _dreamword = string.Empty;
     private bool _isConnected = true;
     private bool _fkeysVisible;
-    private bool _isScrollMode;
     private bool _isCapturing;
     private int _maxColumns;
     private int _effCols = 80;
@@ -85,8 +84,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public string Dreamword { get => _dreamword; set => SetAndNotify(ref _dreamword, value, [nameof(DreamwordDisplay), nameof(DreamwordIsPlaceholder)]); }
     public bool IsConnected  { get => _isConnected;  set => Set(ref _isConnected,  value); }
     public bool FkeysVisible { get => _fkeysVisible; set => Set(ref _fkeysVisible, value); }
-    public bool IsScrollMode { get => _isScrollMode; set => SetAndNotify(ref _isScrollMode, value, [nameof(IsNotScrollMode)]); }
-    public bool IsNotScrollMode => !_isScrollMode;
     public bool IsCapturing { get => _isCapturing; private set => Set(ref _isCapturing, value); }
     public int MaxColumns => _maxColumns;
     public int EffCols => _effCols;

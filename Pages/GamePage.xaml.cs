@@ -97,7 +97,6 @@ public partial class GamePage : ContentPage
                 Html    = HtmlScrollback.GeneratePage(_vm.FontSize),
                 BaseUrl = AppContext.BaseDirectory,   // null BaseUrl causes NullReferenceException in MauiWebView.LoadHtml on Windows
             };
-            ScrollbackWebView.Navigating += OnScrollbackNavigating;
             ScrollbackWebView.Navigated += OnScrollbackNavigated;
             ScrollbackWebView.Focused += OnScrollbackFocused;
 
@@ -169,7 +168,6 @@ public partial class GamePage : ContentPage
         DeviceDisplay.Current.KeepScreenOn = false;
         _flushTimer?.Stop();
         _flushTimer = null;
-        ScrollbackWebView.Navigating -= OnScrollbackNavigating;
         ScrollbackWebView.Navigated -= OnScrollbackNavigated;
         ScrollbackWebView.Focused -= OnScrollbackFocused;
         _vm.Disconnected        -= OnDisconnected;
@@ -197,20 +195,6 @@ public partial class GamePage : ContentPage
         _ = _vm.DisposeAsync();
     }
 
-    /// <summary>
-    /// Intercept mucka:// navigation messages sent from the WebView's scroll-detection script.
-    /// mucka://scroll/pause  — user has scrolled away from the bottom; enter scroll mode.
-    /// mucka://scroll/resume — user has returned to the bottom (or pressed ESC); exit scroll mode.
-    /// </summary>
-    private void OnScrollbackNavigating(object? sender, WebNavigatingEventArgs e)
-    {
-        if (!e.Url.StartsWith("mucka://scroll/", StringComparison.Ordinal))
-            return;
-
-        e.Cancel = true;
-        _vm.IsScrollMode = e.Url == "mucka://scroll/pause";
-    }
-
     private void OnFlushTick(object? sender, EventArgs e)
     {
 #if WINDOWS
@@ -233,9 +217,6 @@ public partial class GamePage : ContentPage
         // Move new lines from the ViewModel queue into our local buffer.
         var newLines = _vm.FlushPendingLines();
         if (newLines != null) _pendingInjection.AddRange(newLines);
-
-        // While in scroll mode, buffer lines but don't inject them into the WebView.
-        if (_vm.IsScrollMode) return;
 
         if (_pendingInjection.Count == 0) return;
 
@@ -262,11 +243,10 @@ public partial class GamePage : ContentPage
 #endif
     {
         if (_pendingInjection.Count == 0) { _injecting = false; return; }
-        var lines    = _pendingInjection.ToList();
-        var atBottom = !_vm.IsScrollMode;
+        var lines = _pendingInjection.ToList();
         try
         {
-            var script = await Task.Run(() => BuildInjectionScript(lines, atBottom));
+            var script = await Task.Run(() => BuildInjectionScript(lines));
             await ExecuteScriptAsync(script);
             _pendingInjection.Clear();
         }
@@ -280,7 +260,7 @@ public partial class GamePage : ContentPage
         }
     }
 
-    private static string BuildInjectionScript(IReadOnlyList<StyledLine> lines, bool atBottom)
+    private static string BuildInjectionScript(IReadOnlyList<StyledLine> lines)
     {
         var sb = new StringBuilder(lines.Count * 100);
         sb.Append("(function(){var o=document.getElementById('out');if(!o)return;");
@@ -321,25 +301,8 @@ public partial class GamePage : ContentPage
         // Trim to 120 permanent lines.
         sb.Append("while(o.querySelectorAll('.ln').length>120){var f=o.querySelector('.ln');if(f)f.remove();else break;}");
         sb.Append("})();");
-        if (atBottom)
-            sb.Append("window.scrollTo(0,document.body.scrollHeight);");
+        sb.Append("window.scrollTo(0,document.body.scrollHeight);");
         return sb.ToString();
-    }
-
-    /// <summary>
-    /// Exit scroll mode: re-enable auto-scroll and scroll immediately to the bottom.
-    /// </summary>
-    private async Task ExitScrollModeAsync()
-    {
-        try
-        {
-            await ExecuteScriptAsync("window._atBottom=true;(function(){var s=document.scrollingElement||document.documentElement||document.body;s.scrollTop=s.scrollHeight;})();");
-            _vm.IsScrollMode = false;
-        }
-        catch
-        {
-            // WebView not ready — leave scroll mode enabled until we can scroll to the bottom.
-        }
     }
 
     // Character width in MAUI logical pixels — delegates to the view-model so both
@@ -355,23 +318,6 @@ public partial class GamePage : ContentPage
     }
 
 
-    /// <summary>
-    /// Called when the user taps the scroll-mode banner — exits scroll mode and returns focus to input.
-    /// </summary>
-    private void OnScrollModeBannerTapped(object? sender, TappedEventArgs e)
-    {
-        _ = ExitScrollModeAsync();
-        FocusInput();
-    }
-
-    /// <summary>
-    /// Called when the input entry gains focus — exits scroll mode if active.
-    /// </summary>
-    private void OnInputEntryFocused(object? sender, FocusEventArgs e)
-    {
-        if (_vm.IsScrollMode)
-            _ = ExitScrollModeAsync();
-    }
 
     /// <summary>
     /// Execute JavaScript reliably across platforms.
@@ -640,11 +586,13 @@ public partial class GamePage : ContentPage
         {
             _inputTextBox = tb;
             tb.PreviewKeyDown += OnInputPreviewKeyDown;
-            // Remove the ReturnCommand binding entirely — MAUI's KeyDown handler is registered
-            // with handledEventsToo:true so it would fire even after e.Handled = true.
-            // Enter is handled exclusively via OnInputPreviewKeyDown on Windows.
-            // RemoveBinding (not just null-assign) ensures MAUI can't restore it on a binding refresh.
-            InputEntry.RemoveBinding(Entry.ReturnCommandProperty);
+            // Shadow the ReturnCommand with a local null so MAUI's KeyDown handler
+            // (registered with handledEventsToo:true) sees null and skips execution.
+            // Do NOT use RemoveBinding — that fires PropertyChanged which causes MAUI's
+            // binding infrastructure to re-evaluate and re-apply the XAML binding,
+            // restoring ReturnCommand=SendCommand and producing a second send.
+            // A plain null SetValue shadows the live binding without disturbing it.
+            InputEntry.ReturnCommand = null;
         }
     }
 

@@ -46,29 +46,6 @@ public static class HtmlScrollback
         </head>
         <body>
         <div id="out"></div>
-        <script>
-        window._atBottom=true;
-        (function(){
-          function scrollRoot(){
-            return document.scrollingElement||document.documentElement||document.body;
-          }
-          function chk(){
-            var s=scrollRoot();
-            var d=s.scrollHeight-s.scrollTop-s.clientHeight;
-            var b=d<5;
-            if(b===window._atBottom)return;
-            window._atBottom=b;
-            window.location=b?'mucka://scroll/resume':'mucka://scroll/pause';
-          }
-          window.addEventListener('scroll',chk,{passive:true});
-          document.addEventListener('keydown',function(e){
-            if(e.key==='Escape'&&!window._atBottom){
-              var s=scrollRoot();
-              s.scrollTop=s.scrollHeight;
-            }
-          });
-        })();
-        </script>
         </body>
         </html>
         """;
