@@ -49,8 +49,7 @@ jobs:
           $version = "${{ github.ref_name }}" -replace '^v', ''
           dotnet publish Mucka.csproj -f net10.0-windows10.0.19041.0 -c Release `
             -p:MUCKA_RELEASE_VERSION=$version `
-            -p:ApplicationVersion=${{ github.run_number }} `
-            -p:WindowsAppSDKSelfContained=true
+            -p:ApplicationVersion=${{ github.run_number }}
 
       - name: Sign executable
         shell: pwsh
@@ -138,8 +137,16 @@ jobs:
           $version = "${{ github.ref_name }}" -replace '^v', ''
           dotnet publish Mucka.csproj -f net10.0-windows10.0.19041.0 -c Release `
             -p:MUCKA_RELEASE_VERSION=$version `
-            -p:ApplicationVersion=${{ github.run_number }} `
-            -p:WindowsAppSDKSelfContained=true
+            -p:ApplicationVersion=${{ github.run_number }}
+
+      - name: Download Windows App Runtime installer
+        shell: pwsh
+        run: |
+          # Bundled so the installer works on machines that don't already have
+          # the Windows App SDK framework package (required by MAUI/WinUI 3).
+          $url = "https://aka.ms/windowsappsdk/1.7/latest/windowsappruntimeinstall-x64.exe"
+          Invoke-WebRequest -Uri $url -OutFile windowsappruntimeinstall-x64.exe -UseBasicParsing
+          Write-Host "Downloaded Windows App Runtime installer: $((Get-Item windowsappruntimeinstall-x64.exe).Length) bytes"
 
       - name: Build installer
         shell: pwsh
