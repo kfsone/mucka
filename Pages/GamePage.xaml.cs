@@ -92,7 +92,11 @@ public partial class GamePage : ContentPage
                 _eventsSubscribed = true;
             }
 
-            ScrollbackWebView.Source = new HtmlWebViewSource { Html = HtmlScrollback.GeneratePage(_vm.FontSize) };
+            ScrollbackWebView.Source = new HtmlWebViewSource
+            {
+                Html    = HtmlScrollback.GeneratePage(_vm.FontSize),
+                BaseUrl = AppContext.BaseDirectory,   // null BaseUrl causes NullReferenceException in MauiWebView.LoadHtml on Windows
+            };
             ScrollbackWebView.Navigating += OnScrollbackNavigating;
             ScrollbackWebView.Navigated += OnScrollbackNavigated;
             ScrollbackWebView.Focused += OnScrollbackFocused;
