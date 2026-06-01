@@ -56,6 +56,23 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     public ObservableCollection<WhoEntry> WhosList { get; } = new();
     private readonly List<WhoEntry> _pendingWhos = new();
 
+    // ── Room exits (FEX) ─────────────────────────────────────────────────────
+    public ExitIndicator ExitNorth     { get; } = new();
+    public ExitIndicator ExitSouth     { get; } = new();
+    public ExitIndicator ExitEast      { get; } = new();
+    public ExitIndicator ExitWest      { get; } = new();
+    public ExitIndicator ExitNorthEast { get; } = new();
+    public ExitIndicator ExitNorthWest { get; } = new();
+    public ExitIndicator ExitSouthEast { get; } = new();
+    public ExitIndicator ExitSouthWest { get; } = new();
+    public ExitIndicator ExitUp        { get; } = new();
+    public ExitIndicator ExitDown      { get; } = new();
+    public ExitIndicator ExitIn        { get; } = new();
+    public ExitIndicator ExitOut       { get; } = new();
+    public ExitIndicator ExitSwampward { get; } = new();
+
+    private readonly List<string> _pendingExits = new();
+
     // ── Inventory / room items ────────────────────────────────────────────────
     public ObservableCollection<string> InventoryList { get; } = new();
     public ObservableCollection<string> RoomItemsList { get; } = new();
@@ -179,6 +196,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         {
             RoomItemsList.Clear();
             OnPropertiesChanged(nameof(HasRoomItems), nameof(NoRoomItems));
+            SetAllExitsPresent(false);
         });
 
     /// <summary>
@@ -329,6 +347,57 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
                 nameof(HasRoomItems), nameof(NoRoomItems),
                 nameof(HasInventory), nameof(NoInventory));
         });
+    }
+
+    // ── Room exits (FEX) ──────────────────────────────────────────────────────
+
+    public void OnFexListStarting()
+        => _pendingExits.Clear();
+
+    public void OnFexItemReady(string item)
+    {
+        foreach (var keyword in item.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+            _pendingExits.Add(keyword);
+    }
+
+    public void OnFexListComplete()
+    {
+        var snapshot = _pendingExits.ToList();
+        _pendingExits.Clear();
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            var exits = new HashSet<string>(snapshot, StringComparer.OrdinalIgnoreCase);
+            ExitNorth.Present     = exits.Contains("north");
+            ExitSouth.Present     = exits.Contains("south");
+            ExitEast.Present      = exits.Contains("east");
+            ExitWest.Present      = exits.Contains("west");
+            ExitNorthEast.Present = exits.Contains("northeast");
+            ExitNorthWest.Present = exits.Contains("northwest");
+            ExitSouthEast.Present = exits.Contains("southeast");
+            ExitSouthWest.Present = exits.Contains("southwest");
+            ExitUp.Present        = exits.Contains("up");
+            ExitDown.Present      = exits.Contains("down");
+            ExitIn.Present        = exits.Contains("in");
+            ExitOut.Present       = exits.Contains("out");
+            ExitSwampward.Present = exits.Contains("swampward");
+        });
+    }
+
+    private void SetAllExitsPresent(bool value)
+    {
+        ExitNorth.Present     = value;
+        ExitSouth.Present     = value;
+        ExitEast.Present      = value;
+        ExitWest.Present      = value;
+        ExitNorthEast.Present = value;
+        ExitNorthWest.Present = value;
+        ExitSouthEast.Present = value;
+        ExitSouthWest.Present = value;
+        ExitUp.Present        = value;
+        ExitDown.Present      = value;
+        ExitIn.Present        = value;
+        ExitOut.Present       = value;
+        ExitSwampward.Present = value;
     }
 
     public void Dispose()

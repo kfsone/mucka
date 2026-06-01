@@ -19,7 +19,7 @@ public sealed class MudSession : IDisposable
     private TimeSpan _fesInterval;
     private GameStatsSnapshot _currentStats = GameStatsSnapshot.Empty;
     private string? _currentDreamword;
-    // Periodic probe: ESC-[FES,FEW,FEI ESC-] — fetches stats, who-list, and inventory together.
+    // Periodic probe: ESC-[FES,FEW,FEI ESC-] — fetches stats, who-list, inventory, and exits together.
     // Reactive C1-triggered FES sends (in Mud2C1Decoder) still use FES-only to avoid clearing
     // the who list during combat/spell events.
     private static readonly byte[] FesAndFewSubscription =
@@ -43,6 +43,9 @@ public sealed class MudSession : IDisposable
     public event Action<string>? FeiItemReady;
     public event Action? FeiListStarting;
     public event Action? FeiListComplete;
+    public event Action<string>? FexItemReady;
+    public event Action? FexListStarting;
+    public event Action? FexListComplete;
     /// <summary>
     /// Server confirmed the terminal width (ESC-<n>W response or "[New terminal width is N]" annotation).
     /// Payload is the confirmed column count.
@@ -137,6 +140,9 @@ public sealed class MudSession : IDisposable
         _parser.FeiItemReady     += item => FeiItemReady?.Invoke(item);
         _parser.FeiListStarting  += () => FeiListStarting?.Invoke();
         _parser.FeiListComplete  += () => FeiListComplete?.Invoke();
+        _parser.FexItemReady     += item => FexItemReady?.Invoke(item);
+        _parser.FexListStarting  += () => FexListStarting?.Invoke();
+        _parser.FexListComplete  += () => FexListComplete?.Invoke();
         _parser.TerminalWidthConfirmed += w => TerminalWidthConfirmed?.Invoke(w);
     }
 
@@ -188,6 +194,11 @@ public sealed class MudSession : IDisposable
             SendFesSubscription();
             _fesTimer = new Timer(_ => SendFesSubscription(), null, _fesInterval, _fesInterval);
         }
+
+        // We need to request our first front-end exit list *and* tell the game to send use
+        // exit lists with every room.
+        SendLine("auto fex");
+        Send(System.Text.Encoding.Latin1.GetBytes("\x1b-[FEX\x1b-]"));
     }
 
     private void OnGameModeExited()

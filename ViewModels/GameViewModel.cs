@@ -391,6 +391,9 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _conn.FeiListStarting  += SidePanel.OnFeiListStarting;
         _conn.FeiItemReady     += SidePanel.OnFeiItemReady;
         _conn.FeiListComplete  += SidePanel.OnFeiListComplete;
+        _conn.FexListStarting  += SidePanel.OnFexListStarting;
+        _conn.FexItemReady     += SidePanel.OnFexItemReady;
+        _conn.FexListComplete  += SidePanel.OnFexListComplete;
 
         SendCommand           = new Command(SendNow);
         FkeyCommand           = new Command<string>(SendFkey);
@@ -875,6 +878,9 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _conn.FewPlayerReady   -= SidePanel.OnFewPlayerReceived;
         _conn.FewListStarting  -= SidePanel.OnFewListStarting;
         _conn.FewListComplete  -= SidePanel.OnFewListComplete;
+        _conn.FexListStarting  -= SidePanel.OnFexListStarting;
+        _conn.FexItemReady     -= SidePanel.OnFexItemReady;
+        _conn.FexListComplete  -= SidePanel.OnFexListComplete;
         await _conn.DisposeAsync();
     }
 }

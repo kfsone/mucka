@@ -392,6 +392,85 @@
                                                TextColor="#555555" FontSize="11" FontAttributes="Italic"/>
                                     </VerticalStackLayout>
 
+                                    <!-- Exits grid (FEX) ─────────────────────────────────── -->
+                                    <!--
+                                         nw  n   ne   <(in)   ↑(up)
+                                         w   .    e           ≈(swampward)
+                                         sw  s   se   >(out)  ↓(down)
+                                    -->
+                                    <Grid Margin="0,6,0,0" HorizontalOptions="Start"
+                                          ColumnDefinitions="Auto,Auto,Auto,Auto,Auto" ColumnSpacing="4"
+                                          RowDefinitions="Auto,Auto,Auto" RowSpacing="2">
+                                        <!-- Row 0: nw, n, ne, <(in), ↑ -->
+                                        <Label Grid.Row="0" Grid.Column="0" Text="nw"
+                                               TextColor="{Binding SidePanel.ExitNorthWest.Color}"
+                                               FontAttributes="{Binding SidePanel.ExitNorthWest.FontAttributes}"
+                                               FontSize="11" FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"
+                                               HorizontalTextAlignment="Center"/>
+                                        <Label Grid.Row="0" Grid.Column="1" Text="n"
+                                               TextColor="{Binding SidePanel.ExitNorth.Color}"
+                                               FontAttributes="{Binding SidePanel.ExitNorth.FontAttributes}"
+                                               FontSize="11" FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"
+                                               HorizontalTextAlignment="Center"/>
+                                        <Label Grid.Row="0" Grid.Column="2" Text="ne"
+                                               TextColor="{Binding SidePanel.ExitNorthEast.Color}"
+                                               FontAttributes="{Binding SidePanel.ExitNorthEast.FontAttributes}"
+                                               FontSize="11" FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"
+                                               HorizontalTextAlignment="Center"/>
+                                        <Label Grid.Row="0" Grid.Column="3" Text="⇥"
+                                               TextColor="{Binding SidePanel.ExitIn.Color}"
+                                               FontAttributes="{Binding SidePanel.ExitIn.FontAttributes}"
+                                               FontSize="11" FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"
+                                               HorizontalTextAlignment="Center"/>
+                                        <Label Grid.Row="0" Grid.Column="4" Text="↑"
+                                               TextColor="{Binding SidePanel.ExitUp.Color}"
+                                               FontAttributes="{Binding SidePanel.ExitUp.FontAttributes}"
+                                               FontSize="11" FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"
+                                               HorizontalTextAlignment="Center"/>
+                                        <!-- Row 1: w,  , e, ≈(swampward) -->
+                                        <Label Grid.Row="1" Grid.Column="0" Text="w"
+                                               TextColor="{Binding SidePanel.ExitWest.Color}"
+                                               FontAttributes="{Binding SidePanel.ExitWest.FontAttributes}"
+                                               FontSize="11" FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"
+                                               HorizontalTextAlignment="Center"/>
+                                        <Label Grid.Row="1" Grid.Column="2" Text="e"
+                                               TextColor="{Binding SidePanel.ExitEast.Color}"
+                                               FontAttributes="{Binding SidePanel.ExitEast.FontAttributes}"
+                                               FontSize="11" FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"
+                                               HorizontalTextAlignment="Center"/>
+                                        <Label Grid.Row="1" Grid.Column="4" Text="≈"
+                                               TextColor="{Binding SidePanel.ExitSwampward.Color}"
+                                               FontAttributes="{Binding SidePanel.ExitSwampward.FontAttributes}"
+                                               FontSize="11" FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"
+                                               HorizontalTextAlignment="Center"/>
+                                        <!-- Row 2: sw, s, se, <(out), ↓ -->
+                                        <Label Grid.Row="2" Grid.Column="0" Text="sw"
+                                               TextColor="{Binding SidePanel.ExitSouthWest.Color}"
+                                               FontAttributes="{Binding SidePanel.ExitSouthWest.FontAttributes}"
+                                               FontSize="11" FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"
+                                               HorizontalTextAlignment="Center"/>
+                                        <Label Grid.Row="2" Grid.Column="1" Text="s"
+                                               TextColor="{Binding SidePanel.ExitSouth.Color}"
+                                               FontAttributes="{Binding SidePanel.ExitSouth.FontAttributes}"
+                                               FontSize="11" FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"
+                                               HorizontalTextAlignment="Center"/>
+                                        <Label Grid.Row="2" Grid.Column="2" Text="se"
+                                               TextColor="{Binding SidePanel.ExitSouthEast.Color}"
+                                               FontAttributes="{Binding SidePanel.ExitSouthEast.FontAttributes}"
+                                               FontSize="11" FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"
+                                               HorizontalTextAlignment="Center"/>
+                                        <Label Grid.Row="2" Grid.Column="3" Text="⇤"
+                                               TextColor="{Binding SidePanel.ExitOut.Color}"
+                                               FontAttributes="{Binding SidePanel.ExitOut.FontAttributes}"
+                                               FontSize="11" FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"
+                                               HorizontalTextAlignment="Center"/>
+                                        <Label Grid.Row="2" Grid.Column="4" Text="↓"
+                                               TextColor="{Binding SidePanel.ExitDown.Color}"
+                                               FontAttributes="{Binding SidePanel.ExitDown.FontAttributes}"
+                                               FontSize="11" FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"
+                                               HorizontalTextAlignment="Center"/>
+                                    </Grid>
+
                                     <!-- Items here + Carrying (FEI) — fades when stale (>15 s without refresh) -->
                                     <VerticalStackLayout Spacing="4" Opacity="{Binding SidePanel.FeiSectionOpacity}">
 

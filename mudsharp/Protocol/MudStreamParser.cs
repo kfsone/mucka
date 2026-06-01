@@ -86,6 +86,15 @@ public sealed class MudStreamParser
     /// <summary>A FEI-response context has closed — all item lines have been delivered.</summary>
     public event Action? FeiListComplete;
 
+    /// <summary>A single exit keyword from the FEX (Front End eXits) response is ready.</summary>
+    public event Action<string>? FexItemReady;
+
+    /// <summary>A FEX-response context has opened. Consumers should clear accumulation buffers.</summary>
+    public event Action? FexListStarting;
+
+    /// <summary>A FEX-response context has closed — all exit keywords have been delivered.</summary>
+    public event Action? FexListComplete;
+
     // ── Sub-parsers (set by internal wiring, replaceable for testing) ─────────
     internal TelnetNegotiator Telnet { get; }
     internal AnsiSgrState Ansi { get; }
@@ -174,6 +183,26 @@ public sealed class MudStreamParser
     internal void ExitFeiContext() => _inFeiResponseContext = false;
     internal void EmitFeiListStarting() => FeiListStarting?.Invoke();
     internal void EmitFeiListComplete() => FeiListComplete?.Invoke();
+
+    // ── FEX-response capture ──────────────────────────────────────────────────
+    // Set when the parser enters a C12+C08+C02 (FE EXITS) context block.
+    // Exit keywords accumulate in _fexLine until each '\n'; cleared when the
+    // color stack returns to the depth it was at before the push.
+    private bool _inFexResponseContext;
+    private int _fexContextDepth;
+    private readonly StringBuilder _fexLine = new();
+
+    internal bool InFexResponseContext => _inFexResponseContext;
+    internal int FexContextDepth => _fexContextDepth;
+    internal void EnterFexContext(int targetDepth)
+    {
+        _inFexResponseContext = true;
+        _fexContextDepth = targetDepth;
+        _fexLine.Clear();
+    }
+    internal void ExitFexContext() => _inFexResponseContext = false;
+    internal void EmitFexListStarting() => FexListStarting?.Invoke();
+    internal void EmitFexListComplete() => FexListComplete?.Invoke();
 
     /// <summary>
     /// Mirrors Clio's prompt_allowed flag.
@@ -275,6 +304,9 @@ public sealed class MudStreamParser
         _inFeiResponseContext = false;
         _feiContextDepth = 0;
         _feiLine.Clear();
+        _inFexResponseContext = false;
+        _fexContextDepth = 0;
+        _fexLine.Clear();
         _atLineStart = true;
         _pendingRoomShort = false;
         CurrentDreamword = null;
@@ -289,6 +321,16 @@ public sealed class MudStreamParser
     {
         if (ch == '\n')
         {
+            if (_inFexResponseContext)
+            {
+                var itemText = _fexLine.ToString();
+                _fexLine.Clear();
+                PromptAllowed = true;
+                SuppressNextText = false;
+                EmitPartialOnPop = false;
+                if (itemText.Length > 0) FexItemReady?.Invoke(itemText);
+                return;
+            }
             if (_inFeiResponseContext)
             {
                 // Emit the accumulated FEI item line; reset prompt-state flags as for a real newline.
@@ -355,8 +397,13 @@ public sealed class MudStreamParser
         {
             // Discard characters when inside a suppressed end-of-frame prompt preamble or FEW response.
             if (SuppressNextText || _inFewResponseContext) return;
-            // FEI items accumulate in a dedicated buffer — bypasses the span machinery to avoid
-            // capturing any stale spans that may remain from before the FEI context opened.
+            // FEX and FEI items accumulate in dedicated buffers — bypasses the span machinery.
+            if (_inFexResponseContext)
+            {
+                if (ch != '\0') _fexLine.Append(ch);
+                _atLineStart = false;
+                return;
+            }
             if (_inFeiResponseContext)
             {
                 if (ch != '\0') _feiLine.Append(ch);

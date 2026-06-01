@@ -55,6 +55,12 @@ public sealed class MuckaConnection : IAsyncDisposable
     public event Action<string>? FeiItemReady;
     /// <summary>Fired when the FEI-response context closes — all items delivered.</summary>
     public event Action? FeiListComplete;
+    /// <summary>Fired when a FEX-response context opens. Start accumulating exit keywords.</summary>
+    public event Action? FexListStarting;
+    /// <summary>Fired for each exit keyword in the FEX response.</summary>
+    public event Action<string>? FexItemReady;
+    /// <summary>Fired when the FEX-response context closes — all exit keywords delivered.</summary>
+    public event Action? FexListComplete;
     /// <summary>Fired when the connection is lost (read loop ended). Null = clean disconnect.</summary>
     public event Action<Exception?>? Disconnected;
 #if WINDOWS
@@ -296,6 +302,9 @@ public sealed class MuckaConnection : IAsyncDisposable
         _session.FeiListStarting    += () => FeiListStarting?.Invoke();
         _session.FeiItemReady       += item => FeiItemReady?.Invoke(item);
         _session.FeiListComplete    += () => FeiListComplete?.Invoke();
+        _session.FexListStarting    += () => FexListStarting?.Invoke();
+        _session.FexItemReady       += item => FexItemReady?.Invoke(item);
+        _session.FexListComplete    += () => FexListComplete?.Invoke();
         _session.TerminalWidthConfirmed += OnTerminalWidthConfirmed;
     }
 

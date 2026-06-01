@@ -106,6 +106,12 @@ internal sealed class Mud2C1Decoder
             _parser.EmitFeiListComplete();
         }
 
+        if (_parser.InFexResponseContext && _colorStack.Count <= _parser.FexContextDepth)
+        {
+            _parser.ExitFexContext();
+            _parser.EmitFexListComplete();
+        }
+
         // Handle prompt-preamble flags set by the C01 game-mode dispatch (Clio telnet.l:438-444).
         // Both flags are cleared after the first pop that follows the '*' prompt text.
         if (_parser.EmitPartialOnPop)
@@ -551,6 +557,15 @@ internal sealed class Mud2C1Decoder
                     Apply(WHITE, BLACK);
                     _parser.EnterFewContext(_colorStack.Count - 1);
                     _parser.EmitFewListStarting();
+                    return ParserState.Normal;
+                }
+                if (count == 2 && b0 == 0xA3 && b1 == 0x9D)
+                {
+                    // FEX response: C12+C08+C02+C255 — exit keyword lines follow until stack
+                    // returns to entry depth. Each line is one direction keyword.
+                    Apply(WHITE, BLACK);
+                    _parser.EnterFexContext(_colorStack.Count - 1);
+                    _parser.EmitFexListStarting();
                     return ParserState.Normal;
                 }
                 if (count == 2 && b0 == 0xA3 && b1 == 0x9E)
