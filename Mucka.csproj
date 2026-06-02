@@ -118,4 +118,15 @@
 		<ProjectReference Include="Mucka.Terminal\Mucka.Terminal.csproj" />
 	</ItemGroup>
 
+	<!-- Strip .pdb symbol files from the publish output. SkiaSharp's native assets ship ~220 MB
+	     of native .pdb files (libSkiaSharp.pdb, libGLESv2.pdb, …) that bloat the release artifact
+	     and are never needed at runtime. -->
+	<Target Name="StripPdbsFromPublish" AfterTargets="Publish">
+		<ItemGroup>
+			<_PublishedPdbs Include="$(PublishDir)**\*.pdb" />
+		</ItemGroup>
+		<Delete Files="@(_PublishedPdbs)" />
+		<Message Importance="high" Text="[mucka] Stripped %(_PublishedPdbs.Filename).pdb from publish output" />
+	</Target>
+
 </Project>
