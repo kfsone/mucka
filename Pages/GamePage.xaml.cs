@@ -99,10 +99,14 @@ public partial class GamePage : ContentPage
 #if WINDOWS
             try
             {
-                // Hook window root for F1-F12 physical key events (fires regardless of focus).
+                // Hook window root for F1-F12 physical key events (fires regardless of focus)
+                // and to keep keyboard focus pinned to the input box (GettingFocus bounce).
                 if (Window?.Handler?.PlatformView is Microsoft.UI.Xaml.Window fwin &&
                     fwin.Content is Microsoft.UI.Xaml.UIElement froot)
+                {
                     froot.PreviewKeyDown += OnRootPreviewKeyDown;
+                    froot.GettingFocus += OnRootGettingFocus;
+                }
                 // Hook the native TextBox so Up/Down/Esc keys work in the entry.
                 InputEntry.HandlerChanged += OnInputHandlerChanged;
                 // Hook the terminal canvas for mouse-wheel scrollback.
@@ -171,7 +175,10 @@ public partial class GamePage : ContentPage
 #if WINDOWS
         if (Window?.Handler?.PlatformView is Microsoft.UI.Xaml.Window fwin &&
             fwin.Content is Microsoft.UI.Xaml.UIElement froot)
+        {
             froot.PreviewKeyDown -= OnRootPreviewKeyDown;
+            froot.GettingFocus -= OnRootGettingFocus;
+        }
         if (_inputTextBox != null)
         {
             _inputTextBox.PreviewKeyDown -= OnInputPreviewKeyDown;
@@ -421,6 +428,17 @@ public partial class GamePage : ContentPage
         Windows.System.VirtualKey.Shift   or Windows.System.VirtualKey.LeftShift   or Windows.System.VirtualKey.RightShift   or
         Windows.System.VirtualKey.Menu    or Windows.System.VirtualKey.LeftMenu    or Windows.System.VirtualKey.RightMenu    or
         Windows.System.VirtualKey.LeftWindows or Windows.System.VirtualKey.RightWindows or Windows.System.VirtualKey.CapitalLock;
+
+    // Keyboard belongs to the input box on the game page. If focus heads anywhere else — a panel
+    // toggle, a tab, the gear/Cfg button, the dreamword label — bounce it straight back to the
+    // input box so typing is never stranded. Skipped while reviewing scrollback (input is hidden)
+    // or while the config editor is open. Redirecting in GettingFocus avoids any focus flicker.
+    private void OnRootGettingFocus(Microsoft.UI.Xaml.UIElement sender, Microsoft.UI.Xaml.Input.GettingFocusEventArgs args)
+    {
+        if (_isFkeyEditorOpen || Terminal.IsHistoryMode || _inputTextBox is null) return;
+        if (ReferenceEquals(args.NewFocusedElement, _inputTextBox)) return;
+        args.TrySetNewFocusedElement(_inputTextBox);
+    }
 
     private void OnRootPreviewKeyDown(object sender, Microsoft.UI.Xaml.Input.KeyRoutedEventArgs e)
     {

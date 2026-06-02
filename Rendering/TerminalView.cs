@@ -99,7 +99,11 @@ public sealed class TerminalView : SKCanvasView
     {
         if (lines.Count == 0) return;
         for (int i = 0; i < lines.Count; i++)
-            _buffer.Append(TerminalText.Sanitize(lines[i]));   // drop control-char tofu (\r, \b, …)
+        {
+            // Strip control-char tofu (\r, \b, …) then expand tabs to 8-col stops before buffering.
+            var line = TerminalText.ExpandTabs(TerminalText.Sanitize(lines[i]));
+            _buffer.Append(line);
+        }
         if (!_historyMode) InvalidateSurface();
     }
 

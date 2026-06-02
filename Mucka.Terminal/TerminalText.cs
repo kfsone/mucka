@@ -9,13 +9,17 @@ namespace Mucka.Terminal;
 /// as .notdef "tofu" boxes — e.g. a trailing carriage return from a CRLF line ending, or a
 /// stray backspace. (The old WebView silently ignored them; Skia does not.)
 ///
-/// Form-feed (0x0C) is deliberately preserved: <see cref="TerminalBuffer"/> consumes it as a
-/// clear-screen, so stripping it here would break that. Newlines never appear in a line's
-/// spans (the parser splits on them).
+/// Form-feed (0x0C) is preserved: <see cref="TerminalBuffer"/> consumes it as a clear-screen.
+/// Tab (0x09) is also preserved here and expanded to spaces by <see cref="ExpandTabs"/> (which
+/// is column-aware across spans). Newlines never appear in a line's spans (the parser splits
+/// on them).
 /// </summary>
 public static class TerminalText
 {
-    private static bool IsStrippable(char c) => (c < 0x20 && c != '\f') || c == 0x7F;
+    /// <summary>Default tab stop width, in columns.</summary>
+    public const int TabWidth = 8;
+
+    private static bool IsStrippable(char c) => (c < 0x20 && c != '\f' && c != '\t') || c == 0x7F;
 
     /// <summary>Remove strippable control characters. Returns the same instance if there are none.</summary>
     public static string StripControls(string s)
@@ -55,5 +59,41 @@ public static class TerminalText
             if (t.Length > 0) cleaned.Add(span with { Text = t });
         }
         return new StyledLine(cleaned, line.IsPartial);
+    }
+
+    /// <summary>
+    /// Expand tab characters to spaces at <paramref name="tabWidth"/>-column tab stops, tracking
+    /// the running column across spans so alignment is correct. <see cref="StyledLine.IsPartial"/>
+    /// is preserved; returns the same instance when there are no tabs. Run AFTER <see cref="Sanitize"/>
+    /// and BEFORE wrapping, since the wrapper counts columns by character.
+    /// </summary>
+    public static StyledLine ExpandTabs(StyledLine line, int tabWidth = TabWidth)
+    {
+        bool any = false;
+        for (int i = 0; i < line.Spans.Count && !any; i++)
+            if (line.Spans[i].Text.IndexOf('\t') >= 0) any = true;
+        if (!any) return line;
+
+        int col = 0;
+        var expanded = new List<StyledSpan>(line.Spans.Count);
+        foreach (var span in line.Spans)
+        {
+            string t = span.Text;
+            if (t.IndexOf('\t') < 0) { col += t.Length; expanded.Add(span); continue; }
+
+            var sb = new StringBuilder(t.Length + tabWidth);
+            foreach (char c in t)
+            {
+                if (c == '\t')
+                {
+                    int n = tabWidth - (col % tabWidth);   // advance to the next tab stop
+                    sb.Append(' ', n);
+                    col += n;
+                }
+                else { sb.Append(c); col++; }
+            }
+            expanded.Add(span with { Text = sb.ToString() });
+        }
+        return new StyledLine(expanded, line.IsPartial);
     }
 }
