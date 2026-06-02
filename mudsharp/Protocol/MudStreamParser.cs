@@ -115,6 +115,14 @@ public sealed class MudStreamParser
     private readonly StringBuilder _text = new();
     private bool _inGameMode;
 
+    // qq-to-option-menu detection: the MUD2 server sends NO binary exit signal when the player
+    // quits — it just resets colour and prints the option-menu prompt as plain text. Match that
+    // prompt char-by-char in the in-game text stream and exit game mode the instant it completes
+    // (as Clio does), so the FES heartbeat stops before it misfires into the menu. Reset on each
+    // newline so a partial match never carries across lines.
+    private const string OptionMenuPrompt = "Option (H for help)";
+    private int _optionMatchLen;
+
     // ── Game state ────────────────────────────────────────────────────────────
     public bool InGameMode => _inGameMode;
 
@@ -321,6 +329,7 @@ public sealed class MudStreamParser
     {
         if (ch == '\n')
         {
+            _optionMatchLen = 0;   // the option-menu match never spans a newline
             if (_inFexResponseContext)
             {
                 var itemText = _fexLine.ToString();
@@ -412,6 +421,27 @@ public sealed class MudStreamParser
             }
             _atLineStart = false;
             _text.Append(ch);
+            MatchOptionMenu(ch);
+        }
+    }
+
+    // Advance the streaming match of the option-menu prompt against one in-game text character,
+    // firing ExitGameMode the moment the whole prompt has been seen (before the trailing ": ").
+    // A plain restart-on-mismatch suffices — the prompt has no self-overlap.
+    private void MatchOptionMenu(char ch)
+    {
+        if (!_inGameMode) { _optionMatchLen = 0; return; }
+        if (ch == OptionMenuPrompt[_optionMatchLen])
+        {
+            if (++_optionMatchLen == OptionMenuPrompt.Length)
+            {
+                _optionMatchLen = 0;
+                ExitGameMode();
+            }
+        }
+        else
+        {
+            _optionMatchLen = ch == OptionMenuPrompt[0] ? 1 : 0;
         }
     }
 
@@ -442,6 +472,7 @@ public sealed class MudStreamParser
     {
         if (!_inGameMode) return;
         _inGameMode = false;
+        _optionMatchLen = 0;
         GameModeExited?.Invoke();
     }
 

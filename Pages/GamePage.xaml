@@ -2,6 +2,7 @@
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              xmlns:vm="clr-namespace:Mucka.ViewModels"
+             xmlns:render="clr-namespace:Mucka.Rendering"
              x:Class="Mucka.Pages.GamePage"
              x:DataType="vm:GameViewModel"
              Title="mucka"
@@ -288,9 +289,27 @@
 
         <!-- ── Scrollback + side panel ────────────────────────────────── -->
         <Grid Grid.Row="2" ColumnDefinitions="*,Auto">
-            <WebView Grid.Column="0"
-                     x:Name="ScrollbackWebView"
-                     BackgroundColor="#0C0C0C"/>
+            <render:TerminalView Grid.Column="0"
+                                 x:Name="Terminal"
+                                 BackgroundColor="#0C0C0C"
+                                 HorizontalOptions="Fill"
+                                 VerticalOptions="Fill"/>
+
+            <!-- Transient "Copied to clipboard" toast, overlaid top-right of the terminal view. -->
+            <Border Grid.Column="0"
+                    x:Name="CopiedToast"
+                    IsVisible="False"
+                    BackgroundColor="#161b22"
+                    Stroke="#3B78FF" StrokeThickness="1"
+                    Padding="8,4"
+                    HorizontalOptions="End" VerticalOptions="Start"
+                    Margin="0,8,12,0"
+                    InputTransparent="True">
+                <Border.StrokeShape><RoundRectangle CornerRadius="4"/></Border.StrokeShape>
+                <Label Text="* Copied to clipboard"
+                       TextColor="#3B78FF" FontSize="12"
+                       FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
+            </Border>
 
             <!-- ── Side panel — to the right of the scrollback ─────────── -->
             <Border Grid.Column="1"
@@ -647,6 +666,7 @@
 
             <!-- Toggle toolbar -->
             <Button Grid.Column="0"
+                    x:Name="FkeyToggleButton"
                     Text="&#x2699;&#xFE0E;"
                     Command="{Binding ToggleFkeysCommand}"
                     BackgroundColor="#2d333b" TextColor="#888888"
@@ -676,10 +696,30 @@
             </Entry>
 
             <Button Grid.Column="2"
+                    x:Name="SendButton"
                     Text="&#x25B6;"
                     Command="{Binding SendCommand}"
                     BackgroundColor="#1f6feb" TextColor="White"
                     CornerRadius="4" WidthRequest="44" Margin="4,0,0,0"/>
+
+            <!-- Scrollback-mode indicator: opaque overlay ON TOP of the input controls (which stay
+                 in place) so toggling it causes no layout shift in the text view above. -->
+            <Border Grid.Column="0" Grid.ColumnSpan="3"
+                    x:Name="ScrollbackBar"
+                    IsVisible="False"
+                    BackgroundColor="#161b22"
+                    Stroke="#F9F1A5" StrokeThickness="2"
+                    Padding="8,0"
+                    HorizontalOptions="Fill" VerticalOptions="Fill">
+                <Border.StrokeShape><RoundRectangle CornerRadius="4"/></Border.StrokeShape>
+                <Border.GestureRecognizers>
+                    <TapGestureRecognizer Tapped="OnScrollbackBarTapped"/>
+                </Border.GestureRecognizers>
+                <Label Text="SCROLLBACK &#x2014; Esc or click to return to live"
+                       TextColor="#F9F1A5" FontSize="12"
+                       HorizontalOptions="Center" VerticalOptions="Center"
+                       FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
+            </Border>
 
         </Grid>
     </Grid>
