@@ -1,9 +1,5 @@
 using System.Runtime.InteropServices;
-using System.Text;
-using System.Text.Json;
-using Mucka.Helpers;
 using Mucka.ViewModels;
-using MudSharp.Models;
 
 namespace Mucka.Pages;
 
@@ -12,6 +8,7 @@ public partial class GamePage : ContentPage
     private readonly GameViewModel _vm;
     private readonly bool _exitOnDisconnect;
     private IDispatcherTimer?      _flushTimer;
+    private IDispatcherTimer?      _toastTimer;
 
 #if ANDROID
     // Set while this page is active so MainActivity can route hardware key events.
@@ -41,20 +38,13 @@ public partial class GamePage : ContentPage
     }
 #endif
 
-    // Lines pulled from the ViewModel queue but not yet successfully injected.
-    // Kept here so they aren't lost if the WebView isn't ready yet.
-    private readonly List<StyledLine> _pendingInjection = new();
-    // Re-entrancy guard: prevents the 50ms timer from firing a second injection
-    // while the first EvaluateJavaScriptAsync/ExecuteScriptAsync is still awaiting.
-    private bool _injecting;
     private bool _isFkeyEditorOpen;
     private bool _eventsSubscribed;
-    private readonly SemaphoreSlim _scriptExecutionLock = new(1, 1);
 #if WINDOWS
-    private bool _scrollbackHtmlLoaded;
-    private bool _scrollbackNavigated;
     private Window? _rawConsoleWindow;
     private Microsoft.UI.Xaml.Controls.TextBox? _inputTextBox;
+    private Microsoft.UI.Xaml.UIElement? _terminalElement;   // SKXamlCanvas, for wheel scrollback
+    private int _wheelAccum;   // accumulates wheel delta so touchpad drift doesn't trip scrollback
     // ── Window minimum-size enforcement ─────────────────────────────────────
     // Must match the WidthRequest of the side-panel Border in GamePage.xaml.
     private const double SidePanelWidthDp = 260.0;
@@ -89,16 +79,13 @@ public partial class GamePage : ContentPage
                 _vm.EditFkeysRequested  += OnEditFkeysRequested;
                 _vm.ConfigRequested     += OnConfigRequested;
                 _vm.ClearScreenRequested += OnClearScreenRequested;
+                Terminal.HistoryModeChanged += OnHistoryModeChanged;
+                Terminal.FocusInputRequested += OnFocusInputRequested;
                 _eventsSubscribed = true;
             }
 
-            ScrollbackWebView.Source = new HtmlWebViewSource
-            {
-                Html    = HtmlScrollback.GeneratePage(_vm.FontSize),
-                BaseUrl = AppContext.BaseDirectory,   // null BaseUrl causes NullReferenceException in MauiWebView.LoadHtml on Windows
-            };
-            ScrollbackWebView.Navigated += OnScrollbackNavigated;
-            ScrollbackWebView.Focused += OnScrollbackFocused;
+            Terminal.SetFontSize(_vm.FontSize);
+            Terminal.Columns = _vm.EffCols;
 
             _flushTimer = Dispatcher.CreateTimer();
             _flushTimer.Interval = TimeSpan.FromMilliseconds(50);
@@ -118,6 +105,8 @@ public partial class GamePage : ContentPage
                     froot.PreviewKeyDown += OnRootPreviewKeyDown;
                 // Hook the native TextBox so Up/Down/Esc keys work in the entry.
                 InputEntry.HandlerChanged += OnInputHandlerChanged;
+                // Hook the terminal canvas for mouse-wheel scrollback.
+                Terminal.HandlerChanged += OnTerminalHandlerChanged;
                 _vm.OpenRawConsoleRequested += OnOpenRawConsoleRequested;
                 // Enforce minimum window width based on the configured terminal columns.
                 _vm.SidePanel.PropertyChanged += OnSidePanelPropertyChanged;
@@ -168,13 +157,14 @@ public partial class GamePage : ContentPage
         DeviceDisplay.Current.KeepScreenOn = false;
         _flushTimer?.Stop();
         _flushTimer = null;
-        ScrollbackWebView.Navigated -= OnScrollbackNavigated;
-        ScrollbackWebView.Focused -= OnScrollbackFocused;
+        _toastTimer?.Stop();
         _vm.Disconnected        -= OnDisconnected;
         _vm.RequestFocus        -= FocusInput;
         _vm.EditFkeysRequested  -= OnEditFkeysRequested;
         _vm.ConfigRequested     -= OnConfigRequested;
         _vm.ClearScreenRequested -= OnClearScreenRequested;
+        Terminal.HistoryModeChanged -= OnHistoryModeChanged;
+        Terminal.FocusInputRequested -= OnFocusInputRequested;
         _eventsSubscribed = false;
         if (Window is not null)
             Window.Activated -= OnWindowActivated;
@@ -188,6 +178,15 @@ public partial class GamePage : ContentPage
             _inputTextBox = null;
         }
         InputEntry.HandlerChanged -= OnInputHandlerChanged;
+        Terminal.HandlerChanged -= OnTerminalHandlerChanged;
+        if (_terminalElement != null)
+        {
+            _terminalElement.PointerWheelChanged -= OnTerminalPointerWheel;
+            _terminalElement.PointerPressed  -= OnTerminalPointerPressed;
+            _terminalElement.PointerMoved    -= OnTerminalPointerMoved;
+            _terminalElement.PointerReleased -= OnTerminalPointerReleased;
+            _terminalElement = null;
+        }
         _vm.OpenRawConsoleRequested -= OnOpenRawConsoleRequested;
         _vm.SidePanel.PropertyChanged -= OnSidePanelPropertyChanged;
         TeardownWindowMinimumSize();
@@ -195,114 +194,18 @@ public partial class GamePage : ContentPage
         _ = _vm.DisposeAsync();
     }
 
-    private void OnFlushTick(object? sender, EventArgs e)
-    {
-#if WINDOWS
-        // The DispatcherTimer fires at Normal priority — the same level as keyboard routing.
-        // Post the actual work at Low priority so queued key events drain first, keeping
-        // character input smooth even when game output is arriving simultaneously.
-        Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread()
-            .TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, DoFlushWork);
-#else
-        DoFlushWork();
-#endif
-    }
+    private void OnFlushTick(object? sender, EventArgs e) => DoFlushWork();
 
     private void DoFlushWork()
     {
         _vm.AntiIdleTick();
 
-        if (_injecting) return;   // previous injection still in flight — pick up lines next tick
-
-        // Move new lines from the ViewModel queue into our local buffer.
+        // Drain the ViewModel queue straight into the Skia terminal. The partial/complete/merge/
+        // clear semantics live in TerminalBuffer (inside TerminalView); a paint of one screenful
+        // is sub-millisecond, so there is no need to defer this off the keyboard's priority lane.
         var newLines = _vm.FlushPendingLines();
-        if (newLines != null) _pendingInjection.AddRange(newLines);
-
-        if (_pendingInjection.Count == 0) return;
-
-        _injecting = true;
-        ScheduleInjection();
-    }
-
-    private void ScheduleInjection()
-    {
-#if WINDOWS
-        // Low priority lets queued keyboard events drain before the JS string-building
-        // work runs, preventing key-repeat stutter when game output arrives.
-        Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread()
-            .TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, RunInjectionAsync);
-#else
-        _ = RunInjectionTaskAsync();
-#endif
-    }
-
-#if WINDOWS
-    private async void RunInjectionAsync()
-#else
-    private async Task RunInjectionTaskAsync()
-#endif
-    {
-        if (_pendingInjection.Count == 0) { _injecting = false; return; }
-        var lines = _pendingInjection.ToList();
-        try
-        {
-            var script = await Task.Run(() => BuildInjectionScript(lines));
-            await ExecuteScriptAsync(script);
-            _pendingInjection.Clear();
-        }
-        catch
-        {
-            // WebView2 not ready yet — lines stay in _pendingInjection, retry next tick.
-        }
-        finally
-        {
-            _injecting = false;
-        }
-    }
-
-    private static string BuildInjectionScript(IReadOnlyList<StyledLine> lines)
-    {
-        var sb = new StringBuilder(lines.Count * 100);
-        sb.Append("(function(){var o=document.getElementById('out');if(!o)return;");
-
-        foreach (var line in lines)
-        {
-            if (line.PlainText.Contains('\f'))
-            {
-                sb.Append("o.innerHTML='';");
-                continue;
-            }
-            var html     = HtmlScrollback.LineToHtml(line);
-            var cls      = line.IsPartial ? "lnp" : "ln";
-            var jsonHtml = JsonSerializer.Serialize($"<span class='{cls}'>{html}\u200b</span>");
-            if (line.IsPartial)
-            {
-                // Replace existing partial span or append a new one.
-                var innerJson = JsonSerializer.Serialize(html + "\u200b");
-                sb.Append($"(function(){{var p=o.querySelector('.lnp');if(p){{p.innerHTML={innerJson};}}else{{o.insertAdjacentHTML('beforeend',{jsonHtml});}}}})();");
-            }
-            else if (string.IsNullOrEmpty(html))
-            {
-                // Empty complete line (e.g. blank Enter): if there is a live partial prompt,
-                // just promote it — do not insert a blank line between consecutive prompts.
-                // If there is no partial, insert the blank line as normal paragraph spacing.
-                sb.Append($"(function(){{var p=o.querySelector('.lnp');if(p){{p.className='ln';}}else{{o.insertAdjacentHTML('beforeend',{jsonHtml});}}}})();");
-            }
-            else
-            {
-                // Non-empty complete line: if there is a live partial prompt, merge this line's
-                // content into it (prompt + echo on one line) and promote to .ln.
-                // If there is no partial, append as a new line.
-                var innerJson = JsonSerializer.Serialize(html + "\u200b");
-                sb.Append($"(function(){{var p=o.querySelector('.lnp');if(p){{p.insertAdjacentHTML('beforeend',{innerJson});p.className='ln';}}else{{o.insertAdjacentHTML('beforeend',{jsonHtml});}}}})();");
-            }
-        }
-
-        // Trim to 120 permanent lines.
-        sb.Append("while(o.querySelectorAll('.ln').length>120){var f=o.querySelector('.ln');if(f)f.remove();else break;}");
-        sb.Append("})();");
-        sb.Append("window.scrollTo(0,document.body.scrollHeight);");
-        return sb.ToString();
+        if (newLines is { Count: > 0 })
+            Terminal.AppendLines(newLines);
     }
 
     // Character width in MAUI logical pixels — delegates to the view-model so both
@@ -315,55 +218,8 @@ public partial class GamePage : ContentPage
         if (width <= 0) return;
         var displayableCols = (int)Math.Floor(width / CharWidthDp);
         _vm.NotifyWindowSize(width, displayableCols);
-    }
-
-
-
-    /// <summary>
-    /// Execute JavaScript reliably across platforms.
-    /// On WinUI, MAUI's EvaluateJavaScriptAsync silently fails for HtmlWebViewSource pages;
-    /// we go directly to the CoreWebView2 API instead.
-    /// </summary>
-    private async Task ExecuteScriptAsync(string script)
-    {
-        await _scriptExecutionLock.WaitAsync();
-        try
-        {
-#if WINDOWS
-            if (ScrollbackWebView.Handler?.PlatformView is
-                Microsoft.UI.Xaml.Controls.WebView2 wv2)
-            {
-                if (wv2.CoreWebView2 is null)
-                    await wv2.EnsureCoreWebView2Async();
-                var core = wv2.CoreWebView2 ?? throw new InvalidOperationException("CoreWebView2 unavailable");
-                if (!_scrollbackHtmlLoaded)
-                {
-                    // MAUI's WebView.Source = HtmlWebViewSource path fails silently due to a bug
-                    // in WebView2Proxy.OnCoreWebView2Initialized — the LoadHtml continuation is
-                    // scheduled but the handler crashes before it completes. Navigate directly
-                    // on the CoreWebView2 instead.
-                    // Subscribe to NavigationCompleted BEFORE calling NavigateToString so we
-                    // never miss the event. Throw so RunInjectionAsync retries next tick.
-                    core.NavigationCompleted += OnScrollbackCoreNavigated;
-                    core.NavigateToString(HtmlScrollback.GeneratePage(_vm.FontSize));
-                    _scrollbackHtmlLoaded = true;
-                    throw new InvalidOperationException("Scrollback HTML navigation started; retry next tick.");
-                }
-                // Keep retrying (lines stay in _pendingInjection) until the navigation
-                // completes. Without this guard, ExecuteScriptAsync would succeed but the
-                // JS would exit early on `if(!o)return` and the lines would be cleared.
-                if (!_scrollbackNavigated)
-                    throw new InvalidOperationException("Scrollback HTML navigation in progress; retry next tick.");
-                await core.ExecuteScriptAsync(script);
-                return;
-            }
-#endif
-            await ScrollbackWebView.EvaluateJavaScriptAsync(script);
-        }
-        finally
-        {
-            _scriptExecutionLock.Release();
-        }
+        // Keep the terminal's wrap width in sync with the negotiated column count.
+        Terminal.Columns = _vm.EffCols;
     }
 
     private Task OpenConfigAsync(int initialTab)
@@ -396,25 +252,46 @@ public partial class GamePage : ContentPage
 
     private void FocusInput() { if (!InputEntry.IsFocused) InputEntry.Focus(); }
 
-    // Redirect focus back to the typing box whenever the WebView captures it
-    // (e.g. on initial load or when the user clicks the scrollback area).
-    private void OnScrollbackFocused(object? sender, FocusEventArgs e) => FocusInput();
-
-    // Focus the typing box once the WebView finishes its initial page load
-    // (WebView2 grabs focus during first load; this wins it back).
-    private void OnScrollbackNavigated(object? sender, WebNavigatedEventArgs e)
+    // On window activation, record the moment (so a click that activated the app focuses the input
+    // box rather than entering scrollback) and re-focus the typing box when not in scrollback.
+    private void OnWindowActivated(object? sender, EventArgs e)
     {
-        if (e.Result == WebNavigationResult.Success)
-            FocusInput();
+        Terminal.NotifyWindowActivated();
+        if (!Terminal.IsHistoryMode) FocusInput();
     }
 
-    // Re-focus the typing box when the window regains activation (Alt+Tab back, etc.).
-    private void OnWindowActivated(object? sender, EventArgs e) => FocusInput();
+    private void OnClearScreenRequested() => Terminal.Clear();
 
-    private async void OnClearScreenRequested()
+    // Scrollback is an explicit mode: swap the input row for the yellow "SCROLLBACK" indicator,
+    // and restore + re-focus the input box on return to live.
+    private void OnHistoryModeChanged(object? sender, EventArgs e)
     {
-        try { await ExecuteScriptAsync("document.getElementById('out').innerHTML=''"); }
-        catch { /* ignore: WebView may not be ready */ }
+        // Overlay the indicator ON TOP of the (still-present) input controls rather than hiding
+        // them, so the input row's measured height never changes — the text view above must not
+        // reflow when entering/leaving scrollback.
+        ScrollbackBar.IsVisible = Terminal.IsHistoryMode;
+        if (!Terminal.IsHistoryMode) FocusInput();
+    }
+
+    // An activation click (the click that brought the app to the foreground) just focuses input.
+    private void OnFocusInputRequested(object? sender, EventArgs e) => FocusInput();
+
+    // Tapping the SCROLLBACK indicator returns to live.
+    private void OnScrollbackBarTapped(object? sender, TappedEventArgs e) => Terminal.ScrollToBottom();
+
+    // Briefly flash a "Copied to clipboard" toast (3.3s); re-arms on each copy.
+    private void ShowCopiedToast()
+    {
+        CopiedToast.IsVisible = true;
+        if (_toastTimer is null)
+        {
+            _toastTimer = Dispatcher.CreateTimer();
+            _toastTimer.Interval = TimeSpan.FromSeconds(3.3);
+            _toastTimer.IsRepeating = false;
+            _toastTimer.Tick += (_, _) => CopiedToast.IsVisible = false;
+        }
+        _toastTimer.Stop();
+        _toastTimer.Start();
     }
 
 #if WINDOWS
@@ -539,12 +416,45 @@ public partial class GamePage : ContentPage
     [System.Runtime.InteropServices.DllImport("user32.dll")]
     private static extern short GetKeyState(int nVirtKey);
 
+    private static bool IsModifierKey(Windows.System.VirtualKey k) => k is
+        Windows.System.VirtualKey.Control or Windows.System.VirtualKey.LeftControl or Windows.System.VirtualKey.RightControl or
+        Windows.System.VirtualKey.Shift   or Windows.System.VirtualKey.LeftShift   or Windows.System.VirtualKey.RightShift   or
+        Windows.System.VirtualKey.Menu    or Windows.System.VirtualKey.LeftMenu    or Windows.System.VirtualKey.RightMenu    or
+        Windows.System.VirtualKey.LeftWindows or Windows.System.VirtualKey.RightWindows or Windows.System.VirtualKey.CapitalLock;
+
     private void OnRootPreviewKeyDown(object sender, Microsoft.UI.Xaml.Input.KeyRoutedEventArgs e)
     {
         if (_isFkeyEditorOpen) return;
         var key = e.Key;
         bool ctrl  = (GetKeyState((int)Windows.System.VirtualKey.Control) & 0x8000) != 0;
         bool shift = (GetKeyState((int)Windows.System.VirtualKey.Shift)   & 0x8000) != 0;
+
+        // ── Scrollback navigation ────────────────────────────────────────────
+        // PageUp/PageDown scroll history (PageUp enters it from live). While reviewing
+        // history the input buffer is blocked: handle scroll/exit keys and swallow the rest.
+        if (key == Windows.System.VirtualKey.PageUp)   { Terminal.ScrollByPages(1);  e.Handled = true; return; }
+        if (key == Windows.System.VirtualKey.PageDown) { Terminal.ScrollByPages(-1); e.Handled = true; return; }
+        if (Terminal.IsHistoryMode)
+        {
+            // Ctrl+C copies the selection without leaving scrollback.
+            if (ctrl && key == Windows.System.VirtualKey.C)
+            {
+                if (Terminal.CopySelectionToClipboard()) ShowCopiedToast();
+                e.Handled = true;
+                return;
+            }
+            switch (key)
+            {
+                case Windows.System.VirtualKey.Home:
+                    Terminal.ScrollToTop();    e.Handled = true; return;
+                case Windows.System.VirtualKey.End:
+                case Windows.System.VirtualKey.Escape:
+                    Terminal.ScrollToBottom(); e.Handled = true; return;
+            }
+            if (IsModifierKey(key)) return;   // lone modifiers pass through harmlessly
+            e.Handled = true;                 // swallow all other keys — input box is hidden in scrollback
+            return;
+        }
 
         if (ctrl && key == Windows.System.VirtualKey.D)
         {
@@ -594,6 +504,89 @@ public partial class GamePage : ContentPage
             // A plain null SetValue shadows the live binding without disturbing it.
             InputEntry.ReturnCommand = null;
         }
+    }
+
+    private void OnTerminalHandlerChanged(object? sender, EventArgs e)
+    {
+        if (_terminalElement != null)
+        {
+            _terminalElement.PointerWheelChanged -= OnTerminalPointerWheel;
+            _terminalElement.PointerPressed  -= OnTerminalPointerPressed;
+            _terminalElement.PointerMoved    -= OnTerminalPointerMoved;
+            _terminalElement.PointerReleased -= OnTerminalPointerReleased;
+            _terminalElement = null;
+        }
+        if (Terminal.Handler?.PlatformView is Microsoft.UI.Xaml.UIElement el)
+        {
+            _terminalElement = el;
+            el.PointerWheelChanged += OnTerminalPointerWheel;
+            // Drive mouse selection / click-to-enter from native pointer events (reliable on
+            // Windows). Turn off SkiaSharp's own pointer→Touch handling so the two don't fight;
+            // touch-pan via OnTouch is only needed on Android, where this hook never runs.
+            Terminal.EnableTouchEvents = false;
+            el.PointerPressed  += OnTerminalPointerPressed;
+            el.PointerMoved    += OnTerminalPointerMoved;
+            el.PointerReleased += OnTerminalPointerReleased;
+            // Drag-selecting in the terminal must not steal keyboard focus from the input box.
+            if (el is Microsoft.UI.Xaml.FrameworkElement fe)
+                fe.AllowFocusOnInteraction = false;
+            // WinUI elements with a NULL Background are not hit-test-visible, so pointer/wheel
+            // events never fire over the canvas (Skia still paints it — hence "see text, can't
+            // click"). A Transparent brush IS hit-testable; the canvas paints its own background.
+            var hitBrush = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent);
+            switch (el)
+            {
+                case Microsoft.UI.Xaml.Controls.Panel p when p.Background is null:   p.Background = hitBrush; break;
+                case Microsoft.UI.Xaml.Controls.Control c when c.Background is null: c.Background = hitBrush; break;
+            }
+        }
+    }
+
+    private void OnTerminalPointerPressed(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+    {
+        var el = (Microsoft.UI.Xaml.UIElement)sender;
+        var pt = e.GetCurrentPoint(el);
+        if (pt.Properties.IsRightButtonPressed)           // right-click copies the selection
+        {
+            if (Terminal.CopySelectionToClipboard()) ShowCopiedToast();
+            e.Handled = true;
+            return;
+        }
+        if (!pt.Properties.IsLeftButtonPressed) return;   // selection / entry is the left button only
+        el.CapturePointer(e.Pointer);                     // keep getting moves if the cursor leaves the pane
+        Terminal.PointerPress((float)pt.Position.X, (float)pt.Position.Y);
+        e.Handled = true;
+    }
+
+    private void OnTerminalPointerMoved(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+    {
+        var el = (Microsoft.UI.Xaml.UIElement)sender;
+        var pt = e.GetCurrentPoint(el);
+        Terminal.PointerDrag((float)pt.Position.X, (float)pt.Position.Y);   // no-op unless a drag is active
+    }
+
+    private void OnTerminalPointerReleased(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+    {
+        var el = (Microsoft.UI.Xaml.UIElement)sender;
+        el.ReleasePointerCapture(e.Pointer);
+        Terminal.PointerRelease();
+        e.Handled = true;
+    }
+
+    private void OnTerminalPointerWheel(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+    {
+        int delta = e.GetCurrentPoint((Microsoft.UI.Xaml.UIElement)sender).Properties.MouseWheelDelta;
+        if (delta == 0) return;
+        e.Handled = true;
+
+        // Accumulate and only act on whole wheel notches (120). A mouse wheel sends one full
+        // notch per click; a touchpad sends many tiny deltas — accumulating means it takes a
+        // deliberate scroll to enter scrollback, rather than incidental drift.
+        _wheelAccum += delta;
+        int notches = _wheelAccum / 120;
+        if (notches == 0) return;
+        _wheelAccum -= notches * 120;
+        Terminal.ScrollByRows(notches * 3);   // positive (wheel up) = toward older output
     }
 
     private void OnInputPreviewKeyDown(object sender, Microsoft.UI.Xaml.Input.KeyRoutedEventArgs e)
@@ -694,15 +687,6 @@ public partial class GamePage : ContentPage
     }
 #endif
 
-#if WINDOWS
-    private void OnScrollbackCoreNavigated(
-        Microsoft.Web.WebView2.Core.CoreWebView2 sender,
-        Microsoft.Web.WebView2.Core.CoreWebView2NavigationCompletedEventArgs args)
-    {
-        sender.NavigationCompleted -= OnScrollbackCoreNavigated;
-        _scrollbackNavigated = args.IsSuccess;
-    }
-#endif
 
     private static void LogCrash(string context, Exception ex)
     {

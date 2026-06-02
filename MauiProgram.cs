@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using Mucka.Core;
 using Mucka.Pages;
 using Mucka.ViewModels;
+using SkiaSharp.Views.Maui.Controls.Hosting;
 
 namespace Mucka;
 
@@ -21,6 +22,7 @@ public static class MauiProgram
         var builder = MauiApp.CreateBuilder();
         builder
             .UseMauiApp<App>()
+            .UseSkiaSharp()
             .ConfigureFonts(fonts =>
             {
                 fonts.AddFont("OpenSans-Regular.ttf", "OpenSansRegular");

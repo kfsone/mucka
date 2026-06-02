@@ -76,6 +76,11 @@
 		<!-- Custom Fonts -->
 		<MauiFont Include="Resources\Fonts\*" />
 
+		<!-- Cascadia Mono is also embedded (independently of MAUI font registration) so the
+		     SkiaSharp terminal renderer can load its raw bytes synchronously via
+		     GetManifestResourceStream("Mucka.CascadiaMono.ttf"). -->
+		<EmbeddedResource Include="Resources\Fonts\CascadiaMono.ttf" LogicalName="Mucka.CascadiaMono.ttf" />
+
 		<!-- Raw Assets (also remove the "Resources\Raw" prefix) -->
 		<MauiAsset Include="Resources\Raw\**" LogicalName="%(RecursiveDir)%(Filename)%(Extension)" />
 	</ItemGroup>
@@ -87,22 +92,30 @@
 	<ItemGroup>
 		<PackageReference Include="Microsoft.Maui.Controls" Version="$(MauiVersion)" />
 		<PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="10.0.0" />
+		<PackageReference Include="SkiaSharp.Views.Maui.Controls" Version="3.119.4" />
 	</ItemGroup>
 
 	<ItemGroup>
 		<Compile Remove="mudsharp\**" />
 		<Compile Remove="mudsharp.Tests\**" />
 		<Compile Remove="mudsharp.Demo\**" />
+		<Compile Remove="Mucka.Terminal\**" />
+		<Compile Remove="Mucka.Terminal.Tests\**" />
 		<EmbeddedResource Remove="mudsharp\**" />
 		<EmbeddedResource Remove="mudsharp.Tests\**" />
 		<EmbeddedResource Remove="mudsharp.Demo\**" />
+		<EmbeddedResource Remove="Mucka.Terminal\**" />
+		<EmbeddedResource Remove="Mucka.Terminal.Tests\**" />
 		<None Remove="mudsharp\**" />
 		<None Remove="mudsharp.Tests\**" />
 		<None Remove="mudsharp.Demo\**" />
+		<None Remove="Mucka.Terminal\**" />
+		<None Remove="Mucka.Terminal.Tests\**" />
 	</ItemGroup>
 
 	<ItemGroup>
 		<ProjectReference Include="mudsharp\mudsharp.csproj" />
+		<ProjectReference Include="Mucka.Terminal\Mucka.Terminal.csproj" />
 	</ItemGroup>
 
 </Project>
