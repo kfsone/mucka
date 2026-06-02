@@ -3,19 +3,20 @@ using Mucka.Terminal;
 
 namespace Mucka.Terminal.Tests;
 
-/// <summary>Tests for <see cref="TerminalText"/> — control-character stripping (tofu prevention).</summary>
+/// <summary>Tests for <see cref="TerminalText"/> — control-char stripping + tab expansion.</summary>
 public class TerminalTextTests
 {
     private static StyledSpan Span(string text, TextStyle? style = null) => new(text, style ?? TextStyle.Default);
     private static StyledLine Line(bool partial, params StyledSpan[] spans) => new(spans, partial);
 
     [Fact]
-    public void StripControls_RemovesCarriageReturnBackspaceTabAndDel()
+    public void StripControls_RemovesCarriageReturnBackspaceAndDel_ButKeepsTab()
     {
         Assert.Equal("Password:", TerminalText.StripControls("Password:\r"));
         Assert.Equal("ab", TerminalText.StripControls("a\bb"));
-        Assert.Equal("xy", TerminalText.StripControls("x\ty"));
-        Assert.Equal("z", TerminalText.StripControls("z"));
+        Assert.Equal("ab", TerminalText.StripControls("ab"));   // DEL stripped
+        Assert.Equal("x\ty", TerminalText.StripControls("x\ty"));     // tab preserved (expanded later)
+        Assert.Equal("z", TerminalText.StripControls("z"));
     }
 
     [Fact]
@@ -68,5 +69,51 @@ public class TerminalTextTests
     {
         var line = Line(partial: false, Span("clean text"));
         Assert.Same(line, TerminalText.Sanitize(line));
+    }
+
+    // ── Tab expansion ─────────────────────────────────────────────────────────
+
+    [Fact]
+    public void ExpandTabs_AtColumnZero_FillsToFirstStop()
+    {
+        var line = TerminalText.ExpandTabs(Line(false, Span("\tx")));
+        Assert.Equal("        x", line.Spans[0].Text);   // 8 spaces + x
+    }
+
+    [Fact]
+    public void ExpandTabs_AdvancesToNextStop()
+    {
+        var line = TerminalText.ExpandTabs(Line(false, Span("ab\tc")));
+        Assert.Equal("ab      c", line.Spans[0].Text);   // col 2 → +6 spaces → c at col 8
+    }
+
+    [Fact]
+    public void ExpandTabs_OnStopBoundary_AddsFullTab()
+    {
+        var line = TerminalText.ExpandTabs(Line(false, Span("12345678\t")));
+        Assert.Equal("12345678        ", line.Spans[0].Text);   // col 8 → +8 spaces
+    }
+
+    [Fact]
+    public void ExpandTabs_TracksColumnAcrossSpans()
+    {
+        var line = TerminalText.ExpandTabs(Line(false, Span("ab"), Span("\tc")));
+        Assert.Equal("ab      c", line.PlainText);   // running column carries across spans
+    }
+
+    [Fact]
+    public void ExpandTabs_PreservesStyleAndPartial()
+    {
+        var red = new TextStyle(Foreground: AnsiColor.Red);
+        var line = TerminalText.ExpandTabs(Line(partial: true, Span("\tx", red)));
+        Assert.True(line.IsPartial);
+        Assert.Equal(red, line.Spans[0].Style);
+    }
+
+    [Fact]
+    public void ExpandTabs_NoTabs_ReturnsSameInstance()
+    {
+        var line = Line(false, Span("no tabs here"));
+        Assert.Same(line, TerminalText.ExpandTabs(line));
     }
 }
