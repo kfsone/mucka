@@ -6,14 +6,14 @@ namespace Mucka.ViewModels;
 
 public sealed class SidePanelViewModel : BaseViewModel, IDisposable
 {
-    // On Windows the side panel (Extras tab) defaults to expanded; the initial window width
+    // On Windows the side panel defaults to expanded; the initial window width
     // is sized to fit it alongside the terminal view (see GamePage.SetPreferredInitialWindowSize).
     private bool _isPanelExpanded
 #if WINDOWS
         = true
 #endif
         ;
-    private int _activeTab;
+    private bool _isAboutVisible;
     private string _characterName = "";
     private string _currentRoom  = "";
     private string _previousRoom = "Option Menu";
@@ -29,14 +29,12 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     // ▼ when collapsed (click to show panel), ▶ when expanded (click to hide panel)
     public string PanelToggleGlyph => _isPanelExpanded ? "▶" : "▼";
 
-    public int ActiveTab
+    /// <summary>True while the About dialog overlay is shown (opened via the ⓘ status-bar icon).</summary>
+    public bool IsAboutVisible
     {
-        get => _activeTab;
-        set => SetAndNotify(ref _activeTab, value,
-            [nameof(IsExtrasTab), nameof(IsAboutTab)]);
+        get => _isAboutVisible;
+        set => Set(ref _isAboutVisible, value);
     }
-    public bool IsExtrasTab => _activeTab == 0;
-    public bool IsAboutTab  => _activeTab == 1;
 
     public string CharacterName
     {
@@ -108,17 +106,15 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     private IDispatcherTimer? _fadeTimer;
 
     public ICommand TogglePanelCommand { get; }
-    public ICommand SetTabCommand { get; }
+    public ICommand ShowAboutCommand { get; }
+    public ICommand CloseAboutCommand { get; }
     public ICommand OpenLinkCommand { get; }
 
     public SidePanelViewModel()
     {
         TogglePanelCommand = new Command(() => IsPanelExpanded = !IsPanelExpanded);
-        SetTabCommand = new Command<string>(s =>
-        {
-            if (int.TryParse(s, out var tab))
-                ActiveTab = tab;
-        });
+        ShowAboutCommand  = new Command(() => IsAboutVisible = true);
+        CloseAboutCommand = new Command(() => IsAboutVisible = false);
         OpenLinkCommand = new Command<string>(url =>
         {
             if (!string.IsNullOrWhiteSpace(url))
@@ -228,7 +224,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
 
     /// <summary>
     /// Called when the player exits game mode (e.g. types 'qq').
-    /// Sets CurrentRoom to "Option Menu" so the Extras tab reflects the player's new location,
+    /// Sets CurrentRoom to "Option Menu" so the side panel reflects the player's new location,
     /// and clears the compass — the option menu is not a room, so any exits are stale.
     /// Does not push history — history shifts on the next real room entry.
     /// </summary>

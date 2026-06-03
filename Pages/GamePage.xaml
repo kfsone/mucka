@@ -12,7 +12,7 @@
     <ContentPage.Resources>
         <Style x:Key="StatLabelStyle" TargetType="Label">
             <Setter Property="TextColor" Value="White"/>
-            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="FontSize" Value="{OnPlatform WinUI=14, Default=13}"/>
             <Setter Property="VerticalOptions" Value="Center"/>
             <Setter Property="FontFamily" Value="{OnPlatform Android='monospace', WinUI='Cascadia Mono', MacCatalyst='Menlo-Regular'}"/>
         </Style>
@@ -24,9 +24,38 @@
         <Border Grid.Row="0"
                 BackgroundColor="#161b22"
                 Padding="6,4" StrokeThickness="0">
-            <Grid ColumnDefinitions="*,Auto">
+            <Grid ColumnDefinitions="Auto,*,Auto">
+
+                <!-- Top-left icons: about dialog + toolbar toggle -->
+                <HorizontalStackLayout Grid.Column="0" Spacing="2" Margin="0,0,6,0">
+                    <Border VerticalOptions="Center"
+                            BackgroundColor="Transparent"
+                            Stroke="Transparent" StrokeThickness="0"
+                            Padding="2,0"
+                            SemanticProperties.Description="About mucka">
+                        <ToolTipProperties.Text>About mucka</ToolTipProperties.Text>
+                        <Border.GestureRecognizers>
+                            <TapGestureRecognizer Command="{Binding SidePanel.ShowAboutCommand}"/>
+                        </Border.GestureRecognizers>
+                        <Label Text="&#x24D8;"
+                               TextColor="#888888" FontSize="12" VerticalOptions="Center"/>
+                    </Border>
+                    <Border VerticalOptions="Center"
+                            BackgroundColor="Transparent"
+                            Stroke="Transparent" StrokeThickness="0"
+                            Padding="2,0"
+                            SemanticProperties.Description="Toggle toolbar">
+                        <ToolTipProperties.Text>Toggle toolbar</ToolTipProperties.Text>
+                        <Border.GestureRecognizers>
+                            <TapGestureRecognizer Command="{Binding ToggleFkeysCommand}"/>
+                        </Border.GestureRecognizers>
+                        <Label Text="&#x2699;&#xFE0E;"
+                               TextColor="#888888" FontSize="12" VerticalOptions="Center"/>
+                    </Border>
+                </HorizontalStackLayout>
+
                 <!-- Normal stats bar: visible when effcols >= 76 -->
-                <Grid Grid.Column="0"
+                <Grid Grid.Column="1"
                       ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,*,Auto,Auto,Auto,Auto,Auto,Auto"
                       IsVisible="{Binding IsNotCompactStats}">
 
@@ -35,7 +64,7 @@
                         <Label.FormattedText>
                             <FormattedString>
                                 <Span Text="Sta: " TextColor="#58a6ff"/>
-                                <Span Text="{Binding StaValue}" TextColor="{Binding StaColor}"/>
+                                <Span Text="{Binding StaValue}" TextColor="{Binding StaColor}" FontAttributes="Bold"/>
                             </FormattedString>
                         </Label.FormattedText>
                     </Label>
@@ -44,7 +73,7 @@
                         <Label.FormattedText>
                             <FormattedString>
                                 <Span Text="Mag: " TextColor="#58a6ff"/>
-                                <Span Text="{Binding MagValue}" TextColor="{Binding MagColor}"/>
+                                <Span Text="{Binding MagValue}" TextColor="{Binding MagColor}" FontAttributes="Bold"/>
                             </FormattedString>
                         </Label.FormattedText>
                     </Label>
@@ -52,7 +81,7 @@
                         <Label.FormattedText>
                             <FormattedString>
                                 <Span Text="Str: " TextColor="#58a6ff"/>
-                                <Span Text="{Binding StrValue}" TextColor="{Binding StrColor}"/>
+                                <Span Text="{Binding StrValue}" TextColor="{Binding StrColor}" FontAttributes="Bold"/>
                             </FormattedString>
                         </Label.FormattedText>
                     </Label>
@@ -60,7 +89,7 @@
                         <Label.FormattedText>
                             <FormattedString>
                                 <Span Text="Dex: " TextColor="#58a6ff"/>
-                                <Span Text="{Binding DexValue}" TextColor="{Binding DexColor}"/>
+                                <Span Text="{Binding DexValue}" TextColor="{Binding DexColor}" FontAttributes="Bold"/>
                             </FormattedString>
                         </Label.FormattedText>
                     </Label>
@@ -72,7 +101,8 @@
                         <Label.FormattedText>
                             <FormattedString>
                                 <Span Text="Score: " TextColor="#58a6ff"/>
-                                <Span Text="{Binding ScoreValue}" TextColor="{Binding ScoreColor}"/>
+                                <Span Text="{Binding ScoreValue}" TextColor="{Binding ScoreColor}" FontAttributes="Bold"/>
+                                <Span Text="{Binding ScoreDeltaValue}" TextColor="{Binding ScoreColor}"/>
                             </FormattedString>
                         </Label.FormattedText>
                     </Label>
@@ -80,12 +110,13 @@
                     <!-- Spacer -->
                     <BoxView Grid.Column="6" Color="Transparent"/>
 
-                    <!-- Rec capture indicator — Border+tap avoids WinUI's minimum button height -->
+                    <!-- Rec capture indicator — Border+tap avoids WinUI's minimum button height.
+                         Hollow chip when idle; red dot + lit text while capturing. -->
                     <Border Grid.Column="7"
                             IsVisible="{Binding IsRecordingButtonVisible}"
-                            BackgroundColor="#2d333b"
-                            Stroke="Transparent" StrokeThickness="0"
-                            Padding="5,2" Margin="0,0,4,0"
+                            BackgroundColor="Transparent"
+                            Stroke="#2d333b" StrokeThickness="1"
+                            Padding="5,1" Margin="0,0,4,0"
                             VerticalOptions="Center"
                             SemanticProperties.Description="Toggle capture"
                             SemanticProperties.Hint="Starts or stops capture">
@@ -96,22 +127,29 @@
                         </Border.GestureRecognizers>
                         <Border.Triggers>
                             <DataTrigger TargetType="Border" Binding="{Binding IsCapturing}" Value="True">
-                                <Setter Property="BackgroundColor" Value="#c02020"/>
+                                <Setter Property="Stroke" Value="#c02020"/>
                             </DataTrigger>
                         </Border.Triggers>
-                        <Label Text="rec" FontSize="10" HorizontalOptions="Center" VerticalOptions="Center">
-                            <Label.Triggers>
-                                <DataTrigger TargetType="Label" Binding="{Binding IsCapturing}" Value="True">
-                                    <Setter Property="TextColor" Value="White"/>
-                                </DataTrigger>
-                                <DataTrigger TargetType="Label" Binding="{Binding IsCapturing}" Value="False">
-                                    <Setter Property="TextColor" Value="#888888"/>
-                                </DataTrigger>
-                            </Label.Triggers>
-                        </Label>
+                        <HorizontalStackLayout Spacing="3">
+                            <Label Text="&#x25CF;" FontSize="9" TextColor="#E74856"
+                                   IsVisible="{Binding IsCapturing}"
+                                   VerticalOptions="Center"/>
+                            <Label Text="rec" FontSize="10" HorizontalOptions="Center" VerticalOptions="Center">
+                                <Label.Triggers>
+                                    <DataTrigger TargetType="Label" Binding="{Binding IsCapturing}" Value="True">
+                                        <Setter Property="TextColor" Value="White"/>
+                                    </DataTrigger>
+                                    <DataTrigger TargetType="Label" Binding="{Binding IsCapturing}" Value="False">
+                                        <Setter Property="TextColor" Value="#666666"/>
+                                    </DataTrigger>
+                                </Label.Triggers>
+                            </Label>
+                        </HorizontalStackLayout>
                     </Border>
 
-                    <!-- Dreamword chip — tap to speak; Ctrl+D from keyboard -->
+                    <!-- Dreamword chip — tap to speak; Ctrl+D from keyboard.
+                         Muted (dim white on dark blue) while showing the ..zzZZZzz.. placeholder;
+                         bright + bold when a dreamword is held. -->
                     <Border Grid.Column="8"
                             BackgroundColor="#1f6feb"
                             Stroke="Transparent" StrokeThickness="0"
@@ -123,9 +161,21 @@
                         <Border.GestureRecognizers>
                             <TapGestureRecognizer Command="{Binding SpeakDreamwordCommand}"/>
                         </Border.GestureRecognizers>
+                        <Border.Triggers>
+                            <DataTrigger TargetType="Border" Binding="{Binding DreamwordIsPlaceholder}" Value="True">
+                                <Setter Property="BackgroundColor" Value="#14304f"/>
+                            </DataTrigger>
+                        </Border.Triggers>
                         <Label Text="{Binding DreamwordDisplay}"
-                               TextColor="White"
-                               FontSize="12" VerticalOptions="Center"/>
+                               TextColor="White" FontAttributes="Bold"
+                               FontSize="12" VerticalOptions="Center">
+                            <Label.Triggers>
+                                <DataTrigger TargetType="Label" Binding="{Binding DreamwordIsPlaceholder}" Value="True">
+                                    <Setter Property="TextColor" Value="#cccccc"/>
+                                    <Setter Property="FontAttributes" Value="None"/>
+                                </DataTrigger>
+                            </Label.Triggers>
+                        </Label>
                     </Border>
 
                     <!-- Separator before weather/TTR group -->
@@ -157,7 +207,7 @@
                 </Grid>
 
                 <!-- Compact stats bar: two rows when effcols < 76 -->
-                <Grid Grid.Column="0" RowDefinitions="Auto,Auto"
+                <Grid Grid.Column="1" RowDefinitions="Auto,Auto"
                       ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,*,Auto,Auto,Auto,Auto,Auto"
                       IsVisible="{Binding IsCompactStats}">
 
@@ -196,23 +246,23 @@
                     <Label Grid.Row="1" Grid.Column="0"
                            Text="{Binding StaValue}" TextColor="{Binding StaColor}"
                            Style="{StaticResource StatLabelStyle}"
-                           FontSize="{Binding StatsValueFontSize}"
+                           FontSize="{Binding StatsValueFontSize}" FontAttributes="Bold"
                            HorizontalOptions="Center" Margin="0,0,4,0"/>
                     <Label Grid.Row="1" Grid.Column="1"
                            Text="{Binding MagValue}" TextColor="{Binding MagColor}"
                            Style="{StaticResource StatLabelStyle}"
-                           FontSize="{Binding StatsValueFontSize}"
+                           FontSize="{Binding StatsValueFontSize}" FontAttributes="Bold"
                            IsVisible="{Binding MagVisible}"
                            HorizontalOptions="Center" Margin="0,0,4,0"/>
                     <Label Grid.Row="1" Grid.Column="2"
                            Text="{Binding StrValue}" TextColor="{Binding StrColor}"
                            Style="{StaticResource StatLabelStyle}"
-                           FontSize="{Binding StatsValueFontSize}"
+                           FontSize="{Binding StatsValueFontSize}" FontAttributes="Bold"
                            HorizontalOptions="Center" Margin="0,0,4,0"/>
                     <Label Grid.Row="1" Grid.Column="3"
                            Text="{Binding DexValue}" TextColor="{Binding DexColor}"
                            Style="{StaticResource StatLabelStyle}"
-                           FontSize="{Binding StatsValueFontSize}"
+                           FontSize="{Binding StatsValueFontSize}" FontAttributes="Bold"
                            HorizontalOptions="Center" Margin="0,0,4,0"/>
 
                     <Label Grid.Row="1" Grid.Column="4" Text="|"
@@ -222,20 +272,26 @@
                     <Label Grid.Row="1" Grid.Column="5"
                            Text="{Binding ScoreDisplayValue}" TextColor="{Binding ScoreColor}"
                            Style="{StaticResource StatLabelStyle}"
-                           FontSize="{Binding StatsValueFontSize}"
+                           FontSize="{Binding StatsValueFontSize}" FontAttributes="Bold"
                            MaxLines="1" LineBreakMode="TailTruncation"
                            HorizontalOptions="Center" Margin="0,0,4,0"/>
 
                     <!-- * spacer col 6 -->
                     <BoxView Grid.Row="1" Grid.Column="6" Color="Transparent"/>
 
-                    <!-- Dreamword: tappable label -->
+                    <!-- Dreamword: tappable label — dimmed while showing the placeholder -->
                     <Label Grid.Row="1" Grid.Column="7"
                            Text="{Binding DreamwordDisplay}"
-                           TextColor="#7db9f5"
+                           TextColor="#7db9f5" FontAttributes="Bold"
                            Style="{StaticResource StatLabelStyle}"
                            MaxLines="1" LineBreakMode="TailTruncation"
                            HorizontalOptions="Center" Margin="0,0,4,0">
+                        <Label.Triggers>
+                            <DataTrigger TargetType="Label" Binding="{Binding DreamwordIsPlaceholder}" Value="True">
+                                <Setter Property="TextColor" Value="#5a7a9c"/>
+                                <Setter Property="FontAttributes" Value="None"/>
+                            </DataTrigger>
+                        </Label.Triggers>
                         <Label.GestureRecognizers>
                             <TapGestureRecognizer Command="{Binding SpeakDreamwordCommand}"/>
                         </Label.GestureRecognizers>
@@ -269,7 +325,7 @@
                 </Grid>
 
                 <!-- Panel toggle button -->
-                <Border Grid.Column="1"
+                <Border Grid.Column="2"
                         VerticalOptions="Center"
                         BackgroundColor="Transparent"
                         Stroke="Transparent" StrokeThickness="0"
@@ -318,72 +374,8 @@
                     BackgroundColor="#161b22"
                     Stroke="#2d333b" StrokeThickness="1"
                     Padding="0">
-                <Grid RowDefinitions="Auto,*">
-
-                    <!-- Panel tab bar -->
-                    <Border Grid.Row="0" BackgroundColor="#0C0C0C" StrokeThickness="0" Padding="6,4">
-                        <HorizontalStackLayout Spacing="2">
-
-                            <!-- Extras tab -->
-                            <Border Padding="8,3" Stroke="Transparent" StrokeThickness="0">
-                                <Border.StrokeShape><RoundRectangle CornerRadius="3"/></Border.StrokeShape>
-                                <Border.GestureRecognizers>
-                                    <TapGestureRecognizer Command="{Binding SidePanel.SetTabCommand}" CommandParameter="0"/>
-                                </Border.GestureRecognizers>
-                                <Border.Triggers>
-                                    <DataTrigger TargetType="Border" Binding="{Binding SidePanel.IsExtrasTab}" Value="True">
-                                        <Setter Property="BackgroundColor" Value="#1f6feb"/>
-                                    </DataTrigger>
-                                    <DataTrigger TargetType="Border" Binding="{Binding SidePanel.IsExtrasTab}" Value="False">
-                                        <Setter Property="BackgroundColor" Value="Transparent"/>
-                                    </DataTrigger>
-                                </Border.Triggers>
-                                <Label Text="Extras" FontSize="11" VerticalOptions="Center">
-                                    <Label.Triggers>
-                                        <DataTrigger TargetType="Label" Binding="{Binding SidePanel.IsExtrasTab}" Value="True">
-                                            <Setter Property="TextColor" Value="White"/>
-                                        </DataTrigger>
-                                        <DataTrigger TargetType="Label" Binding="{Binding SidePanel.IsExtrasTab}" Value="False">
-                                            <Setter Property="TextColor" Value="#888888"/>
-                                        </DataTrigger>
-                                    </Label.Triggers>
-                                </Label>
-                            </Border>
-
-                            <!-- About tab -->
-                            <Border Padding="8,3" Stroke="Transparent" StrokeThickness="0">
-                                <Border.StrokeShape><RoundRectangle CornerRadius="3"/></Border.StrokeShape>
-                                <Border.GestureRecognizers>
-                                    <TapGestureRecognizer Command="{Binding SidePanel.SetTabCommand}" CommandParameter="1"/>
-                                </Border.GestureRecognizers>
-                                <Border.Triggers>
-                                    <DataTrigger TargetType="Border" Binding="{Binding SidePanel.IsAboutTab}" Value="True">
-                                        <Setter Property="BackgroundColor" Value="#1f6feb"/>
-                                    </DataTrigger>
-                                    <DataTrigger TargetType="Border" Binding="{Binding SidePanel.IsAboutTab}" Value="False">
-                                        <Setter Property="BackgroundColor" Value="Transparent"/>
-                                    </DataTrigger>
-                                </Border.Triggers>
-                                <Label Text="About" FontSize="11" VerticalOptions="Center">
-                                    <Label.Triggers>
-                                        <DataTrigger TargetType="Label" Binding="{Binding SidePanel.IsAboutTab}" Value="True">
-                                            <Setter Property="TextColor" Value="White"/>
-                                        </DataTrigger>
-                                        <DataTrigger TargetType="Label" Binding="{Binding SidePanel.IsAboutTab}" Value="False">
-                                            <Setter Property="TextColor" Value="#888888"/>
-                                        </DataTrigger>
-                                    </Label.Triggers>
-                                </Label>
-                            </Border>
-
-                        </HorizontalStackLayout>
-                    </Border>
-
-                    <!-- Panel content -->
-                    <Grid Grid.Row="1">
-
-                        <!-- ── Extras tab: scrollable info + bottom-pinned online list ── -->
-                        <Grid IsVisible="{Binding SidePanel.IsExtrasTab}" RowDefinitions="*,Auto">
+                <!-- ── Panel content: scrollable info + bottom-pinned online list ── -->
+                <Grid RowDefinitions="*,Auto">
 
                             <!-- Top: scrollable character / room / item info -->
                             <ScrollView Grid.Row="0" Padding="8,6,8,4">
@@ -395,7 +387,8 @@
                                            TextColor="#e3b341" FontSize="13" FontAttributes="Bold"
                                            FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
 
-                                    <!-- Room breadcrumb: oldest → previous → current, top to bottom -->
+                                    <!-- Room breadcrumb: oldest → previous → current, top to bottom.
+                                         A hairline separates the trail from the (larger) current room. -->
                                     <VerticalStackLayout Spacing="1" Margin="0,4,0,0">
                                         <Label Text="{Binding SidePanel.OldestRoom}"
                                                TextColor="#00a000" FontSize="10" FontAttributes="Bold"
@@ -403,9 +396,11 @@
                                         <Label Text="{Binding SidePanel.PreviousRoom}"
                                                TextColor="#00c000" FontSize="11" FontAttributes="Bold"
                                                FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
+                                        <BoxView Color="#2d333b" HeightRequest="1" Margin="0,2"
+                                                 IsVisible="{Binding SidePanel.HasCurrentRoom}"/>
                                         <Label Text="{Binding SidePanel.CurrentRoom}"
                                                IsVisible="{Binding SidePanel.HasCurrentRoom}"
-                                               TextColor="#00ff00" FontSize="12" FontAttributes="Bold"
+                                               TextColor="#00ff00" FontSize="13" FontAttributes="Bold"
                                                FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
                                         <Label Text="—" IsVisible="{Binding SidePanel.NoCurrentRoom}"
                                                TextColor="#555555" FontSize="11" FontAttributes="Italic"/>
@@ -547,75 +542,6 @@
                                 </ScrollView>
                             </VerticalStackLayout>
 
-                        </Grid>
-
-                        <!-- ── About tab ── -->
-                        <ScrollView IsVisible="{Binding SidePanel.IsAboutTab}" Padding="8,6">
-                            <VerticalStackLayout Spacing="4">
-
-                                <Label Text="Mucka" TextColor="White" FontSize="14" FontAttributes="Bold"/>
-                                <Label Text="a muddy client" TextColor="#888888" FontSize="11" FontAttributes="Italic"/>
-
-                                <Label FontSize="11" Margin="0,6,0,0">
-                                    <Label.FormattedText>
-                                        <FormattedString>
-                                            <Span Text="Version " TextColor="#888888"/>
-                                            <Span Text="{Binding SidePanel.AppVersion}" TextColor="White"/>
-                                        </FormattedString>
-                                    </Label.FormattedText>
-                                </Label>
-
-                                <Label FontSize="11" Margin="0,2,0,0">
-                                    <Label.FormattedText>
-                                        <FormattedString>
-                                            <Span Text="© " TextColor="#888888"/>
-                                            <Span Text="Oliver 'kfsone' Smith" TextColor="#58a6ff" TextDecorations="Underline"/>
-                                        </FormattedString>
-                                    </Label.FormattedText>
-                                    <Label.GestureRecognizers>
-                                        <TapGestureRecognizer Command="{Binding SidePanel.OpenLinkCommand}" CommandParameter="mailto:oliver@kfs.org"/>
-                                    </Label.GestureRecognizers>
-                                </Label>
-
-                                <Label Text="github.com/kfsone/mucka" TextColor="#58a6ff" FontSize="11"
-                                       TextDecorations="Underline" Margin="0,2,0,0">
-                                    <Label.GestureRecognizers>
-                                        <TapGestureRecognizer Command="{Binding SidePanel.OpenLinkCommand}" CommandParameter="https://github.com/kfsone/mucka"/>
-                                    </Label.GestureRecognizers>
-                                </Label>
-
-                                <Label Text="Releases" TextColor="#58a6ff" FontSize="11"
-                                       TextDecorations="Underline" Margin="0,2,0,0">
-                                    <Label.GestureRecognizers>
-                                        <TapGestureRecognizer Command="{Binding SidePanel.OpenLinkCommand}" CommandParameter="https://github.com/kfsone/mucka/releases"/>
-                                    </Label.GestureRecognizers>
-                                </Label>
-
-                                <BoxView Color="#2d333b" HeightRequest="1" Margin="0,8"/>
-
-                                <Label FontSize="11">
-                                    <Label.FormattedText>
-                                        <FormattedString>
-                                            <Span Text="Heavily inspired by " TextColor="#888888"/>
-                                            <Span Text="Clio" TextColor="#58a6ff" TextDecorations="Underline"/>
-                                        </FormattedString>
-                                    </Label.FormattedText>
-                                    <Label.GestureRecognizers>
-                                        <TapGestureRecognizer Command="{Binding SidePanel.OpenLinkCommand}" CommandParameter="https://sourceforge.net/projects/clio-mud2/"/>
-                                    </Label.GestureRecognizers>
-                                </Label>
-
-                                <Label Text="Clio © Ian Peattie" TextColor="#888888" FontSize="11"/>
-
-                                <BoxView Color="#2d333b" HeightRequest="1" Margin="0,8"/>
-
-                                <Label Text="WORK IN PROGRESS" TextColor="#e3b341" FontSize="11" FontAttributes="Bold"/>
-
-                            </VerticalStackLayout>
-                        </ScrollView>
-
-                    </Grid>
-
                 </Grid>
             </Border>
         </Grid>
@@ -658,22 +584,13 @@
             </HorizontalStackLayout>
         </Grid>
 
-        <!-- ── Input row ───────────────────────────────────────────── -->
+        <!-- ── Input row — flush left so the entry can carry a prompt later ── -->
         <Grid Grid.Row="5"
-              ColumnDefinitions="Auto,*,Auto"
+              ColumnDefinitions="*,Auto"
               BackgroundColor="#161b22"
-              Padding="4,4">
+              Padding="4,2">
 
-            <!-- Toggle toolbar -->
-            <Button Grid.Column="0"
-                    x:Name="FkeyToggleButton"
-                    Text="&#x2699;&#xFE0E;"
-                    Command="{Binding ToggleFkeysCommand}"
-                    BackgroundColor="#2d333b" TextColor="#888888"
-                    FontSize="11" WidthRequest="36" HeightRequest="36"
-                    CornerRadius="3" Padding="0" Margin="0,0,4,0"/>
-
-            <Entry Grid.Column="1"
+            <Entry Grid.Column="0"
                    x:Name="InputEntry"
                    Text="{Binding InputText, Mode=TwoWay}"
                    TextColor="#CCCCCC"
@@ -695,16 +612,18 @@
                 </Entry.FontFamily>
             </Entry>
 
-            <Button Grid.Column="2"
+            <Button Grid.Column="1"
                     x:Name="SendButton"
                     Text="&#x25B6;"
                     Command="{Binding SendCommand}"
                     BackgroundColor="#1f6feb" TextColor="White"
-                    CornerRadius="4" WidthRequest="44" Margin="4,0,0,0"/>
+                    FontSize="11" CornerRadius="3"
+                    WidthRequest="34" HeightRequest="28" Padding="0"
+                    VerticalOptions="Center" Margin="4,0,0,0"/>
 
             <!-- Scrollback-mode indicator: opaque overlay ON TOP of the input controls (which stay
                  in place) so toggling it causes no layout shift in the text view above. -->
-            <Border Grid.Column="0" Grid.ColumnSpan="3"
+            <Border Grid.Column="0" Grid.ColumnSpan="2"
                     x:Name="ScrollbackBar"
                     IsVisible="False"
                     BackgroundColor="#161b22"
@@ -721,6 +640,95 @@
                        FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
             </Border>
 
+        </Grid>
+
+        <!-- ── About dialog — overlays the whole page; ⓘ in the status bar opens it ── -->
+        <Grid Grid.Row="0" Grid.RowSpan="6"
+              IsVisible="{Binding SidePanel.IsAboutVisible}">
+
+            <!-- Scrim: dims the page; tap outside the dialog to dismiss -->
+            <BoxView Color="Black" Opacity="0.55">
+                <BoxView.GestureRecognizers>
+                    <TapGestureRecognizer Command="{Binding SidePanel.CloseAboutCommand}"/>
+                </BoxView.GestureRecognizers>
+            </BoxView>
+
+            <Border BackgroundColor="#161b22"
+                    Stroke="#2d333b" StrokeThickness="1"
+                    Padding="16,12"
+                    WidthRequest="280"
+                    HorizontalOptions="Center" VerticalOptions="Center">
+                <Border.StrokeShape><RoundRectangle CornerRadius="6"/></Border.StrokeShape>
+                <VerticalStackLayout Spacing="4">
+
+                    <Grid ColumnDefinitions="*,Auto">
+                        <Label Text="Mucka" TextColor="White" FontSize="14" FontAttributes="Bold"/>
+                        <Label Grid.Column="1" Text="&#x2715;" TextColor="#888888" FontSize="12"
+                               Padding="8,0,0,0" VerticalOptions="Center">
+                            <Label.GestureRecognizers>
+                                <TapGestureRecognizer Command="{Binding SidePanel.CloseAboutCommand}"/>
+                            </Label.GestureRecognizers>
+                        </Label>
+                    </Grid>
+                    <Label Text="a muddy client" TextColor="#888888" FontSize="11" FontAttributes="Italic"/>
+
+                    <Label FontSize="11" Margin="0,6,0,0">
+                        <Label.FormattedText>
+                            <FormattedString>
+                                <Span Text="Version " TextColor="#888888"/>
+                                <Span Text="{Binding SidePanel.AppVersion}" TextColor="White"/>
+                            </FormattedString>
+                        </Label.FormattedText>
+                    </Label>
+
+                    <Label FontSize="11" Margin="0,2,0,0">
+                        <Label.FormattedText>
+                            <FormattedString>
+                                <Span Text="© " TextColor="#888888"/>
+                                <Span Text="Oliver 'kfsone' Smith" TextColor="#58a6ff" TextDecorations="Underline"/>
+                            </FormattedString>
+                        </Label.FormattedText>
+                        <Label.GestureRecognizers>
+                            <TapGestureRecognizer Command="{Binding SidePanel.OpenLinkCommand}" CommandParameter="mailto:oliver@kfs.org"/>
+                        </Label.GestureRecognizers>
+                    </Label>
+
+                    <Label Text="github.com/kfsone/mucka" TextColor="#58a6ff" FontSize="11"
+                           TextDecorations="Underline" Margin="0,2,0,0">
+                        <Label.GestureRecognizers>
+                            <TapGestureRecognizer Command="{Binding SidePanel.OpenLinkCommand}" CommandParameter="https://github.com/kfsone/mucka"/>
+                        </Label.GestureRecognizers>
+                    </Label>
+
+                    <Label Text="Releases" TextColor="#58a6ff" FontSize="11"
+                           TextDecorations="Underline" Margin="0,2,0,0">
+                        <Label.GestureRecognizers>
+                            <TapGestureRecognizer Command="{Binding SidePanel.OpenLinkCommand}" CommandParameter="https://github.com/kfsone/mucka/releases"/>
+                        </Label.GestureRecognizers>
+                    </Label>
+
+                    <BoxView Color="#2d333b" HeightRequest="1" Margin="0,8"/>
+
+                    <Label FontSize="11">
+                        <Label.FormattedText>
+                            <FormattedString>
+                                <Span Text="Heavily inspired by " TextColor="#888888"/>
+                                <Span Text="Clio" TextColor="#58a6ff" TextDecorations="Underline"/>
+                            </FormattedString>
+                        </Label.FormattedText>
+                        <Label.GestureRecognizers>
+                            <TapGestureRecognizer Command="{Binding SidePanel.OpenLinkCommand}" CommandParameter="https://sourceforge.net/projects/clio-mud2/"/>
+                        </Label.GestureRecognizers>
+                    </Label>
+
+                    <Label Text="Clio © Ian Peattie" TextColor="#888888" FontSize="11"/>
+
+                    <BoxView Color="#2d333b" HeightRequest="1" Margin="0,8"/>
+
+                    <Label Text="WORK IN PROGRESS" TextColor="#e3b341" FontSize="11" FontAttributes="Bold"/>
+
+                </VerticalStackLayout>
+            </Border>
         </Grid>
     </Grid>
 </ContentPage>

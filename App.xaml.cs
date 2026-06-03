@@ -21,7 +21,11 @@ public partial class App : Application
             BarBackgroundColor = Color.FromArgb("#161b22"),
             BarTextColor = Colors.White,
         });
-        window.Title = $"mucka {AppInfo.VersionString}";
+        // Profile-mode launches title the window with the profile name so a specific
+        // instance is easy to spot in the taskbar / process list; otherwise app + version.
+        window.Title = Core.CommandLineArgs.Current.Profile is { Length: > 0 } profile
+            ? profile
+            : $"mucka {AppInfo.VersionString}";
 
 #if WINDOWS
         // Default-size the window at launch — WinUI's default is enormous. Sized for the game

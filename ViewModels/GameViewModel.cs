@@ -72,7 +72,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public int MaxDexterity { get => _maxDexterity; set => SetAndNotify(ref _maxDexterity, value, [nameof(DexText), nameof(DexValue), nameof(DexColor)]); }
     public int Magic    { get => _magic;    set => SetAndNotify(ref _magic,    value, [nameof(MagText), nameof(MagValue), nameof(MagColor), nameof(MagVisible)]); }
     public int MaxMagic { get => _maxMagic; set => SetAndNotify(ref _maxMagic, value, [nameof(MagText), nameof(MagValue), nameof(MagColor)]); }
-    public int Score    { get => _score;    set { if (Set(ref _score, value)) { if (_baseScore < 0 && value > 0) _baseScore = value; OnPropertiesChanged(nameof(ScoreText), nameof(ScoreValue), nameof(ScoreDisplayValue), nameof(ScoreColor)); } } }
+    public int Score    { get => _score;    set { if (Set(ref _score, value)) { if (_baseScore < 0 && value > 0) _baseScore = value; OnPropertiesChanged(nameof(ScoreText), nameof(ScoreValue), nameof(ScoreDeltaValue), nameof(ScoreDisplayValue), nameof(ScoreColor)); } } }
     public bool Blind    { get => _blind;    set => Set(ref _blind,    value); }
     public bool Deaf     { get => _deaf;     set => Set(ref _deaf,     value); }
     public bool Crippled { get => _crippled; set => Set(ref _crippled, value); }
@@ -134,9 +134,11 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public string MagValue   => $"{Magic}/{MaxMagic}";
     public string StrValue   => $"{Strength}/{MaxStrength}";
     public string DexValue   => $"{Dexterity}/{MaxDexterity}";
-    public string ScoreValue => Score <= 0 ? "—"
-        : _baseScore < 0 ? $"{Score}"
-        : $"{Score} ({ScoreDeltaStr(Score - _baseScore)})";
+    // Score number and reset-delta are separate spans so the score proper can render bold
+    // while the delta stays regular weight.
+    public string ScoreValue => Score <= 0 ? "—" : $"{Score}";
+    public string ScoreDeltaValue => Score <= 0 || _baseScore < 0 ? string.Empty
+        : $" ({ScoreDeltaStr(Score - _baseScore)})";
 
     /// <summary>Score value for display — drops the delta suffix when effcols &lt; 70.</summary>
     public string ScoreDisplayValue => Score <= 0 ? "—"
@@ -524,7 +526,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
                 nameof(Magic),      nameof(MaxMagic),
                 nameof(MagText),    nameof(MagValue),    nameof(MagColor),    nameof(MagVisible),
                 nameof(Score),
-                nameof(ScoreText),  nameof(ScoreValue),  nameof(ScoreDisplayValue), nameof(ScoreColor),
+                nameof(ScoreText),  nameof(ScoreValue),  nameof(ScoreDeltaValue), nameof(ScoreDisplayValue), nameof(ScoreColor),
                 nameof(Blind),      nameof(Deaf),        nameof(Crippled),    nameof(Dumb),
                 nameof(TimeToReset),
                 nameof(TtrText),    nameof(TtrVisible),
