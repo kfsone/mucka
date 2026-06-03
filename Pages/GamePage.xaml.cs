@@ -94,7 +94,6 @@ public partial class GamePage : ContentPage
             {
                 _vm.Disconnected        += OnDisconnected;
                 _vm.RequestFocus        += FocusInput;
-                _vm.EditFkeysRequested  += OnEditFkeysRequested;
                 _vm.ConfigRequested     += OnConfigRequested;
                 _vm.ClearScreenRequested += OnClearScreenRequested;
                 Terminal.HistoryModeChanged += OnHistoryModeChanged;
@@ -185,7 +184,6 @@ public partial class GamePage : ContentPage
         _toastTimer?.Stop();
         _vm.Disconnected        -= OnDisconnected;
         _vm.RequestFocus        -= FocusInput;
-        _vm.EditFkeysRequested  -= OnEditFkeysRequested;
         _vm.ConfigRequested     -= OnConfigRequested;
         _vm.ClearScreenRequested -= OnClearScreenRequested;
         Terminal.HistoryModeChanged -= OnHistoryModeChanged;
@@ -273,8 +271,6 @@ public partial class GamePage : ContentPage
         _isFkeyEditorOpen = true;
         return Navigation.PushModalAsync(new FkeyEditorPage(editorVm));
     }
-
-    private async void OnEditFkeysRequested() => await OpenConfigAsync(initialTab: 0);
 
     private async void OnConfigRequested() => await OpenConfigAsync(initialTab: 0);
 

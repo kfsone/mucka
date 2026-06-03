@@ -160,16 +160,15 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public double StatsValueFontSize => _effCols < 50 ? 11.0 : 13.0;
 
     // ── Fkey toolbar density — three tiers shrinking with effcols ────────────
-    // Returns (fontSize, buttonRightMargin, cfgWidth, totalHorizPad).
-    private (double Font, double Bm, double Cfg, double PadH) FkeyDensity() => _effCols switch
+    // Returns (fontSize, buttonRightMargin, totalHorizPad).
+    private (double Font, double Bm, double PadH) FkeyDensity() => _effCols switch
     {
-        >= 76 => (11.0, 3.0, 44.0, 8.0),
-        >= 50 => (10.0, 2.0, 38.0, 4.0),
-        _     => ( 9.0, 1.0, 32.0, 2.0),
+        >= 76 => (11.0, 3.0, 8.0),
+        >= 50 => (10.0, 2.0, 4.0),
+        _     => ( 9.0, 1.0, 2.0),
     };
 
     public double    FkeyFontSize     => FkeyDensity().Font;
-    public double    FkeyCfgWidth     => FkeyDensity().Cfg;
     public Thickness FkeyButtonMargin => new Thickness(0, 0, FkeyDensity().Bm, FkeyDensity().Bm);
     public Thickness FkeyBarPadding   { get { var d = FkeyDensity(); return new Thickness(d.PadH / 2, d.Bm, d.PadH / 2, d.Bm); } }
 
@@ -213,8 +212,8 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     {
         if (FkeyItems.Count == 0 || widthDp <= 0) return;
         var d = FkeyDensity();
-        // Subtract: symmetric bar padding (d.PadH total), Cfg button width + its right margin.
-        double available = widthDp - d.PadH - d.Cfg - d.Bm;
+        // Subtract the symmetric bar padding (d.PadH total).
+        double available = widthDp - d.PadH;
         double slot      = Math.Floor(available / FkeyItems.Count);
         double btnWidth  = Math.Max(20.0, slot - d.Bm);
         foreach (var item in FkeyItems)
@@ -328,12 +327,10 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public ICommand HistoryDownCommand { get; }
     public ICommand ToggleFkeysCommand { get; }
     public ICommand ToggleCaptureCommand { get; }
-    public ICommand EditFkeysCommand { get; }
     public ICommand ConfigCommand { get; }
 
     public event Action? Disconnected;
     public event Action? RequestFocus;
-    public event Action? EditFkeysRequested;
     public event Action? ConfigRequested;
     public event Action? ClearScreenRequested;
 #if WINDOWS
@@ -411,7 +408,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         HistoryDownCommand    = new Command(HistoryDown);
         ToggleFkeysCommand    = new Command(() => { FkeysVisible = !FkeysVisible; RequestFocus?.Invoke(); });
         ToggleCaptureCommand  = new Command(ToggleCapture);
-        EditFkeysCommand      = new Command(() => EditFkeysRequested?.Invoke());
         ConfigCommand         = new Command(() => ConfigRequested?.Invoke());
     }
 
@@ -820,7 +816,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             OnPropertyChanged(nameof(IsVeryCompact));
             OnPropertyChanged(nameof(StatsValueFontSize));
             OnPropertyChanged(nameof(FkeyFontSize));
-            OnPropertyChanged(nameof(FkeyCfgWidth));
             OnPropertyChanged(nameof(FkeyButtonMargin));
             OnPropertyChanged(nameof(FkeyBarPadding));
             OnPropertyChanged(nameof(ScoreDisplayValue));

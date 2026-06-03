@@ -549,19 +549,10 @@
         <!-- ── Toolbar (collapsible, wraps to fit width) ──────────── -->
         <Grid Grid.Row="3"
               x:Name="FkeyBar"
-              ColumnDefinitions="Auto,*"
               BackgroundColor="#161b22"
               Padding="{Binding FkeyBarPadding}"
               IsVisible="{Binding FkeysVisible}">
-            <Button Grid.Column="0"
-                    Text="Cfg"
-                    Command="{Binding EditFkeysCommand}"
-                    FontSize="{Binding FkeyFontSize}" HeightRequest="26" WidthRequest="{Binding FkeyCfgWidth}"
-                    Padding="0"
-                    BackgroundColor="#2d333b" TextColor="#888888"
-                    CornerRadius="3" Margin="{Binding FkeyButtonMargin}"
-                    VerticalOptions="Start"/>
-            <HorizontalStackLayout Grid.Column="1"
+            <HorizontalStackLayout
                         x:Name="FkeyFlexLayout"
                         BindableLayout.ItemsSource="{Binding FkeyItems}">
                 <BindableLayout.ItemTemplate>
