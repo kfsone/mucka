@@ -124,6 +124,7 @@ public partial class GamePage : ContentPage
                 {
                     froot.PreviewKeyDown += OnRootPreviewKeyDown;
                     froot.GettingFocus += OnRootGettingFocus;
+                    froot.LosingFocus += OnRootLosingFocus;
                 }
                 // Hook the native TextBox so Up/Down/Esc keys work in the entry.
                 InputEntry.HandlerChanged += OnInputHandlerChanged;
@@ -199,6 +200,7 @@ public partial class GamePage : ContentPage
         {
             froot.PreviewKeyDown -= OnRootPreviewKeyDown;
             froot.GettingFocus -= OnRootGettingFocus;
+            froot.LosingFocus -= OnRootLosingFocus;
         }
         if (_inputTextBox != null)
         {
@@ -477,14 +479,26 @@ public partial class GamePage : ContentPage
         Windows.System.VirtualKey.LeftWindows or Windows.System.VirtualKey.RightWindows or Windows.System.VirtualKey.CapitalLock;
 
     // Keyboard belongs to the input box on the game page. If focus heads anywhere else — a panel
-    // toggle, a tab, the gear/Cfg button, the dreamword label — bounce it straight back to the
-    // input box so typing is never stranded. Skipped while reviewing scrollback (input is hidden)
-    // or while the config editor is open. Redirecting in GettingFocus avoids any focus flicker.
+    // toggle, the gear, the rec/dreamword chips — keep it on the input box so typing is never
+    // stranded. Skipped while reviewing scrollback (input is hidden) or while the config editor
+    // is open. While the input box holds focus, veto the move outright (TryCancel) so a click
+    // never steals focus even for a frame; otherwise redirect the incoming focus to the input.
     private void OnRootGettingFocus(Microsoft.UI.Xaml.UIElement sender, Microsoft.UI.Xaml.Input.GettingFocusEventArgs args)
     {
         if (_isFkeyEditorOpen || Terminal.IsHistoryMode || _inputTextBox is null) return;
         if (ReferenceEquals(args.NewFocusedElement, _inputTextBox)) return;
+        if (ReferenceEquals(args.OldFocusedElement, _inputTextBox) && args.TryCancel()) return;
         args.TrySetNewFocusedElement(_inputTextBox);
+    }
+
+    // Companion to the GettingFocus veto: catches focus leaving the input box for a target the
+    // GettingFocus bounce never sees (e.g. a non-XAML element or "nothing"), which is what a
+    // click on the rec/dreamword chips produces.
+    private void OnRootLosingFocus(Microsoft.UI.Xaml.UIElement sender, Microsoft.UI.Xaml.Input.LosingFocusEventArgs args)
+    {
+        if (_isFkeyEditorOpen || Terminal.IsHistoryMode || _inputTextBox is null) return;
+        if (!ReferenceEquals(args.OldFocusedElement, _inputTextBox)) return;
+        if (args.NewFocusedElement is null) args.TryCancel();
     }
 
     private void OnRootPreviewKeyDown(object sender, Microsoft.UI.Xaml.Input.KeyRoutedEventArgs e)
@@ -505,6 +519,15 @@ public partial class GamePage : ContentPage
             if (ctrl && key == Windows.System.VirtualKey.C)
             {
                 if (Terminal.CopySelectionToClipboard()) ShowCopiedToast();
+                e.Handled = true;
+                return;
+            }
+            // Ctrl+D escapes scrollback and speaks the dreamword — dreamwords are
+            // time-critical, so it must work mid-review.
+            if (ctrl && key == Windows.System.VirtualKey.D)
+            {
+                Terminal.ScrollToBottom();
+                _vm.SpeakDreamword();
                 e.Handled = true;
                 return;
             }
