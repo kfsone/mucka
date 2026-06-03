@@ -89,8 +89,15 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public int EffCols => _effCols;
     public bool KeepScreenOn => _keepScreenOn;
     public int FontSize => _fontSize;
-    // Character width in MAUI logical pixels: calibrated at 8.0 dp for the default 15 px font size.
-    public double CharWidthDp => _fontSize * 8.0 / 15.0;
+    // Advance width of one Cascadia Mono cell per pixel of font size: 1200/2048 em units
+    // (from the embedded TTF's hmtx/head tables — a true monospace, so every glyph shares
+    // this advance). The previous 8.0/15 (≈0.533) calibration dated from the WebView renderer
+    // and under-measured the Skia cell by ~10%, leaving windows sized from it 4-6 columns short.
+    public const double CharWidthPerFontPx = 1200.0 / 2048.0;
+    /// <summary>Default terminal font size in pixels when the profile does not override it.</summary>
+    public const int DefaultFontSizePx = 15;
+    // Character width in MAUI logical pixels for the current font size.
+    public double CharWidthDp => _fontSize * CharWidthPerFontPx;
     public int Volume => _volume;
     public int StatUpdateFrequency => _statUpdateFrequency;
     public bool MuteBeepSession     { get => _muteBeepSession;     set => _muteBeepSession = value; }
@@ -356,7 +363,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _antiIdleSeconds = Math.Clamp(profile.AntiIdleSeconds, 0, 3600);
         _keepScreenOn = profile.KeepScreenOn;
         _lastSentUtc = DateTime.UtcNow;
-        _fontSize = profile.FontSize > 0 ? profile.FontSize : 15;
+        _fontSize = profile.FontSize > 0 ? profile.FontSize : DefaultFontSizePx;
         _volume = Math.Clamp(profile.Volume, 0, 100);
         _statUpdateFrequency = Math.Clamp(profile.StatUpdateFrequency, 0, 30);
         _muteBeepPermanently = profile.MuteBeepPermanently;

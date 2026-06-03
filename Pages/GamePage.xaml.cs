@@ -51,9 +51,21 @@ public partial class GamePage : ContentPage
     // Default terminal-view width (in characters) used to size the window on first appearance.
     // Two columns wider than the 80-column wrap so the rightmost text isn't flush against the panel.
     private const double DefaultViewColumns = 82.0;
+    // Left gutter the terminal renderer pads text with — must match TerminalView.LeftPadDip.
+    private const double TerminalGutterDp = 4.0;
     // Horizontal window chrome (resize borders) not part of the client area; small fudge so the
     // client area still fits DefaultViewColumns after WinUI subtracts the frame.
     private const double WindowChromeDp = 16.0;
+
+    /// <summary>
+    /// Window width (in DIPs) that fits <paramref name="viewColumns"/> terminal columns plus the
+    /// renderer's left gutter, the side panel when expanded, and the window frame. Shared by the
+    /// app-launch default (<see cref="App.CreateWindow"/>) and the first-appearance resize here.
+    /// </summary>
+    internal static double PreferredWindowWidthDp(
+        double charWidthDp, bool panelExpanded, double viewColumns = DefaultViewColumns)
+        => viewColumns * charWidthDp + TerminalGutterDp
+         + (panelExpanded ? SidePanelWidthDp : 0.0) + WindowChromeDp;
     private int              _minWindowWidthPx;
     private IntPtr           _hwnd = IntPtr.Zero;
     private WndProcDelegate? _wndProcDelegate;
@@ -377,7 +389,7 @@ public partial class GamePage : ContentPage
         if (nativeWindow is null) return;
 
         var panelExpanded = _vm.SidePanel.IsPanelExpanded;
-        var minDp  = _vm.MaxColumns * CharWidthDp + (panelExpanded ? SidePanelWidthDp : 0.0);
+        var minDp  = PreferredWindowWidthDp(CharWidthDp, panelExpanded, _vm.MaxColumns);
         var dpi    = GetDpiForWindow(_hwnd);
         _minWindowWidthPx = (int)Math.Ceiling(minDp * dpi / 96.0);
 
@@ -401,9 +413,7 @@ public partial class GamePage : ContentPage
         if (nativeWindow is null) return;
 
         var panelExpanded = _vm.SidePanel.IsPanelExpanded;
-        var contentDp = DefaultViewColumns * CharWidthDp
-                      + (panelExpanded ? SidePanelWidthDp : 0.0)
-                      + WindowChromeDp;
+        var contentDp = PreferredWindowWidthDp(CharWidthDp, panelExpanded);
         var dpi       = GetDpiForWindow(_hwnd);
         var targetPx  = (int)Math.Ceiling(contentDp * dpi / 96.0);
 
