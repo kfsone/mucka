@@ -152,6 +152,10 @@ public sealed class ConnectViewModel : BaseViewModel
 
             await conn.ConnectAsync(Host.Trim(), Port);
 
+            // Carry the persisted settings (fkeys, font, volume, …) over from the saved
+            // profile — they are not editable on this page but must not reset on connect.
+            var saved = SavedProfiles.FirstOrDefault(p =>
+                string.Equals(p.Name, ProfileName, StringComparison.OrdinalIgnoreCase));
             var profile = new Profile
             {
                 Name = ProfileName,
@@ -164,8 +168,34 @@ public sealed class ConnectViewModel : BaseViewModel
                 MaxColumns = MaxColumns,
                 AntiIdleSeconds = AntiIdleSeconds,
                 KeepScreenOn = KeepScreenOn,
-                Fkeys = SavedProfiles.FirstOrDefault(p => p.Name == ProfileName)?.Fkeys ?? new string[36]
+                DefaultHotkeys = saved?.DefaultHotkeys ?? true,
+                FontSize = saved?.FontSize ?? 0,
+                Volume = saved?.Volume ?? 75,
+                StatUpdateFrequency = saved?.StatUpdateFrequency ?? 10,
+                MuteBeepPermanently = saved?.MuteBeepPermanently ?? false,
+                SettingsPerProfile = saved?.SettingsPerProfile ?? false,
+                FkeysPerProfile = saved?.FkeysPerProfile ?? false,
+                Fkeys = saved?.Fkeys ?? new string[36]
             };
+            if (saved is null)
+            {
+                // Brand-new profile: seed from the stored globals so the connect-time ini
+                // sync below writes them back unchanged instead of clobbering them with
+                // defaults. The page-edited column count wins over the stored one.
+                try
+                {
+                    var stored = await SettingsStore.LoadProfileAsync(profile.Name);
+                    if (stored is not null)
+                    {
+                        stored.ApplyTo(profile);
+                        profile.MaxColumns = MaxColumns;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[ConnectViewModel] mucka.ini seed failed for '{profile.Name}': {ex}");
+                }
+            }
             if (!IsDirectConnectMode)
             {
                 await SaveCurrentProfileAsync(profile, RememberPassword ? resolvedPassword : null);
@@ -302,6 +332,16 @@ public sealed class ConnectViewModel : BaseViewModel
         SavedProfiles.Clear();
         foreach (var p in list)
         {
+            // mucka.ini is the authoritative store for settings and fkeys; the
+            // profiles.json copies are a fallback for installs that pre-date the ini.
+            try
+            {
+                (await SettingsStore.LoadProfileAsync(p.Name))?.ApplyTo(p);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[ConnectViewModel] mucka.ini load failed for '{p.Name}': {ex}");
+            }
             SavedProfiles.Add(p);
         }
 
@@ -342,22 +382,29 @@ public sealed class ConnectViewModel : BaseViewModel
 #endif
     }
 
-    public async Task SaveProfileFkeysAsync(string profileName, string[] fkeys)
+    /// <summary>
+    /// Saves a profile's settings and fkeys to mucka.ini and mirrors them onto the
+    /// in-memory profile so a reconnect in the same run sees the new values.
+    /// Used by GameViewModel's settings dialog via the saver delegate.
+    /// </summary>
+    public async Task SaveProfileSettingsAsync(string profileName, ClientSettings settings, string[] fkeys)
     {
         var existing = SavedProfiles.FirstOrDefault(p =>
             string.Equals(p.Name, profileName, StringComparison.OrdinalIgnoreCase));
         if (existing != null)
-            existing.Fkeys = fkeys;
-        await ProfileStore.SaveAsync(SavedProfiles.ToList());
-    }
-
-    public async Task SaveProfileMuteAsync(string profileName, bool mute)
-    {
-        var existing = SavedProfiles.FirstOrDefault(p =>
-            string.Equals(p.Name, profileName, StringComparison.OrdinalIgnoreCase));
-        if (existing != null)
-            existing.MuteBeepPermanently = mute;
-        await ProfileStore.SaveAsync(SavedProfiles.ToList());
+        {
+            existing.FontSize            = settings.FontSize;
+            existing.MaxColumns          = settings.MaxColumns;
+            existing.Volume              = settings.Volume;
+            existing.StatUpdateFrequency = settings.StatUpdateFrequency;
+            existing.MuteBeepPermanently = settings.MuteBeepPermanently;
+            existing.SettingsPerProfile  = settings.SettingsPerProfile;
+            existing.FkeysPerProfile     = settings.FkeysPerProfile;
+            existing.Fkeys               = fkeys;
+            if (string.Equals(existing.Name, ProfileName, StringComparison.OrdinalIgnoreCase))
+                MaxColumns = settings.MaxColumns;
+        }
+        await SettingsStore.SaveProfileAsync(profileName, settings, fkeys);
     }
 
     private async Task SaveCurrentProfileAsync(Profile incoming, string? password)
@@ -366,6 +413,10 @@ public sealed class ConnectViewModel : BaseViewModel
             string.Equals(p.Name, incoming.Name, StringComparison.OrdinalIgnoreCase));
         if (existing != null)
         {
+            // Settings fields (FontSize/Volume/StatUpdateFrequency/mutes/scope flags) are not
+            // copied here: incoming was built FROM existing for those, so they already match.
+            // If ConnectAsync ever diverges them, copy them here too or the in-memory profile
+            // and the ini sync below will disagree.
             existing.Name = incoming.Name;
             existing.Host = incoming.Host;
             existing.Port = incoming.Port;
@@ -390,5 +441,21 @@ public sealed class ConnectViewModel : BaseViewModel
 
         await ProfileStore.SetPasswordAsync(incoming.Name, password);
         await ProfileStore.SaveAsync(SavedProfiles.ToList());
+
+        // Keep mucka.ini in sync — it is the authoritative settings store, so a column
+        // change made on this page must not be reverted by a stale ini section next launch.
+        // The save lands in whichever scope the profile loaded from (global by default).
+        var settings = new ClientSettings
+        {
+            FontSize            = incoming.FontSize,
+            MaxColumns          = incoming.MaxColumns,
+            Volume              = incoming.Volume,
+            StatUpdateFrequency = incoming.StatUpdateFrequency,
+            MuteBeepPermanently = incoming.MuteBeepPermanently,
+            SettingsPerProfile  = incoming.SettingsPerProfile,
+            FkeysPerProfile     = incoming.FkeysPerProfile,
+        };
+        // fkeys: null — hotkeys are not editable on this page, so never rewrite their sections.
+        await SettingsStore.SaveProfileAsync(incoming.Name, settings, fkeys: null);
     }
 }

@@ -31,6 +31,15 @@ public class Profile
     public bool MuteBeepPermanently { get; set; }
     public string[] Fkeys { get => _fkeys; set => _fkeys = NormalizeFkeys(value); }
 
+    /// <summary>True when the settings came from a per-profile [settings:Name] ini section
+    /// rather than the global [settings]. Derived from mucka.ini at load; not persisted here.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool SettingsPerProfile { get; set; }
+    /// <summary>True when the fkeys came from a per-profile [fkeys:Name] ini section
+    /// rather than the global [fkeys]. Derived from mucka.ini at load; not persisted here.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool FkeysPerProfile { get; set; }
+
     private static readonly Dictionary<int, string> s_defaultFkeys = new()
     {
         [0] = "l around",

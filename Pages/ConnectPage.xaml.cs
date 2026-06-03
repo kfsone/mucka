@@ -54,13 +54,10 @@ public partial class ConnectPage : ContentPage
             try
             {
                 var vm = _vm;
-                Func<string[], Task>? saveFkeys = _vm.IsDirectConnectMode
+                Func<ClientSettings, string[], Task>? saveSettings = _vm.IsDirectConnectMode
                     ? null
-                    : async fkeys => await vm.SaveProfileFkeysAsync(profile.Name, fkeys);
-                Func<bool, Task>? saveMute = _vm.IsDirectConnectMode
-                    ? null
-                    : async mute => await vm.SaveProfileMuteAsync(profile.Name, mute);
-                var gameVm = new GameViewModel(conn, profile, saveFkeys, saveMute);
+                    : (settings, fkeys) => vm.SaveProfileSettingsAsync(profile.Name, settings, fkeys);
+                var gameVm = new GameViewModel(conn, profile, saveSettings);
                 var gamePage = new GamePage(gameVm, _vm.IsDirectConnectMode);
                 await Navigation.PushAsync(gamePage);
             }

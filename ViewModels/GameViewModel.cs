@@ -12,8 +12,7 @@ namespace Mucka.ViewModels;
 public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
 {
     private readonly MuckaConnection _conn;
-    private readonly Func<string[], Task>? _saveFkeysAsync;
-    private readonly Func<bool, Task>? _saveMuteAsync;
+    private readonly Func<ClientSettings, string[], Task>? _saveSettingsAsync;
     private readonly List<string> _history = new();
     private readonly string[] _allFkeys = new string[36];
 #if WINDOWS
@@ -57,6 +56,8 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private int _statUpdateFrequency;
     private bool _muteBeepSession;
     private bool _muteBeepPermanently;
+    private bool _settingsPerProfile;
+    private bool _fkeysPerProfile;
 
     // Lines from the TCP thread are enqueued here; the UI timer flushes them in batches.
     private readonly ConcurrentQueue<StyledLine> _pendingLines = new();
@@ -317,8 +318,21 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public bool DreamwordIsPlaceholder => string.IsNullOrEmpty(_dreamword);
 
     public ObservableCollection<FkeyItem> FkeyItems { get; } = new();
-    public bool CanSaveFkeys => _saveFkeysAsync != null;
+    public bool CanSaveSettings => _saveSettingsAsync != null;
     public SidePanelViewModel SidePanel { get; }
+
+    /// <summary>Snapshot of the current client settings, for the settings dialog.</summary>
+    public ClientSettings CurrentSettings => new()
+    {
+        FontSize            = _fontSize,
+        MaxColumns          = _maxColumns,
+        Volume              = _volume,
+        StatUpdateFrequency = _statUpdateFrequency,
+        MuteBeepSession     = _muteBeepSession,
+        MuteBeepPermanently = _muteBeepPermanently,
+        SettingsPerProfile  = _settingsPerProfile,
+        FkeysPerProfile     = _fkeysPerProfile,
+    };
 
     public ICommand SendCommand { get; }
     public ICommand FkeyCommand { get; }
@@ -333,6 +347,8 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public event Action? RequestFocus;
     public event Action? ConfigRequested;
     public event Action? ClearScreenRequested;
+    /// <summary>Raised after settings have been persisted — GamePage shows a confirmation toast.</summary>
+    public event Action? SettingsSaved;
 #if WINDOWS
     public event Action? OpenRawConsoleRequested;
     public event Action<byte[]>? RawBytesReceived
@@ -348,11 +364,10 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public void SendRawBytes(byte[] bytes) => _conn.SendBytes(bytes);
 #endif
 
-    public GameViewModel(MuckaConnection conn, Profile profile, Func<string[], Task>? saveFkeysAsync = null, Func<bool, Task>? saveMuteAsync = null)
+    public GameViewModel(MuckaConnection conn, Profile profile, Func<ClientSettings, string[], Task>? saveSettingsAsync = null)
     {
         _conn = conn;
-        _saveFkeysAsync = saveFkeysAsync;
-        _saveMuteAsync = saveMuteAsync;
+        _saveSettingsAsync = saveSettingsAsync;
         IsCapturing = _conn.IsCapturing;
 #if WINDOWS
         _watchwords = WatchwordStore.Load();
@@ -367,6 +382,9 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _statUpdateFrequency = Math.Clamp(profile.StatUpdateFrequency, 0, 30);
         _muteBeepPermanently = profile.MuteBeepPermanently;
         _muteBeepSession     = profile.MuteBeepPermanently;
+        _settingsPerProfile  = profile.SettingsPerProfile;
+        _fkeysPerProfile     = profile.FkeysPerProfile;
+        SoundService.SetVolume(_volume);
 
         SidePanel = new SidePanelViewModel();
 
@@ -429,11 +447,34 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         UpdateFkeyItems();
     }
 
-    public async Task SaveFkeysAsync(string[] fkeys)
+    /// <summary>
+    /// Applies a full settings snapshot (plus fkeys) to the live session — the settings
+    /// dialog's Apply path. Every member of <see cref="ClientSettings"/> takes effect here;
+    /// persistence is <see cref="SaveSettingsAsync"/>'s job.
+    /// </summary>
+    public void ApplyClientSettings(ClientSettings settings, string[] fkeys)
     {
         ApplyFkeys(fkeys);
-        if (_saveFkeysAsync != null)
-            await _saveFkeysAsync(GetAllFkeys());
+        ApplyFontSize(settings.FontSize);
+        ApplyVolume(settings.Volume);
+        ApplyMaxColumns(settings.MaxColumns);
+        ApplyStatUpdateFrequency(settings.StatUpdateFrequency);
+        _muteBeepPermanently = settings.MuteBeepPermanently;
+        _muteBeepSession     = settings.MuteBeepSession || settings.MuteBeepPermanently;
+        _settingsPerProfile  = settings.SettingsPerProfile;
+        _fkeysPerProfile     = settings.FkeysPerProfile;
+    }
+
+    /// <summary>Applies the snapshot, persists it (mucka.ini via the saver delegate), and
+    /// raises <see cref="SettingsSaved"/>. Exceptions propagate to the caller for display.</summary>
+    public async Task SaveSettingsAsync(ClientSettings settings, string[] fkeys)
+    {
+        ApplyClientSettings(settings, fkeys);
+        if (_saveSettingsAsync != null)
+        {
+            await _saveSettingsAsync(CurrentSettings, GetAllFkeys());
+            SettingsSaved?.Invoke();
+        }
     }
 
     // Called from the TCP read thread — must not touch UI directly.
@@ -836,12 +877,26 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         OnPropertyChanged(nameof(StatUpdateFrequency));
     }
 
-    /// <summary>Persists the permanent-mute flag and updates the in-memory state.</summary>
-    public void ApplyMutePermanently(bool mute)
+    /// <summary>
+    /// Applies a new terminal font size and recomputes the column layout for the new
+    /// glyph width. GamePage reacts to the FontSize change (terminal + window resize).
+    /// </summary>
+    public void ApplyFontSize(int px)
     {
-        _muteBeepPermanently = mute;
-        if (mute) _muteBeepSession = true;
-        _ = _saveMuteAsync?.Invoke(mute);
+        px = px > 0 ? Math.Clamp(px, 9, 24) : DefaultFontSizePx;
+        if (px == _fontSize) return;
+        _fontSize = px;
+        OnPropertiesChanged(nameof(FontSize), nameof(CharWidthDp));
+        if (_widthDp > 0)
+            NotifyWindowSize(_widthDp, (int)Math.Floor(_widthDp / CharWidthDp));
+    }
+
+    /// <summary>Applies a new sound volume to subsequently played sounds.</summary>
+    public void ApplyVolume(int volume)
+    {
+        _volume = Math.Clamp(volume, 0, 100);
+        SoundService.SetVolume(_volume);
+        OnPropertyChanged(nameof(Volume));
     }
 
     /// <summary>

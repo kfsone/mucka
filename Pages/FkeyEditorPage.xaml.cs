@@ -12,6 +12,7 @@ public partial class FkeyEditorPage : ContentPage
         _vm = vm;
         BindingContext = vm;
         vm.CloseRequested += OnCloseRequested;
+        vm.SaveFailed += OnSaveFailed;
 #if WINDOWS
         ImportButton.IsVisible = true;
         ImportButton.Clicked += OnImportClickedAsync;
@@ -32,6 +33,7 @@ public partial class FkeyEditorPage : ContentPage
     {
         base.OnDisappearing();
         _vm.CloseRequested -= OnCloseRequested;
+        _vm.SaveFailed -= OnSaveFailed;
 #if WINDOWS
         ImportButton.Clicked -= OnImportClickedAsync;
         if (Window?.Handler?.PlatformView is Microsoft.UI.Xaml.Window win &&
@@ -42,6 +44,11 @@ public partial class FkeyEditorPage : ContentPage
 
     private void OnCloseRequested() =>
         MainThread.BeginInvokeOnMainThread(async () => await Navigation.PopModalAsync());
+
+    // Save failures used to be swallowed silently (the page just sat there) — surface them.
+    private void OnSaveFailed(string message) =>
+        MainThread.BeginInvokeOnMainThread(async () =>
+            await DisplayAlertAsync("Save failed", message, "OK"));
 
 #if WINDOWS
     private void OnWindowPreviewKeyDown(object sender, Microsoft.UI.Xaml.Input.KeyRoutedEventArgs e)

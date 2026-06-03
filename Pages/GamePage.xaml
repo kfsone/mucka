@@ -352,7 +352,7 @@
                                  HorizontalOptions="Fill"
                                  VerticalOptions="Fill"/>
 
-            <!-- Transient "Copied to clipboard" toast, overlaid top-right of the terminal view. -->
+            <!-- Transient confirmation toast (copies, settings saves), overlaid top-right of the terminal view. -->
             <Border Grid.Column="0"
                     x:Name="CopiedToast"
                     IsVisible="False"
@@ -363,7 +363,8 @@
                     Margin="0,8,12,0"
                     InputTransparent="True">
                 <Border.StrokeShape><RoundRectangle CornerRadius="4"/></Border.StrokeShape>
-                <Label Text="* Copied to clipboard"
+                <Label x:Name="ToastLabel"
+                       Text="* Copied to clipboard"
                        TextColor="#3B78FF" FontSize="12"
                        FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
             </Border>

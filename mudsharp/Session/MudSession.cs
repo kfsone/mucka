@@ -15,8 +15,18 @@ public sealed class MudSession : IDisposable
 {
     private readonly MudStreamParser _parser;
     private readonly MudSessionOptions _options;
+    private readonly object _fesLock = new();
     private Timer? _fesTimer;
     private TimeSpan _fesInterval;
+    // Wake-probe state: while the character is asleep the periodic probes are no-ops, so
+    // probe replies stop arriving. Any real bytes from the server while replies are stale
+    // (the wake) trigger an immediate re-probe instead of waiting out the current period.
+    private DateTime _lastProbeReplyUtc;
+    private DateTime _lastWakeProbeUtc;
+    // Slack beyond the heartbeat interval before missing replies count as stale.
+    private static readonly TimeSpan StaleReplySlack = TimeSpan.FromSeconds(5);
+    // Minimum spacing between wake probes so a chatty burst (e.g. dream text) fires only one.
+    private static readonly TimeSpan WakeProbeFloor = TimeSpan.FromSeconds(2);
     private GameStatsSnapshot _currentStats = GameStatsSnapshot.Empty;
     private string? _currentDreamword;
     // Periodic probe: ESC-[FES,FEW,FEI ESC-] — fetches stats, who-list, inventory, and exits together.
@@ -71,14 +81,23 @@ public sealed class MudSession : IDisposable
     /// </summary>
     public void UpdateFesInterval(TimeSpan interval)
     {
-        _fesInterval = interval;
-        StopFesTimer();
-        if (InGameMode && _fesInterval > TimeSpan.Zero)
-            _fesTimer = new Timer(_ => SendFesSubscription(), null, _fesInterval, _fesInterval);
+        lock (_fesLock)
+        {
+            _fesInterval = interval;
+            StopFesTimerLocked();
+            if (InGameMode && _fesInterval > TimeSpan.Zero)
+                _fesTimer = new Timer(_ => SendFesSubscription(), null, _fesInterval, _fesInterval);
+        }
     }
 
     /// <summary>Feed raw bytes from the network. Thread-safe relative to the FES timer — Feed() itself is not thread-safe.</summary>
-    public void Feed(ReadOnlySpan<byte> data) => _parser.Feed(data);
+    public void Feed(ReadOnlySpan<byte> data)
+    {
+        var nonEmpty = data.Length > 0;
+        _parser.Feed(data);
+        if (nonEmpty)
+            MaybeSendWakeProbe();
+    }
 
     /// <summary>Set the login username advertised via NEW-ENVIRON USER during telnet negotiation.</summary>
     public void SetLoginUser(string? user) => _parser.SetLoginUser(user);
@@ -134,12 +153,12 @@ public sealed class MudSession : IDisposable
         _parser.SoundRequested += s => SoundRequested?.Invoke(s);
         _parser.FewPlayerReady += (name, color) => FewPlayerReady?.Invoke(name, color);
         _parser.FewListStarting  += () => FewListStarting?.Invoke();
-        _parser.FewListComplete  += () => FewListComplete?.Invoke();
+        _parser.FewListComplete  += () => { _lastProbeReplyUtc = DateTime.UtcNow; FewListComplete?.Invoke(); };
         _parser.RoomEntered      += () => RoomEntered?.Invoke();
         _parser.RoomShortReady   += name => RoomShortReady?.Invoke(name);
         _parser.FeiItemReady     += item => FeiItemReady?.Invoke(item);
         _parser.FeiListStarting  += () => FeiListStarting?.Invoke();
-        _parser.FeiListComplete  += () => FeiListComplete?.Invoke();
+        _parser.FeiListComplete  += () => { _lastProbeReplyUtc = DateTime.UtcNow; FeiListComplete?.Invoke(); };
         _parser.FexItemReady     += item => FexItemReady?.Invoke(item);
         _parser.FexListStarting  += () => FexListStarting?.Invoke();
         _parser.FexListComplete  += () => FexListComplete?.Invoke();
@@ -148,6 +167,10 @@ public sealed class MudSession : IDisposable
 
     private void MergeStats(GameStatsSnapshot partial)
     {
+        // An FES snapshot is a probe reply — the panel data is fresh again.
+        if (partial.HasFesStats)
+            _lastProbeReplyUtc = DateTime.UtcNow;
+
         // Keep _currentDreamword in sync when the dreamword arrives via text analysis
         // (pre-game path, DreamwordLineRegex) rather than the binary C15 decoder.
         // In game mode the C15 path fires DreamwordChanged which updates _currentDreamword
@@ -189,10 +212,14 @@ public sealed class MudSession : IDisposable
     private void OnGameModeEntered()
     {
         GameModeEntered?.Invoke();
-        if (_fesInterval > TimeSpan.Zero)
+        lock (_fesLock)
         {
-            SendFesSubscription();
-            _fesTimer = new Timer(_ => SendFesSubscription(), null, _fesInterval, _fesInterval);
+            _lastProbeReplyUtc = DateTime.UtcNow;   // nothing is stale yet
+            if (_fesInterval > TimeSpan.Zero)
+            {
+                SendFesSubscription();
+                _fesTimer = new Timer(_ => SendFesSubscription(), null, _fesInterval, _fesInterval);
+            }
         }
 
         // We need to request our first front-end exit list *and* tell the game to send use
@@ -215,7 +242,33 @@ public sealed class MudSession : IDisposable
 
     private void SendFesSubscription() => OutgoingBytes?.Invoke(FesAndFewSubscription);
 
+    /// <summary>
+    /// BUGS #5: if the server just sent real data but probe replies have gone stale (the
+    /// character was asleep — FES/FEI/FEW no-op during sleep), fire the heartbeat now and
+    /// re-phase its period, so the panel recovers on wake instead of up to a full interval
+    /// later. Rate-limited so a wake-up text burst fires only one early probe.
+    /// </summary>
+    private void MaybeSendWakeProbe()
+    {
+        if (_fesInterval <= TimeSpan.Zero || !InGameMode)
+            return;
+        var now = DateTime.UtcNow;
+        if (now - _lastProbeReplyUtc <= _fesInterval + StaleReplySlack)
+            return;
+        if (now - _lastWakeProbeUtc < WakeProbeFloor)
+            return;
+        _lastWakeProbeUtc = now;
+        lock (_fesLock)
+            _fesTimer?.Change(TimeSpan.Zero, _fesInterval);   // fire immediately, keep the period
+    }
+
     private void StopFesTimer()
+    {
+        lock (_fesLock)
+            StopFesTimerLocked();
+    }
+
+    private void StopFesTimerLocked()
     {
         _fesTimer?.Change(Timeout.Infinite, Timeout.Infinite);
         _fesTimer?.Dispose();

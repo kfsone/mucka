@@ -8,6 +8,10 @@ public static class ProfileStore
     private static string FilePath =>
         Path.Combine(FileSystem.AppDataDirectory, "profiles.json");
 
+    // Serializes writers: concurrent saves shared one tmp file, so overlapping writes threw
+    // IOException (swallowed upstream — the settings dialog's silent save failure).
+    private static readonly SemaphoreSlim s_writeGate = new(1, 1);
+
     public static async Task<List<Profile>> LoadAsync()
     {
         try
@@ -31,10 +35,18 @@ public static class ProfileStore
     {
         var json = JsonSerializer.Serialize(profiles,
             new JsonSerializerOptions { WriteIndented = true });
-        var tmpPath = FilePath + ".tmp";
-        await File.WriteAllTextAsync(tmpPath, json).ConfigureAwait(false);
-        // File.Move has no async overload; this is an atomic metadata-only rename on the same volume.
-        File.Move(tmpPath, FilePath, overwrite: true);
+        await s_writeGate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            var tmpPath = FilePath + ".tmp";
+            await File.WriteAllTextAsync(tmpPath, json).ConfigureAwait(false);
+            // File.Move has no async overload; this is an atomic metadata-only rename on the same volume.
+            File.Move(tmpPath, FilePath, overwrite: true);
+        }
+        finally
+        {
+            s_writeGate.Release();
+        }
     }
 
     public static async Task<string?> GetPasswordAsync(string profileName)

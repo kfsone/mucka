@@ -7,6 +7,13 @@ namespace Mucka.Audio;
 /// </summary>
 internal static class SoundService
 {
+    // Linear playback volume, 0-100. Set from the profile at session start and live
+    // from the settings dialog; applied to each player as it is created.
+    private static volatile int s_volumePercent = 75;
+
+    /// <summary>Sets the playback volume (0–100) for subsequently played sounds.</summary>
+    public static void SetVolume(int percent) => s_volumePercent = Math.Clamp(percent, 0, 100);
+
     public static void Play(string assetName)
     {
         // Fire-and-forget; never block or throw on the caller (TCP) thread.
@@ -31,6 +38,7 @@ internal static class SoundService
 
         player.MediaEnded += (s, e) => { player.Dispose(); tcs.TrySetResult(); };
         player.MediaFailed += (s, e) => { player.Dispose(); tcs.TrySetResult(); };
+        player.Volume = s_volumePercent / 100.0;
         player.Source = Windows.Media.Core.MediaSource.CreateFromUri(new Uri(path));
         player.Play();
         return tcs.Task;
@@ -56,6 +64,8 @@ internal static class SoundService
 
             player.Completion += (s, e) => { player?.Release(); tcs.TrySetResult(); };
             player.Error += (s, e) => { player?.Release(); tcs.TrySetResult(); };
+            var gain = s_volumePercent / 100f;
+            player.SetVolume(gain, gain);
             player.Start();
         }
         catch

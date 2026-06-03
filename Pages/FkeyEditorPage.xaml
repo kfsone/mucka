@@ -104,6 +104,18 @@
             <ScrollView IsVisible="{Binding IsSettingsTabActive}">
                 <VerticalStackLayout Spacing="20" Padding="0,0,0,12">
 
+                    <!-- Save scope: unchecked = global [settings]; checked = this profile's section -->
+                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
+                        <CheckBox Grid.Column="0"
+                                  IsChecked="{Binding SettingsToProfileOnly, Mode=TwoWay}"
+                                  Color="#1f6feb"
+                                  VerticalOptions="Center"/>
+                        <Label Grid.Column="1"
+                               Text="Save to profile only (otherwise these settings are shared by all profiles)"
+                               TextColor="#888888" FontSize="12"
+                               VerticalOptions="Center"/>
+                    </Grid>
+
                     <!-- Font Size -->
                     <Grid ColumnDefinitions="140,*" ColumnSpacing="12">
                         <Label Grid.Column="0" Text="Font Size" TextColor="#888888" FontSize="13" VerticalOptions="Center"/>
@@ -198,10 +210,22 @@
             </ScrollView>
 
             <!-- ── HOTKEYS TAB ───────────────────────────────────────── -->
-            <Grid RowDefinitions="Auto,*" IsVisible="{Binding IsHotkeysTabActive}">
+            <Grid RowDefinitions="Auto,Auto,*" IsVisible="{Binding IsHotkeysTabActive}">
+
+                <!-- Save scope: unchecked = global [fkeys]; checked = this profile's section -->
+                <Grid Grid.Row="0" ColumnDefinitions="Auto,*" ColumnSpacing="8" Margin="0,0,0,6">
+                    <CheckBox Grid.Column="0"
+                              IsChecked="{Binding FkeysToProfileOnly, Mode=TwoWay}"
+                              Color="#1f6feb"
+                              VerticalOptions="Center"/>
+                    <Label Grid.Column="1"
+                           Text="Save to profile only (otherwise these hotkeys are shared by all profiles)"
+                           TextColor="#888888" FontSize="12"
+                           VerticalOptions="Center"/>
+                </Grid>
 
                 <!-- Modifier selector — pills on the left, Import on the right -->
-                <Grid Grid.Row="0" ColumnDefinitions="Auto,Auto,Auto,*,Auto" ColumnSpacing="6" Margin="0,0,0,10">
+                <Grid Grid.Row="1" ColumnDefinitions="Auto,Auto,Auto,*,Auto" ColumnSpacing="6" Margin="0,0,0,10">
                     <Button Grid.Column="0"
                             Text="None"
                             Command="{Binding SetModifierCommand}"
@@ -256,7 +280,7 @@
                 </Grid>
 
                 <!-- F-key list -->
-                <ScrollView Grid.Row="1">
+                <ScrollView Grid.Row="2">
                     <VerticalStackLayout BindableLayout.ItemsSource="{Binding CurrentPageItems}" Spacing="6">
                         <BindableLayout.ItemTemplate>
                             <DataTemplate x:DataType="vm:FkeyEditorItem">

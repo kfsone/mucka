@@ -98,6 +98,8 @@ public partial class GamePage : ContentPage
                 _vm.SidePanel.RequestFocus += FocusInput;
                 _vm.ConfigRequested     += OnConfigRequested;
                 _vm.ClearScreenRequested += OnClearScreenRequested;
+                _vm.SettingsSaved       += OnSettingsSaved;
+                _vm.PropertyChanged     += OnVmPropertyChanged;
                 Terminal.HistoryModeChanged += OnHistoryModeChanged;
                 Terminal.FocusInputRequested += OnFocusInputRequested;
                 _eventsSubscribed = true;
@@ -208,6 +210,8 @@ public partial class GamePage : ContentPage
         _vm.SidePanel.RequestFocus -= FocusInput;
         _vm.ConfigRequested     -= OnConfigRequested;
         _vm.ClearScreenRequested -= OnClearScreenRequested;
+        _vm.SettingsSaved       -= OnSettingsSaved;
+        _vm.PropertyChanged     -= OnVmPropertyChanged;
         Terminal.HistoryModeChanged -= OnHistoryModeChanged;
         Terminal.FocusInputRequested -= OnFocusInputRequested;
         _eventsSubscribed = false;
@@ -284,21 +288,14 @@ public partial class GamePage : ContentPage
 
     private Task OpenConfigAsync(int initialTab)
     {
-        Func<string[], Task>? onSave = _vm.CanSaveFkeys
-            ? fkeys => _vm.SaveFkeysAsync(fkeys)
+        Func<Mucka.Core.ClientSettings, string[], Task>? onSave = _vm.CanSaveSettings
+            ? (settings, fkeys) => _vm.SaveSettingsAsync(settings, fkeys)
             : null;
         var editorVm = new FkeyEditorViewModel(
             _vm.GetAllFkeys(),
-            _vm.FontSize, _vm.MaxColumns, _vm.Volume,
-            _vm.StatUpdateFrequency,
-            _vm.ApplyFkeys,
-            onSave,
-            _vm.ApplyMaxColumns,
-            _vm.ApplyStatUpdateFrequency,
-            muteBeepSession: _vm.MuteBeepSession,
-            muteBeepPermanently: _vm.MuteBeepPermanently,
-            onMuteSessionApplied: b => _vm.MuteBeepSession = b,
-            onMutePermanentlyApplied: b => _vm.ApplyMutePermanently(b))
+            _vm.CurrentSettings,
+            _vm.ApplyClientSettings,
+            onSave)
         {
             ActiveTab = initialTab
         };
@@ -333,6 +330,40 @@ public partial class GamePage : ContentPage
 
     private void OnClearScreenRequested() => Terminal.Clear();
 
+    // Reacts to settings applied from the config dialog: font size changes re-style the
+    // terminal; column changes re-fit the window (Windows) and re-wrap the view. The window
+    // re-fit hangs off MaxColumns only: ApplyClientSettings raises it (unconditionally) after
+    // FontSize, so one resize sees both new values instead of resizing twice.
+    private void OnVmPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(GameViewModel.FontSize))
+        {
+            Terminal.SetFontSize(_vm.FontSize);
+        }
+        else if (e.PropertyName == nameof(GameViewModel.MaxColumns))
+        {
+            Terminal.Columns = _vm.EffCols;
+#if WINDOWS
+            UpdateWindowMinimumWidth();
+            ResizeWindowToFitColumns();
+#endif
+        }
+    }
+
+    private void OnSettingsSaved() => ShowToast("* Settings saved");
+
+    /// <summary>Closes the About overlay if it is open. Returns true when it was.</summary>
+    private bool TryCloseAbout()
+    {
+        if (!_vm.SidePanel.IsAboutVisible) return false;
+        _vm.SidePanel.CloseAboutCommand.Execute(null);
+        return true;
+    }
+
+    // Android hardware/gesture back: dismiss the About overlay before leaving the page.
+    protected override bool OnBackButtonPressed()
+        => TryCloseAbout() || base.OnBackButtonPressed();
+
     // Scrollback is an explicit mode: swap the input row for the yellow "SCROLLBACK" indicator,
     // and restore + re-focus the input box on return to live.
     private void OnHistoryModeChanged(object? sender, EventArgs e)
@@ -350,9 +381,12 @@ public partial class GamePage : ContentPage
     // Tapping the SCROLLBACK indicator returns to live.
     private void OnScrollbackBarTapped(object? sender, TappedEventArgs e) => Terminal.ScrollToBottom();
 
-    // Briefly flash a "Copied to clipboard" toast (3.3s); re-arms on each copy.
-    private void ShowCopiedToast()
+    private void ShowCopiedToast() => ShowToast("* Copied to clipboard");
+
+    // Briefly flash a confirmation toast (3.3s); re-arms on each call.
+    private void ShowToast(string message)
     {
+        ToastLabel.Text = message;
         CopiedToast.IsVisible = true;
         if (_toastTimer is null)
         {
@@ -465,6 +499,29 @@ public partial class GamePage : ContentPage
 
         var appWindow = nativeWindow.AppWindow;
         appWindow.Resize(new Windows.Graphics.SizeInt32(targetPx, appWindow.Size.Height));
+    }
+
+    /// <summary>
+    /// Snaps the window width to fit the configured column count (+2 breathing columns, the
+    /// same margin as the launch default) after a settings change to columns or font size —
+    /// without this the view stays clamped to whatever the old window width could display.
+    /// Height is left untouched.
+    /// </summary>
+    private void ResizeWindowToFitColumns()
+    {
+        if (_hwnd == IntPtr.Zero) return;
+        var nativeWindow = Window?.Handler?.PlatformView as Microsoft.UI.Xaml.Window;
+        if (nativeWindow is null) return;
+
+        var panelExpanded = _vm.SidePanel.IsPanelExpanded;
+        var contentDp = PreferredWindowWidthDp(CharWidthDp, panelExpanded, _vm.MaxColumns + 2.0);
+        var dpi       = GetDpiForWindow(_hwnd);
+        var targetPx  = (int)Math.Ceiling(contentDp * dpi / 96.0);
+        if (targetPx < _minWindowWidthPx) targetPx = _minWindowWidthPx;
+
+        var appWindow = nativeWindow.AppWindow;
+        if (appWindow.Size.Width != targetPx)
+            appWindow.Resize(new Windows.Graphics.SizeInt32(targetPx, appWindow.Size.Height));
     }
 
     /// <summary>Removes the Win32 window subclass registered by SetupWindowMinimumSize.</summary>
@@ -627,6 +684,13 @@ public partial class GamePage : ContentPage
         var key = e.Key;
         bool ctrl  = (GetKeyState((int)Windows.System.VirtualKey.Control) & 0x8000) != 0;
         bool shift = (GetKeyState((int)Windows.System.VirtualKey.Shift)   & 0x8000) != 0;
+
+        // The About overlay sits over everything — Escape dismisses it first.
+        if (key == Windows.System.VirtualKey.Escape && TryCloseAbout())
+        {
+            e.Handled = true;
+            return;
+        }
 
         // ── Scrollback navigation ────────────────────────────────────────────
         // PageUp/PageDown scroll history (PageUp enters it from live). While reviewing
@@ -811,7 +875,9 @@ public partial class GamePage : ContentPage
         }
         else if (e.Key == Windows.System.VirtualKey.Escape)
         {
-            _vm.InputText = string.Empty;
+            // Close the About overlay if it is open; otherwise clear the input box.
+            if (!TryCloseAbout())
+                _vm.InputText = string.Empty;
             e.Handled = true;
         }
         else if (e.Key == Windows.System.VirtualKey.Enter)

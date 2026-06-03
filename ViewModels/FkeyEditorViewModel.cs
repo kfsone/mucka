@@ -1,17 +1,15 @@
 using System.Windows.Input;
 using Mucka.Audio;
+using Mucka.Core;
 
 namespace Mucka.ViewModels;
 
 public sealed class FkeyEditorViewModel : BaseViewModel
 {
     private readonly FkeyEditorItem[][] _pages;
-    private readonly Action<string[]> _onApply;
-    private readonly Func<string[], Task>? _onSave;
-    private readonly Action<int>? _onColumnsChanged;
-    private readonly Action<int>? _onFesChanged;
-    private readonly Action<bool>? _onMuteSessionApplied;
-    private readonly Action<bool>? _onMutePermanentlyApplied;
+    private readonly ClientSettings _original;
+    private readonly Action<ClientSettings, string[]> _onApply;
+    private readonly Func<ClientSettings, string[], Task>? _onSave;
     private int _activeModifier;
     private int _activeTab = 1;
     private double _fontSize;
@@ -20,6 +18,8 @@ public sealed class FkeyEditorViewModel : BaseViewModel
     private double _statUpdateFrequency;
     private bool _muteBeepSession;
     private bool _muteBeepPermanently;
+    private bool _settingsToProfileOnly;
+    private bool _fkeysToProfileOnly;
 
     public int ActiveModifier
     {
@@ -90,6 +90,20 @@ public sealed class FkeyEditorViewModel : BaseViewModel
         set => Set(ref _muteBeepPermanently, value);
     }
 
+    /// <summary>Settings page's "Save to profile only": save to [settings:Name] instead of [settings].</summary>
+    public bool SettingsToProfileOnly
+    {
+        get => _settingsToProfileOnly;
+        set => Set(ref _settingsToProfileOnly, value);
+    }
+
+    /// <summary>Hotkeys page's "Save to profile only": save to [fkeys:Name] instead of [fkeys].</summary>
+    public bool FkeysToProfileOnly
+    {
+        get => _fkeysToProfileOnly;
+        set => Set(ref _fkeysToProfileOnly, value);
+    }
+
     public FkeyEditorItem[] CurrentPageItems => _pages[_activeModifier];
     public bool CanSave { get; }
 
@@ -101,34 +115,29 @@ public sealed class FkeyEditorViewModel : BaseViewModel
     public ICommand PlayBeepCommand { get; }
 
     public event Action? CloseRequested;
+    /// <summary>Raised when Save fails; payload is the error message for display.</summary>
+    public event Action<string>? SaveFailed;
 
     public FkeyEditorViewModel(
         string[] allFkeys,
-        double fontSize, double columns, double volume,
-        double statUpdateFreq,
-        Action<string[]> onApply,
-        Func<string[], Task>? onSave,
-        Action<int>? onColumnsChanged = null,
-        Action<int>? onFesChanged = null,
-        bool muteBeepSession = false,
-        bool muteBeepPermanently = false,
-        Action<bool>? onMuteSessionApplied = null,
-        Action<bool>? onMutePermanentlyApplied = null)
+        ClientSettings settings,
+        Action<ClientSettings, string[]> onApply,
+        Func<ClientSettings, string[], Task>? onSave)
     {
-        _onApply = onApply;
-        _onSave = onSave;
-        _onColumnsChanged = onColumnsChanged;
-        _onFesChanged = onFesChanged;
-        _onMuteSessionApplied = onMuteSessionApplied;
-        _onMutePermanentlyApplied = onMutePermanentlyApplied;
-        CanSave = onSave != null;
+        _original = settings;
+        _onApply  = onApply;
+        _onSave   = onSave;
+        CanSave   = onSave != null;
 
-        _fontSize = Math.Clamp(Math.Round(fontSize), 9, 24);
-        _columns  = Math.Clamp(Math.Round(columns), 40, 160);
-        _volume   = Math.Clamp(volume, 0, 100);
-        _statUpdateFrequency = statUpdateFreq <= 0 ? 0 : Math.Clamp(Math.Round(statUpdateFreq / 5.0) * 5, 5, 30);
-        _muteBeepSession     = muteBeepSession;
-        _muteBeepPermanently = muteBeepPermanently;
+        _fontSize = Math.Clamp(settings.FontSize, 9, 24);
+        _columns  = Math.Clamp(settings.MaxColumns, 40, 160);
+        _volume   = Math.Clamp(settings.Volume, 0, 100);
+        _statUpdateFrequency = settings.StatUpdateFrequency <= 0
+            ? 0 : Math.Clamp(Math.Round(settings.StatUpdateFrequency / 5.0) * 5, 5, 30);
+        _muteBeepSession     = settings.MuteBeepSession;
+        _muteBeepPermanently = settings.MuteBeepPermanently;
+        _settingsToProfileOnly = settings.SettingsPerProfile;
+        _fkeysToProfileOnly    = settings.FkeysPerProfile;
 
         var fkeys = new string[36];
         for (int i = 0; i < 36; i++)
@@ -154,32 +163,50 @@ public sealed class FkeyEditorViewModel : BaseViewModel
         });
         ApplyCommand = new Command(() =>
         {
-            ApplySettings();
-            _onApply(CollectFkeys());
+            _onApply(CollectSettings(), CollectFkeys());
             CloseRequested?.Invoke();
         });
         SaveCommand = new AsyncCommand(SaveAsync, () => CanSave);
-        CancelCommand = new Command(() => CloseRequested?.Invoke());
-        PlayBeepCommand = new Command(() => SoundService.Play("beep.wav"));
+        CancelCommand = new Command(() =>
+        {
+            // Undo any preview-volume change from the "hear it" link.
+            SoundService.SetVolume(_original.Volume);
+            CloseRequested?.Invoke();
+        });
+        // Preview the beep at the volume currently on the slider.
+        PlayBeepCommand = new Command(() =>
+        {
+            SoundService.SetVolume(VolumeDisplay);
+            SoundService.Play("beep.wav");
+        });
     }
 
-    private void ApplySettings()
+    /// <summary>The edited settings as a snapshot for apply/save.</summary>
+    private ClientSettings CollectSettings() => new()
     {
-        _onColumnsChanged?.Invoke((int)Math.Round(_columns));
-        _onFesChanged?.Invoke((int)Math.Round(_statUpdateFrequency));
-        _onMuteSessionApplied?.Invoke(_muteBeepSession);
-        _onMutePermanentlyApplied?.Invoke(_muteBeepPermanently);
-    }
+        FontSize            = FontSizeDisplay,
+        MaxColumns          = ColumnsDisplay,
+        Volume              = VolumeDisplay,
+        StatUpdateFrequency = (int)Math.Round(_statUpdateFrequency),
+        MuteBeepSession     = _muteBeepSession,
+        MuteBeepPermanently = _muteBeepPermanently,
+        SettingsPerProfile  = _settingsToProfileOnly,
+        FkeysPerProfile     = _fkeysToProfileOnly,
+    };
 
     private async Task SaveAsync()
     {
-        ApplySettings();
-        var fkeys = CollectFkeys();
-        if (_onSave != null)
-            await _onSave(fkeys);
-        else
-            _onApply(fkeys);
-        CloseRequested?.Invoke();
+        try
+        {
+            // The saver applies the settings live and persists them (GameViewModel.SaveSettingsAsync).
+            await _onSave!(CollectSettings(), CollectFkeys());
+            CloseRequested?.Invoke();
+        }
+        catch (Exception ex)
+        {
+            // Stay open so the user can retry or cancel; the page shows the error.
+            SaveFailed?.Invoke(ex.Message);
+        }
     }
 
     /// <summary>
