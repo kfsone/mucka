@@ -4,9 +4,9 @@ using SkiaSharp;
 namespace Mucka.Rendering;
 
 /// <summary>
-/// The single Campbell colour theme for the Skia terminal, mirroring AnsiPalette.cs and
-/// the hex table in HtmlScrollback. Index 0–15 are the ANSI slots; AnsiColor.Default (-1)
-/// resolves to slot 7 (light grey). The classic "bold = bright" rule promotes a
+/// The single Campbell colour theme for the Skia terminal, mirroring AnsiPalette.cs.
+/// Index 0–15 are the ANSI slots; AnsiColor.Default (-1) resolves to slot 7 (light grey).
+/// The classic "bold = bright" rule promotes a
 /// normal-intensity foreground (slots 0–7) to its bright variant (slots 8–15).
 /// </summary>
 public static class TerminalTheme

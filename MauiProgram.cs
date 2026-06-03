@@ -11,14 +11,6 @@ public static class MauiProgram
 {
     public static MauiApp CreateMauiApp()
     {
-#if WINDOWS
-        // WebView2's default user data folder sits next to the exe, which is read-only when
-        // installed to Program Files. Point it at a writable per-user location instead.
-        Environment.SetEnvironmentVariable(
-            "WEBVIEW2_USER_DATA_FOLDER",
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                         "Mucka", "WebView2"));
-#endif
         var builder = MauiApp.CreateBuilder();
         builder
             .UseMauiApp<App>()
@@ -26,10 +18,7 @@ public static class MauiProgram
             .ConfigureFonts(fonts =>
             {
                 fonts.AddFont("OpenSans-Regular.ttf", "OpenSansRegular");
-                // Registering as an embedded font prevents MAUI's Windows FontManager from
-                // treating the name as a file path (FindFontFamilyName with a relative URI),
-                // which would throw InvalidOperationException and corrupt the handler context,
-                // causing a downstream NullReferenceException in WebView2Proxy.OnCoreWebView2Initialized.
+                // Registered so MAUI controls (input box, side panel) can resolve it by name.
                 fonts.AddFont("CascadiaMono.ttf", "Cascadia Mono");
             });
 
