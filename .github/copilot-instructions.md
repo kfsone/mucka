@@ -45,7 +45,7 @@ TCP bytes
       GameModeEntered                    → MudSession starts FES+FEW+FEI heartbeat timer
   → GamePage 50 ms IDispatcherTimer
   → GameViewModel.FlushPendingLines()
-  → InjectLinesAsync → ExecuteScriptAsync (JavaScript into WebView)
+  → TerminalView.AppendLines()           (SkiaSharp terminal — renders directly, no WebView/JS)
 ```
 
 ### Layers
@@ -60,6 +60,12 @@ TCP bytes
   - `Models/StyledLine` / `StyledSpan` — styled text model
   - `Transport/TcpMudConnection` — TCP socket + read loop; owns a `MudSession`
 
+- **`Mucka.Terminal/`** — `net10.0` display library (`Mucka.Terminal` namespace); depends only on `MudSharp.Models`, **no MAUI**; tested by `Mucka.Terminal.Tests/`
+  - `TerminalBuffer` — committed-line ring (cap 120) + one live partial line
+  - `LineWrapper` — naive fixed-column wrapping (style-preserving)
+  - `TerminalText` — strips control-char "tofu"; expands tabs to 8-column stops
+  - `TerminalSelection` — plain-text extraction for clipboard copy
+
 - **`Core/`** — MAUI app glue (no protocol logic)
   - `MuckaConnection` — wires `TcpMudConnection` to the ViewModel
   - `MudLoginHandler` — pre-game login state machine
@@ -72,10 +78,13 @@ TCP bytes
   - `ConnectViewModel` — profile CRUD and connection setup
 
 - **`Pages/`** — MAUI `ContentPage` subclasses
-  - `GamePage` — hosts the WebView scrollback
+  - `GamePage` — hosts the SkiaSharp terminal (`Rendering/TerminalView`) and the input box
   - `ConnectPage` — profile list; creates `GameViewModel` on UI thread after connect
 
-- **`Helpers/HtmlScrollback`** — converts `StyledLine` → HTML; holds the static terminal page (Campbell color scheme, Cascadia Mono)
+- **`Rendering/`** — SkiaSharp terminal rendering (MAUI app, `Mucka.Rendering` namespace)
+  - `TerminalView` — `SKCanvasView`: live render + frozen-snapshot scrollback + mouse selection
+  - `TerminalFont` — loads the embedded Cascadia Mono typeface; fixed cell metrics
+  - `TerminalTheme` — the Campbell colour palette
 
 ## Key conventions
 
@@ -112,19 +121,20 @@ public int Stamina { get => _stamina; set { Set(ref _stamina, value); OnProperty
 - `AsyncCommand` for async `ICommand` (disables itself while executing).
 - `Command` / `Command<T>` for synchronous operations.
 
-### JavaScript injection (WebView)
-On WinUI, `EvaluateJavaScriptAsync` silently fails for `HtmlWebViewSource` pages.
-**Always use `ExecuteScriptAsync` (the local wrapper)**, which routes to `CoreWebView2.ExecuteScriptAsync`
-on Windows and `EvaluateJavaScriptAsync` on Android:
-```csharp
-await ExecuteScriptAsync(script);   // never call EvaluateJavaScriptAsync directly
-```
+### Terminal rendering (SkiaSharp)
+The scrollback is a SkiaSharp `SKCanvasView` (`Rendering/TerminalView`), **not** a WebView — that
+was removed in v0.5.0 because Chromium on the UI thread fought keyboard input. The 50 ms flush
+hands styled lines to `TerminalView.AppendLines()`, which sanitises them (control-char strip +
+tab expansion) into a `TerminalBuffer`; the view paints directly. Mouse input (drag-selection,
+click-to-scrollback, wheel) is driven by **native WinUI pointer events** on Windows; SkiaSharp
+touch events handle finger-pan on Android.
 
 ### Partial lines
 `StyledLine.IsPartial = true` means the line has no `\n` yet (e.g. a login prompt).
-- Rendered with CSS class `lnp` (not `ln`).
-- The JS injection replaces an existing `.lnp` in-place rather than appending a new element.
-- The live-line buffer caps at **120 permanent `.ln` lines** (trimmed from the top in JS).
+- `TerminalBuffer` keeps at most one live partial line; a completing line merges into it
+  (prompt + echo on one line), and a blank line promotes it to a committed line.
+- The buffer caps at **120 committed lines** (oldest trimmed). This logic is unit-tested in
+  `Mucka.Terminal.Tests` (it was a faithful port of the old JS injection rules).
 
 ### MUD2 C1 protocol
 The MUD2 server mixes a proprietary binary protocol into the telnet stream.

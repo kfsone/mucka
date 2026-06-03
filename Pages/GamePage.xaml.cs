@@ -153,7 +153,7 @@ public partial class GamePage : ContentPage
         if (_isFkeyEditorOpen)
         {
             // Pause the timer while the modal is open. Keep it non-null so OnAppearing
-            // knows not to reinitialize the WebView or re-hook events on return.
+            // knows not to reinitialize the terminal or re-hook events on return.
             _flushTimer?.Stop();
             return;
         }
