@@ -22,6 +22,7 @@
 
         <!-- ── Status bar ───────────────────────────────────────────── -->
         <Border Grid.Row="0"
+                x:Name="StatusBar"
                 BackgroundColor="#161b22"
                 Padding="6,4" StrokeThickness="0">
             <Grid ColumnDefinitions="Auto,*,Auto">
@@ -369,6 +370,7 @@
 
             <!-- ── Side panel — to the right of the scrollback ─────────── -->
             <Border Grid.Column="1"
+                    x:Name="SidePanelBorder"
                     IsVisible="{Binding SidePanel.IsPanelExpanded}"
                     WidthRequest="260"
                     BackgroundColor="#161b22"
