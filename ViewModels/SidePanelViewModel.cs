@@ -6,7 +6,13 @@ namespace Mucka.ViewModels;
 
 public sealed class SidePanelViewModel : BaseViewModel, IDisposable
 {
-    private bool _isPanelExpanded;
+    // On Windows the side panel (Extras tab) defaults to expanded; the initial window width
+    // is sized to fit it alongside the terminal view (see GamePage.SetPreferredInitialWindowSize).
+    private bool _isPanelExpanded
+#if WINDOWS
+        = true
+#endif
+        ;
     private int _activeTab;
     private string _characterName = "";
     private string _currentRoom  = "";
@@ -190,13 +196,18 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     /// Called on the TCP read thread when the player has entered (or can now see) a room.
     /// Clears the "Here" (room items) list. InventoryList is intentionally preserved —
     /// carried items do not change just because the room changes.
+    ///
+    /// Exits are NOT cleared here. RoomEntered fires on the room-short at frame start for
+    /// both a movement ("visit") and a bare 'look' ("view"); only a movement frame carries
+    /// the embedded FEX exits block (C12+C08+C02), which fully refreshes the exit set via
+    /// <see cref="OnFexListComplete"/>. Clearing exits on every room short wiped them on a
+    /// 'look', which sends no FEX, leaving the compass blank until the next movement.
     /// </summary>
     public void OnRoomEntered()
         => MainThread.BeginInvokeOnMainThread(() =>
         {
             RoomItemsList.Clear();
             OnPropertiesChanged(nameof(HasRoomItems), nameof(NoRoomItems));
-            SetAllExitsPresent(false);
         });
 
     /// <summary>
@@ -217,11 +228,16 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
 
     /// <summary>
     /// Called when the player exits game mode (e.g. types 'qq').
-    /// Sets CurrentRoom to "Option Menu" so the Extras tab reflects the player's new location.
+    /// Sets CurrentRoom to "Option Menu" so the Extras tab reflects the player's new location,
+    /// and clears the compass — the option menu is not a room, so any exits are stale.
     /// Does not push history — history shifts on the next real room entry.
     /// </summary>
     public void OnGameModeExited()
-        => MainThread.BeginInvokeOnMainThread(() => CurrentRoom = "Option Menu");
+        => MainThread.BeginInvokeOnMainThread(() =>
+        {
+            CurrentRoom = "Option Menu";
+            SetAllExitsPresent(false);
+        });
 
     // ── WHO list (FEW) ────────────────────────────────────────────────────────
 
