@@ -33,5 +33,21 @@
       <ApplicationDisplayVersion>$([System.Text.RegularExpressions.Regex]::Match('$(Version)', '^\d+\.\d+\.\d+').Value)</ApplicationDisplayVersion>
     </PropertyGroup>
     <Message Text="[mucka] Version: $(Version)" Importance="high" />
+    <!-- MauiGeneratePackageAppxManifest is incremental on file timestamps only — it cannot
+         see $(Version) change, so its obj output goes stale on version bumps. That manifest
+         is what the AppInfo assembly metadata (and thus AppInfo.VersionString — the Windows
+         title bar / About version) derives from. Stamp the version into obj and delete the
+         stale manifest whenever it changes so the whole chain regenerates. -->
+    <PropertyGroup>
+      <_MuckaVersionStamp>$(IntermediateOutputPath)mucka.version.stamp</_MuckaVersionStamp>
+      <_MuckaGeneratedManifest>$(IntermediateOutputPath)resizetizer\m\Package.appxmanifest</_MuckaGeneratedManifest>
+    </PropertyGroup>
+    <ReadLinesFromFile File="$(_MuckaVersionStamp)" Condition="Exists('$(_MuckaVersionStamp)')">
+      <Output TaskParameter="Lines" PropertyName="_MuckaPrevVersion" />
+    </ReadLinesFromFile>
+    <Delete Files="$(_MuckaGeneratedManifest)"
+            Condition="'$(_MuckaPrevVersion)' != '$(Version)' and Exists('$(_MuckaGeneratedManifest)')" />
+    <MakeDir Directories="$(IntermediateOutputPath)" />
+    <WriteLinesToFile File="$(_MuckaVersionStamp)" Lines="$(Version)" Overwrite="true" WriteOnlyWhenDifferent="true" />
   </Target>
 </Project>
