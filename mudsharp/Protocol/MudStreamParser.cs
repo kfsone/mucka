@@ -398,9 +398,12 @@ public sealed class MudStreamParser
             _atLineStart = true;    // next line starts at column 0
             LineReady?.Invoke(line);
         }
-        else if (ch == '\r')
+        else if (ch is '\r' or '\0')
         {
-            // Suppress bare CR
+            // Suppress CR and NUL. Telnet transmits a bare carriage return as CR NUL
+            // (RFC 854), so MUD2's "\r\0\r\n" line endings would otherwise leak the NUL
+            // into line text — breaking exact-match consumers (watchword triggers,
+            // the too-dark room check) even though the terminal renders it invisibly.
         }
         else
         {
@@ -409,13 +412,13 @@ public sealed class MudStreamParser
             // FEX and FEI items accumulate in dedicated buffers — bypasses the span machinery.
             if (_inFexResponseContext)
             {
-                if (ch != '\0') _fexLine.Append(ch);
+                _fexLine.Append(ch);
                 _atLineStart = false;
                 return;
             }
             if (_inFeiResponseContext)
             {
-                if (ch != '\0') _feiLine.Append(ch);
+                _feiLine.Append(ch);
                 _atLineStart = false;
                 return;
             }
