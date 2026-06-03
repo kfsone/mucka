@@ -110,11 +110,15 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     public ICommand CloseAboutCommand { get; }
     public ICommand OpenLinkCommand { get; }
 
+    /// <summary>Raised when an interaction should hand keyboard focus back to the input box.
+    /// Opening the About dialog deliberately does not raise it — focus belongs to the dialog.</summary>
+    public event Action? RequestFocus;
+
     public SidePanelViewModel()
     {
-        TogglePanelCommand = new Command(() => IsPanelExpanded = !IsPanelExpanded);
+        TogglePanelCommand = new Command(() => { IsPanelExpanded = !IsPanelExpanded; RequestFocus?.Invoke(); });
         ShowAboutCommand  = new Command(() => IsAboutVisible = true);
-        CloseAboutCommand = new Command(() => IsAboutVisible = false);
+        CloseAboutCommand = new Command(() => { IsAboutVisible = false; RequestFocus?.Invoke(); });
         OpenLinkCommand = new Command<string>(url =>
         {
             if (!string.IsNullOrWhiteSpace(url))

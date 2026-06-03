@@ -94,6 +94,7 @@ public partial class GamePage : ContentPage
             {
                 _vm.Disconnected        += OnDisconnected;
                 _vm.RequestFocus        += FocusInput;
+                _vm.SidePanel.RequestFocus += FocusInput;
                 _vm.ConfigRequested     += OnConfigRequested;
                 _vm.ClearScreenRequested += OnClearScreenRequested;
                 Terminal.HistoryModeChanged += OnHistoryModeChanged;
@@ -184,6 +185,7 @@ public partial class GamePage : ContentPage
         _toastTimer?.Stop();
         _vm.Disconnected        -= OnDisconnected;
         _vm.RequestFocus        -= FocusInput;
+        _vm.SidePanel.RequestFocus -= FocusInput;
         _vm.ConfigRequested     -= OnConfigRequested;
         _vm.ClearScreenRequested -= OnClearScreenRequested;
         Terminal.HistoryModeChanged -= OnHistoryModeChanged;
@@ -274,7 +276,10 @@ public partial class GamePage : ContentPage
 
     private async void OnConfigRequested() => await OpenConfigAsync(initialTab: 0);
 
-    private void FocusInput() { if (!InputEntry.IsFocused) InputEntry.Focus(); }
+    // Deferred a dispatcher tick: when invoked from a tap/click handler, WinUI settles pointer
+    // focus on the clicked control AFTER the handler returns, which would clobber an immediate
+    // Focus() call. Posting the focus wins that race.
+    private void FocusInput() => Dispatcher.Dispatch(() => { if (!InputEntry.IsFocused) InputEntry.Focus(); });
 
     // On window activation, record the moment (so a click that activated the app focuses the input
     // box rather than entering scrollback) and re-focus the typing box when not in scrollback.
