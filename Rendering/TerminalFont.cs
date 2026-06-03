@@ -25,10 +25,25 @@ public sealed class TerminalFont : IDisposable
     /// <summary>Y offset from a line box's top to the text baseline, in pixels.</summary>
     public float Baseline { get; }
 
+    /// <summary>Stroke width that fattens glyphs to a synthetic bold (stroke-and-fill leaves
+    /// advances untouched, so bold runs stay on the column grid).</summary>
+    public float BoldStrokeWidth { get; }
+
     public TerminalFont(float sizePx, float lineHeightFactor = 1.30f)
     {
         Typeface = LoadTypeface();
-        Font = new SKFont(Typeface, sizePx);
+        Font = new SKFont(Typeface, sizePx)
+        {
+            // Match Windows Terminal's ClearType: LCD subpixel AA + subpixel positioning.
+            // Skia's default greyscale AA bleeds glyph edges into the background, which reads
+            // as a washed-out "filtered" version of the palette. LCD striping only suits
+            // landscape desktop LCDs, so keep greyscale AA elsewhere.
+            Edging = OperatingSystem.IsWindows()
+                ? SKFontEdging.SubpixelAntialias
+                : SKFontEdging.Antialias,
+            Subpixel = true,
+        };
+        BoldStrokeWidth = sizePx / 24f;
 
         // Measure the advance over a run and divide — robust against per-glyph side bearings.
         CellWidth = Font.MeasureText("0000000000") / 10f;

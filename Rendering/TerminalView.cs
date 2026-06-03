@@ -347,6 +347,17 @@ public sealed class TerminalView : SKCanvasView
                         canvas.DrawRect(x, rowTop, runW, cellH, _fillPaint);
                     }
                     _textPaint.Color = TerminalTheme.Foreground(run.Style);
+                    // Windows Terminal renders intense text bold AND bright; mirror the weight
+                    // with a stroke-and-fill fake bold (advances unchanged → grid stays aligned).
+                    if (run.Style.Bold)
+                    {
+                        _textPaint.Style = SKPaintStyle.StrokeAndFill;
+                        _textPaint.StrokeWidth = font.BoldStrokeWidth;
+                    }
+                    else
+                    {
+                        _textPaint.Style = SKPaintStyle.Fill;
+                    }
                     canvas.DrawText(run.Text, x, baseline, font.Font, _textPaint);
                     x += runW;
                 }
