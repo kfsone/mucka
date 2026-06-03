@@ -137,13 +137,14 @@ public partial class GamePage : ContentPage
                 // AllowFocusOnInteraction propagates to children, covering the chips, icons,
                 // and fkey buttons. The input row's Entry is deliberately NOT covered.
                 DisableFocusOnInteraction(StatusBar, SidePanelBorder, FkeyBar, FnButton, SendButton, ScrollbackBar);
-                // TEMPORARY focus diagnostics (see FocusDiag)
+#if FOCUS_DIAG
                 Microsoft.UI.Xaml.Input.FocusManager.GettingFocus += OnFmGettingFocus;
                 Microsoft.UI.Xaml.Input.FocusManager.LosingFocus += OnFmLosingFocus;
                 Microsoft.UI.Xaml.Input.FocusManager.GotFocus += OnFmGotFocus;
                 Microsoft.UI.Xaml.Input.FocusManager.LostFocus += OnFmLostFocus;
                 InputEntry.Focused += (_, _) => FocusDiag("maui.Entry Focused");
                 InputEntry.Unfocused += (_, _) => FocusDiag("maui.Entry Unfocused");
+#endif
                 // Hook the native TextBox so Up/Down/Esc keys work in the entry.
                 InputEntry.HandlerChanged += OnInputHandlerChanged;
                 // Hook the terminal canvas for mouse-wheel scrollback.
@@ -225,11 +226,12 @@ public partial class GamePage : ContentPage
                 _rootPointerHandler = null;
             }
         }
-        // TEMPORARY focus diagnostics (see FocusDiag)
+#if FOCUS_DIAG
         Microsoft.UI.Xaml.Input.FocusManager.GettingFocus -= OnFmGettingFocus;
         Microsoft.UI.Xaml.Input.FocusManager.LosingFocus -= OnFmLosingFocus;
         Microsoft.UI.Xaml.Input.FocusManager.GotFocus -= OnFmGotFocus;
         Microsoft.UI.Xaml.Input.FocusManager.LostFocus -= OnFmLostFocus;
+#endif
         if (_inputTextBox != null)
         {
             _inputTextBox.PreviewKeyDown -= OnInputPreviewKeyDown;
@@ -516,7 +518,11 @@ public partial class GamePage : ContentPage
         Windows.System.VirtualKey.Menu    or Windows.System.VirtualKey.LeftMenu    or Windows.System.VirtualKey.RightMenu    or
         Windows.System.VirtualKey.LeftWindows or Windows.System.VirtualKey.RightWindows or Windows.System.VirtualKey.CapitalLock;
 
-    // ── TEMPORARY focus diagnostics — remove once the chip/panel focus-steal is fixed ──
+    // ── Focus diagnostics — compiled out unless the FOCUS_DIAG symbol is defined
+    // (add FOCUS_DIAG to DefineConstants in Mucka.csproj to enable). Logs every focus
+    // transition (app-wide FocusManager events + our veto/redirect decisions) to
+    // %TEMP%\mucka-focus.txt.
+    [System.Diagnostics.Conditional("FOCUS_DIAG")]
     private static void FocusDiag(string msg)
     {
         try
@@ -527,6 +533,7 @@ public partial class GamePage : ContentPage
         catch { /* diagnostics only */ }
     }
 
+    // Referenced only from FocusDiag call arguments; must stay compiled for those to parse.
     private string FocusDesc(object? o) => o switch
     {
         null => "(null)",
@@ -535,6 +542,7 @@ public partial class GamePage : ContentPage
         _ => o.GetType().Name,
     };
 
+#if FOCUS_DIAG
     private void OnFmGettingFocus(object? sender, Microsoft.UI.Xaml.Input.GettingFocusEventArgs e) =>
         FocusDiag($"FM.GettingFocus  old={FocusDesc(e.OldFocusedElement)} new={FocusDesc(e.NewFocusedElement)} state={e.FocusState} dir={e.Direction}");
     private void OnFmLosingFocus(object? sender, Microsoft.UI.Xaml.Input.LosingFocusEventArgs e) =>
@@ -543,6 +551,7 @@ public partial class GamePage : ContentPage
         FocusDiag($"FM.GotFocus      new={FocusDesc(e.NewFocusedElement)}");
     private void OnFmLostFocus(object? sender, Microsoft.UI.Xaml.Input.FocusManagerLostFocusEventArgs e) =>
         FocusDiag($"FM.LostFocus     old={FocusDesc(e.OldFocusedElement)}");
+#endif
 
     /// <summary>
     /// Marks chrome elements so pointer interaction never moves keyboard focus to them
