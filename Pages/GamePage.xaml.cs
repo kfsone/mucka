@@ -48,6 +48,12 @@ public partial class GamePage : ContentPage
     // ── Window minimum-size enforcement ─────────────────────────────────────
     // Must match the WidthRequest of the side-panel Border in GamePage.xaml.
     private const double SidePanelWidthDp = 260.0;
+    // Default terminal-view width (in characters) used to size the window on first appearance.
+    // Two columns wider than the 80-column wrap so the rightmost text isn't flush against the panel.
+    private const double DefaultViewColumns = 82.0;
+    // Horizontal window chrome (resize borders) not part of the client area; small fudge so the
+    // client area still fits DefaultViewColumns after WinUI subtracts the frame.
+    private const double WindowChromeDp = 16.0;
     private int              _minWindowWidthPx;
     private IntPtr           _hwnd = IntPtr.Zero;
     private WndProcDelegate? _wndProcDelegate;
@@ -115,6 +121,9 @@ public partial class GamePage : ContentPage
                 // Enforce minimum window width based on the configured terminal columns.
                 _vm.SidePanel.PropertyChanged += OnSidePanelPropertyChanged;
                 SetupWindowMinimumSize();
+                // Size the window once so the terminal view fits ~82 columns + the side panel,
+                // rather than inheriting WinUI's oversized default window width.
+                SetPreferredInitialWindowSize();
             }
             catch (Exception ex) { LogCrash("OnAppearing/Windows", ex); }
 #endif
@@ -376,6 +385,33 @@ public partial class GamePage : ContentPage
         var appWindow = nativeWindow.AppWindow;
         if (appWindow.Size.Width < _minWindowWidthPx)
             appWindow.Resize(new Windows.Graphics.SizeInt32(_minWindowWidthPx, appWindow.Size.Height));
+    }
+
+    /// <summary>
+    /// Sizes the window once (on first GamePage appearance) so the terminal view fits
+    /// <see cref="DefaultViewColumns"/> characters plus the side panel when expanded, instead
+    /// of inheriting WinUI's oversized default window width. Height is left untouched.
+    /// Subsequent appearances (e.g. returning from the config editor) do not re-run this, so a
+    /// user's manual resize is preserved.
+    /// </summary>
+    private void SetPreferredInitialWindowSize()
+    {
+        if (_hwnd == IntPtr.Zero) return;
+        var nativeWindow = Window?.Handler?.PlatformView as Microsoft.UI.Xaml.Window;
+        if (nativeWindow is null) return;
+
+        var panelExpanded = _vm.SidePanel.IsPanelExpanded;
+        var contentDp = DefaultViewColumns * CharWidthDp
+                      + (panelExpanded ? SidePanelWidthDp : 0.0)
+                      + WindowChromeDp;
+        var dpi       = GetDpiForWindow(_hwnd);
+        var targetPx  = (int)Math.Ceiling(contentDp * dpi / 96.0);
+
+        // Never set the window narrower than the enforced minimum.
+        if (targetPx < _minWindowWidthPx) targetPx = _minWindowWidthPx;
+
+        var appWindow = nativeWindow.AppWindow;
+        appWindow.Resize(new Windows.Graphics.SizeInt32(targetPx, appWindow.Size.Height));
     }
 
     /// <summary>Removes the Win32 window subclass registered by SetupWindowMinimumSize.</summary>
