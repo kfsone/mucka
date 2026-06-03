@@ -26,7 +26,7 @@
                 Padding="6,4" StrokeThickness="0">
             <Grid ColumnDefinitions="Auto,*,Auto">
 
-                <!-- Top-left icons: about dialog + toolbar toggle -->
+                <!-- Top-left icons: about dialog + settings -->
                 <HorizontalStackLayout Grid.Column="0" Spacing="2" Margin="0,0,6,0">
                     <Border VerticalOptions="Center"
                             BackgroundColor="Transparent"
@@ -44,10 +44,10 @@
                             BackgroundColor="Transparent"
                             Stroke="Transparent" StrokeThickness="0"
                             Padding="2,0"
-                            SemanticProperties.Description="Toggle toolbar">
-                        <ToolTipProperties.Text>Toggle toolbar</ToolTipProperties.Text>
+                            SemanticProperties.Description="Settings">
+                        <ToolTipProperties.Text>Settings</ToolTipProperties.Text>
                         <Border.GestureRecognizers>
-                            <TapGestureRecognizer Command="{Binding ToggleFkeysCommand}"/>
+                            <TapGestureRecognizer Command="{Binding ConfigCommand}"/>
                         </Border.GestureRecognizers>
                         <Label Text="&#x2699;&#xFE0E;"
                                TextColor="#888888" FontSize="12" VerticalOptions="Center"/>
@@ -586,7 +586,7 @@
 
         <!-- ── Input row — flush left so the entry can carry a prompt later ── -->
         <Grid Grid.Row="5"
-              ColumnDefinitions="*,Auto"
+              ColumnDefinitions="*,Auto,Auto"
               BackgroundColor="#161b22"
               Padding="4,2">
 
@@ -612,18 +612,35 @@
                 </Entry.FontFamily>
             </Entry>
 
+            <!-- Fn: toggles the fkey toolbar; lit while the bar is shown -->
             <Button Grid.Column="1"
+                    x:Name="FnButton"
+                    Text="Fn"
+                    Command="{Binding ToggleFkeysCommand}"
+                    ToolTipProperties.Text="Toggle toolbar"
+                    BackgroundColor="#2d333b" TextColor="#888888"
+                    FontSize="10" CornerRadius="3"
+                    WidthRequest="30" HeightRequest="26" Padding="0"
+                    VerticalOptions="Center" Margin="4,0,0,0">
+                <Button.Triggers>
+                    <DataTrigger TargetType="Button" Binding="{Binding FkeysVisible}" Value="True">
+                        <Setter Property="TextColor" Value="White"/>
+                    </DataTrigger>
+                </Button.Triggers>
+            </Button>
+
+            <Button Grid.Column="2"
                     x:Name="SendButton"
                     Text="&#x25B6;"
                     Command="{Binding SendCommand}"
                     BackgroundColor="#1f6feb" TextColor="White"
-                    FontSize="11" CornerRadius="3"
-                    WidthRequest="34" HeightRequest="28" Padding="0"
+                    FontSize="10" CornerRadius="3"
+                    WidthRequest="30" HeightRequest="26" Padding="0"
                     VerticalOptions="Center" Margin="4,0,0,0"/>
 
             <!-- Scrollback-mode indicator: opaque overlay ON TOP of the input controls (which stay
                  in place) so toggling it causes no layout shift in the text view above. -->
-            <Border Grid.Column="0" Grid.ColumnSpan="2"
+            <Border Grid.Column="0" Grid.ColumnSpan="3"
                     x:Name="ScrollbackBar"
                     IsVisible="False"
                     BackgroundColor="#161b22"
