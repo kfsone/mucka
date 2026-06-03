@@ -53,6 +53,21 @@ internal sealed class WatchwordStore
         @"\$([A-Za-z][A-Za-z0-9_]*)",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
+    // Any run of whitespace — collapsed to a single space before matching so that
+    // server-side line wrapping (and double spacing) cannot break trigger matches.
+    private static readonly Regex WhitespaceRunRegex = new(
+        @"\s+",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    /// <summary>
+    /// Collapses every run of whitespace to a single space (no trimming, so a trigger's
+    /// meaningful leading/trailing space survives). Applied to both the scanned text and
+    /// the configured trigger/key strings so the two sides always agree on spacing,
+    /// regardless of where the server wrapped a line.
+    /// </summary>
+    private static string NormalizeWhitespace(string s)
+        => WhitespaceRunRegex.Replace(s, " ");
+
     private WatchwordStore() { }
 
     public static WatchwordStore Load()
@@ -127,7 +142,7 @@ internal sealed class WatchwordStore
                 if (key.Length >= 2 && key[0] == '"' && key[^1] == '"')
                     key = key[1..^1];
                 var prefix    = key.EndsWith("...", StringComparison.Ordinal);
-                var entryKey  = prefix ? key[..^3] : key;
+                var entryKey  = NormalizeWhitespace(prefix ? key[..^3] : key);
                 var entryAns  = val.Length > MaxAnswer ? val[..MaxAnswer] : val;
                 current.Answers.Add(new AnswerEntry { Key = entryKey, Prefix = prefix, Answer = entryAns });
             }
@@ -139,7 +154,7 @@ internal sealed class WatchwordStore
         var dotIdx = pattern.IndexOf("...", StringComparison.Ordinal);
         var pre    = dotIdx >= 0 ? pattern[..dotIdx]      : pattern;
         var suf    = dotIdx >= 0 ? pattern[(dotIdx + 3)..] : string.Empty;
-        _slots.Add(new Slot { Name = name, TrigPre = pre, TrigSuf = suf });
+        _slots.Add(new Slot { Name = name, TrigPre = NormalizeWhitespace(pre), TrigSuf = NormalizeWhitespace(suf) });
     }
 
     private Slot? FindSlot(string name)
@@ -153,6 +168,10 @@ internal sealed class WatchwordStore
     {
         var results = new List<(string, string)>();
         if (_slots.Count == 0) return results;
+
+        // Triggers and answer keys are whitespace-normalized at load; normalize the scanned
+        // text the same way so wrap-induced spacing differences cannot defeat a match.
+        text = NormalizeWhitespace(text);
 
         lock (_lock)
         {
@@ -195,7 +214,9 @@ internal sealed class WatchwordStore
             : text.Length;
         if (end < 0) return null;
 
-        var capture = text[start..end].TrimEnd();
+        // Trim both ends: rejoining wrapped lines can leave a stray space at either
+        // boundary of the capture (e.g. when the wrap fell right after the prefix).
+        var capture = text[start..end].Trim();
         return capture.Length > MaxCapture ? null : capture;
     }
 
