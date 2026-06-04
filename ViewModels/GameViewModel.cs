@@ -66,14 +66,14 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private readonly List<StyledLine> _historyBuffer = new();
 
     public string InputText { get => _inputText; set => Set(ref _inputText, value); }
-    public int Stamina    { get => _stamina;    set => SetAndNotify(ref _stamina,    value, [nameof(StaText), nameof(StaValue), nameof(StaColor)]); }
-    public int MaxStamina { get => _maxStamina; set => SetAndNotify(ref _maxStamina, value, [nameof(StaText), nameof(StaValue)]); }
-    public int Strength    { get => _strength;    set => SetAndNotify(ref _strength,    value, [nameof(StrText), nameof(StrValue), nameof(StrColor)]); }
-    public int MaxStrength { get => _maxStrength; set => SetAndNotify(ref _maxStrength, value, [nameof(StrText), nameof(StrValue), nameof(StrColor)]); }
-    public int Dexterity    { get => _dexterity;    set => SetAndNotify(ref _dexterity,    value, [nameof(DexText), nameof(DexValue), nameof(DexColor)]); }
-    public int MaxDexterity { get => _maxDexterity; set => SetAndNotify(ref _maxDexterity, value, [nameof(DexText), nameof(DexValue), nameof(DexColor)]); }
-    public int Magic    { get => _magic;    set => SetAndNotify(ref _magic,    value, [nameof(MagText), nameof(MagValue), nameof(MagColor), nameof(MagVisible)]); }
-    public int MaxMagic { get => _maxMagic; set => SetAndNotify(ref _maxMagic, value, [nameof(MagText), nameof(MagValue), nameof(MagColor)]); }
+    public int Stamina    { get => _stamina;    set => SetAndNotify(ref _stamina,    value, [nameof(StaText), nameof(StaCurValue), nameof(StaColor)]); }
+    public int MaxStamina { get => _maxStamina; set => SetAndNotify(ref _maxStamina, value, [nameof(StaText), nameof(StaMaxValue)]); }
+    public int Strength    { get => _strength;    set => SetAndNotify(ref _strength,    value, [nameof(StrText), nameof(StrCurValue), nameof(StrColor)]); }
+    public int MaxStrength { get => _maxStrength; set => SetAndNotify(ref _maxStrength, value, [nameof(StrText), nameof(StrMaxValue), nameof(StrColor)]); }
+    public int Dexterity    { get => _dexterity;    set => SetAndNotify(ref _dexterity,    value, [nameof(DexText), nameof(DexCurValue), nameof(DexColor)]); }
+    public int MaxDexterity { get => _maxDexterity; set => SetAndNotify(ref _maxDexterity, value, [nameof(DexText), nameof(DexMaxValue), nameof(DexColor)]); }
+    public int Magic    { get => _magic;    set => SetAndNotify(ref _magic,    value, [nameof(MagText), nameof(MagCurValue), nameof(MagColor), nameof(MagVisible)]); }
+    public int MaxMagic { get => _maxMagic; set => SetAndNotify(ref _maxMagic, value, [nameof(MagText), nameof(MagMaxValue), nameof(MagColor)]); }
     public int Score    { get => _score;    set { if (Set(ref _score, value)) { if (_baseScore < 0 && value > 0) _baseScore = value; OnPropertiesChanged(nameof(ScoreText), nameof(ScoreValue), nameof(ScoreDeltaValue), nameof(ScoreDisplayValue), nameof(ScoreColor)); } } }
     public bool Blind    { get => _blind;    set => SetAndNotify(ref _blind,    value, [nameof(AnyEffectVisible), nameof(EffectsGlyphs)]); }
     public bool Deaf     { get => _deaf;     set => SetAndNotify(ref _deaf,     value, [nameof(AnyEffectVisible), nameof(EffectsGlyphs)]); }
@@ -132,10 +132,15 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         : $"Score: {Score} ({ScoreDeltaStr(Score - _baseScore)})";
 
     // Value-only strings (no label prefix) for FormattedString spans in the status bar.
-    public string StaValue   => $"{Stamina}/{MaxStamina}";
-    public string MagValue   => $"{Magic}/{MaxMagic}";
-    public string StrValue   => $"{Strength}/{MaxStrength}";
-    public string DexValue   => $"{Dexterity}/{MaxDexterity}";
+    // Current and "/max" are separate spans so the max half renders one font point smaller.
+    public string StaCurValue => $"{Stamina}";
+    public string StaMaxValue => $"/{MaxStamina}";
+    public string MagCurValue => $"{Magic}";
+    public string MagMaxValue => $"/{MaxMagic}";
+    public string StrCurValue => $"{Strength}";
+    public string StrMaxValue => $"/{MaxStrength}";
+    public string DexCurValue => $"{Dexterity}";
+    public string DexMaxValue => $"/{MaxDexterity}";
     // Score number and reset-delta are separate spans so the score proper can render bold
     // while the delta stays regular weight.
     public string ScoreValue => Score <= 0 ? "—" : $"{Score}";
@@ -160,6 +165,8 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public bool IsVeryCompact     => _effCols < 50;
     /// <summary>Font size for stat values in compact layout — shrinks when effcols &lt; 50.</summary>
     public double StatsValueFontSize => _effCols < 50 ? 11.0 : 13.0;
+    /// <summary>Font size for the "/max" half of a stat pair — one point below the current value.</summary>
+    public double StatsMaxValueFontSize => StatsValueFontSize - 1.0;
 
     // ── Fkey toolbar density — three tiers shrinking with effcols ────────────
     // Returns (fontSize, buttonRightMargin, totalHorizPad).
@@ -587,13 +594,13 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             // Single consolidated batch of notifications.
             OnPropertiesChanged(
                 nameof(Stamina),    nameof(MaxStamina),
-                nameof(StaText),    nameof(StaValue),    nameof(StaColor),
+                nameof(StaText),    nameof(StaCurValue), nameof(StaMaxValue), nameof(StaColor),
                 nameof(Strength),   nameof(MaxStrength),
-                nameof(StrText),    nameof(StrValue),    nameof(StrColor),
+                nameof(StrText),    nameof(StrCurValue), nameof(StrMaxValue), nameof(StrColor),
                 nameof(Dexterity),  nameof(MaxDexterity),
-                nameof(DexText),    nameof(DexValue),    nameof(DexColor),
+                nameof(DexText),    nameof(DexCurValue), nameof(DexMaxValue), nameof(DexColor),
                 nameof(Magic),      nameof(MaxMagic),
-                nameof(MagText),    nameof(MagValue),    nameof(MagColor),    nameof(MagVisible),
+                nameof(MagText),    nameof(MagCurValue), nameof(MagMaxValue), nameof(MagColor),    nameof(MagVisible),
                 nameof(Score),
                 nameof(ScoreText),  nameof(ScoreValue),  nameof(ScoreDeltaValue), nameof(ScoreDisplayValue), nameof(ScoreColor),
                 nameof(Blind),      nameof(Deaf),        nameof(Crippled),    nameof(Dumb),
@@ -890,6 +897,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             OnPropertyChanged(nameof(IsCompactWeather));
             OnPropertyChanged(nameof(IsVeryCompact));
             OnPropertyChanged(nameof(StatsValueFontSize));
+            OnPropertyChanged(nameof(StatsMaxValueFontSize));
             OnPropertyChanged(nameof(FkeyFontSize));
             OnPropertyChanged(nameof(FkeyButtonMargin));
             OnPropertyChanged(nameof(FkeyBarPadding));

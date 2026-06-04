@@ -26,8 +26,8 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             [nameof(IsPanelCollapsed), nameof(PanelToggleGlyph)]);
     }
     public bool IsPanelCollapsed => !_isPanelExpanded;
-    // ▼ when collapsed (click to show panel), ▶ when expanded (click to hide panel)
-    public string PanelToggleGlyph => _isPanelExpanded ? "▶" : "▼";
+    // ▼ when collapsed (click to show panel), ◀ when expanded (click to hide the left-edge panel)
+    public string PanelToggleGlyph => _isPanelExpanded ? "◀" : "▼";
 
     /// <summary>True while the About dialog overlay is shown (opened via the ⓘ status-bar icon).</summary>
     public bool IsAboutVisible

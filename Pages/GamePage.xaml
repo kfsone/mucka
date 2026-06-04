@@ -18,28 +18,29 @@
         </Style>
     </ContentPage.Resources>
 
-    <Grid RowDefinitions="Auto,Auto,*,Auto,Auto,Auto">
+    <Grid RowDefinitions="Auto,Auto,*">
 
         <!-- ── Status bar ───────────────────────────────────────────── -->
         <Border Grid.Row="0"
                 x:Name="StatusBar"
                 BackgroundColor="#161b22"
                 Padding="6,4" StrokeThickness="0">
-            <Grid ColumnDefinitions="Auto,*,Auto">
+            <Grid ColumnDefinitions="Auto,*">
 
-                <!-- Top-left icons: about dialog + settings -->
+                <!-- Top-left icons: panel toggle + settings + about -->
                 <HorizontalStackLayout Grid.Column="0" Spacing="2" Margin="0,0,6,0">
                     <Border VerticalOptions="Center"
                             BackgroundColor="Transparent"
                             Stroke="Transparent" StrokeThickness="0"
                             Padding="2,0"
-                            SemanticProperties.Description="About mucka">
-                        <ToolTipProperties.Text>About mucka</ToolTipProperties.Text>
+                            SemanticProperties.Description="Toggle side panel">
+                        <ToolTipProperties.Text>Toggle side panel</ToolTipProperties.Text>
                         <Border.GestureRecognizers>
-                            <TapGestureRecognizer Command="{Binding SidePanel.ShowAboutCommand}"/>
+                            <TapGestureRecognizer Command="{Binding SidePanel.TogglePanelCommand}"/>
                         </Border.GestureRecognizers>
-                        <Label Text="&#x24D8;"
-                               TextColor="#888888" FontSize="12" VerticalOptions="Center"/>
+                        <Label Text="{Binding SidePanel.PanelToggleGlyph}"
+                               TextColor="#888888" FontSize="11" VerticalOptions="Center"
+                               FontFamily="{OnPlatform Android='monospace', WinUI='Cascadia Mono', MacCatalyst='Menlo-Regular'}"/>
                     </Border>
                     <Border VerticalOptions="Center"
                             BackgroundColor="Transparent"
@@ -53,7 +54,19 @@
                         <Label Text="&#x2699;&#xFE0E;"
                                TextColor="#888888" FontSize="12" VerticalOptions="Center"/>
                     </Border>
-                    <!-- Separator between the icon pair and the stats -->
+                    <Border VerticalOptions="Center"
+                            BackgroundColor="Transparent"
+                            Stroke="Transparent" StrokeThickness="0"
+                            Padding="2,0"
+                            SemanticProperties.Description="About mucka">
+                        <ToolTipProperties.Text>About mucka</ToolTipProperties.Text>
+                        <Border.GestureRecognizers>
+                            <TapGestureRecognizer Command="{Binding SidePanel.ShowAboutCommand}"/>
+                        </Border.GestureRecognizers>
+                        <Label Text="&#x24D8;"
+                               TextColor="#888888" FontSize="12" VerticalOptions="Center"/>
+                    </Border>
+                    <!-- Separator between the icon trio and the stats -->
                     <Label Text="|"
                            Style="{StaticResource StatLabelStyle}" TextColor="#444444"
                            Margin="4,0,0,0"/>
@@ -69,7 +82,8 @@
                         <Label.FormattedText>
                             <FormattedString>
                                 <Span Text="Sta: " TextColor="#58a6ff"/>
-                                <Span Text="{Binding StaValue}" TextColor="{Binding StaColor}" FontAttributes="Bold"/>
+                                <Span Text="{Binding StaCurValue}" TextColor="{Binding StaColor}" FontAttributes="Bold"/>
+                                <Span Text="{Binding StaMaxValue}" TextColor="{Binding StaColor}" FontAttributes="Bold" FontSize="{OnPlatform WinUI=13, Default=12}"/>
                             </FormattedString>
                         </Label.FormattedText>
                     </Label>
@@ -78,7 +92,8 @@
                         <Label.FormattedText>
                             <FormattedString>
                                 <Span Text="Mag: " TextColor="#58a6ff"/>
-                                <Span Text="{Binding MagValue}" TextColor="{Binding MagColor}" FontAttributes="Bold"/>
+                                <Span Text="{Binding MagCurValue}" TextColor="{Binding MagColor}" FontAttributes="Bold"/>
+                                <Span Text="{Binding MagMaxValue}" TextColor="{Binding MagColor}" FontAttributes="Bold" FontSize="{OnPlatform WinUI=13, Default=12}"/>
                             </FormattedString>
                         </Label.FormattedText>
                     </Label>
@@ -86,7 +101,8 @@
                         <Label.FormattedText>
                             <FormattedString>
                                 <Span Text="Str: " TextColor="#58a6ff"/>
-                                <Span Text="{Binding StrValue}" TextColor="{Binding StrColor}" FontAttributes="Bold"/>
+                                <Span Text="{Binding StrCurValue}" TextColor="{Binding StrColor}" FontAttributes="Bold"/>
+                                <Span Text="{Binding StrMaxValue}" TextColor="{Binding StrColor}" FontAttributes="Bold" FontSize="{OnPlatform WinUI=13, Default=12}"/>
                             </FormattedString>
                         </Label.FormattedText>
                     </Label>
@@ -94,7 +110,8 @@
                         <Label.FormattedText>
                             <FormattedString>
                                 <Span Text="Dex: " TextColor="#58a6ff"/>
-                                <Span Text="{Binding DexValue}" TextColor="{Binding DexColor}" FontAttributes="Bold"/>
+                                <Span Text="{Binding DexCurValue}" TextColor="{Binding DexColor}" FontAttributes="Bold"/>
+                                <Span Text="{Binding DexMaxValue}" TextColor="{Binding DexColor}" FontAttributes="Bold" FontSize="{OnPlatform WinUI=13, Default=12}"/>
                             </FormattedString>
                         </Label.FormattedText>
                     </Label>
@@ -271,26 +288,46 @@
 
                     <!-- ── Values row ── -->
                     <Label Grid.Row="1" Grid.Column="0"
-                           Text="{Binding StaValue}" TextColor="{Binding StaColor}"
                            Style="{StaticResource StatLabelStyle}"
-                           FontSize="{Binding StatsValueFontSize}" FontAttributes="Bold"
-                           HorizontalOptions="Center" Margin="0,0,4,0"/>
+                           HorizontalOptions="Center" Margin="0,0,4,0">
+                        <Label.FormattedText>
+                            <FormattedString>
+                                <Span Text="{Binding StaCurValue}" TextColor="{Binding StaColor}" FontAttributes="Bold" FontSize="{Binding StatsValueFontSize}"/>
+                                <Span Text="{Binding StaMaxValue}" TextColor="{Binding StaColor}" FontAttributes="Bold" FontSize="{Binding StatsMaxValueFontSize}"/>
+                            </FormattedString>
+                        </Label.FormattedText>
+                    </Label>
                     <Label Grid.Row="1" Grid.Column="1"
-                           Text="{Binding MagValue}" TextColor="{Binding MagColor}"
                            Style="{StaticResource StatLabelStyle}"
-                           FontSize="{Binding StatsValueFontSize}" FontAttributes="Bold"
                            IsVisible="{Binding MagVisible}"
-                           HorizontalOptions="Center" Margin="0,0,4,0"/>
+                           HorizontalOptions="Center" Margin="0,0,4,0">
+                        <Label.FormattedText>
+                            <FormattedString>
+                                <Span Text="{Binding MagCurValue}" TextColor="{Binding MagColor}" FontAttributes="Bold" FontSize="{Binding StatsValueFontSize}"/>
+                                <Span Text="{Binding MagMaxValue}" TextColor="{Binding MagColor}" FontAttributes="Bold" FontSize="{Binding StatsMaxValueFontSize}"/>
+                            </FormattedString>
+                        </Label.FormattedText>
+                    </Label>
                     <Label Grid.Row="1" Grid.Column="2"
-                           Text="{Binding StrValue}" TextColor="{Binding StrColor}"
                            Style="{StaticResource StatLabelStyle}"
-                           FontSize="{Binding StatsValueFontSize}" FontAttributes="Bold"
-                           HorizontalOptions="Center" Margin="0,0,4,0"/>
+                           HorizontalOptions="Center" Margin="0,0,4,0">
+                        <Label.FormattedText>
+                            <FormattedString>
+                                <Span Text="{Binding StrCurValue}" TextColor="{Binding StrColor}" FontAttributes="Bold" FontSize="{Binding StatsValueFontSize}"/>
+                                <Span Text="{Binding StrMaxValue}" TextColor="{Binding StrColor}" FontAttributes="Bold" FontSize="{Binding StatsMaxValueFontSize}"/>
+                            </FormattedString>
+                        </Label.FormattedText>
+                    </Label>
                     <Label Grid.Row="1" Grid.Column="3"
-                           Text="{Binding DexValue}" TextColor="{Binding DexColor}"
                            Style="{StaticResource StatLabelStyle}"
-                           FontSize="{Binding StatsValueFontSize}" FontAttributes="Bold"
-                           HorizontalOptions="Center" Margin="0,0,4,0"/>
+                           HorizontalOptions="Center" Margin="0,0,4,0">
+                        <Label.FormattedText>
+                            <FormattedString>
+                                <Span Text="{Binding DexCurValue}" TextColor="{Binding DexColor}" FontAttributes="Bold" FontSize="{Binding StatsValueFontSize}"/>
+                                <Span Text="{Binding DexMaxValue}" TextColor="{Binding DexColor}" FontAttributes="Bold" FontSize="{Binding StatsMaxValueFontSize}"/>
+                            </FormattedString>
+                        </Label.FormattedText>
+                    </Label>
 
                     <Label Grid.Row="1" Grid.Column="4" Text="|"
                            Style="{StaticResource StatLabelStyle}" TextColor="#444444"
@@ -363,27 +400,21 @@
 
                 </Grid>
 
-                <!-- Panel toggle button -->
-                <Border Grid.Column="2"
-                        VerticalOptions="Center"
-                        BackgroundColor="Transparent"
-                        Stroke="Transparent" StrokeThickness="0"
-                        Padding="6,0">
-                    <Border.GestureRecognizers>
-                        <TapGestureRecognizer Command="{Binding SidePanel.TogglePanelCommand}"/>
-                    </Border.GestureRecognizers>
-                    <Label Text="{Binding SidePanel.PanelToggleGlyph}"
-                           TextColor="#888888" FontSize="11" VerticalOptions="Center"
-                           FontFamily="{OnPlatform Android='monospace', WinUI='Cascadia Mono', MacCatalyst='Menlo-Regular'}"/>
-                </Border>
             </Grid>
         </Border>
 
         <!-- ── White separator ──────────────────────────────────────── -->
         <BoxView Grid.Row="1" Color="White" HeightRequest="1" HorizontalOptions="Fill"/>
 
-        <!-- ── Scrollback + side panel ────────────────────────────────── -->
-        <Grid Grid.Row="2" ColumnDefinitions="*,Auto">
+        <!-- ── Body: side panel on the left; scrollback, toolbar and input stacked
+             on the right so the panel indents all three ── -->
+        <Grid Grid.Row="2" ColumnDefinitions="Auto,*">
+
+        <!-- Right-hand stack -->
+        <Grid Grid.Column="1" RowDefinitions="*,Auto,Auto">
+
+        <!-- ── Scrollback ───────────────────────────────────────────── -->
+        <Grid Grid.Row="0">
             <render:TerminalView Grid.Column="0"
                                  x:Name="Terminal"
                                  BackgroundColor="#0C0C0C"
@@ -406,46 +437,198 @@
                        TextColor="#3B78FF" FontSize="12"
                        FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
             </Border>
+        </Grid>
 
-            <!-- ── Side panel — to the right of the scrollback ─────────── -->
-            <Border Grid.Column="1"
-                    x:Name="SidePanelBorder"
-                    IsVisible="{Binding SidePanel.IsPanelExpanded}"
-                    WidthRequest="260"
+        <!-- ── Toolbar (collapsible, wraps to fit width) ──────────── -->
+        <Grid Grid.Row="1"
+              x:Name="FkeyBar"
+              BackgroundColor="#161b22"
+              Padding="{Binding FkeyBarPadding}"
+              IsVisible="{Binding FkeysVisible}">
+            <HorizontalStackLayout
+                        x:Name="FkeyFlexLayout"
+                        BindableLayout.ItemsSource="{Binding FkeyItems}">
+                <BindableLayout.ItemTemplate>
+                    <DataTemplate x:DataType="vm:FkeyItem">
+                        <Button Text="{Binding Label}"
+                                Command="{Binding Source={RelativeSource AncestorType={x:Type ContentPage}},
+                                                  Path=BindingContext.FkeyCommand}"
+                                CommandParameter="{Binding Index, StringFormat='{0}'}"
+                                FontSize="{Binding Source={RelativeSource AncestorType={x:Type ContentPage}},
+                                                   Path=BindingContext.FkeyFontSize}"
+                                WidthRequest="{Binding Width}"
+                                HeightRequest="22"
+                                Padding="0"
+                                BackgroundColor="#2d333b" TextColor="#cccccc"
+                                CornerRadius="3"
+                                Margin="{Binding Source={RelativeSource AncestorType={x:Type ContentPage}},
+                                                 Path=BindingContext.FkeyButtonMargin}"/>
+                    </DataTemplate>
+                </BindableLayout.ItemTemplate>
+            </HorizontalStackLayout>
+        </Grid>
+
+        <!-- ── Input row — indented by the side panel on its left ── -->
+        <Grid Grid.Row="2"
+              ColumnDefinitions="*,Auto,Auto"
+              BackgroundColor="#161b22"
+              Padding="4,2">
+
+            <Entry Grid.Column="0"
+                   x:Name="InputEntry"
+                   Text="{Binding InputText, Mode=TwoWay}"
+                   TextColor="#CCCCCC"
+                   BackgroundColor="#0C0C0C"
+                   PlaceholderColor="#444444"
+                   Placeholder="enter command&#x2026;"
+                   ReturnCommand="{Binding SendCommand}"
+                   ReturnType="Send"
+                   ClearButtonVisibility="WhileEditing"
+                   Keyboard="Plain"
+                   IsSpellCheckEnabled="False"
+                   IsTextPredictionEnabled="False">
+                <Entry.FontFamily>
+                    <OnPlatform x:TypeArguments="x:String">
+                        <On Platform="Android"      Value="monospace"/>
+                        <On Platform="MacCatalyst"  Value="Menlo-Regular"/>
+                        <On Platform="WinUI"        Value="Cascadia Mono"/>
+                    </OnPlatform>
+                </Entry.FontFamily>
+            </Entry>
+
+            <!-- Fn: toggles the fkey toolbar; lit while the bar is shown.
+                 Right-click (hooked natively on Windows) opens the settings page. -->
+            <Button Grid.Column="1"
+                    x:Name="FnButton"
+                    Text="Fn"
+                    Command="{Binding ToggleFkeysCommand}"
+                    ToolTipProperties.Text="Toggle toolbar (right-click: settings)"
+                    BackgroundColor="#2d333b" TextColor="#888888"
+                    FontSize="10" CornerRadius="3"
+                    WidthRequest="30" HeightRequest="26" Padding="0"
+                    VerticalOptions="Center" Margin="4,0,0,0">
+                <Button.Triggers>
+                    <DataTrigger TargetType="Button" Binding="{Binding FkeysVisible}" Value="True">
+                        <Setter Property="TextColor" Value="White"/>
+                    </DataTrigger>
+                </Button.Triggers>
+            </Button>
+
+            <Button Grid.Column="2"
+                    x:Name="SendButton"
+                    Text="&#x25B6;"
+                    Command="{Binding SendCommand}"
+                    BackgroundColor="#1f6feb" TextColor="White"
+                    FontSize="10" CornerRadius="3"
+                    WidthRequest="30" HeightRequest="26" Padding="0"
+                    VerticalOptions="Center" Margin="4,0,0,0"/>
+
+            <!-- Scrollback-mode indicator: opaque overlay ON TOP of the input controls (which stay
+                 in place) so toggling it causes no layout shift in the text view above. -->
+            <Border Grid.Column="0" Grid.ColumnSpan="3"
+                    x:Name="ScrollbackBar"
+                    IsVisible="False"
                     BackgroundColor="#161b22"
-                    Stroke="#2d333b" StrokeThickness="1"
-                    Padding="0">
-                <!-- ── Panel content: scrollable info + bottom-pinned online list ── -->
-                <Grid RowDefinitions="*,Auto">
+                    Stroke="#F9F1A5" StrokeThickness="2"
+                    Padding="8,0"
+                    HorizontalOptions="Fill" VerticalOptions="Fill">
+                <Border.StrokeShape><RoundRectangle CornerRadius="4"/></Border.StrokeShape>
+                <Border.GestureRecognizers>
+                    <TapGestureRecognizer Tapped="OnScrollbackBarTapped"/>
+                </Border.GestureRecognizers>
+                <Label Text="SCROLLBACK &#x2014; Esc or click to return to live"
+                       TextColor="#F9F1A5" FontSize="12"
+                       HorizontalOptions="Center" VerticalOptions="Center"
+                       FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
+            </Border>
 
-                            <!-- Top: scrollable character / room / item info -->
-                            <ScrollView Grid.Row="0" Padding="8,6,8,4">
-                                <VerticalStackLayout Spacing="4">
+        </Grid>
 
-                                    <!-- Character name -->
-                                    <Label Text="{Binding SidePanel.CharacterName}"
-                                           IsVisible="{Binding SidePanel.HasCharacterName}"
-                                           TextColor="#e3b341" FontSize="13" FontAttributes="Bold"
-                                           FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
+        </Grid>
 
-                                    <!-- Room breadcrumb: oldest → previous → current, top to bottom.
-                                         A hairline separates the trail from the (larger) current room. -->
-                                    <VerticalStackLayout Spacing="1" Margin="0,4,0,0">
-                                        <Label Text="{Binding SidePanel.OldestRoom}"
-                                               TextColor="#00a000" FontSize="10" FontAttributes="Bold"
-                                               FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
-                                        <Label Text="{Binding SidePanel.PreviousRoom}"
-                                               TextColor="#00c000" FontSize="11" FontAttributes="Bold"
-                                               FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
-                                        <BoxView Color="#2d333b" HeightRequest="1" Margin="0,2"
-                                                 IsVisible="{Binding SidePanel.HasCurrentRoom}"/>
-                                        <Label Text="{Binding SidePanel.CurrentRoom}"
-                                               IsVisible="{Binding SidePanel.HasCurrentRoom}"
-                                               TextColor="#00ff00" FontSize="13" FontAttributes="Bold"
-                                               FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
-                                        <Label Text="—" IsVisible="{Binding SidePanel.NoCurrentRoom}"
-                                               TextColor="#555555" FontSize="11" FontAttributes="Italic"/>
+        <!-- ── Side panel — left edge, runs scrollback through input row ── -->
+        <Border Grid.Column="0"
+                x:Name="SidePanelBorder"
+                IsVisible="{Binding SidePanel.IsPanelExpanded}"
+                WidthRequest="260"
+                BackgroundColor="#161b22"
+                Stroke="#2d333b" StrokeThickness="1"
+                Padding="0">
+                <!-- ── Panel content: top-anchored online list, scrollable items,
+                     bottom-pinned room block sitting in the corner above the input ── -->
+                <Grid RowDefinitions="Auto,*,Auto">
+
+                            <!-- Top: online players, anchored, grows downward -->
+                            <VerticalStackLayout Grid.Row="0" Padding="8,6,8,4" Spacing="2"
+                                                 Opacity="{Binding SidePanel.FewSectionOpacity}">
+                                <Label Text="Online" TextColor="#58a6ff" FontSize="11"/>
+                                <ScrollView MaximumHeightRequest="180">
+                                    <VerticalStackLayout Spacing="1"
+                                                         BindableLayout.ItemsSource="{Binding SidePanel.WhosList}">
+                                        <BindableLayout.ItemTemplate>
+                                            <DataTemplate x:DataType="vm:WhoEntry">
+                                                <Label Text="{Binding Name}"
+                                                       TextColor="{Binding DisplayColor}"
+                                                       Opacity="{Binding Opacity}"
+                                                       FontSize="11"
+                                                       FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
+                                            </DataTemplate>
+                                        </BindableLayout.ItemTemplate>
                                     </VerticalStackLayout>
+                                </ScrollView>
+                                <BoxView Color="#2d333b" HeightRequest="1" Margin="0,4,0,0"/>
+                            </VerticalStackLayout>
+
+                            <!-- Middle: Carrying then Here (FEI), scrollable — fades when stale (>15 s without refresh).
+                                 Docked to the bottom of the free space, growing upward toward the online list. -->
+                            <ScrollView Grid.Row="1" Padding="8,4" VerticalOptions="End">
+                                <VerticalStackLayout Spacing="4" Opacity="{Binding SidePanel.FeiSectionOpacity}">
+
+                                        <!-- Carrying -->
+                                        <Label Text="Carrying" TextColor="#58a6ff" FontSize="11"/>
+                                        <Label Text="—" IsVisible="{Binding SidePanel.NoInventory}"
+                                               TextColor="#555555" FontSize="11" FontAttributes="Italic"/>
+                                        <VerticalStackLayout Spacing="1" IsVisible="{Binding SidePanel.HasInventory}"
+                                                             BindableLayout.ItemsSource="{Binding SidePanel.InventoryList}">
+                                            <BindableLayout.ItemTemplate>
+                                                <DataTemplate x:DataType="x:String">
+                                                    <Label Text="{Binding .}" TextColor="#cccccc" FontSize="11"
+                                                           FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
+                                                </DataTemplate>
+                                            </BindableLayout.ItemTemplate>
+                                        </VerticalStackLayout>
+
+                                        <BoxView Color="#2d333b" HeightRequest="1" Margin="0,6,0,0"/>
+
+                                        <!-- Items here -->
+                                        <Label Text="Here" TextColor="#58a6ff" FontSize="11"/>
+                                        <Label Text="—" IsVisible="{Binding SidePanel.NoRoomItems}"
+                                               TextColor="#555555" FontSize="11" FontAttributes="Italic"/>
+                                        <VerticalStackLayout Spacing="1" IsVisible="{Binding SidePanel.HasRoomItems}"
+                                                             BindableLayout.ItemsSource="{Binding SidePanel.RoomItemsList}">
+                                            <BindableLayout.ItemTemplate>
+                                                <DataTemplate x:DataType="x:String">
+                                                    <Label Text="{Binding .}" TextColor="#cccccc" FontSize="11"
+                                                           FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
+                                                </DataTemplate>
+                                            </BindableLayout.ItemTemplate>
+                                        </VerticalStackLayout>
+
+                                </VerticalStackLayout>
+                            </ScrollView>
+
+                            <!-- Bottom: room block, pinned in the corner above the input row.
+                                 Trail reads downward into the present: last-but-1 → previous → compass → current. -->
+                            <VerticalStackLayout Grid.Row="2" Padding="8,4,8,6" Spacing="1">
+                                    <BoxView Color="#2d333b" HeightRequest="1" Margin="0,0,0,4"/>
+
+                                    <!-- Room trail: one font point smaller per step back -->
+                                    <Label Text="{Binding SidePanel.OldestRoom}"
+                                           TextColor="#00a000" FontSize="11" FontAttributes="Bold"
+                                           FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
+                                    <Label Text="{Binding SidePanel.PreviousRoom}"
+                                           TextColor="#00c000" FontSize="12" FontAttributes="Bold"
+                                           FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
 
                                     <!-- Exits grid (FEX) ─────────────────────────────────── -->
                                     <!--
@@ -526,174 +709,24 @@
                                                HorizontalTextAlignment="Center"/>
                                     </Grid>
 
-                                    <!-- Items here + Carrying (FEI) — fades when stale (>15 s without refresh) -->
-                                    <VerticalStackLayout Spacing="4" Opacity="{Binding SidePanel.FeiSectionOpacity}">
-
-                                        <!-- Items here -->
-                                        <Label Text="Here" TextColor="#58a6ff" FontSize="11" Margin="0,6,0,0"/>
-                                        <Label Text="—" IsVisible="{Binding SidePanel.NoRoomItems}"
-                                               TextColor="#555555" FontSize="11" FontAttributes="Italic"/>
-                                        <VerticalStackLayout Spacing="1" IsVisible="{Binding SidePanel.HasRoomItems}"
-                                                             BindableLayout.ItemsSource="{Binding SidePanel.RoomItemsList}">
-                                            <BindableLayout.ItemTemplate>
-                                                <DataTemplate x:DataType="x:String">
-                                                    <Label Text="{Binding .}" TextColor="#cccccc" FontSize="11"
-                                                           FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
-                                                </DataTemplate>
-                                            </BindableLayout.ItemTemplate>
-                                        </VerticalStackLayout>
-
-                                        <!-- Carrying -->
-                                        <Label Text="Carrying" TextColor="#58a6ff" FontSize="11" Margin="0,6,0,0"/>
-                                        <Label Text="—" IsVisible="{Binding SidePanel.NoInventory}"
-                                               TextColor="#555555" FontSize="11" FontAttributes="Italic"/>
-                                        <VerticalStackLayout Spacing="1" IsVisible="{Binding SidePanel.HasInventory}"
-                                                             BindableLayout.ItemsSource="{Binding SidePanel.InventoryList}">
-                                            <BindableLayout.ItemTemplate>
-                                                <DataTemplate x:DataType="x:String">
-                                                    <Label Text="{Binding .}" TextColor="#cccccc" FontSize="11"
-                                                           FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
-                                                </DataTemplate>
-                                            </BindableLayout.ItemTemplate>
-                                        </VerticalStackLayout>
-
-                                    </VerticalStackLayout>
-
-                                </VerticalStackLayout>
-                            </ScrollView>
-
-                            <!-- Bottom: online players, pinned, grows upward -->
-                            <VerticalStackLayout Grid.Row="1" Padding="8,4,8,6" Spacing="2"
-                                                 Opacity="{Binding SidePanel.FewSectionOpacity}">
-                                <BoxView Color="#2d333b" HeightRequest="1" Margin="0,0,0,4"/>
-                                <Label Text="Online" TextColor="#58a6ff" FontSize="11"/>
-                                <ScrollView MaximumHeightRequest="180">
-                                    <VerticalStackLayout Spacing="1"
-                                                         BindableLayout.ItemsSource="{Binding SidePanel.WhosList}">
-                                        <BindableLayout.ItemTemplate>
-                                            <DataTemplate x:DataType="vm:WhoEntry">
-                                                <Label Text="{Binding Name}"
-                                                       TextColor="{Binding DisplayColor}"
-                                                       Opacity="{Binding Opacity}"
-                                                       FontSize="11"
-                                                       FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
-                                            </DataTemplate>
-                                        </BindableLayout.ItemTemplate>
-                                    </VerticalStackLayout>
-                                </ScrollView>
+                                    <!-- Current room -->
+                                    <Label Text="{Binding SidePanel.CurrentRoom}"
+                                           IsVisible="{Binding SidePanel.HasCurrentRoom}"
+                                           TextColor="#00ff00" FontSize="13" FontAttributes="Bold"
+                                           Margin="0,4,0,0"
+                                           FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
+                                    <Label Text="—" IsVisible="{Binding SidePanel.NoCurrentRoom}"
+                                           TextColor="#555555" FontSize="11" FontAttributes="Italic"
+                                           Margin="0,4,0,0"/>
                             </VerticalStackLayout>
 
                 </Grid>
-            </Border>
-        </Grid>
-
-        <!-- ── Toolbar (collapsible, wraps to fit width) ──────────── -->
-        <Grid Grid.Row="3"
-              x:Name="FkeyBar"
-              BackgroundColor="#161b22"
-              Padding="{Binding FkeyBarPadding}"
-              IsVisible="{Binding FkeysVisible}">
-            <HorizontalStackLayout
-                        x:Name="FkeyFlexLayout"
-                        BindableLayout.ItemsSource="{Binding FkeyItems}">
-                <BindableLayout.ItemTemplate>
-                    <DataTemplate x:DataType="vm:FkeyItem">
-                        <Button Text="{Binding Label}"
-                                Command="{Binding Source={RelativeSource AncestorType={x:Type ContentPage}},
-                                                  Path=BindingContext.FkeyCommand}"
-                                CommandParameter="{Binding Index, StringFormat='{0}'}"
-                                FontSize="{Binding Source={RelativeSource AncestorType={x:Type ContentPage}},
-                                                   Path=BindingContext.FkeyFontSize}"
-                                WidthRequest="{Binding Width}"
-                                HeightRequest="22"
-                                Padding="0"
-                                BackgroundColor="#2d333b" TextColor="#cccccc"
-                                CornerRadius="3"
-                                Margin="{Binding Source={RelativeSource AncestorType={x:Type ContentPage}},
-                                                 Path=BindingContext.FkeyButtonMargin}"/>
-                    </DataTemplate>
-                </BindableLayout.ItemTemplate>
-            </HorizontalStackLayout>
-        </Grid>
-
-        <!-- ── Input row — flush left so the entry can carry a prompt later ── -->
-        <Grid Grid.Row="5"
-              ColumnDefinitions="*,Auto,Auto"
-              BackgroundColor="#161b22"
-              Padding="4,2">
-
-            <Entry Grid.Column="0"
-                   x:Name="InputEntry"
-                   Text="{Binding InputText, Mode=TwoWay}"
-                   TextColor="#CCCCCC"
-                   BackgroundColor="#0C0C0C"
-                   PlaceholderColor="#444444"
-                   Placeholder="enter command&#x2026;"
-                   ReturnCommand="{Binding SendCommand}"
-                   ReturnType="Send"
-                   ClearButtonVisibility="WhileEditing"
-                   Keyboard="Plain"
-                   IsSpellCheckEnabled="False"
-                   IsTextPredictionEnabled="False">
-                <Entry.FontFamily>
-                    <OnPlatform x:TypeArguments="x:String">
-                        <On Platform="Android"      Value="monospace"/>
-                        <On Platform="MacCatalyst"  Value="Menlo-Regular"/>
-                        <On Platform="WinUI"        Value="Cascadia Mono"/>
-                    </OnPlatform>
-                </Entry.FontFamily>
-            </Entry>
-
-            <!-- Fn: toggles the fkey toolbar; lit while the bar is shown.
-                 Right-click (hooked natively on Windows) opens the settings page. -->
-            <Button Grid.Column="1"
-                    x:Name="FnButton"
-                    Text="Fn"
-                    Command="{Binding ToggleFkeysCommand}"
-                    ToolTipProperties.Text="Toggle toolbar (right-click: settings)"
-                    BackgroundColor="#2d333b" TextColor="#888888"
-                    FontSize="10" CornerRadius="3"
-                    WidthRequest="30" HeightRequest="26" Padding="0"
-                    VerticalOptions="Center" Margin="4,0,0,0">
-                <Button.Triggers>
-                    <DataTrigger TargetType="Button" Binding="{Binding FkeysVisible}" Value="True">
-                        <Setter Property="TextColor" Value="White"/>
-                    </DataTrigger>
-                </Button.Triggers>
-            </Button>
-
-            <Button Grid.Column="2"
-                    x:Name="SendButton"
-                    Text="&#x25B6;"
-                    Command="{Binding SendCommand}"
-                    BackgroundColor="#1f6feb" TextColor="White"
-                    FontSize="10" CornerRadius="3"
-                    WidthRequest="30" HeightRequest="26" Padding="0"
-                    VerticalOptions="Center" Margin="4,0,0,0"/>
-
-            <!-- Scrollback-mode indicator: opaque overlay ON TOP of the input controls (which stay
-                 in place) so toggling it causes no layout shift in the text view above. -->
-            <Border Grid.Column="0" Grid.ColumnSpan="3"
-                    x:Name="ScrollbackBar"
-                    IsVisible="False"
-                    BackgroundColor="#161b22"
-                    Stroke="#F9F1A5" StrokeThickness="2"
-                    Padding="8,0"
-                    HorizontalOptions="Fill" VerticalOptions="Fill">
-                <Border.StrokeShape><RoundRectangle CornerRadius="4"/></Border.StrokeShape>
-                <Border.GestureRecognizers>
-                    <TapGestureRecognizer Tapped="OnScrollbackBarTapped"/>
-                </Border.GestureRecognizers>
-                <Label Text="SCROLLBACK &#x2014; Esc or click to return to live"
-                       TextColor="#F9F1A5" FontSize="12"
-                       HorizontalOptions="Center" VerticalOptions="Center"
-                       FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
-            </Border>
+        </Border>
 
         </Grid>
 
         <!-- ── About dialog — overlays the whole page; ⓘ in the status bar opens it ── -->
-        <Grid Grid.Row="0" Grid.RowSpan="6"
+        <Grid Grid.Row="0" Grid.RowSpan="3"
               IsVisible="{Binding SidePanel.IsAboutVisible}">
 
             <!-- Scrim: dims the page; tap outside the dialog to dismiss -->
