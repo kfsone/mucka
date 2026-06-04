@@ -357,6 +357,93 @@ public class FrameTrackingTests
         Assert.Equal(0, h.FewListCompleteCount);
     }
 
+    // -- C90 colour catch/throw -------------------------------------------------
+
+    // C05+C01+C06+C255 -- WHO-list wiz player name follows (LT_RED color)
+    private static readonly byte[] FewPlayerWizPrefix = [0xA0, 0x9C, 0xA1, 0xFF, 0xFF];
+
+    /// <summary>
+    /// Wire bytes for a "rainbow" wiz name as captured from a live session:
+    /// "Heiach the {catch}{c12}ch{c5}im{c15}er{c5}ic{c12}al{pop}{throw} wizard"
+    /// — C90 colour catch, per-letter C99 colours, one bare pop, C90+C01 colour throw.
+    /// </summary>
+    private static void FeedRainbowName(ParserHarness h)
+    {
+        h.Feed(FewPlayerWizPrefix);
+        h.Feed("Heiach the ");
+        h.Feed(0xF5, 0xFF, 0xFF);              // C90: colour catch
+        h.Feed(0xFE, 0xA7, 0xFF, 0xFF); h.Feed("ch");
+        h.Feed(0xFE, 0xA0, 0xFF, 0xFF); h.Feed("im");
+        h.Feed(0xFE, 0xAA, 0xFF, 0xFF); h.Feed("er");
+        h.Feed(0xFE, 0xA0, 0xFF, 0xFF); h.Feed("ic");
+        h.Feed(0xFE, 0xA7, 0xFF, 0xFF); h.Feed("al");
+        h.Feed(0xFF, 0xFF);                    // bare pop
+        h.Feed(0xF5, 0x9C, 0xFF, 0xFF);        // C90+C01: colour throw (restore to catch)
+        h.Feed(" wizard");
+        h.Feed(0xFF, 0xFF);                    // end-of-name pop
+        h.Feed("\r\n");
+    }
+
+    [Fact]
+    public void ColourCatchThrow_RestoresStyle()
+    {
+        var h = InGameMode();
+        h.Feed(0xA0, 0x9B, 0xFF, 0xFF);        // C05+C00 → RED
+        h.Feed("red");
+        h.Feed(0xF5, 0xFF, 0xFF);              // catch: no colour change
+        h.Feed("still");
+        h.Feed(0xFE, 0xA7, 0xFF, 0xFF);        // C99 → BrightBlue
+        h.Feed("blue");
+        h.Feed(0xF5, 0x9C, 0xFF, 0xFF);        // throw: restore to catch point
+        h.Feed("after\n");
+
+        var line = Assert.Single(h.Lines);
+        Assert.Equal(4, line.Spans.Count);
+        Assert.Equal(MudSharp.Models.AnsiColor.Red,        line.Spans[0].Style.Foreground); // "red"
+        Assert.Equal(MudSharp.Models.AnsiColor.Red,        line.Spans[1].Style.Foreground); // "still" (catch is colour-neutral)
+        Assert.Equal(MudSharp.Models.AnsiColor.BrightBlue, line.Spans[2].Style.Foreground); // "blue"
+        Assert.Equal(MudSharp.Models.AnsiColor.Red,        line.Spans[3].Style.Foreground); // "after" (throw restored)
+    }
+
+    [Fact]
+    public void FewResponse_RainbowName_ContextClosesAndDisplayResumes()
+    {
+        var h = InGameMode();
+        h.Feed(FewContextOpen);
+        FeedRainbowName(h);
+        h.Feed(FewPlayerRedPrefix);
+        h.Feed("Folly the warlock");
+        h.Feed(0xFF, 0xFF);
+        h.Feed("\r\n");
+        h.Feed(0xFF, 0xFF);                    // closing pop → context must end here
+
+        Assert.Equal(1, h.FewListCompleteCount);
+
+        h.Lines.Clear();
+        h.Feed("Normal text\n");
+        Assert.Single(h.Lines);                // display no longer suppressed
+    }
+
+    [Fact]
+    public void FewResponse_RainbowName_FullNameCaptured()
+    {
+        var h = InGameMode();
+        h.Feed(FewContextOpen);
+        FeedRainbowName(h);
+        h.Feed(0xFF, 0xFF);
+        Assert.Contains("Heiach the chimerical wizard", h.FewPlayers);
+    }
+
+    [Fact]
+    public void FewResponse_RainbowName_NotEmittedAsLines()
+    {
+        var h = InGameMode();
+        h.Feed(FewContextOpen);
+        FeedRainbowName(h);
+        h.Feed(0xFF, 0xFF);
+        Assert.Empty(h.Lines);
+    }
+
     // -- FEI response capture -------------------------------------------------
 
     // C12+C08+C03+C255 -- opens the FEI (inventory) response context

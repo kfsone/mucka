@@ -58,6 +58,7 @@ public static class SettingsStore
         int? Volume,
         int? StatUpdateFrequency,
         bool? MuteBeepPermanently,
+        SoundSettings? Sounds,
         string[]? Fkeys,
         bool SettingsPerProfile,
         bool FkeysPerProfile)
@@ -70,6 +71,7 @@ public static class SettingsStore
             if (Volume              is int volume)   profile.Volume              = volume;
             if (StatUpdateFrequency is int fes)      profile.StatUpdateFrequency = fes;
             if (MuteBeepPermanently is bool mute)    profile.MuteBeepPermanently = mute;
+            if (Sounds              is not null)     profile.Sounds              = Sounds;
             if (Fkeys               is not null)     profile.Fkeys               = Fkeys;
             profile.SettingsPerProfile = SettingsPerProfile;
             profile.FkeysPerProfile    = FkeysPerProfile;
@@ -132,6 +134,7 @@ public static class SettingsStore
                 Volume:              settingsSection is null ? null : GetInt(ini, settingsSection, "volume"),
                 StatUpdateFrequency: settingsSection is null ? null : GetInt(ini, settingsSection, "statupdate"),
                 MuteBeepPermanently: settingsSection is null ? null : GetBool(ini, settingsSection, "mutebeep"),
+                Sounds:              settingsSection is null ? null : ReadSoundSettings(ini, settingsSection),
                 Fkeys:               fkeys,
                 SettingsPerProfile:  settingsPerProfile,
                 FkeysPerProfile:     fkeysPerProfile);
@@ -165,6 +168,7 @@ public static class SettingsStore
             ini.Set(settingsSection, "volume",     settings.Volume.ToString());
             ini.Set(settingsSection, "statupdate", settings.StatUpdateFrequency.ToString());
             ini.Set(settingsSection, "mutebeep",   settings.MuteBeepPermanently ? "yes" : "no");
+            WriteSoundSettings(ini, settingsSection, settings.Sounds);
 
             if (fkeys is not null)
             {
@@ -357,6 +361,99 @@ public static class SettingsStore
                     ini.Set("fkeys", $"F{i + 1}", first.Fkeys[i]);
         }
     }
+
+    // Sound enablement keys, all within the settings section. Override-only — defaults
+    // (everything on at full volume, no fallbacks) leave no keys behind:
+    //   sounds=yes               ; master switch (always written)
+    //   soundgroup.07=off        ; a disabled group
+    //   sound.0703=off           ; a disabled individual sound
+    //   sounddefault.07=070000   ; a group's fallback sound for codes with no wav
+    //   soundgroupvol.07=50      ; a group's volume override (absent = master volume)
+    //   soundvol.0703=50         ; a sound's volume override (absent = group volume)
+    private const string SoundKeyPrefix        = "sound.";
+    private const string SoundGroupKeyPrefix   = "soundgroup.";
+    private const string SoundDefaultKeyPrefix = "sounddefault.";
+    private const string SoundVolKeyPrefix     = "soundvol.";
+    private const string SoundGroupVolKeyPrefix = "soundgroupvol.";
+
+    /// <summary>Reads the sound settings from a section; null when no sound keys exist
+    /// (pre-feature ini — callers keep the built-in everything-on defaults).</summary>
+    private static SoundSettings? ReadSoundSettings(IniFile ini, string section)
+    {
+        SoundSettings? sounds = null;
+        SoundSettings Sounds() => sounds ??= new SoundSettings();
+
+        if (GetBool(ini, section, "sounds") is bool master)
+            Sounds().MasterEnabled = master;
+        foreach (var (key, value) in ini.Items(section))
+        {
+            // Longest prefixes first — "soundgroupvol."/"soundvol." must not fall into
+            // the "soundgroup."/"sound." branches.
+            if (key.StartsWith(SoundGroupVolKeyPrefix, StringComparison.OrdinalIgnoreCase))
+            {
+                if (int.TryParse(value, out var vol))
+                    Sounds().GroupVolumes[key[SoundGroupVolKeyPrefix.Length..]] = Math.Clamp(vol, 0, 100);
+            }
+            else if (key.StartsWith(SoundGroupKeyPrefix, StringComparison.OrdinalIgnoreCase))
+            {
+                if (ParseOnOff(value) is false)
+                    Sounds().DisabledGroups.Add(key[SoundGroupKeyPrefix.Length..]);
+            }
+            else if (key.StartsWith(SoundDefaultKeyPrefix, StringComparison.OrdinalIgnoreCase))
+            {
+                if (value.Length > 0)
+                    Sounds().GroupDefaults[key[SoundDefaultKeyPrefix.Length..]] = value;
+            }
+            else if (key.StartsWith(SoundVolKeyPrefix, StringComparison.OrdinalIgnoreCase))
+            {
+                if (int.TryParse(value, out var vol))
+                    Sounds().SoundVolumes[key[SoundVolKeyPrefix.Length..]] = Math.Clamp(vol, 0, 100);
+            }
+            else if (key.StartsWith(SoundKeyPrefix, StringComparison.OrdinalIgnoreCase))
+            {
+                if (ParseOnOff(value) is false)
+                    Sounds().DisabledSounds.Add(key[SoundKeyPrefix.Length..]);
+            }
+        }
+        return sounds;
+    }
+
+    /// <summary>Writes the sound settings into a section, removing stale override keys
+    /// so re-enabling a sound erases its line rather than flipping it to "on".</summary>
+    private static void WriteSoundSettings(IniFile ini, string section, SoundSettings sounds)
+    {
+        ini.Set(section, "sounds", sounds.MasterEnabled ? "yes" : "no");
+
+        var stale = ini.Items(section)
+            .Select(kv => kv.Key)
+            .Where(k => k.StartsWith(SoundKeyPrefix,        StringComparison.OrdinalIgnoreCase) ||
+                        k.StartsWith(SoundGroupKeyPrefix,   StringComparison.OrdinalIgnoreCase) ||
+                        k.StartsWith(SoundDefaultKeyPrefix, StringComparison.OrdinalIgnoreCase) ||
+                        k.StartsWith(SoundVolKeyPrefix,     StringComparison.OrdinalIgnoreCase) ||
+                        k.StartsWith(SoundGroupVolKeyPrefix, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        foreach (var key in stale)
+            ini.Remove(section, key);
+
+        foreach (var prefix in sounds.DisabledGroups)
+            ini.Set(section, SoundGroupKeyPrefix + prefix, "off");
+        foreach (var code in sounds.DisabledSounds)
+            ini.Set(section, SoundKeyPrefix + code, "off");
+        foreach (var (prefix, code) in sounds.GroupDefaults)
+            ini.Set(section, SoundDefaultKeyPrefix + prefix, code);
+        foreach (var (prefix, vol) in sounds.GroupVolumes)
+            ini.Set(section, SoundGroupVolKeyPrefix + prefix, vol.ToString());
+        foreach (var (code, vol) in sounds.SoundVolumes)
+            ini.Set(section, SoundVolKeyPrefix + code, vol.ToString());
+    }
+
+    private static bool? ParseOnOff(string value)
+        => value.ToLowerInvariant() switch
+        {
+            "yes" or "true" or "on" or "1" => true,
+            "no" or "false" or "off" or "0" => false,
+            _ => null,
+        };
 
     private static int? GetInt(IniFile ini, string section, string key)
         => int.TryParse(ini.Get(section, key), out var v) ? v : null;

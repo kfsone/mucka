@@ -29,6 +29,9 @@ public class Profile
     public int FewRefreshInterval { get; set; } = 15;
     /// <summary>Permanently suppress the bell/beep sound. Persisted per profile.</summary>
     public bool MuteBeepPermanently { get; set; }
+    /// <summary>Per-sound enablement and group fallbacks. Defaults to everything on.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public SoundSettings Sounds { get; set; } = new();
     public string[] Fkeys { get => _fkeys; set => _fkeys = NormalizeFkeys(value); }
 
     /// <summary>True when the settings came from a per-profile [settings:Name] ini section

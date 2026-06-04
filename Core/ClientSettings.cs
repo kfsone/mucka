@@ -25,4 +25,7 @@ public sealed record ClientSettings
     /// <summary>Save the fkeys to the per-profile [fkeys:Name] ini section instead of the
     /// global [fkeys]. Mirrors the Hotkeys page's "Save to profile only" checkbox.</summary>
     public bool FkeysPerProfile { get; init; }
+    /// <summary>Per-sound enablement and group fallbacks (the Sounds tab's tree).
+    /// Treated as frozen once snapshotted — see <see cref="SoundSettings"/>.</summary>
+    public SoundSettings Sounds { get; init; } = new();
 }

@@ -19,6 +19,10 @@ internal sealed class Mud2C1Decoder
     // Color stack: tracks color history for bare FF FF pop()
     private readonly Stack<TextStyle> _colorStack = new();
 
+    // C90 colour-catch depths: {C90}{C255} snapshots the stack depth here;
+    // {C90}{C01}{C255} (colour throw) unwinds the stack back to the snapshot.
+    private readonly Stack<int> _catchDepths = new();
+
     // C95 line counter (how many newline-terminated lines remain to collect)
     private int _c95LinesRemaining;
 
@@ -91,6 +95,22 @@ internal sealed class Mud2C1Decoder
             _parser.Ansi.SetStyle(_colorStack.Peek());
         // If stack is empty after pop, silently ignore (Clio: if (pop() == -1) { /* commented out */ })
 
+        CheckContextClosures();
+
+        // Restore style to default when the C1 color stack is fully unwound.
+        // Clio ignores this case (pop() == -1, commented out), but we must explicitly reset
+        // Ansi.CurrentStyle or subsequent text inherits the last C1 color (e.g. BLUE from
+        // the wire prompt preamble, making command echoes appear in prompt color).
+        if (_colorStack.Count == 0)
+            _parser.Ansi.SetStyle(TextStyle.Default);
+    }
+
+    /// <summary>
+    /// Close any capture context whose entry depth has been reached by a stack unwind
+    /// (bare FF FF pop, or a C90 colour throw that pops multiple entries at once).
+    /// </summary>
+    private void CheckContextClosures()
+    {
         // Exit FEW-response suppression when the color stack returns to the depth it was at
         // before the C12+C08+C05 context push. The nested pushes (C12+C03, C05+C00+C06 etc.)
         // all pop before this point, so the final pop to FewContextDepth ends the context.
@@ -118,13 +138,23 @@ internal sealed class Mud2C1Decoder
         // as a partial line (PromptAllowed) or discards it (FES heartbeat).
         if (_parser.InPromptContext && _colorStack.Count <= _parser.PromptContextDepth)
             _parser.ClosePromptContext();
+    }
 
-        // Restore style to default when the C1 color stack is fully unwound.
-        // Clio ignores this case (pop() == -1, commented out), but we must explicitly reset
-        // Ansi.CurrentStyle or subsequent text inherits the last C1 color (e.g. BLUE from
-        // the wire prompt preamble, making command echoes appear in prompt color).
-        if (_colorStack.Count == 0)
-            _parser.Ansi.SetStyle(TextStyle.Default);
+    /// <summary>
+    /// C90+C01 colour throw: restore the colour stack to the depth recorded by the most
+    /// recent colour catch (fecodes: "the colour stack is restored to what it was when the
+    /// last colour catch was made"). Without this, rainbow wiz names (catch + per-letter
+    /// C99 pushes + throw) leave the stack permanently too deep, so the FEW context never
+    /// closes and all subsequent terminal output stays suppressed.
+    /// </summary>
+    private void ThrowToCatch()
+    {
+        if (_catchDepths.Count == 0) return;   // throw with no preceding catch: ignore
+        int depth = _catchDepths.Pop();
+        while (_colorStack.Count > depth)
+            _colorStack.Pop();
+        _parser.Ansi.SetStyle(_colorStack.Count > 0 ? _colorStack.Peek() : TextStyle.Default);
+        CheckContextClosures();
     }
 
     /// <summary>
@@ -155,6 +185,7 @@ internal sealed class Mud2C1Decoder
         _c95LinesRemaining = 0;
         _c95LogoutSeenNewline = false;
         _colorStack.Clear();
+        _catchDepths.Clear();
     }
 
     // ── C1 sequence accumulation ──────────────────────────────────────────────
@@ -237,6 +268,20 @@ internal sealed class Mud2C1Decoder
                 _parser.EmitChar((char)b);
             buf.Add(b);
             return ParserState.FewPlayerData;
+        }
+        // A C1 colour sequence inside the name (e.g. the C90 catch + per-letter C99
+        // colours + C90 throw of a rainbow wiz name): hand the partial name to the
+        // parser so the remaining segments accumulate across the colour codes via
+        // EmitChar; the name completes at the line's '\n'. 0xFF is NOT a continuation —
+        // a bare FF FF pop is the normal end-of-name terminator (handled below).
+        if (b >= 0x9B && b <= 0xFE)
+        {
+            _parser.BeginFewNameContinuation(
+                Encoding.ASCII.GetString(buf.ToArray()),
+                _parser.Ansi.CurrentStyle.Foreground);
+            buf.Clear();
+            _parser.QueueReprocessByte(b);
+            return ParserState.Normal;
         }
         if (buf.Count > 0)
         {
@@ -717,14 +762,23 @@ internal sealed class Mud2C1Decoder
                 return ParserState.Normal;
 
             // ── C90 (0xF5): catch()/throw() — color-stack save/restore ─────
-            // Clio telnet.l uses these to bracket sections where a color change must
-            // be reverted; catch() snapshots the stack and throw() restores it.
-            // Full save/restore requires knowing whether this is catch or throw from
-            // the payload — deferred until we can verify against the server wire format.
-            // Current behaviour: treat as a color reset (WHITE/BLACK), which at least
-            // avoids color corruption from unbalanced push/pop sequences.
+            // {C90}{C255}      → colour catch: snapshot the stack depth; NO colour change
+            //                    and NO push (fecodes: "90 — Colour catch. No colour change.")
+            // {C90}{C01}{C255} → colour throw: restore the stack to the last catch point,
+            //                    undoing multiply-deep colour changes in a single code
+            //                    (e.g. the per-letter C99 colours in rainbow wiz names).
             case 0xF5:
-                Apply(WHITE, BLACK);
+                if (count == 0)
+                {
+                    _catchDepths.Push(_colorStack.Count);
+                    return ParserState.Normal;
+                }
+                if (count == 1 && b0 == 0x9C)
+                {
+                    ThrowToCatch();
+                    return ParserState.Normal;
+                }
+                Apply(WHITE, BLACK);   // unrecognised C90 variant: legacy reset behaviour
                 return ParserState.Normal;
 
             // ── C94 (0xF9): snoop starts → WHITE/BLACK ───────────────────────

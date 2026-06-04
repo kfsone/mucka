@@ -171,6 +171,31 @@ public sealed class MudStreamParser
     internal void EmitFewListStarting() => FewListStarting?.Invoke();
     internal void EmitFewListComplete() => FewListComplete?.Invoke();
 
+    // ── FEW name continuation ─────────────────────────────────────────────────
+    // A WHO-list name interrupted by embedded colour codes (e.g. the C90 catch/throw
+    // rainbow colouring of a wiz name) hands its partial text here; subsequent printable
+    // characters append across the colour sequences and the name completes at '\n'.
+    private bool _fewNameActive;
+    private readonly StringBuilder _fewName = new();
+    private AnsiColor _fewNameColor;
+
+    internal void BeginFewNameContinuation(string partial, AnsiColor color)
+    {
+        _fewNameActive = true;
+        _fewName.Clear();
+        _fewName.Append(partial);
+        _fewNameColor = color;
+    }
+
+    private void FinalizeFewName()
+    {
+        _fewNameActive = false;
+        var name = _fewName.ToString().Trim();
+        _fewName.Clear();
+        if (name.Length > 0)
+            FewPlayerReady?.Invoke(name, _fewNameColor);
+    }
+
     // ── FEI-response capture ──────────────────────────────────────────────────
     // Set when the parser enters a C12+C08+C03 (FE INVENTORY) context block.
     // Item text accumulates in _feiLine (bypasses the span machinery to avoid
@@ -369,6 +394,8 @@ public sealed class MudStreamParser
         _promptSpans.Clear();
         _promptText.Clear();
         _inFewResponseContext = false;
+        _fewNameActive = false;
+        _fewName.Clear();
         _inFeiResponseContext = false;
         _feiContextDepth = 0;
         _feiLine.Clear();
@@ -390,6 +417,8 @@ public sealed class MudStreamParser
         if (ch == '\n')
         {
             _optionMatchLen = 0;   // the option-menu match never spans a newline
+            // A colour-interrupted WHO-list name ends at its line's newline.
+            if (_fewNameActive) FinalizeFewName();
             // A newline must never occur inside the prompt container; if one does
             // (lost pop, line noise) abandon the capture and render its text normally.
             if (_inPromptContext) AbortPromptContext();
@@ -469,6 +498,9 @@ public sealed class MudStreamParser
                 _promptText.Append(ch);
                 return;
             }
+            // Continue a colour-interrupted WHO-list name across its colour codes.
+            if (_fewNameActive)
+                _fewName.Append(ch);
             // Discard characters inside a FEW response (names surface via FewPlayerReady).
             if (_inFewResponseContext) return;
             // FEX and FEI items accumulate in dedicated buffers — bypasses the span machinery.

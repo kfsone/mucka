@@ -68,11 +68,37 @@
                     </Label>
                 </Border>
 
-                <!-- Friends tab -->
+                <!-- Sounds tab -->
                 <Border Stroke="Transparent" StrokeThickness="0" Padding="14,5">
                     <Border.StrokeShape><RoundRectangle CornerRadius="4"/></Border.StrokeShape>
                     <Border.GestureRecognizers>
                         <TapGestureRecognizer Command="{Binding SetTabCommand}" CommandParameter="2"/>
+                    </Border.GestureRecognizers>
+                    <Border.Triggers>
+                        <DataTrigger TargetType="Border" Binding="{Binding IsSoundsTabActive}" Value="True">
+                            <Setter Property="BackgroundColor" Value="#1f6feb"/>
+                        </DataTrigger>
+                        <DataTrigger TargetType="Border" Binding="{Binding IsSoundsTabActive}" Value="False">
+                            <Setter Property="BackgroundColor" Value="#2d333b"/>
+                        </DataTrigger>
+                    </Border.Triggers>
+                    <Label Text="Sounds" FontSize="13" FontAttributes="Bold" VerticalOptions="Center">
+                        <Label.Triggers>
+                            <DataTrigger TargetType="Label" Binding="{Binding IsSoundsTabActive}" Value="True">
+                                <Setter Property="TextColor" Value="White"/>
+                            </DataTrigger>
+                            <DataTrigger TargetType="Label" Binding="{Binding IsSoundsTabActive}" Value="False">
+                                <Setter Property="TextColor" Value="#888888"/>
+                            </DataTrigger>
+                        </Label.Triggers>
+                    </Label>
+                </Border>
+
+                <!-- Friends tab -->
+                <Border Stroke="Transparent" StrokeThickness="0" Padding="14,5">
+                    <Border.StrokeShape><RoundRectangle CornerRadius="4"/></Border.StrokeShape>
+                    <Border.GestureRecognizers>
+                        <TapGestureRecognizer Command="{Binding SetTabCommand}" CommandParameter="3"/>
                     </Border.GestureRecognizers>
                     <Border.Triggers>
                         <DataTrigger TargetType="Border" Binding="{Binding IsFriendsTabActive}" Value="True">
@@ -302,6 +328,138 @@
                                            IsSpellCheckEnabled="False"
                                            IsTextPredictionEnabled="False"/>
                                 </Grid>
+                            </DataTemplate>
+                        </BindableLayout.ItemTemplate>
+                    </VerticalStackLayout>
+                </ScrollView>
+            </Grid>
+
+            <!-- ── SOUNDS TAB ────────────────────────────────────────── -->
+            <Grid RowDefinitions="Auto,Auto,*" RowSpacing="8" IsVisible="{Binding IsSoundsTabActive}">
+
+                <!-- Master row: on/off checkbox, volume slider, reset -->
+                <Grid Grid.Row="0" ColumnDefinitions="Auto,Auto,Auto,Auto,*,Auto" ColumnSpacing="8">
+                    <CheckBox Grid.Column="0"
+                              IsChecked="{Binding SoundsEnabled, Mode=TwoWay}"
+                              Color="#1f6feb"
+                              VerticalOptions="Center"/>
+                    <Label Grid.Column="1" Text="All sounds" TextColor="White"
+                           FontSize="13" FontAttributes="Bold" VerticalOptions="Center"/>
+                    <Label Grid.Column="2" Text="{Binding VolumeDisplay}" TextColor="White"
+                           FontSize="13" WidthRequest="28" HorizontalTextAlignment="End"
+                           VerticalOptions="Center"/>
+                    <Slider Grid.Column="3" Minimum="0" Maximum="100" WidthRequest="160"
+                            Value="{Binding Volume, Mode=TwoWay}" VerticalOptions="Center"/>
+                    <!-- Column 4 is the * spacer -->
+                    <Button Grid.Column="5"
+                            Text="Reset to Default"
+                            Command="{Binding ResetSoundsCommand}"
+                            BackgroundColor="#2d333b" TextColor="#cccccc"
+                            FontSize="12" HeightRequest="30"
+                            CornerRadius="4" Padding="10,0"/>
+                </Grid>
+
+                <Label Grid.Row="1"
+                       Text="Tap a heading to expand its group; ♪ previews a sound. A group's Default plays when the game triggers a sound in that group that has no sound file of its own."
+                       TextColor="#888888" FontSize="12"/>
+
+                <!-- The tree: collapsible groups of individual sounds.
+                     Right padding keeps the controls clear of the overlay scrollbar. -->
+                <ScrollView Grid.Row="2">
+                    <VerticalStackLayout Spacing="4" Padding="0,0,18,0"
+                                         IsEnabled="{Binding SoundsEnabled}"
+                                         BindableLayout.ItemsSource="{Binding SoundGroups}">
+                        <BindableLayout.ItemTemplate>
+                            <DataTemplate x:DataType="vm:SoundGroupEditorItem">
+                                <VerticalStackLayout Spacing="2">
+
+                                    <!-- Group heading row -->
+                                    <Grid ColumnDefinitions="20,Auto,Auto,*,Auto,Auto,Auto" ColumnSpacing="6">
+                                        <Label Grid.Column="0" Text="{Binding Chevron}"
+                                               TextColor="#888888" FontSize="12"
+                                               VerticalOptions="Center" HorizontalTextAlignment="Center">
+                                            <Label.GestureRecognizers>
+                                                <TapGestureRecognizer Command="{Binding ToggleExpandCommand}"/>
+                                            </Label.GestureRecognizers>
+                                        </Label>
+                                        <CheckBox Grid.Column="1"
+                                                  IsChecked="{Binding Enabled, Mode=TwoWay}"
+                                                  Color="#1f6feb"
+                                                  VerticalOptions="Center"/>
+                                        <Border Grid.Column="2"
+                                                IsVisible="{Binding HasPreview}"
+                                                BackgroundColor="#2d333b" StrokeThickness="0"
+                                                Padding="9,3" VerticalOptions="Center"
+                                                ToolTipProperties.Text="Preview">
+                                            <Border.StrokeShape><RoundRectangle CornerRadius="4"/></Border.StrokeShape>
+                                            <Border.GestureRecognizers>
+                                                <TapGestureRecognizer Command="{Binding PlayCommand}"/>
+                                            </Border.GestureRecognizers>
+                                            <Label Text="♪" TextColor="#1f6feb" FontSize="13"/>
+                                        </Border>
+                                        <Label Grid.Column="3" Text="{Binding Name}"
+                                               TextColor="White" FontSize="13" FontAttributes="Bold"
+                                               VerticalOptions="Center">
+                                            <Label.GestureRecognizers>
+                                                <TapGestureRecognizer Command="{Binding ToggleExpandCommand}"/>
+                                            </Label.GestureRecognizers>
+                                        </Label>
+                                        <Label Grid.Column="4" Text="{Binding VolumeDisplay}"
+                                               TextColor="#888888" FontSize="11" WidthRequest="26"
+                                               HorizontalTextAlignment="End" VerticalOptions="Center"/>
+                                        <Slider Grid.Column="5" Minimum="0" Maximum="100" WidthRequest="110"
+                                                ToolTipProperties.Text="Group volume — follows the master slider until moved; drag back onto the master value to re-attach"
+                                                Value="{Binding Volume, Mode=TwoWay}"
+                                                VerticalOptions="Center"/>
+                                        <Picker Grid.Column="6"
+                                                IsVisible="{Binding HasDefaultPicker}"
+                                                Title="Default"
+                                                ToolTipProperties.Text="Played when the game triggers a sound in this group that has no sound file of its own"
+                                                ItemsSource="{Binding DefaultChoices}"
+                                                SelectedIndex="{Binding SelectedDefaultIndex, Mode=TwoWay}"
+                                                TextColor="White" TitleColor="#888888"
+                                                BackgroundColor="#161b22"
+                                                FontSize="12" WidthRequest="200"/>
+                                    </Grid>
+
+                                    <!-- Child sounds, visible while expanded -->
+                                    <VerticalStackLayout IsVisible="{Binding Expanded}"
+                                                         Margin="46,0,0,4" Spacing="0"
+                                                         BindableLayout.ItemsSource="{Binding Sounds}">
+                                        <BindableLayout.ItemTemplate>
+                                            <DataTemplate x:DataType="vm:SoundEditorItem">
+                                                <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto" ColumnSpacing="6"
+                                                      IsEnabled="{Binding Group.Enabled}">
+                                                    <CheckBox Grid.Column="0"
+                                                              IsChecked="{Binding Enabled, Mode=TwoWay}"
+                                                              Color="#1f6feb"
+                                                              VerticalOptions="Center"/>
+                                                    <Border Grid.Column="1"
+                                                            BackgroundColor="#2d333b" StrokeThickness="0"
+                                                            Padding="9,3" VerticalOptions="Center"
+                                                            ToolTipProperties.Text="Preview">
+                                                        <Border.StrokeShape><RoundRectangle CornerRadius="4"/></Border.StrokeShape>
+                                                        <Border.GestureRecognizers>
+                                                            <TapGestureRecognizer Command="{Binding PlayCommand}"/>
+                                                        </Border.GestureRecognizers>
+                                                        <Label Text="♪" TextColor="#1f6feb" FontSize="13"/>
+                                                    </Border>
+                                                    <Label Grid.Column="2" Text="{Binding Name}"
+                                                           TextColor="#cccccc" FontSize="12"
+                                                           VerticalOptions="Center"/>
+                                                    <Label Grid.Column="3" Text="{Binding VolumeDisplay}"
+                                                           TextColor="#888888" FontSize="11" WidthRequest="26"
+                                                           HorizontalTextAlignment="End" VerticalOptions="Center"/>
+                                                    <Slider Grid.Column="4" Minimum="0" Maximum="100" WidthRequest="110"
+                                                            ToolTipProperties.Text="Sound volume — follows the group slider until moved; drag back onto the group value to re-attach"
+                                                            Value="{Binding Volume, Mode=TwoWay}"
+                                                            VerticalOptions="Center"/>
+                                                </Grid>
+                                            </DataTemplate>
+                                        </BindableLayout.ItemTemplate>
+                                    </VerticalStackLayout>
+
+                                </VerticalStackLayout>
                             </DataTemplate>
                         </BindableLayout.ItemTemplate>
                     </VerticalStackLayout>

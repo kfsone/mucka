@@ -456,6 +456,7 @@ public sealed class ConnectViewModel : BaseViewModel
             MuteBeepPermanently = incoming.MuteBeepPermanently,
             SettingsPerProfile  = incoming.SettingsPerProfile,
             FkeysPerProfile     = incoming.FkeysPerProfile,
+            Sounds              = incoming.Sounds,
         };
         // fkeys: null — hotkeys are not editable on this page, so never rewrite their sections.
         await SettingsStore.SaveProfileAsync(incoming.Name, settings, fkeys: null);

@@ -56,6 +56,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private int _statUpdateFrequency;
     private bool _muteBeepSession;
     private bool _muteBeepPermanently;
+    private SoundSettings _sounds = new();
     private bool _settingsPerProfile;
     private bool _fkeysPerProfile;
 
@@ -358,6 +359,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         MuteBeepPermanently = _muteBeepPermanently,
         SettingsPerProfile  = _settingsPerProfile,
         FkeysPerProfile     = _fkeysPerProfile,
+        Sounds              = _sounds.Clone(),
     };
 
     public ICommand SendCommand { get; }
@@ -410,7 +412,9 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _muteBeepSession     = profile.MuteBeepPermanently;
         _settingsPerProfile  = profile.SettingsPerProfile;
         _fkeysPerProfile     = profile.FkeysPerProfile;
+        _sounds              = profile.Sounds;
         SoundService.SetVolume(_volume);
+        SoundService.SetSoundSettings(_sounds);
 
         SidePanel = new SidePanelViewModel();
 
@@ -489,6 +493,8 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _muteBeepSession     = settings.MuteBeepSession || settings.MuteBeepPermanently;
         _settingsPerProfile  = settings.SettingsPerProfile;
         _fkeysPerProfile     = settings.FkeysPerProfile;
+        _sounds              = settings.Sounds;
+        SoundService.SetSoundSettings(_sounds);
     }
 
     /// <summary>Applies the snapshot, persists it (mucka.ini via the saver delegate), and
@@ -616,15 +622,16 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         });
 
     // Called from the TCP read thread — fire-and-forget, never block.
-    private static void OnSoundRequested(string assetName) => SoundService.Play(assetName);
+    // PlayServerSound applies the Sounds-tab gating (master/group/sound + fallback).
+    private static void OnSoundRequested(string assetName) => SoundService.PlayServerSound(assetName);
 
     private void OnBellReceived()
     {
-        if (_muteBeepSession || _muteBeepPermanently) return;
+        if (_muteBeepSession || _muteBeepPermanently || !_sounds.MasterEnabled) return;
         var now = DateTime.UtcNow;
         if (now - _lastBellUtc < TimeSpan.FromSeconds(2)) return;
         _lastBellUtc = now;
-        SoundService.Play("beep.wav");
+        SoundService.PlayBell();
     }
 
     private void SendNow()
