@@ -112,15 +112,12 @@ internal sealed class Mud2C1Decoder
             _parser.EmitFexListComplete();
         }
 
-        // Handle prompt-preamble flags set by the C01 game-mode dispatch (Clio telnet.l:438-444).
-        // Both flags are cleared after the first pop that follows the '*' prompt text.
-        if (_parser.EmitPartialOnPop)
-        {
-            _parser.EmitPartialLine();  // show '*' as live partial-line prompt; clears spans internally
-            _parser.EmitPartialOnPop = false;
-            _parser.SetLineStart();     // game prompt shown: next line (column 0) may be a room short
-        }
-        _parser.SuppressNextText = false;
+        // Close the prompt-capture container when the colour stack returns to the depth
+        // recorded at the outer {C01}{C255} push. ClosePromptContext then shows the
+        // whole captured prompt — '*', '(*)' when invisible, snoop/rank indicators —
+        // as a partial line (PromptAllowed) or discards it (FES heartbeat).
+        if (_parser.InPromptContext && _colorStack.Count <= _parser.PromptContextDepth)
+            _parser.ClosePromptContext();
 
         // Restore style to default when the C1 color stack is fully unwound.
         // Clio ignores this case (pop() == -1, commented out), but we must explicitly reset
@@ -347,39 +344,40 @@ internal sealed class Mud2C1Decoder
                 Apply(WHITE, BLACK);
                 return ParserState.Normal;
 
-            // ── C01 (0x9C): BLUE or LT_BLUE prompt/location colors ───────────
-            // {C01}{C255}|{C01}{C04}{C255}|{C01}{C05}{C255} → BLUE/BLACK
-            // {C01}{C01}{C255}|{C01}{C02}{C255}|{C01}{C03}{C255} → LT_BLUE/BLACK + enter game mode (Clio lines 454–468)
+            // ── C01 (0x9C): the prompt family — BLUE or LT_BLUE ──────────────
+            // Code 01 is "invisibility brackets around the prompt" (mud2_fe4 §codes):
+            // {C01}{C255}                 → BLUE/BLACK; in game mode this is the OUTER
+            //                               container that wraps the ENTIRE prompt
+            // {C01}{C01..C03}{C255}       → LT_BLUE/BLACK + enter game mode; the inner
+            //                               prompt core (01 01 wiz / 01 02 mortal / 01 03 wiz-set)
+            // {C01}{C04}{C255}|{C01}{C05}{C255} → BLUE/BLACK (snoop/aux prompt indicators)
             //
-            // When this game-mode variant arrives while already in game mode it is the
-            // inner half of the prompt preamble  ({C01}{C255}{C01}{C02}{C255}*{C255}{C255}).
-            // Mirror Clio's prompt_allowed gate (telnet.l:438-444):
-            //   PromptAllowed=true  → show the '*' as a partial-line prompt once, then clear spans
-            //   PromptAllowed=false → suppress the '*' text entirely (end-of-frame marker)
+            // "The prompt" is contextual — it is everything inside the outer container,
+            // not just the '*': '(*)' when invisible, plus snoop/rank indicators. The
+            // outer push therefore opens a prompt-capture context; PopColor closes it
+            // when the stack unwinds to entry depth and shows/discards the capture per
+            // Clio's prompt_allowed gate (telnet.l:438-444).
             case 0x9C:
             {
                 bool isGameModeVariant = b0 is 0x9C or 0x9D or 0x9E;
                 bool wasAlreadyInGameMode = _parser.InGameMode;
                 Apply(isGameModeVariant ? LT_BLUE : BLUE, BLACK);
                 if (isGameModeVariant)
-                {
                     _parser.EnterGameMode();
-                    if (wasAlreadyInGameMode)
+                if (wasAlreadyInGameMode)
+                {
+                    if (count == 0)
                     {
-                        // Gate prompt emission on Clio's prompt_allowed flag (telnet.l:438-444).
-                        // PromptAllowed is set true by every real game '\n' and cleared when the
-                        // prompt is shown; it persists across TCP packet boundaries.
-                        // FES heartbeat prompt preambles arrive when PromptAllowed is still false
-                        // (no real '\n' since the last prompt display), so they are suppressed.
-                        if (_parser.PromptAllowed)
-                        {
-                            _parser.PromptAllowed = false;
-                            _parser.EmitPartialOnPop = true;
-                        }
-                        else
-                        {
-                            _parser.SuppressNextText = true;
-                        }
+                        // Bare {C01}{C255}: the outer prompt container. Capture until its
+                        // matching pop. Re-entering while a context is still open means the
+                        // previous container lost its pop — restart capture at the new depth.
+                        _parser.EnterPromptContext(_colorStack.Count - 1);
+                    }
+                    else if (isGameModeVariant && !_parser.InPromptContext)
+                    {
+                        // Inner prompt core with no outer container: capture just this
+                        // code's own extent so a bare {C01}{C02}{C255}*{C255} still gates.
+                        _parser.EnterPromptContext(_colorStack.Count - 1);
                     }
                 }
                 return ParserState.Normal;

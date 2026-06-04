@@ -133,8 +133,8 @@ public sealed class MudStreamParser
     //
     // Set to true:
     //   - On parser construction (start of first line).
-    //   - By SetLineStart() — called from PopColor when the '*' prompt partial line
-    //     is emitted, marking the start of the next game-output frame.
+    //   - By SetLineStart() — called from ClosePromptContext when the captured prompt
+    //     partial line is shown, marking the start of the next game-output frame.
     //   - After each real '\n' line is emitted (end of EmitChar newline path).
     //
     // Set to false:
@@ -212,31 +212,89 @@ public sealed class MudStreamParser
     internal void EmitFexListStarting() => FexListStarting?.Invoke();
     internal void EmitFexListComplete() => FexListComplete?.Invoke();
 
+    // ── Prompt capture ────────────────────────────────────────────────────────
+    // Code 01 is "invisibility brackets around the prompt" (mud2_fe4 §codes): the OUTER
+    // {C01}{C255} container wraps the ENTIRE prompt, and the inner {C01}{C0n}{C255}
+    // variant (01 01 wiz / 01 02 mortal / 01 03 wiz-set / 01 04 snooping) colours the
+    // core prompt character(s). "The prompt" is contextual — everything inside the
+    // outer container — not just the '*':
+    //   visible:    {C01}{C255}{C01}{C02}{C255}*{C255}{C255}
+    //   invisible:  {C01}{C255}({C01}{C02}{C255}*{C255}){C255}
+    // so the whole container is captured here and shown or discarded atomically.
+    // While active, text accumulates in _promptText/_promptSpans — never the display
+    // span buffer, and never touching _atLineStart. PopColor closes the context when
+    // the colour stack returns to the recorded entry depth.
+    private bool _inPromptContext;
+    private int _promptContextDepth;
+    private readonly List<StyledSpan> _promptSpans = new();
+    private readonly StringBuilder _promptText = new();
+
+    internal bool InPromptContext => _inPromptContext;
+    internal int PromptContextDepth => _promptContextDepth;
+
+    internal void EnterPromptContext(int targetDepth)
+    {
+        _inPromptContext = true;
+        _promptContextDepth = targetDepth;
+        _promptSpans.Clear();
+        _promptText.Clear();
+    }
+
+    /// <summary>
+    /// Close the prompt-capture context (colour stack returned to entry depth).
+    /// PromptAllowed=true  → show the captured prompt once as a partial line (mirrors
+    ///                       Clio's prompt_allowed gate, telnet.l:438-444).
+    /// PromptAllowed=false → discard it entirely (FES-heartbeat end-of-frame marker).
+    /// </summary>
+    internal void ClosePromptContext()
+    {
+        _inPromptContext = false;
+        FlushPromptText();
+        if (PromptAllowed && _promptSpans.Count > 0)
+        {
+            PromptAllowed = false;
+            LineReady?.Invoke(new StyledLine(_promptSpans.ToArray(), isPartial: true));
+            SetLineStart();     // prompt shown: next game-output frame starts a new line
+        }
+        _promptSpans.Clear();
+        _promptText.Clear();
+    }
+
+    // Flush pending prompt text into _promptSpans with the current style.
+    private void FlushPromptText()
+    {
+        if (_promptText.Length == 0) return;
+        _promptSpans.Add(new StyledSpan(_promptText.ToString(), Ansi.CurrentStyle));
+        _promptText.Clear();
+    }
+
+    // Abandon prompt capture without losing data: spill captured spans/text into the
+    // display buffers so a malformed container (e.g. a '\n' arriving before the
+    // closing pop — lost C255, line noise) still renders as ordinary text.
+    private void AbortPromptContext()
+    {
+        _inPromptContext = false;
+        _spans.AddRange(_promptSpans);
+        _promptSpans.Clear();
+        if (_promptText.Length > 0)
+        {
+            _text.Append(_promptText);
+            _promptText.Clear();
+        }
+    }
+
     /// <summary>
     /// Mirrors Clio's prompt_allowed flag.
-    /// Set to true by each real game '\n' (via EmitChar); set to false by the C01
-    /// game-mode dispatch when it shows the '*' prompt. Persists across TCP packet
-    /// boundaries — this is what lets the C01 gate distinguish a real prompt (which
-    /// follows a game newline, possibly in a previous packet) from a FES heartbeat
-    /// (which arrives when no real '\n' has occurred since the last prompt display).
+    /// Set to true by each real game '\n' (via EmitChar); set to false by
+    /// <see cref="ClosePromptContext"/> when it shows the captured prompt. Persists
+    /// across TCP packet boundaries — this is what lets the prompt gate distinguish a
+    /// real prompt (which follows a game newline, possibly in a previous packet) from
+    /// a FES heartbeat (which arrives when no real '\n' has occurred since the last
+    /// prompt display).
     /// C98 must NOT set this; doing so would make every FES heartbeat appear as a
     /// real prompt because C98 always precedes the C01 prompt preamble bytes.
     /// </summary>
     internal bool PromptAllowed { get; set; } = true;
-
-    /// <summary>
-    /// When true, EmitChar discards non-newline characters.
-    /// Set by the C01 game-mode dispatch when PromptAllowed is false (suppress end-of-frame prompt).
-    /// Cleared by the first PopColor call after being set.
-    /// </summary>
-    internal bool SuppressNextText { get; set; }
-
-    /// <summary>
-    /// When true, the next PopColor call will emit a partial line then clear spans.
-    /// Set by the C01 game-mode dispatch when PromptAllowed is true (show prompt once).
-    /// Cleared by the first PopColor call after being set.
-    /// </summary>
-    internal bool EmitPartialOnPop { get; set; }
     /// <summary>Current dreamword (updated by C15 sequences; included in FES snapshots).</summary>
     internal string? CurrentDreamword { get; private set; }
 
@@ -306,8 +364,10 @@ public sealed class MudStreamParser
         _text.Clear();
         _pendingReprocess = null;
         PromptAllowed = true;
-        SuppressNextText = false;
-        EmitPartialOnPop = false;
+        _inPromptContext = false;
+        _promptContextDepth = 0;
+        _promptSpans.Clear();
+        _promptText.Clear();
         _inFewResponseContext = false;
         _inFeiResponseContext = false;
         _feiContextDepth = 0;
@@ -330,13 +390,14 @@ public sealed class MudStreamParser
         if (ch == '\n')
         {
             _optionMatchLen = 0;   // the option-menu match never spans a newline
+            // A newline must never occur inside the prompt container; if one does
+            // (lost pop, line noise) abandon the capture and render its text normally.
+            if (_inPromptContext) AbortPromptContext();
             if (_inFexResponseContext)
             {
                 var itemText = _fexLine.ToString();
                 _fexLine.Clear();
                 PromptAllowed = true;
-                SuppressNextText = false;
-                EmitPartialOnPop = false;
                 if (itemText.Length > 0) FexItemReady?.Invoke(itemText);
                 return;
             }
@@ -346,8 +407,6 @@ public sealed class MudStreamParser
                 var itemText = _feiLine.ToString();
                 _feiLine.Clear();
                 PromptAllowed = true;
-                SuppressNextText = false;
-                EmitPartialOnPop = false;
                 if (itemText.Length > 0) FeiItemReady?.Invoke(itemText);
                 return;
             }
@@ -357,8 +416,6 @@ public sealed class MudStreamParser
                 // Discard the line but still tick PromptAllowed so the next prompt frame works.
                 _spans.Clear();
                 PromptAllowed = true;
-                SuppressNextText = false;
-                EmitPartialOnPop = false;
                 return;
             }
             // Pre-game terminal-width confirmation line: "[New terminal width is N]"
@@ -372,8 +429,6 @@ public sealed class MudStreamParser
             var line = new StyledLine(_spans.ToArray(), isPartial: false);
             _spans.Clear();
             PromptAllowed = true;   // Clio: prompt_allowed = 1 on each newline
-            SuppressNextText = false;
-            EmitPartialOnPop = false;
             if (isAsteriskPreamble) return;
             var stats = LineAnalyzer.Analyze(line, _inGameMode);
             if (stats != null) StatsUpdated?.Invoke(stats);
@@ -407,8 +462,15 @@ public sealed class MudStreamParser
         }
         else
         {
-            // Discard characters when inside a suppressed end-of-frame prompt preamble or FEW response.
-            if (SuppressNextText || _inFewResponseContext) return;
+            // Prompt-container text ('(', '*', ')', snoop/rank indicators) accumulates
+            // in the prompt buffer — never the display spans, never _atLineStart.
+            if (_inPromptContext)
+            {
+                _promptText.Append(ch);
+                return;
+            }
+            // Discard characters inside a FEW response (names surface via FewPlayerReady).
+            if (_inFewResponseContext) return;
             // FEX and FEI items accumulate in dedicated buffers — bypasses the span machinery.
             if (_inFexResponseContext)
             {
@@ -450,6 +512,8 @@ public sealed class MudStreamParser
 
     internal void FlushSpan()
     {
+        // Inside the prompt container, style boundaries flush into the prompt buffer.
+        if (_inPromptContext) { FlushPromptText(); return; }
         if (_text.Length == 0) return;
         _spans.Add(new StyledSpan(_text.ToString(), Ansi.CurrentStyle));
         _text.Clear();
@@ -476,6 +540,10 @@ public sealed class MudStreamParser
         if (!_inGameMode) return;
         _inGameMode = false;
         _optionMatchLen = 0;
+        // Discard any half-captured prompt — it belongs to the game session just ended.
+        _inPromptContext = false;
+        _promptSpans.Clear();
+        _promptText.Clear();
         GameModeExited?.Invoke();
     }
 
@@ -551,8 +619,6 @@ public sealed class MudStreamParser
         TerminalWidthConfirmed?.Invoke(w);
         _spans.Clear();
         PromptAllowed = true;
-        SuppressNextText = false;
-        EmitPartialOnPop = false;
         _atLineStart = true;
         return true;
     }

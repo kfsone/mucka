@@ -11,22 +11,25 @@ namespace MudSharp.Tests.Fixtures;
 /// </summary>
 public sealed class ReplayTests(ITestOutputHelper output)
 {
-    private const string SessionFile =
-        @"C:\Users\oliver.smith\AppData\Local\Temp\mucka\session-rec.mud2.co.uk.20260522-122208.jsonl";
-
-    [Fact]
-    public void SessionReplay_PassesProtocolInvariants()
+    // fromLogin: capture includes the login phase (C95 Rule A block), so account-identity
+    // invariants apply. Mid-session captures (recording started in-game) skip those.
+    [Theory]
+    [InlineData(@"C:\Users\oliver.smith\AppData\Local\Temp\mucka\session-rec.mud2.co.uk.20260522-122208.jsonl", true)]
+    // Invisible-player session: prompt arrives as {C01}{C255}({C01}{C02}{C255}*{C255}){C255};
+    // regression source for the '()()()...' container-text leak.
+    [InlineData(@"C:\Users\oliver.smith\AppData\Local\Temp\mucka\session-rec.mud2.co.uk.20260603-180212.jsonl", false)]
+    public void SessionReplay_PassesProtocolInvariants(string sessionFile, bool fromLogin)
     {
-        if (!File.Exists(SessionFile))
+        if (!File.Exists(sessionFile))
         {
-            output.WriteLine($"SKIPPED: session capture not present at {SessionFile}");
+            output.WriteLine($"SKIPPED: session capture not present at {sessionFile}");
             return; // file not present; test is a no-op rather than a failure
         }
 
         var h = new ParserHarness();
         long totalRxBytes = 0;
 
-        foreach (var rawLine in File.ReadLines(SessionFile))
+        foreach (var rawLine in File.ReadLines(sessionFile))
         {
             if (string.IsNullOrWhiteSpace(rawLine)) continue;
 
@@ -59,6 +62,12 @@ public sealed class ReplayTests(ITestOutputHelper output)
         int promptLeakLineCount = h.Lines.Skip(gameModeLineStart).Count(l =>
             !l.IsPartial && l.Spans.Count > 0 && l.Spans[0].Text.StartsWith('*'));
 
+        // Complete game-mode lines made solely of prompt-container characters — symptom
+        // of the invisible-prompt '()' bracket leak (the outer C01 container text escaping
+        // the prompt capture).
+        int bracketLeakLineCount = h.Lines.Skip(gameModeLineStart).Count(l =>
+            !l.IsPartial && l.PlainText.Length > 0 && l.PlainText.All(c => c is '(' or ')' or '*'));
+
         output.WriteLine($"Total rx bytes fed:               {totalRxBytes}");
         output.WriteLine($"Total LineReadyEvent count:       {h.Lines.Count}");
         output.WriteLine($"Total StatsUpdatedEvent count:    {h.Stats.Count}");
@@ -68,6 +77,7 @@ public sealed class ReplayTests(ITestOutputHelper output)
         output.WriteLine($"Lines with C1 byte leak (9B-FE):  {c1LeakLineCount}");
         output.WriteLine($"Lines with IAC byte leak (FF):    {iacLeakLineCount}");
         output.WriteLine($"Lines with prompt-preamble leak:  {promptLeakLineCount}");
+        output.WriteLine($"Lines with bracket-leak junk:     {bracketLeakLineCount}");
         output.WriteLine($"AccountId (C95 Rule A):           {h.Parser.CurrentAccountId ?? "<not set>"}");
 
         // ── Hard assertions ───────────────────────────────────────────────────
@@ -86,11 +96,13 @@ public sealed class ReplayTests(ITestOutputHelper output)
         Assert.True(h.Outgoing.Count >= 1,
             "Expected at least one OutgoingBytesEvent (FES subscription)");
 
-        Assert.True(h.Stats.Any(s => s.AccountId != null),
-            "Expected at least one StatsUpdatedEvent with AccountId set (C95 Rule A)");
+        if (fromLogin)
+            Assert.True(h.Stats.Any(s => s.AccountId != null),
+                "Expected at least one StatsUpdatedEvent with AccountId set (C95 Rule A)");
 
         Assert.Equal(0, c1LeakLineCount);
         Assert.Equal(0, iacLeakLineCount);
         Assert.Equal(0, promptLeakLineCount);
+        Assert.Equal(0, bracketLeakLineCount);
     }
 }

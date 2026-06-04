@@ -14,22 +14,35 @@ public sealed class WhoEntry : INotifyPropertyChanged
     private float  _glowProgress = 1.0f;  // 0 = peak glow (white), 1 = normal wire color
 
     /// <summary>
-    /// The first word of <see cref="Name"/> — the persona name without title or level description.
-    /// Used for identity matching so that a level-up (which changes the description) is not
-    /// treated as a departure followed by a new arrival.
+    /// The first word of <see cref="Name"/> — the persona name without title or level
+    /// description, and without the invisibility parens. Used for identity matching so
+    /// that a level-up (which changes the description) or an invisibility change (which
+    /// wraps the whole name in parens) is not treated as a departure + new arrival.
     /// </summary>
     public string PersonaName { get; private set; }
 
-    /// <summary>Full display string as received from the server (e.g. "Ollie the Wizard").</summary>
+    /// <summary>
+    /// True when the server sent the name wrapped in parens ("(Ollie the sorcerer)") —
+    /// the player is invisible but we can still see them (it's us, a team member, or
+    /// someone we outrank). A status, not part of the name.
+    /// </summary>
+    public bool IsInvisible { get; private set; }
+
+    /// <summary>Full display string as received from the server (e.g. "Ollie the Wizard",
+    /// "(Ollie the Wizard)" while invisible). Parens are kept for display — they are the
+    /// game's own invisibility convention.</summary>
     public string Name
     {
         get => _name;
         set
         {
             if (_name == value) return;
-            _name       = value;
-            PersonaName = FirstWord(value);
+            _name = value;
+            var wasInvisible = IsInvisible;
+            SetIdentityFrom(value);
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Name)));
+            if (IsInvisible != wasInvisible)
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsInvisible)));
         }
     }
 
@@ -90,9 +103,17 @@ public sealed class WhoEntry : INotifyPropertyChanged
 
     public WhoEntry(string name, Color color)
     {
-        _name       = name;
-        _color      = color;
-        PersonaName = FirstWord(name);
+        _name  = name;
+        _color = color;
+        PersonaName = "";   // assigned by SetIdentityFrom
+        SetIdentityFrom(name);
+    }
+
+    // Derive identity (PersonaName) and visibility status (IsInvisible) from the wire name.
+    private void SetIdentityFrom(string name)
+    {
+        IsInvisible = name.Length >= 2 && name[0] == '(' && name[^1] == ')';
+        PersonaName = FirstWord(IsInvisible ? name[1..^1] : name);
     }
 
     /// <summary>

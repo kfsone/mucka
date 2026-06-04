@@ -216,8 +216,11 @@ internal sealed class WatchwordStore
 
         // Trim both ends: rejoining wrapped lines can leave a stray space at either
         // boundary of the capture (e.g. when the wrap fell right after the prefix).
+        // Clamp over-long captures rather than rejecting them: inscriptions can run
+        // well past MaxCapture (the north-tomb canal puzzle is ~150 chars) and prefix
+        // keys only need the opening; an exact-match key couldn't have matched anyway.
         var capture = text[start..end].Trim();
-        return capture.Length > MaxCapture ? null : capture;
+        return capture.Length > MaxCapture ? capture[..MaxCapture].TrimEnd() : capture;
     }
 
     private static string? LookupAnswer(Slot slot, string capture)

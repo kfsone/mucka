@@ -263,6 +263,9 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     ///   • Players that reappear before their fade completes have their departure cancelled.
     ///   • New arrivals are appended with a white→color glow over 4 s.
     ///   • Players whose name or color changed (e.g. level-up) are updated in-place with a glow.
+    ///   • A visibility change ("Ollie the sorcerer" ⇄ "(Ollie the sorcerer)") is a status
+    ///     change, not a rename: WhoEntry.PersonaName ignores the invisibility parens, so the
+    ///     entry updates in-place (with glow) instead of fading out and back in.
     /// </summary>
     public void OnFewListComplete()
     {

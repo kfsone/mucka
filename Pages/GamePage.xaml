@@ -606,12 +606,13 @@
                 </Entry.FontFamily>
             </Entry>
 
-            <!-- Fn: toggles the fkey toolbar; lit while the bar is shown -->
+            <!-- Fn: toggles the fkey toolbar; lit while the bar is shown.
+                 Right-click (hooked natively on Windows) opens the settings page. -->
             <Button Grid.Column="1"
                     x:Name="FnButton"
                     Text="Fn"
                     Command="{Binding ToggleFkeysCommand}"
-                    ToolTipProperties.Text="Toggle toolbar"
+                    ToolTipProperties.Text="Toggle toolbar (right-click: settings)"
                     BackgroundColor="#2d333b" TextColor="#888888"
                     FontSize="10" CornerRadius="3"
                     WidthRequest="30" HeightRequest="26" Padding="0"

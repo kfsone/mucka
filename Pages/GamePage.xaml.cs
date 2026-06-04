@@ -44,6 +44,7 @@ public partial class GamePage : ContentPage
     private Window? _rawConsoleWindow;
     private Microsoft.UI.Xaml.Controls.TextBox? _inputTextBox;
     private Microsoft.UI.Xaml.UIElement? _terminalElement;   // SKXamlCanvas, for wheel scrollback
+    private Microsoft.UI.Xaml.UIElement? _fnButtonElement;   // Fn button, for right-tap → settings
     private Microsoft.UI.Xaml.Input.PointerEventHandler? _rootPointerHandler;
     private int _wheelAccum;   // accumulates wheel delta so touchpad drift doesn't trip scrollback
     // ── Window minimum-size enforcement ─────────────────────────────────────
@@ -149,6 +150,10 @@ public partial class GamePage : ContentPage
 #endif
                 // Hook the native TextBox so Up/Down/Esc keys work in the entry.
                 InputEntry.HandlerChanged += OnInputHandlerChanged;
+                // Right-click on Fn opens the settings page (left-click toggles the fkey bar).
+                // Apply now and on handler change, since platform views can be recreated.
+                FnButton.HandlerChanged += OnFnButtonHandlerChanged;
+                OnFnButtonHandlerChanged(FnButton, EventArgs.Empty);
                 // Hook the terminal canvas for mouse-wheel scrollback.
                 Terminal.HandlerChanged += OnTerminalHandlerChanged;
                 _vm.OpenRawConsoleRequested += OnOpenRawConsoleRequested;
@@ -242,6 +247,12 @@ public partial class GamePage : ContentPage
             _inputTextBox = null;
         }
         InputEntry.HandlerChanged -= OnInputHandlerChanged;
+        FnButton.HandlerChanged -= OnFnButtonHandlerChanged;
+        if (_fnButtonElement != null)
+        {
+            _fnButtonElement.RightTapped -= OnFnButtonRightTapped;
+            _fnButtonElement = null;
+        }
         Terminal.HandlerChanged -= OnTerminalHandlerChanged;
         if (_terminalElement != null)
         {
@@ -776,6 +787,31 @@ public partial class GamePage : ContentPage
             // A plain null SetValue shadows the live binding without disturbing it.
             InputEntry.ReturnCommand = null;
         }
+    }
+
+    // Right-click (mouse) on the Fn button opens the settings page; left-click still
+    // toggles the fkey bar via the bound command (WinUI Click only fires for the
+    // primary button, so the two don't overlap).
+    private void OnFnButtonHandlerChanged(object? sender, EventArgs e)
+    {
+        if (_fnButtonElement != null)
+        {
+            _fnButtonElement.RightTapped -= OnFnButtonRightTapped;
+            _fnButtonElement = null;
+        }
+        if (FnButton.Handler?.PlatformView is Microsoft.UI.Xaml.UIElement el)
+        {
+            _fnButtonElement = el;
+            el.RightTapped += OnFnButtonRightTapped;
+        }
+    }
+
+    private async void OnFnButtonRightTapped(object sender, Microsoft.UI.Xaml.Input.RightTappedRoutedEventArgs e)
+    {
+        e.Handled = true;
+        if (_isFkeyEditorOpen) return;
+        await OpenConfigAsync(initialTab: 1);   // straight to the Hotkeys tab
+
     }
 
     private void OnTerminalHandlerChanged(object? sender, EventArgs e)

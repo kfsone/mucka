@@ -8,10 +8,13 @@ namespace MudSharp.Tests.Fixtures;
 /// in game mode must be fully suppressed — no LineReady event fires. This mirrors
 /// Clio's prompt_allowed state machine (telnet.l:438-444).
 ///
-/// Also tests the wire-format C01-based prompt preamble
-/// ({C01}{C255}{C01}{C02}{C255}*{C255}{C255}) — which arrives WITHOUT a trailing
-/// newline — so the '*' must never accumulate in the span buffer and leak into the
-/// next real game line.
+/// Also tests the wire-format C01-based prompt preamble — which arrives WITHOUT a
+/// trailing newline — so its text must never accumulate in the span buffer and leak
+/// into the next real game line. "The prompt" is the ENTIRE outer C01 container
+/// ("invisibility brackets around the prompt", mud2_fe4 §codes), and is contextual:
+///   visible:    {C01}{C255}{C01}{C02}{C255}*{C255}{C255}          → "*"
+///   invisible:  {C01}{C255}({C01}{C02}{C255}*{C255}){C255}        → "(*)"
+/// The whole container is shown or suppressed atomically.
 ///
 /// The emission rule: a wire prompt is shown only when the same received TCP packet
 /// (Feed() call) contains a '\n' before the preamble. FES heartbeat responses arrive
@@ -39,6 +42,24 @@ public class GamePromptTests
         0xFF, 0xFF,             // C255 → pop LT_BLUE
         0xFF, 0xFF,             // C255 → pop BLUE
     ];
+
+    // Invisible-player prompt: the '(' ')' invisibility brackets are TEXT inside the
+    // outer C01 container, outside the inner C01+C02 core. Observed in session capture
+    // session-rec.mud2.co.uk.20260603-180212.jsonl:
+    //   0x9C 0xFF 0xFF  (  0x9C 0x9D 0xFF 0xFF  *  0xFF 0xFF  )  0xFF 0xFF
+    private static readonly byte[] WireInvisiblePromptPreamble =
+    [
+        0x9C, 0xFF, 0xFF,        // C01+C255  → outer prompt container (BLUE push)
+        (byte)'(',              // invisibility bracket — part of the prompt
+        0x9C, 0x9D, 0xFF, 0xFF, // C01+C02+C255 → inner mortal prompt core (LT_BLUE push)
+        (byte)'*',              // prompt char
+        0xFF, 0xFF,             // C255 → pop LT_BLUE
+        (byte)')',              // invisibility bracket — part of the prompt
+        0xFF, 0xFF,             // C255 → pop BLUE, closes the container
+    ];
+
+    private static byte[] WithInvisiblePrompt(string text)
+        => [..System.Text.Encoding.Latin1.GetBytes(text), ..WireInvisiblePromptPreamble];
 
     /// <summary>
     /// Return a single byte[] combining Latin-1 encoded <paramref name="text"/> with the
@@ -241,6 +262,75 @@ public class GamePromptTests
         var text = string.Concat(h.Lines[0].Spans.Select(s => s.Text));
         Assert.DoesNotContain("*", text);
         Assert.Contains("42 points", text);
+    }
+
+    // ── Invisible-player prompt: '(*)' is THE prompt, not '(' + prompt + ')' ─
+
+    [Fact]
+    public void InvisiblePrompt_FirstAfterNewline_EmittedAsPartialWithBrackets()
+    {
+        // The whole outer C01 container is the prompt — brackets included.
+        var h = InGameMode();
+        h.Feed(WithInvisiblePrompt("ZZZzzz...\n"));
+        var line = Assert.Single(h.Lines, l => l.IsPartial);
+        Assert.Equal("(*)", string.Concat(line.Spans.Select(s => s.Text)));
+    }
+
+    [Fact]
+    public void InvisiblePrompt_FesHeartbeat_Suppressed_NoParenLeak()
+    {
+        // Regression for the '()()()()...' spam: while invisible, every suppressed FES
+        // heartbeat used to leak its '(' ')' container text into the display stream.
+        var h = InGameMode();
+        h.Feed(WithInvisiblePrompt("ZZZzzz...\n")); // prompt shown, PromptAllowed=false
+        h.Lines.Clear();
+        for (int i = 0; i < 30; i++)
+            h.Feed(WireInvisiblePromptPreamble);    // FES heartbeats → all swallowed whole
+        Assert.Empty(h.Lines);
+        h.Feed("You have just woken up!\n");
+        var line = Assert.Single(h.Lines);
+        Assert.Equal("You have just woken up!", string.Concat(line.Spans.Select(s => s.Text)));
+    }
+
+    [Fact]
+    public void InvisiblePrompt_ShownPrompt_DoesNotLeakIntoNextRealLine()
+    {
+        var h = InGameMode();
+        h.Feed(WithInvisiblePrompt("You arrive in the tearoom.\n"));
+        h.Lines.Clear();
+        h.Feed("OK, you wave.\n");
+        var line = Assert.Single(h.Lines);
+        var text = string.Concat(line.Spans.Select(s => s.Text));
+        Assert.Equal("OK, you wave.", text);
+    }
+
+    [Fact]
+    public void InvisiblePrompt_BracketAndCoreKeepTheirOwnColors()
+    {
+        // '(' and ')' carry the outer container color (BLUE); '*' the inner core (LT_BLUE).
+        var h = InGameMode();
+        h.Feed(WithInvisiblePrompt("You arrive in the tearoom.\n"));
+        var line = Assert.Single(h.Lines, l => l.IsPartial);
+        Assert.Collection(line.Spans,
+            s => { Assert.Equal("(", s.Text); Assert.Equal(AnsiColor.Blue,       s.Style.Foreground); },
+            s => { Assert.Equal("*", s.Text); Assert.Equal(AnsiColor.BrightBlue, s.Style.Foreground); },
+            s => { Assert.Equal(")", s.Text); Assert.Equal(AnsiColor.Blue,       s.Style.Foreground); });
+    }
+
+    [Fact]
+    public void InvisiblePrompt_VisibilityRegained_PromptRevertsToBareAsterisk()
+    {
+        // Wake-up sequence from session capture: invisible heartbeats while asleep, then
+        // visibility returns and the next prompt is the plain '*' form again.
+        var h = InGameMode();
+        h.Feed(WithInvisiblePrompt("ZZZzzz...\n"));
+        h.Feed(WireInvisiblePromptPreamble);  // heartbeat → suppressed
+        h.Lines.Clear();
+        h.Feed(WithPrompt("You have suddenly and magically regained your visibleness!\n"));
+        var prompt = Assert.Single(h.Lines, l => l.IsPartial);
+        Assert.Equal("*", string.Concat(prompt.Spans.Select(s => s.Text)));
+        var msg = Assert.Single(h.Lines, l => !l.IsPartial);
+        Assert.Contains("visibleness", msg.PlainText);
     }
 
     [Fact]
