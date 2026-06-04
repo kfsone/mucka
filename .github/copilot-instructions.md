@@ -69,7 +69,7 @@ TCP bytes
 - **`Core/`** — MAUI app glue (no protocol logic)
   - `MuckaConnection` — wires `TcpMudConnection` to the ViewModel
   - `MudLoginHandler` — pre-game login state machine
-  - `Profile` / `ProfileStore` — connection profiles persisted as JSON in `FileSystem.AppDataDirectory`
+  - `Profile` / `SettingsStore` — connection profiles persisted in `mucka.ini` (`[profiles]` MRU order + `[profile:Name]` sections); `ProfileStore` keeps passwords in SecureStorage and reads the legacy `profiles.json` for one-time migration
   - `SessionCapture` — optional JSONL session transcript logging
 
 - **`ViewModels/`** — standard MVVM; no DI container (objects manually wired)

@@ -21,6 +21,14 @@ public sealed class IniFile
 
     public bool HasSection(string section) => FindSectionHeader(section) >= 0;
 
+    /// <summary>Names of all sections, in file order.</summary>
+    public IEnumerable<string> SectionNames()
+    {
+        foreach (var line in _lines)
+            if (TryParseSectionHeader(line, out var name))
+                yield return name;
+    }
+
     /// <summary>Value for key in section, or null when the section or key is absent.</summary>
     public string? Get(string section, string key)
     {
@@ -63,6 +71,15 @@ public sealed class IniFile
 
     /// <summary>Creates the section header at end-of-file when absent (no-op otherwise).</summary>
     public void EnsureSection(string section) => EndOfSectionContent(section);
+
+    /// <summary>Removes the section header and all its content lines, if present.</summary>
+    public void RemoveSection(string section)
+    {
+        var header = FindSectionHeader(section);
+        if (header < 0) return;
+        var (_, end) = SectionRange(section);
+        _lines.RemoveRange(header, end - header);
+    }
 
     /// <summary>Writes the document atomically (tmp file + rename on the same volume).</summary>
     public async Task SaveAsync(string path)

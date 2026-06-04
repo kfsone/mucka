@@ -300,6 +300,8 @@ public sealed class ConnectViewModel : BaseViewModel
 
         SavedProfiles.Remove(existing);
         await ProfileStore.SetPasswordAsync(name, null);
+        // The profile's settings:/fkeys: ini sections are deliberately left behind —
+        // SaveProfilesAsync only removes the [profile:] section and the order entry.
 
         if (SavedProfiles.Count == 0)
         {
@@ -312,7 +314,7 @@ public sealed class ConnectViewModel : BaseViewModel
             ApplyProfile(SavedProfiles[0]);
         }
 
-        await ProfileStore.SaveAsync(SavedProfiles.ToList());
+        await SettingsStore.SaveProfilesAsync(SavedProfiles.ToList());
     }
 
     private async Task LoadProfilesAsync()
@@ -320,7 +322,7 @@ public sealed class ConnectViewModel : BaseViewModel
         List<Profile> list;
         try
         {
-            list = await ProfileStore.LoadAsync();
+            list = await SettingsStore.LoadProfilesAsync();
         }
         catch (Exception ex)
         {
@@ -332,8 +334,8 @@ public sealed class ConnectViewModel : BaseViewModel
         SavedProfiles.Clear();
         foreach (var p in list)
         {
-            // mucka.ini is the authoritative store for settings and fkeys; the
-            // profiles.json copies are a fallback for installs that pre-date the ini.
+            // [profile:] sections carry identity only; overlay each profile's settings
+            // and fkeys from their own [settings]/[fkeys] sections (per-profile or global).
             try
             {
                 (await SettingsStore.LoadProfileAsync(p.Name))?.ApplyTo(p);
@@ -440,7 +442,7 @@ public sealed class ConnectViewModel : BaseViewModel
         }
 
         await ProfileStore.SetPasswordAsync(incoming.Name, password);
-        await ProfileStore.SaveAsync(SavedProfiles.ToList());
+        await SettingsStore.SaveProfilesAsync(SavedProfiles.ToList());
 
         // Keep mucka.ini in sync — it is the authoritative settings store, so a column
         // change made on this page must not be reverted by a stale ini section next launch.

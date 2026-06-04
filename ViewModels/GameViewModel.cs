@@ -74,10 +74,10 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public int Magic    { get => _magic;    set => SetAndNotify(ref _magic,    value, [nameof(MagText), nameof(MagValue), nameof(MagColor), nameof(MagVisible)]); }
     public int MaxMagic { get => _maxMagic; set => SetAndNotify(ref _maxMagic, value, [nameof(MagText), nameof(MagValue), nameof(MagColor)]); }
     public int Score    { get => _score;    set { if (Set(ref _score, value)) { if (_baseScore < 0 && value > 0) _baseScore = value; OnPropertiesChanged(nameof(ScoreText), nameof(ScoreValue), nameof(ScoreDeltaValue), nameof(ScoreDisplayValue), nameof(ScoreColor)); } } }
-    public bool Blind    { get => _blind;    set => Set(ref _blind,    value); }
-    public bool Deaf     { get => _deaf;     set => Set(ref _deaf,     value); }
-    public bool Crippled { get => _crippled; set => Set(ref _crippled, value); }
-    public bool Dumb     { get => _dumb;     set => Set(ref _dumb,     value); }
+    public bool Blind    { get => _blind;    set => SetAndNotify(ref _blind,    value, [nameof(AnyEffectVisible), nameof(EffectsGlyphs)]); }
+    public bool Deaf     { get => _deaf;     set => SetAndNotify(ref _deaf,     value, [nameof(AnyEffectVisible), nameof(EffectsGlyphs)]); }
+    public bool Crippled { get => _crippled; set => SetAndNotify(ref _crippled, value, [nameof(AnyEffectVisible), nameof(EffectsGlyphs)]); }
+    public bool Dumb     { get => _dumb;     set => SetAndNotify(ref _dumb,     value, [nameof(AnyEffectVisible), nameof(EffectsGlyphs)]); }
     public int TimeToReset { get => _timeToReset; set => SetAndNotify(ref _timeToReset, value, [nameof(TtrText), nameof(TtrVisible), nameof(AnyRightStatVisible)]); }
     public char Weather { get => _weather; set => SetAndNotify(ref _weather, value, [nameof(WeatherText), nameof(WeatherGlyph), nameof(WeatherTooltip), nameof(WeatherDisplayText), nameof(WeatherColor), nameof(WeatherVisible), nameof(AnyRightStatVisible)]); }
     /// <summary>Rank is no longer supplied by the mudsharp protocol layer; always empty.</summary>
@@ -314,6 +314,32 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public string WeatherDisplayText => WeatherVisible
         ? (IsCompactWeather ? WeatherGlyph : $"{WeatherGlyph} {WeatherText}")
         : string.Empty;
+
+    // ── Status effects (afflictions) — shown after the score group ───────────
+    private const string DeafGlyph     = "\U0001F442";        // ear
+    private const string BlindGlyph    = "\U0001F441\uFE0F"; // eye (FE0F: emoji presentation)
+    private const string DumbGlyph     = "\U0001F444";        // mouth
+    private const string CrippledGlyph = "\u267F";             // wheelchair symbol
+
+    /// <summary>Glyph-only status effects on phones or when effcols &lt; 80.</summary>
+    public bool IsCompactEffects => _effCols < 80 || DeviceInfo.Idiom == DeviceIdiom.Phone;
+
+    public string DeafDisplay     => IsCompactEffects ? DeafGlyph     : $"{DeafGlyph} Deaf";
+    public string BlindDisplay    => IsCompactEffects ? BlindGlyph    : $"{BlindGlyph} Blind";
+    public string DumbDisplay     => IsCompactEffects ? DumbGlyph     : $"{DumbGlyph} Dumb";
+    public string CrippledDisplay => IsCompactEffects ? CrippledGlyph : $"{CrippledGlyph} Crippled";
+
+    public bool AnyEffectVisible => _deaf || _blind || _dumb || _crippled;
+
+    /// <summary>Active effect glyphs joined for the compact (two-row) layout.</summary>
+    public string EffectsGlyphs => string.Join(' ', new[]
+    {
+        _deaf     ? DeafGlyph     : null,
+        _blind    ? BlindGlyph    : null,
+        _dumb     ? DumbGlyph     : null,
+        _crippled ? CrippledGlyph : null,
+    }.Where(g => g != null));
+
     public string DreamwordDisplay => string.IsNullOrEmpty(_dreamword) ? "..zzZZZzz.." : _dreamword;
     public bool DreamwordIsPlaceholder => string.IsNullOrEmpty(_dreamword);
 
@@ -565,6 +591,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
                 nameof(Score),
                 nameof(ScoreText),  nameof(ScoreValue),  nameof(ScoreDeltaValue), nameof(ScoreDisplayValue), nameof(ScoreColor),
                 nameof(Blind),      nameof(Deaf),        nameof(Crippled),    nameof(Dumb),
+                nameof(AnyEffectVisible), nameof(EffectsGlyphs),
                 nameof(TimeToReset),
                 nameof(TtrText),    nameof(TtrVisible),
                 nameof(Weather),
@@ -861,6 +888,11 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             OnPropertyChanged(nameof(FkeyBarPadding));
             OnPropertyChanged(nameof(ScoreDisplayValue));
             OnPropertyChanged(nameof(WeatherDisplayText));
+            OnPropertyChanged(nameof(IsCompactEffects));
+            OnPropertyChanged(nameof(DeafDisplay));
+            OnPropertyChanged(nameof(BlindDisplay));
+            OnPropertyChanged(nameof(DumbDisplay));
+            OnPropertyChanged(nameof(CrippledDisplay));
             UpdateFkeyItems();  // also calls UpdateFkeyItemWidths
         }
         else

@@ -3,49 +3,47 @@ using Microsoft.Maui.Storage;
 
 namespace Mucka.Core;
 
+/// <summary>
+/// SecureStorage-backed password store, plus the legacy profiles.json reader that feeds
+/// SettingsStore's one-time migration. The profiles themselves now live in mucka.ini —
+/// see SettingsStore.LoadProfilesAsync/SaveProfilesAsync.
+/// </summary>
 public static class ProfileStore
 {
-    private static string FilePath =>
+    private static string LegacyPath =>
         Path.Combine(FileSystem.AppDataDirectory, "profiles.json");
 
-    // Serializes writers: concurrent saves shared one tmp file, so overlapping writes threw
-    // IOException (swallowed upstream — the settings dialog's silent save failure).
-    private static readonly SemaphoreSlim s_writeGate = new(1, 1);
-
-    public static async Task<List<Profile>> LoadAsync()
+    /// <summary>
+    /// Reads the legacy profiles.json, or null when it is absent or unreadable —
+    /// the migration treats any failure as "no legacy file".
+    /// </summary>
+    public static async Task<List<Profile>?> TryLoadLegacyAsync()
     {
         try
         {
-            if (!File.Exists(FilePath)) return Defaults();
-            var json = await File.ReadAllTextAsync(FilePath).ConfigureAwait(false);
-            return JsonSerializer.Deserialize<List<Profile>>(json) ?? Defaults();
-        }
-        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
-        {
-            return Defaults();
+            if (!File.Exists(LegacyPath)) return null;
+            var json = await File.ReadAllTextAsync(LegacyPath).ConfigureAwait(false);
+            return JsonSerializer.Deserialize<List<Profile>>(json);
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"[ProfileStore] failed to load profiles: {ex}");
-            throw;
+            System.Diagnostics.Debug.WriteLine($"[ProfileStore] legacy profiles.json unreadable, skipping migration: {ex}");
+            return null;
         }
     }
 
-    public static async Task SaveAsync(List<Profile> profiles)
+    /// <summary>Renames the migrated profiles.json to profiles.unused so it is not re-imported.</summary>
+    public static void RetireLegacyFile()
     {
-        var json = JsonSerializer.Serialize(profiles,
-            new JsonSerializerOptions { WriteIndented = true });
-        await s_writeGate.WaitAsync().ConfigureAwait(false);
         try
         {
-            var tmpPath = FilePath + ".tmp";
-            await File.WriteAllTextAsync(tmpPath, json).ConfigureAwait(false);
-            // File.Move has no async overload; this is an atomic metadata-only rename on the same volume.
-            File.Move(tmpPath, FilePath, overwrite: true);
+            File.Move(LegacyPath, Path.ChangeExtension(LegacyPath, ".unused"), overwrite: true);
         }
-        finally
+        catch (Exception ex)
         {
-            s_writeGate.Release();
+            // The migration already saved the profiles into the ini; a lingering json is
+            // harmless (the ini now defines profiles, so it won't be imported again).
+            System.Diagnostics.Debug.WriteLine($"[ProfileStore] could not retire profiles.json: {ex}");
         }
     }
 
@@ -67,10 +65,4 @@ public static class ProfileStore
         else
             await SecureStorage.SetAsync(key, password).ConfigureAwait(false);
     }
-
-    private static List<Profile> Defaults() => new()
-    {
-        new Profile { Name = "MUD2 UK",  Host = "mud2.co.uk",  Port = 23    },
-        new Profile { Name = "MUD2.COM", Host = "www.mud2.com", Port = 27723 },
-    };
 }

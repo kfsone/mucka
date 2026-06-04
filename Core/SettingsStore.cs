@@ -24,6 +24,14 @@ namespace Mucka.Core;
 ///   [settings:MUD2 UK]    ; per-profile override — "Save to profile only" checked
 ///   [fkeys:MUD2 UK]
 ///
+///   [profiles]            ; connection profiles, most-recently-used first
+///   1=MUD2 UK
+///   2=MUD2.COM
+///
+///   [profile:MUD2 UK]     ; connection identity — settings/fkeys live above, passwords
+///   host=mud2.co.uk       ; in SecureStorage (ProfileStore)
+///   port=23
+///
 /// Windows: same lookup order as WatchwordStore (./mucka.ini beside the exe, then
 /// ~/mucka.ini); new files are created in the user profile. Android: the app-data
 /// directory (no shared home directory to put an ini in, but the format is the same).
@@ -32,6 +40,8 @@ namespace Mucka.Core;
 public static class SettingsStore
 {
     private const int FkeyCount = 36;
+    private const string ProfilesSection = "profiles";
+    private const string ProfileSectionPrefix = "profile:";
 
     // Serializes read-modify-write cycles so concurrent saves cannot interleave on the
     // shared tmp file (the cause of the silent second-save failure).
@@ -84,8 +94,8 @@ public static class SettingsStore
 
     /// <summary>
     /// Loads the stored settings for a profile — preferring its per-profile sections,
-    /// falling back to the globals — or null when mucka.ini has neither (first run /
-    /// pre-ini installs — callers fall back to profiles.json values).
+    /// falling back to the globals — or null when mucka.ini has neither (first run —
+    /// callers keep the profile's built-in defaults).
     /// </summary>
     public static async Task<StoredSettings?> LoadProfileAsync(string profileName)
     {
@@ -179,7 +189,174 @@ public static class SettingsStore
         }
     }
 
+    /// <summary>
+    /// Loads the connection profiles from mucka.ini: [profiles] gives the MRU order,
+    /// one [profile:Name] section each holds the identity fields. When the ini defines
+    /// no profiles, falls back to a one-time migration from the legacy profiles.json
+    /// (retired to *.unused afterwards), and failing that to the built-in defaults.
+    /// </summary>
+    public static async Task<List<Profile>> LoadProfilesAsync()
+    {
+        await s_gate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            var path = ResolvePath();
+            var ini  = IniFile.Load(path);
+            var profiles = ReadProfiles(ini);
+            if (profiles.Count > 0)
+                return profiles;
+
+            // No profiles in the ini yet: import the legacy profiles.json once. Any
+            // read failure is treated as "no legacy file" (TryLoadLegacyAsync).
+            var legacy = await ProfileStore.TryLoadLegacyAsync().ConfigureAwait(false);
+            if (legacy is { Count: > 0 })
+            {
+                WriteProfiles(ini, legacy);
+                MigrateLegacySettings(ini, legacy[0]);
+                await ini.SaveAsync(path).ConfigureAwait(false);
+                ProfileStore.RetireLegacyFile();
+                return legacy;
+            }
+
+            return DefaultProfiles();
+        }
+        finally
+        {
+            s_gate.Release();
+        }
+    }
+
+    /// <summary>
+    /// Writes the profiles to mucka.ini — MRU order into [profiles], identity fields
+    /// into each [profile:Name] section — and removes [profile:] sections for profiles
+    /// no longer in the list. Settings/fkeys/watch sections are untouched.
+    /// </summary>
+    public static async Task SaveProfilesAsync(List<Profile> profiles)
+    {
+        await s_gate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            var path = ResolvePath();
+            var ini  = IniFile.Load(path);
+            WriteProfiles(ini, profiles);
+            await ini.SaveAsync(path).ConfigureAwait(false);
+        }
+        finally
+        {
+            s_gate.Release();
+        }
+    }
+
     // ── Private ────────────────────────────────────────────────────────────────
+
+    private static List<Profile> DefaultProfiles() => new()
+    {
+        new Profile { Name = "MUD2 UK",  Host = "mud2.co.uk",  Port = 23    },
+        new Profile { Name = "MUD2.COM", Host = "www.mud2.com", Port = 27723 },
+    };
+
+    private static List<Profile> ReadProfiles(IniFile ini)
+    {
+        // [profiles] gives the MRU order; any [profile:X] section it doesn't mention
+        // (e.g. hand-added) is appended in file order.
+        var names = new List<string>();
+        foreach (var (_, value) in ini.Items(ProfilesSection))
+            if (value.Length > 0 && !names.Contains(value, StringComparer.OrdinalIgnoreCase))
+                names.Add(value);
+        foreach (var section in ini.SectionNames())
+        {
+            if (!section.StartsWith(ProfileSectionPrefix, StringComparison.OrdinalIgnoreCase))
+                continue;
+            var name = section[ProfileSectionPrefix.Length..].Trim();
+            if (name.Length > 0 && !names.Contains(name, StringComparer.OrdinalIgnoreCase))
+                names.Add(name);
+        }
+
+        var profiles = new List<Profile>(names.Count);
+        foreach (var name in names)
+        {
+            var section = ProfileSectionPrefix + name;
+            if (!ini.HasSection(section)) continue; // ordered name without a section
+            var p = new Profile { Name = name };
+            if (ini.Get(section, "host") is { Length: > 0 } host)        p.Host               = host;
+            if (GetInt (ini, section, "port")            is int port)    p.Port               = port;
+            p.AccountId = ini.Get(section, "account") ?? string.Empty;
+            if (GetBool(ini, section, "rememberpassword") is bool rem)   p.RememberPassword   = rem;
+            if (GetBool(ini, section, "telnetlogin")      is bool tel)   p.TelnetLoginEnabled = tel;
+            if (ini.Get(section, "loginname") is { Length: > 0 } login)  p.TelnetLoginName    = login;
+            if (GetInt (ini, section, "columns")          is int cols)   p.MaxColumns         = cols;
+            if (GetInt (ini, section, "antiidle")         is int idle)   p.AntiIdleSeconds    = idle;
+            if (GetBool(ini, section, "keepscreenon")     is bool keep)  p.KeepScreenOn       = keep;
+            if (GetBool(ini, section, "defaulthotkeys")   is bool defs)  p.DefaultHotkeys     = defs;
+            if (GetInt (ini, section, "fewrefresh")       is int few)    p.FewRefreshInterval = few;
+            profiles.Add(p);
+        }
+        return profiles;
+    }
+
+    private static void WriteProfiles(IniFile ini, List<Profile> profiles)
+    {
+        // Rewrite the MRU order as 1..N and drop any stale numeric keys beyond it.
+        var staleKeys = ini.Items(ProfilesSection)
+            .Select(kv => kv.Key)
+            .Where(k => int.TryParse(k, out var n) && (n < 1 || n > profiles.Count))
+            .ToList();
+        foreach (var key in staleKeys)
+            ini.Remove(ProfilesSection, key);
+        for (var i = 0; i < profiles.Count; i++)
+            ini.Set(ProfilesSection, (i + 1).ToString(), profiles[i].Name);
+
+        // Sections for deleted profiles go away; their settings:/fkeys: sections are
+        // deliberately left alone (same hands-off rule as saving globals over them).
+        var staleSections = ini.SectionNames()
+            .Where(s => s.StartsWith(ProfileSectionPrefix, StringComparison.OrdinalIgnoreCase))
+            .Where(s => !profiles.Any(p => s[ProfileSectionPrefix.Length..].Trim()
+                .Equals(p.Name, StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+        foreach (var section in staleSections)
+            ini.RemoveSection(section);
+
+        foreach (var p in profiles)
+        {
+            var section = ProfileSectionPrefix + p.Name;
+            ini.Set(section, "host",             p.Host);
+            ini.Set(section, "port",             p.Port.ToString());
+            ini.Set(section, "account",          p.AccountId);
+            ini.Set(section, "rememberpassword", p.RememberPassword   ? "yes" : "no");
+            ini.Set(section, "telnetlogin",      p.TelnetLoginEnabled ? "yes" : "no");
+            ini.Set(section, "loginname",        p.TelnetLoginName);
+            ini.Set(section, "columns",          p.MaxColumns.ToString());
+            ini.Set(section, "antiidle",         p.AntiIdleSeconds.ToString());
+            ini.Set(section, "keepscreenon",     p.KeepScreenOn       ? "yes" : "no");
+            ini.Set(section, "defaulthotkeys",   p.DefaultHotkeys     ? "yes" : "no");
+            ini.Set(section, "fewrefresh",       p.FewRefreshInterval.ToString());
+        }
+    }
+
+    /// <summary>
+    /// Pre-ini installs kept settings and fkeys only in profiles.json; carry the MRU
+    /// profile's copies into the ini (global scope) when the ini has neither, so the
+    /// upgrade doesn't reset them. Installs that already saved to the ini are left alone.
+    /// </summary>
+    private static void MigrateLegacySettings(IniFile ini, Profile first)
+    {
+        if (!ini.HasSection("settings") && !ini.HasSection($"settings:{first.Name}"))
+        {
+            ini.Set("settings", "fontsize",   first.FontSize.ToString());
+            ini.Set("settings", "columns",    first.MaxColumns.ToString());
+            ini.Set("settings", "volume",     first.Volume.ToString());
+            ini.Set("settings", "statupdate", first.StatUpdateFrequency.ToString());
+            ini.Set("settings", "mutebeep",   first.MuteBeepPermanently ? "yes" : "no");
+        }
+        if (!ini.HasSection("fkeys") && !ini.HasSection($"fkeys:{first.Name}") &&
+            first.Fkeys.Any(f => !string.IsNullOrEmpty(f)))
+        {
+            ini.EnsureSection("fkeys");
+            for (var i = 0; i < first.Fkeys.Length && i < FkeyCount; i++)
+                if (!string.IsNullOrEmpty(first.Fkeys[i]))
+                    ini.Set("fkeys", $"F{i + 1}", first.Fkeys[i]);
+        }
+    }
 
     private static int? GetInt(IniFile ini, string section, string key)
         => int.TryParse(ini.Get(section, key), out var v) ? v : null;

@@ -53,11 +53,15 @@
                         <Label Text="&#x2699;&#xFE0E;"
                                TextColor="#888888" FontSize="12" VerticalOptions="Center"/>
                     </Border>
+                    <!-- Separator between the icon pair and the stats -->
+                    <Label Text="|"
+                           Style="{StaticResource StatLabelStyle}" TextColor="#444444"
+                           Margin="4,0,0,0"/>
                 </HorizontalStackLayout>
 
                 <!-- Normal stats bar: visible when effcols >= 76 -->
                 <Grid Grid.Column="1"
-                      ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,*,Auto,Auto,Auto,Auto,Auto,Auto"
+                      ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,*,Auto,Auto,Auto,Auto,Auto,Auto"
                       IsVisible="{Binding IsNotCompactStats}">
 
                     <!-- Left: stats -->
@@ -108,12 +112,34 @@
                         </Label.FormattedText>
                     </Label>
 
+                    <!-- Separator after score -->
+                    <Label Grid.Column="6" Text="|"
+                           Style="{StaticResource StatLabelStyle}" TextColor="#444444" Margin="8,0"/>
+
+                    <!-- Status effects: glyph + word, glyph-only when effcols < 80 or on phones -->
+                    <Label Grid.Column="7" Text="{Binding DeafDisplay}"
+                           Style="{StaticResource StatLabelStyle}" TextColor="#E74856"
+                           IsVisible="{Binding Deaf}" Margin="0,0,8,0"
+                           ToolTipProperties.Text="You are deaf"/>
+                    <Label Grid.Column="8" Text="{Binding BlindDisplay}"
+                           Style="{StaticResource StatLabelStyle}" TextColor="#E74856"
+                           IsVisible="{Binding Blind}" Margin="0,0,8,0"
+                           ToolTipProperties.Text="You are blind"/>
+                    <Label Grid.Column="9" Text="{Binding DumbDisplay}"
+                           Style="{StaticResource StatLabelStyle}" TextColor="#E74856"
+                           IsVisible="{Binding Dumb}" Margin="0,0,8,0"
+                           ToolTipProperties.Text="You are dumb"/>
+                    <Label Grid.Column="10" Text="{Binding CrippledDisplay}"
+                           Style="{StaticResource StatLabelStyle}" TextColor="#E74856"
+                           IsVisible="{Binding Crippled}" Margin="0,0,8,0"
+                           ToolTipProperties.Text="You are crippled"/>
+
                     <!-- Spacer -->
-                    <BoxView Grid.Column="6" Color="Transparent"/>
+                    <BoxView Grid.Column="11" Color="Transparent"/>
 
                     <!-- Rec capture indicator — Border+tap avoids WinUI's minimum button height.
                          Hollow chip when idle; red dot + lit text while capturing. -->
-                    <Border Grid.Column="7"
+                    <Border Grid.Column="12"
                             IsVisible="{Binding IsRecordingButtonVisible}"
                             BackgroundColor="Transparent"
                             Stroke="#2d333b" StrokeThickness="1"
@@ -151,7 +177,7 @@
                     <!-- Dreamword chip — tap to speak; Ctrl+D from keyboard.
                          Muted (dim white on dark blue) while showing the ..zzZZZzz.. placeholder;
                          bright + bold when a dreamword is held. -->
-                    <Border Grid.Column="8"
+                    <Border Grid.Column="13"
                             BackgroundColor="#1f6feb"
                             Stroke="Transparent" StrokeThickness="0"
                             Padding="6,1" VerticalOptions="Center">
@@ -180,13 +206,13 @@
                     </Border>
 
                     <!-- Separator before weather/TTR group -->
-                    <Label Grid.Column="9" Text="|"
+                    <Label Grid.Column="14" Text="|"
                            Style="{StaticResource StatLabelStyle}" TextColor="#444444"
                            IsVisible="{Binding AnyRightStatVisible}"
                            Margin="6,0"/>
 
                     <!-- Weather: glyph + text (or glyph-only when effcols < 80) -->
-                    <Label Grid.Column="10" Text="{Binding WeatherDisplayText}"
+                    <Label Grid.Column="15" Text="{Binding WeatherDisplayText}"
                            TextColor="{Binding WeatherColor}"
                            Style="{StaticResource StatLabelStyle}"
                            IsVisible="{Binding WeatherVisible}"
@@ -194,13 +220,13 @@
                            Margin="0,0,6,0"/>
 
                     <!-- Separator before TTR -->
-                    <Label Grid.Column="11" Text="|"
+                    <Label Grid.Column="16" Text="|"
                            Style="{StaticResource StatLabelStyle}" TextColor="#444444"
                            IsVisible="{Binding TtrVisible}"
                            Margin="0,0,6,0"/>
 
                     <!-- Time until the next game reset -->
-                    <Label Grid.Column="12" Text="{Binding TtrText}"
+                    <Label Grid.Column="17" Text="{Binding TtrText}"
                            Style="{StaticResource StatLabelStyle}"
                            IsVisible="{Binding TtrVisible}"
                            ToolTipProperties.Text="Time until reset"/>
@@ -209,7 +235,7 @@
 
                 <!-- Compact stats bar: two rows when effcols < 76 -->
                 <Grid Grid.Column="1" RowDefinitions="Auto,Auto"
-                      ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,*,Auto,Auto,Auto,Auto,Auto"
+                      ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,*,Auto,Auto,Auto,Auto,Auto"
                       IsVisible="{Binding IsCompactStats}">
 
                     <!-- ── Labels row (2pt smaller font) ── -->
@@ -230,15 +256,15 @@
                     <Label Grid.Row="0" Grid.Column="5"
                            Text="Score" TextColor="#58a6ff" FontSize="11"
                            VerticalOptions="End" HorizontalOptions="Center" Margin="0,0,4,0"/>
-                    <!-- col 6: * spacer -->
-                    <Label Grid.Row="0" Grid.Column="7"
+                    <!-- col 6: | separator, col 7: status effects, col 8: * spacer -->
+                    <Label Grid.Row="0" Grid.Column="9"
                            Text="Dream" TextColor="#58a6ff" FontSize="11"
                            VerticalOptions="End" HorizontalOptions="Center" Margin="0,0,4,0"/>
-                    <Label Grid.Row="0" Grid.Column="9"
+                    <Label Grid.Row="0" Grid.Column="11"
                            Text="Weath" TextColor="#58a6ff" FontSize="11"
                            IsVisible="{Binding WeatherVisible}"
                            VerticalOptions="End" HorizontalOptions="Center" Margin="0,0,4,0"/>
-                    <Label Grid.Row="0" Grid.Column="11"
+                    <Label Grid.Row="0" Grid.Column="13"
                            Text="Rst" TextColor="#58a6ff" FontSize="11"
                            IsVisible="{Binding TtrVisible}"
                            VerticalOptions="End" HorizontalOptions="Center"/>
@@ -277,11 +303,23 @@
                            MaxLines="1" LineBreakMode="TailTruncation"
                            HorizontalOptions="Center" Margin="0,0,4,0"/>
 
-                    <!-- * spacer col 6 -->
-                    <BoxView Grid.Row="1" Grid.Column="6" Color="Transparent"/>
+                    <!-- Separator + status effects (glyph-only), shown only while afflicted -->
+                    <Label Grid.Row="1" Grid.Column="6" Text="|"
+                           Style="{StaticResource StatLabelStyle}" TextColor="#444444"
+                           IsVisible="{Binding AnyEffectVisible}"
+                           Margin="0,0,4,0"/>
+                    <Label Grid.Row="1" Grid.Column="7"
+                           Text="{Binding EffectsGlyphs}"
+                           Style="{StaticResource StatLabelStyle}"
+                           FontSize="{Binding StatsValueFontSize}"
+                           IsVisible="{Binding AnyEffectVisible}"
+                           HorizontalOptions="Center" Margin="0,0,4,0"/>
+
+                    <!-- * spacer col 8 -->
+                    <BoxView Grid.Row="1" Grid.Column="8" Color="Transparent"/>
 
                     <!-- Dreamword: tappable label — dimmed while showing the placeholder -->
-                    <Label Grid.Row="1" Grid.Column="7"
+                    <Label Grid.Row="1" Grid.Column="9"
                            Text="{Binding DreamwordDisplay}"
                            TextColor="#7db9f5" FontAttributes="Bold"
                            Style="{StaticResource StatLabelStyle}"
@@ -299,24 +337,24 @@
                         <ToolTipProperties.Text>Speak dreamword (Ctrl+D)</ToolTipProperties.Text>
                     </Label>
 
-                    <Label Grid.Row="1" Grid.Column="8" Text="|"
+                    <Label Grid.Row="1" Grid.Column="10" Text="|"
                            Style="{StaticResource StatLabelStyle}" TextColor="#444444"
                            IsVisible="{Binding AnyRightStatVisible}"
                            Margin="0,0,4,0"/>
 
-                    <Label Grid.Row="1" Grid.Column="9"
+                    <Label Grid.Row="1" Grid.Column="11"
                            Text="{Binding WeatherGlyph}" TextColor="{Binding WeatherColor}"
                            Style="{StaticResource StatLabelStyle}"
                            IsVisible="{Binding WeatherVisible}"
                            ToolTipProperties.Text="{Binding WeatherTooltip}"
                            HorizontalOptions="Center" Margin="0,0,4,0"/>
 
-                    <Label Grid.Row="1" Grid.Column="10" Text="|"
+                    <Label Grid.Row="1" Grid.Column="12" Text="|"
                            Style="{StaticResource StatLabelStyle}" TextColor="#444444"
                            IsVisible="{Binding TtrVisible}"
                            Margin="0,0,4,0"/>
 
-                    <Label Grid.Row="1" Grid.Column="11"
+                    <Label Grid.Row="1" Grid.Column="13"
                            Text="{Binding TtrText}"
                            Style="{StaticResource StatLabelStyle}"
                            IsVisible="{Binding TtrVisible}"
