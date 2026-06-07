@@ -126,6 +126,9 @@ public partial class GamePage : ContentPage
                 if (Window?.Handler?.PlatformView is Microsoft.UI.Xaml.Window fwin &&
                     fwin.Content is Microsoft.UI.Xaml.UIElement froot)
                 {
+                    // WinUI Activated fires synchronously before pointer events, so the
+                    // activation timestamp is always set before PointerPress can run.
+                    fwin.Activated += OnWinUIWindowActivated;
                     froot.PreviewKeyDown += OnRootPreviewKeyDown;
                     froot.GettingFocus += OnRootGettingFocus;
                     froot.LosingFocus += OnRootLosingFocus;
@@ -226,6 +229,7 @@ public partial class GamePage : ContentPage
         if (Window?.Handler?.PlatformView is Microsoft.UI.Xaml.Window fwin &&
             fwin.Content is Microsoft.UI.Xaml.UIElement froot)
         {
+            fwin.Activated -= OnWinUIWindowActivated;
             froot.PreviewKeyDown -= OnRootPreviewKeyDown;
             froot.GettingFocus -= OnRootGettingFocus;
             froot.LosingFocus -= OnRootLosingFocus;
@@ -323,9 +327,12 @@ public partial class GamePage : ContentPage
     {
 #if WINDOWS
         FocusDiag($"FocusInput dispatch: IsFocused={InputEntry.IsFocused}");
-        // Focus via the platform view: MAUI's IsFocused can be stale mid-click, and platform
-        // Focus() on an already-focused control is a no-op, so unconditional is safe.
-        _inputTextBox?.Focus(Microsoft.UI.Xaml.FocusState.Programmatic);
+        // The deferred dispatch fires after WinUI has fully settled focus, so IsFocused is
+        // authoritative here. Skip if the input already has focus — Focus(Programmatic) on
+        // an already-focused WinUI TextBox resets the cursor to position 0, which causes a
+        // "|o" symptom on rapid Enter+type sequences (character appears after the cursor).
+        if (!InputEntry.IsFocused)
+            _inputTextBox?.Focus(Microsoft.UI.Xaml.FocusState.Programmatic);
 #else
         if (!InputEntry.IsFocused) InputEntry.Focus();
 #endif
@@ -338,6 +345,17 @@ public partial class GamePage : ContentPage
         Terminal.NotifyWindowActivated();
         if (!Terminal.IsHistoryMode) FocusInput();
     }
+
+#if WINDOWS
+    // WinUI-level Activated fires synchronously in the message queue before pointer events,
+    // guaranteeing the activation timestamp is set before PointerPress can run (the MAUI
+    // Window.Activated event can be marshalled asynchronously and lose the race).
+    private void OnWinUIWindowActivated(object sender, Microsoft.UI.Xaml.WindowActivatedEventArgs e)
+    {
+        if (e.WindowActivationState != Microsoft.UI.Xaml.WindowActivationState.Deactivated)
+            Terminal.NotifyWindowActivated();
+    }
+#endif
 
     private void OnClearScreenRequested() => Terminal.Clear();
 
@@ -693,6 +711,10 @@ public partial class GamePage : ContentPage
     {
         if (_isFkeyEditorOpen) return;
         var key = e.Key;
+        // Any non-modifier keypress marks the keyboard as recently active so an accidental
+        // touchpad tap in the next 300 ms does not trigger scrollback.
+        if (!IsModifierKey(key))
+            Terminal.NotifyKeyPressed();
         bool ctrl  = (GetKeyState((int)Windows.System.VirtualKey.Control) & 0x8000) != 0;
         bool shift = (GetKeyState((int)Windows.System.VirtualKey.Shift)   & 0x8000) != 0;
 
@@ -786,6 +808,13 @@ public partial class GamePage : ContentPage
             // restoring ReturnCommand=SendCommand and producing a second send.
             // A plain null SetValue shadows the live binding without disturbing it.
             InputEntry.ReturnCommand = null;
+            // Switch Text from TwoWay to OneWay: the native TextBox owns its text state
+            // during typing — no per-keystroke PropertyChanged round-trips through MAUI.
+            // The ViewModel pushes via OneWay only when InputText changes deliberately
+            // (history nav, clear-on-send, Escape), keeping the keyboard path zero-cost.
+            // On Enter we read _inputTextBox.Text directly as the authoritative value.
+            InputEntry.SetBinding(Entry.TextProperty,
+                new Binding(nameof(GameViewModel.InputText), BindingMode.OneWay));
         }
     }
 
@@ -902,11 +931,17 @@ public partial class GamePage : ContentPage
         if (e.Key == Windows.System.VirtualKey.Up)
         {
             _vm.HistoryUpCommand.Execute(null);
+            // WinUI resets the cursor to position 0 when TextBox.Text is set programmatically;
+            // move it back to the end so the user can edit the recalled command immediately.
+            if (_inputTextBox is not null)
+                _inputTextBox.SelectionStart = _inputTextBox.Text.Length;
             e.Handled = true;
         }
         else if (e.Key == Windows.System.VirtualKey.Down)
         {
             _vm.HistoryDownCommand.Execute(null);
+            if (_inputTextBox is not null)
+                _inputTextBox.SelectionStart = _inputTextBox.Text.Length;
             e.Handled = true;
         }
         else if (e.Key == Windows.System.VirtualKey.Escape)
@@ -918,9 +953,8 @@ public partial class GamePage : ContentPage
         }
         else if (e.Key == Windows.System.VirtualKey.Enter)
         {
-            // Sync from the native TextBox before capturing — the TwoWay binding propagation
-            // for the last-typed character may not have reached the ViewModel yet, which would
-            // drop that character ("hell" sent instead of "hello" on fast typing).
+            // Text binding is OneWay, so the ViewModel is never updated during typing.
+            // Read the authoritative text directly from the native TextBox before sending.
             if (_inputTextBox is not null)
                 _vm.InputText = _inputTextBox.Text;
             _vm.SendCommand.Execute(null);

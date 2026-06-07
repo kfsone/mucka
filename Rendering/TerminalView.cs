@@ -44,8 +44,13 @@ public sealed class TerminalView : SKCanvasView
     // A click that arrives within this window of the host window being activated is treated as
     // the click that focused the app (→ focus the input box) rather than a deliberate click on
     // the view (→ enter scrollback).
-    private const double ActivationClickMs = 250;
+    private const double ActivationClickMs = 300;
     private DateTime _lastActivatedUtc = DateTime.MinValue;
+
+    // A click that arrives within this window of the last keypress is also suppressed from
+    // entering scrollback: accidental touchpad taps while typing should not interrupt the session.
+    private const double RecentKeypressMs = 300;
+    private DateTime _lastKeypressUtc = DateTime.MinValue;
 
     // ── Selection (mouse drag in history) ────────────────────────────────────
     // Translucent so text shows through; bright enough to be unmistakable on the dark background.
@@ -85,6 +90,10 @@ public sealed class TerminalView : SKCanvasView
     /// <summary>Host calls this when the window is activated, so the next click can be told apart
     /// from a deliberate click on the view.</summary>
     public void NotifyWindowActivated() => _lastActivatedUtc = DateTime.UtcNow;
+
+    /// <summary>Host calls this on every non-modifier keypress so that accidental touchpad taps
+    /// while typing do not enter scrollback.</summary>
+    public void NotifyKeyPressed() => _lastKeypressUtc = DateTime.UtcNow;
 
     public void SetFontSize(int dip)
     {
@@ -217,7 +226,9 @@ public sealed class TerminalView : SKCanvasView
     {
         if (!_historyMode)
         {
-            if ((DateTime.UtcNow - _lastActivatedUtc).TotalMilliseconds < ActivationClickMs)
+            var now = DateTime.UtcNow;
+            if ((now - _lastActivatedUtc).TotalMilliseconds < ActivationClickMs ||
+                (now - _lastKeypressUtc).TotalMilliseconds  < RecentKeypressMs)
             {
                 FocusInputRequested?.Invoke(this, EventArgs.Empty);
                 return;

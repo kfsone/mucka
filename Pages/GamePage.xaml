@@ -483,7 +483,7 @@
                    Placeholder="enter command&#x2026;"
                    ReturnCommand="{Binding SendCommand}"
                    ReturnType="Send"
-                   ClearButtonVisibility="WhileEditing"
+                   ClearButtonVisibility="{OnPlatform WinUI=Never, Default=WhileEditing}"
                    Keyboard="Plain"
                    IsSpellCheckEnabled="False"
                    IsTextPredictionEnabled="False">
