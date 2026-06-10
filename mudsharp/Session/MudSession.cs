@@ -27,6 +27,25 @@ public sealed class MudSession : IDisposable
     private static readonly TimeSpan StaleReplySlack = TimeSpan.FromSeconds(5);
     // Minimum spacing between wake probes so a chatty burst (e.g. dream text) fires only one.
     private static readonly TimeSpan WakeProbeFloor = TimeSpan.FromSeconds(2);
+    // ── Reactive stale-stats probing ───────────────────────────────────────────
+    // C1 codes hint that state changed (ProbeHintReceived). Rather than probing
+    // instantly (Clio's txfes), the hinted categories are marked stale and a one-shot
+    // timer fires StaleProbeDelay later; updates that arrive in the meantime — the
+    // inline "(84/90)" after a hit, an unsolicited FES — clear their flags so only
+    // genuinely missing values are queried. Probes cost the player a game turn, so
+    // they are also rate-limited (MinProbeSpacing) and suppressed when the routine
+    // heartbeat is about to cover them anyway. All fields guarded by _fesLock except
+    // the who-list name caches, which are only touched on the Feed thread.
+    private StaleStats _staleFlags;
+    private Timer? _staleTimer;
+    private bool _staleArmed;
+    private DateTime _lastProbeSentUtc;
+    private DateTime _nextRoutineProbeUtc;
+    // First word of each name from the last complete FEW response (Feed thread only).
+    // Used by the C05 presence check: a player seen in the room but absent from this
+    // set means the Online list is stale.
+    private readonly HashSet<string> _onlineNames = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _pendingOnlineNames = new(StringComparer.OrdinalIgnoreCase);
     private GameStatsSnapshot _currentStats = GameStatsSnapshot.Empty;
     private string? _currentDreamword;
     // Periodic probe: ESC-[FES,FEW,FEI ESC-] — fetches stats, who-list, inventory, and exits together.
@@ -86,7 +105,14 @@ public sealed class MudSession : IDisposable
             _fesInterval = interval;
             StopFesTimerLocked();
             if (InGameMode && _fesInterval > TimeSpan.Zero)
+            {
+                _nextRoutineProbeUtc = DateTime.UtcNow + _fesInterval;
                 _fesTimer = new Timer(_ => SendFesSubscription(), null, _fesInterval, _fesInterval);
+            }
+            else
+            {
+                StopStaleProbeLocked();
+            }
         }
     }
 
@@ -129,6 +155,10 @@ public sealed class MudSession : IDisposable
     public void Reset()
     {
         StopFesTimer();
+        lock (_fesLock)
+            StopStaleProbeLocked();
+        _onlineNames.Clear();
+        _pendingOnlineNames.Clear();
         _parser.Reset();
         _currentStats = GameStatsSnapshot.Empty;
         _currentDreamword = null;
@@ -137,6 +167,12 @@ public sealed class MudSession : IDisposable
     public void Dispose()
     {
         StopFesTimer();
+        lock (_fesLock)
+        {
+            StopStaleProbeLocked();
+            _staleTimer?.Dispose();
+            _staleTimer = null;
+        }
     }
 
     // ── Private ────────────────────────────────────────────────────────────────
@@ -151,14 +187,33 @@ public sealed class MudSession : IDisposable
         _parser.DreamwordChanged += OnDreamwordChanged;
         _parser.ClientModeReceived += data => ClientModeReceived?.Invoke(data);
         _parser.SoundRequested += s => SoundRequested?.Invoke(s);
-        _parser.FewPlayerReady += (name, color) => FewPlayerReady?.Invoke(name, color);
-        _parser.FewListStarting  += () => FewListStarting?.Invoke();
-        _parser.FewListComplete  += () => { _lastProbeReplyUtc = DateTime.UtcNow; FewListComplete?.Invoke(); };
+        _parser.ProbeHintReceived += OnProbeHint;
+        _parser.PresenceNameSeen  += OnPresenceName;
+        _parser.FewPlayerReady += (name, color) =>
+        {
+            _pendingOnlineNames.Add(FirstWord(name));
+            FewPlayerReady?.Invoke(name, color);
+        };
+        _parser.FewListStarting  += () => { _pendingOnlineNames.Clear(); FewListStarting?.Invoke(); };
+        _parser.FewListComplete  += () =>
+        {
+            _lastProbeReplyUtc = DateTime.UtcNow;
+            _onlineNames.Clear();
+            _onlineNames.UnionWith(_pendingOnlineNames);
+            _pendingOnlineNames.Clear();
+            ClearStale(StaleStats.WhoList);
+            FewListComplete?.Invoke();
+        };
         _parser.RoomEntered      += () => RoomEntered?.Invoke();
         _parser.RoomShortReady   += name => RoomShortReady?.Invoke(name);
         _parser.FeiItemReady     += item => FeiItemReady?.Invoke(item);
         _parser.FeiListStarting  += () => FeiListStarting?.Invoke();
-        _parser.FeiListComplete  += () => { _lastProbeReplyUtc = DateTime.UtcNow; FeiListComplete?.Invoke(); };
+        _parser.FeiListComplete  += () =>
+        {
+            _lastProbeReplyUtc = DateTime.UtcNow;
+            ClearStale(StaleStats.Inventory);
+            FeiListComplete?.Invoke();
+        };
         _parser.FexItemReady     += item => FexItemReady?.Invoke(item);
         _parser.FexListStarting  += () => FexListStarting?.Invoke();
         _parser.FexListComplete  += () => FexListComplete?.Invoke();
@@ -170,6 +225,24 @@ public sealed class MudSession : IDisposable
         // An FES snapshot is a probe reply — the panel data is fresh again.
         if (partial.HasFesStats)
             _lastProbeReplyUtc = DateTime.UtcNow;
+
+        // Whatever values this update carries — a full FES snapshot or an inline text
+        // line like "(84/90)" — are no longer stale, so a pending hint for them won't
+        // trigger a probe.
+        var refreshed = StaleStats.None;
+        if (partial.HasFesStats)
+        {
+            refreshed = StaleStats.AllStats;
+        }
+        else
+        {
+            if (partial.Stamina      is not null || partial.MaxStamina   is not null) refreshed |= StaleStats.Stamina;
+            if (partial.Strength     is not null || partial.MaxStrength  is not null) refreshed |= StaleStats.Strength;
+            if (partial.Dexterity    is not null || partial.MaxDexterity is not null) refreshed |= StaleStats.Dexterity;
+            if (partial.CurrentMagic is not null || partial.MaxMagic     is not null) refreshed |= StaleStats.Magic;
+            if (partial.Score        is not null)                                     refreshed |= StaleStats.Score;
+        }
+        ClearStale(refreshed);
 
         // Keep _currentDreamword in sync when the dreamword arrives via text analysis
         // (pre-game path, DreamwordLineRegex) rather than the binary C15 decoder.
@@ -231,6 +304,10 @@ public sealed class MudSession : IDisposable
     private void OnGameModeExited()
     {
         StopFesTimer();
+        lock (_fesLock)
+            StopStaleProbeLocked();
+        _onlineNames.Clear();
+        _pendingOnlineNames.Clear();
         GameModeExited?.Invoke();
     }
 
@@ -240,7 +317,134 @@ public sealed class MudSession : IDisposable
         DreamwordChanged?.Invoke(word);
     }
 
-    private void SendFesSubscription() => OutgoingBytes?.Invoke(FesAndFewSubscription);
+    private void SendFesSubscription()
+    {
+        lock (_fesLock)
+        {
+            var now = DateTime.UtcNow;
+            _lastProbeSentUtc = now;
+            _nextRoutineProbeUtc = now + _fesInterval;
+            _staleFlags = StaleStats.None;   // the full probe refreshes everything pending
+        }
+        OutgoingBytes?.Invoke(FesAndFewSubscription);
+    }
+
+    // ── Reactive stale-stats probing ───────────────────────────────────────────
+
+    /// <summary>
+    /// A C1 code hinted that the given categories may be out of date. Mark them stale
+    /// and arm the one-shot probe timer — unless reactive probing is disabled (heartbeat
+    /// interval 0) or the routine probe is due soon enough to cover them.
+    /// </summary>
+    private void OnProbeHint(StaleStats kinds)
+    {
+        if (kinds == StaleStats.None) return;
+        lock (_fesLock)
+        {
+            if (_fesInterval <= TimeSpan.Zero || !InGameMode)
+                return;
+            if (_nextRoutineProbeUtc - DateTime.UtcNow <= _options.MinProbeSpacing)
+                return;
+            _staleFlags |= kinds;
+            if (!_staleArmed)
+            {
+                _staleArmed = true;
+                _staleTimer ??= new Timer(_ => OnStaleDeadline(), null, Timeout.Infinite, Timeout.Infinite);
+                _staleTimer.Change(_options.StaleProbeDelay, Timeout.InfiniteTimeSpan);
+            }
+        }
+    }
+
+    /// <summary>
+    /// The grace period after a stale hint has elapsed. Query whatever is still stale —
+    /// values that arrived on their own in the meantime have already cleared their flags.
+    /// </summary>
+    private void OnStaleDeadline()
+    {
+        byte[] probe;
+        lock (_fesLock)
+        {
+            _staleArmed = false;
+            if (_fesInterval <= TimeSpan.Zero || !InGameMode)
+            {
+                _staleFlags = StaleStats.None;
+                return;
+            }
+            if (_staleFlags == StaleStats.None)
+                return;
+            var now = DateTime.UtcNow;
+            // Honour the global probe-spacing floor; try again once it has elapsed.
+            var wait = _options.MinProbeSpacing - (now - _lastProbeSentUtc);
+            if (wait > TimeSpan.Zero)
+            {
+                _staleArmed = true;
+                _staleTimer?.Change(wait, Timeout.InfiniteTimeSpan);
+                return;
+            }
+            // Routine probe now imminent — it refreshes everything anyway.
+            if (_nextRoutineProbeUtc - now <= _options.MinProbeSpacing)
+            {
+                _staleFlags = StaleStats.None;
+                return;
+            }
+            bool fes = (_staleFlags & StaleStats.AllStats)  != 0;
+            bool few = (_staleFlags & StaleStats.WhoList)   != 0;
+            bool fei = (_staleFlags & StaleStats.Inventory) != 0;
+            _staleFlags = StaleStats.None;
+            _lastProbeSentUtc = now;
+            if (fes && few && fei)
+            {
+                // Everything is stale: treat as an early routine probe and re-phase the tick.
+                _nextRoutineProbeUtc = now + _fesInterval;
+                _fesTimer?.Change(_fesInterval, _fesInterval);
+                probe = FesAndFewSubscription;
+            }
+            else
+            {
+                var cmds = new List<string>(2);
+                if (fes) cmds.Add("FES");
+                if (few) cmds.Add("FEW");
+                if (fei) cmds.Add("FEI");
+                probe = System.Text.Encoding.Latin1.GetBytes("\x1b-[" + string.Join(',', cmds) + "\x1b-]");
+            }
+        }
+        OutgoingBytes?.Invoke(probe);
+    }
+
+    /// <summary>
+    /// A player name was seen bracketed by a C05 presence code — that player is online.
+    /// If they are missing from the last complete FEW response, the Online list is stale.
+    /// The bracketed text may be a full persona ("Polly the witch") or run on into the
+    /// sentence, so only the first word (the character name proper) is compared.
+    /// </summary>
+    private void OnPresenceName(string name)
+    {
+        // No baseline yet — nothing to compare against; the routine probe establishes one.
+        if (_onlineNames.Count == 0)
+            return;
+        if (!_onlineNames.Contains(FirstWord(name)))
+            OnProbeHint(StaleStats.WhoList);
+    }
+
+    private static string FirstWord(string name)
+    {
+        int space = name.IndexOf(' ');
+        return space < 0 ? name : name[..space];
+    }
+
+    private void ClearStale(StaleStats kinds)
+    {
+        if (kinds == StaleStats.None) return;
+        lock (_fesLock)
+            _staleFlags &= ~kinds;
+    }
+
+    private void StopStaleProbeLocked()
+    {
+        _staleArmed = false;
+        _staleFlags = StaleStats.None;
+        _staleTimer?.Change(Timeout.Infinite, Timeout.Infinite);
+    }
 
     /// <summary>
     /// BUGS #5: if the server just sent real data but probe replies have gone stale (the

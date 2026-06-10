@@ -20,6 +20,8 @@ internal sealed class ParserHarness
     public List<string> ClientModeData { get; } = new();
     public List<string> Sounds { get; } = new();
     public List<string> FewPlayers { get; } = new();
+    public List<StaleStats> ProbeHints { get; } = new();
+    public List<string> PresenceNames { get; } = new();
     public int FewListStartingCount { get; private set; }
     public int FewListCompleteCount { get; private set; }
     public int RoomEnteredCount { get; private set; }
@@ -40,6 +42,8 @@ internal sealed class ParserHarness
         Parser.ClientModeReceived += d => ClientModeData.Add(d);
         Parser.SoundRequested     += s => Sounds.Add(s);
         Parser.FewPlayerReady     += (n, _) => FewPlayers.Add(n);
+        Parser.ProbeHintReceived  += k => ProbeHints.Add(k);
+        Parser.PresenceNameSeen   += n => PresenceNames.Add(n);
         Parser.FewListStarting    += () => FewListStartingCount++;
         Parser.FewListComplete    += () => FewListCompleteCount++;
         Parser.RoomEntered        += () => RoomEnteredCount++;
@@ -67,6 +71,8 @@ internal sealed class ParserHarness
         ClientModeData.Clear();
         Sounds.Clear();
         FewPlayers.Clear();
+        ProbeHints.Clear();
+        PresenceNames.Clear();
         FewListStartingCount = 0;
         FewListCompleteCount = 0;
         RoomEnteredCount = 0;

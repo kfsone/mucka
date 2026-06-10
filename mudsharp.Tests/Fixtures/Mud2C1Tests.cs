@@ -525,72 +525,110 @@ public class Mud2C1Tests
         Assert.Equal('S', s.Weather);
     }
 
-    // ── C08 txfes triggers ────────────────────────────────────────────────────
+    // ── C08 stale-stats hints (debounced replacement for Clio's txfes) ────────
+    // The parser no longer probes directly; it emits ProbeHintReceived and the
+    // session schedules the probe. No C1 code may produce OutgoingBytes any more.
 
     [Fact]
-    public void C08_C00_DoesNotEmitFesSubscription()
+    public void C08_Bare_HintsStamina()
     {
-        // 0xA3 0x9B 0xFF 0xFF = C08+C00 (telnet.l:634) → plain RED, NO txfes
+        // 0xA3 0xFF 0xFF = C08 (fight starts) → stamina stale hint
+        var h = new ParserHarness();
+        h.Feed(0xA3, 0xFF, 0xFF);
+        Assert.Equal([StaleStats.Stamina], h.ProbeHints);
+        Assert.Empty(h.Outgoing);
+    }
+
+    [Fact]
+    public void C08_C00_DoesNotHint()
+    {
+        // 0xA3 0x9B 0xFF 0xFF = C08+C00 (telnet.l:634) → plain RED, no hint
         var h = new ParserHarness();
         h.Feed(0xA3, 0x9B, 0xFF, 0xFF);
+        Assert.Empty(h.ProbeHints);
         Assert.Empty(h.Outgoing);
     }
 
     [Fact]
-    public void C08_C01_EmitsFesSubscription()
+    public void C08_C01_YouHitThem_DoesNotHint()
     {
-        // 0xA3 0x9C 0xFF 0xFF = C08+C01 (telnet.l:623)
+        // 0xA3 0x9C 0xFF 0xFF = C08+C01, you hit them — YOUR stats are unchanged.
+        // (Clio txfes'd this, which spammed a probe on every swing of a fight.)
         var h = new ParserHarness();
         h.Feed(0xA3, 0x9C, 0xFF, 0xFF);
-        Assert.Single(h.Outgoing);
-        Assert.Equal(new byte[] { 0x1B, 0x2D, 0x5B, 0x46, 0x45, 0x53, 0x1B, 0x2D, 0x5D }, h.Outgoing[0]);
+        Assert.Empty(h.ProbeHints);
+        Assert.Empty(h.Outgoing);
     }
 
     [Fact]
-    public void C08_C02_DoesNotEmitFesSubscription()
+    public void C08_C02_DoesNotHint()
     {
-        // 0xA3 0x9D 0xFF 0xFF = C08+C02 (telnet.l:635) → plain RED, NO txfes
+        // 0xA3 0x9D 0xFF 0xFF = C08+C02 (telnet.l:635) → plain RED, no hint
         var h = new ParserHarness();
         h.Feed(0xA3, 0x9D, 0xFF, 0xFF);
-        Assert.Empty(h.Outgoing);
+        Assert.Empty(h.ProbeHints);
     }
 
     [Fact]
-    public void C08_C03_EmitsFesSubscription()
+    public void C08_C03_HintsStamina()
     {
-        // 0xA3 0x9E 0xFF 0xFF = C08+C03 (telnet.l:628)
+        // 0xA3 0x9E 0xFF 0xFF = C08+C03, they hit you (telnet.l:628)
         var h = new ParserHarness();
         h.Feed(0xA3, 0x9E, 0xFF, 0xFF);
-        Assert.Single(h.Outgoing);
-        Assert.Equal(new byte[] { 0x1B, 0x2D, 0x5B, 0x46, 0x45, 0x53, 0x1B, 0x2D, 0x5D }, h.Outgoing[0]);
+        Assert.Equal([StaleStats.Stamina], h.ProbeHints);
     }
 
     [Fact]
-    public void C08_C04_DoesNotEmitFesSubscription()
+    public void C08_C04_DoesNotHint()
     {
-        // 0xA3 0x9F 0xFF 0xFF = C08+C04 (telnet.l:636) → plain RED, NO txfes
+        // 0xA3 0x9F 0xFF 0xFF = C08+C04 (telnet.l:636) → plain RED, no hint
         var h = new ParserHarness();
         h.Feed(0xA3, 0x9F, 0xFF, 0xFF);
-        Assert.Empty(h.Outgoing);
+        Assert.Empty(h.ProbeHints);
     }
 
     [Fact]
-    public void C08_C08_EmitsFesSubscription()
+    public void C08_C05_WeaponChange_HintsStaminaAndInventory()
     {
-        // 0xA3 0xA3 0xFF 0xFF = C08+C08 (telnet.l:641)
-        var h = new ParserHarness();
-        h.Feed(0xA3, 0xA3, 0xFF, 0xFF);
-        Assert.Single(h.Outgoing);
-        Assert.Equal(new byte[] { 0x1B, 0x2D, 0x5B, 0x46, 0x45, 0x53, 0x1B, 0x2D, 0x5D }, h.Outgoing[0]);
-    }
-
-    [Fact]
-    public void C08_NonTxfesVariant_DoesNotEmitFesSubscription()
-    {
-        // 0xA3 0xA0 0xFF 0xFF = C08+C05 — NOT a txfes trigger → no outgoing bytes
+        // 0xA3 0xA0 0xFF 0xFF = C08+C05 (weapon change) → stamina + the carried-weapon
+        // line in the FEI list may both have changed
         var h = new ParserHarness();
         h.Feed(0xA3, 0xA0, 0xFF, 0xFF);
-        Assert.Empty(h.Outgoing);
+        Assert.Equal([StaleStats.Stamina | StaleStats.Inventory], h.ProbeHints);
+    }
+
+    [Fact]
+    public void C08_C06_DroppedGuard_HintsInventory()
+    {
+        // 0xA3 0xA1 0xFF 0xFF = C08+C06 (dropped guard) → inventory stale
+        var h = new ParserHarness();
+        h.Feed(0xA3, 0xA1, 0xFF, 0xFF);
+        Assert.Equal([StaleStats.Inventory], h.ProbeHints);
+    }
+
+    [Fact]
+    public void C08_C08_HintsStamina()
+    {
+        // 0xA3 0xA3 0xFF 0xFF = C08+C08, you killed them (telnet.l:641)
+        var h = new ParserHarness();
+        h.Feed(0xA3, 0xA3, 0xFF, 0xFF);
+        Assert.Equal([StaleStats.Stamina], h.ProbeHints);
+    }
+
+    [Fact]
+    public void C08_C13_PersonaWiped_ZeroesStatsWithoutHinting()
+    {
+        // 0xA3 0xA8 0xFF 0xFF = C08+C13 ("Not updating persona") → score/sta/str/dex/mag
+        // are zeroed locally; no probe can bring them back, so no hint.
+        var h = new ParserHarness();
+        h.Feed(0xA3, 0xA8, 0xFF, 0xFF);
+        Assert.Empty(h.ProbeHints);
+        var s = Assert.Single(h.Stats);
+        Assert.Equal(0, s.Stamina);
+        Assert.Equal(0, s.Score);
+        Assert.Equal(0, s.Strength);
+        Assert.Equal(0, s.Dexterity);
+        Assert.Equal(0, s.CurrentMagic);
     }
 
     // ── C95 Rule A: account block ─────────────────────────────────────────────
@@ -730,131 +768,226 @@ public class Mud2C1Tests
         Assert.Equal(AnsiColor.Black, style.Background);
     }
 
-    // ── Gap 4: missing txfes triggers ─────────────────────────────────────────
+    // ── Stale-stats hints from the Clio txfes trigger set ─────────────────────
+    // These codes previously sent an instant FES probe (txfes); they now emit
+    // debounced ProbeHintReceived events instead, and never OutgoingBytes.
 
     [Fact]
-    public void C06_Bare_EmitsFesSubscription()
+    public void C06_Bare_HintsAllStats()
     {
-        // C06+C255 (0xA1 FF FF) → LT_BLUE + txfes (Clio telnet.l:562-580)
+        // C06+C255 (0xA1 FF FF) → LT_BLUE + hint (Clio txfes, telnet.l:562-580)
         var h = new ParserHarness();
         h.Feed(0xA1, 0xFF, 0xFF);
-        Assert.Single(h.Outgoing);
-    }
-
-    [Fact]
-    public void C06_WithC00_EmitsFesSubscription()
-    {
-        // C06+C00+C255 (0xA1 0x9B FF FF) → LT_BLUE + txfes
-        var h = new ParserHarness();
-        h.Feed(0xA1, 0x9B, 0xFF, 0xFF);
-        Assert.Single(h.Outgoing);
-    }
-
-    [Fact]
-    public void C06_C06_DoesNotEmitFesSubscription()
-    {
-        // C06+C06+C255 (0xA1 0xA1 FF FF) → "Something magical" — sound only, NO txfes (Clio:581-584)
-        var h = new ParserHarness();
-        h.Feed(0xA1, 0xA1, 0xFF, 0xFF);
+        Assert.Equal([StaleStats.AllStats], h.ProbeHints);
         Assert.Empty(h.Outgoing);
     }
 
     [Fact]
-    public void C07_Bare_EmitsFesSubscription()
+    public void C06_WithC00_HintsAllStats()
     {
-        // C07+C255 (0xA2 FF FF) → RED + txfes (Clio telnet.l:587-590)
+        // C06+C00+C255 (0xA1 0x9B FF FF) → LT_BLUE + hint
+        var h = new ParserHarness();
+        h.Feed(0xA1, 0x9B, 0xFF, 0xFF);
+        Assert.Equal([StaleStats.AllStats], h.ProbeHints);
+    }
+
+    [Fact]
+    public void C06_C06_DoesNotHint()
+    {
+        // C06+C06+C255 (0xA1 0xA1 FF FF) → "Something magical" — sound only (Clio:581-584)
+        var h = new ParserHarness();
+        h.Feed(0xA1, 0xA1, 0xFF, 0xFF);
+        Assert.Empty(h.ProbeHints);
+    }
+
+    [Fact]
+    public void C07_Bare_HintsStamina()
+    {
+        // C07+C255 (0xA2 FF FF) → RED + stamina hint (Clio txfes, telnet.l:587-590)
         var h = new ParserHarness();
         h.Feed(0xA2, 0xFF, 0xFF);
-        Assert.Single(h.Outgoing);
+        Assert.Equal([StaleStats.Stamina], h.ProbeHints);
+        Assert.Empty(h.Outgoing);
     }
 
     [Fact]
-    public void C07_WithPayload_EmitsFesSubscription()
+    public void C07_WithPayload_HintsStamina()
     {
-        // C07+C00+C00+C255 → RED + txfes (all C07 variants, Clio:592-609)
+        // C07+C00+C00+C255 → RED + stamina hint (all C07 variants, Clio:592-609)
         var h = new ParserHarness();
         h.Feed(0xA2, 0x9B, 0x9B, 0xFF, 0xFF);
-        Assert.Single(h.Outgoing);
+        Assert.Equal([StaleStats.Stamina], h.ProbeHints);
     }
 
     [Fact]
-    public void C11_WithTxfesVariant_EmitsFesSubscription()
+    public void C11_WithTxfesVariant_HintsAllStats()
     {
-        // C11+C00 (0xA6 0x9B FF FF) → LT_RED + txfes (Clio telnet.l:687-713)
+        // C11+C00 (0xA6 0x9B FF FF) → LT_RED + hint (Clio txfes, telnet.l:687-713)
         var h = new ParserHarness();
         h.Feed(0xA6, 0x9B, 0xFF, 0xFF);
-        Assert.Single(h.Outgoing);
+        Assert.Equal([StaleStats.AllStats], h.ProbeHints);
     }
 
     [Fact]
-    public void C11_BareOrC06_DoesNotEmitFesSubscription()
+    public void C11_BareOrC06_DoesNotHint()
     {
         // C11+C06 (0xA6 0xA1 FF FF) → LT_RED only — FOD/WHERE/SUMMON (Clio:675-685)
         var h = new ParserHarness();
         h.Feed(0xA6, 0xA1, 0xFF, 0xFF);
-        Assert.Empty(h.Outgoing);
+        Assert.Empty(h.ProbeHints);
     }
 
     [Fact]
-    public void C11_Bare_DoesNotEmitFesSubscription()
+    public void C11_Bare_DoesNotHint()
     {
         // C11+C255 (0xA6 FF FF) → LT_RED only (Clio:675)
         var h = new ParserHarness();
         h.Feed(0xA6, 0xFF, 0xFF);
-        Assert.Empty(h.Outgoing);
+        Assert.Empty(h.ProbeHints);
     }
 
     [Fact]
-    public void C14_WithC00_EmitsFesSubscription()
+    public void C14_WithC00_HintsAllStats()
     {
-        // C14+C00 (0xA9 0x9B FF FF) → GREEN/BLACK + always txfes (Clio telnet.l:832)
+        // C14+C00 (0xA9 0x9B FF FF) → GREEN/BLACK + hint (Clio txfes, telnet.l:832)
         var h = new ParserHarness();
         h.Feed(0xA9, 0x9B, 0xFF, 0xFF);
-        Assert.Single(h.Outgoing);
+        Assert.Equal([StaleStats.AllStats], h.ProbeHints);
     }
 
     [Fact]
-    public void C14_WithC04_DoesNotEmitFesSubscription()
+    public void C14_WithC04_DoesNotHint()
     {
-        // C14+C04+C00 (0xA9 0x9F 0x9B FF FF) → sweather only, NO txfes (Clio telnet.l:875-885)
+        // C14+C04+C00 (0xA9 0x9F 0x9B FF FF) → sweather only (Clio telnet.l:875-885)
         var h = new ParserHarness();
         h.Feed(0xA9, 0x9F, 0x9B, 0xFF, 0xFF);
-        Assert.Empty(h.Outgoing);
+        Assert.Empty(h.ProbeHints);
     }
 
     [Fact]
-    public void C14_WithC03C00_EmitsFesSubscription()
+    public void C14_WithC03C00_HintsAllStats()
     {
-        // C14+C03+C00 (0xA9 0x9E 0x9B FF FF) → GREEN/BLACK + txfes (Clio telnet.l:852)
+        // C14+C03+C00 (0xA9 0x9E 0x9B FF FF) → GREEN/BLACK + hint (Clio telnet.l:852)
         var h = new ParserHarness();
         h.Feed(0xA9, 0x9E, 0x9B, 0xFF, 0xFF);
-        Assert.Single(h.Outgoing);
+        Assert.Equal([StaleStats.AllStats], h.ProbeHints);
     }
 
     [Fact]
-    public void C15_DreamwordClear_EmitsFesSubscription()
+    public void C15_DreamwordClear_HintsAllStats()
     {
-        // C15+C00+C01+C255 (0xAA 0x9B 0x9C FF FF) → dreamword cleared + txfes (Clio telnet.l:916-925)
+        // C15+C00+C01+C255 (0xAA 0x9B 0x9C FF FF) → dreamword cleared + hint (Clio telnet.l:916-925)
         var h = new ParserHarness();
         h.Feed(0xAA, 0x9B, 0x9C, 0xFF, 0xFF);
-        Assert.Single(h.Outgoing);
+        Assert.Equal([StaleStats.AllStats], h.ProbeHints);
     }
 
     [Fact]
-    public void C18_WithC00_EmitsFesSubscription()
+    public void C18_WithC00_HintsAllStats()
     {
-        // C18+C00+C255 (0xAD 0x9B FF FF) → WHITE/BLACK + txfes (Clio telnet.l:944-957)
+        // C18+C00+C255 (0xAD 0x9B FF FF) → WHITE/BLACK + hint (Clio telnet.l:944-957)
         var h = new ParserHarness();
         h.Feed(0xAD, 0x9B, 0xFF, 0xFF);
-        Assert.Single(h.Outgoing);
+        Assert.Equal([StaleStats.AllStats], h.ProbeHints);
     }
 
     [Fact]
-    public void C18_Bare_DoesNotEmitFesSubscription()
+    public void C18_Bare_DoesNotHint()
     {
-        // C18+C255 (0xAD FF FF) → WHITE/BLACK only, no payload → no txfes
+        // C18+C255 (0xAD FF FF) → WHITE/BLACK only, no payload → no hint
         var h = new ParserHarness();
         h.Feed(0xAD, 0xFF, 0xFF);
-        Assert.Empty(h.Outgoing);
+        Assert.Empty(h.ProbeHints);
+    }
+
+    // ── C03/C04 inventory hints (items/creatures changing the room contents) ──
+
+    [Fact]
+    public void C03_ItemArriving_HintsInventory()
+    {
+        // 03 01 02 (non-treasure arriving): 0x9E 0x9C 0x9D FF FF
+        var h = new ParserHarness();
+        h.Feed(0x9E, 0x9C, 0x9D, 0xFF, 0xFF);
+        Assert.Equal([StaleStats.Inventory], h.ProbeHints);
+    }
+
+    [Fact]
+    public void C03_ItemDeparting_HintsInventory()
+    {
+        // 03 03 03 (treasure departing): 0x9E 0x9E 0x9E FF FF
+        var h = new ParserHarness();
+        h.Feed(0x9E, 0x9E, 0x9E, 0xFF, 0xFF);
+        Assert.Equal([StaleStats.Inventory], h.ProbeHints);
+    }
+
+    [Fact]
+    public void C03_ItemHere_DoesNotHint()
+    {
+        // 03 01 01 (non-treasure here — part of a look, not a change): no hint
+        var h = new ParserHarness();
+        h.Feed(0x9E, 0x9C, 0x9C, 0xFF, 0xFF);
+        Assert.Empty(h.ProbeHints);
+    }
+
+    [Fact]
+    public void C04_CreatureArriving_HintsInventory()
+    {
+        // 04 00 02 (normal creature arriving): 0x9F 0x9B 0x9D FF FF
+        var h = new ParserHarness();
+        h.Feed(0x9F, 0x9B, 0x9D, 0xFF, 0xFF);
+        Assert.Equal([StaleStats.Inventory], h.ProbeHints);
+    }
+
+    [Fact]
+    public void C04_CreatureHere_DoesNotHint()
+    {
+        // 04 00 01 (normal creature here): no hint
+        var h = new ParserHarness();
+        h.Feed(0x9F, 0x9B, 0x9C, 0xFF, 0xFF);
+        Assert.Empty(h.ProbeHints);
+    }
+
+    // ── C05 presence-name capture (who-list staleness check) ─────────────────
+
+    [Fact]
+    public void C05_MortalArriving_EmitsPresenceName_AndDisplaysText()
+    {
+        var h = new ParserHarness();
+        h.Feed(0x9D, 0x9C, 0xFF, 0xFF);   // C02+C01 → game mode
+        h.ClearCounters();
+        // 05 00 02 (mortal arriving): 0xA0 0x9B 0x9D FF FF brackets the name
+        h.Feed(0xA0, 0x9B, 0x9D, 0xFF, 0xFF);
+        h.Feed("Polly the witch");
+        h.Feed(0xFF, 0xFF);               // pop closes the bracket
+        h.Feed(" has just arrived.\r\n");
+        Assert.Equal(["Polly the witch"], h.PresenceNames);
+        Assert.Empty(h.ProbeHints);       // the membership check is session policy, not the parser's
+        var line = Assert.Single(h.Lines);
+        Assert.Equal("Polly the witch has just arrived.", line.PlainText);
+    }
+
+    [Fact]
+    public void C05_PresenceCode_OutsideGameMode_DoesNotCapture()
+    {
+        var h = new ParserHarness();
+        h.Feed(0xA0, 0x9B, 0x9D, 0xFF, 0xFF);
+        h.Feed("Polly");
+        h.Feed(0xFF, 0xFF);
+        h.Feed("\r\n");
+        Assert.Empty(h.PresenceNames);
+    }
+
+    [Fact]
+    public void C05_WhoListVariant_StillCapturesFewPlayer()
+    {
+        // 05 00 06 (mortal on WHO list) must keep flowing through FewPlayerReady,
+        // not the presence-check path.
+        var h = new ParserHarness();
+        h.Feed(0x9D, 0x9C, 0xFF, 0xFF);   // game mode
+        h.ClearCounters();
+        h.Feed(0xA0, 0x9B, 0xA1, 0xFF, 0xFF);
+        h.Feed("Polly the witch\n");
+        Assert.Equal(["Polly the witch"], h.FewPlayers);
+        Assert.Empty(h.PresenceNames);
     }
 }

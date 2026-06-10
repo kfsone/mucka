@@ -86,6 +86,22 @@ public sealed class MudStreamParser
     /// <summary>A FEI-response context has closed — all item lines have been delivered.</summary>
     public event Action? FeiListComplete;
 
+    /// <summary>
+    /// A C1 code hinted that parts of the player state may have changed (combat hits,
+    /// spells, items/creatures arriving, etc.). The payload says which categories.
+    /// Policy (debounce, probe scheduling) is the consumer's responsibility — the
+    /// parser never sends probes itself.
+    /// </summary>
+    public event Action<StaleStats>? ProbeHintReceived;
+
+    /// <summary>
+    /// A player name bracketed by a C05 presence code (here/arriving/departing/
+    /// visible/invisible/fleeing) was seen outside a FEW response. The named player
+    /// is demonstrably online; consumers can verify it against their cached who list
+    /// and refresh when it is missing.
+    /// </summary>
+    public event Action<string>? PresenceNameSeen;
+
     /// <summary>A single exit keyword from the FEX (Front End eXits) response is ready.</summary>
     public event Action<string>? FexItemReady;
 
@@ -593,6 +609,8 @@ public sealed class MudStreamParser
     internal void EmitClientMode(string data) => ClientModeReceived?.Invoke(data);
     internal void EmitSound(string assetPath) => SoundRequested?.Invoke(assetPath);
     internal void EmitFewPlayer(string name, AnsiColor color) => FewPlayerReady?.Invoke(name, color);
+    internal void EmitProbeHint(StaleStats kinds) => ProbeHintReceived?.Invoke(kinds);
+    internal void EmitPresenceName(string name) => PresenceNameSeen?.Invoke(name);
     internal void EmitRoomEntered() => RoomEntered?.Invoke();    internal void SetAccountInfo(string? accountId, int privs)
     {
         CurrentAccountId = accountId;
@@ -721,6 +739,7 @@ public sealed class MudStreamParser
             case ParserState.C1Ff1:
             case ParserState.FesData:
             case ParserState.FewPlayerData:
+            case ParserState.PresenceNameData:
             case ParserState.DreamwordData:
             case ParserState.C95Data:
             case ParserState.C95LogoutLine:

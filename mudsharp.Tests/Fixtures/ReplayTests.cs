@@ -72,6 +72,7 @@ public sealed class ReplayTests(ITestOutputHelper output)
         output.WriteLine($"Total LineReadyEvent count:       {h.Lines.Count}");
         output.WriteLine($"Total StatsUpdatedEvent count:    {h.Stats.Count}");
         output.WriteLine($"Total OutgoingBytesEvent count:   {h.Outgoing.Count}");
+        output.WriteLine($"Total ProbeHintReceived count:    {h.ProbeHints.Count}");
         output.WriteLine($"Total GameModeEnteredEvent count: {h.GameModeEnteredCount}");
         output.WriteLine($"StatsUpdated with Sta=0&&MaxSta=0:{zeroStatsCount}");
         output.WriteLine($"Lines with C1 byte leak (9B-FE):  {c1LeakLineCount}");
@@ -93,8 +94,8 @@ public sealed class ReplayTests(ITestOutputHelper output)
         Assert.True(h.Lines.Count >= 1,
             "Expected at least one LineReadyEvent");
 
-        Assert.True(h.Outgoing.Count >= 1,
-            "Expected at least one OutgoingBytesEvent (FES subscription)");
+        Assert.True(h.ProbeHints.Count >= 1,
+            "Expected at least one ProbeHintReceived (stale-stats hint from a C1 code)");
 
         if (fromLogin)
             Assert.True(h.Stats.Any(s => s.AccountId != null),

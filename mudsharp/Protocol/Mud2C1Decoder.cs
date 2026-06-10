@@ -40,8 +40,17 @@ internal sealed class Mud2C1Decoder
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    // FES subscription bytes: ESC - [ F E S ESC - ]
-    private static readonly byte[] FesSubscription = { 0x1B, 0x2D, 0x5B, 0x46, 0x45, 0x53, 0x1B, 0x2D, 0x5D };
+    /// <summary>
+    /// Hint that parts of the player state may have changed (the debounced replacement
+    /// for Clio's instant txfes). Suppressed inside FEW/FEI/FEX response contexts —
+    /// codes there are part of a probe reply, not a state change.
+    /// </summary>
+    private void Hint(StaleStats kinds)
+    {
+        if (_parser.InFewResponseContext || _parser.InFeiResponseContext || _parser.InFexResponseContext)
+            return;
+        _parser.EmitProbeHint(kinds);
+    }
 
     private static AnsiColor Clr(int ourCode)
         => (AnsiColor)Math.Clamp(ourCode, 0, 15);
@@ -169,6 +178,7 @@ internal sealed class Mud2C1Decoder
             ParserState.C1Ff1      => OnC1Ff1(b, lead, buf),
             ParserState.FesData    => OnFesData(b, buf),
             ParserState.FewPlayerData   => OnFewPlayerData(b, buf),
+            ParserState.PresenceNameData => OnPresenceNameData(b, buf),
             ParserState.DreamwordData   => OnDreamwordData(b, buf),
             ParserState.C95Data    => OnC95Data(b, buf),
             ParserState.C95LogoutLine   => OnC95LogoutLine(b),
@@ -289,6 +299,40 @@ internal sealed class Mud2C1Decoder
             buf.Clear();
             if (name.Length > 0)
                 _parser.EmitFewPlayer(name, _parser.Ansi.CurrentStyle.Foreground);
+        }
+        _parser.QueueReprocessByte(b);
+        return ParserState.Normal;
+    }
+
+    // ── Presence-name data state (after a C05 presence code) ─────────────────
+    // The C05 presence variants (here/arriving/departing/visible/invisible/fleeing)
+    // bracket a player name who is demonstrably online. Capture it — passing the text
+    // through to the display unchanged — and hand it to the session so it can mark the
+    // who list stale when the name is missing from its cache.
+
+    private ParserState OnPresenceNameData(byte b, List<byte> buf)
+    {
+        if (b >= 0x20 && b < 0x7F)
+        {
+            _parser.EmitChar((char)b);
+            buf.Add(b);
+            return ParserState.PresenceNameData;
+        }
+        // An embedded C1 colour sequence (e.g. a rainbow wiz name): abandon the
+        // presence check — the text so far has already been displayed — and let the
+        // colour code process normally.
+        if (b >= 0x9B && b <= 0xFE)
+        {
+            buf.Clear();
+            _parser.QueueReprocessByte(b);
+            return ParserState.Normal;
+        }
+        if (buf.Count > 0)
+        {
+            var name = Encoding.ASCII.GetString(buf.ToArray()).Trim();
+            buf.Clear();
+            if (name.Length > 0)
+                _parser.EmitPresenceName(name);
         }
         _parser.QueueReprocessByte(b);
         return ParserState.Normal;
@@ -471,6 +515,10 @@ internal sealed class Mud2C1Decoder
                 if (b0 == 0x9B)                         Apply(GREEN,    BLACK);
                 else if (b0 == 0x9C)                    Apply(CYAN,     BLACK);
                 else                                    Apply(LT_CYAN,  BLACK);
+                // Items arriving (03 0x 02) or departing (03 0x 03) change the room
+                // contents of the FEI inventory list.
+                if (count == 2 && b0 is >= 0x9B and <= 0x9E && b1 is 0x9D or 0x9E)
+                    Hint(StaleStats.Inventory);
                 return ParserState.Normal;
 
             // ── C04 (0x9F): MAGENTA / LT_MAGENTA ─────────────────────────────
@@ -480,6 +528,10 @@ internal sealed class Mud2C1Decoder
             // everything else → MAGENTA/BLACK
             case 0x9F:
                 Apply(b0 == 0x9C ? LT_MAGENTA : MAGENTA, BLACK);
+                // Creatures arriving/departing/(in)visible (04 0x 02..08) change the
+                // room contents of the FEI inventory list.
+                if (count == 2 && b0 is 0x9B or 0x9C && b1 is >= 0x9D and <= 0xA3)
+                    Hint(StaleStats.Inventory);
                 return count == 2 && b1 == 0xA1 ? ParserState.FewPlayerData : ParserState.Normal;
 
             // ── C05 (0xA0): RED / LT_RED / LT_YELLOW (combat/damage) ─────────
@@ -497,6 +549,13 @@ internal sealed class Mud2C1Decoder
                 else if (count == 2 && b0 == 0x9C && b1 == 0xA4) Apply(LT_YELLOW, BLACK); // C01+C09
                 else if (b0 == 0x9C) Apply(LT_RED, BLACK);
                 else Apply(RED, BLACK);
+                // Presence variants (05 0x: 01 here, 02 arriving, 03 departing, 04 visible,
+                // 05 invisible, 10 fleeing) bracket the name of a player who is demonstrably
+                // online — capture it for the who-list staleness check.
+                if (count == 2 && b0 is 0x9B or 0x9C
+                    && b1 is 0x9C or 0x9D or 0x9E or 0x9F or 0xA0 or 0xA5
+                    && _parser.InGameMode && !_parser.InFewResponseContext)
+                    return ParserState.PresenceNameData;
                 return ParserState.Normal;
 
             // ── C06 (0xA1): LT_BLUE (magical/special) + txfes ───────────────
@@ -506,16 +565,18 @@ internal sealed class Mud2C1Decoder
             case 0xA1:
                 Apply(LT_BLUE, BLACK);
                 if (!(count == 1 && b0 == 0xA1))
-                    _parser.EmitOutgoing(FesSubscription);
+                    Hint(StaleStats.AllStats);
                 Sound(6);
                 return ParserState.Normal;
 
-            // ── C07 (0xA2): RED/BLACK + txfes (important messages) ──────────
-            // All C07 variants trigger txfes (Clio telnet.l:587-620)
+            // ── C07 (0xA2): RED/BLACK + stamina hint (isolated hits) ────────
+            // All C07 variants trigger txfes in Clio (telnet.l:587-620); isolated hits
+            // change stamina, and the server usually follows with an inline "(sta/max)"
+            // line — the debounced hint lets that update land before any probe.
             // Sound payload: count==0 → 070000, count==1 → 07NN, count==2 → 07NNMM (Clio sound.c)
             case 0xA2:
                 Apply(RED, BLACK);
-                _parser.EmitOutgoing(FesSubscription);
+                Hint(StaleStats.Stamina);
                 switch (count)
                 {
                     case 0: Sound(7, 0, 0); break;
@@ -542,10 +603,27 @@ internal sealed class Mud2C1Decoder
                     case 0xA8:                 Apply(BLACK,   RED);   break;  // C13
                     default:                   Apply(RED,     BLACK); break;
                 }
-                // txfes: C01, C03 (Clio:623,628), C08 (Clio:641), C10/C11/C12 (Clio:645-650)
-                // NOT C00, C02, C04 (Clio:633-636 — plain RED, no txfes)
-                if (b0 is 0x9C or 0x9E or 0xA3 or 0xA5 or 0xA6 or 0xA7)
-                    _parser.EmitOutgoing(FesSubscription);
+                // Stamina hints: bare C08 (fight starts), C03 (they hit you — usually
+                // followed by an inline "(sta/max)" that cancels the probe), C05 (weapon
+                // change), C08 (you killed them), C10/C11/C12 (fight ends).
+                // NOT C01/C02/C04 (your hits and misses either way don't change YOUR
+                // stats — Clio txfes'd C01 but that just spammed probes every swing).
+                // Inventory hints: C05 (weapon change), C06 (dropped guard) — the held
+                // weapon shown in the FEI carry list may have changed.
+                {
+                    var hint = StaleStats.None;
+                    if (count == 0 || (count == 1 && b0 is 0x9E or 0xA0 or 0xA3 or 0xA5 or 0xA6 or 0xA7))
+                        hint |= StaleStats.Stamina;
+                    if (count == 1 && b0 is 0xA0 or 0xA1)
+                        hint |= StaleStats.Inventory;
+                    if (hint != StaleStats.None)
+                        Hint(hint);
+                }
+                // C13: persona not updated (wiped) — zero the persona stats locally;
+                // no probe will bring them back.
+                if (count == 1 && b0 == 0xA8)
+                    _parser.EmitStatsUpdate(new GameStatsSnapshot(
+                        Stamina: 0, Score: 0, Strength: 0, Dexterity: 0, CurrentMagic: 0));
                 // Sound: C01→0801, C03→0803 (Clio sound.c)
                 if (b0 == 0x9C) Sound(8, 1);
                 else if (b0 == 0x9E) Sound(8, 3);
@@ -573,7 +651,8 @@ internal sealed class Mud2C1Decoder
                 Apply(LT_RED, BLACK);
                 if (count == 1 && b0 is not (0xA1 or 0xA4 or 0xA9))
                 {
-                    _parser.EmitOutgoing(FesSubscription);
+                    // Spells starting/ending can change any stat or status flag.
+                    Hint(StaleStats.AllStats);
                     Sound(11, b0 - 0x9B);
                 }
                 return ParserState.Normal;
@@ -696,7 +775,7 @@ internal sealed class Mud2C1Decoder
                     Apply(GREEN, BLACK);
                 }
                 if (emitTxFes)
-                    _parser.EmitOutgoing(FesSubscription);
+                    Hint(StaleStats.AllStats);
                 // Sound: C14+C03+C02+C255 → rain on trees 140302 (Clio sound.c)
                 if (count == 2 && b0 == 0x9E && b1 == 0x9D)
                     Sound(14, 3, 2);
@@ -716,10 +795,10 @@ internal sealed class Mud2C1Decoder
                 }
                 if (count == 2 && b0 == 0x9B && b1 == 0x9C)
                 {
-                    // Dreamword cleared + txfes
+                    // Dreamword cleared + stale hint (Clio txfes)
                     Apply(BLACK, CYAN);
                     _parser.EmitDreamwordChanged(null);
-                    _parser.EmitOutgoing(FesSubscription);
+                    Hint(StaleStats.AllStats);
                     return ParserState.Normal;
                 }
                 Apply(BLACK, CYAN);
@@ -741,7 +820,7 @@ internal sealed class Mud2C1Decoder
                 Apply(WHITE, BLACK);
                 if (count == 1 && b0 >= 0x9B && b0 <= 0xA1) // C00..C06
                 {
-                    _parser.EmitOutgoing(FesSubscription);
+                    Hint(StaleStats.AllStats);
                     Sound(18, b0 - 0x9B);
                 }
                 return ParserState.Normal;
