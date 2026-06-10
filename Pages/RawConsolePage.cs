@@ -287,12 +287,38 @@ internal sealed class RawConsolePage : ContentPage
     /// <summary>
     /// Scrolls the output editor to the end, but only when the user has no active
     /// text selection — so selecting text to copy isn't disrupted by incoming traffic.
+    ///
+    /// Drives the TextBox's inner ScrollViewer directly rather than Select(end) caret
+    /// tracking: Select() only scrolls a TextBox that has keyboard focus (this one never
+    /// does under the main window's focus pinning), and the Win32 caret is a per-thread
+    /// singleton — repositioning it from this window every 50ms broke caret-follow in
+    /// the main window's input box.
     /// </summary>
     private void ScrollOutputToEnd()
     {
-        if (_outputEditor.Handler?.PlatformView is Microsoft.UI.Xaml.Controls.TextBox tb
-            && tb.SelectionLength == 0)
-            tb.Select(tb.Text.Length, 0);
+        if (_outputEditor.Handler?.PlatformView is not Microsoft.UI.Xaml.Controls.TextBox tb
+            || tb.SelectionLength > 0)
+            return;
+        if (FindScrollViewer(tb) is not { } scroller)
+            return;
+        // The Text assignment that precedes this call hasn't been measured yet; force the
+        // layout pass so ScrollableHeight reflects the appended lines before we jump.
+        tb.UpdateLayout();
+        scroller.ChangeView(null, scroller.ScrollableHeight, null, disableAnimation: true);
+    }
+
+    private static Microsoft.UI.Xaml.Controls.ScrollViewer? FindScrollViewer(Microsoft.UI.Xaml.DependencyObject root)
+    {
+        int count = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(root);
+        for (int i = 0; i < count; i++)
+        {
+            var child = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(root, i);
+            if (child is Microsoft.UI.Xaml.Controls.ScrollViewer sv)
+                return sv;
+            if (FindScrollViewer(child) is { } nested)
+                return nested;
+        }
+        return null;
     }
 
     // ── Byte escape formatting ────────────────────────────────────────────

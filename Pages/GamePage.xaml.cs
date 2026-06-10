@@ -44,6 +44,7 @@ public partial class GamePage : ContentPage
 #if WINDOWS
     private Window? _rawConsoleWindow;
     private Microsoft.UI.Xaml.Controls.TextBox? _inputTextBox;
+    private Microsoft.UI.Xaml.Controls.ScrollViewer? _inputScroller;   // _inputTextBox's inner ScrollViewer
     private Microsoft.UI.Xaml.UIElement? _terminalElement;   // SKXamlCanvas, for wheel scrollback
     private Microsoft.UI.Xaml.UIElement? _fnButtonElement;   // Fn button, for right-tap → settings
     private Microsoft.UI.Xaml.Input.PointerEventHandler? _rootPointerHandler;
@@ -268,7 +269,9 @@ public partial class GamePage : ContentPage
         if (_inputTextBox != null)
         {
             _inputTextBox.PreviewKeyDown -= OnInputPreviewKeyDown;
+            _inputTextBox.SelectionChanged -= OnInputSelectionChanged;
             _inputTextBox = null;
+            _inputScroller = null;
         }
         InputEntry.HandlerChanged -= OnInputHandlerChanged;
         FnButton.HandlerChanged -= OnFnButtonHandlerChanged;
@@ -857,12 +860,15 @@ public partial class GamePage : ContentPage
         if (_inputTextBox != null)
         {
             _inputTextBox.PreviewKeyDown -= OnInputPreviewKeyDown;
+            _inputTextBox.SelectionChanged -= OnInputSelectionChanged;
             _inputTextBox = null;
+            _inputScroller = null;
         }
         if (InputEntry.Handler?.PlatformView is Microsoft.UI.Xaml.Controls.TextBox tb)
         {
             _inputTextBox = tb;
             tb.PreviewKeyDown += OnInputPreviewKeyDown;
+            tb.SelectionChanged += OnInputSelectionChanged;
             // Shadow the ReturnCommand with a local null so MAUI's KeyDown handler
             // (registered with handledEventsToo:true) sees null and skips execution.
             // Do NOT use RemoveBinding — that fires PropertyChanged which causes MAUI's
@@ -887,6 +893,41 @@ public partial class GamePage : ContentPage
             tb.TextChanged += OnInputDiagTextChanged;
 #endif
         }
+    }
+
+    // WinUI's TextBox stops bringing the caret into view after another window in the
+    // app (the $con raw console) has been activated and focus returns to this one —
+    // typed text appends past the right edge and the box stays anchored left. The
+    // internal auto-scroll never recovers, so track the caret ourselves: whenever the
+    // caret sits at the end of the text (the typing case), pin the inner ScrollViewer
+    // to its right edge. A no-op while the native behaviour works, and it doesn't
+    // disturb selections or mid-text caret moves.
+    private void OnInputSelectionChanged(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
+    {
+        var tb = _inputTextBox;
+        if (tb is null || tb.SelectionLength != 0 || tb.SelectionStart < tb.Text.Length)
+            return;
+        _inputScroller ??= FindChildScrollViewer(tb);
+        if (_inputScroller is null) return;
+        // The text change that moved the caret may not be measured yet; settle layout
+        // so ScrollableWidth includes the new character before pinning to the edge.
+        tb.UpdateLayout();
+        if (_inputScroller.ScrollableWidth > 0)
+            _inputScroller.ChangeView(_inputScroller.ScrollableWidth, null, null, disableAnimation: true);
+    }
+
+    private static Microsoft.UI.Xaml.Controls.ScrollViewer? FindChildScrollViewer(Microsoft.UI.Xaml.DependencyObject root)
+    {
+        int count = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(root);
+        for (int i = 0; i < count; i++)
+        {
+            var child = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(root, i);
+            if (child is Microsoft.UI.Xaml.Controls.ScrollViewer sv)
+                return sv;
+            if (FindChildScrollViewer(child) is { } nested)
+                return nested;
+        }
+        return null;
     }
 
     // Right-click (mouse) on the Fn button opens the settings page; left-click still
