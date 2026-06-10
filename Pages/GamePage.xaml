@@ -3,6 +3,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              xmlns:vm="clr-namespace:Mucka.ViewModels"
              xmlns:render="clr-namespace:Mucka.Rendering"
+             xmlns:beh="clr-namespace:Mucka.Behaviors"
              x:Class="Mucka.Pages.GamePage"
              x:DataType="vm:GameViewModel"
              Title="mucka"
@@ -558,9 +559,12 @@
                      bottom-pinned room block sitting in the corner above the input ── -->
                 <Grid RowDefinitions="Auto,*,Auto">
 
-                            <!-- Top: online players, anchored, grows downward -->
-                            <VerticalStackLayout Grid.Row="0" Padding="8,6,8,4" Spacing="2"
-                                                 Opacity="{Binding SidePanel.FewSectionOpacity}">
+                            <!-- Top: online players, anchored, grows downward.
+                                 Compositor (off-UI-thread) stale-dim when an FEW update is late. -->
+                            <VerticalStackLayout Grid.Row="0" Padding="8,6,8,4" Spacing="2">
+                                <VerticalStackLayout.Behaviors>
+                                    <beh:StaleDimBehavior Source="Few"/>
+                                </VerticalStackLayout.Behaviors>
                                 <Label Text="Online" TextColor="#58a6ff" FontSize="11"/>
                                 <ScrollView MaximumHeightRequest="180">
                                     <VerticalStackLayout Spacing="1"
@@ -569,9 +573,13 @@
                                             <DataTemplate x:DataType="vm:WhoEntry">
                                                 <Label Text="{Binding Name}"
                                                        TextColor="{Binding DisplayColor}"
-                                                       Opacity="{Binding Opacity}"
                                                        FontSize="11"
-                                                       FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
+                                                       FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}">
+                                                    <!-- Compositor (off-UI-thread) fade in/out on join/leave. -->
+                                                    <Label.Behaviors>
+                                                        <beh:WhoEntryFadeBehavior/>
+                                                    </Label.Behaviors>
+                                                </Label>
                                             </DataTemplate>
                                         </BindableLayout.ItemTemplate>
                                     </VerticalStackLayout>
@@ -582,7 +590,10 @@
                             <!-- Middle: Carrying then Here (FEI), scrollable — fades when stale (>15 s without refresh).
                                  Docked to the bottom of the free space, growing upward toward the online list. -->
                             <ScrollView Grid.Row="1" Padding="8,4" VerticalOptions="End">
-                                <VerticalStackLayout Spacing="4" Opacity="{Binding SidePanel.FeiSectionOpacity}">
+                                <VerticalStackLayout Spacing="4">
+                                    <VerticalStackLayout.Behaviors>
+                                        <beh:StaleDimBehavior Source="Fei"/>
+                                    </VerticalStackLayout.Behaviors>
 
                                         <!-- Carrying -->
                                         <Label Text="Carrying" TextColor="#58a6ff" FontSize="11"/>

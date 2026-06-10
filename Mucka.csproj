@@ -45,6 +45,13 @@
 		<TargetPlatformMinVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</TargetPlatformMinVersion>
 	</PropertyGroup>
 
+	<!-- Input-latency diagnostics: build with `dotnet build -p:InputDiag=true` (Windows) to
+	     compile in the INPUT_DIAG instrumentation (UI-thread stall probe, binding-mode self-check,
+	     per-keystroke timeline). Writes to %TEMP%\mucka-input.txt. Off by default → zero cost. -->
+	<PropertyGroup Condition="'$(InputDiag)' == 'true'">
+		<DefineConstants>$(DefineConstants);INPUT_DIAG</DefineConstants>
+	</PropertyGroup>
+
 	<PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android' and '$(Configuration)' == 'Release'">
 		<!-- arm64-v8a covers every Android phone since ~2015; omitting 32-bit/x86 slashes APK size significantly -->
 		<RuntimeIdentifiers>android-arm64</RuntimeIdentifiers>

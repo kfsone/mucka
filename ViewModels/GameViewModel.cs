@@ -65,7 +65,19 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     // History buffer for the (future) history panel — kept separately from the live view.
     private readonly List<StyledLine> _historyBuffer = new();
 
-    public string InputText { get => _inputText; set => Set(ref _inputText, value); }
+    // INPUT_DIAG: the setter should fire only on deliberate pushes (send-clear, history nav,
+    // Escape) — NOT once per typed character. Per-character firing here proves the Entry's Text
+    // binding has regressed from the OneWay fast path back to TwoWay (the recurring lag bug).
+    public string InputText
+    {
+        get => _inputText;
+        set
+        {
+            value ??= string.Empty;   // InputText is never null; also makes the assignment below non-null
+            Core.InputDiag.Log($"VM.InputText set len={value.Length} \"{value}\"");
+            Set(ref _inputText, value);
+        }
+    }
     public int Stamina    { get => _stamina;    set => SetAndNotify(ref _stamina,    value, [nameof(StaText), nameof(StaCurValue), nameof(StaColor)]); }
     public int MaxStamina { get => _maxStamina; set => SetAndNotify(ref _maxStamina, value, [nameof(StaText), nameof(StaMaxValue)]); }
     public int Strength    { get => _strength;    set => SetAndNotify(ref _strength,    value, [nameof(StrText), nameof(StrCurValue), nameof(StrColor)]); }
@@ -565,6 +577,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     {
         MainThread.BeginInvokeOnMainThread(() =>
         {
+            Core.InputDiag.Log("STATS update");
             // Write all backing fields directly to avoid per-property cascading notifications,
             // then raise all affected property-changed events in one batch at the end.
             _stamina      = stats.Stamina      ?? 0;

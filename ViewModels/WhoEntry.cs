@@ -10,8 +10,6 @@ public sealed class WhoEntry : INotifyPropertyChanged
 
     private string _name;
     private Color  _color;
-    private double _opacity      = 1.0;
-    private float  _glowProgress = 1.0f;  // 0 = peak glow (white), 1 = normal wire color
 
     /// <summary>
     /// The first word of <see cref="Name"/> — the persona name without title or level
@@ -59,47 +57,25 @@ public sealed class WhoEntry : INotifyPropertyChanged
         }
     }
 
-    /// <summary>
-    /// The rendered text color: blends from white (glow peak) to <see cref="Color"/> (normal)
-    /// as <see cref="GlowSince"/> elapses.  Bind the XAML label to this, not <see cref="Color"/>.
-    /// </summary>
-    public Color DisplayColor
-    {
-        get
-        {
-            if (_glowProgress >= 1.0f) return _color;
-            var g = _glowProgress;
-            return Color.FromRgba(
-                1.0f - g + _color.Red   * g,
-                1.0f - g + _color.Green * g,
-                1.0f - g + _color.Blue  * g,
-                1.0f);
-        }
-    }
+    /// <summary>The text color the XAML label binds to. (Was a glow-blend driven by the old
+    /// UI-thread fade timer; arrival/departure animation is now a GPU compositor fade — see
+    /// <c>WhoEntryFadeBehavior</c> — so this is just the wire color.)</summary>
+    public Color DisplayColor => _color;
 
-    /// <summary>Current display opacity (1.0 = fully visible; animates toward 0 when departing).</summary>
-    public double Opacity
+    private bool _isDeparting;
+    /// <summary>True once the player has left: the entry stays in the list while
+    /// <c>WhoEntryFadeBehavior</c> runs a GPU fade-out, then the view-model removes it. Reset to
+    /// false (cancelling the fade and the pending removal) if the player reappears in time.</summary>
+    public bool IsDeparting
     {
-        get => _opacity;
+        get => _isDeparting;
         set
         {
-            if (_opacity == value) return;
-            _opacity = value;
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Opacity)));
+            if (_isDeparting == value) return;
+            _isDeparting = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsDeparting)));
         }
     }
-
-    /// <summary>
-    /// Set to the UTC time when the player was marked as having departed.
-    /// Null means the player is present. Used by the fade timer to animate and remove the entry.
-    /// </summary>
-    public DateTime? DepartingSince { get; set; }
-
-    /// <summary>
-    /// Set to the UTC time when a glow was started (new arrival or updated name/level).
-    /// Null means no glow is active.
-    /// </summary>
-    public DateTime? GlowSince { get; set; }
 
     public WhoEntry(string name, Color color)
     {
@@ -114,25 +90,6 @@ public sealed class WhoEntry : INotifyPropertyChanged
     {
         IsInvisible = name.Length >= 2 && name[0] == '(' && name[^1] == ')';
         PersonaName = FirstWord(IsInvisible ? name[1..^1] : name);
-    }
-
-    /// <summary>
-    /// Begin a glow animation (white → wire color over the configured duration).
-    /// Call on the UI thread before adding to / after updating the list.
-    /// </summary>
-    internal void StartGlow()
-    {
-        GlowSince = DateTime.UtcNow;
-        SetGlowProgress(0f);
-    }
-
-    /// <summary>Advance glow interpolation; called every timer tick.</summary>
-    internal void SetGlowProgress(float progress)
-    {
-        var clamped = Math.Clamp(progress, 0f, 1f);
-        if (Math.Abs(_glowProgress - clamped) < 0.004f) return;
-        _glowProgress = clamped;
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(DisplayColor)));
     }
 
     private static string FirstWord(string s)

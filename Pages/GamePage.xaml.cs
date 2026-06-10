@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using Mucka.Core;
 using Mucka.ViewModels;
 
 namespace Mucka.Pages;
@@ -46,6 +47,10 @@ public partial class GamePage : ContentPage
     private Microsoft.UI.Xaml.UIElement? _terminalElement;   // SKXamlCanvas, for wheel scrollback
     private Microsoft.UI.Xaml.UIElement? _fnButtonElement;   // Fn button, for right-tap → settings
     private Microsoft.UI.Xaml.Input.PointerEventHandler? _rootPointerHandler;
+    // Window root element — holds the keyboard accelerators (hotkeys) and, only while in
+    // scrollback, the temporary key handler. Kept so both can be torn down on disappear.
+    private Microsoft.UI.Xaml.UIElement? _rootElement;
+    private readonly List<Microsoft.UI.Xaml.Input.KeyboardAccelerator> _accelerators = new();
     private int _wheelAccum;   // accumulates wheel delta so touchpad drift doesn't trip scrollback
     // ── Window minimum-size enforcement ─────────────────────────────────────
     // Must match the WidthRequest of the side-panel Border in GamePage.xaml.
@@ -71,6 +76,14 @@ public partial class GamePage : ContentPage
     private int              _minWindowWidthPx;
     private IntPtr           _hwnd = IntPtr.Zero;
     private WndProcDelegate? _wndProcDelegate;
+#if INPUT_DIAG
+    // UI-thread responsiveness probe: a 16ms low-overhead heartbeat. Each tick measures the gap
+    // since the previous tick — if the gap balloons past the interval, the UI thread was blocked
+    // (e.g. by a terminal repaint or a layout pass) for that long, which is exactly the stall that
+    // reads as typing lag. Active only in INPUT_DIAG builds.
+    private Microsoft.UI.Dispatching.DispatcherQueueTimer? _uiProbeTimer;
+    private DateTime _uiProbeLast;
+#endif
 #endif
 
     public GamePage(GameViewModel vm, bool exitOnDisconnect = false)
@@ -121,15 +134,18 @@ public partial class GamePage : ContentPage
 #if WINDOWS
             try
             {
-                // Hook window root for F1-F12 physical key events (fires regardless of focus)
-                // and to keep keyboard focus pinned to the input box (GettingFocus bounce).
+                // Hook window root to keep keyboard focus pinned to the input box (GettingFocus
+                // bounce) and to register hotkeys as KeyboardAccelerators. Hotkeys are NOT a
+                // per-keystroke handler: the framework invokes our callback only when an
+                // accelerator matches, so ordinary typing runs zero managed key code.
                 if (Window?.Handler?.PlatformView is Microsoft.UI.Xaml.Window fwin &&
                     fwin.Content is Microsoft.UI.Xaml.UIElement froot)
                 {
+                    _rootElement = froot;
                     // WinUI Activated fires synchronously before pointer events, so the
                     // activation timestamp is always set before PointerPress can run.
                     fwin.Activated += OnWinUIWindowActivated;
-                    froot.PreviewKeyDown += OnRootPreviewKeyDown;
+                    RegisterHotkeyAccelerators(froot);
                     froot.GettingFocus += OnRootGettingFocus;
                     froot.LosingFocus += OnRootLosingFocus;
                     // Catch-all: ANY click on the game page hands focus back to the input box
@@ -166,6 +182,9 @@ public partial class GamePage : ContentPage
                 // Size the window once so the terminal view fits ~82 columns + the side panel,
                 // rather than inheriting WinUI's oversized default window width.
                 SetPreferredInitialWindowSize();
+#if INPUT_DIAG
+                StartUiThreadProbe();
+#endif
             }
             catch (Exception ex) { LogCrash("OnAppearing/Windows", ex); }
 #endif
@@ -230,7 +249,8 @@ public partial class GamePage : ContentPage
             fwin.Content is Microsoft.UI.Xaml.UIElement froot)
         {
             fwin.Activated -= OnWinUIWindowActivated;
-            froot.PreviewKeyDown -= OnRootPreviewKeyDown;
+            UnregisterHotkeyAccelerators();
+            froot.PreviewKeyDown -= OnScrollbackKeyDown;   // no-op if not in scrollback
             froot.GettingFocus -= OnRootGettingFocus;
             froot.LosingFocus -= OnRootLosingFocus;
             if (_rootPointerHandler is not null)
@@ -269,6 +289,9 @@ public partial class GamePage : ContentPage
         _vm.OpenRawConsoleRequested -= OnOpenRawConsoleRequested;
         _vm.SidePanel.PropertyChanged -= OnSidePanelPropertyChanged;
         TeardownWindowMinimumSize();
+#if INPUT_DIAG
+        StopUiThreadProbe();
+#endif
 #endif
         _ = _vm.DisposeAsync();
     }
@@ -284,7 +307,10 @@ public partial class GamePage : ContentPage
         // is sub-millisecond, so there is no need to defer this off the keyboard's priority lane.
         var newLines = _vm.FlushPendingLines();
         if (newLines is { Count: > 0 })
+        {
+            InputDiag.Log($"FLUSH n={newLines.Count}");
             Terminal.AppendLines(newLines);
+        }
     }
 
     // Character width in MAUI logical pixels — delegates to the view-model so both
@@ -377,6 +403,20 @@ public partial class GamePage : ContentPage
             ResizeWindowToFitColumns();
 #endif
         }
+#if WINDOWS
+        else if (e.PropertyName == nameof(GameViewModel.InputText))
+        {
+            // Windows drives the native TextBox manually (the Text binding is removed in
+            // OnInputHandlerChanged — see the rationale there). Push deliberate VM changes
+            // (clear-on-send, history nav, Escape) into the box and park the cursor at the end.
+            // The != guard makes the Enter-path's "read native into VM" set a harmless no-op.
+            if (_inputTextBox is not null && _inputTextBox.Text != _vm.InputText)
+            {
+                _inputTextBox.Text = _vm.InputText;
+                _inputTextBox.SelectionStart = _inputTextBox.Text.Length;
+            }
+        }
+#endif
     }
 
     private void OnSettingsSaved() => ShowToast("* Settings saved");
@@ -401,6 +441,16 @@ public partial class GamePage : ContentPage
         // them, so the input row's measured height never changes — the text view above must not
         // reflow when entering/leaving scrollback.
         ScrollbackBar.IsVisible = Terminal.IsHistoryMode;
+#if WINDOWS
+        // Attach the scrollback key handler ONLY while reviewing history; detach on return so it
+        // is never in the live typing path. (Detach is idempotent if it was never attached.)
+        if (_rootElement is not null)
+        {
+            _rootElement.PreviewKeyDown -= OnScrollbackKeyDown;
+            if (Terminal.IsHistoryMode)
+                _rootElement.PreviewKeyDown += OnScrollbackKeyDown;
+        }
+#endif
         if (!Terminal.IsHistoryMode) FocusInput();
     }
 
@@ -592,7 +642,18 @@ public partial class GamePage : ContentPage
     private void OnSidePanelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
         if (e.PropertyName == nameof(SidePanelViewModel.IsPanelExpanded))
+        {
             UpdateWindowMinimumWidth();
+            // Toggling the panel can resize the window (its min width changes), and that resize
+            // lands keyboard focus elsewhere AFTER TogglePanelCommand's own RequestFocus has
+            // already fired — so the input box is left unfocused. Re-assert focus once the resize
+            // and re-layout have settled (a plain dispatch still races it; a short delay wins).
+            Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(50), () =>
+            {
+                if (!_isFkeyEditorOpen && !Terminal.IsHistoryMode && !InputEntry.IsFocused)
+                    _inputTextBox?.Focus(Microsoft.UI.Xaml.FocusState.Programmatic);
+            });
+        }
     }
 
     [System.Runtime.InteropServices.DllImport("user32.dll")]
@@ -707,87 +768,88 @@ public partial class GamePage : ContentPage
         }
     }
 
-    private void OnRootPreviewKeyDown(object sender, Microsoft.UI.Xaml.Input.KeyRoutedEventArgs e)
+    // ── Hotkeys as KeyboardAccelerators (NOT a per-keystroke handler) ────────
+    // The framework matches these natively and invokes our callback only on a hit, so plain
+    // typing never runs any of this. Every callback is gated on _isFkeyEditorOpen (the game
+    // root's accelerators are still live under the modal editor) and marks itself Handled.
+    private void RegisterHotkeyAccelerators(Microsoft.UI.Xaml.UIElement root)
     {
-        if (_isFkeyEditorOpen) return;
-        var key = e.Key;
-        // Any non-modifier keypress marks the keyboard as recently active so an accidental
-        // touchpad tap in the next 300 ms does not trigger scrollback.
-        if (!IsModifierKey(key))
-            Terminal.NotifyKeyPressed();
-        bool ctrl  = (GetKeyState((int)Windows.System.VirtualKey.Control) & 0x8000) != 0;
-        bool shift = (GetKeyState((int)Windows.System.VirtualKey.Shift)   & 0x8000) != 0;
-
-        // The About overlay sits over everything — Escape dismisses it first.
-        if (key == Windows.System.VirtualKey.Escape && TryCloseAbout())
+        void Add(Windows.System.VirtualKey key, Windows.System.VirtualKeyModifiers mods, Action action)
         {
+            var acc = new Microsoft.UI.Xaml.Input.KeyboardAccelerator { Key = key, Modifiers = mods };
+            acc.Invoked += (_, e) =>
+            {
+                e.Handled = true;                 // we own this combo; don't let it fall through
+                if (_isFkeyEditorOpen) return;    // editor is up — hotkeys are inert
+                action();
+            };
+            root.KeyboardAccelerators.Add(acc);
+            _accelerators.Add(acc);
+        }
+
+        // F1-F12 with no modifier / Shift / Ctrl → macro slots 0-11 / 12-23 / 24-35.
+        for (int f = 0; f < 12; f++)
+        {
+            var key = (Windows.System.VirtualKey)((int)Windows.System.VirtualKey.F1 + f);
+            int slot = f;
+            Add(key, Windows.System.VirtualKeyModifiers.None,    () => _vm.SendFkeyAbsolute(slot));
+            Add(key, Windows.System.VirtualKeyModifiers.Shift,   () => _vm.SendFkeyAbsolute(12 + slot));
+            Add(key, Windows.System.VirtualKeyModifiers.Control, () => _vm.SendFkeyAbsolute(24 + slot));
+        }
+
+        // Ctrl+D speak dreamword (exits scrollback first if reviewing — dreamwords are
+        // time-critical); Ctrl+L clear screen; Ctrl+` window selfie.
+        Add(Windows.System.VirtualKey.D, Windows.System.VirtualKeyModifiers.Control,
+            () => { if (Terminal.IsHistoryMode) Terminal.ScrollToBottom(); _vm.SpeakDreamword(); });
+        Add(Windows.System.VirtualKey.L, Windows.System.VirtualKeyModifiers.Control, () => _vm.ClearScreen());
+        Add((Windows.System.VirtualKey)0xC0, Windows.System.VirtualKeyModifiers.Control, () => _ = TakeSelfieAsync());
+
+        // PageUp/PageDown scroll history; PageUp from live enters scrollback. These stay live in
+        // both modes (the scrollback handler, when attached, handles them before accelerators).
+        Add(Windows.System.VirtualKey.PageUp,   Windows.System.VirtualKeyModifiers.None, () => Terminal.ScrollByPages(1));
+        Add(Windows.System.VirtualKey.PageDown, Windows.System.VirtualKeyModifiers.None, () => Terminal.ScrollByPages(-1));
+    }
+
+    private void UnregisterHotkeyAccelerators()
+    {
+        if (_rootElement is not null)
+            foreach (var acc in _accelerators)
+                _rootElement.KeyboardAccelerators.Remove(acc);
+        _accelerators.Clear();
+        _rootElement = null;
+    }
+
+    // Scrollback-only key handler. Attached to the window root ONLY while reviewing history
+    // (OnHistoryModeChanged) and detached on exit, so it is NEVER in the live typing path.
+    // Handles scroll/copy/exit keys and swallows everything else (no typing in scrollback).
+    private void OnScrollbackKeyDown(object sender, Microsoft.UI.Xaml.Input.KeyRoutedEventArgs e)
+    {
+        var key = e.Key;
+        if (IsModifierKey(key)) return;   // lone modifiers pass through harmlessly
+        bool ctrl = (GetKeyState((int)Windows.System.VirtualKey.Control) & 0x8000) != 0;
+
+        if (ctrl && key == Windows.System.VirtualKey.C)
+        {
+            if (Terminal.CopySelectionToClipboard()) ShowCopiedToast();
             e.Handled = true;
             return;
         }
-
-        // ── Scrollback navigation ────────────────────────────────────────────
-        // PageUp/PageDown scroll history (PageUp enters it from live). While reviewing
-        // history the input buffer is blocked: handle scroll/exit keys and swallow the rest.
-        if (key == Windows.System.VirtualKey.PageUp)   { Terminal.ScrollByPages(1);  e.Handled = true; return; }
-        if (key == Windows.System.VirtualKey.PageDown) { Terminal.ScrollByPages(-1); e.Handled = true; return; }
-        if (Terminal.IsHistoryMode)
-        {
-            // Ctrl+C copies the selection without leaving scrollback.
-            if (ctrl && key == Windows.System.VirtualKey.C)
-            {
-                if (Terminal.CopySelectionToClipboard()) ShowCopiedToast();
-                e.Handled = true;
-                return;
-            }
-            // Ctrl+D escapes scrollback and speaks the dreamword — dreamwords are
-            // time-critical, so it must work mid-review.
-            if (ctrl && key == Windows.System.VirtualKey.D)
-            {
-                Terminal.ScrollToBottom();
-                _vm.SpeakDreamword();
-                e.Handled = true;
-                return;
-            }
-            switch (key)
-            {
-                case Windows.System.VirtualKey.Home:
-                    Terminal.ScrollToTop();    e.Handled = true; return;
-                case Windows.System.VirtualKey.End:
-                case Windows.System.VirtualKey.Escape:
-                    Terminal.ScrollToBottom(); e.Handled = true; return;
-            }
-            if (IsModifierKey(key)) return;   // lone modifiers pass through harmlessly
-            e.Handled = true;                 // swallow all other keys — input box is hidden in scrollback
-            return;
-        }
-
         if (ctrl && key == Windows.System.VirtualKey.D)
         {
+            Terminal.ScrollToBottom();
             _vm.SpeakDreamword();
             e.Handled = true;
             return;
         }
-        if (ctrl && key == Windows.System.VirtualKey.L)
+        switch (key)
         {
-            _vm.ClearScreen();
-            e.Handled = true;
-            return;
+            case Windows.System.VirtualKey.PageUp:   Terminal.ScrollByPages(1);  e.Handled = true; return;
+            case Windows.System.VirtualKey.PageDown: Terminal.ScrollByPages(-1); e.Handled = true; return;
+            case Windows.System.VirtualKey.Home:     Terminal.ScrollToTop();     e.Handled = true; return;
+            case Windows.System.VirtualKey.End:
+            case Windows.System.VirtualKey.Escape:   Terminal.ScrollToBottom();  e.Handled = true; return;
         }
-        if (ctrl && (int)key == 0xC0)  // Ctrl+` (OEM_3 / backtick)
-        {
-            _ = TakeSelfieAsync();
-            e.Handled = true;
-            return;
-        }
-
-        if (key < Windows.System.VirtualKey.F1 || key > Windows.System.VirtualKey.F12)
-            return;
-
-        int fkeyNum = (int)key - (int)Windows.System.VirtualKey.F1; // 0-11
-        int absoluteIndex = ctrl ? 24 + fkeyNum : shift ? 12 + fkeyNum : fkeyNum;
-
-        _vm.SendFkeyAbsolute(absoluteIndex);
-        e.Handled = true;
+        e.Handled = true;   // swallow all other keys — input box is hidden in scrollback
     }
 
     private void OnInputHandlerChanged(object? sender, EventArgs e)
@@ -808,13 +870,22 @@ public partial class GamePage : ContentPage
             // restoring ReturnCommand=SendCommand and producing a second send.
             // A plain null SetValue shadows the live binding without disturbing it.
             InputEntry.ReturnCommand = null;
-            // Switch Text from TwoWay to OneWay: the native TextBox owns its text state
-            // during typing — no per-keystroke PropertyChanged round-trips through MAUI.
-            // The ViewModel pushes via OneWay only when InputText changes deliberately
-            // (history nav, clear-on-send, Escape), keeping the keyboard path zero-cost.
-            // On Enter we read _inputTextBox.Text directly as the authoritative value.
-            InputEntry.SetBinding(Entry.TextProperty,
-                new Binding(nameof(GameViewModel.InputText), BindingMode.OneWay));
+            // Remove the Text binding entirely on Windows and drive the native TextBox by hand.
+            // The XAML binding is TwoWay (Android/Mac rely on it), and a runtime SetBinding(OneWay)
+            // was proven NOT to stick — INPUT_DIAG showed VM.InputText written on EVERY keystroke,
+            // i.e. the binding still round-trips TextBox→VM. That feedback loop is the bug: when a
+            // type-then-Enter happens faster than the round-trip settles (~10ms), SendNow's clear
+            // races the in-flight keystroke write-back, the write-back lands last, and the last
+            // character is re-stranded in the box ("n"+Enter → next "n" appends → "nn").
+            // With no binding, typed text never touches the VM; we read it directly on Enter, and
+            // the VM pushes to the box only on deliberate changes (clear/history/Escape) via
+            // OnVmPropertyChanged — all synchronous on the UI thread, so there is no loop to race.
+            InputEntry.RemoveBinding(Entry.TextProperty);
+            tb.Text = _vm.InputText;   // seed the initial value (e.g. a prefilled account id)
+            InputDiag.Log($"OnInputHandlerChanged: Text binding removed; driving TextBox manually; seed=\"{tb.Text}\"; ReturnCommand null={InputEntry.ReturnCommand is null}");
+#if INPUT_DIAG
+            tb.TextChanged += OnInputDiagTextChanged;
+#endif
         }
     }
 
@@ -928,6 +999,12 @@ public partial class GamePage : ContentPage
 
     private void OnInputPreviewKeyDown(object sender, Microsoft.UI.Xaml.Input.KeyRoutedEventArgs e)
     {
+        InputDiag.Log($"KeyDown {e.Key}");
+        // Mark the keyboard as recently active so a stray touchpad tap in the next 300 ms does
+        // not trip scrollback. (This is the box's own handler — the only managed key code in the
+        // live typing path — so a plain letter falls straight through after this one cheap set.)
+        if (!IsModifierKey(e.Key))
+            Terminal.NotifyKeyPressed();
         if (e.Key == Windows.System.VirtualKey.Up)
         {
             _vm.HistoryUpCommand.Execute(null);
@@ -947,14 +1024,21 @@ public partial class GamePage : ContentPage
         else if (e.Key == Windows.System.VirtualKey.Escape)
         {
             // Close the About overlay if it is open; otherwise clear the input box.
-            if (!TryCloseAbout())
+            // Clear the NATIVE TextBox directly: typing no longer flows into the VM (binding
+            // removed), so _vm.InputText is usually already "" while the box holds text — setting
+            // it to "" would be a no-op that never reaches the box. Clear the box, sync the VM.
+            if (!TryCloseAbout() && _inputTextBox is not null)
+            {
+                _inputTextBox.Text = string.Empty;
                 _vm.InputText = string.Empty;
+            }
             e.Handled = true;
         }
         else if (e.Key == Windows.System.VirtualKey.Enter)
         {
-            // Text binding is OneWay, so the ViewModel is never updated during typing.
-            // Read the authoritative text directly from the native TextBox before sending.
+            // No Text binding on Windows — the native TextBox owns its text while typing.
+            // Read the authoritative value directly, then send (SendNow clears via the VM,
+            // which pushes the empty string back into the box through OnVmPropertyChanged).
             if (_inputTextBox is not null)
                 _vm.InputText = _inputTextBox.Text;
             _vm.SendCommand.Execute(null);
@@ -1029,6 +1113,59 @@ public partial class GamePage : ContentPage
         };
         Application.Current?.OpenWindow(_rawConsoleWindow);
     }
+
+#if INPUT_DIAG
+    // ── INPUT_DIAG: UI-thread responsiveness probe ───────────────────────────
+    // Posts a 16ms heartbeat on the WinUI DispatcherQueue (the same thread the TextBox paints
+    // on). When the thread is busy — a terminal repaint, a layout/composite pass from the
+    // side-panel fade timer, a per-keystroke binding round-trip — the heartbeat can't fire on
+    // schedule, so the measured gap spikes. Any gap well over 16ms that lines up (in the +ms
+    // column of mucka-input.txt) with a keystroke is the smoking gun for that stall.
+    private void StartUiThreadProbe()
+    {
+        var dq = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
+        if (dq is null) { InputDiag.Log("UI PROBE: no DispatcherQueue on this thread"); return; }
+        _uiProbeLast = DateTime.UtcNow;
+        _uiProbeTimer = dq.CreateTimer();
+        _uiProbeTimer.Interval = TimeSpan.FromMilliseconds(16);
+        _uiProbeTimer.IsRepeating = true;
+        _uiProbeTimer.Tick += OnUiProbeTick;
+        _uiProbeTimer.Start();
+        InputDiag.Log("UI PROBE: started (16ms heartbeat; logging gaps > 33ms)");
+    }
+
+    private void OnUiProbeTick(Microsoft.UI.Dispatching.DispatcherQueueTimer sender, object args)
+    {
+        var now = DateTime.UtcNow;
+        var gapMs = (now - _uiProbeLast).TotalMilliseconds;
+        _uiProbeLast = now;
+        // 16ms nominal; anything past ~2 intervals means the thread was blocked. Threshold 33ms.
+        if (gapMs > 33.0)
+            InputDiag.Log($"UI STALL {gapMs:F0}ms (heartbeat blocked; nominal 16ms)");
+    }
+
+    private void StopUiThreadProbe()
+    {
+        if (_uiProbeTimer is null) return;
+        _uiProbeTimer.Stop();
+        _uiProbeTimer.Tick -= OnUiProbeTick;
+        _uiProbeTimer = null;
+        InputDiag.Log("UI PROBE: stopped");
+        InputDiag.Flush();
+    }
+
+    // Timeline marker: when the native TextBox actually commits a typed character. Correlate the
+    // +ms of this line against the OnInputPreviewKeyDown/OnRootPreviewKeyDown KEY lines for the
+    // same character — a large key→TextChanged delta means the keystroke itself was delayed.
+    private void OnInputDiagTextChanged(object sender, Microsoft.UI.Xaml.Controls.TextChangedEventArgs e)
+    {
+        // Log only the length — NOT the full text. Interpolating the whole box contents on every
+        // keystroke allocated a growing string per char, adding GC pressure the real (non-diag)
+        // app never has, which would itself perturb the latency we're trying to measure.
+        var tb = (Microsoft.UI.Xaml.Controls.TextBox)sender;
+        InputDiag.Log("TextChanged len=" + tb.Text.Length);
+    }
+#endif
 #endif
 
 

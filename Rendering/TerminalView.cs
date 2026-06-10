@@ -298,6 +298,9 @@ public sealed class TerminalView : SKCanvasView
 
     private void OnPaintSurface(object? sender, SKPaintSurfaceEventArgs e)
     {
+#if INPUT_DIAG
+        var _paintStart = System.Diagnostics.Stopwatch.GetTimestamp();
+#endif
         var canvas = e.Surface.Canvas;
         canvas.Clear(TerminalTheme.Background);
 
@@ -397,6 +400,12 @@ public sealed class TerminalView : SKCanvasView
             DrawHistoryScrollbar(canvas, pxW, pxH, scale, rows.Count, viewportRows, offset, maxOffset);
         else
             DrawLiveScrollbar(canvas, pxW, pxH, scale, rows.Count, viewportRows);
+
+#if INPUT_DIAG
+        var _paintMs = (System.Diagnostics.Stopwatch.GetTimestamp() - _paintStart)
+                       * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
+        Mucka.Core.InputDiag.Log($"PAINT {_paintMs:F1}ms {(_historyMode ? "hist" : "live")} visrows={rows.Count}");
+#endif
     }
 
     // Wrap the active source (frozen snapshot in history, else live buffer) into visual rows.

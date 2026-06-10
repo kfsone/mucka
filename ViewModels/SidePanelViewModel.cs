@@ -89,21 +89,15 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     public bool NoInventory   => InventoryList.Count  == 0;
     public bool NoRoomItems   => RoomItemsList.Count  == 0;
 
-    // ── Stale-fade state ──────────────────────────────────────────────────────
-    // Last time each list type was fully refreshed (set on UI thread; null = never refreshed).
-    private DateTime? _feiLastRefresh;
-    private DateTime? _fewLastRefresh;
-
-    private double _feiSectionOpacity = 1.0;
-    private double _fewSectionOpacity = 1.0;
-
-    /// <summary>Opacity of the Here / Carrying section; fades to 0.7 when FEI data is stale (>15 s).</summary>
-    public double FeiSectionOpacity { get => _feiSectionOpacity; private set => Set(ref _feiSectionOpacity, value); }
-
-    /// <summary>Opacity of the Online section; fades to 0.7 when FEW data is stale (>15 s).</summary>
-    public double FewSectionOpacity { get => _fewSectionOpacity; private set => Set(ref _fewSectionOpacity, value); }
-
-    private IDispatcherTimer? _fadeTimer;
+    // ── Stale-fade signals ─────────────────────────────────────────────────────
+    // Raised (on the UI thread) when a list type is fully refreshed. StaleDimBehavior listens and
+    // (re)starts a COMPOSITOR opacity animation on the section: hold full-bright for 15 s, then
+    // ease to 70% — entirely on the render thread, so it never touches typing. (Was a UI-thread
+    // fade timer recomputing opacity 10×/sec — the typing-lag culprit — now deleted.)
+    /// <summary>Fired when the Here/Carrying (FEI) lists are refreshed.</summary>
+    public event Action? FeiRefreshed;
+    /// <summary>Fired when the Online (FEW) list is refreshed.</summary>
+    public event Action? FewRefreshed;
 
     public ICommand TogglePanelCommand { get; }
     public ICommand ShowAboutCommand { get; }
@@ -126,69 +120,15 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         });
     }
 
-    /// <summary>
-    /// Creates and starts the UI-thread fade timer.  Must be called once from the UI thread
-    /// after game-mode is entered (mirrors the lifecycle of the GamePage flush timer).
-    /// </summary>
-    public void InitializeFadeTimer(IDispatcher dispatcher)
-    {
-        if (_fadeTimer is not null) return;
-        _fadeTimer = dispatcher.CreateTimer();
-        _fadeTimer.Interval = TimeSpan.FromMilliseconds(100);
-        _fadeTimer.Tick += OnFadeTick;
-        _fadeTimer.Start();
-    }
+    // UI-thread dispatcher, captured from the host. Used only for one-shot DispatchDelayed calls
+    // that remove a who-entry AFTER its GPU fade-out finishes (see OnFewListComplete) — NOT a
+    // repeating animation tick. The old 100 ms (10 Hz) UI-thread fade timer was the typing-lag
+    // culprit and is gone; all visual fading now runs on the compositor via behaviors.
+    private IDispatcher? _dispatcher;
 
-    private void OnFadeTick(object? sender, EventArgs e)
-    {
-        var now = DateTime.UtcNow;
-
-        FeiSectionOpacity = ComputeStaleOpacity(_feiLastRefresh, now);
-        FewSectionOpacity = ComputeStaleOpacity(_fewLastRefresh, now);
-
-        const double transitionSec = 4.0;
-
-        // Advance player departure fades and arrival/update glows.
-        // Iterate in reverse so removal by index is safe.
-        for (int i = WhosList.Count - 1; i >= 0; i--)
-        {
-            var entry = WhosList[i];
-
-            if (entry.DepartingSince is { } since)
-            {
-                double elapsed = (now - since).TotalSeconds;
-                if (elapsed >= transitionSec)
-                    WhosList.RemoveAt(i);
-                else
-                    entry.Opacity = 1.0 - elapsed / transitionSec;
-            }
-            else if (entry.GlowSince is { } glowSince)
-            {
-                double elapsed = (now - glowSince).TotalSeconds;
-                if (elapsed >= transitionSec)
-                {
-                    entry.GlowSince = null;
-                    entry.SetGlowProgress(1.0f);
-                }
-                else
-                    entry.SetGlowProgress((float)(elapsed / transitionSec));
-            }
-        }
-    }
-
-    /// <summary>
-    /// Computes the stale-fade opacity for a section.
-    /// Returns 1.0 until 15 s after the last refresh, then linearly fades to 0.7 over the next 5 s.
-    /// Returns 1.0 when the section has never been refreshed (no data yet — nothing to fade).
-    /// </summary>
-    private static double ComputeStaleOpacity(DateTime? lastRefresh, DateTime now)
-    {
-        if (lastRefresh is null) return 1.0;
-        double elapsed = (now - lastRefresh.Value).TotalSeconds;
-        if (elapsed <= 15.0) return 1.0;
-        if (elapsed >= 20.0) return 0.7;
-        return 1.0 - 0.3 * (elapsed - 15.0) / 5.0;
-    }
+    /// <summary>Captures the UI-thread dispatcher (call once on the UI thread after game-mode is
+    /// entered). Named for call-site compatibility — it no longer starts any timer.</summary>
+    public void InitializeFadeTimer(IDispatcher dispatcher) => _dispatcher = dispatcher;
 
     // ── Room name ─────────────────────────────────────────────────────────────
 
@@ -273,47 +213,45 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         _pendingWhos.Clear();
         MainThread.BeginInvokeOnMainThread(() =>
         {
-            _fewLastRefresh = DateTime.UtcNow;
-
             // Key by persona name (first word) so a level-up — which changes the
             // description suffix — is treated as the same player, not a departure + arrival.
             var newByPersona = snapshot.ToDictionary(
                 w => w.PersonaName, StringComparer.OrdinalIgnoreCase);
 
-            // Mark departing players; cancel departure and refresh display for returnees.
-            foreach (var existing in WhosList)
+            // Update returnees in place; fade departed players out (the WhoEntryFadeBehavior
+            // animates on IsDeparting), then remove them once the GPU fade has finished.
+            for (int i = WhosList.Count - 1; i >= 0; i--)
             {
+                var existing = WhosList[i];
                 if (newByPersona.TryGetValue(existing.PersonaName, out var updated))
                 {
-                    if (existing.DepartingSince is not null)
-                    {
-                        existing.DepartingSince = null;
-                        existing.Opacity = 1.0;
-                    }
-                    // Reflect a level-up or colour change with a glow.
-                    var nameChanged  = existing.Name  != updated.Name;
-                    var colorChanged = existing.Color != updated.Color;
-                    if (nameChanged)  existing.Name  = updated.Name;
-                    if (colorChanged) existing.Color = updated.Color;
-                    if (nameChanged || colorChanged)  existing.StartGlow();
+                    existing.IsDeparting = false;   // present again — cancel any pending fade-out + removal
+                    if (existing.Name  != updated.Name)  existing.Name  = updated.Name;
+                    if (existing.Color != updated.Color) existing.Color = updated.Color;
                 }
-                else if (existing.DepartingSince is null)
+                else if (!existing.IsDeparting)
                 {
-                    existing.DepartingSince = DateTime.UtcNow;
+                    existing.IsDeparting = true;   // gone — behavior fades it out
+                    var leaving = existing;
+                    // Remove after the 3 s fade-out (plus a little slack). If the player reappears
+                    // first, the returnee branch clears IsDeparting and this skips the removal.
+                    _dispatcher?.DispatchDelayed(TimeSpan.FromMilliseconds(3400), () =>
+                    {
+                        if (leaving.IsDeparting) WhosList.Remove(leaving);
+                    });
                 }
             }
 
-            // Append new arrivals (not already in the list, including after a full-removal cycle).
+            // Append new arrivals (not already in the list).
             var currentPersonas = new HashSet<string>(
                 WhosList.Select(w => w.PersonaName), StringComparer.OrdinalIgnoreCase);
             foreach (var entry in snapshot)
             {
                 if (!currentPersonas.Contains(entry.PersonaName))
-                {
-                    entry.StartGlow();
-                    WhosList.Add(entry);
-                }
+                    WhosList.Add(entry);   // appears instantly
             }
+
+            FewRefreshed?.Invoke();   // restart the section's compositor stale-dim
         });
     }
 
@@ -352,8 +290,6 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         _pendingInventory.Clear();
         MainThread.BeginInvokeOnMainThread(() =>
         {
-            _feiLastRefresh = DateTime.UtcNow;
-
             RoomItemsList.Clear();
             foreach (var item in snapRoom)
                 RoomItemsList.Add(item);
@@ -365,6 +301,8 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             OnPropertiesChanged(
                 nameof(HasRoomItems), nameof(NoRoomItems),
                 nameof(HasInventory), nameof(NoInventory));
+
+            FeiRefreshed?.Invoke();   // restart the section's compositor stale-dim
         });
     }
 
@@ -421,10 +359,8 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
 
     public void Dispose()
     {
-        if (_fadeTimer is null) return;
-        _fadeTimer.Stop();
-        _fadeTimer.Tick -= OnFadeTick;
-        _fadeTimer = null;
+        // No resources to release — the who-list/stale-fade animation timer was removed
+        // (it was the UI-thread typing-lag culprit). Kept for the IDisposable contract.
     }
 }
 
