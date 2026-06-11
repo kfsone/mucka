@@ -24,8 +24,18 @@ jobs:
           key: nuget-windows-${{ hashFiles('**/*.csproj', 'Directory.Build.props') }}
           restore-keys: nuget-windows-
 
+      - name: Cache MAUI workload packs
+        id: workload-cache
+        uses: actions/cache@v5
+        with:
+          path: |
+            ${{ env.DOTNET_ROOT }}/packs
+            ${{ env.DOTNET_ROOT }}/sdk-manifests
+          key: workloads-maui-windows-${{ runner.os }}-${{ hashFiles('global.json') }}
+
       - name: Install MAUI Windows workload
-        run: dotnet workload install maui-windows --skip-sign-check
+        if: steps.workload-cache.outputs.cache-hit != 'true'
+        run: dotnet workload install maui-windows --skip-sign-check --skip-manifest-update
 
       - name: Build
         run: dotnet build Mucka.slnx -c Debug
