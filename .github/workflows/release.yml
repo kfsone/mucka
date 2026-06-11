@@ -41,7 +41,19 @@ jobs:
 
       - name: Install MAUI Windows workload
         if: steps.cache-maui-windows.outputs.cache-hit != 'true'
-        run: dotnet workload install maui-windows --skip-sign-check --skip-manifest-update
+        shell: pwsh
+        run: |
+          # The .NET SDK detects VS via ISetupConfiguration COM (reads _Instances dir)
+          # and installs packs for all VS-registered workloads (ios, android, maccatalyst...).
+          # Temporarily hide that directory so only maui-windows packs are installed.
+          $vsInst = "$env:ProgramData\Microsoft\VisualStudio\Packages\_Instances"
+          $vsBack = "${vsInst}_ci_bak"
+          if (Test-Path $vsInst) { Rename-Item $vsInst $vsBack }
+          try {
+            dotnet workload install maui-windows --skip-sign-check --skip-manifest-update
+          } finally {
+            if (Test-Path $vsBack) { Rename-Item $vsBack $vsInst }
+          }
 
       - name: Publish
         shell: pwsh
