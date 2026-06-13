@@ -55,7 +55,7 @@ these differently; capture layer records them all the same way (just fex + edges
 
 | Type | Observed example | Notes |
 |---|---|---|
-| **Door state** | Small bedroom sw→Fitted cupboard (appears after opening door); Cellar w→Coal bunker (same) | Same room, same long desc, fex differs by door. Two fex-state observations of same room instance. |
+| **Door state** | Small bedroom sw→Fitted cupboard (appears after opening door); Cellar w→Coal bunker (same) | A door *object* gates the edge. Door closed/locked = edge absent from fex; door open/absent = edge present. One room, one edge, one condition. The fex fingerprint reflects door state at probe time. Two observations of the same room with different fex are the *same* room — not two room instances. |
 | **Puzzle-locked** | Mausoleum tomb doors | Exits absent until puzzle solved. Indistinguishable from door-state at capture time; only context distinguishes them. |
 | **Encumbrance** | Badly-paved road narrow gap: "gap too narrow without dropping everything" | Carrying-capacity gated. Refusal message is the signal. |
 | **Environmental damage** | Beaten track near cliff: crumble auto-retreat, fex loses `w` | Refusal modifies available exits. May be permanent or session-scoped. |
@@ -64,9 +64,11 @@ these differently; capture layer records them all the same way (just fex + edges
 | **Light** | Dark rooms (cellar north/east) | Absence of light makes room unidentifiable; edges stay unresolved until re-walked lit. |
 
 **MapModel implication**: when two observations of the same room differ only in fex
-(same short + long), record both fex states and mark exits that appear in one but not
-the other as **conditional**. The condition type is not inferrable from capture data
-alone — it requires a note or a subsequent observation with context.
+(same short + long), they are the *same room* — not different instances. Exits that
+appear in one fex but not the other are **conditional edges**: gated by a door object,
+puzzle state, or other world condition. The condition type is not inferrable from
+capture data alone. The presence of the edge in fex is the observable; the cause
+requires a note or subsequent observation with context.
 
 **C# capture implication**: none yet. The capture layer correctly records fex as
 observed. Re-probing after a state change produces a new observation automatically.
