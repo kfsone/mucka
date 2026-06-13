@@ -2,6 +2,7 @@ using MudSharp.Models;
 using MudSharp.Session;
 using System.Net.Sockets;
 using System.Text;
+using System.Threading.Channels;
 
 namespace Mucka.Core;
 
@@ -12,9 +13,10 @@ namespace Mucka.Core;
 /// THREADING:
 /// - ConnectAsync/DisconnectAsync are called from any thread.
 /// - The read loop runs on a ThreadPool thread.
+/// - The write loop runs on a ThreadPool thread and drains queued outbound bytes in order.
 /// - MudSession events (LineReady, StatsUpdated, etc.) fire on the read-loop thread.
 ///   Consumers must marshal to their UI thread.
-/// - OutgoingBytes from MudSession are sent synchronously on the caller thread.
+/// - OutgoingBytes from MudSession are enqueued on the caller thread and written asynchronously.
 /// </summary>
 public sealed class MuckaConnection : IAsyncDisposable
 {
@@ -23,9 +25,10 @@ public sealed class MuckaConnection : IAsyncDisposable
     private TcpClient? _client;
     private NetworkStream? _stream;
     private Task? _readLoop;
+    private Task? _writerTask;
     private CancellationTokenSource? _cts;
+    private Channel<byte[]>? _sendChannel;
     private string _host = string.Empty;
-    private readonly object _writeLock = new();
 
 #if DEBUG || WINDOWS
     private readonly SessionCapture _capture = new();
@@ -38,7 +41,6 @@ public sealed class MuckaConnection : IAsyncDisposable
     public event Action? GameModeEntered;
     public event Action? GameModeExited;
     public event Action<string?>? DreamwordChanged;
-    public event Action<string>? ClientModeReceived;
     public event Action<string>? SoundRequested;
     public event Action<string, AnsiColor>? FewPlayerReady;
     /// <summary>Fired when a FEW-response context opens (C12+C08+C05). Start accumulating names.</summary>
@@ -69,7 +71,7 @@ public sealed class MuckaConnection : IAsyncDisposable
 #if WINDOWS
     /// <summary>Fires on the read-loop thread with each raw chunk received from the server.</summary>
     public event Action<byte[]>? RawBytesReceived;
-    /// <summary>Fires on the caller thread with each raw chunk about to be written to the server.</summary>
+    /// <summary>Fires on the writer-task thread with each raw chunk about to be written to the server.</summary>
     public event Action<byte[]>? RawBytesSent;
 #endif
 
@@ -103,29 +105,74 @@ public sealed class MuckaConnection : IAsyncDisposable
     /// <summary>Connect to the server and start the read loop.</summary>
     public async Task ConnectAsync(string host, int port, CancellationToken cancellationToken = default)
     {
+        await DisconnectAsync().ConfigureAwait(false);
+
         _host = host;
-        _client = new TcpClient();
-        using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
-        using var linkedCts  = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
-        await _client.ConnectAsync(host, port, linkedCts.Token).ConfigureAwait(false);
-        _stream = _client.GetStream();
-        _cts = new CancellationTokenSource();
+        var client = new TcpClient();
+        try
+        {
+            using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
+            await client.ConnectAsync(host, port, linkedCts.Token).ConfigureAwait(false);
+            client.NoDelay = true;
 
-        // Wire outgoing bytes → network write (+ capture if active)
-        _session.OutgoingBytes += SendBytesSync;
+            var stream = client.GetStream();
+            var cts = new CancellationTokenSource();
+            var sendChannel = Channel.CreateUnbounded<byte[]>(new UnboundedChannelOptions
+            {
+                SingleReader = true,
+                SingleWriter = false
+            });
 
-        _readLoop = Task.Run(() => ReadLoopAsync(_cts.Token));
+            _client = client;
+            _stream = stream;
+            _cts = cts;
+            _sendChannel = sendChannel;
+
+            // Wire outgoing bytes → queued network write (+ capture if active)
+            _session.OutgoingBytes -= EnqueueBytes;
+            _session.OutgoingBytes += EnqueueBytes;
+
+            _writerTask = Task.Run(() => WriteLoopAsync(stream, sendChannel.Reader, cts.Token));
+            _readLoop = Task.Run(() => ReadLoopAsync(stream, cts.Token));
+        }
+        catch
+        {
+            client.Dispose();
+            throw;
+        }
     }
 
     /// <summary>Disconnect cleanly.</summary>
     public async Task DisconnectAsync()
     {
-        _session.OutgoingBytes -= SendBytesSync;
-        _cts?.Cancel();
-        if (_readLoop != null)
-            await _readLoop.ConfigureAwait(false);
-        _stream?.Close();
-        _client?.Close();
+        _session.OutgoingBytes -= EnqueueBytes;
+
+        var writerTask = _writerTask;
+        var readLoop = _readLoop;
+        var sendChannel = _sendChannel;
+        var cts = _cts;
+        var stream = _stream;
+        var client = _client;
+
+        _writerTask = null;
+        _readLoop = null;
+        _sendChannel = null;
+        _cts = null;
+        _stream = null;
+        _client = null;
+
+        sendChannel?.Writer.TryComplete();
+        cts?.Cancel();
+
+        if (writerTask != null)
+            await writerTask.ConfigureAwait(false);
+        if (readLoop != null)
+            await readLoop.ConfigureAwait(false);
+
+        stream?.Dispose();
+        client?.Dispose();
+        cts?.Dispose();
         _session.Reset();
         _loginHandler?.Reset();
     }
@@ -220,10 +267,9 @@ public sealed class MuckaConnection : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        await DisconnectAsync();
+        await DisconnectAsync().ConfigureAwait(false);
         _loginHandler?.Detach();
         _session.Dispose();
-        _cts?.Dispose();
 #if DEBUG || WINDOWS
         _capture.Dispose();
 #endif
@@ -231,7 +277,7 @@ public sealed class MuckaConnection : IAsyncDisposable
 
     // ── Private ────────────────────────────────────────────────────────────────
 
-    private async Task ReadLoopAsync(CancellationToken ct)
+    private async Task ReadLoopAsync(NetworkStream stream, CancellationToken ct)
     {
         var buf = new byte[4096];
         Exception? error = null;
@@ -239,7 +285,7 @@ public sealed class MuckaConnection : IAsyncDisposable
         {
             while (!ct.IsCancellationRequested)
             {
-                int read = await _stream!.ReadAsync(buf, ct);
+                int read = await stream.ReadAsync(buf, ct).ConfigureAwait(false);
                 if (read == 0) break; // server closed connection
 #if DEBUG || WINDOWS
                 _capture.RecordRx(buf.AsSpan(0, read));
@@ -264,22 +310,39 @@ public sealed class MuckaConnection : IAsyncDisposable
         }
     }
 
-    private void SendBytesSync(byte[] bytes)
+    private async Task WriteLoopAsync(NetworkStream stream, ChannelReader<byte[]> reader, CancellationToken ct)
     {
-        lock (_writeLock)
+        try
         {
-            try
+            while (true)
             {
+                var bytes = await reader.ReadAsync(ct).ConfigureAwait(false);
 #if DEBUG || WINDOWS
                 _capture.RecordTx(bytes);
 #endif
 #if WINDOWS
                 RawBytesSent?.Invoke(bytes);
 #endif
-                _stream?.Write(bytes, 0, bytes.Length);
+                await stream.WriteAsync(bytes, ct).ConfigureAwait(false);
             }
-            catch { /* connection lost — read loop will handle */ }
         }
+        catch (OperationCanceledException) { }
+        catch (ChannelClosedException) { }
+        catch (ObjectDisposedException) when (ct.IsCancellationRequested) { }
+        catch
+        {
+            try { _cts?.Cancel(); } catch { }
+            try { _client?.Close(); } catch { }
+        }
+    }
+
+    private void EnqueueBytes(byte[] bytes)
+    {
+        var writer = _sendChannel?.Writer;
+        if (writer == null)
+            return;
+
+        _ = writer.TryWrite(bytes.ToArray());
     }
 
     private void WireSessionEvents()
@@ -299,7 +362,6 @@ public sealed class MuckaConnection : IAsyncDisposable
 #endif
             DreamwordChanged?.Invoke(w);
         };
-        _session.ClientModeReceived += d => ClientModeReceived?.Invoke(d);
         _session.SoundRequested     += s => SoundRequested?.Invoke(s);
         _session.FewPlayerReady     += (n, c) => FewPlayerReady?.Invoke(n, c);
         _session.FewListStarting    += () => FewListStarting?.Invoke();
