@@ -18,6 +18,7 @@ public static class MappingStore
         bool IsTraversal,
         bool ResolvesEdge);
 
+#if WINDOWS
     internal sealed record EdgeState(HashSet<string> Resolved, MapGraph Graph);
 
     /// <summary>
@@ -98,6 +99,7 @@ public static class MappingStore
 
         return new EdgeState(resolved, graph);
     }
+#endif
 
     internal static IEnumerable<EdgeAnnotation> ReadEdgeAnnotations(string directory)
     {
