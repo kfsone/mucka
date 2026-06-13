@@ -73,6 +73,50 @@ requires a note or subsequent observation with context.
 **C# capture implication**: none yet. The capture layer correctly records fex as
 observed. Re-probing after a state change produces a new observation automatically.
 
+## Data model: event-sourcing architecture
+
+Decided 2026-06-13. The mapping DB (`~/.mucka/mapping/mapdb.sqlite`) uses a
+full event-sourcing model. Key principle: **observations and edge_events are
+immutable; only assignment linkage is revised (by supersession, never deletion)**.
+
+### Layers
+
+```
+raw_captures          immutable JSONL records verbatim (SHA256 ID)
+    ↓ decoded into
+observations          immutable room states (SHA256(short|long|fex|exits) ID)
+edge_events           immutable raw traversals (UUID, outcome enum)
+    ↓ assigned via
+observation_assignments   append-only; observation → impression
+impression_assignments    append-only; impression → location
+    ↓
+impressions           immutable hypotheses ('observed'|'synthesized'|'canonical')
+locations             identity anchors only (UUID)
+    ↓ derived into
+edges                 canonical edges (from/to: impression until resolved to location)
+derivations           algorithm decision log (supports full replay)
+```
+
+**Impression kinds:**
+- `observed` — 1:1 with one observation; auto-created on ingest
+- `synthesized` — derived from multiple observations (dark+lit subsumption, door-state merge)
+- `canonical` — current best model of a location; what map renders; superseded when
+  evidence improves (new canonical impression created, old assignment superseded)
+
+**Why full event-sourcing over un-merge-only:**
+Fix `decode_probe.py`, re-feed raw captures, recompute derivations — bad observations
+orphan automatically. Un-merge-only can correct output; full replay can correct input.
+Migration full→un-merge is trivial (stop logging derivation events); reverse is lossy.
+
+**Observation ID is content-hash** — same room seen identically in two walks yields
+the same observation ID. Naturally idempotent across captures.
+
+**One capture, multiple observations** — a move record yields both origin and
+destination observations. `capture_observations` is a many-to-many join with a `role`
+column (`origin` | `destination` | `probe`).
+
+Schema: `tools/mapping/schema.sql`. Init: `uv run tools/mapping/init_db.py [path]`.
+
 ## Agreed next steps, in order
 
 1. ~~**Fix decode_probe segment alignment**~~ **Done.** fex-anchor + async pre-classification
