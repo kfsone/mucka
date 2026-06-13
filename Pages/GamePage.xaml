@@ -225,9 +225,10 @@
                     </Border>
 
                     <!-- Dreamword chip — tap to speak; Ctrl+D from keyboard.
-                         Muted (dim white on dark blue) while showing the ..zzZZZzz.. placeholder;
-                         bright + bold when a dreamword is held. -->
+                         Hidden when no dreamword is held; the floating pill handles that case.
+                         Both show when active so the stats-bar chip remains tappable. -->
                     <Border Grid.Column="13"
+                            IsVisible="{Binding DreamwordActive}"
                             BackgroundColor="#1f6feb"
                             Stroke="Transparent" StrokeThickness="0"
                             Padding="6,1" VerticalOptions="Center">
@@ -238,21 +239,9 @@
                         <Border.GestureRecognizers>
                             <TapGestureRecognizer Command="{Binding SpeakDreamwordCommand}"/>
                         </Border.GestureRecognizers>
-                        <Border.Triggers>
-                            <DataTrigger TargetType="Border" Binding="{Binding DreamwordIsPlaceholder}" Value="True">
-                                <Setter Property="BackgroundColor" Value="#14304f"/>
-                            </DataTrigger>
-                        </Border.Triggers>
                         <Label Text="{Binding DreamwordDisplay}"
                                TextColor="White" FontAttributes="Bold"
-                               FontSize="12" VerticalOptions="Center">
-                            <Label.Triggers>
-                                <DataTrigger TargetType="Label" Binding="{Binding DreamwordIsPlaceholder}" Value="True">
-                                    <Setter Property="TextColor" Value="#cccccc"/>
-                                    <Setter Property="FontAttributes" Value="None"/>
-                                </DataTrigger>
-                            </Label.Triggers>
-                        </Label>
+                               FontSize="12" VerticalOptions="Center"/>
                     </Border>
 
                     <!-- Separator before weather/TTR group -->
