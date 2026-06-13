@@ -40,6 +40,20 @@ public class GameLineAnalyzerTests
     }
 
     [Fact]
+    public void OverflowNumbers_DoNotThrowOrEmit()
+    {
+        // Any player can put "(N/M)" with >int.MaxValue digits in a say/shout; an
+        // int.Parse OverflowException here propagated out of Feed() and dropped the
+        // connection. TryParse must swallow it without emitting stats.
+        var h = new ParserHarness();
+        h.Feed(0x9D, 0x9C, 0xFF, 0xFF);   // game mode (combat regex runs on all lines)
+        h.Feed("Ollie says \"(99999999999999999999/9)\".\n");
+        h.Feed("stamina:  99999999999999999999      max:  81\n");
+        h.Feed("(99999999999999999999/99999999999999999999) ouch\n");
+        Assert.Empty(h.Stats);
+    }
+
+    [Fact]
     public void StrengthLine_ExtractsStrength()
     {
         // "strength:       N" — uses raw value when no effective strength present

@@ -17,6 +17,9 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private readonly string[] _allFkeys = new string[36];
 #if WINDOWS
     private readonly WatchwordStore _watchwords;
+    private readonly string _profileName;
+    private readonly string _profileHost;
+    private Mucka.Core.Mapping.MappingSession? _mapSession;
 #endif
     private int _historyIndex = -1;
 
@@ -95,7 +98,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public char Weather { get => _weather; set => SetAndNotify(ref _weather, value, [nameof(WeatherText), nameof(WeatherGlyph), nameof(WeatherTooltip), nameof(WeatherDisplayText), nameof(WeatherColor), nameof(WeatherVisible), nameof(AnyRightStatVisible)]); }
     /// <summary>Rank is no longer supplied by the mudsharp protocol layer; always empty.</summary>
     public string Rank     { get => _rank;     set => Set(ref _rank,     value); }
-    public string Dreamword { get => _dreamword; set => SetAndNotify(ref _dreamword, value, [nameof(DreamwordDisplay), nameof(DreamwordIsPlaceholder)]); }
+    public string Dreamword { get => _dreamword; set => SetAndNotify(ref _dreamword, value, [nameof(DreamwordDisplay), nameof(DreamwordCompactDisplay), nameof(DreamwordIsPlaceholder), nameof(DreamwordActive)]); }
     public bool IsConnected  { get => _isConnected;  set => Set(ref _isConnected,  value); }
     public bool FkeysVisible { get => _fkeysVisible; set => Set(ref _fkeysVisible, value); }
     public bool IsCapturing { get => _isCapturing; private set => Set(ref _isCapturing, value); }
@@ -145,14 +148,15 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
 
     // Value-only strings (no label prefix) for FormattedString spans in the status bar.
     // Current and "/max" are separate spans so the max half renders one font point smaller.
+    // Below 50 cols, hide the /max for any stat with a 3-digit max (saves 4 chars per stat).
     public string StaCurValue => $"{Stamina}";
-    public string StaMaxValue => $"/{MaxStamina}";
+    public string StaMaxValue => (_effCols < 50 && _maxStamina >= 100) ? string.Empty : $"/{MaxStamina}";
     public string MagCurValue => $"{Magic}";
-    public string MagMaxValue => $"/{MaxMagic}";
+    public string MagMaxValue => (_effCols < 50 && _maxMagic    >= 100) ? string.Empty : $"/{MaxMagic}";
     public string StrCurValue => $"{Strength}";
-    public string StrMaxValue => $"/{MaxStrength}";
+    public string StrMaxValue => (_effCols < 50 && _maxStrength  >= 100) ? string.Empty : $"/{MaxStrength}";
     public string DexCurValue => $"{Dexterity}";
-    public string DexMaxValue => $"/{MaxDexterity}";
+    public string DexMaxValue => (_effCols < 50 && _maxDexterity >= 100) ? string.Empty : $"/{MaxDexterity}";
     // Score number and reset-delta are separate spans so the score proper can render bold
     // while the delta stays regular weight.
     public string ScoreValue => Score <= 0 ? "—" : $"{Score}";
@@ -176,9 +180,9 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public bool IsCompactWeather  => _effCols < 80;
     public bool IsVeryCompact     => _effCols < 50;
     /// <summary>Font size for stat values in compact layout — shrinks when effcols &lt; 50.</summary>
-    public double StatsValueFontSize => _effCols < 50 ? 11.0 : 13.0;
-    /// <summary>Font size for the "/max" half of a stat pair — one point below the current value.</summary>
-    public double StatsMaxValueFontSize => StatsValueFontSize - 1.0;
+    public double StatsValueFontSize => _effCols < 50 ? 12.0 : 13.0;
+    /// <summary>Font size for the "/max" half of a stat pair — two points below the current value.</summary>
+    public double StatsMaxValueFontSize => StatsValueFontSize - 2.0;
 
     // ── Fkey toolbar density — three tiers shrinking with effcols ────────────
     // Returns (fontSize, buttonRightMargin, totalHorizPad).
@@ -361,7 +365,10 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     }.Where(g => g != null));
 
     public string DreamwordDisplay => string.IsNullOrEmpty(_dreamword) ? "..zzZZZzz.." : _dreamword;
+    /// <summary>Compact-stats variant: the full placeholder crowds the two-row bar.</summary>
+    public string DreamwordCompactDisplay => string.IsNullOrEmpty(_dreamword) ? "zzz" : _dreamword;
     public bool DreamwordIsPlaceholder => string.IsNullOrEmpty(_dreamword);
+    public bool DreamwordActive        => !string.IsNullOrEmpty(_dreamword);
 
     public ObservableCollection<FkeyItem> FkeyItems { get; } = new();
     public bool CanSaveSettings => _saveSettingsAsync != null;
@@ -398,6 +405,8 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public event Action? SettingsSaved;
 #if WINDOWS
     public event Action? OpenRawConsoleRequested;
+    /// <summary>Raised by $map — GamePage opens (or surfaces) the mapping panel window.</summary>
+    public event Action? MapPanelRequested;
     public event Action<byte[]>? RawBytesReceived
     {
         add    => _conn.RawBytesReceived += value;
@@ -418,6 +427,8 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         IsCapturing = _conn.IsCapturing;
 #if WINDOWS
         _watchwords = WatchwordStore.Load();
+        _profileName = profile.Name;
+        _profileHost = profile.Host;
 #endif
         _maxColumns = Math.Clamp(profile.MaxColumns, 20, 160);
         _effCols = _maxColumns;
@@ -624,7 +635,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
                 nameof(WeatherText), nameof(WeatherGlyph), nameof(WeatherTooltip),
                 nameof(WeatherDisplayText), nameof(WeatherColor), nameof(WeatherVisible),
                 nameof(AnyRightStatVisible),
-                nameof(Dreamword),  nameof(DreamwordDisplay), nameof(DreamwordIsPlaceholder)
+                nameof(Dreamword),  nameof(DreamwordDisplay), nameof(DreamwordCompactDisplay), nameof(DreamwordIsPlaceholder), nameof(DreamwordActive)
             );
         });
     }
@@ -707,6 +718,8 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
                 ScanHistory();
             else if (name == "con")
                 OpenRawConsoleRequested?.Invoke();
+            else if (name == "map" || name.StartsWith("map ", StringComparison.OrdinalIgnoreCase))
+                HandleMapCommand(name.Length > 3 ? name[4..].Trim() : string.Empty);
             else
                 SpeakWatchword(name);
             return true;
@@ -755,6 +768,55 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         }
         else
             AddSystemLine($"[watchword] nothing queued for ${slotName}", 14);
+    }
+
+    /// <summary>The mapping data directory for this profile (mucka.ini mappingdir, or default).</summary>
+    public string MappingDirectory => Mucka.Core.Mapping.MappingStore.ResolveDirectory(_profileName);
+
+    /// <summary>The mapping operation console (created on first use; lives until dispose).
+    /// All map capture goes through its operations -- see MappingSession.</summary>
+    public Mucka.Core.Mapping.MappingSession MapSession
+    {
+        get
+        {
+            if (_mapSession is null)
+            {
+                _mapSession = new Mucka.Core.Mapping.MappingSession(_conn, MappingDirectory, _profileHost);
+                _mapSession.Status += s =>
+                    MainThread.BeginInvokeOnMainThread(() => AddSystemLine($"[map] {s}", 14));
+            }
+            return _mapSession;
+        }
+    }
+
+    private void HandleMapCommand(string arg)
+    {
+        switch (arg)
+        {
+            case "":
+                MapPanelRequested?.Invoke();
+                break;
+
+            case "probe":
+                if (!MapSession.TryStartProbe(out var probeError))
+                    AddSystemLine($"[map] {probeError}", 9);
+                break;
+
+            case "dir":
+                AddSystemLine($"[map] directory: {MappingDirectory}", 14);
+                break;
+
+            case "reload":
+                var summary = Mucka.Core.Mapping.MappingStore.Reload(MappingDirectory);
+                AddSystemLine(summary.FileCount == 0
+                    ? $"[map] no captures in {MappingDirectory}"
+                    : $"[map] {summary.FileCount} file(s), {summary.EntryCount} entries; newest: {summary.NewestFile}", 14);
+                break;
+
+            default:
+                AddSystemLine("[map] usage: $map (panel) | $map probe | $map dir | $map reload", 14);
+                break;
+        }
     }
 #endif
 
@@ -911,6 +973,10 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             OnPropertyChanged(nameof(IsVeryCompact));
             OnPropertyChanged(nameof(StatsValueFontSize));
             OnPropertyChanged(nameof(StatsMaxValueFontSize));
+            OnPropertyChanged(nameof(StaMaxValue));
+            OnPropertyChanged(nameof(MagMaxValue));
+            OnPropertyChanged(nameof(StrMaxValue));
+            OnPropertyChanged(nameof(DexMaxValue));
             OnPropertyChanged(nameof(FkeyFontSize));
             OnPropertyChanged(nameof(FkeyButtonMargin));
             OnPropertyChanged(nameof(FkeyBarPadding));
@@ -1000,6 +1066,9 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _conn.FexListStarting  -= SidePanel.OnFexListStarting;
         _conn.FexItemReady     -= SidePanel.OnFexItemReady;
         _conn.FexListComplete  -= SidePanel.OnFexListComplete;
+#if WINDOWS
+        _mapSession?.Dispose();
+#endif
         await _conn.DisposeAsync();
     }
 }

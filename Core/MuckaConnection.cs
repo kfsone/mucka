@@ -61,6 +61,9 @@ public sealed class MuckaConnection : IAsyncDisposable
     public event Action<string>? FexItemReady;
     /// <summary>Fired when the FEX-response context closes — all exit keywords delivered.</summary>
     public event Action? FexListComplete;
+    /// <summary>Fired when a FES/FEW/FEI probe interrupt was just sent -- its response
+    /// (ending in a prompt redraw) is about to contend with anything else on the wire.</summary>
+    public event Action? FesProbeSent;
     /// <summary>Fired when the connection is lost (read loop ended). Null = clean disconnect.</summary>
     public event Action<Exception?>? Disconnected;
 #if WINDOWS
@@ -71,6 +74,7 @@ public sealed class MuckaConnection : IAsyncDisposable
 #endif
 
     public bool IsConnected => _client?.Connected ?? false;
+    public bool InGameMode => _session.InGameMode;
 
 #if DEBUG || WINDOWS
     public bool IsCapturing => _capture.IsRecording;
@@ -174,6 +178,9 @@ public sealed class MuckaConnection : IAsyncDisposable
     public void SetFesInterval(int seconds)
         => _session.UpdateFesInterval(seconds <= 0 ? TimeSpan.Zero : TimeSpan.FromSeconds(seconds));
 
+    /// <summary>Hold/release the FES/FEW/FEI probe machinery (see MudSession.SetProbeHold).</summary>
+    public void SetProbeHold(bool held) => _session.SetProbeHold(held);
+
     /// <summary>
     /// Update the advertised terminal window size. May be called from any thread.
     /// Sends an updated NAWS subnegotiation if NAWS has been negotiated with the server.
@@ -238,7 +245,7 @@ public sealed class MuckaConnection : IAsyncDisposable
                 _capture.RecordRx(buf.AsSpan(0, read));
 #endif
 #if WINDOWS
-                RawBytesReceived?.Invoke(buf[..read].ToArray());
+                RawBytesReceived?.Invoke(buf[..read]);
 #endif
                 // Feed raw bytes into MudSession AFTER capturing — parser sees unmodified bytes.
                 _session.Feed(buf.AsSpan(0, read));
@@ -305,6 +312,7 @@ public sealed class MuckaConnection : IAsyncDisposable
         _session.FexListStarting    += () => FexListStarting?.Invoke();
         _session.FexItemReady       += item => FexItemReady?.Invoke(item);
         _session.FexListComplete    += () => FexListComplete?.Invoke();
+        _session.ProbeSent          += () => FesProbeSent?.Invoke();
         _session.TerminalWidthConfirmed += OnTerminalWidthConfirmed;
     }
 

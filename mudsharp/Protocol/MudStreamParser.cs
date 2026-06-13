@@ -438,29 +438,29 @@ public sealed class MudStreamParser
             // A newline must never occur inside the prompt container; if one does
             // (lost pop, line noise) abandon the capture and render its text normally.
             if (_inPromptContext) AbortPromptContext();
+            // Newlines inside the FEX/FEI/FEW probe contexts produce no visible output,
+            // so they must NOT set PromptAllowed: on narrow terminals the server line-wraps
+            // even these escaped responses, and ticking the flag here made the NEXT
+            // heartbeat's prompt display as a stray '*'. PromptAllowed means "visible
+            // output occurred since the last displayed prompt" — only real lines set it.
             if (_inFexResponseContext)
             {
                 var itemText = _fexLine.ToString();
                 _fexLine.Clear();
-                PromptAllowed = true;
                 if (itemText.Length > 0) FexItemReady?.Invoke(itemText);
                 return;
             }
             if (_inFeiResponseContext)
             {
-                // Emit the accumulated FEI item line; reset prompt-state flags as for a real newline.
                 var itemText = _feiLine.ToString();
                 _feiLine.Clear();
-                PromptAllowed = true;
                 if (itemText.Length > 0) FeiItemReady?.Invoke(itemText);
                 return;
             }
             FlushSpan();
             if (_inFewResponseContext)
             {
-                // Discard the line but still tick PromptAllowed so the next prompt frame works.
                 _spans.Clear();
-                PromptAllowed = true;
                 return;
             }
             // Pre-game terminal-width confirmation line: "[New terminal width is N]"
@@ -490,7 +490,10 @@ public sealed class MudStreamParser
                 }
                 // "Too dark" signals the player has entered a room they cannot see.
                 // Treat it as a room transition so the Here list is cleared.
-                else if (line.PlainText == "It's too dark to see now!")
+                // Prefix match: the server ends this line with "!" in some contexts and
+                // "." in others (observed live: moving up into an unlit loft drew
+                // "It's too dark to see now." -- period -- with an empty FE EXITS block).
+                else if (line.PlainText.StartsWith("It's too dark to see now", StringComparison.Ordinal))
                 {
                     RoomEntered?.Invoke();
                 }
@@ -520,42 +523,45 @@ public sealed class MudStreamParser
             // Discard characters inside a FEW response (names surface via FewPlayerReady).
             if (_inFewResponseContext) return;
             // FEX and FEI items accumulate in dedicated buffers — bypasses the span machinery.
+            // They are invisible (surfaced via events), so like FEW they must not touch
+            // _atLineStart: clearing it here suppressed RoomEntered/RoomShortReady for any
+            // room short arriving right after a heartbeat's FEI block or an auto-FEX block.
             if (_inFexResponseContext)
             {
                 _fexLine.Append(ch);
-                _atLineStart = false;
                 return;
             }
             if (_inFeiResponseContext)
             {
                 _feiLine.Append(ch);
-                _atLineStart = false;
                 return;
             }
+            bool wasLineStart = _atLineStart;
             _atLineStart = false;
             _text.Append(ch);
-            MatchOptionMenu(ch);
+            MatchOptionMenu(ch, wasLineStart);
         }
     }
 
     // Advance the streaming match of the option-menu prompt against one in-game text character,
     // firing ExitGameMode the moment the whole prompt has been seen (before the trailing ": ").
     // A plain restart-on-mismatch suffices — the prompt has no self-overlap.
-    private void MatchOptionMenu(char ch)
+    // A new match only arms at column 0: the real menu prompt always starts its line, and
+    // matching mid-line let any player's speech ('say Option (H for help)') kick the client
+    // out of game mode (stopping the heartbeat and sending a stray 'auto fex' on re-entry).
+    private void MatchOptionMenu(char ch, bool atLineStart)
     {
         if (!_inGameMode) { _optionMatchLen = 0; return; }
-        if (ch == OptionMenuPrompt[_optionMatchLen])
+        if (_optionMatchLen > 0 && ch == OptionMenuPrompt[_optionMatchLen])
         {
             if (++_optionMatchLen == OptionMenuPrompt.Length)
             {
                 _optionMatchLen = 0;
                 ExitGameMode();
             }
+            return;
         }
-        else
-        {
-            _optionMatchLen = ch == OptionMenuPrompt[0] ? 1 : 0;
-        }
+        _optionMatchLen = atLineStart && ch == OptionMenuPrompt[0] ? 1 : 0;
     }
 
     internal void FlushSpan()
@@ -592,6 +598,16 @@ public sealed class MudStreamParser
         _inPromptContext = false;
         _promptSpans.Clear();
         _promptText.Clear();
+        // Reset all FE response contexts — they're only valid within a game session.
+        // Leaving them active on relog causes text suppression (_inFewResponseContext)
+        // or spurious item/exit events, and leaves the color stack in a stale state.
+        _inFewResponseContext = false;
+        _fewNameActive = false;
+        _fewName.Clear();
+        _inFeiResponseContext = false;
+        _inFexResponseContext = false;
+        _pendingRoomShort = false;
+        C1.ResetGameState();
         GameModeExited?.Invoke();
     }
 
@@ -738,6 +754,7 @@ public sealed class MudStreamParser
             case ParserState.C1Data:
             case ParserState.C1Ff1:
             case ParserState.FesData:
+            case ParserState.FesLineTail:
             case ParserState.FewPlayerData:
             case ParserState.PresenceNameData:
             case ParserState.DreamwordData:

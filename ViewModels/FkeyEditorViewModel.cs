@@ -157,6 +157,12 @@ public sealed class FkeyEditorViewModel : BaseViewModel
     public ICommand CancelCommand { get; }
     public ICommand PlayBeepCommand { get; }
     public ICommand ResetSoundsCommand { get; }
+    public ICommand IncrFontSizeCommand { get; }
+    public ICommand DecrFontSizeCommand { get; }
+    public ICommand IncrColumnsCommand { get; }
+    public ICommand DecrColumnsCommand { get; }
+    public ICommand IncrStatFreqCommand { get; }
+    public ICommand DecrStatFreqCommand { get; }
 
     public event Action? CloseRequested;
     /// <summary>Raised when Save fails; payload is the error message for display.</summary>
@@ -269,6 +275,13 @@ public sealed class FkeyEditorViewModel : BaseViewModel
             SoundService.SetVolume(_original.Volume);
             CloseRequested?.Invoke();
         });
+
+        IncrFontSizeCommand = new Command(() => FontSize += 1);
+        DecrFontSizeCommand = new Command(() => FontSize -= 1);
+        IncrColumnsCommand  = new Command(() => Columns  += 1);
+        DecrColumnsCommand  = new Command(() => Columns  -= 1);
+        IncrStatFreqCommand = new Command(() => StatUpdateFrequency += 5);
+        DecrStatFreqCommand = new Command(() => StatUpdateFrequency -= 5);
     }
 
     /// <summary>The edited settings as a snapshot for apply/save.</summary>

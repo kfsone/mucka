@@ -290,17 +290,23 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         _pendingInventory.Clear();
         MainThread.BeginInvokeOnMainThread(() =>
         {
-            RoomItemsList.Clear();
-            foreach (var item in snapRoom)
-                RoomItemsList.Add(item);
+            // FEI arrives every heartbeat and is usually unchanged; Clear+Add re-templates
+            // every native label in both lists (UI-thread work competing with typing), so
+            // skip the rebuild when nothing changed. The stale-dim restart still fires.
+            if (!snapRoom.SequenceEqual(RoomItemsList) || !snapInv.SequenceEqual(InventoryList))
+            {
+                RoomItemsList.Clear();
+                foreach (var item in snapRoom)
+                    RoomItemsList.Add(item);
 
-            InventoryList.Clear();
-            foreach (var item in snapInv)
-                InventoryList.Add(item);
+                InventoryList.Clear();
+                foreach (var item in snapInv)
+                    InventoryList.Add(item);
 
-            OnPropertiesChanged(
-                nameof(HasRoomItems), nameof(NoRoomItems),
-                nameof(HasInventory), nameof(NoInventory));
+                OnPropertiesChanged(
+                    nameof(HasRoomItems), nameof(NoRoomItems),
+                    nameof(HasInventory), nameof(NoInventory));
+            }
 
             FeiRefreshed?.Invoke();   // restart the section's compositor stale-dim
         });

@@ -105,6 +105,18 @@ public class GameModeExitTests
     }
 
     [Fact]
+    public void GameMode_NotExitedByMidLineSpeech()
+    {
+        // The real menu prompt always starts its line. A player quoting it mid-line
+        // ('say Option (H for help)') must not kick the client out of game mode —
+        // that stopped the heartbeat and sent a stray 'auto fex' on re-entry.
+        var h = InGameMode();
+        h.Feed("Ollie says \"Option (H for help)\".\n");
+        Assert.Equal(0, h.GameModeExitedCount);
+        Assert.True(h.Parser.InGameMode);
+    }
+
+    [Fact]
     public void ExitDetection_ResetsAcrossLines()
     {
         // Partial match on one line must not carry over to the next line.

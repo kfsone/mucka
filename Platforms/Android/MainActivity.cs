@@ -5,7 +5,11 @@ using Android.Views;
 
 namespace Mucka;
 
-[Activity(Theme = "@style/Maui.SplashTheme", MainLauncher = true, LaunchMode = LaunchMode.SingleTop, ConfigurationChanges = ConfigChanges.ScreenSize | ConfigChanges.Orientation | ConfigChanges.UiMode | ConfigChanges.ScreenLayout | ConfigChanges.SmallestScreenSize | ConfigChanges.Density)]
+// WindowSoftInputMode: the implicit default resolves to adjustPan, which slides the whole window
+// up when the keyboard opens — pushing the in-game status bar off the top of the screen. Resize
+// keeps the top anchored and shrinks the content instead (the pages' SafeAreaEdges="All" handles
+// keyboard padding on API 35+ edge-to-edge, where adjustResize alone is ignored).
+[Activity(Theme = "@style/Maui.SplashTheme", MainLauncher = true, LaunchMode = LaunchMode.SingleTop, WindowSoftInputMode = SoftInput.AdjustResize, ConfigurationChanges = ConfigChanges.ScreenSize | ConfigChanges.Orientation | ConfigChanges.UiMode | ConfigChanges.ScreenLayout | ConfigChanges.SmallestScreenSize | ConfigChanges.Density)]
 public class MainActivity : MauiAppCompatActivity
 {
     public override bool DispatchKeyEvent(KeyEvent? e)

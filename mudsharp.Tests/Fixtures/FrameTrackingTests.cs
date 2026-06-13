@@ -238,6 +238,37 @@ public class FrameTrackingTests
         Assert.Empty(h.RoomShorts);
     }
 
+    // -- Heartbeat FEI/FEX blocks must be transparent to line-start tracking ---
+    // Their text is invisible (surfaced via events), so it must not clear
+    // _atLineStart: a room short arriving right after a heartbeat would otherwise
+    // fire neither RoomEntered nor RoomShortReady.
+
+    [Fact]
+    public void RoomEntered_FiresAfterFeiHeartbeatBlock()
+    {
+        var h = InGameMode();
+        h.Feed(WithPrompt("You set off.\n"));      // frame ends: prompt shown, at line start
+        h.Feed(0xA7, 0xA3, 0x9E, 0xFF, 0xFF);      // FEI response opens (heartbeat)
+        h.Feed("a brass lamp\n========\na sword\n");
+        h.Feed(0xFF, 0xFF);                         // FEI closes
+        h.ClearCounters();
+        h.Feed(RoomShort);
+        Assert.Equal(1, h.RoomEnteredCount);
+    }
+
+    [Fact]
+    public void RoomEntered_FiresAfterFexBlock()
+    {
+        var h = InGameMode();
+        h.Feed(WithPrompt("You set off.\n"));
+        h.Feed(0xA7, 0xA3, 0x9D, 0xFF, 0xFF);      // FEX response opens (auto fex)
+        h.Feed("north\neast\n");
+        h.Feed(0xFF, 0xFF);                         // FEX closes
+        h.ClearCounters();
+        h.Feed(RoomShort);
+        Assert.Equal(1, h.RoomEnteredCount);
+    }
+
     // -- FEW response suppression ---------------------------------------------
 
     // C12+C08+C05+C255 -- opens the FEW (WHO-list interrupt) response context

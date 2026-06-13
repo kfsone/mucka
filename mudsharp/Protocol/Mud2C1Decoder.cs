@@ -177,6 +177,7 @@ internal sealed class Mud2C1Decoder
             ParserState.C1Data     => OnC1Data(b, lead, buf),
             ParserState.C1Ff1      => OnC1Ff1(b, lead, buf),
             ParserState.FesData    => OnFesData(b, buf),
+            ParserState.FesLineTail => OnFesLineTail(b),
             ParserState.FewPlayerData   => OnFewPlayerData(b, buf),
             ParserState.PresenceNameData => OnPresenceNameData(b, buf),
             ParserState.DreamwordData   => OnDreamwordData(b, buf),
@@ -194,6 +195,17 @@ internal sealed class Mud2C1Decoder
             parserState = ParserState.Normal;
         _c95LinesRemaining = 0;
         _c95LogoutSeenNewline = false;
+        _colorStack.Clear();
+        _catchDepths.Clear();
+    }
+
+    /// <summary>
+    /// Clear game-mode-specific color state without touching C95 counters.
+    /// Called by MudStreamParser.ExitGameMode so the option-menu phase starts with a
+    /// clean color stack rather than inheriting residual pushes from the game session.
+    /// </summary>
+    internal void ResetGameState()
+    {
         _colorStack.Clear();
         _catchDepths.Clear();
     }
@@ -254,18 +266,76 @@ internal sealed class Mud2C1Decoder
 
     // ── FES data state (after C12+C08+C01+C255) ───────────────────────────────
 
+    private const int FesExpectedFields = 15;
+    private const int FesMaxBufBytes = 1024;
+
     private ParserState OnFesData(byte b, List<byte> buf)
     {
-        if (b == '\n')
+        // The data line ends at the first '\r' or '\n' once all 15 fields are present.
+        // Both checks are required: on narrow terminals the server wraps the line
+        // mid-stream (the plain-text content is ~51 chars; a phone may be <52 cols
+        // wide), so a line ending before all fields are present is a wrap — keep
+        // collecting. And in client mode the server can end the line with a bare CR
+        // ("\r\0") with the C255 pop, prompt container and FEW/FEI responses following
+        // immediately — waiting for a '\n' would swallow them all into this buffer.
+        if (b is (byte)'\r' or (byte)'\n')
         {
+            if (buf.Count < FesMaxBufBytes && !FesHasAllFields(buf))
+            {
+                // Wrap point: substitute a separator so adjacent fields stay apart even
+                // when the wrap is a plain CRLF without the telnet CR-NUL's NUL byte.
+                // Duplicate separators are harmless (RemoveEmptyEntries).
+                buf.Add((byte)' ');
+                return ParserState.FesData;
+            }
+
             ParseAndEmitFes(buf);
             buf.Clear();
             Apply(WHITE, BLACK);
-            return ParserState.Normal;
+            return ParserState.FesLineTail;
         }
-        if (b != '\r')
-            buf.Add(b);
+        buf.Add(b);
         return ParserState.FesData;
+    }
+
+    // Absorb the remainder of the FES line ending after the parse checkpoint: the NUL of
+    // the telnet CR-NUL pair, and the '\r'/'\n' when the server sends a full CRLF. Exits
+    // at the '\n' (logical end of line) or hands back the first unrelated byte.
+    private ParserState OnFesLineTail(byte b)
+    {
+        if (b is 0x00 or (byte)'\r')
+            return ParserState.FesLineTail;
+        if (b != '\n')
+            _parser.QueueReprocessByte(b);
+        return ParserState.Normal;
+    }
+
+    // Returns true when the visible ASCII portion of the FES buffer contains at least 15
+    // space-separated fields — the minimum for a complete FES line.
+    private static bool FesHasAllFields(List<byte> buf)
+    {
+        bool skipNext = false;
+        bool inField = false;
+        int count = 0;
+        foreach (var bv in buf)
+        {
+            if (skipNext) { skipNext = false; continue; }  // byte after 0xFE C99 marker
+            if (bv == 0xFE) { skipNext = true; continue; }
+            if (bv >= 0x9B || bv == 0xFF) continue;        // C1 leads and C255 bytes
+            // NUL is a separator like space: it is the telnet CR-NUL residue at a wrap
+            // point, and ParseAndEmitFes converts it to a space for field splitting.
+            if (bv is 0x20 or 0x00)
+            {
+                if (inField) count++;
+                inField = false;
+            }
+            else if (bv >= 0x21)
+            {
+                inField = true;
+            }
+        }
+        if (inField) count++;
+        return count >= FesExpectedFields;
     }
 
     // ── FEW player-name data state (after WHO-list color code + C255) ────────
@@ -274,6 +344,9 @@ internal sealed class Mud2C1Decoder
     {
         if (b >= 0x20 && b < 0x7F)
         {
+            // Inside a FEW probe response the names are machine data for the who-panel
+            // only; everywhere else (login Players list, manual qw/who) they are part
+            // of the visible output and must be displayed as well as captured.
             if (!_parser.InFewResponseContext)
                 _parser.EmitChar((char)b);
             buf.Add(b);
@@ -977,11 +1050,16 @@ internal sealed class Mud2C1Decoder
                 i++; // skip the color byte; do not emit either byte as text
                 continue;
             }
-            // Skip other C1 leads (>= 0x9B) and 0xFF (C255 / IAC terminator).
-            // These are color-push sequences that bracket numeric values for display;
-            // the numeric ASCII digits immediately follow and are kept.
+            // Skip C1 leads (>= 0x9B) and IAC (0xFF).
             if (b2 >= 0x9B || b2 == 0xFF)
                 continue;
+            // NUL appears as a field separator inside FES (e.g. between deaf and crippled 'N'
+            // fields). Emit as space so RemoveEmptyEntries keeps field indices correct.
+            if (b2 == 0x00)
+            {
+                textBytes.Add((byte)' ');
+                continue;
+            }
             textBytes.Add(b2);
         }
 

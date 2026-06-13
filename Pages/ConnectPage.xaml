@@ -6,13 +6,49 @@
              x:Class="Mucka.Pages.ConnectPage"
              x:DataType="vm:ConnectViewModel"
              Title="mucka"
-             BackgroundColor="#0C0C0C">
+             BackgroundColor="#0C0C0C"
+             NavigationPage.HasNavigationBar="False"
+             SafeAreaEdges="All">
 
-    <Grid RowDefinitions="{OnIdiom Phone='Auto,1,*', Default='*'}"
-          ColumnDefinitions="{OnIdiom Phone='*', Default='256,1,*'}">
+    <!-- Static placement below is the WIDE layout (list panel left of the form); ApplyLayout in
+         the code-behind re-grids by actual width — narrow puts the logo beside a height-capped
+         list, then the form below. Width-based (not OnIdiom) so a phone in landscape goes wide. -->
+    <Grid x:Name="RootGrid"
+          RowDefinitions="Auto,*"
+          ColumnDefinitions="256,1,*">
 
-        <!-- Profile list on the left -->
-        <CollectionView Grid.Row="0"
+        <!-- Narrow-only title strip: app name + version (replaces the old nav bar usefully).
+             Hidden in wide layout, where the version renders under the logo instead. -->
+        <Border x:Name="TitleBar"
+                Grid.Row="0" Grid.Column="0"
+                IsVisible="False"
+                BackgroundColor="#161b22"
+                StrokeThickness="0"
+                Padding="12,6">
+            <Label x:Name="TitleLabel"
+                   TextColor="#cccccc"
+                   FontSize="14"
+                   FontAttributes="Bold"
+                   VerticalOptions="Center"/>
+        </Border>
+
+        <!-- Logo + version — fixed above the profile list so the list scrolls under it -->
+        <VerticalStackLayout x:Name="HeaderPanel"
+                             Grid.Row="0" Grid.Column="0"
+                             Padding="0" BackgroundColor="#111111">
+            <Image x:Name="LogoImage"
+                   Source="mucka_logo.png"
+                   HorizontalOptions="Fill"
+                   Aspect="AspectFit"/>
+            <Label x:Name="VersionLabel"
+                   TextColor="#555555"
+                   FontSize="11"
+                   HorizontalOptions="Center"
+                   Padding="0,0,0,2"/>
+        </VerticalStackLayout>
+
+        <!-- Profile list -->
+        <CollectionView Grid.Row="1"
                         Grid.Column="0"
                         x:Name="ProfileList"
                         ItemsSource="{Binding SavedProfiles}"
@@ -20,15 +56,10 @@
                         SelectionChanged="OnProfileSelected"
                         BackgroundColor="#111111">
             <CollectionView.Header>
-                <VerticalStackLayout Padding="0" BackgroundColor="#111111">
-                    <Image Source="mucka_logo.png"
-                           HorizontalOptions="Fill"
-                           Aspect="AspectFit"/>
-                    <Label Text="Saved profiles"
-                           TextColor="#555555"
-                           FontSize="12"
-                           Padding="12,4,12,4" />
-                </VerticalStackLayout>
+                <Label Text="Saved profiles"
+                       TextColor="#555555"
+                       FontSize="12"
+                       Padding="12,4,12,4" />
             </CollectionView.Header>
             <CollectionView.ItemTemplate>
                 <DataTemplate x:DataType="core:Profile">
@@ -43,16 +74,17 @@
             </CollectionView.ItemTemplate>
         </CollectionView>
 
-        <!-- Vertical separator -->
-        <BoxView Grid.Row="{OnIdiom Phone=1, Default=0}"
-                 Grid.Column="{OnIdiom Phone=0, Default=1}"
+        <!-- Separator between the profile panel and the form -->
+        <BoxView x:Name="Separator"
+                 Grid.Row="0" Grid.RowSpan="2"
+                 Grid.Column="1"
                  Color="#333333"
-                 WidthRequest="{OnIdiom Phone=-1, Default=1}"
-                 HeightRequest="{OnIdiom Phone=1, Default=-1}" />
+                 WidthRequest="1" />
 
-        <!-- Main form on the right -->
-        <ScrollView Grid.Row="{OnIdiom Phone=2, Default=0}"
-                    Grid.Column="{OnIdiom Phone=0, Default=2}"
+        <!-- Main form -->
+        <ScrollView x:Name="FormScroll"
+                    Grid.Row="0" Grid.RowSpan="2"
+                    Grid.Column="2"
                     VerticalOptions="Center">
             <VerticalStackLayout HorizontalOptions="{OnIdiom Phone=Fill, Default=Center}"
                                  Spacing="16"

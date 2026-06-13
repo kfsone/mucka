@@ -23,7 +23,13 @@ public sealed class ConnectViewModel : BaseViewModel
     private bool _captureRequested;
     private int _maxColumns = 80;
     private int _antiIdleSeconds = 0;
-    private bool _keepScreenOn = false;
+    // Mobile defaults on — matches Profile.KeepScreenOn (screen-lock mid-session gets you swamped).
+    private bool _keepScreenOn =
+#if ANDROID || IOS
+        true;
+#else
+        false;
+#endif
 
     public string ProfileName { get => _profileName; set => Set(ref _profileName, value); }
     public string Host { get => _host; set => Set(ref _host, value); }

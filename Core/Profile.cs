@@ -15,8 +15,14 @@ public class Profile
     public int MaxColumns { get; set; } = 80;
     /// <summary>Seconds of player inactivity before sending a blank keep-alive command. 0 = disabled.</summary>
     public int AntiIdleSeconds { get; set; } = 0;
-    /// <summary>Keep the screen/display awake while connected to the game.</summary>
-    public bool KeepScreenOn { get; set; } = false;
+    /// <summary>Keep the screen/display awake while connected to the game.
+    /// Defaults on for mobile, where an idle screen-lock mid-session gets you swamped.</summary>
+    public bool KeepScreenOn { get; set; } =
+#if ANDROID || IOS
+        true;
+#else
+        false;
+#endif
     /// <summary>Fill unpopulated hotkey slots with built-in defaults at session start.</summary>
     public bool DefaultHotkeys { get; set; } = true;
     /// <summary>Terminal font size in pixels. 0 = use the built-in default (15px).</summary>

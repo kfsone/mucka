@@ -9,7 +9,11 @@
       release : no pre-release suffix (clean M.m.P)
     To promote a stage, run the "Promote Stage" workflow_dispatch workflow on main.
   -->
-  <Target Name="ComputeCustomVersion" BeforeTargets="GetAssemblyVersion;GetAssemblyAttributes;GenerateAssemblyInfo;PrepareForBuild;MauiGeneratePackageAppxManifest">
+  <!-- _GetAndroidPackageName is where the .NET Android SDK snapshots $(ApplicationDisplayVersion)
+       into _AndroidVersionName (→ manifest versionName → AppInfo.VersionString), so the version
+       must be computed before it. NOTE: names in BeforeTargets that don't exist in a given TFM
+       are silently ignored — guessing wrong fails without a warning. -->
+  <Target Name="ComputeCustomVersion" BeforeTargets="GetAssemblyVersion;GetAssemblyAttributes;GenerateAssemblyInfo;PrepareForBuild;MauiGeneratePackageAppxManifest;_GetAndroidPackageName">
     <PropertyGroup>
       <_VersionScript>$([MSBuild]::NormalizePath('$(MSBuildThisFileDirectory)scripts/Get-Version.ps1'))</_VersionScript>
     </PropertyGroup>
@@ -41,12 +45,17 @@
     <PropertyGroup>
       <_MuckaVersionStamp>$(IntermediateOutputPath)mucka.version.stamp</_MuckaVersionStamp>
       <_MuckaGeneratedManifest>$(IntermediateOutputPath)resizetizer\m\Package.appxmanifest</_MuckaGeneratedManifest>
+      <!-- Android equivalent: the merged manifest carries versionName and is also
+           timestamp-incremental, so it too goes stale on version bumps. -->
+      <_MuckaGeneratedAndroidManifest>$(IntermediateOutputPath)android\AndroidManifest.xml</_MuckaGeneratedAndroidManifest>
     </PropertyGroup>
     <ReadLinesFromFile File="$(_MuckaVersionStamp)" Condition="Exists('$(_MuckaVersionStamp)')">
       <Output TaskParameter="Lines" PropertyName="_MuckaPrevVersion" />
     </ReadLinesFromFile>
     <Delete Files="$(_MuckaGeneratedManifest)"
             Condition="'$(_MuckaPrevVersion)' != '$(Version)' and Exists('$(_MuckaGeneratedManifest)')" />
+    <Delete Files="$(_MuckaGeneratedAndroidManifest)"
+            Condition="'$(_MuckaPrevVersion)' != '$(Version)' and Exists('$(_MuckaGeneratedAndroidManifest)')" />
     <MakeDir Directories="$(IntermediateOutputPath)" />
     <WriteLinesToFile File="$(_MuckaVersionStamp)" Lines="$(Version)" Overwrite="true" WriteOnlyWhenDifferent="true" />
   </Target>

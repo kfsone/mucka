@@ -43,6 +43,7 @@ public partial class GamePage : ContentPage
     private bool _eventsSubscribed;
 #if WINDOWS
     private Window? _rawConsoleWindow;
+    private Window? _mapWindow;
     private Microsoft.UI.Xaml.Controls.TextBox? _inputTextBox;
     private Microsoft.UI.Xaml.Controls.ScrollViewer? _inputScroller;   // _inputTextBox's inner ScrollViewer
     private Microsoft.UI.Xaml.UIElement? _terminalElement;   // SKXamlCanvas, for wheel scrollback
@@ -55,7 +56,7 @@ public partial class GamePage : ContentPage
     private int _wheelAccum;   // accumulates wheel delta so touchpad drift doesn't trip scrollback
     // ── Window minimum-size enforcement ─────────────────────────────────────
     // Must match the WidthRequest of the side-panel Border in GamePage.xaml.
-    private const double SidePanelWidthDp = 260.0;
+    private const double SidePanelWidthDp = 228.0;
     // Default terminal-view width (in characters) used to size the window on first appearance.
     // Two columns wider than the 80-column wrap so the rightmost text isn't flush against the panel.
     private const double DefaultViewColumns = 82.0;
@@ -169,14 +170,27 @@ public partial class GamePage : ContentPage
                 InputEntry.Unfocused += (_, _) => FocusDiag("maui.Entry Unfocused");
 #endif
                 // Hook the native TextBox so Up/Down/Esc keys work in the entry.
+                // Apply now AND on handler change: if the platform view already exists when
+                // this runs, HandlerChanged never fires again, and without the direct call the
+                // TwoWay Text binding stays live (per-keystroke VM round-trips — the recurring
+                // lag regression) and Up/Down/Esc/Enter handling silently degrades.
                 InputEntry.HandlerChanged += OnInputHandlerChanged;
+                OnInputHandlerChanged(InputEntry, EventArgs.Empty);
                 // Right-click on Fn opens the settings page (left-click toggles the fkey bar).
                 // Apply now and on handler change, since platform views can be recreated.
                 FnButton.HandlerChanged += OnFnButtonHandlerChanged;
                 OnFnButtonHandlerChanged(FnButton, EventArgs.Empty);
                 // Hook the terminal canvas for mouse-wheel scrollback.
                 Terminal.HandlerChanged += OnTerminalHandlerChanged;
+                OnTerminalHandlerChanged(Terminal, EventArgs.Empty);
+                // The ▶ button must read the native TextBox like the Enter path does (no Text
+                // binding on Windows): shadow the XAML SendCommand and send via Clicked, or it
+                // sends a blank line and strands the typed text in the box.
+                SendButton.Command = null;
+                SendButton.Clicked -= OnSendButtonClicked;
+                SendButton.Clicked += OnSendButtonClicked;
                 _vm.OpenRawConsoleRequested += OnOpenRawConsoleRequested;
+                _vm.MapPanelRequested += OnMapPanelRequested;
                 // Enforce minimum window width based on the configured terminal columns.
                 _vm.SidePanel.PropertyChanged += OnSidePanelPropertyChanged;
                 SetupWindowMinimumSize();
@@ -290,6 +304,7 @@ public partial class GamePage : ContentPage
             _terminalElement = null;
         }
         _vm.OpenRawConsoleRequested -= OnOpenRawConsoleRequested;
+        _vm.MapPanelRequested -= OnMapPanelRequested;
         _vm.SidePanel.PropertyChanged -= OnSidePanelPropertyChanged;
         TeardownWindowMinimumSize();
 #if INPUT_DIAG
@@ -432,9 +447,23 @@ public partial class GamePage : ContentPage
         return true;
     }
 
-    // Android hardware/gesture back: dismiss the About overlay before leaving the page.
+    // Android hardware/gesture back: dismiss the About overlay if open. Otherwise confirm before
+    // leaving — a gesture-nav back swipe is trivially easy to hit by accident, and popping this
+    // page tears down the live session.
     protected override bool OnBackButtonPressed()
-        => TryCloseAbout() || base.OnBackButtonPressed();
+    {
+        if (TryCloseAbout()) return true;
+#if ANDROID
+        Dispatcher.Dispatch(async () =>
+        {
+            if (await DisplayAlertAsync("Disconnect", "Leave the game and disconnect?", "Disconnect", "Stay"))
+                await Navigation.PopAsync();
+        });
+        return true;   // swallow the back action; pop only on confirmation
+#else
+        return base.OnBackButtonPressed();
+#endif
+    }
 
     // Scrollback is an explicit mode: swap the input row for the yellow "SCROLLBACK" indicator,
     // and restore + re-focus the input box on return to live.
@@ -462,6 +491,28 @@ public partial class GamePage : ContentPage
 
     // Tapping the SCROLLBACK indicator returns to live.
     private void OnScrollbackBarTapped(object? sender, TappedEventArgs e) => Terminal.ScrollToBottom();
+
+    // Compact-mode overflow menu: shows a dark-themed popup in the body area.
+    // Long-press (Android) / right-click (Windows) triggers the attached MenuFlyout bonus.
+    private void OnOverflowMenuTapped(object? sender, TappedEventArgs e)
+        => OverflowMenuOverlay.IsVisible = true;
+    private void OnOverflowMenuDismiss(object? sender, TappedEventArgs e)
+        => OverflowMenuOverlay.IsVisible = false;
+    private void OnOverflowTogglePanel(object? sender, EventArgs e)
+    {
+        OverflowMenuOverlay.IsVisible = false;
+        _vm.SidePanel.TogglePanelCommand.Execute(null);
+    }
+    private void OnOverflowSettings(object? sender, EventArgs e)
+    {
+        OverflowMenuOverlay.IsVisible = false;
+        _vm.ConfigCommand.Execute(null);
+    }
+    private void OnOverflowAbout(object? sender, EventArgs e)
+    {
+        OverflowMenuOverlay.IsVisible = false;
+        _vm.SidePanel.ShowAboutCommand.Execute(null);
+    }
 
     private void ShowCopiedToast() => ShowToast("* Copied to clipboard");
 
@@ -855,6 +906,14 @@ public partial class GamePage : ContentPage
         e.Handled = true;   // swallow all other keys — input box is hidden in scrollback
     }
 
+    private void OnSendButtonClicked(object? sender, EventArgs e)
+    {
+        // Mirror the Enter path: the native TextBox owns the text while typing.
+        if (_inputTextBox is not null)
+            _vm.InputText = _inputTextBox.Text;
+        _vm.SendCommand.Execute(null);
+    }
+
     private void OnInputHandlerChanged(object? sender, EventArgs e)
     {
         if (_inputTextBox != null)
@@ -1153,6 +1212,21 @@ public partial class GamePage : ContentPage
             Height = 550,
         };
         Application.Current?.OpenWindow(_rawConsoleWindow);
+    }
+
+    private void OnMapPanelRequested()
+    {
+        // Reuse existing window if it is still open.
+        if (_mapWindow != null &&
+            Application.Current?.Windows.Contains(_mapWindow) == true)
+            return;
+        _mapWindow = new Window(new MappingPage(_vm))
+        {
+            Title  = "Mucka — Mapping",
+            Width  = 900,
+            Height = 550,
+        };
+        Application.Current?.OpenWindow(_mapWindow);
     }
 
 #if INPUT_DIAG

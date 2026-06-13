@@ -82,30 +82,30 @@ internal sealed class GameLineAnalyzer
                 : GameStatsSnapshot.Empty with { PersonaSaved = true };
         }
 
+        // All numeric captures parse with TryParse: any player can put "(99999999999999/9)"
+        // in a say/shout, and an int.Parse OverflowException here propagates out of Feed()
+        // and tears down the connection.
+
         // "stamina: N  max: M"
         var m = StaminaMaxRegex.Match(text);
-        if (m.Success)
-            return GameStatsSnapshot.Empty with
-            {
-                Stamina    = int.Parse(m.Groups[1].Value),
-                MaxStamina = int.Parse(m.Groups[2].Value),
-            };
+        if (m.Success
+            && int.TryParse(m.Groups[1].Value, out var staVal)
+            && int.TryParse(m.Groups[2].Value, out var mstaVal))
+            return GameStatsSnapshot.Empty with { Stamina = staVal, MaxStamina = mstaVal };
 
         // "strength: N [effective strength: M]"  — use effective when present, else raw
         m = StrengthRegex.Match(text);
-        if (m.Success)
+        if (m.Success && int.TryParse(m.Groups[1].Value, out var strRaw))
         {
-            var raw       = int.Parse(m.Groups[1].Value);
-            var effective = m.Groups[2].Success ? int.Parse(m.Groups[2].Value) : raw;
+            var effective = m.Groups[2].Success && int.TryParse(m.Groups[2].Value, out var strEff) ? strEff : strRaw;
             return GameStatsSnapshot.Empty with { Strength = effective };
         }
 
         // "dexterity: N [effective dexterity: M]"  — use effective when present, else raw
         m = DexterityRegex.Match(text);
-        if (m.Success)
+        if (m.Success && int.TryParse(m.Groups[1].Value, out var dexRaw))
         {
-            var raw       = int.Parse(m.Groups[1].Value);
-            var effective = m.Groups[2].Success ? int.Parse(m.Groups[2].Value) : raw;
+            var effective = m.Groups[2].Success && int.TryParse(m.Groups[2].Value, out var dexEff) ? dexEff : dexRaw;
             return GameStatsSnapshot.Empty with { Dexterity = effective };
         }
 
@@ -120,18 +120,16 @@ internal sealed class GameLineAnalyzer
 
         // "Your stamina is N."
         m = YourStaminaRegex.Match(text);
-        if (m.Success)
-            return GameStatsSnapshot.Empty with { Stamina = int.Parse(m.Groups[1].Value) };
+        if (m.Success && int.TryParse(m.Groups[1].Value, out var yourSta))
+            return GameStatsSnapshot.Empty with { Stamina = yourSta };
 
         // "(N/M)" compact stamina
         m = CompactStaminaRegex.Match(text);
-        if (m.Success)
-        {
-            var sta  = int.Parse(m.Groups[1].Value);
-            var msta = int.Parse(m.Groups[2].Value);
-            if (msta > 0)
-                return GameStatsSnapshot.Empty with { Stamina = sta, MaxStamina = msta };
-        }
+        if (m.Success
+            && int.TryParse(m.Groups[1].Value, out var cSta)
+            && int.TryParse(m.Groups[2].Value, out var cMsta)
+            && cMsta > 0)
+            return GameStatsSnapshot.Empty with { Stamina = cSta, MaxStamina = cMsta };
 
         // "(N/M)" embedded anywhere in line (combat hit messages e.g. "The rat hits you (89/94).")
         // Use the last match to handle rare lines with multiple parenthesised numbers.
@@ -139,9 +137,9 @@ internal sealed class GameLineAnalyzer
         if (combatMatches.Count > 0)
         {
             var last = combatMatches[combatMatches.Count - 1];
-            var sta  = int.Parse(last.Groups[1].Value);
-            var msta = int.Parse(last.Groups[2].Value);
-            if (sta > 0 && msta > 0 && sta <= msta)
+            if (int.TryParse(last.Groups[1].Value, out var sta)
+                && int.TryParse(last.Groups[2].Value, out var msta)
+                && sta > 0 && msta > 0 && sta <= msta)
                 return GameStatsSnapshot.Empty with { Stamina = sta, MaxStamina = msta };
         }
 

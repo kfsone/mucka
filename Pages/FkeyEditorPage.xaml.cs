@@ -11,8 +11,6 @@ public partial class FkeyEditorPage : ContentPage
         InitializeComponent();
         _vm = vm;
         BindingContext = vm;
-        vm.CloseRequested += OnCloseRequested;
-        vm.SaveFailed += OnSaveFailed;
 #if WINDOWS
         ImportButton.IsVisible = true;
         ImportButton.Clicked += OnImportClickedAsync;
@@ -22,6 +20,13 @@ public partial class FkeyEditorPage : ContentPage
     protected override void OnAppearing()
     {
         base.OnAppearing();
+        // Subscribed here (not the ctor) to pair with OnDisappearing's unsubscribe: on Android,
+        // backgrounding the app fires OnDisappearing without popping the page, and a ctor-only
+        // subscription would be lost for good — Cancel/Apply/Save would silently stop closing.
+        _vm.CloseRequested -= OnCloseRequested;
+        _vm.CloseRequested += OnCloseRequested;
+        _vm.SaveFailed -= OnSaveFailed;
+        _vm.SaveFailed += OnSaveFailed;
 #if WINDOWS
         if (Window?.Handler?.PlatformView is Microsoft.UI.Xaml.Window win &&
             win.Content is Microsoft.UI.Xaml.UIElement root)

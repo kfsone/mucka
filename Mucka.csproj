@@ -6,6 +6,10 @@
 		     macOS runner    → net10.0-maccatalyst
 		     Linux runner    → net10.0-android  -->
 		<TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('windows'))">net10.0-windows10.0.19041.0</TargetFrameworks>
+		<!-- Local Android build/deploy from a Windows dev box (opt-in so plain builds and CI
+		     don't require the android workload):
+		       dotnet build -f net10.0-android -p:LocalAndroid=true -t:Run   (deploys to adb device) -->
+		<TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('windows')) and '$(LocalAndroid)' == 'true'">net10.0-windows10.0.19041.0;net10.0-android</TargetFrameworks>
 		<TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('osx'))">net10.0-maccatalyst</TargetFrameworks>
 		<TargetFrameworks Condition="!$([MSBuild]::IsOSPlatform('windows')) and !$([MSBuild]::IsOSPlatform('osx'))">net10.0-android</TargetFrameworks>
 

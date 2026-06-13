@@ -41,6 +41,8 @@ public sealed class MudSession : IDisposable
     private bool _staleArmed;
     private DateTime _lastProbeSentUtc;
     private DateTime _nextRoutineProbeUtc;
+    // While held, routine and stale probes are suppressed (see SetProbeHold).
+    private bool _probesHeld;
     // First word of each name from the last complete FEW response (Feed thread only).
     // Used by the C05 presence check: a player seen in the room but absent from this
     // set means the Online list is stale.
@@ -80,6 +82,12 @@ public sealed class MudSession : IDisposable
     /// Payload is the confirmed column count.
     /// </summary>
     public event Action<int>? TerminalWidthConfirmed;
+    /// <summary>
+    /// A FES/FEW/FEI probe interrupt was just transmitted (routine heartbeat or stale
+    /// re-probe). Its response ends in a prompt redraw, so consumers that key off
+    /// prompts (the mapping console) treat the next moments as contended.
+    /// </summary>
+    public event Action? ProbeSent;
 
     // ── Public state ───────────────────────────────────────────────────────────
     public GameStatsSnapshot CurrentStats => _currentStats;
@@ -321,12 +329,34 @@ public sealed class MudSession : IDisposable
     {
         lock (_fesLock)
         {
+            if (_probesHeld) return;   // skipped beat; SetProbeHold(false) re-phases the tick
             var now = DateTime.UtcNow;
             _lastProbeSentUtc = now;
             _nextRoutineProbeUtc = now + _fesInterval;
             _staleFlags = StaleStats.None;   // the full probe refreshes everything pending
         }
         OutgoingBytes?.Invoke(FesAndFewSubscription);
+        ProbeSent?.Invoke();
+    }
+
+    /// <summary>
+    /// Hold (true) / release (false) the FES/FEW/FEI probe machinery. Used by the
+    /// mapping console around its operations: probe responses end in a prompt redraw
+    /// and would interleave with a capture in flight. Releasing re-phases the routine
+    /// tick a full interval out -- a held beat is delayed, never dropped forever.
+    /// </summary>
+    public void SetProbeHold(bool held)
+    {
+        lock (_fesLock)
+        {
+            if (_probesHeld == held) return;
+            _probesHeld = held;
+            if (!held && _fesTimer is not null && _fesInterval > TimeSpan.Zero)
+            {
+                _nextRoutineProbeUtc = DateTime.UtcNow + _fesInterval;
+                _fesTimer.Change(_fesInterval, _fesInterval);
+            }
+        }
     }
 
     // ── Reactive stale-stats probing ───────────────────────────────────────────
@@ -372,6 +402,13 @@ public sealed class MudSession : IDisposable
             }
             if (_staleFlags == StaleStats.None)
                 return;
+            if (_probesHeld)
+            {
+                // A mapping operation owns the wire; keep the flags and try again shortly.
+                _staleArmed = true;
+                _staleTimer?.Change(_options.StaleProbeDelay, Timeout.InfiniteTimeSpan);
+                return;
+            }
             var now = DateTime.UtcNow;
             // Honour the global probe-spacing floor; try again once it has elapsed.
             var wait = _options.MinProbeSpacing - (now - _lastProbeSentUtc);
@@ -409,6 +446,7 @@ public sealed class MudSession : IDisposable
             }
         }
         OutgoingBytes?.Invoke(probe);
+        ProbeSent?.Invoke();
     }
 
     /// <summary>

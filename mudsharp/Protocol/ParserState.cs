@@ -30,7 +30,8 @@ internal enum ParserState
     C1Data,         // accumulating C1 payload
     C1Ff1,          // received first 0xFF in C1 terminator
     // C1 sub-states handled by Mud2C1Decoder
-    FesData,        // after C12+C08+C01+C255: collecting raw FES text line (until '\n')
+    FesData,        // after C12+C08+C01+C255: collecting raw FES text line (until '\r'/'\n' with all fields)
+    FesLineTail,    // after the FES line parsed: absorbing the rest of its CR-NUL/CRLF line ending
     FewPlayerData,  // after WHO-list color code (C04/C05+C00/C01+C06+C255): collecting player name
     PresenceNameData, // after a C05 presence code (here/arriving/departing/visible/invisible/fleeing): collecting the bracketed player name for the who-list staleness check
     DreamwordData,  // after C15+C00+C00+C255: collecting [a-z]{1,14} dreamword letters

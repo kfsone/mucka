@@ -5,7 +5,8 @@
              x:Class="Mucka.Pages.FkeyEditorPage"
              x:DataType="vm:FkeyEditorViewModel"
              Title="Config"
-             BackgroundColor="#0C0C0C">
+             BackgroundColor="#0C0C0C"
+             SafeAreaEdges="All">
 
     <Grid RowDefinitions="Auto,*,Auto">
 
@@ -145,22 +146,34 @@
                     <!-- Font Size -->
                     <Grid ColumnDefinitions="140,*" ColumnSpacing="12">
                         <Label Grid.Column="0" Text="Font Size" TextColor="#888888" FontSize="13" VerticalOptions="Center"/>
-                        <HorizontalStackLayout Grid.Column="1" Spacing="12" VerticalOptions="Center">
+                        <HorizontalStackLayout Grid.Column="1" Spacing="6" VerticalOptions="Center">
+                            <Button Text="−" Command="{Binding DecrFontSizeCommand}"
+                                    BackgroundColor="#2d333b" TextColor="#cccccc"
+                                    FontSize="15" WidthRequest="34" HeightRequest="30"
+                                    CornerRadius="4" Padding="0"/>
                             <Label Text="{Binding FontSizeDisplay}" TextColor="White" FontSize="13"
-                                   WidthRequest="28" VerticalOptions="Center"/>
-                            <Stepper Minimum="9" Maximum="24" Increment="1"
-                                     Value="{Binding FontSize, Mode=TwoWay}"/>
+                                   WidthRequest="28" VerticalOptions="Center" HorizontalTextAlignment="Center"/>
+                            <Button Text="+" Command="{Binding IncrFontSizeCommand}"
+                                    BackgroundColor="#2d333b" TextColor="#cccccc"
+                                    FontSize="15" WidthRequest="34" HeightRequest="30"
+                                    CornerRadius="4" Padding="0"/>
                         </HorizontalStackLayout>
                     </Grid>
 
                     <!-- Columns -->
                     <Grid ColumnDefinitions="140,*" ColumnSpacing="12">
                         <Label Grid.Column="0" Text="Columns" TextColor="#888888" FontSize="13" VerticalOptions="Center"/>
-                        <HorizontalStackLayout Grid.Column="1" Spacing="12" VerticalOptions="Center">
+                        <HorizontalStackLayout Grid.Column="1" Spacing="6" VerticalOptions="Center">
+                            <Button Text="−" Command="{Binding DecrColumnsCommand}"
+                                    BackgroundColor="#2d333b" TextColor="#cccccc"
+                                    FontSize="15" WidthRequest="34" HeightRequest="30"
+                                    CornerRadius="4" Padding="0"/>
                             <Label Text="{Binding ColumnsDisplay}" TextColor="White" FontSize="13"
-                                   WidthRequest="28" VerticalOptions="Center"/>
-                            <Stepper Minimum="40" Maximum="160" Increment="1"
-                                     Value="{Binding Columns, Mode=TwoWay}"/>
+                                   WidthRequest="28" VerticalOptions="Center" HorizontalTextAlignment="Center"/>
+                            <Button Text="+" Command="{Binding IncrColumnsCommand}"
+                                    BackgroundColor="#2d333b" TextColor="#cccccc"
+                                    FontSize="15" WidthRequest="34" HeightRequest="30"
+                                    CornerRadius="4" Padding="0"/>
                         </HorizontalStackLayout>
                     </Grid>
 
@@ -178,11 +191,17 @@
                     <!-- Stat Update (FES) frequency -->
                     <Grid ColumnDefinitions="140,*" ColumnSpacing="12">
                         <Label Grid.Column="0" Text="Stat Update (FES)" TextColor="#888888" FontSize="13" VerticalOptions="Center"/>
-                        <HorizontalStackLayout Grid.Column="1" Spacing="12" VerticalOptions="Center">
+                        <HorizontalStackLayout Grid.Column="1" Spacing="6" VerticalOptions="Center">
+                            <Button Text="−" Command="{Binding DecrStatFreqCommand}"
+                                    BackgroundColor="#2d333b" TextColor="#cccccc"
+                                    FontSize="15" WidthRequest="34" HeightRequest="30"
+                                    CornerRadius="4" Padding="0"/>
                             <Label Text="{Binding StatUpdateFrequencyDisplay}" TextColor="White" FontSize="13"
-                                   WidthRequest="28" VerticalOptions="Center"/>
-                            <Stepper Minimum="0" Maximum="30" Increment="5"
-                                     Value="{Binding StatUpdateFrequency, Mode=TwoWay}"/>
+                                   WidthRequest="44" VerticalOptions="Center" HorizontalTextAlignment="Center"/>
+                            <Button Text="+" Command="{Binding IncrStatFreqCommand}"
+                                    BackgroundColor="#2d333b" TextColor="#cccccc"
+                                    FontSize="15" WidthRequest="34" HeightRequest="30"
+                                    CornerRadius="4" Padding="0"/>
                         </HorizontalStackLayout>
                     </Grid>
 

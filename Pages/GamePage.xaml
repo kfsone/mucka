@@ -8,7 +8,8 @@
              x:DataType="vm:GameViewModel"
              Title="mucka"
              BackgroundColor="#0C0C0C"
-             NavigationPage.HasNavigationBar="False">
+             NavigationPage.HasNavigationBar="False"
+             SafeAreaEdges="All">
 
     <ContentPage.Resources>
         <Style x:Key="StatLabelStyle" TargetType="Label">
@@ -28,50 +29,81 @@
                 Padding="6,4" StrokeThickness="0">
             <Grid ColumnDefinitions="Auto,*">
 
-                <!-- Top-left icons: panel toggle + settings + about -->
-                <HorizontalStackLayout Grid.Column="0" Spacing="2" Margin="0,0,6,0">
-                    <Border VerticalOptions="Center"
-                            BackgroundColor="Transparent"
+                <!-- Top-left icons: 3-up in wide mode, "⋯" overflow in narrow mode.
+                     The | separator is always present, outside the toggle so layout is stable. -->
+                <Grid Grid.Column="0" ColumnDefinitions="Auto,Auto" VerticalOptions="Center">
+
+                    <!-- Wide mode: panel toggle + settings + about inline -->
+                    <HorizontalStackLayout Grid.Column="0" Spacing="2"
+                                           IsVisible="{Binding IsNotCompactStats}">
+                        <Border VerticalOptions="Center"
+                                BackgroundColor="Transparent"
+                                Stroke="Transparent" StrokeThickness="0"
+                                Padding="{OnPlatform Android='10,8', Default='2,0'}"
+                                SemanticProperties.Description="Toggle side panel">
+                            <ToolTipProperties.Text>Toggle side panel</ToolTipProperties.Text>
+                            <Border.GestureRecognizers>
+                                <TapGestureRecognizer Command="{Binding SidePanel.TogglePanelCommand}"/>
+                            </Border.GestureRecognizers>
+                            <Label Text="{Binding SidePanel.PanelToggleGlyph}"
+                                   TextColor="#888888" FontSize="11" VerticalOptions="Center"
+                                   FontFamily="{OnPlatform Android='monospace', WinUI='Cascadia Mono', MacCatalyst='Menlo-Regular'}"/>
+                        </Border>
+                        <Border VerticalOptions="Center"
+                                BackgroundColor="Transparent"
+                                Stroke="Transparent" StrokeThickness="0"
+                                Padding="{OnPlatform Android='10,8', Default='2,0'}"
+                                SemanticProperties.Description="Settings">
+                            <ToolTipProperties.Text>Settings</ToolTipProperties.Text>
+                            <Border.GestureRecognizers>
+                                <TapGestureRecognizer Command="{Binding ConfigCommand}"/>
+                            </Border.GestureRecognizers>
+                            <Label Text="&#x2699;&#xFE0E;"
+                                   TextColor="#888888" FontSize="12" VerticalOptions="Center"/>
+                        </Border>
+                        <Border VerticalOptions="Center"
+                                BackgroundColor="Transparent"
+                                Stroke="Transparent" StrokeThickness="0"
+                                Padding="{OnPlatform Android='10,8', Default='2,0'}"
+                                SemanticProperties.Description="About mucka">
+                            <ToolTipProperties.Text>About mucka</ToolTipProperties.Text>
+                            <Border.GestureRecognizers>
+                                <TapGestureRecognizer Command="{Binding SidePanel.ShowAboutCommand}"/>
+                            </Border.GestureRecognizers>
+                            <Label Text="&#x24D8;"
+                                   TextColor="#888888" FontSize="12" VerticalOptions="Center"/>
+                        </Border>
+                    </HorizontalStackLayout>
+
+                    <!-- Compact/narrow mode: hamburger overflow menu -->
+                    <Border x:Name="OverflowMenuButton"
+                            Grid.Column="0"
+                            IsVisible="{Binding IsCompactStats}"
+                            VerticalOptions="Center" HorizontalOptions="Start"
+                            BackgroundColor="#2d333b"
                             Stroke="Transparent" StrokeThickness="0"
-                            Padding="2,0"
-                            SemanticProperties.Description="Toggle side panel">
-                        <ToolTipProperties.Text>Toggle side panel</ToolTipProperties.Text>
+                            Padding="{OnPlatform Android='10,6', Default='6,2'}"
+                            SemanticProperties.Description="Menu">
+                        <Border.StrokeShape><RoundRectangle CornerRadius="4"/></Border.StrokeShape>
+                        <FlyoutBase.ContextFlyout>
+                            <MenuFlyout>
+                                <MenuFlyoutItem Text="Toggle side panel" Clicked="OnOverflowTogglePanel"/>
+                                <MenuFlyoutItem Text="Settings" Clicked="OnOverflowSettings"/>
+                                <MenuFlyoutItem Text="About" Clicked="OnOverflowAbout"/>
+                            </MenuFlyout>
+                        </FlyoutBase.ContextFlyout>
                         <Border.GestureRecognizers>
-                            <TapGestureRecognizer Command="{Binding SidePanel.TogglePanelCommand}"/>
+                            <TapGestureRecognizer Tapped="OnOverflowMenuTapped"/>
                         </Border.GestureRecognizers>
-                        <Label Text="{Binding SidePanel.PanelToggleGlyph}"
-                               TextColor="#888888" FontSize="11" VerticalOptions="Center"
-                               FontFamily="{OnPlatform Android='monospace', WinUI='Cascadia Mono', MacCatalyst='Menlo-Regular'}"/>
+                        <Label Text="&#x2630;" TextColor="#aaaaaa" FontSize="13"
+                               VerticalOptions="Center"/>
                     </Border>
-                    <Border VerticalOptions="Center"
-                            BackgroundColor="Transparent"
-                            Stroke="Transparent" StrokeThickness="0"
-                            Padding="2,0"
-                            SemanticProperties.Description="Settings">
-                        <ToolTipProperties.Text>Settings</ToolTipProperties.Text>
-                        <Border.GestureRecognizers>
-                            <TapGestureRecognizer Command="{Binding ConfigCommand}"/>
-                        </Border.GestureRecognizers>
-                        <Label Text="&#x2699;&#xFE0E;"
-                               TextColor="#888888" FontSize="12" VerticalOptions="Center"/>
-                    </Border>
-                    <Border VerticalOptions="Center"
-                            BackgroundColor="Transparent"
-                            Stroke="Transparent" StrokeThickness="0"
-                            Padding="2,0"
-                            SemanticProperties.Description="About mucka">
-                        <ToolTipProperties.Text>About mucka</ToolTipProperties.Text>
-                        <Border.GestureRecognizers>
-                            <TapGestureRecognizer Command="{Binding SidePanel.ShowAboutCommand}"/>
-                        </Border.GestureRecognizers>
-                        <Label Text="&#x24D8;"
-                               TextColor="#888888" FontSize="12" VerticalOptions="Center"/>
-                    </Border>
-                    <!-- Separator between the icon trio and the stats -->
-                    <Label Text="|"
+
+                    <!-- Separator always present between the icon area and the stats -->
+                    <Label Grid.Column="1" Text="|"
                            Style="{StaticResource StatLabelStyle}" TextColor="#444444"
                            Margin="4,0,0,0"/>
-                </HorizontalStackLayout>
+                </Grid>
 
                 <!-- Normal stats bar: visible when effcols >= 76 -->
                 <Grid Grid.Column="1"
@@ -251,9 +283,11 @@
 
                 </Grid>
 
-                <!-- Compact stats bar: two rows when effcols < 76 -->
+                <!-- Compact stats bar: two rows when effcols < 76
+                     cols 0-7: stats | score | effects  col 8: * spacer
+                     cols 9-10: weather  cols 11-12: TTR (rightmost, same order as wide bar) -->
                 <Grid Grid.Column="1" RowDefinitions="Auto,Auto"
-                      ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,*,Auto,Auto,Auto,Auto,Auto"
+                      ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,*,Auto,Auto,Auto,Auto"
                       IsVisible="{Binding IsCompactStats}">
 
                     <!-- ── Labels row (2pt smaller font) ── -->
@@ -275,17 +309,14 @@
                            Text="Score" TextColor="#58a6ff" FontSize="11"
                            VerticalOptions="End" HorizontalOptions="Center" Margin="0,0,4,0"/>
                     <!-- col 6: | separator, col 7: status effects, col 8: * spacer -->
-                    <Label Grid.Row="0" Grid.Column="9"
-                           Text="Dream" TextColor="#58a6ff" FontSize="11"
-                           VerticalOptions="End" HorizontalOptions="Center" Margin="0,0,4,0"/>
-                    <Label Grid.Row="0" Grid.Column="11"
+                    <Label Grid.Row="0" Grid.Column="10"
                            Text="Weath" TextColor="#58a6ff" FontSize="11"
                            IsVisible="{Binding WeatherVisible}"
                            VerticalOptions="End" HorizontalOptions="Center" Margin="0,0,4,0"/>
-                    <Label Grid.Row="0" Grid.Column="13"
+                    <Label Grid.Row="0" Grid.Column="12"
                            Text="Rst" TextColor="#58a6ff" FontSize="11"
                            IsVisible="{Binding TtrVisible}"
-                           VerticalOptions="End" HorizontalOptions="Center"/>
+                           VerticalOptions="End" HorizontalOptions="Center" Margin="0,0,4,0"/>
 
                     <!-- ── Values row ── -->
                     <Label Grid.Row="1" Grid.Column="0"
@@ -353,51 +384,29 @@
                            IsVisible="{Binding AnyEffectVisible}"
                            HorizontalOptions="Center" Margin="0,0,4,0"/>
 
-                    <!-- * spacer col 8 -->
-                    <BoxView Grid.Row="1" Grid.Column="8" Color="Transparent"/>
+                    <!-- col 8: * spacer -->
 
-                    <!-- Dreamword: tappable label — dimmed while showing the placeholder -->
-                    <Label Grid.Row="1" Grid.Column="9"
-                           Text="{Binding DreamwordDisplay}"
-                           TextColor="#7db9f5" FontAttributes="Bold"
-                           Style="{StaticResource StatLabelStyle}"
-                           MaxLines="1" LineBreakMode="TailTruncation"
-                           HorizontalOptions="Center" Margin="0,0,4,0">
-                        <Label.Triggers>
-                            <DataTrigger TargetType="Label" Binding="{Binding DreamwordIsPlaceholder}" Value="True">
-                                <Setter Property="TextColor" Value="#5a7a9c"/>
-                                <Setter Property="FontAttributes" Value="None"/>
-                            </DataTrigger>
-                        </Label.Triggers>
-                        <Label.GestureRecognizers>
-                            <TapGestureRecognizer Command="{Binding SpeakDreamwordCommand}"/>
-                        </Label.GestureRecognizers>
-                        <ToolTipProperties.Text>Speak dreamword (Ctrl+D)</ToolTipProperties.Text>
-                    </Label>
-
-                    <Label Grid.Row="1" Grid.Column="10" Text="|"
+                    <Label Grid.Row="1" Grid.Column="9" Text="|"
                            Style="{StaticResource StatLabelStyle}" TextColor="#444444"
-                           IsVisible="{Binding AnyRightStatVisible}"
+                           IsVisible="{Binding WeatherVisible}"
                            Margin="0,0,4,0"/>
-
-                    <Label Grid.Row="1" Grid.Column="11"
+                    <Label Grid.Row="1" Grid.Column="10"
                            Text="{Binding WeatherGlyph}" TextColor="{Binding WeatherColor}"
                            Style="{StaticResource StatLabelStyle}"
                            IsVisible="{Binding WeatherVisible}"
                            ToolTipProperties.Text="{Binding WeatherTooltip}"
                            HorizontalOptions="Center" Margin="0,0,4,0"/>
 
-                    <Label Grid.Row="1" Grid.Column="12" Text="|"
+                    <Label Grid.Row="1" Grid.Column="11" Text="|"
                            Style="{StaticResource StatLabelStyle}" TextColor="#444444"
                            IsVisible="{Binding TtrVisible}"
                            Margin="0,0,4,0"/>
-
-                    <Label Grid.Row="1" Grid.Column="13"
+                    <Label Grid.Row="1" Grid.Column="12"
                            Text="{Binding TtrText}"
                            Style="{StaticResource StatLabelStyle}"
                            IsVisible="{Binding TtrVisible}"
                            ToolTipProperties.Text="Time until reset"
-                           HorizontalOptions="Center"/>
+                           HorizontalOptions="Center" Margin="0,0,4,0"/>
 
                 </Grid>
 
@@ -437,6 +446,29 @@
                        Text="* Copied to clipboard"
                        TextColor="#3B78FF" FontSize="12"
                        FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
+            </Border>
+
+            <!-- Floating dreamword chip: shown top-right when a dreamword is active.
+                 Tapping speaks the dreamword (same as Ctrl+D). -->
+            <Border Grid.Column="0"
+                    IsVisible="{Binding DreamwordActive}"
+                    BackgroundColor="#182a3e" Opacity="0.9"
+                    Stroke="#2d5a9e" StrokeThickness="1"
+                    Padding="10,4"
+                    HorizontalOptions="End" VerticalOptions="Start"
+                    Margin="0,6,8,0">
+                <Border.StrokeShape><RoundRectangle CornerRadius="10"/></Border.StrokeShape>
+                <Border.GestureRecognizers>
+                    <TapGestureRecognizer Command="{Binding SpeakDreamwordCommand}"/>
+                </Border.GestureRecognizers>
+                <VerticalStackLayout Spacing="1">
+                    <Label Text="Dream"
+                           TextColor="#58a6ff" FontSize="9"
+                           HorizontalOptions="Center"/>
+                    <Label Text="{Binding DreamwordDisplay}"
+                           TextColor="#7db9f5" FontSize="12" FontAttributes="Bold"
+                           HorizontalOptions="Center"/>
+                </VerticalStackLayout>
             </Border>
         </Grid>
 
@@ -551,7 +583,7 @@
         <Border Grid.Column="0"
                 x:Name="SidePanelBorder"
                 IsVisible="{Binding SidePanel.IsPanelExpanded}"
-                WidthRequest="260"
+                WidthRequest="228"
                 BackgroundColor="#161b22"
                 Stroke="#2d333b" StrokeThickness="1"
                 Padding="0">
@@ -821,6 +853,48 @@
 
                     <Label Text="WORK IN PROGRESS" TextColor="#e3b341" FontSize="11" FontAttributes="Bold"/>
 
+                </VerticalStackLayout>
+            </Border>
+        </Grid>
+
+        <!-- ── Overflow menu overlay — dark themed dropdown, no scrim ── -->
+        <!-- Spans all rows so any tap outside the popup (including near ☰) dismisses it. -->
+        <Grid Grid.Row="0" Grid.RowSpan="3"
+              x:Name="OverflowMenuOverlay"
+              IsVisible="False"
+              BackgroundColor="Transparent">
+            <Grid.GestureRecognizers>
+                <TapGestureRecognizer Tapped="OnOverflowMenuDismiss"/>
+            </Grid.GestureRecognizers>
+
+            <!-- Popup anchored top-left, just below the status bar (~46dp) -->
+            <Border BackgroundColor="#1c2128"
+                    Stroke="#444c56" StrokeThickness="1"
+                    HorizontalOptions="Start" VerticalOptions="Start"
+                    Margin="6,46,0,0"
+                    MinimumWidthRequest="170">
+                <Border.StrokeShape><RoundRectangle CornerRadius="6"/></Border.StrokeShape>
+                <VerticalStackLayout Spacing="0">
+                    <Border Padding="16,14" BackgroundColor="Transparent">
+                        <Border.GestureRecognizers>
+                            <TapGestureRecognizer Tapped="OnOverflowTogglePanel"/>
+                        </Border.GestureRecognizers>
+                        <Label Text="Toggle side panel" TextColor="White" FontSize="14"/>
+                    </Border>
+                    <BoxView Color="#2d333b" HeightRequest="1"/>
+                    <Border Padding="16,14" BackgroundColor="Transparent">
+                        <Border.GestureRecognizers>
+                            <TapGestureRecognizer Tapped="OnOverflowSettings"/>
+                        </Border.GestureRecognizers>
+                        <Label Text="Settings" TextColor="White" FontSize="14"/>
+                    </Border>
+                    <BoxView Color="#2d333b" HeightRequest="1"/>
+                    <Border Padding="16,14" BackgroundColor="Transparent">
+                        <Border.GestureRecognizers>
+                            <TapGestureRecognizer Tapped="OnOverflowAbout"/>
+                        </Border.GestureRecognizers>
+                        <Label Text="About" TextColor="White" FontSize="14"/>
+                    </Border>
                 </VerticalStackLayout>
             </Border>
         </Grid>
