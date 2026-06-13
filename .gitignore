@@ -35,3 +35,7 @@ AppPackages/
 
 # Misc
 MUD-ClientProto.md
+
+# Python
+__pycache__/
+*.pyc

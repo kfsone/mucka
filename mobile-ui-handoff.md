@@ -162,8 +162,6 @@ round-trip so the next regression hunt doesn't burn time here. Verify with INPUT
 2. **White oblong on compact row 2** (between score and dream chip) — may already be gone after
    the TTR column restructure; verify with a connected compact-mode screenshot; if present,
    `adb shell uiautomator dump` to identify the element.
-3. **Narrow-mode status-bar nav icons → "…" menu** (old item #1) — partially superseded by the
-   ☰ overflow menu; verify whether anything is still clipped in narrow mode.
 
 ### P8 — MappingPage polish (new uncommitted code)
 - Guidance pulse is still a UI-thread dispatcher animation while the map window is open —
