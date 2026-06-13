@@ -24,7 +24,9 @@ public sealed class StaleDimBehavior : Behavior<View>
     public string Source { get; set; } = "";
 
     private View? _view;
+#if WINDOWS
     private SidePanelViewModel? _sp;
+#endif
 
     protected override void OnAttachedTo(View view)
     {

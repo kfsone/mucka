@@ -19,8 +19,8 @@ namespace Mucka.Behaviors;
 public sealed class WhoEntryFadeBehavior : Behavior<Label>
 {
     private Label? _label;
-    private WhoEntry? _entry;
 #if WINDOWS
+    private WhoEntry? _entry;
     private Microsoft.UI.Composition.Visual? _visual;
     private const double FadeInMs  = 2000;   // arrival
     private const double FadeOutMs = 3000;   // departure — slower, easier to notice someone left
