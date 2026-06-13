@@ -14,7 +14,6 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
 #endif
         ;
     private bool _isAboutVisible;
-    private string _characterName = "";
     private string _currentRoom  = "";
     private string _previousRoom = "Option Menu";
     private string _oldestRoom   = "Logging in";
@@ -35,13 +34,6 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         get => _isAboutVisible;
         set => Set(ref _isAboutVisible, value);
     }
-
-    public string CharacterName
-    {
-        get => _characterName;
-        set => SetAndNotify(ref _characterName, value, [nameof(HasCharacterName)]);
-    }
-    public bool HasCharacterName => !string.IsNullOrEmpty(_characterName);
 
     public string CurrentRoom
     {
@@ -369,5 +361,4 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         // (it was the UI-thread typing-lag culprit). Kept for the IDisposable contract.
     }
 }
-
 

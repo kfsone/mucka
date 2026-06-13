@@ -10,6 +10,16 @@ namespace Mucka.Core.Mapping;
 /// </summary>
 public static class MappingStore
 {
+    internal sealed record EdgeAnnotation(
+        string From,
+        string Direction,
+        string Outcome,
+        string ExitFingerprint,
+        bool IsTraversal,
+        bool ResolvesEdge);
+
+    internal sealed record EdgeState(HashSet<string> Resolved, MapGraph Graph);
+
     /// <summary>
     /// The mapping directory: "mappingdir" from mucka.ini ([settings:Profile] preferred,
     /// then [settings]), defaulting to ~/.mucka/mapping. The key is hand-edited only --
@@ -74,59 +84,68 @@ public static class MappingStore
         return new Summary(files.Length, entries, newest);
     }
 
-    /// <summary>
-    /// Rebuilds the set of already-captured edges from the edge annotations in every
-    /// capture: "edge: {from} |{dir}> {to} [{exit fingerprint}]" (or |{dir}! refusal --
-    /// both outcomes count as resolved; a recorded refusal is data we do not need to
-    /// re-collect). Keys are "{room}|{fingerprint}|{dir}": same-named rooms are only
-    /// treated as the same place when their enabled-exit sets also match, since short
-    /// descriptions are not unique (five "Badly-paved road"s). Same name AND same
-    /// fingerprint still collide -- true instance identity is the analysis pipeline's
-    /// job; the console only errs toward re-capturing.
-    /// </summary>
-    public static HashSet<string> ScanResolvedEdges(string directory)
+    internal static EdgeState LoadEdgeState(string directory)
     {
         var resolved = new HashSet<string>();
+        var graph = MapGraph.CreateEmpty();
+
+        foreach (var edge in ReadEdgeAnnotations(directory))
+        {
+            graph.RecordAnnotation(edge);
+            if (edge.ResolvesEdge)
+                resolved.Add($"{edge.From}|{edge.ExitFingerprint}|{edge.Direction}");
+        }
+
+        return new EdgeState(resolved, graph);
+    }
+
+    internal static IEnumerable<EdgeAnnotation> ReadEdgeAnnotations(string directory)
+    {
         if (!Directory.Exists(directory))
-            return resolved;
+            yield break;
 
         foreach (var file in Directory.GetFiles(directory, "*.jsonl"))
         {
+            List<string> lines;
             try
             {
-                foreach (var line in ReadLinesShared(file))
-                {
-                    try
-                    {
-                        // Cheap pre-filter; full parse only for candidate annotation lines.
-                        if (!line.Contains("\"edge: ", StringComparison.Ordinal)) continue;
-                        using var doc = JsonDocument.Parse(line);
-                        if (doc.RootElement.ValueKind != JsonValueKind.Array) continue;
-                        if (doc.RootElement[1].GetString() != "an") continue;
-                        var data = doc.RootElement[2].GetString();
-                        if (data is null || !data.StartsWith("edge: ", StringComparison.Ordinal)) continue;
-                        if (ParseEdgeAnnotation(data) is { } key)
-                            resolved.Add(key);
-                    }
-                    catch { /* partial or malformed line -- skip it, keep scanning */ }
-                }
+                lines = ReadLinesShared(file).ToList();
             }
-            catch { /* unreadable or foreign file -- contributes nothing */ }
+            catch
+            {
+                continue;
+            }
+
+            foreach (var line in lines)
+            {
+                EdgeAnnotation? edge = null;
+                try
+                {
+                    if (!line.Contains("\"edge: ", StringComparison.Ordinal)) continue;
+                    using var doc = JsonDocument.Parse(line);
+                    if (doc.RootElement.ValueKind != JsonValueKind.Array) continue;
+                    if (doc.RootElement[1].GetString() != "an") continue;
+                    var data = doc.RootElement[2].GetString();
+                    if (data is null || !data.StartsWith("edge: ", StringComparison.Ordinal)) continue;
+                    if (TryParseEdgeAnnotation(data, out edge) && edge is not null) { }
+                }
+                catch { /* partial or malformed line -- skip it, keep scanning */ }
+
+                if (edge is not null)
+                    yield return edge;
+            }
         }
-        return resolved;
     }
 
-    /// <summary>Parses "edge: {from} |{dir}>|! ... [{fingerprint}]" into a resolved-edge
-    /// key, or null when the line does not parse OR does not resolve the edge: transient
-    /// refusals (something movable in the way) and op artifacts (timeout, no output)
-    /// are recorded data but the edge is still wanted. Legacy lines without the trailing
-    /// fingerprint get an empty fingerprint component.</summary>
-    internal static string? ParseEdgeAnnotation(string data)
+    /// <summary>Parses "edge: {from} |{dir}>|! ... [{fingerprint}]" into a structured
+    /// annotation. Legacy lines without the trailing fingerprint get an empty fingerprint
+    /// component.</summary>
+    internal static bool TryParseEdgeAnnotation(string data, out EdgeAnnotation? edge)
     {
         var bar = data.IndexOf(" |", StringComparison.Ordinal);
-        if (bar < 6) return null;
+        if (bar < 6) { edge = null; return false; }
         var end = data.IndexOfAny(['>', '!'], bar + 2);
-        if (end < 0) return null;
+        if (end < 0) { edge = null; return false; }
         var from = data[6..bar];
         var dir = data[(bar + 2)..end];
 
@@ -139,6 +158,8 @@ public static class MappingStore
         }
 
         var outcome = tail[(end + 1)..].Trim();
+        var isTraversal = data[end] == '>';
+        var resolvesEdge = true;
         if (data[end] == '!')
         {
             // Dark-text refusals are legacy records from before the parser knew the
@@ -146,15 +167,16 @@ public static class MappingStore
             // far end is unidentified.
             if (outcome is "(timeout)" or "(no output)" || IsTransientRefusal(outcome)
                 || outcome.StartsWith("It's too dark to see", StringComparison.Ordinal))
-                return null;
+                resolvesEdge = false;
         }
         else if (outcome == "(dark)")
         {
             // Traversed but unseen -- stays wanted until re-walked with a light source.
-            return null;
+            resolvesEdge = false;
         }
 
-        return $"{from}|{fex}|{dir}";
+        edge = new EdgeAnnotation(from, dir, outcome, fex, isTraversal, resolvesEdge);
+        return true;
     }
 
     /// <summary>Refusals caused by something movable (an ox, a player) -- recorded as

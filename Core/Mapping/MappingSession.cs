@@ -90,7 +90,10 @@ public sealed class MappingSession : IDisposable
     }
 
     /// <summary>Snapshot of the current room's enabled exits (for graph guidance queries).</summary>
-    public IReadOnlySet<string> EnabledExits { get { lock (_lock) return _enabledExits; } }
+    public IReadOnlySet<string> EnabledExits
+    {
+        get { lock (_lock) return _enabledExits.ToHashSet(StringComparer.OrdinalIgnoreCase); }
+    }
 
     /// <summary>Snapshot of resolved-edge keys for the current room (live, overrides stale graph).</summary>
     public IReadOnlySet<string> CurrentRoomResolvedDirs
@@ -109,13 +112,29 @@ public sealed class MappingSession : IDisposable
         }
     }
 
+    public string? SuggestedNextExit()
+    {
+        lock (_lock)
+        {
+            var room = _currentRoom;
+            var enabledExits = _enabledExits.ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var fex = FexKeyLocked();
+            var resolvedDirs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var dir in Directions)
+                if (_resolved.Contains(EdgeKey(room, fex, dir)))
+                    resolvedDirs.Add(dir);
+            return _graph.SuggestedNextExit(room, enabledExits, resolvedDirs);
+        }
+    }
+
     public MappingSession(MuckaConnection conn, string directory, string host)
     {
         _conn = conn;
         _directory = directory;
         _host = host;
-        _resolved = MappingStore.ScanResolvedEdges(directory);
-        _graph = MapGraph.Load(directory);
+        var edgeState = MappingStore.LoadEdgeState(directory);
+        _resolved = edgeState.Resolved;
+        _graph = edgeState.Graph;
         _opTimer = new Timer(_ => OnOpTimeout(), null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
         _windowTimer = new Timer(_ => StateChanged?.Invoke(), null,
                                  Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);

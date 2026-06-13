@@ -292,7 +292,6 @@ public static class SettingsStore
             if (GetInt (ini, section, "antiidle")         is int idle)   p.AntiIdleSeconds    = idle;
             if (GetBool(ini, section, "keepscreenon")     is bool keep)  p.KeepScreenOn       = keep;
             if (GetBool(ini, section, "defaulthotkeys")   is bool defs)  p.DefaultHotkeys     = defs;
-            if (GetInt (ini, section, "fewrefresh")       is int few)    p.FewRefreshInterval = few;
             profiles.Add(p);
         }
         return profiles;
@@ -333,7 +332,6 @@ public static class SettingsStore
             ini.Set(section, "antiidle",         p.AntiIdleSeconds.ToString());
             ini.Set(section, "keepscreenon",     p.KeepScreenOn       ? "yes" : "no");
             ini.Set(section, "defaulthotkeys",   p.DefaultHotkeys     ? "yes" : "no");
-            ini.Set(section, "fewrefresh",       p.FewRefreshInterval.ToString());
         }
     }
 

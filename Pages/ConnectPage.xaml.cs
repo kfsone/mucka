@@ -176,21 +176,10 @@ public partial class ConnectPage : ContentPage
             }
             catch (Exception ex)
             {
-                LogCrash("OnConnected", ex);
+                CrashLog.Write("OnConnected", ex);
                 await DisplayAlertAsync("Launch Error", $"Could not open the game screen:\n{ex.Message}", "OK");
             }
         });
-    }
-
-    private static void LogCrash(string context, Exception ex)
-    {
-        try
-        {
-            var path = Path.Combine(Path.GetTempPath(), "mucka-crash.txt");
-            File.WriteAllText(path, $"{DateTimeOffset.Now:o}  [{context}]\n{ex}\n");
-            System.Diagnostics.Trace.WriteLine($"[Mucka] crash log: {path}");
-        }
-        catch { }
     }
 
     private void OnProfileSelected(object? sender, SelectionChangedEventArgs e)

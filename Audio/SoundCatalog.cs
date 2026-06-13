@@ -20,7 +20,7 @@ public sealed record SoundGroupDef(string Prefix, string Name, SoundDef[] Sounds
 
 /// <summary>
 /// The fixed catalog of server-triggered sound effects: every clio.*.wav shipped in
-/// Resources/Raw/sounds, grouped by FE-code family (see fecodes.txt and the C1 decoder).
+/// Resources/Raw/sounds, grouped by FE-code family (see docs/fecodes.txt and the C1 decoder).
 /// The settings dialog builds its tree from this; SoundService consults it to gate
 /// playback and to detect codes with no wav of their own (group-default fallback).
 /// </summary>

@@ -35,6 +35,8 @@ AppPackages/
 
 # Misc
 MUD-ClientProto.md
+screen.png
+android-screen.png
 
 # Python
 __pycache__/

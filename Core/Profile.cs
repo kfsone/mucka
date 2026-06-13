@@ -31,8 +31,6 @@ public class Profile
     public int Volume { get; set; } = 75;
     /// <summary>FES stats-update heartbeat interval in seconds. 0 = disabled. Default 10.</summary>
     public int StatUpdateFrequency { get; set; } = 10;
-    /// <summary>FEW who-list poll interval in seconds. 0 = disabled. Default 15.</summary>
-    public int FewRefreshInterval { get; set; } = 15;
     /// <summary>Permanently suppress the bell/beep sound. Persisted per profile.</summary>
     public bool MuteBeepPermanently { get; set; }
     /// <summary>Per-sound enablement and group fallbacks. Defaults to everything on.</summary>

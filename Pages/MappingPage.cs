@@ -68,7 +68,6 @@ internal sealed class MappingPage : ContentPage
     private readonly CollectionView _list;
     private List<CaptureItem> _items = new();
     private int _lastOpsCompleted = -1;
-    private MapGraph? _graph;
     private Button? _guidedBtn;
 
     public MappingPage(GameViewModel vm)
@@ -385,8 +384,7 @@ internal sealed class MappingPage : ContentPage
         _hereBtn.BackgroundColor = HereBack;
 
         // Ask the guidance engine for the next suggested direction.
-        var suggested = _graph?.SuggestedNextExit(
-            room, _session.EnabledExits, _session.CurrentRoomResolvedDirs);
+        var suggested = _session.SuggestedNextExit();
         SetGuidance(suggested is not null && _dirButtons.TryGetValue(suggested, out var gb) ? gb : null);
 
         foreach (var (dir, btn) in _dirButtons)
@@ -454,9 +452,7 @@ internal sealed class MappingPage : ContentPage
         _dirLabel.Text = dir;
         try
         {
-            var (items, graph) = await Task.Run(() => (ScanDirectory(dir), MapGraph.Load(dir)));
-            _items = items;
-            _graph = graph;
+            _items = await Task.Run(() => ScanDirectory(dir));
         }
         catch (Exception ex)
         {

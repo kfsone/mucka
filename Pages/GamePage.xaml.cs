@@ -41,6 +41,10 @@ public partial class GamePage : ContentPage
 
     private bool _isFkeyEditorOpen;
     private bool _eventsSubscribed;
+    // True once an auxiliary window (raw console, map) has been opened. WinUI's native
+    // caret-follow breaks after focus leaves to another app window, so the UpdateLayout
+    // workaround in OnInputSelectionChanged is only needed from that point on.
+    private bool _auxiliaryWindowOpened;
 #if WINDOWS
     private Window? _rawConsoleWindow;
     private Window? _mapWindow;
@@ -102,7 +106,7 @@ public partial class GamePage : ContentPage
         base.OnAppearing();
 
         try { DeviceDisplay.Current.KeepScreenOn = _vm.KeepScreenOn; }
-        catch (Exception ex) { LogCrash("KeepScreenOn", ex); }
+        catch (Exception ex) { CrashLog.Write("KeepScreenOn", ex); }
 
         if (_flushTimer == null)
         {
@@ -201,7 +205,7 @@ public partial class GamePage : ContentPage
                 StartUiThreadProbe();
 #endif
             }
-            catch (Exception ex) { LogCrash("OnAppearing/Windows", ex); }
+            catch (Exception ex) { CrashLog.Write("OnAppearing/Windows", ex); }
 #endif
         }
         else
@@ -963,6 +967,9 @@ public partial class GamePage : ContentPage
     // disturb selections or mid-text caret moves.
     private void OnInputSelectionChanged(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
     {
+        // UpdateLayout() is only needed after WinUI's native caret-follow has been broken
+        // by activating an auxiliary window. Skip entirely until that has happened.
+        if (!_auxiliaryWindowOpened) return;
         var tb = _inputTextBox;
         if (tb is null || tb.SelectionLength != 0 || tb.SelectionStart < tb.Text.Length)
             return;
@@ -1201,6 +1208,7 @@ public partial class GamePage : ContentPage
 
     private void OnOpenRawConsoleRequested()
     {
+        _auxiliaryWindowOpened = true;
         // Reuse existing window if it is still open.
         if (_rawConsoleWindow != null &&
             Application.Current?.Windows.Contains(_rawConsoleWindow) == true)
@@ -1216,6 +1224,7 @@ public partial class GamePage : ContentPage
 
     private void OnMapPanelRequested()
     {
+        _auxiliaryWindowOpened = true;
         // Reuse existing window if it is still open.
         if (_mapWindow != null &&
             Application.Current?.Windows.Contains(_mapWindow) == true)
@@ -1282,19 +1291,6 @@ public partial class GamePage : ContentPage
     }
 #endif
 #endif
-
-
-    private static void LogCrash(string context, Exception ex)
-    {
-        try
-        {
-            var path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "mucka-crash.txt");
-            System.IO.File.AppendAllText(path, $"{DateTimeOffset.Now:o}  [{context}]\n{ex}\n\n");
-            System.Diagnostics.Trace.WriteLine($"[Mucka] crash log: {path}");
-        }
-        catch { }
-    }
-
     private void OnDisconnected()
     {
         _flushTimer?.Stop();

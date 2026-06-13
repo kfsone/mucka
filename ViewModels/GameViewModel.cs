@@ -41,7 +41,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private bool _dumb;
     private int _timeToReset;
     private char _weather;
-    private string _rank = string.Empty;
     private string _dreamword = string.Empty;
     private bool _isConnected = true;
     private bool _fkeysVisible;
@@ -81,24 +80,22 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             Set(ref _inputText, value);
         }
     }
-    public int Stamina    { get => _stamina;    set => SetAndNotify(ref _stamina,    value, [nameof(StaText), nameof(StaCurValue), nameof(StaColor)]); }
-    public int MaxStamina { get => _maxStamina; set => SetAndNotify(ref _maxStamina, value, [nameof(StaText), nameof(StaMaxValue)]); }
-    public int Strength    { get => _strength;    set => SetAndNotify(ref _strength,    value, [nameof(StrText), nameof(StrCurValue), nameof(StrColor)]); }
-    public int MaxStrength { get => _maxStrength; set => SetAndNotify(ref _maxStrength, value, [nameof(StrText), nameof(StrMaxValue), nameof(StrColor)]); }
-    public int Dexterity    { get => _dexterity;    set => SetAndNotify(ref _dexterity,    value, [nameof(DexText), nameof(DexCurValue), nameof(DexColor)]); }
-    public int MaxDexterity { get => _maxDexterity; set => SetAndNotify(ref _maxDexterity, value, [nameof(DexText), nameof(DexMaxValue), nameof(DexColor)]); }
-    public int Magic    { get => _magic;    set => SetAndNotify(ref _magic,    value, [nameof(MagText), nameof(MagCurValue), nameof(MagColor), nameof(MagVisible)]); }
-    public int MaxMagic { get => _maxMagic; set => SetAndNotify(ref _maxMagic, value, [nameof(MagText), nameof(MagMaxValue), nameof(MagColor)]); }
-    public int Score    { get => _score;    set { if (Set(ref _score, value)) { if (_baseScore < 0 && value > 0) _baseScore = value; OnPropertiesChanged(nameof(ScoreText), nameof(ScoreValue), nameof(ScoreDeltaValue), nameof(ScoreDisplayValue), nameof(ScoreColor)); } } }
+    public int Stamina => _stamina;
+    public int MaxStamina => _maxStamina;
+    public int Strength => _strength;
+    public int MaxStrength => _maxStrength;
+    public int Dexterity => _dexterity;
+    public int MaxDexterity => _maxDexterity;
+    public int Magic => _magic;
+    public int MaxMagic => _maxMagic;
+    public int Score => _score;
     public bool Blind    { get => _blind;    set => SetAndNotify(ref _blind,    value, [nameof(AnyEffectVisible), nameof(EffectsGlyphs)]); }
     public bool Deaf     { get => _deaf;     set => SetAndNotify(ref _deaf,     value, [nameof(AnyEffectVisible), nameof(EffectsGlyphs)]); }
     public bool Crippled { get => _crippled; set => SetAndNotify(ref _crippled, value, [nameof(AnyEffectVisible), nameof(EffectsGlyphs)]); }
     public bool Dumb     { get => _dumb;     set => SetAndNotify(ref _dumb,     value, [nameof(AnyEffectVisible), nameof(EffectsGlyphs)]); }
     public int TimeToReset { get => _timeToReset; set => SetAndNotify(ref _timeToReset, value, [nameof(TtrText), nameof(TtrVisible), nameof(AnyRightStatVisible)]); }
     public char Weather { get => _weather; set => SetAndNotify(ref _weather, value, [nameof(WeatherText), nameof(WeatherGlyph), nameof(WeatherTooltip), nameof(WeatherDisplayText), nameof(WeatherColor), nameof(WeatherVisible), nameof(AnyRightStatVisible)]); }
-    /// <summary>Rank is no longer supplied by the mudsharp protocol layer; always empty.</summary>
-    public string Rank     { get => _rank;     set => Set(ref _rank,     value); }
-    public string Dreamword { get => _dreamword; set => SetAndNotify(ref _dreamword, value, [nameof(DreamwordDisplay), nameof(DreamwordCompactDisplay), nameof(DreamwordIsPlaceholder), nameof(DreamwordActive)]); }
+    public string Dreamword { get => _dreamword; set => SetAndNotify(ref _dreamword, value, [nameof(DreamwordDisplay), nameof(DreamwordIsPlaceholder), nameof(DreamwordActive)]); }
     public bool IsConnected  { get => _isConnected;  set => Set(ref _isConnected,  value); }
     public bool FkeysVisible { get => _fkeysVisible; set => Set(ref _fkeysVisible, value); }
     public bool IsCapturing { get => _isCapturing; private set => Set(ref _isCapturing, value); }
@@ -138,14 +135,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         IsCaptureFacilityAvailable && _inGameMode;
 #endif
 
-    public string StaText  => $"Sta: {Stamina}/{MaxStamina}";
-    public string MagText  => $"Mag: {Magic}/{MaxMagic}";
-    public string StrText  => $"Str: {Strength}/{MaxStrength}";
-    public string DexText  => $"Dex: {Dexterity}/{MaxDexterity}";
-    public string ScoreText => Score <= 0 ? "Score: —"
-        : _baseScore < 0 ? $"Score: {Score}"
-        : $"Score: {Score} ({ScoreDeltaStr(Score - _baseScore)})";
-
     // Value-only strings (no label prefix) for FormattedString spans in the status bar.
     // Current and "/max" are separate spans so the max half renders one font point smaller.
     // Below 50 cols, hide the /max for any stat with a 3-digit max (saves 4 chars per stat).
@@ -178,7 +167,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public bool IsCompactStats    => _effCols < 76;
     public bool IsNotCompactStats => _effCols >= 76;
     public bool IsCompactWeather  => _effCols < 80;
-    public bool IsVeryCompact     => _effCols < 50;
     /// <summary>Font size for stat values in compact layout — shrinks when effcols &lt; 50.</summary>
     public double StatsValueFontSize => _effCols < 50 ? 12.0 : 13.0;
     /// <summary>Font size for the "/max" half of a stat pair — two points below the current value.</summary>
@@ -366,7 +354,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
 
     public string DreamwordDisplay => string.IsNullOrEmpty(_dreamword) ? "..zzZZZzz.." : _dreamword;
     /// <summary>Compact-stats variant: the full placeholder crowds the two-row bar.</summary>
-    public string DreamwordCompactDisplay => string.IsNullOrEmpty(_dreamword) ? "zzz" : _dreamword;
     public bool DreamwordIsPlaceholder => string.IsNullOrEmpty(_dreamword);
     public bool DreamwordActive        => !string.IsNullOrEmpty(_dreamword);
 
@@ -457,27 +444,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         if (!profile.TelnetLoginEnabled && !string.IsNullOrEmpty(profile.AccountId))
             _inputText = profile.AccountId;
 
-        _conn.LineReady        += OnLineReady;
-        _conn.StatsUpdated     += OnStatsUpdated;
-        _conn.GameModeEntered  += OnGameModeEntered;
-        _conn.GameModeExited   += OnGameModeExited;
-        _conn.GameModeExited   += SidePanel.OnGameModeExited;
-        _conn.DreamwordChanged += OnDreamwordChanged;
-        _conn.Disconnected     += OnDisconnected;
-        _conn.SoundRequested   += OnSoundRequested;
-        _conn.BellReceived     += OnBellReceived;
-        _conn.RoomEntered      += OnRoomEntered;
-        _conn.RoomEntered      += SidePanel.OnRoomEntered;
-        _conn.RoomShortReady   += SidePanel.OnRoomNameReady;
-        _conn.FewPlayerReady   += SidePanel.OnFewPlayerReceived;
-        _conn.FewListStarting  += SidePanel.OnFewListStarting;
-        _conn.FewListComplete  += SidePanel.OnFewListComplete;
-        _conn.FeiListStarting  += SidePanel.OnFeiListStarting;
-        _conn.FeiItemReady     += SidePanel.OnFeiItemReady;
-        _conn.FeiListComplete  += SidePanel.OnFeiListComplete;
-        _conn.FexListStarting  += SidePanel.OnFexListStarting;
-        _conn.FexItemReady     += SidePanel.OnFexItemReady;
-        _conn.FexListComplete  += SidePanel.OnFexListComplete;
+        SubscribeConnectionEvents();
 
         SendCommand           = new Command(SendNow);
         FkeyCommand           = new Command<string>(SendFkey);
@@ -538,9 +505,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             SettingsSaved?.Invoke();
         }
     }
-
-    // Called from the TCP read thread — must not touch UI directly.
-    private void OnRoomEntered() { /* reserved for future use */ }
 
     private void OnLineReady(StyledLine line) => _pendingLines.Enqueue(line);
 
@@ -618,15 +582,15 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             // Single consolidated batch of notifications.
             OnPropertiesChanged(
                 nameof(Stamina),    nameof(MaxStamina),
-                nameof(StaText),    nameof(StaCurValue), nameof(StaMaxValue), nameof(StaColor),
+                nameof(StaCurValue), nameof(StaMaxValue), nameof(StaColor),
                 nameof(Strength),   nameof(MaxStrength),
-                nameof(StrText),    nameof(StrCurValue), nameof(StrMaxValue), nameof(StrColor),
+                nameof(StrCurValue), nameof(StrMaxValue), nameof(StrColor),
                 nameof(Dexterity),  nameof(MaxDexterity),
-                nameof(DexText),    nameof(DexCurValue), nameof(DexMaxValue), nameof(DexColor),
+                nameof(DexCurValue), nameof(DexMaxValue), nameof(DexColor),
                 nameof(Magic),      nameof(MaxMagic),
-                nameof(MagText),    nameof(MagCurValue), nameof(MagMaxValue), nameof(MagColor),    nameof(MagVisible),
+                nameof(MagCurValue), nameof(MagMaxValue), nameof(MagColor),    nameof(MagVisible),
                 nameof(Score),
-                nameof(ScoreText),  nameof(ScoreValue),  nameof(ScoreDeltaValue), nameof(ScoreDisplayValue), nameof(ScoreColor),
+                nameof(ScoreValue), nameof(ScoreDeltaValue), nameof(ScoreDisplayValue), nameof(ScoreColor),
                 nameof(Blind),      nameof(Deaf),        nameof(Crippled),    nameof(Dumb),
                 nameof(AnyEffectVisible), nameof(EffectsGlyphs),
                 nameof(TimeToReset),
@@ -635,7 +599,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
                 nameof(WeatherText), nameof(WeatherGlyph), nameof(WeatherTooltip),
                 nameof(WeatherDisplayText), nameof(WeatherColor), nameof(WeatherVisible),
                 nameof(AnyRightStatVisible),
-                nameof(Dreamword),  nameof(DreamwordDisplay), nameof(DreamwordCompactDisplay), nameof(DreamwordIsPlaceholder), nameof(DreamwordActive)
+                nameof(Dreamword),  nameof(DreamwordDisplay), nameof(DreamwordIsPlaceholder), nameof(DreamwordActive)
             );
         });
     }
@@ -693,16 +657,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
 
     private bool HandleCommand(string text)
     {
-        if (text.StartsWith("/!"))
-        {
-            if (text.Equals("/!sleep", StringComparison.OrdinalIgnoreCase))
-            {
-                AddSystemLine("[sleep] not yet implemented", 14);
-                return true;
-            }
-            return false;
-        }
-
 #if WINDOWS
         if (text.StartsWith('$'))
         {
@@ -828,23 +782,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             return;
         }
 
-        var cmd = FkeyItems[i].Command;
-        if (!string.IsNullOrWhiteSpace(cmd))
-        {
-            cmd = cmd.TrimEnd('\r', '\n');
-#if WINDOWS
-            if (cmd.StartsWith('$'))
-                SpeakWatchword(cmd[1..]);
-            else
-            {
-                _conn.SendLine(_watchwords.ExpandSlots(cmd));
-                _lastSentUtc = DateTime.UtcNow;
-            }
-#else
-            _conn.SendLine(cmd);
-            _lastSentUtc = DateTime.UtcNow;
-#endif
-        }
+        SendMacro(FkeyItems[i].Command);
 
         RequestFocus?.Invoke();
     }
@@ -860,7 +798,13 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             RequestFocus?.Invoke();
             return;
         }
-        var cmd = _allFkeys[absoluteIndex];
+
+        SendMacro(_allFkeys[absoluteIndex]);
+        RequestFocus?.Invoke();
+    }
+
+    private void SendMacro(string? cmd)
+    {
         if (!string.IsNullOrWhiteSpace(cmd))
         {
             cmd = cmd.TrimEnd('\r', '\n');
@@ -877,7 +821,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             _lastSentUtc = DateTime.UtcNow;
 #endif
         }
-        RequestFocus?.Invoke();
     }
 
     public void SpeakDreamword()
@@ -970,7 +913,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             OnPropertyChanged(nameof(IsCompactStats));
             OnPropertyChanged(nameof(IsNotCompactStats));
             OnPropertyChanged(nameof(IsCompactWeather));
-            OnPropertyChanged(nameof(IsVeryCompact));
             OnPropertyChanged(nameof(StatsValueFontSize));
             OnPropertyChanged(nameof(StatsMaxValueFontSize));
             OnPropertyChanged(nameof(StaMaxValue));
@@ -1048,9 +990,32 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         OnLineReady(line);
     }
 
-    public async ValueTask DisposeAsync()
+    private void SubscribeConnectionEvents()
     {
-        SidePanel.Dispose();
+        _conn.LineReady        += OnLineReady;
+        _conn.StatsUpdated     += OnStatsUpdated;
+        _conn.GameModeEntered  += OnGameModeEntered;
+        _conn.GameModeExited   += OnGameModeExited;
+        _conn.GameModeExited   += SidePanel.OnGameModeExited;
+        _conn.DreamwordChanged += OnDreamwordChanged;
+        _conn.Disconnected     += OnDisconnected;
+        _conn.SoundRequested   += OnSoundRequested;
+        _conn.BellReceived     += OnBellReceived;
+        _conn.RoomEntered      += SidePanel.OnRoomEntered;
+        _conn.RoomShortReady   += SidePanel.OnRoomNameReady;
+        _conn.FewPlayerReady   += SidePanel.OnFewPlayerReceived;
+        _conn.FewListStarting  += SidePanel.OnFewListStarting;
+        _conn.FewListComplete  += SidePanel.OnFewListComplete;
+        _conn.FeiListStarting  += SidePanel.OnFeiListStarting;
+        _conn.FeiItemReady     += SidePanel.OnFeiItemReady;
+        _conn.FeiListComplete  += SidePanel.OnFeiListComplete;
+        _conn.FexListStarting  += SidePanel.OnFexListStarting;
+        _conn.FexItemReady     += SidePanel.OnFexItemReady;
+        _conn.FexListComplete  += SidePanel.OnFexListComplete;
+    }
+
+    private void UnsubscribeConnectionEvents()
+    {
         _conn.LineReady        -= OnLineReady;
         _conn.StatsUpdated     -= OnStatsUpdated;
         _conn.GameModeEntered  -= OnGameModeEntered;
@@ -1060,12 +1025,23 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _conn.Disconnected     -= OnDisconnected;
         _conn.SoundRequested   -= OnSoundRequested;
         _conn.BellReceived     -= OnBellReceived;
+        _conn.RoomEntered      -= SidePanel.OnRoomEntered;
+        _conn.RoomShortReady   -= SidePanel.OnRoomNameReady;
         _conn.FewPlayerReady   -= SidePanel.OnFewPlayerReceived;
         _conn.FewListStarting  -= SidePanel.OnFewListStarting;
         _conn.FewListComplete  -= SidePanel.OnFewListComplete;
+        _conn.FeiListStarting  -= SidePanel.OnFeiListStarting;
+        _conn.FeiItemReady     -= SidePanel.OnFeiItemReady;
+        _conn.FeiListComplete  -= SidePanel.OnFeiListComplete;
         _conn.FexListStarting  -= SidePanel.OnFexListStarting;
         _conn.FexItemReady     -= SidePanel.OnFexItemReady;
         _conn.FexListComplete  -= SidePanel.OnFexListComplete;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        SidePanel.Dispose();
+        UnsubscribeConnectionEvents();
 #if WINDOWS
         _mapSession?.Dispose();
 #endif

@@ -16,24 +16,12 @@ public class MainActivity : MauiAppCompatActivity
     {
         if (e?.Action == KeyEventActions.Down)
         {
-            int fkeyNum = e.KeyCode switch
+            var keyCode = (int)e.KeyCode;
+            var f1 = (int)Keycode.F1;
+            var f12 = (int)Keycode.F12;
+            if (keyCode >= f1 && keyCode <= f12)
             {
-                Keycode.F1  => 0,
-                Keycode.F2  => 1,
-                Keycode.F3  => 2,
-                Keycode.F4  => 3,
-                Keycode.F5  => 4,
-                Keycode.F6  => 5,
-                Keycode.F7  => 6,
-                Keycode.F8  => 7,
-                Keycode.F9  => 8,
-                Keycode.F10 => 9,
-                Keycode.F11 => 10,
-                Keycode.F12 => 11,
-                _           => -1
-            };
-            if (fkeyNum >= 0)
-            {
+                int fkeyNum = keyCode - f1;
                 bool ctrl  = e.IsCtrlPressed;
                 bool shift = e.IsShiftPressed;
                 int absoluteIndex = ctrl ? 24 + fkeyNum : shift ? 12 + fkeyNum : fkeyNum;

@@ -1,14 +1,11 @@
 #if WINDOWS
-using System.Text.Json;
-
 namespace Mucka.Core.Mapping;
 
 /// <summary>
 /// In-memory directed multigraph of captured edges, loaded from walk files.
 /// Used for two things: static reciprocal-direction lookup (no load needed) and
 /// BFS guidance (find the next uncaptured exit, or the first hop toward the nearest
-/// room that has one). Loaded from disk in MappingPage.Reload() -- guidance may be
-/// one session behind live ops, which is acceptable.
+/// room that has one).
 /// </summary>
 public sealed class MapGraph
 {
@@ -46,79 +43,28 @@ public sealed class MapGraph
 
     // ── Loading ────────────────────────────────────────────────────────────────
 
-    public static MapGraph Load(string directory)
+    internal static MapGraph CreateEmpty()
+        => new(new Dictionary<string, RoomNode>(StringComparer.OrdinalIgnoreCase));
+
+    internal void RecordAnnotation(MappingStore.EdgeAnnotation edge)
     {
-        var nodes = new Dictionary<string, RoomNode>(StringComparer.OrdinalIgnoreCase);
-        if (!Directory.Exists(directory))
-            return new MapGraph(nodes);
+        if (!_nodes.TryGetValue(edge.From, out var fromNode))
+            _nodes[edge.From] = fromNode = new RoomNode();
 
-        RoomNode GetOrAdd(string room) =>
-            nodes.TryGetValue(room, out var n) ? n : (nodes[room] = new RoomNode());
-
-        foreach (var file in Directory.GetFiles(directory, "*.jsonl"))
-        {
-            try
-            {
-                foreach (var line in MappingStore.ReadLinesShared(file))
-                {
-                    try
-                    {
-                        if (!line.Contains("\"edge: ", StringComparison.Ordinal)) continue;
-                        using var doc = JsonDocument.Parse(line);
-                        if (doc.RootElement.ValueKind != JsonValueKind.Array) continue;
-                        if (doc.RootElement[1].GetString() != "an") continue;
-                        var data = doc.RootElement[2].GetString();
-                        if (data is null || !data.StartsWith("edge: ", StringComparison.Ordinal)) continue;
-                        ParseEdgeLine(data, GetOrAdd);
-                    }
-                    catch { }
-                }
-            }
-            catch { }
-        }
-
-        return new MapGraph(nodes);
-    }
-
-    private static void ParseEdgeLine(string data, Func<string, RoomNode> getOrAdd)
-    {
-        // Format: "edge: {from} |{dir}> {to} [{fex}]"  or  "edge: {from} |{dir}! {reason} [{fex}]"
-        var bar = data.IndexOf(" |", StringComparison.Ordinal);
-        if (bar < 6) return;
-        var end = data.IndexOfAny(['>', '!'], bar + 2);
-        if (end < 0) return;
-
-        var from = data[6..bar];
-        var dir  = data[(bar + 2)..end];
-
-        var tail = data;
-        var fex  = string.Empty;
-        if (data.EndsWith(']') && data.LastIndexOf(" [", StringComparison.Ordinal) is var open and >= 0)
-        {
-            fex  = data[(open + 2)..^1];
-            tail = data[..open];
-        }
-
-        var outcome = tail[(end + 1)..].Trim();
-        var fromNode = getOrAdd(from);
-
-        foreach (var exit in fex.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+        foreach (var exit in edge.ExitFingerprint.Split(' ', StringSplitOptions.RemoveEmptyEntries))
             fromNode.KnownExits.Add(exit);
 
-        if (data[end] == '>')
+        if (edge.IsTraversal)
         {
-            if (outcome == "(dark)") return;   // far end unidentified -- stays wanted
-            fromNode.ResolvedDirs.Add(dir);
-            fromNode.Neighbors[dir] = outcome;
+            if (!edge.ResolvesEdge) return;   // far end unidentified -- stays wanted
+            fromNode.ResolvedDirs.Add(edge.Direction);
+            fromNode.Neighbors[edge.Direction] = edge.Outcome;
         }
         else
         {
-            // Refusal: structural ones resolve; transient / artifacts do not.
-            if (outcome is "(timeout)" or "(no output)"
-                || MappingStore.IsTransientRefusal(outcome)
-                || outcome.StartsWith("It's too dark to see", StringComparison.Ordinal))
+            if (!edge.ResolvesEdge)
                 return;
-            fromNode.ResolvedDirs.Add(dir);
+            fromNode.ResolvedDirs.Add(edge.Direction);
         }
     }
 
