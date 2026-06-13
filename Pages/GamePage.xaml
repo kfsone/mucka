@@ -224,26 +224,6 @@
                         </HorizontalStackLayout>
                     </Border>
 
-                    <!-- Dreamword chip — tap to speak; Ctrl+D from keyboard.
-                         Hidden when no dreamword is held; the floating pill handles that case.
-                         Both show when active so the stats-bar chip remains tappable. -->
-                    <Border Grid.Column="13"
-                            IsVisible="{Binding DreamwordActive}"
-                            BackgroundColor="#1f6feb"
-                            Stroke="Transparent" StrokeThickness="0"
-                            Padding="6,1" VerticalOptions="Center">
-                        <ToolTipProperties.Text>Speak dreamword (Ctrl+D)</ToolTipProperties.Text>
-                        <Border.StrokeShape>
-                            <RoundRectangle CornerRadius="4"/>
-                        </Border.StrokeShape>
-                        <Border.GestureRecognizers>
-                            <TapGestureRecognizer Command="{Binding SpeakDreamwordCommand}"/>
-                        </Border.GestureRecognizers>
-                        <Label Text="{Binding DreamwordDisplay}"
-                               TextColor="White" FontAttributes="Bold"
-                               FontSize="12" VerticalOptions="Center"/>
-                    </Border>
-
                     <!-- Separator before weather/TTR group -->
                     <Label Grid.Column="14" Text="|"
                            Style="{StaticResource StatLabelStyle}" TextColor="#444444"
