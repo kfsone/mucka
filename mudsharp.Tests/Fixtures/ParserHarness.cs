@@ -29,6 +29,9 @@ internal sealed class ParserHarness
     public List<string> FeiItems { get; } = new();
     public int FeiListStartingCount { get; private set; }
     public int FeiListCompleteCount { get; private set; }
+    public List<string> FexItems { get; } = new();
+    public int FexListStartingCount { get; private set; }
+    public int FexListCompleteCount { get; private set; }
     public List<int> ConfirmedWidths { get; } = new();
 
     public ParserHarness()
@@ -51,6 +54,9 @@ internal sealed class ParserHarness
         Parser.FeiItemReady       += item => FeiItems.Add(item);
         Parser.FeiListStarting    += () => FeiListStartingCount++;
         Parser.FeiListComplete    += () => FeiListCompleteCount++;
+        Parser.FexItemReady       += item => FexItems.Add(item);
+        Parser.FexListStarting    += () => FexListStartingCount++;
+        Parser.FexListComplete    += () => FexListCompleteCount++;
         Parser.TerminalWidthConfirmed += w => ConfirmedWidths.Add(w);
     }
 
@@ -80,6 +86,9 @@ internal sealed class ParserHarness
         FeiItems.Clear();
         FeiListStartingCount = 0;
         FeiListCompleteCount = 0;
+        FexItems.Clear();
+        FexListStartingCount = 0;
+        FexListCompleteCount = 0;
         ConfirmedWidths.Clear();
     }
 

@@ -654,6 +654,20 @@ public class Mud2C1Tests
         Assert.Equal(1, snapshot.Privs);
     }
 
+    [Fact]
+    public void C95_RuleA_TrimsTrailingNulsFromAccountFields()
+    {
+        var h = new ParserHarness();
+        h.Feed(0xFA, 0xFF, 0xFF);
+        h.Feed("57009120\r\n1\r\n1\r\nz00012305\r\0\n1\r\0\n");
+
+        h.Feed(0xA7, 0xA3, 0x9C, 0xFF, 0xFF);
+        h.Feed("81 81 94 94 95 95 50 50 1785 N N N N 5 S\n");
+        var snapshot = h.Stats.Last();
+        Assert.Equal("z00012305", snapshot.AccountId);
+        Assert.Equal(1, snapshot.Privs);
+    }
+
     // ── C95 Rule C: account logout ────────────────────────────────────────────
 
     [Fact]
@@ -689,6 +703,21 @@ public class Mud2C1Tests
         var afterStyle = h.Lines[1].Spans[0].Style;
         Assert.Equal(AnsiColor.White, afterStyle.Foreground);
         Assert.Equal(AnsiColor.Black, afterStyle.Background);
+    }
+
+    [Fact]
+    public void C00_InitStack_ResetsStackRatherThanPushingAnotherFrame()
+    {
+        var h = new ParserHarness();
+        h.Feed(0x9B, 0xFF, 0xFF);           // baseline WHITE/BLACK
+        h.Feed(0xA1, 0xFF, 0xFF);           // LT_BLUE/BLACK
+        h.Feed(0x9B, 0xFF, 0xFF);           // next frame init_stack should reset, not push
+        h.Feed(0xFF, 0xFF);                 // pop reset baseline
+        h.Feed("after\n");
+        var line = Assert.Single(h.Lines);
+        var style = line.Spans[0].Style;
+        Assert.Equal(AnsiColor.Default, style.Foreground);
+        Assert.Equal(AnsiColor.Default, style.Background);
     }
 
     [Fact]

@@ -125,6 +125,7 @@ internal sealed class Mud2C1Decoder
         // all pop before this point, so the final pop to FewContextDepth ends the context.
         if (_parser.InFewResponseContext && _colorStack.Count <= _parser.FewContextDepth)
         {
+            _parser.FinalizeFewNameOnContextClose();
             _parser.ExitFewContext();
             _parser.EmitFewListComplete();
         }
@@ -186,13 +187,8 @@ internal sealed class Mud2C1Decoder
             _                      => ParserState.Normal,
         };
 
-    internal void Reset(ref ParserState parserState)
+    internal void Reset()
     {
-        // If we were collecting C95 lines, the counter is now stale; force the parser
-        // back to Normal so the zeroed counter cannot immediately satisfy the completion
-        // check on the next byte.
-        if (parserState == ParserState.C95Data)
-            parserState = ParserState.Normal;
         _c95LinesRemaining = 0;
         _c95LogoutSeenNewline = false;
         _colorStack.Clear();
@@ -268,6 +264,7 @@ internal sealed class Mud2C1Decoder
 
     private const int FesExpectedFields = 15;
     private const int FesMaxBufBytes = 1024;
+    private const int C95MaxBufBytes = 4096;
 
     private ParserState OnFesData(byte b, List<byte> buf)
     {
@@ -295,6 +292,13 @@ internal sealed class Mud2C1Decoder
             return ParserState.FesLineTail;
         }
         buf.Add(b);
+        if (buf.Count > FesMaxBufBytes)
+        {
+            ParseAndEmitFes(buf);
+            buf.Clear();
+            Apply(WHITE, BLACK);
+            return ParserState.FesLineTail;
+        }
         return ParserState.FesData;
     }
 
@@ -442,6 +446,12 @@ internal sealed class Mud2C1Decoder
     private ParserState OnC95Data(byte b, List<byte> buf)
     {
         buf.Add(b);
+        if (buf.Count > C95MaxBufBytes)
+        {
+            buf.Clear();
+            _c95LinesRemaining = 0;
+            return ParserState.Normal;
+        }
         if (b == '\n' && --_c95LinesRemaining <= 0)
         {
             var data = Encoding.ASCII.GetString(buf.ToArray());
@@ -451,8 +461,8 @@ internal sealed class Mud2C1Decoder
             var lines = data.Split('\n');
             if (lines.Length >= 5)
             {
-                var accountId = lines[3].TrimEnd('\r');
-                _ = int.TryParse(lines[4].TrimEnd('\r'), out int privs);
+                var accountId = lines[3].TrimEnd('\r', '\0');
+                _ = int.TryParse(lines[4].TrimEnd('\r', '\0'), out int privs);
                 _parser.SetAccountInfo(accountId, privs);
             }
             return ParserState.Normal;
@@ -503,7 +513,9 @@ internal sealed class Mud2C1Decoder
             // advance the display column, so _atLineStart is untouched here and everywhere
             // else in Dispatch — only text characters clear it.
             case 0x9B:
+                _colorStack.Clear();
                 Apply(WHITE, BLACK);
+                CheckContextClosures();
                 return ParserState.Normal;
 
             // ── C01 (0x9C): the prompt family — BLUE or LT_BLUE ──────────────

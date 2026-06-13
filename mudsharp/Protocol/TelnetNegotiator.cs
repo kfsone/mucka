@@ -179,6 +179,8 @@ internal sealed class TelnetNegotiator
 
     // ── Subnegotiation accumulation ───────────────────────────────────────────
 
+    private const int IacSbMaxBufBytes = 1024;
+
     private static ParserState HandleSbStart(byte b, List<byte> sbBuf)
     {
         sbBuf.Clear();
@@ -191,6 +193,11 @@ internal sealed class TelnetNegotiator
         if (b == IAC)
             return ParserState.IacSbIac;
         sbBuf.Add(b);
+        if (sbBuf.Count > IacSbMaxBufBytes)
+        {
+            sbBuf.Clear();
+            return ParserState.Normal;
+        }
         return ParserState.IacSbData;
     }
 

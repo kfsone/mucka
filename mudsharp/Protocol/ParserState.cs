@@ -8,7 +8,7 @@ internal enum ParserState
     Ff1,            // received first 0xFF in Normal state (may be C255 pop or telnet IAC)
 
     // Telnet IAC sequences
-    Iac,            // received 0xFF (IAC)
+    Iac,            // transient telnet dispatch-only state; MudStreamParser never rests here between bytes
     IacDo,          // received IAC DO
     IacDont,        // received IAC DONT
     IacWill,        // received IAC WILL

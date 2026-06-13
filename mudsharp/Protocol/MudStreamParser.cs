@@ -212,6 +212,12 @@ public sealed class MudStreamParser
             FewPlayerReady?.Invoke(name, _fewNameColor);
     }
 
+    internal void FinalizeFewNameOnContextClose()
+    {
+        if (_fewNameActive)
+            FinalizeFewName();
+    }
+
     // ── FEI-response capture ──────────────────────────────────────────────────
     // Set when the parser enters a C12+C08+C03 (FE INVENTORY) context block.
     // Item text accumulates in _feiLine (bypasses the span machinery to avoid
@@ -229,7 +235,16 @@ public sealed class MudStreamParser
         _feiContextDepth = targetDepth;
         _feiLine.Clear();
     }
-    internal void ExitFeiContext() => _inFeiResponseContext = false;
+    internal void ExitFeiContext()
+    {
+        if (_feiLine.Length > 0)
+        {
+            var itemText = _feiLine.ToString();
+            _feiLine.Clear();
+            FeiItemReady?.Invoke(itemText);
+        }
+        _inFeiResponseContext = false;
+    }
     internal void EmitFeiListStarting() => FeiListStarting?.Invoke();
     internal void EmitFeiListComplete() => FeiListComplete?.Invoke();
 
@@ -249,7 +264,16 @@ public sealed class MudStreamParser
         _fexContextDepth = targetDepth;
         _fexLine.Clear();
     }
-    internal void ExitFexContext() => _inFexResponseContext = false;
+    internal void ExitFexContext()
+    {
+        if (_fexLine.Length > 0)
+        {
+            var itemText = _fexLine.ToString();
+            _fexLine.Clear();
+            FexItemReady?.Invoke(itemText);
+        }
+        _inFexResponseContext = false;
+    }
     internal void EmitFexListStarting() => FexListStarting?.Invoke();
     internal void EmitFexListComplete() => FexListComplete?.Invoke();
 
@@ -392,11 +416,10 @@ public sealed class MudStreamParser
         if (_text.Length > 0 || _spans.Count > 0)
             EmitPartialLine();
 
-        // Reset sub-parsers before clearing _state so they can inspect the current state.
-        // C1.Reset takes _state by ref and may correct it (e.g. C95Data → Normal).
+        // Reset sub-parsers before clearing _state.
         Ansi.Reset();
         Telnet.Reset();
-        C1.Reset(ref _state);
+        C1.Reset();
 
         _state = ParserState.Normal;
         _iacSbBuf.Clear();
@@ -748,6 +771,14 @@ public sealed class MudStreamParser
             case ParserState.EscapeDashAnnotation:
                 // Swallow the server's "[New terminal width is N]\r\n" annotation.
                 // The ESC-<n>W already fired TerminalWidthConfirmed; just discard text until \n.
+                // If a high-bit control byte arrives instead, the annotation was interrupted;
+                // hand that byte back to the main parser so we do not swallow binary traffic.
+                if (b >= 0x80)
+                {
+                    _pendingReprocess = b;
+                    _state = ParserState.Normal;
+                    break;
+                }
                 if (b == '\n') _state = ParserState.Normal;
                 break;
             case ParserState.C1Seq:

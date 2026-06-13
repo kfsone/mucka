@@ -466,6 +466,34 @@ public class FrameTrackingTests
     }
 
     [Fact]
+    public void FewResponse_RainbowName_ContextCloseFinalizesPendingContinuation()
+    {
+        var h = InGameMode();
+        h.Feed(FewContextOpen);
+        h.Feed(FewPlayerWizPrefix);
+        h.Feed("Heiach the ");
+        h.Feed(0xF5, 0xFF, 0xFF);              // C90: colour catch
+        h.Feed(0xFE, 0xA7, 0xFF, 0xFF); h.Feed("ch");
+        h.Feed(0xFE, 0xA0, 0xFF, 0xFF); h.Feed("im");
+        h.Feed(0xFE, 0xAA, 0xFF, 0xFF); h.Feed("er");
+        h.Feed(0xFE, 0xA0, 0xFF, 0xFF); h.Feed("ic");
+        h.Feed(0xFE, 0xA7, 0xFF, 0xFF); h.Feed("al");
+        h.Feed(0xFF, 0xFF);                    // bare pop
+        h.Feed(0xF5, 0x9C, 0xFF, 0xFF);        // C90+C01: colour throw (restore to catch)
+        h.Feed(" wizard");
+        h.Feed(0xFF, 0xFF);                    // end-of-name pop
+        h.Feed(0xFF, 0xFF);                    // FEW context closes with lost newline
+
+        Assert.Equal(["Heiach the chimerical wizard"], h.FewPlayers);
+        Assert.Equal(1, h.FewListCompleteCount);
+
+        h.Feed("Normal text\n");
+        Assert.Single(h.Lines);
+        Assert.Equal("Normal text", h.Lines[0].PlainText);
+        Assert.Single(h.FewPlayers);
+    }
+
+    [Fact]
     public void FewResponse_RainbowName_NotEmittedAsLines()
     {
         var h = InGameMode();
@@ -479,6 +507,9 @@ public class FrameTrackingTests
 
     // C12+C08+C03+C255 -- opens the FEI (inventory) response context
     private static readonly byte[] FeiContextOpen = [0xA7, 0xA3, 0x9E, 0xFF, 0xFF];
+
+    // C12+C08+C02+C255 -- opens the FEX (exits) response context
+    private static readonly byte[] FexContextOpen = [0xA7, 0xA3, 0x9D, 0xFF, 0xFF];
 
     [Fact]
     public void FeiResponse_FeiListStartingFiredOnContextOpen()
@@ -529,6 +560,17 @@ public class FrameTrackingTests
     }
 
     [Fact]
+    public void FeiResponse_PartialItemFlushedWhenContextCloses()
+    {
+        var h = InGameMode();
+        h.Feed(FeiContextOpen);
+        h.Feed("sword");
+        h.Feed(0xFF, 0xFF);
+        Assert.Equal(["sword"], h.FeiItems);
+        Assert.Equal(1, h.FeiListCompleteCount);
+    }
+
+    [Fact]
     public void FeiResponse_AllItemsDeliveredBeforeComplete()
     {
         var h = InGameMode();
@@ -563,5 +605,16 @@ public class FrameTrackingTests
         h.Feed(new byte[] { (byte)'s', (byte)'w', (byte)'o', (byte)'r', (byte)'d', 0x0D, 0x00, 0x0D, 0x0A });
         Assert.Single(h.FeiItems);
         Assert.Equal("sword", h.FeiItems[0]);
+    }
+
+    [Fact]
+    public void FexResponse_PartialItemFlushedWhenContextCloses()
+    {
+        var h = InGameMode();
+        h.Feed(FexContextOpen);
+        h.Feed("north");
+        h.Feed(0xFF, 0xFF);
+        Assert.Equal(["north"], h.FexItems);
+        Assert.Equal(1, h.FexListCompleteCount);
     }
 }

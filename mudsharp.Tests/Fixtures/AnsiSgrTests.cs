@@ -137,6 +137,16 @@ public class AnsiSgrTests
     }
 
     [Fact]
+    public void TerminalWidth_EscDashNW_StopsSwallowingWhenBinaryTrafficStarts()
+    {
+        var h = new ParserHarness();
+        h.Feed(0x1B, (byte)'-', (byte)'8', (byte)'0', (byte)'W', 0x9B, 0xFF, 0xFF, (byte)'x', (byte)'\n');
+        Assert.Single(h.ConfirmedWidths);
+        var line = Assert.Single(h.Lines);
+        Assert.Equal("x", line.PlainText);
+    }
+
+    [Fact]
     public void TerminalWidth_TextLine_FiresConfirmedEvent()
     {
         // Plain "[New terminal width is N]" line (mud-mode, no ESC- prefix):
