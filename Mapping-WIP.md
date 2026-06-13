@@ -34,7 +34,9 @@ Prompt for a fresh session picking up the MUD2 mapping effort. State as of 2026-
 
 - **Decoder bug**: async server events mid-probe shift `decode_probe.py`'s positional
   segment labels (seen twice in the walk: fex slot empty, qscan text in the fei slot).
-  Fix: validate the fex segment against its `{c12.08.02}` marker, not prompt position.
+  **Fixed**: `label_probe_segments` now pre-classifies known-async C1 codes (06–09,
+  11, 13–14, 16, 19) before doing fex-anchor labeling. Codes 03/04/05 (item/creature
+  lists) deferred — need nested-awareness to distinguish from FEI content.
 - **qscan is not a subset of exits**: it emitted an `over=rocky beach` line at the
   cliffs with no corresponding exit. Views must not mint edges, and the §5 quickscan
   dedup hypothesis needs re-testing with corrected expectations.
@@ -46,10 +48,34 @@ Prompt for a fresh session picking up the MUD2 mapping effort. State as of 2026-
 - **River R18/R19** (see summary): identical short+long+fex, divergent exits tables,
   traversed `R18 |w> R19`. Cleanest live ambiguity; first breadcrumb target.
 
+## Conditional exit taxonomy (from live captures)
+
+Exits can appear/disappear from fex for several distinct reasons. MapModel must track
+these differently; capture layer records them all the same way (just fex + edges).
+
+| Type | Observed example | Notes |
+|---|---|---|
+| **Door state** | Small bedroom sw→Fitted cupboard (appears after opening door); Cellar w→Coal bunker (same) | Same room, same long desc, fex differs by door. Two fex-state observations of same room instance. |
+| **Puzzle-locked** | Mausoleum tomb doors | Exits absent until puzzle solved. Indistinguishable from door-state at capture time; only context distinguishes them. |
+| **Encumbrance** | Badly-paved road narrow gap: "gap too narrow without dropping everything" | Carrying-capacity gated. Refusal message is the signal. |
+| **Environmental damage** | Beaten track near cliff: crumble auto-retreat, fex loses `w` | Refusal modifies available exits. May be permanent or session-scoped. |
+| **Hostile NPCs / fight** | Coal bunker (rats), path refusal during fight | Transient blocker; edge left unresolved (already handled by `IsTransientRefusal`). |
+| **One-way / squeeze** | Cellar south crack: "might not be able to turn round" | Not yet traversed; description warns of no-return. Treat as unresolved until walked. |
+| **Light** | Dark rooms (cellar north/east) | Absence of light makes room unidentifiable; edges stay unresolved until re-walked lit. |
+
+**MapModel implication**: when two observations of the same room differ only in fex
+(same short + long), record both fex states and mark exits that appear in one but not
+the other as **conditional**. The condition type is not inferrable from capture data
+alone — it requires a note or a subsequent observation with context.
+
+**C# capture implication**: none yet. The capture layer correctly records fex as
+observed. Re-probing after a state change produces a new observation automatically.
+
 ## Agreed next steps, in order
 
-1. **Fix decode_probe segment alignment** (marker-validated, not positional) and
-   review/document `reduce_walk.py`. Cheap; blocks data quality for everything later.
+1. ~~**Fix decode_probe segment alignment**~~ **Done.** fex-anchor + async pre-classification
+   landed. C# capture-side filtering (strip known-async C1 containers from rx before
+   logging) is a follow-on; deferred until the Python filter proves sufficient.
 2. **Stage 0 — context records**: `MappingSession` emits `{"extra":"context",...}`
    per op — weather (from ambient codes), light, FEI inventory (fei is already in the
    probe battery). Handle the indoor-unobservable case per above. Captures without
@@ -63,7 +89,7 @@ Prompt for a fresh session picking up the MUD2 mapping effort. State as of 2026-
    mapping dir, no persisted state, unit-tested against the existing walk (which
    doubles as the `context: unknown` tolerance test). Only after 1–2 land.
 
-Steps 3–4 need the operator in-game; 1, 2, 5 are code.
+Steps 3–4 need the operator in-game; 2, 5 are code.
 
 ## Hard rules (poison the dataset if violated)
 
