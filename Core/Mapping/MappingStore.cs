@@ -18,9 +18,6 @@ public static class MappingStore
         bool IsTraversal,
         bool ResolvesEdge);
 
-#if WINDOWS
-    internal sealed record EdgeState(HashSet<string> Resolved, MapGraph Graph);
-
     /// <summary>
     /// The mapping directory: "mappingdir" from mucka.ini ([settings:Profile] preferred,
     /// then [settings]), defaulting to ~/.mucka/mapping. The key is hand-edited only --
@@ -84,6 +81,9 @@ public static class MappingStore
         }
         return new Summary(files.Length, entries, newest);
     }
+
+#if WINDOWS
+    internal sealed record EdgeState(HashSet<string> Resolved, MapGraph Graph);
 
     internal static EdgeState LoadEdgeState(string directory)
     {

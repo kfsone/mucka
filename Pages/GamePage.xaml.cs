@@ -41,11 +41,11 @@ public partial class GamePage : ContentPage
 
     private bool _isFkeyEditorOpen;
     private bool _eventsSubscribed;
+#if WINDOWS
     // True once an auxiliary window (raw console, map) has been opened. WinUI's native
     // caret-follow breaks after focus leaves to another app window, so the UpdateLayout
     // workaround in OnInputSelectionChanged is only needed from that point on.
     private bool _auxiliaryWindowOpened;
-#if WINDOWS
     private Window? _rawConsoleWindow;
     private Window? _mapWindow;
     private Microsoft.UI.Xaml.Controls.TextBox? _inputTextBox;
