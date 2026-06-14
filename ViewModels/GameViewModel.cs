@@ -417,8 +417,8 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _profileName = profile.Name;
         _profileHost = profile.Host;
 #endif
-        _maxColumns = Math.Clamp(profile.MaxColumns, 20, 160);
-        _effCols = _maxColumns;
+        _maxColumns = Math.Clamp(profile.MaxColumns, 0, 160);  // 0 = auto
+        _effCols = _maxColumns > 0 ? _maxColumns : 80;  // sensible until OnSizeAllocated fires
         _antiIdleSeconds = Math.Clamp(profile.AntiIdleSeconds, 0, 3600);
         _keepScreenOn = profile.KeepScreenOn;
         _lastSentUtc = DateTime.UtcNow;
@@ -902,7 +902,10 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     /// </summary>
     public void NotifyWindowSize(double widthDp, int displayableCols)
     {
-        var clamped       = Math.Clamp(Math.Min(_maxColumns, displayableCols), 20, 160);
+        // 0 = auto: use window width directly; otherwise cap to user-set max.
+        var clamped       = _maxColumns > 0
+            ? Math.Clamp(Math.Min(_maxColumns, displayableCols), 20, 160)
+            : Math.Clamp(displayableCols, 20, 160);
         var effColChanged = clamped != _effCols;
         _widthDp = widthDp;
         if (effColChanged)
@@ -973,9 +976,12 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     /// </summary>
     public void ApplyMaxColumns(int cols)
     {
-        cols = Math.Clamp(cols, 40, 160);
+        cols = Math.Clamp(cols, 0, 160);  // 0 = auto
         _maxColumns = cols;
-        _conn.SendTerminalWidth(cols);
+        // In auto mode don't send an explicit NAWS width; NotifyWindowSize will send the
+        // real value once the window is measured. In explicit mode send immediately.
+        if (cols > 0)
+            _conn.SendTerminalWidth(cols);
         OnPropertyChanged(nameof(MaxColumns));
         if (_widthDp > 0)
             NotifyWindowSize(_widthDp, (int)(_widthDp / CharWidthDp));

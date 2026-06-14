@@ -42,7 +42,18 @@ public sealed class ConnectViewModel : BaseViewModel
     public bool RememberPassword { get => _rememberPassword; set => Set(ref _rememberPassword, value); }
     public bool TelnetLoginEnabled { get => _telnetLoginEnabled; set => Set(ref _telnetLoginEnabled, value); }
     public string TelnetLoginName { get => _telnetLoginName; set => Set(ref _telnetLoginName, value); }
-    public int MaxColumns { get => _maxColumns; set => Set(ref _maxColumns, Math.Clamp(value, 20, 160)); }
+    public int MaxColumns
+    {
+        get => _maxColumns;
+        set
+        {
+            if (Set(ref _maxColumns, Math.Clamp(value, 0, 160)))
+                OnPropertyChanged(nameof(MaxColumnsText));
+        }
+    }
+
+    /// <summary>Display string for the MaxColumns entry — blank means "auto" (0).</summary>
+    public string MaxColumnsText => _maxColumns == 0 ? string.Empty : _maxColumns.ToString();
     public int AntiIdleSeconds { get => _antiIdleSeconds; set => Set(ref _antiIdleSeconds, Math.Clamp(value, 0, 3600)); }
     public bool KeepScreenOn { get => _keepScreenOn; set => Set(ref _keepScreenOn, value); }
     public bool IsCaptureRequested { get => _captureRequested; set => Set(ref _captureRequested, value); }

@@ -156,8 +156,19 @@ public partial class ConnectPage : ContentPage
         return await tcs.Task;
     }
 
-    private void OnConnected(MuckaConnection conn, Profile profile)
+    // Blank → auto (0); a valid number is clamped by the VM setter; anything else restores display.
+    private void OnMaxColumnsEntryCompleted(object? sender, EventArgs e)
     {
+        var text = MaxColumnsEntry.Text;
+        if (string.IsNullOrWhiteSpace(text))
+            _vm.MaxColumns = 0;
+        else if (int.TryParse(text, out var v))
+            _vm.MaxColumns = v;
+        // Reflect the (possibly clamped) value back — blank for auto, number otherwise.
+        MaxColumnsEntry.Text = _vm.MaxColumnsText;
+    }
+
+    private void OnConnected(MuckaConnection conn, Profile profile)    {
         // Create GameViewModel on the UI thread so Dispatcher.CreateTimer() is available.
         // The lambda is async void (BeginInvokeOnMainThread takes Action) — any unhandled
         // exception here would propagate to the WinUI 3 dispatcher and crash the process

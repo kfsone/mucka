@@ -180,7 +180,7 @@ public sealed class FkeyEditorViewModel : BaseViewModel
         CanSave   = onSave != null;
 
         _fontSize = Math.Clamp(settings.FontSize, 9, 24);
-        _columns  = Math.Clamp(settings.MaxColumns, 40, 160);
+        _columns  = settings.MaxColumns <= 0 ? 80 : Math.Clamp(settings.MaxColumns, 40, 160);
         _volume   = Math.Clamp(settings.Volume, 0, 100);
         _statUpdateFrequency = settings.StatUpdateFrequency <= 0
             ? 0 : Math.Clamp(Math.Round(settings.StatUpdateFrequency / 5.0) * 5, 5, 30);

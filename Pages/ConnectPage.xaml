@@ -191,15 +191,20 @@
                           ColumnDefinitions="80,*"
                           ColumnSpacing="8">
                         <Entry Grid.Column="0"
-                               Text="{Binding MaxColumns}"
+                               x:Name="MaxColumnsEntry"
+                               Text="{Binding MaxColumnsText, Mode=OneWay}"
+                               Placeholder="auto"
+                               PlaceholderColor="#555555"
                                TextColor="White"
                                BackgroundColor="#161b22"
                                Keyboard="Numeric"
+                               Completed="OnMaxColumnsEntryCompleted"
+                               Unfocused="OnMaxColumnsEntryCompleted"
                                SemanticProperties.Description="Terminal line width"
-                               ToolTipProperties.Text="Terminal width advertised to server via NAWS (20&#x2013;160)"
+                               ToolTipProperties.Text="Terminal width advertised to server via NAWS (blank = auto-size to window)"
                                ReturnType="Done"/>
                         <Label Grid.Column="1"
-                               Text="20&#x2013;160 (default 80)"
+                               Text="blank = auto; 20&#x2013;160"
                                TextColor="#555555"
                                FontSize="11"
                                VerticalOptions="Center"/>

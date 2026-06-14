@@ -11,8 +11,8 @@ public class Profile
     public bool RememberPassword { get; set; }
     public bool TelnetLoginEnabled { get; set; } = true;
     public string TelnetLoginName { get; set; } = "mud";
-    /// <summary>Maximum terminal columns to advertise via NAWS. Clamped to 20–160.</summary>
-    public int MaxColumns { get; set; } = 80;
+    /// <summary>Maximum terminal columns to advertise via NAWS. 0 = auto-size to window (default).</summary>
+    public int MaxColumns { get; set; } = 0;
     /// <summary>Seconds of player inactivity before sending a blank keep-alive command. 0 = disabled.</summary>
     public int AntiIdleSeconds { get; set; } = 0;
     /// <summary>Keep the screen/display awake while connected to the game.
