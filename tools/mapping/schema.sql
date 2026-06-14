@@ -23,10 +23,16 @@ CREATE TABLE IF NOT EXISTS raw_captures (
 
 CREATE TABLE IF NOT EXISTS observations (
     id          TEXT    PRIMARY KEY,            -- SHA256(short|long|fex|exits_sorted)
-    kind        TEXT    NOT NULL,               -- 'full' | 'dark' | 'partial' | 'corrupt'
+    kind        TEXT    NOT NULL,               -- 'full' | 'dark' | 'partial' |
+                                                --   'mist_occluded' | 'corrupt'
+                                                -- mist_occluded: room visible but exits hidden
+                                                --   by environmental effect (fog, mist, fumes);
+                                                --   distinct from 'dark' (no room info at all)
     short       TEXT,
     long        TEXT,
     fex         TEXT,                           -- sorted exit keywords, space-separated
+                                                -- recognized keywords include 'over' (e.g. bridges,
+                                                --   elevated crossings) in addition to compass dirs
     exits_json  TEXT,                           -- JSON array of exit strings as observed
     created_at  INTEGER NOT NULL
 );
@@ -77,6 +83,11 @@ CREATE TABLE IF NOT EXISTS impressions (
     fex         TEXT,
     exits_json  TEXT,                           -- JSON array (union across assigned observations)
     can_be_dark INTEGER NOT NULL DEFAULT 0,     -- 1 if ever observed dark
+    -- sequence_context: predecessor impression id + direction that produced this impression.
+    -- Required for rooms where content-hash is identical to other rooms (e.g. maze/graveyard).
+    -- NULL for rooms with unique content; non-null for sequence-dependent impressions.
+    -- Format: "<impression_id>/<direction>" (e.g. "abc123/se")
+    sequence_context TEXT,
     created_at  INTEGER NOT NULL
 );
 
