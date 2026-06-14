@@ -47,6 +47,22 @@ public class Profile
     [System.Text.Json.Serialization.JsonIgnore]
     public bool FkeysPerProfile { get; set; }
 
+    // ── Display tab settings (global, loaded from [settings] section at connect time) ──
+    [System.Text.Json.Serialization.JsonIgnore]
+    public int DefaultFontSize { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore]
+    public int DefaultMaxColumns { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore]
+    public int DreamwordSizeOffset { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool ShowOnline { get; set; } = true;
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool ShowInventory { get; set; } = true;
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool ShowItemsHere { get; set; } = true;
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool ShowMapCompass { get; set; } = true;
+
     private static readonly Dictionary<int, string> s_defaultFkeys = new()
     {
         [0] = "l around",

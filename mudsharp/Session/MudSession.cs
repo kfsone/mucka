@@ -53,8 +53,11 @@ public sealed class MudSession : IDisposable
     // Periodic probe: ESC-[FES,FEW,FEI ESC-] — fetches stats, who-list, inventory, and exits together.
     // Reactive C1-triggered FES sends (in Mud2C1Decoder) still use FES-only to avoid clearing
     // the who list during combat/spell events.
-    private static readonly byte[] FesAndFewSubscription =
-        [0x1B, 0x2D, 0x5B, 0x46, 0x45, 0x53, 0x2C, 0x46, 0x45, 0x57, 0x2C, 0x46, 0x45, 0x49, 0x1B, 0x2D, 0x5D];
+    // The FEW and FEI components are omitted when those side-panel sections are disabled
+    // (see UpdateSubscriptionOptions).
+    private bool _includeFew = true;
+    private bool _includeFei = true;
+    private byte[] _fesSubscription = BuildSubscription(includeFew: true, includeFei: true);
 
     // ── Public events (forwarded from parser) ─────────────────────────────────
     public event Action<StyledLine>? LineReady;
@@ -122,6 +125,34 @@ public sealed class MudSession : IDisposable
                 StopStaleProbeLocked();
             }
         }
+    }
+
+    /// <summary>
+    /// Update which components are included in the periodic heartbeat probe.
+    /// When <paramref name="includeFew"/> is false the online list (FEW) is omitted.
+    /// When <paramref name="includeFei"/> is false the inventory/room-items list (FEI) is omitted.
+    /// May be called from any thread.
+    /// </summary>
+    public void UpdateSubscriptionOptions(bool includeFew, bool includeFei)
+    {
+        lock (_fesLock)
+        {
+            if (_includeFew == includeFew && _includeFei == includeFei) return;
+            _includeFew = includeFew;
+            _includeFei = includeFei;
+            _fesSubscription = BuildSubscription(includeFew, includeFei);
+        }
+    }
+
+    private static byte[] BuildSubscription(bool includeFew, bool includeFei)
+    {
+        // ESC-[ FES [,FEW] [,FEI] ESC-]
+        var args = "FES";
+        if (includeFew) args += ",FEW";
+        if (includeFei) args += ",FEI";
+        // The framing bytes: ESC '-' '[' ... ESC '-' ']'
+        var payload = System.Text.Encoding.ASCII.GetBytes($"\x1b-[{args}\x1b-]");
+        return payload;
     }
 
     /// <summary>Feed raw bytes from the network. Thread-safe relative to the FES timer — Feed() itself is not thread-safe.</summary>
@@ -335,7 +366,7 @@ public sealed class MudSession : IDisposable
             _nextRoutineProbeUtc = now + _fesInterval;
             _staleFlags = StaleStats.None;   // the full probe refreshes everything pending
         }
-        OutgoingBytes?.Invoke(FesAndFewSubscription);
+        OutgoingBytes?.Invoke(_fesSubscription);
         ProbeSent?.Invoke();
     }
 
@@ -434,7 +465,7 @@ public sealed class MudSession : IDisposable
                 // Everything is stale: treat as an early routine probe and re-phase the tick.
                 _nextRoutineProbeUtc = now + _fesInterval;
                 _fesTimer?.Change(_fesInterval, _fesInterval);
-                probe = FesAndFewSubscription;
+                probe = _fesSubscription;
             }
             else
             {

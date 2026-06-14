@@ -61,7 +61,15 @@ public static class SettingsStore
         SoundSettings? Sounds,
         string[]? Fkeys,
         bool SettingsPerProfile,
-        bool FkeysPerProfile)
+        bool FkeysPerProfile,
+        // Display tab — always read/written to the global [settings] section.
+        int? DefaultFontSize    = null,
+        int? DefaultMaxColumns  = null,
+        int? DreamwordSizeOffset = null,
+        bool? ShowOnline        = null,
+        bool? ShowInventory     = null,
+        bool? ShowItemsHere     = null,
+        bool? ShowMapCompass    = null)
     {
         /// <summary>Overlays the stored (ini) values onto a profile — ini wins when present.</summary>
         public void ApplyTo(Profile profile)
@@ -75,6 +83,14 @@ public static class SettingsStore
             if (Fkeys               is not null)     profile.Fkeys               = Fkeys;
             profile.SettingsPerProfile = SettingsPerProfile;
             profile.FkeysPerProfile    = FkeysPerProfile;
+            // Display tab — always from the global [settings] section.
+            if (DefaultFontSize   is int dfs)  profile.DefaultFontSize   = dfs;
+            if (DefaultMaxColumns is int dmc)  profile.DefaultMaxColumns = dmc;
+            if (DreamwordSizeOffset is int dso) profile.DreamwordSizeOffset = dso;
+            if (ShowOnline    is bool so)  profile.ShowOnline    = so;
+            if (ShowInventory is bool si)  profile.ShowInventory = si;
+            if (ShowItemsHere is bool sh)  profile.ShowItemsHere = sh;
+            if (ShowMapCompass is bool sm) profile.ShowMapCompass = sm;
         }
     }
 
@@ -137,7 +153,15 @@ public static class SettingsStore
                 Sounds:              settingsSection is null ? null : ReadSoundSettings(ini, settingsSection),
                 Fkeys:               fkeys,
                 SettingsPerProfile:  settingsPerProfile,
-                FkeysPerProfile:     fkeysPerProfile);
+                FkeysPerProfile:     fkeysPerProfile,
+                // Display tab settings always come from the global [settings] section.
+                DefaultFontSize:    ini.HasSection("settings") ? GetInt (ini, "settings", "defaultfontsize")    : null,
+                DefaultMaxColumns:  ini.HasSection("settings") ? GetInt (ini, "settings", "defaultcolumns")     : null,
+                DreamwordSizeOffset: ini.HasSection("settings") ? GetInt(ini, "settings", "dreamwordsizeoffset") : null,
+                ShowOnline:         ini.HasSection("settings") ? GetBool(ini, "settings", "showonline")         : null,
+                ShowInventory:      ini.HasSection("settings") ? GetBool(ini, "settings", "showinventory")      : null,
+                ShowItemsHere:      ini.HasSection("settings") ? GetBool(ini, "settings", "showitemshere")      : null,
+                ShowMapCompass:     ini.HasSection("settings") ? GetBool(ini, "settings", "showmapcompass")     : null);
         }
         finally
         {
@@ -169,6 +193,15 @@ public static class SettingsStore
             ini.Set(settingsSection, "statupdate", settings.StatUpdateFrequency.ToString());
             ini.Set(settingsSection, "mutebeep",   settings.MuteBeepPermanently ? "yes" : "no");
             WriteSoundSettings(ini, settingsSection, settings.Sounds);
+
+            // Display tab settings always go to the global [settings] section.
+            ini.Set("settings", "defaultfontsize",    settings.DefaultFontSize.ToString());
+            ini.Set("settings", "defaultcolumns",     settings.DefaultMaxColumns.ToString());
+            ini.Set("settings", "dreamwordsizeoffset", settings.DreamwordSizeOffset.ToString());
+            ini.Set("settings", "showonline",         settings.ShowOnline    ? "yes" : "no");
+            ini.Set("settings", "showinventory",      settings.ShowInventory ? "yes" : "no");
+            ini.Set("settings", "showitemshere",      settings.ShowItemsHere ? "yes" : "no");
+            ini.Set("settings", "showmapcompass",     settings.ShowMapCompass ? "yes" : "no");
 
             if (fkeys is not null)
             {

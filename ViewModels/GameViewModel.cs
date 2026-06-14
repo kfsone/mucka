@@ -50,6 +50,9 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private double _widthDp;
     private int _antiIdleSeconds;
     private bool _keepScreenOn;
+    private int _dreamwordSizeOffset;
+    private int _defaultFontSize;
+    private int _defaultMaxColumns;
     private bool _inGameMode;
     private DateTime _lastSentUtc;
     private DateTime _lastBellUtc = DateTime.MinValue;
@@ -171,6 +174,8 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public double StatsValueFontSize => _effCols < 50 ? 12.0 : 13.0;
     /// <summary>Font size for the "/max" half of a stat pair — two points below the current value.</summary>
     public double StatsMaxValueFontSize => StatsValueFontSize - 2.0;
+    /// <summary>Font size for the dreamword pill — one point larger in wide mode.</summary>
+    public double DreamwordFontSize => (_effCols < 50 ? 12.0 : 13.0) + _dreamwordSizeOffset;
 
     // ── Fkey toolbar density — three tiers shrinking with effcols ────────────
     // Returns (fontSize, buttonRightMargin, totalHorizPad).
@@ -373,6 +378,14 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         SettingsPerProfile  = _settingsPerProfile,
         FkeysPerProfile     = _fkeysPerProfile,
         Sounds              = _sounds.Clone(),
+        // Display tab globals (stored on the profile struct at load time).
+        DefaultFontSize     = _defaultFontSize,
+        DefaultMaxColumns   = _defaultMaxColumns,
+        DreamwordSizeOffset = _dreamwordSizeOffset,
+        ShowOnline    = SidePanel.IsOnlineExpanded,
+        ShowInventory = SidePanel.IsInventoryExpanded,
+        ShowItemsHere = SidePanel.IsItemsHereExpanded,
+        ShowMapCompass = SidePanel.IsMapExpanded,
     };
 
     public ICommand SendCommand { get; }
@@ -422,7 +435,9 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _antiIdleSeconds = Math.Clamp(profile.AntiIdleSeconds, 0, 3600);
         _keepScreenOn = profile.KeepScreenOn;
         _lastSentUtc = DateTime.UtcNow;
-        _fontSize = profile.FontSize > 0 ? profile.FontSize : DefaultFontSizePx;
+        _fontSize = profile.FontSize > 0 ? profile.FontSize
+                  : profile.DefaultFontSize > 0 ? profile.DefaultFontSize
+                  : DefaultFontSizePx;
         _volume = Math.Clamp(profile.Volume, 0, 100);
         _statUpdateFrequency = Math.Clamp(profile.StatUpdateFrequency, 0, 30);
         _muteBeepPermanently = profile.MuteBeepPermanently;
@@ -430,10 +445,19 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _settingsPerProfile  = profile.SettingsPerProfile;
         _fkeysPerProfile     = profile.FkeysPerProfile;
         _sounds              = profile.Sounds;
+        _dreamwordSizeOffset = Math.Clamp(profile.DreamwordSizeOffset, -2, 4);
+        _defaultFontSize     = profile.DefaultFontSize;
+        _defaultMaxColumns   = profile.DefaultMaxColumns;
         SoundService.SetVolume(_volume);
         SoundService.SetSoundSettings(_sounds);
 
         SidePanel = new SidePanelViewModel();
+        SidePanel.IsOnlineExpanded    = profile.ShowOnline;
+        SidePanel.IsInventoryExpanded = profile.ShowInventory;
+        SidePanel.IsItemsHereExpanded = profile.ShowItemsHere;
+        SidePanel.IsMapExpanded       = profile.ShowMapCompass;
+        SidePanel.SubscriptionOptionsChanged += (few, fei) => _conn.UpdateSubscriptionOptions(few, fei);
+        _conn.UpdateSubscriptionOptions(profile.ShowOnline, profile.ShowInventory || profile.ShowItemsHere);
 
         // Align session FES timer with profile value (overrides MudSessionOptions default).
         _conn.SetFesInterval(_statUpdateFrequency);
@@ -492,6 +516,18 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _fkeysPerProfile     = settings.FkeysPerProfile;
         _sounds              = settings.Sounds;
         SoundService.SetSoundSettings(_sounds);
+
+        // Apply side-panel section visibility (suppress event to avoid double subscription update).
+        SidePanel.IsOnlineExpanded    = settings.ShowOnline;
+        SidePanel.IsInventoryExpanded = settings.ShowInventory;
+        SidePanel.IsItemsHereExpanded = settings.ShowItemsHere;
+        SidePanel.IsMapExpanded       = settings.ShowMapCompass;
+        _conn.UpdateSubscriptionOptions(settings.ShowOnline, settings.ShowInventory || settings.ShowItemsHere);
+
+        _dreamwordSizeOffset = Math.Clamp(settings.DreamwordSizeOffset, -2, 4);
+        _defaultFontSize     = settings.DefaultFontSize;
+        _defaultMaxColumns   = settings.DefaultMaxColumns;
+        OnPropertyChanged(nameof(DreamwordFontSize));
     }
 
     /// <summary>Applies the snapshot, persists it (mucka.ini via the saver delegate), and
@@ -918,6 +954,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             OnPropertyChanged(nameof(IsCompactWeather));
             OnPropertyChanged(nameof(StatsValueFontSize));
             OnPropertyChanged(nameof(StatsMaxValueFontSize));
+            OnPropertyChanged(nameof(DreamwordFontSize));
             OnPropertyChanged(nameof(StaMaxValue));
             OnPropertyChanged(nameof(MagMaxValue));
             OnPropertyChanged(nameof(StrMaxValue));

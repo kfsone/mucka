@@ -32,6 +32,8 @@ internal sealed class ParserHarness
     public List<string> FexItems { get; } = new();
     public int FexListStartingCount { get; private set; }
     public int FexListCompleteCount { get; private set; }
+    public List<string> LongDescLines { get; } = new();
+    public List<(string Dir, string Dest)> ExitLines { get; } = new();
     public List<int> ConfirmedWidths { get; } = new();
 
     public ParserHarness()
@@ -57,6 +59,8 @@ internal sealed class ParserHarness
         Parser.FexItemReady       += item => FexItems.Add(item);
         Parser.FexListStarting    += () => FexListStartingCount++;
         Parser.FexListComplete    += () => FexListCompleteCount++;
+        Parser.LongDescLineReady  += text => LongDescLines.Add(text);
+        Parser.ExitLineReady      += (dir, dest) => ExitLines.Add((dir, dest));
         Parser.TerminalWidthConfirmed += w => ConfirmedWidths.Add(w);
     }
 
@@ -89,6 +93,8 @@ internal sealed class ParserHarness
         FexItems.Clear();
         FexListStartingCount = 0;
         FexListCompleteCount = 0;
+        LongDescLines.Clear();
+        ExitLines.Clear();
         ConfirmedWidths.Clear();
     }
 

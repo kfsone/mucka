@@ -111,6 +111,23 @@ public sealed class MudStreamParser
     /// <summary>A FEX-response context has closed — all exit keywords have been delivered.</summary>
     public event Action? FexListComplete;
 
+    /// <summary>
+    /// A long-description line was received while in the C02.02 (GREEN) context in game mode.
+    /// Fires alongside <see cref="LineReady"/> for each line of the room's long description.
+    /// Multi-line descriptions produce one event per line.
+    /// </summary>
+    public event Action<string>? LongDescLineReady;
+
+    /// <summary>
+    /// An exits-format line was received in game mode: "direction: Destination." pattern
+    /// with the destination name in a BrightGreen span (C02.01 context).
+    /// Fires alongside <see cref="LineReady"/>. Payload is the raw direction word (e.g. "north")
+    /// and the destination name (e.g. "Foothills"). Consumer is responsible for direction
+    /// normalization (e.g. "north" to "n").
+    /// Not fired inside FEX/FEI/FEW response contexts.
+    /// </summary>
+    public event Action<string, string>? ExitLineReady;
+
     // ── Sub-parsers (set by internal wiring, replaceable for testing) ─────────
     internal TelnetNegotiator Telnet { get; }
     internal AnsiSgrState Ansi { get; }
@@ -168,6 +185,19 @@ public sealed class MudStreamParser
     // yet ended. Cleared (and RoomShortReady fired) when '\n' is processed.
     private bool _pendingRoomShort;
     internal void SetPendingRoomShort() => _pendingRoomShort = true;
+
+    // Long-description context: set when C02.02 is entered, cleared on color-stack unwind.
+    // While active, each completed line fires LongDescLineReady alongside the normal LineReady.
+    private bool _inLongDescContext;
+    private int _longDescContextDepth;
+    internal bool InLongDescContext => _inLongDescContext;
+    internal int LongDescContextDepth => _longDescContextDepth;
+    internal void EnterLongDescContext(int targetDepth)
+    {
+        _inLongDescContext = true;
+        _longDescContextDepth = targetDepth;
+    }
+    internal void ExitLongDescContext() => _inLongDescContext = false;
 
     // ── FEW-response suppression ──────────────────────────────────────────────
     // Set when the parser enters a C12+C08+C05 (FE WHO) context block. While active,
@@ -443,6 +473,8 @@ public sealed class MudStreamParser
         _fexLine.Clear();
         _atLineStart = true;
         _pendingRoomShort = false;
+        _inLongDescContext = false;
+        _longDescContextDepth = 0;
         CurrentDreamword = null;
         CurrentAccountId = null;
         CurrentPrivs = 0;
@@ -520,6 +552,13 @@ public sealed class MudStreamParser
                 {
                     RoomEntered?.Invoke();
                 }
+                // Long description: fire alongside LineReady for each line while C02.02 is active.
+                if (_inLongDescContext)
+                    LongDescLineReady?.Invoke(line.PlainText);
+                // Exits: fire for "direction: Destination." lines (not within long-desc context
+                // to avoid false matches if a description happens to contain a colon).
+                else
+                    TryEmitExitLine(line);
             }
             _atLineStart = true;    // next line starts at column 0
             LineReady?.Invoke(line);
@@ -587,6 +626,42 @@ public sealed class MudStreamParser
         _optionMatchLen = atLineStart && ch == OptionMenuPrompt[0] ? 1 : 0;
     }
 
+    // Direction words as spelled out by the MUD2 exits verb (full names and a few aliases).
+    private static readonly HashSet<string> ExitKeywords = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "north", "northeast", "east", "southeast", "south", "southwest", "west", "northwest",
+        "up", "down", "in", "out", "swampward", "over",
+        // abbreviated forms appear in some contexts (e.g. look around output)
+        "n", "ne", "e", "se", "s", "sw", "w", "nw",
+    };
+
+    /// <summary>
+    /// Fires <see cref="ExitLineReady"/> when <paramref name="line"/> matches the exits-verb
+    /// format: a direction keyword followed by ": " and a BrightGreen (C02.01) destination span.
+    /// Called only in game mode and only outside of the C02.02 long-description context.
+    /// </summary>
+    private void TryEmitExitLine(StyledLine line)
+    {
+        var plain = line.PlainText;
+        var colon = plain.IndexOf(':');
+        if (colon < 1 || colon > 12) return;
+        var dir = plain[..colon].Trim();
+        if (!ExitKeywords.Contains(dir)) return;
+        // Require at least one BrightGreen span to confirm this is an exits-verb line —
+        // destination room names are always in C02.01 (LT_GREEN/BrightGreen). Guard
+        // against spurious matches on other "word: text." lines with no coloured spans.
+        bool hasRoomNameSpan = false;
+        foreach (var span in line.Spans)
+            if (span.Style.Foreground == AnsiColor.BrightGreen) { hasRoomNameSpan = true; break; }
+        if (!hasRoomNameSpan) return;
+        // Extract destination from plain text: everything after ": " up to the trailing ".".
+        var afterColon = colon + 1;
+        if (afterColon >= plain.Length) return;
+        var dest = plain[afterColon..].TrimStart().TrimEnd('.');
+        if (dest.Length == 0) return;
+        ExitLineReady?.Invoke(dir, dest.Trim());
+    }
+
     internal void FlushSpan()
     {
         // Inside the prompt container, style boundaries flush into the prompt buffer.
@@ -630,6 +705,7 @@ public sealed class MudStreamParser
         _inFeiResponseContext = false;
         _inFexResponseContext = false;
         _pendingRoomShort = false;
+        _inLongDescContext = false;
         C1.ResetGameState();
         GameModeExited?.Invoke();
     }

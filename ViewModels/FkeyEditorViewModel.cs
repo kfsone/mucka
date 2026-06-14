@@ -22,6 +22,14 @@ public sealed class FkeyEditorViewModel : BaseViewModel
     private bool _settingsToProfileOnly;
     private bool _fkeysToProfileOnly;
     private bool _soundsEnabled;
+    // ── Display tab (always global) ───────────────────────────────────────────
+    private double _displayFontSize;
+    private double _displayColumns;
+    private double _displayDreamwordOffset;
+    private bool   _showOnline;
+    private bool   _showInventory;
+    private bool   _showItemsHere;
+    private bool   _showMapCompass;
     private readonly SoundGroupEditorItem _bellGroup;
 
     public int ActiveModifier
@@ -41,7 +49,7 @@ public sealed class FkeyEditorViewModel : BaseViewModel
         {
             if (Set(ref _activeTab, value))
                 OnPropertiesChanged(nameof(IsSettingsTabActive), nameof(IsHotkeysTabActive),
-                    nameof(IsSoundsTabActive), nameof(IsFriendsTabActive));
+                        nameof(IsSoundsTabActive), nameof(IsFriendsTabActive), nameof(IsDisplayTabActive));
         }
     }
 
@@ -49,6 +57,7 @@ public sealed class FkeyEditorViewModel : BaseViewModel
     public bool IsHotkeysTabActive  => _activeTab == 1;
     public bool IsSoundsTabActive   => _activeTab == 2;
     public bool IsFriendsTabActive  => _activeTab == 3;
+    public bool IsDisplayTabActive  => _activeTab == 4;
 
     public double FontSize
     {
@@ -152,6 +161,44 @@ public sealed class FkeyEditorViewModel : BaseViewModel
         set => Set(ref _fkeysToProfileOnly, value);
     }
 
+    // ── Display tab properties ────────────────────────────────────────────────
+
+    public double DisplayFontSize
+    {
+        get => _displayFontSize;
+        set => SetAndNotify(ref _displayFontSize, Math.Clamp(Math.Round(value), 9, 24),
+            [nameof(DisplayFontSizeDisplay)]);
+    }
+    public int DisplayFontSizeDisplay => (int)Math.Round(_displayFontSize);
+
+    public double DisplayColumns
+    {
+        get => _displayColumns;
+        set => SetAndNotify(ref _displayColumns, Math.Clamp(Math.Round(value), 0, 160),
+            [nameof(DisplayColumnsDisplay)]);
+    }
+    public string DisplayColumnsDisplay => _displayColumns <= 0 ? "auto" : ((int)Math.Round(_displayColumns)).ToString();
+
+    public double DisplayDreamwordOffset
+    {
+        get => _displayDreamwordOffset;
+        set => SetAndNotify(ref _displayDreamwordOffset, Math.Clamp(Math.Round(value), -2, 4),
+            [nameof(DisplayDreamwordOffsetDisplay)]);
+    }
+    public string DisplayDreamwordOffsetDisplay
+    {
+        get
+        {
+            var v = (int)Math.Round(_displayDreamwordOffset);
+            return v == 0 ? "0" : v > 0 ? $"+{v}" : v.ToString();
+        }
+    }
+
+    public bool ShowOnline    { get => _showOnline;    set => Set(ref _showOnline,    value); }
+    public bool ShowInventory { get => _showInventory; set => Set(ref _showInventory, value); }
+    public bool ShowItemsHere { get => _showItemsHere; set => Set(ref _showItemsHere, value); }
+    public bool ShowMapCompass { get => _showMapCompass; set => Set(ref _showMapCompass, value); }
+
     public FkeyEditorItem[] CurrentPageItems => _pages[_activeModifier];
     public bool CanSave { get; }
 
@@ -168,6 +215,12 @@ public sealed class FkeyEditorViewModel : BaseViewModel
     public ICommand DecrColumnsCommand { get; }
     public ICommand IncrStatFreqCommand { get; }
     public ICommand DecrStatFreqCommand { get; }
+    public ICommand IncrDisplayFontSizeCommand { get; }
+    public ICommand DecrDisplayFontSizeCommand { get; }
+    public ICommand IncrDisplayColumnsCommand { get; }
+    public ICommand DecrDisplayColumnsCommand { get; }
+    public ICommand IncrDisplayDreamwordOffsetCommand { get; }
+    public ICommand DecrDisplayDreamwordOffsetCommand { get; }
 
     public event Action? CloseRequested;
     /// <summary>Raised when Save fails; payload is the error message for display.</summary>
@@ -195,6 +248,14 @@ public sealed class FkeyEditorViewModel : BaseViewModel
         _settingsToProfileOnly = settings.SettingsPerProfile;
         _fkeysToProfileOnly    = settings.FkeysPerProfile;
         _soundsEnabled         = settings.Sounds.MasterEnabled;
+        // Display tab
+        _displayFontSize       = settings.DefaultFontSize > 0 ? Math.Clamp(settings.DefaultFontSize, 9, 24) : 15;
+        _displayColumns        = Math.Clamp(settings.DefaultMaxColumns, 0, 160);
+        _displayDreamwordOffset = Math.Clamp(settings.DreamwordSizeOffset, -2, 4);
+        _showOnline    = settings.ShowOnline;
+        _showInventory = settings.ShowInventory;
+        _showItemsHere = settings.ShowItemsHere;
+        _showMapCompass = settings.ShowMapCompass;
 
         // Preview the beep at the bell row's volume (which follows the master slider
         // until overridden). _bellGroup is read at invoke time — it doesn't exist yet here.
@@ -288,6 +349,12 @@ public sealed class FkeyEditorViewModel : BaseViewModel
         DecrColumnsCommand  = new Command(() => Columns  -= 1);
         IncrStatFreqCommand = new Command(() => StatUpdateFrequency += 5);
         DecrStatFreqCommand = new Command(() => StatUpdateFrequency -= 5);
+        IncrDisplayFontSizeCommand         = new Command(() => DisplayFontSize         += 1);
+        DecrDisplayFontSizeCommand         = new Command(() => DisplayFontSize         -= 1);
+        IncrDisplayColumnsCommand          = new Command(() => DisplayColumns          += 1);
+        DecrDisplayColumnsCommand          = new Command(() => DisplayColumns          -= 1);
+        IncrDisplayDreamwordOffsetCommand  = new Command(() => DisplayDreamwordOffset  += 1);
+        DecrDisplayDreamwordOffsetCommand  = new Command(() => DisplayDreamwordOffset  -= 1);
     }
 
     /// <summary>The edited settings as a snapshot for apply/save.</summary>
@@ -302,6 +369,13 @@ public sealed class FkeyEditorViewModel : BaseViewModel
         SettingsPerProfile  = _settingsToProfileOnly,
         FkeysPerProfile     = _fkeysToProfileOnly,
         Sounds              = CollectSounds(),
+        DefaultFontSize     = DisplayFontSizeDisplay,
+        DefaultMaxColumns   = (int)Math.Round(_displayColumns),
+        DreamwordSizeOffset = (int)Math.Round(_displayDreamwordOffset),
+        ShowOnline          = _showOnline,
+        ShowInventory       = _showInventory,
+        ShowItemsHere       = _showItemsHere,
+        ShowMapCompass      = _showMapCompass,
     };
 
     /// <summary>The Sounds tab's tree as an override-only settings blob.</summary>

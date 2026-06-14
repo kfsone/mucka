@@ -225,6 +225,14 @@ public sealed class MuckaConnection : IAsyncDisposable
     public void SetFesInterval(int seconds)
         => _session.UpdateFesInterval(seconds <= 0 ? TimeSpan.Zero : TimeSpan.FromSeconds(seconds));
 
+    /// <summary>
+    /// Update which components are included in the periodic heartbeat probe.
+    /// When <paramref name="includeFew"/> is false the online list (FEW) is omitted.
+    /// When <paramref name="includeFei"/> is false the inventory/room-items list (FEI) is omitted.
+    /// </summary>
+    public void UpdateSubscriptionOptions(bool includeFew, bool includeFei)
+        => _session.UpdateSubscriptionOptions(includeFew, includeFei);
+
     /// <summary>Hold/release the FES/FEW/FEI probe machinery (see MudSession.SetProbeHold).</summary>
     public void SetProbeHold(bool held) => _session.SetProbeHold(held);
 

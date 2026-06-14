@@ -39,12 +39,14 @@ public sealed class WhoEntry : INotifyPropertyChanged
             var wasInvisible = IsInvisible;
             SetIdentityFrom(value);
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Name)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(DisplayName)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(DisplaySuffix)));
             if (IsInvisible != wasInvisible)
                 PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsInvisible)));
         }
     }
 
-    /// <summary>Wire-protocol foreground color (mortal / wizard / etc.).</summary>
+    /// <summary>The wire-protocol foreground color (mortal / wizard / etc.).</summary>
     public Color Color
     {
         get => _color;
@@ -61,6 +63,25 @@ public sealed class WhoEntry : INotifyPropertyChanged
     /// UI-thread fade timer; arrival/departure animation is now a GPU compositor fade — see
     /// <c>WhoEntryFadeBehavior</c> — so this is just the wire color.)</summary>
     public Color DisplayColor => _color;
+
+    /// <summary>Persona name portion for display — the first word of <see cref="Name"/>,
+    /// prefixed with "(" when the player is invisible. Bound to the full-size span in the
+    /// who-list template; suffix is rendered 2pt smaller via <see cref="DisplaySuffix"/>.</summary>
+    public string DisplayName => IsInvisible ? "(" + PersonaName : PersonaName;
+
+    /// <summary>Title/level description that follows the persona name (e.g. " the Wizard"),
+    /// with a closing ")" appended when the player is invisible. May be empty for untitled
+    /// players. Rendered 2pt smaller than <see cref="DisplayName"/>.</summary>
+    public string DisplaySuffix
+    {
+        get
+        {
+            var inner = IsInvisible ? _name[1..^1] : _name;
+            var idx   = inner.IndexOf(' ');
+            var tail  = idx >= 0 ? inner[idx..] : string.Empty;
+            return IsInvisible ? tail + ")" : tail;
+        }
+    }
 
     private bool _isDeparting;
     /// <summary>True once the player has left: the entry stays in the list while

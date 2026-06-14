@@ -18,6 +18,13 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     private string _previousRoom = "Option Menu";
     private string _oldestRoom   = "Logging in";
 
+    // ── Section fold/unfold state ─────────────────────────────────────────────
+    // Each section heading has a ▼/▶ widget; folding is equivalent to disabling in settings.
+    private bool _isOnlineExpanded   = true;
+    private bool _isInventoryExpanded = true;
+    private bool _isItemsHereExpanded = true;
+    private bool _isMapExpanded      = true;
+
     public bool IsPanelExpanded
     {
         get => _isPanelExpanded;
@@ -27,6 +34,55 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     public bool IsPanelCollapsed => !_isPanelExpanded;
     // ▼ when collapsed (click to show panel), ◀ when expanded (click to hide the left-edge panel)
     public string PanelToggleGlyph => _isPanelExpanded ? "◀" : "▼";
+
+    // ── Section fold/unfold ────────────────────────────────────────────────────
+    // ▼ = expanded (content visible), ▶ = collapsed (content hidden).
+    public bool IsOnlineExpanded
+    {
+        get => _isOnlineExpanded;
+        set
+        {
+            if (SetAndNotify(ref _isOnlineExpanded, value, [nameof(OnlineFoldGlyph)]))
+                RaiseSubscriptionChanged();
+        }
+    }
+    public string OnlineFoldGlyph => _isOnlineExpanded ? "\u25bc" : "\u25b6";
+
+    public bool IsInventoryExpanded
+    {
+        get => _isInventoryExpanded;
+        set
+        {
+            if (SetAndNotify(ref _isInventoryExpanded, value, [nameof(InventoryFoldGlyph)]))
+                RaiseSubscriptionChanged();
+        }
+    }
+    public string InventoryFoldGlyph => _isInventoryExpanded ? "\u25bc" : "\u25b6";
+
+    public bool IsItemsHereExpanded
+    {
+        get => _isItemsHereExpanded;
+        set
+        {
+            if (SetAndNotify(ref _isItemsHereExpanded, value, [nameof(ItemsHereFoldGlyph)]))
+                RaiseSubscriptionChanged();
+        }
+    }
+    public string ItemsHereFoldGlyph => _isItemsHereExpanded ? "\u25bc" : "\u25b6";
+
+    public bool IsMapExpanded
+    {
+        get => _isMapExpanded;
+        set => SetAndNotify(ref _isMapExpanded, value, [nameof(MapFoldGlyph)]);
+    }
+    public string MapFoldGlyph => _isMapExpanded ? "\u25bc" : "\u25b6";
+
+    /// <summary>Raised (on the UI thread) when FEW/FEI subscription needs updating.
+    /// Payload: (includeFew, includeFei).</summary>
+    public event Action<bool, bool>? SubscriptionOptionsChanged;
+
+    private void RaiseSubscriptionChanged()
+        => SubscriptionOptionsChanged?.Invoke(_isOnlineExpanded, _isInventoryExpanded || _isItemsHereExpanded);
 
     /// <summary>True while the About dialog overlay is shown (opened via the ⓘ status-bar icon).</summary>
     public bool IsAboutVisible
@@ -95,6 +151,10 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     public ICommand ShowAboutCommand { get; }
     public ICommand CloseAboutCommand { get; }
     public ICommand OpenLinkCommand { get; }
+    public ICommand ToggleOnlineCommand { get; }
+    public ICommand ToggleInventoryCommand { get; }
+    public ICommand ToggleItemsHereCommand { get; }
+    public ICommand ToggleMapCommand { get; }
 
     /// <summary>Raised when an interaction should hand keyboard focus back to the input box.
     /// Opening the About dialog deliberately does not raise it — focus belongs to the dialog.</summary>
@@ -110,6 +170,10 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             if (!string.IsNullOrWhiteSpace(url))
                 _ = Launcher.OpenAsync(new Uri(url));
         });
+        ToggleOnlineCommand    = new Command(() => IsOnlineExpanded    = !IsOnlineExpanded);
+        ToggleInventoryCommand = new Command(() => IsInventoryExpanded = !IsInventoryExpanded);
+        ToggleItemsHereCommand = new Command(() => IsItemsHereExpanded = !IsItemsHereExpanded);
+        ToggleMapCommand       = new Command(() => IsMapExpanded       = !IsMapExpanded);
     }
 
     // UI-thread dispatcher, captured from the host. Used only for one-shot DispatchDelayed calls

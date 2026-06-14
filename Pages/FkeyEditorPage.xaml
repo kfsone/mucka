@@ -121,6 +121,32 @@
                     </Label>
                 </Border>
 
+                <!-- Display tab -->
+                <Border Stroke="Transparent" StrokeThickness="0" Padding="14,5">
+                    <Border.StrokeShape><RoundRectangle CornerRadius="4"/></Border.StrokeShape>
+                    <Border.GestureRecognizers>
+                        <TapGestureRecognizer Command="{Binding SetTabCommand}" CommandParameter="4"/>
+                    </Border.GestureRecognizers>
+                    <Border.Triggers>
+                        <DataTrigger TargetType="Border" Binding="{Binding IsDisplayTabActive}" Value="True">
+                            <Setter Property="BackgroundColor" Value="#1f6feb"/>
+                        </DataTrigger>
+                        <DataTrigger TargetType="Border" Binding="{Binding IsDisplayTabActive}" Value="False">
+                            <Setter Property="BackgroundColor" Value="#2d333b"/>
+                        </DataTrigger>
+                    </Border.Triggers>
+                    <Label Text="Display" FontSize="13" FontAttributes="Bold" VerticalOptions="Center">
+                        <Label.Triggers>
+                            <DataTrigger TargetType="Label" Binding="{Binding IsDisplayTabActive}" Value="True">
+                                <Setter Property="TextColor" Value="White"/>
+                            </DataTrigger>
+                            <DataTrigger TargetType="Label" Binding="{Binding IsDisplayTabActive}" Value="False">
+                                <Setter Property="TextColor" Value="#888888"/>
+                            </DataTrigger>
+                        </Label.Triggers>
+                    </Label>
+                </Border>
+
             </HorizontalStackLayout>
         </Border>
 
@@ -492,6 +518,113 @@
                    FontSize="24"
                    HorizontalOptions="Center"
                    VerticalOptions="Center"/>
+
+            <!-- ── DISPLAY TAB ───────────────────────────────────────── -->
+            <ScrollView IsVisible="{Binding IsDisplayTabActive}">
+                <VerticalStackLayout Spacing="20" Padding="0,0,0,12">
+
+                    <Label Text="These settings apply globally to all profiles."
+                           TextColor="#555555" FontSize="11" FontAttributes="Italic"/>
+
+                    <!-- ── General ─────────────────────────────────────── -->
+                    <Label Text="General" TextColor="#58a6ff" FontSize="13" FontAttributes="Bold"/>
+
+                    <!-- Default Font Size -->
+                    <Grid ColumnDefinitions="160,*" ColumnSpacing="12">
+                        <Label Grid.Column="0" Text="Default Font Size" TextColor="#888888" FontSize="13" VerticalOptions="Center"/>
+                        <HorizontalStackLayout Grid.Column="1" Spacing="6" VerticalOptions="Center">
+                            <Button Text="&#x2212;" Command="{Binding DecrDisplayFontSizeCommand}"
+                                    BackgroundColor="#2d333b" TextColor="#cccccc"
+                                    FontSize="15" WidthRequest="34" HeightRequest="30"
+                                    CornerRadius="4" Padding="0"/>
+                            <Label Text="{Binding DisplayFontSizeDisplay}" TextColor="White" FontSize="13"
+                                   WidthRequest="28" VerticalOptions="Center" HorizontalTextAlignment="Center"/>
+                            <Button Text="+" Command="{Binding IncrDisplayFontSizeCommand}"
+                                    BackgroundColor="#2d333b" TextColor="#cccccc"
+                                    FontSize="15" WidthRequest="34" HeightRequest="30"
+                                    CornerRadius="4" Padding="0"/>
+                        </HorizontalStackLayout>
+                    </Grid>
+
+                    <!-- Default Column Width -->
+                    <Grid ColumnDefinitions="160,*" ColumnSpacing="12">
+                        <Label Grid.Column="0" Text="Default Column Width" TextColor="#888888" FontSize="13" VerticalOptions="Center"/>
+                        <HorizontalStackLayout Grid.Column="1" Spacing="6" VerticalOptions="Center">
+                            <Button Text="&#x2212;" Command="{Binding DecrDisplayColumnsCommand}"
+                                    BackgroundColor="#2d333b" TextColor="#cccccc"
+                                    FontSize="15" WidthRequest="34" HeightRequest="30"
+                                    CornerRadius="4" Padding="0"/>
+                            <Label Text="{Binding DisplayColumnsDisplay}" TextColor="White" FontSize="13"
+                                   WidthRequest="36" VerticalOptions="Center" HorizontalTextAlignment="Center"/>
+                            <Button Text="+" Command="{Binding IncrDisplayColumnsCommand}"
+                                    BackgroundColor="#2d333b" TextColor="#cccccc"
+                                    FontSize="15" WidthRequest="34" HeightRequest="30"
+                                    CornerRadius="4" Padding="0"/>
+                        </HorizontalStackLayout>
+                    </Grid>
+
+                    <!-- Dreamword pill size offset -->
+                    <Grid ColumnDefinitions="160,*" ColumnSpacing="12">
+                        <Label Grid.Column="0" Text="Dreamword Pill Size" TextColor="#888888" FontSize="13" VerticalOptions="Center"
+                               ToolTipProperties.Text="Adjusts the dreamword chip font size relative to the base. Range: -2 to +4"/>
+                        <HorizontalStackLayout Grid.Column="1" Spacing="6" VerticalOptions="Center">
+                            <Button Text="&#x2212;" Command="{Binding DecrDisplayDreamwordOffsetCommand}"
+                                    BackgroundColor="#2d333b" TextColor="#cccccc"
+                                    FontSize="15" WidthRequest="34" HeightRequest="30"
+                                    CornerRadius="4" Padding="0"/>
+                            <Label Text="{Binding DisplayDreamwordOffsetDisplay}" TextColor="White" FontSize="13"
+                                   WidthRequest="28" VerticalOptions="Center" HorizontalTextAlignment="Center"/>
+                            <Button Text="+" Command="{Binding IncrDisplayDreamwordOffsetCommand}"
+                                    BackgroundColor="#2d333b" TextColor="#cccccc"
+                                    FontSize="15" WidthRequest="34" HeightRequest="30"
+                                    CornerRadius="4" Padding="0"/>
+                        </HorizontalStackLayout>
+                    </Grid>
+
+                    <!-- Separator -->
+                    <BoxView Color="#2d333b" HeightRequest="1"/>
+
+                    <!-- ── Side Panel ───────────────────────────────────── -->
+                    <Label Text="Side Panel" TextColor="#58a6ff" FontSize="13" FontAttributes="Bold"/>
+
+                    <!-- Show online -->
+                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
+                        <CheckBox Grid.Column="0" IsChecked="{Binding ShowOnline, Mode=TwoWay}"
+                                  Color="#1f6feb" VerticalOptions="Center"/>
+                        <Label Grid.Column="1" Text="Show online"
+                               TextColor="#888888" FontSize="13" VerticalOptions="Center"
+                               ToolTipProperties.Text="Show the Online section (FEW). When disabled, the online list is not requested from the server."/>
+                    </Grid>
+
+                    <!-- Inventory -->
+                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
+                        <CheckBox Grid.Column="0" IsChecked="{Binding ShowInventory, Mode=TwoWay}"
+                                  Color="#1f6feb" VerticalOptions="Center"/>
+                        <Label Grid.Column="1" Text="Inventory"
+                               TextColor="#888888" FontSize="13" VerticalOptions="Center"
+                               ToolTipProperties.Text="Show the Carrying section (FEI inventory half)."/>
+                    </Grid>
+
+                    <!-- Items here -->
+                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
+                        <CheckBox Grid.Column="0" IsChecked="{Binding ShowItemsHere, Mode=TwoWay}"
+                                  Color="#1f6feb" VerticalOptions="Center"/>
+                        <Label Grid.Column="1" Text="Items here"
+                               TextColor="#888888" FontSize="13" VerticalOptions="Center"
+                               ToolTipProperties.Text="Show the Here section (FEI room-items half). When both Inventory and Items here are disabled, FEI is not requested from the server."/>
+                    </Grid>
+
+                    <!-- Map/Compass -->
+                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
+                        <CheckBox Grid.Column="0" IsChecked="{Binding ShowMapCompass, Mode=TwoWay}"
+                                  Color="#1f6feb" VerticalOptions="Center"/>
+                        <Label Grid.Column="1" Text="Map / Compass"
+                               TextColor="#888888" FontSize="13" VerticalOptions="Center"
+                               ToolTipProperties.Text="Show the Map/Compass section."/>
+                    </Grid>
+
+                </VerticalStackLayout>
+            </ScrollView>
 
         </Grid>
 

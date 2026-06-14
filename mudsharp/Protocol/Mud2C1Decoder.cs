@@ -142,6 +142,9 @@ internal sealed class Mud2C1Decoder
             _parser.EmitFexListComplete();
         }
 
+        if (_parser.InLongDescContext && _colorStack.Count <= _parser.LongDescContextDepth)
+            _parser.ExitLongDescContext();
+
         // Close the prompt-capture container when the colour stack returns to the depth
         // recorded at the outer {C01}{C255} push. ClosePromptContext then shows the
         // whole captured prompt — '*', '(*)' when invisible, snoop/rank indicators —
@@ -585,6 +588,9 @@ internal sealed class Mud2C1Decoder
                         break;
                     case 0x9D when count == 1:
                         Apply(GREEN, BLACK);
+                        // C02.02 opens the room long-description context. Cleared when the
+                        // color stack unwinds to the entry depth (see CheckContextClosures).
+                        _parser.EnterLongDescContext(_colorStack.Count);
                         break;
                     default:
                         Apply(WHITE, BLACK);

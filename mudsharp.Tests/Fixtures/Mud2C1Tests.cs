@@ -1019,4 +1019,169 @@ public class Mud2C1Tests
         Assert.Equal(["Polly the witch"], h.FewPlayers);
         Assert.Empty(h.PresenceNames);
     }
+
+    // ── C02.02 long-description context (LongDescLineReady) ──────────────────
+
+    [Fact]
+    public void C02_02_SingleLine_FiresLongDescLineReady()
+    {
+        // C02.02 = 0x9D 0x9D 0xFF 0xFF → GREEN/BLACK; text until pop fires LongDescLineReady.
+        var h = new ParserHarness();
+        h.Feed(0x9D, 0x9C, 0xFF, 0xFF);          // enter game mode (C02.01)
+        h.Feed("Room Name\n");                    // room short — clears C02.01 push
+        h.Feed(0xFF, 0xFF);                       // pop C02.01
+        h.ClearCounters();
+        h.Feed(0x9D, 0x9D, 0xFF, 0xFF);          // C02.02: enter long-desc context
+        h.Feed("A winding path through the trees.\n");
+        h.Feed(0xFF, 0xFF);                       // pop C02.02
+        Assert.Equal(["A winding path through the trees."], h.LongDescLines);
+    }
+
+    [Fact]
+    public void C02_02_MultiLine_FiresOneEventPerLine()
+    {
+        // Long descriptions can span multiple server-wrapped lines.
+        var h = new ParserHarness();
+        h.Feed(0x9D, 0x9C, 0xFF, 0xFF);
+        h.Feed("Room Name\n");
+        h.Feed(0xFF, 0xFF);
+        h.ClearCounters();
+        h.Feed(0x9D, 0x9D, 0xFF, 0xFF);
+        h.Feed("First line of the description.\n");
+        h.Feed("Second line of the description.\n");
+        h.Feed(0xFF, 0xFF);
+        Assert.Equal(2, h.LongDescLines.Count);
+        Assert.Equal("First line of the description.",  h.LongDescLines[0]);
+        Assert.Equal("Second line of the description.", h.LongDescLines[1]);
+    }
+
+    [Fact]
+    public void C02_02_AlsoFiresNormalLineReady()
+    {
+        // LongDescLineReady fires in addition to LineReady, not instead.
+        var h = new ParserHarness();
+        h.Feed(0x9D, 0x9C, 0xFF, 0xFF);
+        h.Feed("Room Name\n");
+        h.Feed(0xFF, 0xFF);
+        h.ClearCounters();
+        h.Feed(0x9D, 0x9D, 0xFF, 0xFF);
+        h.Feed("The long description.\n");
+        h.Feed(0xFF, 0xFF);
+        Assert.Single(h.LongDescLines);
+        Assert.Single(h.Lines);
+        Assert.Equal("The long description.", h.LongDescLines[0]);
+        Assert.Equal("The long description.", h.Lines[0].PlainText);
+    }
+
+    [Fact]
+    public void C02_01_RoomShort_DoesNotFireLongDescLineReady()
+    {
+        // Room short description (C02.01 = 0x9D 0x9C) must NOT fire LongDescLineReady.
+        var h = new ParserHarness();
+        h.Feed(0x9D, 0x9C, 0xFF, 0xFF);
+        h.Feed("Foothills\n");
+        h.Feed(0xFF, 0xFF);
+        Assert.Empty(h.LongDescLines);
+        Assert.Equal(["Foothills"], h.RoomShorts);
+    }
+
+    [Fact]
+    public void C02_02_OutsideGameMode_DoesNotFireLongDescLineReady()
+    {
+        // LongDescLineReady must only fire in game mode.
+        var h = new ParserHarness();
+        h.Feed(0x9D, 0x9D, 0xFF, 0xFF);   // C02.02 before game mode entry
+        h.Feed("pre-game text\n");
+        h.Feed(0xFF, 0xFF);
+        Assert.Empty(h.LongDescLines);
+    }
+
+    // ── ExitLineReady (exits-verb output parsing) ─────────────────────────────
+
+    [Fact]
+    public void ExitLine_NorthFormat_FiresExitLineReady()
+    {
+        // Exits-verb line: "north: {C02.01}Foothills{/C02.01}." — direction word +
+        // BrightGreen room name span.
+        var h = new ParserHarness();
+        h.Feed(0x9D, 0x9C, 0xFF, 0xFF);   // game mode
+        h.ClearCounters();
+        // Emit "north: " then C02.01 room name then ".\n"
+        h.Feed("north: ");
+        h.Feed(0x9D, 0x9C, 0xFF, 0xFF);   // C02.01 → BrightGreen
+        h.Feed("Foothills");
+        h.Feed(0xFF, 0xFF);                // pop C02.01
+        h.Feed(".\n");
+        Assert.Single(h.ExitLines);
+        Assert.Equal("north",     h.ExitLines[0].Dir);
+        Assert.Equal("Foothills", h.ExitLines[0].Dest);
+    }
+
+    [Fact]
+    public void ExitLine_MultipleDirections_FiresOneEventEach()
+    {
+        var h = new ParserHarness();
+        h.Feed(0x9D, 0x9C, 0xFF, 0xFF);
+        h.ClearCounters();
+
+        void ExitFeed(string dir, string dest)
+        {
+            h.Feed($"{dir}: ");
+            h.Feed(0x9D, 0x9C, 0xFF, 0xFF);
+            h.Feed(dest);
+            h.Feed(0xFF, 0xFF);
+            h.Feed(".\n");
+        }
+
+        ExitFeed("north",     "Foothills");
+        ExitFeed("northeast", "Foothills");
+        ExitFeed("east",      "East pasture");
+
+        Assert.Equal(3, h.ExitLines.Count);
+        Assert.Equal(("north",     "Foothills"),    h.ExitLines[0]);
+        Assert.Equal(("northeast", "Foothills"),    h.ExitLines[1]);
+        Assert.Equal(("east",      "East pasture"), h.ExitLines[2]);
+    }
+
+    [Fact]
+    public void ExitLine_SwampwardDirection_IsRecognised()
+    {
+        var h = new ParserHarness();
+        h.Feed(0x9D, 0x9C, 0xFF, 0xFF);
+        h.ClearCounters();
+        h.Feed("swampward: ");
+        h.Feed(0x9D, 0x9C, 0xFF, 0xFF);
+        h.Feed("Rapids");
+        h.Feed(0xFF, 0xFF);
+        h.Feed(".\n");
+        Assert.Single(h.ExitLines);
+        Assert.Equal("swampward", h.ExitLines[0].Dir);
+        Assert.Equal("Rapids",    h.ExitLines[0].Dest);
+    }
+
+    [Fact]
+    public void ExitLine_OutsideGameMode_DoesNotFireExitLineReady()
+    {
+        // ExitLineReady must not fire before game mode is entered.
+        var h = new ParserHarness();
+        Assert.False(h.Parser.InGameMode);
+        h.Feed("north: Foothills.\n");
+        Assert.False(h.Parser.InGameMode);
+        Assert.Empty(h.ExitLines);
+    }
+
+    [Fact]
+    public void ExitLine_InLongDescContext_DoesNotFireExitLineReady()
+    {
+        // Inside a C02.02 long-description context, "direction: name." patterns
+        // must not be misread as exit lines.
+        var h = new ParserHarness();
+        h.Feed(0x9D, 0x9C, 0xFF, 0xFF);
+        h.ClearCounters();
+        h.Feed(0x9D, 0x9D, 0xFF, 0xFF);   // C02.02: long-desc context
+        h.Feed("north: the path leads onward.\n");
+        h.Feed(0xFF, 0xFF);
+        Assert.Single(h.LongDescLines);
+        Assert.Empty(h.ExitLines);
+    }
 }

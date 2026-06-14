@@ -25,7 +25,7 @@
         <!-- ── Status bar ───────────────────────────────────────────── -->
         <Border Grid.Row="0"
                 x:Name="StatusBar"
-                BackgroundColor="#161b22"
+                BackgroundColor="#101618"
                 Padding="6,4" StrokeThickness="0">
             <Grid ColumnDefinitions="Auto,*">
 
@@ -421,8 +421,8 @@
                  Tapping speaks the dreamword (same as Ctrl+D). -->
             <Border Grid.Column="0"
                     IsVisible="{Binding DreamwordActive}"
-                    BackgroundColor="#182a3e" Opacity="0.72"
-                    Stroke="#2d5a9e" StrokeThickness="1"
+                    BackgroundColor="#182a3e" Opacity="0.9"
+                    Stroke="#FFD700" StrokeThickness="2"
                     Padding="10,4"
                     HorizontalOptions="End" VerticalOptions="Start"
                     Margin="0,6,8,0">
@@ -433,9 +433,9 @@
                 <Label HorizontalOptions="Center">
                     <Label.FormattedText>
                         <FormattedString>
-                            <Span Text="&quot;" TextColor="#7db9f5" FontSize="12"/>
-                            <Span Text="{Binding Dreamword}" TextColor="#7db9f5" FontSize="12" FontAttributes="Bold"/>
-                            <Span Text="&quot;" TextColor="#7db9f5" FontSize="12"/>
+                            <Span Text="&quot;" TextColor="#00E5FF" FontSize="{Binding DreamwordFontSize}"/>
+                            <Span Text="{Binding Dreamword}" TextColor="#00E5FF" FontSize="{Binding DreamwordFontSize}" FontAttributes="Bold"/>
+                            <Span Text="&quot;" TextColor="#00E5FF" FontSize="{Binding DreamwordFontSize}"/>
                         </FormattedString>
                     </Label.FormattedText>
                 </Label>
@@ -553,8 +553,8 @@
         <Border Grid.Column="0"
                 x:Name="SidePanelBorder"
                 IsVisible="{Binding SidePanel.IsPanelExpanded}"
-                WidthRequest="228"
-                BackgroundColor="#161b22"
+                WidthRequest="212"
+                BackgroundColor="#101618"
                 Stroke="#2d333b" StrokeThickness="1"
                 Padding="0">
                 <!-- ── Panel content: top-anchored online list, scrollable items,
@@ -567,16 +567,39 @@
                                 <VerticalStackLayout.Behaviors>
                                     <beh:StaleDimBehavior Source="Few"/>
                                 </VerticalStackLayout.Behaviors>
-                                <Label Text="Online" TextColor="#58a6ff" FontSize="11"/>
-                                <ScrollView MaximumHeightRequest="180">
+                                <!-- Heading row: label + fold toggle -->
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <Label Text="Online" TextColor="#58a6ff" FontSize="11"
+                                           VerticalOptions="Center"
+                                           HorizontalOptions="Fill" HorizontalTextAlignment="Start"/>
+                                    <Label Grid.Column="1" Text="{Binding SidePanel.OnlineFoldGlyph}"
+                                           TextColor="#444444" FontSize="9" VerticalOptions="Center"
+                                           Padding="8,0,0,0">
+                                        <Label.GestureRecognizers>
+                                            <TapGestureRecognizer Command="{Binding SidePanel.ToggleOnlineCommand}"/>
+                                        </Label.GestureRecognizers>
+                                    </Label>
+                                </Grid>
+                                <ScrollView MaximumHeightRequest="180"
+                                            IsVisible="{Binding SidePanel.IsOnlineExpanded}">
                                     <VerticalStackLayout Spacing="1"
                                                          BindableLayout.ItemsSource="{Binding SidePanel.WhosList}">
                                         <BindableLayout.ItemTemplate>
                                             <DataTemplate x:DataType="vm:WhoEntry">
-                                                <Label Text="{Binding Name}"
-                                                       TextColor="{Binding DisplayColor}"
-                                                       FontSize="11"
-                                                       FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}">
+                                                <!-- Persona name at full size; title/level suffix 2pt smaller. -->
+                                                <Label FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}">
+                                                    <Label.FormattedText>
+                                                        <FormattedString>
+                                                            <Span Text="{Binding DisplayName}"
+                                                                  TextColor="{Binding DisplayColor}"
+                                                                  FontSize="11"
+                                                                  FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
+                                                            <Span Text="{Binding DisplaySuffix}"
+                                                                  TextColor="{Binding DisplayColor}"
+                                                                  FontSize="9"
+                                                                  FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
+                                                        </FormattedString>
+                                                    </Label.FormattedText>
                                                     <!-- Compositor (off-UI-thread) fade in/out on join/leave. -->
                                                     <Label.Behaviors>
                                                         <beh:WhoEntryFadeBehavior/>
@@ -597,34 +620,64 @@
                                         <beh:StaleDimBehavior Source="Fei"/>
                                     </VerticalStackLayout.Behaviors>
 
-                                        <!-- Carrying -->
-                                        <Label Text="Carrying" TextColor="#58a6ff" FontSize="11"/>
-                                        <Label Text="—" IsVisible="{Binding SidePanel.NoInventory}"
-                                               TextColor="#555555" FontSize="11" FontAttributes="Italic"/>
-                                        <VerticalStackLayout Spacing="1" IsVisible="{Binding SidePanel.HasInventory}"
-                                                             BindableLayout.ItemsSource="{Binding SidePanel.InventoryList}">
-                                            <BindableLayout.ItemTemplate>
-                                                <DataTemplate x:DataType="x:String">
-                                                    <Label Text="{Binding .}" TextColor="#cccccc" FontSize="11"
-                                                           FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
-                                                </DataTemplate>
-                                            </BindableLayout.ItemTemplate>
+                                        <!-- Carrying heading + fold toggle -->
+                                        <Grid ColumnDefinitions="*,Auto">
+                                            <Label Text="Carrying" TextColor="#58a6ff" FontSize="11"
+                                                   VerticalOptions="Center"
+                                                   HorizontalOptions="Fill" HorizontalTextAlignment="Start"/>
+                                            <Label Grid.Column="1" Text="{Binding SidePanel.InventoryFoldGlyph}"
+                                                   TextColor="#444444" FontSize="9" VerticalOptions="Center"
+                                                   Padding="8,0,0,0">
+                                                <Label.GestureRecognizers>
+                                                    <TapGestureRecognizer Command="{Binding SidePanel.ToggleInventoryCommand}"/>
+                                                </Label.GestureRecognizers>
+                                            </Label>
+                                        </Grid>
+                                        <VerticalStackLayout IsVisible="{Binding SidePanel.IsInventoryExpanded}" Spacing="1">
+                                            <Label Text="&#x2014;" IsVisible="{Binding SidePanel.NoInventory}"
+                                                   TextColor="#555555" FontSize="11" FontAttributes="Italic"
+                                                   HorizontalOptions="Fill" HorizontalTextAlignment="End"/>
+                                            <VerticalStackLayout Spacing="1" IsVisible="{Binding SidePanel.HasInventory}"
+                                                                 BindableLayout.ItemsSource="{Binding SidePanel.InventoryList}">
+                                                <BindableLayout.ItemTemplate>
+                                                    <DataTemplate x:DataType="x:String">
+                                                        <Label Text="{Binding .}" TextColor="#cccccc" FontSize="11"
+                                                               HorizontalOptions="Fill" HorizontalTextAlignment="End"
+                                                               FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
+                                                    </DataTemplate>
+                                                </BindableLayout.ItemTemplate>
+                                            </VerticalStackLayout>
                                         </VerticalStackLayout>
 
                                         <BoxView Color="#2d333b" HeightRequest="1" Margin="0,6,0,0"/>
 
-                                        <!-- Items here -->
-                                        <Label Text="Here" TextColor="#58a6ff" FontSize="11"/>
-                                        <Label Text="—" IsVisible="{Binding SidePanel.NoRoomItems}"
-                                               TextColor="#555555" FontSize="11" FontAttributes="Italic"/>
-                                        <VerticalStackLayout Spacing="1" IsVisible="{Binding SidePanel.HasRoomItems}"
-                                                             BindableLayout.ItemsSource="{Binding SidePanel.RoomItemsList}">
-                                            <BindableLayout.ItemTemplate>
-                                                <DataTemplate x:DataType="x:String">
-                                                    <Label Text="{Binding .}" TextColor="#cccccc" FontSize="11"
-                                                           FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
-                                                </DataTemplate>
-                                            </BindableLayout.ItemTemplate>
+                                        <!-- Items here heading + fold toggle -->
+                                        <Grid ColumnDefinitions="*,Auto">
+                                            <Label Text="Here" TextColor="#58a6ff" FontSize="11"
+                                                   VerticalOptions="Center"
+                                                   HorizontalOptions="Fill" HorizontalTextAlignment="Start"/>
+                                            <Label Grid.Column="1" Text="{Binding SidePanel.ItemsHereFoldGlyph}"
+                                                   TextColor="#444444" FontSize="9" VerticalOptions="Center"
+                                                   Padding="8,0,0,0">
+                                                <Label.GestureRecognizers>
+                                                    <TapGestureRecognizer Command="{Binding SidePanel.ToggleItemsHereCommand}"/>
+                                                </Label.GestureRecognizers>
+                                            </Label>
+                                        </Grid>
+                                        <VerticalStackLayout IsVisible="{Binding SidePanel.IsItemsHereExpanded}" Spacing="1">
+                                            <Label Text="&#x2014;" IsVisible="{Binding SidePanel.NoRoomItems}"
+                                                   TextColor="#555555" FontSize="11" FontAttributes="Italic"
+                                                   HorizontalOptions="Fill" HorizontalTextAlignment="End"/>
+                                            <VerticalStackLayout Spacing="1" IsVisible="{Binding SidePanel.HasRoomItems}"
+                                                                 BindableLayout.ItemsSource="{Binding SidePanel.RoomItemsList}">
+                                                <BindableLayout.ItemTemplate>
+                                                    <DataTemplate x:DataType="x:String">
+                                                        <Label Text="{Binding .}" TextColor="#cccccc" FontSize="11"
+                                                               HorizontalOptions="Fill" HorizontalTextAlignment="End"
+                                                               FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
+                                                    </DataTemplate>
+                                                </BindableLayout.ItemTemplate>
+                                            </VerticalStackLayout>
                                         </VerticalStackLayout>
 
                                 </VerticalStackLayout>
@@ -638,98 +691,135 @@
                                     <!-- Room trail: one font point smaller per step back -->
                                     <Label Text="{Binding SidePanel.OldestRoom}"
                                            TextColor="#00a000" FontSize="11" FontAttributes="Bold"
+                                           HorizontalOptions="Fill" HorizontalTextAlignment="End"
                                            FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
                                     <Label Text="{Binding SidePanel.PreviousRoom}"
-                                           TextColor="#00c000" FontSize="12" FontAttributes="Bold"
+                                           TextColor="#00c000" FontSize="12"
+                                           HorizontalOptions="Fill" HorizontalTextAlignment="End"
                                            FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
 
                                     <!-- Exits grid (FEX) ─────────────────────────────────── -->
                                     <!--
-                                         nw  n   ne   <(in)   ↑(up)
-                                         w   .    e           ≈(swampward)
-                                         sw  s   se   >(out)  ↓(down)
+                                         ⇥(in)  ⇑(up)  ┊  nw   N   ne
+                                           swamp        ┊   W   ·    E
+                                         ⇤(out) ⇓(dn)  ┊  sw   S   se
                                     -->
-                                    <Grid Margin="0,6,0,0" HorizontalOptions="Start"
+                                    <!-- Map heading + fold toggle -->
+                                    <Grid Margin="0,4,0,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <Label Text="Map" TextColor="#58a6ff" FontSize="11"
+                                               VerticalOptions="Center"
+                                               HorizontalOptions="Fill" HorizontalTextAlignment="Start"/>
+                                        <Label Grid.Column="1" Text="{Binding SidePanel.MapFoldGlyph}"
+                                               TextColor="#444444" FontSize="9" VerticalOptions="Center"
+                                               Padding="8,0,0,0">
+                                            <Label.GestureRecognizers>
+                                                <TapGestureRecognizer Command="{Binding SidePanel.ToggleMapCommand}"/>
+                                            </Label.GestureRecognizers>
+                                        </Label>
+                                    </Grid>
+                                    <Grid Margin="0,2,0,0" HorizontalOptions="End"
+                                          IsVisible="{Binding SidePanel.IsMapExpanded}"
                                           ColumnDefinitions="Auto,Auto,Auto,Auto,Auto" ColumnSpacing="4"
                                           RowDefinitions="Auto,Auto,Auto" RowSpacing="2">
-                                        <!-- Row 0: nw, n, ne, <(in), ↑ -->
-                                        <Label Grid.Row="0" Grid.Column="0" Text="nw"
-                                               TextColor="{Binding SidePanel.ExitNorthWest.Color}"
-                                               FontAttributes="{Binding SidePanel.ExitNorthWest.FontAttributes}"
-                                               FontSize="11" FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"
-                                               HorizontalTextAlignment="Center"/>
-                                        <Label Grid.Row="0" Grid.Column="1" Text="n"
-                                               TextColor="{Binding SidePanel.ExitNorth.Color}"
-                                               FontAttributes="{Binding SidePanel.ExitNorth.FontAttributes}"
-                                               FontSize="11" FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"
-                                               HorizontalTextAlignment="Center"/>
-                                        <Label Grid.Row="0" Grid.Column="2" Text="ne"
-                                               TextColor="{Binding SidePanel.ExitNorthEast.Color}"
-                                               FontAttributes="{Binding SidePanel.ExitNorthEast.FontAttributes}"
-                                               FontSize="11" FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"
-                                               HorizontalTextAlignment="Center"/>
-                                        <Label Grid.Row="0" Grid.Column="3" Text="⇥"
+                                        <!-- Col 0: ⇥(in) / ⇤(out) / swamp(span 2)
+                                             Col 1: ⇑(up) / ⇓(dn) / (swamp span)
+                                             Col 2-4: compass — nw/N/ne, W/·/E, sw/S/se
+                                             Diagonals are 1pt smaller than cardinals. -->
+
+                                        <!-- Row 0 -->
+                                        <Label Grid.Row="0" Grid.Column="0" Text="&#x21E5;"
                                                TextColor="{Binding SidePanel.ExitIn.Color}"
                                                FontAttributes="{Binding SidePanel.ExitIn.FontAttributes}"
                                                FontSize="11" FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"
                                                HorizontalTextAlignment="Center"/>
-                                        <Label Grid.Row="0" Grid.Column="4" Text="↑"
+                                        <Label Grid.Row="0" Grid.Column="1" Text="&#x21D1;"
                                                TextColor="{Binding SidePanel.ExitUp.Color}"
                                                FontAttributes="{Binding SidePanel.ExitUp.FontAttributes}"
                                                FontSize="11" FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"
                                                HorizontalTextAlignment="Center"/>
-                                        <!-- Row 1: w,  , e, ≈(swampward) -->
-                                        <Label Grid.Row="1" Grid.Column="0" Text="w"
+                                        <Label Grid.Row="0" Grid.Column="2" Text="&#x2196;"
+                                               TextColor="{Binding SidePanel.ExitNorthWest.Color}"
+                                               FontAttributes="{Binding SidePanel.ExitNorthWest.FontAttributes}"
+                                               FontSize="10" FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"
+                                               HorizontalTextAlignment="Center" Margin="6,0,0,0"/>
+                                        <Label Grid.Row="0" Grid.Column="3" Text="N"
+                                               TextColor="{Binding SidePanel.ExitNorth.Color}"
+                                               FontAttributes="{Binding SidePanel.ExitNorth.FontAttributes}"
+                                               FontSize="11" FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"
+                                               HorizontalTextAlignment="Center"/>
+                                        <Label Grid.Row="0" Grid.Column="4" Text="&#x2197;"
+                                               TextColor="{Binding SidePanel.ExitNorthEast.Color}"
+                                               FontAttributes="{Binding SidePanel.ExitNorthEast.FontAttributes}"
+                                               FontSize="10" FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"
+                                               HorizontalTextAlignment="Center"/>
+
+                                        <!-- Row 1 -->
+                                        <Label Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2"
+                                               Text="swamp"
+                                               TextColor="{Binding SidePanel.ExitSwampward.Color}"
+                                               FontAttributes="{Binding SidePanel.ExitSwampward.FontAttributes}"
+                                               FontSize="10" FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"
+                                               HorizontalTextAlignment="Center"/>
+                                        <Label Grid.Row="1" Grid.Column="2" Text="W"
                                                TextColor="{Binding SidePanel.ExitWest.Color}"
                                                FontAttributes="{Binding SidePanel.ExitWest.FontAttributes}"
                                                FontSize="11" FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"
+                                               HorizontalTextAlignment="Center" Margin="6,0,0,0"/>
+                                        <Label Grid.Row="1" Grid.Column="3" Text="&#xB7;"
+                                               TextColor="#444444"
+                                               FontSize="11" FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"
                                                HorizontalTextAlignment="Center"/>
-                                        <Label Grid.Row="1" Grid.Column="2" Text="e"
+                                        <Label Grid.Row="1" Grid.Column="4" Text="E"
                                                TextColor="{Binding SidePanel.ExitEast.Color}"
                                                FontAttributes="{Binding SidePanel.ExitEast.FontAttributes}"
                                                FontSize="11" FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"
                                                HorizontalTextAlignment="Center"/>
-                                        <Label Grid.Row="1" Grid.Column="4" Text="≈"
-                                               TextColor="{Binding SidePanel.ExitSwampward.Color}"
-                                               FontAttributes="{Binding SidePanel.ExitSwampward.FontAttributes}"
-                                               FontSize="11" FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"
-                                               HorizontalTextAlignment="Center"/>
-                                        <!-- Row 2: sw, s, se, <(out), ↓ -->
-                                        <Label Grid.Row="2" Grid.Column="0" Text="sw"
-                                               TextColor="{Binding SidePanel.ExitSouthWest.Color}"
-                                               FontAttributes="{Binding SidePanel.ExitSouthWest.FontAttributes}"
-                                               FontSize="11" FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"
-                                               HorizontalTextAlignment="Center"/>
-                                        <Label Grid.Row="2" Grid.Column="1" Text="s"
-                                               TextColor="{Binding SidePanel.ExitSouth.Color}"
-                                               FontAttributes="{Binding SidePanel.ExitSouth.FontAttributes}"
-                                               FontSize="11" FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"
-                                               HorizontalTextAlignment="Center"/>
-                                        <Label Grid.Row="2" Grid.Column="2" Text="se"
-                                               TextColor="{Binding SidePanel.ExitSouthEast.Color}"
-                                               FontAttributes="{Binding SidePanel.ExitSouthEast.FontAttributes}"
-                                               FontSize="11" FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"
-                                               HorizontalTextAlignment="Center"/>
-                                        <Label Grid.Row="2" Grid.Column="3" Text="⇤"
+
+                                        <!-- Row 2 -->
+                                        <Label Grid.Row="2" Grid.Column="0" Text="&#x21E4;"
                                                TextColor="{Binding SidePanel.ExitOut.Color}"
                                                FontAttributes="{Binding SidePanel.ExitOut.FontAttributes}"
                                                FontSize="11" FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"
                                                HorizontalTextAlignment="Center"/>
-                                        <Label Grid.Row="2" Grid.Column="4" Text="↓"
+                                        <Label Grid.Row="2" Grid.Column="1" Text="&#x21D3;"
                                                TextColor="{Binding SidePanel.ExitDown.Color}"
                                                FontAttributes="{Binding SidePanel.ExitDown.FontAttributes}"
                                                FontSize="11" FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"
                                                HorizontalTextAlignment="Center"/>
+                                        <Label Grid.Row="2" Grid.Column="2" Text="&#x2199;"
+                                               TextColor="{Binding SidePanel.ExitSouthWest.Color}"
+                                               FontAttributes="{Binding SidePanel.ExitSouthWest.FontAttributes}"
+                                               FontSize="10" FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"
+                                               HorizontalTextAlignment="Center" Margin="6,0,0,0"/>
+                                        <Label Grid.Row="2" Grid.Column="3" Text="S"
+                                               TextColor="{Binding SidePanel.ExitSouth.Color}"
+                                               FontAttributes="{Binding SidePanel.ExitSouth.FontAttributes}"
+                                               FontSize="11" FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"
+                                               HorizontalTextAlignment="Center"/>
+                                        <Label Grid.Row="2" Grid.Column="4" Text="&#x2198;"
+                                               TextColor="{Binding SidePanel.ExitSouthEast.Color}"
+                                               FontAttributes="{Binding SidePanel.ExitSouthEast.FontAttributes}"
+                                               FontSize="10" FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"
+                                               HorizontalTextAlignment="Center"/>
                                     </Grid>
 
-                                    <!-- Current room -->
+                                    <!-- Current room: always reserves 2-line height so the compass
+                                         doesn't shift when a long description wraps. -->
                                     <Label Text="{Binding SidePanel.CurrentRoom}"
                                            IsVisible="{Binding SidePanel.HasCurrentRoom}"
                                            TextColor="#00ff00" FontSize="13" FontAttributes="Bold"
+                                           HorizontalOptions="Fill" HorizontalTextAlignment="End"
+                                           MaxLines="2" LineBreakMode="TailTruncation"
+                                           MinimumHeightRequest="{OnPlatform WinUI=36, Default=40}"
                                            Margin="0,4,0,0"
                                            FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
-                                    <Label Text="—" IsVisible="{Binding SidePanel.NoCurrentRoom}"
+                                    <Label Text="&#x2014;" IsVisible="{Binding SidePanel.NoCurrentRoom}"
                                            TextColor="#555555" FontSize="11" FontAttributes="Italic"
+                                           HorizontalOptions="Fill" HorizontalTextAlignment="End"
                                            Margin="0,4,0,0"/>
                             </VerticalStackLayout>
 
