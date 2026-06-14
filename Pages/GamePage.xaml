@@ -279,7 +279,7 @@
                            VerticalOptions="End" HorizontalOptions="Center" Margin="0,0,4,0"/>
                     <!-- col 6: | separator, col 7: status effects, col 8: * spacer -->
                     <Label Grid.Row="0" Grid.Column="10"
-                           Text="Weath" TextColor="#58a6ff" FontSize="11"
+                           Text="Wth" TextColor="#58a6ff" FontSize="11"
                            IsVisible="{Binding WeatherVisible}"
                            VerticalOptions="End" HorizontalOptions="Center" Margin="0,0,4,0"/>
                     <Label Grid.Row="0" Grid.Column="12"
