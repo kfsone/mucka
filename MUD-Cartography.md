@@ -1,3 +1,56 @@
+# MUD2 Cartography — Session Handoff
+
+**Last updated: 2026-06-14. Read this first when resuming mapping work.**
+
+## Current state
+
+- Capture layer working (Windows): `Core/Mapping/MappingSession.cs` writes
+  `~/.mucka/mapping/walk.*.jsonl`. 7 walk files captured to date covering
+  ~120 distinct room observations across the Land, mine, graveyard, swamp, and
+  cliff/coastal outer loop.
+- Analysis tooling: `tools/mapping/reduce_walk.py` (JSONL → compact digest),
+  `tools/mapping/decode_probe.py` (raw C1 decode + probe segment labeling).
+  See `tools/mapping/README.md` for formats and sub-agent policy.
+- **Database**: `tools/mapping/schema.sql` + `tools/mapping/init_db.py`.
+  DB lives at `~/.mucka/mapping/mapdb.sqlite`. Schema is defined and initialized;
+  **no ingest script exists yet** — walk files are not yet loaded into the DB.
+  The ingest layer is the next concrete code task.
+- Design doc: `MUD-Mapping-Design.md` (DRAFT, accepted as direction).
+- This file: domain model reference + session state. Do not overwrite the domain
+  model sections without good reason.
+
+## Next concrete task: ingest script
+
+Write `tools/mapping/ingest_walk.py`:
+1. Read a walk JSONL file, insert each record into `raw_captures`.
+2. Decode each record into `observations` (content-hash ID: SHA256 of
+   `short|long|fex|exits_sorted`) + `edge_events`.
+3. Auto-create `impressions` of kind `'observed'` for each new observation,
+   and assign via `observation_assignments`.
+4. Log each derivation step to `derivations`.
+5. Idempotent: re-ingesting the same file must not create duplicate rows.
+
+Observation kinds to handle: `full`, `dark`, `partial`, `mist_occluded`, `corrupt`.
+`mist_occluded` = exits hidden by fog/fumes (room visible, exits not).
+`dark` = no room info at all.
+`sequence_context` on impressions: `"<predecessor_impression_id>/<direction>"` —
+required for graveyard/maze rooms where content-hash is not unique.
+
+## Key open questions
+
+- **Subsumption**: same `short+long+fex`, exits A ⊂ exits B → same room, conditional
+  edge. Ingest should flag the conflict, not silently merge. Neither observation is
+  wrong; the door/condition state explains the difference.
+- **Sequence-context impressions**: graveyard has 11 observation-identical rooms.
+  The ingest script should create distinct impressions for each arrival when the
+  content-hash collides with an existing impression in the same walk sequence.
+- **`over=` exits**: recognized fex keyword (seen at Pond in swamp); treat identically
+  to directional exits in all parsing and storage.
+- **Dark-room capture**: `MappingSession` does not yet suppress `edge: (unknown)...`
+  records during dark navigation. That C# work is deferred until after ingest lands.
+
+---
+
 # MUD2 Cartography: Domain Model for Mapping Agents
 
 This document defines how MUD2's world is actually structured, for any agent or tool
@@ -186,7 +239,7 @@ Cautions:
    ambiguous same-name destinations resolved by breadcrumb or quickscan-dedup
    evidence.
 
-## 8. Current tooling
+## 8. Current tooling and database
 
 Mapping is operation-driven from the client's mapping console (`$map`, Windows): the
 user explicitly probes a room (all the section-5 verbs plus FEX in one command
@@ -194,8 +247,21 @@ interrupt) or runs move-and-capture in a direction from the compass. Each sessio
 appends to one walk file; edge outcomes -- including refusals, which are data --
 are annotated `edge: {from} |{dir}> {to}` / `edge: {from} |{dir}! {reason}`.
 Nothing infers movement from what the player types: the console knows what it sent.
-`tools/mapping/decode_probe.py` decodes captures for analysis;
-`tools/mapping/README.md` covers formats and how to hand data to sub-agents.
+
+`tools/mapping/decode_probe.py` decodes captures for analysis.
+`tools/mapping/reduce_walk.py` collapses a walk JSONL to a compact digest (the
+standard input for analysis agents -- never paste raw JSONL).
+`tools/mapping/README.md` covers formats and sub-agent policy.
+
+**Database** (`tools/mapping/schema.sql`): event-sourcing model.
+- `raw_captures` → `observations` + `edge_events` (immutable source layer)
+- `impressions` → `locations` (hypothesis + identity anchor layer)
+- `observation_assignments` + `impression_assignments` (append-only, supersedable)
+- `derivations` (algorithm decision log — enables full replay)
+- `edges` (canonical, derived from edge_events via resolution)
+
+The DB is at `~/.mucka/mapping/mapdb.sqlite`. The **ingest script does not exist yet**;
+see the "Next concrete task" section at the top of this file.
 
 Not yet captured: out-of-map rooms reached by magical teleports (the sorcerer's
 room, the wizards' homes, ...) -- expect `appear`-style transitions with no edge.
