@@ -14,6 +14,7 @@ public sealed class FkeyEditorViewModel : BaseViewModel
     private int _activeTab = 1;
     private double _fontSize;
     private double _columns;
+    private bool   _columnsIsAuto;  // true when original MaxColumns was 0 and user hasn't touched the control
     private double _volume;
     private double _statUpdateFrequency;
     private bool _muteBeepSession;
@@ -58,7 +59,11 @@ public sealed class FkeyEditorViewModel : BaseViewModel
     public double Columns
     {
         get => _columns;
-        set => SetAndNotify(ref _columns, Math.Clamp(Math.Round(value), 40, 160), [nameof(ColumnsDisplay)]);
+        set
+        {
+            if (SetAndNotify(ref _columns, Math.Clamp(Math.Round(value), 40, 160), [nameof(ColumnsDisplay)]))
+                _columnsIsAuto = false;
+        }
     }
 
     public double Volume
@@ -180,7 +185,8 @@ public sealed class FkeyEditorViewModel : BaseViewModel
         CanSave   = onSave != null;
 
         _fontSize = Math.Clamp(settings.FontSize, 9, 24);
-        _columns  = settings.MaxColumns <= 0 ? 80 : Math.Clamp(settings.MaxColumns, 40, 160);
+        _columnsIsAuto = settings.MaxColumns <= 0;
+        _columns  = _columnsIsAuto ? 80 : Math.Clamp(settings.MaxColumns, 40, 160);
         _volume   = Math.Clamp(settings.Volume, 0, 100);
         _statUpdateFrequency = settings.StatUpdateFrequency <= 0
             ? 0 : Math.Clamp(Math.Round(settings.StatUpdateFrequency / 5.0) * 5, 5, 30);
@@ -288,7 +294,7 @@ public sealed class FkeyEditorViewModel : BaseViewModel
     private ClientSettings CollectSettings() => new()
     {
         FontSize            = FontSizeDisplay,
-        MaxColumns          = ColumnsDisplay,
+        MaxColumns          = _columnsIsAuto ? 0 : ColumnsDisplay,
         Volume              = VolumeDisplay,
         StatUpdateFrequency = (int)Math.Round(_statUpdateFrequency),
         MuteBeepSession     = _muteBeepSession,
