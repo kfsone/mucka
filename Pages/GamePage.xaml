@@ -421,7 +421,7 @@
                  Tapping speaks the dreamword (same as Ctrl+D). -->
             <Border Grid.Column="0"
                     IsVisible="{Binding DreamwordActive}"
-                    BackgroundColor="#182a3e" Opacity="0.9"
+                    BackgroundColor="#182a3e" Opacity="0.72"
                     Stroke="#2d5a9e" StrokeThickness="1"
                     Padding="10,4"
                     HorizontalOptions="End" VerticalOptions="Start"
@@ -430,14 +430,15 @@
                 <Border.GestureRecognizers>
                     <TapGestureRecognizer Command="{Binding SpeakDreamwordCommand}"/>
                 </Border.GestureRecognizers>
-                <VerticalStackLayout Spacing="1">
-                    <Label Text="Dream"
-                           TextColor="#58a6ff" FontSize="9"
-                           HorizontalOptions="Center"/>
-                    <Label Text="{Binding DreamwordDisplay}"
-                           TextColor="#7db9f5" FontSize="12" FontAttributes="Bold"
-                           HorizontalOptions="Center"/>
-                </VerticalStackLayout>
+                <Label HorizontalOptions="Center">
+                    <Label.FormattedText>
+                        <FormattedString>
+                            <Span Text="&quot;" TextColor="#7db9f5" FontSize="12"/>
+                            <Span Text="{Binding Dreamword}" TextColor="#7db9f5" FontSize="12" FontAttributes="Bold"/>
+                            <Span Text="&quot;" TextColor="#7db9f5" FontSize="12"/>
+                        </FormattedString>
+                    </Label.FormattedText>
+                </Label>
             </Border>
         </Grid>
 
