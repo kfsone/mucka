@@ -116,7 +116,7 @@
                             <FormattedString>
                                 <Span Text="Sta: " TextColor="#58a6ff"/>
                                 <Span Text="{Binding StaCurValue}" TextColor="{Binding StaColor}" FontAttributes="Bold"/>
-                                <Span Text="{Binding StaMaxValue}" TextColor="{Binding StaColor}" FontAttributes="Bold" FontSize="{OnPlatform WinUI=13, Default=12}"/>
+                                <Span Text="{Binding StaMaxValue}" TextColor="#808080" FontSize="{OnPlatform WinUI=13, Default=12}"/>
                             </FormattedString>
                         </Label.FormattedText>
                     </Label>
@@ -126,7 +126,7 @@
                             <FormattedString>
                                 <Span Text="Mag: " TextColor="#58a6ff"/>
                                 <Span Text="{Binding MagCurValue}" TextColor="{Binding MagColor}" FontAttributes="Bold"/>
-                                <Span Text="{Binding MagMaxValue}" TextColor="{Binding MagColor}" FontAttributes="Bold" FontSize="{OnPlatform WinUI=13, Default=12}"/>
+                                <Span Text="{Binding MagMaxValue}" TextColor="#808080" FontSize="{OnPlatform WinUI=13, Default=12}"/>
                             </FormattedString>
                         </Label.FormattedText>
                     </Label>
@@ -135,7 +135,7 @@
                             <FormattedString>
                                 <Span Text="Str: " TextColor="#58a6ff"/>
                                 <Span Text="{Binding StrCurValue}" TextColor="{Binding StrColor}" FontAttributes="Bold"/>
-                                <Span Text="{Binding StrMaxValue}" TextColor="{Binding StrColor}" FontAttributes="Bold" FontSize="{OnPlatform WinUI=13, Default=12}"/>
+                                <Span Text="{Binding StrMaxValue}" TextColor="#808080" FontSize="{OnPlatform WinUI=13, Default=12}"/>
                             </FormattedString>
                         </Label.FormattedText>
                     </Label>
@@ -144,7 +144,7 @@
                             <FormattedString>
                                 <Span Text="Dex: " TextColor="#58a6ff"/>
                                 <Span Text="{Binding DexCurValue}" TextColor="{Binding DexColor}" FontAttributes="Bold"/>
-                                <Span Text="{Binding DexMaxValue}" TextColor="{Binding DexColor}" FontAttributes="Bold" FontSize="{OnPlatform WinUI=13, Default=12}"/>
+                                <Span Text="{Binding DexMaxValue}" TextColor="#808080" FontSize="{OnPlatform WinUI=13, Default=12}"/>
                             </FormattedString>
                         </Label.FormattedText>
                     </Label>
@@ -294,7 +294,7 @@
                         <Label.FormattedText>
                             <FormattedString>
                                 <Span Text="{Binding StaCurValue}" TextColor="{Binding StaColor}" FontAttributes="Bold" FontSize="{Binding StatsValueFontSize}"/>
-                                <Span Text="{Binding StaMaxValue}" TextColor="{Binding StaColor}" FontAttributes="Bold" FontSize="{Binding StatsMaxValueFontSize}"/>
+                                <Span Text="{Binding StaMaxValue}" TextColor="#808080" FontSize="{Binding StatsMaxValueFontSize}"/>
                             </FormattedString>
                         </Label.FormattedText>
                     </Label>
@@ -305,7 +305,7 @@
                         <Label.FormattedText>
                             <FormattedString>
                                 <Span Text="{Binding MagCurValue}" TextColor="{Binding MagColor}" FontAttributes="Bold" FontSize="{Binding StatsValueFontSize}"/>
-                                <Span Text="{Binding MagMaxValue}" TextColor="{Binding MagColor}" FontAttributes="Bold" FontSize="{Binding StatsMaxValueFontSize}"/>
+                                <Span Text="{Binding MagMaxValue}" TextColor="#808080" FontSize="{Binding StatsMaxValueFontSize}"/>
                             </FormattedString>
                         </Label.FormattedText>
                     </Label>
@@ -315,7 +315,7 @@
                         <Label.FormattedText>
                             <FormattedString>
                                 <Span Text="{Binding StrCurValue}" TextColor="{Binding StrColor}" FontAttributes="Bold" FontSize="{Binding StatsValueFontSize}"/>
-                                <Span Text="{Binding StrMaxValue}" TextColor="{Binding StrColor}" FontAttributes="Bold" FontSize="{Binding StatsMaxValueFontSize}"/>
+                                <Span Text="{Binding StrMaxValue}" TextColor="#808080" FontSize="{Binding StatsMaxValueFontSize}"/>
                             </FormattedString>
                         </Label.FormattedText>
                     </Label>
@@ -325,7 +325,7 @@
                         <Label.FormattedText>
                             <FormattedString>
                                 <Span Text="{Binding DexCurValue}" TextColor="{Binding DexColor}" FontAttributes="Bold" FontSize="{Binding StatsValueFontSize}"/>
-                                <Span Text="{Binding DexMaxValue}" TextColor="{Binding DexColor}" FontAttributes="Bold" FontSize="{Binding StatsMaxValueFontSize}"/>
+                                <Span Text="{Binding DexMaxValue}" TextColor="#808080" FontSize="{Binding StatsMaxValueFontSize}"/>
                             </FormattedString>
                         </Label.FormattedText>
                     </Label>
