@@ -43,11 +43,37 @@
                     </Label>
                 </Border>
 
-                <!-- Hotkeys tab -->
+                <!-- Display tab -->
                 <Border Stroke="Transparent" StrokeThickness="0" Padding="14,5">
                     <Border.StrokeShape><RoundRectangle CornerRadius="4"/></Border.StrokeShape>
                     <Border.GestureRecognizers>
                         <TapGestureRecognizer Command="{Binding SetTabCommand}" CommandParameter="1"/>
+                    </Border.GestureRecognizers>
+                    <Border.Triggers>
+                        <DataTrigger TargetType="Border" Binding="{Binding IsDisplayTabActive}" Value="True">
+                            <Setter Property="BackgroundColor" Value="#1f6feb"/>
+                        </DataTrigger>
+                        <DataTrigger TargetType="Border" Binding="{Binding IsDisplayTabActive}" Value="False">
+                            <Setter Property="BackgroundColor" Value="#2d333b"/>
+                        </DataTrigger>
+                    </Border.Triggers>
+                    <Label Text="Display" FontSize="13" FontAttributes="Bold" VerticalOptions="Center">
+                        <Label.Triggers>
+                            <DataTrigger TargetType="Label" Binding="{Binding IsDisplayTabActive}" Value="True">
+                                <Setter Property="TextColor" Value="White"/>
+                            </DataTrigger>
+                            <DataTrigger TargetType="Label" Binding="{Binding IsDisplayTabActive}" Value="False">
+                                <Setter Property="TextColor" Value="#888888"/>
+                            </DataTrigger>
+                        </Label.Triggers>
+                    </Label>
+                </Border>
+
+                <!-- Hotkeys tab -->
+                <Border Stroke="Transparent" StrokeThickness="0" Padding="14,5">
+                    <Border.StrokeShape><RoundRectangle CornerRadius="4"/></Border.StrokeShape>
+                    <Border.GestureRecognizers>
+                        <TapGestureRecognizer Command="{Binding SetTabCommand}" CommandParameter="2"/>
                     </Border.GestureRecognizers>
                     <Border.Triggers>
                         <DataTrigger TargetType="Border" Binding="{Binding IsHotkeysTabActive}" Value="True">
@@ -73,7 +99,7 @@
                 <Border Stroke="Transparent" StrokeThickness="0" Padding="14,5">
                     <Border.StrokeShape><RoundRectangle CornerRadius="4"/></Border.StrokeShape>
                     <Border.GestureRecognizers>
-                        <TapGestureRecognizer Command="{Binding SetTabCommand}" CommandParameter="2"/>
+                        <TapGestureRecognizer Command="{Binding SetTabCommand}" CommandParameter="3"/>
                     </Border.GestureRecognizers>
                     <Border.Triggers>
                         <DataTrigger TargetType="Border" Binding="{Binding IsSoundsTabActive}" Value="True">
@@ -99,7 +125,7 @@
                 <Border Stroke="Transparent" StrokeThickness="0" Padding="14,5">
                     <Border.StrokeShape><RoundRectangle CornerRadius="4"/></Border.StrokeShape>
                     <Border.GestureRecognizers>
-                        <TapGestureRecognizer Command="{Binding SetTabCommand}" CommandParameter="3"/>
+                        <TapGestureRecognizer Command="{Binding SetTabCommand}" CommandParameter="4"/>
                     </Border.GestureRecognizers>
                     <Border.Triggers>
                         <DataTrigger TargetType="Border" Binding="{Binding IsFriendsTabActive}" Value="True">
@@ -115,32 +141,6 @@
                                 <Setter Property="TextColor" Value="White"/>
                             </DataTrigger>
                             <DataTrigger TargetType="Label" Binding="{Binding IsFriendsTabActive}" Value="False">
-                                <Setter Property="TextColor" Value="#888888"/>
-                            </DataTrigger>
-                        </Label.Triggers>
-                    </Label>
-                </Border>
-
-                <!-- Display tab -->
-                <Border Stroke="Transparent" StrokeThickness="0" Padding="14,5">
-                    <Border.StrokeShape><RoundRectangle CornerRadius="4"/></Border.StrokeShape>
-                    <Border.GestureRecognizers>
-                        <TapGestureRecognizer Command="{Binding SetTabCommand}" CommandParameter="4"/>
-                    </Border.GestureRecognizers>
-                    <Border.Triggers>
-                        <DataTrigger TargetType="Border" Binding="{Binding IsDisplayTabActive}" Value="True">
-                            <Setter Property="BackgroundColor" Value="#1f6feb"/>
-                        </DataTrigger>
-                        <DataTrigger TargetType="Border" Binding="{Binding IsDisplayTabActive}" Value="False">
-                            <Setter Property="BackgroundColor" Value="#2d333b"/>
-                        </DataTrigger>
-                    </Border.Triggers>
-                    <Label Text="Display" FontSize="13" FontAttributes="Bold" VerticalOptions="Center">
-                        <Label.Triggers>
-                            <DataTrigger TargetType="Label" Binding="{Binding IsDisplayTabActive}" Value="True">
-                                <Setter Property="TextColor" Value="White"/>
-                            </DataTrigger>
-                            <DataTrigger TargetType="Label" Binding="{Binding IsDisplayTabActive}" Value="False">
                                 <Setter Property="TextColor" Value="#888888"/>
                             </DataTrigger>
                         </Label.Triggers>
@@ -595,6 +595,38 @@
                                TextColor="#888888" FontSize="13" VerticalOptions="Center"
                                ToolTipProperties.Text="Show the Online section (FEW). When disabled, the online list is not requested from the server."/>
                     </Grid>
+
+                    <!-- Sub-settings for Show Online (indent 28dp to align with label) -->
+                    <VerticalStackLayout Margin="28,0,0,0" Spacing="8" IsEnabled="{Binding ShowOnline}">
+
+                        <!-- Max Online -->
+                        <Grid ColumnDefinitions="160,*" ColumnSpacing="12">
+                            <Label Grid.Column="0" Text="Max online" TextColor="#888888" FontSize="13" VerticalOptions="Center"
+                                   ToolTipProperties.Text="Maximum number of players shown in the list. 0 = unlimited."/>
+                            <HorizontalStackLayout Grid.Column="1" Spacing="6" VerticalOptions="Center">
+                                <Button Text="&#x2212;" Command="{Binding DecrMaxOnlineCommand}"
+                                        BackgroundColor="#2d333b" TextColor="#cccccc"
+                                        FontSize="15" WidthRequest="34" HeightRequest="30"
+                                        CornerRadius="4" Padding="0"/>
+                                <Label Text="{Binding MaxOnlineDisplayText}" TextColor="White" FontSize="13"
+                                       MinimumWidthRequest="60" VerticalOptions="Center" HorizontalTextAlignment="Center"/>
+                                <Button Text="+" Command="{Binding IncrMaxOnlineCommand}"
+                                        BackgroundColor="#2d333b" TextColor="#cccccc"
+                                        FontSize="15" WidthRequest="34" HeightRequest="30"
+                                        CornerRadius="4" Padding="0"/>
+                            </HorizontalStackLayout>
+                        </Grid>
+
+                        <!-- Names only -->
+                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
+                            <CheckBox Grid.Column="0" IsChecked="{Binding OnlineNamesOnly, Mode=TwoWay}"
+                                      Color="#1f6feb" VerticalOptions="Center"/>
+                            <Label Grid.Column="1" Text="Names only"
+                                   TextColor="#888888" FontSize="13" VerticalOptions="Center"
+                                   ToolTipProperties.Text="Show only the persona name without the title or level description."/>
+                        </Grid>
+
+                    </VerticalStackLayout>
 
                     <!-- Inventory -->
                     <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">

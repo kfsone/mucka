@@ -1,5 +1,8 @@
+using Microsoft.Maui.Graphics;
 using MudSharp.Models;
 using System.Collections.ObjectModel;
+using System.ComponentModel;
+using System.Linq;
 using System.Windows.Input;
 
 namespace Mucka.ViewModels;
@@ -24,6 +27,10 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     private bool _isInventoryExpanded = true;
     private bool _isItemsHereExpanded = true;
     private bool _isMapExpanded      = true;
+    private bool _isOnlinePinned = true;   // pinned (floating panel follows when side panel is hidden)
+    private bool _isFloatingOnlineFolded;
+    private bool _namesOnly;
+    private int  _maxOnline;
 
     public bool IsPanelExpanded
     {
@@ -76,6 +83,69 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         set => SetAndNotify(ref _isMapExpanded, value, [nameof(MapFoldGlyph)]);
     }
     public string MapFoldGlyph => _isMapExpanded ? "\u25bc" : "\u25b6";
+
+    // ── Floating online panel state ────────────────────────────────────────────
+
+    /// <summary>When true (and the side panel is hidden), a floating online-list panel is shown.</summary>
+    public bool IsOnlinePinned
+    {
+        get => _isOnlinePinned;
+        set => SetAndNotify(ref _isOnlinePinned, value,
+            [nameof(IsFloatingOnlineVisible), nameof(IsOnlineSectionVisible), nameof(PinGlyph), nameof(PinColor)]);
+    }
+
+    // \u25CF = ● (filled circle)  \u25CB = ○ (hollow circle)
+    // These are regular text glyphs that obey TextColor — unlike emoji which ignore it.
+    /// <summary>Glyph for the pin toggle: filled circle when active, hollow when inactive.</summary>
+    public string PinGlyph => _isOnlinePinned ? "\u25CF" : "\u25CB";
+    /// <summary>Color for the pin toggle: gold when active, dim grey when inactive.</summary>
+    public Color  PinColor  => _isOnlinePinned
+        ? Color.FromArgb("#FFD700")
+        : Color.FromArgb("#555555");
+
+    /// <summary>True when the floating panel should be rendered (online is unpinned from side panel).</summary>
+    public bool IsFloatingOnlineVisible => !_isOnlinePinned;
+
+    /// <summary>True when the online section should appear in the side panel (pinned).</summary>
+    public bool IsOnlineSectionVisible => _isOnlinePinned;
+
+    /// <summary>True when the floating panel is folded to title-bar only.</summary>
+    public bool IsFloatingOnlineFolded
+    {
+        get => _isFloatingOnlineFolded;
+        set => SetAndNotify(ref _isFloatingOnlineFolded, value, [nameof(FloatingFoldGlyph)]);
+    }
+
+    /// <summary>Fold glyph for the floating panel (same convention as side-panel sections).</summary>
+    public string FloatingFoldGlyph => _isFloatingOnlineFolded ? "\u25b6" : "\u25bc";
+
+    /// <summary>True only when names-only display mode is active: the title/level suffix is hidden.</summary>
+    public bool NamesOnly
+    {
+        get => _namesOnly;
+        set
+        {
+            if (!Set(ref _namesOnly, value)) return;
+            WhoEntry.NamesOnlyMode = value;
+            foreach (var e in WhosList) e.NotifyDisplaySuffixChanged();
+        }
+    }
+
+    /// <summary>Maximum entries shown in the who-list; 0 = unlimited.</summary>
+    public int MaxOnline
+    {
+        get => _maxOnline;
+        set => Set(ref _maxOnline, value);
+    }
+
+    /// <summary>Count of non-departing online players.</summary>
+    public int WhoCount { get; private set; }
+
+    /// <summary>Formatted count for the Online section heading, e.g. " (3)".</summary>
+    public string OnlineCountText => $" ({WhoCount})";
+
+    /// <summary>Raised when the user taps the hamburger in the floating panel — opens settings/display.</summary>
+    public event Action? FloatingOpenDisplaySettings;
 
     /// <summary>Raised (on the UI thread) when FEW/FEI subscription needs updating.
     /// Payload: (includeFew, includeFei).</summary>
@@ -155,6 +225,9 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     public ICommand ToggleInventoryCommand { get; }
     public ICommand ToggleItemsHereCommand { get; }
     public ICommand ToggleMapCommand { get; }
+    public ICommand ToggleOnlinePinnedCommand { get; }
+    public ICommand ToggleFloatingFoldCommand { get; }
+    public ICommand OpenFloatingDisplaySettingsCommand { get; }
 
     /// <summary>Raised when an interaction should hand keyboard focus back to the input box.
     /// Opening the About dialog deliberately does not raise it — focus belongs to the dialog.</summary>
@@ -174,6 +247,20 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         ToggleInventoryCommand = new Command(() => IsInventoryExpanded = !IsInventoryExpanded);
         ToggleItemsHereCommand = new Command(() => IsItemsHereExpanded = !IsItemsHereExpanded);
         ToggleMapCommand       = new Command(() => IsMapExpanded       = !IsMapExpanded);
+        ToggleOnlinePinnedCommand = new Command(() => { IsOnlinePinned = !IsOnlinePinned; RequestFocus?.Invoke(); });
+        ToggleFloatingFoldCommand = new Command(() => IsFloatingOnlineFolded = !IsFloatingOnlineFolded);
+        OpenFloatingDisplaySettingsCommand = new Command(() => FloatingOpenDisplaySettings?.Invoke());
+        WhosList.CollectionChanged += (_, e) =>
+        {
+            if (e.NewItems is not null)
+                foreach (WhoEntry item in e.NewItems)
+                    item.PropertyChanged += OnWhoEntryPropertyChanged;
+            if (e.OldItems is not null)
+                foreach (WhoEntry item in e.OldItems)
+                    item.PropertyChanged -= OnWhoEntryPropertyChanged;
+            WhoCount = WhosList.Count(w => !w.IsDeparting);
+            OnPropertiesChanged(nameof(WhoCount), nameof(OnlineCountText));
+        };
     }
 
     // UI-thread dispatcher, captured from the host. Used only for one-shot DispatchDelayed calls
@@ -308,6 +395,18 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             }
 
             FewRefreshed?.Invoke();   // restart the section's compositor stale-dim
+
+            // Trim to MaxOnline if set (remove oldest displayed entries).
+            if (_maxOnline > 0)
+            {
+                while (WhosList.Count(w => !w.IsDeparting) > _maxOnline)
+                {
+                    // Remove the first non-departing entry beyond the cap.
+                    var excess = WhosList.FirstOrDefault(w => !w.IsDeparting);
+                    if (excess == null) break;
+                    WhosList.Remove(excess);
+                }
+            }
         });
     }
 
@@ -419,10 +518,18 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         ExitSwampward.Present = value;
     }
 
+    private void OnWhoEntryPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName != nameof(WhoEntry.IsDeparting))
+            return;
+
+        WhoCount = WhosList.Count(w => !w.IsDeparting);
+        OnPropertiesChanged(nameof(WhoCount), nameof(OnlineCountText));
+    }
+
     public void Dispose()
     {
         // No resources to release — the who-list/stale-fade animation timer was removed
         // (it was the UI-thread typing-lag culprit). Kept for the IDisposable contract.
     }
 }
-

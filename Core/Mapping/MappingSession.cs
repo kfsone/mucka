@@ -40,6 +40,14 @@ public sealed class MappingSession : IDisposable
 
     private enum Op { None, Probe, Move }
 
+    // ── Close-room state ───────────────────────────────────────────────────────
+    // Set while a "close room" cycle is running (visit every unresolved exit from
+    // home, return after each one). Cleared on completion, failure, or cancel.
+    private string? _closeHomeRoom;            // home room name at cycle start
+    private string  _closeHomeFex = string.Empty;  // home fex fingerprint at cycle start
+    private Queue<string>? _closePendingExits; // exits still to visit (dequeued before each outbound)
+    private bool _closeReturning;              // true while on the return leg of one iteration
+
     private readonly MuckaConnection _conn;
     private readonly string _directory;
     private readonly string _host;
@@ -74,6 +82,13 @@ public sealed class MappingSession : IDisposable
     /// <summary>A u-turn exhausted all return options and stopped. Fires on the TCP thread;
     /// subscribers must marshal to the UI thread.</summary>
     public event Action? ReturnBlocked;
+    /// <summary>Close-room cycle finished: every previously-unresolved exit was visited.
+    /// Fires on the TCP thread; subscribers must marshal to the UI thread.</summary>
+    public event Action? CloseRoomComplete;
+    /// <summary>Close-room cycle was interrupted (dark room, move failure, no return route,
+    /// or home-verification mismatch). Carries a short reason string.
+    /// Fires on the TCP thread; subscribers must marshal to the UI thread.</summary>
+    public event Action<string>? CloseRoomBlocked;
 
     public string CurrentRoom { get { lock (_lock) return _currentRoom; } }
     public bool Busy { get { lock (_lock) return _op != Op.None; } }
@@ -88,6 +103,9 @@ public sealed class MappingSession : IDisposable
     {
         lock (_lock) return _resolved.Contains(EdgeKey(_currentRoom, FexKeyLocked(), dir));
     }
+    public bool IsClosingRoom { get { lock (_lock) return _closePendingExits is not null; } }
+    /// <summary>Number of exits still to visit in the current close-room cycle (0 when not closing).</summary>
+    public int CloseRoomRemainingExits { get { lock (_lock) return _closePendingExits?.Count ?? 0; } }
 
     /// <summary>Snapshot of the current room's enabled exits (for graph guidance queries).</summary>
     public IReadOnlySet<string> EnabledExits
@@ -176,6 +194,57 @@ public sealed class MappingSession : IDisposable
         var reciprocal = MapGraph.Reciprocal(dir);
         if (reciprocal is null) { error = $"{dir} has no reciprocal direction"; return false; }
         return TryStartMoveCore(dir, reciprocal, out error);
+    }
+
+    /// <summary>Systematic close-room cycle: visit every unresolved enabled exit from the
+    /// current room, probing each destination, and return home after each one.
+    /// The return uses only the reciprocal or a name-confirmed route (no last-resort
+    /// wandering). If any return fails, the cycle stops and <see cref="CloseRoomBlocked"/>
+    /// fires. When all exits are done, <see cref="CloseRoomComplete"/> fires.</summary>
+    public bool TryStartCloseRoom(out string? error)
+    {
+        lock (_lock)
+        {
+            if (!CanStartLocked(out error)) return false;
+            if (_currentRoom.Length == 0) { error = "not in a known room"; return false; }
+
+            var fex = FexKeyLocked();
+            var pending = new Queue<string>(
+                Directions.Where(d =>
+                    _enabledExits.Contains(d) &&
+                    !_resolved.Contains(EdgeKey(_currentRoom, fex, d))));
+            if (pending.Count == 0) { error = "all exits in this room are already resolved"; return false; }
+
+            _closeHomeRoom = _currentRoom;
+            _closeHomeFex  = fex;
+            _closePendingExits = pending;
+            _closeReturning    = false;
+            var total = pending.Count;
+            var first = pending.Dequeue();
+            WriteEntryLocked("an", $"close-room: starting from {_currentRoom}, {total} exit(s) to visit");
+            StartMoveLocked(first);
+        }
+        Status?.Invoke($"close room: visiting {CloseRoomRemainingExits + 1} exit(s)...");
+        StateChanged?.Invoke();
+        return true;
+    }
+
+    /// <summary>Abort an in-progress close-room cycle. Safe to call at any time.</summary>
+    public void CancelCloseRoom()
+    {
+        bool wasClosing;
+        lock (_lock)
+        {
+            wasClosing = _closePendingExits is not null;
+            CancelCloseRoomLocked(reason: null);
+            if (_op == Op.None)
+                _conn.SetProbeHold(false);
+        }
+        if (wasClosing)
+        {
+            Status?.Invoke("close room: cancelled");
+            StateChanged?.Invoke();
+        }
     }
 
     private bool TryStartMoveCore(string dir, string? returnDir, out string? error)
@@ -413,8 +482,66 @@ public sealed class MappingSession : IDisposable
                 : $"u-turn: nothing here seems to lead back to {origin} -- stopping", true);
         }
 
-        _conn.SetProbeHold(false);
+            if (_closePendingExits is not null)
+                return CompleteCloseRoomProbeLocked(timedOut);
+
+            _conn.SetProbeHold(false);
         return (timedOut ? "probe timed out" : $"probed {_currentRoom}", true);
+    }
+
+    private (string?, bool) CompleteCloseRoomProbeLocked(bool timedOut)
+    {
+        // Probe after the return leg: verify we landed at home.
+        if (_closeReturning)
+        {
+            _closeReturning = false;
+            var home = _closeHomeRoom!;
+            var homeFex = _closeHomeFex;
+            if (!timedOut && _currentRoom == home && FexKeyLocked() == homeFex)
+            {
+                // Home confirmed -- move to the next exit or finish.
+                if (_closePendingExits!.TryDequeue(out var nextExit))
+                {
+                    var remaining = _closePendingExits.Count + 1; // +1 for the one we just dequeued
+                    WriteEntryLocked("an", $"close-room: back home, visiting {nextExit} ({remaining} left)");
+                    StartMoveLocked(nextExit);
+                    return ($"close room: {remaining} exits left, moving {nextExit}...", true);
+                }
+                // All exits visited successfully.
+                CancelCloseRoomLocked(reason: null);
+                _conn.SetProbeHold(false);
+                CloseRoomComplete?.Invoke();
+                return ($"close room: done -- all exits of {home} visited", true);
+            }
+            // Home mismatch or timeout.
+            var reason = timedOut
+                ? $"probe timed out on return leg"
+                : $"arrived at {_currentRoom} but expected {home}";
+            CancelCloseRoomLocked(reason);
+            _conn.SetProbeHold(false);
+            return (timedOut
+                ? "close room: abandoned -- probe timed out on return"
+                : $"close room: blocked -- {reason}", true);
+        }
+
+        // Probe after the outbound leg: pick return direction (no last resort).
+        var origin    = _closeHomeRoom!;
+        var reciprocal = MapGraph.Reciprocal(_moveDir) ?? string.Empty;
+        if (!timedOut && PickReturnLocked(reciprocal, origin, out _, useLastResort: false) is { } ret)
+        {
+            _closeReturning = true;
+            WriteEntryLocked("an", $"close-room: returning {ret}, expecting {origin}");
+            StartMoveLocked(ret);
+            return ($"close room: returning {ret}...", true);
+        }
+        var blockReason = timedOut
+            ? "probe timed out on outbound leg"
+            : $"no route back to {origin} from {_currentRoom}";
+        CancelCloseRoomLocked(blockReason);
+        _conn.SetProbeHold(false);
+        return (timedOut
+            ? "close room: abandoned -- probe timed out"
+            : $"close room: blocked -- {blockReason}", true);
     }
 
     private (string?, bool) CompleteMoveLocked(bool timedOut)
@@ -446,6 +573,7 @@ public sealed class MappingSession : IDisposable
             _currentRoom = string.Empty;
             _op = Op.None;
             _returnDir = null;   // a u-turn cannot navigate back from a room it cannot see
+            CancelCloseRoomLocked("arrived in a dark room");
             status = $"{from} |{_moveDir}> (dark room)";
         }
         else
@@ -460,6 +588,7 @@ public sealed class MappingSession : IDisposable
                 _resolved.Add(EdgeKey(_moveFrom, _moveFromFex, _moveDir));
             _op = Op.None;
             _returnDir = null;   // the outbound leg failed -- no return to attempt
+            CancelCloseRoomLocked(reason);
             status = $"{from} |{_moveDir}! {reason}";
             if (transient)
             {
@@ -475,8 +604,8 @@ public sealed class MappingSession : IDisposable
         return (status, true);
     }
 
-    /// <summary>Picks the u-turn return direction from the just-probed room, or null to
-    /// stop here. A recorded destination NAME matching the origin is not identity (five
+    /// <summary>Picks the return direction from the just-probed room, or null to stop here.
+    /// A recorded destination NAME matching the origin is not identity (five
     /// "Badly-paved road"s) -- whether the edge returns to THIS instance is only ever
     /// evidenced by walking it in sequence, so a name-matching reciprocal is taken even
     /// when its edge record is confirmed.
@@ -484,10 +613,12 @@ public sealed class MappingSession : IDisposable
     /// Priority:
     ///   1. Reciprocal: unconfirmed, or confirmed to lead to origin.
     ///   2. Any other exit: unconfirmed first, then confirmed, whose destination is origin.
-    ///   3. Last resort: any unconfirmed exit with no recorded destination at all
-    ///      (truly unknown -- captures the edge and may happen to return).
+    ///   3. Last resort (only when <paramref name="useLastResort"/> is true): any unconfirmed
+    ///      exit with no recorded destination at all (truly unknown -- captures the edge and
+    ///      may happen to return). Disabled for close-room cycles.
     /// Sets <paramref name="lastResort"/> true when only tier 3 found a candidate.</summary>
-    private string? PickReturnLocked(string reciprocal, string origin, out bool lastResort)
+    private string? PickReturnLocked(string reciprocal, string origin, out bool lastResort,
+                                     bool useLastResort = true)
     {
         lastResort = false;
         var fex = FexKeyLocked();
@@ -514,6 +645,8 @@ public sealed class MappingSession : IDisposable
                     return dir;
             }
 
+        if (!useLastResort) return null;
+
         // Last resort: any unconfirmed exit with no recorded destination -- we have no
         // evidence it returns, but we also have no evidence it doesn't; walking it
         // captures the edge regardless.
@@ -528,6 +661,16 @@ public sealed class MappingSession : IDisposable
         }
 
         return null;
+    }
+
+    private void CancelCloseRoomLocked(string? reason)
+    {
+        if (_closePendingExits is null) return;
+        _closePendingExits = null;
+        _closeHomeRoom     = null;
+        _closeHomeFex      = string.Empty;
+        _closeReturning    = false;
+        if (reason is not null) CloseRoomBlocked?.Invoke(reason);
     }
 
     private void OnOpTimeout()

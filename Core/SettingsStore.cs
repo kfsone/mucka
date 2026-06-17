@@ -69,7 +69,9 @@ public static class SettingsStore
         bool? ShowOnline        = null,
         bool? ShowInventory     = null,
         bool? ShowItemsHere     = null,
-        bool? ShowMapCompass    = null)
+        bool? ShowMapCompass    = null,
+        int? MaxOnlineDisplay   = null,
+        bool? OnlineNamesOnly   = null)
     {
         /// <summary>Overlays the stored (ini) values onto a profile — ini wins when present.</summary>
         public void ApplyTo(Profile profile)
@@ -91,6 +93,8 @@ public static class SettingsStore
             if (ShowInventory is bool si)  profile.ShowInventory = si;
             if (ShowItemsHere is bool sh)  profile.ShowItemsHere = sh;
             if (ShowMapCompass is bool sm) profile.ShowMapCompass = sm;
+            if (MaxOnlineDisplay is int mod) profile.MaxOnlineDisplay = mod;
+            if (OnlineNamesOnly  is bool ono) profile.OnlineNamesOnly  = ono;
         }
     }
 
@@ -161,7 +165,9 @@ public static class SettingsStore
                 ShowOnline:         ini.HasSection("settings") ? GetBool(ini, "settings", "showonline")         : null,
                 ShowInventory:      ini.HasSection("settings") ? GetBool(ini, "settings", "showinventory")      : null,
                 ShowItemsHere:      ini.HasSection("settings") ? GetBool(ini, "settings", "showitemshere")      : null,
-                ShowMapCompass:     ini.HasSection("settings") ? GetBool(ini, "settings", "showmapcompass")     : null);
+                ShowMapCompass:     ini.HasSection("settings") ? GetBool(ini, "settings", "showmapcompass")     : null,
+                MaxOnlineDisplay:   ini.HasSection("settings") ? GetInt (ini, "settings", "maxonlinedisplay")   : null,
+                OnlineNamesOnly:    ini.HasSection("settings") ? GetBool(ini, "settings", "onlinenamesonly")    : null);
         }
         finally
         {
@@ -202,6 +208,8 @@ public static class SettingsStore
             ini.Set("settings", "showinventory",      settings.ShowInventory ? "yes" : "no");
             ini.Set("settings", "showitemshere",      settings.ShowItemsHere ? "yes" : "no");
             ini.Set("settings", "showmapcompass",     settings.ShowMapCompass ? "yes" : "no");
+            ini.Set("settings", "maxonlinedisplay",   settings.MaxOnlineDisplay.ToString());
+            ini.Set("settings", "onlinenamesonly",    settings.OnlineNamesOnly ? "yes" : "no");
 
             if (fkeys is not null)
             {

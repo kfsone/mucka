@@ -19,6 +19,9 @@ public sealed class WhoEntry : INotifyPropertyChanged
     /// </summary>
     public string PersonaName { get; private set; }
 
+    // Set by SidePanelViewModel when the NamesOnly display option changes.
+    internal static bool NamesOnlyMode;
+
     /// <summary>
     /// True when the server sent the name wrapped in parens ("(Ollie the sorcerer)") —
     /// the player is invisible but we can still see them (it's us, a team member, or
@@ -76,12 +79,17 @@ public sealed class WhoEntry : INotifyPropertyChanged
     {
         get
         {
+            if (NamesOnlyMode) return string.Empty;
             var inner = IsInvisible ? _name[1..^1] : _name;
             var idx   = inner.IndexOf(' ');
             var tail  = idx >= 0 ? inner[idx..] : string.Empty;
             return IsInvisible ? tail + ")" : tail;
         }
     }
+
+    /// <summary>Forces a PropertyChanged for the suffix so NamesOnly mode changes propagate.</summary>
+    public void NotifyDisplaySuffixChanged()
+        => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(DisplaySuffix)));
 
     private bool _isDeparting;
     /// <summary>True once the player has left: the entry stays in the list while

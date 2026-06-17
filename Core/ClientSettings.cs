@@ -45,4 +45,8 @@ public sealed record ClientSettings
     public bool ShowItemsHere { get; init; } = true;
     /// <summary>Show the Map/Compass section in the side panel.</summary>
     public bool ShowMapCompass { get; init; } = true;
+    /// <summary>Maximum number of online players to display in the who-list; 0 = unlimited.</summary>
+    public int MaxOnlineDisplay { get; init; }
+    /// <summary>Show only the persona name (first word) in the who-list, hiding title/level suffix.</summary>
+    public bool OnlineNamesOnly { get; init; }
 }

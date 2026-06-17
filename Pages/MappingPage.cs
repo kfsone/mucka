@@ -55,12 +55,19 @@ internal sealed class MappingPage : ContentPage
     // Return-blocked flash: brief red pulse on the Here button when u-turn has no route back.
     private static readonly Color BlockedText = Color.FromArgb("#FF5555");
     private static readonly Color BlockedBack = Color.FromArgb("#2A1010");
+    // Close-room active: magenta tint on the Close Room button.
+    private static readonly Color CloseActiveText = Color.FromArgb("#FF66FF");
+    private static readonly Color CloseActiveBack = Color.FromArgb("#2A1A2A");
+    // Close-room blocked: brief orange-red flash.
+    private static readonly Color CloseBlockedText = Color.FromArgb("#FF8040");
+    private static readonly Color CloseBlockedBack = Color.FromArgb("#2A1400");
 
     private readonly GameViewModel _vm;
     private readonly MappingSession _session;
     private readonly Dictionary<string, Button> _dirButtons  = new();
     private readonly Dictionary<string, Button> _uturnButtons = new();
     private readonly Button _hereBtn;
+    private readonly Button _closeRoomBtn;
     private readonly Label _dirLabel;
     private readonly Label _summaryLabel;
     private readonly Label _statusLabel;
@@ -139,11 +146,12 @@ internal sealed class MappingPage : ContentPage
 
         var reloadBtn = MakeButton("Reload", "#333333", "#CCCCCC", (_, _) => Reload());
         var folderBtn = MakeButton("Open folder", "#333333", "#CCCCCC", OnOpenFolderClicked);
+        _closeRoomBtn = MakeButton("Close Room", "#333333", "#CCCCCC", OnCloseRoomClicked);
 
         var buttonRow = new HorizontalStackLayout
         {
             Spacing  = 8,
-            Children = { reloadBtn, folderBtn, _statusLabel },
+            Children = { reloadBtn, folderBtn, _closeRoomBtn, _statusLabel },
         };
 
         // ── Inventory ────────────────────────────────────────────────────────
@@ -280,6 +288,8 @@ internal sealed class MappingPage : ContentPage
         _session.StateChanged   += OnSessionStateChanged;
         _session.Status         += OnSessionStatus;
         _session.ReturnBlocked  += OnSessionReturnBlocked;
+        _session.CloseRoomComplete += OnCloseRoomComplete;
+        _session.CloseRoomBlocked  += OnCloseRoomBlocked;
         UpdateCompass();
         Reload();
     }
@@ -290,6 +300,8 @@ internal sealed class MappingPage : ContentPage
         _session.StateChanged   -= OnSessionStateChanged;
         _session.Status         -= OnSessionStatus;
         _session.ReturnBlocked  -= OnSessionReturnBlocked;
+        _session.CloseRoomComplete -= OnCloseRoomComplete;
+        _session.CloseRoomBlocked  -= OnCloseRoomBlocked;
         // Stop the guidance pulse — it's a repeating dispatcher-ticker animation on the
         // shared UI thread and would keep ticking against the closed window.
         // OnAppearing → UpdateCompass re-arms it.
@@ -321,6 +333,37 @@ internal sealed class MappingPage : ContentPage
         _hereBtn.BackgroundColor = BlockedBack;
         await Task.Delay(900);
         UpdateCompass();
+    }
+
+    private void OnCloseRoomComplete()
+        => MainThread.BeginInvokeOnMainThread(() =>
+        {
+            _statusLabel.Text = "close room: done";
+            UpdateCompass();
+        });
+
+    private void OnCloseRoomBlocked(string reason)
+        => MainThread.BeginInvokeOnMainThread(() => _ = FlashCloseRoomBlockedAsync(reason));
+
+    private async Task FlashCloseRoomBlockedAsync(string reason)
+    {
+        _closeRoomBtn.TextColor       = CloseBlockedText;
+        _closeRoomBtn.BackgroundColor = CloseBlockedBack;
+        _statusLabel.Text = $"close room: blocked -- {reason}";
+        await Task.Delay(1200);
+        UpdateCompass();
+    }
+
+    private void OnCloseRoomClicked(object? sender, EventArgs e)
+    {
+        if (_session.IsClosingRoom)
+        {
+            _session.CancelCloseRoom();
+        }
+        else
+        {
+            RunOp(() => _session.TryStartCloseRoom(out var err) ? null : err);
+        }
     }
 
     // ── Actions ──────────────────────────────────────────────────────────────
@@ -386,6 +429,21 @@ internal sealed class MappingPage : ContentPage
         // Ask the guidance engine for the next suggested direction.
         var suggested = _session.SuggestedNextExit();
         SetGuidance(suggested is not null && _dirButtons.TryGetValue(suggested, out var gb) ? gb : null);
+
+        // Close Room button: active style when cycling, showing remaining count.
+        if (_session.IsClosingRoom)
+        {
+            var remaining = _session.CloseRoomRemainingExits;
+            _closeRoomBtn.Text            = remaining > 0 ? $"Cancel ({remaining} left)" : "Cancel";
+            _closeRoomBtn.TextColor       = CloseActiveText;
+            _closeRoomBtn.BackgroundColor = CloseActiveBack;
+        }
+        else
+        {
+            _closeRoomBtn.Text            = "Close Room";
+            _closeRoomBtn.TextColor       = Color.FromArgb("#CCCCCC");
+            _closeRoomBtn.BackgroundColor = Color.FromArgb("#333333");
+        }
 
         foreach (var (dir, btn) in _dirButtons)
         {

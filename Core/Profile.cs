@@ -62,6 +62,10 @@ public class Profile
     public bool ShowItemsHere { get; set; } = true;
     [System.Text.Json.Serialization.JsonIgnore]
     public bool ShowMapCompass { get; set; } = true;
+    [System.Text.Json.Serialization.JsonIgnore]
+    public int MaxOnlineDisplay { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool OnlineNamesOnly { get; set; }
 
     private static readonly Dictionary<int, string> s_defaultFkeys = new()
     {

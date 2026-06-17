@@ -41,6 +41,8 @@ public partial class GamePage : ContentPage
 
     private bool _isFkeyEditorOpen;
     private bool _eventsSubscribed;
+    private double _floatTransX;
+    private double _floatTransY;
 #if WINDOWS
     // True once an auxiliary window (raw console, map) has been opened. WinUI's native
     // caret-follow breaks after focus leaves to another app window, so the UpdateLayout
@@ -116,6 +118,7 @@ public partial class GamePage : ContentPage
                 _vm.Disconnected        += OnDisconnected;
                 _vm.RequestFocus        += FocusInput;
                 _vm.SidePanel.RequestFocus += FocusInput;
+                _vm.SidePanel.FloatingOpenDisplaySettings += OnFloatingOpenDisplaySettings;
                 _vm.ConfigRequested     += OnConfigRequested;
                 _vm.ClearScreenRequested += OnClearScreenRequested;
                 _vm.SettingsSaved       += OnSettingsSaved;
@@ -164,7 +167,7 @@ public partial class GamePage : ContentPage
                 // commands/gestures, but keyboard focus stays wherever it was (the input box).
                 // AllowFocusOnInteraction propagates to children, covering the chips, icons,
                 // and fkey buttons. The input row's Entry is deliberately NOT covered.
-                DisableFocusOnInteraction(StatusBar, SidePanelBorder, FkeyBar, FnButton, SendButton, ScrollbackBar);
+                DisableFocusOnInteraction(StatusBar, SidePanelBorder, FkeyBar, FnButton, SendButton, ScrollbackBar, FloatingOnlinePanel);
 #if FOCUS_DIAG
                 Microsoft.UI.Xaml.Input.FocusManager.GettingFocus += OnFmGettingFocus;
                 Microsoft.UI.Xaml.Input.FocusManager.LosingFocus += OnFmLosingFocus;
@@ -254,6 +257,7 @@ public partial class GamePage : ContentPage
         _vm.Disconnected        -= OnDisconnected;
         _vm.RequestFocus        -= FocusInput;
         _vm.SidePanel.RequestFocus -= FocusInput;
+        _vm.SidePanel.FloatingOpenDisplaySettings -= OnFloatingOpenDisplaySettings;
         _vm.ConfigRequested     -= OnConfigRequested;
         _vm.ClearScreenRequested -= OnClearScreenRequested;
         _vm.SettingsSaved       -= OnSettingsSaved;
@@ -367,6 +371,23 @@ public partial class GamePage : ContentPage
     }
 
     private async void OnConfigRequested() => await OpenConfigAsync(initialTab: 0);
+    private async void OnFloatingOpenDisplaySettings() => await OpenConfigAsync(initialTab: 1);
+
+    private void OnFloatingPanelPanUpdated(object? sender, PanUpdatedEventArgs e)
+    {
+        switch (e.StatusType)
+        {
+            case GestureStatus.Running:
+                FloatingOnlinePanel.TranslationX = _floatTransX + e.TotalX;
+                FloatingOnlinePanel.TranslationY = _floatTransY + e.TotalY;
+                break;
+            case GestureStatus.Completed:
+            case GestureStatus.Canceled:
+                _floatTransX = FloatingOnlinePanel.TranslationX;
+                _floatTransY = FloatingOnlinePanel.TranslationY;
+                break;
+        }
+    }
 
     // Deferred a dispatcher tick: when invoked from a tap/click handler, WinUI settles pointer
     // focus on the clicked control AFTER the handler returns, which would clobber an immediate
@@ -1017,7 +1038,7 @@ public partial class GamePage : ContentPage
     {
         e.Handled = true;
         if (_isFkeyEditorOpen) return;
-        await OpenConfigAsync(initialTab: 1);   // straight to the Hotkeys tab
+        await OpenConfigAsync(initialTab: 2);   // straight to the Hotkeys tab
 
     }
 

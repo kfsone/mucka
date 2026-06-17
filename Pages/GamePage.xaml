@@ -4,6 +4,7 @@
              xmlns:vm="clr-namespace:Mucka.ViewModels"
              xmlns:render="clr-namespace:Mucka.Rendering"
              xmlns:beh="clr-namespace:Mucka.Behaviors"
+             xmlns:converters="clr-namespace:Mucka.Converters"
              x:Class="Mucka.Pages.GamePage"
              x:DataType="vm:GameViewModel"
              Title="mucka"
@@ -18,6 +19,7 @@
             <Setter Property="VerticalOptions" Value="Center"/>
             <Setter Property="FontFamily" Value="{OnPlatform Android='monospace', WinUI='Cascadia Mono', MacCatalyst='Menlo-Regular'}"/>
         </Style>
+        <converters:InvertBoolConverter x:Key="InvertBoolConverter"/>
     </ContentPage.Resources>
 
     <Grid RowDefinitions="Auto,Auto,*">
@@ -440,6 +442,96 @@
                     </Label.FormattedText>
                 </Label>
             </Border>
+
+            <!-- ── Floating online panel ─────────────────────────────────── -->
+            <!-- Visible when online is unpinned. Draggable. No title bar — looks
+                 like the side-panel section. -->
+            <Border x:Name="FloatingOnlinePanel"
+                    IsVisible="{Binding SidePanel.IsFloatingOnlineVisible}"
+                    BackgroundColor="#101618"
+                    Stroke="#3d4f5c" StrokeThickness="1"
+                    MinimumWidthRequest="150"
+                    MaximumWidthRequest="220"
+                    HorizontalOptions="Center" VerticalOptions="Start"
+                    Margin="0,6,0,0"
+                    ZIndex="10">
+                <Border.StrokeShape><RoundRectangle CornerRadius="6"/></Border.StrokeShape>
+                <Border.GestureRecognizers>
+                    <PanGestureRecognizer PanUpdated="OnFloatingPanelPanUpdated"/>
+                </Border.GestureRecognizers>
+                <VerticalStackLayout Padding="8,6,8,6" Spacing="2">
+
+                    <!-- Heading row: same layout as side-panel section -->
+                    <Grid ColumnDefinitions="*,Auto,Auto,Auto">
+                        <Label Grid.Column="0" VerticalOptions="Center"
+                               HorizontalOptions="Fill" HorizontalTextAlignment="Start">
+                            <Label.FormattedText>
+                                <FormattedString>
+                                    <Span Text="Online" TextColor="#58a6ff" FontSize="11"
+                                          FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
+                                    <Span Text="{Binding SidePanel.OnlineCountText}" TextColor="White" FontSize="11"
+                                          FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
+                                </FormattedString>
+                            </Label.FormattedText>
+                        </Label>
+                        <!-- Hamburger: opens settings > Display -->
+                        <Label Grid.Column="1" Text="&#x2630;" TextColor="#888888" FontSize="12"
+                               VerticalOptions="Center" Padding="4,0,0,0">
+                            <Label.GestureRecognizers>
+                                <TapGestureRecognizer Command="{Binding SidePanel.OpenFloatingDisplaySettingsCommand}"/>
+                            </Label.GestureRecognizers>
+                        </Label>
+                        <!-- Pin: gold ● = pinned (back to side panel), grey ○ = floating -->
+                        <Label Grid.Column="2"
+                               Text="{Binding SidePanel.PinGlyph}"
+                               TextColor="{Binding SidePanel.PinColor}"
+                               FontSize="10" VerticalOptions="Center"
+                               Padding="4,0,0,0">
+                            <Label.GestureRecognizers>
+                                <TapGestureRecognizer Command="{Binding SidePanel.ToggleOnlinePinnedCommand}"/>
+                            </Label.GestureRecognizers>
+                        </Label>
+                        <!-- Fold toggle -->
+                        <Label Grid.Column="3" Text="{Binding SidePanel.FloatingFoldGlyph}"
+                               TextColor="#444444" FontSize="9" VerticalOptions="Center"
+                               Padding="4,0,0,0">
+                            <Label.GestureRecognizers>
+                                <TapGestureRecognizer Command="{Binding SidePanel.ToggleFloatingFoldCommand}"/>
+                            </Label.GestureRecognizers>
+                        </Label>
+                    </Grid>
+
+                    <!-- Who-list body — hidden when folded -->
+                    <ScrollView MaximumHeightRequest="180"
+                                IsVisible="{Binding SidePanel.IsFloatingOnlineFolded, Converter={StaticResource InvertBoolConverter}}">
+                        <VerticalStackLayout Spacing="1"
+                                             BindableLayout.ItemsSource="{Binding SidePanel.WhosList}">
+                            <BindableLayout.ItemTemplate>
+                                <DataTemplate x:DataType="vm:WhoEntry">
+                                    <Label FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}">
+                                        <Label.FormattedText>
+                                            <FormattedString>
+                                                <Span Text="{Binding DisplayName}"
+                                                      TextColor="{Binding DisplayColor}"
+                                                      FontSize="11"
+                                                      FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
+                                                <Span Text="{Binding DisplaySuffix}"
+                                                      TextColor="{Binding DisplayColor}"
+                                                      FontSize="9"
+                                                      FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
+                                            </FormattedString>
+                                        </Label.FormattedText>
+                                        <Label.Behaviors>
+                                            <beh:WhoEntryFadeBehavior/>
+                                        </Label.Behaviors>
+                                    </Label>
+                                </DataTemplate>
+                            </BindableLayout.ItemTemplate>
+                        </VerticalStackLayout>
+                    </ScrollView>
+
+                </VerticalStackLayout>
+            </Border>
         </Grid>
 
         <!-- ── Toolbar (collapsible, wraps to fit width) ──────────── -->
@@ -562,19 +654,40 @@
                 <Grid RowDefinitions="Auto,*,Auto">
 
                             <!-- Top: online players, anchored, grows downward.
-                                 Compositor (off-UI-thread) stale-dim when an FEW update is late. -->
-                            <VerticalStackLayout Grid.Row="0" Padding="8,6,8,4" Spacing="2">
+                                 Compositor (off-UI-thread) stale-dim when an FEW update is late.
+                                 Hidden when online is unpinned (floating pill takes over). -->
+                            <VerticalStackLayout Grid.Row="0" Padding="8,6,8,4" Spacing="2"
+                                                 IsVisible="{Binding SidePanel.IsOnlineSectionVisible}">
                                 <VerticalStackLayout.Behaviors>
                                     <beh:StaleDimBehavior Source="Few"/>
                                 </VerticalStackLayout.Behaviors>
-                                <!-- Heading row: label + fold toggle -->
-                                <Grid ColumnDefinitions="*,Auto">
-                                    <Label Text="Online" TextColor="#58a6ff" FontSize="11"
-                                           VerticalOptions="Center"
-                                           HorizontalOptions="Fill" HorizontalTextAlignment="Start"/>
-                                    <Label Grid.Column="1" Text="{Binding SidePanel.OnlineFoldGlyph}"
+                                <!-- Heading row: label + count + pin + fold toggle -->
+                                <Grid ColumnDefinitions="*,Auto,Auto,Auto">
+                                    <Label Grid.Column="0" VerticalOptions="Center"
+                                           HorizontalOptions="Fill" HorizontalTextAlignment="Start">
+                                        <Label.FormattedText>
+                                            <FormattedString>
+                                                <Span Text="Online" TextColor="#58a6ff" FontSize="11"
+                                                      FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
+                                                <Span Text="{Binding SidePanel.OnlineCountText}" TextColor="White" FontSize="11"
+                                                      FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
+                                            </FormattedString>
+                                        </Label.FormattedText>
+                                    </Label>
+                                    <!-- Pin icon: gold ● = pinned (float follows panel), grey ○ = unpinned -->
+                                    <Label Grid.Column="1"
+                                           Text="{Binding SidePanel.PinGlyph}"
+                                           TextColor="{Binding SidePanel.PinColor}"
+                                           FontSize="10" VerticalOptions="Center"
+                                           Padding="4,0,0,0">
+                                        <Label.GestureRecognizers>
+                                            <TapGestureRecognizer Command="{Binding SidePanel.ToggleOnlinePinnedCommand}"/>
+                                        </Label.GestureRecognizers>
+                                    </Label>
+                                    <!-- Fold toggle -->
+                                    <Label Grid.Column="2" Text="{Binding SidePanel.OnlineFoldGlyph}"
                                            TextColor="#444444" FontSize="9" VerticalOptions="Center"
-                                           Padding="8,0,0,0">
+                                           Padding="4,0,0,0">
                                         <Label.GestureRecognizers>
                                             <TapGestureRecognizer Command="{Binding SidePanel.ToggleOnlineCommand}"/>
                                         </Label.GestureRecognizers>
@@ -688,24 +801,8 @@
                             <VerticalStackLayout Grid.Row="2" Padding="8,4,8,6" Spacing="1">
                                     <BoxView Color="#2d333b" HeightRequest="1" Margin="0,0,0,4"/>
 
-                                    <!-- Room trail: one font point smaller per step back -->
-                                    <Label Text="{Binding SidePanel.OldestRoom}"
-                                           TextColor="#00a000" FontSize="11" FontAttributes="Bold"
-                                           HorizontalOptions="Fill" HorizontalTextAlignment="End"
-                                           FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
-                                    <Label Text="{Binding SidePanel.PreviousRoom}"
-                                           TextColor="#00c000" FontSize="12"
-                                           HorizontalOptions="Fill" HorizontalTextAlignment="End"
-                                           FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
-
-                                    <!-- Exits grid (FEX) ─────────────────────────────────── -->
-                                    <!--
-                                         ⇥(in)  ⇑(up)  ┊  nw   N   ne
-                                           swamp        ┊   W   ·    E
-                                         ⇤(out) ⇓(dn)  ┊  sw   S   se
-                                    -->
                                     <!-- Map heading + fold toggle -->
-                                    <Grid Margin="0,4,0,0">
+                                    <Grid Margin="0,0,0,2">
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="*"/>
                                             <ColumnDefinition Width="Auto"/>
@@ -806,6 +903,16 @@
                                                FontSize="10" FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"
                                                HorizontalTextAlignment="Center"/>
                                     </Grid>
+
+                                    <!-- Room trail: one font point smaller per step back -->
+                                    <Label Text="{Binding SidePanel.OldestRoom}"
+                                           TextColor="#00a000" FontSize="11" FontAttributes="Bold"
+                                           HorizontalOptions="Fill" HorizontalTextAlignment="End"
+                                           FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
+                                    <Label Text="{Binding SidePanel.PreviousRoom}"
+                                           TextColor="#00c000" FontSize="12"
+                                           HorizontalOptions="Fill" HorizontalTextAlignment="End"
+                                           FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
 
                                     <!-- Current room: always reserves 2-line height so the compass
                                          doesn't shift when a long description wraps. -->

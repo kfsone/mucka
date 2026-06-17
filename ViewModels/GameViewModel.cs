@@ -386,6 +386,8 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         ShowInventory = SidePanel.IsInventoryExpanded,
         ShowItemsHere = SidePanel.IsItemsHereExpanded,
         ShowMapCompass = SidePanel.IsMapExpanded,
+        MaxOnlineDisplay = SidePanel.MaxOnline,
+        OnlineNamesOnly  = SidePanel.NamesOnly,
     };
 
     public ICommand SendCommand { get; }
@@ -456,6 +458,9 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         SidePanel.IsInventoryExpanded = profile.ShowInventory;
         SidePanel.IsItemsHereExpanded = profile.ShowItemsHere;
         SidePanel.IsMapExpanded       = profile.ShowMapCompass;
+        SidePanel.MaxOnline           = profile.MaxOnlineDisplay;
+        SidePanel.NamesOnly           = profile.OnlineNamesOnly;
+        WhoEntry.NamesOnlyMode        = profile.OnlineNamesOnly;
         SidePanel.SubscriptionOptionsChanged += (few, fei) => _conn.UpdateSubscriptionOptions(few, fei);
         _conn.UpdateSubscriptionOptions(profile.ShowOnline, profile.ShowInventory || profile.ShowItemsHere);
 
@@ -522,6 +527,8 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         SidePanel.IsInventoryExpanded = settings.ShowInventory;
         SidePanel.IsItemsHereExpanded = settings.ShowItemsHere;
         SidePanel.IsMapExpanded       = settings.ShowMapCompass;
+        SidePanel.MaxOnline           = settings.MaxOnlineDisplay;
+        SidePanel.NamesOnly           = settings.OnlineNamesOnly;
         _conn.UpdateSubscriptionOptions(settings.ShowOnline, settings.ShowInventory || settings.ShowItemsHere);
 
         _dreamwordSizeOffset = Math.Clamp(settings.DreamwordSizeOffset, -2, 4);

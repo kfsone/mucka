@@ -30,6 +30,8 @@ public sealed class FkeyEditorViewModel : BaseViewModel
     private bool   _showInventory;
     private bool   _showItemsHere;
     private bool   _showMapCompass;
+    private int  _maxOnlineDisplay;
+    private bool _onlineNamesOnly;
     private readonly SoundGroupEditorItem _bellGroup;
 
     public int ActiveModifier
@@ -54,10 +56,10 @@ public sealed class FkeyEditorViewModel : BaseViewModel
     }
 
     public bool IsSettingsTabActive => _activeTab == 0;
-    public bool IsHotkeysTabActive  => _activeTab == 1;
-    public bool IsSoundsTabActive   => _activeTab == 2;
-    public bool IsFriendsTabActive  => _activeTab == 3;
-    public bool IsDisplayTabActive  => _activeTab == 4;
+    public bool IsDisplayTabActive  => _activeTab == 1;
+    public bool IsHotkeysTabActive  => _activeTab == 2;
+    public bool IsSoundsTabActive   => _activeTab == 3;
+    public bool IsFriendsTabActive  => _activeTab == 4;
 
     public double FontSize
     {
@@ -198,6 +200,13 @@ public sealed class FkeyEditorViewModel : BaseViewModel
     public bool ShowInventory { get => _showInventory; set => Set(ref _showInventory, value); }
     public bool ShowItemsHere { get => _showItemsHere; set => Set(ref _showItemsHere, value); }
     public bool ShowMapCompass { get => _showMapCompass; set => Set(ref _showMapCompass, value); }
+    public int MaxOnlineDisplay
+    {
+        get => _maxOnlineDisplay;
+        set => SetAndNotify(ref _maxOnlineDisplay, Math.Clamp(value, 0, 999), [nameof(MaxOnlineDisplayText)]);
+    }
+    public string MaxOnlineDisplayText => _maxOnlineDisplay == 0 ? "unlimited" : _maxOnlineDisplay.ToString();
+    public bool OnlineNamesOnly { get => _onlineNamesOnly; set => Set(ref _onlineNamesOnly, value); }
 
     public FkeyEditorItem[] CurrentPageItems => _pages[_activeModifier];
     public bool CanSave { get; }
@@ -221,6 +230,8 @@ public sealed class FkeyEditorViewModel : BaseViewModel
     public ICommand DecrDisplayColumnsCommand { get; }
     public ICommand IncrDisplayDreamwordOffsetCommand { get; }
     public ICommand DecrDisplayDreamwordOffsetCommand { get; }
+    public ICommand IncrMaxOnlineCommand { get; }
+    public ICommand DecrMaxOnlineCommand { get; }
 
     public event Action? CloseRequested;
     /// <summary>Raised when Save fails; payload is the error message for display.</summary>
@@ -256,6 +267,8 @@ public sealed class FkeyEditorViewModel : BaseViewModel
         _showInventory = settings.ShowInventory;
         _showItemsHere = settings.ShowItemsHere;
         _showMapCompass = settings.ShowMapCompass;
+        _maxOnlineDisplay = Math.Clamp(settings.MaxOnlineDisplay, 0, 999);
+        _onlineNamesOnly  = settings.OnlineNamesOnly;
 
         // Preview the beep at the bell row's volume (which follows the master slider
         // until overridden). _bellGroup is read at invoke time — it doesn't exist yet here.
@@ -355,6 +368,8 @@ public sealed class FkeyEditorViewModel : BaseViewModel
         DecrDisplayColumnsCommand          = new Command(() => DisplayColumns          -= 1);
         IncrDisplayDreamwordOffsetCommand  = new Command(() => DisplayDreamwordOffset  += 1);
         DecrDisplayDreamwordOffsetCommand  = new Command(() => DisplayDreamwordOffset  -= 1);
+        IncrMaxOnlineCommand               = new Command(() => MaxOnlineDisplay = Math.Clamp(_maxOnlineDisplay + 1, 0, 999));
+        DecrMaxOnlineCommand               = new Command(() => MaxOnlineDisplay = Math.Clamp(_maxOnlineDisplay - 1, 0, 999));
     }
 
     /// <summary>The edited settings as a snapshot for apply/save.</summary>
@@ -376,6 +391,8 @@ public sealed class FkeyEditorViewModel : BaseViewModel
         ShowInventory       = _showInventory,
         ShowItemsHere       = _showItemsHere,
         ShowMapCompass      = _showMapCompass,
+        MaxOnlineDisplay    = _maxOnlineDisplay,
+        OnlineNamesOnly     = _onlineNamesOnly,
     };
 
     /// <summary>The Sounds tab's tree as an override-only settings blob.</summary>
