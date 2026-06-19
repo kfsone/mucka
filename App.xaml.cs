@@ -38,6 +38,16 @@ public partial class App : Application
         window.HandlerChanged += (s, e) => SetWindowIcon(window);
 #endif
 
+        // Closing the main window tears the app down -- take the auxiliary windows ($map,
+        // $con) with it. Otherwise they are orphaned and keep the process alive invisibly
+        // (easy to close Mucka and leave one behind).
+        window.Destroying += (_, _) =>
+        {
+            if (Application.Current is not { } app) return;
+            foreach (var other in app.Windows.Where(w => !ReferenceEquals(w, window)).ToList())
+                app.CloseWindow(other);
+        };
+
         return window;
     }
 
