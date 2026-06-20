@@ -48,6 +48,15 @@ public sealed class MappingSession : IDisposable
     private Queue<string>? _closePendingExits; // exits still to visit (dequeued before each outbound)
     private bool _closeReturning;              // true while on the return leg of one iteration
 
+    // ── Go-to-open state ───────────────────────────────────────────────────────
+    // Set while auto-walking toward the nearest room that needs closing. Re-plans from
+    // the room actually reached after each hop (never follows a precomputed name-keyed
+    // path -- it could thread the wrong same-name instance). Stops on arrival, dead end,
+    // dark room, refusal, the hop cap, or cancel.
+    private bool _goingToOpen;
+    private int  _goToOpenHops;
+    private const int MaxAutoWalkHops = 30;
+
     private readonly MuckaConnection _conn;
     private readonly string _directory;
     private readonly string _host;
@@ -57,6 +66,7 @@ public sealed class MappingSession : IDisposable
     private DateTime _probeWindowUntil = DateTime.MinValue;
 
     private StreamWriter? _writer;
+    private bool _disposed;
     private Op _op;
     private string _moveDir = string.Empty;
     private string _moveFrom = string.Empty;
@@ -70,10 +80,14 @@ public sealed class MappingSession : IDisposable
     private bool _fexCollecting;
 
     private string _currentRoom = string.Empty;
+    private bool _currentRoomIsDark;              // arrived but could not see -- no name, only the fact
+    private bool _fewContextActive;               // a FEW (online list) response is being parsed -- keep it out of the capture
+    private bool _mappingFocused;                 // mapping window focused: heartbeat is FEW-only and must not gate ops
     private HashSet<string> _enabledExits = new(StringComparer.OrdinalIgnoreCase);
     private string _moveFromFex = string.Empty;   // from-room exit fingerprint at move start
     private readonly HashSet<string> _resolved;   // "{room}|{fingerprint}|{dir}" keys, seeded from disk
     private readonly MapGraph _graph;             // name-level edge evidence for u-turn return choice
+    private readonly MapStats _baselineStats;     // model state when the session opened -- the delta baseline
 
     /// <summary>Room/exits/busy state changed -- refresh the compass.</summary>
     public event Action? StateChanged;
@@ -103,9 +117,53 @@ public sealed class MappingSession : IDisposable
     {
         lock (_lock) return _resolved.Contains(EdgeKey(_currentRoom, FexKeyLocked(), dir));
     }
+    /// <summary>Directions from the current room worth investigating: an enabled exit is
+    /// "interesting" when it is unwalked (somewhere new to find), or already walked but
+    /// leading to a room that still has uncaptured exits (more to do beyond it). Computed
+    /// in one pass under a single lock. The compass marks these with a "?".</summary>
+    public IReadOnlySet<string> InterestingExits()
+    {
+        lock (_lock)
+        {
+            var fex = FexKeyLocked();
+            var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var dir in Directions)
+            {
+                if (!_enabledExits.Contains(dir)) continue;
+
+                // Unwalked → somewhere new to find. Walked → only interesting if the far
+                // room still has open exits (more to capture out there).
+                if (!_resolved.Contains(EdgeKey(_currentRoom, fex, dir))
+                    || _graph.ExitLeadsToOpenRoom(_currentRoom, fex, dir))
+                    set.Add(dir);
+            }
+            return set;
+        }
+    }
+
     public bool IsClosingRoom { get { lock (_lock) return _closePendingExits is not null; } }
     /// <summary>Number of exits still to visit in the current close-room cycle (0 when not closing).</summary>
     public int CloseRoomRemainingExits { get { lock (_lock) return _closePendingExits?.Count ?? 0; } }
+
+    /// <summary>Auto-walking toward the nearest room that needs closing.</summary>
+    public bool IsGoingToOpen { get { lock (_lock) return _goingToOpen; } }
+
+    /// <summary>We arrived somewhere unlit and could not identify the room. The compass
+    /// shows "Here?"; the room panel shows the darkness rather than blank.</summary>
+    public bool CurrentRoomIsDark { get { lock (_lock) return _currentRoomIsDark; } }
+
+    /// <summary>Live aggregate counts for the stats panel (name-level, provisional -- see MapStats).</summary>
+    public MapStats Stats { get { lock (_lock) return _graph.Snapshot(); } }
+
+    /// <summary>Model state when this session opened. Diff against <see cref="Stats"/> for the
+    /// "how am I affecting the model" delta box.</summary>
+    public MapStats BaselineStats => _baselineStats;
+
+    /// <summary>Directions from the current room observed to lead into darkness -- "needs a light source".</summary>
+    public IReadOnlyCollection<string> DarkExitsHere
+    {
+        get { lock (_lock) return _graph.DarkExitsFrom(_currentRoom).ToArray(); }
+    }
 
     /// <summary>Snapshot of the current room's enabled exits (for graph guidance queries).</summary>
     public IReadOnlySet<string> EnabledExits
@@ -153,6 +211,7 @@ public sealed class MappingSession : IDisposable
         var edgeState = MappingStore.LoadEdgeState(directory);
         _resolved = edgeState.Resolved;
         _graph = edgeState.Graph;
+        _baselineStats = _graph.Snapshot();   // counts before this session adds anything
         _opTimer = new Timer(_ => OnOpTimeout(), null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
         _windowTimer = new Timer(_ => StateChanged?.Invoke(), null,
                                  Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
@@ -166,6 +225,17 @@ public sealed class MappingSession : IDisposable
         _conn.FexListComplete  += OnFexListComplete;
         _conn.FesProbeSent     += OnFesProbeSent;
         _conn.FeiListComplete  += OnFeiListComplete;
+        _conn.FewListStarting  += OnFewListStarting;
+        _conn.FewListComplete  += OnFewListComplete;
+    }
+
+    /// <summary>Mapping window focus changed -- collapses the heartbeat to FEW-only while
+    /// focused so the online list keeps refreshing without FES/FEI noise, and stops the
+    /// console gating its operations on those (now irrelevant) heartbeat responses.</summary>
+    public void SetMappingFocus(bool focused)
+    {
+        lock (_lock) _mappingFocused = focused;
+        _conn.SetMappingFocus(focused);
     }
 
     // ── Operations ─────────────────────────────────────────────────────────────
@@ -247,6 +317,44 @@ public sealed class MappingSession : IDisposable
         }
     }
 
+    /// <summary>Auto-walk to the nearest room that still needs closing (open rooms first,
+    /// then unexplored frontier), probing each room en route. Re-plans after every hop and
+    /// stops the moment it stands in a room with uncaptured exits -- the operator then runs
+    /// Close Room. Stops without acting on a dead end, dark room, refusal, or the hop cap.</summary>
+    public bool TryStartGoToOpen(out string? error)
+    {
+        lock (_lock)
+        {
+            if (!CanStartLocked(out error)) return false;
+            if (_currentRoom.Length == 0) { error = "not in a known room"; return false; }
+            if (CurrentRoomHasOpenExitLocked()) { error = "this room still has exits to close"; return false; }
+
+            var dir = PlanGoToOpenLocked();
+            if (dir is null) { error = "no open room reachable from here"; return false; }
+
+            _goingToOpen  = true;
+            _goToOpenHops = 0;
+            WriteEntryLocked("an", $"go-to-open: starting from {_currentRoom}");
+            StartMoveLocked(dir);
+        }
+        Status?.Invoke("go to open: walking...");
+        StateChanged?.Invoke();
+        return true;
+    }
+
+    /// <summary>Abort an in-progress go-to-open walk. Safe to call at any time.</summary>
+    public void CancelGoToOpen()
+    {
+        bool was;
+        lock (_lock)
+        {
+            was = _goingToOpen;
+            _goingToOpen = false;
+            if (_op == Op.None) _conn.SetProbeHold(false);
+        }
+        if (was) { Status?.Invoke("go to open: cancelled"); StateChanged?.Invoke(); }
+    }
+
     private bool TryStartMoveCore(string dir, string? returnDir, out string? error)
     {
         lock (_lock)
@@ -319,6 +427,12 @@ public sealed class MappingSession : IDisposable
         lock (_lock)
         {
             if (_op == Op.None) return;
+            // A FEW (online list) response is not part of the capture -- it is the focus-mode
+            // heartbeat keeping the PKer watch alive. Keep its bytes out of the walk file and
+            // the probe-end scan. (RawBytesReceived fires before the parser emits the FEW
+            // boundary events, so a response delivered in one packet can still slip through;
+            // decode_probe's async pre-classification handles that residual case.)
+            if (_fewContextActive) return;
             var text = Encoding.Latin1.GetString(bytes);
             WriteEntryLocked("rx", text);
             _opRx.Append(text);
@@ -327,6 +441,9 @@ public sealed class MappingSession : IDisposable
         }
         Notify(status, changed);
     }
+
+    private void OnFewListStarting() { lock (_lock) _fewContextActive = true; }
+    private void OnFewListComplete() { lock (_lock) _fewContextActive = false; }
 
     private void OnLineReady(StyledLine line)
     {
@@ -369,6 +486,7 @@ public sealed class MappingSession : IDisposable
             {
                 // Manual movement (typed in the game window): track, don't record.
                 _currentRoom = room;
+                _currentRoomIsDark = false;
                 changed = true;
             }
         }
@@ -404,6 +522,10 @@ public sealed class MappingSession : IDisposable
     {
         lock (_lock)
         {
+            // While mapping is focused the heartbeat is FEW-only and its bytes are filtered
+            // out of captures -- so it must NOT gate operations. Don't open a contention
+            // window; let the operator probe freely and let the FEW filter handle overlap.
+            if (_mappingFocused) return;
             _probeWindowUntil = DateTime.UtcNow + HeartbeatWindow;
             _windowTimer.Change(HeartbeatWindow, Timeout.InfiniteTimeSpan);
         }
@@ -448,6 +570,7 @@ public sealed class MappingSession : IDisposable
         if (_arrival is { } room)
         {
             _currentRoom = room;
+            _currentRoomIsDark = false;
             WriteEntryLocked("an", $"room: {room}");
         }
         WriteEntryLocked("an", timedOut ? "probe timeout" : "probe complete");
@@ -484,6 +607,9 @@ public sealed class MappingSession : IDisposable
 
             if (_closePendingExits is not null)
                 return CompleteCloseRoomProbeLocked(timedOut);
+
+            if (_goingToOpen)
+                return CompleteGoToOpenProbeLocked(timedOut);
 
             _conn.SetProbeHold(false);
         return (timedOut ? "probe timed out" : $"probed {_currentRoom}", true);
@@ -544,6 +670,45 @@ public sealed class MappingSession : IDisposable
             : $"close room: blocked -- {blockReason}", true);
     }
 
+    private (string?, bool) CompleteGoToOpenProbeLocked(bool timedOut)
+    {
+        if (timedOut)
+        {
+            _goingToOpen = false;
+            _conn.SetProbeHold(false);
+            return ("go to open: abandoned -- probe timed out", true);
+        }
+
+        // Standing in a room that needs closing? Done -- hand off to the operator.
+        if (CurrentRoomHasOpenExitLocked())
+        {
+            _goingToOpen = false;
+            _conn.SetProbeHold(false);
+            var open = CountOpenExitsLocked();
+            WriteEntryLocked("an", $"go-to-open: arrived at {_currentRoom} ({open} open exit(s))");
+            return ($"go to open: arrived at {_currentRoom} -- {open} exit(s) to close", true);
+        }
+
+        if (++_goToOpenHops > MaxAutoWalkHops)
+        {
+            _goingToOpen = false;
+            _conn.SetProbeHold(false);
+            return ($"go to open: gave up after {MaxAutoWalkHops} hops", true);
+        }
+
+        // Re-plan from where we actually landed -- never follow a precomputed path.
+        var dir = PlanGoToOpenLocked();
+        if (dir is null)
+        {
+            _goingToOpen = false;
+            _conn.SetProbeHold(false);
+            return ("go to open: no open room reachable", true);
+        }
+        WriteEntryLocked("an", $"go-to-open: hop {_goToOpenHops} {dir} from {_currentRoom}");
+        StartMoveLocked(dir);
+        return ($"go to open: {_goToOpenHops} hop(s), moving {dir}...", true);
+    }
+
     private (string?, bool) CompleteMoveLocked(bool timedOut)
     {
         // Leave _op set if the move succeeded -- ChainProbe below replaces it.
@@ -559,8 +724,9 @@ public sealed class MappingSession : IDisposable
         {
             WriteEntryLocked("an", $"edge: {from} |{_moveDir}> {room}{suffix}");
             _resolved.Add(EdgeKey(_moveFrom, _moveFromFex, _moveDir));
-            _graph.RecordTraversal(_moveFrom, _moveDir, room);
+            _graph.RecordTraversal(_moveFrom, _moveFromFex, _moveDir, room);
             _currentRoom = room;
+            _currentRoomIsDark = false;
             status = $"{from} |{_moveDir}> {room}";
             StartProbeLocked();   // chain: capture the room we just entered
         }
@@ -570,9 +736,12 @@ public sealed class MappingSession : IDisposable
             // is unidentified -- deliberately NOT marked resolved, so the compass keeps
             // offering it until it is re-walked with a light source.
             WriteEntryLocked("an", $"edge: {from} |{_moveDir}> (dark){suffix}");
+            _graph.RecordDarkExit(_moveFrom, _moveDir);   // keep the live snapshot accurate
             _currentRoom = string.Empty;
+            _currentRoomIsDark = true;
             _op = Op.None;
             _returnDir = null;   // a u-turn cannot navigate back from a room it cannot see
+            _goingToOpen = false;   // cannot navigate onward from a room we cannot see
             CancelCloseRoomLocked("arrived in a dark room");
             status = $"{from} |{_moveDir}> (dark room)";
         }
@@ -588,6 +757,7 @@ public sealed class MappingSession : IDisposable
                 _resolved.Add(EdgeKey(_moveFrom, _moveFromFex, _moveDir));
             _op = Op.None;
             _returnDir = null;   // the outbound leg failed -- no return to attempt
+            _goingToOpen = false;   // a refusal en route stops the walk; operator re-clicks
             CancelCloseRoomLocked(reason);
             status = $"{from} |{_moveDir}! {reason}";
             if (transient)
@@ -626,7 +796,7 @@ public sealed class MappingSession : IDisposable
 
         if (_enabledExits.Contains(reciprocal))
         {
-            var dest = _graph.KnownDestination(_currentRoom, reciprocal);
+            var dest = _graph.KnownDestination(_currentRoom, fex, reciprocal);
             // Take it when unwalked (geometry says it probably returns) or when its
             // recorded destination is named like the origin (walk to test the loop).
             // Only a reciprocal KNOWN to lead somewhere else is passed over.
@@ -641,9 +811,21 @@ public sealed class MappingSession : IDisposable
             {
                 if (dir == reciprocal || !_enabledExits.Contains(dir)) continue;
                 if (Unconfirmed(dir) != unconfirmedFirst) continue;
-                if (string.Equals(_graph.KnownDestination(_currentRoom, dir), origin, StringComparison.Ordinal))
+                if (string.Equals(_graph.KnownDestination(_currentRoom, fex, dir), origin, StringComparison.Ordinal))
                     return dir;
             }
+
+        // Geometric fallback: no recorded edge proves a route home, but the reciprocal of
+        // the move that just brought us here is the natural return. Historical "leads
+        // elsewhere" evidence cannot be trusted to veto it -- same-name rooms that also
+        // share an exit signature (the five "Badly-paved road"s, all fex
+        // "e in n ne nw out s se sw swamp up w") record contradictory destinations for the
+        // same key, so a sibling instance's edge masquerades as this one's. Trust the
+        // reciprocal and let the arrival probe verify: a wrong guess blocks safely on the
+        // home-verification mismatch, it never loops. This runs after the evidence-based
+        // tiers so a genuinely asymmetric room still prefers a known route home.
+        if (_enabledExits.Contains(reciprocal))
+            return reciprocal;
 
         if (!useLastResort) return null;
 
@@ -653,7 +835,7 @@ public sealed class MappingSession : IDisposable
         foreach (var dir in Directions)
         {
             if (!_enabledExits.Contains(dir) || !Unconfirmed(dir)) continue;
-            if (_graph.KnownDestination(_currentRoom, dir) is null)
+            if (_graph.KnownDestination(_currentRoom, fex, dir) is null)
             {
                 lastResort = true;
                 return dir;
@@ -699,6 +881,29 @@ public sealed class MappingSession : IDisposable
     private string FexKeyLocked()
         => string.Join(' ', _enabledExits.OrderBy(d => d, StringComparer.Ordinal));
 
+    /// <summary>True when the current room has at least one enabled exit not yet resolved --
+    /// i.e. it still "needs closing". Fex-aware (keys on this room's exact exit set).</summary>
+    private bool CurrentRoomHasOpenExitLocked() => CountOpenExitsLocked() > 0;
+
+    private int CountOpenExitsLocked()
+    {
+        var fex = FexKeyLocked();
+        return Directions.Count(d => _enabledExits.Contains(d)
+                                  && !_resolved.Contains(EdgeKey(_currentRoom, fex, d)));
+    }
+
+    /// <summary>Next hop toward the nearest room that needs closing, using the live resolved
+    /// set for the current room (overrides the stale name-keyed graph). Null when none reachable.</summary>
+    private string? PlanGoToOpenLocked()
+    {
+        var fex = FexKeyLocked();
+        var resolved = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var dir in Directions)
+            if (_resolved.Contains(EdgeKey(_currentRoom, fex, dir)))
+                resolved.Add(dir);
+        return _graph.FirstHopToClose(_currentRoom, resolved);
+    }
+
     /// <summary>Maps a FE EXITS keyword (or user input) to a canonical direction command.</summary>
     public static string? NormalizeDirection(string word) => word.Trim().ToLowerInvariant() switch
     {
@@ -720,6 +925,9 @@ public sealed class MappingSession : IDisposable
 
     private void WriteEntryLocked(string mode, string data)
     {
+        // A timer callback can win the race into _lock after Dispose; don't re-open the
+        // walk file (and leak a StreamWriter) for a session that's already torn down.
+        if (_disposed) return;
         if (_writer is null)
         {
             Directory.CreateDirectory(_directory);
@@ -745,11 +953,15 @@ public sealed class MappingSession : IDisposable
         _conn.FexListComplete  -= OnFexListComplete;
         _conn.FesProbeSent     -= OnFesProbeSent;
         _conn.FeiListComplete  -= OnFeiListComplete;
+        _conn.FewListStarting  -= OnFewListStarting;
+        _conn.FewListComplete  -= OnFewListComplete;
+        _conn.SetMappingFocus(false);   // restore the full heartbeat (safety net if the page's OnDisappearing didn't run)
         _conn.SetProbeHold(false);
         _opTimer.Dispose();
         _windowTimer.Dispose();
         lock (_lock)
         {
+            _disposed = true;
             _writer?.Dispose();
             _writer = null;
         }

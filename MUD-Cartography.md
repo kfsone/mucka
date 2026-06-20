@@ -49,6 +49,29 @@ required for graveyard/maze rooms where content-hash is not unique.
 - **Dark-room capture**: `MappingSession` does not yet suppress `edge: (unknown)...`
   records during dark navigation. That C# work is deferred until after ingest lands.
 
+## Client console: close-room return routing (2026-06-16)
+
+The `$map` console's Close Room cycle visits every unresolved exit of the current room
+and returns home after each. Its return picker (`MappingSession.PickReturnLocked`) twice
+falsely reported "no route back" on edges that plainly returned. Both were the same bug
+class: **using aggregate, name-keyed destination history to veto the reciprocal.**
+
+- *Different-fex collision* (two "Flower garden"s, one with `sw` and one without):
+  `MapGraph.KnownDestination` was name-only, so a sibling room's `ne` masqueraded as this
+  room's. Fixed by a **fex-aware destination map** (`NeighborsByKey`, keyed `"{fex}|{dir}"`).
+- *Same-fex collision* (the five "Badly-paved road"s, all fex
+  `e in n ne nw out s se sw swamp up w` — one's `s`→Entrance hall, another's `s`→Briar
+  patch): short+fex **still collides**, exactly the tier-3 identification limit in §3.
+  Fex-awareness can't fix this. Fixed by a **geometric reciprocal fallback**: after the
+  evidence-based tiers fail, trust the reciprocal of the move that just arrived and let
+  the arrival/home-verification probe confirm. A wrong guess blocks safely; it never loops.
+
+**Principle for any auto-navigation built on this graph**: aggregate edge history cannot
+establish *instance* identity for same-name (±same-fex) rooms — only traversal-in-sequence
+or breadcrumbs (§6) can. Routing must therefore (a) trust the just-walked reciprocal as the
+canonical return, and (b) **re-plan from where you actually landed after every hop**, never
+blindly follow a precomputed name-keyed path. Verify each arrival; stop on mismatch.
+
 ---
 
 # MUD2 Cartography: Domain Model for Mapping Agents

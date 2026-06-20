@@ -47,6 +47,38 @@ Prompt for a fresh session picking up the MUD2 mapping effort. State as of 2026-
   "can't tell from in here" (carry last outdoor observation + staleness).
 - **River R18/R19** (see summary): identical short+long+fex, divergent exits tables,
   traversed `R18 |w> R19`. Cleanest live ambiguity; first breadcrumb target.
+- **Compass "?" flicker is fex-keyed** (root cause of the "inconsistent for unknown
+  reasons" feel): exit-resolution keys on `room|fex|dir` (`EdgeKey`), and the same room
+  legitimately reports different `fex` over time (door opens, weather, cliff crumble —
+  see the conditional-exit taxonomy below). When fex changes, a *different* EdgeKey is
+  tested, so an already-walked exit can flip back to "interesting" though nothing about
+  it changed; closing out a distant room likewise drops a near exit's "?" via
+  `ExitLeadsToOpenRoom` (name-keyed, so same-name rooms can mislead it). This is by
+  design until Stage 1 MapModel folds same-room/differing-fex into conditional edges —
+  do NOT patch it ad hoc. 2026-06-19: the compass icon set (9 PNGs + size slider) was
+  retired for a single amber "?" on interesting exits; the determination logic above is
+  unchanged, so the flicker is calmed (binary present/absent) but not fixed. The "?" is a
+  deliberate placeholder for richer per-exit state later (fanout / there / there-and-back
+  / here), so keep `InterestingExits` and its caller forward-friendly.
+- **Heartbeat focus mode is shared-session state — restore it on every teardown.**
+  `SetMappingFocus(true)` reduces the periodic heartbeat to FEW-only (online list for PKer
+  watch) while the mapping window has focus. The `MudSession` is reused across
+  reconnects/relogs, so focus state MUST be cleared on disconnect or a relog resumes
+  FEW-only and silently starves the main window of stats (FES) and inventory (FEI) — the
+  desktop sibling of the known FES-leak-on-relog bug. Fixed 2026-06-19: `MudSession.Reset()`
+  and `OnGameModeExited()` now drop `_mappingFocus` and rebuild the full subscription;
+  `MappingSession.Dispose()` restores it as a safety net.
+- **Focus mode currently forces FEW even if the user disabled the online list** (`_includeFew
+  == false`). This is intentional for now — focus mode exists to keep the PKer list live
+  mid-survey — but it overrides a user opt-out. Open question: gate it (`focused && _includeFew`)
+  or leave it. Low stakes; revisit if it surprises anyone.
+- **Two windows, one connection → current-room can briefly desync.** `_currentRoom` is
+  shared; a manual move in the game window and a mapping op completing race to update it.
+  Walk-file edges key off `_moveFrom`/`_moveFromFex` captured at op start, so a wrong edge
+  is unlikely, but Seek/close-room re-planning reads `_currentRoom` and could plan a hop
+  from a room the player just manually left. Mitigated by re-probing after each hop and
+  the home-verification mismatch blocking (rather than looping). Inherent to the
+  two-window design; not a bug to fix, a constraint to remember.
 
 ## Conditional exit taxonomy (from live captures)
 

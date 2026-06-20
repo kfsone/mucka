@@ -949,9 +949,10 @@
             <Border BackgroundColor="#161b22"
                     Stroke="#2d333b" StrokeThickness="1"
                     Padding="16,12"
-                    WidthRequest="280"
+                    WidthRequest="280" MaximumHeightRequest="560"
                     HorizontalOptions="Center" VerticalOptions="Center">
                 <Border.StrokeShape><RoundRectangle CornerRadius="6"/></Border.StrokeShape>
+                <ScrollView>
                 <VerticalStackLayout Spacing="4">
 
                     <Grid ColumnDefinitions="*,Auto">
@@ -1018,9 +1019,86 @@
 
                     <BoxView Color="#2d333b" HeightRequest="1" Margin="0,8"/>
 
+                    <Label Text="Tips" TextColor="White" FontSize="11" FontAttributes="Bold"/>
+
+                    <Label FontSize="11" Margin="0,2,0,0">
+                        <Label.FormattedText>
+                            <FormattedString>
+                                <Span Text="Ctrl-D" TextColor="#58a6ff"/>
+                                <Span Text="  Speak the current dreamword" TextColor="#888888"/>
+                            </FormattedString>
+                        </Label.FormattedText>
+                    </Label>
+
+                    <Label FontSize="11">
+                        <Label.FormattedText>
+                            <FormattedString>
+                                <Span Text="Ctrl-Shift-D" TextColor="#58a6ff"/>
+                                <Span Text="  Speak the dreamword, then run your typed command (or sleep if the box is empty)" TextColor="#888888"/>
+                            </FormattedString>
+                        </Label.FormattedText>
+                    </Label>
+
+                    <Label FontSize="11">
+                        <Label.FormattedText>
+                            <FormattedString>
+                                <Span Text="Ctrl-F" TextColor="#58a6ff"/>
+                                <Span Text="  Flee" TextColor="#888888"/>
+                            </FormattedString>
+                        </Label.FormattedText>
+                    </Label>
+
+                    <Label FontSize="11">
+                        <Label.FormattedText>
+                            <FormattedString>
+                                <Span Text="Ctrl-Shift-F" TextColor="#58a6ff"/>
+                                <Span Text="  Flee in the typed direction" TextColor="#888888"/>
+                            </FormattedString>
+                        </Label.FormattedText>
+                    </Label>
+
+                    <Label FontSize="11">
+                        <Label.FormattedText>
+                            <FormattedString>
+                                <Span Text="Ctrl-L" TextColor="#58a6ff"/>
+                                <Span Text="  Clear the screen" TextColor="#888888"/>
+                            </FormattedString>
+                        </Label.FormattedText>
+                    </Label>
+
+                    <Label FontSize="11">
+                        <Label.FormattedText>
+                            <FormattedString>
+                                <Span Text="Ctrl-`" TextColor="#58a6ff"/>
+                                <Span Text="  Save a screenshot of the window" TextColor="#888888"/>
+                            </FormattedString>
+                        </Label.FormattedText>
+                    </Label>
+
+                    <Label FontSize="11">
+                        <Label.FormattedText>
+                            <FormattedString>
+                                <Span Text="F1-F12" TextColor="#58a6ff"/>
+                                <Span Text="  Macro slots (with Shift / Ctrl for 13-36)" TextColor="#888888"/>
+                            </FormattedString>
+                        </Label.FormattedText>
+                    </Label>
+
+                    <Label FontSize="11">
+                        <Label.FormattedText>
+                            <FormattedString>
+                                <Span Text="PgUp / PgDn" TextColor="#58a6ff"/>
+                                <Span Text="  Scroll back through history" TextColor="#888888"/>
+                            </FormattedString>
+                        </Label.FormattedText>
+                    </Label>
+
+                    <BoxView Color="#2d333b" HeightRequest="1" Margin="0,8"/>
+
                     <Label Text="WORK IN PROGRESS" TextColor="#e3b341" FontSize="11" FontAttributes="Bold"/>
 
                 </VerticalStackLayout>
+                </ScrollView>
             </Border>
         </Grid>
 

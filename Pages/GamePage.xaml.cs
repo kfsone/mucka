@@ -122,6 +122,7 @@ public partial class GamePage : ContentPage
                 _vm.ConfigRequested     += OnConfigRequested;
                 _vm.ClearScreenRequested += OnClearScreenRequested;
                 _vm.SettingsSaved       += OnSettingsSaved;
+                _vm.ToastRequested      += ShowToast;
                 _vm.PropertyChanged     += OnVmPropertyChanged;
                 Terminal.HistoryModeChanged += OnHistoryModeChanged;
                 Terminal.FocusInputRequested += OnFocusInputRequested;
@@ -261,6 +262,7 @@ public partial class GamePage : ContentPage
         _vm.ConfigRequested     -= OnConfigRequested;
         _vm.ClearScreenRequested -= OnClearScreenRequested;
         _vm.SettingsSaved       -= OnSettingsSaved;
+        _vm.ToastRequested      -= ShowToast;
         _vm.PropertyChanged     -= OnVmPropertyChanged;
         Terminal.HistoryModeChanged -= OnHistoryModeChanged;
         Terminal.FocusInputRequested -= OnFocusInputRequested;
@@ -877,9 +879,17 @@ public partial class GamePage : ContentPage
         }
 
         // Ctrl+D speak dreamword (exits scrollback first if reviewing — dreamwords are
-        // time-critical); Ctrl+L clear screen; Ctrl+` window selfie.
+        // time-critical); Ctrl+Shift+D speaks it then chains the typed command (or "sleep");
+        // Ctrl+L clear screen; Ctrl+` window selfie.
         Add(Windows.System.VirtualKey.D, Windows.System.VirtualKeyModifiers.Control,
             () => { if (Terminal.IsHistoryMode) Terminal.ScrollToBottom(); _vm.SpeakDreamword(); });
+        Add(Windows.System.VirtualKey.D, Windows.System.VirtualKeyModifiers.Control | Windows.System.VirtualKeyModifiers.Shift,
+            () => { if (Terminal.IsHistoryMode) Terminal.ScrollToBottom(); _vm.SpeakDreamwordThen(); });
+        // Ctrl+F flee; Ctrl+Shift+F flee in the typed direction.
+        Add(Windows.System.VirtualKey.F, Windows.System.VirtualKeyModifiers.Control,
+            () => { if (Terminal.IsHistoryMode) Terminal.ScrollToBottom(); _vm.Flee(); });
+        Add(Windows.System.VirtualKey.F, Windows.System.VirtualKeyModifiers.Control | Windows.System.VirtualKeyModifiers.Shift,
+            () => { if (Terminal.IsHistoryMode) Terminal.ScrollToBottom(); _vm.FleeThen(); });
         Add(Windows.System.VirtualKey.L, Windows.System.VirtualKeyModifiers.Control, () => _vm.ClearScreen());
         Add((Windows.System.VirtualKey)0xC0, Windows.System.VirtualKeyModifiers.Control, () => _ = TakeSelfieAsync());
 
@@ -913,10 +923,18 @@ public partial class GamePage : ContentPage
             e.Handled = true;
             return;
         }
+        bool shift = (GetKeyState((int)Windows.System.VirtualKey.Shift) & 0x8000) != 0;
         if (ctrl && key == Windows.System.VirtualKey.D)
         {
             Terminal.ScrollToBottom();
-            _vm.SpeakDreamword();
+            if (shift) _vm.SpeakDreamwordThen(); else _vm.SpeakDreamword();
+            e.Handled = true;
+            return;
+        }
+        if (ctrl && key == Windows.System.VirtualKey.F)
+        {
+            Terminal.ScrollToBottom();
+            if (shift) _vm.FleeThen(); else _vm.Flee();
             e.Handled = true;
             return;
         }

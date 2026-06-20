@@ -405,6 +405,8 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public event Action? ClearScreenRequested;
     /// <summary>Raised after settings have been persisted — GamePage shows a confirmation toast.</summary>
     public event Action? SettingsSaved;
+    /// <summary>Raised to surface a transient message in the GamePage toast.</summary>
+    public event Action<string>? ToastRequested;
 #if WINDOWS
     public event Action? OpenRawConsoleRequested;
     /// <summary>Raised by $map — GamePage opens (or surfaces) the mapping panel window.</summary>
@@ -874,6 +876,56 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             _conn.SendLine($"\"{_dreamword}\"");
             _lastSentUtc = DateTime.UtcNow;
         }
+        RequestFocus?.Invoke();
+    }
+
+    /// <summary>Speak the dreamword and chain a follow-up command (Ctrl+Shift+D) — sent as
+    /// <c>"word",follow\r\n</c>. With an empty input box the follow-up defaults to "sleep"
+    /// (you usually want to sleep right after speaking). Otherwise the typed command is used:
+    /// one leading comma is stripped (we supply our own separator), and a command beginning
+    /// ",," is refused with a toast — ",," means "repeat last command" in MUD2 and would
+    /// misfire here. The input box is left untouched.</summary>
+    public void SpeakDreamwordThen()
+    {
+        if (string.IsNullOrEmpty(_dreamword))
+        {
+            RequestFocus?.Invoke();
+            return;
+        }
+
+        var follow = InputText.Trim();
+        if (follow.StartsWith(",,", StringComparison.Ordinal))
+        {
+            ToastRequested?.Invoke("* cannot append input starting ,,");
+            RequestFocus?.Invoke();
+            return;
+        }
+        if (follow.Length > 0 && follow[0] == ',')
+            follow = follow[1..].Trim();
+        if (follow.Length == 0)
+            follow = "sleep";
+
+        _conn.Annotate($"dreamword spoken: {_dreamword} ,{follow}");
+        _conn.SendLine($"\"{_dreamword}\",{follow}");
+        _lastSentUtc = DateTime.UtcNow;
+        RequestFocus?.Invoke();
+    }
+
+    /// <summary>Send <c>flee\r\n</c> (Ctrl+F).</summary>
+    public void Flee()
+    {
+        _conn.SendLine("flee");
+        _lastSentUtc = DateTime.UtcNow;
+        RequestFocus?.Invoke();
+    }
+
+    /// <summary>Send <c>flee &lt;input&gt;\r\n</c> with the current input as the direction
+    /// (Ctrl+Shift+F); a bare <c>flee</c> when the input box is empty. Input is left untouched.</summary>
+    public void FleeThen()
+    {
+        var arg = InputText.Trim();
+        _conn.SendLine(arg.Length == 0 ? "flee" : $"flee {arg}");
+        _lastSentUtc = DateTime.UtcNow;
         RequestFocus?.Invoke();
     }
 

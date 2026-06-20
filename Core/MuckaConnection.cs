@@ -236,6 +236,10 @@ public sealed class MuckaConnection : IAsyncDisposable
     /// <summary>Hold/release the FES/FEW/FEI probe machinery (see MudSession.SetProbeHold).</summary>
     public void SetProbeHold(bool held) => _session.SetProbeHold(held);
 
+    /// <summary>Mapping window focus changed -- collapses the heartbeat to FEW-only while
+    /// focused (see MudSession.SetMappingFocus).</summary>
+    public void SetMappingFocus(bool focused) => _session.SetMappingFocus(focused);
+
     /// <summary>
     /// Update the advertised terminal window size. May be called from any thread.
     /// Sends an updated NAWS subnegotiation if NAWS has been negotiated with the server.

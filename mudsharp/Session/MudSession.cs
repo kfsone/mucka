@@ -57,6 +57,10 @@ public sealed class MudSession : IDisposable
     // (see UpdateSubscriptionOptions).
     private bool _includeFew = true;
     private bool _includeFei = true;
+    // While the mapping window has focus the heartbeat collapses to FEW-only: stats (FES)
+    // and inventory (FEI) are irrelevant mid-survey, but the online list must keep flowing
+    // so an arriving PKer is visible. Separate escaped FEx queries are fine standalone.
+    private bool _mappingFocus;
     private byte[] _fesSubscription = BuildSubscription(includeFew: true, includeFei: true);
 
     // ── Public events (forwarded from parser) ─────────────────────────────────
@@ -140,9 +144,29 @@ public sealed class MudSession : IDisposable
             if (_includeFew == includeFew && _includeFei == includeFei) return;
             _includeFew = includeFew;
             _includeFei = includeFei;
-            _fesSubscription = BuildSubscription(includeFew, includeFei);
+            _fesSubscription = BuildSubscriptionLocked();
         }
     }
+
+    /// <summary>Mapping window focus gained (true) / lost (false). While focused the
+    /// periodic heartbeat is reduced to FEW-only so the online list keeps refreshing
+    /// (PKer awareness) without FES/FEI noise the operator does not need mid-survey.
+    /// May be called from any thread.</summary>
+    public void SetMappingFocus(bool focused)
+    {
+        lock (_fesLock)
+        {
+            if (_mappingFocus == focused) return;
+            _mappingFocus = focused;
+            _fesSubscription = BuildSubscriptionLocked();
+        }
+    }
+
+    // Current heartbeat payload given focus + subscription toggles. Caller holds _fesLock.
+    private byte[] BuildSubscriptionLocked()
+        => _mappingFocus
+            ? System.Text.Encoding.ASCII.GetBytes("\x1b-[FEW\x1b-]")   // online list only
+            : BuildSubscription(_includeFew, _includeFei);
 
     private static byte[] BuildSubscription(bool includeFew, bool includeFei)
     {
@@ -195,7 +219,14 @@ public sealed class MudSession : IDisposable
     {
         StopFesTimer();
         lock (_fesLock)
+        {
             StopStaleProbeLocked();
+            // Drop mapping focus and restore the full FES/FEW/FEI heartbeat. The session is
+            // reused across reconnects/relogs, so leaving focus set would resume FEW-only on
+            // the next game-mode entry and silently starve the main window of stats/inventory.
+            _mappingFocus = false;
+            _fesSubscription = BuildSubscriptionLocked();
+        }
         _onlineNames.Clear();
         _pendingOnlineNames.Clear();
         _parser.Reset();
@@ -344,7 +375,14 @@ public sealed class MudSession : IDisposable
     {
         StopFesTimer();
         lock (_fesLock)
+        {
             StopStaleProbeLocked();
+            // Drop mapping focus and restore the full FES/FEW/FEI heartbeat. The session is
+            // reused across reconnects/relogs, so leaving focus set would resume FEW-only on
+            // the next game-mode entry and silently starve the main window of stats/inventory.
+            _mappingFocus = false;
+            _fesSubscription = BuildSubscriptionLocked();
+        }
         _onlineNames.Clear();
         _pendingOnlineNames.Clear();
         GameModeExited?.Invoke();

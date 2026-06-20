@@ -1,6 +1,16 @@
 #if WINDOWS
 namespace Mucka.Core.Mapping;
 
+/// <summary>Aggregate counts for the stats panel. Name-keyed, so room/edge counts are
+/// name-level (same-name instances collapse) and "closed" is provisional (conditional
+/// exits can reopen a room). Take two snapshots to diff a session's effect on the model.</summary>
+public readonly record struct MapStats(
+    int Rooms,         // distinct room names we have stood in (have a known exit set)
+    int OpenRooms,     // explored rooms with at least one unresolved known exit
+    int ClosedRooms,   // explored rooms with every known exit resolved (provisional)
+    int Edges,         // resolved directed edges (traversals + structural refusals)
+    int DarkExits);    // edges observed to lead into an unseen room -- revisit with light
+
 /// <summary>
 /// In-memory directed multigraph of captured edges, loaded from walk files.
 /// Used for two things: static reciprocal-direction lookup (no load needed) and
@@ -33,8 +43,22 @@ public sealed class MapGraph
         public HashSet<string> KnownExits { get; } = new(StringComparer.OrdinalIgnoreCase);
         // Directions that have been resolved (traversed or structural-refused) from this room.
         public HashSet<string> ResolvedDirs { get; } = new(StringComparer.OrdinalIgnoreCase);
-        // Resolved neighbors: dir → destination room name.
+        // Resolved neighbors: dir → destination room name. Name-level (collapses
+        // same-name rooms) -- used only for guidance heuristics, never for return proof.
         public Dictionary<string, string> Neighbors { get; } = new(StringComparer.OrdinalIgnoreCase);
+        // Fex-aware neighbors: "{fex}|{dir}" → destination. Disambiguates same-name rooms
+        // with different exit sets (two "Flower garden"s, one with sw and one without), so
+        // return-routing can trust "this exact room's dir leads to origin".
+        public Dictionary<string, string> NeighborsByKey { get; } = new(StringComparer.OrdinalIgnoreCase);
+        // Directions observed to lead into an unseen (dark) room: traversed, far end
+        // unidentified for lack of light. NOT in ResolvedDirs -- they stay wanted, but
+        // we want to surface them as "needs a light source" rather than plain unexplored.
+        public HashSet<string> DarkExits { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        // A room we have stood in (and so know the exits of) iff KnownExits is non-empty.
+        public bool Explored => KnownExits.Count > 0;
+        // Every known exit resolved -- provisional: a door/condition can mint a new exit later.
+        public bool Closed   => Explored && KnownExits.All(ResolvedDirs.Contains);
     }
 
     private readonly Dictionary<string, RoomNode> _nodes;
@@ -56,9 +80,18 @@ public sealed class MapGraph
 
         if (edge.IsTraversal)
         {
-            if (!edge.ResolvesEdge) return;   // far end unidentified -- stays wanted
+            if (!edge.ResolvesEdge)
+            {
+                // Walked it but could not see the far end (no light). Record it as a dark
+                // exit so the stats/room panels can flag "needs a light source"; it stays
+                // out of ResolvedDirs so the compass keeps offering it.
+                if (edge.Outcome == "(dark)")
+                    fromNode.DarkExits.Add(edge.Direction);
+                return;
+            }
             fromNode.ResolvedDirs.Add(edge.Direction);
             fromNode.Neighbors[edge.Direction] = edge.Outcome;
+            fromNode.NeighborsByKey[$"{edge.ExitFingerprint}|{edge.Direction}"] = edge.Outcome;
         }
         else
         {
@@ -70,22 +103,55 @@ public sealed class MapGraph
 
     // ── Queries / live updates ─────────────────────────────────────────────────
 
-    /// <summary>Name-level destination evidence: where dir from room has been seen to
-    /// lead (any walk, any fingerprint/door state), or null when never traversed.
-    /// Same-name collisions apply -- this is "seems to lead to", not proof.</summary>
-    public string? KnownDestination(string room, string dir)
-        => _nodes.TryGetValue(room, out var n) && n.Neighbors.TryGetValue(dir, out var dest)
+    /// <summary>Fex-aware destination evidence: where dir leads from the room *with this
+    /// exact exit set*, or null when that room-state's dir has never been traversed.
+    /// Distinguishes same-name rooms (two "Flower garden"s); this is the lookup
+    /// return-routing must use so a sibling room's edge can't masquerade as this one's.</summary>
+    public string? KnownDestination(string room, string fex, string dir)
+        => _nodes.TryGetValue(room, out var n) && n.NeighborsByKey.TryGetValue($"{fex}|{dir}", out var dest)
             ? dest : null;
 
     /// <summary>Records a live traversal so decisions made this session see edges
-    /// captured this session (the disk rescan only happens on reload).</summary>
-    public void RecordTraversal(string from, string dir, string to)
+    /// captured this session (the disk rescan only happens on reload). <paramref name="fex"/>
+    /// is the from-room's exit fingerprint at move time -- keys the fex-aware lookup.</summary>
+    public void RecordTraversal(string from, string fex, string dir, string to)
     {
         if (!_nodes.TryGetValue(from, out var node))
             _nodes[from] = node = new RoomNode();
         node.ResolvedDirs.Add(dir);
         node.Neighbors[dir] = to;
+        node.NeighborsByKey[$"{fex}|{dir}"] = to;
     }
+
+    /// <summary>Live mirror of a dark arrival (walked, far end unseen). Keeps the
+    /// session's stats snapshot accurate without a disk rescan.</summary>
+    public void RecordDarkExit(string from, string dir)
+    {
+        if (!_nodes.TryGetValue(from, out var node))
+            _nodes[from] = node = new RoomNode();
+        node.DarkExits.Add(dir);
+    }
+
+    // ── Stats / panel queries ───────────────────────────────────────────────────
+
+    /// <summary>Current aggregate counts. Cheap O(rooms·exits) scan -- call on demand.</summary>
+    public MapStats Snapshot()
+    {
+        int open = 0, closed = 0, edges = 0, dark = 0;
+        foreach (var node in _nodes.Values)
+        {
+            edges += node.Neighbors.Count;
+            dark  += node.DarkExits.Count;
+            if (!node.Explored) continue;       // unexplored: counts toward neither open nor closed
+            if (node.Closed) closed++; else open++;   // Closed implies Explored, so scan KnownExits once
+        }
+        return new MapStats(_nodes.Count, open, closed, edges, dark);
+    }
+
+    /// <summary>Directions from <paramref name="room"/> observed to lead into a dark
+    /// (unseen) room -- the "needs a light source" exits for the room-data panel.</summary>
+    public IReadOnlyCollection<string> DarkExitsFrom(string room)
+        => _nodes.TryGetValue(room, out var n) ? n.DarkExits : Array.Empty<string>();
 
     // ── Guidance ───────────────────────────────────────────────────────────────
 
@@ -110,18 +176,47 @@ public sealed class MapGraph
                 return dir;
         }
 
-        // Stage 2: BFS to nearest room that has uncaptured exits.
-        return BfsFirstHop(room, resolvedDirs);
+        // Stage 2: BFS to the nearest room that is open OR unexplored.
+        return BfsFirstHop(room, resolvedDirs, n => IsOpenRoom(n) || IsFrontier(n));
     }
+
+    /// <summary>First hop toward the nearest room that still "needs closing": an explored
+    /// room with at least one uncaptured exit, preferred over never-visited frontier.
+    /// Null when neither is reachable. The caller re-plans from where it actually lands
+    /// after each hop -- a name-keyed path can thread the wrong same-name instance, so a
+    /// precomputed route is never followed blindly (see MUD-Cartography close-room note).</summary>
+    public string? FirstHopToClose(string room, IReadOnlySet<string> resolvedDirs)
+        => BfsFirstHop(room, resolvedDirs, IsOpenRoom)
+        ?? BfsFirstHop(room, resolvedDirs, IsFrontier);
+
+    /// <summary>True when this exit (from the room with this exact fex) has been traversed
+    /// to a room that is itself still open -- i.e. going that way leads to more work. False
+    /// for unwalked exits (destination unknown) and exits into closed rooms.</summary>
+    public bool ExitLeadsToOpenRoom(string room, string fex, string dir)
+        => _nodes.TryGetValue(room, out var n)
+        && n.NeighborsByKey.TryGetValue($"{fex}|{dir}", out var dest)
+        && _nodes.TryGetValue(dest, out var dn)
+        && IsOpenRoom(dn);
+
+    // Open = explored (we know its exits) with at least one not yet captured.
+    private static bool IsOpenRoom(RoomNode? n)
+        => n is { } node && node.KnownExits.Count > 0 && node.KnownExits.Any(e => !node.ResolvedDirs.Contains(e));
+
+    // Frontier = a room we have heard of by name but never stood in.
+    private static bool IsFrontier(RoomNode? n)
+        => n is null || n.KnownExits.Count == 0;
 
     // Guidance travel cap: BFS already prefers the NEAREST room with outstanding edges,
     // but past this many hops the suggestion costs more travel than it saves -- offer
     // nothing and let the user pick. TODO: smarter tour planning -- minimize total
     // travel time to close ALL outstanding edges/disambiguations (a routing problem,
     // not nearest-target), and weight pending-edge closure over frontier expansion.
-    private const int MaxGuidanceHops = 10;
+    private const int MaxPlanningDepth = 10;
 
-    private string? BfsFirstHop(string startRoom, IReadOnlySet<string> startResolved)
+    /// <summary>First-hop direction toward the nearest room (within the guidance cap) for
+    /// which <paramref name="isTarget"/> holds, BFS over resolved edges; null if none.
+    /// The target predicate sees the destination's node (null when never captured from).</summary>
+    private string? BfsFirstHop(string startRoom, IReadOnlySet<string> startResolved, Func<RoomNode?, bool> isTarget)
     {
         var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { startRoom };
         var queue   = new Queue<(string room, string firstHop, int depth)>();
@@ -142,14 +237,12 @@ public sealed class MapGraph
         while (queue.Count > 0)
         {
             var (room, firstHop, depth) = queue.Dequeue();
+            var node = _nodes.TryGetValue(room, out var n) ? n : null;
 
-            if (!_nodes.TryGetValue(room, out var node) || node.KnownExits.Count == 0)
-                return firstHop;   // never captured from here -- go explore it
+            if (isTarget(node))
+                return firstHop;
 
-            if (node.KnownExits.Any(e => !node.ResolvedDirs.Contains(e)))
-                return firstHop;   // has at least one uncaptured exit
-
-            if (depth >= MaxGuidanceHops) continue;
+            if (depth >= MaxPlanningDepth || node is null) continue;
             foreach (var (_, neighbor) in node.Neighbors)
             {
                 if (!visited.Contains(neighbor))
