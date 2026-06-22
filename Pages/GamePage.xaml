@@ -339,7 +339,7 @@
                     <Label Grid.Row="1" Grid.Column="5"
                            Text="{Binding ScoreDisplayValue}" TextColor="{Binding ScoreColor}"
                            Style="{StaticResource StatLabelStyle}"
-                           FontSize="{Binding StatsValueFontSize}" FontAttributes="Bold"
+                           FontSize="{Binding ScoreCompactFontSize}" FontAttributes="Bold"
                            MaxLines="1" LineBreakMode="TailTruncation"
                            HorizontalOptions="Center" Margin="0,0,4,0"/>
 

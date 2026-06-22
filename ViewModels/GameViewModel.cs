@@ -155,9 +155,10 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public string ScoreDeltaValue => Score <= 0 || _baseScore < 0 ? string.Empty
         : $" ({ScoreDeltaStr(Score - _baseScore)})";
 
-    /// <summary>Score value for display — drops the delta suffix when effcols &lt; 70.</summary>
+    /// <summary>Score value for the compact bar — always carries the reset-delta suffix (rendered
+    /// one point smaller via <see cref="ScoreCompactFontSize"/> so it fits in narrow layouts).</summary>
     public string ScoreDisplayValue => Score <= 0 ? "—"
-        : _baseScore < 0 || _effCols < 70 ? $"{Score}"
+        : _baseScore < 0 ? $"{Score}"
         : $"{Score} ({ScoreDeltaStr(Score - _baseScore)})";
 
     public bool   MagVisible  => _magic > 0;
@@ -174,6 +175,9 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public double StatsValueFontSize => _effCols < 50 ? 12.0 : 13.0;
     /// <summary>Font size for the "/max" half of a stat pair — two points below the current value.</summary>
     public double StatsMaxValueFontSize => StatsValueFontSize - 2.0;
+    /// <summary>Font size for the score (with its reset-delta) in the compact bar — one point below
+    /// the stat values so the always-on delta suffix fits without crowding the effects column.</summary>
+    public double ScoreCompactFontSize => StatsValueFontSize - 1.0;
     /// <summary>Font size for the dreamword pill — one point larger in wide mode.</summary>
     public double DreamwordFontSize => (_effCols < 50 ? 12.0 : 13.0) + _dreamwordSizeOffset;
 
@@ -1013,6 +1017,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             OnPropertyChanged(nameof(IsCompactWeather));
             OnPropertyChanged(nameof(StatsValueFontSize));
             OnPropertyChanged(nameof(StatsMaxValueFontSize));
+            OnPropertyChanged(nameof(ScoreCompactFontSize));
             OnPropertyChanged(nameof(DreamwordFontSize));
             OnPropertyChanged(nameof(StaMaxValue));
             OnPropertyChanged(nameof(MagMaxValue));
@@ -1021,7 +1026,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             OnPropertyChanged(nameof(FkeyFontSize));
             OnPropertyChanged(nameof(FkeyButtonMargin));
             OnPropertyChanged(nameof(FkeyBarPadding));
-            OnPropertyChanged(nameof(ScoreDisplayValue));
             OnPropertyChanged(nameof(WeatherDisplayText));
             OnPropertyChanged(nameof(IsCompactEffects));
             OnPropertyChanged(nameof(DeafDisplay));
