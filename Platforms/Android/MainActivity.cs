@@ -32,6 +32,15 @@ public class MainActivity : MauiAppCompatActivity
                 return true;
             if (e.IsCtrlPressed && e.KeyCode == Keycode.L && Pages.GamePage.TryFireCtrlL())
                 return true;
+            // Hardware Up/Down recall command history (mirrors the Windows input-box handler).
+            // Intercept at the activity so the single-line Entry never sees the arrows first.
+            if (e.KeyCode == Keycode.DpadUp && Pages.GamePage.TryFireHistoryUp())
+                return true;
+            if (e.KeyCode == Keycode.DpadDown && Pages.GamePage.TryFireHistoryDown())
+                return true;
+            // Escape clears the input (or closes the About overlay), mirroring the Windows handler.
+            if (e.KeyCode == Keycode.Escape && Pages.GamePage.TryFireEscape())
+                return true;
         }
         return base.DispatchKeyEvent(e);
     }

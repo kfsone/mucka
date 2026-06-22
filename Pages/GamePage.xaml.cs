@@ -16,6 +16,9 @@ public partial class GamePage : ContentPage
     private static Action<int>? _androidFkeyHandler;
     private static Action? _androidCtrlDHandler;
     private static Action? _androidCtrlLHandler;
+    private static Action? _androidHistoryUpHandler;
+    private static Action? _androidHistoryDownHandler;
+    private static Action? _androidEscapeHandler;
 
     public static bool TryFireFkeyHandler(int absoluteIndex)
     {
@@ -35,6 +38,27 @@ public partial class GamePage : ContentPage
     {
         if (_androidCtrlLHandler is null) return false;
         _androidCtrlLHandler();
+        return true;
+    }
+
+    public static bool TryFireHistoryUp()
+    {
+        if (_androidHistoryUpHandler is null) return false;
+        _androidHistoryUpHandler();
+        return true;
+    }
+
+    public static bool TryFireHistoryDown()
+    {
+        if (_androidHistoryDownHandler is null) return false;
+        _androidHistoryDownHandler();
+        return true;
+    }
+
+    public static bool TryFireEscape()
+    {
+        if (_androidEscapeHandler is null) return false;
+        _androidEscapeHandler();
         return true;
     }
 #endif
@@ -224,6 +248,26 @@ public partial class GamePage : ContentPage
         _androidFkeyHandler = _vm.SendFkeyAbsolute;
         _androidCtrlDHandler = _vm.SpeakDreamword;
         _androidCtrlLHandler = _vm.ClearScreen;
+        // History recall (Up/Down) is not a per-keystroke cost — wire the hardware arrows to the
+        // same commands the Windows input box uses, then park the cursor at the end of the recalled
+        // command so it can be edited immediately (the TwoWay binding has already pushed the text).
+        _androidHistoryUpHandler = () =>
+        {
+            _vm.HistoryUpCommand.Execute(null);
+            InputEntry.CursorPosition = _vm.InputText?.Length ?? 0;
+        };
+        _androidHistoryDownHandler = () =>
+        {
+            _vm.HistoryDownCommand.Execute(null);
+            InputEntry.CursorPosition = _vm.InputText?.Length ?? 0;
+        };
+        // Escape closes the About overlay if it is open; otherwise it clears the input. The TwoWay
+        // binding pushes the empty string to the Entry (no native-textbox sync needed as on Windows).
+        _androidEscapeHandler = () =>
+        {
+            if (!TryCloseAbout())
+                _vm.InputText = string.Empty;
+        };
 #endif
     }
 
@@ -242,6 +286,9 @@ public partial class GamePage : ContentPage
         _androidFkeyHandler = null;
         _androidCtrlDHandler = null;
         _androidCtrlLHandler = null;
+        _androidHistoryUpHandler = null;
+        _androidHistoryDownHandler = null;
+        _androidEscapeHandler = null;
 #endif
         if (_isFkeyEditorOpen)
         {
