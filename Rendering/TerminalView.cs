@@ -116,6 +116,14 @@ public sealed class TerminalView : SKCanvasView
         if (!_historyMode) InvalidateSurface();
     }
 
+    /// <summary>Inject a client annotation line above the live prompt, restoring the prompt below
+    /// it (see <see cref="Mucka.Terminal.TerminalBuffer.InjectAbovePartial"/>). Repaints only when live.</summary>
+    public void InjectAnnotation(StyledLine line)
+    {
+        _buffer.InjectAbovePartial(TerminalText.ExpandTabs(TerminalText.Sanitize(line)));
+        if (!_historyMode) InvalidateSurface();
+    }
+
     public void Clear()
     {
         _buffer.Clear();

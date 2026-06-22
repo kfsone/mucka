@@ -1,6 +1,9 @@
 using System.Runtime.InteropServices;
 using Mucka.Core;
 using Mucka.ViewModels;
+#if WINDOWS
+using MudSharp.Models;   // StyledLine, for the $f<n> annotation handler
+#endif
 
 namespace Mucka.Pages;
 
@@ -150,6 +153,9 @@ public partial class GamePage : ContentPage
                 _vm.PropertyChanged     += OnVmPropertyChanged;
                 Terminal.HistoryModeChanged += OnHistoryModeChanged;
                 Terminal.FocusInputRequested += OnFocusInputRequested;
+#if WINDOWS
+                _vm.AnnotationReady += OnAnnotationReady;
+#endif
                 _eventsSubscribed = true;
             }
 
@@ -313,6 +319,9 @@ public partial class GamePage : ContentPage
         _vm.PropertyChanged     -= OnVmPropertyChanged;
         Terminal.HistoryModeChanged -= OnHistoryModeChanged;
         Terminal.FocusInputRequested -= OnFocusInputRequested;
+#if WINDOWS
+        _vm.AnnotationReady -= OnAnnotationReady;
+#endif
         _eventsSubscribed = false;
         if (Window is not null)
             Window.Activated -= OnWindowActivated;
@@ -476,6 +485,11 @@ public partial class GamePage : ContentPage
 #endif
 
     private void OnClearScreenRequested() => Terminal.Clear();
+
+#if WINDOWS
+    // $f<n> annotation: drop the "// ..." note above the live prompt, restoring the prompt below it.
+    private void OnAnnotationReady(StyledLine line) => Terminal.InjectAnnotation(line);
+#endif
 
     // Reacts to settings applied from the config dialog: font size changes re-style the
     // terminal; column changes re-fit the window (Windows) and re-wrap the view. The window

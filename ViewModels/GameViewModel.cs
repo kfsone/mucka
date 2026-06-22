@@ -710,7 +710,9 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         if (text.StartsWith('$'))
         {
             var name = text[1..];
-            if (name == "?")
+            if (name == "help")
+                PrintHelp();
+            else if (name == "?")
             {
                 var names = _watchwords.SlotNames;
                 AddSystemLine(names.Length == 0
@@ -723,6 +725,12 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
                 OpenRawConsoleRequested?.Invoke();
             else if (name == "map" || name.StartsWith("map ", StringComparison.OrdinalIgnoreCase))
                 HandleMapCommand(name.Length > 3 ? name[4..].Trim() : string.Empty);
+            else if (name == "fkeys" || name.StartsWith("fkeys ", StringComparison.OrdinalIgnoreCase))
+                PrintFkeys(name.Length > 5 ? name[6..].Trim() : string.Empty);
+            // $f<n>: annotate with fkey n's macro (absolute 1-36). Checked after "fkeys" so it
+            // never swallows it; the digit parse also rules "fkeys" out on its own.
+            else if (name.Length >= 2 && (name[0] is 'f' or 'F') && int.TryParse(name[1..], out var fn))
+                AnnotateFkey(fn);
             else
                 SpeakWatchword(name);
             return true;
@@ -771,6 +779,81 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         }
         else
             AddSystemLine($"[watchword] nothing queued for ${slotName}", 14);
+    }
+
+    /// <summary>Raised by $f&lt;n&gt; with a finished annotation line to drop above the live prompt.
+    /// GamePage applies it to the terminal buffer (see TerminalView.InjectAnnotation).</summary>
+    public event Action<StyledLine>? AnnotationReady;
+
+    // $help — list the client-side commands. Mirrored on the About page's Tips section.
+    private void PrintHelp()
+    {
+        AddSystemLine("[help] client commands:", 14);
+        AddSystemLine("  $help                 list these commands", 14);
+        AddSystemLine("  $?                    list loaded watchword slots", 14);
+        AddSystemLine("  $<                    scan recent output for watchword answers", 14);
+        AddSystemLine("  $con                  open the raw protocol console", 14);
+        AddSystemLine("  $map [arg]            open the map panel (or probe / dir / ...)", 14);
+        AddSystemLine("  $fkeys [shift|ctrl]   list your function-key macros", 14);
+        AddSystemLine("  $f<n>                 annotate output with fkey n's text (1-36)", 14);
+    }
+
+    // $fkeys [shift|ctrl] — list the 12 macros on the requested layer, echoing each line into the
+    // active capture/log as well as the terminal.
+    private void PrintFkeys(string layerArg)
+    {
+        int baseSlot;
+        string label;
+        switch (layerArg.ToLowerInvariant())
+        {
+            case "":      baseSlot = 0;  label = "F";       break;
+            case "shift": baseSlot = 12; label = "Shift+F"; break;
+            case "ctrl":  baseSlot = 24; label = "Ctrl+F";  break;
+            default:
+                AddSystemLine($"[fkeys] unknown layer '{layerArg}' (use: shift | ctrl)", 9);
+                return;
+        }
+
+        EmitAnnotated($"[fkeys] {label}1-{label}12:");
+        var shown = 0;
+        for (var i = 0; i < 12; i++)
+        {
+            var macro = _allFkeys[baseSlot + i];
+            if (string.IsNullOrEmpty(macro)) continue;
+            EmitAnnotated($"  {label}{i + 1} = {macro}");
+            shown++;
+        }
+        if (shown == 0)
+            EmitAnnotated("  (none set)");
+    }
+
+    // Print a system line to the terminal AND record it in any active capture/log.
+    private void EmitAnnotated(string msg)
+    {
+        AddSystemLine(msg, 14);
+        _conn.Annotate(msg);
+    }
+
+    // $f<n> — take fkey n's macro (absolute 1-36), drop it above the prompt as a "// ..." note
+    // (the prompt is restored beneath it), and record it in the capture as an annotation.
+    private void AnnotateFkey(int n)
+    {
+        if (n < 1 || n > _allFkeys.Length)
+        {
+            AddSystemLine($"[fkey] {n} out of range (1-{_allFkeys.Length})", 9);
+            return;
+        }
+        var macro = _allFkeys[n - 1].TrimEnd('\r', '\n');
+        if (string.IsNullOrWhiteSpace(macro))
+        {
+            AddSystemLine($"[fkey] {n} is empty", 9);
+            return;
+        }
+
+        var annotation = $"// {macro}";
+        var line = new StyledLine(new[] { new StyledSpan(annotation, new TextStyle(Foreground: (AnsiColor)10)) });
+        AnnotationReady?.Invoke(line);   // display: above the prompt, prompt restored below
+        _conn.Annotate(annotation);      // capture: as an annotation
     }
 
     /// <summary>The mapping data directory for this profile (mucka.ini mappingdir, or default).</summary>

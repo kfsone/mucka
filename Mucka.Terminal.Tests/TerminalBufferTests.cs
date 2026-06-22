@@ -127,6 +127,49 @@ public class TerminalBufferTests
         Assert.Equal(0, buf.Count);
     }
 
+    // -- Inject above the live partial ($f<n> annotation) ---------------------
+
+    [Fact]
+    public void InjectAbovePartial_WithPartial_CommitsAboveAndRestoresPrompt()
+    {
+        var buf = new TerminalBuffer();
+        buf.Append(Complete("you are here"));
+        buf.Append(Partial("* "));            // sitting at a prompt
+
+        buf.InjectAbovePartial(Complete("// north"));
+
+        // The note commits above; the prompt is restored as the live partial below it.
+        Assert.Equal(new[] { "you are here", "// north" }, buf.Committed.Select(l => l.PlainText));
+        Assert.NotNull(buf.Partial);
+        Assert.Equal("* ", buf.Partial!.PlainText);
+    }
+
+    [Fact]
+    public void InjectAbovePartial_WithoutPartial_JustCommits()
+    {
+        var buf = new TerminalBuffer();
+        buf.Append(Complete("plain"));
+
+        buf.InjectAbovePartial(Complete("// note"));
+
+        Assert.Null(buf.Partial);
+        Assert.Equal(new[] { "plain", "// note" }, buf.Committed.Select(l => l.PlainText));
+    }
+
+    [Fact]
+    public void InjectAbovePartial_DoesNotMergeIntoPrompt()
+    {
+        var buf = new TerminalBuffer();
+        buf.Append(Partial("* "));
+
+        buf.InjectAbovePartial(Complete("// note"));
+
+        // Distinct from Append's merge behaviour: the note is its own line, prompt untouched.
+        Assert.Single(buf.Committed);
+        Assert.Equal("// note", buf.Committed[0].PlainText);
+        Assert.Equal("* ", buf.Partial!.PlainText);
+    }
+
     // -- Ring cap -------------------------------------------------------------
 
     [Fact]

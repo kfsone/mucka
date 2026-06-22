@@ -98,6 +98,22 @@ public sealed class TerminalBuffer
         }
     }
 
+    /// <summary>
+    /// Commit a standalone line <em>above</em> the live partial without merging into it, then
+    /// restore the partial so it re-renders below the injected line. Used for client-side
+    /// annotations ($f&lt;n&gt;): if you are sitting at a prompt the prompt reappears beneath the
+    /// note; on a blank line the note is simply committed. With no live partial this is an
+    /// ordinary append of a finished line.
+    /// </summary>
+    public void InjectAbovePartial(StyledLine line)
+    {
+        var saved = _partial;
+        _partial = null;
+        // No partial present, so a non-empty finished line commits standalone (never a merge).
+        Commit(line.IsPartial ? Promote(line) : line);
+        _partial = saved;
+    }
+
     /// <summary>Remove all committed lines and any live partial (used by \f and Clear-screen).</summary>
     public void Clear()
     {

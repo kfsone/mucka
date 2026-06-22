@@ -1093,6 +1093,15 @@
                         </Label.FormattedText>
                     </Label>
 
+                    <Label FontSize="11" IsVisible="{OnPlatform WinUI=true, Default=false}">
+                        <Label.FormattedText>
+                            <FormattedString>
+                                <Span Text="$help" TextColor="#58a6ff"/>
+                                <Span Text="  List the client commands ($fkeys, $f&lt;n&gt;, ...)" TextColor="#888888"/>
+                            </FormattedString>
+                        </Label.FormattedText>
+                    </Label>
+
                     <BoxView Color="#2d333b" HeightRequest="1" Margin="0,8"/>
 
                     <Label Text="WORK IN PROGRESS" TextColor="#e3b341" FontSize="11" FontAttributes="Bold"/>
