@@ -69,8 +69,8 @@ public class Profile
 
     private static readonly Dictionary<int, string> s_defaultFkeys = new()
     {
-        [0] = "l around",
-        [1] = "use weap",
+        [0] = "qscan",
+        [1] = "use best weap",
         [2] = "open bag,g 1 wafer from bag,eat 1 wafer",
         [3] = "flee o",
         [4] = "qw,qs",
