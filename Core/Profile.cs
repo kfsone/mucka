@@ -66,6 +66,9 @@ public class Profile
     public int MaxOnlineDisplay { get; set; }
     [System.Text.Json.Serialization.JsonIgnore]
     public bool OnlineNamesOnly { get; set; }
+    /// <summary>Global default for floating (unpinning) the Online list. False = pinned in the side panel.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool FloatOnline { get; set; }
 
     private static readonly Dictionary<int, string> s_defaultFkeys = new()
     {

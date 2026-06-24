@@ -71,7 +71,8 @@ public static class SettingsStore
         bool? ShowItemsHere     = null,
         bool? ShowMapCompass    = null,
         int? MaxOnlineDisplay   = null,
-        bool? OnlineNamesOnly   = null)
+        bool? OnlineNamesOnly   = null,
+        bool? FloatOnline       = null)
     {
         /// <summary>Overlays the stored (ini) values onto a profile — ini wins when present.</summary>
         public void ApplyTo(Profile profile)
@@ -95,6 +96,7 @@ public static class SettingsStore
             if (ShowMapCompass is bool sm) profile.ShowMapCompass = sm;
             if (MaxOnlineDisplay is int mod) profile.MaxOnlineDisplay = mod;
             if (OnlineNamesOnly  is bool ono) profile.OnlineNamesOnly  = ono;
+            if (FloatOnline      is bool fo)  profile.FloatOnline      = fo;
         }
     }
 
@@ -167,7 +169,8 @@ public static class SettingsStore
                 ShowItemsHere:      ini.HasSection("settings") ? GetBool(ini, "settings", "showitemshere")      : null,
                 ShowMapCompass:     ini.HasSection("settings") ? GetBool(ini, "settings", "showmapcompass")     : null,
                 MaxOnlineDisplay:   ini.HasSection("settings") ? GetInt (ini, "settings", "maxonlinedisplay")   : null,
-                OnlineNamesOnly:    ini.HasSection("settings") ? GetBool(ini, "settings", "onlinenamesonly")    : null);
+                OnlineNamesOnly:    ini.HasSection("settings") ? GetBool(ini, "settings", "onlinenamesonly")    : null,
+                FloatOnline:        ini.HasSection("settings") ? GetBool(ini, "settings", "floatonline")        : null);
         }
         finally
         {
@@ -210,6 +213,7 @@ public static class SettingsStore
             ini.Set("settings", "showmapcompass",     settings.ShowMapCompass ? "yes" : "no");
             ini.Set("settings", "maxonlinedisplay",   settings.MaxOnlineDisplay.ToString());
             ini.Set("settings", "onlinenamesonly",    settings.OnlineNamesOnly ? "yes" : "no");
+            ini.Set("settings", "floatonline",        settings.FloatOnline     ? "yes" : "no");
 
             if (fkeys is not null)
             {

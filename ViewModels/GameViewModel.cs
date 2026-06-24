@@ -53,6 +53,9 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private int _dreamwordSizeOffset;
     private int _defaultFontSize;
     private int _defaultMaxColumns;
+    // The saved "Float online by default" global. Tracked separately from the live pin state
+    // (SidePanel.IsOnlinePinned) so the setting only drags the live state when the two are in sync.
+    private bool _floatOnline;
     private bool _inGameMode;
     private DateTime _lastSentUtc;
     private DateTime _lastBellUtc = DateTime.MinValue;
@@ -392,6 +395,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         ShowMapCompass = SidePanel.IsMapExpanded,
         MaxOnlineDisplay = SidePanel.MaxOnline,
         OnlineNamesOnly  = SidePanel.NamesOnly,
+        FloatOnline      = _floatOnline,
     };
 
     public ICommand SendCommand { get; }
@@ -456,6 +460,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _dreamwordSizeOffset = Math.Clamp(profile.DreamwordSizeOffset, -2, 4);
         _defaultFontSize     = profile.DefaultFontSize;
         _defaultMaxColumns   = profile.DefaultMaxColumns;
+        _floatOnline         = profile.FloatOnline;
         SoundService.SetVolume(_volume);
         SoundService.SetSoundSettings(_sounds);
 
@@ -466,6 +471,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         SidePanel.IsMapExpanded       = profile.ShowMapCompass;
         SidePanel.MaxOnline           = profile.MaxOnlineDisplay;
         SidePanel.NamesOnly           = profile.OnlineNamesOnly;
+        SidePanel.IsOnlinePinned      = !profile.FloatOnline;   // apply the saved float default to the live state
         WhoEntry.NamesOnlyMode        = profile.OnlineNamesOnly;
         SidePanel.SubscriptionOptionsChanged += (few, fei) => _conn.UpdateSubscriptionOptions(few, fei);
         _conn.UpdateSubscriptionOptions(profile.ShowOnline, profile.ShowInventory || profile.ShowItemsHere);
@@ -536,6 +542,13 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         SidePanel.MaxOnline           = settings.MaxOnlineDisplay;
         SidePanel.NamesOnly           = settings.OnlineNamesOnly;
         _conn.UpdateSubscriptionOptions(settings.ShowOnline, settings.ShowInventory || settings.ShowItemsHere);
+
+        // "Float online by default" is a saved global that only drags the live pin state along
+        // when the two were still in sync; if the user has manually floated/pinned the panel away
+        // from the default, changing the default leaves the live state untouched.
+        if (!SidePanel.IsOnlinePinned == _floatOnline)
+            SidePanel.IsOnlinePinned = !settings.FloatOnline;
+        _floatOnline = settings.FloatOnline;
 
         _dreamwordSizeOffset = Math.Clamp(settings.DreamwordSizeOffset, -2, 4);
         _defaultFontSize     = settings.DefaultFontSize;

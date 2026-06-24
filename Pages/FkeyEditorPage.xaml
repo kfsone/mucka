@@ -617,6 +617,15 @@
                             </HorizontalStackLayout>
                         </Grid>
 
+                        <!-- Float -->
+                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
+                            <CheckBox Grid.Column="0" IsChecked="{Binding FloatOnline, Mode=TwoWay}"
+                                      Color="#1f6feb" VerticalOptions="Center"/>
+                            <Label Grid.Column="1" Text="Float"
+                                   TextColor="#888888" FontSize="13" VerticalOptions="Center"
+                                   ToolTipProperties.Text="Default the Online list to a floating panel instead of docked in the side panel. Changing this also moves the panel now if it still matches the saved default; if you've manually floated/docked it since, the live panel is left as-is."/>
+                        </Grid>
+
                         <!-- Names only -->
                         <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
                             <CheckBox Grid.Column="0" IsChecked="{Binding OnlineNamesOnly, Mode=TwoWay}"
