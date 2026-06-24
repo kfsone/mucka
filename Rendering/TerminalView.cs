@@ -22,7 +22,10 @@ namespace Mucka.Rendering;
 /// </summary>
 public sealed class TerminalView : SKCanvasView
 {
-    private readonly TerminalBuffer _buffer = new(cap: 200);
+    // 500 logical lines of scrollback. Each live repaint re-wraps the whole committed buffer
+    // (see BuildVisualRows), so this is the per-paint wrap cost — but wrapping 500 short lines is
+    // sub-millisecond and only one viewport's worth is ever drawn, so it stays comfortably cheap.
+    private readonly TerminalBuffer _buffer = new(cap: 500);
     private TerminalFont? _font;
     private float _builtForSizePx = -1f;
     private int _fontSizeDip = 15;
