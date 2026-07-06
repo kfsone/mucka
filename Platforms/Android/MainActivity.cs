@@ -9,7 +9,11 @@ namespace Mucka;
 // up when the keyboard opens — pushing the in-game status bar off the top of the screen. Resize
 // keeps the top anchored and shrinks the content instead (the pages' SafeAreaEdges="All" handles
 // keyboard padding on API 35+ edge-to-edge, where adjustResize alone is ignored).
-[Activity(Theme = "@style/Maui.SplashTheme", MainLauncher = true, LaunchMode = LaunchMode.SingleTop, WindowSoftInputMode = SoftInput.AdjustResize, ConfigurationChanges = ConfigChanges.ScreenSize | ConfigChanges.Orientation | ConfigChanges.UiMode | ConfigChanges.ScreenLayout | ConfigChanges.SmallestScreenSize | ConfigChanges.Density)]
+// Keyboard | KeyboardHidden | Navigation: connecting/disconnecting a hardware (USB/Bluetooth)
+// keyboard changes these configuration qualifiers. Without declaring them here, Android destroys
+// and recreates the Activity on attach/detach, tearing down the live TCP session, SkiaSharp
+// terminal view, and dispatcher timers mid-game and crashing the app.
+[Activity(Theme = "@style/Maui.SplashTheme", MainLauncher = true, LaunchMode = LaunchMode.SingleTop, WindowSoftInputMode = SoftInput.AdjustResize, ConfigurationChanges = ConfigChanges.ScreenSize | ConfigChanges.Orientation | ConfigChanges.UiMode | ConfigChanges.ScreenLayout | ConfigChanges.SmallestScreenSize | ConfigChanges.Density | ConfigChanges.Keyboard | ConfigChanges.KeyboardHidden | ConfigChanges.Navigation)]
 public class MainActivity : MauiAppCompatActivity
 {
     public override bool DispatchKeyEvent(KeyEvent? e)
