@@ -38,7 +38,9 @@ AppPackages/
 MUD-ClientProto.md
 screen.png
 android-screen.png
+fecodes.txt
 
 # Python
 __pycache__/
 *.pyc
+
