@@ -68,8 +68,13 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private bool _settingsPerProfile;
     private bool _fkeysPerProfile;
 
-    // Lines from the TCP thread are enqueued here; the UI timer flushes them in batches.
+    // Lines from the TCP thread are enqueued here; the UI thread drains them in batches.
+    // Draining is event-driven (see OnLineReady/OutputAvailable) — no polling timer.
     private readonly ConcurrentQueue<StyledLine> _pendingLines = new();
+    // Coalescing guard: 0 = no flush pending, 1 = one flush already requested. Flipped 0→1 in
+    // OnLineReady (TCP thread) to fire OutputAvailable exactly once per idle→busy edge; cleared
+    // in FlushPendingLines before draining so lines arriving during a drain re-arm it.
+    private int _flushScheduled;
     // History buffer for the (future) history panel — kept separately from the live view.
     private readonly List<StyledLine> _historyBuffer = new();
 
@@ -568,7 +573,21 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         }
     }
 
-    private void OnLineReady(StyledLine line) => _pendingLines.Enqueue(line);
+    /// <summary>
+    /// Raised (on the TCP read-loop thread) when output has been enqueued and no flush is yet
+    /// pending. GamePage marshals a single <c>DoFlushWork</c> to the UI thread in response. This
+    /// replaces the old 50 ms poll: the first line of a server response renders on the next
+    /// dispatcher pump instead of waiting up to 50 ms for a timer tick, while a burst still
+    /// coalesces into one drain/paint because the guard suppresses redundant wake-ups.
+    /// </summary>
+    public event Action? OutputAvailable;
+
+    private void OnLineReady(StyledLine line)
+    {
+        _pendingLines.Enqueue(line);
+        if (Interlocked.Exchange(ref _flushScheduled, 1) == 0)
+            OutputAvailable?.Invoke();
+    }
 
     // MudSession owns the FES heartbeat — nothing to do in GameViewModel on mode transitions
     // beyond tracking game mode for anti-idle. Events fire on the TCP thread; marshal to UI.
@@ -588,12 +607,15 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         });
 
     /// <summary>
-    /// Called by GamePage's 50ms timer on the UI thread.
+    /// Called by GamePage on the UI thread in response to <see cref="OutputAvailable"/>.
     /// Returns the lines to inject, or null if nothing pending.
     /// Also maintains the history buffer for the (future) history panel.
     /// </summary>
     public List<StyledLine>? FlushPendingLines()
     {
+        // Clear the guard BEFORE draining: any line enqueued during/after this drain re-arms
+        // OutputAvailable, so no wake-up is lost (at worst one harmless empty follow-up flush).
+        Interlocked.Exchange(ref _flushScheduled, 0);
         if (_pendingLines.IsEmpty) return null;
 
         var batch = new List<StyledLine>();

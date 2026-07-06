@@ -11,7 +11,10 @@ public partial class GamePage : ContentPage
 {
     private readonly GameViewModel _vm;
     private readonly bool _exitOnDisconnect;
-    private IDispatcherTimer?      _flushTimer;
+    // Slow (1 s) timer for anti-idle only. Output is NOT polled here — it is drained
+    // event-driven via _vm.OutputAvailable → OnOutputAvailable (see DoFlushWork). This field
+    // also doubles as the page-initialised sentinel (null == not yet set up).
+    private IDispatcherTimer?      _antiIdleTimer;
     private IDispatcherTimer?      _toastTimer;
 
 #if ANDROID
@@ -137,11 +140,12 @@ public partial class GamePage : ContentPage
         try { DeviceDisplay.Current.KeepScreenOn = _vm.KeepScreenOn; }
         catch (Exception ex) { CrashLog.Write("KeepScreenOn", ex); }
 
-        if (_flushTimer == null)
+        if (_antiIdleTimer == null)
         {
             // Unsubscribe before subscribing to guard against any double-subscribe scenario.
             if (!_eventsSubscribed)
             {
+                _vm.OutputAvailable     += OnOutputAvailable;
                 _vm.Disconnected        += OnDisconnected;
                 _vm.RequestFocus        += FocusInput;
                 _vm.SidePanel.RequestFocus += FocusInput;
@@ -162,11 +166,16 @@ public partial class GamePage : ContentPage
             Terminal.SetFontSize(_vm.FontSize);
             Terminal.Columns = _vm.EffCols;
 
-            _flushTimer = Dispatcher.CreateTimer();
-            _flushTimer.Interval = TimeSpan.FromMilliseconds(50);
-            _flushTimer.Tick += OnFlushTick;
-            _flushTimer.Start();
+            _antiIdleTimer = Dispatcher.CreateTimer();
+            _antiIdleTimer.Interval = TimeSpan.FromSeconds(1);
+            _antiIdleTimer.Tick += OnAntiIdleTick;
+            _antiIdleTimer.Start();
             _vm.SidePanel.InitializeFadeTimer(Dispatcher);
+
+            // Catch-up drain: if any output arrived before OutputAvailable was subscribed above,
+            // its wake-up fired into the void and left the VM's guard armed. This clears the guard
+            // (via FlushPendingLines) and paints the backlog; a no-op when nothing is queued.
+            Dispatcher.Dispatch(DoFlushWork);
 
             if (Window is not null)
                 Window.Activated += OnWindowActivated;
@@ -245,7 +254,7 @@ public partial class GamePage : ContentPage
         else
         {
             // Returning from FkeyEditor: events and platform hooks are still active; just resume the timer.
-            _flushTimer.Start();
+            _antiIdleTimer.Start();
         }
 
         FocusInput();
@@ -300,14 +309,15 @@ public partial class GamePage : ContentPage
         {
             // Pause the timer while the modal is open. Keep it non-null so OnAppearing
             // knows not to reinitialize the terminal or re-hook events on return.
-            _flushTimer?.Stop();
+            _antiIdleTimer?.Stop();
             return;
         }
 
         DeviceDisplay.Current.KeepScreenOn = false;
-        _flushTimer?.Stop();
-        _flushTimer = null;
+        _antiIdleTimer?.Stop();
+        _antiIdleTimer = null;
         _toastTimer?.Stop();
+        _vm.OutputAvailable     -= OnOutputAvailable;
         _vm.Disconnected        -= OnDisconnected;
         _vm.RequestFocus        -= FocusInput;
         _vm.SidePanel.RequestFocus -= FocusInput;
@@ -380,12 +390,16 @@ public partial class GamePage : ContentPage
         _ = _vm.DisposeAsync();
     }
 
-    private void OnFlushTick(object? sender, EventArgs e) => DoFlushWork();
+    // Anti-idle only (1 s). Output draining is event-driven, not polled — see OnOutputAvailable.
+    private void OnAntiIdleTick(object? sender, EventArgs e) => _vm.AntiIdleTick();
+
+    // Server output arrived. Fires on the TCP thread (coalesced to one pending flush by the VM's
+    // guard); marshal a single drain/paint to the UI thread. Replaces the old 50 ms poll so the
+    // first line renders on the next dispatcher pump, while bursts still batch into one flush.
+    private void OnOutputAvailable() => Dispatcher.Dispatch(DoFlushWork);
 
     private void DoFlushWork()
     {
-        _vm.AntiIdleTick();
-
         // Drain the ViewModel queue straight into the Skia terminal. The partial/complete/merge/
         // clear semantics live in TerminalBuffer (inside TerminalView); a paint of one screenful
         // is sub-millisecond, so there is no need to defer this off the keyboard's priority lane.
@@ -1393,7 +1407,7 @@ public partial class GamePage : ContentPage
 #endif
     private void OnDisconnected()
     {
-        _flushTimer?.Stop();
+        _antiIdleTimer?.Stop();
         MainThread.BeginInvokeOnMainThread(async () =>
         {
             await DisplayAlertAsync("Disconnected", "The server closed the connection.", "OK");
