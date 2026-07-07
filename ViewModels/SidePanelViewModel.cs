@@ -80,9 +80,62 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     public bool IsMapExpanded
     {
         get => _isMapExpanded;
-        set => SetAndNotify(ref _isMapExpanded, value, [nameof(MapFoldGlyph)]);
+        set => SetAndNotify(ref _isMapExpanded, value, [nameof(MapFoldGlyph), nameof(IsDockedCompassVisible)]);
     }
     public string MapFoldGlyph => _isMapExpanded ? "\u25bc" : "\u25b6";
+
+    // \u2500\u2500 Compass float/dock state \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+    // Mirrors the online panel: the compass can be docked in the side rail or floated free
+    // (for phone users). The room trail never floats \u2014 only the compass moves.
+    private bool _isMapPinned = true;
+    private bool _isFloatingMapFolded;
+
+    /// <summary>When true the compass is docked in the side rail; when false it floats.</summary>
+    public bool IsMapPinned
+    {
+        get => _isMapPinned;
+        set => SetAndNotify(ref _isMapPinned, value,
+            [nameof(IsFloatingMapVisible), nameof(IsDockedCompassVisible), nameof(MapPinGlyph), nameof(MapPinColor)]);
+    }
+
+    /// <summary>Glyph for the compass float toggle \u2014 shows the action, not the state:
+    /// hollow "float me" square while docked, filled "dock me" square while floating.</summary>
+    public string MapPinGlyph => _isMapPinned ? "\u25a1" : "\u25a0";
+    /// <summary>Color for the compass float toggle: gold when docked, dim grey when floating.</summary>
+    public Color  MapPinColor => _isMapPinned ? Color.FromArgb("#FFD700") : Color.FromArgb("#555555");
+
+    /// <summary>True when the compass should render in the floating panel (undocked).</summary>
+    public bool IsFloatingMapVisible => !_isMapPinned;
+    /// <summary>True when the compass should render docked in the side rail (expanded and pinned).</summary>
+    public bool IsDockedCompassVisible => _isMapExpanded && _isMapPinned;
+
+    /// <summary>True when the floating compass is folded to its title bar only.</summary>
+    public bool IsFloatingMapFolded
+    {
+        get => _isFloatingMapFolded;
+        set => SetAndNotify(ref _isFloatingMapFolded, value, [nameof(FloatingMapFoldGlyph)]);
+    }
+    public string FloatingMapFoldGlyph => _isFloatingMapFolded ? "\u25b6" : "\u25bc";
+
+    // \u2500\u2500 Floating-panel size steps (the \u2212 / + buttons step through these) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+    private static readonly double[] OnlineWidths = { 160, 190, 220 };
+    private int _onlineSizeIx = 2;
+    /// <summary>Current width of the floating online panel; stepped by the \u2212 / + buttons.</summary>
+    public double FloatingOnlineWidth => OnlineWidths[_onlineSizeIx];
+    /// <summary>True at the smallest step \u2014 the title strip must stay put or nothing's left to grab.</summary>
+    public bool IsFloatingOnlineShrunk => _onlineSizeIx == 0;
+
+    // Largest \u2192 smallest. The final step is a horizontal oval (12px shorter than wide)
+    // for the most compact phone-float footprint.
+    private static readonly (double W, double H)[] MapSizes =
+        { (128, 128), (104, 104), (84, 84), (84, 66) };
+    private int _mapSizeIx = 1;
+    /// <summary>Current width of the floating compass; stepped by the \u2212 / + buttons.</summary>
+    public double FloatingMapWidth  => MapSizes[_mapSizeIx].W;
+    /// <summary>Current height of the floating compass (shorter than width at the oval step).</summary>
+    public double FloatingMapHeight => MapSizes[_mapSizeIx].H;
+    /// <summary>True at the small steps \u2014 the title strip must stay put or the dial reads as a stray dot.</summary>
+    public bool IsFloatingMapShrunk => MapSizes[_mapSizeIx].W <= 84;
 
     // ── Floating online panel state ────────────────────────────────────────────
 
@@ -96,9 +149,10 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
 
     // \u25CF = ● (filled circle)  \u25CB = ○ (hollow circle)
     // These are regular text glyphs that obey TextColor — unlike emoji which ignore it.
-    /// <summary>Glyph for the pin toggle: filled circle when active, hollow when inactive.</summary>
-    public string PinGlyph => _isOnlinePinned ? "\u25CF" : "\u25CB";
-    /// <summary>Color for the pin toggle: gold when active, dim grey when inactive.</summary>
+    /// <summary>Glyph for the dock toggle \u2014 shows the action, not the state:
+    /// hollow "float me" square while docked, filled "dock me" square while floating.</summary>
+    public string PinGlyph => _isOnlinePinned ? "\u25A1" : "\u25A0";
+    /// <summary>Color for the pin toggle: gold when docked, dim grey when floating.</summary>
     public Color  PinColor  => _isOnlinePinned
         ? Color.FromArgb("#FFD700")
         : Color.FromArgb("#555555");
@@ -228,6 +282,12 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     public ICommand ToggleOnlinePinnedCommand { get; }
     public ICommand ToggleFloatingFoldCommand { get; }
     public ICommand OpenFloatingDisplaySettingsCommand { get; }
+    public ICommand ToggleMapPinnedCommand { get; }
+    public ICommand ToggleFloatingMapFoldCommand { get; }
+    public ICommand IncreaseOnlineSizeCommand { get; }
+    public ICommand DecreaseOnlineSizeCommand { get; }
+    public ICommand IncreaseMapSizeCommand { get; }
+    public ICommand DecreaseMapSizeCommand { get; }
 
     /// <summary>Raised when an interaction should hand keyboard focus back to the input box.
     /// Opening the About dialog deliberately does not raise it — focus belongs to the dialog.</summary>
@@ -250,6 +310,33 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         ToggleOnlinePinnedCommand = new Command(() => { IsOnlinePinned = !IsOnlinePinned; RequestFocus?.Invoke(); });
         ToggleFloatingFoldCommand = new Command(() => IsFloatingOnlineFolded = !IsFloatingOnlineFolded);
         OpenFloatingDisplaySettingsCommand = new Command(() => FloatingOpenDisplaySettings?.Invoke());
+        ToggleMapPinnedCommand = new Command(() => { IsMapPinned = !IsMapPinned; RequestFocus?.Invoke(); });
+        ToggleFloatingMapFoldCommand = new Command(() => IsFloatingMapFolded = !IsFloatingMapFolded);
+        IncreaseOnlineSizeCommand = new Command(() =>
+        {
+            if (_onlineSizeIx >= OnlineWidths.Length - 1) return;
+            _onlineSizeIx++;
+            OnPropertiesChanged(nameof(FloatingOnlineWidth), nameof(IsFloatingOnlineShrunk));
+        });
+        DecreaseOnlineSizeCommand = new Command(() =>
+        {
+            if (_onlineSizeIx <= 0) return;
+            _onlineSizeIx--;
+            OnPropertiesChanged(nameof(FloatingOnlineWidth), nameof(IsFloatingOnlineShrunk));
+        });
+        // MapSizes runs largest → smallest, so "increase" walks the index down.
+        IncreaseMapSizeCommand = new Command(() =>
+        {
+            if (_mapSizeIx <= 0) return;
+            _mapSizeIx--;
+            OnPropertiesChanged(nameof(FloatingMapWidth), nameof(FloatingMapHeight), nameof(IsFloatingMapShrunk));
+        });
+        DecreaseMapSizeCommand = new Command(() =>
+        {
+            if (_mapSizeIx >= MapSizes.Length - 1) return;
+            _mapSizeIx++;
+            OnPropertiesChanged(nameof(FloatingMapWidth), nameof(FloatingMapHeight), nameof(IsFloatingMapShrunk));
+        });
         WhosList.CollectionChanged += (_, e) =>
         {
             if (e.NewItems is not null)

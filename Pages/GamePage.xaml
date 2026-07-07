@@ -450,19 +450,24 @@
                     IsVisible="{Binding SidePanel.IsFloatingOnlineVisible}"
                     BackgroundColor="#101618"
                     Stroke="#3d4f5c" StrokeThickness="1"
+                    WidthRequest="{Binding SidePanel.FloatingOnlineWidth}"
                     MinimumWidthRequest="150"
-                    MaximumWidthRequest="220"
+                    MaximumWidthRequest="240"
                     HorizontalOptions="Center" VerticalOptions="Start"
                     Margin="0,6,0,0"
-                    ZIndex="10">
+                    ZIndex="10"
+                    SizeChanged="OnFloatingOnlineSizeChanged">
                 <Border.StrokeShape><RoundRectangle CornerRadius="6"/></Border.StrokeShape>
                 <Border.GestureRecognizers>
                     <PanGestureRecognizer PanUpdated="OnFloatingPanelPanUpdated"/>
+                    <PointerGestureRecognizer PointerEntered="OnFloatingOnlinePointerEntered"
+                                              PointerExited="OnFloatingOnlinePointerExited"/>
                 </Border.GestureRecognizers>
                 <VerticalStackLayout Padding="8,6,8,6" Spacing="2">
 
-                    <!-- Heading row: same layout as side-panel section -->
-                    <Grid ColumnDefinitions="*,Auto,Auto,Auto">
+                    <!-- Heading row: title · resize − / + · dock · fold.
+                         On Windows it auto-hides while the pointer is away (saves space). -->
+                    <Grid x:Name="FloatingOnlineHeader" ColumnDefinitions="*,Auto,Auto,Auto,Auto,Auto">
                         <Label Grid.Column="0" VerticalOptions="Center"
                                HorizontalOptions="Fill" HorizontalTextAlignment="Start">
                             <Label.FormattedText>
@@ -481,18 +486,31 @@
                                 <TapGestureRecognizer Command="{Binding SidePanel.OpenFloatingDisplaySettingsCommand}"/>
                             </Label.GestureRecognizers>
                         </Label>
-                        <!-- Pin: gold ● = pinned (back to side panel), grey ○ = floating -->
-                        <Label Grid.Column="2"
+                        <!-- Resize: − shrinks, + grows -->
+                        <Label Grid.Column="2" Text="&#x2212;" TextColor="#888888" FontSize="13"
+                               VerticalOptions="Center" Padding="4,0,0,0">
+                            <Label.GestureRecognizers>
+                                <TapGestureRecognizer Command="{Binding SidePanel.DecreaseOnlineSizeCommand}"/>
+                            </Label.GestureRecognizers>
+                        </Label>
+                        <Label Grid.Column="3" Text="+" TextColor="#888888" FontSize="13"
+                               VerticalOptions="Center" Padding="4,0,0,0">
+                            <Label.GestureRecognizers>
+                                <TapGestureRecognizer Command="{Binding SidePanel.IncreaseOnlineSizeCommand}"/>
+                            </Label.GestureRecognizers>
+                        </Label>
+                        <!-- Dock toggle: hollow □ = float me, filled ■ = dock me -->
+                        <Label Grid.Column="4"
                                Text="{Binding SidePanel.PinGlyph}"
                                TextColor="{Binding SidePanel.PinColor}"
-                               FontSize="10" VerticalOptions="Center"
+                               FontSize="13" VerticalOptions="Center"
                                Padding="4,0,0,0">
                             <Label.GestureRecognizers>
                                 <TapGestureRecognizer Command="{Binding SidePanel.ToggleOnlinePinnedCommand}"/>
                             </Label.GestureRecognizers>
                         </Label>
                         <!-- Fold toggle -->
-                        <Label Grid.Column="3" Text="{Binding SidePanel.FloatingFoldGlyph}"
+                        <Label Grid.Column="5" Text="{Binding SidePanel.FloatingFoldGlyph}"
                                TextColor="#444444" FontSize="9" VerticalOptions="Center"
                                Padding="4,0,0,0">
                             <Label.GestureRecognizers>
@@ -529,6 +547,80 @@
                             </BindableLayout.ItemTemplate>
                         </VerticalStackLayout>
                     </ScrollView>
+
+                </VerticalStackLayout>
+            </Border>
+
+            <!-- ── Floating compass panel ────────────────────────────────── -->
+            <!-- Visible when the compass is undocked. Draggable. Carries only the radar
+                 (and its swamp seam) — never the room trail. -->
+            <Border x:Name="FloatingMapPanel"
+                    IsVisible="{Binding SidePanel.IsFloatingMapVisible}"
+                    BackgroundColor="#101618"
+                    Stroke="#3d4f5c" StrokeThickness="1"
+                    HorizontalOptions="Center" VerticalOptions="Start"
+                    Margin="0,6,0,0"
+                    ZIndex="10"
+                    SizeChanged="OnFloatingMapSizeChanged">
+                <Border.StrokeShape><RoundRectangle CornerRadius="6"/></Border.StrokeShape>
+                <Border.GestureRecognizers>
+                    <PanGestureRecognizer PanUpdated="OnFloatingMapPanUpdated"/>
+                    <PointerGestureRecognizer PointerEntered="OnFloatingMapPointerEntered"
+                                              PointerExited="OnFloatingMapPointerExited"/>
+                </Border.GestureRecognizers>
+                <VerticalStackLayout Padding="8,6,8,6" Spacing="2">
+
+                    <!-- Heading row: title · resize − / + · dock · fold.
+                         On Windows it auto-hides while the pointer is away (saves space). -->
+                    <Grid x:Name="FloatingMapHeader" ColumnDefinitions="*,Auto,Auto,Auto,Auto">
+                        <Label Grid.Column="0" Text="Compass" TextColor="#58a6ff" FontSize="11"
+                               VerticalOptions="Center" HorizontalOptions="Fill" HorizontalTextAlignment="Start"
+                               FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
+                        <!-- Resize: − shrinks, + grows -->
+                        <Label Grid.Column="1" Text="&#x2212;" TextColor="#888888" FontSize="13"
+                               VerticalOptions="Center" Padding="4,0,0,0">
+                            <Label.GestureRecognizers>
+                                <TapGestureRecognizer Command="{Binding SidePanel.DecreaseMapSizeCommand}"/>
+                            </Label.GestureRecognizers>
+                        </Label>
+                        <Label Grid.Column="2" Text="+" TextColor="#888888" FontSize="13"
+                               VerticalOptions="Center" Padding="4,0,0,0">
+                            <Label.GestureRecognizers>
+                                <TapGestureRecognizer Command="{Binding SidePanel.IncreaseMapSizeCommand}"/>
+                            </Label.GestureRecognizers>
+                        </Label>
+                        <!-- Dock toggle: hollow □ = float me, filled ■ = dock me -->
+                        <Label Grid.Column="3" Text="{Binding SidePanel.MapPinGlyph}"
+                               TextColor="{Binding SidePanel.MapPinColor}"
+                               FontSize="13" VerticalOptions="Center" Padding="4,0,0,0">
+                            <Label.GestureRecognizers>
+                                <TapGestureRecognizer Command="{Binding SidePanel.ToggleMapPinnedCommand}"/>
+                            </Label.GestureRecognizers>
+                        </Label>
+                        <!-- Fold toggle -->
+                        <Label Grid.Column="4" Text="{Binding SidePanel.FloatingMapFoldGlyph}"
+                               TextColor="#444444" FontSize="9" VerticalOptions="Center" Padding="4,0,0,0">
+                            <Label.GestureRecognizers>
+                                <TapGestureRecognizer Command="{Binding SidePanel.ToggleFloatingMapFoldCommand}"/>
+                            </Label.GestureRecognizers>
+                        </Label>
+                    </Grid>
+
+                    <!-- Body — hidden when folded -->
+                    <VerticalStackLayout Spacing="2"
+                                         IsVisible="{Binding SidePanel.IsFloatingMapFolded, Converter={StaticResource InvertBoolConverter}}">
+                        <render:RadarCompassView SidePanel="{Binding SidePanel}"
+                                                 MoveCommand="{Binding MoveCommand}"
+                                                 WidthRequest="{Binding SidePanel.FloatingMapWidth}"
+                                                 HeightRequest="{Binding SidePanel.FloatingMapHeight}"
+                                                 HorizontalOptions="Center"/>
+                        <render:SwampSeamView IsLit="{Binding SidePanel.ExitSwampward.Present}"
+                                              HeightRequest="14" HorizontalOptions="Fill" Margin="0,0,0,0">
+                            <render:SwampSeamView.GestureRecognizers>
+                                <TapGestureRecognizer Command="{Binding MoveCommand}" CommandParameter="swampward"/>
+                            </render:SwampSeamView.GestureRecognizers>
+                        </render:SwampSeamView>
+                    </VerticalStackLayout>
 
                 </VerticalStackLayout>
             </Border>
@@ -674,11 +766,11 @@
                                             </FormattedString>
                                         </Label.FormattedText>
                                     </Label>
-                                    <!-- Pin icon: gold ● = pinned (float follows panel), grey ○ = unpinned -->
+                                    <!-- Dock icon: gold ■ = docked, grey □ = floated free -->
                                     <Label Grid.Column="1"
                                            Text="{Binding SidePanel.PinGlyph}"
                                            TextColor="{Binding SidePanel.PinColor}"
-                                           FontSize="10" VerticalOptions="Center"
+                                           FontSize="13" VerticalOptions="Center"
                                            Padding="4,0,0,0">
                                         <Label.GestureRecognizers>
                                             <TapGestureRecognizer Command="{Binding SidePanel.ToggleOnlinePinnedCommand}"/>
@@ -801,16 +893,21 @@
                             <VerticalStackLayout Grid.Row="2" Padding="8,4,8,6" Spacing="1">
                                     <BoxView Color="#2d333b" HeightRequest="1" Margin="0,0,0,4"/>
 
-                                    <!-- Map heading + fold toggle -->
-                                    <Grid Margin="0,0,0,2">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="*"/>
-                                            <ColumnDefinition Width="Auto"/>
-                                        </Grid.ColumnDefinitions>
+                                    <!-- Map heading: label · float toggle · fold toggle -->
+                                    <Grid Margin="0,0,0,1" ColumnDefinitions="*,Auto,Auto">
                                         <Label Text="Map" TextColor="#58a6ff" FontSize="11"
                                                VerticalOptions="Center"
                                                HorizontalOptions="Fill" HorizontalTextAlignment="Start"/>
-                                        <Label Grid.Column="1" Text="{Binding SidePanel.MapFoldGlyph}"
+                                        <!-- Float toggle: filled ■ = docked, hollow □ = floated free -->
+                                        <Label Grid.Column="1" Text="{Binding SidePanel.MapPinGlyph}"
+                                               TextColor="{Binding SidePanel.MapPinColor}"
+                                               FontSize="13" VerticalOptions="Center"
+                                               Padding="8,0,0,0">
+                                            <Label.GestureRecognizers>
+                                                <TapGestureRecognizer Command="{Binding SidePanel.ToggleMapPinnedCommand}"/>
+                                            </Label.GestureRecognizers>
+                                        </Label>
+                                        <Label Grid.Column="2" Text="{Binding SidePanel.MapFoldGlyph}"
                                                TextColor="#444444" FontSize="9" VerticalOptions="Center"
                                                Padding="8,0,0,0">
                                             <Label.GestureRecognizers>
@@ -818,91 +915,25 @@
                                             </Label.GestureRecognizers>
                                         </Label>
                                     </Grid>
-                                    <Grid Margin="0,2,0,0" HorizontalOptions="End"
-                                          IsVisible="{Binding SidePanel.IsMapExpanded}"
-                                          ColumnDefinitions="Auto,Auto,Auto,Auto,Auto" ColumnSpacing="4"
-                                          RowDefinitions="Auto,Auto,Auto" RowSpacing="2">
-                                        <!-- Col 0: ⇥(in) / ⇤(out) / swamp(span 2)
-                                             Col 1: ⇑(up) / ⇓(dn) / (swamp span)
-                                             Col 2-4: compass — nw/N/ne, W/·/E, sw/S/se
-                                             Diagonals are 1pt smaller than cardinals. -->
 
-                                        <!-- Row 0 -->
-                                        <Label Grid.Row="0" Grid.Column="0" Text="&#x21E5;"
-                                               TextColor="{Binding SidePanel.ExitIn.Color}"
-                                               FontAttributes="{Binding SidePanel.ExitIn.FontAttributes}"
-                                               FontSize="11" FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"
-                                               HorizontalTextAlignment="Center"/>
-                                        <Label Grid.Row="0" Grid.Column="1" Text="&#x21D1;"
-                                               TextColor="{Binding SidePanel.ExitUp.Color}"
-                                               FontAttributes="{Binding SidePanel.ExitUp.FontAttributes}"
-                                               FontSize="11" FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"
-                                               HorizontalTextAlignment="Center"/>
-                                        <Label Grid.Row="0" Grid.Column="2" Text="&#x2196;"
-                                               TextColor="{Binding SidePanel.ExitNorthWest.Color}"
-                                               FontAttributes="{Binding SidePanel.ExitNorthWest.FontAttributes}"
-                                               FontSize="10" FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"
-                                               HorizontalTextAlignment="Center" Margin="6,0,0,0"/>
-                                        <Label Grid.Row="0" Grid.Column="3" Text="N"
-                                               TextColor="{Binding SidePanel.ExitNorth.Color}"
-                                               FontAttributes="{Binding SidePanel.ExitNorth.FontAttributes}"
-                                               FontSize="11" FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"
-                                               HorizontalTextAlignment="Center"/>
-                                        <Label Grid.Row="0" Grid.Column="4" Text="&#x2197;"
-                                               TextColor="{Binding SidePanel.ExitNorthEast.Color}"
-                                               FontAttributes="{Binding SidePanel.ExitNorthEast.FontAttributes}"
-                                               FontSize="10" FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"
-                                               HorizontalTextAlignment="Center"/>
+                                    <!-- Compass: the radar rose. Docked here when pinned, floats otherwise.
+                                         Right-aligned, sized for the side rail. -->
+                                    <render:RadarCompassView SidePanel="{Binding SidePanel}"
+                                                             MoveCommand="{Binding MoveCommand}"
+                                                             IsVisible="{Binding SidePanel.IsDockedCompassVisible}"
+                                                             WidthRequest="104" HeightRequest="104"
+                                                             HorizontalOptions="End" Margin="0,1,0,0"/>
 
-                                        <!-- Row 1 -->
-                                        <Label Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2"
-                                               Text="swamp"
-                                               TextColor="{Binding SidePanel.ExitSwampward.Color}"
-                                               FontAttributes="{Binding SidePanel.ExitSwampward.FontAttributes}"
-                                               FontSize="10" FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"
-                                               HorizontalTextAlignment="Center"/>
-                                        <Label Grid.Row="1" Grid.Column="2" Text="W"
-                                               TextColor="{Binding SidePanel.ExitWest.Color}"
-                                               FontAttributes="{Binding SidePanel.ExitWest.FontAttributes}"
-                                               FontSize="11" FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"
-                                               HorizontalTextAlignment="Center" Margin="6,0,0,0"/>
-                                        <Label Grid.Row="1" Grid.Column="3" Text="&#xB7;"
-                                               TextColor="#444444"
-                                               FontSize="11" FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"
-                                               HorizontalTextAlignment="Center"/>
-                                        <Label Grid.Row="1" Grid.Column="4" Text="E"
-                                               TextColor="{Binding SidePanel.ExitEast.Color}"
-                                               FontAttributes="{Binding SidePanel.ExitEast.FontAttributes}"
-                                               FontSize="11" FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"
-                                               HorizontalTextAlignment="Center"/>
-
-                                        <!-- Row 2 -->
-                                        <Label Grid.Row="2" Grid.Column="0" Text="&#x21E4;"
-                                               TextColor="{Binding SidePanel.ExitOut.Color}"
-                                               FontAttributes="{Binding SidePanel.ExitOut.FontAttributes}"
-                                               FontSize="11" FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"
-                                               HorizontalTextAlignment="Center"/>
-                                        <Label Grid.Row="2" Grid.Column="1" Text="&#x21D3;"
-                                               TextColor="{Binding SidePanel.ExitDown.Color}"
-                                               FontAttributes="{Binding SidePanel.ExitDown.FontAttributes}"
-                                               FontSize="11" FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"
-                                               HorizontalTextAlignment="Center"/>
-                                        <Label Grid.Row="2" Grid.Column="2" Text="&#x2199;"
-                                               TextColor="{Binding SidePanel.ExitSouthWest.Color}"
-                                               FontAttributes="{Binding SidePanel.ExitSouthWest.FontAttributes}"
-                                               FontSize="10" FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"
-                                               HorizontalTextAlignment="Center" Margin="6,0,0,0"/>
-                                        <Label Grid.Row="2" Grid.Column="3" Text="S"
-                                               TextColor="{Binding SidePanel.ExitSouth.Color}"
-                                               FontAttributes="{Binding SidePanel.ExitSouth.FontAttributes}"
-                                               FontSize="11" FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"
-                                               HorizontalTextAlignment="Center"/>
-                                        <Label Grid.Row="2" Grid.Column="4" Text="&#x2198;"
-                                               TextColor="{Binding SidePanel.ExitSouthEast.Color}"
-                                               FontAttributes="{Binding SidePanel.ExitSouthEast.FontAttributes}"
-                                               FontSize="10" FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"
-                                               HorizontalTextAlignment="Center"/>
-                                    </Grid>
+                                    <!-- Swamp seam: the marshy separator between compass and room block,
+                                         lit (and labelled) when a swampward exit is open; click to go. -->
+                                    <render:SwampSeamView IsLit="{Binding SidePanel.ExitSwampward.Present}"
+                                                          IsVisible="{Binding SidePanel.IsDockedCompassVisible}"
+                                                          HeightRequest="14" HorizontalOptions="Fill"
+                                                          Margin="0,1,0,3">
+                                        <render:SwampSeamView.GestureRecognizers>
+                                            <TapGestureRecognizer Command="{Binding MoveCommand}" CommandParameter="swampward"/>
+                                        </render:SwampSeamView.GestureRecognizers>
+                                    </render:SwampSeamView>
 
                                     <!-- Room trail: one font point smaller per step back -->
                                     <Label Text="{Binding SidePanel.OldestRoom}"

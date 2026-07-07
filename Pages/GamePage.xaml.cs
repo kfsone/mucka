@@ -73,6 +73,12 @@ public partial class GamePage : ContentPage
     private bool _eventsSubscribed;
     private double _floatTransX;
     private double _floatTransY;
+    private double _floatMapTransX;
+    private double _floatMapTransY;
+    private Size _onlineLastSize;
+    private Size _mapLastSize;
+    private bool _onlinePanning;
+    private bool _mapPanning;
 #if WINDOWS
     // True once an auxiliary window (raw console, map) has been opened. WinUI's native
     // caret-follow breaks after focus leaves to another app window, so the UpdateLayout
@@ -449,7 +455,9 @@ public partial class GamePage : ContentPage
     {
         switch (e.StatusType)
         {
+            case GestureStatus.Started:
             case GestureStatus.Running:
+                _onlinePanning = true;
                 FloatingOnlinePanel.TranslationX = _floatTransX + e.TotalX;
                 FloatingOnlinePanel.TranslationY = _floatTransY + e.TotalY;
                 break;
@@ -457,8 +465,102 @@ public partial class GamePage : ContentPage
             case GestureStatus.Canceled:
                 _floatTransX = FloatingOnlinePanel.TranslationX;
                 _floatTransY = FloatingOnlinePanel.TranslationY;
+                _onlinePanning = false;
                 break;
         }
+    }
+
+    private void OnFloatingMapPanUpdated(object? sender, PanUpdatedEventArgs e)
+    {
+        switch (e.StatusType)
+        {
+            case GestureStatus.Started:
+            case GestureStatus.Running:
+                _mapPanning = true;
+                FloatingMapPanel.TranslationX = _floatMapTransX + e.TotalX;
+                FloatingMapPanel.TranslationY = _floatMapTransY + e.TotalY;
+                break;
+            case GestureStatus.Completed:
+            case GestureStatus.Canceled:
+                _floatMapTransX = FloatingMapPanel.TranslationX;
+                _floatMapTransY = FloatingMapPanel.TranslationY;
+                _mapPanning = false;
+                break;
+        }
+    }
+
+    // Windows only: collapse a floating panel's title/widget row when the pointer leaves,
+    // reclaiming the space. On touch platforms PointerExited never fires, so the row stays put.
+    private void OnFloatingOnlinePointerEntered(object? sender, PointerEventArgs e)
+        => FloatingOnlineHeader.IsVisible = true;
+
+    private void OnFloatingOnlinePointerExited(object? sender, PointerEventArgs e)
+    {
+#if WINDOWS
+        // Don't collapse mid-drag (the cursor routinely leaves the panel while dragging) — the
+        // resulting resize would yank the panel out from under the gesture. Keep it when shrunk too.
+        if (!_onlinePanning && !_vm.SidePanel.IsFloatingOnlineShrunk)
+            FloatingOnlineHeader.IsVisible = false;
+#endif
+    }
+
+    private void OnFloatingMapPointerEntered(object? sender, PointerEventArgs e)
+        => FloatingMapHeader.IsVisible = true;
+
+    private void OnFloatingMapPointerExited(object? sender, PointerEventArgs e)
+    {
+#if WINDOWS
+        // Don't collapse mid-drag — see the online handler. Keep the strip when shrunk too.
+        if (!_mapPanning && !_vm.SidePanel.IsFloatingMapShrunk)
+            FloatingMapHeader.IsVisible = false;
+#endif
+    }
+
+    private void OnFloatingOnlineSizeChanged(object? sender, EventArgs e)
+    {
+        // Never re-anchor mid-drag — the pan owns the translation until the gesture ends.
+        if (_onlinePanning) { _onlineLastSize = new Size(FloatingOnlinePanel.Width, FloatingOnlinePanel.Height); return; }
+        Reanchor(FloatingOnlinePanel, ref _onlineLastSize);
+        _floatTransX = FloatingOnlinePanel.TranslationX;
+        _floatTransY = FloatingOnlinePanel.TranslationY;
+    }
+
+    private void OnFloatingMapSizeChanged(object? sender, EventArgs e)
+    {
+        if (_mapPanning) { _mapLastSize = new Size(FloatingMapPanel.Width, FloatingMapPanel.Height); return; }
+        Reanchor(FloatingMapPanel, ref _mapLastSize);
+        _floatMapTransX = FloatingMapPanel.TranslationX;
+        _floatMapTransY = FloatingMapPanel.TranslationY;
+    }
+
+    // Keep a floating panel anchored by the screen quadrant it sits in when it grows/shrinks
+    // (resize buttons, title-strip show/hide, fold). A panel in the bottom half grows upward;
+    // one pinned to the right edge grows leftward; a top-docked panel just grows down.
+    private void Reanchor(Border panel, ref Size last)
+    {
+        var cur = new Size(panel.Width, panel.Height);
+        if (cur.Width <= 0 || cur.Height <= 0) return;      // hidden / not yet measured
+        if (last.Width <= 0) { last = cur; return; }        // first measure — nothing to anchor against
+
+        double dW = cur.Width  - last.Width;
+        double dH = cur.Height - last.Height;
+        last = cur;
+        if (Math.Abs(dW) < 0.5 && Math.Abs(dH) < 0.5) return;
+
+        if (panel.Parent is not VisualElement parent || parent.Width <= 0 || parent.Height <= 0)
+            return;
+
+        // The panel is centre-anchored horizontally, so TranslationX is its offset from centre.
+        double bandX = parent.Width * 0.15;
+        if (panel.TranslationX > bandX)        panel.TranslationX -= dW;        // right edge fixed
+        else if (panel.TranslationX < -bandX)  { /* left edge fixed — no change */ }
+        else                                   panel.TranslationX -= dW / 2;    // stays centred
+
+        double panelCentreY = panel.Y + panel.TranslationY + cur.Height / 2;
+        double bandY = parent.Height * 0.15;
+        if (panelCentreY > parent.Height / 2 + bandY)      panel.TranslationY -= dH;      // bottom → grow up
+        else if (panelCentreY < parent.Height / 2 - bandY) { /* top → grow down */ }
+        else                                               panel.TranslationY -= dH / 2;  // vertically centred
     }
 
     // Deferred a dispatcher tick: when invoked from a tap/click handler, WinUI settles pointer

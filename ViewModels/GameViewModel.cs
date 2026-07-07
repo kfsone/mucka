@@ -405,6 +405,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
 
     public ICommand SendCommand { get; }
     public ICommand FkeyCommand { get; }
+    public ICommand MoveCommand { get; }
     public ICommand SpeakDreamwordCommand { get; }
     public ICommand HistoryUpCommand { get; }
     public ICommand HistoryDownCommand { get; }
@@ -494,6 +495,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
 
         SendCommand           = new Command(SendNow);
         FkeyCommand           = new Command<string>(SendFkey);
+        MoveCommand           = new Command<string>(SendMove);
         SpeakDreamwordCommand = new Command(SpeakDreamword);
         HistoryUpCommand      = new Command(HistoryUp);
         HistoryDownCommand    = new Command(HistoryDown);
@@ -711,6 +713,20 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         if (now - _lastBellUtc < TimeSpan.FromSeconds(2)) return;
         _lastBellUtc = now;
         SoundService.PlayBell();
+    }
+
+    // Fired when the player clicks an exit on the radar compass. The direction keyword
+    // is the same word the FEX exit list carries (e.g. "northeast", "swampward").
+    private void SendMove(string? dir)
+    {
+        if (!string.IsNullOrWhiteSpace(dir))
+        {
+            _conn.SendLine(dir);
+            _lastSentUtc = DateTime.UtcNow;
+        }
+        // Always hand typing back to the command box — a compass click must never strand focus
+        // on the canvas. (Fires even on an empty hit so any tap on the dial re-focuses input.)
+        RequestFocus?.Invoke();
     }
 
     private void SendNow()
