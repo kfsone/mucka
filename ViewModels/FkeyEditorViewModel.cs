@@ -33,6 +33,7 @@ public sealed class FkeyEditorViewModel : BaseViewModel
     private int  _maxOnlineDisplay;
     private bool _onlineNamesOnly;
     private bool _floatOnline;
+    private bool _floatCompass;
     private readonly SoundGroupEditorItem _bellGroup;
 
     public int ActiveModifier
@@ -210,6 +211,8 @@ public sealed class FkeyEditorViewModel : BaseViewModel
     public bool OnlineNamesOnly { get => _onlineNamesOnly; set => Set(ref _onlineNamesOnly, value); }
     /// <summary>Saved default for floating the Online list (unpinned from the side panel).</summary>
     public bool FloatOnline { get => _floatOnline; set => Set(ref _floatOnline, value); }
+    /// <summary>Saved default for floating the compass (unpinned from the side panel).</summary>
+    public bool FloatCompass { get => _floatCompass; set => Set(ref _floatCompass, value); }
 
     public FkeyEditorItem[] CurrentPageItems => _pages[_activeModifier];
     public bool CanSave { get; }
@@ -273,6 +276,7 @@ public sealed class FkeyEditorViewModel : BaseViewModel
         _maxOnlineDisplay = Math.Clamp(settings.MaxOnlineDisplay, 0, 999);
         _onlineNamesOnly  = settings.OnlineNamesOnly;
         _floatOnline      = settings.FloatOnline;
+        _floatCompass     = settings.FloatCompass;
 
         // Preview the beep at the bell row's volume (which follows the master slider
         // until overridden). _bellGroup is read at invoke time — it doesn't exist yet here.
@@ -398,6 +402,7 @@ public sealed class FkeyEditorViewModel : BaseViewModel
         MaxOnlineDisplay    = _maxOnlineDisplay,
         OnlineNamesOnly     = _onlineNamesOnly,
         FloatOnline         = _floatOnline,
+        FloatCompass        = _floatCompass,
     };
 
     /// <summary>The Sounds tab's tree as an override-only settings blob.</summary>

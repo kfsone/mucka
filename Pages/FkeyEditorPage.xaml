@@ -664,6 +664,20 @@
                                ToolTipProperties.Text="Show the Map/Compass section."/>
                     </Grid>
 
+                    <!-- Sub-settings for Map/Compass (indent 28dp to align with label) -->
+                    <VerticalStackLayout Margin="28,0,0,0" Spacing="8" IsEnabled="{Binding ShowMapCompass}">
+
+                        <!-- Float -->
+                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
+                            <CheckBox Grid.Column="0" IsChecked="{Binding FloatCompass, Mode=TwoWay}"
+                                      Color="#1f6feb" VerticalOptions="Center"/>
+                            <Label Grid.Column="1" Text="Float"
+                                   TextColor="#888888" FontSize="13" VerticalOptions="Center"
+                                   ToolTipProperties.Text="Default the compass to a floating panel instead of docked in the side panel. Changing this also moves the panel now if it still matches the saved default; if you've manually floated/docked it since, the live panel is left as-is."/>
+                        </Grid>
+
+                    </VerticalStackLayout>
+
                 </VerticalStackLayout>
             </ScrollView>
 

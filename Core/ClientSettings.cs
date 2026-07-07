@@ -52,4 +52,7 @@ public sealed record ClientSettings
     /// <summary>Global default for whether the Online list floats (unpinned from the side panel)
     /// rather than living in the side panel. False (pinned) matches the historical behaviour.</summary>
     public bool FloatOnline { get; init; }
+    /// <summary>Global default for whether the compass floats (unpinned from the side panel)
+    /// rather than living in the side panel. False (pinned) matches the historical behaviour.</summary>
+    public bool FloatCompass { get; init; }
 }

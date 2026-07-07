@@ -69,6 +69,9 @@ public class Profile
     /// <summary>Global default for floating (unpinning) the Online list. False = pinned in the side panel.</summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public bool FloatOnline { get; set; }
+    /// <summary>Global default for floating (unpinning) the compass. False = pinned in the side panel.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool FloatCompass { get; set; }
 
     private static readonly Dictionary<int, string> s_defaultFkeys = new()
     {

@@ -29,6 +29,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     private bool _isMapExpanded      = true;
     private bool _isOnlinePinned = true;   // pinned (floating panel follows when side panel is hidden)
     private bool _isFloatingOnlineFolded;
+    private bool _isFloatingOnlineLocked = true;   // windlets start locked: content only, no strip, no drag
     private bool _namesOnly;
     private int  _maxOnline;
 
@@ -89,6 +90,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     // (for phone users). The room trail never floats \u2014 only the compass moves.
     private bool _isMapPinned = true;
     private bool _isFloatingMapFolded;
+    private bool _isFloatingMapLocked = true;   // windlets start locked: content only, no strip, no drag
 
     /// <summary>When true the compass is docked in the side rail; when false it floats.</summary>
     public bool IsMapPinned
@@ -117,13 +119,25 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     }
     public string FloatingMapFoldGlyph => _isFloatingMapFolded ? "\u25b6" : "\u25bc";
 
+    /// <summary>When true the floating compass is locked: content only, no title strip, no drag \u2014
+    /// just the dial with a small corner lock icon. Its controls live in the side rail anyway.
+    /// Unlocking reveals the strip and enables dragging.</summary>
+    public bool IsFloatingMapLocked
+    {
+        get => _isFloatingMapLocked;
+        set => SetAndNotify(ref _isFloatingMapLocked, value,
+            [nameof(IsFloatingMapUnlocked), nameof(FloatingMapLockGlyph)]);
+    }
+    /// <summary>Convenience inverse \u2014 binds the title strip's visibility (shown while unlocked).</summary>
+    public bool IsFloatingMapUnlocked => !_isFloatingMapLocked;
+    /// <summary>Padlock glyph: \ud83d\udd12 locked, \ud83d\udd13 unlocked (drag-enabled).</summary>
+    public string FloatingMapLockGlyph => _isFloatingMapLocked ? "\U0001F512" : "\U0001F513";
+
     // \u2500\u2500 Floating-panel size steps (the \u2212 / + buttons step through these) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
     private static readonly double[] OnlineWidths = { 160, 190, 220 };
     private int _onlineSizeIx = 2;
     /// <summary>Current width of the floating online panel; stepped by the \u2212 / + buttons.</summary>
     public double FloatingOnlineWidth => OnlineWidths[_onlineSizeIx];
-    /// <summary>True at the smallest step \u2014 the title strip must stay put or nothing's left to grab.</summary>
-    public bool IsFloatingOnlineShrunk => _onlineSizeIx == 0;
 
     // Largest \u2192 smallest. The final step is a horizontal oval (12px shorter than wide)
     // for the most compact phone-float footprint.
@@ -134,8 +148,6 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     public double FloatingMapWidth  => MapSizes[_mapSizeIx].W;
     /// <summary>Current height of the floating compass (shorter than width at the oval step).</summary>
     public double FloatingMapHeight => MapSizes[_mapSizeIx].H;
-    /// <summary>True at the small steps \u2014 the title strip must stay put or the dial reads as a stray dot.</summary>
-    public bool IsFloatingMapShrunk => MapSizes[_mapSizeIx].W <= 84;
 
     // ── Floating online panel state ────────────────────────────────────────────
 
@@ -172,6 +184,20 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
 
     /// <summary>Fold glyph for the floating panel (same convention as side-panel sections).</summary>
     public string FloatingFoldGlyph => _isFloatingOnlineFolded ? "\u25b6" : "\u25bc";
+
+    /// <summary>When true the floating online windlet is locked: content only, no title strip, no
+    /// drag \u2014 just the list with a small corner lock icon. Its controls live in the side rail
+    /// anyway. Unlocking reveals the strip and enables dragging.</summary>
+    public bool IsFloatingOnlineLocked
+    {
+        get => _isFloatingOnlineLocked;
+        set => SetAndNotify(ref _isFloatingOnlineLocked, value,
+            [nameof(IsFloatingOnlineUnlocked), nameof(FloatingOnlineLockGlyph)]);
+    }
+    /// <summary>Convenience inverse \u2014 binds the title strip's visibility (shown while unlocked).</summary>
+    public bool IsFloatingOnlineUnlocked => !_isFloatingOnlineLocked;
+    /// <summary>Padlock glyph: \ud83d\udd12 locked, \ud83d\udd13 unlocked (drag-enabled).</summary>
+    public string FloatingOnlineLockGlyph => _isFloatingOnlineLocked ? "\U0001F512" : "\U0001F513";
 
     /// <summary>True only when names-only display mode is active: the title/level suffix is hidden.</summary>
     public bool NamesOnly
@@ -288,6 +314,8 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     public ICommand DecreaseOnlineSizeCommand { get; }
     public ICommand IncreaseMapSizeCommand { get; }
     public ICommand DecreaseMapSizeCommand { get; }
+    public ICommand ToggleFloatingOnlineLockCommand { get; }
+    public ICommand ToggleFloatingMapLockCommand { get; }
 
     /// <summary>Raised when an interaction should hand keyboard focus back to the input box.
     /// Opening the About dialog deliberately does not raise it — focus belongs to the dialog.</summary>
@@ -316,27 +344,29 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         {
             if (_onlineSizeIx >= OnlineWidths.Length - 1) return;
             _onlineSizeIx++;
-            OnPropertiesChanged(nameof(FloatingOnlineWidth), nameof(IsFloatingOnlineShrunk));
+            OnPropertyChanged(nameof(FloatingOnlineWidth));
         });
         DecreaseOnlineSizeCommand = new Command(() =>
         {
             if (_onlineSizeIx <= 0) return;
             _onlineSizeIx--;
-            OnPropertiesChanged(nameof(FloatingOnlineWidth), nameof(IsFloatingOnlineShrunk));
+            OnPropertyChanged(nameof(FloatingOnlineWidth));
         });
         // MapSizes runs largest → smallest, so "increase" walks the index down.
         IncreaseMapSizeCommand = new Command(() =>
         {
             if (_mapSizeIx <= 0) return;
             _mapSizeIx--;
-            OnPropertiesChanged(nameof(FloatingMapWidth), nameof(FloatingMapHeight), nameof(IsFloatingMapShrunk));
+            OnPropertiesChanged(nameof(FloatingMapWidth), nameof(FloatingMapHeight));
         });
         DecreaseMapSizeCommand = new Command(() =>
         {
             if (_mapSizeIx >= MapSizes.Length - 1) return;
             _mapSizeIx++;
-            OnPropertiesChanged(nameof(FloatingMapWidth), nameof(FloatingMapHeight), nameof(IsFloatingMapShrunk));
+            OnPropertiesChanged(nameof(FloatingMapWidth), nameof(FloatingMapHeight));
         });
+        ToggleFloatingOnlineLockCommand = new Command(() => { IsFloatingOnlineLocked = !IsFloatingOnlineLocked; RequestFocus?.Invoke(); });
+        ToggleFloatingMapLockCommand    = new Command(() => { IsFloatingMapLocked    = !IsFloatingMapLocked;    RequestFocus?.Invoke(); });
         WhosList.CollectionChanged += (_, e) =>
         {
             if (e.NewItems is not null)

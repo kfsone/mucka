@@ -77,8 +77,6 @@ public partial class GamePage : ContentPage
     private double _floatMapTransY;
     private Size _onlineLastSize;
     private Size _mapLastSize;
-    private bool _onlinePanning;
-    private bool _mapPanning;
 #if WINDOWS
     // True once an auxiliary window (raw console, map) has been opened. WinUI's native
     // caret-follow breaks after focus leaves to another app window, so the UpdateLayout
@@ -451,13 +449,14 @@ public partial class GamePage : ContentPage
     private async void OnConfigRequested() => await OpenConfigAsync(initialTab: 0);
     private async void OnFloatingOpenDisplaySettings() => await OpenConfigAsync(initialTab: 1);
 
+    // Dragging is only allowed while the windlet is unlocked (the lock icon toggles it).
     private void OnFloatingPanelPanUpdated(object? sender, PanUpdatedEventArgs e)
     {
+        if (_vm.SidePanel.IsFloatingOnlineLocked) return;
         switch (e.StatusType)
         {
             case GestureStatus.Started:
             case GestureStatus.Running:
-                _onlinePanning = true;
                 FloatingOnlinePanel.TranslationX = _floatTransX + e.TotalX;
                 FloatingOnlinePanel.TranslationY = _floatTransY + e.TotalY;
                 break;
@@ -465,18 +464,17 @@ public partial class GamePage : ContentPage
             case GestureStatus.Canceled:
                 _floatTransX = FloatingOnlinePanel.TranslationX;
                 _floatTransY = FloatingOnlinePanel.TranslationY;
-                _onlinePanning = false;
                 break;
         }
     }
 
     private void OnFloatingMapPanUpdated(object? sender, PanUpdatedEventArgs e)
     {
+        if (_vm.SidePanel.IsFloatingMapLocked) return;
         switch (e.StatusType)
         {
             case GestureStatus.Started:
             case GestureStatus.Running:
-                _mapPanning = true;
                 FloatingMapPanel.TranslationX = _floatMapTransX + e.TotalX;
                 FloatingMapPanel.TranslationY = _floatMapTransY + e.TotalY;
                 break;
@@ -484,42 +482,20 @@ public partial class GamePage : ContentPage
             case GestureStatus.Canceled:
                 _floatMapTransX = FloatingMapPanel.TranslationX;
                 _floatMapTransY = FloatingMapPanel.TranslationY;
-                _mapPanning = false;
                 break;
         }
     }
 
-    // Windows only: collapse a floating panel's title/widget row when the pointer leaves,
-    // reclaiming the space. On touch platforms PointerExited never fires, so the row stays put.
-    private void OnFloatingOnlinePointerEntered(object? sender, PointerEventArgs e)
-        => FloatingOnlineHeader.IsVisible = true;
-
-    private void OnFloatingOnlinePointerExited(object? sender, PointerEventArgs e)
-    {
-#if WINDOWS
-        // Don't collapse mid-drag (the cursor routinely leaves the panel while dragging) — the
-        // resulting resize would yank the panel out from under the gesture. Keep it when shrunk too.
-        if (!_onlinePanning && !_vm.SidePanel.IsFloatingOnlineShrunk)
-            FloatingOnlineHeader.IsVisible = false;
-#endif
-    }
-
-    private void OnFloatingMapPointerEntered(object? sender, PointerEventArgs e)
-        => FloatingMapHeader.IsVisible = true;
-
-    private void OnFloatingMapPointerExited(object? sender, PointerEventArgs e)
-    {
-#if WINDOWS
-        // Don't collapse mid-drag — see the online handler. Keep the strip when shrunk too.
-        if (!_mapPanning && !_vm.SidePanel.IsFloatingMapShrunk)
-            FloatingMapHeader.IsVisible = false;
-#endif
-    }
+    // Hover brightens the corner lock so it's obvious while you're working with the windlet,
+    // and dims back to a discreet 0.5 at rest (still visible enough to tap on a touch screen,
+    // where these never fire). Opacity only — no layout impact.
+    private void OnFloatingOnlinePointerEntered(object? sender, PointerEventArgs e) => OnlineLockIcon.Opacity = 1.0;
+    private void OnFloatingOnlinePointerExited(object? sender, PointerEventArgs e)  => OnlineLockIcon.Opacity = 0.5;
+    private void OnFloatingMapPointerEntered(object? sender, PointerEventArgs e)    => MapLockIcon.Opacity = 1.0;
+    private void OnFloatingMapPointerExited(object? sender, PointerEventArgs e)     => MapLockIcon.Opacity = 0.5;
 
     private void OnFloatingOnlineSizeChanged(object? sender, EventArgs e)
     {
-        // Never re-anchor mid-drag — the pan owns the translation until the gesture ends.
-        if (_onlinePanning) { _onlineLastSize = new Size(FloatingOnlinePanel.Width, FloatingOnlinePanel.Height); return; }
         Reanchor(FloatingOnlinePanel, ref _onlineLastSize);
         _floatTransX = FloatingOnlinePanel.TranslationX;
         _floatTransY = FloatingOnlinePanel.TranslationY;
@@ -527,14 +503,13 @@ public partial class GamePage : ContentPage
 
     private void OnFloatingMapSizeChanged(object? sender, EventArgs e)
     {
-        if (_mapPanning) { _mapLastSize = new Size(FloatingMapPanel.Width, FloatingMapPanel.Height); return; }
         Reanchor(FloatingMapPanel, ref _mapLastSize);
         _floatMapTransX = FloatingMapPanel.TranslationX;
         _floatMapTransY = FloatingMapPanel.TranslationY;
     }
 
     // Keep a floating panel anchored by the screen quadrant it sits in when it grows/shrinks
-    // (resize buttons, title-strip show/hide, fold). A panel in the bottom half grows upward;
+    // (resize buttons, lock/unlock revealing the title strip, fold). A panel in the bottom half grows upward;
     // one pinned to the right edge grows leftward; a top-docked panel just grows down.
     private void Reanchor(Border panel, ref Size last)
     {

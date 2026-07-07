@@ -72,7 +72,8 @@ public static class SettingsStore
         bool? ShowMapCompass    = null,
         int? MaxOnlineDisplay   = null,
         bool? OnlineNamesOnly   = null,
-        bool? FloatOnline       = null)
+        bool? FloatOnline       = null,
+        bool? FloatCompass      = null)
     {
         /// <summary>Overlays the stored (ini) values onto a profile — ini wins when present.</summary>
         public void ApplyTo(Profile profile)
@@ -97,6 +98,7 @@ public static class SettingsStore
             if (MaxOnlineDisplay is int mod) profile.MaxOnlineDisplay = mod;
             if (OnlineNamesOnly  is bool ono) profile.OnlineNamesOnly  = ono;
             if (FloatOnline      is bool fo)  profile.FloatOnline      = fo;
+            if (FloatCompass     is bool fc)  profile.FloatCompass     = fc;
         }
     }
 
@@ -170,7 +172,8 @@ public static class SettingsStore
                 ShowMapCompass:     ini.HasSection("settings") ? GetBool(ini, "settings", "showmapcompass")     : null,
                 MaxOnlineDisplay:   ini.HasSection("settings") ? GetInt (ini, "settings", "maxonlinedisplay")   : null,
                 OnlineNamesOnly:    ini.HasSection("settings") ? GetBool(ini, "settings", "onlinenamesonly")    : null,
-                FloatOnline:        ini.HasSection("settings") ? GetBool(ini, "settings", "floatonline")        : null);
+                FloatOnline:        ini.HasSection("settings") ? GetBool(ini, "settings", "floatonline")        : null,
+                FloatCompass:       ini.HasSection("settings") ? GetBool(ini, "settings", "floatcompass")       : null);
         }
         finally
         {
@@ -214,6 +217,7 @@ public static class SettingsStore
             ini.Set("settings", "maxonlinedisplay",   settings.MaxOnlineDisplay.ToString());
             ini.Set("settings", "onlinenamesonly",    settings.OnlineNamesOnly ? "yes" : "no");
             ini.Set("settings", "floatonline",        settings.FloatOnline     ? "yes" : "no");
+            ini.Set("settings", "floatcompass",       settings.FloatCompass    ? "yes" : "no");
 
             if (fkeys is not null)
             {

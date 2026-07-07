@@ -56,6 +56,8 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     // The saved "Float online by default" global. Tracked separately from the live pin state
     // (SidePanel.IsOnlinePinned) so the setting only drags the live state when the two are in sync.
     private bool _floatOnline;
+    // As above, for the compass (SidePanel.IsMapPinned).
+    private bool _floatCompass;
     private bool _inGameMode;
     private DateTime _lastSentUtc;
     private DateTime _lastBellUtc = DateTime.MinValue;
@@ -401,6 +403,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         MaxOnlineDisplay = SidePanel.MaxOnline,
         OnlineNamesOnly  = SidePanel.NamesOnly,
         FloatOnline      = _floatOnline,
+        FloatCompass     = _floatCompass,
     };
 
     public ICommand SendCommand { get; }
@@ -467,6 +470,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _defaultFontSize     = profile.DefaultFontSize;
         _defaultMaxColumns   = profile.DefaultMaxColumns;
         _floatOnline         = profile.FloatOnline;
+        _floatCompass        = profile.FloatCompass;
         SoundService.SetVolume(_volume);
         SoundService.SetSoundSettings(_sounds);
 
@@ -478,6 +482,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         SidePanel.MaxOnline           = profile.MaxOnlineDisplay;
         SidePanel.NamesOnly           = profile.OnlineNamesOnly;
         SidePanel.IsOnlinePinned      = !profile.FloatOnline;   // apply the saved float default to the live state
+        SidePanel.IsMapPinned         = !profile.FloatCompass;  // ditto for the compass
         WhoEntry.NamesOnlyMode        = profile.OnlineNamesOnly;
         SidePanel.SubscriptionOptionsChanged += (few, fei) => _conn.UpdateSubscriptionOptions(few, fei);
         _conn.UpdateSubscriptionOptions(profile.ShowOnline, profile.ShowInventory || profile.ShowItemsHere);
@@ -556,6 +561,11 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         if (!SidePanel.IsOnlinePinned == _floatOnline)
             SidePanel.IsOnlinePinned = !settings.FloatOnline;
         _floatOnline = settings.FloatOnline;
+
+        // Same reconciliation for the compass float default.
+        if (!SidePanel.IsMapPinned == _floatCompass)
+            SidePanel.IsMapPinned = !settings.FloatCompass;
+        _floatCompass = settings.FloatCompass;
 
         _dreamwordSizeOffset = Math.Clamp(settings.DreamwordSizeOffset, -2, 4);
         _defaultFontSize     = settings.DefaultFontSize;

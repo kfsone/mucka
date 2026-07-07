@@ -460,14 +460,19 @@
                 <Border.StrokeShape><RoundRectangle CornerRadius="6"/></Border.StrokeShape>
                 <Border.GestureRecognizers>
                     <PanGestureRecognizer PanUpdated="OnFloatingPanelPanUpdated"/>
+                    <!-- Hover only brightens the corner lock; no layout change. -->
                     <PointerGestureRecognizer PointerEntered="OnFloatingOnlinePointerEntered"
                                               PointerExited="OnFloatingOnlinePointerExited"/>
                 </Border.GestureRecognizers>
+                <!-- Grid so the corner lock icon can overlay the content without pushing it down. -->
+                <Grid>
                 <VerticalStackLayout Padding="8,6,8,6" Spacing="2">
 
-                    <!-- Heading row: title · resize − / + · dock · fold.
-                         On Windows it auto-hides while the pointer is away (saves space). -->
-                    <Grid x:Name="FloatingOnlineHeader" ColumnDefinitions="*,Auto,Auto,Auto,Auto,Auto">
+                    <!-- Heading row: title · resize − / + · dock · fold. Shown only while unlocked;
+                         its controls also live in the side rail, so a locked windlet is content-only.
+                         Right margin clears the corner lock overlay. -->
+                    <Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto,Auto" Margin="0,0,20,0"
+                          IsVisible="{Binding SidePanel.IsFloatingOnlineUnlocked}">
                         <Label Grid.Column="0" VerticalOptions="Center"
                                HorizontalOptions="Fill" HorizontalTextAlignment="Start">
                             <Label.FormattedText>
@@ -549,6 +554,16 @@
                     </ScrollView>
 
                 </VerticalStackLayout>
+                <!-- Corner lock: unlock to drag + reveal the title strip; re-lock for a clean,
+                     content-only windlet. Overlaid, so it never shifts the list down. -->
+                <Label x:Name="OnlineLockIcon" Text="{Binding SidePanel.FloatingOnlineLockGlyph}"
+                       FontSize="11" Opacity="0.5"
+                       HorizontalOptions="End" VerticalOptions="Start" Padding="6,3,4,3">
+                    <Label.GestureRecognizers>
+                        <TapGestureRecognizer Command="{Binding SidePanel.ToggleFloatingOnlineLockCommand}"/>
+                    </Label.GestureRecognizers>
+                </Label>
+                </Grid>
             </Border>
 
             <!-- ── Floating compass panel ────────────────────────────────── -->
@@ -565,17 +580,19 @@
                 <Border.StrokeShape><RoundRectangle CornerRadius="6"/></Border.StrokeShape>
                 <Border.GestureRecognizers>
                     <PanGestureRecognizer PanUpdated="OnFloatingMapPanUpdated"/>
+                    <!-- Hover only brightens the corner lock; no layout change. -->
                     <PointerGestureRecognizer PointerEntered="OnFloatingMapPointerEntered"
                                               PointerExited="OnFloatingMapPointerExited"/>
                 </Border.GestureRecognizers>
+                <!-- Grid so the corner lock icon can overlay the content without pushing it down. -->
+                <Grid>
                 <VerticalStackLayout Padding="8,6,8,6" Spacing="2">
 
-                    <!-- Heading row: title · resize − / + · dock · fold.
-                         On Windows it auto-hides while the pointer is away (saves space). -->
-                    <Grid x:Name="FloatingMapHeader" ColumnDefinitions="*,Auto,Auto,Auto,Auto">
-                        <Label Grid.Column="0" Text="Compass" TextColor="#58a6ff" FontSize="11"
-                               VerticalOptions="Center" HorizontalOptions="Fill" HorizontalTextAlignment="Start"
-                               FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
+                    <!-- Heading row: resize − / + · dock · fold. Shown only while unlocked; its
+                         controls also live in the side rail, so a locked windlet is just the dial.
+                         No "Compass" label — it's obviously the compass. Right margin clears the lock. -->
+                    <Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto" Margin="0,0,20,0"
+                          IsVisible="{Binding SidePanel.IsFloatingMapUnlocked}">
                         <!-- Resize: − shrinks, + grows -->
                         <Label Grid.Column="1" Text="&#x2212;" TextColor="#888888" FontSize="13"
                                VerticalOptions="Center" Padding="4,0,0,0">
@@ -623,6 +640,16 @@
                     </VerticalStackLayout>
 
                 </VerticalStackLayout>
+                <!-- Corner lock: unlock to drag + reveal the title strip; re-lock for a clean,
+                     dial-only windlet. Overlaid, so it never shifts the dial down. -->
+                <Label x:Name="MapLockIcon" Text="{Binding SidePanel.FloatingMapLockGlyph}"
+                       FontSize="11" Opacity="0.5"
+                       HorizontalOptions="End" VerticalOptions="Start" Padding="6,3,4,3">
+                    <Label.GestureRecognizers>
+                        <TapGestureRecognizer Command="{Binding SidePanel.ToggleFloatingMapLockCommand}"/>
+                    </Label.GestureRecognizers>
+                </Label>
+                </Grid>
             </Border>
         </Grid>
 
