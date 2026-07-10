@@ -1207,6 +1207,9 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         {
             _effCols = clamped;
             _conn.SetWindowSize(_effCols, 21);
+            // NAWS alone doesn't re-wrap MUD2 output — the server wraps on the /T width set at
+            // client-mode entry. Re-issue it so text sent after a resize wraps at the new width.
+            _conn.SendTerminalWidth();
             OnPropertyChanged(nameof(EffCols));
             OnPropertyChanged(nameof(IsCompactStats));
             OnPropertyChanged(nameof(IsNotCompactStats));

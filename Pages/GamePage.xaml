@@ -31,56 +31,15 @@
                 Padding="6,4" StrokeThickness="0">
             <Grid ColumnDefinitions="Auto,*">
 
-                <!-- Top-left icons: 3-up in wide mode, "⋯" overflow in narrow mode.
+                <!-- Top-left icons: a single "☰" overflow menu at every width. The old 3-up inline
+                     icon strip (wide) / hamburger (narrow) split meant landscape lost the menu — and
+                     with it the only way back to the Orientation switch. One menu, always present.
                      The | separator is always present, outside the toggle so layout is stable. -->
                 <Grid Grid.Column="0" ColumnDefinitions="Auto,Auto" VerticalOptions="Center">
 
-                    <!-- Wide mode: panel toggle + settings + about inline -->
-                    <HorizontalStackLayout Grid.Column="0" Spacing="2"
-                                           IsVisible="{Binding IsNotCompactStats}">
-                        <Border VerticalOptions="Center"
-                                BackgroundColor="Transparent"
-                                Stroke="Transparent" StrokeThickness="0"
-                                Padding="{OnPlatform Android='10,8', Default='2,0'}"
-                                SemanticProperties.Description="Toggle side panel">
-                            <ToolTipProperties.Text>Toggle side panel</ToolTipProperties.Text>
-                            <Border.GestureRecognizers>
-                                <TapGestureRecognizer Command="{Binding SidePanel.TogglePanelCommand}"/>
-                            </Border.GestureRecognizers>
-                            <Label Text="{Binding SidePanel.PanelToggleGlyph}"
-                                   TextColor="#888888" FontSize="11" VerticalOptions="Center"
-                                   FontFamily="{OnPlatform Android='monospace', WinUI='Cascadia Mono', MacCatalyst='Menlo-Regular'}"/>
-                        </Border>
-                        <Border VerticalOptions="Center"
-                                BackgroundColor="Transparent"
-                                Stroke="Transparent" StrokeThickness="0"
-                                Padding="{OnPlatform Android='10,8', Default='2,0'}"
-                                SemanticProperties.Description="Settings">
-                            <ToolTipProperties.Text>Settings</ToolTipProperties.Text>
-                            <Border.GestureRecognizers>
-                                <TapGestureRecognizer Command="{Binding ConfigCommand}"/>
-                            </Border.GestureRecognizers>
-                            <Label Text="&#x2699;&#xFE0E;"
-                                   TextColor="#888888" FontSize="12" VerticalOptions="Center"/>
-                        </Border>
-                        <Border VerticalOptions="Center"
-                                BackgroundColor="Transparent"
-                                Stroke="Transparent" StrokeThickness="0"
-                                Padding="{OnPlatform Android='10,8', Default='2,0'}"
-                                SemanticProperties.Description="About mucka">
-                            <ToolTipProperties.Text>About mucka</ToolTipProperties.Text>
-                            <Border.GestureRecognizers>
-                                <TapGestureRecognizer Command="{Binding SidePanel.ShowAboutCommand}"/>
-                            </Border.GestureRecognizers>
-                            <Label Text="&#x24D8;"
-                                   TextColor="#888888" FontSize="12" VerticalOptions="Center"/>
-                        </Border>
-                    </HorizontalStackLayout>
-
-                    <!-- Compact/narrow mode: hamburger overflow menu -->
+                    <!-- Overflow menu — shown at all widths -->
                     <Border x:Name="OverflowMenuButton"
                             Grid.Column="0"
-                            IsVisible="{Binding IsCompactStats}"
                             VerticalOptions="Center" HorizontalOptions="Start"
                             BackgroundColor="#2d333b"
                             Stroke="Transparent" StrokeThickness="0"
@@ -89,7 +48,9 @@
                         <Border.StrokeShape><RoundRectangle CornerRadius="4"/></Border.StrokeShape>
                         <FlyoutBase.ContextFlyout>
                             <MenuFlyout>
-                                <MenuFlyoutItem Text="Toggle side panel" Clicked="OnOverflowTogglePanel"/>
+                                <MenuFlyoutItem Text="Side Panel" Clicked="OnOverflowTogglePanel"/>
+                                <MenuFlyoutItem Text="Onlines" Clicked="OnOverflowOnlines"/>
+                                <MenuFlyoutItem Text="Compass" Clicked="OnOverflowCompass"/>
                                 <MenuFlyoutItem Text="Settings" Clicked="OnOverflowSettings"/>
                                 <MenuFlyoutItem Text="About" Clicked="OnOverflowAbout"/>
                             </MenuFlyout>
@@ -491,15 +452,16 @@
                                 <TapGestureRecognizer Command="{Binding SidePanel.OpenFloatingDisplaySettingsCommand}"/>
                             </Label.GestureRecognizers>
                         </Label>
-                        <!-- Resize: − shrinks, + grows -->
-                        <Label Grid.Column="2" Text="&#x2212;" TextColor="#888888" FontSize="13"
-                               VerticalOptions="Center" Padding="4,0,0,0">
+                        <!-- Resize: − shrinks, + grows. Bumped a point and spaced out to match the
+                             compass windlet — the glyphs were near-invisible and too tight to hit. -->
+                        <Label Grid.Column="2" Text="&#x2212;" TextColor="#888888" FontSize="14"
+                               VerticalOptions="Center" Padding="7,0,0,0">
                             <Label.GestureRecognizers>
                                 <TapGestureRecognizer Command="{Binding SidePanel.DecreaseOnlineSizeCommand}"/>
                             </Label.GestureRecognizers>
                         </Label>
-                        <Label Grid.Column="3" Text="+" TextColor="#888888" FontSize="13"
-                               VerticalOptions="Center" Padding="4,0,0,0">
+                        <Label Grid.Column="3" Text="+" TextColor="#888888" FontSize="14"
+                               VerticalOptions="Center" Padding="7,0,0,0">
                             <Label.GestureRecognizers>
                                 <TapGestureRecognizer Command="{Binding SidePanel.IncreaseOnlineSizeCommand}"/>
                             </Label.GestureRecognizers>
@@ -508,8 +470,8 @@
                         <Label Grid.Column="4"
                                Text="{Binding SidePanel.PinGlyph}"
                                TextColor="{Binding SidePanel.PinColor}"
-                               FontSize="13" VerticalOptions="Center"
-                               Padding="4,0,0,0">
+                               FontSize="14" VerticalOptions="Center"
+                               Padding="7,0,0,0">
                             <Label.GestureRecognizers>
                                 <TapGestureRecognizer Command="{Binding SidePanel.ToggleOnlinePinnedCommand}"/>
                             </Label.GestureRecognizers>
@@ -574,6 +536,7 @@
                     BackgroundColor="#101618"
                     Stroke="#3d4f5c" StrokeThickness="1"
                     HorizontalOptions="Center" VerticalOptions="Start"
+                    WidthRequest="{Binding SidePanel.FloatingMapPanelWidth}"
                     Margin="0,6,0,0"
                     ZIndex="10"
                     SizeChanged="OnFloatingMapSizeChanged">
@@ -593,15 +556,16 @@
                          No "Compass" label — it's obviously the compass. Right margin clears the lock. -->
                     <Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto" Margin="0,0,20,0"
                           IsVisible="{Binding SidePanel.IsFloatingMapUnlocked}">
-                        <!-- Resize: − shrinks, + grows -->
-                        <Label Grid.Column="1" Text="&#x2212;" TextColor="#888888" FontSize="13"
-                               VerticalOptions="Center" Padding="4,0,0,0">
+                        <!-- Resize: − shrinks, + grows. Bumped a point and spaced out: the glyphs
+                             were near-invisible and too tight to hit reliably on a phone. -->
+                        <Label Grid.Column="1" Text="&#x2212;" TextColor="#888888" FontSize="14"
+                               VerticalOptions="Center" Padding="7,0,0,0">
                             <Label.GestureRecognizers>
                                 <TapGestureRecognizer Command="{Binding SidePanel.DecreaseMapSizeCommand}"/>
                             </Label.GestureRecognizers>
                         </Label>
-                        <Label Grid.Column="2" Text="+" TextColor="#888888" FontSize="13"
-                               VerticalOptions="Center" Padding="4,0,0,0">
+                        <Label Grid.Column="2" Text="+" TextColor="#888888" FontSize="14"
+                               VerticalOptions="Center" Padding="7,0,0,0">
                             <Label.GestureRecognizers>
                                 <TapGestureRecognizer Command="{Binding SidePanel.IncreaseMapSizeCommand}"/>
                             </Label.GestureRecognizers>
@@ -609,7 +573,7 @@
                         <!-- Dock toggle: hollow □ = float me, filled ■ = dock me -->
                         <Label Grid.Column="3" Text="{Binding SidePanel.MapPinGlyph}"
                                TextColor="{Binding SidePanel.MapPinColor}"
-                               FontSize="13" VerticalOptions="Center" Padding="4,0,0,0">
+                               FontSize="14" VerticalOptions="Center" Padding="7,0,0,0">
                             <Label.GestureRecognizers>
                                 <TapGestureRecognizer Command="{Binding SidePanel.ToggleMapPinnedCommand}"/>
                             </Label.GestureRecognizers>
@@ -1253,25 +1217,117 @@
                     MinimumWidthRequest="170">
                 <Border.StrokeShape><RoundRectangle CornerRadius="6"/></Border.StrokeShape>
                 <VerticalStackLayout Spacing="0">
+                    <!-- Side Panel / Onlines / Compass are live-state toggles: the ✓ tracks the
+                         current visibility, and tapping flips it without touching saved settings.
+                         Bound straight to the toggle commands so the overlay stays open and the ✓
+                         updates in place — handy on phones where the tiny windlet buttons are fiddly. -->
                     <Border Padding="16,14" BackgroundColor="Transparent">
                         <Border.GestureRecognizers>
-                            <TapGestureRecognizer Tapped="OnOverflowTogglePanel"/>
+                            <TapGestureRecognizer Command="{Binding SidePanel.TogglePanelCommand}"/>
                         </Border.GestureRecognizers>
-                        <Label Text="Toggle side panel" TextColor="White" FontSize="14"/>
+                        <Grid ColumnDefinitions="24,*">
+                            <Label Grid.Column="0" Text="&#x2713;" TextColor="#3fb950" FontSize="14"
+                                   VerticalOptions="Center"
+                                   IsVisible="{Binding SidePanel.IsPanelExpanded}"/>
+                            <Label Grid.Column="1" Text="Side Panel" TextColor="White" FontSize="14"/>
+                        </Grid>
+                    </Border>
+                    <BoxView Color="#2d333b" HeightRequest="1"/>
+                    <Border Padding="16,14" BackgroundColor="Transparent">
+                        <Border.GestureRecognizers>
+                            <TapGestureRecognizer Command="{Binding SidePanel.ToggleOnlinePinnedCommand}"/>
+                        </Border.GestureRecognizers>
+                        <Grid ColumnDefinitions="24,*">
+                            <Label Grid.Column="0" Text="&#x2713;" TextColor="#3fb950" FontSize="14"
+                                   VerticalOptions="Center"
+                                   IsVisible="{Binding SidePanel.IsFloatingOnlineVisible}"/>
+                            <Label Grid.Column="1" Text="Onlines" TextColor="White" FontSize="14"/>
+                        </Grid>
+                    </Border>
+                    <BoxView Color="#2d333b" HeightRequest="1"/>
+                    <Border Padding="16,14" BackgroundColor="Transparent">
+                        <Border.GestureRecognizers>
+                            <TapGestureRecognizer Command="{Binding SidePanel.ToggleMapPinnedCommand}"/>
+                        </Border.GestureRecognizers>
+                        <Grid ColumnDefinitions="24,*">
+                            <Label Grid.Column="0" Text="&#x2713;" TextColor="#3fb950" FontSize="14"
+                                   VerticalOptions="Center"
+                                   IsVisible="{Binding SidePanel.IsFloatingMapVisible}"/>
+                            <Label Grid.Column="1" Text="Compass" TextColor="White" FontSize="14"/>
+                        </Grid>
                     </Border>
                     <BoxView Color="#2d333b" HeightRequest="1"/>
                     <Border Padding="16,14" BackgroundColor="Transparent">
                         <Border.GestureRecognizers>
                             <TapGestureRecognizer Tapped="OnOverflowSettings"/>
                         </Border.GestureRecognizers>
-                        <Label Text="Settings" TextColor="White" FontSize="14"/>
+                        <Grid ColumnDefinitions="24,*">
+                            <Label Grid.Column="1" Text="Settings" TextColor="White" FontSize="14"/>
+                        </Grid>
                     </Border>
+
+                    <!-- Orientation sub-menu (Android only — desktop windows aren't rotated).
+                         Tapping the header expands the three choices in place; a ✓ marks the active
+                         one. Session-only (does not touch saved settings). -->
+                    <BoxView Color="#2d333b" HeightRequest="1"
+                             IsVisible="{OnPlatform Default=false, Android=true}"/>
+                    <Border Padding="16,14" BackgroundColor="Transparent"
+                            IsVisible="{OnPlatform Default=false, Android=true}">
+                        <Border.GestureRecognizers>
+                            <TapGestureRecognizer Tapped="OnOverflowOrientationTapped"/>
+                        </Border.GestureRecognizers>
+                        <Grid ColumnDefinitions="24,*,Auto">
+                            <Label Grid.Column="1" Text="Orientation" TextColor="White" FontSize="14"/>
+                            <Label x:Name="OrientationChevron" Grid.Column="2" Text="&#x25b8;"
+                                   TextColor="#888888" FontSize="12" VerticalOptions="Center"/>
+                        </Grid>
+                    </Border>
+                    <VerticalStackLayout x:Name="OrientationSubmenu" IsVisible="False" Spacing="0"
+                                         BackgroundColor="#161c22">
+                        <Border Padding="16,12,16,12" BackgroundColor="Transparent">
+                            <Border.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnOrientationSystem"/>
+                            </Border.GestureRecognizers>
+                            <Grid ColumnDefinitions="34,*">
+                                <Label x:Name="OrientCheckSystem" Grid.Column="0" Text="&#x2713;"
+                                       TextColor="#3fb950" FontSize="13" VerticalOptions="Center"
+                                       Margin="10,0,0,0" IsVisible="True"/>
+                                <Label Grid.Column="1" Text="System" TextColor="#d0d0d0" FontSize="13"/>
+                            </Grid>
+                        </Border>
+                        <BoxView Color="#2d333b" HeightRequest="1"/>
+                        <Border Padding="16,12,16,12" BackgroundColor="Transparent">
+                            <Border.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnOrientationPortrait"/>
+                            </Border.GestureRecognizers>
+                            <Grid ColumnDefinitions="34,*">
+                                <Label x:Name="OrientCheckPortrait" Grid.Column="0" Text="&#x2713;"
+                                       TextColor="#3fb950" FontSize="13" VerticalOptions="Center"
+                                       Margin="10,0,0,0" IsVisible="False"/>
+                                <Label Grid.Column="1" Text="Portrait" TextColor="#d0d0d0" FontSize="13"/>
+                            </Grid>
+                        </Border>
+                        <BoxView Color="#2d333b" HeightRequest="1"/>
+                        <Border Padding="16,12,16,12" BackgroundColor="Transparent">
+                            <Border.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnOrientationLandscape"/>
+                            </Border.GestureRecognizers>
+                            <Grid ColumnDefinitions="34,*">
+                                <Label x:Name="OrientCheckLandscape" Grid.Column="0" Text="&#x2713;"
+                                       TextColor="#3fb950" FontSize="13" VerticalOptions="Center"
+                                       Margin="10,0,0,0" IsVisible="False"/>
+                                <Label Grid.Column="1" Text="Landscape" TextColor="#d0d0d0" FontSize="13"/>
+                            </Grid>
+                        </Border>
+                    </VerticalStackLayout>
                     <BoxView Color="#2d333b" HeightRequest="1"/>
                     <Border Padding="16,14" BackgroundColor="Transparent">
                         <Border.GestureRecognizers>
                             <TapGestureRecognizer Tapped="OnOverflowAbout"/>
                         </Border.GestureRecognizers>
-                        <Label Text="About" TextColor="White" FontSize="14"/>
+                        <Grid ColumnDefinitions="24,*">
+                            <Label Grid.Column="1" Text="About" TextColor="White" FontSize="14"/>
+                        </Grid>
                     </Border>
                 </VerticalStackLayout>
             </Border>

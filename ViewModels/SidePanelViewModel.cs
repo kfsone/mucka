@@ -155,6 +155,13 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     public double FloatingMapWidth  => MapSizes[_mapSizeIx].W;
     /// <summary>Current height of the floating compass (shorter than width at the oval step).</summary>
     public double FloatingMapHeight => MapSizes[_mapSizeIx].H;
+    /// <summary>
+    /// Outer width for the floating-compass windlet: the dial plus the panel's 8+8 horizontal
+    /// padding. Bound to the Border's WidthRequest so the windlet hugs the dial. Without it,
+    /// Android's stack layout lets the star-column heading row and the Fill'd swamp seam stretch
+    /// the panel to the full screen width (Windows measures to content, so it looked fine there).
+    /// </summary>
+    public double FloatingMapPanelWidth => FloatingMapWidth + 16;
 
     // ── Floating online panel state ────────────────────────────────────────────
 
@@ -388,13 +395,13 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         {
             if (_mapSizeIx <= 0) return;
             _mapSizeIx--;
-            OnPropertiesChanged(nameof(FloatingMapWidth), nameof(FloatingMapHeight));
+            OnPropertiesChanged(nameof(FloatingMapWidth), nameof(FloatingMapHeight), nameof(FloatingMapPanelWidth));
         });
         DecreaseMapSizeCommand = new Command(() =>
         {
             if (_mapSizeIx >= MapSizes.Length - 1) return;
             _mapSizeIx++;
-            OnPropertiesChanged(nameof(FloatingMapWidth), nameof(FloatingMapHeight));
+            OnPropertiesChanged(nameof(FloatingMapWidth), nameof(FloatingMapHeight), nameof(FloatingMapPanelWidth));
         });
         ToggleFloatingOnlineLockCommand = new Command(() => { IsFloatingOnlineLocked = !IsFloatingOnlineLocked; RequestFocus?.Invoke(); });
         ToggleFloatingMapLockCommand    = new Command(() => { IsFloatingMapLocked    = !IsFloatingMapLocked;    RequestFocus?.Invoke(); });

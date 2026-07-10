@@ -161,6 +161,8 @@ public partial class GamePage : ContentPage
                 _vm.PropertyChanged     += OnVmPropertyChanged;
                 Terminal.HistoryModeChanged += OnHistoryModeChanged;
                 Terminal.FocusInputRequested += OnFocusInputRequested;
+                // Re-negotiate columns when the display rotates (see OnMainDisplayInfoChanged).
+                DeviceDisplay.Current.MainDisplayInfoChanged += OnMainDisplayInfoChanged;
 #if WINDOWS
                 _vm.AnnotationReady += OnAnnotationReady;
 #endif
@@ -336,6 +338,7 @@ public partial class GamePage : ContentPage
         _vm.PropertyChanged     -= OnVmPropertyChanged;
         Terminal.HistoryModeChanged -= OnHistoryModeChanged;
         Terminal.FocusInputRequested -= OnFocusInputRequested;
+        DeviceDisplay.Current.MainDisplayInfoChanged -= OnMainDisplayInfoChanged;
 #if WINDOWS
         _vm.AnnotationReady -= OnAnnotationReady;
 #endif
@@ -429,12 +432,27 @@ public partial class GamePage : ContentPage
     protected override void OnSizeAllocated(double width, double height)
     {
         base.OnSizeAllocated(width, height);
+        RecalculateColumns(width);
+    }
+
+    // Recompute the negotiated column count from the current page width and keep the terminal's
+    // wrap width in sync. Funnelled here so both the layout pass (OnSizeAllocated) and an
+    // orientation flip (OnMainDisplayInfoChanged) drive the same recalculation — NotifyWindowSize
+    // is a no-op when the effective column count is unchanged, so calling it twice is harmless.
+    private void RecalculateColumns(double width)
+    {
         if (width <= 0) return;
         var displayableCols = (int)Math.Floor(width / CharWidthDp);
         _vm.NotifyWindowSize(width, displayableCols);
-        // Keep the terminal's wrap width in sync with the negotiated column count.
         Terminal.Columns = _vm.EffCols;
     }
+
+    // A rotation on Android reconfigures the activity in place (see MainActivity's
+    // ConfigurationChanges) instead of recreating it, so OnSizeAllocated does not reliably fire
+    // with the new width — the terminal would stay wrapped to the old orientation's columns.
+    // Recompute off the page's post-rotation width once the layout has settled.
+    private void OnMainDisplayInfoChanged(object? sender, DisplayInfoChangedEventArgs e)
+        => Dispatcher.Dispatch(() => RecalculateColumns(Width));
 
     private Task OpenConfigAsync(int initialTab)
     {
@@ -688,10 +706,23 @@ public partial class GamePage : ContentPage
         => OverflowMenuOverlay.IsVisible = true;
     private void OnOverflowMenuDismiss(object? sender, TappedEventArgs e)
         => OverflowMenuOverlay.IsVisible = false;
+    // These three back the long-press/right-click MenuFlyout only (which auto-dismisses natively).
+    // The tap-driven overlay rows bind straight to the toggle commands so they stay open and let
+    // the ✓ update live. All three flip live visibility only — saved settings are untouched.
     private void OnOverflowTogglePanel(object? sender, EventArgs e)
     {
         OverflowMenuOverlay.IsVisible = false;
         _vm.SidePanel.TogglePanelCommand.Execute(null);
+    }
+    private void OnOverflowOnlines(object? sender, EventArgs e)
+    {
+        OverflowMenuOverlay.IsVisible = false;
+        _vm.SidePanel.ToggleOnlinePinnedCommand.Execute(null);
+    }
+    private void OnOverflowCompass(object? sender, EventArgs e)
+    {
+        OverflowMenuOverlay.IsVisible = false;
+        _vm.SidePanel.ToggleMapPinnedCommand.Execute(null);
     }
     private void OnOverflowSettings(object? sender, EventArgs e)
     {
@@ -702,6 +733,47 @@ public partial class GamePage : ContentPage
     {
         OverflowMenuOverlay.IsVisible = false;
         _vm.SidePanel.ShowAboutCommand.Execute(null);
+    }
+
+    // Orientation sub-menu: the header toggles the three choices open/closed in place; the
+    // chevron flips ▸/▾ to match. Kept inside the overlay so a tap outside still dismisses all.
+    private void OnOverflowOrientationTapped(object? sender, TappedEventArgs e)
+    {
+        bool show = !OrientationSubmenu.IsVisible;
+        OrientationSubmenu.IsVisible = show;
+        OrientationChevron.Text = show ? "▾" : "▸";
+    }
+
+    private void OnOrientationSystem(object? sender, EventArgs e)    => ApplyOrientation(OrientationMode.System);
+    private void OnOrientationPortrait(object? sender, EventArgs e)  => ApplyOrientation(OrientationMode.Portrait);
+    private void OnOrientationLandscape(object? sender, EventArgs e) => ApplyOrientation(OrientationMode.Landscape);
+
+    private enum OrientationMode { System, Portrait, Landscape }
+
+    // Set the display orientation. Android drives the real activity; other platforms are a no-op
+    // (the sub-menu is Android-only). Collapse the overlay and hand focus back per Invariant #0.
+    private void ApplyOrientation(OrientationMode mode)
+    {
+        OrientationSubmenu.IsVisible = false;
+        OrientationChevron.Text = "▸";
+        OverflowMenuOverlay.IsVisible = false;
+        // Mark the active choice (session-only — no saved-settings change).
+        OrientCheckSystem.IsVisible    = mode == OrientationMode.System;
+        OrientCheckPortrait.IsVisible  = mode == OrientationMode.Portrait;
+        OrientCheckLandscape.IsVisible = mode == OrientationMode.Landscape;
+#if ANDROID
+        var activity = Microsoft.Maui.ApplicationModel.Platform.CurrentActivity;
+        if (activity is not null)
+        {
+            activity.RequestedOrientation = mode switch
+            {
+                OrientationMode.Portrait  => Android.Content.PM.ScreenOrientation.Portrait,
+                OrientationMode.Landscape => Android.Content.PM.ScreenOrientation.Landscape,
+                _                         => Android.Content.PM.ScreenOrientation.Unspecified,
+            };
+        }
+#endif
+        FocusInput();
     }
 
     private void ShowCopiedToast() => ShowToast("* Copied to clipboard");

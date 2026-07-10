@@ -289,6 +289,33 @@ public sealed class MuckaConnection : IAsyncDisposable
         _session.Send(seq);
     }
 
+    /// <summary>
+    /// Re-advertise the terminal width to the MUD shell mid-session — e.g. after a device
+    /// rotation changes the usable column count. The server word-wraps game text on the /T
+    /// value (set at client-mode entry), NOT on the telnet NAWS subnegotiation, so a resize
+    /// that only updates NAWS leaves freshly-sent text wrapped at the old width. Wraps
+    /// /T{cols} in a command interrupt (ESC-[ … ESC-]) so no newline is injected. No-op
+    /// unless we are in game mode — /T is only meaningful once the in-game shell is active.
+    /// Call after <see cref="SetWindowSize"/> so _windowCols already holds the new value.
+    /// May be called from any thread.
+    /// </summary>
+    public void SendTerminalWidth()
+    {
+        if (!_session.InGameMode)
+            return;
+
+        // ESC-[  = begin command interrupt · /T{n} = MUD shell width command · ESC-] = end
+        byte[] prefix = { 0x1B, 0x2D, 0x5B };
+        byte[] colCmd = Encoding.ASCII.GetBytes($"/T{_windowCols}");
+        byte[] suffix = { 0x1B, 0x2D, 0x5D };
+
+        var widthSeq = new byte[prefix.Length + colCmd.Length + suffix.Length];
+        Buffer.BlockCopy(prefix, 0, widthSeq, 0, prefix.Length);
+        Buffer.BlockCopy(colCmd, 0, widthSeq, prefix.Length, colCmd.Length);
+        Buffer.BlockCopy(suffix, 0, widthSeq, prefix.Length + colCmd.Length, suffix.Length);
+        _session.Send(widthSeq);
+    }
+
     public async ValueTask DisposeAsync()
     {
         await DisconnectAsync().ConfigureAwait(false);
