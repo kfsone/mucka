@@ -48,6 +48,14 @@ public sealed class MudSession : IDisposable
     // set means the Online list is stale.
     private readonly HashSet<string> _onlineNames = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _pendingOnlineNames = new(StringComparer.OrdinalIgnoreCase);
+    // ── "Sniff" value-probe state ───────────────────────────────────────────────
+    // A `value <name>` command prepended to a routine probe to disambiguate a player who
+    // dropped off the FEW list (see QueueValueProbe / SniffResult). _pendingSniff (a queued
+    // request) is guarded by _fesLock; _sniffInFlight is volatile so the Feed-thread line
+    // filter can fast-check it without taking the lock on every line.
+    private string? _pendingSniff;
+    private volatile string? _sniffInFlight;
+
     private GameStatsSnapshot _currentStats = GameStatsSnapshot.Empty;
     private string? _currentDreamword;
     // Periodic probe: ESC-[FES,FEW,FEI ESC-] — fetches stats, who-list, inventory, and exits together.
@@ -97,6 +105,11 @@ public sealed class MudSession : IDisposable
     /// prompts (the mapping console) treat the next moments as contended.
     /// </summary>
     public event Action? ProbeSent;
+    /// <summary>
+    /// A queued "sniff" value-probe has resolved. Payload is the probed persona name and the
+    /// outcome (present / offline / invisible). Fires on the Feed thread — consumers marshal.
+    /// </summary>
+    public event Action<string, SniffOutcome>? SniffResult;
 
     // ── Public state ───────────────────────────────────────────────────────────
     public GameStatsSnapshot CurrentStats => _currentStats;
@@ -228,6 +241,8 @@ public sealed class MudSession : IDisposable
             // the next game-mode entry and silently starve the main window of stats/inventory.
             _mappingFocus = false;
             _fesSubscription = BuildSubscriptionLocked();
+            _pendingSniff = null;
+            _sniffInFlight = null;
         }
         _onlineNames.Clear();
         _pendingOnlineNames.Clear();
@@ -250,7 +265,14 @@ public sealed class MudSession : IDisposable
     // ── Private ────────────────────────────────────────────────────────────────
     private void WireParserEvents()
     {
-        _parser.LineReady += line => LineReady?.Invoke(line);
+        _parser.LineReady += line =>
+        {
+            // Swallow the echo + reply of an injected `value <name>` sniff so it never
+            // reaches the terminal. Fast volatile check keeps normal lines free of cost.
+            if (_sniffInFlight != null && TryConsumeSniffLine(line))
+                return;
+            LineReady?.Invoke(line);
+        };
         _parser.StatsUpdated += MergeStats;
         _parser.GameModeEntered += OnGameModeEntered;
         _parser.GameModeExited += OnGameModeExited;
@@ -275,6 +297,13 @@ public sealed class MudSession : IDisposable
             _pendingOnlineNames.Clear();
             ClearStale(StaleStats.WhoList);
             FewListComplete?.Invoke();
+            // A sniff still in flight when this probe's FEW completes drew no `value` reply —
+            // the reply always precedes the FEW in the same transmission — so the player is
+            // online but invisible (the game says nothing). Fire AFTER FewListComplete so the
+            // list diff runs before any promotion the outcome triggers.
+            var pendingSniff = _sniffInFlight;
+            if (pendingSniff != null)
+                ResolveSniff(pendingSniff, SniffOutcome.Invisible);
         };
         _parser.RoomEntered      += () => RoomEntered?.Invoke();
         _parser.RoomShortReady   += name => RoomShortReady?.Invoke(name);
@@ -385,6 +414,8 @@ public sealed class MudSession : IDisposable
             // the next game-mode entry and silently starve the main window of stats/inventory.
             _mappingFocus = false;
             _fesSubscription = BuildSubscriptionLocked();
+            _pendingSniff = null;
+            _sniffInFlight = null;
         }
         _onlineNames.Clear();
         _pendingOnlineNames.Clear();
@@ -399,6 +430,7 @@ public sealed class MudSession : IDisposable
 
     private void SendFesSubscription()
     {
+        byte[] payload;
         lock (_fesLock)
         {
             if (_probesHeld) return;   // skipped beat; SetProbeHold(false) re-phases the tick
@@ -406,9 +438,70 @@ public sealed class MudSession : IDisposable
             _lastProbeSentUtc = now;
             _nextRoutineProbeUtc = now + _fesInterval;
             _staleFlags = StaleStats.None;   // the full probe refreshes everything pending
+            payload = _fesSubscription;
+            // Ride a queued sniff (value <name>) on this probe, but only when the probe carries
+            // FEW: the FEW-complete boundary is what closes out an invisible (no-reply) sniff, so
+            // a FEW-less probe could never resolve it. LIFO — one sniff per probe.
+            if (_pendingSniff is { } sniff && (_mappingFocus || _includeFew))
+            {
+                _sniffInFlight = sniff;
+                _pendingSniff = null;
+                var prefix = System.Text.Encoding.Latin1.GetBytes("value " + sniff + "\r\n");
+                payload = new byte[prefix.Length + _fesSubscription.Length];
+                Buffer.BlockCopy(prefix, 0, payload, 0, prefix.Length);
+                Buffer.BlockCopy(_fesSubscription, 0, payload, prefix.Length, _fesSubscription.Length);
+            }
         }
-        OutgoingBytes?.Invoke(_fesSubscription);
+        OutgoingBytes?.Invoke(payload);
         ProbeSent?.Invoke();
+    }
+
+    /// <summary>
+    /// Queue a "sniff" probe for <paramref name="name"/>: the next routine FES heartbeat is
+    /// prefixed with <c>value &lt;name&gt;</c> so we can tell whether a player who fell off the
+    /// Online list is present/visible, logged out, or invisible (see <see cref="SniffResult"/>).
+    /// LIFO — a newer request replaces an unsent one, since only one sniff rides each probe.
+    /// May be called from any thread.
+    /// </summary>
+    public void QueueValueProbe(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return;
+        lock (_fesLock)
+            _pendingSniff = name.Trim();
+    }
+
+    // Feed thread. Returns true when the line is the echo or reply of the in-flight sniff and
+    // should be swallowed (never shown in the terminal). Resolves SniffResult on the reply.
+    private bool TryConsumeSniffLine(StyledLine line)
+    {
+        var name = _sniffInFlight;
+        if (name is null) return false;
+        var text = line.PlainText.Trim('\r', '\n', '\0', ' ');
+        // Echo of the command we injected — swallow but keep waiting for the reply.
+        if (text.Equals("value " + name, StringComparison.OrdinalIgnoreCase))
+            return true;
+        // Outcome 1 — present & visible: "The value of {name} the {title} is {n} points."
+        if (text.StartsWith("The value of ", StringComparison.Ordinal) &&
+            text.EndsWith("points.", StringComparison.Ordinal) &&
+            text.Contains(name, StringComparison.OrdinalIgnoreCase))
+        {
+            ResolveSniff(name, SniffOutcome.Present);
+            return true;
+        }
+        // Outcome 2 — logged out: "I don't know the word \"{name}\"."
+        if (text.StartsWith("I don't know the word \"", StringComparison.Ordinal) &&
+            text.Contains(name, StringComparison.OrdinalIgnoreCase))
+        {
+            ResolveSniff(name, SniffOutcome.Offline);
+            return true;
+        }
+        return false;
+    }
+
+    private void ResolveSniff(string name, SniffOutcome outcome)
+    {
+        _sniffInFlight = null;
+        SniffResult?.Invoke(name, outcome);
     }
 
     /// <summary>

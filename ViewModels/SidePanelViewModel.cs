@@ -32,6 +32,13 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     private bool _isFloatingOnlineLocked = true;   // windlets start locked: content only, no strip, no drag
     private bool _namesOnly;
     private int  _maxOnline;
+    private int  _forgetWindowMinutes;
+    // UTC time the last FEW response completed — the "last seen" baseline for players who drop
+    // off it, and the gap used to low-clamp an overdue FEW's Recent lifetimes.
+    private DateTime _lastFewCompleteUtc;
+    // Source of truth for the Recent list (side-panel only). RecentGroups is the grouped view.
+    private readonly List<WhoEntry> _recent = new();
+    private string _recentSignature = "";
 
     public bool IsPanelExpanded
     {
@@ -218,6 +225,25 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         set => Set(ref _maxOnline, value);
     }
 
+    /// <summary>Minutes a departed player lingers in the Recent list before being forgotten.
+    /// 0 = disabled (Recent list never populates). Range 0–10.</summary>
+    public int ForgetWindowMinutes
+    {
+        get => _forgetWindowMinutes;
+        set
+        {
+            if (!Set(ref _forgetWindowMinutes, Math.Clamp(value, 0, 10))) return;
+            if (_forgetWindowMinutes <= 0) ClearRecent();
+        }
+    }
+
+    /// <summary>Grouped view of the Recent list (one bucket per "minutes since last seen").
+    /// Rebuilt wholesale by <see cref="RebuildRecentGroups"/>. Side-panel only — never floated.</summary>
+    public ObservableCollection<RecentGroup> RecentGroups { get; } = new();
+
+    /// <summary>True when the Recent list has any entries (drives its section visibility).</summary>
+    public bool HasRecent => _recent.Count > 0;
+
     /// <summary>Count of non-departing online players.</summary>
     public int WhoCount { get; private set; }
 
@@ -226,6 +252,10 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
 
     /// <summary>Raised when the user taps the hamburger in the floating panel — opens settings/display.</summary>
     public event Action? FloatingOpenDisplaySettings;
+
+    /// <summary>Raised when the user taps a Recent-list name — requests a "sniff" value-probe
+    /// for that persona (see MudSession.QueueValueProbe). Payload is the persona name.</summary>
+    public event Action<string>? ValueProbeRequested;
 
     /// <summary>Raised (on the UI thread) when FEW/FEI subscription needs updating.
     /// Payload: (includeFew, includeFei).</summary>
@@ -316,6 +346,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     public ICommand DecreaseMapSizeCommand { get; }
     public ICommand ToggleFloatingOnlineLockCommand { get; }
     public ICommand ToggleFloatingMapLockCommand { get; }
+    public ICommand ProbeRecentCommand { get; }
 
     /// <summary>Raised when an interaction should hand keyboard focus back to the input box.
     /// Opening the About dialog deliberately does not raise it — focus belongs to the dialog.</summary>
@@ -367,6 +398,14 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         });
         ToggleFloatingOnlineLockCommand = new Command(() => { IsFloatingOnlineLocked = !IsFloatingOnlineLocked; RequestFocus?.Invoke(); });
         ToggleFloatingMapLockCommand    = new Command(() => { IsFloatingMapLocked    = !IsFloatingMapLocked;    RequestFocus?.Invoke(); });
+        // Tapping a Recent name asks for a one-shot value-probe, then hands focus back to the
+        // command box (Invariant #0 — every interaction leaves the user able to type).
+        ProbeRecentCommand = new Command<WhoEntry>(e =>
+        {
+            if (e is not null && !string.IsNullOrEmpty(e.PersonaName))
+                ValueProbeRequested?.Invoke(e.PersonaName);
+            RequestFocus?.Invoke();
+        });
         WhosList.CollectionChanged += (_, e) =>
         {
             if (e.NewItems is not null)
@@ -435,7 +474,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     public void OnGameModeExited()
         => MainThread.BeginInvokeOnMainThread(() =>
         {
-            CurrentRoom = "Option Menu";
+            CurrentRoom = "Option Menu.";
             SetAllExitsPresent(false);
         });
 
@@ -473,13 +512,24 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         _pendingWhos.Clear();
         MainThread.BeginInvokeOnMainThread(() =>
         {
+            var now = DateTime.UtcNow;
             // Key by persona name (first word) so a level-up — which changes the
             // description suffix — is treated as the same player, not a departure + arrival.
             var newByPersona = snapshot.ToDictionary(
                 w => w.PersonaName, StringComparer.OrdinalIgnoreCase);
 
-            // Update returnees in place; fade departed players out (the WhoEntryFadeBehavior
-            // animates on IsDeparting), then remove them once the GPU fade has finished.
+            // A persona present in this FEW is live again — it must never also sit in Recent
+            // (covers both returnees still in WhosList and a floating-departure copy in Recent).
+            _recent.RemoveAll(r => newByPersona.ContainsKey(r.PersonaName));
+
+            // Does a departing player land in the (side-panel) Recent list at all? Only when Recent
+            // is enabled, the side panel is showing, and the Online section is on.
+            bool recentEligible = _forgetWindowMinutes > 0 && _isPanelExpanded && _isOnlineExpanded;
+
+            // Update returnees in place; route departures by display state:
+            //  • docked + Recent   → jump straight to Recent, no fade
+            //  • floating + Recent → fade out in the floater AND show in Recent immediately
+            //  • otherwise         → the plain fade-out then removal (no Recent)
             for (int i = WhosList.Count - 1; i >= 0; i--)
             {
                 var existing = WhosList[i];
@@ -488,13 +538,38 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
                     existing.IsDeparting = false;   // present again — cancel any pending fade-out + removal
                     if (existing.Name  != updated.Name)  existing.Name  = updated.Name;
                     if (existing.Color != updated.Color) existing.Color = updated.Color;
+                    continue;
                 }
-                else if (!existing.IsDeparting)
+                if (existing.IsDeparting)
+                    continue;   // already fading — leave its pending removal alone
+
+                var leaving = existing;
+                // They were present in the previous FEW, so that completion is their "last seen"
+                // time; the gap since then low-clamps their Recent lifetime (an overdue FEW can't
+                // instant-flush them — see MoveToRecent).
+                var lastSeenUtc = _lastFewCompleteUtc == default ? now : _lastFewCompleteUtc;
+
+                if (recentEligible && _isOnlinePinned)
                 {
-                    existing.IsDeparting = true;   // gone — behavior fades it out
-                    var leaving = existing;
-                    // Remove after the 3 s fade-out (plus a little slack). If the player reappears
-                    // first, the returnee branch clears IsDeparting and this skips the removal.
+                    // Docked: no fade — jump straight to Recent.
+                    WhosList.RemoveAt(i);
+                    MoveToRecent(leaving, lastSeenUtc);
+                }
+                else if (recentEligible)
+                {
+                    // Floating: the online copy fades out in the floater, while Recent gets a fresh
+                    // (non-fading) copy right away — the original is removed once the fade finishes.
+                    existing.IsDeparting = true;
+                    MoveToRecent(new WhoEntry(leaving.Name, leaving.Color), lastSeenUtc);
+                    _dispatcher?.DispatchDelayed(TimeSpan.FromMilliseconds(3400), () =>
+                    {
+                        if (leaving.IsDeparting) WhosList.Remove(leaving);
+                    });
+                }
+                else
+                {
+                    // No Recent (disabled / side panel hidden / Online folded): plain fade + removal.
+                    existing.IsDeparting = true;
                     _dispatcher?.DispatchDelayed(TimeSpan.FromMilliseconds(3400), () =>
                     {
                         if (leaving.IsDeparting) WhosList.Remove(leaving);
@@ -524,7 +599,131 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
                     WhosList.Remove(excess);
                 }
             }
+
+            _lastFewCompleteUtc = now;
+            // Re-age the Recent groups (and sweep anything past its window) on the heartbeat —
+            // no repeating UI-thread timer (Invariant #1); this piggybacks the FEW refresh.
+            // Unconditional: a returning player removed from _recent above may have emptied it,
+            // and the view still needs clearing (the signature guard makes the no-op case cheap).
+            RebuildRecentGroups();
         });
+    }
+
+    // ── Recent list (players who faded off Online, kept for the Forget window) ──────────
+
+    /// <summary>
+    /// Move a just-departed player into the Recent list. Their lifetime there is
+    /// <c>clamp(ForgetWindow − minutesSinceLastSeen, 1 min, ForgetWindow)</c>: a normal
+    /// departure keeps almost the full window, while a seriously overdue FEW (we slept, the
+    /// gap dwarfs the poll interval) floors at 1 minute instead of instant-flushing everyone.
+    /// No-op when the Forget window is disabled. UI thread.
+    /// </summary>
+    private void MoveToRecent(WhoEntry entry, DateTime lastSeenUtc)
+    {
+        if (_forgetWindowMinutes <= 0) return;
+        var now = DateTime.UtcNow;
+        var ageMin = Math.Max(0.0, (now - lastSeenUtc).TotalMinutes);
+        var lifetimeMin = Math.Clamp(_forgetWindowMinutes - ageMin, 1.0, _forgetWindowMinutes);
+        entry.IsDeparting = false;   // Recent entries do not fade; they age then expire
+        entry.LastSeenUtc = lastSeenUtc;
+        entry.ExpiryUtc   = now + TimeSpan.FromMinutes(lifetimeMin);
+        // De-dupe by persona (e.g. a re-probed invisible entry cycling back).
+        _recent.RemoveAll(e => string.Equals(e.PersonaName, entry.PersonaName, StringComparison.OrdinalIgnoreCase));
+        _recent.Add(entry);
+        RebuildRecentGroups();
+        // One-shot removal at expiry (the RebuildRecentGroups sweep is a backstop if this misses).
+        var expiring = entry;
+        _dispatcher?.DispatchDelayed(TimeSpan.FromMinutes(lifetimeMin), () =>
+        {
+            if (_recent.Contains(expiring)) RemoveFromRecent(expiring);
+        });
+    }
+
+    private void RemoveFromRecent(WhoEntry entry)
+    {
+        if (_recent.Remove(entry))
+            RebuildRecentGroups();
+    }
+
+    private void ClearRecent()
+    {
+        if (_recent.Count == 0 && RecentGroups.Count == 0) return;
+        _recent.Clear();
+        RecentGroups.Clear();
+        _recentSignature = "";
+        OnPropertyChanged(nameof(HasRecent));
+    }
+
+    /// <summary>
+    /// Rebuild the grouped Recent view from <see cref="_recent"/>, first sweeping expired entries.
+    /// Buckets by whole minutes since last seen (floored at 1, so a fresh fade reads "~1 min").
+    /// Guarded by a signature so an unchanged heartbeat does not re-template the list.
+    /// </summary>
+    private void RebuildRecentGroups()
+    {
+        var now = DateTime.UtcNow;
+        _recent.RemoveAll(e => e.ExpiryUtc <= now);
+
+        var grouped = _recent
+            .GroupBy(e => Math.Max(1, (int)Math.Round((now - e.LastSeenUtc).TotalMinutes)))
+            .OrderBy(g => g.Key)
+            .ToList();
+
+        var sig = string.Join("|",
+            grouped.Select(g => g.Key + ":" + string.Join(",", g.Select(e => e.Name))));
+        if (sig == _recentSignature)
+            return;
+        _recentSignature = sig;
+
+        RecentGroups.Clear();
+        foreach (var g in grouped)
+            RecentGroups.Add(new RecentGroup($"~{g.Key} min", g.ToList()));
+        OnPropertyChanged(nameof(HasRecent));
+    }
+
+    /// <summary>
+    /// Result of a "sniff" value-probe on a Recent name (see MudSession.SniffResult). UI-marshalled.
+    ///   • Present   → the player is online and visible; promote back into Online (plain).
+    ///   • Invisible → online but invisible; promote into Online wrapped in parens for one probe
+    ///                 interval, then the next FEW drops them back to Recent (parens retained).
+    ///   • Offline   → logged out; leave the entry to age out of Recent on its own (a probe only
+    ///                 ever *promotes* — it never removes).
+    /// The next FEW makes the final call in every case; we never auto-re-probe.
+    /// </summary>
+    public void OnSniffResult(string name, SniffOutcome outcome)
+        => MainThread.BeginInvokeOnMainThread(() =>
+        {
+            var recent = _recent.FirstOrDefault(
+                e => string.Equals(e.PersonaName, name, StringComparison.OrdinalIgnoreCase));
+            switch (outcome)
+            {
+                case SniffOutcome.Offline:
+                    // Confirmed logged out — do nothing. The entry just ages out of Recent on its
+                    // own; a probe never removes it (we only act when they turn out to be online).
+                    break;
+                case SniffOutcome.Present:
+                    PromoteToOnline(recent, name, invisible: false);
+                    break;
+                case SniffOutcome.Invisible:
+                    PromoteToOnline(recent, name, invisible: true);
+                    break;
+            }
+        });
+
+    // Move a Recent entry (or a bare name, if the entry already expired) back onto the live
+    // Online list. Invisible promotions wrap the name in parens as the last-known-invisible marker.
+    private void PromoteToOnline(WhoEntry? recent, string name, bool invisible)
+    {
+        if (recent is not null) RemoveFromRecent(recent);
+        // Already live again (a concurrent FEW re-added them)? Leave that entry alone.
+        if (WhosList.Any(w => string.Equals(w.PersonaName, name, StringComparison.OrdinalIgnoreCase)))
+            return;
+
+        var color   = recent?.Color ?? Color.FromArgb("#FFFFFF");
+        var rawName = recent is null ? name
+                    : recent.IsInvisible ? recent.Name[1..^1] : recent.Name;
+        var display = invisible ? "(" + rawName + ")" : rawName;
+        WhosList.Add(new WhoEntry(display, color));
     }
 
     // ── Inventory / room items (FEI) ──────────────────────────────────────────

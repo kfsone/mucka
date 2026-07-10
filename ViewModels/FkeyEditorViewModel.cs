@@ -32,6 +32,7 @@ public sealed class FkeyEditorViewModel : BaseViewModel
     private bool   _showMapCompass;
     private int  _maxOnlineDisplay;
     private bool _onlineNamesOnly;
+    private int  _onlineForgetWindow;
     private bool _floatOnline;
     private bool _floatCompass;
     private readonly SoundGroupEditorItem _bellGroup;
@@ -209,6 +210,13 @@ public sealed class FkeyEditorViewModel : BaseViewModel
     }
     public string MaxOnlineDisplayText => _maxOnlineDisplay == 0 ? "unlimited" : _maxOnlineDisplay.ToString();
     public bool OnlineNamesOnly { get => _onlineNamesOnly; set => Set(ref _onlineNamesOnly, value); }
+    /// <summary>Minutes a departed player lingers in the Recent list; 0 = off (no Recent list). Range 0–10.</summary>
+    public int OnlineForgetWindow
+    {
+        get => _onlineForgetWindow;
+        set => SetAndNotify(ref _onlineForgetWindow, Math.Clamp(value, 0, 10), [nameof(OnlineForgetWindowText)]);
+    }
+    public string OnlineForgetWindowText => _onlineForgetWindow == 0 ? "off" : $"{_onlineForgetWindow} min";
     /// <summary>Saved default for floating the Online list (unpinned from the side panel).</summary>
     public bool FloatOnline { get => _floatOnline; set => Set(ref _floatOnline, value); }
     /// <summary>Saved default for floating the compass (unpinned from the side panel).</summary>
@@ -238,6 +246,8 @@ public sealed class FkeyEditorViewModel : BaseViewModel
     public ICommand DecrDisplayDreamwordOffsetCommand { get; }
     public ICommand IncrMaxOnlineCommand { get; }
     public ICommand DecrMaxOnlineCommand { get; }
+    public ICommand IncrForgetWindowCommand { get; }
+    public ICommand DecrForgetWindowCommand { get; }
 
     public event Action? CloseRequested;
     /// <summary>Raised when Save fails; payload is the error message for display.</summary>
@@ -275,6 +285,7 @@ public sealed class FkeyEditorViewModel : BaseViewModel
         _showMapCompass = settings.ShowMapCompass;
         _maxOnlineDisplay = Math.Clamp(settings.MaxOnlineDisplay, 0, 999);
         _onlineNamesOnly  = settings.OnlineNamesOnly;
+        _onlineForgetWindow = Math.Clamp(settings.OnlineForgetWindow, 0, 10);
         _floatOnline      = settings.FloatOnline;
         _floatCompass     = settings.FloatCompass;
 
@@ -378,6 +389,8 @@ public sealed class FkeyEditorViewModel : BaseViewModel
         DecrDisplayDreamwordOffsetCommand  = new Command(() => DisplayDreamwordOffset  -= 1);
         IncrMaxOnlineCommand               = new Command(() => MaxOnlineDisplay = Math.Clamp(_maxOnlineDisplay + 1, 0, 999));
         DecrMaxOnlineCommand               = new Command(() => MaxOnlineDisplay = Math.Clamp(_maxOnlineDisplay - 1, 0, 999));
+        IncrForgetWindowCommand            = new Command(() => OnlineForgetWindow += 1);
+        DecrForgetWindowCommand            = new Command(() => OnlineForgetWindow -= 1);
     }
 
     /// <summary>The edited settings as a snapshot for apply/save.</summary>
@@ -401,6 +414,7 @@ public sealed class FkeyEditorViewModel : BaseViewModel
         ShowMapCompass      = _showMapCompass,
         MaxOnlineDisplay    = _maxOnlineDisplay,
         OnlineNamesOnly     = _onlineNamesOnly,
+        OnlineForgetWindow  = _onlineForgetWindow,
         FloatOnline         = _floatOnline,
         FloatCompass        = _floatCompass,
     };

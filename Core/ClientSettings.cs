@@ -49,6 +49,9 @@ public sealed record ClientSettings
     public int MaxOnlineDisplay { get; init; }
     /// <summary>Show only the persona name (first word) in the who-list, hiding title/level suffix.</summary>
     public bool OnlineNamesOnly { get; init; }
+    /// <summary>Minutes a departed player lingers in the "Recent" list before being forgotten.
+    /// 0 = disabled (no Recent list). Range 0–10.</summary>
+    public int OnlineForgetWindow { get; init; }
     /// <summary>Global default for whether the Online list floats (unpinned from the side panel)
     /// rather than living in the side panel. False (pinned) matches the historical behaviour.</summary>
     public bool FloatOnline { get; init; }

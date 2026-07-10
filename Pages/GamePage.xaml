@@ -772,10 +772,16 @@
                      bottom-pinned room block sitting in the corner above the input ── -->
                 <Grid RowDefinitions="Auto,*,Auto">
 
+                            <!-- Row 0: the Online section plus the Recent tail beneath it. The Online
+                                 section hides when floated (the floating pill takes over); the Recent
+                                 tail stays docked in the side panel regardless of float, and hides only
+                                 when Online is disabled/folded. -->
+                            <VerticalStackLayout Grid.Row="0" Spacing="0">
+
                             <!-- Top: online players, anchored, grows downward.
                                  Compositor (off-UI-thread) stale-dim when an FEW update is late.
                                  Hidden when online is unpinned (floating pill takes over). -->
-                            <VerticalStackLayout Grid.Row="0" Padding="8,6,8,4" Spacing="2"
+                            <VerticalStackLayout Padding="8,6,8,4" Spacing="2"
                                                  IsVisible="{Binding SidePanel.IsOnlineSectionVisible}">
                                 <VerticalStackLayout.Behaviors>
                                     <beh:StaleDimBehavior Source="Few"/>
@@ -841,7 +847,67 @@
                                         </BindableLayout.ItemTemplate>
                                     </VerticalStackLayout>
                                 </ScrollView>
-                                <BoxView Color="#2d333b" HeightRequest="1" Margin="0,4,0,0"/>
+                            </VerticalStackLayout>
+
+                            <!-- Recent tail: players who faded off Online, kept for the Forget window.
+                                 Stays in the side panel whether Online is docked or floated; hides only
+                                 when Online is disabled/folded (IsOnlineExpanded) or empty (HasRecent).
+                                 Each minutes-since-seen bucket is introduced by a hairline separator with
+                                 the age at its right end. Tapping a name fires a one-shot "sniff" probe. -->
+                            <VerticalStackLayout IsVisible="{Binding SidePanel.IsOnlineExpanded}">
+                            <VerticalStackLayout Padding="8,0,8,4" Spacing="1"
+                                                 IsVisible="{Binding SidePanel.HasRecent}">
+                                <ScrollView MaximumHeightRequest="140">
+                                    <VerticalStackLayout Spacing="1"
+                                                         BindableLayout.ItemsSource="{Binding SidePanel.RecentGroups}">
+                                        <BindableLayout.ItemTemplate>
+                                            <DataTemplate x:DataType="vm:RecentGroup">
+                                                <VerticalStackLayout Spacing="1">
+                                                    <!-- Separator: hairline rule with the age at the right end ("──── ~1 min"). -->
+                                                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6" Margin="0,3,0,1">
+                                                        <BoxView Grid.Column="0" Color="#2d333b" HeightRequest="1" VerticalOptions="Center"/>
+                                                        <Label Grid.Column="1" Text="{Binding Header}" TextColor="#6e7681" FontSize="8"
+                                                               FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
+                                                    </Grid>
+                                                    <VerticalStackLayout Spacing="1"
+                                                                         BindableLayout.ItemsSource="{Binding Members}">
+                                                        <BindableLayout.ItemTemplate>
+                                                            <DataTemplate x:DataType="vm:WhoEntry">
+                                                                <!-- Right-aligned, only lightly dimmed so it reads as "known, idle". -->
+                                                                <Label Opacity="0.8"
+                                                                       HorizontalOptions="End" HorizontalTextAlignment="End"
+                                                                       FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}">
+                                                                    <Label.FormattedText>
+                                                                        <FormattedString>
+                                                                            <Span Text="{Binding DisplayName}"
+                                                                                  TextColor="{Binding DisplayColor}" FontSize="11"
+                                                                                  FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
+                                                                            <Span Text="{Binding DisplaySuffix}"
+                                                                                  TextColor="{Binding DisplayColor}" FontSize="9"
+                                                                                  FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
+                                                                        </FormattedString>
+                                                                    </Label.FormattedText>
+                                                                    <Label.GestureRecognizers>
+                                                                        <TapGestureRecognizer
+                                                                            Command="{Binding Source={RelativeSource AncestorType={x:Type vm:GameViewModel}}, Path=SidePanel.ProbeRecentCommand}"
+                                                                            CommandParameter="{Binding .}"/>
+                                                                    </Label.GestureRecognizers>
+                                                                    <!-- Keep the keyboard on the command box (Invariant #0): the tap fires
+                                                                         the probe command but must not focus this row. -->
+                                                                    <Label.Behaviors>
+                                                                        <beh:NoFocusStealBehavior/>
+                                                                    </Label.Behaviors>
+                                                                </Label>
+                                                            </DataTemplate>
+                                                        </BindableLayout.ItemTemplate>
+                                                    </VerticalStackLayout>
+                                                </VerticalStackLayout>
+                                            </DataTemplate>
+                                        </BindableLayout.ItemTemplate>
+                                    </VerticalStackLayout>
+                                </ScrollView>
+                            </VerticalStackLayout>
+                            </VerticalStackLayout>
                             </VerticalStackLayout>
 
                             <!-- Middle: Carrying then Here (FEI), scrollable — fades when stale (>15 s without refresh).

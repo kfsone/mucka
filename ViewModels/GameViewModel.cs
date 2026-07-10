@@ -402,6 +402,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         ShowMapCompass = SidePanel.IsMapExpanded,
         MaxOnlineDisplay = SidePanel.MaxOnline,
         OnlineNamesOnly  = SidePanel.NamesOnly,
+        OnlineForgetWindow = SidePanel.ForgetWindowMinutes,
         FloatOnline      = _floatOnline,
         FloatCompass     = _floatCompass,
     };
@@ -439,6 +440,9 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         remove => _conn.RawBytesSent -= value;
     }
     public void SendRawBytes(byte[] bytes) => _conn.SendBytes(bytes);
+    /// <summary>Block (true) / resume (false) the periodic FES/FEW/FEI status probes. Used by the
+    /// raw console ($con) so its traffic view isn't peppered with probe interrupts.</summary>
+    public void SetStatusProbesBlocked(bool blocked) => _conn.SetProbeHold(blocked);
 #endif
 
     public GameViewModel(MuckaConnection conn, Profile profile, Func<ClientSettings, string[], Task>? saveSettingsAsync = null)
@@ -481,10 +485,12 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         SidePanel.IsMapExpanded       = profile.ShowMapCompass;
         SidePanel.MaxOnline           = profile.MaxOnlineDisplay;
         SidePanel.NamesOnly           = profile.OnlineNamesOnly;
+        SidePanel.ForgetWindowMinutes = profile.OnlineForgetWindow;
         SidePanel.IsOnlinePinned      = !profile.FloatOnline;   // apply the saved float default to the live state
         SidePanel.IsMapPinned         = !profile.FloatCompass;  // ditto for the compass
         WhoEntry.NamesOnlyMode        = profile.OnlineNamesOnly;
         SidePanel.SubscriptionOptionsChanged += (few, fei) => _conn.UpdateSubscriptionOptions(few, fei);
+        SidePanel.ValueProbeRequested += name => _conn.QueueValueProbe(name);
         _conn.UpdateSubscriptionOptions(profile.ShowOnline, profile.ShowInventory || profile.ShowItemsHere);
 
         // Align session FES timer with profile value (overrides MudSessionOptions default).
@@ -553,6 +559,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         SidePanel.IsMapExpanded       = settings.ShowMapCompass;
         SidePanel.MaxOnline           = settings.MaxOnlineDisplay;
         SidePanel.NamesOnly           = settings.OnlineNamesOnly;
+        SidePanel.ForgetWindowMinutes = settings.OnlineForgetWindow;
         _conn.UpdateSubscriptionOptions(settings.ShowOnline, settings.ShowInventory || settings.ShowItemsHere);
 
         // "Float online by default" is a saved global that only drags the live pin state along
@@ -1256,6 +1263,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _conn.FewPlayerReady   += SidePanel.OnFewPlayerReceived;
         _conn.FewListStarting  += SidePanel.OnFewListStarting;
         _conn.FewListComplete  += SidePanel.OnFewListComplete;
+        _conn.SniffResult      += SidePanel.OnSniffResult;
         _conn.FeiListStarting  += SidePanel.OnFeiListStarting;
         _conn.FeiItemReady     += SidePanel.OnFeiItemReady;
         _conn.FeiListComplete  += SidePanel.OnFeiListComplete;
@@ -1280,6 +1288,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _conn.FewPlayerReady   -= SidePanel.OnFewPlayerReceived;
         _conn.FewListStarting  -= SidePanel.OnFewListStarting;
         _conn.FewListComplete  -= SidePanel.OnFewListComplete;
+        _conn.SniffResult      -= SidePanel.OnSniffResult;
         _conn.FeiListStarting  -= SidePanel.OnFeiListStarting;
         _conn.FeiItemReady     -= SidePanel.OnFeiItemReady;
         _conn.FeiListComplete  -= SidePanel.OnFeiListComplete;

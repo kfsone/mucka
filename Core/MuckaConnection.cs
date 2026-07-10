@@ -68,6 +68,9 @@ public sealed class MuckaConnection : IAsyncDisposable
     /// <summary>Fired when a FES/FEW/FEI probe interrupt was just sent -- its response
     /// (ending in a prompt redraw) is about to contend with anything else on the wire.</summary>
     public event Action? FesProbeSent;
+    /// <summary>Fired when a queued "sniff" value-probe resolves. Payload: probed name + outcome.
+    /// Fires on the read-loop thread — consumers marshal to their UI thread.</summary>
+    public event Action<string, SniffOutcome>? SniffResult;
     /// <summary>Fired when the connection is lost (read loop ended). Null = clean disconnect.</summary>
     public event Action<Exception?>? Disconnected;
 #if WINDOWS
@@ -238,6 +241,10 @@ public sealed class MuckaConnection : IAsyncDisposable
     /// <summary>Hold/release the FES/FEW/FEI probe machinery (see MudSession.SetProbeHold).</summary>
     public void SetProbeHold(bool held) => _session.SetProbeHold(held);
 
+    /// <summary>Queue a "sniff" (value &lt;name&gt;) probe to ride the next FES heartbeat
+    /// (see MudSession.QueueValueProbe). Used to disambiguate a player who left the Online list.</summary>
+    public void QueueValueProbe(string name) => _session.QueueValueProbe(name);
+
     /// <summary>Mapping window focus changed -- collapses the heartbeat to FEW-only while
     /// focused (see MudSession.SetMappingFocus).</summary>
     public void SetMappingFocus(bool focused) => _session.SetMappingFocus(focused);
@@ -390,6 +397,7 @@ public sealed class MuckaConnection : IAsyncDisposable
         _session.FexListComplete    += () => FexListComplete?.Invoke();
         _session.ExitLineReady      += (dir, dest) => ExitLineReady?.Invoke(dir, dest);
         _session.ProbeSent          += () => FesProbeSent?.Invoke();
+        _session.SniffResult        += (name, outcome) => SniffResult?.Invoke(name, outcome);
         _session.TerminalWidthConfirmed += OnTerminalWidthConfirmed;
     }
 

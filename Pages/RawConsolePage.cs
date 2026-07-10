@@ -42,6 +42,7 @@ internal sealed class RawConsolePage : ContentPage
     private readonly Label       _statusLabel;
     private readonly Label       _cancelLabel;
     private readonly Button      _stopBtn;
+    private readonly CheckBox    _probeBlockCheck;
     private IDispatcherTimer?    _updateTimer;
     private bool                 _keyboardHooked;
 
@@ -157,11 +158,30 @@ internal sealed class RawConsolePage : ContentPage
         };
         clearBtn.Clicked += OnClearOutputClicked;
 
+        // Stop status probes: while $con is open you usually want to watch raw traffic without
+        // the periodic FES/FEW/FEI interrupts. Checked on open (see OnAppearing); toggling it
+        // holds/resumes probes live, and closing the window resumes them (see OnDisappearing).
+        _probeBlockCheck = new CheckBox { Color = Color.FromArgb("#0037DA"), VerticalOptions = LayoutOptions.Center };
+        _probeBlockCheck.CheckedChanged += (_, e) => _vm.SetStatusProbesBlocked(e.Value);
+        var probeBlockLabel = new Label
+        {
+            Text            = "Stop status probes",
+            FontFamily      = "Cascadia Mono, Consolas, monospace",
+            FontSize        = 11,
+            TextColor       = Color.FromArgb("#CCCCCC"),
+            VerticalOptions = LayoutOptions.Center,
+        };
+        var probeBlockStack = new HorizontalStackLayout
+        {
+            Spacing  = 2,
+            Children = { _probeBlockCheck, probeBlockLabel },
+        };
+
         var buttonRow = new HorizontalStackLayout
         {
             Spacing  = 8,
             Margin   = new Thickness(0, 4, 0, 0),
-            Children = { sendBtn, markBtn, _stopBtn, clearBtn, _statusLabel },
+            Children = { sendBtn, markBtn, _stopBtn, clearBtn, probeBlockStack, _statusLabel },
         };
 
         var separator = new BoxView
@@ -199,6 +219,8 @@ internal sealed class RawConsolePage : ContentPage
         base.OnAppearing();
         _vm.RawBytesReceived += OnRawBytesReceived;
         _vm.RawBytesSent     += OnRawBytesSent;
+        // Opening $con blocks status probes by default (CheckedChanged applies the hold).
+        _probeBlockCheck.IsChecked = true;
         TryHookKeyboard();
 
         _updateTimer = Dispatcher.CreateTimer();
@@ -212,6 +234,9 @@ internal sealed class RawConsolePage : ContentPage
         base.OnDisappearing();
         _vm.RawBytesReceived -= OnRawBytesReceived;
         _vm.RawBytesSent     -= OnRawBytesSent;
+        // Resume probes on close — the only control lives in this window, so we must not leave
+        // the side panel silently starved once it's gone.
+        _vm.SetStatusProbesBlocked(false);
 
         if (_keyboardHooked &&
             Window?.Handler?.PlatformView is Microsoft.UI.Xaml.Window win &&

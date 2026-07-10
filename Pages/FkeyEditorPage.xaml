@@ -617,6 +617,24 @@
                             </HorizontalStackLayout>
                         </Grid>
 
+                        <!-- Forget window: minutes a departed player lingers in the Recent list -->
+                        <Grid ColumnDefinitions="160,*" ColumnSpacing="12">
+                            <Label Grid.Column="0" Text="Forget window" TextColor="#888888" FontSize="13" VerticalOptions="Center"
+                                   ToolTipProperties.Text="How long a player who drops off the Online list lingers in a quiet 'Recent' list below it before being forgotten. 0 = off (forget immediately). Max 10 min."/>
+                            <HorizontalStackLayout Grid.Column="1" Spacing="6" VerticalOptions="Center">
+                                <Button Text="&#x2212;" Command="{Binding DecrForgetWindowCommand}"
+                                        BackgroundColor="#2d333b" TextColor="#cccccc"
+                                        FontSize="15" WidthRequest="34" HeightRequest="30"
+                                        CornerRadius="4" Padding="0"/>
+                                <Label Text="{Binding OnlineForgetWindowText}" TextColor="White" FontSize="13"
+                                       MinimumWidthRequest="60" VerticalOptions="Center" HorizontalTextAlignment="Center"/>
+                                <Button Text="+" Command="{Binding IncrForgetWindowCommand}"
+                                        BackgroundColor="#2d333b" TextColor="#cccccc"
+                                        FontSize="15" WidthRequest="34" HeightRequest="30"
+                                        CornerRadius="4" Padding="0"/>
+                            </HorizontalStackLayout>
+                        </Grid>
+
                         <!-- Float -->
                         <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
                             <CheckBox Grid.Column="0" IsChecked="{Binding FloatOnline, Mode=TwoWay}"

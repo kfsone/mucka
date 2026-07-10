@@ -106,6 +106,13 @@ public sealed class WhoEntry : INotifyPropertyChanged
         }
     }
 
+    /// <summary>UTC time this player was last seen in a FEW snapshot. Drives the age/grouping of a
+    /// Recent-list entry; unused while the entry is live in the Online list.</summary>
+    public DateTime LastSeenUtc { get; set; }
+
+    /// <summary>UTC time a Recent-list entry should be forgotten (removed). Unused while online.</summary>
+    public DateTime ExpiryUtc { get; set; }
+
     public WhoEntry(string name, Color color)
     {
         _name  = name;

@@ -66,6 +66,10 @@ public class Profile
     public int MaxOnlineDisplay { get; set; }
     [System.Text.Json.Serialization.JsonIgnore]
     public bool OnlineNamesOnly { get; set; }
+    /// <summary>Minutes a player lingers in the "Recent" list after fading off Online before
+    /// being forgotten. 0 = disabled (forget immediately). Range 0–10, default 5.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public int OnlineForgetWindow { get; set; } = 5;
     /// <summary>Global default for floating (unpinning) the Online list. False = pinned in the side panel.</summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public bool FloatOnline { get; set; }

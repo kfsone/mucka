@@ -72,6 +72,7 @@ public static class SettingsStore
         bool? ShowMapCompass    = null,
         int? MaxOnlineDisplay   = null,
         bool? OnlineNamesOnly   = null,
+        int? OnlineForgetWindow = null,
         bool? FloatOnline       = null,
         bool? FloatCompass      = null)
     {
@@ -97,6 +98,7 @@ public static class SettingsStore
             if (ShowMapCompass is bool sm) profile.ShowMapCompass = sm;
             if (MaxOnlineDisplay is int mod) profile.MaxOnlineDisplay = mod;
             if (OnlineNamesOnly  is bool ono) profile.OnlineNamesOnly  = ono;
+            if (OnlineForgetWindow is int ofw) profile.OnlineForgetWindow = ofw;
             if (FloatOnline      is bool fo)  profile.FloatOnline      = fo;
             if (FloatCompass     is bool fc)  profile.FloatCompass     = fc;
         }
@@ -172,6 +174,7 @@ public static class SettingsStore
                 ShowMapCompass:     ini.HasSection("settings") ? GetBool(ini, "settings", "showmapcompass")     : null,
                 MaxOnlineDisplay:   ini.HasSection("settings") ? GetInt (ini, "settings", "maxonlinedisplay")   : null,
                 OnlineNamesOnly:    ini.HasSection("settings") ? GetBool(ini, "settings", "onlinenamesonly")    : null,
+                OnlineForgetWindow: ini.HasSection("settings") ? GetInt (ini, "settings", "onlineforgetwindow") : null,
                 FloatOnline:        ini.HasSection("settings") ? GetBool(ini, "settings", "floatonline")        : null,
                 FloatCompass:       ini.HasSection("settings") ? GetBool(ini, "settings", "floatcompass")       : null);
         }
@@ -216,6 +219,7 @@ public static class SettingsStore
             ini.Set("settings", "showmapcompass",     settings.ShowMapCompass ? "yes" : "no");
             ini.Set("settings", "maxonlinedisplay",   settings.MaxOnlineDisplay.ToString());
             ini.Set("settings", "onlinenamesonly",    settings.OnlineNamesOnly ? "yes" : "no");
+            ini.Set("settings", "onlineforgetwindow", settings.OnlineForgetWindow.ToString());
             ini.Set("settings", "floatonline",        settings.FloatOnline     ? "yes" : "no");
             ini.Set("settings", "floatcompass",       settings.FloatCompass    ? "yes" : "no");
 
