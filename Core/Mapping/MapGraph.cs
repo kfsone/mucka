@@ -62,6 +62,13 @@ public sealed class MapGraph
     }
 
     private readonly Dictionary<string, RoomNode> _nodes;
+    // Hand-authored travel-table rows, keyed "{from}|{fex}|{dir}" (matches MappingSession.EdgeKey).
+    private readonly Dictionary<string, List<EdgeRule>> _rules =
+        new(StringComparer.OrdinalIgnoreCase);
+    // Reported (dangling, name-level) exit destinations from the exits verb, keyed
+    // "{room}|{fex}|{dir}" -> destination reference name. Not persisted -- live this session.
+    private readonly Dictionary<string, string> _reported =
+        new(StringComparer.OrdinalIgnoreCase);
 
     private MapGraph(Dictionary<string, RoomNode> nodes) => _nodes = nodes;
 
@@ -131,6 +138,31 @@ public sealed class MapGraph
             _nodes[from] = node = new RoomNode();
         node.DarkExits.Add(dir);
     }
+
+    // -- Edge rules (hand-authored travel-table rows) --
+
+    /// <summary>Records a hand-authored edge rule (guard -> outcome). Rules accumulate;
+    /// contradictions add rows, they never replace one (see MUD-Mapping-Design.md sect 4.2).</summary>
+    internal void RecordRule(EdgeRule rule)
+    {
+        if (!_rules.TryGetValue(rule.EdgeKey, out var list))
+            _rules[rule.EdgeKey] = list = new List<EdgeRule>();
+        list.Add(rule);
+    }
+
+    /// <summary>Hand-authored rows for this exact edge (room + fex + dir), or empty. Returns a
+    /// snapshot (callers iterate outside the session lock -- matches the other accessors).</summary>
+    public IReadOnlyList<EdgeRule> RulesFor(string room, string fex, string dir)
+        => _rules.TryGetValue($"{room}|{fex}|{dir}", out var l) ? l.ToArray() : Array.Empty<EdgeRule>();
+
+    /// <summary>Records the reported (name-level) destination of an exit, from the exits verb.
+    /// Dangling -- never binds an instance, so routing must still verify on arrival.</summary>
+    internal void RecordReported(string room, string fex, string dir, string dest)
+        => _reported[$"{room}|{fex}|{dir}"] = dest;
+
+    /// <summary>Reported destination name for this exit (from the exits verb), or null.</summary>
+    public string? ReportedDestination(string room, string fex, string dir)
+        => _reported.TryGetValue($"{room}|{fex}|{dir}", out var d) ? d : null;
 
     // ── Stats / panel queries ───────────────────────────────────────────────────
 

@@ -2,6 +2,21 @@
 
 Prompt for a fresh session picking up the MUD2 mapping effort. State as of 2026-06-12.
 
+**2026-07-09 update:** `mapdb.sqlite` is confirmed dormant -- the live model is `MapGraph`
+(in-memory, rebuilt from walk files each load), never persisted; `ingest_walk.py` was never
+written (see the MUD-Cartography.md correction). New: hand-authored **edge rules** (guard ->
+outcome decision-table rows) ship in the `$map` console -- `carrying`/`else` guards,
+`arrive`/`refuse`/`absent` outcomes, persisted as `{"extra":"edge-rule"}` records and rendered
+per edge (ROOM-panel table + compass tooltips + live FEI inventory capture). Grammar + record:
+MUD-Mapping-Design.md §4.5. Also fixed: the close-room / u-turn return picker now uses
+**reported** exit destinations (the `exits` verb, via a new `ExitLineReady` forward
+parser -> MudSession -> MuckaConnection -> MappingSession) -- it prefers an exit reported to
+lead home over an unconfirmed reciprocal reported elsewhere (the Cedar-forest miss; see the
+MUD-Cartography.md close-room note). Next: `door` guards -- which need `LongDescLineReady` plumbed
+parser -> MudSession -> MuckaConnection -> MappingSession so the room long description (where
+door state lives) reaches the mapping layer; then the same-name/multi-fex "what changed"
+door-detection view (the Ingresso over-splitting fix).
+
 ## Read first, in order
 
 1. `MUD-Cartography.md` — domain model (room identity, edges, conditions, breadcrumbs).
@@ -174,7 +189,11 @@ Steps 3–4 need the operator in-game; 2, 5 are code.
 - Names are evidence, not keys: NEVER merge rooms on name match; agreement never
   merges above its evidence tier; ambiguity retroactively demotes T1 name bindings.
 - NEVER synthesize reverse edges; record only observed directions.
-- Items seen in captures are meaningless for identity without a `breadcrumbs` record.
+- Items seen in captures are meaningless for *positive / cross-capture* identity
+  without a `breadcrumbs` record (things move) -- BUT within a *single* `look around` /
+  `quickscan`, a content *difference* between two same-named neighbors is valid
+  *distinguishing* evidence they are distinct instances (split-only; never a merge,
+  never across captures). See MUD-Cartography.md §6.1.
 - Refusals are outcomes (travel-table rows), not errors; contradictions ADD decision-
   table rows, never replace.
 - Multiple directions A→B is containment/scale signal, never redundancy.

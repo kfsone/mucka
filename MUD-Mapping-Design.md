@@ -138,6 +138,49 @@ beyond set logic over recorded contexts.
 Two patterns are pre-confirmed (auto-rules): `DarkDestination` → bring-light, and
 rain-message refusals → retry-when-¬rain. Everything else waits for a human.
 
+### 4.5 Hand-authored rules (implemented 2026-07-09)
+
+The console can now write decision-table rows directly, so section 4.2's tables are seeded
+by hand while the discriminator analysis (4.4) stays future work. A "mark" is one row:
+
+    (from-room + fex + dir)   guard  ->  outcome
+
+**Guard** (the "when"): `carrying <item>` (item in the FEI carried inventory; optional `!`
+negate, plus an optional free `class` tag e.g. "boat" -- stored, never resolved into a
+synonym/object database); `door(<ref?>) <state>` (ref = discriminator, or the room's sole
+door; state open|closed|locked|absent -- observable in the room long description);
+`weather <state>`; `count ...` (deferred); and `else` (the default when no other guard for
+this direction matched).
+
+**Outcome** (the "then"): `arrive <dest>` (traverses; dest may differ by guard -> a
+conditional/forked destination, and multiple observed dests = random); `refuse "<text>"`
+(fixed message, no transit); or `absent` (the exit is not offered at all under this guard
+-- it vanishes from the fex, as if there were no edge). `absent` is what collapses
+door-driven fex fragmentation: an Ingresso `door(oaken) -> absent` row explains the
+disappearing `out/s/swamp` exits as one conditional room, not two instances.
+
+**Storage**: one append-only walk-file record per row --
+`{"extra":"edge-rule","edge":{from,fex,dir},"guard":{...},"outcome":{...},
+"evidence":{"fei":[...]},"note":...,"ts":...}`. A carrying rule snapshots current inventory
+as raw evidence beside the human-authored guard (human writes "boat"; machine keeps
+"coracle"). Rules accumulate; contradictions add rows, never replace. Read back on load into
+`MapGraph`, rendered on each edge (ROOM-panel table + compass tooltips). `carrying` / `weather`
+(free state token e.g. "rain") / `else` are wired in the UI; `door` is storage-ready. A rule can
+be added to a direction even when the game currently HIDES the exit (a rain-gated exit absent
+from the fex -- its existence demonstrable by a custom refusal like "Rain has swollen the
+river"): the direction picker offers all directions and the edge table shows any direction with a
+recorded refusal/rule/reported-dest, not just enabled ones. Doors need `LongDescLineReady`
+plumbed from the parser up to the mapping layer -- the next slice.
+
+**Known limitation (fex-keying).** Rules key on `{room}|{fex}|{dir}`, like resolved edges. A
+weather-gated exit changes the fex (north present when clear, absent when raining), so a rule
+authored in one weather state attaches to that state's fex and does not show in the other. Full
+cross-state unification (one room, weather-conditional edge) is the same-name/multi-fex
+de-fragmentation work (see the Ingresso note in MUD-Cartography.md).
+
+Human-authored only, deliberately: edge conditions are game puzzles, so the console never
+auto-decides one (4.4's hypotheses are suggestions for a human to confirm, not silent facts).
+
 ## 5. Work queue
 
 The unit of work is the **open exit**: `(instance, direction)` lacking a resolved

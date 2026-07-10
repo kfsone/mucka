@@ -78,6 +78,12 @@ public sealed class MappingSession : IDisposable
     private readonly StringBuilder _opRx = new();
     private readonly List<string> _fexBuffer = new();
     private bool _fexCollecting;
+    private bool _feiCollecting;
+    private bool _feiPastSeparator;
+    private readonly List<string> _feiScratch = new();   // carried items seen during the current FEI parse
+    private readonly List<string> _inventory = new();     // last completed carried-inventory snapshot (the "carrying" guard vocabulary + evidence)
+    private readonly Dictionary<string, string> _reportedScratch =
+        new(StringComparer.OrdinalIgnoreCase);            // reported (dir -> dest) accumulated during the current probe
 
     private string _currentRoom = string.Empty;
     private bool _currentRoomIsDark;              // arrived but could not see -- no name, only the fact
@@ -171,6 +177,34 @@ public sealed class MappingSession : IDisposable
         get { lock (_lock) return _enabledExits.ToHashSet(StringComparer.OrdinalIgnoreCase); }
     }
 
+    /// <summary>Carried inventory from the most recent FEI observation -- the "carrying" guard's
+    /// item vocabulary, and the evidence snapshotted when a carrying rule is marked.</summary>
+    public IReadOnlyList<string> CurrentInventory { get { lock (_lock) return _inventory.ToArray(); } }
+
+    /// <summary>Everything the UI needs to render one exit of the current room: whether it is
+    /// enabled / resolved / dark, its known destination (fex-aware; null when unwalked), whether
+    /// it loops back here, and any hand-authored rules on it.</summary>
+    public readonly record struct EdgeInfo(
+        string Dir, bool Enabled, bool Resolved, bool Dark,
+        string? Dest, string? Reported, bool SelfLoop, IReadOnlyList<EdgeRule> Rules);
+
+    /// <summary>Per-direction edge state for the current room (one lock, cheap dict lookups).</summary>
+    public EdgeInfo GetEdgeInfo(string dir)
+    {
+        lock (_lock)
+        {
+            var fex      = FexKeyLocked();
+            var enabled  = _enabledExits.Contains(dir);
+            var resolved = _resolved.Contains(EdgeKey(_currentRoom, fex, dir));
+            var dark     = _graph.DarkExitsFrom(_currentRoom).Contains(dir);
+            var dest     = _graph.KnownDestination(_currentRoom, fex, dir);
+            var reported = _graph.ReportedDestination(_currentRoom, fex, dir);
+            var selfLoop = dest is not null && string.Equals(dest, _currentRoom, StringComparison.Ordinal);
+            var rules    = _graph.RulesFor(_currentRoom, fex, dir);
+            return new EdgeInfo(dir, enabled, resolved, dark, dest, reported, selfLoop, rules);
+        }
+    }
+
     /// <summary>Snapshot of resolved-edge keys for the current room (live, overrides stale graph).</summary>
     public IReadOnlySet<string> CurrentRoomResolvedDirs
     {
@@ -224,9 +258,12 @@ public sealed class MappingSession : IDisposable
         _conn.FexItemReady     += OnFexItemReady;
         _conn.FexListComplete  += OnFexListComplete;
         _conn.FesProbeSent     += OnFesProbeSent;
+        _conn.FeiListStarting  += OnFeiListStarting;
+        _conn.FeiItemReady     += OnFeiItemReady;
         _conn.FeiListComplete  += OnFeiListComplete;
         _conn.FewListStarting  += OnFewListStarting;
         _conn.FewListComplete  += OnFewListComplete;
+        _conn.ExitLineReady    += OnExitLineReady;
     }
 
     /// <summary>Mapping window focus changed -- collapses the heartbeat to FEW-only while
@@ -268,9 +305,12 @@ public sealed class MappingSession : IDisposable
 
     /// <summary>Systematic close-room cycle: visit every unresolved enabled exit from the
     /// current room, probing each destination, and return home after each one.
-    /// The return uses only the reciprocal or a name-confirmed route (no last-resort
-    /// wandering). If any return fails, the cycle stops and <see cref="CloseRoomBlocked"/>
-    /// fires. When all exits are done, <see cref="CloseRoomComplete"/> fires.</summary>
+    /// The return prefers the reciprocal or a route with a recorded destination home,
+    /// but falls back to trying an unconfirmed exit (organic maps return by a
+    /// non-reciprocal direction); the arrival probe verifies we landed home, so a wrong
+    /// guess blocks rather than wanders. If a return genuinely finds nothing to try, the
+    /// cycle stops and <see cref="CloseRoomBlocked"/> fires. When all exits are done,
+    /// <see cref="CloseRoomComplete"/> fires.</summary>
     public bool TryStartCloseRoom(out string? error)
     {
         lock (_lock)
@@ -355,6 +395,30 @@ public sealed class MappingSession : IDisposable
         if (was) { Status?.Invoke("go to open: cancelled"); StateChanged?.Invoke(); }
     }
 
+    // -- Edge rules (hand-authored travel-table rows) --
+
+    /// <summary>Record a hand-authored guard -> outcome rule on the current room's edge in
+    /// <paramref name="dir"/>. Persisted as a {"extra":"edge-rule"} walk-file record and
+    /// reflected live in the graph. A carrying rule snapshots the current inventory as evidence.</summary>
+    public bool AddEdgeRule(string dir, RuleGuard guard, RuleOutcome outcome, string? note, out string? error)
+    {
+        EdgeRule rule;
+        lock (_lock)
+        {
+            if (_currentRoom.Length == 0) { error = "not in a known room"; return false; }
+            var fex = FexKeyLocked();
+            var evidence = guard.Kind == "carrying" && _inventory.Count > 0 ? _inventory.ToArray() : null;
+            var ts = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            rule = new EdgeRule(_currentRoom, fex, dir, guard, outcome, evidence, note, ts);
+            _graph.RecordRule(rule);
+            WriteRawLineLocked(EdgeRules.Serialize(rule));
+        }
+        error = null;
+        Status?.Invoke($"rule: {dir} {guard.Describe()} {outcome.Describe()}");
+        StateChanged?.Invoke();
+        return true;
+    }
+
     private bool TryStartMoveCore(string dir, string? returnDir, out string? error)
     {
         lock (_lock)
@@ -416,6 +480,7 @@ public sealed class MappingSession : IDisposable
         _echoSeen = false;
         _failLine = null;
         _opRx.Clear();
+        _reportedScratch.Clear();
     }
 
     // ── Connection event taps ──────────────────────────────────────────────────
@@ -532,11 +597,34 @@ public sealed class MappingSession : IDisposable
         StateChanged?.Invoke();
     }
 
+    private void OnFeiListStarting()
+    {
+        lock (_lock) { _feiCollecting = true; _feiPastSeparator = false; _feiScratch.Clear(); }
+    }
+
+    private void OnFeiItemReady(string item)
+    {
+        // "========" splits the FEI response: items before it are in the room, items after
+        // are carried. Only the carried side feeds the "carrying" guard.
+        lock (_lock)
+        {
+            if (!_feiCollecting) return;
+            if (item == "========") _feiPastSeparator = true;
+            else if (_feiPastSeparator) _feiScratch.Add(item);
+        }
+    }
+
     private void OnFeiListComplete()
     {
         bool wasOpen;
         lock (_lock)
         {
+            if (_feiCollecting)
+            {
+                _feiCollecting = false;
+                _inventory.Clear();
+                _inventory.AddRange(_feiScratch);
+            }
             // The FEI part is the tail of the heartbeat response -- the wire is free again.
             wasOpen = DateTime.UtcNow < _probeWindowUntil;
             _probeWindowUntil = DateTime.MinValue;
@@ -561,6 +649,19 @@ public sealed class MappingSession : IDisposable
         Notify(null, changed);
     }
 
+    private void OnExitLineReady(string dirWord, string dest)
+    {
+        // Reported destination from the exits verb ("south: Tranquil walk"). Accumulated during
+        // an op; committed to the graph (keyed room+fex+dir) when the probe completes.
+        var dir = NormalizeDirection(dirWord);
+        if (dir is null) return;
+        lock (_lock)
+        {
+            if (_op == Op.None) return;
+            _reportedScratch[dir] = dest.TrimEnd('.', ' ');
+        }
+    }
+
     // ── Completion ─────────────────────────────────────────────────────────────
 
     private (string?, bool) CompleteProbeLocked(bool timedOut)
@@ -575,6 +676,17 @@ public sealed class MappingSession : IDisposable
         }
         WriteEntryLocked("an", timedOut ? "probe timeout" : "probe complete");
         OpsCompleted++;
+
+        // Commit reported exit destinations for the room we just probed, so the return picker
+        // and the edge table can use them (name-level, dangling -- see OnExitLineReady). Only
+        // when the room was actually identified this probe (_arrival set) -- otherwise the
+        // reported lines would attach to a stale _currentRoom.
+        if (_reportedScratch.Count > 0 && _arrival is not null && _currentRoom.Length > 0)
+        {
+            var reportedFex = FexKeyLocked();
+            foreach (var (d, dest) in _reportedScratch)
+                _graph.RecordReported(_currentRoom, reportedFex, d, dest);
+        }
 
         // U-turn: the outbound leg landed and its probe just refreshed the exits --
         // now we can pick the return leg. The goal is to get BACK to the origin while
@@ -650,13 +762,23 @@ public sealed class MappingSession : IDisposable
                 : $"close room: blocked -- {reason}", true);
         }
 
-        // Probe after the outbound leg: pick return direction (no last resort).
+        // Probe after the outbound leg: pick the return direction. Last resort is
+        // enabled -- the world is an organic graph, so a room is often reached by a
+        // direction whose reciprocal is NOT the way back (Midriver |sw> Bank of river,
+        // but Bank of river returns via |e>, the reciprocal of the *other* inbound edge
+        // |w>). With no recorded route home yet, the cycle must still attempt an
+        // unconfirmed exit rather than give up; the arrival probe verifies we actually
+        // landed home (see _closeReturning branch above) and blocks safely on a wrong
+        // guess, so a last-resort return can never wander off unnoticed.
         var origin    = _closeHomeRoom!;
         var reciprocal = MapGraph.Reciprocal(_moveDir) ?? string.Empty;
-        if (!timedOut && PickReturnLocked(reciprocal, origin, out _, useLastResort: false) is { } ret)
+        if (!timedOut && PickReturnLocked(reciprocal, origin, out bool lastResort) is { } ret)
         {
             _closeReturning = true;
-            WriteEntryLocked("an", $"close-room: returning {ret}, expecting {origin}");
+            var note = lastResort
+                ? $" (low confidence, no known route to {origin})"
+                : $", expecting {origin}";
+            WriteEntryLocked("an", $"close-room: returning {ret}{note}");
             StartMoveLocked(ret);
             return ($"close room: returning {ret}...", true);
         }
@@ -785,7 +907,8 @@ public sealed class MappingSession : IDisposable
     ///   2. Any other exit: unconfirmed first, then confirmed, whose destination is origin.
     ///   3. Last resort (only when <paramref name="useLastResort"/> is true): any unconfirmed
     ///      exit with no recorded destination at all (truly unknown -- captures the edge and
-    ///      may happen to return). Disabled for close-room cycles.
+    ///      may happen to return). Enabled for close-room too, guarded by the return leg's
+    ///      home-verification, which safely blocks the cycle on a wrong guess.
     /// Sets <paramref name="lastResort"/> true when only tier 3 found a candidate.</summary>
     private string? PickReturnLocked(string reciprocal, string origin, out bool lastResort,
                                      bool useLastResort = true)
@@ -793,49 +916,55 @@ public sealed class MappingSession : IDisposable
         lastResort = false;
         var fex = FexKeyLocked();
         bool Unconfirmed(string dir) => !_resolved.Contains(EdgeKey(_currentRoom, fex, dir));
+        // Destination NAME for a direction: a traversed edge (fex-aware) if we have one, else
+        // the reported name from the exits verb (dangling, name-level -- see OnExitLineReady).
+        string? DestName(string dir) => _graph.KnownDestination(_currentRoom, fex, dir)
+                                      ?? _graph.ReportedDestination(_currentRoom, fex, dir);
+        bool LeadsHome(string dir) => string.Equals(DestName(dir), origin, StringComparison.Ordinal);
+        // The reciprocal VETO uses the REPORTED dest only -- fresh evidence for THIS room's exit
+        // from the exits verb. The traversed KnownDestination is fex-keyed, so a same-name +
+        // same-fex sibling (the five "Badly-paved road"s) can contaminate it; it must never veto
+        // the reciprocal. That is why the old geometric fallback trusted the reciprocal
+        // unconditionally -- preserved here by keying the veto on reported names alone.
+        bool ReportedElsewhere(string dir)
+            => _graph.ReportedDestination(_currentRoom, fex, dir) is { } n
+               && !string.Equals(n, origin, StringComparison.Ordinal);
 
-        if (_enabledExits.Contains(reciprocal))
-        {
-            var dest = _graph.KnownDestination(_currentRoom, fex, reciprocal);
-            // Take it when unwalked (geometry says it probably returns) or when its
-            // recorded destination is named like the origin (walk to test the loop).
-            // Only a reciprocal KNOWN to lead somewhere else is passed over.
-            if (Unconfirmed(reciprocal) || string.Equals(dest, origin, StringComparison.Ordinal))
-                return reciprocal;
-        }
+        // 1. Reciprocal first, unless the exits verb reported it leads somewhere other than home.
+        //    Take it when unwalked (geometry says it probably returns) or when its destination is
+        //    named like the origin. A reciprocal REPORTED to lead ELSEWHERE is passed over --
+        //    that is the Cedar-forest case: sw was reported -> Cedar forest, not the home room.
+        if (_enabledExits.Contains(reciprocal) && !ReportedElsewhere(reciprocal)
+            && (Unconfirmed(reciprocal) || LeadsHome(reciprocal)))
+            return reciprocal;
 
-        // Reciprocal leads elsewhere: any other enabled exit that seems to return to
-        // the origin -- unconfirmed ones first (they close an edge AND test the loop).
+        // 2. Any other enabled exit known OR reported to lead home -- unconfirmed first (they
+        //    close an edge AND test the loop). This is what finds `south -> Tranquil walk` from
+        //    the exits verb instead of blindly trusting the reciprocal.
         foreach (var unconfirmedFirst in new[] { true, false })
             foreach (var dir in Directions)
             {
                 if (dir == reciprocal || !_enabledExits.Contains(dir)) continue;
                 if (Unconfirmed(dir) != unconfirmedFirst) continue;
-                if (string.Equals(_graph.KnownDestination(_currentRoom, fex, dir), origin, StringComparison.Ordinal))
-                    return dir;
+                if (LeadsHome(dir)) return dir;
             }
 
-        // Geometric fallback: no recorded edge proves a route home, but the reciprocal of
-        // the move that just brought us here is the natural return. Historical "leads
-        // elsewhere" evidence cannot be trusted to veto it -- same-name rooms that also
-        // share an exit signature (the five "Badly-paved road"s, all fex
-        // "e in n ne nw out s se sw swamp up w") record contradictory destinations for the
-        // same key, so a sibling instance's edge masquerades as this one's. Trust the
-        // reciprocal and let the arrival probe verify: a wrong guess blocks safely on the
-        // home-verification mismatch, it never loops. This runs after the evidence-based
-        // tiers so a genuinely asymmetric room still prefers a known route home.
-        if (_enabledExits.Contains(reciprocal))
+        // 3. Geometric fallback: trust the reciprocal and let the arrival probe verify -- unless
+        //    the exits verb REPORTED it leads elsewhere. A wrong guess blocks safely on the
+        //    home-verification mismatch; it never loops. Traversed same-name+same-fex siblings
+        //    (the five "Badly-paved road"s) never veto here, so this stays as robust as the old
+        //    unconditional fallback when no reported dest contradicts it.
+        if (_enabledExits.Contains(reciprocal) && !ReportedElsewhere(reciprocal))
             return reciprocal;
 
         if (!useLastResort) return null;
 
-        // Last resort: any unconfirmed exit with no recorded destination -- we have no
-        // evidence it returns, but we also have no evidence it doesn't; walking it
-        // captures the edge regardless.
+        // 4. Last resort: any unconfirmed exit with no recorded OR reported destination -- no
+        // evidence it returns, but none it doesn't; walking it captures the edge regardless.
         foreach (var dir in Directions)
         {
             if (!_enabledExits.Contains(dir) || !Unconfirmed(dir)) continue;
-            if (_graph.KnownDestination(_currentRoom, fex, dir) is null)
+            if (DestName(dir) is null)
             {
                 lastResort = true;
                 return dir;
@@ -923,23 +1052,34 @@ public sealed class MappingSession : IDisposable
         _ => null,
     };
 
-    private void WriteEntryLocked(string mode, string data)
+    private void EnsureWriterLocked()
+    {
+        if (_writer is not null) return;
+        Directory.CreateDirectory(_directory);
+        var invalid = new HashSet<char>(Path.GetInvalidFileNameChars());
+        var safeHost = new string(_host.Select(c => invalid.Contains(c) ? '_' : c).ToArray());
+        WalkFilePath = Path.Combine(_directory, $"walk.{safeHost}.{DateTime.Now:yyyyMMdd-HHmmss}.jsonl");
+        _writer = new StreamWriter(WalkFilePath, append: false, Encoding.UTF8) { AutoFlush = true };
+        var ms0 = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        _writer.WriteLine($"[{ms0},\"an\",{JsonSerializer.Serialize($"map walk: {_host}")}]");
+    }
+
+    /// <summary>Append a pre-formatted raw line (used for {"extra":...} object records).</summary>
+    private void WriteRawLineLocked(string line)
     {
         // A timer callback can win the race into _lock after Dispose; don't re-open the
         // walk file (and leak a StreamWriter) for a session that's already torn down.
         if (_disposed) return;
-        if (_writer is null)
-        {
-            Directory.CreateDirectory(_directory);
-            var invalid = new HashSet<char>(Path.GetInvalidFileNameChars());
-            var safeHost = new string(_host.Select(c => invalid.Contains(c) ? '_' : c).ToArray());
-            WalkFilePath = Path.Combine(_directory, $"walk.{safeHost}.{DateTime.Now:yyyyMMdd-HHmmss}.jsonl");
-            _writer = new StreamWriter(WalkFilePath, append: false, Encoding.UTF8) { AutoFlush = true };
-            var ms0 = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-            _writer.WriteLine($"[{ms0},\"an\",{JsonSerializer.Serialize($"map walk: {_host}")}]");
-        }
+        EnsureWriterLocked();
+        _writer!.WriteLine(line);
+    }
+
+    private void WriteEntryLocked(string mode, string data)
+    {
+        if (_disposed) return;
+        EnsureWriterLocked();
         var ms = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        _writer.WriteLine($"[{ms},{JsonSerializer.Serialize(mode)},{JsonSerializer.Serialize(data)}]");
+        _writer!.WriteLine($"[{ms},{JsonSerializer.Serialize(mode)},{JsonSerializer.Serialize(data)}]");
     }
 
     public void Dispose()
@@ -952,9 +1092,12 @@ public sealed class MappingSession : IDisposable
         _conn.FexItemReady     -= OnFexItemReady;
         _conn.FexListComplete  -= OnFexListComplete;
         _conn.FesProbeSent     -= OnFesProbeSent;
+        _conn.FeiListStarting  -= OnFeiListStarting;
+        _conn.FeiItemReady     -= OnFeiItemReady;
         _conn.FeiListComplete  -= OnFeiListComplete;
         _conn.FewListStarting  -= OnFewListStarting;
         _conn.FewListComplete  -= OnFewListComplete;
+        _conn.ExitLineReady    -= OnExitLineReady;
         _conn.SetMappingFocus(false);   // restore the full heartbeat (safety net if the page's OnDisappearing didn't run)
         _conn.SetProbeHold(false);
         _opTimer.Dispose();

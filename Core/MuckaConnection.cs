@@ -63,6 +63,8 @@ public sealed class MuckaConnection : IAsyncDisposable
     public event Action<string>? FexItemReady;
     /// <summary>Fired when the FEX-response context closes — all exit keywords delivered.</summary>
     public event Action? FexListComplete;
+    /// <summary>An exits-verb line "direction: Destination." was parsed. Payload: (direction, destination name).</summary>
+    public event Action<string, string>? ExitLineReady;
     /// <summary>Fired when a FES/FEW/FEI probe interrupt was just sent -- its response
     /// (ending in a prompt redraw) is about to contend with anything else on the wire.</summary>
     public event Action? FesProbeSent;
@@ -386,6 +388,7 @@ public sealed class MuckaConnection : IAsyncDisposable
         _session.FexListStarting    += () => FexListStarting?.Invoke();
         _session.FexItemReady       += item => FexItemReady?.Invoke(item);
         _session.FexListComplete    += () => FexListComplete?.Invoke();
+        _session.ExitLineReady      += (dir, dest) => ExitLineReady?.Invoke(dir, dest);
         _session.ProbeSent          += () => FesProbeSent?.Invoke();
         _session.TerminalWidthConfirmed += OnTerminalWidthConfirmed;
     }

@@ -97,7 +97,29 @@ public static class MappingStore
                 resolved.Add($"{edge.From}|{edge.ExitFingerprint}|{edge.Direction}");
         }
 
+        foreach (var rule in ReadEdgeRules(directory))
+            graph.RecordRule(rule);
+
         return new EdgeState(resolved, graph);
+    }
+
+    /// <summary>Reads every {"extra":"edge-rule"} record across the walk files -- the
+    /// hand-authored travel-table rows. Malformed lines are skipped.</summary>
+    internal static IEnumerable<EdgeRule> ReadEdgeRules(string directory)
+    {
+        if (!Directory.Exists(directory))
+            yield break;
+
+        foreach (var file in Directory.GetFiles(directory, "*.jsonl"))
+        {
+            List<string> lines;
+            try { lines = ReadLinesShared(file).ToList(); }
+            catch { continue; }
+
+            foreach (var line in lines)
+                if (EdgeRules.TryParse(line, out var rule) && rule is not null)
+                    yield return rule;
+        }
     }
 #endif
 

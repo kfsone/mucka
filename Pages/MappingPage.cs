@@ -89,6 +89,28 @@ internal sealed class MappingPage : ContentPage
     // current room (see MappingSession.InterestingExits).
     private readonly Dictionary<string, Label> _dirMarkers = new();
 
+    // ROOM panel: per-exit edge table + the hand-authored rule editor (guard -> outcome).
+    private readonly Label _edgesLabel;
+    private readonly HorizontalStackLayout _addRuleRow;
+    private readonly Picker _ruleDirPicker;
+    private readonly VerticalStackLayout _ruleEditor;
+    private readonly Label _ruleTargetLabel;
+    private readonly Label _invHintLabel;
+    private readonly Picker _guardKindPicker;
+    private readonly Picker _outcomeKindPicker;
+    private readonly HorizontalStackLayout _carryRow;
+    private readonly HorizontalStackLayout _weatherRow;
+    private readonly Entry _itemEntry;
+    private readonly CheckBox _negateCheck;
+    private readonly Entry _classEntry;
+    private readonly Entry _weatherEntry;
+    private readonly Entry _destEntry;
+    private readonly Entry _textEntry;
+    private readonly Entry _noteEntry;
+    private string? _ruleDir;               // direction the open rule editor targets
+    private string _lastEdgesText = string.Empty;   // diff guard for the edge table repaint
+    private readonly Dictionary<string, string> _dirTooltip = new();   // diff guard for compass tooltips
+
     public MappingPage(GameViewModel vm)
     {
         _vm = vm;
@@ -224,10 +246,105 @@ internal sealed class MappingPage : ContentPage
         roomHeader.Add(roomHeaderLabel, column: 0, row: 0);
         roomHeader.Add(_closeRoomBtn,   column: 1, row: 0);
 
+        // Per-exit edge table (destinations + state + any rules), string-diffed on repaint.
+        _edgesLabel = MonoLabel("#CCCCCC", 12);
+        _edgesLabel.LineBreakMode = LineBreakMode.WordWrap;
+        _edgesLabel.IsVisible = false;
+
+        // Add-rule row: pick a direction, open the rule editor for it.
+        _ruleDirPicker = new Picker
+        {
+            Title      = "dir",
+            FontFamily = "Cascadia Mono, Consolas, monospace",
+            FontSize   = 11,
+            TextColor  = Color.FromArgb("#CCCCCC"),
+            WidthRequest = 70,
+            // All directions -- rules must be addable to exits the game currently hides
+            // (e.g. a rain-gated exit absent from the fex), not just the enabled ones.
+            ItemsSource = MappingSession.Directions,
+        };
+        var addRuleBtn = MakeSmallButton("Add rule...", OnAddRuleClicked);
+        var ruleRowLabel = MonoLabel("#767676", 11);
+        ruleRowLabel.Text = "rule:";
+        ruleRowLabel.VerticalOptions = LayoutOptions.Center;
+        _addRuleRow = new HorizontalStackLayout
+        {
+            Spacing   = 6,
+            IsVisible = false,
+            Children  = { ruleRowLabel, _ruleDirPicker, addRuleBtn },
+        };
+
+        // Rule editor (hidden until Add rule...). A guard -> outcome row, human-authored.
+        _ruleTargetLabel = MonoLabel("#9FD0FF", 11);
+        _invHintLabel    = MonoLabel("#767676", 10);
+        _invHintLabel.LineBreakMode = LineBreakMode.WordWrap;
+
+        _guardKindPicker = new Picker
+        {
+            Title = "when", FontFamily = "Cascadia Mono, Consolas, monospace", FontSize = 11,
+            TextColor = Color.FromArgb("#CCCCCC"), WidthRequest = 110,
+            ItemsSource = new List<string> { "carrying", "weather", "else" },
+            SelectedIndex = 0,
+        };
+        _guardKindPicker.SelectedIndexChanged += (_, _) => UpdateRuleEditorVisibility();
+
+        _itemEntry   = MakeRuleEntry("item (e.g. coracle)", 130);
+        _negateCheck = new CheckBox { Color = Color.FromArgb("#9FD0FF") };
+        _classEntry  = MakeRuleEntry("class (opt, e.g. boat)", 140);
+        _carryRow = new HorizontalStackLayout
+        {
+            Spacing  = 6,
+            Children = { _itemEntry, _negateCheck, MakeMini("not carrying"), _classEntry },
+        };
+
+        _weatherEntry = MakeRuleEntry("weather state (e.g. rain)", 180);
+        _weatherRow = new HorizontalStackLayout
+        {
+            Spacing  = 6,
+            Children = { MakeMini("state"), _weatherEntry },
+        };
+
+        _outcomeKindPicker = new Picker
+        {
+            Title = "then", FontFamily = "Cascadia Mono, Consolas, monospace", FontSize = 11,
+            TextColor = Color.FromArgb("#CCCCCC"), WidthRequest = 110,
+            ItemsSource = new List<string> { "arrive", "refuse", "absent" },
+            SelectedIndex = 0,
+        };
+        _outcomeKindPicker.SelectedIndexChanged += (_, _) => UpdateRuleEditorVisibility();
+
+        _destEntry = MakeRuleEntry("destination room", 220);
+        _textEntry = MakeRuleEntry("refusal message", 260);
+        _noteEntry = MakeRuleEntry("note (optional)", 260);
+
+        var ruleSaveBtn   = MakeSmallButton("Save rule", OnRuleSaveClicked);
+        var ruleCancelBtn = MakeSmallButton("Cancel", OnRuleCancelClicked);
+
+        _ruleEditor = new VerticalStackLayout
+        {
+            Spacing         = 4,
+            IsVisible       = false,
+            Padding         = new Thickness(6),
+            BackgroundColor = Color.FromArgb("#141414"),
+            Children =
+            {
+                _ruleTargetLabel,
+                _invHintLabel,
+                RuleFieldRow("when", _guardKindPicker),
+                _carryRow,
+                _weatherRow,
+                RuleFieldRow("then", _outcomeKindPicker),
+                _destEntry,
+                _textEntry,
+                _noteEntry,
+                new HorizontalStackLayout { Spacing = 6, Children = { ruleSaveBtn, ruleCancelBtn } },
+            },
+        };
+
         var roomColumn = new VerticalStackLayout
         {
             Spacing  = 6,
-            Children = { roomHeader, _roomDataLabel },
+            Children = { roomHeader, _roomDataLabel, _edgesLabel, _addRuleRow, _ruleEditor },
         };
 
         var topRegion = new Grid
@@ -664,6 +781,14 @@ internal sealed class MappingPage : ContentPage
         {
             var flag    = interesting.Contains(dir);
             var enabled = _session.IsExitEnabled(dir);
+            // Tooltip: only touch the native control when the text actually changed (this runs
+            // every repaint / heartbeat -- see invariant #1).
+            var tip = BuildTooltip(dir);
+            if (!_dirTooltip.TryGetValue(dir, out var prevTip) || prevTip != tip)
+            {
+                _dirTooltip[dir] = tip;
+                Microsoft.Maui.Controls.ToolTipProperties.SetText(btn, tip);
+            }
             btn.Text            = _dirBaseText.GetValueOrDefault(dir, dir);
             btn.TextColor       = enabled ? EnabledText : UnlistedText;
             btn.BackgroundColor = enabled ? EnabledBack : UnlistedBack;
@@ -705,44 +830,205 @@ internal sealed class MappingPage : ContentPage
             $"dark   {Delta(stats.DarkExits - baseline.DarkExits)}",
         });
 
-        // Room panel: name (or darkness), exits, and which exits still need a light source.
+        // Room panel: name / darkness, and a per-exit edge table (destinations, state, rules).
         if (_session.CurrentRoomIsDark)
         {
             _roomDataLabel.Text = "** DARK **\nno light source --\ncan't identify this room";
+            HideEdgePanel();
         }
         else if (_session.CurrentRoom.Length == 0)
         {
             _roomDataLabel.Text = "(unknown)\nclick Here to probe";
+            HideEdgePanel();
         }
         else
         {
-            var enabled  = _session.EnabledExits;
-            var resolved = _session.CurrentRoomResolvedDirs;
-            var darkHere = _session.DarkExitsHere;
-            var open     = MappingSession.Directions.Where(d => enabled.Contains(d) && !resolved.Contains(d));
+            _roomDataLabel.Text = _session.CurrentRoom;
 
-            var lines = new List<string>
-            {
-                _session.CurrentRoom,
-                string.Empty,
-                $"exits: {InOrder(enabled)}",
-                $"open:  {InOrder(open)}",
-            };
-            if (darkHere.Count > 0)
-                lines.Add($"needs light: {InOrder(darkHere)}");
-            _roomDataLabel.Text = string.Join('\n', lines);
+            var edges = BuildEdgesText();
+            if (edges != _lastEdgesText) { _edgesLabel.Text = edges; _lastEdgesText = edges; }
+            _edgesLabel.IsVisible = true;
+            _addRuleRow.IsVisible = true;
         }
+    }
+
+    /// <summary>Hide the edge table + rule controls (dark/unknown room -- nothing to show).</summary>
+    private void HideEdgePanel()
+    {
+        _edgesLabel.IsVisible = false;
+        _addRuleRow.IsVisible = false;
+        _ruleEditor.IsVisible = false;
+        _ruleDir = null;
+        _lastEdgesText = string.Empty;
     }
 
     private static string Delta(int n) => n > 0 ? $"+{n}" : n.ToString();
 
-    /// <summary>Renders a direction set in compass order, or "--" when empty.</summary>
-    private static string InOrder(IEnumerable<string> dirs)
+    // -- Edge table + rule editor --
+
+    /// <summary>Per-exit table for the current room: each enabled (or ruled/dark) direction
+    /// with its destination and state, plus any hand-authored rule rows beneath it.</summary>
+    private string BuildEdgesText()
     {
-        var set = new HashSet<string>(dirs, StringComparer.OrdinalIgnoreCase);
-        var joined = string.Join(' ', MappingSession.Directions.Where(set.Contains));
-        return joined.Length > 0 ? joined : "--";
+        var sb = new StringBuilder();
+        foreach (var dir in MappingSession.Directions)
+        {
+            var info = _session.GetEdgeInfo(dir);
+            // Show any direction we know something about -- including a recorded refusal or a
+            // hand-authored rule on an exit the game currently hides (a rain-gated exit absent
+            // from the fex). Skip only directions with no signal at all.
+            if (!info.Enabled && !info.Dark && !info.Resolved && info.Reported is null && info.Rules.Count == 0)
+                continue;
+            string dest, state;
+            if (info.Dark)                                { dest = "??"; state = "dark"; }
+            else if (info.Resolved && info.Dest is { } d) { dest = info.SelfLoop ? "(self)" : Trunc(d, 22); state = info.SelfLoop ? "loop" : "walked"; }
+            else if (info.Resolved && !info.Enabled)      { dest = "--"; state = "refused"; }
+            else if (info.Resolved)                       { dest = "--"; state = "closed"; }
+            else if (info.Reported is { } rn)             { dest = Trunc(rn, 22); state = "reported"; }
+            else                                          { dest = "?";  state = "new"; }
+            sb.AppendLine($"{dir,-5}-> {dest,-22} {state}");
+            foreach (var r in info.Rules)
+                sb.AppendLine($"       {r.Guard.Describe()} {r.Outcome.Describe()}");
+        }
+        var s = sb.ToString().TrimEnd();
+        return s.Length == 0 ? "(no exits listed)" : s;
     }
+
+    private static string Trunc(string s, int max) => s.Length <= max ? s : s[..(max - 1)] + "~";
+
+    /// <summary>Hover summary for a compass direction: destination/state + any rule rows.</summary>
+    private string BuildTooltip(string dir)
+    {
+        var info = _session.GetEdgeInfo(dir);
+        var head =
+            info.Dark                           ? $"{dir} -> ?? (dark, needs light)" :
+            info.Resolved && info.Dest is { } d ? $"{dir} -> {(info.SelfLoop ? "(self-loop)" : d)}" :
+            info.Resolved                       ? $"{dir} -> (closed/refused)" :
+            info.Reported is { } rn             ? $"{dir} -> {rn} (reported)" :
+            info.Enabled                        ? $"{dir} -> ? (unexplored)" :
+                                                  $"{dir} (not listed)";
+        if (info.Rules.Count > 0)
+            head += "\n" + string.Join("\n", info.Rules.Select(r => $"  {r.Guard.Describe()} {r.Outcome.Describe()}"));
+        return head;
+    }
+
+    private void OnAddRuleClicked(object? sender, EventArgs e)
+    {
+        if (_ruleDirPicker.SelectedItem is not string dir)
+        {
+            _statusLabel.Text = "pick a direction to add a rule for";
+            return;
+        }
+        _ruleDir = dir;
+        _ruleTargetLabel.Text = $"Rule for {dir} in {_session.CurrentRoom}";
+        var inv = _session.CurrentInventory;
+        _invHintLabel.Text = inv.Count > 0 ? "carrying: " + string.Join(", ", inv) : "carrying: (nothing seen)";
+        var info = _session.GetEdgeInfo(dir);
+        _guardKindPicker.SelectedIndex   = 0;
+        _outcomeKindPicker.SelectedIndex = 0;
+        _itemEntry.Text  = inv.Count > 0 ? inv[0] : string.Empty;
+        _negateCheck.IsChecked = false;
+        _classEntry.Text = string.Empty;
+        _weatherEntry.Text = string.Empty;
+        _destEntry.Text  = info.Dest ?? info.Reported ?? string.Empty;
+        _textEntry.Text  = string.Empty;
+        _noteEntry.Text  = string.Empty;
+        UpdateRuleEditorVisibility();
+        _ruleEditor.IsVisible = true;
+    }
+
+    private void OnRuleSaveClicked(object? sender, EventArgs e)
+    {
+        if (_ruleDir is null) return;
+
+        RuleGuard guard;
+        switch (_guardKindPicker.SelectedItem as string)
+        {
+            case "carrying":
+                var item = (_itemEntry.Text ?? string.Empty).Trim();
+                if (item.Length == 0) { _statusLabel.Text = "rule: enter the item"; return; }
+                guard = new RuleGuard("carrying", item, _negateCheck.IsChecked, NullIfBlank(_classEntry.Text));
+                break;
+            case "weather":
+                var state = (_weatherEntry.Text ?? string.Empty).Trim();
+                if (state.Length == 0) { _statusLabel.Text = "rule: enter the weather state (e.g. rain)"; return; }
+                guard = new RuleGuard("weather", State: state);
+                break;
+            default:
+                guard = new RuleGuard("else");
+                break;
+        }
+
+        RuleOutcome outcome;
+        switch (_outcomeKindPicker.SelectedItem as string)
+        {
+            case "arrive":
+                var dest = (_destEntry.Text ?? string.Empty).Trim();
+                if (dest.Length == 0) { _statusLabel.Text = "rule: enter the destination room"; return; }
+                outcome = new RuleOutcome("arrive", dest);
+                break;
+            case "refuse":
+                var text = (_textEntry.Text ?? string.Empty).Trim();
+                if (text.Length == 0) { _statusLabel.Text = "rule: enter the refusal message"; return; }
+                outcome = new RuleOutcome("refuse", null, text);
+                break;
+            default:
+                outcome = new RuleOutcome("absent");
+                break;
+        }
+
+        if (_session.AddEdgeRule(_ruleDir, guard, outcome, NullIfBlank(_noteEntry.Text), out var err))
+        {
+            _ruleEditor.IsVisible = false;
+            _ruleDir = null;
+            _lastEdgesText = string.Empty;   // force the edge table to repaint with the new rule
+            UpdateCompass();
+        }
+        else _statusLabel.Text = err ?? "rule: could not add";
+    }
+
+    private void OnRuleCancelClicked(object? sender, EventArgs e)
+    {
+        _ruleEditor.IsVisible = false;
+        _ruleDir = null;
+    }
+
+    private void UpdateRuleEditorVisibility()
+    {
+        var guard = _guardKindPicker.SelectedItem as string;
+        _carryRow.IsVisible   = guard == "carrying";
+        _weatherRow.IsVisible = guard == "weather";
+        var outcome = _outcomeKindPicker.SelectedItem as string;
+        _destEntry.IsVisible = outcome == "arrive";
+        _textEntry.IsVisible = outcome == "refuse";
+    }
+
+    private static string? NullIfBlank(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
+
+    private static Entry MakeRuleEntry(string placeholder, double width) => new()
+    {
+        Placeholder     = placeholder,
+        FontFamily      = "Cascadia Mono, Consolas, monospace",
+        FontSize        = 11,
+        TextColor       = Color.FromArgb("#E6ECF2"),
+        BackgroundColor = Color.FromArgb("#1A1A1A"),
+        WidthRequest    = width,
+    };
+
+    private static Label MakeMini(string text) => new()
+    {
+        Text            = text,
+        FontFamily      = "Cascadia Mono, Consolas, monospace",
+        FontSize        = 10,
+        TextColor       = Color.FromArgb("#767676"),
+        VerticalOptions = LayoutOptions.Center,
+    };
+
+    private static View RuleFieldRow(string label, View control) => new HorizontalStackLayout
+    {
+        Spacing  = 6,
+        Children = { MakeMini(label), control },
+    };
 
     /// <summary>Moves the pulsing guidance border to the given button (null = clear).
     /// State colours stay as-is -- the border is an overlay, so the suggested exit

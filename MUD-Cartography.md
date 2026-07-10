@@ -1,6 +1,19 @@
 # MUD2 Cartography — Session Handoff
 
-**Last updated: 2026-06-14. Read this first when resuming mapping work.**
+**Last updated: 2026-07-09. Read this first when resuming mapping work.**
+
+> **2026-07-09 correction — the live model is C#, not the DB.** The derived map
+> that `$map` actually uses is `Core/Mapping/MapGraph.cs`: an in-memory,
+> name+fex-keyed directed multigraph, rebuilt from the walk files on every
+> load/reload and **never persisted**. `~/.mucka/mapping/mapdb.sqlite` is a
+> dormant, empty schema last written 2026-06-14; **no C# touches SQLite and
+> `ingest_walk.py` was never written**. The walk files (`walk.*.jsonl`) are the
+> sole source of truth. The SQLite event-source model described below (and in
+> `MUD-Mapping-Design.md`) is a *possible future* offline / re-ingest path, not
+> live infrastructure — treat the "Next concrete task: ingest script" section
+> below as **superseded**. Current live priorities: surfacing edges / doors /
+> conditions in the console UI, and richer identity + robustness reporting driven
+> from MapGraph.
 
 ## Current state
 
@@ -71,6 +84,18 @@ establish *instance* identity for same-name (±same-fex) rooms — only traversa
 or breadcrumbs (§6) can. Routing must therefore (a) trust the just-walked reciprocal as the
 canonical return, and (b) **re-plan from where you actually landed after every hop**, never
 blindly follow a precomputed name-keyed path. Verify each arrival; stop on mismatch.
+
+**2026-07-09 addendum -- reported destinations.** A third return-routing miss: from a Cedar
+forest reached via `ne`, the picker took the unconfirmed reciprocal `sw` (which the `exits`
+verb reported leads to *another* Cedar forest) and ignored `south`, which the same `exits`
+output reported leads to the home room. Root cause: the picker used only *traversed* edges and
+threw away the reported destination names. Fix: the `exits`-verb destinations (parser event
+`ExitLineReady`, now plumbed to the mapping layer) are captured per room, and the picker prefers
+an exit *reported* to lead home over an unconfirmed reciprocal *reported* to lead elsewhere. The
+veto keys on **reported** names only -- never the fex-keyed traversed destination, which a
+same-name+same-fex sibling can contaminate (that contamination is exactly why (a) trusts the
+reciprocal). Reported names are dangling/name-level, so arrival verification still governs; the
+reported evidence only improves the *guess*.
 
 ---
 
@@ -240,6 +265,30 @@ Cautions:
   interrupted or the object may have moved.
 - One ambiguity at a time per object; record which instance the suffix (`brand47`)
   was dropped in, since suffixes are assigned by the server, not by us.
+
+### 6.1 Within-capture content differential (distinguish-only)
+
+There is a second, subtler use of contents that does NOT require a breadcrumb and
+does NOT decay — because it never depends on an object staying put over time.
+
+Within a **single** `look around` / `quickscan` (one atomic observation), the
+portable contents of two adjacent rooms are seen *simultaneously*. So if, in the
+same capture, direction A shows a room named "Dense forest" containing an object
+that the "Dense forest" seen down direction B does not, then **A and B are
+provably distinct instances** — nothing could have moved between two sightings
+that happened at the same instant. Three "Dense forest" neighbors, one holding
+something the others lack, splits that one off with hard evidence.
+
+Crucially this is **distinguish-only, and single-capture-only**:
+
+- It can prove two same-named neighbors are *different* (a split / "Distinguished"
+  in §3.3). It can NEVER merge two rooms, and it says nothing about whether a room
+  seen in *this* capture is the same instance as one seen in *another* capture —
+  that is the cross-capture "things move" trap (see the caution above), still
+  inadmissible.
+- The evidence is the *difference*, not the identity of the object: we are not
+  claiming "that is brand47"; we are claiming "these two rooms' contents differ
+  right now," which is enough to distinguish. No breadcrumb record needed.
 
 ## 7. Data-model implications (summary for implementers)
 

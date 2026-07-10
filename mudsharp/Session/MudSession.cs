@@ -84,6 +84,8 @@ public sealed class MudSession : IDisposable
     public event Action<string>? FexItemReady;
     public event Action? FexListStarting;
     public event Action? FexListComplete;
+    /// <summary>An exits-verb line "direction: Destination." was parsed. Payload: (direction, destination name).</summary>
+    public event Action<string, string>? ExitLineReady;
     /// <summary>
     /// Server confirmed the terminal width (ESC-<n>W response or "[New terminal width is N]" annotation).
     /// Payload is the confirmed column count.
@@ -287,6 +289,7 @@ public sealed class MudSession : IDisposable
         _parser.FexItemReady     += item => FexItemReady?.Invoke(item);
         _parser.FexListStarting  += () => FexListStarting?.Invoke();
         _parser.FexListComplete  += () => FexListComplete?.Invoke();
+        _parser.ExitLineReady    += (dir, dest) => ExitLineReady?.Invoke(dir, dest);
         _parser.TerminalWidthConfirmed += w => TerminalWidthConfirmed?.Invoke(w);
     }
 
