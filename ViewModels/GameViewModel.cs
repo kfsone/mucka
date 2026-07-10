@@ -15,9 +15,9 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private readonly Func<ClientSettings, string[], Task>? _saveSettingsAsync;
     private readonly List<string> _history = new();
     private readonly string[] _allFkeys = new string[36];
+    private readonly string _profileName;
 #if WINDOWS
     private readonly WatchwordStore _watchwords;
-    private readonly string _profileName;
     private readonly string _profileHost;
     private Mucka.Core.Mapping.MappingSession? _mapSession;
 #endif
@@ -466,9 +466,9 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _conn = conn;
         _saveSettingsAsync = saveSettingsAsync;
         IsCapturing = _conn.IsCapturing;
+        _profileName = profile.Name;
 #if WINDOWS
         _watchwords = WatchwordStore.Load();
-        _profileName = profile.Name;
         _profileHost = profile.Host;
 #endif
         _maxColumns = Math.Clamp(profile.MaxColumns, 0, 160);  // 0 = auto
