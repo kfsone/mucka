@@ -40,6 +40,9 @@ public sealed class MuckaConnection : IAsyncDisposable
     public event Action? BellReceived;
     public event Action? GameModeEntered;
     public event Action? GameModeExited;
+    /// <summary>The character in this session was identified from the setup <c>score</c> reply.
+    /// Payload is the character name. Fires on the Feed thread — consumers marshal to the UI.</summary>
+    public event Action<string>? CharacterIdentified;
     public event Action<string?>? DreamwordChanged;
     public event Action<string>? SoundRequested;
     public event Action<string, AnsiColor>? FewPlayerReady;
@@ -373,6 +376,7 @@ public sealed class MuckaConnection : IAsyncDisposable
         _session.BellReceived       += () => BellReceived?.Invoke();
         _session.GameModeEntered    += () => GameModeEntered?.Invoke();
         _session.GameModeExited     += () => GameModeExited?.Invoke();
+        _session.CharacterIdentified += n => CharacterIdentified?.Invoke(n);
         _session.DreamwordChanged   += w =>
         {
 #if DEBUG || WINDOWS

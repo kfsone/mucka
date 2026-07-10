@@ -33,7 +33,16 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private int _magic;
     private int _maxMagic;
     private int _score;
+    // Session score baseline for the CURRENT character. -1 until the first score for that
+    // character arrives. Kept as a plain field so the ScoreDelta/ScoreColor properties stay
+    // unchanged; the per-character history lives in _baseScoreByChar.
     private int _baseScore = -1;
+    // Per-character baselines, keyed by character name. Persists across character switches for
+    // the life of this Mucka session: leave Ollie, play someone else, come back to Ollie, and his
+    // session delta resumes from where it was — instead of the old single-baseline "-47354" jump.
+    private readonly Dictionary<string, int> _baseScoreByChar = new(StringComparer.Ordinal);
+    // The character occupying the session, from the setup `score` reply. null at the option menu.
+    private string? _currentChar;
     private byte _staminaColor;
     private bool _blind;
     private bool _deaf;
@@ -170,6 +179,13 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public string ScoreDisplayValue => Score <= 0 ? "—"
         : _baseScore < 0 ? $"{Score}"
         : $"{Score} ({ScoreDeltaStr(Score - _baseScore)})";
+
+    /// <summary>Window/taskbar title. "{profile} mucka {version}" at the option menu;
+    /// "{char}@{profile} mucka {version}" once a character is identified. GamePage pushes this
+    /// onto the native Window whenever it changes (see OnVmPropertyChanged).</summary>
+    public string WindowTitle => _currentChar is { Length: > 0 } chr
+        ? $"{chr}@{_profileName} mucka {AppInfo.VersionString}"
+        : $"{_profileName} mucka {AppInfo.VersionString}";
 
     public bool   MagVisible  => _magic > 0;
     public string TtrText     => TimeToReset > 0 ? $"{TimeToReset}m" : string.Empty;
@@ -622,7 +638,32 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         => MainThread.BeginInvokeOnMainThread(() =>
         {
             _inGameMode = false;
-            OnPropertiesChanged(nameof(IsInGameMode), nameof(IsRecordingButtonVisible));
+            // Back at the option menu: no current character. Drop the live baseline (the
+            // per-character history in _baseScoreByChar is kept, so returning restores it) and
+            // fall the title back to the profile-only form.
+            _currentChar = null;
+            _baseScore   = -1;
+            OnPropertiesChanged(nameof(IsInGameMode), nameof(IsRecordingButtonVisible),
+                nameof(WindowTitle),
+                nameof(ScoreDeltaValue), nameof(ScoreDisplayValue), nameof(ScoreColor));
+        });
+
+    // The character was identified from the setup `score` reply (fires on the Feed thread).
+    // The score StatsUpdated for that same line is queued just ahead of this on the UI thread,
+    // so _score already holds this character's score — seed a first-seen baseline from it.
+    private void OnCharacterIdentified(string name)
+        => MainThread.BeginInvokeOnMainThread(() =>
+        {
+            if (name == _currentChar) return;
+            _currentChar = name;
+            if (_baseScoreByChar.TryGetValue(name, out var stored))
+                _baseScore = stored;                 // returning character — resume their delta
+            else if (_score > 0)
+                _baseScoreByChar[name] = _baseScore = _score;   // first seen this session
+            else
+                _baseScore = -1;                     // score not in yet; set on next StatsUpdated
+            OnPropertiesChanged(nameof(WindowTitle),
+                nameof(ScoreValue), nameof(ScoreDeltaValue), nameof(ScoreDisplayValue), nameof(ScoreColor));
         });
 
     /// <summary>
@@ -669,7 +710,11 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
 
             var prevScore = _score;
             _score        = stats.Score ?? 0;
-            if (_baseScore < 0 && _score > 0) _baseScore = _score;
+            if (_baseScore < 0 && _score > 0)
+            {
+                _baseScore = _score;
+                if (_currentChar != null) _baseScoreByChar[_currentChar] = _baseScore;
+            }
 
             _blind        = stats.IsBlind;
             _deaf         = stats.IsDeaf;
@@ -1254,6 +1299,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _conn.GameModeEntered  += OnGameModeEntered;
         _conn.GameModeExited   += OnGameModeExited;
         _conn.GameModeExited   += SidePanel.OnGameModeExited;
+        _conn.CharacterIdentified += OnCharacterIdentified;
         _conn.DreamwordChanged += OnDreamwordChanged;
         _conn.Disconnected     += OnDisconnected;
         _conn.SoundRequested   += OnSoundRequested;
@@ -1279,6 +1325,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _conn.GameModeEntered  -= OnGameModeEntered;
         _conn.GameModeExited   -= OnGameModeExited;
         _conn.GameModeExited   -= SidePanel.OnGameModeExited;
+        _conn.CharacterIdentified -= OnCharacterIdentified;
         _conn.DreamwordChanged -= OnDreamwordChanged;
         _conn.Disconnected     -= OnDisconnected;
         _conn.SoundRequested   -= OnSoundRequested;

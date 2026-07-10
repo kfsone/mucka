@@ -182,7 +182,10 @@ public partial class GamePage : ContentPage
             Dispatcher.Dispatch(DoFlushWork);
 
             if (Window is not null)
+            {
                 Window.Activated += OnWindowActivated;
+                Window.Title = _vm.WindowTitle;   // profile-only until a character is identified
+            }
 
 #if WINDOWS
             try
@@ -338,7 +341,11 @@ public partial class GamePage : ContentPage
 #endif
         _eventsSubscribed = false;
         if (Window is not null)
+        {
             Window.Activated -= OnWindowActivated;
+            // Backing out to the profile menu: drop the char@profile title back to the generic form.
+            Window.Title = $"mucka {AppInfo.VersionString}";
+        }
 #if WINDOWS
         if (Window?.Handler?.PlatformView is Microsoft.UI.Xaml.Window fwin &&
             fwin.Content is Microsoft.UI.Xaml.UIElement froot)
@@ -591,6 +598,10 @@ public partial class GamePage : ContentPage
         if (e.PropertyName == nameof(GameViewModel.FontSize))
         {
             Terminal.SetFontSize(_vm.FontSize);
+        }
+        else if (e.PropertyName == nameof(GameViewModel.WindowTitle))
+        {
+            if (Window is not null) Window.Title = _vm.WindowTitle;
         }
         else if (e.PropertyName == nameof(GameViewModel.MaxColumns))
         {
