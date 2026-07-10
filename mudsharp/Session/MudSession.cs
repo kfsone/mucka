@@ -57,13 +57,17 @@ public sealed class MudSession : IDisposable
     private volatile string? _sniffInFlight;
 
     // ── Post-character-select setup swallow state ───────────────────────────────
-    // On game-mode entry we inject a setup batch ("auto fex\r\nscore\r\n...\x14") and hide its
-    // echo + replies from the terminal (TrySwallowSetupLine). The batch ends in a CTRL-T (0x14)
-    // whose server-time reply is the sentinel that closes the window: the server answers in
-    // order, so once the time line arrives every reply that was coming has arrived. All fields
-    // are touched only on the Feed thread (game-entry and line processing both run there).
-    private bool _setupWindowActive;
-    private bool _setupInScoreBlock;
+    // On game-mode entry we inject a setup batch ("auto fex\r\nscore\r\n") and hide its echo +
+    // replies from the terminal (TrySwallowSetupLine). Each reply arrives as its own server
+    // "frame", and every frame is introduced by an IsPartial '*' prompt line — a boundary that
+    // survives line-wrapping (narrow widths only add more content lines within a frame, never
+    // more prompts). So we recognise each setup frame by its first content line and then swallow
+    // the whole frame up to the next prompt; the score frame is the last, and its closing prompt
+    // shuts the window. All fields are touched only on the Feed thread (game-entry and line
+    // processing both run there).
+    private bool _setupWindowActive;      // window open (entry → score frame closed)
+    private bool _setupSwallowingFrame;   // inside a setup frame we've claimed — swallow its lines
+    private bool _setupCloseAfterFrame;   // the score frame is in progress; close when it ends
     private string? _currentCharName;
 
     private GameStatsSnapshot _currentStats = GameStatsSnapshot.Empty;
@@ -422,17 +426,16 @@ public sealed class MudSession : IDisposable
         // Post-character-select setup. One batched write so the server processes it in order:
         //   auto fex  — enable the per-move front-end exit list
         //   score     — pull the character sheet (for the character name + a score baseline)
-        //   \x14      — CTRL-T: draws a server-time reply that is our "everything answered"
-        //               sentinel; seeing it closes the swallow window (TrySwallowSetupLine).
-        // The echo + replies are hidden from the terminal, but the score line's stats still
-        // reach the UI (the parser's analyzer fires StatsUpdated before LineReady). Future
-        // user-defined setup commands slot in before the \x14.
-        _setupInScoreBlock = false;
-        _setupWindowActive = true;
+        // The echo + replies are hidden from the terminal (TrySwallowSetupLine), but the score
+        // line's stats still reach the UI (the parser's analyzer fires StatsUpdated before
+        // LineReady). Future user-defined setup commands slot in before `score`, which stays
+        // LAST so its reply frame is the one that closes the swallow window.
+        _setupSwallowingFrame = false;
+        _setupCloseAfterFrame = false;
+        _setupWindowActive    = true;
         // The server echoes each command back on its own line, then executes them on subsequent
         // game turns — the outputs (auto-fex FEEXITS confirmation, then the score sheet) trickle
         // in over the next ~700ms. Both echoes and outputs are hidden (TrySwallowSetupLine).
-        // `score` is sent LAST so the end of its sheet is the barrier that closes the window.
         Send(System.Text.Encoding.Latin1.GetBytes(string.Join("\r\n", SetupCommands) + "\r\n"));
 
         // Request our first front-end exit list now (auto fex only arms it for future moves).
@@ -455,10 +458,12 @@ public sealed class MudSession : IDisposable
         }
         _onlineNames.Clear();
         _pendingOnlineNames.Clear();
-        // Safety net: tear the setup window down on exit in case the CTRL-T sentinel never
-        // drew a reply. The character is gone until the next entry re-runs the setup batch.
-        _setupWindowActive = false;
-        _currentCharName   = null;
+        // Safety net: tear the setup window down on exit in case the score frame's closing
+        // prompt never arrived. The character is gone until the next entry re-runs the batch.
+        _setupWindowActive    = false;
+        _setupSwallowingFrame = false;
+        _setupCloseAfterFrame = false;
+        _currentCharName      = null;
         GameModeExited?.Invoke();
     }
 
@@ -545,73 +550,80 @@ public sealed class MudSession : IDisposable
     }
 
     // ── Post-character-select setup swallow ─────────────────────────────────────
-    // Commands injected on game-mode entry, in order. `score` MUST stay last: the end of its
-    // sheet is what closes the swallow window (see TrySwallowSetupLine), because command outputs
-    // arrive in order and score's is therefore the last. Future user-defined setup commands go
-    // BEFORE `score`. NOTE: a trailing CTRL-T (0x14) was tried as a "done" sentinel and removed —
-    // the server answers CTRL-T immediately on receipt, ~500ms ahead of the queued command
-    // outputs, so it cannot mark completion (verified from a live session recording 2026-07-09).
+    // Commands injected on game-mode entry, in order. `score` MUST stay last: its reply frame is
+    // the one whose closing prompt shuts the swallow window. Future user-defined setup commands go
+    // BEFORE `score`. (A trailing CTRL-T "done" sentinel was tried and removed — the server
+    // answers CTRL-T on receipt, ~500ms ahead of the queued command outputs, so it cannot mark
+    // completion; verified from a live session recording 2026-07-09.)
     private static readonly string[] SetupCommands = { "auto fex", "score" };
 
-    // First line of the `score` sheet: "name:           Ollie". The first reply line of a frame
-    // can carry the frame prompt ("*name: ..."), so a leading prompt is stripped before matching.
-    // Character names are single tokens.
+    // First line of the `score` sheet: "name:           Ollie". A leading frame prompt ("*name:")
+    // is stripped before matching. Character names are single tokens, so the "name:" line never
+    // wraps — a reliable frame-start marker even at narrow terminal widths.
     private static readonly System.Text.RegularExpressions.Regex SetupNameRegex = new(
         @"^name:\s+(\S+)",
         System.Text.RegularExpressions.RegexOptions.Compiled | System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
-    // The remaining `score` sheet lines, keyed by their "label:" text. Any of these may be
-    // absent (no magic when it is disabled, no tasks/survival lines for a fresh persona), so
-    // the block is terminated by the first non-matching line rather than a fixed line count.
-    private static readonly HashSet<string> ScoreSheetLabels = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "sex", "strength", "dexterity", "stamina", "magic", "score", "level",
-        "weight carried", "objects carried", "games played",
-        "no. of tasks completed", "time left until survival bonus",
-    };
 
     // Feed thread. Returns true when the line belongs to the injected setup batch and should be
-    // swallowed. Precise by design: anything that is not clearly ours (a player talking in the
-    // window) is passed through rather than eaten. The window closes at the END of the score sheet
-    // — our last queued reply — because the server answers auto-fex then score in order, while the
-    // CTRL-T time reply jumps ahead of both. Called only while _setupWindowActive.
+    // swallowed. Works by frame, not by matching every line: each server reply arrives as a frame
+    // led by an IsPartial '*' prompt, so we recognise a setup frame from its FIRST content line
+    // (echo / FEEXITS / "name:" — all at column 0, so wrapping never hides them) and then swallow
+    // every line of that frame up to the next prompt. This is width-independent: a wrapped reply
+    // just adds more content lines inside the same frame (the old per-line label match leaked the
+    // moment a value wrapped). Player chatter arrives in its own frame, is not claimed, and still
+    // shows. The score frame is the last we claim; its closing prompt shuts the window. Called
+    // only while _setupWindowActive.
     private bool TrySwallowSetupLine(StyledLine line)
     {
-        var text = line.PlainText.Trim('\r', '\n', '\0', ' ');
-        // The first reply line of a frame can carry the prompt ("*You will ...", "*name: ...").
-        var body = StripLeadingPrompt(text);
-
-        // Inside the `score` sheet: swallow consecutive "label:" lines. The first non-label line
-        // is the end of the sheet (our last reply), so close the window and show that line.
-        if (_setupInScoreBlock)
+        // Frame boundary: the '*' prompt that leads every frame. Let it render as the prompt, but
+        // use it to delimit frames — and to close the window once the score frame has ended.
+        if (line.IsPartial)
         {
-            if (IsScoreSheetLine(body))
-                return true;
-            _setupInScoreBlock = false;
-            _setupWindowActive = false;
-            return false;   // show the line that terminated the sheet
+            if (_setupCloseAfterFrame)
+            {
+                _setupWindowActive    = false;
+                _setupCloseAfterFrame = false;
+            }
+            _setupSwallowingFrame = false;   // a new frame begins; re-decide on its first line
+            return false;                    // show the prompt (rendered in place, as normal)
         }
 
-        // Command echoes — the server echoes each injected command on its own line before running
-        // it (e.g. "auto fex", "score").
-        foreach (var cmd in SetupCommands)
-            if (body.Equals(cmd, StringComparison.OrdinalIgnoreCase))
-                return true;
-
-        // `auto fex` confirmation — one or two lines, all mention FEEXITS. auto-fex output is
-        // idempotent noise, so swallow every FEEXITS line.
-        if (body.Contains("FEEXITS", StringComparison.OrdinalIgnoreCase))
+        // Already inside a setup frame we've claimed — swallow the rest of it (wrapped
+        // continuations included) until the next prompt clears _setupSwallowingFrame.
+        if (_setupSwallowingFrame)
             return true;
 
-        // The `score` sheet opens on its "name:" line, which yields the character name.
+        // First content line of a fresh frame — decide whether the setup batch owns it.
+        var text = line.PlainText.Trim('\r', '\n', '\0', ' ');
+        var body = StripLeadingPrompt(text);   // a frame prompt can glue onto the first line
+
+        // Command echoes — the server echoes each injected command on its own line.
+        foreach (var cmd in SetupCommands)
+            if (body.Equals(cmd, StringComparison.OrdinalIgnoreCase))
+                return ClaimFrame();
+
+        // `auto fex` confirmation frame — opens "You will now get an automatic FEEXITS ...".
+        if (body.Contains("FEEXITS", StringComparison.OrdinalIgnoreCase) ||
+            body.StartsWith("You will now get an automatic", StringComparison.OrdinalIgnoreCase))
+            return ClaimFrame();
+
+        // `score` sheet frame — opens on the "name:" line, which yields the character name and is
+        // the LAST frame we claim, so arm the window to close when this frame's prompt arrives.
         var nm = SetupNameRegex.Match(body);
         if (nm.Success)
         {
-            _setupInScoreBlock = true;
             SetCurrentCharacter(nm.Groups[1].Value);
-            return true;
+            _setupCloseAfterFrame = true;
+            return ClaimFrame();
         }
 
-        return false;   // not ours — show it
+        return false;   // not ours (e.g. player chatter) — show it
+
+        bool ClaimFrame()
+        {
+            _setupSwallowingFrame = true;
+            return true;
+        }
     }
 
     // Strip a leading frame prompt ("*", "(*)", surrounding spaces) that the server glues onto the
@@ -622,12 +634,6 @@ public sealed class MudSession : IDisposable
         while (i < text.Length && (text[i] is '*' or '(' or ')' or ' '))
             i++;
         return i == 0 ? text : text[i..];
-    }
-
-    private static bool IsScoreSheetLine(string text)
-    {
-        int colon = text.IndexOf(':');
-        return colon > 0 && ScoreSheetLabels.Contains(text[..colon].Trim());
     }
 
     private void SetCurrentCharacter(string name)
