@@ -145,6 +145,16 @@ internal sealed class Mud2C1Decoder
         if (_parser.InLongDescContext && _colorStack.Count <= _parser.LongDescContextDepth)
             _parser.ExitLongDescContext();
 
+        // Close the chat context when the C09 colour scope unwinds — the speaker message (and any
+        // wrapped continuation lines) is complete; subsequent lines are Normal again.
+        // Strict '<' (not '<=' like the siblings above): speaker lines routinely nest an inner C09
+        // for the quoted word (e.g. `says "<C09>oippoo</C09>"`), whose pop returns the stack to the
+        // C09 base depth. '<=' would close the context at that inner pop — one level too early —
+        // dropping the Chat tag on continuation lines of a wrapped message that come after the nest.
+        // '<' closes only when the C09's own frame pops.
+        if (_parser.InChatContext && _colorStack.Count < _parser.ChatContextDepth)
+            _parser.ExitChatContext();
+
         // Close the prompt-capture container when the colour stack returns to the depth
         // recorded at the outer {C01}{C255} push. ClosePromptContext then shows the
         // whole captured prompt — '*', '(*)' when invisible, snoop/rank indicators —
@@ -723,8 +733,16 @@ internal sealed class Mud2C1Decoder
             // ── C09 (0xA4): YELLOW / LT_YELLOW ──────────────────────────────
             // {C09}{C00}{C255} → YELLOW/BLACK
             // everything else → LT_YELLOW/BLACK
+            // C09 is "speaker of a message" (fecodes.txt): shout/say/tell/act/emote/social.
+            // Tag the line as Chat so the chat-view filter can show only these. To tighten the
+            // filter to speech-only, gate on b0 (0x9C=shout, 0x9D=say, 0x9E=tell); to widen it to
+            // wiz messages, add the same call under case 0xA5 (C10).
             case 0xA4:
                 Apply(b0 == 0x9B && count == 1 ? YELLOW : LT_YELLOW, BLACK);
+                _parser.SetPendingKind(LineKind.Chat);
+                // Open a chat context at this colour depth so a server-wrapped speaker message keeps
+                // LineKind.Chat on its continuation lines. Closed on unwind (CheckContextClosures).
+                _parser.EnterChatContext(_colorStack.Count);
                 return ParserState.Normal;
 
             // ── C10 (0xA5): BLACK+YELLOW / LT_RED+YELLOW ─────────────────────

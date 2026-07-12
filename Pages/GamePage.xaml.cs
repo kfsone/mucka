@@ -156,6 +156,7 @@ public partial class GamePage : ContentPage
                 _vm.SidePanel.FloatingOpenDisplaySettings += OnFloatingOpenDisplaySettings;
                 _vm.ConfigRequested     += OnConfigRequested;
                 _vm.ClearScreenRequested += OnClearScreenRequested;
+                _vm.ChatModeChanged     += OnChatModeChanged;
                 _vm.SettingsSaved       += OnSettingsSaved;
                 _vm.ToastRequested      += ShowToast;
                 _vm.PropertyChanged     += OnVmPropertyChanged;
@@ -333,6 +334,7 @@ public partial class GamePage : ContentPage
         _vm.SidePanel.FloatingOpenDisplaySettings -= OnFloatingOpenDisplaySettings;
         _vm.ConfigRequested     -= OnConfigRequested;
         _vm.ClearScreenRequested -= OnClearScreenRequested;
+        _vm.ChatModeChanged      -= OnChatModeChanged;
         _vm.SettingsSaved       -= OnSettingsSaved;
         _vm.ToastRequested      -= ShowToast;
         _vm.PropertyChanged     -= OnVmPropertyChanged;
@@ -421,7 +423,40 @@ public partial class GamePage : ContentPage
         if (newLines is { Count: > 0 })
         {
             InputDiag.Log($"FLUSH n={newLines.Count}");
-            Terminal.AppendLines(newLines);
+            if (_vm.ChatMode)
+            {
+                // Chat filter on: paint only chat lines. Non-chat output is still captured in the
+                // VM history buffers (so toggling off restores it) — it just does not draw here.
+                // Any non-chat, non-partial line arriving is the "other stuff" the flash signals
+                // (FES/stats never arrive as terminal lines; prompts are IsPartial).
+                List<StyledLine>? chat = null;
+                bool otherArrived = false;
+                foreach (var l in newLines)
+                {
+                    if (l.Kind == LineKind.Chat) (chat ??= new List<StyledLine>()).Add(l);
+                    else if (!l.IsPartial && !l.PlainText.Contains('\f')) otherArrived = true;
+                }
+                if (chat != null)
+                {
+                    if (_chatPlaceholderShown)
+                    {
+                        // First chat since the empty-state note — repaint from the buffer (which now
+                        // holds these lines) so the "[no chat…]" placeholder is dropped.
+                        Terminal.Clear();
+                        Terminal.AppendLines(_vm.ChatSnapshot());
+                        _chatPlaceholderShown = false;
+                    }
+                    else
+                    {
+                        Terminal.AppendLines(chat);
+                    }
+                }
+                if (otherArrived) FlashChatButton();
+            }
+            else
+            {
+                Terminal.AppendLines(newLines);
+            }
         }
     }
 
@@ -601,6 +636,63 @@ public partial class GamePage : ContentPage
 #endif
 
     private void OnClearScreenRequested() => Terminal.Clear();
+
+    // Chat filter flipped: repaint the whole terminal from the matching buffer. This is a
+    // user-initiated toggle (not the typing hot path), so a full Clear + re-append is fine —
+    // one screenful paints sub-millisecond and the source buffers live in the VM, so nothing
+    // is lost either way. Kind==Chat lines that scrolled out of the main ring still show,
+    // because the chat ring is kept deeper (ChatHistoryCap).
+    // Shown in chat mode when no chat has arrived yet, so the toggle never lands on a blank screen.
+    private static readonly StyledLine ChatEmptyPlaceholderLine =
+        new(new[] { new StyledSpan("[no chat in this session yet]", new TextStyle(Foreground: (AnsiColor)8)) });
+    private bool _chatPlaceholderShown;
+
+    private void OnChatModeChanged()
+    {
+        Terminal.Clear();
+        if (_vm.ChatMode)
+        {
+            var chat = _vm.ChatSnapshot();
+            _chatPlaceholderShown = chat.Count == 0;
+            Terminal.AppendLines(_chatPlaceholderShown ? new[] { ChatEmptyPlaceholderLine } : chat);
+        }
+        else
+        {
+            _chatPlaceholderShown = false;
+            Terminal.AppendLines(_vm.HistorySnapshot());
+        }
+        // A toggle is the user acknowledging activity — cancel any pending flash and reset the tint.
+        _chatFlashGen++;
+        _chatFlashActive = false;
+        ChatButton.BackgroundColor = ChatButtonRest;
+    }
+
+    // Chat button colours. Rest matches the XAML; alert is a bright-orange pulse — deliberately a
+    // different hue/luminance from the dark-slate rest and the yellow "on" cue so it reads as an
+    // alert, not "still selected".
+    private static readonly Color ChatButtonRest  = Color.FromArgb("#2d333b");
+    private static readonly Color ChatButtonAlert = Color.FromArgb("#f0883e");
+    private int _chatFlashGen;
+    private bool _chatFlashActive;
+
+    // One-shot attention pulse when non-chat output arrives while filtered. NOT a repeating
+    // UI-thread timer (Invariant #1): a single DispatchDelayed clears the tint. While a pulse is
+    // in flight we skip re-arming, so a burst of hidden output (combat) does not churn a timer +
+    // closure per flush — it pulses at most every ~450 ms until the output settles.
+    // If a stronger sustained pulse is ever wanted, drive it from a WinUI composition animation.
+    private void FlashChatButton()
+    {
+        if (!_vm.ChatMode || _chatFlashActive) return;
+        _chatFlashActive = true;
+        ChatButton.BackgroundColor = ChatButtonAlert;
+        int gen = ++_chatFlashGen;
+        Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(450), () =>
+        {
+            if (gen != _chatFlashGen) return;   // superseded by a toggle
+            _chatFlashActive = false;
+            if (_vm.ChatMode) ChatButton.BackgroundColor = ChatButtonRest;
+        });
+    }
 
 #if WINDOWS
     // $f<n> annotation: drop the "// ..." note above the live prompt, restoring the prompt below it.

@@ -648,35 +648,71 @@
 
         <!-- ── Input row — indented by the side panel on its left ── -->
         <Grid Grid.Row="2"
-              ColumnDefinitions="*,Auto,Auto"
+              ColumnDefinitions="*,Auto,Auto,Auto"
               BackgroundColor="#161b22"
               Padding="4,2">
 
-            <Entry Grid.Column="0"
-                   x:Name="InputEntry"
-                   Text="{Binding InputText, Mode=TwoWay}"
-                   TextColor="#CCCCCC"
-                   BackgroundColor="#0C0C0C"
-                   PlaceholderColor="#444444"
-                   Placeholder="enter command&#x2026;"
-                   ReturnCommand="{Binding SendCommand}"
-                   ReturnType="Send"
-                   ClearButtonVisibility="{OnPlatform WinUI=Never, Default=WhileEditing}"
-                   Keyboard="Plain"
-                   IsSpellCheckEnabled="False"
-                   IsTextPredictionEnabled="False">
-                <Entry.FontFamily>
-                    <OnPlatform x:TypeArguments="x:String">
-                        <On Platform="Android"      Value="monospace"/>
-                        <On Platform="MacCatalyst"  Value="Menlo-Regular"/>
-                        <On Platform="WinUI"        Value="Cascadia Mono"/>
-                    </OnPlatform>
-                </Entry.FontFamily>
-            </Entry>
+            <!-- Input frame — the yellow stroke lights up in chat mode as a mode cue (Invariant #0:
+                 the box itself still owns the keyboard and still sends normal commands). -->
+            <Border Grid.Column="0"
+                    x:Name="InputFrame"
+                    Stroke="Transparent" StrokeThickness="1.5"
+                    StrokeShape="RoundRectangle 3"
+                    BackgroundColor="#0C0C0C" Padding="0">
+                <Border.Triggers>
+                    <DataTrigger TargetType="Border" Binding="{Binding ChatMode}" Value="True">
+                        <Setter Property="Stroke" Value="#F9F1A5"/>
+                    </DataTrigger>
+                </Border.Triggers>
+                <Entry x:Name="InputEntry"
+                       Text="{Binding InputText, Mode=TwoWay}"
+                       TextColor="#CCCCCC"
+                       BackgroundColor="Transparent"
+                       PlaceholderColor="#444444"
+                       Placeholder="{Binding InputPlaceholder}"
+                       ReturnCommand="{Binding SendCommand}"
+                       ReturnType="Send"
+                       ClearButtonVisibility="{OnPlatform WinUI=Never, Default=WhileEditing}"
+                       Keyboard="Plain"
+                       IsSpellCheckEnabled="False"
+                       IsTextPredictionEnabled="False">
+                    <Entry.Triggers>
+                        <DataTrigger TargetType="Entry" Binding="{Binding ChatMode}" Value="True">
+                            <Setter Property="PlaceholderColor" Value="#C19C00"/>
+                        </DataTrigger>
+                    </Entry.Triggers>
+                    <Entry.FontFamily>
+                        <OnPlatform x:TypeArguments="x:String">
+                            <On Platform="Android"      Value="monospace"/>
+                            <On Platform="MacCatalyst"  Value="Menlo-Regular"/>
+                            <On Platform="WinUI"        Value="Cascadia Mono"/>
+                        </OnPlatform>
+                    </Entry.FontFamily>
+                </Entry>
+            </Border>
+
+            <!-- Chat: latching toggle of the chat-view filter. Lit bold-yellow (chat colour) while
+                 active; flashes amber when non-chat output arrives while filtered. -->
+            <Button Grid.Column="1"
+                    x:Name="ChatButton"
+                    Text="Chat"
+                    Command="{Binding ToggleChatModeCommand}"
+                    ToolTipProperties.Text="Show chat messages only"
+                    BackgroundColor="#2d333b" TextColor="#888888"
+                    FontSize="10" CornerRadius="3"
+                    WidthRequest="44" HeightRequest="26" Padding="0"
+                    VerticalOptions="Center" Margin="4,0,0,0">
+                <Button.Triggers>
+                    <DataTrigger TargetType="Button" Binding="{Binding ChatMode}" Value="True">
+                        <Setter Property="TextColor" Value="#F9F1A5"/>
+                        <Setter Property="FontAttributes" Value="Bold"/>
+                    </DataTrigger>
+                </Button.Triggers>
+            </Button>
 
             <!-- Fn: toggles the fkey toolbar; lit while the bar is shown.
                  Right-click (hooked natively on Windows) opens the settings page. -->
-            <Button Grid.Column="1"
+            <Button Grid.Column="2"
                     x:Name="FnButton"
                     Text="Fn"
                     Command="{Binding ToggleFkeysCommand}"
@@ -692,7 +728,7 @@
                 </Button.Triggers>
             </Button>
 
-            <Button Grid.Column="2"
+            <Button Grid.Column="3"
                     x:Name="SendButton"
                     Text="&#x25B6;"
                     Command="{Binding SendCommand}"
@@ -703,7 +739,7 @@
 
             <!-- Scrollback-mode indicator: opaque overlay ON TOP of the input controls (which stay
                  in place) so toggling it causes no layout shift in the text view above. -->
-            <Border Grid.Column="0" Grid.ColumnSpan="3"
+            <Border Grid.Column="0" Grid.ColumnSpan="4"
                     x:Name="ScrollbackBar"
                     IsVisible="False"
                     BackgroundColor="#161b22"

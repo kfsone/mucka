@@ -88,6 +88,11 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private int _flushScheduled;
     // History buffer for the (future) history panel — kept separately from the live view.
     private readonly List<StyledLine> _historyBuffer = new();
+    // Chat-only ring for the chat-view filter — kept deeper than the main ring so shouts/tells
+    // survive in chat mode long after they have scrolled out of the main history.
+    private readonly List<StyledLine> _chatBuffer = new();
+    private const int MainHistoryCap = 1000;
+    private const int ChatHistoryCap = 3000;
 
     // INPUT_DIAG: the setter should fire only on deliberate pushes (send-clear, history nav,
     // Escape) — NOT once per typed character. Per-character firing here proves the Entry's Text
@@ -120,6 +125,14 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public string Dreamword { get => _dreamword; set => SetAndNotify(ref _dreamword, value, [nameof(DreamwordDisplay), nameof(DreamwordIsPlaceholder), nameof(DreamwordActive)]); }
     public bool IsConnected  { get => _isConnected;  set => Set(ref _isConnected,  value); }
     public bool FkeysVisible { get => _fkeysVisible; set => Set(ref _fkeysVisible, value); }
+
+    // Chat-view filter: when true the terminal shows only LineKind.Chat lines. Set() drives the
+    // button's lit-state DataTrigger; the actual terminal repaint is done by GamePage on ChatModeChanged.
+    private bool _chatMode;
+    public bool ChatMode { get => _chatMode; private set => Set(ref _chatMode, value); }
+
+    /// <summary>Command-box placeholder — swaps to a "chat" cue while the chat filter is on.</summary>
+    public string InputPlaceholder => _chatMode ? "chat…" : "enter command…";
     public bool IsCapturing { get => _isCapturing; private set => Set(ref _isCapturing, value); }
     public int MaxColumns => _maxColumns;
     public int EffCols => _effCols;
@@ -432,11 +445,16 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public ICommand ToggleFkeysCommand { get; }
     public ICommand ToggleCaptureCommand { get; }
     public ICommand ConfigCommand { get; }
+    /// <summary>Toggles the chat-view filter (latching). GamePage rebuilds the terminal on <see cref="ChatModeChanged"/>.</summary>
+    public ICommand ToggleChatModeCommand { get; }
 
     public event Action? Disconnected;
     public event Action? RequestFocus;
     public event Action? ConfigRequested;
     public event Action? ClearScreenRequested;
+    /// <summary>Raised after <see cref="ChatMode"/> flips — GamePage clears and repaints the terminal
+    /// from the matching buffer (chat-only when on, full history when off).</summary>
+    public event Action? ChatModeChanged;
     /// <summary>Raised after settings have been persisted — GamePage shows a confirmation toast.</summary>
     public event Action? SettingsSaved;
     /// <summary>Raised to surface a transient message in the GamePage toast.</summary>
@@ -529,6 +547,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         ToggleFkeysCommand    = new Command(() => { FkeysVisible = !FkeysVisible; RequestFocus?.Invoke(); });
         ToggleCaptureCommand  = new Command(ToggleCapture);
         ConfigCommand         = new Command(() => ConfigRequested?.Invoke());
+        ToggleChatModeCommand = new Command(() => SetChatMode(!ChatMode));
     }
 
     public string[] GetAllFkeys()
@@ -685,7 +704,12 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             if (!line.IsPartial && !line.PlainText.Contains('\f'))
             {
                 _historyBuffer.Add(line);
-                if (_historyBuffer.Count > 1000) _historyBuffer.RemoveAt(0);
+                if (_historyBuffer.Count > MainHistoryCap) _historyBuffer.RemoveAt(0);
+                if (line.Kind == LineKind.Chat)
+                {
+                    _chatBuffer.Add(line);
+                    if (_chatBuffer.Count > ChatHistoryCap) _chatBuffer.RemoveAt(0);
+                }
             }
         }
         return batch;
@@ -1134,6 +1158,25 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         ClearScreenRequested?.Invoke();
         RequestFocus?.Invoke();
     }
+
+    /// <summary>Set the chat-view filter. Fires <see cref="ChatModeChanged"/> so GamePage repaints,
+    /// and always hands focus back to the input box (Invariant #0). Only repaints on an actual flip.</summary>
+    public void SetChatMode(bool on)
+    {
+        if (ChatMode != on)
+        {
+            ChatMode = on;
+            OnPropertyChanged(nameof(InputPlaceholder));
+            ChatModeChanged?.Invoke();
+        }
+        RequestFocus?.Invoke();
+    }
+
+    /// <summary>Snapshot of the full scrollback (non-partial lines) — used to repaint when the filter turns off.</summary>
+    public IReadOnlyList<StyledLine> HistorySnapshot() => _historyBuffer.ToArray();
+
+    /// <summary>Snapshot of chat-only history — used to repaint when the filter turns on.</summary>
+    public IReadOnlyList<StyledLine> ChatSnapshot() => _chatBuffer.ToArray();
 
     public void AntiIdleTick()
     {
