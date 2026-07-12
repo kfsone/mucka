@@ -148,6 +148,15 @@ public sealed class MudStreamParser
     private readonly StringBuilder _text = new();
     private bool _inGameMode;
 
+    // Semantic kind for the line currently being accumulated. A C1 code decoder (e.g. C09
+    // speaker messages in Mud2C1Decoder) calls SetPendingKind when it recognises the line's
+    // class; it is stamped onto the StyledLine at newline and reset. Speaker messages are
+    // whole lines, so per-line reset is correct; a rare multi-line message only tags line 1 (TODO).
+    private LineKind _pendingKind = LineKind.Normal;
+
+    /// <summary>Classify the line currently being accumulated. Consumed and reset at the next newline.</summary>
+    internal void SetPendingKind(LineKind kind) => _pendingKind = kind;
+
     // qq-to-option-menu detection: the MUD2 server sends NO binary exit signal when the player
     // quits — it just resets colour and prints the option-menu prompt as plain text. Match that
     // prompt char-by-char in the in-game text stream and exit game mode the instant it completes
@@ -526,8 +535,9 @@ public sealed class MudStreamParser
             // In game mode, suppress all-asterisk lines entirely (Clio: prompt_allowed / preamble
             // suppression — telnet.l:438-444). These are MUD2 prompt-preamble separator lines.
             bool isAsteriskPreamble = _inGameMode && SpansAreAllAsterisks();
-            var line = new StyledLine(_spans.ToArray(), isPartial: false);
+            var line = new StyledLine(_spans.ToArray(), isPartial: false, kind: _pendingKind);
             _spans.Clear();
+            _pendingKind = LineKind.Normal;   // kind is per-line; the next line starts unclassified
             PromptAllowed = true;   // Clio: prompt_allowed = 1 on each newline
             if (isAsteriskPreamble) return;
             var stats = LineAnalyzer.Analyze(line, _inGameMode);

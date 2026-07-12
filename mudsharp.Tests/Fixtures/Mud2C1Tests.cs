@@ -1184,4 +1184,40 @@ public class Mud2C1Tests
         Assert.Single(h.LongDescLines);
         Assert.Empty(h.ExitLines);
     }
+
+    // ── C09 speaker messages → LineKind.Chat (chat-view filter) ─────────────────
+
+    [Fact]
+    public void C09SpeakerLine_IsTaggedChat()
+    {
+        // From a live session recording: C09+C00 (0xA4 0x9B) introduces a shout.
+        //   A4 9B FF FF "A male voice in the distance shouts \"" ... \n
+        var h = new ParserHarness();
+        h.Feed(0xA4, 0x9B, 0xFF, 0xFF);
+        h.Feed("A male voice in the distance shouts \"Hello\".\n");
+        var line = Assert.Single(h.Lines);
+        Assert.Equal(LineKind.Chat, line.Kind);
+    }
+
+    [Fact]
+    public void NonSpeakerLine_IsTaggedNormal()
+    {
+        var h = new ParserHarness();
+        h.Feed("You walk north into the foothills.\n");
+        var line = Assert.Single(h.Lines);
+        Assert.Equal(LineKind.Normal, line.Kind);
+    }
+
+    [Fact]
+    public void ChatKind_DoesNotLeakToNextLine()
+    {
+        // Kind is per-line: a shout followed by a plain line must not tag the plain line.
+        var h = new ParserHarness();
+        h.Feed(0xA4, 0x9B, 0xFF, 0xFF);
+        h.Feed("Someone shouts \"oi\".\n");
+        h.Feed("A rat bites you.\n");
+        Assert.Equal(2, h.Lines.Count);
+        Assert.Equal(LineKind.Chat, h.Lines[0].Kind);
+        Assert.Equal(LineKind.Normal, h.Lines[1].Kind);
+    }
 }

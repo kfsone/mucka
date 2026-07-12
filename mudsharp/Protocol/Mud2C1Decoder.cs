@@ -723,8 +723,13 @@ internal sealed class Mud2C1Decoder
             // ── C09 (0xA4): YELLOW / LT_YELLOW ──────────────────────────────
             // {C09}{C00}{C255} → YELLOW/BLACK
             // everything else → LT_YELLOW/BLACK
+            // C09 is "speaker of a message" (fecodes.txt): shout/say/tell/act/emote/social.
+            // Tag the line as Chat so the chat-view filter can show only these. To tighten the
+            // filter to speech-only, gate on b0 (0x9C=shout, 0x9D=say, 0x9E=tell); to widen it to
+            // wiz messages, add the same call under case 0xA5 (C10).
             case 0xA4:
                 Apply(b0 == 0x9B && count == 1 ? YELLOW : LT_YELLOW, BLACK);
+                _parser.SetPendingKind(LineKind.Chat);
                 return ParserState.Normal;
 
             // ── C10 (0xA5): BLACK+YELLOW / LT_RED+YELLOW ─────────────────────
