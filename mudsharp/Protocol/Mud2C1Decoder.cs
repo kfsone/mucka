@@ -145,6 +145,11 @@ internal sealed class Mud2C1Decoder
         if (_parser.InLongDescContext && _colorStack.Count <= _parser.LongDescContextDepth)
             _parser.ExitLongDescContext();
 
+        // Close the chat context when the C09 colour scope unwinds — the speaker message (and any
+        // wrapped continuation lines) is complete; subsequent lines are Normal again.
+        if (_parser.InChatContext && _colorStack.Count <= _parser.ChatContextDepth)
+            _parser.ExitChatContext();
+
         // Close the prompt-capture container when the colour stack returns to the depth
         // recorded at the outer {C01}{C255} push. ClosePromptContext then shows the
         // whole captured prompt — '*', '(*)' when invisible, snoop/rank indicators —
@@ -730,6 +735,9 @@ internal sealed class Mud2C1Decoder
             case 0xA4:
                 Apply(b0 == 0x9B && count == 1 ? YELLOW : LT_YELLOW, BLACK);
                 _parser.SetPendingKind(LineKind.Chat);
+                // Open a chat context at this colour depth so a server-wrapped speaker message keeps
+                // LineKind.Chat on its continuation lines. Closed on unwind (CheckContextClosures).
+                _parser.EnterChatContext(_colorStack.Count);
                 return ParserState.Normal;
 
             // ── C10 (0xA5): BLACK+YELLOW / LT_RED+YELLOW ─────────────────────

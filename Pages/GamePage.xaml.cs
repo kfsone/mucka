@@ -663,27 +663,34 @@ public partial class GamePage : ContentPage
         }
         // A toggle is the user acknowledging activity — cancel any pending flash and reset the tint.
         _chatFlashGen++;
+        _chatFlashActive = false;
         ChatButton.BackgroundColor = ChatButtonRest;
     }
 
-    // Chat button colours. Rest matches the XAML; alert is a brief amber pulse.
+    // Chat button colours. Rest matches the XAML; alert is a bright-orange pulse — deliberately a
+    // different hue/luminance from the dark-slate rest and the yellow "on" cue so it reads as an
+    // alert, not "still selected".
     private static readonly Color ChatButtonRest  = Color.FromArgb("#2d333b");
-    private static readonly Color ChatButtonAlert = Color.FromArgb("#b3541e");
+    private static readonly Color ChatButtonAlert = Color.FromArgb("#f0883e");
     private int _chatFlashGen;
+    private bool _chatFlashActive;
 
     // One-shot attention pulse when non-chat output arrives while filtered. NOT a repeating
-    // UI-thread timer (Invariant #1): a single DispatchDelayed clears the tint. Rapid arrivals
-    // bump the generation so the tint simply persists until output settles, rather than flickering.
+    // UI-thread timer (Invariant #1): a single DispatchDelayed clears the tint. While a pulse is
+    // in flight we skip re-arming, so a burst of hidden output (combat) does not churn a timer +
+    // closure per flush — it pulses at most every ~450 ms until the output settles.
     // If a stronger sustained pulse is ever wanted, drive it from a WinUI composition animation.
     private void FlashChatButton()
     {
-        if (!_vm.ChatMode) return;
+        if (!_vm.ChatMode || _chatFlashActive) return;
+        _chatFlashActive = true;
         ChatButton.BackgroundColor = ChatButtonAlert;
         int gen = ++_chatFlashGen;
         Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(450), () =>
         {
-            if (gen == _chatFlashGen && _vm.ChatMode)
-                ChatButton.BackgroundColor = ChatButtonRest;
+            if (gen != _chatFlashGen) return;   // superseded by a toggle
+            _chatFlashActive = false;
+            if (_vm.ChatMode) ChatButton.BackgroundColor = ChatButtonRest;
         });
     }
 

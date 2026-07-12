@@ -1186,17 +1186,42 @@ public class Mud2C1Tests
     }
 
     // ── C09 speaker messages → LineKind.Chat (chat-view filter) ─────────────────
+    // C1 codes are byte-0x9B: C09 (speaker) = 0xA4, sub-codes C00=0x9B..C01(shout)=0x9C,
+    // C02(say)=0x9D, C03(tell)=0x9E. C255 terminator = 0xFF 0xFF; a bare 0xFF 0xFF pops colour.
 
     [Fact]
-    public void C09SpeakerLine_IsTaggedChat()
+    public void C09ShoutLine_IsTaggedChat()
     {
-        // From a live session recording: C09+C00 (0xA4 0x9B) introduces a shout.
-        //   A4 9B FF FF "A male voice in the distance shouts \"" ... \n
+        // Faithful to a live capture: the line opens with C09+C00 (speaker) and the shouted word
+        // is bracketed by C09+C01, each colour popped before the newline.
+        //   A4 9B FF FF "…shouts \"" A4 9C FF FF "Hello" FF FF "\"." FF FF \n
         var h = new ParserHarness();
         h.Feed(0xA4, 0x9B, 0xFF, 0xFF);
-        h.Feed("A male voice in the distance shouts \"Hello\".\n");
+        h.Feed("A male voice in the distance shouts \"");
+        h.Feed(0xA4, 0x9C, 0xFF, 0xFF);
+        h.Feed("Hello");
+        h.Feed(0xFF, 0xFF);
+        h.Feed("\".");
+        h.Feed(0xFF, 0xFF);
+        h.Feed("\n");
         var line = Assert.Single(h.Lines);
         Assert.Equal(LineKind.Chat, line.Kind);
+    }
+
+    [Fact]
+    public void C09SayLine_IsTaggedChat()
+    {
+        // C09+C02 (said). From capture: 'Ollie the necromancer says "oippoo".'
+        var h = new ParserHarness();
+        h.Feed(0xA4, 0x9B, 0xFF, 0xFF);
+        h.Feed("Ollie the necromancer says \"");
+        h.Feed(0xA4, 0x9D, 0xFF, 0xFF);
+        h.Feed("oippoo");
+        h.Feed(0xFF, 0xFF);
+        h.Feed("\".");
+        h.Feed(0xFF, 0xFF);
+        h.Feed("\n");
+        Assert.Equal(LineKind.Chat, Assert.Single(h.Lines).Kind);
     }
 
     [Fact]
@@ -1209,15 +1234,48 @@ public class Mud2C1Tests
     }
 
     [Fact]
+    public void C09WrappedMessage_TagsContinuationLinesChat()
+    {
+        // MUD2 wraps long output server-side across '\n' without re-emitting the introducing code
+        // (same as room long-descriptions). While the C09 colour is still pushed, continuation
+        // lines must stay Chat; once it pops, the next line is Normal again.
+        var h = new ParserHarness();
+        h.Feed(0xA4, 0x9C, 0xFF, 0xFF);   // shouted colour pushed, not yet popped
+        h.Feed("this is a very long shout that the server has\n");
+        h.Feed("split across two lines without repeating the code\n");
+        h.Feed(0xFF, 0xFF);               // message ends — colour pops, chat context closes
+        h.Feed("and now a normal room line.\n");
+        Assert.Equal(3, h.Lines.Count);
+        Assert.Equal(LineKind.Chat,   h.Lines[0].Kind);
+        Assert.Equal(LineKind.Chat,   h.Lines[1].Kind);
+        Assert.Equal(LineKind.Normal, h.Lines[2].Kind);
+    }
+
+    [Fact]
     public void ChatKind_DoesNotLeakToNextLine()
     {
-        // Kind is per-line: a shout followed by a plain line must not tag the plain line.
+        // A single-line shout (colour popped before its newline, as MUD2 sends it) must not tag
+        // the following unrelated line.
         var h = new ParserHarness();
         h.Feed(0xA4, 0x9B, 0xFF, 0xFF);
-        h.Feed("Someone shouts \"oi\".\n");
+        h.Feed("Someone shouts \"oi\".");
+        h.Feed(0xFF, 0xFF);
+        h.Feed("\n");
         h.Feed("A rat bites you.\n");
         Assert.Equal(2, h.Lines.Count);
-        Assert.Equal(LineKind.Chat, h.Lines[0].Kind);
+        Assert.Equal(LineKind.Chat,   h.Lines[0].Kind);
         Assert.Equal(LineKind.Normal, h.Lines[1].Kind);
+    }
+
+    [Fact]
+    public void PendingChatKind_ClearedByReset()
+    {
+        // A C09 seen with no completing newline (e.g. a disconnect mid-message) must not survive
+        // a parser Reset and tag the first line of the next session.
+        var h = new ParserHarness();
+        h.Feed(0xA4, 0x9C, 0xFF, 0xFF);   // C09 seen, no newline yet
+        h.Parser.Reset();
+        h.Feed("first line of a fresh session.\n");
+        Assert.Equal(LineKind.Normal, Assert.Single(h.Lines).Kind);
     }
 }

@@ -208,6 +208,24 @@ public sealed class MudStreamParser
     }
     internal void ExitLongDescContext() => _inLongDescContext = false;
 
+    // Chat context: set when a C09 speaker code pushes its colour, cleared on colour-stack unwind
+    // (see Mud2C1Decoder.CheckContextClosures). Mirrors the long-description context so a speaker
+    // message the server wrapped across several '\n' lines keeps LineKind.Chat on every line, not
+    // just the one carrying the C09 code. Speaker messages pop their colour before their own
+    // newline, so single-line messages rely on _pendingKind; the context only carries wrapped
+    // continuation lines, whose colour is still pushed at the wrap point.
+    private bool _inChatContext;
+    private int _chatContextDepth;
+    internal bool InChatContext => _inChatContext;
+    internal int ChatContextDepth => _chatContextDepth;
+    internal void EnterChatContext(int targetDepth)
+    {
+        if (_inChatContext) return;   // C09 can push more than once per line — keep the first (shallowest) depth
+        _inChatContext = true;
+        _chatContextDepth = targetDepth;
+    }
+    internal void ExitChatContext() => _inChatContext = false;
+
     // ── FEW-response suppression ──────────────────────────────────────────────
     // Set when the parser enters a C12+C08+C05 (FE WHO) context block. While active,
     // display output is suppressed but FewPlayerReady events still fire.
@@ -484,6 +502,9 @@ public sealed class MudStreamParser
         _pendingRoomShort = false;
         _inLongDescContext = false;
         _longDescContextDepth = 0;
+        _inChatContext = false;
+        _chatContextDepth = 0;
+        _pendingKind = LineKind.Normal;
         CurrentDreamword = null;
         CurrentAccountId = null;
         CurrentPrivs = 0;
@@ -507,10 +528,14 @@ public sealed class MudStreamParser
             // even these escaped responses, and ticking the flag here made the NEXT
             // heartbeat's prompt display as a stray '*'. PromptAllowed means "visible
             // output occurred since the last displayed prompt" — only real lines set it.
+            // These probe-context newlines emit no normal line, so clear any pending chat tag here
+            // too — otherwise a C09 seen just before an FE-probe response could stamp the next real
+            // line as Chat. (Implausible in practice, but the reset belongs on every newline path.)
             if (_inFexResponseContext)
             {
                 var itemText = _fexLine.ToString();
                 _fexLine.Clear();
+                _pendingKind = LineKind.Normal;
                 if (itemText.Length > 0) FexItemReady?.Invoke(itemText);
                 return;
             }
@@ -518,6 +543,7 @@ public sealed class MudStreamParser
             {
                 var itemText = _feiLine.ToString();
                 _feiLine.Clear();
+                _pendingKind = LineKind.Normal;
                 if (itemText.Length > 0) FeiItemReady?.Invoke(itemText);
                 return;
             }
@@ -525,6 +551,7 @@ public sealed class MudStreamParser
             if (_inFewResponseContext)
             {
                 _spans.Clear();
+                _pendingKind = LineKind.Normal;
                 return;
             }
             // Pre-game terminal-width confirmation line: "[New terminal width is N]"
@@ -535,9 +562,13 @@ public sealed class MudStreamParser
             // In game mode, suppress all-asterisk lines entirely (Clio: prompt_allowed / preamble
             // suppression — telnet.l:438-444). These are MUD2 prompt-preamble separator lines.
             bool isAsteriskPreamble = _inGameMode && SpansAreAllAsterisks();
-            var line = new StyledLine(_spans.ToArray(), isPartial: false, kind: _pendingKind);
+            // Chat if a C09 code was seen on this line (_pendingKind) OR we are still inside an
+            // unclosed C09 colour scope (a server-wrapped continuation line, whose own code was on
+            // an earlier line). See EnterChatContext.
+            var lineKind = (_pendingKind == LineKind.Chat || _inChatContext) ? LineKind.Chat : LineKind.Normal;
+            var line = new StyledLine(_spans.ToArray(), isPartial: false, kind: lineKind);
             _spans.Clear();
-            _pendingKind = LineKind.Normal;   // kind is per-line; the next line starts unclassified
+            _pendingKind = LineKind.Normal;   // per-line signal; _inChatContext carries wrapped continuation lines
             PromptAllowed = true;   // Clio: prompt_allowed = 1 on each newline
             if (isAsteriskPreamble) return;
             var stats = LineAnalyzer.Analyze(line, _inGameMode);
@@ -716,6 +747,8 @@ public sealed class MudStreamParser
         _inFexResponseContext = false;
         _pendingRoomShort = false;
         _inLongDescContext = false;
+        _inChatContext = false;
+        _pendingKind = LineKind.Normal;
         C1.ResetGameState();
         GameModeExited?.Invoke();
     }
