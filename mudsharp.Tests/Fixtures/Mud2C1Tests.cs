@@ -1252,6 +1252,29 @@ public class Mud2C1Tests
     }
 
     [Fact]
+    public void C09WrappedMessage_WithInnerColour_KeepsContinuationChat()
+    {
+        // A wrapped speaker message whose first physical line completes an inner C09 colour scope
+        // (e.g. a highlighted/quoted word) must still tag later continuation lines Chat. Regression
+        // for the context-close comparison: '<=' closes at the inner pop (one level early) and would
+        // drop line 1 to Normal; '<' holds the context until the C09's own colour pops.
+        var h = new ParserHarness();
+        h.Feed(0xA4, 0x9C, 0xFF, 0xFF);          // outer shout colour pushed
+        h.Feed("a long shout with a ");
+        h.Feed(0xA4, 0x9C, 0xFF, 0xFF);          // inner nested colour (highlighted word)
+        h.Feed("word");
+        h.Feed(0xFF, 0xFF);                       // inner pop — back to the C09 base depth
+        h.Feed(" and more that wraps\n");         // line 0
+        h.Feed("onto a second wrapped line\n");   // line 1 — after the inner pop; must stay Chat
+        h.Feed(0xFF, 0xFF);                       // outer pop — message ends
+        h.Feed("a normal room line.\n");          // line 2
+        Assert.Equal(3, h.Lines.Count);
+        Assert.Equal(LineKind.Chat,   h.Lines[0].Kind);
+        Assert.Equal(LineKind.Chat,   h.Lines[1].Kind);
+        Assert.Equal(LineKind.Normal, h.Lines[2].Kind);
+    }
+
+    [Fact]
     public void ChatKind_DoesNotLeakToNextLine()
     {
         // A single-line shout (colour popped before its newline, as MUD2 sends it) must not tag

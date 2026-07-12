@@ -147,7 +147,12 @@ internal sealed class Mud2C1Decoder
 
         // Close the chat context when the C09 colour scope unwinds — the speaker message (and any
         // wrapped continuation lines) is complete; subsequent lines are Normal again.
-        if (_parser.InChatContext && _colorStack.Count <= _parser.ChatContextDepth)
+        // Strict '<' (not '<=' like the siblings above): speaker lines routinely nest an inner C09
+        // for the quoted word (e.g. `says "<C09>oippoo</C09>"`), whose pop returns the stack to the
+        // C09 base depth. '<=' would close the context at that inner pop — one level too early —
+        // dropping the Chat tag on continuation lines of a wrapped message that come after the nest.
+        // '<' closes only when the C09's own frame pops.
+        if (_parser.InChatContext && _colorStack.Count < _parser.ChatContextDepth)
             _parser.ExitChatContext();
 
         // Close the prompt-capture container when the colour stack returns to the depth
