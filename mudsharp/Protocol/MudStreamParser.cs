@@ -102,6 +102,13 @@ public sealed class MudStreamParser
     /// </summary>
     public event Action<string>? PresenceNameSeen;
 
+    /// <summary>
+    /// A temporary magical effect (STR/DEX/STA buff or debuff, or glow) started or ended on
+    /// the local player. Derived from the C11 spell-start/end protocol family. Consumers keep
+    /// the running per-stat stack and drive the status-icon overlay.
+    /// </summary>
+    public event Action<StatusEffectChange>? StatusEffectChanged;
+
     /// <summary>A single exit keyword from the FEX (Front End eXits) response is ready.</summary>
     public event Action<string>? FexItemReady;
 
@@ -769,6 +776,7 @@ public sealed class MudStreamParser
     internal void EmitFewPlayer(string name, AnsiColor color) => FewPlayerReady?.Invoke(name, color);
     internal void EmitProbeHint(StaleStats kinds) => ProbeHintReceived?.Invoke(kinds);
     internal void EmitPresenceName(string name) => PresenceNameSeen?.Invoke(name);
+    internal void EmitStatusEffect(StatusEffectChange change) => StatusEffectChanged?.Invoke(change);
     internal void EmitRoomEntered() => RoomEntered?.Invoke();    internal void SetAccountInfo(string? accountId, int privs)
     {
         CurrentAccountId = accountId;
@@ -907,6 +915,7 @@ public sealed class MudStreamParser
             case ParserState.FesLineTail:
             case ParserState.FewPlayerData:
             case ParserState.PresenceNameData:
+            case ParserState.StatusPhraseData:
             case ParserState.DreamwordData:
             case ParserState.C95Data:
             case ParserState.C95LogoutLine:

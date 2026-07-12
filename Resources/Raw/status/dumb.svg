@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <radialGradient id="b" cx="42%" cy="36%" r="72%">
+      <stop offset="0%" stop-color="#57495a"/><stop offset="100%" stop-color="#211a22"/>
+    </radialGradient>
+  </defs>
+  <circle cx="256" cy="256" r="256" fill="url(#b)"/>
+  <!-- dumb (mute): big full pink lips filling badge - cupid's bow + seam (no slash) -->
+  <path fill="#d1214e" d="M74 250C126 200 190 194 230 224C244 236 244 236 256 242C268 236 268 236 282 224C322 194 386 200 438 250C382 266 320 260 256 260C192 260 130 266 74 250Z"/>
+  <path fill="#ef3f6a" d="M74 250C150 270 362 270 438 250C422 328 358 384 256 384C154 384 90 328 74 250Z"/>
+  <path fill="none" stroke="#7a0f2e" stroke-width="14" stroke-linecap="round"
+        d="M80 252C150 264 362 264 432 252"/>
+  <path fill="none" stroke="#ffffff" stroke-width="12" stroke-linecap="round" stroke-opacity="0.5"
+        d="M168 338C224 356 288 356 344 338"/>
+</svg>

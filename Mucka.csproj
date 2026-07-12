@@ -83,6 +83,8 @@
 
 		<!-- Images -->
 		<MauiImage Include="Resources\Images\*" />
+		<!-- Status-effect icons (rasterized from Resources\Raw\status\*.svg by tools\rasterize-status-icons.cs) -->
+		<MauiImage Include="Resources\Images\Status\*" />
 		
 		<!-- Custom Fonts -->
 		<MauiFont Include="Resources\Fonts\*" />
@@ -107,6 +109,7 @@
 	</ItemGroup>
 
 	<ItemGroup>
+		<Compile Remove="tools\**" />
 		<Compile Remove="mudsharp\**" />
 		<Compile Remove="mudsharp.Tests\**" />
 		<Compile Remove="mudsharp.Demo\**" />

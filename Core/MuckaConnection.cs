@@ -37,6 +37,7 @@ public sealed class MuckaConnection : IAsyncDisposable
     // ── Public events (forwarded from MudSession) ─────────────────────────────
     public event Action<StyledLine>? LineReady;
     public event Action<GameStatsSnapshot>? StatsUpdated;
+    public event Action<StatusEffectState>? StatusEffectsChanged;
     public event Action? BellReceived;
     public event Action? GameModeEntered;
     public event Action? GameModeExited;
@@ -400,6 +401,7 @@ public sealed class MuckaConnection : IAsyncDisposable
     {
         _session.LineReady          += l => LineReady?.Invoke(l);
         _session.StatsUpdated       += s => StatsUpdated?.Invoke(s);
+        _session.StatusEffectsChanged += s => StatusEffectsChanged?.Invoke(s);
         _session.BellReceived       += () => BellReceived?.Invoke();
         _session.GameModeEntered    += () => GameModeEntered?.Invoke();
         _session.GameModeExited     += () => GameModeExited?.Invoke();

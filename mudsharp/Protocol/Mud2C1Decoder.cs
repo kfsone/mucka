@@ -30,6 +30,12 @@ internal sealed class Mud2C1Decoder
     // that the server appends before returning to Normal.
     private bool _c95LogoutSeenNewline;
 
+    // Which C11 sub-code opened the current StatusPhraseData capture. Set in Dispatch, read in
+    // MatchStatusPhrase. The disabling family (11 00 / 11 01) covers blind/deaf/dumb/cripple/glow
+    // — only glow is ours, so the bracketed phrase disambiguates it from the ailments.
+    private enum C11Capture { EnhanceStart, EnhanceEnd, DisableStart, DisableEnd }
+    private C11Capture _c11Capture;
+
     internal Mud2C1Decoder(MudStreamParser parser) { _parser = parser; }
 
     // ── Color index constants ──────────────────────────────────────────────
@@ -194,6 +200,7 @@ internal sealed class Mud2C1Decoder
             ParserState.FesLineTail => OnFesLineTail(b),
             ParserState.FewPlayerData   => OnFewPlayerData(b, buf),
             ParserState.PresenceNameData => OnPresenceNameData(b, buf),
+            ParserState.StatusPhraseData => OnStatusPhraseData(b, buf),
             ParserState.DreamwordData   => OnDreamwordData(b, buf),
             ParserState.C95Data    => OnC95Data(b, buf),
             ParserState.C95LogoutLine   => OnC95LogoutLine(b),
@@ -426,6 +433,117 @@ internal sealed class Mud2C1Decoder
         }
         _parser.QueueReprocessByte(b);
         return ParserState.Normal;
+    }
+
+    // ── Status-phrase data state (after a C11 enhance start/end code) ────────
+    // Accumulate the bracketed effect phrase while still displaying it normally (the
+    // message is player-visible), then resolve it to a StatusEffectChange at the code's
+    // terminating C255 / line ending.
+
+    private ParserState OnStatusPhraseData(byte b, List<byte> buf)
+    {
+        if (b >= 0x20 && b < 0x7F)
+        {
+            _parser.EmitChar((char)b);   // keep the message on screen
+            buf.Add(b);
+            return ParserState.StatusPhraseData;
+        }
+        if (buf.Count > 0)
+        {
+            var phrase = Encoding.ASCII.GetString(buf.ToArray());
+            buf.Clear();
+            var change = MatchStatusPhrase(phrase, _c11Capture);
+            if (change is not null)
+                _parser.EmitStatusEffect(change);
+        }
+        _parser.QueueReprocessByte(b);
+        return ParserState.Normal;
+    }
+
+    // ── Phrase tables (matched only inside a C11 bracket — bounded, never a stream scan) ──
+
+    // 11 02 enhance START: comparative-adjective phrases. Full needles are mutually distinct.
+    private static readonly (string Needle, StatusEffectKind Kind, EffectSign Sign)[] StartPhrases =
+    [
+        ("stronger",    StatusEffectKind.Strength,  EffectSign.Buff),
+        ("weaker",      StatusEffectKind.Strength,  EffectSign.Debuff),
+        ("more adroit", StatusEffectKind.Dexterity, EffectSign.Buff),
+        ("less adroit", StatusEffectKind.Dexterity, EffectSign.Debuff),
+        ("fitter",      StatusEffectKind.Stamina,   EffectSign.Buff),
+        ("less fit",    StatusEffectKind.Stamina,   EffectSign.Debuff),
+    ];
+
+    // 11 03 enhance END: "[Some of] your magical <noun> has worn off". Matched by noun.
+    // ORDER MATTERS: "unfitness" contains "fitness", so it must be tested first.
+    // Buff nouns follow no single rule: STR/DEX use the stat name (strength/dexterity) but
+    // STA uses "fitness" (the refresh/drain spells are themed around fitness, not stamina).
+    // All six confirmed from session captures.
+    private static readonly (string Needle, StatusEffectKind Kind, EffectSign Sign)[] EndPhrases =
+    [
+        ("unfitness",   StatusEffectKind.Stamina,   EffectSign.Debuff), // confirmed (drain)
+        ("fitness",     StatusEffectKind.Stamina,   EffectSign.Buff),   // confirmed (refresh)
+        ("weakness",    StatusEffectKind.Strength,  EffectSign.Debuff), // confirmed (weaken)
+        ("clumsiness",  StatusEffectKind.Dexterity, EffectSign.Debuff), // confirmed (clumsify)
+        ("dexterity",   StatusEffectKind.Dexterity, EffectSign.Buff),   // confirmed (dex)
+        ("strength",    StatusEffectKind.Strength,  EffectSign.Buff),   // confirmed (str)
+    ];
+
+    // Affliction START phrases (11 00, disabling), keyword-matched to supply a tooltip line.
+    // "gone deaf"/"gone blind" confirmed; dumb/cripple wording is a guess — a miss just falls
+    // back to the hardcoded tooltip, never mis-attributes.
+    private static readonly (string Needle, StatusEffectKind Kind)[] AfflictionPhrases =
+    [
+        ("deaf",    StatusEffectKind.Deaf),
+        ("blind",   StatusEffectKind.Blind),
+        ("dumb",    StatusEffectKind.Dumb),
+        ("cripple", StatusEffectKind.Crippled),
+    ];
+
+    /// <summary>
+    /// Resolve a C11-bracketed phrase to a status-effect change, or null if it's not one we track
+    /// (an ailment start/end, an unrecognised spell, etc.).
+    /// </summary>
+    private static StatusEffectChange? MatchStatusPhrase(string phrase, C11Capture capture)
+    {
+        var msg = phrase.Trim();
+        switch (capture)
+        {
+            // Disabling family: glow + the afflictions (blind/deaf/dumb/cripple). Glow's on/off is
+            // ours ("glowing"); afflictions we surface ONLY as a tooltip line on start — their
+            // visibility is FES-driven, so their end (11 01) is ignored here.
+            case C11Capture.DisableStart when phrase.Contains("glowing", StringComparison.Ordinal):
+                return new StatusEffectChange(StatusEffectKind.Glow, EffectSign.Buff, EffectTransition.Started, msg);
+            case C11Capture.DisableEnd when phrase.Contains("glowing", StringComparison.Ordinal):
+                return new StatusEffectChange(StatusEffectKind.Glow, EffectSign.Buff, EffectTransition.FullyWoreOff, msg);
+            case C11Capture.DisableStart:
+                foreach (var (needle, kind) in AfflictionPhrases)
+                    if (phrase.Contains(needle, StringComparison.Ordinal))
+                        return new StatusEffectChange(kind, EffectSign.Buff, EffectTransition.Started, msg);
+                return null;
+            case C11Capture.DisableEnd:
+                return null;   // affliction cleared — FES flag hides the icon; no tooltip needed
+
+            case C11Capture.EnhanceStart:
+                foreach (var (needle, kind, sign) in StartPhrases)
+                    if (phrase.Contains(needle, StringComparison.Ordinal))
+                        return new StatusEffectChange(kind, sign, EffectTransition.Started, msg);
+                return null;
+
+            case C11Capture.EnhanceEnd:
+                foreach (var (needle, kind, sign) in EndPhrases)
+                    if (phrase.Contains(needle, StringComparison.Ordinal))
+                    {
+                        // "Some of your magical X has worn off" = a level bled off but active;
+                        // "Your magical X has worn off" = fully cleared.
+                        var t = phrase.Contains("Some of", StringComparison.Ordinal)
+                            ? EffectTransition.PartiallyWoreOff : EffectTransition.FullyWoreOff;
+                        return new StatusEffectChange(kind, sign, t, msg);
+                    }
+                return null;
+
+            default:
+                return null;
+        }
     }
 
     // ── Dreamword data state (after C15+C00+C00+C255) ────────────────────────
@@ -763,6 +881,26 @@ internal sealed class Mud2C1Decoder
                     // Spells starting/ending can change any stat or status flag.
                     Hint(StaleStats.AllStats);
                     Sound(11, b0 - 0x9B);
+                }
+                // ── Status-effect tracking (status-icons) ────────────────────────
+                // The C11 family brackets spell start/end. The sub-code gives WHEN + the CLASS
+                // of change but NOT the identity, so every case captures the bracketed phrase
+                // and MatchStatusPhrase resolves it:
+                //   11 00 (b0=0x9B) disabling starts │ 11 01 (b0=0x9C) disabling ends
+                //     — blind/deaf/dumb/cripple/glow all share these; only GLOW is ours, matched
+                //       by phrase (FES flags cover the ailments). Without this gate, a deaf/etc.
+                //       ending ("regained your hearing") wrongly cleared the glow icon.
+                //   11 02 (b0=0x9D) enhancing starts │ 11 03 (b0=0x9E) enhancing ends (wear-off)
+                //     — all six stat spells collapse here; the phrase gives stat + direction.
+                if (count == 1)
+                {
+                    switch (b0)
+                    {
+                        case 0x9B: _c11Capture = C11Capture.DisableStart; return ParserState.StatusPhraseData;
+                        case 0x9C: _c11Capture = C11Capture.DisableEnd;   return ParserState.StatusPhraseData;
+                        case 0x9D: _c11Capture = C11Capture.EnhanceStart; return ParserState.StatusPhraseData;
+                        case 0x9E: _c11Capture = C11Capture.EnhanceEnd;   return ParserState.StatusPhraseData;
+                    }
                 }
                 return ParserState.Normal;
 

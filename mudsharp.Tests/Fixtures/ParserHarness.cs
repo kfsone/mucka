@@ -22,6 +22,7 @@ internal sealed class ParserHarness
     public List<string> FewPlayers { get; } = new();
     public List<StaleStats> ProbeHints { get; } = new();
     public List<string> PresenceNames { get; } = new();
+    public List<StatusEffectChange> StatusEffects { get; } = new();
     public int FewListStartingCount { get; private set; }
     public int FewListCompleteCount { get; private set; }
     public int RoomEnteredCount { get; private set; }
@@ -49,6 +50,7 @@ internal sealed class ParserHarness
         Parser.FewPlayerReady     += (n, _) => FewPlayers.Add(n);
         Parser.ProbeHintReceived  += k => ProbeHints.Add(k);
         Parser.PresenceNameSeen   += n => PresenceNames.Add(n);
+        Parser.StatusEffectChanged += e => StatusEffects.Add(e);
         Parser.FewListStarting    += () => FewListStartingCount++;
         Parser.FewListComplete    += () => FewListCompleteCount++;
         Parser.RoomEntered        += () => RoomEnteredCount++;

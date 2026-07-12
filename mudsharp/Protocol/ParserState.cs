@@ -34,6 +34,7 @@ internal enum ParserState
     FesLineTail,    // after the FES line parsed: absorbing the rest of its CR-NUL/CRLF line ending
     FewPlayerData,  // after WHO-list color code (C04/C05+C00/C01+C06+C255): collecting player name
     PresenceNameData, // after a C05 presence code (here/arriving/departing/visible/invisible/fleeing): collecting the bracketed player name for the who-list staleness check
+    StatusPhraseData, // after a C11 enhance start/end code (11 02 / 11 03): collecting the bracketed "You have suddenly and magically become X!" phrase to identify the stat + direction
     DreamwordData,  // after C15+C00+C00+C255: collecting [a-z]{1,14} dreamword letters
     C95Data,        // after C95+C255: collecting 5 newline-terminated client-mode lines
     C95LogoutLine,  // after C95+C03+C255: consuming 1 line (account-logout, silent)

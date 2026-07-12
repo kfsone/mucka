@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <radialGradient id="b" cx="42%" cy="36%" r="72%">
+      <stop offset="0%" stop-color="#7c8894"/><stop offset="100%" stop-color="#2c343c"/>
+    </radialGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f7d191"/><stop offset="100%" stop-color="#cf8b2f"/>
+    </linearGradient>
+  </defs>
+  <circle cx="256" cy="256" r="256" fill="url(#b)"/>
+  <!-- deaf: bold ear, concha carved as a darker recessed bowl (cleanest read) -->
+  <path fill="url(#gold)" stroke="#764510" stroke-width="10" stroke-linejoin="round"
+        d="M244 96C324 92 392 150 392 240C392 322 352 392 286 414C248 425 210 409 202 370C197 344 208 326 202 304C196 280 170 274 162 228C153 170 186 112 244 96Z"/>
+  <path fill="#bf7a24" d="M320 198C352 242 344 306 298 336C260 358 220 350 212 314C208 290 224 268 250 266C226 254 228 216 254 202C280 186 306 182 320 198Z"/>
+  <ellipse cx="250" cy="322" rx="28" ry="34" fill="#6e3f10"/>
+</svg>

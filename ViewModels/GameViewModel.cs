@@ -1342,6 +1342,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     {
         _conn.LineReady        += OnLineReady;
         _conn.StatsUpdated     += OnStatsUpdated;
+        _conn.StatusEffectsChanged += SidePanel.OnStatusEffectsChanged;
         _conn.GameModeEntered  += OnGameModeEntered;
         _conn.GameModeExited   += OnGameModeExited;
         _conn.GameModeExited   += SidePanel.OnGameModeExited;
@@ -1368,6 +1369,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     {
         _conn.LineReady        -= OnLineReady;
         _conn.StatsUpdated     -= OnStatsUpdated;
+        _conn.StatusEffectsChanged -= SidePanel.OnStatusEffectsChanged;
         _conn.GameModeEntered  -= OnGameModeEntered;
         _conn.GameModeExited   -= OnGameModeExited;
         _conn.GameModeExited   -= SidePanel.OnGameModeExited;

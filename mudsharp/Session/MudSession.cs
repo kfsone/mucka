@@ -84,6 +84,7 @@ public sealed class MudSession : IDisposable
     // so an arriving PKer is visible. Separate escaped FEx queries are fine standalone.
     private bool _mappingFocus;
     private byte[] _fesSubscription = BuildSubscription(includeFew: true, includeFei: true);
+    private readonly EffectTracker _effects = new();
 
     // ── Public events (forwarded from parser) ─────────────────────────────────
     public event Action<StyledLine>? LineReady;
@@ -108,6 +109,8 @@ public sealed class MudSession : IDisposable
     public event Action? FexListComplete;
     /// <summary>An exits-verb line "direction: Destination." was parsed. Payload: (direction, destination name).</summary>
     public event Action<string, string>? ExitLineReady;
+    /// <summary>The local player's active temporary-effect set changed (buffs/debuffs/glow).</summary>
+    public event Action<StatusEffectState>? StatusEffectsChanged;
     /// <summary>
     /// Server confirmed the terminal width (ESC-<n>W response or "[New terminal width is N]" annotation).
     /// Payload is the confirmed column count.
@@ -309,6 +312,8 @@ public sealed class MudSession : IDisposable
         _parser.SoundRequested += s => SoundRequested?.Invoke(s);
         _parser.ProbeHintReceived += OnProbeHint;
         _parser.PresenceNameSeen  += OnPresenceName;
+        _parser.StatusEffectChanged += _effects.Apply;
+        _effects.Changed += state => StatusEffectsChanged?.Invoke(state);
         _parser.FewPlayerReady += (name, color) =>
         {
             _pendingOnlineNames.Add(FirstWord(name));
@@ -412,6 +417,7 @@ public sealed class MudSession : IDisposable
 
     private void OnGameModeEntered()
     {
+        _effects.Reset();   // fresh character — no effects carried from a previous session
         GameModeEntered?.Invoke();
         lock (_fesLock)
         {
@@ -464,6 +470,7 @@ public sealed class MudSession : IDisposable
         _setupSwallowingFrame = false;
         _setupCloseAfterFrame = false;
         _currentCharName      = null;
+        _effects.Reset();     // relog/logout clears all effects
         GameModeExited?.Invoke();
     }
 

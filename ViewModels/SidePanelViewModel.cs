@@ -163,6 +163,68 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     /// </summary>
     public double FloatingMapPanelWidth => FloatingMapWidth + 16;
 
+    // ── Buffs / status effects ─────────────────────────────────────────────────
+    // Rendered in the status-bar effect cluster (see GamePage.xaml StatusBar). Per-slot active
+    // flags drive each icon's IsVisible; tooltips carry the exact detected game line.
+    private bool _strBuff, _strDebuff, _dexBuff, _dexDebuff, _staBuff, _staDebuff, _glow;
+    private string? _strBuffTip, _strDebuffTip, _dexBuffTip, _dexDebuffTip, _staBuffTip, _staDebuffTip, _glowTip;
+    private string? _deafTip, _blindTip, _dumbTip, _crippledTip;
+
+    public bool StrengthBuff    => _strBuff;
+    public bool StrengthDebuff  => _strDebuff;
+    public bool DexterityBuff   => _dexBuff;
+    public bool DexterityDebuff => _dexDebuff;
+    public bool StaminaBuff     => _staBuff;
+    public bool StaminaDebuff   => _staDebuff;
+    public bool Glow            => _glow;
+
+    // Vertical nudge (px) for the +/- overlap: icons sit vertically centred when only one sign is
+    // active, and split ±1 apart only when both are present (the stacked look). TranslationY, so
+    // it never affects layout. Buff sits behind (+1, down), debuff in front (−1, up).
+    public double StaminaBuffDy    => (_staBuff && _staDebuff) ?  1 : 0;
+    public double StaminaDebuffDy  => (_staBuff && _staDebuff) ? -1 : 0;
+    public double StrengthBuffDy   => (_strBuff && _strDebuff) ?  1 : 0;
+    public double StrengthDebuffDy => (_strBuff && _strDebuff) ? -1 : 0;
+    public double DexterityBuffDy  => (_dexBuff && _dexDebuff) ?  1 : 0;
+    public double DexterityDebuffDy=> (_dexBuff && _dexDebuff) ? -1 : 0;
+
+    // Tooltips: the exact detected game line, with a hardcoded fallback when none was captured
+    // (e.g. an affliction set by FES on login rather than by an observed spell).
+    public string StrengthBuffTip    => _strBuffTip    ?? "Strengthened";
+    public string StrengthDebuffTip  => _strDebuffTip  ?? "Weakened";
+    public string DexterityBuffTip   => _dexBuffTip    ?? "More adroit";
+    public string DexterityDebuffTip => _dexDebuffTip  ?? "Less adroit";
+    public string StaminaBuffTip     => _staBuffTip    ?? "Fitter";
+    public string StaminaDebuffTip   => _staDebuffTip  ?? "Less fit";
+    public string GlowTip            => _glowTip       ?? "Glowing";
+    public string DeafTip            => _deafTip       ?? "You are deaf";
+    public string BlindTip           => _blindTip      ?? "You are blind";
+    public string DumbTip            => _dumbTip       ?? "You are dumb";
+    public string CrippledTip        => _crippledTip   ?? "You are crippled";
+
+    /// <summary>Apply a new status-effect snapshot from the session (fires on the read-loop thread).</summary>
+    public void OnStatusEffectsChanged(StatusEffectState s)
+        => MainThread.BeginInvokeOnMainThread(() =>
+        {
+            _strBuff = s.StrengthBuff;   _strDebuff = s.StrengthDebuff;
+            _dexBuff = s.DexterityBuff;  _dexDebuff = s.DexterityDebuff;
+            _staBuff = s.StaminaBuff;    _staDebuff = s.StaminaDebuff;
+            _glow    = s.Glow;
+            _strBuffTip = s.StrengthBuffMsg;   _strDebuffTip = s.StrengthDebuffMsg;
+            _dexBuffTip = s.DexterityBuffMsg;  _dexDebuffTip = s.DexterityDebuffMsg;
+            _staBuffTip = s.StaminaBuffMsg;    _staDebuffTip = s.StaminaDebuffMsg;
+            _glowTip    = s.GlowMsg;
+            _deafTip = s.DeafMsg; _blindTip = s.BlindMsg; _dumbTip = s.DumbMsg; _crippledTip = s.CrippledMsg;
+            OnPropertiesChanged(
+                nameof(StrengthBuff), nameof(StrengthDebuff), nameof(DexterityBuff), nameof(DexterityDebuff),
+                nameof(StaminaBuff), nameof(StaminaDebuff), nameof(Glow),
+                nameof(StaminaBuffDy), nameof(StaminaDebuffDy), nameof(StrengthBuffDy), nameof(StrengthDebuffDy),
+                nameof(DexterityBuffDy), nameof(DexterityDebuffDy),
+                nameof(StrengthBuffTip), nameof(StrengthDebuffTip), nameof(DexterityBuffTip), nameof(DexterityDebuffTip),
+                nameof(StaminaBuffTip), nameof(StaminaDebuffTip), nameof(GlowTip),
+                nameof(DeafTip), nameof(BlindTip), nameof(DumbTip), nameof(CrippledTip));
+        });
+
     // ── Floating online panel state ────────────────────────────────────────────
 
     /// <summary>When true (and the side panel is hidden), a floating online-list panel is shown.</summary>

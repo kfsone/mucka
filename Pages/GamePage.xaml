@@ -129,23 +129,39 @@
                     <Label Grid.Column="6" Text="|"
                            Style="{StaticResource StatLabelStyle}" TextColor="#444444" Margin="8,0"/>
 
-                    <!-- Status effects: glyph + word, glyph-only when effcols < 80 or on phones -->
-                    <Label Grid.Column="7" Text="{Binding DeafDisplay}"
-                           Style="{StaticResource StatLabelStyle}" TextColor="#E74856"
-                           IsVisible="{Binding Deaf}" Margin="0,0,8,0"
-                           ToolTipProperties.Text="You are deaf"/>
-                    <Label Grid.Column="8" Text="{Binding BlindDisplay}"
-                           Style="{StaticResource StatLabelStyle}" TextColor="#E74856"
-                           IsVisible="{Binding Blind}" Margin="0,0,8,0"
-                           ToolTipProperties.Text="You are blind"/>
-                    <Label Grid.Column="9" Text="{Binding DumbDisplay}"
-                           Style="{StaticResource StatLabelStyle}" TextColor="#E74856"
-                           IsVisible="{Binding Dumb}" Margin="0,0,8,0"
-                           ToolTipProperties.Text="You are dumb"/>
-                    <Label Grid.Column="10" Text="{Binding CrippledDisplay}"
-                           Style="{StaticResource StatLabelStyle}" TextColor="#E74856"
-                           IsVisible="{Binding Crippled}" Margin="0,0,8,0"
-                           ToolTipProperties.Text="You are crippled"/>
+                    <!-- Status-effect cluster: | sta str dex | glow | ailments |  (Grid.Column 7)
+                         ABSOLUTE-width columns for sta/str/dex (24) and glow (18): a fixed-width Grid
+                         column does NOT collapse when its icon is hidden, so the dividers and the left
+                         stats never shift as effects come and go (the old WidthRequest-in-a-stacklayout
+                         slots collapsed, causing the squish). Per stat the buff sits +5,+2 BEHIND the
+                         debuff (bruised _neg icon, in front) so only ~5px of the buff peeks and the
+                         negative reads first; the 24px column = 21px overlap + 3px gap. Tooltips are the
+                         detected line (hardcoded fallback). Ailments are glyph-only in Auto columns —
+                         they sit AFTER both dividers, so any reflow among them never moves the dividers. -->
+                    <Grid Grid.Column="7" VerticalOptions="Center" HeightRequest="28"
+                          ColumnDefinitions="26,26,26,Auto,20,Auto,Auto,Auto,Auto,Auto">
+                        <!-- Stamina: buff behind (offset), debuff in front -->
+                        <Image Grid.Column="0" Source="stamina.png"      Margin="5,0,0,0" TranslationY="{Binding SidePanel.StaminaBuffDy}"   IsVisible="{Binding SidePanel.StaminaBuff}"   ToolTipProperties.Text="{Binding SidePanel.StaminaBuffTip}"   WidthRequest="18" HeightRequest="18" VerticalOptions="Center" HorizontalOptions="Start"/>
+                        <Image Grid.Column="0" Source="stamina_neg.png"                   TranslationY="{Binding SidePanel.StaminaDebuffDy}" IsVisible="{Binding SidePanel.StaminaDebuff}" ToolTipProperties.Text="{Binding SidePanel.StaminaDebuffTip}" WidthRequest="18" HeightRequest="18" VerticalOptions="Center" HorizontalOptions="Start"/>
+                        <!-- Strength -->
+                        <Image Grid.Column="1" Source="strength.png"     Margin="5,0,0,0" TranslationY="{Binding SidePanel.StrengthBuffDy}"   IsVisible="{Binding SidePanel.StrengthBuff}"   ToolTipProperties.Text="{Binding SidePanel.StrengthBuffTip}"   WidthRequest="18" HeightRequest="18" VerticalOptions="Center" HorizontalOptions="Start"/>
+                        <Image Grid.Column="1" Source="strength_neg.png"                  TranslationY="{Binding SidePanel.StrengthDebuffDy}" IsVisible="{Binding SidePanel.StrengthDebuff}" ToolTipProperties.Text="{Binding SidePanel.StrengthDebuffTip}" WidthRequest="18" HeightRequest="18" VerticalOptions="Center" HorizontalOptions="Start"/>
+                        <!-- Dexterity -->
+                        <Image Grid.Column="2" Source="dexterity.png"    Margin="5,0,0,0" TranslationY="{Binding SidePanel.DexterityBuffDy}"   IsVisible="{Binding SidePanel.DexterityBuff}"   ToolTipProperties.Text="{Binding SidePanel.DexterityBuffTip}"   WidthRequest="18" HeightRequest="18" VerticalOptions="Center" HorizontalOptions="Start"/>
+                        <Image Grid.Column="2" Source="dexterity_neg.png"                 TranslationY="{Binding SidePanel.DexterityDebuffDy}" IsVisible="{Binding SidePanel.DexterityDebuff}" ToolTipProperties.Text="{Binding SidePanel.DexterityDebuffTip}" WidthRequest="18" HeightRequest="18" VerticalOptions="Center" HorizontalOptions="Start"/>
+
+                        <!-- | separator before glow -->
+                        <BoxView Grid.Column="3" WidthRequest="1" HeightRequest="12" Color="#3a3f45" VerticalOptions="Center" Margin="4,0"/>
+                        <!-- Glow -->
+                        <Image Grid.Column="4" Source="glow.png" IsVisible="{Binding SidePanel.Glow}" ToolTipProperties.Text="{Binding SidePanel.GlowTip}" WidthRequest="18" HeightRequest="18" VerticalOptions="Center" HorizontalOptions="Center"/>
+                        <!-- | separator before ailments -->
+                        <BoxView Grid.Column="5" WidthRequest="1" HeightRequest="12" Color="#3a3f45" VerticalOptions="Center" Margin="4,0"/>
+                        <!-- Ailments — full-colour emoji-style icons (28px); tooltip is the detected line. -->
+                        <Image Grid.Column="6" Source="deaf.png"     IsVisible="{Binding Deaf}"     ToolTipProperties.Text="{Binding SidePanel.DeafTip}"     WidthRequest="28" HeightRequest="28" VerticalOptions="Center" Margin="0,0,2,0"/>
+                        <Image Grid.Column="7" Source="blind.png"    IsVisible="{Binding Blind}"    ToolTipProperties.Text="{Binding SidePanel.BlindTip}"    WidthRequest="28" HeightRequest="28" VerticalOptions="Center" Margin="0,0,2,0"/>
+                        <Image Grid.Column="8" Source="dumb.png"     IsVisible="{Binding Dumb}"     ToolTipProperties.Text="{Binding SidePanel.DumbTip}"     WidthRequest="28" HeightRequest="28" VerticalOptions="Center" Margin="0,0,2,0"/>
+                        <Image Grid.Column="9" Source="crippled.png" IsVisible="{Binding Crippled}" ToolTipProperties.Text="{Binding SidePanel.CrippledTip}" WidthRequest="28" HeightRequest="28" VerticalOptions="Center" Margin="0,0,2,0"/>
+                    </Grid>
 
                     <!-- Spacer -->
                     <BoxView Grid.Column="11" Color="Transparent"/>
@@ -615,6 +631,7 @@
                 </Label>
                 </Grid>
             </Border>
+
         </Grid>
 
         <!-- ── Toolbar (collapsible, wraps to fit width) ──────────── -->
