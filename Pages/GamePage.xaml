@@ -130,30 +130,33 @@
                            Style="{StaticResource StatLabelStyle}" TextColor="#444444" Margin="8,0"/>
 
                     <!-- Status-effect cluster: | sta str dex | glow | ailments |  (Grid.Column 7)
-                         ABSOLUTE-width columns for sta/str/dex (24) and glow (18): a fixed-width Grid
-                         column does NOT collapse when its icon is hidden, so the dividers and the left
-                         stats never shift as effects come and go (the old WidthRequest-in-a-stacklayout
-                         slots collapsed, causing the squish). Per stat the buff sits +5,+2 BEHIND the
-                         debuff (bruised _neg icon, in front) so only ~5px of the buff peeks and the
-                         negative reads first; the 24px column = 21px overlap + 3px gap. Tooltips are the
-                         detected line (hardcoded fallback). Ailments are glyph-only in Auto columns —
-                         they sit AFTER both dividers, so any reflow among them never moves the dividers. -->
+                         All icons are 28px. ABSOLUTE-width columns for sta/str/dex (36) and glow (30):
+                         a fixed-width Grid column does NOT collapse when its icon is hidden, so the
+                         dividers and the left stats never shift as effects come and go (a WidthRequest-
+                         in-a-stacklayout collapsed, which caused the squish). HeightRequest reserves the
+                         row so it can't jump vertically either. Per stat the buff sits behind the debuff
+                         (bruised _neg icon, in front), offset +5px horizontally so ~5px of the buff peeks
+                         and the negative reads first, with a ±1px vertical split applied only when both
+                         signs are present (lone icons stay centred); the 36px column = 33px overlap +
+                         3px gap. Ailments are full-colour icons in Auto columns AFTER both dividers, so
+                         any reflow among them never moves the dividers. Tooltips = the detected line
+                         (hardcoded fallback). -->
                     <Grid Grid.Column="7" VerticalOptions="Center" HeightRequest="28"
-                          ColumnDefinitions="26,26,26,Auto,20,Auto,Auto,Auto,Auto,Auto">
+                          ColumnDefinitions="36,36,36,Auto,30,Auto,Auto,Auto,Auto,Auto">
                         <!-- Stamina: buff behind (offset), debuff in front -->
-                        <Image Grid.Column="0" Source="stamina.png"      Margin="5,0,0,0" TranslationY="{Binding SidePanel.StaminaBuffDy}"   IsVisible="{Binding SidePanel.StaminaBuff}"   ToolTipProperties.Text="{Binding SidePanel.StaminaBuffTip}"   WidthRequest="18" HeightRequest="18" VerticalOptions="Center" HorizontalOptions="Start"/>
-                        <Image Grid.Column="0" Source="stamina_neg.png"                   TranslationY="{Binding SidePanel.StaminaDebuffDy}" IsVisible="{Binding SidePanel.StaminaDebuff}" ToolTipProperties.Text="{Binding SidePanel.StaminaDebuffTip}" WidthRequest="18" HeightRequest="18" VerticalOptions="Center" HorizontalOptions="Start"/>
+                        <Image Grid.Column="0" Source="stamina.png"      Margin="5,0,0,0" TranslationY="{Binding SidePanel.StaminaBuffDy}"   IsVisible="{Binding SidePanel.StaminaBuff}"   ToolTipProperties.Text="{Binding SidePanel.StaminaBuffTip}"   WidthRequest="28" HeightRequest="28" VerticalOptions="Center" HorizontalOptions="Start"/>
+                        <Image Grid.Column="0" Source="stamina_neg.png"                   TranslationY="{Binding SidePanel.StaminaDebuffDy}" IsVisible="{Binding SidePanel.StaminaDebuff}" ToolTipProperties.Text="{Binding SidePanel.StaminaDebuffTip}" WidthRequest="28" HeightRequest="28" VerticalOptions="Center" HorizontalOptions="Start"/>
                         <!-- Strength -->
-                        <Image Grid.Column="1" Source="strength.png"     Margin="5,0,0,0" TranslationY="{Binding SidePanel.StrengthBuffDy}"   IsVisible="{Binding SidePanel.StrengthBuff}"   ToolTipProperties.Text="{Binding SidePanel.StrengthBuffTip}"   WidthRequest="18" HeightRequest="18" VerticalOptions="Center" HorizontalOptions="Start"/>
-                        <Image Grid.Column="1" Source="strength_neg.png"                  TranslationY="{Binding SidePanel.StrengthDebuffDy}" IsVisible="{Binding SidePanel.StrengthDebuff}" ToolTipProperties.Text="{Binding SidePanel.StrengthDebuffTip}" WidthRequest="18" HeightRequest="18" VerticalOptions="Center" HorizontalOptions="Start"/>
+                        <Image Grid.Column="1" Source="strength.png"     Margin="5,0,0,0" TranslationY="{Binding SidePanel.StrengthBuffDy}"   IsVisible="{Binding SidePanel.StrengthBuff}"   ToolTipProperties.Text="{Binding SidePanel.StrengthBuffTip}"   WidthRequest="28" HeightRequest="28" VerticalOptions="Center" HorizontalOptions="Start"/>
+                        <Image Grid.Column="1" Source="strength_neg.png"                  TranslationY="{Binding SidePanel.StrengthDebuffDy}" IsVisible="{Binding SidePanel.StrengthDebuff}" ToolTipProperties.Text="{Binding SidePanel.StrengthDebuffTip}" WidthRequest="28" HeightRequest="28" VerticalOptions="Center" HorizontalOptions="Start"/>
                         <!-- Dexterity -->
-                        <Image Grid.Column="2" Source="dexterity.png"    Margin="5,0,0,0" TranslationY="{Binding SidePanel.DexterityBuffDy}"   IsVisible="{Binding SidePanel.DexterityBuff}"   ToolTipProperties.Text="{Binding SidePanel.DexterityBuffTip}"   WidthRequest="18" HeightRequest="18" VerticalOptions="Center" HorizontalOptions="Start"/>
-                        <Image Grid.Column="2" Source="dexterity_neg.png"                 TranslationY="{Binding SidePanel.DexterityDebuffDy}" IsVisible="{Binding SidePanel.DexterityDebuff}" ToolTipProperties.Text="{Binding SidePanel.DexterityDebuffTip}" WidthRequest="18" HeightRequest="18" VerticalOptions="Center" HorizontalOptions="Start"/>
+                        <Image Grid.Column="2" Source="dexterity.png"    Margin="5,0,0,0" TranslationY="{Binding SidePanel.DexterityBuffDy}"   IsVisible="{Binding SidePanel.DexterityBuff}"   ToolTipProperties.Text="{Binding SidePanel.DexterityBuffTip}"   WidthRequest="28" HeightRequest="28" VerticalOptions="Center" HorizontalOptions="Start"/>
+                        <Image Grid.Column="2" Source="dexterity_neg.png"                 TranslationY="{Binding SidePanel.DexterityDebuffDy}" IsVisible="{Binding SidePanel.DexterityDebuff}" ToolTipProperties.Text="{Binding SidePanel.DexterityDebuffTip}" WidthRequest="28" HeightRequest="28" VerticalOptions="Center" HorizontalOptions="Start"/>
 
                         <!-- | separator before glow -->
                         <BoxView Grid.Column="3" WidthRequest="1" HeightRequest="12" Color="#3a3f45" VerticalOptions="Center" Margin="4,0"/>
                         <!-- Glow -->
-                        <Image Grid.Column="4" Source="glow.png" IsVisible="{Binding SidePanel.Glow}" ToolTipProperties.Text="{Binding SidePanel.GlowTip}" WidthRequest="18" HeightRequest="18" VerticalOptions="Center" HorizontalOptions="Center"/>
+                        <Image Grid.Column="4" Source="glow.png" IsVisible="{Binding SidePanel.Glow}" ToolTipProperties.Text="{Binding SidePanel.GlowTip}" WidthRequest="28" HeightRequest="28" VerticalOptions="Center" HorizontalOptions="Center"/>
                         <!-- | separator before ailments -->
                         <BoxView Grid.Column="5" WidthRequest="1" HeightRequest="12" Color="#3a3f45" VerticalOptions="Center" Margin="4,0"/>
                         <!-- Ailments — full-colour emoji-style icons (28px); tooltip is the detected line. -->
