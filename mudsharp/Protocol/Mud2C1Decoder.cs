@@ -506,6 +506,16 @@ internal sealed class Mud2C1Decoder
     private static StatusEffectChange? MatchStatusPhrase(string phrase, C11Capture capture)
     {
         var msg = phrase.Trim();
+
+        // TARGET GATE. The C11 spell codes fire for an effect landing on ANYONE in the room —
+        // NPCs and other players, not just us — and the phrase is the only target signal. Every
+        // status icon we track is about the LOCAL player, so a spell cast on a mob must not light
+        // one up. Self-phrases always begin "You " / "Your " (partial wear-offs "Some of your ");
+        // effects on others read "The zombie1 is now less adroit!", "Someone has gone blind!", or
+        // "<name> ... has become crippled!". All forms confirmed from session captures.
+        if (!IsSelfPhrase(msg))
+            return null;
+
         switch (capture)
         {
             // Disabling family: glow + the afflictions (blind/deaf/dumb/cripple). Glow's on/off is
@@ -545,6 +555,16 @@ internal sealed class Mud2C1Decoder
                 return null;
         }
     }
+
+    // The phrase describes an effect on the local player. Self-phrases begin "You " (starts:
+    // "You have suddenly and magically become stronger!") or "Your " (wear-off: "Your magical
+    // strength has worn off."); partial wear-offs begin "Some of your ". The trailing space
+    // anchors a word boundary so a player named e.g. "Youssef" ("Youssef is now …") is not
+    // mistaken for "You".
+    private static bool IsSelfPhrase(string trimmed)
+        => trimmed.StartsWith("You ", StringComparison.Ordinal)
+        || trimmed.StartsWith("Your ", StringComparison.Ordinal)
+        || trimmed.StartsWith("Some of your ", StringComparison.Ordinal);
 
     // ── Dreamword data state (after C15+C00+C00+C255) ────────────────────────
 

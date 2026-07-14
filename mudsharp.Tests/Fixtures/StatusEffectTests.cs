@@ -233,4 +233,35 @@ public class StatusEffectTests
         h.Feed("\r\n"); // line ending flushes the accumulated span (as in the real capture)
         Assert.Contains(h.Lines, l => l.PlainText.Contains("become stronger!"));
     }
+
+    // ── Target gate: effects on OTHERS must not touch our icons ─────────────────
+    // The C11 spell codes fire for an effect landing on anyone in the room. The bracketed phrase
+    // is the only target signal — self-phrases begin "You "/"Your "/"Some of your "; others read
+    // "The <mob> is now …", "Someone has …", "<name> … has …". All forms below are verbatim from
+    // session captures. Regression for: a debuff cast on a zombie lit up the player's own icon.
+
+    [Theory]
+    [InlineData(0x9D, "The zombie1 is now less adroit!")]                 // 11 02 enhance start, NPC
+    [InlineData(0x9D, "Bilbo is now stronger!")]                          // 11 02 enhance start, player
+    [InlineData(0x9E, "The zombie1's magical strength has worn off.")]    // 11 03 enhance end, NPC
+    [InlineData(0x9B, "Someone has gone blind!")]                         // 11 00 disable start, unseen
+    [InlineData(0x9B, "The zombie1 is now glowing!")]                     // 11 00 disable start, glow on a mob
+    [InlineData(0x9B, "bisabi the dragon-slaying warlock has become crippled!")] // 11 00 disable start, named
+    public void EffectOnAnother_EmitsNothing(byte sub, string phrase)
+    {
+        var h = InGameMode();
+        h.Feed(Bracket(sub, phrase));
+        Assert.Empty(h.StatusEffects);
+    }
+
+    [Fact]
+    public void EffectOnAnother_StillDisplayed()
+    {
+        // The gate only suppresses the icon change — the message is other-players' visible output
+        // and must still reach the terminal.
+        var h = InGameMode();
+        h.Feed(Start("The zombie1 is now less adroit!"));
+        h.Feed("\r\n");
+        Assert.Contains(h.Lines, l => l.PlainText.Contains("zombie1 is now less adroit!"));
+    }
 }
