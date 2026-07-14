@@ -300,6 +300,12 @@ public sealed class MudSession : IDisposable
             // reaches the terminal. Fast volatile check keeps normal lines free of cost.
             if (_sniffInFlight != null && TryConsumeSniffLine(line))
                 return;
+            // Cancel the dreamword when we see our own persona speak it: speaking uses it,
+            // whether it recovered stamina (scenario: server also sends a C1 clear) or was a
+            // no-op (full stamina / already consumed — no C1 clear ever arrives). Cheap guard:
+            // only runs while a dreamword is active. See TryCancelSpokenDreamword.
+            if (_currentDreamword is not null)
+                TryCancelSpokenDreamword(line);
             LineReady?.Invoke(line);
         };
         _parser.StatsUpdated += MergeStats;
@@ -478,6 +484,54 @@ public sealed class MudSession : IDisposable
     {
         _currentDreamword = word;
         DreamwordChanged?.Invoke(word);
+    }
+
+    // The dreamword is a server-generated word given to sleeping players; the first to speak it
+    // wins a random stamina refresh. When we speak it successfully the server both echoes our
+    // speech and sends a C1 code that clears the dreamword (OnDreamwordChanged(null)). But when
+    // the speak is a no-op — we spoke at full stamina, or someone drained the FIFO queue first —
+    // no C1 clear arrives, and we would otherwise keep advertising a dead dreamword forever.
+    // Detection: our own persona saying the exact current dreamword. Speaking uses it, full stop.
+    // Runs on the Feed thread (LineReady), so no marshalling; _currentDreamword/_currentCharName
+    // are only touched here and on that same thread.
+    private void TryCancelSpokenDreamword(StyledLine line)
+    {
+        var word = _currentDreamword;
+        if (word is null || _currentCharName is null)
+            return;
+        // Player speech is C1 code 09 → LineKind.Chat; anything else can't be a `says` line.
+        if (line.Kind != LineKind.Chat)
+            return;
+
+        var text = line.PlainText;
+        // Speaker must be our persona. The name is the first whitespace-delimited token
+        // ("Ollie says ..." / "Ollie the necromancer says ..."), so require a word boundary
+        // after it — otherwise "Ollie" would also match another player "Ollier".
+        var name = _currentCharName;
+        if (!text.StartsWith(name, StringComparison.Ordinal))
+            return;
+        if (text.Length != name.Length && text[name.Length] != ' ')
+            return;
+
+        // `... says "<word>"` — the quoted content must be exactly the current dreamword.
+        const string verb = " says \"";
+        var idx = text.IndexOf(verb, StringComparison.Ordinal);
+        if (idx < 0)
+            return;
+        var start = idx + verb.Length;
+        // Need room for the word plus its closing quote, and an exact word match ending on that
+        // quote (so "wordy" doesn't satisfy a "word" dreamword).
+        if (start + word.Length + 1 > text.Length)
+            return;
+        if (string.CompareOrdinal(text, start, word, 0, word.Length) != 0)
+            return;
+        if (text[start + word.Length] != '"')
+            return;
+
+        // Clear at the parser too (not just _currentDreamword): FES snapshots carry
+        // _parser.CurrentDreamword, so a stale value there would resurrect it on the next probe.
+        // EmitDreamwordChanged fires DreamwordChanged → OnDreamwordChanged, syncing session state.
+        _parser.EmitDreamwordChanged(null);
     }
 
     private void SendFesSubscription()
