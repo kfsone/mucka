@@ -235,7 +235,7 @@
                     <Label Grid.Column="17" Text="{Binding TtrText}"
                            Style="{StaticResource StatLabelStyle}"
                            IsVisible="{Binding TtrVisible}"
-                           ToolTipProperties.Text="Time until reset"/>
+                           ToolTipProperties.Text="{Binding TtrTooltip}"/>
 
                 </Grid>
 
@@ -361,7 +361,7 @@
                            Text="{Binding TtrText}"
                            Style="{StaticResource StatLabelStyle}"
                            IsVisible="{Binding TtrVisible}"
-                           ToolTipProperties.Text="Time until reset"
+                           ToolTipProperties.Text="{Binding TtrTooltip}"
                            HorizontalOptions="Center" Margin="0,0,4,0"/>
 
                 </Grid>

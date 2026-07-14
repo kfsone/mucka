@@ -406,8 +406,13 @@ public partial class GamePage : ContentPage
         _ = _vm.DisposeAsync();
     }
 
-    // Anti-idle only (1 s). Output draining is event-driven, not polled — see OnOutputAvailable.
-    private void OnAntiIdleTick(object? sender, EventArgs e) => _vm.AntiIdleTick();
+    // 1 s tick: anti-idle keep-alive plus the projected reset countdown. Output draining is
+    // event-driven, not polled — see OnOutputAvailable.
+    private void OnAntiIdleTick(object? sender, EventArgs e)
+    {
+        _vm.AntiIdleTick();
+        _vm.TickResetCountdown();
+    }
 
     // Server output arrived. Fires on the TCP thread (coalesced to one pending flush by the VM's
     // guard); marshal a single drain/paint to the UI thread. Replaces the old 50 ms poll so the

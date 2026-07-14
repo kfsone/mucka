@@ -48,7 +48,26 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private bool _deaf;
     private bool _crippled;
     private bool _dumb;
-    private int _timeToReset;
+    // Projected next-reset instant (UTC). The server reports reset as whole minutes remaining
+    // (FES field 13); rather than freeze on that value between heartbeats we anchor an absolute
+    // target and count down to it locally (see UpdateResetProjection / TickResetCountdown).
+    private DateTime? _resetTargetUtc;
+    // Last raw reset-minutes value we acted on (-1 = none). Every StatsUpdated carries the last FES
+    // reset value forward — even combat/text lines — so we re-anchor only when this value actually
+    // changes, never on a carried-forward repeat.
+    private int _lastResetMinutes = -1;
+    // When we last observed an update still carrying _lastResetMinutes. Bounds how late we could be
+    // in noticing the next minute transition: the tick happened between this instant and the update
+    // that reports the new value, so the gap is our anchor error for that transition.
+    private DateTime _lastResetSeenUtc;
+    // Our current ± uncertainty (seconds) in the projected reset instant. Starts coarse (a whole
+    // minute — we only know which minute we're in) and tightens to the update cadence each time we
+    // catch a clean minute transition. Surfaced in the TTR tooltip.
+    private double _resetUncertaintySec = ResetUncertaintyCoarseSec;
+    private const double ResetUncertaintyCoarseSec = 59;
+    // Below this uncertainty we trust the projection to ~second resolution and show a seconds
+    // countdown in the final stretch; above it we keep the minute form to avoid false precision.
+    private const double ResetSecondsDisplayMaxUncertainty = 15;
     private char _weather;
     private string _dreamword = string.Empty;
     private bool _isConnected = true;
@@ -120,7 +139,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public bool Deaf     { get => _deaf;     set => SetAndNotify(ref _deaf,     value, [nameof(AnyEffectVisible), nameof(EffectsGlyphs)]); }
     public bool Crippled { get => _crippled; set => SetAndNotify(ref _crippled, value, [nameof(AnyEffectVisible), nameof(EffectsGlyphs)]); }
     public bool Dumb     { get => _dumb;     set => SetAndNotify(ref _dumb,     value, [nameof(AnyEffectVisible), nameof(EffectsGlyphs)]); }
-    public int TimeToReset { get => _timeToReset; set => SetAndNotify(ref _timeToReset, value, [nameof(TtrText), nameof(TtrVisible), nameof(AnyRightStatVisible)]); }
     public char Weather { get => _weather; set => SetAndNotify(ref _weather, value, [nameof(WeatherText), nameof(WeatherGlyph), nameof(WeatherTooltip), nameof(WeatherDisplayText), nameof(WeatherColor), nameof(WeatherVisible), nameof(AnyRightStatVisible)]); }
     public string Dreamword { get => _dreamword; set => SetAndNotify(ref _dreamword, value, [nameof(DreamwordDisplay), nameof(DreamwordIsPlaceholder), nameof(DreamwordActive)]); }
     public bool IsConnected  { get => _isConnected;  set => Set(ref _isConnected,  value); }
@@ -201,8 +219,28 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         : $"{_profileName} mucka {AppInfo.VersionString}";
 
     public bool   MagVisible  => _magic > 0;
-    public string TtrText     => TimeToReset > 0 ? $"{TimeToReset}m" : string.Empty;
-    public bool   TtrVisible  => _timeToReset > 0;
+    // Countdown to the projected reset instant. Whole minutes ("5m") until the final stretch, then
+    // seconds ("29s") once under 30 s — where the minute-granular server value used to round to 0
+    // and show nothing. The seconds form appears only once the projection is confident to ~second
+    // resolution (see _resetUncertaintySec); before that we keep the minute form so we never imply
+    // precision we lack. Empty (hidden) when no reset is projected or it has lapsed.
+    public string TtrText
+    {
+        get
+        {
+            if (_resetTargetUtc is not DateTime target) return string.Empty;
+            var secs = (int)Math.Round((target - DateTime.UtcNow).TotalSeconds);
+            if (secs <= 0) return string.Empty;
+            return secs < 30 && _resetUncertaintySec <= ResetSecondsDisplayMaxUncertainty
+                ? $"{secs}s"
+                : $"{(secs + 59) / 60}m";   // ceil to whole minutes
+        }
+    }
+    public bool   TtrVisible  => TtrText.Length != 0;
+    // "Time until reset" plus our current ± confidence, so hovering reveals how much to trust it.
+    public string TtrTooltip  => _resetTargetUtc is null
+        ? "Time until reset"
+        : $"Time until reset (±{(int)Math.Ceiling(_resetUncertaintySec)}s)";
     public bool   WeatherVisible => _weather is not (' ' or '\0' or (char)0);
     public bool   AnyRightStatVisible => WeatherVisible || TtrVisible;
 
@@ -662,9 +700,11 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             // fall the title back to the profile-only form.
             _currentChar = null;
             _baseScore   = -1;
+            ClearResetProjection();   // no live world once back at the option menu
             OnPropertiesChanged(nameof(IsInGameMode), nameof(IsRecordingButtonVisible),
                 nameof(WindowTitle),
-                nameof(ScoreDeltaValue), nameof(ScoreDisplayValue), nameof(ScoreColor));
+                nameof(ScoreDeltaValue), nameof(ScoreDisplayValue), nameof(ScoreColor),
+                nameof(TtrText), nameof(TtrVisible), nameof(TtrTooltip), nameof(AnyRightStatVisible));
         });
 
     // The character was identified from the setup `score` reply (fires on the Feed thread).
@@ -744,7 +784,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             _deaf         = stats.IsDeaf;
             _crippled     = stats.IsCrippled;
             _dumb         = stats.IsDumb;
-            _timeToReset  = stats.TimeToReset ?? 0;
+            UpdateResetProjection(stats.TimeToReset);
             _weather      = stats.Weather;
             _staminaColor = stats.StaminaColor ?? 0;
 
@@ -765,8 +805,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
                 nameof(ScoreValue), nameof(ScoreDeltaValue), nameof(ScoreDisplayValue), nameof(ScoreColor),
                 nameof(Blind),      nameof(Deaf),        nameof(Crippled),    nameof(Dumb),
                 nameof(AnyEffectVisible), nameof(EffectsGlyphs),
-                nameof(TimeToReset),
-                nameof(TtrText),    nameof(TtrVisible),
+                nameof(TtrText),    nameof(TtrVisible),   nameof(TtrTooltip),
                 nameof(Weather),
                 nameof(WeatherText), nameof(WeatherGlyph), nameof(WeatherTooltip),
                 nameof(WeatherDisplayText), nameof(WeatherColor), nameof(WeatherVisible),
@@ -774,6 +813,79 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
                 nameof(Dreamword),  nameof(DreamwordDisplay), nameof(DreamwordIsPlaceholder), nameof(DreamwordActive)
             );
         });
+    }
+
+    // Anchor and progressively refine the projected reset instant from FES values (whole minutes
+    // remaining). Rather than freeze on the last server value between heartbeats — which stalls when
+    // FES is delayed (mapping focus collapses the heartbeat, or a network stall) — we hold an
+    // absolute target and let TickResetCountdown count down to it locally.
+    //
+    // The refinement: the server value is minute-granular, so a first sighting only tells us WHICH
+    // minute we're in (± a whole minute). But a clean single-step decrement (5→4) is a *transition*
+    // whose real instant we can bracket — it happened between the last update that still showed the
+    // old value and this one — so we re-anchor on the transition and set our uncertainty to that
+    // gap. The more often updates arrive (combat lines confirm the current value too, not just FES
+    // beats), the tighter the bracket, so confidence pessimistically improves as evidence arrives.
+    //
+    // Timing convention assumed: a transition to value V means ~V minutes remain at that instant
+    // (the counter reads minutes-remaining). If the server actually floors (V shown while V..V+1 min
+    // remain) the absolute anchor is ~60 s early — verify against a live capture; it's a one-line
+    // change here. The confidence-tightening behaviour holds either way.
+    //
+    // Every StatsUpdated carries the last FES value forward (combat/text lines included); a repeat
+    // carries no new minute value but DOES confirm the value is still current, tightening the next
+    // transition's bracket. Runs on the UI thread (OnStatsUpdated marshals there), same as
+    // TickResetCountdown, so the reset fields need no locking.
+    private void UpdateResetProjection(int? serverMinutes)
+    {
+        var now  = DateTime.UtcNow;
+        var mins = serverMinutes ?? 0;
+
+        if (mins == _lastResetMinutes)
+        {
+            if (mins > 0) _lastResetSeenUtc = now;   // still current — narrows the next bracket
+            return;
+        }
+
+        var prevMins = _lastResetMinutes;
+        var prevSeen = _lastResetSeenUtc;
+        _lastResetMinutes = mins;
+        _lastResetSeenUtc = now;
+
+        // <1 min (0) or absent: no minute value to anchor. Keep counting any target we already hold
+        // (its uncertainty stays as last refined); a real reset re-arrives as a large positive count.
+        if (mins <= 0)
+            return;
+
+        _resetTargetUtc = now + TimeSpan.FromMinutes(mins);
+
+        // A clean one-minute decrement is a transition we can time; anything else (first sighting,
+        // a reset that bumped the value up, or skipped minutes after a stall) leaves us only knowing
+        // the minute, so fall back to coarse uncertainty.
+        _resetUncertaintySec = prevMins == mins + 1
+            ? Math.Min(ResetUncertaintyCoarseSec, (now - prevSeen).TotalSeconds)
+            : ResetUncertaintyCoarseSec;
+    }
+
+    // Advance the projected reset countdown; called from the 1 Hz UI tick (OnAntiIdleTick). Cheap
+    // no-op when no reset is projected. Self-clears once the target passes so a lapsed countdown
+    // hides until the next FES re-anchors it.
+    public void TickResetCountdown()
+    {
+        if (_resetTargetUtc is not DateTime target)
+            return;
+        if ((target - DateTime.UtcNow).TotalSeconds <= 0)
+            _resetTargetUtc = null;
+        OnPropertiesChanged(nameof(TtrText), nameof(TtrVisible), nameof(TtrTooltip), nameof(AnyRightStatVisible));
+    }
+
+    // Drop the projected-reset state (back at the option menu, or disconnected: no live world to
+    // count down). Callers fire the TTR notifications.
+    private void ClearResetProjection()
+    {
+        _resetTargetUtc = null;
+        _lastResetMinutes = -1;
+        _resetUncertaintySec = ResetUncertaintyCoarseSec;
     }
 
     private void OnDreamwordChanged(string? word)
@@ -784,7 +896,9 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         {
             _inGameMode = false;
             IsConnected = false;
-            OnPropertiesChanged(nameof(IsInGameMode), nameof(IsRecordingButtonVisible));
+            ClearResetProjection();   // stop the countdown; a stale target would keep ticking down
+            OnPropertiesChanged(nameof(IsInGameMode), nameof(IsRecordingButtonVisible),
+                nameof(TtrText), nameof(TtrVisible), nameof(TtrTooltip), nameof(AnyRightStatVisible));
             Disconnected?.Invoke();
         });
 
