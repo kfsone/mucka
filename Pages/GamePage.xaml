@@ -130,7 +130,10 @@
                            Style="{StaticResource StatLabelStyle}" TextColor="#444444" Margin="8,0"/>
 
                     <!-- Status-effect cluster: | sta str dex | glow | ailments |  (Grid.Column 7)
-                         All icons are 28px. ABSOLUTE-width columns for sta/str/dex (36) and glow (30):
+                         All icons render at 26px. Glow's art was normalized to a full opaque disc
+                         (bloom now fades to a dark-amber rim, not transparent) so it reads as the
+                         same solid circle as the stat/ailment discs — no per-icon size trim needed.
+                         ABSOLUTE-width columns for sta/str/dex (36) and glow (30):
                          a fixed-width Grid column does NOT collapse when its icon is hidden, so the
                          dividers and the left stats never shift as effects come and go (a WidthRequest-
                          in-a-stacklayout collapsed, which caused the squish). HeightRequest reserves the
@@ -144,26 +147,26 @@
                     <Grid Grid.Column="7" VerticalOptions="Center" HeightRequest="28"
                           ColumnDefinitions="36,36,36,Auto,30,Auto,Auto,Auto,Auto,Auto">
                         <!-- Stamina: buff behind (offset), debuff in front -->
-                        <Image Grid.Column="0" Source="stamina.png"      Margin="5,0,0,0" TranslationY="{Binding SidePanel.StaminaBuffDy}"   IsVisible="{Binding SidePanel.StaminaBuff}"   ToolTipProperties.Text="{Binding SidePanel.StaminaBuffTip}"   WidthRequest="28" HeightRequest="28" VerticalOptions="Center" HorizontalOptions="Start"/>
-                        <Image Grid.Column="0" Source="stamina_neg.png"                   TranslationY="{Binding SidePanel.StaminaDebuffDy}" IsVisible="{Binding SidePanel.StaminaDebuff}" ToolTipProperties.Text="{Binding SidePanel.StaminaDebuffTip}" WidthRequest="28" HeightRequest="28" VerticalOptions="Center" HorizontalOptions="Start"/>
+                        <Image Grid.Column="0" Source="stamina.png"      Margin="5,0,0,0" TranslationY="{Binding SidePanel.StaminaBuffDy}"   IsVisible="{Binding SidePanel.StaminaBuff}"   ToolTipProperties.Text="{Binding SidePanel.StaminaBuffTip}"   WidthRequest="26" HeightRequest="26" VerticalOptions="Center" HorizontalOptions="Start"/>
+                        <Image Grid.Column="0" Source="stamina_neg.png"                   TranslationY="{Binding SidePanel.StaminaDebuffDy}" IsVisible="{Binding SidePanel.StaminaDebuff}" ToolTipProperties.Text="{Binding SidePanel.StaminaDebuffTip}" WidthRequest="26" HeightRequest="26" VerticalOptions="Center" HorizontalOptions="Start"/>
                         <!-- Strength -->
-                        <Image Grid.Column="1" Source="strength.png"     Margin="5,0,0,0" TranslationY="{Binding SidePanel.StrengthBuffDy}"   IsVisible="{Binding SidePanel.StrengthBuff}"   ToolTipProperties.Text="{Binding SidePanel.StrengthBuffTip}"   WidthRequest="28" HeightRequest="28" VerticalOptions="Center" HorizontalOptions="Start"/>
-                        <Image Grid.Column="1" Source="strength_neg.png"                  TranslationY="{Binding SidePanel.StrengthDebuffDy}" IsVisible="{Binding SidePanel.StrengthDebuff}" ToolTipProperties.Text="{Binding SidePanel.StrengthDebuffTip}" WidthRequest="28" HeightRequest="28" VerticalOptions="Center" HorizontalOptions="Start"/>
+                        <Image Grid.Column="1" Source="strength.png"     Margin="5,0,0,0" TranslationY="{Binding SidePanel.StrengthBuffDy}"   IsVisible="{Binding SidePanel.StrengthBuff}"   ToolTipProperties.Text="{Binding SidePanel.StrengthBuffTip}"   WidthRequest="26" HeightRequest="26" VerticalOptions="Center" HorizontalOptions="Start"/>
+                        <Image Grid.Column="1" Source="strength_neg.png"                  TranslationY="{Binding SidePanel.StrengthDebuffDy}" IsVisible="{Binding SidePanel.StrengthDebuff}" ToolTipProperties.Text="{Binding SidePanel.StrengthDebuffTip}" WidthRequest="26" HeightRequest="26" VerticalOptions="Center" HorizontalOptions="Start"/>
                         <!-- Dexterity -->
-                        <Image Grid.Column="2" Source="dexterity.png"    Margin="5,0,0,0" TranslationY="{Binding SidePanel.DexterityBuffDy}"   IsVisible="{Binding SidePanel.DexterityBuff}"   ToolTipProperties.Text="{Binding SidePanel.DexterityBuffTip}"   WidthRequest="28" HeightRequest="28" VerticalOptions="Center" HorizontalOptions="Start"/>
-                        <Image Grid.Column="2" Source="dexterity_neg.png"                 TranslationY="{Binding SidePanel.DexterityDebuffDy}" IsVisible="{Binding SidePanel.DexterityDebuff}" ToolTipProperties.Text="{Binding SidePanel.DexterityDebuffTip}" WidthRequest="28" HeightRequest="28" VerticalOptions="Center" HorizontalOptions="Start"/>
+                        <Image Grid.Column="2" Source="dexterity.png"    Margin="5,0,0,0" TranslationY="{Binding SidePanel.DexterityBuffDy}"   IsVisible="{Binding SidePanel.DexterityBuff}"   ToolTipProperties.Text="{Binding SidePanel.DexterityBuffTip}"   WidthRequest="26" HeightRequest="26" VerticalOptions="Center" HorizontalOptions="Start"/>
+                        <Image Grid.Column="2" Source="dexterity_neg.png"                 TranslationY="{Binding SidePanel.DexterityDebuffDy}" IsVisible="{Binding SidePanel.DexterityDebuff}" ToolTipProperties.Text="{Binding SidePanel.DexterityDebuffTip}" WidthRequest="26" HeightRequest="26" VerticalOptions="Center" HorizontalOptions="Start"/>
 
                         <!-- | separator before glow -->
                         <BoxView Grid.Column="3" WidthRequest="1" HeightRequest="12" Color="#3a3f45" VerticalOptions="Center" Margin="4,0"/>
                         <!-- Glow -->
-                        <Image Grid.Column="4" Source="glow.png" IsVisible="{Binding SidePanel.Glow}" ToolTipProperties.Text="{Binding SidePanel.GlowTip}" WidthRequest="28" HeightRequest="28" VerticalOptions="Center" HorizontalOptions="Center"/>
+                        <Image Grid.Column="4" Source="glow.png" IsVisible="{Binding SidePanel.Glow}" ToolTipProperties.Text="{Binding SidePanel.GlowTip}" WidthRequest="26" HeightRequest="26" VerticalOptions="Center" HorizontalOptions="Center"/>
                         <!-- | separator before ailments -->
                         <BoxView Grid.Column="5" WidthRequest="1" HeightRequest="12" Color="#3a3f45" VerticalOptions="Center" Margin="4,0"/>
-                        <!-- Ailments — full-colour emoji-style icons (28px); tooltip is the detected line. -->
-                        <Image Grid.Column="6" Source="deaf.png"     IsVisible="{Binding Deaf}"     ToolTipProperties.Text="{Binding SidePanel.DeafTip}"     WidthRequest="28" HeightRequest="28" VerticalOptions="Center" Margin="0,0,2,0"/>
-                        <Image Grid.Column="7" Source="blind.png"    IsVisible="{Binding Blind}"    ToolTipProperties.Text="{Binding SidePanel.BlindTip}"    WidthRequest="28" HeightRequest="28" VerticalOptions="Center" Margin="0,0,2,0"/>
-                        <Image Grid.Column="8" Source="dumb.png"     IsVisible="{Binding Dumb}"     ToolTipProperties.Text="{Binding SidePanel.DumbTip}"     WidthRequest="28" HeightRequest="28" VerticalOptions="Center" Margin="0,0,2,0"/>
-                        <Image Grid.Column="9" Source="crippled.png" IsVisible="{Binding Crippled}" ToolTipProperties.Text="{Binding SidePanel.CrippledTip}" WidthRequest="28" HeightRequest="28" VerticalOptions="Center" Margin="0,0,2,0"/>
+                        <!-- Ailments — full-colour emoji-style icons (26px); tooltip is the detected line. -->
+                        <Image Grid.Column="6" Source="deaf.png"     IsVisible="{Binding Deaf}"     ToolTipProperties.Text="{Binding SidePanel.DeafTip}"     WidthRequest="26" HeightRequest="26" VerticalOptions="Center" Margin="0,0,2,0"/>
+                        <Image Grid.Column="7" Source="blind.png"    IsVisible="{Binding Blind}"    ToolTipProperties.Text="{Binding SidePanel.BlindTip}"    WidthRequest="26" HeightRequest="26" VerticalOptions="Center" Margin="0,0,2,0"/>
+                        <Image Grid.Column="8" Source="dumb.png"     IsVisible="{Binding Dumb}"     ToolTipProperties.Text="{Binding SidePanel.DumbTip}"     WidthRequest="26" HeightRequest="26" VerticalOptions="Center" Margin="0,0,2,0"/>
+                        <Image Grid.Column="9" Source="crippled.png" IsVisible="{Binding Crippled}" ToolTipProperties.Text="{Binding SidePanel.CrippledTip}" WidthRequest="26" HeightRequest="26" VerticalOptions="Center" Margin="0,0,2,0"/>
                     </Grid>
 
                     <!-- Spacer -->
