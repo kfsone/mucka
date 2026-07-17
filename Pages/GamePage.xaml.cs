@@ -1,9 +1,7 @@
 using System.Runtime.InteropServices;
 using Mucka.Core;
 using Mucka.ViewModels;
-#if WINDOWS
-using MudSharp.Models;   // StyledLine, for the $f<n> annotation handler
-#endif
+using MudSharp.Models;   // StyledLine/StyledSpan/TextStyle — used by the chat placeholder (all targets) and the $f<n> annotation handler (Windows)
 
 namespace Mucka.Pages;
 
