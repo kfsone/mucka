@@ -619,7 +619,7 @@
 
                         <!-- Forget window: minutes a departed player lingers in the Recent list -->
                         <Grid ColumnDefinitions="160,*" ColumnSpacing="12">
-                            <Label Grid.Column="0" Text="Forget window" TextColor="#888888" FontSize="13" VerticalOptions="Center"
+                            <Label Grid.Column="0" Text="Offline window" TextColor="#888888" FontSize="13" VerticalOptions="Center"
                                    ToolTipProperties.Text="How long a player who drops off the Online list lingers in a quiet 'Recent' list below it before being forgotten. 0 = off (forget immediately). Max 10 min."/>
                             <HorizontalStackLayout Grid.Column="1" Spacing="6" VerticalOptions="Center">
                                 <Button Text="&#x2212;" Command="{Binding DecrForgetWindowCommand}"
