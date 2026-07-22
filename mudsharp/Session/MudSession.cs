@@ -25,6 +25,8 @@ public sealed class MudSession : IDisposable
     private DateTime _lastWakeProbeUtc;
     // Slack beyond the heartbeat interval before missing replies count as stale.
     private static readonly TimeSpan StaleReplySlack = TimeSpan.FromSeconds(5);
+    // FES-only probe: reset-time lives in FES, so a precision probe leaves FEW/FEI undisturbed.
+    private static readonly byte[] FesOnlyProbe = System.Text.Encoding.Latin1.GetBytes("\x1b-[FES\x1b-]");
     // Minimum spacing between wake probes so a chatty burst (e.g. dream text) fires only one.
     private static readonly TimeSpan WakeProbeFloor = TimeSpan.FromSeconds(2);
     // ── Reactive stale-stats probing ───────────────────────────────────────────
@@ -417,7 +419,13 @@ public sealed class MudSession : IDisposable
             AccountId:    partial.AccountId    ?? _currentStats.AccountId,
             Privs:        partial.Privs        ?? _currentStats.Privs,
             StaminaColor: partial.StaminaColor ?? _currentStats.StaminaColor
-        );
+        )
+        {
+            // Carry the freshness bit through the merge so consumers can tell a real FES reply from
+            // a carried-forward value (combat/text lines re-emit the last stats). The reset-time
+            // projection relies on this to only re-anchor on genuine readings.
+            HasFesStats = partial.HasFesStats
+        };
         StatsUpdated?.Invoke(_currentStats);
     }
 
@@ -868,6 +876,35 @@ public sealed class MudSession : IDisposable
         _lastWakeProbeUtc = now;
         lock (_fesLock)
             _fesTimer?.Change(TimeSpan.Zero, _fesInterval);   // fire immediately, keep the period
+    }
+
+    /// <summary>
+    /// Fire a single off-cadence FES-only probe to sharpen the reset-time projection, if it's worth
+    /// a game turn right now. Returns true only when a probe actually went out. Suppressed (false)
+    /// when not in game mode, the heartbeat is disabled, probes are held, we sent one within
+    /// <see cref="MudSessionOptions.MinProbeSpacing"/>, a routine beat is imminent (it's an
+    /// equally-fresh reading near the boundary, for free), or replies are stale — the character is
+    /// asleep and FES no-ops, so a probe would waste a turn and land nothing. Additive: unlike a
+    /// routine/stale probe it does NOT re-phase the heartbeat timer.
+    /// </summary>
+    public bool RequestPrecisionProbe()
+    {
+        lock (_fesLock)
+        {
+            if (!InGameMode || _fesInterval <= TimeSpan.Zero || _probesHeld)
+                return false;
+            var now = DateTime.UtcNow;
+            if (now - _lastProbeSentUtc < _options.MinProbeSpacing)
+                return false;
+            if (_nextRoutineProbeUtc - now <= _options.MinProbeSpacing)
+                return false;
+            if (now - _lastProbeReplyUtc > _fesInterval + StaleReplySlack)
+                return false;
+            _lastProbeSentUtc = now;
+        }
+        OutgoingBytes?.Invoke(FesOnlyProbe);
+        ProbeSent?.Invoke();
+        return true;
     }
 
     private void StopFesTimer()

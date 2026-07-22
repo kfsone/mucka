@@ -6,6 +6,7 @@ using Microsoft.Maui.Graphics;
 using Mucka.Audio;
 using Mucka.Core;
 using MudSharp.Models;
+using MudSharp.Session;
 
 namespace Mucka.ViewModels;
 
@@ -48,23 +49,11 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private bool _deaf;
     private bool _crippled;
     private bool _dumb;
-    // Projected next-reset instant (UTC). The server reports reset as whole minutes remaining
-    // (FES field 13); rather than freeze on that value between heartbeats we anchor an absolute
-    // target and count down to it locally (see UpdateResetProjection / TickResetCountdown).
-    private DateTime? _resetTargetUtc;
-    // Last raw reset-minutes value we acted on (-1 = none). Every StatsUpdated carries the last FES
-    // reset value forward — even combat/text lines — so we re-anchor only when this value actually
-    // changes, never on a carried-forward repeat.
-    private int _lastResetMinutes = -1;
-    // When we last observed an update still carrying _lastResetMinutes. Bounds how late we could be
-    // in noticing the next minute transition: the tick happened between this instant and the update
-    // that reports the new value, so the gap is our anchor error for that transition.
-    private DateTime _lastResetSeenUtc;
-    // Our current ± uncertainty (seconds) in the projected reset instant. Starts coarse (a whole
-    // minute — we only know which minute we're in) and tightens to the update cadence each time we
-    // catch a clean minute transition. Surfaced in the TTR tooltip.
-    private double _resetUncertaintySec = ResetUncertaintyCoarseSec;
-    private const double ResetUncertaintyCoarseSec = 59;
+    // Projected next-reset instant. The server reports reset as whole floored minutes (FES field
+    // 13); ResetProjection turns that stream of minute-granular readings into an absolute target
+    // with an uncertainty, and tells us when an extra FES probe would sharpen it (see the 1 Hz tick
+    // in TickResetCountdown, which drives both the local countdown and the probe request).
+    private readonly ResetProjection _reset = new();
     // Below this uncertainty we trust the projection to ~second resolution and show a seconds
     // countdown in the final stretch; above it we keep the minute form to avoid false precision.
     private const double ResetSecondsDisplayMaxUncertainty = 15;
@@ -222,25 +211,25 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     // Countdown to the projected reset instant. Whole minutes ("5m") until the final stretch, then
     // seconds ("29s") once under 30 s — where the minute-granular server value used to round to 0
     // and show nothing. The seconds form appears only once the projection is confident to ~second
-    // resolution (see _resetUncertaintySec); before that we keep the minute form so we never imply
-    // precision we lack. Empty (hidden) when no reset is projected or it has lapsed.
+    // resolution (see ResetProjection.UncertaintySec); before that we keep the minute form so we
+    // never imply precision we lack. Empty (hidden) when no reset is projected or it has lapsed.
     public string TtrText
     {
         get
         {
-            if (_resetTargetUtc is not DateTime target) return string.Empty;
+            if (_reset.TargetUtc is not DateTime target) return string.Empty;
             var secs = (int)Math.Round((target - DateTime.UtcNow).TotalSeconds);
             if (secs <= 0) return string.Empty;
-            return secs < 30 && _resetUncertaintySec <= ResetSecondsDisplayMaxUncertainty
+            return secs < 30 && _reset.UncertaintySec <= ResetSecondsDisplayMaxUncertainty
                 ? $"{secs}s"
                 : $"{(secs + 59) / 60}m";   // ceil to whole minutes
         }
     }
     public bool   TtrVisible  => TtrText.Length != 0;
     // "Time until reset" plus our current ± confidence, so hovering reveals how much to trust it.
-    public string TtrTooltip  => _resetTargetUtc is null
+    public string TtrTooltip  => _reset.TargetUtc is null
         ? "Time until reset"
-        : $"Time until reset (±{(int)Math.Ceiling(_resetUncertaintySec)}s)";
+        : $"Time until reset (±{(int)Math.Ceiling(_reset.UncertaintySec)}s)";
     public bool   WeatherVisible => _weather is not (' ' or '\0' or (char)0);
     public bool   AnyRightStatVisible => WeatherVisible || TtrVisible;
 
@@ -784,7 +773,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             _deaf         = stats.IsDeaf;
             _crippled     = stats.IsCrippled;
             _dumb         = stats.IsDumb;
-            UpdateResetProjection(stats.TimeToReset);
+            _reset.Observe(stats.TimeToReset, stats.HasFesStats, DateTime.UtcNow);
             _weather      = stats.Weather;
             _staminaColor = stats.StaminaColor ?? 0;
 
@@ -815,78 +804,33 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         });
     }
 
-    // Anchor and progressively refine the projected reset instant from FES values (whole minutes
-    // remaining). Rather than freeze on the last server value between heartbeats — which stalls when
-    // FES is delayed (mapping focus collapses the heartbeat, or a network stall) — we hold an
-    // absolute target and let TickResetCountdown count down to it locally.
-    //
-    // The refinement: the server value is minute-granular, so a first sighting only tells us WHICH
-    // minute we're in (± a whole minute). But a clean single-step decrement (5→4) is a *transition*
-    // whose real instant we can bracket — it happened between the last update that still showed the
-    // old value and this one — so we re-anchor on the transition and set our uncertainty to that
-    // gap. The more often updates arrive (combat lines confirm the current value too, not just FES
-    // beats), the tighter the bracket, so confidence pessimistically improves as evidence arrives.
-    //
-    // Timing convention assumed: a transition to value V means ~V minutes remain at that instant
-    // (the counter reads minutes-remaining). If the server actually floors (V shown while V..V+1 min
-    // remain) the absolute anchor is ~60 s early — verify against a live capture; it's a one-line
-    // change here. The confidence-tightening behaviour holds either way.
-    //
-    // Every StatsUpdated carries the last FES value forward (combat/text lines included); a repeat
-    // carries no new minute value but DOES confirm the value is still current, tightening the next
-    // transition's bracket. Runs on the UI thread (OnStatsUpdated marshals there), same as
-    // TickResetCountdown, so the reset fields need no locking.
-    private void UpdateResetProjection(int? serverMinutes)
-    {
-        var now  = DateTime.UtcNow;
-        var mins = serverMinutes ?? 0;
-
-        if (mins == _lastResetMinutes)
-        {
-            if (mins > 0) _lastResetSeenUtc = now;   // still current — narrows the next bracket
-            return;
-        }
-
-        var prevMins = _lastResetMinutes;
-        var prevSeen = _lastResetSeenUtc;
-        _lastResetMinutes = mins;
-        _lastResetSeenUtc = now;
-
-        // <1 min (0) or absent: no minute value to anchor. Keep counting any target we already hold
-        // (its uncertainty stays as last refined); a real reset re-arrives as a large positive count.
-        if (mins <= 0)
-            return;
-
-        _resetTargetUtc = now + TimeSpan.FromMinutes(mins);
-
-        // A clean one-minute decrement is a transition we can time; anything else (first sighting,
-        // a reset that bumped the value up, or skipped minutes after a stall) leaves us only knowing
-        // the minute, so fall back to coarse uncertainty.
-        _resetUncertaintySec = prevMins == mins + 1
-            ? Math.Min(ResetUncertaintyCoarseSec, (now - prevSeen).TotalSeconds)
-            : ResetUncertaintyCoarseSec;
-    }
-
     // Advance the projected reset countdown; called from the 1 Hz UI tick (OnAntiIdleTick). Cheap
-    // no-op when no reset is projected. Self-clears once the target passes so a lapsed countdown
-    // hides until the next FES re-anchors it.
+    // no-op when no reset is projected. Also the place we ask for a precision probe: once routine
+    // readings have plateaued but we're not yet sub-second, ResetProjection nominates the next
+    // minute-boundary crossing, and if one lands in this tick we spend a game turn on an extra FES
+    // probe to sharpen the anchor. RequestPrecisionProbe may still decline (spacing/hold/asleep);
+    // we only tell the estimator a probe is outstanding when one actually went out.
     public void TickResetCountdown()
     {
-        if (_resetTargetUtc is not DateTime target)
+        var now = DateTime.UtcNow;
+        var had = _reset.TargetUtc is not null;
+        _reset.Tick(now);
+        if (_reset.TargetUtc is null)
+        {
+            // Nothing projected (menu / pre-game). Fire one last update only if a target just
+            // lapsed, so the countdown hides; otherwise stay silent — no per-second UI churn.
+            if (had)
+                OnPropertiesChanged(nameof(TtrText), nameof(TtrVisible), nameof(TtrTooltip), nameof(AnyRightStatVisible));
             return;
-        if ((target - DateTime.UtcNow).TotalSeconds <= 0)
-            _resetTargetUtc = null;
+        }
+        if (_reset.TryGetPrecisionProbeDue(now) && _conn.RequestPrecisionProbe())
+            _reset.NotePrecisionProbeSent(now);
         OnPropertiesChanged(nameof(TtrText), nameof(TtrVisible), nameof(TtrTooltip), nameof(AnyRightStatVisible));
     }
 
     // Drop the projected-reset state (back at the option menu, or disconnected: no live world to
     // count down). Callers fire the TTR notifications.
-    private void ClearResetProjection()
-    {
-        _resetTargetUtc = null;
-        _lastResetMinutes = -1;
-        _resetUncertaintySec = ResetUncertaintyCoarseSec;
-    }
+    private void ClearResetProjection() => _reset.Clear();
 
     private void OnDreamwordChanged(string? word)
         => MainThread.BeginInvokeOnMainThread(() => Dreamword = word ?? string.Empty);

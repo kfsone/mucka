@@ -245,6 +245,10 @@ public sealed class MuckaConnection : IAsyncDisposable
     /// <summary>Hold/release the FES/FEW/FEI probe machinery (see MudSession.SetProbeHold).</summary>
     public void SetProbeHold(bool held) => _session.SetProbeHold(held);
 
+    /// <summary>Fire a single off-cadence FES probe to sharpen the reset-time projection, spending a
+    /// game turn only when worthwhile (see MudSession.RequestPrecisionProbe). Returns true if sent.</summary>
+    public bool RequestPrecisionProbe() => _session.RequestPrecisionProbe();
+
     /// <summary>Queue a "sniff" (value &lt;name&gt;) probe to ride the next FES heartbeat
     /// (see MudSession.QueueValueProbe). Used to disambiguate a player who left the Online list.</summary>
     public void QueueValueProbe(string name) => _session.QueueValueProbe(name);
