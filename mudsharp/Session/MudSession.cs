@@ -947,7 +947,11 @@ public sealed class MudSession : IDisposable
     }
 
     /// <summary>Suspend (true) / resume (false) the routine heartbeat while a reset-discovery pass owns
-    /// the channel. Resuming re-phases the routine tick a full interval out. Called by ResetClock.</summary>
+    /// the channel. Resuming fires a beat IMMEDIATELY (then keeps the period): the pass already
+    /// suppressed beats for several seconds, and re-phasing a full interval out on top of that pushed
+    /// the panel past its stale threshold at every retried minute boundary — the "status updates
+    /// aren't regular" complaint. The channel is free the instant the hold drops, so an immediate
+    /// compound probe is safe. Outside game mode, just restore the period. Called by ResetClock.</summary>
     private void SetResetDiscoveryHold(bool held)
     {
         lock (_fesLock)
@@ -956,8 +960,9 @@ public sealed class MudSession : IDisposable
             _resetDiscoveryHold = held;
             if (!held && _fesTimer is not null && _fesInterval > TimeSpan.Zero)
             {
-                _nextRoutineProbeUtc = DateTime.UtcNow + _fesInterval;
-                _fesTimer.Change(_fesInterval, _fesInterval);
+                var due = InGameMode ? TimeSpan.Zero : _fesInterval;
+                _nextRoutineProbeUtc = DateTime.UtcNow + due;
+                _fesTimer.Change(due, _fesInterval);
             }
         }
     }

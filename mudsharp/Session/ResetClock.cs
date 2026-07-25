@@ -409,8 +409,19 @@ public sealed class ResetClock : IDisposable
     private string? HandleTimeoutLocked()
     {
         long now = _monoNow();
-        if (!_sampleInFlight || now - _sampleSendMs < (long)_o.SampleTimeout.TotalMilliseconds)
+        if (!_sampleInFlight)
             return null;
+        long dueMs = _sampleSendMs + (long)_o.SampleTimeout.TotalMilliseconds;
+        if (now < dueMs)
+        {
+            // The timer fired ahead of the sample's deadline (timer-clock vs monotonic-clock skew,
+            // or a stale callback that raced a reply): KEEP the deadline armed. Returning without
+            // re-arming left the sample in flight with no timer pending — and every probe path
+            // gates on IsSamplingInFlight, so one early fire deadlocked the entire FES machinery
+            // (no status updates at all) for the rest of the session.
+            ReArmTimerLocked(now, dueMs);
+            return null;
+        }
         _sampleInFlight = false;
         string note = "reset sample unanswered (rate-limit / collision / asleep)";
         if (++_timeoutStreak >= 3)
