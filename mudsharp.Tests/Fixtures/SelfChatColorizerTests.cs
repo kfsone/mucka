@@ -12,8 +12,9 @@ public class SelfChatColorizerTests
     private const int NameRgb = 0x0026ff;
     private const int SpeechRgb = 0x0094ff;
 
-    private static StyledLine Chat(string text) =>
-        new(new[] { new StyledSpan(text, TextStyle.Default) }, isPartial: false, kind: LineKind.Chat);
+    private static StyledLine Chat(string text, bool continuesChat = false) =>
+        new(new[] { new StyledSpan(text, TextStyle.Default) }, isPartial: false, kind: LineKind.Chat,
+            continuesChat: continuesChat);
 
     private static StyledLine Normal(string text) =>
         new(new[] { new StyledSpan(text, TextStyle.Default) }, isPartial: false, kind: LineKind.Normal);
@@ -72,38 +73,84 @@ public class SelfChatColorizerTests
     public void WrappedTell_ContinuationLine_StaysSpeechColoured()
     {
         // The server soft-wraps a long tell into two chat lines; only the first starts with "You".
-        // The open quote must carry so the whole continuation renders in the speech colour.
-        bool carry = false;
+        // The continuation is identified by ContinuesChat (the parser's C09 scope fact) and the
+        // open quote carries the name/speech split across the wrap.
+        var carry = default(SelfChatColorizer.Carry);
         var first = SelfChatColorizer.Apply(
             Chat("You tell your listeners \"hello there this is"), "Ollie", NameRgb, SpeechRgb, ref carry);
-        Assert.True(carry);   // quote left open at the end of the first line
+        Assert.True(carry.SelfActive);
+        Assert.True(carry.InQuote);   // quote left open at the end of the first line
         Assert.Contains(first.Spans, s => s.Text == "You tell your listeners " && s.Style.ForegroundRgb == NameRgb);
         Assert.Contains(first.Spans, s => s.Text.StartsWith('"') && s.Style.ForegroundRgb == SpeechRgb);
 
         var second = SelfChatColorizer.Apply(
-            Chat("a rather long message\"."), "Ollie", NameRgb, SpeechRgb, ref carry);
-        Assert.False(carry);  // quote closes on the second line
+            Chat("a rather long message\".", continuesChat: true), "Ollie", NameRgb, SpeechRgb, ref carry);
+        Assert.False(carry.InQuote);  // quote closes on the second line
         Assert.Contains(second.Spans, s => s.Text == "a rather long message\"" && s.Style.ForegroundRgb == SpeechRgb);
         Assert.Contains(second.Spans, s => s.Text == "." && s.Style.ForegroundRgb == NameRgb);
     }
 
     [Fact]
-    public void CarryQuote_DoesNotLeakToNonChatOrClosedQuote()
+    public void WrapOutsideQuote_ContinuationStillColoured()
     {
-        // A fully-closed self line leaves the carry off, so a following chat line is untouched.
-        bool carry = false;
+        // The wrap point can fall OUTSIDE any quote (an emote, or label text after the closing
+        // quote). The continuation must still recolour — in the name colour — because eligibility
+        // comes from ContinuesChat + SelfActive, not from an open quote.
+        var carry = default(SelfChatColorizer.Carry);
+        SelfChatColorizer.Apply(
+            Chat("Ollie the swordsman waves cheerfully at absolutely"), "Ollie", NameRgb, SpeechRgb, ref carry);
+        Assert.True(carry.SelfActive);
+        Assert.False(carry.InQuote);   // no quote anywhere on the first line
+
+        var second = SelfChatColorizer.Apply(
+            Chat("everyone in the room.", continuesChat: true), "Ollie", NameRgb, SpeechRgb, ref carry);
+        Assert.Contains(second.Spans, s => s.Text == "everyone in the room." && s.Style.ForegroundRgb == NameRgb);
+    }
+
+    [Fact]
+    public void OthersMessage_ResetsCarry_AndUnbalancedQuoteNeverBleeds()
+    {
+        // A fully-closed self line: SelfActive stays armed (a wrap could still follow) but a new
+        // message from someone else must reset it and pass through untouched.
+        var carry = default(SelfChatColorizer.Carry);
         SelfChatColorizer.Apply(Chat("You say \"done\"."), "Ollie", NameRgb, SpeechRgb, ref carry);
-        Assert.False(carry);
+        Assert.False(carry.InQuote);
 
         var next = Chat("Bob says \"unrelated\".");
         var result = SelfChatColorizer.Apply(next, "Ollie", NameRgb, SpeechRgb, ref carry);
         Assert.Same(next, result);
+        Assert.False(carry.SelfActive);
 
-        // Even with an open carry, a non-chat line is never treated as a continuation.
-        carry = true;
+        // Even after a self line with an UNBALANCED quote, someone else's next message (a fresh
+        // message start, not a continuation) is never treated as our continuation.
+        SelfChatColorizer.Apply(Chat("You say \"oops unbalanced."), "Ollie", NameRgb, SpeechRgb, ref carry);
+        Assert.True(carry.InQuote);
+        var bob = Chat("Bob says \"hello\".");
+        Assert.Same(bob, SelfChatColorizer.Apply(bob, "Ollie", NameRgb, SpeechRgb, ref carry));
+        Assert.False(carry.SelfActive);
+    }
+
+    [Fact]
+    public void OthersContinuation_NotColoured()
+    {
+        // A wrapped message someone else started: its continuation rows carry ContinuesChat but
+        // SelfActive is off, so they pass through untouched.
+        var carry = default(SelfChatColorizer.Carry);
+        var first = Chat("Bob shouts \"a very long shout that the server");
+        Assert.Same(first, SelfChatColorizer.Apply(first, "Ollie", NameRgb, SpeechRgb, ref carry));
+        var cont = Chat("wraps onto a second line\".", continuesChat: true);
+        Assert.Same(cont, SelfChatColorizer.Apply(cont, "Ollie", NameRgb, SpeechRgb, ref carry));
+    }
+
+    [Fact]
+    public void NonChatLine_ResetsCarry()
+    {
+        // A non-chat line is never a continuation and clears the message state.
+        var carry = new SelfChatColorizer.Carry { SelfActive = true, InQuote = true };
         var normal = Normal("some room description");
         Assert.Same(normal, SelfChatColorizer.Apply(normal, "Ollie", NameRgb, SpeechRgb, ref carry));
-        Assert.False(carry);
+        Assert.False(carry.SelfActive);
+        Assert.False(carry.InQuote);
     }
 
     [Fact]

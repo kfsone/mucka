@@ -233,6 +233,11 @@ public sealed class MudStreamParser
     // continuation lines, whose colour is still pushed at the wrap point.
     private bool _inChatContext;
     private int _chatContextDepth;
+    // Snapshot of _inChatContext taken at each newline — i.e. whether the C09 scope was already
+    // open when the NEXT line starts. A line finalised with this true is a server-wrapped
+    // continuation of the previous chat line (StyledLine.ContinuesChat); a line that carries its
+    // own C09 opens the scope mid-line, after this snapshot, so message starts are never tagged.
+    private bool _chatOpenAtLineStart;
     internal bool InChatContext => _inChatContext;
     internal int ChatContextDepth => _chatContextDepth;
     internal void EnterChatContext(int targetDepth)
@@ -521,6 +526,7 @@ public sealed class MudStreamParser
         _longDescContextDepth = 0;
         _inChatContext = false;
         _chatContextDepth = 0;
+        _chatOpenAtLineStart = false;
         _pendingKind = LineKind.Normal;
         _pendingTellSound = false;
         CurrentDreamword = null;
@@ -535,6 +541,11 @@ public sealed class MudStreamParser
     {
         if (ch == '\n')
         {
+            // Whether the C09 chat scope was open when THIS line started (set at the previous
+            // newline), consumed for the ContinuesChat tag below; then re-snapshot for the next
+            // line. Taken up front so every return path below leaves the snapshot correct.
+            bool chatOpenAtLineStart = _chatOpenAtLineStart;
+            _chatOpenAtLineStart = _inChatContext;
             _optionMatchLen = 0;   // the option-menu match never spans a newline
             // A colour-interrupted WHO-list name ends at its line's newline.
             if (_fewNameActive) FinalizeFewName();
@@ -587,7 +598,8 @@ public sealed class MudStreamParser
             // unclosed C09 colour scope (a server-wrapped continuation line, whose own code was on
             // an earlier line). See EnterChatContext.
             var lineKind = (_pendingKind == LineKind.Chat || _inChatContext) ? LineKind.Chat : LineKind.Normal;
-            var line = new StyledLine(_spans.ToArray(), isPartial: false, kind: lineKind);
+            var line = new StyledLine(_spans.ToArray(), isPartial: false, kind: lineKind,
+                continuesChat: lineKind == LineKind.Chat && chatOpenAtLineStart);
             var tellAlertRequested = _pendingTellSound;
             _spans.Clear();
             _pendingKind = LineKind.Normal;   // per-line signal; _inChatContext carries wrapped continuation lines
@@ -781,6 +793,7 @@ public sealed class MudStreamParser
         _pendingRoomShort = false;
         _inLongDescContext = false;
         _inChatContext = false;
+        _chatOpenAtLineStart = false;
         _pendingKind = LineKind.Normal;
         _pendingTellSound = false;
         C1.ResetGameState();
@@ -833,7 +846,7 @@ public sealed class MudStreamParser
             }
         }
 
-        return new StyledLine(rewritten, line.IsPartial, line.Kind);
+        return new StyledLine(rewritten, line.IsPartial, line.Kind, line.ContinuesChat);
     }
 
     private static string ChooseTellAlertSound(string lineText)
@@ -898,7 +911,7 @@ public sealed class MudStreamParser
             }
         }
 
-        return new StyledLine(rewritten, line.IsPartial, line.Kind);
+        return new StyledLine(rewritten, line.IsPartial, line.Kind, line.ContinuesChat);
     }
 
     private static void AddCut(List<int> cuts, int rangeStart, int rangeEnd, int spanStart, int spanEnd)

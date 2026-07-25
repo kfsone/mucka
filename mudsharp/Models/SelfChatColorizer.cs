@@ -12,6 +12,11 @@ namespace MudSharp.Models;
 /// speech colour — split by walking the double-quote state, so multiple quoted segments on one
 /// line are each caught. Existing styling (the tell decoration's underline/italic, bold) is
 /// preserved; only the foreground RGB is stamped.
+///
+/// A server-wrapped message keeps its colours on every physical line: continuation rows are
+/// identified by <see cref="StyledLine.ContinuesChat"/> — the parser's C09 colour-scope fact —
+/// never guessed from the text, so wraps outside a quote (emotes, text after the closing quote)
+/// colour correctly and an unbalanced quote can never bleed onto someone else's message.
 /// </summary>
 public static class SelfChatColorizer
 {
@@ -22,6 +27,20 @@ public static class SelfChatColorizer
     public static readonly string DefaultSpeechHex = "ffcf60";
     public static readonly int    DefaultNameRgb   = TryParseRgb(DefaultNameHex)!.Value;
     public static readonly int    DefaultSpeechRgb = TryParseRgb(DefaultSpeechHex)!.Value;
+
+    /// <summary>
+    /// Per-message state threaded across the lines of a drain. <see cref="SelfActive"/> is the
+    /// eligibility gate: the last chat message to start was self-authored, so its
+    /// <see cref="StyledLine.ContinuesChat"/> rows recolour too. <see cref="InQuote"/> only
+    /// carries the name/speech split point across the wrap — it never gates.
+    /// </summary>
+    public struct Carry
+    {
+        /// <summary>The current (most recently started) chat message is self-authored.</summary>
+        public bool SelfActive;
+        /// <summary>A double quote was still open when the previous line of that message ended.</summary>
+        public bool InQuote;
+    }
 
     /// <summary>Parses "#rrggbb" / "rrggbb" into a packed 0xRRGGBB int, or null when malformed.</summary>
     public static int? TryParseRgb(string? hex)
@@ -45,11 +64,11 @@ public static class SelfChatColorizer
 
     /// <summary>
     /// Stateless convenience overload — colours one self-authored chat line with no cross-line
-    /// quote continuation. Equivalent to the <c>ref</c> overload started with a closed quote.
+    /// message state. Equivalent to the <c>ref</c> overload started with a fresh <see cref="Carry"/>.
     /// </summary>
     public static StyledLine Apply(StyledLine line, string? myName, int nameRgb, int speechRgb)
     {
-        bool carry = false;
+        var carry = default(Carry);
         return Apply(line, myName, nameRgb, speechRgb, ref carry);
     }
 
@@ -59,22 +78,29 @@ public static class SelfChatColorizer
     /// <paramref name="nameRgb"/>/<paramref name="speechRgb"/> are packed 0xRRGGBB foregrounds for
     /// the unquoted label and the quoted speech respectively.
     ///
-    /// <paramref name="carryQuote"/> threads the "inside an open quote" state across lines: pass
-    /// <c>false</c> for a fresh drain; it is updated to whether a quote is still open past this line
-    /// so the caller can feed it back for the next. A line that does not itself start with a self
-    /// prefix is only treated as a continuation while a quote is open AND it is a
-    /// <see cref="LineKind.Chat"/> line — matching how MUD2 keeps wrapped speaker text in the chat
-    /// colour scope. This is what keeps every wrapped row of a long tell in the speech colour, not
-    /// just the first.
+    /// <paramref name="carry"/> threads the per-message state across lines: a line qualifies as a
+    /// continuation when the parser marked it <see cref="StyledLine.ContinuesChat"/> (its C09
+    /// scope opened on an earlier line) AND the message that opened that scope was self-authored
+    /// (<see cref="Carry.SelfActive"/>). Any other line — a new message, or anything non-chat —
+    /// resets the carry, so state can never leak past the message it belongs to.
     /// </summary>
-    public static StyledLine Apply(StyledLine line, string? myName, int nameRgb, int speechRgb, ref bool carryQuote)
+    public static StyledLine Apply(StyledLine line, string? myName, int nameRgb, int speechRgb, ref Carry carry)
     {
         bool startInQuote;
         if (IsSelf(line, myName))
+        {
+            carry.SelfActive = true;
             startInQuote = false;                                 // a new self line begins outside any quote
-        else if (carryQuote && line.Kind == LineKind.Chat)
-            startInQuote = true;                                  // wrapped continuation of the self speech
-        else { carryQuote = false; return line; }
+        }
+        else if (line.Kind == LineKind.Chat && line.ContinuesChat && carry.SelfActive)
+        {
+            startInQuote = carry.InQuote;                         // wrapped continuation of the self message
+        }
+        else
+        {
+            carry = default;
+            return line;
+        }
 
         var rewritten = new List<StyledSpan>(line.Spans.Count + 4);
         bool inQuote = startInQuote;
@@ -104,8 +130,8 @@ public static class SelfChatColorizer
                 rewritten.Add(Recolour(span, t[runStart..], runSpeech, nameRgb, speechRgb));
         }
 
-        carryQuote = inQuote;   // stays true only while a quote remains open into the next line
-        return new StyledLine(rewritten, line.IsPartial, line.Kind);
+        carry.InQuote = inQuote;   // where the name/speech split resumes if the message wraps on
+        return new StyledLine(rewritten, line.IsPartial, line.Kind, line.ContinuesChat);
     }
 
     private static StyledSpan Recolour(StyledSpan src, string text, bool speech, int nameRgb, int speechRgb)

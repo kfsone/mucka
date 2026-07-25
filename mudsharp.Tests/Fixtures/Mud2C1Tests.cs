@@ -1275,6 +1275,65 @@ public class Mud2C1Tests
     }
 
     [Fact]
+    public void C09WrappedMessage_MarksContinuationLines()
+    {
+        // ContinuesChat is the parser's "same message as the previous line" fact: false on the
+        // line that carries the C09 code (the scope opens mid-line, after the line started),
+        // true on every server-wrapped row while the scope stays open, and never set once the
+        // colour pops. This is what downstream per-message state (the self-chat recolour) keys on.
+        var h = new ParserHarness();
+        h.Feed(0xA4, 0x9C, 0xFF, 0xFF);
+        h.Feed("a long shout that the server wraps\n");
+        h.Feed("across a second line\n");
+        h.Feed("and a third\n");
+        h.Feed(0xFF, 0xFF);
+        h.Feed("a normal room line.\n");
+        Assert.Equal(4, h.Lines.Count);
+        Assert.False(h.Lines[0].ContinuesChat);   // message start — C09 arrived on this line
+        Assert.True(h.Lines[1].ContinuesChat);
+        Assert.True(h.Lines[2].ContinuesChat);
+        Assert.False(h.Lines[3].ContinuesChat);   // scope popped before this line
+    }
+
+    [Fact]
+    public void C09BackToBackMessages_DoNotChainContinuation()
+    {
+        // Two complete single-line messages in a row: the second is a fresh message (its own C09,
+        // scope closed in between), never a continuation of the first.
+        var h = new ParserHarness();
+        h.Feed(0xA4, 0x9B, 0xFF, 0xFF);
+        h.Feed("Ollie says \"one\".");
+        h.Feed(0xFF, 0xFF);
+        h.Feed("\n");
+        h.Feed(0xA4, 0x9B, 0xFF, 0xFF);
+        h.Feed("Bob says \"two\".");
+        h.Feed(0xFF, 0xFF);
+        h.Feed("\n");
+        Assert.Equal(2, h.Lines.Count);
+        Assert.False(h.Lines[0].ContinuesChat);
+        Assert.False(h.Lines[1].ContinuesChat);
+    }
+
+    [Fact]
+    public void C09WrappedMessage_WithInnerColour_StillMarksContinuation()
+    {
+        // Same shape as the inner-nest Kind regression: an inner C09 scope completing on line 0
+        // must not make line 1 look like a message start — it is still a continuation.
+        var h = new ParserHarness();
+        h.Feed(0xA4, 0x9C, 0xFF, 0xFF);          // outer shout colour pushed
+        h.Feed("a long shout with a ");
+        h.Feed(0xA4, 0x9C, 0xFF, 0xFF);          // inner nested colour (highlighted word)
+        h.Feed("word");
+        h.Feed(0xFF, 0xFF);                       // inner pop — back to the C09 base depth
+        h.Feed(" and more that wraps\n");         // line 0
+        h.Feed("onto a second wrapped line\n");   // line 1
+        h.Feed(0xFF, 0xFF);                       // outer pop — message ends
+        Assert.Equal(2, h.Lines.Count);
+        Assert.False(h.Lines[0].ContinuesChat);
+        Assert.True(h.Lines[1].ContinuesChat);
+    }
+
+    [Fact]
     public void ChatKind_DoesNotLeakToNextLine()
     {
         // A single-line shout (colour popped before its newline, as MUD2 sends it) must not tag

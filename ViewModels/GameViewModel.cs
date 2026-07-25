@@ -75,10 +75,10 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private string _meSpeechColor = SelfChatColorizer.DefaultSpeechHex;
     private int _meNameRgb   = SelfChatColorizer.DefaultNameRgb;
     private int _meSpeechRgb = SelfChatColorizer.DefaultSpeechRgb;
-    // Threads open-quote state across the drain so a self tell the server soft-wrapped keeps the
-    // speech colour on every continuation line, not just the first. Self-heals to false on the
-    // next non-chat line, so it need not be reset on disconnect.
-    private bool _selfQuoteCarry;
+    // Threads per-message state across the drain so a self message the server soft-wrapped keeps
+    // its colours on every continuation line (StyledLine.ContinuesChat), not just the first.
+    // Self-heals to default on the next non-continuation line, so it need not be reset on disconnect.
+    private SelfChatColorizer.Carry _selfChatCarry;
     private int _defaultFontSize;
     private int _defaultMaxColumns;
     // The saved "Float online by default" global. Tracked separately from the live pin state
@@ -762,7 +762,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         {
             // Recolour our own chat lines ("me") before painting/buffering so scrollback and the
             // chat filter show them highlighted too. A no-op for non-chat / non-self lines.
-            line = SelfChatColorizer.Apply(line, _currentChar, _meNameRgb, _meSpeechRgb, ref _selfQuoteCarry);
+            line = SelfChatColorizer.Apply(line, _currentChar, _meNameRgb, _meSpeechRgb, ref _selfChatCarry);
             batch.Add(line);
             if (!line.IsPartial && !line.PlainText.Contains('\f'))
             {
