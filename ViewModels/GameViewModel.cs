@@ -69,6 +69,16 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private int _antiIdleSeconds;
     private bool _keepScreenOn;
     private int _dreamwordSizeOffset;
+    // "Me" self-chat colours: hex text (for round-tripping to settings) plus the parsed 0xRRGGBB
+    // used to recolour our own chat lines at flush time.
+    private string _meNameColor   = SelfChatColorizer.DefaultNameHex;
+    private string _meSpeechColor = SelfChatColorizer.DefaultSpeechHex;
+    private int _meNameRgb   = SelfChatColorizer.DefaultNameRgb;
+    private int _meSpeechRgb = SelfChatColorizer.DefaultSpeechRgb;
+    // Threads open-quote state across the drain so a self tell the server soft-wrapped keeps the
+    // speech colour on every continuation line, not just the first. Self-heals to false on the
+    // next non-chat line, so it need not be reset on disconnect.
+    private bool _selfQuoteCarry;
     private int _defaultFontSize;
     private int _defaultMaxColumns;
     // The saved "Float online by default" global. Tracked separately from the live pin state
@@ -459,6 +469,8 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         DefaultFontSize     = _defaultFontSize,
         DefaultMaxColumns   = _defaultMaxColumns,
         DreamwordSizeOffset = _dreamwordSizeOffset,
+        MeNameColor         = _meNameColor,
+        MeSpeechColor       = _meSpeechColor,
         ShowOnline    = SidePanel.IsOnlineExpanded,
         ShowInventory = SidePanel.IsInventoryExpanded,
         ShowItemsHere = SidePanel.IsItemsHereExpanded,
@@ -541,6 +553,10 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _fkeysPerProfile     = profile.FkeysPerProfile;
         _sounds              = profile.Sounds;
         _dreamwordSizeOffset = Math.Clamp(profile.DreamwordSizeOffset, -2, 4);
+        _meNameColor   = profile.MeNameColor;
+        _meSpeechColor = profile.MeSpeechColor;
+        _meNameRgb   = SelfChatColorizer.TryParseRgb(_meNameColor)   ?? SelfChatColorizer.DefaultNameRgb;
+        _meSpeechRgb = SelfChatColorizer.TryParseRgb(_meSpeechColor) ?? SelfChatColorizer.DefaultSpeechRgb;
         _defaultFontSize     = profile.DefaultFontSize;
         _defaultMaxColumns   = profile.DefaultMaxColumns;
         _floatOnline         = profile.FloatOnline;
@@ -648,6 +664,10 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _floatCompass = settings.FloatCompass;
 
         _dreamwordSizeOffset = Math.Clamp(settings.DreamwordSizeOffset, -2, 4);
+        _meNameColor   = settings.MeNameColor;
+        _meSpeechColor = settings.MeSpeechColor;
+        _meNameRgb   = SelfChatColorizer.TryParseRgb(_meNameColor)   ?? SelfChatColorizer.DefaultNameRgb;
+        _meSpeechRgb = SelfChatColorizer.TryParseRgb(_meSpeechColor) ?? SelfChatColorizer.DefaultSpeechRgb;
         _defaultFontSize     = settings.DefaultFontSize;
         _defaultMaxColumns   = settings.DefaultMaxColumns;
         OnPropertyChanged(nameof(DreamwordFontSize));
@@ -740,6 +760,9 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         var batch = new List<StyledLine>();
         while (_pendingLines.TryDequeue(out var line))
         {
+            // Recolour our own chat lines ("me") before painting/buffering so scrollback and the
+            // chat filter show them highlighted too. A no-op for non-chat / non-self lines.
+            line = SelfChatColorizer.Apply(line, _currentChar, _meNameRgb, _meSpeechRgb, ref _selfQuoteCarry);
             batch.Add(line);
             if (!line.IsPartial && !line.PlainText.Contains('\f'))
             {

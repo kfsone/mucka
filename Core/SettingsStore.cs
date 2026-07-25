@@ -75,7 +75,9 @@ public static class SettingsStore
         int? OnlineForgetWindow = null,
         bool? FloatOnline       = null,
         bool? FloatCompass      = null,
-        bool? LogResetDiagnostics = null)
+        bool? LogResetDiagnostics = null,
+        string? MeNameColor     = null,
+        string? MeSpeechColor   = null)
     {
         /// <summary>Overlays the stored (ini) values onto a profile — ini wins when present.</summary>
         public void ApplyTo(Profile profile)
@@ -103,6 +105,8 @@ public static class SettingsStore
             if (OnlineForgetWindow is int ofw) profile.OnlineForgetWindow = ofw;
             if (FloatOnline      is bool fo)  profile.FloatOnline      = fo;
             if (FloatCompass     is bool fc)  profile.FloatCompass     = fc;
+            if (MeNameColor   is { Length: > 0 } mnc) profile.MeNameColor   = mnc;
+            if (MeSpeechColor is { Length: > 0 } msc) profile.MeSpeechColor = msc;
         }
     }
 
@@ -179,7 +183,9 @@ public static class SettingsStore
                 OnlineNamesOnly:    ini.HasSection("settings") ? GetBool(ini, "settings", "onlinenamesonly")    : null,
                 OnlineForgetWindow: ini.HasSection("settings") ? GetInt (ini, "settings", "onlineforgetwindow") : null,
                 FloatOnline:        ini.HasSection("settings") ? GetBool(ini, "settings", "floatonline")        : null,
-                FloatCompass:       ini.HasSection("settings") ? GetBool(ini, "settings", "floatcompass")       : null);
+                FloatCompass:       ini.HasSection("settings") ? GetBool(ini, "settings", "floatcompass")       : null,
+                MeNameColor:        ini.HasSection("settings") ? ini.Get("settings", "menamecolor")   : null,
+                MeSpeechColor:      ini.HasSection("settings") ? ini.Get("settings", "mespeechcolor") : null);
         }
         finally
         {
@@ -226,6 +232,8 @@ public static class SettingsStore
             ini.Set("settings", "onlineforgetwindow", settings.OnlineForgetWindow.ToString());
             ini.Set("settings", "floatonline",        settings.FloatOnline     ? "yes" : "no");
             ini.Set("settings", "floatcompass",       settings.FloatCompass    ? "yes" : "no");
+            ini.Set("settings", "menamecolor",        settings.MeNameColor);
+            ini.Set("settings", "mespeechcolor",      settings.MeSpeechColor);
 
             if (fkeys is not null)
             {

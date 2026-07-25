@@ -1,6 +1,7 @@
 using System.Windows.Input;
 using Mucka.Audio;
 using Mucka.Core;
+using MudSharp.Models;
 
 namespace Mucka.ViewModels;
 
@@ -27,6 +28,8 @@ public sealed class FkeyEditorViewModel : BaseViewModel
     private double _displayFontSize;
     private double _displayColumns;
     private double _displayDreamwordOffset;
+    private string _meNameColor   = SelfChatColorizer.DefaultNameHex;
+    private string _meSpeechColor = SelfChatColorizer.DefaultSpeechHex;
     private bool   _showOnline;
     private bool   _showInventory;
     private bool   _showItemsHere;
@@ -200,6 +203,37 @@ public sealed class FkeyEditorViewModel : BaseViewModel
     }
     public string DisplayColumnsDisplay => _displayColumns <= 0 ? "auto" : ((int)Math.Round(_displayColumns)).ToString();
 
+    // "Me" chat colours — hex text the user edits, with a live-swatch Color the preview binds to.
+    public string MeNameColor
+    {
+        get => _meNameColor;
+        set => SetAndNotify(ref _meNameColor, value ?? string.Empty, [nameof(MeNameColorPreview)]);
+    }
+    public string MeSpeechColor
+    {
+        get => _meSpeechColor;
+        set => SetAndNotify(ref _meSpeechColor, value ?? string.Empty, [nameof(MeSpeechColorPreview)]);
+    }
+    public Microsoft.Maui.Graphics.Color MeNameColorPreview   => ParseHexColor(_meNameColor,   SelfChatColorizer.DefaultNameHex);
+    public Microsoft.Maui.Graphics.Color MeSpeechColorPreview => ParseHexColor(_meSpeechColor, SelfChatColorizer.DefaultSpeechHex);
+
+    // Both args are 6-digit hex (with or without a leading '#'); returns the parsed colour, or the
+    // fallback colour when the primary text is malformed.
+    private static Microsoft.Maui.Graphics.Color ParseHexColor(string? hex, string fallbackHex)
+        => Microsoft.Maui.Graphics.Color.FromArgb("#" + (SelfChatColorizer.TryParseRgb(hex) is not null
+            ? (hex ?? string.Empty).Trim().TrimStart('#')
+            : fallbackHex.TrimStart('#')));
+
+    // Canonicalises user hex text to 6 lowercase digits (no '#'); falls back when malformed.
+    private static string NormalizeHex(string? hex, string fallback)
+    {
+        var s = (hex ?? string.Empty).Trim().TrimStart('#');
+        return s.Length == 6 && int.TryParse(s, System.Globalization.NumberStyles.HexNumber,
+                   System.Globalization.CultureInfo.InvariantCulture, out _)
+            ? s.ToLowerInvariant()
+            : fallback;
+    }
+
     public double DisplayDreamwordOffset
     {
         get => _displayDreamwordOffset;
@@ -295,6 +329,8 @@ public sealed class FkeyEditorViewModel : BaseViewModel
         // Display tab
         _displayFontSize       = settings.DefaultFontSize > 0 ? Math.Clamp(settings.DefaultFontSize, 9, 24) : 15;
         _displayColumns        = Math.Clamp(settings.DefaultMaxColumns, 0, 160);
+        _meNameColor           = settings.MeNameColor;
+        _meSpeechColor         = settings.MeSpeechColor;
         _displayDreamwordOffset = Math.Clamp(settings.DreamwordSizeOffset, -2, 4);
         _showOnline    = settings.ShowOnline;
         _showInventory = settings.ShowInventory;
@@ -426,6 +462,8 @@ public sealed class FkeyEditorViewModel : BaseViewModel
         DefaultFontSize     = DisplayFontSizeDisplay,
         DefaultMaxColumns   = (int)Math.Round(_displayColumns),
         DreamwordSizeOffset = (int)Math.Round(_displayDreamwordOffset),
+        MeNameColor         = NormalizeHex(_meNameColor,   SelfChatColorizer.DefaultNameHex),
+        MeSpeechColor       = NormalizeHex(_meSpeechColor, SelfChatColorizer.DefaultSpeechHex),
         ShowOnline          = _showOnline,
         ShowInventory       = _showInventory,
         ShowItemsHere       = _showItemsHere,

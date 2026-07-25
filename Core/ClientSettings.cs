@@ -39,6 +39,10 @@ public sealed record ClientSettings
     public int DefaultMaxColumns { get; init; }
     /// <summary>Dreamword pill font size adjustment relative to the base size. Range -2 to +4.</summary>
     public int DreamwordSizeOffset { get; init; }
+    /// <summary>Hex color (6 digits, no '#') for the label portion of your own chat lines.</summary>
+    public string MeNameColor { get; init; } = MudSharp.Models.SelfChatColorizer.DefaultNameHex;
+    /// <summary>Hex color (6 digits, no '#') for the quoted-speech portion of your own chat lines.</summary>
+    public string MeSpeechColor { get; init; } = MudSharp.Models.SelfChatColorizer.DefaultSpeechHex;
     /// <summary>Show the Online (FEW) section in the side panel. When false, FEW is not requested.</summary>
     public bool ShowOnline { get; init; } = true;
     /// <summary>Show the Inventory (carrying half of FEI) in the side panel.</summary>

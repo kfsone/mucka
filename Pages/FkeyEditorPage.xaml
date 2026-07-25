@@ -600,6 +600,42 @@
                     <!-- Separator -->
                     <BoxView Color="#2d333b" HeightRequest="1"/>
 
+                    <!-- ── Your own chat ("me") ─────────────────────────── -->
+                    <Label Text="Your chat (&quot;me&quot;)" TextColor="#58a6ff" FontSize="13" FontAttributes="Bold"/>
+                    <Label Text="Your own lines in any chat block are coloured: the label in the name color, the quoted speech in the speech color."
+                           TextColor="#555555" FontSize="11" FontAttributes="Italic"/>
+
+                    <!-- Me name color -->
+                    <Grid ColumnDefinitions="160,*" ColumnSpacing="12">
+                        <Label Grid.Column="0" Text="Name color" TextColor="#888888" FontSize="13" VerticalOptions="Center"
+                               ToolTipProperties.Text="Color of the non-quoted part of your own chat lines (your name and the says/tells text)."/>
+                        <HorizontalStackLayout Grid.Column="1" Spacing="6" VerticalOptions="Center">
+                            <Label Text="#" TextColor="#888888" FontSize="14" VerticalOptions="Center"/>
+                            <Entry Text="{Binding MeNameColor, Mode=TwoWay}" MaxLength="6"
+                                   BackgroundColor="#161b22" TextColor="#cccccc" FontSize="13"
+                                   WidthRequest="90" HeightRequest="34"/>
+                            <Label Text="Myname" FontSize="14" FontAttributes="Bold" VerticalOptions="Center"
+                                   Margin="6,0,0,0" TextColor="{Binding MeNameColorPreview}"/>
+                        </HorizontalStackLayout>
+                    </Grid>
+
+                    <!-- Me speech color -->
+                    <Grid ColumnDefinitions="160,*" ColumnSpacing="12">
+                        <Label Grid.Column="0" Text="Speech color" TextColor="#888888" FontSize="13" VerticalOptions="Center"
+                               ToolTipProperties.Text="Color of the quoted speech in your own chat lines."/>
+                        <HorizontalStackLayout Grid.Column="1" Spacing="6" VerticalOptions="Center">
+                            <Label Text="#" TextColor="#888888" FontSize="14" VerticalOptions="Center"/>
+                            <Entry Text="{Binding MeSpeechColor, Mode=TwoWay}" MaxLength="6"
+                                   BackgroundColor="#161b22" TextColor="#cccccc" FontSize="13"
+                                   WidthRequest="90" HeightRequest="34"/>
+                            <Label Text="&quot;Hello&quot;" FontSize="14" FontAttributes="Bold" VerticalOptions="Center"
+                                   Margin="6,0,0,0" TextColor="{Binding MeSpeechColorPreview}"/>
+                        </HorizontalStackLayout>
+                    </Grid>
+
+                    <!-- Separator -->
+                    <BoxView Color="#2d333b" HeightRequest="1"/>
+
                     <!-- ── Side Panel ───────────────────────────────────── -->
                     <Label Text="Side Panel" TextColor="#58a6ff" FontSize="13" FontAttributes="Bold"/>
 

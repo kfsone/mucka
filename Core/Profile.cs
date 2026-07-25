@@ -57,6 +57,12 @@ public class Profile
     public int DefaultMaxColumns { get; set; }
     [System.Text.Json.Serialization.JsonIgnore]
     public int DreamwordSizeOffset { get; set; }
+    /// <summary>Hex color (6 digits, no '#') for the label portion of your own chat lines. Default blue.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string MeNameColor { get; set; } = MudSharp.Models.SelfChatColorizer.DefaultNameHex;
+    /// <summary>Hex color (6 digits, no '#') for the quoted-speech portion of your own chat lines. Default lighter blue.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string MeSpeechColor { get; set; } = MudSharp.Models.SelfChatColorizer.DefaultSpeechHex;
     [System.Text.Json.Serialization.JsonIgnore]
     public bool ShowOnline { get; set; } = true;
     [System.Text.Json.Serialization.JsonIgnore]
