@@ -129,12 +129,15 @@ public sealed class ResetClock : IDisposable
 
     public void OnGameModeEntered()
     {
+        bool wasDiscovering;
         lock (_lock)
         {
+            wasDiscovering = _phase == ResetPhase.Discovering;   // double-enter without an exit
             ResetStateLocked();
             _inGame = true;
             PublishLocked();
         }
+        if (wasDiscovering) _setDiscoveryHold(false);
         EstimateChanged?.Invoke();
     }
 
@@ -219,14 +222,23 @@ public sealed class ResetClock : IDisposable
             }
             else if (cHi <= lo)
             {
-                // Reset came SOONER than the window said (e.g. an early decrement). Never treated as a
-                // firing; but if we were locked it means the lock is wrong — annotate, reopen, re-verify.
+                // Reset came SOONER than the window said — a genuine early decrement, or a routine
+                // reading's reply-time bias inflating lo past an RTT/2-corrected sample's cHi.
+                // Never treated as a firing; but if we were locked it means the lock is wrong —
+                // annotate, reopen, re-verify.
                 if (_phase == ResetPhase.Locked || _locked)
                 {
                     note = $"reset-lock contradicted (early decrement?): reading v={v} is below the locked window";
                     _locked = false;
-                    EndDiscoveryLocked();      // resume routine if we were mid-pass
                 }
+                else if (_phase == ResetPhase.Discovering)
+                {
+                    note = $"early decrement mid-discovery: reading v={v} is below the window; pass ended";
+                }
+                // ALWAYS end an active pass here (like the upward-jump re-anchor does). This branch
+                // used to flip Discovering→Coarse directly, orphaning the channel hold — the routine
+                // heartbeat stayed suppressed for the rest of the session (live 2026-07-25).
+                EndDiscoveryLocked();
                 _loMs = cLo;
                 _hiMs = cHi;
                 if (_phase != ResetPhase.CoarseOnly) _phase = ResetPhase.Coarse;

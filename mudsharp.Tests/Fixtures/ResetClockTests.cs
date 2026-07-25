@@ -194,6 +194,31 @@ public class ResetClockTests
     }
 
     [Fact]
+    public void EarlyDecrement_DuringDiscovery_EndsPassAndReleasesHold()
+    {
+        // Live 2026-07-25 probe-silence trace: a discovery sample reading BELOW the window (a real
+        // early decrement, or a routine reading's reply-time bias inflating lo past the unbiased
+        // sample's cHi) took the early-decrement fold branch, which flipped Discovering→Coarse
+        // WITHOUT ending the pass — the channel hold was never released, the routine heartbeat
+        // stayed suppressed for the rest of the session, and with no fresh replies discovery could
+        // never re-arm to release it. The branch must end an active pass like the upward-jump one.
+        var h = CoarseStraddled();                 // window [997.5k, 1002.5k)
+        Routine(h, 874_000);                       // arms discovery
+        Assert.True(h.DiscoveryHold);
+
+        h.NowMs = 875_000;
+        h.Clock.PumpForTest();                     // clear-channel lead elapsed → sample #1
+        Assert.Equal(1, h.Sends);
+
+        h.NowMs = 875_100;
+        h.Clock.Observe(1, fresh: true, 875_100);  // cHi = 995_050 ≤ lo = 997_500 → early decrement
+
+        Assert.False(h.DiscoveryHold, "early-decrement fold must end the pass and release the heartbeat hold");
+        Assert.False(h.Clock.IsSamplingInFlight);
+        Assert.Equal(ResetPhase.Coarse, h.Snap.Phase);
+    }
+
+    [Fact]
     public void AutoResetInitiated_AnchorsFinishUpExactly()
     {
         var h = new Harness();
