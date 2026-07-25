@@ -19,6 +19,9 @@ public sealed record ClientSettings
     public bool MuteBeepSession { get; init; }
     /// <summary>Bell muted permanently — persisted to mucka.ini.</summary>
     public bool MuteBeepPermanently { get; init; }
+    /// <summary>Debug-only: log reset-timer (TTR) diagnostics into the session recording.
+    /// Persisted to mucka.ini; only surfaced/honoured in Debug builds while recording.</summary>
+    public bool LogResetDiagnostics { get; init; }
     /// <summary>Save the settings values to the per-profile [settings:Name] ini section
     /// instead of the global [settings]. Mirrors the "Save to profile only" checkbox.</summary>
     public bool SettingsPerProfile { get; init; }

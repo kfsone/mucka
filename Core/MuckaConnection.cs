@@ -245,9 +245,16 @@ public sealed class MuckaConnection : IAsyncDisposable
     /// <summary>Hold/release the FES/FEW/FEI probe machinery (see MudSession.SetProbeHold).</summary>
     public void SetProbeHold(bool held) => _session.SetProbeHold(held);
 
-    /// <summary>Fire a single off-cadence FES probe to sharpen the reset-time projection, spending a
-    /// game turn only when worthwhile (see MudSession.RequestPrecisionProbe). Returns true if sent.</summary>
-    public bool RequestPrecisionProbe() => _session.RequestPrecisionProbe();
+    /// <summary>Latest reset-time projection (target instant + uncertainty + phase). Read by the 1 Hz
+    /// countdown tick; the projection and its precision burst are driven entirely in the session layer.</summary>
+    public ResetEstimate ResetEstimate => _session.ResetEstimate;
+
+    /// <summary>The reset-time projection changed — optional immediate UI-refresh hint (also polled).</summary>
+    public event Action? ResetEstimateChanged;
+
+    /// <summary>When true (and a capture is active), each folded reset reading is written to the capture
+    /// log as an annotation. Gated by the per-profile "log reset diagnostics" toggle.</summary>
+    public bool LogResetDiagnostics { get; set; }
 
     /// <summary>Queue a "sniff" (value &lt;name&gt;) probe to ride the next FES heartbeat
     /// (see MudSession.QueueValueProbe). Used to disambiguate a player who left the Online list.</summary>
@@ -436,6 +443,31 @@ public sealed class MuckaConnection : IAsyncDisposable
         _session.ProbeSent          += () => FesProbeSent?.Invoke();
         _session.SniffResult        += (name, outcome) => SniffResult?.Invoke(name, outcome);
         _session.TerminalWidthConfirmed += OnTerminalWidthConfirmed;
+        _session.ResetEstimateChanged   += () => ResetEstimateChanged?.Invoke();
+        _session.ResetObservationRecorded += OnResetObservation;
+        _session.ResetDiagnostic        += OnResetDiagnostic;
+    }
+
+    // Reset-projection incident (unanswered sample, lock contradiction, auto-reset anchor) → capture
+    // log, when the per-profile toggle is on. Annotate() no-ops unless a capture is active.
+    private void OnResetDiagnostic(string note)
+    {
+#if DEBUG || WINDOWS
+        if (LogResetDiagnostics)
+            _capture.Annotate($"reset! {note}");
+#endif
+    }
+
+    // Reset-projection diagnostics: append each folded reading to the capture log when the per-profile
+    // toggle is on. Annotate() is a no-op unless a capture is active, so the flag is the only extra gate.
+    private void OnResetObservation(ResetObservation o)
+    {
+#if DEBUG || WINDOWS
+        if (!LogResetDiagnostics) return;
+        _capture.Annotate(
+            $"reset {o.Phase} v={o.Minutes}{(o.Sample ? " sample" : "")} rtt={o.RttMs:F0}ms " +
+            $"win=[{o.WindowLoSecFromNow:F2},{o.WindowHiSecFromNow:F2})s ±{o.UncertaintySec:F2}s");
+#endif
     }
 
     private void OnTerminalWidthConfirmed(int confirmedWidth)

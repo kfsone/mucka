@@ -49,14 +49,15 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private bool _deaf;
     private bool _crippled;
     private bool _dumb;
-    // Projected next-reset instant. The server reports reset as whole floored minutes (FES field
-    // 13); ResetProjection turns that stream of minute-granular readings into an absolute target
-    // with an uncertainty, and tells us when an extra FES probe would sharpen it (see the 1 Hz tick
-    // in TickResetCountdown, which drives both the local countdown and the probe request).
-    private readonly ResetProjection _reset = new();
-    // Below this uncertainty we trust the projection to ~second resolution and show a seconds
-    // countdown in the final stretch; above it we keep the minute form to avoid false precision.
-    private const double ResetSecondsDisplayMaxUncertainty = 15;
+    // Projected next-reset instant. The server reports reset as whole floored minutes (FES field 13);
+    // the session-layer ResetClock turns that stream into an absolute target with an uncertainty and
+    // (once per session) runs a staged precision burst to pin it to sub-second. The VM only displays
+    // it: the 1 Hz tick polls _conn.ResetEstimate into this cache; no probe scheduling lives here.
+    private ResetEstimate _reset;
+    // Below this ± (seconds) we trust the projection to ~second resolution and show the precise m:ss
+    // countdown; above it we fall back to floored whole minutes. Set tight so m:ss appears only once
+    // the precision burst has actually locked (coarse ±2.5 s stays on the minute form).
+    private const double ResetSecondsDisplayMaxUncertainty = 1.5;
     private char _weather;
     private string _dreamword = string.Empty;
     private bool _isConnected = true;
@@ -83,6 +84,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private int _statUpdateFrequency;
     private bool _muteBeepSession;
     private bool _muteBeepPermanently;
+    private bool _logResetDiagnostics;
     private SoundSettings _sounds = new();
     private bool _settingsPerProfile;
     private bool _fkeysPerProfile;
@@ -208,11 +210,15 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         : $"{_profileName} mucka {AppInfo.VersionString}";
 
     public bool   MagVisible  => _magic > 0;
-    // Countdown to the projected reset instant. Whole minutes ("5m") until the final stretch, then
-    // seconds ("29s") once under 30 s — where the minute-granular server value used to round to 0
-    // and show nothing. The seconds form appears only once the projection is confident to ~second
-    // resolution (see ResetProjection.UncertaintySec); before that we keep the minute form so we
-    // never imply precision we lack. Empty (hidden) when no reset is projected or it has lapsed.
+    // Countdown to the projected reset instant. Two forms:
+    //   • When the projection is dialled in to ~second resolution (uncertainty ≤
+    //     ResetSecondsDisplayMaxUncertainty), show precise "m:ss" (or "29s" under a minute) — the
+    //     accuracy is real, so show it off.
+    //   • Otherwise show FLOORED whole minutes ("28m"), matching the game's own `reset` command
+    //     ("auto-reset will be initiated in approximately 28 minutes"). Flooring (not ceiling) is
+    //     the fix for the long-standing "a minute out" complaint: the server floors, so ceiling read
+    //     exactly one minute high the whole time even though the underlying projection was correct.
+    // Empty (hidden) when no reset is projected or it has lapsed.
     public string TtrText
     {
         get
@@ -220,9 +226,9 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             if (_reset.TargetUtc is not DateTime target) return string.Empty;
             var secs = (int)Math.Round((target - DateTime.UtcNow).TotalSeconds);
             if (secs <= 0) return string.Empty;
-            return secs < 30 && _reset.UncertaintySec <= ResetSecondsDisplayMaxUncertainty
-                ? $"{secs}s"
-                : $"{(secs + 59) / 60}m";   // ceil to whole minutes
+            if (_reset.UncertaintySec <= ResetSecondsDisplayMaxUncertainty)
+                return secs >= 60 ? $"{secs / 60}:{secs % 60:D2}" : $"{secs}s";
+            return secs >= 60 ? $"{secs / 60}m" : $"{secs}s";   // floor to whole minutes (matches the game)
         }
     }
     public bool   TtrVisible  => TtrText.Length != 0;
@@ -445,6 +451,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         StatUpdateFrequency = _statUpdateFrequency,
         MuteBeepSession     = _muteBeepSession,
         MuteBeepPermanently = _muteBeepPermanently,
+        LogResetDiagnostics = _logResetDiagnostics,
         SettingsPerProfile  = _settingsPerProfile,
         FkeysPerProfile     = _fkeysPerProfile,
         Sounds              = _sounds.Clone(),
@@ -528,6 +535,8 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _statUpdateFrequency = Math.Clamp(profile.StatUpdateFrequency, 0, 30);
         _muteBeepPermanently = profile.MuteBeepPermanently;
         _muteBeepSession     = profile.MuteBeepPermanently;
+        _logResetDiagnostics = profile.LogResetDiagnostics;
+        _conn.LogResetDiagnostics = _logResetDiagnostics;
         _settingsPerProfile  = profile.SettingsPerProfile;
         _fkeysPerProfile     = profile.FkeysPerProfile;
         _sounds              = profile.Sounds;
@@ -609,6 +618,8 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         ApplyStatUpdateFrequency(settings.StatUpdateFrequency);
         _muteBeepPermanently = settings.MuteBeepPermanently;
         _muteBeepSession     = settings.MuteBeepSession || settings.MuteBeepPermanently;
+        _logResetDiagnostics = settings.LogResetDiagnostics;
+        _conn.LogResetDiagnostics = _logResetDiagnostics;
         _settingsPerProfile  = settings.SettingsPerProfile;
         _fkeysPerProfile     = settings.FkeysPerProfile;
         _sounds              = settings.Sounds;
@@ -773,7 +784,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             _deaf         = stats.IsDeaf;
             _crippled     = stats.IsCrippled;
             _dumb         = stats.IsDumb;
-            _reset.Observe(stats.TimeToReset, stats.HasFesStats, DateTime.UtcNow);
+            _reset = _conn.ResetEstimate;   // reflect the session-layer projection in this batch
             _weather      = stats.Weather;
             _staminaColor = stats.StaminaColor ?? 0;
 
@@ -804,33 +815,41 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         });
     }
 
-    // Advance the projected reset countdown; called from the 1 Hz UI tick (OnAntiIdleTick). Cheap
-    // no-op when no reset is projected. Also the place we ask for a precision probe: once routine
-    // readings have plateaued but we're not yet sub-second, ResetProjection nominates the next
-    // minute-boundary crossing, and if one lands in this tick we spend a game turn on an extra FES
-    // probe to sharpen the anchor. RequestPrecisionProbe may still decline (spacing/hold/asleep);
-    // we only tell the estimator a probe is outstanding when one actually went out.
+    // Advance the projected reset countdown; called from the 1 Hz UI tick (OnAntiIdleTick). Pure
+    // display: poll the session-layer projection snapshot and re-notify. All probe scheduling lives in
+    // ResetClock, off the UI thread — nothing here can stall typing (Invariant #1).
     public void TickResetCountdown()
     {
-        var now = DateTime.UtcNow;
         var had = _reset.TargetUtc is not null;
-        _reset.Tick(now);
+        _reset = _conn.ResetEstimate;
+        // Show nothing once a projected target has lapsed (secs<=0 → TtrText empty).
         if (_reset.TargetUtc is null)
         {
-            // Nothing projected (menu / pre-game). Fire one last update only if a target just
-            // lapsed, so the countdown hides; otherwise stay silent — no per-second UI churn.
-            if (had)
+            if (had)   // just cleared (menu / disconnect) — fire one final update so the countdown hides
                 OnPropertiesChanged(nameof(TtrText), nameof(TtrVisible), nameof(TtrTooltip), nameof(AnyRightStatVisible));
             return;
         }
-        if (_reset.TryGetPrecisionProbeDue(now) && _conn.RequestPrecisionProbe())
-            _reset.NotePrecisionProbeSent(now);
         OnPropertiesChanged(nameof(TtrText), nameof(TtrVisible), nameof(TtrTooltip), nameof(AnyRightStatVisible));
     }
 
-    // Drop the projected-reset state (back at the option menu, or disconnected: no live world to
-    // count down). Callers fire the TTR notifications.
-    private void ClearResetProjection() => _reset.Clear();
+    // Drop the cached projection (back at the option menu, or disconnected: no live world to count
+    // down). The session-layer ResetClock clears its own state on disconnect/exit. Callers fire the
+    // TTR notifications.
+    private void ClearResetProjection() => _reset = default;
+
+    // Fired off the UI thread when the session-layer projection changes. We let the 1 Hz tick handle
+    // routine folds, but jump the display ahead for the sub-second lock so the seconds countdown snaps
+    // on the instant it's pinned rather than up to a second later.
+    private void OnResetEstimateChanged()
+    {
+        if (_conn.ResetEstimate.Phase != ResetPhase.Locked)
+            return;
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            _reset = _conn.ResetEstimate;
+            OnPropertiesChanged(nameof(TtrText), nameof(TtrVisible), nameof(TtrTooltip), nameof(AnyRightStatVisible));
+        });
+    }
 
     private void OnDreamwordChanged(string? word)
         => MainThread.BeginInvokeOnMainThread(() => Dreamword = word ?? string.Empty);
@@ -1407,6 +1426,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _conn.CharacterIdentified += OnCharacterIdentified;
         _conn.DreamwordChanged += OnDreamwordChanged;
         _conn.Disconnected     += OnDisconnected;
+        _conn.ResetEstimateChanged += OnResetEstimateChanged;
         _conn.SoundRequested   += OnSoundRequested;
         _conn.BellReceived     += OnBellReceived;
         _conn.RoomEntered      += SidePanel.OnRoomEntered;
@@ -1434,6 +1454,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _conn.CharacterIdentified -= OnCharacterIdentified;
         _conn.DreamwordChanged -= OnDreamwordChanged;
         _conn.Disconnected     -= OnDisconnected;
+        _conn.ResetEstimateChanged -= OnResetEstimateChanged;
         _conn.SoundRequested   -= OnSoundRequested;
         _conn.BellReceived     -= OnBellReceived;
         _conn.RoomEntered      -= SidePanel.OnRoomEntered;

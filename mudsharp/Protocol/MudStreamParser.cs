@@ -94,6 +94,11 @@ public sealed class MudStreamParser
     /// </summary>
     public event Action<StaleStats>? ProbeHintReceived;
 
+    /// <summary>The server announced an auto-reset (C1 code C06 C04, "Auto reset initiated, you have
+    /// 120 seconds…"). The reset is imminent and precisely timed from this instant. Fires on the Feed
+    /// thread.</summary>
+    public event Action? AutoResetInitiated;
+
     /// <summary>
     /// A player name bracketed by a C05 presence code (here/arriving/departing/
     /// visible/invisible/fleeing) was seen outside a FEW response. The named player
@@ -775,6 +780,7 @@ public sealed class MudStreamParser
     internal void EmitSound(string assetPath) => SoundRequested?.Invoke(assetPath);
     internal void EmitFewPlayer(string name, AnsiColor color) => FewPlayerReady?.Invoke(name, color);
     internal void EmitProbeHint(StaleStats kinds) => ProbeHintReceived?.Invoke(kinds);
+    internal void EmitAutoResetInitiated() => AutoResetInitiated?.Invoke();
     internal void EmitPresenceName(string name) => PresenceNameSeen?.Invoke(name);
     internal void EmitStatusEffect(StatusEffectChange change) => StatusEffectChanged?.Invoke(change);
     internal void EmitRoomEntered() => RoomEntered?.Invoke();    internal void SetAccountInfo(string? accountId, int privs)

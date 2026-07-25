@@ -33,6 +33,9 @@ public class Profile
     public int StatUpdateFrequency { get; set; } = 10;
     /// <summary>Permanently suppress the bell/beep sound. Persisted per profile.</summary>
     public bool MuteBeepPermanently { get; set; }
+    /// <summary>Debug diagnostics: log each reset-timer (TTR) reading into the active session
+    /// recording. Only takes effect in Debug builds while recording; persisted per profile.</summary>
+    public bool LogResetDiagnostics { get; set; }
     /// <summary>Per-sound enablement and group fallbacks. Defaults to everything on.</summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public SoundSettings Sounds { get; set; } = new();

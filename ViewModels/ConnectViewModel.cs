@@ -190,6 +190,7 @@ public sealed class ConnectViewModel : BaseViewModel
                 Volume = saved?.Volume ?? 75,
                 StatUpdateFrequency = saved?.StatUpdateFrequency ?? 10,
                 MuteBeepPermanently = saved?.MuteBeepPermanently ?? false,
+                LogResetDiagnostics = saved?.LogResetDiagnostics ?? false,
                 SettingsPerProfile = saved?.SettingsPerProfile ?? false,
                 FkeysPerProfile = saved?.FkeysPerProfile ?? false,
                 Fkeys = saved?.Fkeys ?? new string[36]
@@ -417,6 +418,7 @@ public sealed class ConnectViewModel : BaseViewModel
             existing.Volume              = settings.Volume;
             existing.StatUpdateFrequency = settings.StatUpdateFrequency;
             existing.MuteBeepPermanently = settings.MuteBeepPermanently;
+            existing.LogResetDiagnostics = settings.LogResetDiagnostics;
             existing.SettingsPerProfile  = settings.SettingsPerProfile;
             existing.FkeysPerProfile     = settings.FkeysPerProfile;
             existing.Fkeys               = fkeys;
@@ -471,6 +473,7 @@ public sealed class ConnectViewModel : BaseViewModel
             Volume              = incoming.Volume,
             StatUpdateFrequency = incoming.StatUpdateFrequency,
             MuteBeepPermanently = incoming.MuteBeepPermanently,
+            LogResetDiagnostics = incoming.LogResetDiagnostics,
             SettingsPerProfile  = incoming.SettingsPerProfile,
             FkeysPerProfile     = incoming.FkeysPerProfile,
             Sounds              = incoming.Sounds,

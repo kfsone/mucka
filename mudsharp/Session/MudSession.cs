@@ -45,6 +45,9 @@ public sealed class MudSession : IDisposable
     private DateTime _nextRoutineProbeUtc;
     // While held, routine and stale probes are suppressed (see SetProbeHold).
     private bool _probesHeld;
+    // While the reset-time discovery pass owns the channel, the routine heartbeat is suspended so its
+    // compound reply never races our rate-limited FES samples (see SetResetDiscoveryHold / ResetClock).
+    private bool _resetDiscoveryHold;
     // First word of each name from the last complete FEW response (Feed thread only).
     // Used by the C05 presence check: a player seen in the room but absent from this
     // set means the Online list is stale.
@@ -87,6 +90,11 @@ public sealed class MudSession : IDisposable
     private bool _mappingFocus;
     private byte[] _fesSubscription = BuildSubscription(includeFew: true, includeFei: true);
     private readonly EffectTracker _effects = new();
+    // Reset-time projection: folds the minute-granular FES reset value into an absolute target and,
+    // once per session near the start, runs a staged burst (~1 s then ~250 ms probes) to pin it to
+    // sub-second. Owned here (not the VM) so all sub-second probe timing stays off the UI thread and
+    // reply↔probe correlation sits next to the wire. See ResetClock.
+    private readonly ResetClock _resetClock;
 
     // ── Public events (forwarded from parser) ─────────────────────────────────
     public event Action<StyledLine>? LineReady;
@@ -136,17 +144,32 @@ public sealed class MudSession : IDisposable
     /// tracking and the window title.
     /// </summary>
     public event Action<string>? CharacterIdentified;
+    /// <summary>The reset-time projection changed. Optional immediate UI-refresh hint; the countdown
+    /// also polls <see cref="ResetEstimate"/> on its own 1 Hz tick. Fires off the UI thread.</summary>
+    public event Action? ResetEstimateChanged;
+    /// <summary>A reset-projection reading was folded — for diagnostic logging only. Fires on the
+    /// read-loop thread.</summary>
+    public event Action<ResetObservation>? ResetObservationRecorded;
+    /// <summary>A notable reset-projection incident (unanswered sample, lock contradiction, auto-reset
+    /// anchor) — for the capture log. Fires off the UI thread.</summary>
+    public event Action<string>? ResetDiagnostic;
 
     // ── Public state ───────────────────────────────────────────────────────────
     public GameStatsSnapshot CurrentStats => _currentStats;
     public string? CurrentDreamword => _currentDreamword;
     public bool InGameMode => _parser.InGameMode;
+    /// <summary>Latest reset-time projection snapshot (target instant + uncertainty + phase).</summary>
+    public ResetEstimate ResetEstimate => _resetClock.Snapshot();
 
     public MudSession(MudSessionOptions? options = null)
     {
         _options = options ?? new MudSessionOptions();
         _fesInterval = _options.FesHeartbeatInterval;
         _parser = new MudStreamParser();
+        _resetClock = new ResetClock(_options.ResetClock, TrySendResetFesProbe, CanResetProbe, SetResetDiscoveryHold);
+        _resetClock.ObservationRecorded += o => ResetObservationRecorded?.Invoke(o);
+        _resetClock.EstimateChanged     += () => ResetEstimateChanged?.Invoke();
+        _resetClock.DiagnosticNote      += n => ResetDiagnostic?.Invoke(n);
         WireParserEvents();
     }
 
@@ -275,6 +298,7 @@ public sealed class MudSession : IDisposable
         _parser.Reset();
         _currentStats = GameStatsSnapshot.Empty;
         _currentDreamword = null;
+        _resetClock.OnGameModeExited();   // disconnect: drop any live projection
     }
 
     public void Dispose()
@@ -286,6 +310,7 @@ public sealed class MudSession : IDisposable
             _staleTimer?.Dispose();
             _staleTimer = null;
         }
+        _resetClock.Dispose();
     }
 
     // ── Private ────────────────────────────────────────────────────────────────
@@ -319,6 +344,7 @@ public sealed class MudSession : IDisposable
         _parser.ClientModeReceived += data => ClientModeReceived?.Invoke(data);
         _parser.SoundRequested += s => SoundRequested?.Invoke(s);
         _parser.ProbeHintReceived += OnProbeHint;
+        _parser.AutoResetInitiated += () => _resetClock.NoteAutoResetInitiated(_resetClock.NowMono);
         _parser.PresenceNameSeen  += OnPresenceName;
         _parser.StatusEffectChanged += _effects.Apply;
         _effects.Changed += state => StatusEffectsChanged?.Invoke(state);
@@ -363,6 +389,10 @@ public sealed class MudSession : IDisposable
 
     private void MergeStats(GameStatsSnapshot partial)
     {
+        // Stamp the reply arrival on the reset clock's monotonic clock BEFORE any merge work, so a
+        // burst probe's RTT/observation-time correction uses the earliest possible reply instant.
+        long replyMono = _resetClock.NowMono;
+
         // An FES snapshot is a probe reply — the panel data is fresh again.
         if (partial.HasFesStats)
             _lastProbeReplyUtc = DateTime.UtcNow;
@@ -426,12 +456,16 @@ public sealed class MudSession : IDisposable
             // projection relies on this to only re-anchor on genuine readings.
             HasFesStats = partial.HasFesStats
         };
+        // Fold the reset value into the projection. Called outside _fesLock (ClearStale above took and
+        // released it) so the engine→_fesLock order holds when Observe fires a burst probe.
+        _resetClock.Observe(_currentStats.TimeToReset, partial.HasFesStats, replyMono);
         StatsUpdated?.Invoke(_currentStats);
     }
 
     private void OnGameModeEntered()
     {
         _effects.Reset();   // fresh character — no effects carried from a previous session
+        _resetClock.OnGameModeEntered();   // eligible for a fresh one-time reset-time refinement
         GameModeEntered?.Invoke();
         lock (_fesLock)
         {
@@ -485,6 +519,7 @@ public sealed class MudSession : IDisposable
         _setupCloseAfterFrame = false;
         _currentCharName      = null;
         _effects.Reset();     // relog/logout clears all effects
+        _resetClock.OnGameModeExited();   // drop the projection incl. the once-per-session token
         GameModeExited?.Invoke();
     }
 
@@ -548,6 +583,10 @@ public sealed class MudSession : IDisposable
         lock (_fesLock)
         {
             if (_probesHeld) return;   // skipped beat; SetProbeHold(false) re-phases the tick
+            // A reset-time discovery pass owns the wire: defer this beat so its rate-limited FES samples
+            // aren't raced by this compound reply. The pass lasts only seconds, so the beat is delayed,
+            // not dropped; SetResetDiscoveryHold(false) re-phases the tick when it ends.
+            if (_resetDiscoveryHold || _resetClock.IsSamplingInFlight) return;
             var now = DateTime.UtcNow;
             _lastProbeSentUtc = now;
             _nextRoutineProbeUtc = now + _fesInterval;
@@ -776,9 +815,9 @@ public sealed class MudSession : IDisposable
             }
             if (_staleFlags == StaleStats.None)
                 return;
-            if (_probesHeld)
+            if (_probesHeld || _resetDiscoveryHold || _resetClock.IsSamplingInFlight)
             {
-                // A mapping operation owns the wire; keep the flags and try again shortly.
+                // A mapping operation or a reset-time discovery pass owns the wire; keep the flags and retry.
                 _staleArmed = true;
                 _staleTimer?.Change(_options.StaleProbeDelay, Timeout.InfiniteTimeSpan);
                 return;
@@ -868,6 +907,8 @@ public sealed class MudSession : IDisposable
     {
         if (_fesInterval <= TimeSpan.Zero || !InGameMode)
             return;
+        if (_resetDiscoveryHold || _resetClock.IsSamplingInFlight)   // discovery owns the wire
+            return;
         var now = DateTime.UtcNow;
         if (now - _lastProbeReplyUtc <= _fesInterval + StaleReplySlack)
             return;
@@ -878,33 +919,47 @@ public sealed class MudSession : IDisposable
             _fesTimer?.Change(TimeSpan.Zero, _fesInterval);   // fire immediately, keep the period
     }
 
-    /// <summary>
-    /// Fire a single off-cadence FES-only probe to sharpen the reset-time projection, if it's worth
-    /// a game turn right now. Returns true only when a probe actually went out. Suppressed (false)
-    /// when not in game mode, the heartbeat is disabled, probes are held, we sent one within
-    /// <see cref="MudSessionOptions.MinProbeSpacing"/>, a routine beat is imminent (it's an
-    /// equally-fresh reading near the boundary, for free), or replies are stale — the character is
-    /// asleep and FES no-ops, so a probe would waste a turn and land nothing. Additive: unlike a
-    /// routine/stale probe it does NOT re-phase the heartbeat timer.
-    /// </summary>
-    public bool RequestPrecisionProbe()
+    // ── Reset-time discovery (driven by ResetClock) ─────────────────────────────
+    // ResetClock owns the one-time edge search; these are its wire hooks. While discovering it holds
+    // the routine heartbeat suspended (SetResetDiscoveryHold) so a compound reply never races its
+    // rate-limited FES samples, and its samples deliberately BYPASS MinProbeSpacing (they are self-paced
+    // at ≥ ~501 ms). The global spacing floor still guards every reactive/routine path.
+
+    /// <summary>Can a discovery probe usefully go out right now? (In game, heartbeat enabled, not held.)</summary>
+    private bool CanResetProbe()
+    {
+        lock (_fesLock)
+            return InGameMode && _fesInterval > TimeSpan.Zero && !_probesHeld;
+    }
+
+    /// <summary>Send one lone FES probe for reset discovery. Returns false if it can't go out right now.</summary>
+    private bool TrySendResetFesProbe()
     {
         lock (_fesLock)
         {
             if (!InGameMode || _fesInterval <= TimeSpan.Zero || _probesHeld)
                 return false;
-            var now = DateTime.UtcNow;
-            if (now - _lastProbeSentUtc < _options.MinProbeSpacing)
-                return false;
-            if (_nextRoutineProbeUtc - now <= _options.MinProbeSpacing)
-                return false;
-            if (now - _lastProbeReplyUtc > _fesInterval + StaleReplySlack)
-                return false;
-            _lastProbeSentUtc = now;
+            _lastProbeSentUtc = DateTime.UtcNow;
         }
         OutgoingBytes?.Invoke(FesOnlyProbe);
         ProbeSent?.Invoke();
         return true;
+    }
+
+    /// <summary>Suspend (true) / resume (false) the routine heartbeat while a reset-discovery pass owns
+    /// the channel. Resuming re-phases the routine tick a full interval out. Called by ResetClock.</summary>
+    private void SetResetDiscoveryHold(bool held)
+    {
+        lock (_fesLock)
+        {
+            if (_resetDiscoveryHold == held) return;
+            _resetDiscoveryHold = held;
+            if (!held && _fesTimer is not null && _fesInterval > TimeSpan.Zero)
+            {
+                _nextRoutineProbeUtc = DateTime.UtcNow + _fesInterval;
+                _fesTimer.Change(_fesInterval, _fesInterval);
+            }
+        }
     }
 
     private void StopFesTimer()

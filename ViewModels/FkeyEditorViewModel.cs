@@ -19,6 +19,7 @@ public sealed class FkeyEditorViewModel : BaseViewModel
     private double _statUpdateFrequency;
     private bool _muteBeepSession;
     private bool _muteBeepPermanently;
+    private bool _logResetDiagnostics;
     private bool _settingsToProfileOnly;
     private bool _fkeysToProfileOnly;
     private bool _soundsEnabled;
@@ -128,6 +129,21 @@ public sealed class FkeyEditorViewModel : BaseViewModel
                 SyncBellFromMute();
         }
     }
+
+    /// <summary>Debug-only: log reset-timer (TTR) diagnostics into the session recording.</summary>
+    public bool LogResetDiagnostics
+    {
+        get => _logResetDiagnostics;
+        set => Set(ref _logResetDiagnostics, value);
+    }
+
+    /// <summary>Gates the Debug-only "log reset diagnostics" row (XAML has no #if, so bind visibility here).</summary>
+    public bool IsTtrDiagAvailable =>
+#if DEBUG
+        true;
+#else
+        false;
+#endif
 
     /// <summary>Master sound switch — the Sounds tab's top-level checkbox.</summary>
     public bool SoundsEnabled
@@ -272,6 +288,7 @@ public sealed class FkeyEditorViewModel : BaseViewModel
             ? 0 : Math.Clamp(Math.Round(settings.StatUpdateFrequency / 5.0) * 5, 5, 30);
         _muteBeepSession     = settings.MuteBeepSession;
         _muteBeepPermanently = settings.MuteBeepPermanently;
+        _logResetDiagnostics = settings.LogResetDiagnostics;
         _settingsToProfileOnly = settings.SettingsPerProfile;
         _fkeysToProfileOnly    = settings.FkeysPerProfile;
         _soundsEnabled         = settings.Sounds.MasterEnabled;
@@ -402,6 +419,7 @@ public sealed class FkeyEditorViewModel : BaseViewModel
         StatUpdateFrequency = (int)Math.Round(_statUpdateFrequency),
         MuteBeepSession     = _muteBeepSession,
         MuteBeepPermanently = _muteBeepPermanently,
+        LogResetDiagnostics = _logResetDiagnostics,
         SettingsPerProfile  = _settingsToProfileOnly,
         FkeysPerProfile     = _fkeysToProfileOnly,
         Sounds              = CollectSounds(),

@@ -21,4 +21,7 @@ public sealed class MudSessionOptions
     /// skipped entirely when the routine heartbeat is about to fire anyway. Default: 500ms.
     /// </summary>
     public TimeSpan MinProbeSpacing { get; init; } = TimeSpan.FromMilliseconds(500);
+
+    /// <summary>Tunables for the reset-time projection / staged precision burst (see ResetClock).</summary>
+    public ResetClockOptions ResetClock { get; init; } = new();
 }

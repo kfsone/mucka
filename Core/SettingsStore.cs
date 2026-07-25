@@ -74,7 +74,8 @@ public static class SettingsStore
         bool? OnlineNamesOnly   = null,
         int? OnlineForgetWindow = null,
         bool? FloatOnline       = null,
-        bool? FloatCompass      = null)
+        bool? FloatCompass      = null,
+        bool? LogResetDiagnostics = null)
     {
         /// <summary>Overlays the stored (ini) values onto a profile — ini wins when present.</summary>
         public void ApplyTo(Profile profile)
@@ -84,6 +85,7 @@ public static class SettingsStore
             if (Volume              is int volume)   profile.Volume              = volume;
             if (StatUpdateFrequency is int fes)      profile.StatUpdateFrequency = fes;
             if (MuteBeepPermanently is bool mute)    profile.MuteBeepPermanently = mute;
+            if (LogResetDiagnostics is bool logttr)  profile.LogResetDiagnostics = logttr;
             if (Sounds              is not null)     profile.Sounds              = Sounds;
             if (Fkeys               is not null)     profile.Fkeys               = Fkeys;
             profile.SettingsPerProfile = SettingsPerProfile;
@@ -160,6 +162,7 @@ public static class SettingsStore
                 Volume:              settingsSection is null ? null : GetInt(ini, settingsSection, "volume"),
                 StatUpdateFrequency: settingsSection is null ? null : GetInt(ini, settingsSection, "statupdate"),
                 MuteBeepPermanently: settingsSection is null ? null : GetBool(ini, settingsSection, "mutebeep"),
+                LogResetDiagnostics: settingsSection is null ? null : GetBool(ini, settingsSection, "logttr"),
                 Sounds:              settingsSection is null ? null : ReadSoundSettings(ini, settingsSection),
                 Fkeys:               fkeys,
                 SettingsPerProfile:  settingsPerProfile,
@@ -207,6 +210,7 @@ public static class SettingsStore
             ini.Set(settingsSection, "volume",     settings.Volume.ToString());
             ini.Set(settingsSection, "statupdate", settings.StatUpdateFrequency.ToString());
             ini.Set(settingsSection, "mutebeep",   settings.MuteBeepPermanently ? "yes" : "no");
+            ini.Set(settingsSection, "logttr",     settings.LogResetDiagnostics ? "yes" : "no");
             WriteSoundSettings(ini, settingsSection, settings.Sounds);
 
             // Display tab settings always go to the global [settings] section.
@@ -402,6 +406,7 @@ public static class SettingsStore
             ini.Set("settings", "volume",     first.Volume.ToString());
             ini.Set("settings", "statupdate", first.StatUpdateFrequency.ToString());
             ini.Set("settings", "mutebeep",   first.MuteBeepPermanently ? "yes" : "no");
+            ini.Set("settings", "logttr",     first.LogResetDiagnostics ? "yes" : "no");
         }
         if (!ini.HasSection("fkeys") && !ini.HasSection($"fkeys:{first.Name}") &&
             first.Fkeys.Any(f => !string.IsNullOrEmpty(f)))

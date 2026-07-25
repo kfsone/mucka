@@ -805,6 +805,10 @@ internal sealed class Mud2C1Decoder
                 Apply(LT_BLUE, BLACK);
                 if (!(count == 1 && b0 == 0xA1))
                     Hint(StaleStats.AllStats);
+                // C06 C04 = "Auto reset initiated, you have 120 seconds to finish up" (Bartle: 06 04).
+                // The reset is now precisely timed from this instant — signal the reset projection.
+                if (count == 1 && b0 == 0x9F)
+                    _parser.EmitAutoResetInitiated();
                 Sound(6);
                 return ParserState.Normal;
 
