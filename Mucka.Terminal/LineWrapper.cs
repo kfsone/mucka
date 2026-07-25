@@ -6,7 +6,8 @@ namespace Mucka.Terminal;
 /// Naive fixed-column line wrapping for the terminal renderer. Each logical
 /// <see cref="StyledLine"/> is broken into visual rows of at most <c>columns</c> characters,
 /// splitting a span that straddles the boundary and preserving its <see cref="TextStyle"/>
-/// across the break. A hard break (no word awareness) — this matches a dumb terminal and is
+/// and any <see cref="StyledSpan.ClickInsertText"/> across the break (so a clickable name that
+/// wraps stays clickable in both pieces). A hard break (no word awareness) — this matches a dumb terminal and is
 /// a no-op when the server has already wrapped (every logical line is then ≤ columns).
 ///
 /// A visual row is itself a (non-partial) <see cref="StyledLine"/>; a blank logical line
@@ -58,7 +59,9 @@ public static class LineWrapper
                     col = 0;
                 }
                 int take = Math.Min(columns - col, text.Length - idx);
-                current.Add(new StyledSpan(text.Substring(idx, take), span.Style));
+                // Preserve ClickInsertText across the wrap so a clickable name split over a
+                // row boundary stays clickable in every piece (TryActivateSpanInsert reads it).
+                current.Add(new StyledSpan(text.Substring(idx, take), span.Style, span.ClickInsertText));
                 idx += take;
                 col += take;
             }

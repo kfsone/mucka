@@ -14,7 +14,9 @@ public sealed class TerminalFont : IDisposable
     private const string ResourceName = "Mucka.CascadiaMono.ttf";
 
     public SKTypeface Typeface { get; }
+    public SKTypeface ItalicTypeface { get; }
     public SKFont Font { get; }
+    public SKFont ItalicFont { get; }
 
     /// <summary>Advance width of one character cell, in pixels.</summary>
     public float CellWidth { get; }
@@ -32,6 +34,8 @@ public sealed class TerminalFont : IDisposable
     public TerminalFont(float sizePx, float lineHeightFactor = 1.30f)
     {
         Typeface = LoadTypeface();
+        ItalicTypeface = SKTypeface.FromFamilyName(Typeface.FamilyName, SKFontStyle.Italic)
+            ?? Typeface;
         Font = new SKFont(Typeface, sizePx)
         {
             // Match Windows Terminal's ClearType: LCD subpixel AA + subpixel positioning.
@@ -42,6 +46,11 @@ public sealed class TerminalFont : IDisposable
                 ? SKFontEdging.SubpixelAntialias
                 : SKFontEdging.Antialias,
             Subpixel = true,
+        };
+        ItalicFont = new SKFont(ItalicTypeface, sizePx)
+        {
+            Edging = Font.Edging,
+            Subpixel = Font.Subpixel,
         };
         BoldStrokeWidth = sizePx / 24f;
 
@@ -68,6 +77,9 @@ public sealed class TerminalFont : IDisposable
     public void Dispose()
     {
         Font.Dispose();
+        ItalicFont.Dispose();
         Typeface.Dispose();
+        if (!ReferenceEquals(ItalicTypeface, Typeface))
+            ItalicTypeface.Dispose();
     }
 }

@@ -58,6 +58,12 @@ public sealed class TerminalView : SKCanvasView
     // ── Selection (mouse drag in history) ────────────────────────────────────
     // Translucent so text shows through; bright enough to be unmistakable on the dark background.
     private static readonly SKColor SelectionColor = new(0x3A, 0x6E, 0xA5, 0x99);
+    // A plain click must NOT enter scrollback — only a deliberate drag does (along with the
+    // wheel and PgUp/PgDn keys). On a live press we arm a pending drag and stay live; scrollback
+    // begins the moment the pointer moves past this threshold (see PointerDrag).
+    private const float DragThresholdDip = 4f;
+    private bool _pendingPress;          // live press awaiting a drag before it counts as scrollback
+    private float _pressX, _pressY;      // where the live press landed (dip), to seed the selection anchor
     private bool _selecting;
     private bool _hasSelection;
     private (int Row, int Col) _selAnchor;
@@ -89,6 +95,12 @@ public sealed class TerminalView : SKCanvasView
 
     /// <summary>Raised when a click should put keyboard focus on the input box (an activation click).</summary>
     public event EventHandler? FocusInputRequested;
+
+    /// <summary>
+    /// Raised when the user clicks a span carrying <see cref="StyledSpan.ClickInsertText"/>.
+    /// Hosts may insert the payload into their input control when appropriate.
+    /// </summary>
+    public event Action<string>? SpanInsertTextRequested;
 
     /// <summary>Host calls this when the window is activated, so the next click can be told apart
     /// from a deliberate click on the view.</summary>
@@ -231,8 +243,10 @@ public sealed class TerminalView : SKCanvasView
     // Coordinates are in device-independent pixels relative to the view; converted to canvas
     // pixels here using the scale captured at the last paint.
 
-    /// <summary>Mouse/pen press: focus the input on an activation click, otherwise enter scrollback
-    /// (if live) and begin a selection.</summary>
+    /// <summary>Mouse/pen press. In live mode a plain click never enters scrollback: an activation
+    /// click focuses the input, any other press just arms a pending drag and stays live (scrollback
+    /// begins only if the pointer then moves — see <see cref="PointerDrag"/>). In history mode a
+    /// press starts a fresh selection anchor.</summary>
     public void PointerPress(float dipX, float dipY)
     {
         if (!_historyMode)
@@ -244,7 +258,13 @@ public sealed class TerminalView : SKCanvasView
                 FocusInputRequested?.Invoke(this, EventArgs.Empty);
                 return;
             }
-            EnterHistory();
+            // Stay live; remember where the press landed so a subsequent drag can seed the
+            // selection anchor. A press with no drag leaves us live (the click is free for
+            // span-insert / focus, never scrollback).
+            _pendingPress = true;
+            _pressX = dipX;
+            _pressY = dipY;
+            return;
         }
         _selecting = true;
         _selAnchor = _selCaret = HitTest(dipX * _lastScale, dipY * _lastScale);
@@ -252,21 +272,70 @@ public sealed class TerminalView : SKCanvasView
         InvalidateSurface();
     }
 
-    /// <summary>Mouse/pen drag: extend the selection.</summary>
+    /// <summary>Mouse/pen drag: from a live press, crossing the drag threshold enters scrollback and
+    /// begins a selection from the press point; thereafter it extends the selection.</summary>
     public void PointerDrag(float dipX, float dipY)
     {
+        if (_pendingPress)
+        {
+            if (Math.Abs(dipX - _pressX) < DragThresholdDip && Math.Abs(dipY - _pressY) < DragThresholdDip)
+                return;   // not yet moved enough to count as a deliberate drag
+            _pendingPress = false;
+            EnterHistory();                 // clears any prior selection
+            _selecting = true;
+            _selAnchor = HitTest(_pressX * _lastScale, _pressY * _lastScale);
+            _selCaret  = HitTest(dipX * _lastScale, dipY * _lastScale);
+            _hasSelection = _selCaret != _selAnchor;
+            InvalidateSurface();
+            return;
+        }
         if (!_selecting) return;
         _selCaret = HitTest(dipX * _lastScale, dipY * _lastScale);
         _hasSelection = _selCaret != _selAnchor;
         InvalidateSurface();
     }
 
-    /// <summary>Mouse/pen release: finish the selection gesture.</summary>
+    /// <summary>Mouse/pen release: finish the selection gesture. A live press that never dragged
+    /// simply disarms — the view stayed live throughout.</summary>
     public void PointerRelease()
     {
+        _pendingPress = false;
         if (!_selecting) return;
         _selecting = false;
         InvalidateSurface();
+    }
+
+    /// <summary>
+    /// In live mode, hit-tests a clickable span and raises <see cref="SpanInsertTextRequested"/>
+    /// with its insertion text. Returns true when a clickable span consumed the click.
+    /// </summary>
+    public bool TryActivateSpanInsert(float dipX, float dipY)
+    {
+        if (_historyMode || _lastRows is null || _lastCellH <= 0f || _lastCellW <= 0f)
+            return false;
+
+        var (row, col) = HitTest(dipX * _lastScale, dipY * _lastScale);
+        if (row < 0 || row >= _lastRows.Count)
+            return false;
+
+        var spans = _lastRows[row].Spans;
+        int at = 0;
+        for (int i = 0; i < spans.Count; i++)
+        {
+            var span = spans[i];
+            int next = at + span.Text.Length;
+            if (col >= at && col < next)
+            {
+                if (span.ClickInsertText is { Length: > 0 } insert)
+                {
+                    SpanInsertTextRequested?.Invoke(insert);
+                    return true;
+                }
+                return false;
+            }
+            at = next;
+        }
+        return false;
     }
 
     private (int Row, int Col) HitTest(float px, float py)
@@ -372,6 +441,7 @@ public sealed class TerminalView : SKCanvasView
                         canvas.DrawRect(x, rowTop, runW, cellH, _fillPaint);
                     }
                     _textPaint.Color = TerminalTheme.Foreground(run.Style);
+                    var runFont = run.Style.Italic ? font.ItalicFont : font.Font;
                     // Windows Terminal renders intense text bold AND bright; mirror the weight
                     // with a stroke-and-fill fake bold (advances unchanged → grid stays aligned).
                     if (run.Style.Bold)
@@ -383,7 +453,17 @@ public sealed class TerminalView : SKCanvasView
                     {
                         _textPaint.Style = SKPaintStyle.Fill;
                     }
-                    canvas.DrawText(run.Text, x, baseline, font.Font, _textPaint);
+                    canvas.DrawText(run.Text, x, baseline, runFont, _textPaint);
+                    if (run.Style.Underline)
+                    {
+                        var y = baseline + Math.Max(1f, cellH * 0.06f);
+                        var oldStyle = _textPaint.Style;
+                        var oldStroke = _textPaint.StrokeWidth;
+                        _textPaint.Style = SKPaintStyle.Fill;
+                        canvas.DrawRect(x, y, runW, Math.Max(1f, cellH * 0.05f), _textPaint);
+                        _textPaint.Style = oldStyle;
+                        _textPaint.StrokeWidth = oldStroke;
+                    }
                     x += runW;
                 }
 

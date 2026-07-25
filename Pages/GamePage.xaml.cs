@@ -160,6 +160,7 @@ public partial class GamePage : ContentPage
                 _vm.PropertyChanged     += OnVmPropertyChanged;
                 Terminal.HistoryModeChanged += OnHistoryModeChanged;
                 Terminal.FocusInputRequested += OnFocusInputRequested;
+                Terminal.SpanInsertTextRequested += OnTerminalSpanInsertTextRequested;
                 // Re-negotiate columns when the display rotates (see OnMainDisplayInfoChanged).
                 DeviceDisplay.Current.MainDisplayInfoChanged += OnMainDisplayInfoChanged;
 #if WINDOWS
@@ -338,6 +339,7 @@ public partial class GamePage : ContentPage
         _vm.PropertyChanged     -= OnVmPropertyChanged;
         Terminal.HistoryModeChanged -= OnHistoryModeChanged;
         Terminal.FocusInputRequested -= OnFocusInputRequested;
+        Terminal.SpanInsertTextRequested -= OnTerminalSpanInsertTextRequested;
         DeviceDisplay.Current.MainDisplayInfoChanged -= OnMainDisplayInfoChanged;
 #if WINDOWS
         _vm.AnnotationReady -= OnAnnotationReady;
@@ -1437,9 +1439,39 @@ public partial class GamePage : ContentPage
             return;
         }
         if (!pt.Properties.IsLeftButtonPressed) return;   // selection / entry is the left button only
+        if (Terminal.TryActivateSpanInsert((float)pt.Position.X, (float)pt.Position.Y))
+        {
+            e.Handled = true;
+            return;
+        }
         el.CapturePointer(e.Pointer);                     // keep getting moves if the cursor leaves the pane
         Terminal.PointerPress((float)pt.Position.X, (float)pt.Position.Y);
         e.Handled = true;
+    }
+
+    private void OnTerminalSpanInsertTextRequested(string insertText)
+    {
+        if (string.IsNullOrWhiteSpace(insertText)) return;
+#if WINDOWS
+        if (_inputTextBox is not null)
+        {
+            // Only inject a quick-reply token when the caret is exactly at the start and
+            // there is no active selection.
+            if (_inputTextBox.SelectionStart != 0 || _inputTextBox.SelectionLength != 0)
+                return;
+            _inputTextBox.Text = insertText + _inputTextBox.Text;
+            _inputTextBox.SelectionStart = insertText.Length;
+            _vm.InputText = _inputTextBox.Text;
+            return;
+        }
+#endif
+        if (InputEntry.CursorPosition != 0 || InputEntry.SelectionLength != 0)
+            return;
+        var text = InputEntry.Text ?? string.Empty;
+        InputEntry.Text = insertText + text;
+        InputEntry.CursorPosition = insertText.Length;
+        InputEntry.SelectionLength = 0;
+        _vm.InputText = InputEntry.Text;
     }
 
     private void OnTerminalPointerMoved(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)

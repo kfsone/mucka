@@ -61,6 +61,20 @@ public class LineWrapperTests
         Assert.Equal(("fghij", Blue), (rows[1].Spans[0].Text, rows[1].Spans[0].Style));
     }
 
+    // -- ClickInsertText survives the wrap (clickable names stay clickable) ------
+
+    [Fact]
+    public void SplitSpan_PreservesClickInsertText_InEveryPiece()
+    {
+        // A clickable underlined name "Frederick" split across a wrap boundary must keep its
+        // insert payload in both pieces, or TryActivateSpanInsert can't fire on the tail row.
+        var name = new StyledSpan("Frederick", Red, ClickInsertText: "Frederick ");
+        var rows = LineWrapper.Wrap(Line(name), columns: 4);
+
+        Assert.Equal(new[] { "Fred", "eric", "k" }, rows.Select(r => r.PlainText));
+        Assert.All(rows, r => Assert.Equal("Frederick ", r.Spans[0].ClickInsertText));
+    }
+
     // -- Blank lines -------------------------------------------------------------
 
     [Fact]

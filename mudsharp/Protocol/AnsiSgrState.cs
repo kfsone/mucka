@@ -138,10 +138,12 @@ internal sealed class AnsiSgrState
             {
                 0                  => TextStyle.Default,
                 1                  => style with { Bold      = true  },
+                3                  => style with { Italic    = true  },
                 4                  => style with { Underline = true  },
                 5                  => style with { Blink     = true  },
                 7                  => style with { Reverse   = true  },
                 22                 => style with { Bold      = false },
+                23                 => style with { Italic    = false },
                 24                 => style with { Underline = false },
                 25                 => style with { Blink     = false },
                 27                 => style with { Reverse   = false },

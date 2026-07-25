@@ -25,6 +25,9 @@ public static class TerminalTheme
     /// <summary>Resolve a span's foreground colour, applying the bold→bright promotion.</summary>
     public static SKColor Foreground(TextStyle style)
     {
+        // A client-applied RGB override (e.g. the "me" self-chat colours) wins over the palette.
+        if (style.ForegroundRgb is int rgb)
+            return new SKColor((byte)(rgb >> 16), (byte)(rgb >> 8), (byte)rgb);
         int fg = style.Foreground == AnsiColor.Default ? 7 : (int)style.Foreground;
         if (style.Bold && fg is >= 0 and < 8) fg += 8;
         return Palette[fg is >= 0 and < 16 ? fg : 7];
