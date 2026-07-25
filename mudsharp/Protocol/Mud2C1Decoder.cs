@@ -62,6 +62,16 @@ internal sealed class Mud2C1Decoder
     /// Hint that parts of the player state may have changed (the debounced replacement
     /// for Clio's instant txfes). Suppressed inside FEW/FEI/FEX response contexts —
     /// codes there are part of a probe reply, not a state change.
+    ///
+    /// Probe-noise policy (2026-07-25): hints are protocol FACTS ("this code implies X may have
+    /// changed"); MudSession decides what to actually probe. Stat categories (AllStats subsets)
+    /// no longer fire off-cadence FES — inline text carries combat deltas and the timed FES sweep
+    /// catches the rest; only Inventory/WhoList hints trigger reactive probes. Per-code
+    /// classification (which probes a code can justify):
+    ///   C00/C01 → none │ C02 room-enter → FEI │ C03 items → FEI │ C04/C05 creatures/players → FEI
+    ///   C06 → none (announcements suffice) │ C07/C08 combat → stats(+FEI for weapon/guard)
+    ///   C09 speakers → FEW-relevant, but FEW rides every beat anyway │ C11 spells → stats
+    ///   C13 → none │ C14 weather → stats │ C15..C20 → none.
     /// </summary>
     private void Hint(StaleStats kinds)
     {
@@ -740,6 +750,9 @@ internal sealed class Mud2C1Decoder
                             _parser.ClearLineStart();
                             _parser.EmitRoomEntered();
                             _parser.SetPendingRoomShort();
+                            // A new room means new room contents — refresh the Here list without
+                            // waiting for the next FEI-carrying beat.
+                            Hint(StaleStats.Inventory);
                         }
                         break;
                     case 0x9D when count == 1:
@@ -797,7 +810,10 @@ internal sealed class Mud2C1Decoder
                 else Apply(RED, BLACK);
                 // Presence variants (05 0x: 01 here, 02 arriving, 03 departing, 04 visible,
                 // 05 invisible, 10 fleeing) bracket the name of a player who is demonstrably
-                // online — capture it for the who-list staleness check.
+                // online — capture it for the who-list staleness check. All but "here" also
+                // change the room's visible occupants, so the FEI room list is dirty too.
+                if (count == 2 && b0 is 0x9B or 0x9C && b1 is 0x9D or 0x9E or 0x9F or 0xA0 or 0xA5)
+                    Hint(StaleStats.Inventory);
                 if (count == 2 && b0 is 0x9B or 0x9C
                     && b1 is 0x9C or 0x9D or 0x9E or 0x9F or 0xA0 or 0xA5
                     && _parser.InGameMode && !_parser.InFewResponseContext)
@@ -810,8 +826,8 @@ internal sealed class Mud2C1Decoder
             // All variants → sound(6) (Clio sound.c)
             case 0xA1:
                 Apply(LT_BLUE, BLACK);
-                if (!(count == 1 && b0 == 0xA1))
-                    Hint(StaleStats.AllStats);
+                // No probe hint: C06 announcements (Clio txfes'd these) describe events that need
+                // no negation by polling — probe-noise policy, 2026-07-25.
                 // C06 C04 = "Auto reset initiated, you have 120 seconds to finish up" (Bartle: 06 04).
                 // The reset is now precisely timed from this instant — signal the reset projection.
                 if (count == 1 && b0 == 0x9F)
@@ -1075,10 +1091,10 @@ internal sealed class Mud2C1Decoder
                 }
                 if (count == 2 && b0 == 0x9B && b1 == 0x9C)
                 {
-                    // Dreamword cleared + stale hint (Clio txfes)
+                    // Dreamword cleared. No probe hint (Clio txfes'd this): the C15 code itself
+                    // carries the change — probe-noise policy, 2026-07-25.
                     Apply(BLACK, CYAN);
                     _parser.EmitDreamwordChanged(null);
-                    Hint(StaleStats.AllStats);
                     return ParserState.Normal;
                 }
                 Apply(BLACK, CYAN);

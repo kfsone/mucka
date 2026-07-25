@@ -46,6 +46,11 @@ public sealed class ResetClockOptions
     /// stalled sessions produce no FES replies.</summary>
     public TimeSpan MaxReplyAgeToArm { get; init; } = TimeSpan.FromSeconds(15);
 
+    /// <summary>Post-reset (CoarseOnly) the heartbeat keeps FES at beat cadence until the new cycle's
+    /// window has re-converged to at most this ± (seconds); after that — as when Locked — FES relaxes
+    /// to the slow sweep cadence (<see cref="ResetClock.FesCadenceRelaxed"/>).</summary>
+    public double RelaxedUncertaintySec { get; init; } = 3.0;
+
     /// <summary>The server-announced finish-up period after the main counter expires (C06 C04
     /// "Auto reset initiated, you have 120 seconds…"). Used to anchor the final countdown exactly.</summary>
     public TimeSpan FinishUpDuration { get; init; } = TimeSpan.FromSeconds(120);

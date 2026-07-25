@@ -127,6 +127,17 @@ public sealed class ResetClock : IDisposable
     /// probes so the next reply is unambiguously the sample's.</summary>
     public bool IsSamplingInFlight => _sampleInFlight;
 
+    // Lock-free cadence hint for the heartbeat composer. Read under MudSession._fesLock, which must
+    // NEVER take _lock (the established order is engine→_fesLock), hence a volatile bool rather
+    // than Snapshot(). Maintained by PublishLocked.
+    private volatile bool _fesCadenceRelaxed;
+
+    /// <summary>True once FES readings are only needed at the slow sweep cadence: the projection is
+    /// Locked, or post-reset (CoarseOnly) and re-converged to ≤ <see cref="ResetClockOptions.RelaxedUncertaintySec"/>.
+    /// While false the heartbeat keeps FES at beat cadence so coarse readings can converge and the
+    /// discovery pass can arm (its freshness gate needs a reply within MaxReplyAgeToArm).</summary>
+    public bool FesCadenceRelaxed => _fesCadenceRelaxed;
+
     public void OnGameModeEntered()
     {
         bool wasDiscovering;
@@ -462,6 +473,8 @@ public sealed class ResetClock : IDisposable
             unc = (hi - lo) / 2000.0;
         }
         _snapshot = new ResetEstimate(target, unc, _phase);
+        _fesCadenceRelaxed = _phase == ResetPhase.Locked
+            || (_phase == ResetPhase.CoarseOnly && unc <= _o.RelaxedUncertaintySec);
     }
 
     private void ReArmTimerLocked(long nowMs, long atMs)

@@ -802,22 +802,23 @@ public class Mud2C1Tests
     // debounced ProbeHintReceived events instead, and never OutgoingBytes.
 
     [Fact]
-    public void C06_Bare_HintsAllStats()
+    public void C06_Bare_DoesNotHint()
     {
-        // C06+C255 (0xA1 FF FF) → LT_BLUE + hint (Clio txfes, telnet.l:562-580)
+        // C06+C255 (0xA1 FF FF) → LT_BLUE. Clio txfes'd all C06 variants (telnet.l:562-580) but
+        // the probe-noise policy (2026-07-25) classifies C06 announcements as needing no probe.
         var h = new ParserHarness();
         h.Feed(0xA1, 0xFF, 0xFF);
-        Assert.Equal([StaleStats.AllStats], h.ProbeHints);
+        Assert.Empty(h.ProbeHints);
         Assert.Empty(h.Outgoing);
     }
 
     [Fact]
-    public void C06_WithC00_HintsAllStats()
+    public void C06_WithC00_DoesNotHint()
     {
-        // C06+C00+C255 (0xA1 0x9B FF FF) → LT_BLUE + hint
+        // C06+C00+C255 (0xA1 0x9B FF FF) → LT_BLUE, no probe (probe-noise policy, 2026-07-25)
         var h = new ParserHarness();
         h.Feed(0xA1, 0x9B, 0xFF, 0xFF);
-        Assert.Equal([StaleStats.AllStats], h.ProbeHints);
+        Assert.Empty(h.ProbeHints);
     }
 
     [Fact]
@@ -903,12 +904,13 @@ public class Mud2C1Tests
     }
 
     [Fact]
-    public void C15_DreamwordClear_HintsAllStats()
+    public void C15_DreamwordClear_DoesNotHint()
     {
-        // C15+C00+C01+C255 (0xAA 0x9B 0x9C FF FF) → dreamword cleared + hint (Clio telnet.l:916-925)
+        // C15+C00+C01+C255 (0xAA 0x9B 0x9C FF FF) → dreamword cleared. The C15 code itself carries
+        // the change, so no probe (probe-noise policy, 2026-07-25; Clio txfes'd it).
         var h = new ParserHarness();
         h.Feed(0xAA, 0x9B, 0x9C, 0xFF, 0xFF);
-        Assert.Equal([StaleStats.AllStats], h.ProbeHints);
+        Assert.Empty(h.ProbeHints);
     }
 
     [Fact]
@@ -990,7 +992,9 @@ public class Mud2C1Tests
         h.Feed(0xFF, 0xFF);               // pop closes the bracket
         h.Feed(" has just arrived.\r\n");
         Assert.Equal(["Polly the witch"], h.PresenceNames);
-        Assert.Empty(h.ProbeHints);       // the membership check is session policy, not the parser's
+        // An arrival changes the room's visible occupants → FEI dirty. The who-list membership
+        // check stays session policy, so no WhoList hint from the parser itself.
+        Assert.Equal([StaleStats.Inventory], h.ProbeHints);
         var line = Assert.Single(h.Lines);
         Assert.Equal("Polly the witch has just arrived.", line.PlainText);
     }

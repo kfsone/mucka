@@ -22,6 +22,14 @@ public sealed class MudSessionOptions
     /// </summary>
     public TimeSpan MinProbeSpacing { get; init; } = TimeSpan.FromMilliseconds(500);
 
+    /// <summary>
+    /// Once the reset clock no longer needs beat-cadence FES readings
+    /// (<see cref="Session.ResetClock.FesCadenceRelaxed"/>), the heartbeat carries FES at most once
+    /// per this interval — a slow sweep that keeps stats honest (unannounced drift) and verifies the
+    /// locked reset projection is still on track. Default: 60 seconds.
+    /// </summary>
+    public TimeSpan FesSweepInterval { get; init; } = TimeSpan.FromSeconds(60);
+
     /// <summary>Tunables for the reset-time projection / staged precision burst (see ResetClock).</summary>
     public ResetClockOptions ResetClock { get; init; } = new();
 }

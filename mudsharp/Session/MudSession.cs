@@ -77,18 +77,19 @@ public sealed class MudSession : IDisposable
 
     private GameStatsSnapshot _currentStats = GameStatsSnapshot.Empty;
     private string? _currentDreamword;
-    // Periodic probe: ESC-[FES,FEW,FEI ESC-] — fetches stats, who-list, inventory, and exits together.
-    // Reactive C1-triggered FES sends (in Mud2C1Decoder) still use FES-only to avoid clearing
-    // the who list during combat/spell events.
-    // The FEW and FEI components are omitted when those side-panel sections are disabled
-    // (see UpdateSubscriptionOptions).
+    // Periodic probe: composed per beat (ComposeBeatLocked) — FEW every beat (who-list vigilance +
+    // keep-alive), FES at beat cadence only until the reset clock relaxes then once per
+    // FesSweepInterval, FEI only when marked dirty by a C1 hint. The FEW and FEI components are
+    // omitted when those side-panel sections are disabled (see UpdateSubscriptionOptions).
     private bool _includeFew = true;
     private bool _includeFei = true;
     // While the mapping window has focus the heartbeat collapses to FEW-only: stats (FES)
     // and inventory (FEI) are irrelevant mid-survey, but the online list must keep flowing
     // so an arriving PKer is visible. Separate escaped FEx queries are fine standalone.
     private bool _mappingFocus;
-    private byte[] _fesSubscription = BuildSubscription(includeFew: true, includeFei: true);
+    // Last probe that carried FES (routine beat, game-entry, or a reset-discovery sample) — drives
+    // the relaxed-cadence FES sweep (see ComposeBeatLocked / MudSessionOptions.FesSweepInterval).
+    private DateTime _lastFesSentUtc = DateTime.MinValue;
     private readonly EffectTracker _effects = new();
     // Reset-time projection: folds the minute-granular FES reset value into an absolute target and,
     // once per session near the start, runs a staged burst (~1 s then ~250 ms probes) to pin it to
@@ -196,7 +197,7 @@ public sealed class MudSession : IDisposable
     }
 
     /// <summary>
-    /// Update which components are included in the periodic heartbeat probe.
+    /// Update which components may be included in the periodic heartbeat probe.
     /// When <paramref name="includeFew"/> is false the online list (FEW) is omitted.
     /// When <paramref name="includeFei"/> is false the inventory/room-items list (FEI) is omitted.
     /// May be called from any thread.
@@ -205,10 +206,8 @@ public sealed class MudSession : IDisposable
     {
         lock (_fesLock)
         {
-            if (_includeFew == includeFew && _includeFei == includeFei) return;
             _includeFew = includeFew;
             _includeFei = includeFei;
-            _fesSubscription = BuildSubscriptionLocked();
         }
     }
 
@@ -219,28 +218,37 @@ public sealed class MudSession : IDisposable
     public void SetMappingFocus(bool focused)
     {
         lock (_fesLock)
-        {
-            if (_mappingFocus == focused) return;
             _mappingFocus = focused;
-            _fesSubscription = BuildSubscriptionLocked();
-        }
     }
 
-    // Current heartbeat payload given focus + subscription toggles. Caller holds _fesLock.
-    private byte[] BuildSubscriptionLocked()
-        => _mappingFocus
-            ? System.Text.Encoding.ASCII.GetBytes("\x1b-[FEW\x1b-]")   // online list only
-            : BuildSubscription(_includeFew, _includeFei);
-
-    private static byte[] BuildSubscription(bool includeFew, bool includeFei)
+    /// <summary>
+    /// Compose one heartbeat's probe from what is actually due (probe-noise policy, 2026-07-25):
+    ///   FEW — essential every beat: who-list vigilance (a PKer logging on and going invis is only
+    ///         visible in the gap) and the keep-alive the probes have usefully provided.
+    ///   FES — every beat while the reset clock still needs cadence to converge and arm its edge
+    ///         search; once relaxed (locked / post-reset re-converged) at most one per
+    ///         FesSweepInterval. Stat changes between sweeps arrive as inline text ("(84/90)") —
+    ///         maxed stats don't drift silently, so polling them was noise.
+    ///   FEI — only when a C1 code marked room/carried items dirty (event-driven). Unannounced
+    ///         changes (theft) stay unannounced — out-polling the game's own silence isn't a goal.
+    /// Mapping focus keeps its FEW-only override; when the FEW panel is disabled a beat that would
+    /// otherwise be empty falls back to FES so the keep-alive never lapses.
+    /// Caller holds _fesLock. Returns the parts for flag bookkeeping.
+    /// </summary>
+    private byte[] ComposeBeatLocked(DateTime now, out bool fes, out bool few, out bool fei)
     {
-        // ESC-[ FES [,FEW] [,FEI] ESC-]
-        var args = "FES";
-        if (includeFew) args += ",FEW";
-        if (includeFei) args += ",FEI";
-        // The framing bytes: ESC '-' '[' ... ESC '-' ']'
-        var payload = System.Text.Encoding.ASCII.GetBytes($"\x1b-[{args}\x1b-]");
-        return payload;
+        bool relaxed = _resetClock.FesCadenceRelaxed;   // volatile — never takes the engine lock
+        fes = !_mappingFocus
+              && (!relaxed || now - _lastFesSentUtc >= _options.FesSweepInterval);
+        few = _includeFew || _mappingFocus;
+        fei = !_mappingFocus && _includeFei && (_staleFlags & StaleStats.Inventory) != 0;
+        if (!fes && !few && !fei)
+            fes = true;   // keep-alive floor
+        var cmds = new List<string>(3);
+        if (fes) cmds.Add("FES");
+        if (few) cmds.Add("FEW");
+        if (fei) cmds.Add("FEI");
+        return System.Text.Encoding.ASCII.GetBytes("\x1b-[" + string.Join(',', cmds) + "\x1b-]");
     }
 
     /// <summary>Feed raw bytes from the network. Thread-safe relative to the FES timer — Feed() itself is not thread-safe.</summary>
@@ -285,11 +293,10 @@ public sealed class MudSession : IDisposable
         lock (_fesLock)
         {
             StopStaleProbeLocked();
-            // Drop mapping focus and restore the full FES/FEW/FEI heartbeat. The session is
-            // reused across reconnects/relogs, so leaving focus set would resume FEW-only on
-            // the next game-mode entry and silently starve the main window of stats/inventory.
+            // Drop mapping focus so the next game-mode entry composes full beats again. The session
+            // is reused across reconnects/relogs, so leaving focus set would resume FEW-only and
+            // silently starve the main window of stats/inventory.
             _mappingFocus = false;
-            _fesSubscription = BuildSubscriptionLocked();
             _pendingSniff = null;
             _sniffInFlight = null;
         }
@@ -472,6 +479,10 @@ public sealed class MudSession : IDisposable
             _lastProbeReplyUtc = DateTime.UtcNow;   // nothing is stale yet
             if (_fesInterval > TimeSpan.Zero)
             {
+                // First beat populates everything: force FES due and mark the FEI panel dirty so
+                // the entry probe is the full FES,FEW,FEI regardless of the relaxed cadence.
+                _lastFesSentUtc = DateTime.MinValue;
+                _staleFlags |= StaleStats.Inventory;
                 SendFesSubscription();
                 _fesTimer = new Timer(_ => SendFesSubscription(), null, _fesInterval, _fesInterval);
             }
@@ -502,11 +513,10 @@ public sealed class MudSession : IDisposable
         lock (_fesLock)
         {
             StopStaleProbeLocked();
-            // Drop mapping focus and restore the full FES/FEW/FEI heartbeat. The session is
-            // reused across reconnects/relogs, so leaving focus set would resume FEW-only on
-            // the next game-mode entry and silently starve the main window of stats/inventory.
+            // Drop mapping focus so the next game-mode entry composes full beats again. The session
+            // is reused across reconnects/relogs, so leaving focus set would resume FEW-only and
+            // silently starve the main window of stats/inventory.
             _mappingFocus = false;
-            _fesSubscription = BuildSubscriptionLocked();
             _pendingSniff = null;
             _sniffInFlight = null;
         }
@@ -588,21 +598,28 @@ public sealed class MudSession : IDisposable
             // not dropped; SetResetDiscoveryHold(false) re-phases the tick when it ends.
             if (_resetDiscoveryHold || _resetClock.IsSamplingInFlight) return;
             var now = DateTime.UtcNow;
+            payload = ComposeBeatLocked(now, out bool fes, out bool few, out bool fei);
             _lastProbeSentUtc = now;
             _nextRoutineProbeUtc = now + _fesInterval;
-            _staleFlags = StaleStats.None;   // the full probe refreshes everything pending
-            payload = _fesSubscription;
+            if (fes) _lastFesSentUtc = now;
+            // The beat refreshes only what it carries — clear exactly those pending flags.
+            var carried = StaleStats.None;
+            if (fes) carried |= StaleStats.AllStats;
+            if (few) carried |= StaleStats.WhoList;
+            if (fei) carried |= StaleStats.Inventory;
+            _staleFlags &= ~carried;
             // Ride a queued sniff (value <name>) on this probe, but only when the probe carries
             // FEW: the FEW-complete boundary is what closes out an invisible (no-reply) sniff, so
             // a FEW-less probe could never resolve it. LIFO — one sniff per probe.
-            if (_pendingSniff is { } sniff && (_mappingFocus || _includeFew))
+            if (_pendingSniff is { } sniff && few)
             {
                 _sniffInFlight = sniff;
                 _pendingSniff = null;
                 var prefix = System.Text.Encoding.Latin1.GetBytes("value " + sniff + "\r\n");
-                payload = new byte[prefix.Length + _fesSubscription.Length];
-                Buffer.BlockCopy(prefix, 0, payload, 0, prefix.Length);
-                Buffer.BlockCopy(_fesSubscription, 0, payload, prefix.Length, _fesSubscription.Length);
+                var combined = new byte[prefix.Length + payload.Length];
+                Buffer.BlockCopy(prefix, 0, combined, 0, prefix.Length);
+                Buffer.BlockCopy(payload, 0, combined, prefix.Length, payload.Length);
+                payload = combined;
             }
         }
         OutgoingBytes?.Invoke(payload);
@@ -786,9 +803,17 @@ public sealed class MudSession : IDisposable
         {
             if (_fesInterval <= TimeSpan.Zero || !InGameMode)
                 return;
-            if (_nextRoutineProbeUtc - DateTime.UtcNow <= _options.MinProbeSpacing)
-                return;
+            // Record ALL hinted categories — the routine beat composes FEI from the Inventory flag,
+            // so the fact must be kept even when no off-cadence probe fires (e.g. beat imminent).
             _staleFlags |= kinds;
+            // Only who-list / inventory staleness warrants an off-cadence probe. Stat categories
+            // are advisory: combat deltas arrive as inline text ("(84/90)") and the timed FES
+            // sweep catches anything else — rapid-firing FES on every combat code was pure noise
+            // (probe-noise policy, 2026-07-25).
+            if ((kinds & (StaleStats.WhoList | StaleStats.Inventory)) == StaleStats.None)
+                return;
+            if (_nextRoutineProbeUtc - DateTime.UtcNow <= _options.MinProbeSpacing)
+                return;   // beat imminent — it will carry the flagged parts
             if (!_staleArmed)
             {
                 _staleArmed = true;
@@ -831,32 +856,25 @@ public sealed class MudSession : IDisposable
                 _staleTimer?.Change(wait, Timeout.InfiniteTimeSpan);
                 return;
             }
-            // Routine probe now imminent — it refreshes everything anyway.
+            // Routine probe now imminent — keep the flags; the beat composes FEW every time and
+            // FEI from the Inventory flag, so it will carry the stale parts itself.
             if (_nextRoutineProbeUtc - now <= _options.MinProbeSpacing)
-            {
-                _staleFlags = StaleStats.None;
                 return;
-            }
-            bool fes = (_staleFlags & StaleStats.AllStats)  != 0;
-            bool few = (_staleFlags & StaleStats.WhoList)   != 0;
-            bool fei = (_staleFlags & StaleStats.Inventory) != 0;
-            _staleFlags = StaleStats.None;
+            // Off-cadence probes cover only who-list / inventory; stat categories ride the
+            // timed FES sweep (probe-noise policy, 2026-07-25).
+            bool few = (_staleFlags & StaleStats.WhoList)   != 0 && (_includeFew || _mappingFocus);
+            bool fei = (_staleFlags & StaleStats.Inventory) != 0 && _includeFei && !_mappingFocus;
+            if (!few && !fei)
+                return;
+            var carried = StaleStats.None;
+            if (few) carried |= StaleStats.WhoList;
+            if (fei) carried |= StaleStats.Inventory;
+            _staleFlags &= ~carried;
             _lastProbeSentUtc = now;
-            if (fes && few && fei)
-            {
-                // Everything is stale: treat as an early routine probe and re-phase the tick.
-                _nextRoutineProbeUtc = now + _fesInterval;
-                _fesTimer?.Change(_fesInterval, _fesInterval);
-                probe = _fesSubscription;
-            }
-            else
-            {
-                var cmds = new List<string>(2);
-                if (fes) cmds.Add("FES");
-                if (few) cmds.Add("FEW");
-                if (fei) cmds.Add("FEI");
-                probe = System.Text.Encoding.Latin1.GetBytes("\x1b-[" + string.Join(',', cmds) + "\x1b-]");
-            }
+            var cmds = new List<string>(2);
+            if (few) cmds.Add("FEW");
+            if (fei) cmds.Add("FEI");
+            probe = System.Text.Encoding.Latin1.GetBytes("\x1b-[" + string.Join(',', cmds) + "\x1b-]");
         }
         OutgoingBytes?.Invoke(probe);
         ProbeSent?.Invoke();
@@ -939,7 +957,9 @@ public sealed class MudSession : IDisposable
         {
             if (!InGameMode || _fesInterval <= TimeSpan.Zero || _probesHeld)
                 return false;
-            _lastProbeSentUtc = DateTime.UtcNow;
+            var now = DateTime.UtcNow;
+            _lastProbeSentUtc = now;
+            _lastFesSentUtc = now;   // a sample IS a fresh FES — pushes the sweep out
         }
         OutgoingBytes?.Invoke(FesOnlyProbe);
         ProbeSent?.Invoke();

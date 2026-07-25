@@ -14,6 +14,8 @@ public class StaleProbeTests : IDisposable
     private const string FesProbe     = "\x1b-[FES\x1b-]";
     private const string FesFeiProbe  = "\x1b-[FES,FEI\x1b-]";
     private const string FewProbe     = "\x1b-[FEW\x1b-]";
+    private const string FeiProbe     = "\x1b-[FEI\x1b-]";
+    private const string FewFeiProbe  = "\x1b-[FEW,FEI\x1b-]";
     private const string FullProbe    = "\x1b-[FES,FEW,FEI\x1b-]";
 
     private static readonly byte[] GameModeEntry     = [0x9D, 0x9C, 0xFF, 0xFF];
@@ -90,12 +92,15 @@ public class StaleProbeTests : IDisposable
     }
 
     [Fact]
-    public void StaminaHint_WithNoUpdate_SendsFesOnlyProbe()
+    public void StatsHint_NeverFiresOffCadenceProbe()
     {
+        // Probe-noise policy (2026-07-25): stat categories are advisory — combat deltas arrive as
+        // inline text and the timed FES sweep catches the rest. No reactive FES on a hit.
         EnterGameModeAndSettle();
         Feed(C07Hit);
-        Assert.True(WaitForProbe(FesProbe), "expected a FES-only probe after the stale grace period");
-        Assert.Equal(1, CountSent(FullProbe));   // routine probe untouched
+        Thread.Sleep(400);
+        Assert.Equal(0, CountSent(FesProbe));
+        Assert.Equal(1, CountSent(FullProbe));   // entry probe only
     }
 
     [Fact]
@@ -109,24 +114,29 @@ public class StaleProbeTests : IDisposable
     }
 
     [Fact]
-    public void WeaponChange_SendsCombinedFesFeiProbe()
+    public void WeaponChange_SendsFeiOnlyProbe()
     {
+        // C08 05 marks stamina AND inventory stale; only the inventory half warrants a reactive
+        // probe — the stats half rides the timed FES sweep.
         EnterGameModeAndSettle();
-        Feed(C08WeaponChange);   // stamina + inventory stale
-        Assert.True(WaitForProbe(FesFeiProbe), "expected a combined FES,FEI probe");
+        Feed(C08WeaponChange);
+        Assert.True(WaitForProbe(FeiProbe), "expected a FEI-only probe for the weapon change");
+        Assert.Equal(0, CountSent(FesFeiProbe));
     }
 
     [Fact]
-    public void AllCategoriesStale_SendsFullProbe()
+    public void WhoAndInventoryStale_SendsCombinedFewFeiProbe()
     {
+        // C06 no longer hints anything; item arrival + unknown-player arrival leave exactly
+        // who-list + inventory stale → one combined FEW,FEI reactive probe, never FES.
         EnterGameModeAndSettle();
         EstablishWhoListBaseline();
         Thread.Sleep(150);
-        Feed(C06Magical);                  // all stats stale
+        Feed(C06Magical);                  // no hint (probe-noise policy)
         Feed(C03ItemArriving);             // inventory stale
-        FeedArrivalLine("Bob the warrior"); // unknown player → who list stale
-        Assert.True(WaitForProbe(FullProbe, atLeast: 2),
-            "expected the full FES,FEW,FEI probe (early routine probe) when everything is stale");
+        FeedArrivalLine("Bob the warrior"); // unknown player → who list stale (+ inventory)
+        Assert.True(WaitForProbe(FewFeiProbe), "expected a combined FEW,FEI probe");
+        Assert.Equal(1, CountSent(FullProbe));   // entry probe only — stats never re-probed
     }
 
     [Fact]
@@ -138,16 +148,20 @@ public class StaleProbeTests : IDisposable
         FeedArrivalLine("Alice the witch");   // already on the cached list
         Thread.Sleep(400);
         Assert.Equal(0, CountSent(FewProbe));
+        Assert.Equal(0, CountSent(FewFeiProbe));
+        Assert.True(CountSent(FeiProbe) >= 1);   // the arrival still refreshes room contents
     }
 
     [Fact]
-    public void UnknownPlayerArrival_ProbesWhoList()
+    public void UnknownPlayerArrival_ProbesWhoListAndRoomContents()
     {
+        // The C05 arrival marks the room contents dirty (FEI) and the missing name marks the
+        // who list stale (FEW) → one combined reactive probe.
         EnterGameModeAndSettle();
         EstablishWhoListBaseline();
         Thread.Sleep(150);
         FeedArrivalLine("Bob the warrior");
-        Assert.True(WaitForProbe(FewProbe), "expected a FEW probe for an arrival missing from the cached who list");
+        Assert.True(WaitForProbe(FewFeiProbe), "expected a FEW,FEI probe for an arrival missing from the cached who list");
     }
 
     [Fact]
