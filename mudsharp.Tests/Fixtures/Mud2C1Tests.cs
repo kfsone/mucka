@@ -1056,6 +1056,32 @@ public class Mud2C1Tests
     }
 
     [Fact]
+    public void C02_02_InnerColourNest_DoesNotEndScopeEarly()
+    {
+        // An inner colour push/pop inside the description (e.g. a highlighted word) returns the
+        // stack to the C02.02 frame's depth — the scope must survive that and keep firing
+        // LongDescLineReady until the C02.02 frame ITSELF pops. Scope lifetime is frame lifetime
+        // (C1Scope); the old depth-compare closed here one level too early.
+        var h = new ParserHarness();
+        h.Feed(0x9D, 0x9C, 0xFF, 0xFF);
+        h.Feed("Room Name\n");
+        h.Feed(0xFF, 0xFF);
+        h.ClearCounters();
+        h.Feed(0x9D, 0x9D, 0xFF, 0xFF);          // C02.02: long-desc scope opens
+        h.Feed("A path past a ");
+        h.Feed(0xFE, 0x9E, 0xFF, 0xFF);          // inner C99 colour (highlighted word)
+        h.Feed("shrine");
+        h.Feed(0xFF, 0xFF);                       // inner pop — back to the C02.02 frame depth
+        h.Feed(".\n");
+        h.Feed("Second line after the nest.\n");
+        h.Feed(0xFF, 0xFF);                       // C02.02's own pop — scope ends
+        h.Feed("Not part of the description.\n");
+        Assert.Equal(2, h.LongDescLines.Count);
+        Assert.Equal("A path past a shrine.",        h.LongDescLines[0]);
+        Assert.Equal("Second line after the nest.",  h.LongDescLines[1]);
+    }
+
+    [Fact]
     public void C02_02_AlsoFiresNormalLineReady()
     {
         // LongDescLineReady fires in addition to LineReady, not instead.

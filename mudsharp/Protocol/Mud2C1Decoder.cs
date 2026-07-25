@@ -16,8 +16,20 @@ internal sealed class Mud2C1Decoder
 {
     private readonly MudStreamParser _parser;
 
+    // One colour-stack entry: the style plus the semantic scopes this frame opened (C1Scope
+    // doc explains the mechanism). Scope lifetime is frame lifetime — SettleScopes() reports
+    // scopes whose frames have unwound.
+    private readonly record struct ColorFrame(TextStyle Style, C1Scope Opens);
+
     // Color stack: tracks color history for bare FF FF pop()
-    private readonly Stack<TextStyle> _colorStack = new();
+    private readonly Stack<ColorFrame> _colorStack = new();
+
+    // Union of the Opens flags of every frame currently on the stack. Maintained by
+    // Apply/MoveScopeToTop (set) and SettleScopes (recompute after unwinds).
+    private C1Scope _activeScopes;
+
+    /// <summary>True while a frame that opened <paramref name="scope"/> is still on the stack.</summary>
+    internal bool HasScope(C1Scope scope) => (_activeScopes & scope) != 0;
 
     // C90 colour-catch depths: {C90}{C255} snapshots the stack depth here;
     // {C90}{C01}{C255} (colour throw) unwinds the stack back to the snapshot.
@@ -64,17 +76,37 @@ internal sealed class Mud2C1Decoder
     private static TextStyle Style(int fg, int bg = BLACK)
         => new(Clr(fg), Clr(bg));
 
-    private void Apply(int fg, int bg = BLACK)
+    private void Apply(int fg, int bg = BLACK, C1Scope opens = C1Scope.None)
+        => Apply(Style(fg, bg), opens);
+
+    private void Apply(TextStyle s, C1Scope opens = C1Scope.None)
     {
-        var style = Style(fg, bg);
-        _colorStack.Push(style);
-        _parser.Ansi.SetStyle(style);
+        // The FIRST frame to open a scope owns it: a nested re-send of the same code (e.g. the
+        // inner C09 around a quoted word inside a speaker message) must not re-anchor the scope
+        // to the inner frame, or it would end at the inner pop — one level too early.
+        opens &= ~_activeScopes;
+        _colorStack.Push(new ColorFrame(s, opens));
+        _activeScopes |= opens;
+        _parser.Ansi.SetStyle(s);
     }
 
-    private void Apply(TextStyle s)
+    /// <summary>
+    /// Attach <paramref name="scope"/> to the TOP stack frame, stripping it from any earlier
+    /// frame first. For scopes whose open decision comes after the colour push (the C01 prompt
+    /// gate) — and where, unlike Apply's first-frame-owns rule, a re-open means the previous
+    /// container lost its pop and the NEW frame must own the scope (the stale frame would
+    /// otherwise keep it alive until the next C00 reset).
+    /// </summary>
+    private void MoveScopeToTop(C1Scope scope)
     {
-        _colorStack.Push(s);
-        _parser.Ansi.SetStyle(s);
+        if (_colorStack.Count == 0) return;
+        var frames = _colorStack.ToArray();              // enumerates top-first
+        _colorStack.Clear();
+        for (int i = frames.Length - 1; i >= 0; i--)     // re-push bottom-first
+            _colorStack.Push(frames[i] with { Opens = frames[i].Opens & ~scope });
+        var top = _colorStack.Pop();
+        _colorStack.Push(top with { Opens = top.Opens | scope });
+        _activeScopes |= scope;
     }
 
     // Clamp a raw C99 color byte to a color index: byte - 0x9B (C00 base)
@@ -107,10 +139,10 @@ internal sealed class Mud2C1Decoder
         if (_colorStack.Count > 0)
             _colorStack.Pop();
         if (_colorStack.Count > 0)
-            _parser.Ansi.SetStyle(_colorStack.Peek());
+            _parser.Ansi.SetStyle(_colorStack.Peek().Style);
         // If stack is empty after pop, silently ignore (Clio: if (pop() == -1) { /* commented out */ })
 
-        CheckContextClosures();
+        SettleScopes();
 
         // Restore style to default when the C1 color stack is fully unwound.
         // Clio ignores this case (pop() == -1, commented out), but we must explicitly reset
@@ -121,52 +153,23 @@ internal sealed class Mud2C1Decoder
     }
 
     /// <summary>
-    /// Close any capture context whose entry depth has been reached by a stack unwind
-    /// (bare FF FF pop, or a C90 colour throw that pops multiple entries at once).
+    /// Scope bookkeeping after any stack unwind (bare FF FF pop, a C90 colour throw popping
+    /// several frames at once, or the C00 init_stack reset): recompute which scopes are still
+    /// open from the frames themselves and hand any that just ended to the parser, which owns
+    /// the end-of-scope actions (flushing FE captures, closing the prompt container, …).
+    /// A scope ends exactly when the frame that opened it leaves the stack — inner nests
+    /// returning to the same depth cannot close it early, and a throw or reset that unwinds
+    /// several scopes at once closes them all in one call.
     /// </summary>
-    private void CheckContextClosures()
+    private void SettleScopes()
     {
-        // Exit FEW-response suppression when the color stack returns to the depth it was at
-        // before the C12+C08+C05 context push. The nested pushes (C12+C03, C05+C00+C06 etc.)
-        // all pop before this point, so the final pop to FewContextDepth ends the context.
-        if (_parser.InFewResponseContext && _colorStack.Count <= _parser.FewContextDepth)
-        {
-            _parser.FinalizeFewNameOnContextClose();
-            _parser.ExitFewContext();
-            _parser.EmitFewListComplete();
-        }
-
-        if (_parser.InFeiResponseContext && _colorStack.Count <= _parser.FeiContextDepth)
-        {
-            _parser.ExitFeiContext();
-            _parser.EmitFeiListComplete();
-        }
-
-        if (_parser.InFexResponseContext && _colorStack.Count <= _parser.FexContextDepth)
-        {
-            _parser.ExitFexContext();
-            _parser.EmitFexListComplete();
-        }
-
-        if (_parser.InLongDescContext && _colorStack.Count <= _parser.LongDescContextDepth)
-            _parser.ExitLongDescContext();
-
-        // Close the chat context when the C09 colour scope unwinds — the speaker message (and any
-        // wrapped continuation lines) is complete; subsequent lines are Normal again.
-        // Strict '<' (not '<=' like the siblings above): speaker lines routinely nest an inner C09
-        // for the quoted word (e.g. `says "<C09>oippoo</C09>"`), whose pop returns the stack to the
-        // C09 base depth. '<=' would close the context at that inner pop — one level too early —
-        // dropping the Chat tag on continuation lines of a wrapped message that come after the nest.
-        // '<' closes only when the C09's own frame pops.
-        if (_parser.InChatContext && _colorStack.Count < _parser.ChatContextDepth)
-            _parser.ExitChatContext();
-
-        // Close the prompt-capture container when the colour stack returns to the depth
-        // recorded at the outer {C01}{C255} push. ClosePromptContext then shows the
-        // whole captured prompt — '*', '(*)' when invisible, snoop/rank indicators —
-        // as a partial line (PromptAllowed) or discards it (FES heartbeat).
-        if (_parser.InPromptContext && _colorStack.Count <= _parser.PromptContextDepth)
-            _parser.ClosePromptContext();
+        C1Scope open = C1Scope.None;
+        foreach (var frame in _colorStack)
+            open |= frame.Opens;
+        var closed = _activeScopes & ~open;
+        _activeScopes = open;
+        if (closed != C1Scope.None)
+            _parser.OnC1ScopesClosed(closed);
     }
 
     /// <summary>
@@ -182,8 +185,8 @@ internal sealed class Mud2C1Decoder
         int depth = _catchDepths.Pop();
         while (_colorStack.Count > depth)
             _colorStack.Pop();
-        _parser.Ansi.SetStyle(_colorStack.Count > 0 ? _colorStack.Peek() : TextStyle.Default);
-        CheckContextClosures();
+        _parser.Ansi.SetStyle(_colorStack.Count > 0 ? _colorStack.Peek().Style : TextStyle.Default);
+        SettleScopes();
     }
 
     /// <summary>
@@ -213,6 +216,7 @@ internal sealed class Mud2C1Decoder
         _c95LogoutSeenNewline = false;
         _colorStack.Clear();
         _catchDepths.Clear();
+        _activeScopes = C1Scope.None;   // silent: disconnect fires no end-of-scope actions
     }
 
     /// <summary>
@@ -224,6 +228,7 @@ internal sealed class Mud2C1Decoder
     {
         _colorStack.Clear();
         _catchDepths.Clear();
+        _activeScopes = C1Scope.None;   // silent: relog/logout fires no end-of-scope actions
     }
 
     // ── C1 sequence accumulation ──────────────────────────────────────────────
@@ -666,7 +671,7 @@ internal sealed class Mud2C1Decoder
             case 0x9B:
                 _colorStack.Clear();
                 Apply(WHITE, BLACK);
-                CheckContextClosures();
+                SettleScopes();   // the reset ends every open scope, with end-of-scope actions
                 return ParserState.Normal;
 
             // ── C01 (0x9C): the prompt family — BLUE or LT_BLUE ──────────────
@@ -679,9 +684,9 @@ internal sealed class Mud2C1Decoder
             //
             // "The prompt" is contextual — it is everything inside the outer container,
             // not just the '*': '(*)' when invisible, plus snoop/rank indicators. The
-            // outer push therefore opens a prompt-capture context; PopColor closes it
-            // when the stack unwinds to entry depth and shows/discards the capture per
-            // Clio's prompt_allowed gate (telnet.l:438-444).
+            // outer push therefore opens the C1Scope.Prompt scope on its own frame; when
+            // that frame unwinds, OnC1ScopesClosed shows/discards the capture per Clio's
+            // prompt_allowed gate (telnet.l:438-444).
             case 0x9C:
             {
                 bool isGameModeVariant = b0 is 0x9C or 0x9D or 0x9E;
@@ -693,16 +698,19 @@ internal sealed class Mud2C1Decoder
                 {
                     if (count == 0)
                     {
-                        // Bare {C01}{C255}: the outer prompt container. Capture until its
-                        // matching pop. Re-entering while a context is still open means the
-                        // previous container lost its pop — restart capture at the new depth.
-                        _parser.EnterPromptContext(_colorStack.Count - 1);
+                        // Bare {C01}{C255}: the outer prompt container. Capture until its frame
+                        // pops. Re-entering while a container is still open means the previous
+                        // one lost its pop — MoveScopeToTop re-anchors the scope to this frame
+                        // and the parser restarts the capture.
+                        MoveScopeToTop(C1Scope.Prompt);
+                        _parser.EnterPromptContext();
                     }
                     else if (isGameModeVariant && !_parser.InPromptContext)
                     {
                         // Inner prompt core with no outer container: capture just this
                         // code's own extent so a bare {C01}{C02}{C255}*{C255} still gates.
-                        _parser.EnterPromptContext(_colorStack.Count - 1);
+                        MoveScopeToTop(C1Scope.Prompt);
+                        _parser.EnterPromptContext();
                     }
                 }
                 return ParserState.Normal;
@@ -735,10 +743,9 @@ internal sealed class Mud2C1Decoder
                         }
                         break;
                     case 0x9D when count == 1:
-                        Apply(GREEN, BLACK);
-                        // C02.02 opens the room long-description context. Cleared when the
-                        // color stack unwinds to the entry depth (see CheckContextClosures).
-                        _parser.EnterLongDescContext(_colorStack.Count);
+                        // C02.02 opens the room long-description scope, which lasts until this
+                        // frame unwinds (see C1Scope).
+                        Apply(GREEN, BLACK, opens: C1Scope.LongDesc);
                         break;
                     default:
                         Apply(WHITE, BLACK);
@@ -880,11 +887,13 @@ internal sealed class Mud2C1Decoder
             // filter to speech-only, gate on b0 (0x9C=shout, 0x9D=say, 0x9E=tell); to widen it to
             // wiz messages, add the same call under case 0xA5 (C10).
             case 0xA4:
-                Apply(b0 == 0x9B && count == 1 ? YELLOW : LT_YELLOW, BLACK);
+                // The chat scope keeps LineKind.Chat (and the ContinuesChat tag) on the
+                // continuation lines of a server-wrapped speaker message. Apply's
+                // first-frame-owns rule keeps the scope anchored to the outer C09 when the
+                // message nests an inner one (e.g. `says "<C09>oippoo</C09>"`), so the inner
+                // pop cannot end it one level too early.
+                Apply(b0 == 0x9B && count == 1 ? YELLOW : LT_YELLOW, BLACK, opens: C1Scope.Chat);
                 _parser.SetPendingKind(LineKind.Chat);
-                // Open a chat context at this colour depth so a server-wrapped speaker message keeps
-                // LineKind.Chat on its continuation lines. Closed on unwind (CheckContextClosures).
-                _parser.EnterChatContext(_colorStack.Count);
                 // C09+C03 (tell): select tell alert variant from the finished line text.
                 if (count == 1 && b0 == 0x9E)
                     _parser.ArmPendingTellSound();
@@ -948,29 +957,26 @@ internal sealed class Mud2C1Decoder
                 }
                 if (count == 2 && b0 == 0xA3 && b1 == 0xA0)
                 {
-                    // FEW response: C12+C08+C05+C255 — suppress display output; FewPlayerReady still fires.
-                    // Record the pre-push stack depth so PopColor can detect when this context closes.
-                    Apply(WHITE, BLACK);
-                    _parser.EnterFewContext(_colorStack.Count - 1);
-                    _parser.EmitFewListStarting();
+                    // FEW response: C12+C08+C05+C255 — suppress display output; FewPlayerReady
+                    // still fires. The scope lasts until this frame unwinds.
+                    Apply(WHITE, BLACK, opens: C1Scope.FewResponse);
+                    _parser.BeginFewResponse();
                     return ParserState.Normal;
                 }
                 if (count == 2 && b0 == 0xA3 && b1 == 0x9D)
                 {
-                    // FEX response: C12+C08+C02+C255 — exit keyword lines follow until stack
-                    // returns to entry depth. Each line is one direction keyword.
-                    Apply(WHITE, BLACK);
-                    _parser.EnterFexContext(_colorStack.Count - 1);
-                    _parser.EmitFexListStarting();
+                    // FEX response: C12+C08+C02+C255 — exit keyword lines follow while the scope
+                    // is open. Each line is one direction keyword.
+                    Apply(WHITE, BLACK, opens: C1Scope.FexResponse);
+                    _parser.BeginFexResponse();
                     return ParserState.Normal;
                 }
                 if (count == 2 && b0 == 0xA3 && b1 == 0x9E)
                 {
-                    // FEI response: C12+C08+C03+C255 — item lines (plain text) follow until stack
-                    // returns to entry depth. "========" separates room items from carried items.
-                    Apply(WHITE, BLACK);
-                    _parser.EnterFeiContext(_colorStack.Count - 1);
-                    _parser.EmitFeiListStarting();
+                    // FEI response: C12+C08+C03+C255 — item lines (plain text) follow while the
+                    // scope is open. "========" separates room items from carried items.
+                    Apply(WHITE, BLACK, opens: C1Scope.FeiResponse);
+                    _parser.BeginFeiResponse();
                     return ParserState.Normal;
                 }
                 switch (b0)

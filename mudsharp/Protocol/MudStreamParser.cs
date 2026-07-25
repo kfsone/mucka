@@ -212,59 +212,33 @@ public sealed class MudStreamParser
     private bool _pendingRoomShort;
     internal void SetPendingRoomShort() => _pendingRoomShort = true;
 
-    // Long-description context: set when C02.02 is entered, cleared on color-stack unwind.
-    // While active, each completed line fires LongDescLineReady alongside the normal LineReady.
-    private bool _inLongDescContext;
-    private int _longDescContextDepth;
-    internal bool InLongDescContext => _inLongDescContext;
-    internal int LongDescContextDepth => _longDescContextDepth;
-    internal void EnterLongDescContext(int targetDepth)
-    {
-        _inLongDescContext = true;
-        _longDescContextDepth = targetDepth;
-    }
-    internal void ExitLongDescContext() => _inLongDescContext = false;
+    // ── C1 stream scopes ──────────────────────────────────────────────────────
+    // The decoder's colour stack is the single source of truth for the semantic scopes the
+    // server brackets in colour pushes (see C1Scope): these properties read it live, and
+    // OnC1ScopesClosed below runs the end-of-scope actions when frames unwind. Only capture
+    // BUFFERS live here — never a parallel bool/depth pair.
 
-    // Chat context: set when a C09 speaker code pushes its colour, cleared on colour-stack unwind
-    // (see Mud2C1Decoder.CheckContextClosures). Mirrors the long-description context so a speaker
-    // message the server wrapped across several '\n' lines keeps LineKind.Chat on every line, not
-    // just the one carrying the C09 code. Speaker messages pop their colour before their own
-    // newline, so single-line messages rely on _pendingKind; the context only carries wrapped
-    // continuation lines, whose colour is still pushed at the wrap point.
-    private bool _inChatContext;
-    private int _chatContextDepth;
-    // Snapshot of _inChatContext taken at each newline — i.e. whether the C09 scope was already
+    // Long-description scope (C02.02): while open, each completed line fires
+    // LongDescLineReady alongside the normal LineReady.
+    internal bool InLongDescContext => C1.HasScope(C1Scope.LongDesc);
+
+    // Chat scope (C09 speaker message): keeps LineKind.Chat on every line of a speaker message
+    // the server wrapped across several '\n' lines, not just the one carrying the C09 code.
+    // Speaker messages pop their colour before their own newline, so single-line messages rely
+    // on _pendingKind; the scope only carries wrapped continuation lines, whose colour is still
+    // pushed at the wrap point.
+    internal bool InChatContext => C1.HasScope(C1Scope.Chat);
+    // Snapshot of InChatContext taken at each newline — i.e. whether the C09 scope was already
     // open when the NEXT line starts. A line finalised with this true is a server-wrapped
     // continuation of the previous chat line (StyledLine.ContinuesChat); a line that carries its
     // own C09 opens the scope mid-line, after this snapshot, so message starts are never tagged.
     private bool _chatOpenAtLineStart;
-    internal bool InChatContext => _inChatContext;
-    internal int ChatContextDepth => _chatContextDepth;
-    internal void EnterChatContext(int targetDepth)
-    {
-        if (_inChatContext) return;   // C09 can push more than once per line — keep the first (shallowest) depth
-        _inChatContext = true;
-        _chatContextDepth = targetDepth;
-    }
-    internal void ExitChatContext() => _inChatContext = false;
 
     // ── FEW-response suppression ──────────────────────────────────────────────
-    // Set when the parser enters a C12+C08+C05 (FE WHO) context block. While active,
-    // display output is suppressed but FewPlayerReady events still fire.
-    // Cleared when the color stack returns to the depth it was at before the push.
-    private bool _inFewResponseContext;
-    private int _fewContextDepth;
-
-    internal bool InFewResponseContext => _inFewResponseContext;
-    internal int FewContextDepth => _fewContextDepth;
-    internal void EnterFewContext(int targetDepth)
-    {
-        _inFewResponseContext = true;
-        _fewContextDepth = targetDepth;
-    }
-    internal void ExitFewContext() => _inFewResponseContext = false;
-    internal void EmitFewListStarting() => FewListStarting?.Invoke();
-    internal void EmitFewListComplete() => FewListComplete?.Invoke();
+    // The C12+C08+C05 (FE WHO) scope. While open, display output is suppressed but
+    // FewPlayerReady events still fire.
+    internal bool InFewResponseContext => C1.HasScope(C1Scope.FewResponse);
+    internal void BeginFewResponse() => FewListStarting?.Invoke();
 
     // ── FEW name continuation ─────────────────────────────────────────────────
     // A WHO-list name interrupted by embedded colour codes (e.g. the C90 catch/throw
@@ -298,63 +272,74 @@ public sealed class MudStreamParser
     }
 
     // ── FEI-response capture ──────────────────────────────────────────────────
-    // Set when the parser enters a C12+C08+C03 (FE INVENTORY) context block.
-    // Item text accumulates in _feiLine (bypasses the span machinery to avoid
-    // capturing stale spans from before the opener). Each '\n' emits one item.
-    // Cleared when the c stack returns to the depth it was at before the push.
-    private bool _inFeiResponseContext;
-    private int _feiContextDepth;
+    // The C12+C08+C03 (FE INVENTORY) scope. Item text accumulates in _feiLine (bypasses the
+    // span machinery to avoid capturing stale spans from before the opener); each '\n' emits
+    // one item, and scope close flushes any trailing item.
     private readonly StringBuilder _feiLine = new();
 
-    internal bool InFeiResponseContext => _inFeiResponseContext;
-    internal int FeiContextDepth => _feiContextDepth;
-    internal void EnterFeiContext(int targetDepth)
+    internal bool InFeiResponseContext => C1.HasScope(C1Scope.FeiResponse);
+    internal void BeginFeiResponse()
     {
-        _inFeiResponseContext = true;
-        _feiContextDepth = targetDepth;
         _feiLine.Clear();
+        FeiListStarting?.Invoke();
     }
-    internal void ExitFeiContext()
+    private void FlushFeiItem()
     {
-        if (_feiLine.Length > 0)
-        {
-            var itemText = _feiLine.ToString();
-            _feiLine.Clear();
-            FeiItemReady?.Invoke(itemText);
-        }
-        _inFeiResponseContext = false;
+        if (_feiLine.Length == 0) return;
+        var itemText = _feiLine.ToString();
+        _feiLine.Clear();
+        FeiItemReady?.Invoke(itemText);
     }
-    internal void EmitFeiListStarting() => FeiListStarting?.Invoke();
-    internal void EmitFeiListComplete() => FeiListComplete?.Invoke();
 
     // ── FEX-response capture ──────────────────────────────────────────────────
-    // Set when the parser enters a C12+C08+C02 (FE EXITS) context block.
-    // Exit keywords accumulate in _fexLine until each '\n'; cleared when the
-    // color stack returns to the depth it was at before the push.
-    private bool _inFexResponseContext;
-    private int _fexContextDepth;
+    // The C12+C08+C02 (FE EXITS) scope. Exit keywords accumulate in _fexLine until each '\n';
+    // scope close flushes any trailing keyword.
     private readonly StringBuilder _fexLine = new();
 
-    internal bool InFexResponseContext => _inFexResponseContext;
-    internal int FexContextDepth => _fexContextDepth;
-    internal void EnterFexContext(int targetDepth)
+    internal bool InFexResponseContext => C1.HasScope(C1Scope.FexResponse);
+    internal void BeginFexResponse()
     {
-        _inFexResponseContext = true;
-        _fexContextDepth = targetDepth;
         _fexLine.Clear();
+        FexListStarting?.Invoke();
     }
-    internal void ExitFexContext()
+    private void FlushFexItem()
     {
-        if (_fexLine.Length > 0)
-        {
-            var itemText = _fexLine.ToString();
-            _fexLine.Clear();
-            FexItemReady?.Invoke(itemText);
-        }
-        _inFexResponseContext = false;
+        if (_fexLine.Length == 0) return;
+        var itemText = _fexLine.ToString();
+        _fexLine.Clear();
+        FexItemReady?.Invoke(itemText);
     }
-    internal void EmitFexListStarting() => FexListStarting?.Invoke();
-    internal void EmitFexListComplete() => FexListComplete?.Invoke();
+
+    /// <summary>
+    /// End-of-scope actions, invoked by the decoder when colour-stack frames that opened
+    /// semantic scopes unwind (a bare FF FF pop, a C90 colour throw, or the C00 init reset).
+    /// Several scopes can end on one unwind; the dispatch order below matches the old
+    /// per-context close order. Chat and LongDesc need no end action — their consumers read
+    /// the In-properties live.
+    /// </summary>
+    internal void OnC1ScopesClosed(C1Scope closed)
+    {
+        if ((closed & C1Scope.FewResponse) != 0)
+        {
+            FinalizeFewNameOnContextClose();
+            FewListComplete?.Invoke();
+        }
+        if ((closed & C1Scope.FeiResponse) != 0)
+        {
+            FlushFeiItem();
+            FeiListComplete?.Invoke();
+        }
+        if ((closed & C1Scope.FexResponse) != 0)
+        {
+            FlushFexItem();
+            FexListComplete?.Invoke();
+        }
+        // The prompt container: show the whole captured prompt — '*', '(*)' when invisible,
+        // snoop/rank indicators — as a partial line (PromptAllowed) or discard it (FES
+        // heartbeat). Skipped when a mid-container newline already aborted the capture.
+        if ((closed & C1Scope.Prompt) != 0 && _inPromptContext)
+            ClosePromptContext();
+    }
 
     // ── Prompt capture ────────────────────────────────────────────────────────
     // Code 01 is "invisibility brackets around the prompt" (mud2_fe4 §codes): the OUTER
@@ -366,26 +351,25 @@ public sealed class MudStreamParser
     //   invisible:  {C01}{C255}({C01}{C02}{C255}*{C255}){C255}
     // so the whole container is captured here and shown or discarded atomically.
     // While active, text accumulates in _promptText/_promptSpans — never the display
-    // span buffer, and never touching _atLineStart. PopColor closes the context when
-    // the colour stack returns to the recorded entry depth.
+    // span buffer, and never touching _atLineStart. The container's C1Scope.Prompt frame
+    // popping closes the capture (OnC1ScopesClosed). _inPromptContext is the CAPTURE state,
+    // not the scope: a mid-container newline aborts the capture while the scope frame is
+    // still on the stack, and its eventual pop must then do nothing.
     private bool _inPromptContext;
-    private int _promptContextDepth;
     private readonly List<StyledSpan> _promptSpans = new();
     private readonly StringBuilder _promptText = new();
 
     internal bool InPromptContext => _inPromptContext;
-    internal int PromptContextDepth => _promptContextDepth;
 
-    internal void EnterPromptContext(int targetDepth)
+    internal void EnterPromptContext()
     {
         _inPromptContext = true;
-        _promptContextDepth = targetDepth;
         _promptSpans.Clear();
         _promptText.Clear();
     }
 
     /// <summary>
-    /// Close the prompt-capture context (colour stack returned to entry depth).
+    /// Close the prompt-capture context (the container's C1Scope.Prompt frame unwound).
     /// PromptAllowed=true  → show the captured prompt once as a partial line (mirrors
     ///                       Clio's prompt_allowed gate, telnet.l:438-444).
     /// PromptAllowed=false → discard it entirely (FES-heartbeat end-of-frame marker).
@@ -508,24 +492,14 @@ public sealed class MudStreamParser
         _pendingReprocess = null;
         PromptAllowed = true;
         _inPromptContext = false;
-        _promptContextDepth = 0;
         _promptSpans.Clear();
         _promptText.Clear();
-        _inFewResponseContext = false;
         _fewNameActive = false;
         _fewName.Clear();
-        _inFeiResponseContext = false;
-        _feiContextDepth = 0;
         _feiLine.Clear();
-        _inFexResponseContext = false;
-        _fexContextDepth = 0;
         _fexLine.Clear();
         _atLineStart = true;
         _pendingRoomShort = false;
-        _inLongDescContext = false;
-        _longDescContextDepth = 0;
-        _inChatContext = false;
-        _chatContextDepth = 0;
         _chatOpenAtLineStart = false;
         _pendingKind = LineKind.Normal;
         _pendingTellSound = false;
@@ -545,7 +519,7 @@ public sealed class MudStreamParser
             // newline), consumed for the ContinuesChat tag below; then re-snapshot for the next
             // line. Taken up front so every return path below leaves the snapshot correct.
             bool chatOpenAtLineStart = _chatOpenAtLineStart;
-            _chatOpenAtLineStart = _inChatContext;
+            _chatOpenAtLineStart = InChatContext;
             _optionMatchLen = 0;   // the option-menu match never spans a newline
             // A colour-interrupted WHO-list name ends at its line's newline.
             if (_fewNameActive) FinalizeFewName();
@@ -560,7 +534,7 @@ public sealed class MudStreamParser
             // These probe-context newlines emit no normal line, so clear any pending chat tag here
             // too — otherwise a C09 seen just before an FE-probe response could stamp the next real
             // line as Chat. (Implausible in practice, but the reset belongs on every newline path.)
-            if (_inFexResponseContext)
+            if (InFexResponseContext)
             {
                 var itemText = _fexLine.ToString();
                 _fexLine.Clear();
@@ -569,7 +543,7 @@ public sealed class MudStreamParser
                 if (itemText.Length > 0) FexItemReady?.Invoke(itemText);
                 return;
             }
-            if (_inFeiResponseContext)
+            if (InFeiResponseContext)
             {
                 var itemText = _feiLine.ToString();
                 _feiLine.Clear();
@@ -579,7 +553,7 @@ public sealed class MudStreamParser
                 return;
             }
             FlushSpan();
-            if (_inFewResponseContext)
+            if (InFewResponseContext)
             {
                 _spans.Clear();
                 _pendingKind = LineKind.Normal;
@@ -596,13 +570,13 @@ public sealed class MudStreamParser
             bool isAsteriskPreamble = _inGameMode && SpansAreAllAsterisks();
             // Chat if a C09 code was seen on this line (_pendingKind) OR we are still inside an
             // unclosed C09 colour scope (a server-wrapped continuation line, whose own code was on
-            // an earlier line). See EnterChatContext.
-            var lineKind = (_pendingKind == LineKind.Chat || _inChatContext) ? LineKind.Chat : LineKind.Normal;
+            // an earlier line). See C1Scope.Chat.
+            var lineKind = (_pendingKind == LineKind.Chat || InChatContext) ? LineKind.Chat : LineKind.Normal;
             var line = new StyledLine(_spans.ToArray(), isPartial: false, kind: lineKind,
                 continuesChat: lineKind == LineKind.Chat && chatOpenAtLineStart);
             var tellAlertRequested = _pendingTellSound;
             _spans.Clear();
-            _pendingKind = LineKind.Normal;   // per-line signal; _inChatContext carries wrapped continuation lines
+            _pendingKind = LineKind.Normal;   // per-line signal; InChatContext carries wrapped continuation lines
             _pendingTellSound = false;
             PromptAllowed = true;   // Clio: prompt_allowed = 1 on each newline
             if (isAsteriskPreamble) return;
@@ -639,7 +613,7 @@ public sealed class MudStreamParser
                     RoomEntered?.Invoke();
                 }
                 // Long description: fire alongside LineReady for each line while C02.02 is active.
-                if (_inLongDescContext)
+                if (InLongDescContext)
                     LongDescLineReady?.Invoke(line.PlainText);
                 // Exits: fire for "direction: Destination." lines (not within long-desc context
                 // to avoid false matches if a description happens to contain a colon).
@@ -669,17 +643,17 @@ public sealed class MudStreamParser
             if (_fewNameActive)
                 _fewName.Append(ch);
             // Discard characters inside a FEW response (names surface via FewPlayerReady).
-            if (_inFewResponseContext) return;
+            if (InFewResponseContext) return;
             // FEX and FEI items accumulate in dedicated buffers — bypasses the span machinery.
             // They are invisible (surfaced via events), so like FEW they must not touch
             // _atLineStart: clearing it here suppressed RoomEntered/RoomShortReady for any
             // room short arriving right after a heartbeat's FEI block or an auto-FEX block.
-            if (_inFexResponseContext)
+            if (InFexResponseContext)
             {
                 _fexLine.Append(ch);
                 return;
             }
-            if (_inFeiResponseContext)
+            if (InFeiResponseContext)
             {
                 _feiLine.Append(ch);
                 return;
@@ -782,17 +756,15 @@ public sealed class MudStreamParser
         _inPromptContext = false;
         _promptSpans.Clear();
         _promptText.Clear();
-        // Reset all FE response contexts — they're only valid within a game session.
-        // Leaving them active on relog causes text suppression (_inFewResponseContext)
-        // or spurious item/exit events, and leaves the color stack in a stale state.
-        _inFewResponseContext = false;
+        // Drop all stream-scope state — it's only valid within a game session. Leaving a
+        // scope open on relog causes text suppression (FEW) or spurious item/exit events;
+        // C1.ResetGameState() clears the colour stack (and with it every open scope) silently,
+        // without firing end-of-scope actions.
         _fewNameActive = false;
         _fewName.Clear();
-        _inFeiResponseContext = false;
-        _inFexResponseContext = false;
+        _feiLine.Clear();
+        _fexLine.Clear();
         _pendingRoomShort = false;
-        _inLongDescContext = false;
-        _inChatContext = false;
         _chatOpenAtLineStart = false;
         _pendingKind = LineKind.Normal;
         _pendingTellSound = false;
