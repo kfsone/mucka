@@ -327,7 +327,7 @@ public sealed class FkeyEditorViewModel : BaseViewModel
                 settings.Sounds.IsGroupEnabled(g.Prefix),
                 settings.Sounds.GetGroupVolume(g.Prefix), () => VolumeDisplay,
                 settings.Sounds.GetGroupDefault(g.Prefix),
-                hasDefaultPicker: true));
+                hasDefaultPicker: g.HasFallback));
         }
         _bellGroup = new SoundGroupEditorItem(SoundSettings.BellGroup, "Terminal bell (beep)",
             Array.Empty<SoundEditorItem>(),

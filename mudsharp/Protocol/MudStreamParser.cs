@@ -165,9 +165,14 @@ public sealed class MudStreamParser
     // class; it is stamped onto the StyledLine at newline and reset. Speaker messages are
     // whole lines, so per-line reset is correct; a rare multi-line message only tags line 1 (TODO).
     private LineKind _pendingKind = LineKind.Normal;
+    // Set by C09+C03 (tell) when the line starts, then consumed at newline to pick the
+    // tell alert variant from the finished text.
+    private bool _pendingTellSound;
 
     /// <summary>Classify the line currently being accumulated. Consumed and reset at the next newline.</summary>
     internal void SetPendingKind(LineKind kind) => _pendingKind = kind;
+    /// <summary>Marks the current line as a tell for newline-time tell sound selection.</summary>
+    internal void ArmPendingTellSound() => _pendingTellSound = true;
 
     // qq-to-option-menu detection: the MUD2 server sends NO binary exit signal when the player
     // quits — it just resets colour and prints the option-menu prompt as plain text. Match that
@@ -517,6 +522,7 @@ public sealed class MudStreamParser
         _inChatContext = false;
         _chatContextDepth = 0;
         _pendingKind = LineKind.Normal;
+        _pendingTellSound = false;
         CurrentDreamword = null;
         CurrentAccountId = null;
         CurrentPrivs = 0;
@@ -548,6 +554,7 @@ public sealed class MudStreamParser
                 var itemText = _fexLine.ToString();
                 _fexLine.Clear();
                 _pendingKind = LineKind.Normal;
+                _pendingTellSound = false;
                 if (itemText.Length > 0) FexItemReady?.Invoke(itemText);
                 return;
             }
@@ -556,6 +563,7 @@ public sealed class MudStreamParser
                 var itemText = _feiLine.ToString();
                 _feiLine.Clear();
                 _pendingKind = LineKind.Normal;
+                _pendingTellSound = false;
                 if (itemText.Length > 0) FeiItemReady?.Invoke(itemText);
                 return;
             }
@@ -564,6 +572,7 @@ public sealed class MudStreamParser
             {
                 _spans.Clear();
                 _pendingKind = LineKind.Normal;
+                _pendingTellSound = false;
                 return;
             }
             // Pre-game terminal-width confirmation line: "[New terminal width is N]"
@@ -579,13 +588,25 @@ public sealed class MudStreamParser
             // an earlier line). See EnterChatContext.
             var lineKind = (_pendingKind == LineKind.Chat || _inChatContext) ? LineKind.Chat : LineKind.Normal;
             var line = new StyledLine(_spans.ToArray(), isPartial: false, kind: lineKind);
+            var tellAlertRequested = _pendingTellSound;
             _spans.Clear();
             _pendingKind = LineKind.Normal;   // per-line signal; _inChatContext carries wrapped continuation lines
+            _pendingTellSound = false;
             PromptAllowed = true;   // Clio: prompt_allowed = 1 on each newline
             if (isAsteriskPreamble) return;
+            // Your own "send" to your listeners echoes as: You tell your listeners "...". It rides
+            // the tell channel (C09+C03) but is your own output — suppress the tell alert and
+            // italicise only the "your listeners" phrase, rather than the sender/"tells you"
+            // decoration meant for tells directed AT you.
+            bool ownListenersSend = _inGameMode && tellAlertRequested
+                                    && IsOwnListenersSend(line.PlainText);
+            if (_inGameMode && tellAlertRequested)
+                line = ownListenersSend ? ItalicisePhrase(line, ListenersPhrase) : DecorateTellLine(line);
             var stats = LineAnalyzer.Analyze(line, _inGameMode);
             if (stats != null) StatsUpdated?.Invoke(stats);
             if (_inGameMode) { var sf = LineAnalyzer.CheckSoundTrigger(line); if (sf != null) EmitSound(sf); }
+            if (_inGameMode && tellAlertRequested && !ownListenersSend)
+                EmitSound(ChooseTellAlertSound(line.PlainText));
             if (_inGameMode)
             {
                 // Fire RoomShortReady only when C02+C01 appeared at line start on this line
@@ -761,8 +782,143 @@ public sealed class MudStreamParser
         _inLongDescContext = false;
         _inChatContext = false;
         _pendingKind = LineKind.Normal;
+        _pendingTellSound = false;
         C1.ResetGameState();
         GameModeExited?.Invoke();
+    }
+
+    // Your own broadcast to your listeners (the "send" command) echoes on the tell channel as
+    // You tell your listeners "...". Detected by lead so we can mute its alert and italicise
+    // just the "your listeners" phrase.
+    private const string OwnListenersLead = "You tell your listeners";
+    private const string ListenersPhrase  = "your listeners";
+
+    private static bool IsOwnListenersSend(string lineText)
+        => lineText.StartsWith(OwnListenersLead, StringComparison.Ordinal);
+
+    // Italicise every occurrence-spanning run of <phrase> within the line, splitting spans on the
+    // phrase boundaries and leaving all other styling (and any click-insert metadata) intact.
+    private static StyledLine ItalicisePhrase(StyledLine line, string phrase)
+    {
+        var text = line.PlainText;
+        int idx = text.IndexOf(phrase, StringComparison.Ordinal);
+        if (idx < 0) return line;
+        int phraseStart = idx;
+        int phraseEnd = idx + phrase.Length;
+
+        var rewritten = new List<StyledSpan>(line.Spans.Count + 2);
+        int absolute = 0;
+        foreach (var span in line.Spans)
+        {
+            int spanStart = absolute;
+            int spanEnd = spanStart + span.Text.Length;
+            absolute = spanEnd;
+
+            var cuts = new List<int> { 0, span.Text.Length };
+            AddCut(cuts, phraseStart, phraseEnd, spanStart, spanEnd);
+            cuts.Sort();
+
+            for (int i = 1; i < cuts.Count; i++)
+            {
+                int localA = cuts[i - 1];
+                int localB = cuts[i];
+                if (localB <= localA) continue;
+                int absA = spanStart + localA;
+                int absB = spanStart + localB;
+                var piece = span.Text.Substring(localA, localB - localA);
+
+                var style = span.Style;
+                if (absA >= phraseStart && absB <= phraseEnd) style = style with { Italic = true };
+                rewritten.Add(new StyledSpan(piece, style, span.ClickInsertText));
+            }
+        }
+
+        return new StyledLine(rewritten, line.IsPartial, line.Kind);
+    }
+
+    private static string ChooseTellAlertSound(string lineText)
+    {
+        if (StartsWithTellLead(lineText, "Someone powerful tells you"))
+            return "sounds/tell-wiz.wav";
+        if (StartsWithTellLead(lineText, "Someone tells you"))
+            return "sounds/tell-invis.wav";
+        return "sounds/tell.wav";
+    }
+
+    private static StyledLine DecorateTellLine(StyledLine line)
+    {
+        const string tellsYou = "tells you";
+        var text = line.PlainText;
+        if (text.Length == 0) return line;
+
+        // Look for " <tells you>" so we can style only the phrase, not the leading spacer.
+        var marker = text.IndexOf(" " + tellsYou, StringComparison.OrdinalIgnoreCase);
+        if (marker <= 0) return line;
+        int phraseStart = marker + 1;
+        int phraseEnd = phraseStart + tellsYou.Length;
+
+        int firstSpace = text.IndexOfAny([' ', '\t']);
+        if (firstSpace < 1 || firstSpace > marker)
+            firstSpace = marker;
+
+        var senderToken = text[..firstSpace];
+        var hasNamedSender = !senderToken.Equals("Someone", StringComparison.OrdinalIgnoreCase);
+        var clickInsert = hasNamedSender ? senderToken + " " : null;
+
+        var rewritten = new List<StyledSpan>(line.Spans.Count + 4);
+        int absolute = 0;
+        foreach (var span in line.Spans)
+        {
+            int spanStart = absolute;
+            int spanEnd = spanStart + span.Text.Length;
+            absolute = spanEnd;
+
+            var cuts = new List<int> { 0, span.Text.Length };
+            AddCut(cuts, 0, firstSpace, spanStart, spanEnd);
+            AddCut(cuts, phraseStart, phraseEnd, spanStart, spanEnd);
+            cuts.Sort();
+
+            for (int i = 1; i < cuts.Count; i++)
+            {
+                int localA = cuts[i - 1];
+                int localB = cuts[i];
+                if (localB <= localA) continue;
+                int absA = spanStart + localA;
+                int absB = spanStart + localB;
+                var piece = span.Text.Substring(localA, localB - localA);
+
+                bool inSender = hasNamedSender && absA >= 0 && absB <= firstSpace;
+                bool inPhrase = absA >= phraseStart && absB <= phraseEnd;
+
+                var style = span.Style;
+                if (inSender) style = style with { Underline = true };
+                if (inPhrase) style = style with { Italic = true };
+
+                rewritten.Add(new StyledSpan(piece, style, inSender ? clickInsert : null));
+            }
+        }
+
+        return new StyledLine(rewritten, line.IsPartial, line.Kind);
+    }
+
+    private static void AddCut(List<int> cuts, int rangeStart, int rangeEnd, int spanStart, int spanEnd)
+    {
+        if (rangeStart > spanStart && rangeStart < spanEnd)
+            cuts.Add(rangeStart - spanStart);
+        if (rangeEnd > spanStart && rangeEnd < spanEnd)
+            cuts.Add(rangeEnd - spanStart);
+    }
+
+    private static bool StartsWithTellLead(string lineText, string lead)
+    {
+        if (!lineText.StartsWith(lead, StringComparison.OrdinalIgnoreCase))
+            return false;
+        if (lineText.Length == lead.Length)
+            return true;
+
+        // Require a delimiter after the exact lead phrase so only the two canonical
+        // anonymous forms are treated specially.
+        return char.IsWhiteSpace(lineText[lead.Length]) || lineText[lead.Length] is '"' or ',' or ':';
     }
 
     /// <summary>Clear accumulated spans (used after emitting the prompt partial line).</summary>

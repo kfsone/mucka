@@ -100,6 +100,131 @@ public class SoundTriggerTests
         Assert.Empty(h.Sounds);
     }
 
+    // ── C09 (0xA4) speaker messages ───────────────────────────────────────────
+
+    [Fact]
+    public void C09_C03Tell_Default_EmitsTellAlert()
+    {
+        // Tell with no special prefix uses the default tell alert.
+        var h = InGameMode();
+        h.Feed(0xA4, 0x9E, 0xFF, 0xFF);
+        h.Feed("Ollie tells you \"hello\".\n");
+        Assert.Single(h.Sounds);
+        Assert.Equal("sounds/tell.wav", h.Sounds[0]);
+    }
+
+    [Fact]
+    public void C09_C03Tell_Someone_EmitsTellInvisAlert()
+    {
+        var h = InGameMode();
+        h.Feed(0xA4, 0x9E, 0xFF, 0xFF);
+        h.Feed("Someone tells you \"hello\".\n");
+        Assert.Single(h.Sounds);
+        Assert.Equal("sounds/tell-invis.wav", h.Sounds[0]);
+    }
+
+    [Fact]
+    public void C09_C03Tell_SomeonePowerful_EmitsTellWizAlert()
+    {
+        var h = InGameMode();
+        h.Feed(0xA4, 0x9E, 0xFF, 0xFF);
+        h.Feed("Someone powerful tells you \"hello\".\n");
+        Assert.Single(h.Sounds);
+        Assert.Equal("sounds/tell-wiz.wav", h.Sounds[0]);
+    }
+
+    [Fact]
+    public void C09_C03Tell_TitledSender_StaysDefaultTellAlert()
+    {
+        // Non-anonymous tells can include arbitrary multi-word titles; only the exact
+        // "Someone" and "Someone powerful" leads are special-cased.
+        var h = InGameMode();
+        h.Feed(0xA4, 0x9E, 0xFF, 0xFF);
+        h.Feed("Ollie the annoyingly verbose necromancer tells you \"hello\".\n");
+        Assert.Single(h.Sounds);
+        Assert.Equal("sounds/tell.wav", h.Sounds[0]);
+    }
+
+    [Fact]
+    public void C09_C03Tell_StylesSenderAndTellPhrase()
+    {
+        var h = InGameMode();
+        h.Feed(0xA4, 0x9E, 0xFF, 0xFF);
+        h.Feed("Ollie the necromancer tells you \"hello\".\n");
+
+        var line = Assert.Single(h.Lines);
+        Assert.Contains(line.Spans, s => s.Text == "Ollie"
+                                      && s.Style.Underline
+                                      && s.ClickInsertText == "Ollie ");
+        Assert.Contains(line.Spans, s => s.Text == "tells you" && s.Style.Italic);
+        Assert.DoesNotContain(line.Spans, s => s.Text.Contains("the necromancer", StringComparison.Ordinal)
+                                            && s.Style.Underline);
+    }
+
+    [Fact]
+    public void C09_C03Tell_SomeoneHasNoClickableSenderSpan()
+    {
+        var h = InGameMode();
+        h.Feed(0xA4, 0x9E, 0xFF, 0xFF);
+        h.Feed("Someone tells you \"hello\".\n");
+
+        var line = Assert.Single(h.Lines);
+        Assert.DoesNotContain(line.Spans, s => s.ClickInsertText != null);
+        Assert.Contains(line.Spans, s => s.Text == "tells you" && s.Style.Italic);
+    }
+
+    [Fact]
+    public void C09_C03Tell_SenderSplitAcrossStyledSpans_RemainsClickable()
+    {
+        // Sender token "Ollie" is split across span boundaries by ANSI SGR changes.
+        // The clickable insert metadata should still resolve to "Ollie ".
+        var h = InGameMode();
+        h.Feed(0xA4, 0x9E, 0xFF, 0xFF);
+        h.Feed("Ol\x1B[31mli\x1B[0me tells you \"hello\".\n");
+
+        var line = Assert.Single(h.Lines);
+        Assert.Contains(line.Spans, s => s.Text == "Ol"
+                                      && s.Style.Underline
+                                      && s.ClickInsertText == "Ollie ");
+        Assert.Contains(line.Spans, s => s.Text == "li"
+                                      && s.Style.Underline
+                                      && s.ClickInsertText == "Ollie ");
+        Assert.Contains(line.Spans, s => s.Text == "tells you" && s.Style.Italic);
+    }
+
+    [Fact]
+    public void C09_C03Tell_OwnListenersSend_EmitsNoSound()
+    {
+        // Your own "send" to your listeners rides the tell channel but is your own output —
+        // it must NOT fire a tell alert.
+        var h = InGameMode();
+        h.Feed(0xA4, 0x9E, 0xFF, 0xFF);
+        h.Feed("You tell your listeners \"hello everyone\".\n");
+        Assert.Empty(h.Sounds);
+    }
+
+    [Fact]
+    public void C09_C03Tell_OwnListenersSend_ItalicisesListenersPhrase()
+    {
+        var h = InGameMode();
+        h.Feed(0xA4, 0x9E, 0xFF, 0xFF);
+        h.Feed("You tell your listeners \"hello everyone\".\n");
+
+        var line = Assert.Single(h.Lines);
+        Assert.Contains(line.Spans, s => s.Text == "your listeners" && s.Style.Italic);
+        // The tell-directed-at-you decoration (clickable sender) must not apply to your own send.
+        Assert.DoesNotContain(line.Spans, s => s.ClickInsertText != null);
+    }
+
+    [Fact]
+    public void C09_C02Say_DoesNotEmitTellAlert()
+    {
+        var h = new ParserHarness();
+        h.Feed(0xA4, 0x9D, 0xFF, 0xFF);
+        h.Feed("Ollie says \"hello\".\n");
+        Assert.Empty(h.Sounds);
+    }
+
     // ── C11 (0xA6) ─────────────────────────────────────────────────────────────
 
     [Fact]

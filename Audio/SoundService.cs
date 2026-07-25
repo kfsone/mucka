@@ -17,6 +17,15 @@ internal static class SoundService
     // atomic) at session start and on settings apply; read on the TCP thread.
     private static volatile SoundSettings s_settings = new();
 
+    // Tell alerts (tell.wav / tell-*.wav) should never overlap; while one is in flight,
+    // subsequent tell alerts are dropped.
+    private static int s_tellPlaybackActive;
+
+    // Cache of discovered mucka overrides for clio assets: sounds/clio.XXXX.wav -> sounds/mucka.XXXX.wav.
+    private static readonly object s_overrideLock = new();
+    private static readonly HashSet<string> s_checkedMuckaOverrides = new(StringComparer.Ordinal);
+    private static readonly HashSet<string> s_existingMuckaOverrides = new(StringComparer.Ordinal);
+
     /// <summary>Sets the playback volume (0–100) for subsequently played sounds.</summary>
     public static void SetVolume(int percent) => s_volumePercent = Math.Clamp(percent, 0, 100);
 
@@ -36,26 +45,30 @@ internal static class SoundService
         var settings = s_settings;
         if (!settings.MasterEnabled) return;
 
+        // Catalogued by exact asset (a clio.*.wav or a prefixed family like the tell alerts):
+        // gate by group + sound, play at the resolved sound → group → master volume.
+        var hit = SoundCatalog.FindByAsset(assetName);
+        if (hit is not null)
+        {
+            var (group, def) = hit.Value;
+            if (!settings.IsGroupEnabled(group.Prefix)) return;
+            if (!settings.IsSoundEnabled(def.Code)) return;
+            Play(def.AssetName, settings.GetSoundVolume(def.Code) ?? settings.GetGroupVolume(group.Prefix));
+            return;
+        }
+
+        // Not shipped by name — maybe a clio code within a known group that has no wav of its
+        // own; play that group's chosen fallback (if any), else it's uncatalogued → play as-is.
         var code = ExtractClioCode(assetName);
-        var group = code is null ? null : SoundCatalog.FindGroupForCode(code);
-        if (code is null || group is null)
+        var grp  = code is null ? null : SoundCatalog.FindGroupForCode(code);
+        if (code is null || grp is null)
         {
-            Play(assetName); // not a catalogued clio sound — play as-is
+            Play(assetName);
             return;
         }
-        if (!settings.IsGroupEnabled(group.Prefix)) return;
-        // Volume inheritance: the sound's own override, else the group's, else master.
-        var groupVolume = settings.GetGroupVolume(group.Prefix);
-        if (group.Contains(code))
-        {
-            if (settings.IsSoundEnabled(code))
-                Play(assetName, settings.GetSoundVolume(code) ?? groupVolume);
-            return;
-        }
-        // No wav shipped for this code — play the group's fallback choice, if set,
-        // at the fallback sound's own (inherited) volume.
-        if (settings.GetGroupDefault(group.Prefix) is { Length: > 0 } fallback)
-            Play($"sounds/clio.{fallback}.wav", settings.GetSoundVolume(fallback) ?? groupVolume);
+        if (!settings.IsGroupEnabled(grp.Prefix)) return;
+        if (settings.GetGroupDefault(grp.Prefix) is { Length: > 0 } fallback)
+            Play($"sounds/clio.{fallback}.wav", settings.GetSoundVolume(fallback) ?? settings.GetGroupVolume(grp.Prefix));
     }
 
     /// <summary>Plays the terminal bell at the bell row's volume (master when not
@@ -79,14 +92,80 @@ internal static class SoundService
     /// at the master volume when null (the inherited default).</summary>
     public static void Play(string assetName, int? volumePercent = null)
     {
+        var resolvedAsset = ResolveAssetName(assetName);
+        var nonOverlappingTell = IsTellAsset(resolvedAsset);
         // Fire-and-forget; never block or throw on the caller (TCP) thread.
-        _ = PlaySafeAsync(assetName, Math.Clamp(volumePercent ?? s_volumePercent, 0, 100));
+        _ = PlaySafeAsync(resolvedAsset, Math.Clamp(volumePercent ?? s_volumePercent, 0, 100), nonOverlappingTell);
     }
 
-    private static async Task PlaySafeAsync(string assetName, int volumePercent)
+    private static async Task PlaySafeAsync(string assetName, int volumePercent, bool nonOverlappingTell)
     {
+        if (nonOverlappingTell && Interlocked.Exchange(ref s_tellPlaybackActive, 1) == 1)
+            return;
+
         try { await PlayCoreAsync(assetName, volumePercent).ConfigureAwait(false); }
         catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[SoundService] Play failed for '{assetName}': {ex.Message}"); }
+        finally
+        {
+            if (nonOverlappingTell)
+                Volatile.Write(ref s_tellPlaybackActive, 0);
+        }
+    }
+
+    private static bool IsTellAsset(string assetName)
+        => assetName.StartsWith("sounds/tell", StringComparison.Ordinal)
+        && assetName.EndsWith(".wav", StringComparison.Ordinal);
+
+    // Prefer app-local overrides when present: sounds/clio.1307.wav -> sounds/mucka.1307.wav.
+    // This keeps the protocol/catalog code-space stable (clio IDs) while allowing bespoke assets.
+    private static string ResolveAssetName(string assetName)
+    {
+        const string clioPrefix = "sounds/clio.";
+        const string suffix = ".wav";
+        if (!assetName.StartsWith(clioPrefix, StringComparison.Ordinal)
+            || !assetName.EndsWith(suffix, StringComparison.Ordinal))
+            return assetName;
+
+        var code = assetName[clioPrefix.Length..^suffix.Length];
+        if (code.Length == 0) return assetName;
+
+        var overrideAsset = $"sounds/mucka.{code}.wav";
+        lock (s_overrideLock)
+        {
+            if (s_existingMuckaOverrides.Contains(overrideAsset))
+                return overrideAsset;
+            if (s_checkedMuckaOverrides.Contains(overrideAsset))
+                return assetName;
+        }
+
+        var exists = AssetExists(overrideAsset);
+        lock (s_overrideLock)
+        {
+            s_checkedMuckaOverrides.Add(overrideAsset);
+            if (exists) s_existingMuckaOverrides.Add(overrideAsset);
+        }
+        return exists ? overrideAsset : assetName;
+    }
+
+    private static bool AssetExists(string assetName)
+    {
+#if WINDOWS
+        var path = Path.GetFullPath(
+            Path.Combine(AppContext.BaseDirectory, assetName.Replace('/', Path.DirectorySeparatorChar)));
+        return File.Exists(path);
+#elif ANDROID
+        try
+        {
+            using var stream = Android.App.Application.Context.Assets?.Open(assetName);
+            return stream != null;
+        }
+        catch
+        {
+            return false;
+        }
+#else
+        return false;
+#endif
     }
 
 #if WINDOWS

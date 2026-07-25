@@ -885,6 +885,9 @@ internal sealed class Mud2C1Decoder
                 // Open a chat context at this colour depth so a server-wrapped speaker message keeps
                 // LineKind.Chat on its continuation lines. Closed on unwind (CheckContextClosures).
                 _parser.EnterChatContext(_colorStack.Count);
+                // C09+C03 (tell): select tell alert variant from the finished line text.
+                if (count == 1 && b0 == 0x9E)
+                    _parser.ArmPendingTellSound();
                 return ParserState.Normal;
 
             // ── C10 (0xA5): BLACK+YELLOW / LT_RED+YELLOW ─────────────────────

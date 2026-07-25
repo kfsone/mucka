@@ -1,14 +1,19 @@
 namespace Mucka.Audio;
 
-/// <summary>One shipped sound effect: the clio code digits and a human-readable name.</summary>
-public sealed record SoundDef(string Code, string Name)
+/// <summary>One shipped sound effect: an identifying code, a human-readable name, and
+/// optionally an explicit asset path. Clio effects derive their asset from the numeric code
+/// (<c>sounds/clio.{Code}.wav</c>); prefixed families (e.g. the tell alerts) carry an explicit
+/// <paramref name="Asset"/> so the catalog is not limited to numeric clio codes.</summary>
+public sealed record SoundDef(string Code, string Name, string? Asset = null)
 {
-    /// <summary>App-package-relative asset path, e.g. "sounds/clio.0703.wav".</summary>
-    public string AssetName => $"sounds/clio.{Code}.wav";
+    /// <summary>App-package-relative asset path, e.g. "sounds/clio.0703.wav" or "sounds/tell.wav".</summary>
+    public string AssetName => Asset ?? $"sounds/clio.{Code}.wav";
 }
 
-/// <summary>A family of sound effects sharing a 2-digit FE-code prefix.</summary>
-public sealed record SoundGroupDef(string Prefix, string Name, SoundDef[] Sounds)
+/// <summary>A family of sound effects sharing a code prefix. <paramref name="HasFallback"/> is
+/// true for clio families (the server can trigger a code with no shipped wav → group fallback);
+/// false for explicit families like the tell alerts, which never need a fallback pick.</summary>
+public sealed record SoundGroupDef(string Prefix, string Name, SoundDef[] Sounds, bool HasFallback = true)
 {
     public bool Contains(string code)
     {
@@ -32,6 +37,12 @@ public static class SoundCatalog
         {
             new("06", "Information alert"),
         }),
+        new("tell", "Tells", new SoundDef[]
+        {
+            new("tell",       "Tell (normal)",    "sounds/tell.wav"),
+            new("tell-invis", "Tell (invisible)", "sounds/tell-invis.wav"),
+            new("tell-wiz",   "Tell (wizard)",    "sounds/tell-wiz.wav"),
+        }, HasFallback: false),
         new("07", "Combat hits", new SoundDef[]
         {
             new("070000", "Hit (generic)"),
@@ -129,4 +140,21 @@ public static class SoundCatalog
             if (g.Prefix == prefix) return g;
         return null;
     }
+
+    // Reverse index: exact asset path → its catalog group + def. Covers clio.*.wav and the
+    // explicitly-pathed families (tell alerts) uniformly, so playback gating need not parse codes.
+    private static readonly Dictionary<string, (SoundGroupDef Group, SoundDef Def)> s_byAsset = BuildAssetIndex();
+
+    private static Dictionary<string, (SoundGroupDef, SoundDef)> BuildAssetIndex()
+    {
+        var map = new Dictionary<string, (SoundGroupDef, SoundDef)>(StringComparer.Ordinal);
+        foreach (var g in Groups)
+            foreach (var s in g.Sounds)
+                map[s.AssetName] = (g, s);
+        return map;
+    }
+
+    /// <summary>The catalog group + def for an exact asset path, or null when not catalogued.</summary>
+    public static (SoundGroupDef Group, SoundDef Def)? FindByAsset(string assetName)
+        => s_byAsset.TryGetValue(assetName, out var hit) ? hit : null;
 }
