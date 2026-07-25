@@ -233,6 +233,12 @@ public sealed class MudStreamParser
     // continuation of the previous chat line (StyledLine.ContinuesChat); a line that carries its
     // own C09 opens the scope mid-line, after this snapshot, so message starts are never tagged.
     private bool _chatOpenAtLineStart;
+    // True when any of the current line's DISPLAYED text was emitted while the chat scope was
+    // open. This — not the scope state at the '\n' — is what makes the line part of the message:
+    // the message's LAST line carries the closing pop before its own newline (same as
+    // single-line messages), so by finalisation the scope is already closed and testing it there
+    // dropped exactly the final wrapped row out of Chat (and out of the self recolour).
+    private bool _chatTextOnLine;
 
     // ── FEW-response suppression ──────────────────────────────────────────────
     // The C12+C08+C05 (FE WHO) scope. While open, display output is suppressed but
@@ -501,6 +507,7 @@ public sealed class MudStreamParser
         _atLineStart = true;
         _pendingRoomShort = false;
         _chatOpenAtLineStart = false;
+        _chatTextOnLine = false;
         _pendingKind = LineKind.Normal;
         _pendingTellSound = false;
         CurrentDreamword = null;
@@ -539,6 +546,7 @@ public sealed class MudStreamParser
                 var itemText = _fexLine.ToString();
                 _fexLine.Clear();
                 _pendingKind = LineKind.Normal;
+                _chatTextOnLine = false;
                 _pendingTellSound = false;
                 if (itemText.Length > 0) FexItemReady?.Invoke(itemText);
                 return;
@@ -548,6 +556,7 @@ public sealed class MudStreamParser
                 var itemText = _feiLine.ToString();
                 _feiLine.Clear();
                 _pendingKind = LineKind.Normal;
+                _chatTextOnLine = false;
                 _pendingTellSound = false;
                 if (itemText.Length > 0) FeiItemReady?.Invoke(itemText);
                 return;
@@ -557,6 +566,7 @@ public sealed class MudStreamParser
             {
                 _spans.Clear();
                 _pendingKind = LineKind.Normal;
+                _chatTextOnLine = false;
                 _pendingTellSound = false;
                 return;
             }
@@ -568,15 +578,18 @@ public sealed class MudStreamParser
             // In game mode, suppress all-asterisk lines entirely (Clio: prompt_allowed / preamble
             // suppression — telnet.l:438-444). These are MUD2 prompt-preamble separator lines.
             bool isAsteriskPreamble = _inGameMode && SpansAreAllAsterisks();
-            // Chat if a C09 code was seen on this line (_pendingKind) OR we are still inside an
-            // unclosed C09 colour scope (a server-wrapped continuation line, whose own code was on
-            // an earlier line). See C1Scope.Chat.
-            var lineKind = (_pendingKind == LineKind.Chat || InChatContext) ? LineKind.Chat : LineKind.Normal;
+            // Chat if a C09 code was seen on this line (_pendingKind), OR any of the line's text
+            // was emitted inside the C09 scope (_chatTextOnLine — covers the message's LAST
+            // wrapped row, whose closing pop precedes its newline), OR the scope is still open at
+            // the newline (a blank wrapped row). See C1Scope.Chat.
+            var lineKind = (_pendingKind == LineKind.Chat || _chatTextOnLine || InChatContext)
+                ? LineKind.Chat : LineKind.Normal;
             var line = new StyledLine(_spans.ToArray(), isPartial: false, kind: lineKind,
                 continuesChat: lineKind == LineKind.Chat && chatOpenAtLineStart);
             var tellAlertRequested = _pendingTellSound;
             _spans.Clear();
-            _pendingKind = LineKind.Normal;   // per-line signal; InChatContext carries wrapped continuation lines
+            _pendingKind = LineKind.Normal;   // per-line signals; InChatContext carries wrapped continuation lines
+            _chatTextOnLine = false;
             _pendingTellSound = false;
             PromptAllowed = true;   // Clio: prompt_allowed = 1 on each newline
             if (isAsteriskPreamble) return;
@@ -660,6 +673,7 @@ public sealed class MudStreamParser
             }
             bool wasLineStart = _atLineStart;
             _atLineStart = false;
+            if (InChatContext) _chatTextOnLine = true;
             _text.Append(ch);
             MatchOptionMenu(ch, wasLineStart);
         }
@@ -766,6 +780,7 @@ public sealed class MudStreamParser
         _fexLine.Clear();
         _pendingRoomShort = false;
         _chatOpenAtLineStart = false;
+        _chatTextOnLine = false;
         _pendingKind = LineKind.Normal;
         _pendingTellSound = false;
         C1.ResetGameState();

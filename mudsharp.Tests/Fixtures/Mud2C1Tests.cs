@@ -1322,6 +1322,33 @@ public class Mud2C1Tests
     }
 
     [Fact]
+    public void C09WrappedMessage_PopBeforeFinalNewline_LastLineStaysChatContinuation()
+    {
+        // Live `say` shape: the closing pop arrives BEFORE the final line's newline, exactly as
+        // it does for single-line messages ("speaker messages pop their colour before their own
+        // newline"). The last line's TEXT was emitted inside the scope, so it is still Chat and
+        // still a continuation. Regression: testing the scope only at the '\n' dropped exactly
+        // the final wrapped row out of Chat — "an N-line say loses the self colours on line N".
+        var h = new ParserHarness();
+        h.Feed(0xA4, 0x9B, 0xFF, 0xFF);
+        h.Feed("Ollie says \"a long message that the server\n");
+        h.Feed("wraps and wraps\n");
+        h.Feed("onto a final line\".");
+        h.Feed(0xFF, 0xFF);               // pop BEFORE the final newline
+        h.Feed("\n");
+        h.Feed("A rat bites you.\n");
+        Assert.Equal(4, h.Lines.Count);
+        Assert.Equal(LineKind.Chat,   h.Lines[0].Kind);
+        Assert.Equal(LineKind.Chat,   h.Lines[1].Kind);
+        Assert.Equal(LineKind.Chat,   h.Lines[2].Kind);
+        Assert.Equal(LineKind.Normal, h.Lines[3].Kind);
+        Assert.False(h.Lines[0].ContinuesChat);
+        Assert.True(h.Lines[1].ContinuesChat);
+        Assert.True(h.Lines[2].ContinuesChat);
+        Assert.False(h.Lines[3].ContinuesChat);
+    }
+
+    [Fact]
     public void C09BackToBackMessages_DoNotChainContinuation()
     {
         // Two complete single-line messages in a row: the second is a fresh message (its own C09,
