@@ -23,8 +23,6 @@ public sealed class MudSession : IDisposable
     // (the wake) trigger an immediate re-probe instead of waiting out the current period.
     private DateTime _lastProbeReplyUtc;
     private DateTime _lastWakeProbeUtc;
-    // Slack beyond the heartbeat interval before missing replies count as stale.
-    private static readonly TimeSpan StaleReplySlack = TimeSpan.FromSeconds(5);
     // FES-only probe: reset-time lives in FES, so a precision probe leaves FEW/FEI undisturbed.
     private static readonly byte[] FesOnlyProbe = System.Text.Encoding.Latin1.GetBytes("\x1b-[FES\x1b-]");
     // Minimum spacing between wake probes so a chatty burst (e.g. dream text) fires only one.
@@ -225,10 +223,12 @@ public sealed class MudSession : IDisposable
     /// Compose one heartbeat's probe from what is actually due (probe-noise policy, 2026-07-25):
     ///   FEW — essential every beat: who-list vigilance (a PKer logging on and going invis is only
     ///         visible in the gap) and the keep-alive the probes have usefully provided.
-    ///   FES — every beat while the reset clock still needs cadence to converge and arm its edge
-    ///         search; once relaxed (locked / post-reset re-converged) at most one per
-    ///         FesSweepInterval. Stat changes between sweeps arrive as inline text ("(84/90)") —
-    ///         maxed stats don't drift silently, so polling them was noise.
+    ///   FES — rides the beat while the stats can be drifting silently: stamina below max or
+    ///         magic below max (both regenerate over time with no inline announcement), or while
+    ///         the reset clock still needs cadence to converge and arm its edge search. Otherwise
+    ///         once per FesSweepInterval regardless, so the panel and reset projection never
+    ///         drift more than a sweep. Everything else between sweeps arrives as inline text
+    ///         ("(84/90)") — maxed stats don't change silently, so polling them was noise.
     ///   FEI — only when a C1 code marked room/carried items dirty (event-driven). Unannounced
     ///         changes (theft) stay unannounced — out-polling the game's own silence isn't a goal.
     /// Mapping focus keeps its FEW-only override; when the FEW panel is disabled a beat that would
@@ -238,8 +238,12 @@ public sealed class MudSession : IDisposable
     private byte[] ComposeBeatLocked(DateTime now, out bool fes, out bool few, out bool fei)
     {
         bool relaxed = _resetClock.FesCadenceRelaxed;   // volatile — never takes the engine lock
+        var stats = _currentStats;                       // immutable snapshot ref — safe unlocked
+        bool regenerating =
+               (stats is { Stamina: int sta, MaxStamina: int maxSta } && sta < maxSta)
+            || (stats is { CurrentMagic: int mag, MaxMagic: int maxMag and > 0 } && mag < maxMag);
         fes = !_mappingFocus
-              && (!relaxed || now - _lastFesSentUtc >= _options.FesSweepInterval);
+              && (!relaxed || regenerating || now - _lastFesSentUtc >= _options.FesSweepInterval);
         few = _includeFew || _mappingFocus;
         fei = !_mappingFocus && _includeFei && (_staleFlags & StaleStats.Inventory) != 0;
         if (!fes && !few && !fei)
@@ -916,10 +920,16 @@ public sealed class MudSession : IDisposable
     }
 
     /// <summary>
-    /// BUGS #5: if the server just sent real data but probe replies have gone stale (the
-    /// character was asleep — FES/FEI/FEW no-op during sleep), fire the heartbeat now and
-    /// re-phase its period, so the panel recovers on wake instead of up to a full interval
-    /// later. Rate-limited so a wake-up text burst fires only one early probe.
+    /// BUGS #5: if the server just sent real data but the last FES-carrying probe never drew its
+    /// stats reply (the character was asleep — FES/FEI/FEW no-op during sleep), fire the heartbeat
+    /// now and re-phase its period, so the panel recovers on wake instead of waiting out the
+    /// current interval. Rate-limited so a wake-up text burst fires only one early probe.
+    ///
+    /// Staleness is judged by the FES send/reply pairing, NOT by reply age alone: FEW-only beats
+    /// legitimately draw nothing but a prompt back (the server pushes the who list only when it
+    /// changed), so "no reply lately" misread every quiet stretch as sleep and spiralled —
+    /// each server packet fired an extra beat whose own reply-less FEW kept the staleness alive
+    /// (the doubled-FEW capture, 2026-07-25).
     /// </summary>
     private void MaybeSendWakeProbe()
     {
@@ -928,13 +938,20 @@ public sealed class MudSession : IDisposable
         if (_resetDiscoveryHold || _resetClock.IsSamplingInFlight)   // discovery owns the wire
             return;
         var now = DateTime.UtcNow;
-        if (now - _lastProbeReplyUtc <= _fesInterval + StaleReplySlack)
+        if (_lastFesSentUtc <= _lastProbeReplyUtc)     // last FES-carrying probe was answered
+            return;
+        if (now - _lastFesSentUtc <= _options.WakeReplySlack)  // in flight — give the reply time to land
             return;
         if (now - _lastWakeProbeUtc < WakeProbeFloor)
             return;
         _lastWakeProbeUtc = now;
         lock (_fesLock)
+        {
+            // The recovery beat must carry FES: only a stats reply can prove we're awake again
+            // (and re-arm this check) — a FEW-only beat could stay legitimately silent.
+            _lastFesSentUtc = DateTime.MinValue;
             _fesTimer?.Change(TimeSpan.Zero, _fesInterval);   // fire immediately, keep the period
+        }
     }
 
     // ── Reset-time discovery (driven by ResetClock) ─────────────────────────────

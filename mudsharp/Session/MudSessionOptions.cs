@@ -30,6 +30,13 @@ public sealed class MudSessionOptions
     /// </summary>
     public TimeSpan FesSweepInterval { get; init; } = TimeSpan.FromSeconds(60);
 
+    /// <summary>
+    /// How long an FES-carrying probe may remain unanswered before incoming server data reads
+    /// as a wake-up (the character was asleep — probes no-op during sleep) and fires an
+    /// immediate recovery beat. Default: 5 seconds.
+    /// </summary>
+    public TimeSpan WakeReplySlack { get; init; } = TimeSpan.FromSeconds(5);
+
     /// <summary>Tunables for the reset-time projection / staged precision burst (see ResetClock).</summary>
     public ResetClockOptions ResetClock { get; init; } = new();
 }
