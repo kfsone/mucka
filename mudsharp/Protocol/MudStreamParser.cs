@@ -168,11 +168,30 @@ public sealed class MudStreamParser
     // Set by C09+C03 (tell) when the line starts, then consumed at newline to pick the
     // tell alert variant from the finished text.
     private bool _pendingTellSound;
+    // Sound codes decoded on the line currently being accumulated (C06/C07/C08/C11/C13/C14/C18
+    // payloads). Emission is deferred to the line's finalisation because the code arrives BEFORE
+    // the text, and a self action echo ("OK, you wave." / "OK, Ollie the superheroine waves.")
+    // must drop its own act sound — the prefix isn't knowable at decode time. Every other line
+    // path (including partial/prompt flushes) plays the queue, so audible timing is unchanged:
+    // the code and its line share a packet.
+    private readonly List<string> _pendingLineSounds = new();
 
     /// <summary>Classify the line currently being accumulated. Consumed and reset at the next newline.</summary>
     internal void SetPendingKind(LineKind kind) => _pendingKind = kind;
     /// <summary>Marks the current line as a tell for newline-time tell sound selection.</summary>
     internal void ArmPendingTellSound() => _pendingTellSound = true;
+    /// <summary>Queues a C1-decoded sound for emission when the current line finalises.</summary>
+    internal void QueueLineSound(string assetPath) => _pendingLineSounds.Add(assetPath);
+
+    // Plays (or, for a self action echo, drops) the sounds queued on the line just finished.
+    private void FlushPendingLineSounds(bool suppress = false)
+    {
+        if (_pendingLineSounds.Count == 0) return;
+        if (!suppress)
+            foreach (var s in _pendingLineSounds)
+                EmitSound(s);
+        _pendingLineSounds.Clear();
+    }
 
     // qq-to-option-menu detection: the MUD2 server sends NO binary exit signal when the player
     // quits — it just resets colour and prints the option-menu prompt as plain text. Match that
@@ -510,6 +529,7 @@ public sealed class MudStreamParser
         _chatTextOnLine = false;
         _pendingKind = LineKind.Normal;
         _pendingTellSound = false;
+        _pendingLineSounds.Clear();
         CurrentDreamword = null;
         CurrentAccountId = null;
         CurrentPrivs = 0;
@@ -548,6 +568,7 @@ public sealed class MudStreamParser
                 _pendingKind = LineKind.Normal;
                 _chatTextOnLine = false;
                 _pendingTellSound = false;
+                FlushPendingLineSounds();
                 if (itemText.Length > 0) FexItemReady?.Invoke(itemText);
                 return;
             }
@@ -558,6 +579,7 @@ public sealed class MudStreamParser
                 _pendingKind = LineKind.Normal;
                 _chatTextOnLine = false;
                 _pendingTellSound = false;
+                FlushPendingLineSounds();
                 if (itemText.Length > 0) FeiItemReady?.Invoke(itemText);
                 return;
             }
@@ -568,13 +590,17 @@ public sealed class MudStreamParser
                 _pendingKind = LineKind.Normal;
                 _chatTextOnLine = false;
                 _pendingTellSound = false;
+                FlushPendingLineSounds();
                 return;
             }
             // Pre-game terminal-width confirmation line: "[New terminal width is N]"
             // Arrives without an ESC-<n>W prefix on plain-mud connections; swallow it and
             // fire TerminalWidthConfirmed so callers can verify the requested width.
             if (!_inGameMode && TryEmitTerminalWidthLine())
+            {
+                FlushPendingLineSounds();
                 return;
+            }
             // In game mode, suppress all-asterisk lines entirely (Clio: prompt_allowed / preamble
             // suppression — telnet.l:438-444). These are MUD2 prompt-preamble separator lines.
             bool isAsteriskPreamble = _inGameMode && SpansAreAllAsterisks();
@@ -592,6 +618,10 @@ public sealed class MudStreamParser
             _chatTextOnLine = false;
             _pendingTellSound = false;
             PromptAllowed = true;   // Clio: prompt_allowed = 1 on each newline
+            // A self action echo plays no sound: the act's sound code announces the action to
+            // the ROOM, and hearing your own wave/yodel back is noise. All other lines play
+            // their queued sounds now.
+            FlushPendingLineSounds(suppress: _inGameMode && SelfChatColorizer.IsOkActEcho(line.PlainText));
             if (isAsteriskPreamble) return;
             // Your own "send" to your listeners echoes as: You tell your listeners "...". It rides
             // the tell channel (C09+C03) but is your own output — suppress the tell alert and
@@ -747,6 +777,9 @@ public sealed class MudStreamParser
 
     internal void EmitPartialLine()
     {
+        // Sounds queued on a line that ends at a prompt (no '\n' yet) still play — only a
+        // completed "OK, …" echo suppresses, and those always newline-terminate.
+        FlushPendingLineSounds();
         FlushSpan();
         if (_spans.Count == 0) return;
         var line = new StyledLine(_spans.ToArray(), isPartial: true);
@@ -783,6 +816,7 @@ public sealed class MudStreamParser
         _chatTextOnLine = false;
         _pendingKind = LineKind.Normal;
         _pendingTellSound = false;
+        _pendingLineSounds.Clear();   // dropped, not played — the session they belong to is over
         C1.ResetGameState();
         GameModeExited?.Invoke();
     }

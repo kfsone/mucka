@@ -3,6 +3,9 @@ namespace MudSharp.Tests.Fixtures;
 /// <summary>
 /// Tests for the MUD2 sound trigger system — both C1 binary protocol triggers
 /// and text-line pattern matches. Expected filenames follow Clio sound.c formula.
+/// C1-decoded sounds are queued on the line being accumulated and emitted when it
+/// finalises (newline or prompt flush) — a self action echo ("OK, …") drops them —
+/// so every C1 trigger test terminates its line before asserting.
 /// </summary>
 public class SoundTriggerTests
 {
@@ -22,6 +25,7 @@ public class SoundTriggerTests
     {
         var h = new ParserHarness();
         h.Feed(0xA1, 0xFF, 0xFF);
+        h.Feed("Something magical is happening!\n");
         Assert.Single(h.Sounds);
         Assert.Equal("sounds/clio.06.wav", h.Sounds[0]);
     }
@@ -32,6 +36,7 @@ public class SoundTriggerTests
         // {C06}{C06}{C255} — "Something magical" exception (no txfes) but still sound(6)
         var h = new ParserHarness();
         h.Feed(0xA1, 0xA1, 0xFF, 0xFF);
+        h.Feed("Something magical is happening!\n");
         Assert.Single(h.Sounds);
         Assert.Equal("sounds/clio.06.wav", h.Sounds[0]);
     }
@@ -44,6 +49,7 @@ public class SoundTriggerTests
         // {C07}{C255} → count==0 → sound(7,0,0) = 070000
         var h = new ParserHarness();
         h.Feed(0xA2, 0xFF, 0xFF);
+        h.Feed("The rat bites you!\n");
         Assert.Single(h.Sounds);
         Assert.Equal("sounds/clio.070000.wav", h.Sounds[0]);
     }
@@ -54,6 +60,7 @@ public class SoundTriggerTests
         // {C07}{C03}{C255} → count==1, b0=0x9E → n2=0x9E-0x9B=3 → clio.0703.wav
         var h = new ParserHarness();
         h.Feed(0xA2, 0x9E, 0xFF, 0xFF);
+        h.Feed("The rat bites you!\n");
         Assert.Single(h.Sounds);
         Assert.Equal("sounds/clio.0703.wav", h.Sounds[0]);
     }
@@ -65,6 +72,7 @@ public class SoundTriggerTests
         // 0x9D - 0x9B = 2, 0xA0 - 0x9B = 5 → clio.070205.wav
         var h = new ParserHarness();
         h.Feed(0xA2, 0x9D, 0xA0, 0xFF, 0xFF);
+        h.Feed("The rat bites you!\n");
         Assert.Single(h.Sounds);
         Assert.Equal("sounds/clio.070205.wav", h.Sounds[0]);
     }
@@ -77,6 +85,7 @@ public class SoundTriggerTests
         // {C08}{C01}{C255} → sound(8,1) = clio.0801.wav
         var h = new ParserHarness();
         h.Feed(0xA3, 0x9C, 0xFF, 0xFF);
+        h.Feed("You attack the rat.\n");
         Assert.Single(h.Sounds);
         Assert.Equal("sounds/clio.0801.wav", h.Sounds[0]);
     }
@@ -87,6 +96,7 @@ public class SoundTriggerTests
         // {C08}{C03}{C255} → sound(8,3) = clio.0803.wav
         var h = new ParserHarness();
         h.Feed(0xA3, 0x9E, 0xFF, 0xFF);
+        h.Feed("The rat is dead!\n");
         Assert.Single(h.Sounds);
         Assert.Equal("sounds/clio.0803.wav", h.Sounds[0]);
     }
@@ -233,6 +243,7 @@ public class SoundTriggerTests
         // {C11}{C02}{C255} → b0=0x9D, n2=0x9D-0x9B=2 → clio.1102.wav
         var h = new ParserHarness();
         h.Feed(0xA6, 0x9D, 0xFF, 0xFF);
+        h.Feed("You feel stronger.\n");
         Assert.Single(h.Sounds);
         Assert.Equal("sounds/clio.1102.wav", h.Sounds[0]);
     }
@@ -263,6 +274,7 @@ public class SoundTriggerTests
         // {C13}{C05}{Cx}{C255} → count==2, b0=0xA0, n2=0xA0-0x9B=5 → clio.1305.wav
         var h = new ParserHarness();
         h.Feed(0xA8, 0xA0, 0x9C, 0xFF, 0xFF);
+        h.Feed("There is a blinding flash.\n");
         Assert.Single(h.Sounds);
         Assert.Equal("sounds/clio.1305.wav", h.Sounds[0]);
     }
@@ -283,6 +295,7 @@ public class SoundTriggerTests
         // {C14}{C03}{C02}{C255} = 0xA9 0x9E 0x9D 0xFF 0xFF → rain on trees → clio.140302.wav
         var h = new ParserHarness();
         h.Feed(0xA9, 0x9E, 0x9D, 0xFF, 0xFF);
+        h.Feed("Rain patters on the leaves above.\n");
         Assert.Single(h.Sounds);
         Assert.Equal("sounds/clio.140302.wav", h.Sounds[0]);
     }
@@ -304,6 +317,7 @@ public class SoundTriggerTests
         // {C18}{C04}{C255} → b0=0x9F, n2=0x9F-0x9B=4 → clio.1804.wav
         var h = new ParserHarness();
         h.Feed(0xAD, 0x9F, 0xFF, 0xFF);
+        h.Feed("Your persona has been saved.\n");
         Assert.Single(h.Sounds);
         Assert.Equal("sounds/clio.1804.wav", h.Sounds[0]);
     }
@@ -314,6 +328,75 @@ public class SoundTriggerTests
         // {C18}{C07}{C255} → b0=0xA2 > 0xA1, out of range, no sound
         var h = new ParserHarness();
         h.Feed(0xAD, 0xA2, 0xFF, 0xFF);
+        Assert.Empty(h.Sounds);
+    }
+
+    // ── Self action echoes ("OK, …") drop their line's sounds ──────────────────
+
+    [Fact]
+    public void OkActEcho_ThirdPerson_DropsItsLineSounds()
+    {
+        // Your own act command echoes back "OK, <name> waves." with the act's sound code
+        // riding the same line — the sound announces the action to the ROOM, so your own
+        // echo stays silent.
+        var h = InGameMode();
+        h.Feed(0xA4, 0x9F, 0xFF, 0xFF);          // C09 act — the echo rides the chat channel
+        h.Feed(0xA8, 0xA0, 0x9C, 0xFF, 0xFF);    // C13 act sound (clio.1305.wav)
+        h.Feed("OK, Ollie the superheroine waves.");
+        h.Feed(0xFF, 0xFF);                       // pop C13
+        h.Feed(0xFF, 0xFF);                       // pop C09
+        h.Feed("\n");
+        Assert.Empty(h.Sounds);
+    }
+
+    [Fact]
+    public void OkActEcho_YouForm_DropsItsLineSounds()
+    {
+        var h = InGameMode();
+        h.Feed(0xA8, 0xA0, 0x9C, 0xFF, 0xFF);
+        h.Feed("OK, you wave.");
+        h.Feed(0xFF, 0xFF);
+        h.Feed("\n");
+        Assert.Empty(h.Sounds);
+    }
+
+    [Fact]
+    public void OtherPlayersAct_SameWireShape_StillPlaysSound()
+    {
+        // The identical code sequence WITHOUT the "OK, " acknowledgement (someone else's act)
+        // plays normally.
+        var h = InGameMode();
+        h.Feed(0xA4, 0x9F, 0xFF, 0xFF);
+        h.Feed(0xA8, 0xA0, 0x9C, 0xFF, 0xFF);
+        h.Feed("Bob the warrior waves.");
+        h.Feed(0xFF, 0xFF);
+        h.Feed(0xFF, 0xFF);
+        h.Feed("\n");
+        Assert.Single(h.Sounds);
+        Assert.Equal("sounds/clio.1305.wav", h.Sounds[0]);
+    }
+
+    [Fact]
+    public void QueuedSound_FlushedByPromptWhenNoNewlineFollows()
+    {
+        // A sound whose line ends at a prompt (C98 show-prompt) rather than a newline still
+        // plays — deferral must never lose a sound, only the completed "OK, …" echo drops them.
+        var h = new ParserHarness();
+        h.Feed(0xA1, 0xFF, 0xFF);          // C06 → sound 06 queued
+        h.Feed("Something magical is happening");
+        h.Feed(0xFD, 0x9B, 0xFF, 0xFF);    // C98 → partial-line flush
+        Assert.Single(h.Sounds);
+        Assert.Equal("sounds/clio.06.wav", h.Sounds[0]);
+    }
+
+    [Fact]
+    public void QueuedSound_DroppedOnGameModeExit()
+    {
+        // Sounds queued on a line the session never finished die with the session.
+        var h = InGameMode();
+        h.Feed(0xA8, 0xA0, 0x9C, 0xFF, 0xFF);
+        h.Feed("There is a blinding fla");
+        h.Parser.Reset();                   // disconnect mid-line
         Assert.Empty(h.Sounds);
     }
 

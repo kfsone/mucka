@@ -133,8 +133,12 @@ internal sealed class Mud2C1Decoder
         return $"sounds/clio.{n1:D2}{n2:D2}{n3:D2}.wav";
     }
 
+    // Queued, not emitted: a C1 sound code precedes its line's text on the wire, and the parser
+    // drops the queue when the finished line is a self action echo ("OK, you wave.") — see
+    // MudStreamParser.FlushPendingLineSounds. Every other line path plays the queue at the
+    // line's newline (or at a partial/prompt flush), i.e. within the same network packet.
     private void Sound(int n1, int n2 = 255, int n3 = 255)
-        => _parser.EmitSound(SoundFile(n1, n2, n3));
+        => _parser.QueueLineSound(SoundFile(n1, n2, n3));
 
     // ── Public entry point ────────────────────────────────────────────────────
 

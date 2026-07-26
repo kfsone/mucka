@@ -4,9 +4,13 @@ namespace MudSharp.Models;
 
 /// <summary>
 /// Recolours a chat line the local player authored so their own speech stands out in every
-/// chat block. A line qualifies when it is <see cref="LineKind.Chat"/> and begins either with
-/// "&lt;MyName&gt; " (say/shout/emote, which MUD2 echoes under the character's own name) or with
-/// "You " (self-forms such as tells, which echo as <c>You tell your listeners "..."</c>).
+/// chat block. A line qualifies when it is <see cref="LineKind.Chat"/> and begins with
+/// "&lt;MyName&gt; " (say/shout/emote, which MUD2 echoes under the character's own name), with
+/// "You " (self-forms such as tells, which echo as <c>You tell your listeners "..."</c>), or
+/// with the game's "OK, " command acknowledgement (act/social echoes: <c>OK, you wave.</c>,
+/// <c>OK, Ollie the superheroine waves.</c> — always your own command, whatever the subject).
+/// While invisible the game parenthesises the name — <c>(Ollie the superheroine) says ...</c> —
+/// so one leading '(' before the name is accepted too.
 ///
 /// The unquoted "label" portion is painted with the name colour and the quoted speech with the
 /// speech colour — split by walking the double-quote state, so multiple quoted segments on one
@@ -52,14 +56,33 @@ public static class SelfChatColorizer
         return int.TryParse(s, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var v) ? v : null;
     }
 
+    /// <summary>
+    /// True for the game's "OK, " acknowledgement of the player's own act/social command
+    /// ("OK, you wave.", "OK, Ollie the superheroine waves."). The OK prefix is MUD2's
+    /// command-accepted convention, so these lines are always self-authored regardless of the
+    /// subject that follows. Matches <c>^OK,\s</c> — the whitespace is required so a word that
+    /// merely begins "OK," mid-sentence style ("OK,then") never qualifies.
+    /// </summary>
+    public static bool IsOkActEcho(string text)
+        => text.Length > 3
+           && text.StartsWith("OK,", StringComparison.Ordinal)
+           && char.IsWhiteSpace(text[3]);
+
     /// <summary>True when the chat line reads as one the local player authored.</summary>
     public static bool IsSelf(StyledLine line, string? myName)
     {
         if (line.Kind != LineKind.Chat) return false;
         var text = line.PlainText;
+        if (IsOkActEcho(text)) return true;
         if (text.StartsWith("You ", StringComparison.Ordinal)) return true;
-        return myName is { Length: > 0 }
-            && text.StartsWith(myName + " ", StringComparison.Ordinal);
+        if (myName is not { Length: > 0 }) return false;
+        // Invisible self: the game parenthesises the whole name-with-description, so the line
+        // reads "(Ollie the superheroine) waves." — strip one '(' and match the name against
+        // what follows (')' closes immediately for an untitled name).
+        if (text.StartsWith('(')) text = text[1..];
+        return text.Length > myName.Length
+            && text.StartsWith(myName, StringComparison.Ordinal)
+            && text[myName.Length] is ' ' or ')';
     }
 
     /// <summary>

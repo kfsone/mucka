@@ -51,6 +51,77 @@ public class SelfChatColorizerTests
         Assert.Contains(line.Spans, s => s.Text == "\"hi\"" && s.Style.ForegroundRgb == SpeechRgb);
     }
 
+    [Theory]
+    [InlineData("OK, you wave.", true)]
+    [InlineData("OK,\tyou wave.", true)]
+    [InlineData("OK, Ollie the superheroine waves.", true)]
+    [InlineData("OK,you wave.", false)]   // /^OK,\s+/ — the whitespace is required
+    [InlineData("OKAY, nothing happens.", false)]
+    [InlineData("OK", false)]
+    [InlineData("OK,", false)]
+    public void IsOkActEcho_MatchesOkCommaWhitespaceOnly(string text, bool expected)
+        => Assert.Equal(expected, SelfChatColorizer.IsOkActEcho(text));
+
+    [Fact]
+    public void OkActEcho_ThirdPerson_Coloured()
+    {
+        // `*wave` echoes "OK, Ollie the superheroine waves." — the OK acknowledgement marks
+        // it as your own command regardless of the subject form.
+        var line = SelfChatColorizer.Apply(
+            Chat("OK, Ollie the superheroine waves."), "Ollie", NameRgb, SpeechRgb);
+        Assert.Contains(line.Spans,
+            s => s.Text == "OK, Ollie the superheroine waves." && s.Style.ForegroundRgb == NameRgb);
+    }
+
+    [Fact]
+    public void OkActEcho_YouForm_ColouredEvenWithoutName()
+    {
+        // Plain `wave` echoes "OK, you wave." (lowercase subject) — still self, and the OK
+        // prefix needs no persona name to qualify.
+        var line = SelfChatColorizer.Apply(Chat("OK, you wave."), myName: null, NameRgb, SpeechRgb);
+        Assert.Contains(line.Spans, s => s.Text == "OK, you wave." && s.Style.ForegroundRgb == NameRgb);
+    }
+
+    [Fact]
+    public void OkActEcho_Wrapped_ContinuationColoured()
+    {
+        var carry = default(SelfChatColorizer.Carry);
+        SelfChatColorizer.Apply(
+            Chat("OK, Ollie the superheroine waves cheerfully at"), "Ollie", NameRgb, SpeechRgb, ref carry);
+        Assert.True(carry.SelfActive);
+        var second = SelfChatColorizer.Apply(
+            Chat("absolutely everyone.", continuesChat: true), "Ollie", NameRgb, SpeechRgb, ref carry);
+        Assert.Contains(second.Spans, s => s.Text == "absolutely everyone." && s.Style.ForegroundRgb == NameRgb);
+    }
+
+    [Fact]
+    public void InvisibleSelf_ParenthesisedName_Coloured()
+    {
+        // While invisible the game parenthesises your whole name-with-description.
+        var line = SelfChatColorizer.Apply(
+            Chat("(Ollie the superheroine) says \"hello\"."), "Ollie", NameRgb, SpeechRgb);
+        Assert.Contains(line.Spans,
+            s => s.Text == "(Ollie the superheroine) says " && s.Style.ForegroundRgb == NameRgb);
+        Assert.Contains(line.Spans, s => s.Text == "\"hello\"" && s.Style.ForegroundRgb == SpeechRgb);
+    }
+
+    [Fact]
+    public void InvisibleSelf_UntitledName_Coloured()
+    {
+        // ')' can close immediately after the bare name.
+        var line = SelfChatColorizer.Apply(Chat("(Ollie) waves."), "Ollie", NameRgb, SpeechRgb);
+        Assert.Contains(line.Spans, s => s.Text == "(Ollie) waves." && s.Style.ForegroundRgb == NameRgb);
+    }
+
+    [Fact]
+    public void InvisibleOther_NotColoured()
+    {
+        // A team member seen through their invisibility gets the same parens with THEIR name.
+        var line = Chat("(Bob the wizard) says \"hi\".");
+        var result = SelfChatColorizer.Apply(line, "Ollie", NameRgb, SpeechRgb);
+        Assert.Same(line, result);
+    }
+
     [Fact]
     public void OthersTell_NotColoured()
     {
