@@ -125,6 +125,39 @@ public class StaleProbeTests : IDisposable
     }
 
     [Fact]
+    public void PlainUncodedLine_MarksInventoryStale_SendsFeiProbe()
+    {
+        // Item-moving commands answer in plain un-coded text ("You drop the sword.") — no C1
+        // code accompanies them, so the plain line itself is the FEI hint (probe-noise policy,
+        // 2026-07-25: any non-coded output may have moved items).
+        EnterGameModeAndSettle();
+        Feed(Pop);           // close the entry code's colour frame — the live server always pops
+        Thread.Sleep(200);   // drain the entry room-enter hint's own FEI probe
+        var baseline = CountSent(FeiProbe);
+        Feed("You drop the ancient scroll.\r\n");
+        Assert.True(WaitForProbe(FeiProbe, atLeast: baseline + 1),
+            "expected a FEI-only probe after plain un-coded output");
+    }
+
+    [Fact]
+    public void CodedText_InsideColourFrame_NeverPlainHints()
+    {
+        // Text inside any C1 colour frame is coded output — its own code's classification
+        // governs. C07 (combat hit) is stats-advisory, so no reactive probe fires at all.
+        EnterGameModeAndSettle();
+        Feed(Pop);
+        Thread.Sleep(200);   // drain the entry room-enter hint's own FEI probe
+        var feiBaseline = CountSent(FeiProbe);
+        Feed(C07Hit);                          // pushes a colour frame
+        Feed("The eel stings you (84/90).");
+        Feed(Pop);
+        Feed("\r\n");
+        Thread.Sleep(400);
+        Assert.Equal(feiBaseline, CountSent(FeiProbe));
+        Assert.Equal(0, CountSent(FesProbe));
+    }
+
+    [Fact]
     public void WhoAndInventoryStale_SendsCombinedFewFeiProbe()
     {
         // C06 no longer hints anything; item arrival + unknown-player arrival leave exactly

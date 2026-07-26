@@ -31,6 +31,13 @@ internal sealed class Mud2C1Decoder
     /// <summary>True while a frame that opened <paramref name="scope"/> is still on the stack.</summary>
     internal bool HasScope(C1Scope scope) => (_activeScopes & scope) != 0;
 
+    /// <summary>
+    /// True while ANY colour frame is on the stack — i.e. some C1 code's styling is in effect.
+    /// Text arriving with the stack empty is plain, un-coded game output (the parser's
+    /// plain-text-line Inventory hint keys off this).
+    /// </summary>
+    internal bool HasOpenColourFrame => _colorStack.Count > 0;
+
     // C90 colour-catch depths: {C90}{C255} snapshots the stack depth here;
     // {C90}{C01}{C255} (colour throw) unwinds the stack back to the snapshot.
     private readonly Stack<int> _catchDepths = new();
@@ -72,6 +79,8 @@ internal sealed class Mud2C1Decoder
     ///   C06 → none (announcements suffice) │ C07/C08 combat → stats(+FEI for weapon/guard)
     ///   C09 speakers → FEW-relevant, but FEW rides every beat anyway │ C11 spells → stats
     ///   C13 → none │ C14 weather → stats │ C15..C20 → none.
+    /// PLAIN text (no code at all) → FEI, hinted by the PARSER at line finalisation
+    /// (_plainTextOnLine): item-moving command responses ("You drop the sword.") are un-coded.
     /// </summary>
     private void Hint(StaleStats kinds)
     {

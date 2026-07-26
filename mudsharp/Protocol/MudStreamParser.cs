@@ -247,6 +247,11 @@ public sealed class MudStreamParser
     // on _pendingKind; the scope only carries wrapped continuation lines, whose colour is still
     // pushed at the wrap point.
     internal bool InChatContext => C1.HasScope(C1Scope.Chat);
+    // Printable non-whitespace text was emitted on the current line while NO colour frame was
+    // open — i.e. plain, un-coded game output (command responses like "You drop the sword.").
+    // Consumed at the newline: such a line hints Inventory (probe-noise policy, 2026-07-25 —
+    // item-moving commands print plain text with no C1 code, so nothing else refreshes FEI).
+    private bool _plainTextOnLine;
     // Snapshot of InChatContext taken at each newline — i.e. whether the C09 scope was already
     // open when the NEXT line starts. A line finalised with this true is a server-wrapped
     // continuation of the previous chat line (StyledLine.ContinuesChat); a line that carries its
@@ -527,6 +532,7 @@ public sealed class MudStreamParser
         _pendingRoomShort = false;
         _chatOpenAtLineStart = false;
         _chatTextOnLine = false;
+        _plainTextOnLine = false;
         _pendingKind = LineKind.Normal;
         _pendingTellSound = false;
         _pendingLineSounds.Clear();
@@ -567,6 +573,7 @@ public sealed class MudStreamParser
                 _fexLine.Clear();
                 _pendingKind = LineKind.Normal;
                 _chatTextOnLine = false;
+                _plainTextOnLine = false;
                 _pendingTellSound = false;
                 FlushPendingLineSounds();
                 if (itemText.Length > 0) FexItemReady?.Invoke(itemText);
@@ -578,6 +585,7 @@ public sealed class MudStreamParser
                 _feiLine.Clear();
                 _pendingKind = LineKind.Normal;
                 _chatTextOnLine = false;
+                _plainTextOnLine = false;
                 _pendingTellSound = false;
                 FlushPendingLineSounds();
                 if (itemText.Length > 0) FeiItemReady?.Invoke(itemText);
@@ -589,6 +597,7 @@ public sealed class MudStreamParser
                 _spans.Clear();
                 _pendingKind = LineKind.Normal;
                 _chatTextOnLine = false;
+                _plainTextOnLine = false;
                 _pendingTellSound = false;
                 FlushPendingLineSounds();
                 return;
@@ -613,9 +622,11 @@ public sealed class MudStreamParser
             var line = new StyledLine(_spans.ToArray(), isPartial: false, kind: lineKind,
                 continuesChat: lineKind == LineKind.Chat && chatOpenAtLineStart);
             var tellAlertRequested = _pendingTellSound;
+            var plainTextLine = _plainTextOnLine;
             _spans.Clear();
             _pendingKind = LineKind.Normal;   // per-line signals; InChatContext carries wrapped continuation lines
             _chatTextOnLine = false;
+            _plainTextOnLine = false;
             _pendingTellSound = false;
             PromptAllowed = true;   // Clio: prompt_allowed = 1 on each newline
             // A self action echo plays no sound: the act's sound code announces the action to
@@ -638,6 +649,11 @@ public sealed class MudStreamParser
                 EmitSound(ChooseTellAlertSound(line.PlainText));
             if (_inGameMode)
             {
+                // Plain un-coded output can be an item-moving command's response ("You drop the
+                // sword." carries no C1 code) — mark the FEI panels dirty so the debounced
+                // reactive probe / next beat refreshes them (probe-noise policy, 2026-07-25).
+                if (plainTextLine)
+                    EmitProbeHint(StaleStats.Inventory);
                 // Fire RoomShortReady only when C02+C01 appeared at line start on this line
                 // (mirrors Clio telnet.l:1218-1226: bold+GREEN at column 0 = room short desc).
                 // Mid-line room-name mentions (e.g. "look around" exits) do not set the flag.
@@ -704,6 +720,12 @@ public sealed class MudStreamParser
             bool wasLineStart = _atLineStart;
             _atLineStart = false;
             if (InChatContext) _chatTextOnLine = true;
+            // Plain (un-coded) game output: printable text arriving with no colour frame open.
+            // Any such line can be the response to an item-moving command ("You drop the
+            // sword.") — the server prints these with no C1 code at all, so no decoder Hint
+            // covers them. Consumed at the newline as an Inventory probe hint.
+            else if (_inGameMode && !char.IsWhiteSpace(ch) && !C1.HasOpenColourFrame)
+                _plainTextOnLine = true;
             _text.Append(ch);
             MatchOptionMenu(ch, wasLineStart);
         }
@@ -814,6 +836,7 @@ public sealed class MudStreamParser
         _pendingRoomShort = false;
         _chatOpenAtLineStart = false;
         _chatTextOnLine = false;
+        _plainTextOnLine = false;
         _pendingKind = LineKind.Normal;
         _pendingTellSound = false;
         _pendingLineSounds.Clear();   // dropped, not played — the session they belong to is over
