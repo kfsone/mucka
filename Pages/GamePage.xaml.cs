@@ -873,6 +873,36 @@ public partial class GamePage : ContentPage
         FocusInput();
     }
 
+    // Prepends a clickable span's insert text ("Name ") to the command box when the caret is at
+    // the start with nothing selected. Shared code: the subscription in OnAppearing is
+    // unconditional, so this must live outside the Windows-only region below (the Android build
+    // broke when it didn't). On Android nothing raises SpanInsertTextRequested yet — the touch
+    // path only pans — so it is dormant there until a tap gesture is wired up.
+    private void OnTerminalSpanInsertTextRequested(string insertText)
+    {
+        if (string.IsNullOrWhiteSpace(insertText)) return;
+#if WINDOWS
+        if (_inputTextBox is not null)
+        {
+            // Only inject a quick-reply token when the caret is exactly at the start and
+            // there is no active selection.
+            if (_inputTextBox.SelectionStart != 0 || _inputTextBox.SelectionLength != 0)
+                return;
+            _inputTextBox.Text = insertText + _inputTextBox.Text;
+            _inputTextBox.SelectionStart = insertText.Length;
+            _vm.InputText = _inputTextBox.Text;
+            return;
+        }
+#endif
+        if (InputEntry.CursorPosition != 0 || InputEntry.SelectionLength != 0)
+            return;
+        var text = InputEntry.Text ?? string.Empty;
+        InputEntry.Text = insertText + text;
+        InputEntry.CursorPosition = insertText.Length;
+        InputEntry.SelectionLength = 0;
+        _vm.InputText = InputEntry.Text;
+    }
+
     private void ShowCopiedToast() => ShowToast("* Copied to clipboard");
 
     // Briefly flash a confirmation toast (3.3s); re-arms on each call.
@@ -1447,31 +1477,6 @@ public partial class GamePage : ContentPage
         el.CapturePointer(e.Pointer);                     // keep getting moves if the cursor leaves the pane
         Terminal.PointerPress((float)pt.Position.X, (float)pt.Position.Y);
         e.Handled = true;
-    }
-
-    private void OnTerminalSpanInsertTextRequested(string insertText)
-    {
-        if (string.IsNullOrWhiteSpace(insertText)) return;
-#if WINDOWS
-        if (_inputTextBox is not null)
-        {
-            // Only inject a quick-reply token when the caret is exactly at the start and
-            // there is no active selection.
-            if (_inputTextBox.SelectionStart != 0 || _inputTextBox.SelectionLength != 0)
-                return;
-            _inputTextBox.Text = insertText + _inputTextBox.Text;
-            _inputTextBox.SelectionStart = insertText.Length;
-            _vm.InputText = _inputTextBox.Text;
-            return;
-        }
-#endif
-        if (InputEntry.CursorPosition != 0 || InputEntry.SelectionLength != 0)
-            return;
-        var text = InputEntry.Text ?? string.Empty;
-        InputEntry.Text = insertText + text;
-        InputEntry.CursorPosition = insertText.Length;
-        InputEntry.SelectionLength = 0;
-        _vm.InputText = InputEntry.Text;
     }
 
     private void OnTerminalPointerMoved(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
