@@ -1251,6 +1251,24 @@
                         </Label.FormattedText>
                     </Label>
 
+                    <Label FontSize="11" IsVisible="{OnPlatform WinUI=true, Default=false}">
+                        <Label.FormattedText>
+                            <FormattedString>
+                                <Span Text="$name=command" TextColor="#58a6ff"/>
+                                <Span Text="  Define a command until you exit the gameworld" TextColor="#888888"/>
+                            </FormattedString>
+                        </Label.FormattedText>
+                    </Label>
+
+                    <Label FontSize="11" IsVisible="{OnPlatform WinUI=true, Default=false}">
+                        <Label.FormattedText>
+                            <FormattedString>
+                                <Span Text="$^Q / $^W / $^E" TextColor="#58a6ff"/>
+                                <Span Text="  Bind commands to Ctrl-Q, Ctrl-W, or Ctrl-E" TextColor="#888888"/>
+                            </FormattedString>
+                        </Label.FormattedText>
+                    </Label>
+
                     <BoxView Color="#2d333b" HeightRequest="1" Margin="0,8"/>
 
                     <Label Text="WORK IN PROGRESS" TextColor="#e3b341" FontSize="11" FontAttributes="Bold"/>

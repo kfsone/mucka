@@ -22,4 +22,8 @@
     <ProjectReference Include="..\mudsharp\mudsharp.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Compile Include="..\Core\SessionCommandAliases.cs" Link="Core\SessionCommandAliases.cs" />
+  </ItemGroup>
+
 </Project>

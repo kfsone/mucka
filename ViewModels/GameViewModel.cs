@@ -19,6 +19,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private readonly string _profileName;
 #if WINDOWS
     private readonly WatchwordStore _watchwords;
+    private readonly SessionCommandAliases _sessionAliases;
     private readonly string _profileHost;
     private Mucka.Core.Mapping.MappingSession? _mapSession;
 #endif
@@ -533,6 +534,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _profileName = profile.Name;
 #if WINDOWS
         _watchwords = WatchwordStore.Load();
+        _sessionAliases = new SessionCommandAliases(AppInfo.VersionString);
         _profileHost = profile.Host;
 #endif
         _maxColumns = Math.Clamp(profile.MaxColumns, 0, 160);  // 0 = auto
@@ -715,6 +717,9 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         => MainThread.BeginInvokeOnMainThread(() =>
         {
             _inGameMode = false;
+#if WINDOWS
+            _sessionAliases.Clear();
+#endif
             // Back at the option menu: no current character. Drop the live baseline (the
             // per-character history in _baseScoreByChar is kept, so returning restores it) and
             // fall the title back to the profile-only form.
@@ -881,6 +886,9 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         => MainThread.BeginInvokeOnMainThread(() =>
         {
             _inGameMode = false;
+#if WINDOWS
+            _sessionAliases.Clear();
+#endif
             IsConnected = false;
             ClearResetProjection();   // stop the countdown; a stale target would keep ticking down
             OnPropertiesChanged(nameof(IsInGameMode), nameof(IsRecordingButtonVisible),
@@ -925,7 +933,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         if (!HandleCommand(trimmed))
         {
 #if WINDOWS
-            _conn.SendLine(_watchwords.ExpandSlots(trimmed));
+            _conn.SendLine(ExpandOutgoingCommand(trimmed));
 #else
             _conn.SendLine(trimmed);
 #endif
@@ -947,7 +955,14 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         if (text.StartsWith('$'))
         {
             var name = text[1..];
-            if (name == "help")
+            if (_sessionAliases.TryDefine(name, out var aliasName, out var aliasCommand, out var error))
+            {
+                if (error != null)
+                    AddSystemLine($"[command] cannot define ${aliasName}: {error}", 9);
+                else
+                    AddSystemLine($"[command] ${aliasName} = {aliasCommand}", 14);
+            }
+            else if (name == "help")
                 PrintHelp();
             else if (name == "?")
             {
@@ -968,6 +983,16 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             // never swallows it; the digit parse also rules "fkeys" out on its own.
             else if (name.Length >= 2 && (name[0] is 'f' or 'F') && int.TryParse(name[1..], out var fn))
                 AnnotateFkey(fn);
+            else if (_sessionAliases.TryGetBuiltInExpansion(name, out var builtInExpansion))
+            {
+                _conn.SendLine(builtInExpansion);
+                _lastSentUtc = DateTime.UtcNow;
+            }
+            else if (_sessionAliases.TryGet(name, out var command))
+            {
+                _conn.SendLine(ExpandOutgoingCommand(command));
+                _lastSentUtc = DateTime.UtcNow;
+            }
             else
                 SpeakWatchword(name);
             return true;
@@ -978,6 +1003,19 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     }
 
 #if WINDOWS
+    private string ExpandOutgoingCommand(string command)
+        => _watchwords.ExpandSlots(_sessionAliases.Expand(command));
+
+    public void SendControlAlias(char key)
+    {
+        if (_sessionAliases.TryGet($"^{key}", out var command))
+        {
+            _conn.SendLine(ExpandOutgoingCommand(command));
+            _lastSentUtc = DateTime.UtcNow;
+        }
+        RequestFocus?.Invoke();
+    }
+
     private void ScanHistory()
     {
         var count     = _historyBuffer.Count;
@@ -1033,6 +1071,10 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         AddSystemLine("  $map [arg]            open the map panel (or probe / dir / ...)", 14);
         AddSystemLine("  $fkeys [shift|ctrl]   list your function-key macros", 14);
         AddSystemLine("  $f<n>                 annotate output with fkey n's text (1-36)", 14);
+        AddSystemLine("  $VER                  expands to the current Mucka version", 14);
+        AddSystemLine("  $name=command         define a command until you exit the gameworld", 14);
+        AddSystemLine("  $name                 run a command defined above", 14);
+        AddSystemLine("  $^Q/$^W/$^E=command   bind Ctrl-Q, Ctrl-W, or Ctrl-E", 14);
     }
 
     // $fkeys [shift|ctrl] — list the 12 macros on the requested layer, echoing each line into the
@@ -1182,7 +1224,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
                 SpeakWatchword(cmd[1..]);
             else
             {
-                _conn.SendLine(_watchwords.ExpandSlots(cmd));
+                _conn.SendLine(ExpandOutgoingCommand(cmd));
                 _lastSentUtc = DateTime.UtcNow;
             }
 #else
