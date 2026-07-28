@@ -6,7 +6,7 @@ namespace Mucka.Core;
 internal sealed class SessionCommandAliases
 {
     private static readonly Regex AliasRefRegex = new(
-        @"\$(\^[QWE]|[A-Za-z][A-Za-z0-9_]*|[?<])",
+        @"\$(\^[QWEqwe]|[A-Za-z][A-Za-z0-9_]*|[?<])",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
     private readonly string _versionExpansion;
@@ -107,7 +107,9 @@ internal sealed class SessionCommandAliases
 
     private static bool IsValidName(string name)
     {
-        if (name is "^Q" or "^W" or "^E")
+        if (name.Length == 2
+            && name[0] == '^'
+            && name[1] is 'Q' or 'q' or 'W' or 'w' or 'E' or 'e')
             return true;
 
         if (name.Length == 0 || !IsAsciiLetter(name[0]))

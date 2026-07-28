@@ -94,8 +94,11 @@ public class SessionCommandAliasesTests
 
     [Theory]
     [InlineData("^Q")]
+    [InlineData("^q")]
     [InlineData("^W")]
+    [InlineData("^w")]
     [InlineData("^E")]
+    [InlineData("^e")]
     public void ControlAliasCanBeDefinedAndExpanded(string name)
     {
         var aliases = CreateAliases();

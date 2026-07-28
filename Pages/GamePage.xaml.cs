@@ -1285,6 +1285,15 @@ public partial class GamePage : ContentPage
         if (IsModifierKey(key)) return;   // lone modifiers pass through harmlessly
         bool ctrl = (GetKeyState((int)Windows.System.VirtualKey.Control) & 0x8000) != 0;
 
+        if (ctrl && key is Windows.System.VirtualKey.Q
+            or Windows.System.VirtualKey.W
+            or Windows.System.VirtualKey.E)
+        {
+            Terminal.ScrollToBottom();
+            TrySendControlAlias(key);
+            e.Handled = true;
+            return;
+        }
         if (ctrl && key == Windows.System.VirtualKey.C)
         {
             if (Terminal.CopySelectionToClipboard()) ShowCopiedToast();
@@ -1524,6 +1533,12 @@ public partial class GamePage : ContentPage
         // live typing path — so a plain letter falls straight through after this one cheap set.)
         if (!IsModifierKey(e.Key))
             Terminal.NotifyKeyPressed();
+        if ((GetKeyState((int)Windows.System.VirtualKey.Control) & 0x8000) != 0
+            && TrySendControlAlias(e.Key))
+        {
+            e.Handled = true;
+            return;
+        }
         if (e.Key == Windows.System.VirtualKey.Up)
         {
             _vm.HistoryUpCommand.Execute(null);
@@ -1563,6 +1578,22 @@ public partial class GamePage : ContentPage
             _vm.SendCommand.Execute(null);
             e.Handled = true;
         }
+    }
+
+    private bool TrySendControlAlias(Windows.System.VirtualKey key)
+    {
+        var alias = key switch
+        {
+            Windows.System.VirtualKey.Q => 'Q',
+            Windows.System.VirtualKey.W => 'W',
+            Windows.System.VirtualKey.E => 'E',
+            _ => '\0',
+        };
+        if (alias == '\0')
+            return false;
+
+        _vm.SendControlAlias(alias);
+        return true;
     }
 
     /// <summary>
