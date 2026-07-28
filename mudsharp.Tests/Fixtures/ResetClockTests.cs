@@ -3,7 +3,7 @@ using MudSharp.Session;
 namespace MudSharp.Tests.Fixtures;
 
 /// <summary>
-/// Tests for <see cref="ResetClock"/>: floored-minute interval model with RTT-corrected intersection,
+/// Tests for <see cref="ResetClock"/>: centered-minute interval model with RTT-corrected intersection,
 /// the channel-owning edge-search that locks once then stops, asymmetric re-anchoring (upward jump =
 /// server reset event; a downward contradiction of a lock is annotated + re-verified, never ignored and
 /// never a panic to coarse), the exact C06 C04 finish-up anchor, and the eligibility/coordination
@@ -48,7 +48,7 @@ public class ResetClockTests
         FinishUpDuration = TimeSpan.FromSeconds(120),
     };
 
-    private static int Val(long t) => (int)((R - t) / 60_000);
+    private static int Val(long t) => (int)((R - t + 30_000) / 60_000);
 
     private static void Routine(Harness h, long t)
     {
@@ -83,16 +83,16 @@ public class ResetClockTests
     {
         var h = new Harness();
         h.Clock.OnGameModeEntered();
-        Routine(h, 817_500);   // v=3
-        Routine(h, 822_500);   // v=2, 5 s later — straddles the 3→2 boundary
+        Routine(h, 847_500);   // v=3
+        Routine(h, 852_500);   // v=2, 5 s later - straddles the centered 3->2 boundary
         return h;
     }
 
     private static Harness LockedViaDiscovery()
     {
         var h = CoarseStraddled();
-        Routine(h, 874_000);                      // ~6 s out → arms discovery (no sample until +1 s lead)
-        DriveDiscovery(h, 874_000, rtt: 50);
+        Routine(h, 904_000);                      // ~6 s out -> arms discovery (no sample until +1 s lead)
+        DriveDiscovery(h, 904_000, rtt: 50);
         return h;
     }
 
@@ -105,6 +105,18 @@ public class ResetClockTests
         Assert.Equal(ResetPhase.Coarse, h.Snap.Phase);
         Assert.Equal(30.0, h.Snap.UncertaintySec, 3);
         Assert.Equal(0, h.Sends);
+    }
+
+    [Fact]
+    public void ExactMinuteReading_CentersTargetWithoutThirtySecondBias()
+    {
+        var h = new Harness();
+        h.Clock.OnGameModeEntered();
+        Routine(h, 40_000);   // exactly 16 minutes remain
+
+        double secsToTarget = (h.Snap.TargetUtc!.Value - DateTime.UtcNow).TotalSeconds;
+        double estimatedTargetMs = h.NowMs + secsToTarget * 1000;
+        Assert.InRange(estimatedTargetMs, R - 20, R + 20);
     }
 
     [Fact]
@@ -137,16 +149,16 @@ public class ResetClockTests
     public void Discovery_WaitsClearChannelLead_BeforeFirstSample()
     {
         var h = CoarseStraddled();
-        Routine(h, 874_000);
+        Routine(h, 904_000);
         Assert.Equal(ResetPhase.Discovering, h.Snap.Phase);
         Assert.True(h.DiscoveryHold, "routine heartbeat should be suspended during discovery");
         Assert.Equal(0, h.Sends);                 // nothing sent until the 1 s clear-channel lead elapses
 
-        h.NowMs = 874_500;                         // still inside the lead
+        h.NowMs = 904_500;                         // still inside the lead
         h.Clock.PumpForTest();
         Assert.Equal(0, h.Sends);
 
-        h.NowMs = 875_000;                         // lead elapsed
+        h.NowMs = 905_000;                         // lead elapsed
         h.Clock.PumpForTest();
         Assert.Equal(1, h.Sends);
     }
@@ -169,13 +181,13 @@ public class ResetClockTests
         var h = LockedViaDiscovery();
         int sendsAtLock = h.Sends;
 
-        h.NowMs = 900_000;
-        h.Clock.Observe(Val(900_000), fresh: true, 900_000);   // consistent
+        h.NowMs = 930_000;
+        h.Clock.Observe(Val(930_000), fresh: true, 930_000);   // consistent
         Assert.Equal(ResetPhase.Locked, h.Snap.Phase);
         Assert.Equal(sendsAtLock, h.Sends);
 
-        h.NowMs = 905_000;
-        h.Clock.Observe(90, fresh: true, 905_000);             // reset fired (time up)
+        h.NowMs = 935_000;
+        h.Clock.Observe(90, fresh: true, 935_000);             // reset fired (time up)
         Assert.Equal(ResetPhase.CoarseOnly, h.Snap.Phase);
     }
 
@@ -187,8 +199,8 @@ public class ResetClockTests
 
         // A reading whose remaining is BELOW the locked window (the reset came sooner — an early
         // decrement like the observed v9→v8): must annotate and reopen, not silently hold a stale lock.
-        h.NowMs = 900_000;
-        h.Clock.Observe(0, fresh: true, 900_000);
+        h.NowMs = 930_000;
+        h.Clock.Observe(0, fresh: true, 930_000);
         Assert.Contains(h.Notes, n => n.Contains("contradicted"));
         Assert.NotEqual(ResetPhase.Locked, h.Snap.Phase);      // reopened (eligible to re-verify)
     }
@@ -203,15 +215,15 @@ public class ResetClockTests
         // stayed suppressed for the rest of the session, and with no fresh replies discovery could
         // never re-arm to release it. The branch must end an active pass like the upward-jump one.
         var h = CoarseStraddled();                 // window [997.5k, 1002.5k)
-        Routine(h, 874_000);                       // arms discovery
+        Routine(h, 904_000);                       // arms discovery
         Assert.True(h.DiscoveryHold);
 
-        h.NowMs = 875_000;
+        h.NowMs = 905_000;
         h.Clock.PumpForTest();                     // clear-channel lead elapsed → sample #1
         Assert.Equal(1, h.Sends);
 
-        h.NowMs = 875_100;
-        h.Clock.Observe(1, fresh: true, 875_100);  // cHi = 995_050 ≤ lo = 997_500 → early decrement
+        h.NowMs = 905_100;
+        h.Clock.Observe(1, fresh: true, 905_100);  // cHi = 995_100 <= lo = 997_500 -> early decrement
 
         Assert.False(h.DiscoveryHold, "early-decrement fold must end the pass and release the heartbeat hold");
         Assert.False(h.Clock.IsSamplingInFlight);
@@ -266,9 +278,9 @@ public class ResetClockTests
         Assert.Null(h.Snap.TargetUtc);
 
         h.Clock.OnGameModeEntered();
-        Routine(h, 817_500);
-        Routine(h, 822_500);
-        Routine(h, 874_000);
+        Routine(h, 847_500);
+        Routine(h, 852_500);
+        Routine(h, 904_000);
         Assert.Equal(ResetPhase.Discovering, h.Snap.Phase);
         Assert.True(h.DiscoveryHold);
     }
@@ -277,7 +289,7 @@ public class ResetClockTests
     public void StaleSession_DoesNotArm()
     {
         var h = CoarseStraddled();
-        h.NowMs = 874_000;            // ~51 s since the last routine reading — stale
+        h.NowMs = 904_000;            // ~51 s since the last routine reading - stale
         h.Clock.PumpForTest();
         Assert.Equal(0, h.Sends);
         Assert.Equal(ResetPhase.Coarse, h.Snap.Phase);
@@ -289,12 +301,12 @@ public class ResetClockTests
     {
         var h = CoarseStraddled();
         h.CanProbe = false;
-        Routine(h, 874_000);
+        Routine(h, 904_000);
         Assert.Equal(0, h.Sends);
         Assert.Equal(ResetPhase.Coarse, h.Snap.Phase);
 
         h.CanProbe = true;
-        Routine(h, 875_000);
+        Routine(h, 905_000);
         Assert.Equal(ResetPhase.Discovering, h.Snap.Phase);
         Assert.True(h.DiscoveryHold);
     }

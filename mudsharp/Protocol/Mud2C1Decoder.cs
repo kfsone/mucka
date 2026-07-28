@@ -72,7 +72,7 @@ internal sealed class Mud2C1Decoder
     ///
     /// Probe-noise policy (2026-07-25): hints are protocol FACTS ("this code implies X may have
     /// changed"); MudSession decides what to actually probe. Stat categories (AllStats subsets)
-    /// no longer fire off-cadence FES — inline text carries combat deltas and the timed FES sweep
+    /// no longer fire off-cadence probes — inline text carries combat deltas and routine FES
     /// catches the rest; only Inventory/WhoList hints trigger reactive probes. Per-code
     /// classification (which probes a code can justify):
     ///   C00/C01 → none │ C02 room-enter → FEI │ C03 items → FEI │ C04/C05 creatures/players → FEI

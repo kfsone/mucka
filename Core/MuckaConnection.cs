@@ -260,8 +260,8 @@ public sealed class MuckaConnection : IAsyncDisposable
     /// (see MudSession.QueueValueProbe). Used to disambiguate a player who left the Online list.</summary>
     public void QueueValueProbe(string name) => _session.QueueValueProbe(name);
 
-    /// <summary>Mapping window focus changed -- collapses the heartbeat to FEW-only while
-    /// focused (see MudSession.SetMappingFocus).</summary>
+    /// <summary>Mapping window focus changed -- suppresses heartbeat FEI while retaining FES+FEW
+    /// (see MudSession.SetMappingFocus).</summary>
     public void SetMappingFocus(bool focused) => _session.SetMappingFocus(focused);
 
     /// <summary>

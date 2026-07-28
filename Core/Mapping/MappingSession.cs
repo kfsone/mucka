@@ -88,7 +88,6 @@ public sealed class MappingSession : IDisposable
     private string _currentRoom = string.Empty;
     private bool _currentRoomIsDark;              // arrived but could not see -- no name, only the fact
     private bool _fewContextActive;               // a FEW (online list) response is being parsed -- keep it out of the capture
-    private bool _mappingFocused;                 // mapping window focused: heartbeat is FEW-only and must not gate ops
     private HashSet<string> _enabledExits = new(StringComparer.OrdinalIgnoreCase);
     private string _moveFromFex = string.Empty;   // from-room exit fingerprint at move start
     private readonly HashSet<string> _resolved;   // "{room}|{fingerprint}|{dir}" keys, seeded from disk
@@ -266,12 +265,9 @@ public sealed class MappingSession : IDisposable
         _conn.ExitLineReady    += OnExitLineReady;
     }
 
-    /// <summary>Mapping window focus changed -- collapses the heartbeat to FEW-only while
-    /// focused so the online list keeps refreshing without FES/FEI noise, and stops the
-    /// console gating its operations on those (now irrelevant) heartbeat responses.</summary>
+    /// <summary>Mapping window focus changed -- suppresses heartbeat FEI while retaining FES+FEW.</summary>
     public void SetMappingFocus(bool focused)
     {
-        lock (_lock) _mappingFocused = focused;
         _conn.SetMappingFocus(focused);
     }
 
@@ -587,10 +583,6 @@ public sealed class MappingSession : IDisposable
     {
         lock (_lock)
         {
-            // While mapping is focused the heartbeat is FEW-only and its bytes are filtered
-            // out of captures -- so it must NOT gate operations. Don't open a contention
-            // window; let the operator probe freely and let the FEW filter handle overlap.
-            if (_mappingFocused) return;
             _probeWindowUntil = DateTime.UtcNow + HeartbeatWindow;
             _windowTimer.Change(HeartbeatWindow, Timeout.InfiniteTimeSpan);
         }

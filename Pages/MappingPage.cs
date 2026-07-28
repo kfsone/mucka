@@ -563,8 +563,8 @@ internal sealed class MappingPage : ContentPage
         _session.ReturnBlocked  += OnSessionReturnBlocked;
         _session.CloseRoomComplete += OnCloseRoomComplete;
         _session.CloseRoomBlocked  += OnCloseRoomBlocked;
-        // Heartbeat → FEW-only while this window has focus, so the online list keeps
-        // refreshing (PKer watch) without FES/FEI noise mid-survey. Appearing implies focus.
+        // Heartbeat omits FEI while this window has focus, but keeps FES+FEW so the online list
+        // refreshes reliably. Appearing implies focus.
         if (Window is { } w)
         {
             _subscribedWindow = w;

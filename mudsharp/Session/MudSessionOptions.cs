@@ -23,14 +23,6 @@ public sealed class MudSessionOptions
     public TimeSpan MinProbeSpacing { get; init; } = TimeSpan.FromMilliseconds(500);
 
     /// <summary>
-    /// Once the reset clock no longer needs beat-cadence FES readings
-    /// (<see cref="Session.ResetClock.FesCadenceRelaxed"/>), the heartbeat carries FES at most once
-    /// per this interval — a slow sweep that keeps stats honest (unannounced drift) and verifies the
-    /// locked reset projection is still on track. Default: 60 seconds.
-    /// </summary>
-    public TimeSpan FesSweepInterval { get; init; } = TimeSpan.FromSeconds(60);
-
-    /// <summary>
     /// How long an FES-carrying probe may remain unanswered before incoming server data reads
     /// as a wake-up (the character was asleep — probes no-op during sleep) and fires an
     /// immediate recovery beat. Default: 5 seconds.

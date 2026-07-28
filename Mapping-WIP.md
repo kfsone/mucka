@@ -76,12 +76,12 @@ door-detection view (the Ingresso over-splitting fix).
   deliberate placeholder for richer per-exit state later (fanout / there / there-and-back
   / here), so keep `InterestingExits` and its caller forward-friendly.
 - **Heartbeat focus mode is shared-session state — restore it on every teardown.**
-  `SetMappingFocus(true)` reduces the periodic heartbeat to FEW-only (online list for PKer
+  `SetMappingFocus(true)` reduces the periodic heartbeat to FES+FEW (online list for PKer
   watch) while the mapping window has focus. The `MudSession` is reused across
   reconnects/relogs, so focus state MUST be cleared on disconnect or a relog resumes
-  FEW-only and silently starves the main window of stats (FES) and inventory (FEI) — the
+  FES+FEW and silently starves the main window of inventory (FEI) — the
   desktop sibling of the known FES-leak-on-relog bug. Fixed 2026-06-19: `MudSession.Reset()`
-  and `OnGameModeExited()` now drop `_mappingFocus` and rebuild the full subscription;
+  and `OnGameModeExited()` now drop `_mappingFocus` so FEI resumes;
   `MappingSession.Dispose()` restores it as a safety net.
 - **Focus mode currently forces FEW even if the user disabled the online list** (`_includeFew
   == false`). This is intentional for now — focus mode exists to keep the PKer list live

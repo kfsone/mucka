@@ -6,16 +6,14 @@ namespace MudSharp.Tests.Fixtures;
 /// <summary>
 /// MudSession-level tests for the debounced stale-stats probe scheduler: C1 hints mark
 /// categories stale, updates arriving within the grace period cancel the probe, and only
-/// the still-stale categories are queried (FES / FEW / FEI subsets).
+/// the still-stale categories are queried, always with the mandatory FES prefix.
 /// Uses shortened timings; assertions poll rather than assuming exact timer firing.
 /// </summary>
 public class StaleProbeTests : IDisposable
 {
     private const string FesProbe     = "\x1b-[FES\x1b-]";
     private const string FesFeiProbe  = "\x1b-[FES,FEI\x1b-]";
-    private const string FewProbe     = "\x1b-[FEW\x1b-]";
-    private const string FeiProbe     = "\x1b-[FEI\x1b-]";
-    private const string FewFeiProbe  = "\x1b-[FEW,FEI\x1b-]";
+    private const string FesFewProbe  = "\x1b-[FES,FEW\x1b-]";
     private const string FullProbe    = "\x1b-[FES,FEW,FEI\x1b-]";
 
     private static readonly byte[] GameModeEntry     = [0x9D, 0x9C, 0xFF, 0xFF];
@@ -94,8 +92,8 @@ public class StaleProbeTests : IDisposable
     [Fact]
     public void StatsHint_NeverFiresOffCadenceProbe()
     {
-        // Probe-noise policy (2026-07-25): stat categories are advisory — combat deltas arrive as
-        // inline text and the timed FES sweep catches the rest. No reactive FES on a hit.
+        // Stat categories are advisory: combat deltas arrive as inline text and the next routine
+        // FES catches the rest. A hit alone does not justify an off-cadence probe.
         EnterGameModeAndSettle();
         Feed(C07Hit);
         Thread.Sleep(400);
@@ -114,18 +112,17 @@ public class StaleProbeTests : IDisposable
     }
 
     [Fact]
-    public void WeaponChange_SendsFeiOnlyProbe()
+    public void WeaponChange_SendsFesFeiProbe()
     {
-        // C08 05 marks stamina AND inventory stale; only the inventory half warrants a reactive
-        // probe — the stats half rides the timed FES sweep.
+        // C08 05 marks stamina and inventory stale. Inventory warrants the reactive query, and
+        // mandatory FES refreshes the stats in the same probe.
         EnterGameModeAndSettle();
         Feed(C08WeaponChange);
-        Assert.True(WaitForProbe(FeiProbe), "expected a FEI-only probe for the weapon change");
-        Assert.Equal(0, CountSent(FesFeiProbe));
+        Assert.True(WaitForProbe(FesFeiProbe), "expected FES to lead the FEI query");
     }
 
     [Fact]
-    public void PlainUncodedLine_MarksInventoryStale_SendsFeiProbe()
+    public void PlainUncodedLine_MarksInventoryStale_SendsFesFeiProbe()
     {
         // Item-moving commands answer in plain un-coded text ("You drop the sword.") — no C1
         // code accompanies them, so the plain line itself is the FEI hint (probe-noise policy,
@@ -133,10 +130,10 @@ public class StaleProbeTests : IDisposable
         EnterGameModeAndSettle();
         Feed(Pop);           // close the entry code's colour frame — the live server always pops
         Thread.Sleep(200);   // drain the entry room-enter hint's own FEI probe
-        var baseline = CountSent(FeiProbe);
+        var baseline = CountSent(FesFeiProbe);
         Feed("You drop the ancient scroll.\r\n");
-        Assert.True(WaitForProbe(FeiProbe, atLeast: baseline + 1),
-            "expected a FEI-only probe after plain un-coded output");
+        Assert.True(WaitForProbe(FesFeiProbe, atLeast: baseline + 1),
+            "expected a FES,FEI probe after plain un-coded output");
     }
 
     [Fact]
@@ -147,29 +144,28 @@ public class StaleProbeTests : IDisposable
         EnterGameModeAndSettle();
         Feed(Pop);
         Thread.Sleep(200);   // drain the entry room-enter hint's own FEI probe
-        var feiBaseline = CountSent(FeiProbe);
+        var feiBaseline = CountSent(FesFeiProbe);
         Feed(C07Hit);                          // pushes a colour frame
         Feed("The eel stings you (84/90).");
         Feed(Pop);
         Feed("\r\n");
         Thread.Sleep(400);
-        Assert.Equal(feiBaseline, CountSent(FeiProbe));
+        Assert.Equal(feiBaseline, CountSent(FesFeiProbe));
         Assert.Equal(0, CountSent(FesProbe));
     }
 
     [Fact]
-    public void WhoAndInventoryStale_SendsCombinedFewFeiProbe()
+    public void WhoAndInventoryStale_SendsFullProbe()
     {
         // C06 no longer hints anything; item arrival + unknown-player arrival leave exactly
-        // who-list + inventory stale → one combined FEW,FEI reactive probe, never FES.
+        // who-list + inventory stale -> one full reactive probe.
         EnterGameModeAndSettle();
         EstablishWhoListBaseline();
         Thread.Sleep(150);
         Feed(C06Magical);                  // no hint (probe-noise policy)
         Feed(C03ItemArriving);             // inventory stale
         FeedArrivalLine("Bob the warrior"); // unknown player → who list stale (+ inventory)
-        Assert.True(WaitForProbe(FewFeiProbe), "expected a combined FEW,FEI probe");
-        Assert.Equal(1, CountSent(FullProbe));   // entry probe only — stats never re-probed
+        Assert.True(WaitForProbe(FullProbe, atLeast: 2), "expected a combined FES,FEW,FEI probe");
     }
 
     [Fact]
@@ -180,9 +176,8 @@ public class StaleProbeTests : IDisposable
         Thread.Sleep(150);
         FeedArrivalLine("Alice the witch");   // already on the cached list
         Thread.Sleep(400);
-        Assert.Equal(0, CountSent(FewProbe));
-        Assert.Equal(0, CountSent(FewFeiProbe));
-        Assert.True(CountSent(FeiProbe) >= 1);   // the arrival still refreshes room contents
+        Assert.Equal(0, CountSent(FesFewProbe));
+        Assert.True(CountSent(FesFeiProbe) >= 1);   // the arrival still refreshes room contents
     }
 
     [Fact]
@@ -194,7 +189,8 @@ public class StaleProbeTests : IDisposable
         EstablishWhoListBaseline();
         Thread.Sleep(150);
         FeedArrivalLine("Bob the warrior");
-        Assert.True(WaitForProbe(FewFeiProbe), "expected a FEW,FEI probe for an arrival missing from the cached who list");
+        Assert.True(WaitForProbe(FullProbe, atLeast: 2),
+            "expected FES to lead the FEW,FEI query for an unknown arrival");
     }
 
     [Fact]
