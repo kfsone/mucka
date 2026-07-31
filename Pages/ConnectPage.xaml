@@ -64,6 +64,11 @@
             <CollectionView.ItemTemplate>
                 <DataTemplate x:DataType="core:Profile">
                     <VerticalStackLayout Padding="12,6" Spacing="2">
+                        <VerticalStackLayout.GestureRecognizers>
+                            <TapGestureRecognizer NumberOfTapsRequired="2"
+                                                  Tapped="OnProfileDoubleTapped"
+                                                  CommandParameter="{Binding .}" />
+                        </VerticalStackLayout.GestureRecognizers>
                         <Label Text="{Binding Name}"
                                TextColor="#cccccc" />
                         <Label Text="{Binding Host}"
@@ -341,6 +346,7 @@
                     <!-- Delete Profile -->
                     <Button Text="Delete Profile"
                             Command="{Binding DeleteProfileCommand}"
+                            IsEnabled="{Binding CanConnect}"
                             BackgroundColor="#3d1a1a"
                             TextColor="#f85149"
                             BorderColor="#5a2020"

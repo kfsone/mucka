@@ -23,6 +23,8 @@ public sealed class ConnectViewModel : BaseViewModel
     private bool _captureRequested;
     private int _maxColumns = 80;
     private int _antiIdleSeconds = 0;
+    private int _profileSelectionVersion;
+    private int _profileLoadsInProgress;
     // Mobile defaults on — matches Profile.KeepScreenOn (screen-lock mid-session gets you swamped).
     private bool _keepScreenOn =
 #if ANDROID || IOS
@@ -79,7 +81,7 @@ public sealed class ConnectViewModel : BaseViewModel
     }
 
     public string AdvancedChevron => AdvancedVisible ? "▼  Advanced" : "▶  Advanced";
-    public bool CanConnect => !_isConnecting;
+    public bool CanConnect => !_isConnecting && Volatile.Read(ref _profileLoadsInProgress) == 0;
     public bool IsDirectConnectMode => _cmdArgs.Error == null && _cmdArgs.HasDirectConnectOptions;
     public Task LoadProfilesTask => _loadProfilesTask;
 
@@ -234,14 +236,20 @@ public sealed class ConnectViewModel : BaseViewModel
 
     private void SelectProfile(Profile p)
     {
+        if (IsConnecting)
+        {
+            return;
+        }
+
         ApplyProfile(p);
         var _ = LoadProfilePasswordAsync(p).ContinueWith(
             t => System.Diagnostics.Debug.WriteLine($"[SelectProfile] password load failed: {t.Exception}"),
             TaskContinuationOptions.OnlyOnFaulted);
     }
 
-    private void ApplyProfile(Profile p)
+    private int ApplyProfile(Profile p)
     {
+        Password = string.Empty;
         ProfileName = p.Name;
         Host = p.Host;
         Port = p.Port;
@@ -252,6 +260,7 @@ public sealed class ConnectViewModel : BaseViewModel
         MaxColumns = p.MaxColumns;
         AntiIdleSeconds = p.AntiIdleSeconds;
         KeepScreenOn = p.KeepScreenOn;
+        return Interlocked.Increment(ref _profileSelectionVersion);
     }
 
     private async Task SelectProfileAsync(Profile p, bool loadPassword)
@@ -263,7 +272,42 @@ public sealed class ConnectViewModel : BaseViewModel
         }
     }
 
+    public async Task LaunchProfileAsync(Profile profile)
+    {
+        if (IsConnecting)
+        {
+            return;
+        }
+
+        var selectionVersion = ApplyProfile(profile);
+        await LoadProfilePasswordAsync(profile);
+        if (selectionVersion != Volatile.Read(ref _profileSelectionVersion))
+        {
+            return;
+        }
+
+        if (ConnectCommand.CanExecute(null))
+        {
+            ConnectCommand.Execute(null);
+        }
+    }
+
     private async Task LoadProfilePasswordAsync(Profile p)
+    {
+        Interlocked.Increment(ref _profileLoadsInProgress);
+        OnPropertyChanged(nameof(CanConnect));
+        try
+        {
+            await LoadProfilePasswordCoreAsync(p);
+        }
+        finally
+        {
+            Interlocked.Decrement(ref _profileLoadsInProgress);
+            OnPropertyChanged(nameof(CanConnect));
+        }
+    }
+
+    private async Task LoadProfilePasswordCoreAsync(Profile p)
     {
         if (p.RememberPassword)
         {
@@ -296,6 +340,11 @@ public sealed class ConnectViewModel : BaseViewModel
 
     private async Task DeleteProfileAsync()
     {
+        if (IsConnecting)
+        {
+            return;
+        }
+
         var page = Application.Current?.Windows.FirstOrDefault()?.Page;
         if (page == null) return;
 
@@ -310,7 +359,7 @@ public sealed class ConnectViewModel : BaseViewModel
             placeholder: name,
             initialValue: string.Empty);
 
-        if (input == null || input != name) return;
+        if (IsConnecting || input == null || input != name) return;
 
         var existing = SavedProfiles.FirstOrDefault(p =>
             string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase));

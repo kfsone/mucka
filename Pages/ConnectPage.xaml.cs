@@ -200,4 +200,12 @@ public partial class ConnectPage : ContentPage
             _vm.SelectProfileCommand.Execute(p);
         }
     }
+
+    private async void OnProfileDoubleTapped(object? sender, TappedEventArgs e)
+    {
+        if (e.Parameter is Profile profile)
+        {
+            await _vm.LaunchProfileAsync(profile);
+        }
+    }
 }
