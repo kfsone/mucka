@@ -266,6 +266,15 @@ public sealed class GuidedLoginController : IDisposable
         var promptAnswered = false;
         while (true)
         {
+            // Grab the signal BEFORE inspecting the buffer: if a line arrives between the
+            // snapshot below and the await, it resolves *this* TCS (OnLineReady swaps in a new
+            // one and resolves the one we already hold), so the await returns immediately and we
+            // re-check. Grabbing the signal *after* the predicate check would race -- a line
+            // landing in that gap would resolve a TCS we no longer hold, and we'd wait on a fresh
+            // one that only completes on some *later* line, silently missing this one until the
+            // full timeout elapses (this was the cause of the intermittent co.uk hang).
+            var signal = TakeSignalTask();
+
             List<StyledLine> snapshot;
             lock (_bufferLock)
                 snapshot = new List<StyledLine>(_buffer);
@@ -292,7 +301,6 @@ public sealed class GuidedLoginController : IDisposable
             if (remaining <= TimeSpan.Zero)
                 return false;
 
-            var signal = TakeSignalTask();
             await Task.WhenAny(signal, Task.Delay(remaining, ct)).ConfigureAwait(false);
         }
     }
@@ -346,10 +354,15 @@ public sealed class GuidedLoginController : IDisposable
         var deadline = Task.Delay(LandmarkTimeout, ct);
         while (!_gameModeEntered)
         {
+            // Grab the signal BEFORE re-checking _gameModeEntered -- see the comment in
+            // NegotiateBannerAsync for why the order matters (missed-wakeup race).
+            var signal = TakeSignalTask();
+            if (_gameModeEntered)
+                break;
+
             if (_disconnected)
                 return Fail("Disconnected while waiting to enter the game.");
 
-            var signal = TakeSignalTask();
             var completed = await Task.WhenAny(signal, deadline).ConfigureAwait(false);
             if (completed == deadline)
                 return Fail("Timed out waiting to enter the game after selecting the persona.");
@@ -415,6 +428,10 @@ public sealed class GuidedLoginController : IDisposable
         var deadline = DateTime.UtcNow + timeout;
         while (true)
         {
+            // Grab the signal BEFORE evaluating the predicate -- see the comment in
+            // NegotiateBannerAsync for why the order matters (missed-wakeup race).
+            var signal = TakeSignalTask();
+
             if (predicate(NormalizedBufferSnapshot()))
                 return true;
             if (_disconnected)
@@ -424,7 +441,6 @@ public sealed class GuidedLoginController : IDisposable
             if (remaining <= TimeSpan.Zero)
                 return false;
 
-            var signal = TakeSignalTask();
             var completed = await Task.WhenAny(signal, Task.Delay(remaining, ct)).ConfigureAwait(false);
             if (completed != signal)
                 return predicate(NormalizedBufferSnapshot());

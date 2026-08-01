@@ -18,7 +18,8 @@
                                  InputTransparent="True"
                                  BackgroundColor="#0C0C0C"
                                  HorizontalOptions="Fill"
-                                 VerticalOptions="Fill"/>
+                                 VerticalOptions="Start"
+                                 HeightRequest="340"/>
 
             <VerticalStackLayout VerticalOptions="Center" HorizontalOptions="Center" Spacing="16">
                 <ActivityIndicator IsRunning="True" Color="#1f6feb" HorizontalOptions="Center"/>
