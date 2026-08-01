@@ -556,6 +556,10 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _floatCompass        = profile.FloatCompass;
         SoundService.SetVolume(_volume);
         SoundService.SetSoundSettings(_sounds);
+        // Pre-warm a few pooled players now (session start) rather than paying the cold-start
+        // engine-init cost on the first in-game sounds -- most noticeable in combat, where several
+        // distinct sounds can fire within the same second.
+        SoundService.WarmUp();
 
         SidePanel = new SidePanelViewModel();
         SidePanel.IsOnlineExpanded    = profile.ShowOnline;

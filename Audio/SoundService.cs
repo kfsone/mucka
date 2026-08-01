@@ -175,15 +175,71 @@ internal static class SoundService
             Path.Combine(AppContext.BaseDirectory, assetName.Replace('/', Path.DirectorySeparatorChar)));
         if (!File.Exists(path)) return Task.CompletedTask;
 
-        var player = new Windows.Media.Playback.MediaPlayer();
+        var player = RentPlayer();
         var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        player.MediaEnded += (s, e) => { player.Dispose(); tcs.TrySetResult(); };
-        player.MediaFailed += (s, e) => { player.Dispose(); tcs.TrySetResult(); };
+        void Finish()
+        {
+            player.MediaEnded -= OnEnded;
+            player.MediaFailed -= OnFailed;
+            ReturnPlayer(player);
+            tcs.TrySetResult();
+        }
+        void OnEnded(Windows.Media.Playback.MediaPlayer s, object e) => Finish();
+        void OnFailed(Windows.Media.Playback.MediaPlayer s, Windows.Media.Playback.MediaPlayerFailedEventArgs e) => Finish();
+
+        player.MediaEnded += OnEnded;
+        player.MediaFailed += OnFailed;
         player.Volume = volumePercent / 100.0;
         player.Source = Windows.Media.Core.MediaSource.CreateFromUri(new Uri(path));
         player.Play();
         return tcs.Task;
+    }
+
+    // Reusing MediaPlayer instances avoids the per-play engine-init cost of spinning up a fresh
+    // WinRT media pipeline/audio session for every effect -- that cold-start latency (can be
+    // 1+ second) is barely noticeable for a single occasional sound, but stacks up badly in
+    // combat where several distinct clio sound codes fire in quick succession. Instead we keep a
+    // small pool of already-initialised players and hand out/return them around each play; only
+    // the very first few plays (or a burst deep enough to exhaust the pool) pay the cold-start cost.
+    private const int MaxPooledPlayers = 8;
+    private static readonly object s_poolLock = new();
+    private static readonly Stack<Windows.Media.Playback.MediaPlayer> s_playerPool = new();
+
+    private static Windows.Media.Playback.MediaPlayer RentPlayer()
+    {
+        lock (s_poolLock)
+        {
+            if (s_playerPool.Count > 0)
+                return s_playerPool.Pop();
+        }
+        return new Windows.Media.Playback.MediaPlayer();
+    }
+
+    private static void ReturnPlayer(Windows.Media.Playback.MediaPlayer player)
+    {
+        lock (s_poolLock)
+        {
+            if (s_playerPool.Count < MaxPooledPlayers)
+            {
+                s_playerPool.Push(player);
+                return;
+            }
+        }
+        player.Dispose();
+    }
+
+    /// <summary>Pre-creates a few pooled players up front so the first sounds of a session
+    /// (e.g. early combat right after logging in) don't each pay the cold-start engine-init cost.
+    /// Safe to call multiple times; a no-op once the pool is already warm.</summary>
+    public static void WarmUp(int count = 3)
+    {
+        lock (s_poolLock)
+        {
+            count = Math.Min(count, MaxPooledPlayers) - s_playerPool.Count;
+        }
+        for (var i = 0; i < count; i++)
+            ReturnPlayer(new Windows.Media.Playback.MediaPlayer());
     }
 
 #elif ANDROID
@@ -221,5 +277,10 @@ internal static class SoundService
 
 #else
     private static Task PlayCoreAsync(string assetName, int volumePercent) => Task.CompletedTask;
+#endif
+
+#if !WINDOWS
+    /// <summary>No-op on platforms without a pooled-player implementation.</summary>
+    public static void WarmUp(int count = 3) { }
 #endif
 }
