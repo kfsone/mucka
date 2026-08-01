@@ -8,31 +8,30 @@
              BackgroundColor="#0C0C0C"
              SafeAreaEdges="All">
     <Grid RowDefinitions="*,Auto" Padding="24">
-        <VerticalStackLayout Grid.Row="0" VerticalOptions="Center" Spacing="16">
+        <Grid Grid.Row="0">
+            <!-- Splash/banner rendered as a large, centered, dim backdrop: the persona-choice
+                 action sheet appears on top of this page, so this is what shows behind it. Rows
+                 are kept left-aligned within the block (NoWrap) so ASCII-art column alignment
+                 isn't destroyed; only the whole block is centered. -->
+            <ScrollView IsVisible="{Binding HasSplash}"
+                        Orientation="Both"
+                        HorizontalOptions="Center"
+                        VerticalOptions="Center">
+                <Label Text="{Binding SplashText}"
+                       TextColor="#3a3a3a"
+                       FontFamily="Courier"
+                       FontSize="11"
+                       LineBreakMode="NoWrap"/>
+            </ScrollView>
 
-            <ActivityIndicator IsRunning="True" Color="#1f6feb" HorizontalOptions="Center"/>
-
-            <Label Text="{Binding Status}"
-                   TextColor="#cccccc"
-                   FontSize="16"
-                   HorizontalOptions="Center"/>
-
-            <!-- Tiny-font render of the login splash/banner as it arrives, purely cosmetic. -->
-            <Border IsVisible="{Binding HasSplash}"
-                    BackgroundColor="#111111"
-                    Stroke="#333333"
-                    StrokeThickness="1"
-                    Padding="8"
-                    MaximumHeightRequest="220">
-                <ScrollView>
-                    <Label Text="{Binding SplashText}"
-                           TextColor="#555555"
-                           FontFamily="Courier"
-                           FontSize="6"
-                           LineBreakMode="WordWrap"/>
-                </ScrollView>
-            </Border>
-        </VerticalStackLayout>
+            <VerticalStackLayout VerticalOptions="Center" HorizontalOptions="Center" Spacing="16">
+                <ActivityIndicator IsRunning="True" Color="#1f6feb" HorizontalOptions="Center"/>
+                <Label Text="{Binding Status}"
+                       TextColor="#cccccc"
+                       FontSize="16"
+                       HorizontalOptions="Center"/>
+            </VerticalStackLayout>
+        </Grid>
 
         <Button Grid.Row="1"
                 Text="Cancel"

@@ -251,17 +251,17 @@ public sealed class GuidedLoginController : IDisposable
     }
 
     /// <summary>
-    /// Waits for the first "Option (H for help):" prompt, answering a "Skip the rest? (y/n)" MOTD
-    /// prompt with "y" if the server shows one first (mud2.com does; mud2.co.uk does not). Fires
-    /// <see cref="SplashTextReady"/> with everything received from just after that answer (or from
-    /// connection start if there was no skip prompt) up to the Option prompt -- this is the actual
-    /// login splash/banner (ASCII logo etc), as opposed to the MOTD text that may precede it.
+    /// Waits for the first "Option (H for help):" prompt, answering any "(y/n)" confirmation prompt
+    /// with "y" if the server shows one before then -- mud2.com may ask to skip the rest of the MOTD,
+    /// or to usurp an existing session under the same account; mud2.co.uk typically asks neither.
+    /// Fires <see cref="SplashTextReady"/> with the real login splash/banner (ASCII logo etc), as
+    /// extracted by <see cref="ShellText.ExtractSplash"/> from the whole buffer accumulated since
+    /// connecting -- see that method for exactly what's included/excluded.
     /// </summary>
     private async Task<bool> NegotiateBannerAsync(CancellationToken ct)
     {
         var deadline = DateTime.UtcNow + LandmarkTimeout;
-        var skipAnswered = false;
-        var splashStart = 0;
+        var promptAnswered = false;
         while (true)
         {
             List<string> snapshot;
@@ -269,17 +269,16 @@ public sealed class GuidedLoginController : IDisposable
                 snapshot = new List<string>(_buffer);
             var normalized = ShellText.NormalizeWhitespace(string.Join(" ", snapshot));
 
-            if (!skipAnswered && ShellText.IsBannerSkipPrompt(normalized))
+            if (!promptAnswered && ShellText.IsYesNoPrompt(normalized))
             {
-                skipAnswered = true;
+                promptAnswered = true;
                 _conn.SendLine("y");
-                splashStart = snapshot.Count;   // splash begins after whatever we've seen so far
             }
 
             if (ShellText.IsShellOptionPrompt(normalized))
             {
-                var splash = string.Join("\n", snapshot.Skip(splashStart)).Trim('\r', '\n', ' ');
-                if (splash.Length > 0)
+                var splash = ShellText.ExtractSplash(snapshot);
+                if (splash is not null)
                     SplashTextReady?.Invoke(splash);
                 return true;
             }

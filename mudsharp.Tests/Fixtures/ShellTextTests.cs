@@ -15,7 +15,7 @@ public class ShellTextTests
     public void LandmarksAreFalseForUnrelatedText(string text)
     {
         var n = ShellText.NormalizeWhitespace(text);
-        Assert.False(ShellText.IsBannerSkipPrompt(n));
+        Assert.False(ShellText.IsYesNoPrompt(n));
         Assert.False(ShellText.IsShellOptionPrompt(n));
         Assert.False(ShellText.IsExaminePrompt(n));
         Assert.False(ShellText.IsPersonaNamePrompt(n));
@@ -24,10 +24,13 @@ public class ShellTextTests
     }
 
     [Fact]
-    public void DetectsBannerSkipPrompt()
+    public void DetectsYesNoPrompt_SkipTheRestAndUsurp()
     {
-        var raw = "\u001B[0;7mSkip the rest? (y/n)\u001B[0m\u001B[0;37;40m n\b";
-        Assert.True(ShellText.IsBannerSkipPrompt(ShellText.NormalizeWhitespace(raw)));
+        var skip = "\u001B[0;7mSkip the rest? (y/n)\u001B[0m\u001B[0;37;40m n\b";
+        Assert.True(ShellText.IsYesNoPrompt(ShellText.NormalizeWhitespace(skip)));
+
+        var usurp = "That account is already logged in. Usurp the existing session? (y/n)";
+        Assert.True(ShellText.IsYesNoPrompt(ShellText.NormalizeWhitespace(usurp)));
     }
 
     [Fact]
@@ -142,5 +145,76 @@ public class ShellTextTests
     {
         Assert.Equal("a b c", ShellText.NormalizeWhitespace("  a\r\u0000\r\nb\tc  "));
         Assert.Equal(string.Empty, ShellText.NormalizeWhitespace(""));
+    }
+
+    [Fact]
+    public void ExtractSplash_SkipsMotdAndYesNoPrompt_StopsAtCheckingMail()
+    {
+        // mud2.com style: login line, dated MOTD notice, "Skip the rest? (y/n)" + echoed answer,
+        // then the real banner, then "[Checking mail...]" and the rest of the shell landing text.
+        var lines = new List<string>
+        {
+            "P90003673 logged in on pts/13.",
+            "****11-MAR-26****20:32:23****",
+            "********From: Viktor*********",
+            "Software update: some notice text.",
+            "*****************************",
+            "Skip the rest? (y/n)",
+            "y",
+            "                    ___\\_\\_\\_\\_  (c) 2026 MUSE Ltd.",
+            " [P]  Play the game",
+            " [Q]  Quit",
+            "[Checking mail...]",
+            "[You have no mail]",
+            "MUD login menu.",
+            "Option (H for help): ",
+        };
+
+        var splash = ShellText.ExtractSplash(lines);
+
+        Assert.NotNull(splash);
+        Assert.DoesNotContain("logged in on", splash);
+        Assert.DoesNotContain("Skip the rest", splash);
+        Assert.DoesNotContain("Checking mail", splash);
+        Assert.Contains("Software update", splash);   // MOTD text is kept -- only the y/n prompt is clipped
+        Assert.Contains("MUSE Ltd.", splash);
+        Assert.Contains("[P]  Play the game", splash);
+        Assert.Contains("[Q]  Quit", splash);
+    }
+
+    [Fact]
+    public void ExtractSplash_NoYesNoPrompt_DotUkStyle()
+    {
+        // mud2.co.uk style: straight from "logged in on" into the banner, no skip/usurp prompt.
+        var lines = new List<string>
+        {
+            "Z00012305 logged in on pts/3.",
+            "                     .oooooooo.",
+            " (XXXXX)      (XXXX)(XXXXX)     |XXX|(XXXXXXXXXXX\\    [P] - Play MUD2.",
+            "[Checking mail...]",
+            "[You have no mail]",
+            "MUD login menu.",
+            "Option (H for help): ",
+        };
+
+        var splash = ShellText.ExtractSplash(lines);
+
+        Assert.NotNull(splash);
+        Assert.DoesNotContain("logged in on", splash);
+        Assert.DoesNotContain("Checking mail", splash);
+        Assert.Contains("Play MUD2.", splash);
+    }
+
+    [Fact]
+    public void ExtractSplash_ReturnsNullWhenNothingBetweenLandmarks()
+    {
+        var lines = new List<string>
+        {
+            "P90003673 logged in on pts/13.",
+            "[Checking mail...]",
+            "Option (H for help): ",
+        };
+
+        Assert.Null(ShellText.ExtractSplash(lines));
     }
 }

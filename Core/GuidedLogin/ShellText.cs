@@ -59,8 +59,17 @@ public static class ShellText
     private static bool ContainsPhrase(string normalized, string phrase)
         => normalized.Contains(phrase, StringComparison.OrdinalIgnoreCase);
 
-    /// <summary>"Skip the rest? (y/n)" banner-skip prompt.</summary>
-    public static bool IsBannerSkipPrompt(string normalized) => ContainsPhrase(normalized, "skip the rest?");
+    /// <summary>Any "(y/n)" confirmation prompt shown between login and the shell splash --
+    /// e.g. "Skip the rest? (y/n)" (MOTD skip) or "...usurp...(y/n)" (kick an existing session).
+    /// Guided login answers "y" to whichever of these actually appears.</summary>
+    public static bool IsYesNoPrompt(string normalized) => ContainsPhrase(normalized, "(y/n)");
+
+    /// <summary>The "&lt;account&gt; logged in on &lt;tty&gt;." line — the splash/banner proper starts
+    /// immediately after this (skipping over any MOTD/notice text and y/n prompt in between).</summary>
+    public static bool IsLoggedInLine(string normalized) => ContainsPhrase(normalized, "logged in on");
+
+    /// <summary>"[Checking mail...]" — the splash/banner ends immediately before this.</summary>
+    public static bool IsCheckingMailLine(string normalized) => ContainsPhrase(normalized, "checking mail");
 
     /// <summary>The MUD Shell's top-level "Option (H for help):" prompt.</summary>
     public static bool IsShellOptionPrompt(string normalized) => ContainsPhrase(normalized, "option (h for help)");
@@ -114,6 +123,55 @@ public static class ShellText
         }
 
         return slots;
+    }
+
+    /// <summary>
+    /// Extracts the real login splash/banner (ASCII logo etc) out of the raw line buffer captured
+    /// from connection start through the first "Option (H for help):" prompt: everything from just
+    /// after the "&lt;account&gt; logged in on..." line up to (not including) "[Checking mail...]",
+    /// with any "(y/n)" prompt line and its bare "y"/"n" answer-echo stripped out. Returns null if
+    /// there's nothing left (or the "logged in on" landmark was never seen).
+    /// </summary>
+    public static string? ExtractSplash(IReadOnlyList<string> lines)
+    {
+        var start = 0;
+        for (var i = 0; i < lines.Count; i++)
+        {
+            if (IsLoggedInLine(NormalizeWhitespace(lines[i])))
+            {
+                start = i + 1;
+                break;
+            }
+        }
+
+        var end = lines.Count;
+        for (var i = start; i < lines.Count; i++)
+        {
+            if (IsCheckingMailLine(NormalizeWhitespace(lines[i])))
+            {
+                end = i;
+                break;
+            }
+        }
+
+        var kept = new List<string>();
+        for (var i = start; i < end; i++)
+        {
+            var normalized = NormalizeWhitespace(lines[i]);
+            if (normalized.Length == 0)
+            {
+                kept.Add(string.Empty);
+                continue;
+            }
+            if (IsYesNoPrompt(normalized))
+                continue;
+            if (normalized is "y" or "n")   // leftover echo of our answer to the y/n prompt
+                continue;
+            kept.Add(lines[i]);
+        }
+
+        var splash = string.Join("\n", kept).Trim('\r', '\n', ' ');
+        return splash.Length > 0 ? splash : null;
     }
 
     private static readonly Regex ExaminePersonaRegex = new(
