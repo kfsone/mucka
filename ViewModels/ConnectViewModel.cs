@@ -99,11 +99,6 @@ public sealed class ConnectViewModel : BaseViewModel
 
     public Func<PasswordPromptArgs, Task<PasswordResult?>>? PasswordRequired;
 
-    /// <summary>Runs the guided-login state machine UI. Set by the page hosting this view model.
-    /// Return true to proceed to the game (existing <see cref="Connected"/> flow); false to abort
-    /// the connection attempt (the caller has already shown any error to the player).</summary>
-    public Func<Mucka.Core.GuidedLogin.GuidedLoginController, Profile, Task<bool>>? GuidedLoginRequired;
-
     public event Action<MuckaConnection, Profile>? Connected;
 
     public ConnectViewModel()
@@ -229,26 +224,6 @@ public sealed class ConnectViewModel : BaseViewModel
             if (!IsDirectConnectMode)
             {
                 await SaveCurrentProfileAsync(profile, RememberPassword ? resolvedPassword : null);
-            }
-
-            if (profile.GuidedLogin)
-            {
-                var controller = new Mucka.Core.GuidedLogin.GuidedLoginController(conn, profile.GuidedLoginPersona);
-                bool proceed;
-                try
-                {
-                    proceed = GuidedLoginRequired != null && await GuidedLoginRequired(controller, profile);
-                }
-                finally
-                {
-                    controller.Dispose();
-                }
-
-                if (!proceed)
-                {
-                    await conn.DisposeAsync();
-                    return;
-                }
             }
 
             Connected?.Invoke(conn, profile);

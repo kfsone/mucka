@@ -44,7 +44,6 @@ public sealed class GuidedLoginController : IDisposable
     private readonly List<string> _buffer = new();
     private readonly object _bufferLock = new();
     private TaskCompletionSource? _lineSignal = new(TaskCreationOptions.RunContinuationsAsynchronously);
-    private bool _splashCaptured;
     private bool _gameModeEntered;
     private Exception? _disconnectError;
     private bool _disconnected;
@@ -90,12 +89,14 @@ public sealed class GuidedLoginController : IDisposable
         {
             SetPhase(GuidedLoginPhase.Connecting);
 
-            // MudLoginHandler already sends login/account/password and the client-mode entry on the
-            // FIRST "Option" prompt. That first prompt reappears a second time once the server has
-            // echoed back the confirmed terminal width -- that second occurrence is when the shell is
-            // actually idle and ready for our own commands.
-            var sawFirstOption = await WaitForLandmarkAsync(ShellText.IsShellOptionPrompt, LandmarkTimeout, ct)
-                .ConfigureAwait(false);
+            // Some servers (mud2.com) show a "Skip the rest? (y/n)" MOTD prompt before the login
+            // splash/banner; others (mud2.co.uk) go straight to the banner. Answer "y" if asked,
+            // then capture everything up to the FIRST "Option" prompt as the splash/banner for the
+            // tiny-font preview. MudLoginHandler already sent login/account/password and the
+            // client-mode entry on that first "Option" prompt; it reappears a second time once the
+            // server has echoed back the confirmed terminal width -- that second occurrence is when
+            // the shell is actually idle and ready for our own commands.
+            var sawFirstOption = await NegotiateBannerAsync(ct).ConfigureAwait(false);
             if (!sawFirstOption)
                 return Fail("Timed out waiting for the MUD Shell's Option menu.");
             ResetBuffer();
@@ -249,6 +250,52 @@ public sealed class GuidedLoginController : IDisposable
             _conn.SendLine("q");
     }
 
+    /// <summary>
+    /// Waits for the first "Option (H for help):" prompt, answering a "Skip the rest? (y/n)" MOTD
+    /// prompt with "y" if the server shows one first (mud2.com does; mud2.co.uk does not). Fires
+    /// <see cref="SplashTextReady"/> with everything received from just after that answer (or from
+    /// connection start if there was no skip prompt) up to the Option prompt -- this is the actual
+    /// login splash/banner (ASCII logo etc), as opposed to the MOTD text that may precede it.
+    /// </summary>
+    private async Task<bool> NegotiateBannerAsync(CancellationToken ct)
+    {
+        var deadline = DateTime.UtcNow + LandmarkTimeout;
+        var skipAnswered = false;
+        var splashStart = 0;
+        while (true)
+        {
+            List<string> snapshot;
+            lock (_bufferLock)
+                snapshot = new List<string>(_buffer);
+            var normalized = ShellText.NormalizeWhitespace(string.Join(" ", snapshot));
+
+            if (!skipAnswered && ShellText.IsBannerSkipPrompt(normalized))
+            {
+                skipAnswered = true;
+                _conn.SendLine("y");
+                splashStart = snapshot.Count;   // splash begins after whatever we've seen so far
+            }
+
+            if (ShellText.IsShellOptionPrompt(normalized))
+            {
+                var splash = string.Join("\n", snapshot.Skip(splashStart)).Trim('\r', '\n', ' ');
+                if (splash.Length > 0)
+                    SplashTextReady?.Invoke(splash);
+                return true;
+            }
+
+            if (_disconnected)
+                return false;
+
+            var remaining = deadline - DateTime.UtcNow;
+            if (remaining <= TimeSpan.Zero)
+                return false;
+
+            var signal = TakeSignalTask();
+            await Task.WhenAny(signal, Task.Delay(remaining, ct)).ConfigureAwait(false);
+        }
+    }
+
     /// <summary>Sends "p" and waits for the numbered slot list, retrying a couple of times to ride
     /// out a possible transient "database restarting" delay (exact wording unknown/unverified --
     /// this is a generic timeout+retry rather than a hardcoded string match).</summary>
@@ -321,12 +368,6 @@ public sealed class GuidedLoginController : IDisposable
             _buffer.Add(line.PlainText);
             if (_buffer.Count > 200)
                 _buffer.RemoveRange(0, _buffer.Count - 200);
-        }
-
-        if (!_splashCaptured && !string.IsNullOrWhiteSpace(line.PlainText))
-        {
-            _splashCaptured = true;
-            SplashTextReady?.Invoke(line.PlainText);
         }
 
         Interlocked.Exchange(ref _lineSignal, new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously))

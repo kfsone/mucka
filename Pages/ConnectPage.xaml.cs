@@ -1,4 +1,5 @@
 using Mucka.Core;
+using Mucka.Core.GuidedLogin;
 using Mucka.ViewModels;
 
 namespace Mucka.Pages;
@@ -24,7 +25,6 @@ public partial class ConnectPage : ContentPage
         BindingContext = _vm;
         _vm.Connected += OnConnected;
         _vm.PasswordRequired = PromptPasswordAsync;
-        _vm.GuidedLoginRequired = RunGuidedLoginAsync;
         VersionLabel.Text = $"v{AppInfo.VersionString}";
         TitleLabel.Text = $"mucka  v{AppInfo.VersionString}";
 
@@ -157,8 +157,16 @@ public partial class ConnectPage : ContentPage
         return await tcs.Task;
     }
 
-    private async Task<bool> RunGuidedLoginAsync(Mucka.Core.GuidedLogin.GuidedLoginController controller, Profile profile)
+    /// <summary>
+    /// Runs the guided-login state machine as a modal overlay ON TOP OF the already-pushed
+    /// GamePage, so GameViewModel is listening to LineReady/GameModeEntered from the very start
+    /// of the automated shell dance -- including the persona-selection response and the
+    /// tearoom description that immediately follows it. Building GamePage only after guided
+    /// login finished would silently drop that text (nobody was subscribed yet to render it).
+    /// </summary>
+    private async Task<bool> RunGuidedLoginOverlayAsync(MuckaConnection conn, Profile profile)
     {
+        var controller = new GuidedLoginController(conn, profile.GuidedLoginPersona);
         var vm = new GuidedLoginViewModel(controller);
         GuidedLoginPage? page = null;
         try
@@ -171,10 +179,10 @@ public partial class ConnectPage : ContentPage
 
             var result = await controller.RunAsync(page!.CancellationToken);
 
-            if (result.Outcome == Mucka.Core.GuidedLogin.GuidedLoginOutcome.Succeeded)
+            if (result.Outcome == GuidedLoginOutcome.Succeeded)
                 return true;
 
-            if (result.Outcome == Mucka.Core.GuidedLogin.GuidedLoginOutcome.Failed && result.FailureReason != null)
+            if (result.Outcome == GuidedLoginOutcome.Failed && result.FailureReason != null)
             {
                 await DisplayAlertAsync(
                     "Guided Login Failed",
@@ -186,6 +194,7 @@ public partial class ConnectPage : ContentPage
         finally
         {
             vm.Detach();
+            controller.Dispose();
             if (page != null)
                 await MainThread.InvokeOnMainThreadAsync(() => Navigation.PopModalAsync());
         }
@@ -219,6 +228,16 @@ public partial class ConnectPage : ContentPage
                 var gameVm = new GameViewModel(conn, profile, saveSettings);
                 var gamePage = new GamePage(gameVm, _vm.IsDirectConnectMode);
                 await Navigation.PushAsync(gamePage);
+
+                if (profile.GuidedLogin)
+                {
+                    var ok = await RunGuidedLoginOverlayAsync(conn, profile);
+                    if (!ok)
+                    {
+                        await Navigation.PopAsync();
+                        await conn.DisposeAsync();
+                    }
+                }
             }
             catch (Exception ex)
             {
