@@ -1,4 +1,5 @@
 using Microsoft.Maui.Graphics;
+using MudSharp.Models;
 using System.ComponentModel;
 
 namespace Mucka.ViewModels;
@@ -10,12 +11,14 @@ public sealed class WhoEntry : INotifyPropertyChanged
 
     private string _name;
     private Color  _color;
+    private string _titlePrefix = "";
+    private string _descriptionSuffix = "";
 
     /// <summary>
-    /// The first word of <see cref="Name"/> — the persona name without title or level
-    /// description, and without the invisibility parens. Used for identity matching so
-    /// that a level-up (which changes the description) or an invisibility change (which
-    /// wraps the whole name in parens) is not treated as a departure + new arrival.
+    /// The persona name without a leading Sir/Lady title, level description, or invisibility
+    /// parens. Used for identity matching so that a level-up (which changes the description)
+    /// or an invisibility change (which wraps the whole name in parens) is not treated as a
+    /// departure + new arrival.
     /// </summary>
     public string PersonaName { get; private set; }
 
@@ -42,6 +45,7 @@ public sealed class WhoEntry : INotifyPropertyChanged
             var wasInvisible = IsInvisible;
             SetIdentityFrom(value);
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Name)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(DisplayPrefix)));
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(DisplayName)));
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(DisplaySuffix)));
             if (IsInvisible != wasInvisible)
@@ -67,10 +71,27 @@ public sealed class WhoEntry : INotifyPropertyChanged
     /// <c>WhoEntryFadeBehavior</c> — so this is just the wire color.)</summary>
     public Color DisplayColor => _color;
 
-    /// <summary>Persona name portion for display — the first word of <see cref="Name"/>,
-    /// prefixed with "(" when the player is invisible. Bound to the full-size span in the
-    /// who-list template; suffix is rendered 2pt smaller via <see cref="DisplaySuffix"/>.</summary>
-    public string DisplayName => IsInvisible ? "(" + PersonaName : PersonaName;
+    /// <summary>Leading Sir/Lady title, rendered at the same smaller size as the level suffix.</summary>
+    public string DisplayPrefix
+    {
+        get
+        {
+            if (NamesOnlyMode) return string.Empty;
+            return (IsInvisible ? "(" : string.Empty) + _titlePrefix;
+        }
+    }
+
+    /// <summary>Persona name portion for display. Bound to the full-size span in the who-list
+    /// template; a leading title and trailing description are rendered 2pt smaller.</summary>
+    public string DisplayName
+    {
+        get
+        {
+            if (NamesOnlyMode && IsInvisible) return "(" + PersonaName + ")";
+            if (IsInvisible && _titlePrefix.Length == 0) return "(" + PersonaName;
+            return PersonaName;
+        }
+    }
 
     /// <summary>Title/level description that follows the persona name (e.g. " the Wizard"),
     /// with a closing ")" appended when the player is invisible. May be empty for untitled
@@ -80,16 +101,17 @@ public sealed class WhoEntry : INotifyPropertyChanged
         get
         {
             if (NamesOnlyMode) return string.Empty;
-            var inner = IsInvisible ? _name[1..^1] : _name;
-            var idx   = inner.IndexOf(' ');
-            var tail  = idx >= 0 ? inner[idx..] : string.Empty;
-            return IsInvisible ? tail + ")" : tail;
+            return IsInvisible ? _descriptionSuffix + ")" : _descriptionSuffix;
         }
     }
 
-    /// <summary>Forces a PropertyChanged for the suffix so NamesOnly mode changes propagate.</summary>
+    /// <summary>Forces display PropertyChanged notifications so NamesOnly mode changes propagate.</summary>
     public void NotifyDisplaySuffixChanged()
-        => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(DisplaySuffix)));
+    {
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(DisplayPrefix)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(DisplayName)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(DisplaySuffix)));
+    }
 
     private bool _isDeparting;
     /// <summary>True once the player has left: the entry stays in the list while
@@ -124,13 +146,10 @@ public sealed class WhoEntry : INotifyPropertyChanged
     // Derive identity (PersonaName) and visibility status (IsInvisible) from the wire name.
     private void SetIdentityFrom(string name)
     {
-        IsInvisible = name.Length >= 2 && name[0] == '(' && name[^1] == ')';
-        PersonaName = FirstWord(IsInvisible ? name[1..^1] : name);
-    }
-
-    private static string FirstWord(string s)
-    {
-        var idx = s.IndexOf(' ');
-        return idx > 0 ? s[..idx] : s;
+        var parts = PlayerNameParts.Parse(name);
+        IsInvisible = parts.IsInvisible;
+        PersonaName = parts.PersonaName;
+        _titlePrefix = parts.TitlePrefix;
+        _descriptionSuffix = parts.DescriptionSuffix;
     }
 }

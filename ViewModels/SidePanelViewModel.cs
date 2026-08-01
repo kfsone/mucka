@@ -582,8 +582,8 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         MainThread.BeginInvokeOnMainThread(() =>
         {
             var now = DateTime.UtcNow;
-            // Key by persona name (first word) so a level-up — which changes the
-            // description suffix — is treated as the same player, not a departure + arrival.
+            // Key by persona name so a level-up -- which changes the description or adds a
+            // Sir/Lady prefix -- is treated as the same player, not a departure + arrival.
             var newByPersona = snapshot.ToDictionary(
                 w => w.PersonaName, StringComparer.OrdinalIgnoreCase);
 

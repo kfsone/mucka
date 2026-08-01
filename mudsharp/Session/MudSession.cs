@@ -48,7 +48,7 @@ public sealed class MudSession : IDisposable
     // While the reset-time discovery pass owns the channel, the routine heartbeat is suspended so its
     // compound reply never races our rate-limited FES samples (see SetResetDiscoveryHold / ResetClock).
     private bool _resetDiscoveryHold;
-    // First word of each name from the last complete FEW response (Feed thread only).
+    // Persona name from each entry in the last complete FEW response (Feed thread only).
     // Used by the C05 presence check: a player seen in the room but absent from this
     // set means the Online list is stale.
     private readonly HashSet<string> _onlineNames = new(StringComparer.OrdinalIgnoreCase);
@@ -339,7 +339,7 @@ public sealed class MudSession : IDisposable
         _effects.Changed += state => StatusEffectsChanged?.Invoke(state);
         _parser.FewPlayerReady += (name, color) =>
         {
-            _pendingOnlineNames.Add(FirstWord(name));
+            _pendingOnlineNames.Add(PlayerNameParts.Parse(name).PersonaName);
             FewPlayerReady?.Invoke(name, color);
         };
         _parser.FewListStarting  += () => { _pendingOnlineNames.Clear(); FewListStarting?.Invoke(); };
@@ -865,22 +865,16 @@ public sealed class MudSession : IDisposable
     /// <summary>
     /// A player name was seen bracketed by a C05 presence code — that player is online.
     /// If they are missing from the last complete FEW response, the Online list is stale.
-    /// The bracketed text may be a full persona ("Polly the witch") or run on into the
-    /// sentence, so only the first word (the character name proper) is compared.
+    /// The bracketed text may be a full persona ("Polly the witch"), a titled level-10
+    /// mortal ("Lady Polly"), or run on into the sentence.
     /// </summary>
     private void OnPresenceName(string name)
     {
         // No baseline yet — nothing to compare against; the routine probe establishes one.
         if (_onlineNames.Count == 0)
             return;
-        if (!_onlineNames.Contains(FirstWord(name)))
+        if (!_onlineNames.Contains(PlayerNameParts.Parse(name).PersonaName))
             OnProbeHint(StaleStats.WhoList);
-    }
-
-    private static string FirstWord(string name)
-    {
-        int space = name.IndexOf(' ');
-        return space < 0 ? name : name[..space];
     }
 
     private void ClearStale(StaleStats kinds)
