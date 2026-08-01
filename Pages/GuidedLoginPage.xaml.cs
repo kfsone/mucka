@@ -1,5 +1,6 @@
 using Mucka.Core.GuidedLogin;
 using Mucka.ViewModels;
+using MudSharp.Models;
 
 namespace Mucka.Pages;
 
@@ -23,9 +24,12 @@ public partial class GuidedLoginPage : ContentPage
         _vm.CancelRequested += OnCancelRequested;
         _vm.PersonaChoiceRequested = ShowPersonaChoiceAsync;
         _vm.CreateConfirmationRequested = ShowCreateConfirmationAsync;
+        _vm.SplashLinesReady += OnSplashLinesReady;
     }
 
     private void OnCancelRequested() => _cts.Cancel();
+
+    private void OnSplashLinesReady(IReadOnlyList<StyledLine> lines) => Terminal.AppendLines(lines);
 
     private async Task ShowPersonaChoiceAsync(PersonaChoice choice)
     {
@@ -77,6 +81,7 @@ public partial class GuidedLoginPage : ContentPage
     protected override void OnDisappearing()
     {
         base.OnDisappearing();
+        _vm.SplashLinesReady -= OnSplashLinesReady;
         _vm.Detach();
     }
 }

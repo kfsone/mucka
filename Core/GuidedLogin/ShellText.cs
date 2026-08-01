@@ -126,51 +126,66 @@ public static class ShellText
     }
 
     /// <summary>
-    /// Extracts the real login splash/banner (ASCII logo etc) out of the raw line buffer captured
-    /// from connection start through the first "Option (H for help):" prompt: everything from just
-    /// after the "&lt;account&gt; logged in on..." line up to (not including) "[Checking mail...]",
-    /// with any "(y/n)" prompt line and its bare "y"/"n" answer-echo stripped out. Returns null if
-    /// there's nothing left (or the "logged in on" landmark was never seen).
+    /// Computes the [start, end) line-index range of the real login splash/banner (ASCII logo
+    /// etc) within a buffer captured from connection start through the first "Option (H for
+    /// help):" prompt. The range starts right after the "&lt;account&gt; logged in on..." line --
+    /// unless a "(y/n)" prompt (MOTD-skip, session-usurp, etc) appears before the banner, in which
+    /// case it starts right after that prompt (and its bare "y"/"n" answer-echo line, if any)
+    /// instead, discarding whatever MOTD/notice text came with it. The range ends right before
+    /// "[Checking mail...]". Returns null if there's nothing left in range (or the "logged in on"
+    /// landmark was never seen).
     /// </summary>
-    public static string? ExtractSplash(IReadOnlyList<string> lines)
+    public static (int Start, int End)? ExtractSplashRange(IReadOnlyList<string> plainLines)
     {
         var start = 0;
-        for (var i = 0; i < lines.Count; i++)
+        for (var i = 0; i < plainLines.Count; i++)
         {
-            if (IsLoggedInLine(NormalizeWhitespace(lines[i])))
+            if (IsLoggedInLine(NormalizeWhitespace(plainLines[i])))
             {
                 start = i + 1;
                 break;
             }
         }
 
-        var end = lines.Count;
-        for (var i = start; i < lines.Count; i++)
+        for (var i = start; i < plainLines.Count; i++)
         {
-            if (IsCheckingMailLine(NormalizeWhitespace(lines[i])))
+            var normalized = NormalizeWhitespace(plainLines[i]);
+            if (!IsYesNoPrompt(normalized))
+                continue;
+            start = i + 1;
+            if (start < plainLines.Count && NormalizeWhitespace(plainLines[start]) is "y" or "n")
+                start++;   // leftover echo of our answer to the prompt
+            break;
+        }
+
+        var end = plainLines.Count;
+        for (var i = start; i < plainLines.Count; i++)
+        {
+            if (IsCheckingMailLine(NormalizeWhitespace(plainLines[i])))
             {
                 end = i;
                 break;
             }
         }
 
-        var kept = new List<string>();
-        for (var i = start; i < end; i++)
-        {
-            var normalized = NormalizeWhitespace(lines[i]);
-            if (normalized.Length == 0)
-            {
-                kept.Add(string.Empty);
-                continue;
-            }
-            if (IsYesNoPrompt(normalized))
-                continue;
-            if (normalized is "y" or "n")   // leftover echo of our answer to the y/n prompt
-                continue;
-            kept.Add(lines[i]);
-        }
+        // Trim blank lines at either edge of the range.
+        while (start < end && NormalizeWhitespace(plainLines[start]).Length == 0)
+            start++;
+        while (end > start && NormalizeWhitespace(plainLines[end - 1]).Length == 0)
+            end--;
 
-        var splash = string.Join("\n", kept).Trim('\r', '\n', ' ');
+        return start < end ? (start, end) : null;
+    }
+
+    /// <summary>String-joined convenience wrapper over <see cref="ExtractSplashRange"/>, for
+    /// callers (and tests) that only care about the extracted text, not styling.</summary>
+    public static string? ExtractSplash(IReadOnlyList<string> lines)
+    {
+        var range = ExtractSplashRange(lines);
+        if (range is null)
+            return null;
+        var (start, end) = range.Value;
+        var splash = string.Join("\n", lines.Skip(start).Take(end - start)).Trim('\r', '\n', ' ');
         return splash.Length > 0 ? splash : null;
     }
 

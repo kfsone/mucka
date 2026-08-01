@@ -168,38 +168,8 @@
                                ReturnType="Done" />
                     </Grid>
 
-                    <!-- Guided Login: automate the MUD Shell (login through persona select/create) -->
-                    <Grid Grid.Row="3"
-                          Grid.Column="0"
-                          Grid.ColumnSpan="2"
-                          ColumnDefinitions="Auto,*"
-                          RowDefinitions="Auto,Auto"
-                          RowSpacing="6">
-                        <Grid Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="2"
-                              ColumnDefinitions="Auto,*"
-                              ColumnSpacing="8">
-                            <CheckBox Grid.Column="0"
-                                      IsChecked="{Binding GuidedLogin}"
-                                      Color="#1f6feb"
-                                      VerticalOptions="Center"/>
-                            <Label Grid.Column="1"
-                                   Text="Guided Login"
-                                   TextColor="#888888"
-                                   VerticalOptions="Center"/>
-                        </Grid>
-                        <Entry Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2"
-                               Text="{Binding GuidedLoginPersona}"
-                               IsVisible="{Binding GuidedLogin}"
-                               TextColor="White"
-                               BackgroundColor="#161b22"
-                               PlaceholderColor="#444444"
-                               Placeholder="persona (blank to choose at connect time)"
-                               SemanticProperties.Description="Guided login persona name"
-                               ReturnType="Done"/>
-                    </Grid>
-
                     <!-- Remember Password -->
-                    <Grid Grid.Row="4"
+                    <Grid Grid.Row="3"
                           Grid.Column="0"
                           Grid.ColumnSpan="2"
                           ColumnDefinitions="Auto,Auto"
@@ -213,6 +183,36 @@
                                Text="Remember Password"
                                TextColor="#888888"
                                VerticalOptions="Center"/>
+                    </Grid>
+
+                    <!-- Persona Login: automate the MUD Shell (login through persona select/create) -->
+                    <Grid Grid.Row="4"
+                          Grid.Column="0"
+                          Grid.ColumnSpan="2"
+                          ColumnDefinitions="Auto,*"
+                          RowDefinitions="Auto,Auto"
+                          RowSpacing="6">
+                        <Grid Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="2"
+                              ColumnDefinitions="Auto,*"
+                              ColumnSpacing="8">
+                            <CheckBox Grid.Column="0"
+                                      IsChecked="{Binding GuidedLogin}"
+                                      Color="#1f6feb"
+                                      VerticalOptions="Center"/>
+                            <Label Grid.Column="1"
+                                   Text="Persona Login"
+                                   TextColor="#888888"
+                                   VerticalOptions="Center"/>
+                        </Grid>
+                        <Entry Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2"
+                               Text="{Binding GuidedLoginPersona}"
+                               IsVisible="{Binding GuidedLogin}"
+                               TextColor="White"
+                               BackgroundColor="#161b22"
+                               PlaceholderColor="#444444"
+                               Placeholder="persona (blank to choose at connect time)"
+                               SemanticProperties.Description="Persona login persona name"
+                               ReturnType="Done"/>
                     </Grid>
 
                     <!-- Line Width: terminal columns advertised via NAWS -->

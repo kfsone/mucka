@@ -186,8 +186,8 @@ public partial class ConnectPage : ContentPage
             if (result.Outcome == GuidedLoginOutcome.Failed && result.FailureReason != null)
             {
                 await DisplayAlertAsync(
-                    "Guided Login Failed",
-                    $"{result.FailureReason}\n\nYou may want to disable Guided Login for this profile and log in manually.",
+                    "Persona Login Failed",
+                    $"{result.FailureReason}\n\nYou may want to disable Persona Login for this profile and log in manually.",
                     "OK");
             }
             return false;

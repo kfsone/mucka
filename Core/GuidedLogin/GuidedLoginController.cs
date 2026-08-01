@@ -41,7 +41,7 @@ public sealed class GuidedLoginController : IDisposable
     private readonly MuckaConnection _conn;
     private readonly string? _configuredPersonaName;
 
-    private readonly List<string> _buffer = new();
+    private readonly List<StyledLine> _buffer = new();
     private readonly object _bufferLock = new();
     private TaskCompletionSource? _lineSignal = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private bool _gameModeEntered;
@@ -52,8 +52,10 @@ public sealed class GuidedLoginController : IDisposable
     private TaskCompletionSource<char?>? _sexDecision;         // resolved by ConfirmCreateSex/CancelCreate ('m'/'f'/null=cancel)
 
     public event Action<GuidedLoginPhase>? PhaseChanged;
-    /// <summary>First substantial banner text seen after connecting, for a tiny-font "splash" preview.</summary>
-    public event Action<string>? SplashTextReady;
+    /// <summary>The real login splash/banner (ASCII logo etc), styled, for rendering in a
+    /// terminal-like preview -- see <see cref="ShellText.ExtractSplashRange"/> for exactly what's
+    /// included/excluded.</summary>
+    public event Action<IReadOnlyList<StyledLine>>? SplashTextReady;
     /// <summary>Raised when the profile has no configured persona (or it wasn't found and there's no
     /// free slot to offer a create-confirmation instead). The consumer must call
     /// <see cref="SelectExistingPersona"/> or <see cref="RequestCreateNew"/>.</summary>
@@ -255,8 +257,8 @@ public sealed class GuidedLoginController : IDisposable
     /// with "y" if the server shows one before then -- mud2.com may ask to skip the rest of the MOTD,
     /// or to usurp an existing session under the same account; mud2.co.uk typically asks neither.
     /// Fires <see cref="SplashTextReady"/> with the real login splash/banner (ASCII logo etc), as
-    /// extracted by <see cref="ShellText.ExtractSplash"/> from the whole buffer accumulated since
-    /// connecting -- see that method for exactly what's included/excluded.
+    /// extracted by <see cref="ShellText.ExtractSplashRange"/> from the whole buffer accumulated
+    /// since connecting -- see that method for exactly what's included/excluded.
     /// </summary>
     private async Task<bool> NegotiateBannerAsync(CancellationToken ct)
     {
@@ -264,10 +266,10 @@ public sealed class GuidedLoginController : IDisposable
         var promptAnswered = false;
         while (true)
         {
-            List<string> snapshot;
+            List<StyledLine> snapshot;
             lock (_bufferLock)
-                snapshot = new List<string>(_buffer);
-            var normalized = ShellText.NormalizeWhitespace(string.Join(" ", snapshot));
+                snapshot = new List<StyledLine>(_buffer);
+            var normalized = ShellText.NormalizeWhitespace(string.Join(" ", snapshot.Select(l => l.PlainText)));
 
             if (!promptAnswered && ShellText.IsYesNoPrompt(normalized))
             {
@@ -277,9 +279,9 @@ public sealed class GuidedLoginController : IDisposable
 
             if (ShellText.IsShellOptionPrompt(normalized))
             {
-                var splash = ShellText.ExtractSplash(snapshot);
-                if (splash is not null)
-                    SplashTextReady?.Invoke(splash);
+                var range = ShellText.ExtractSplashRange(snapshot.Select(l => l.PlainText).ToList());
+                if (range is { } r)
+                    SplashTextReady?.Invoke(snapshot.Skip(r.Start).Take(r.End - r.Start).ToList());
                 return true;
             }
 
@@ -364,7 +366,7 @@ public sealed class GuidedLoginController : IDisposable
     {
         lock (_bufferLock)
         {
-            _buffer.Add(line.PlainText);
+            _buffer.Add(line);
             if (_buffer.Count > 200)
                 _buffer.RemoveRange(0, _buffer.Count - 200);
         }
@@ -394,7 +396,7 @@ public sealed class GuidedLoginController : IDisposable
     {
         lock (_bufferLock)
         {
-            return ShellText.NormalizeWhitespace(string.Join(" ", _buffer));
+            return ShellText.NormalizeWhitespace(string.Join(" ", _buffer.Select(l => l.PlainText)));
         }
     }
 

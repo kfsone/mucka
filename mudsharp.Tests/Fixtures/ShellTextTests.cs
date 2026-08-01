@@ -152,6 +152,8 @@ public class ShellTextTests
     {
         // mud2.com style: login line, dated MOTD notice, "Skip the rest? (y/n)" + echoed answer,
         // then the real banner, then "[Checking mail...]" and the rest of the shell landing text.
+        // The whole MOTD/notice block is discarded along with the prompt itself -- only the real
+        // banner (from right after the prompt) is kept.
         var lines = new List<string>
         {
             "P90003673 logged in on pts/13.",
@@ -175,8 +177,9 @@ public class ShellTextTests
         Assert.NotNull(splash);
         Assert.DoesNotContain("logged in on", splash);
         Assert.DoesNotContain("Skip the rest", splash);
+        Assert.DoesNotContain("Software update", splash);
+        Assert.DoesNotContain("From: Viktor", splash);
         Assert.DoesNotContain("Checking mail", splash);
-        Assert.Contains("Software update", splash);   // MOTD text is kept -- only the y/n prompt is clipped
         Assert.Contains("MUSE Ltd.", splash);
         Assert.Contains("[P]  Play the game", splash);
         Assert.Contains("[Q]  Quit", splash);
@@ -203,6 +206,28 @@ public class ShellTextTests
         Assert.DoesNotContain("logged in on", splash);
         Assert.DoesNotContain("Checking mail", splash);
         Assert.Contains("Play MUD2.", splash);
+    }
+
+    [Fact]
+    public void ExtractSplash_UsurpPrompt_DiscardsPrecedingNotice()
+    {
+        var lines = new List<string>
+        {
+            "P90003673 logged in on pts/13.",
+            "That account is already logged in.",
+            "Usurp the existing session? (y/n)",
+            "y",
+            "                    ___\\_\\_\\_\\_  (c) 2026 MUSE Ltd.",
+            "[Checking mail...]",
+            "Option (H for help): ",
+        };
+
+        var splash = ShellText.ExtractSplash(lines);
+
+        Assert.NotNull(splash);
+        Assert.DoesNotContain("already logged in", splash);
+        Assert.DoesNotContain("Usurp", splash);
+        Assert.Contains("MUSE Ltd.", splash);
     }
 
     [Fact]

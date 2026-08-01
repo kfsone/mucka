@@ -1,5 +1,6 @@
 using System.Windows.Input;
 using Mucka.Core.GuidedLogin;
+using MudSharp.Models;
 
 namespace Mucka.ViewModels;
 
@@ -7,25 +8,23 @@ namespace Mucka.ViewModels;
 /// Bindable status/splash state for <c>GuidedLoginPage</c>. Interactive decisions (persona
 /// pick/create, sex confirmation) are surfaced as awaitable hooks the page sets, matching the
 /// <c>ConnectViewModel.PasswordRequired</c> pattern — this view model stays UI-toolkit agnostic
-/// (no DisplayAlert/DisplayActionSheet calls here).
+/// (no DisplayAlert/DisplayActionSheet calls here). Splash lines are forwarded as raw
+/// <see cref="StyledLine"/>s via <see cref="SplashLinesReady"/> for the page to feed straight into
+/// a <c>TerminalView</c> (real ANSI colours/font, same as the game screen) rather than being
+/// bound as plain text.
 /// </summary>
 public sealed class GuidedLoginViewModel : BaseViewModel
 {
     private readonly GuidedLoginController _controller;
     private string _status = "Connecting…";
-    private string _splashText = string.Empty;
+    private bool _hasSplash;
 
     public string Status { get => _status; set => Set(ref _status, value); }
-    public string SplashText
-    {
-        get => _splashText;
-        set
-        {
-            if (Set(ref _splashText, value))
-                OnPropertyChanged(nameof(HasSplash));
-        }
-    }
-    public bool HasSplash => !string.IsNullOrWhiteSpace(SplashText);
+    public bool HasSplash { get => _hasSplash; private set => Set(ref _hasSplash, value); }
+
+    /// <summary>Fired once the real login splash/banner has been captured, for the page to render
+    /// via <c>Terminal.AppendLines(...)</c>.</summary>
+    public event Action<IReadOnlyList<StyledLine>>? SplashLinesReady;
 
     public GuidedLoginController Controller => _controller;
 
@@ -48,7 +47,7 @@ public sealed class GuidedLoginViewModel : BaseViewModel
         CancelCommand = new Command(() => CancelRequested?.Invoke());
 
         _controller.PhaseChanged += OnPhaseChanged;
-        _controller.SplashTextReady += OnSplashTextReady;
+        _controller.SplashTextReady += OnSplashLinesReady;
         _controller.PersonaChoiceReady += OnPersonaChoiceReady;
         _controller.CreateConfirmationReady += OnCreateConfirmationReady;
     }
@@ -56,7 +55,7 @@ public sealed class GuidedLoginViewModel : BaseViewModel
     public void Detach()
     {
         _controller.PhaseChanged -= OnPhaseChanged;
-        _controller.SplashTextReady -= OnSplashTextReady;
+        _controller.SplashTextReady -= OnSplashLinesReady;
         _controller.PersonaChoiceReady -= OnPersonaChoiceReady;
         _controller.CreateConfirmationReady -= OnCreateConfirmationReady;
     }
@@ -64,8 +63,12 @@ public sealed class GuidedLoginViewModel : BaseViewModel
     private void OnPhaseChanged(GuidedLoginPhase phase)
         => MainThread.BeginInvokeOnMainThread(() => Status = Describe(phase));
 
-    private void OnSplashTextReady(string text)
-        => MainThread.BeginInvokeOnMainThread(() => SplashText = text);
+    private void OnSplashLinesReady(IReadOnlyList<StyledLine> lines)
+        => MainThread.BeginInvokeOnMainThread(() =>
+        {
+            HasSplash = lines.Count > 0;
+            SplashLinesReady?.Invoke(lines);
+        });
 
     private void OnPersonaChoiceReady(PersonaChoice choice)
         => MainThread.BeginInvokeOnMainThread(async () =>
@@ -96,7 +99,7 @@ public sealed class GuidedLoginViewModel : BaseViewModel
         GuidedLoginPhase.SelectingPersona => "Selecting persona…",
         GuidedLoginPhase.WaitingForGameMode => "Entering the game…",
         GuidedLoginPhase.Succeeded => "Connected.",
-        GuidedLoginPhase.Failed => "Guided login failed.",
+        GuidedLoginPhase.Failed => "Persona login failed.",
         GuidedLoginPhase.Cancelled => "Cancelled.",
         _ => "Working…",
     };

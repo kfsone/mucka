@@ -2,27 +2,23 @@
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              xmlns:vm="clr-namespace:Mucka.ViewModels"
+             xmlns:render="clr-namespace:Mucka.Rendering"
              x:Class="Mucka.Pages.GuidedLoginPage"
              x:DataType="vm:GuidedLoginViewModel"
-             Title="Guided Login"
+             Title="Persona Login"
              BackgroundColor="#0C0C0C"
              SafeAreaEdges="All">
     <Grid RowDefinitions="*,Auto" Padding="24">
         <Grid Grid.Row="0">
-            <!-- Splash/banner rendered as a large, centered, dim backdrop: the persona-choice
-                 action sheet appears on top of this page, so this is what shows behind it. Rows
-                 are kept left-aligned within the block (NoWrap) so ASCII-art column alignment
-                 isn't destroyed; only the whole block is centered. -->
-            <ScrollView IsVisible="{Binding HasSplash}"
-                        Orientation="Both"
-                        HorizontalOptions="Center"
-                        VerticalOptions="Center">
-                <Label Text="{Binding SplashText}"
-                       TextColor="#3a3a3a"
-                       FontFamily="Courier"
-                       FontSize="11"
-                       LineBreakMode="NoWrap"/>
-            </ScrollView>
+            <!-- Splash/banner rendered via the same TerminalView the game screen uses (real ANSI
+                 colours, same font/wrap), as a large backdrop behind the status text and any
+                 persona-choice action sheet shown on top of this page. -->
+            <render:TerminalView x:Name="Terminal"
+                                 IsVisible="{Binding HasSplash}"
+                                 InputTransparent="True"
+                                 BackgroundColor="#0C0C0C"
+                                 HorizontalOptions="Fill"
+                                 VerticalOptions="Fill"/>
 
             <VerticalStackLayout VerticalOptions="Center" HorizontalOptions="Center" Spacing="16">
                 <ActivityIndicator IsRunning="True" Color="#1f6feb" HorizontalOptions="Center"/>
