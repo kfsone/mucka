@@ -41,7 +41,7 @@ public partial class GuidedLoginPage : ContentPage
             return;
         }
 
-        var pick = await DisplayActionSheet("Choose a persona", "Cancel", null, options.ToArray());
+        var pick = await DisplayActionSheetAsync("Choose a persona", "Cancel", null, options.ToArray());
         if (string.IsNullOrEmpty(pick) || pick == "Cancel")
         {
             _vm.Controller.CancelPersonaChoice();
@@ -65,7 +65,7 @@ public partial class GuidedLoginPage : ContentPage
 
     private async Task ShowCreateConfirmationAsync(string personaName)
     {
-        var choice = await DisplayActionSheet($"Create persona \"{personaName}\"?", "Cancel", null, "Male", "Female");
+        var choice = await DisplayActionSheetAsync($"Create persona \"{personaName}\"?", "Cancel", null, "Male", "Female");
         if (choice == "Male")
             _vm.Controller.ConfirmCreateSex('m');
         else if (choice == "Female")

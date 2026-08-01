@@ -285,7 +285,9 @@ public class Mud2C1Tests
         Assert.Equal(AnsiColor.Black, style.Background);
     }
 
-    // ── Dreamword ─────────────────────────────────────────────────────────────    [Fact]
+    // ── Dreamword ─────────────────────────────────────────────────────────────
+
+    [Fact]
     public void DreamwordSequence_EmitsDreamwordChanged()
     {
         // Clio telnet.l line 904–915: C15+C00+C00+C255 followed by [a-z]{1,14}
