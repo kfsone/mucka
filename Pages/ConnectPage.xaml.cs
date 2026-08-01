@@ -158,11 +158,12 @@ public partial class ConnectPage : ContentPage
     }
 
     /// <summary>
-    /// Runs the guided-login state machine as a modal overlay ON TOP OF the already-pushed
-    /// GamePage, so GameViewModel is listening to LineReady/GameModeEntered from the very start
-    /// of the automated shell dance -- including the persona-selection response and the
-    /// tearoom description that immediately follows it. Building GamePage only after guided
-    /// login finished would silently drop that text (nobody was subscribed yet to render it).
+    /// Runs the guided-login state machine as a modal overlay over the CURRENT page (ConnectPage
+    /// at this point -- GamePage isn't pushed until guided login succeeds; see <see cref="OnConnected"/>
+    /// for why). <paramref name="conn"/>'s <see cref="GameViewModel"/> must already be constructed
+    /// and subscribed before this runs, so it's listening to LineReady/GameModeEntered from the
+    /// very start of the automated shell dance -- including the persona-selection response and the
+    /// tearoom description that immediately follows it.
     /// </summary>
     private async Task<bool> RunGuidedLoginOverlayAsync(MuckaConnection conn, Profile profile)
     {
@@ -225,19 +226,27 @@ public partial class ConnectPage : ContentPage
                 Func<ClientSettings, string[], Task>? saveSettings = _vm.IsDirectConnectMode
                     ? null
                     : (settings, fkeys) => vm.SaveProfileSettingsAsync(profile.Name, settings, fkeys);
+
+                // GameViewModel subscribes to conn.LineReady/etc immediately, BEFORE GamePage is
+                // pushed, so nothing is lost while guided login runs -- pushing GamePage now (or
+                // pushing the guided-login dialog modally on top of it) would trigger GamePage's
+                // OnDisappearing, which disposes the connection (see GamePage.OnDisappearing ->
+                // GameViewModel.DisposeAsync -> conn.DisposeAsync). GamePage is only pushed once
+                // guided login has actually finished (or immediately, for non-guided profiles).
                 var gameVm = new GameViewModel(conn, profile, saveSettings);
-                var gamePage = new GamePage(gameVm, _vm.IsDirectConnectMode);
-                await Navigation.PushAsync(gamePage);
 
                 if (profile.GuidedLogin)
                 {
                     var ok = await RunGuidedLoginOverlayAsync(conn, profile);
                     if (!ok)
                     {
-                        await Navigation.PopAsync();
-                        await conn.DisposeAsync();
+                        await gameVm.DisposeAsync();
+                        return;
                     }
                 }
+
+                var gamePage = new GamePage(gameVm, _vm.IsDirectConnectMode);
+                await Navigation.PushAsync(gamePage);
             }
             catch (Exception ex)
             {
