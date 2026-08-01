@@ -520,6 +520,10 @@
                                     <Label FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}">
                                         <Label.FormattedText>
                                             <FormattedString>
+                                                <Span Text="{Binding DisplayPrefix}"
+                                                      TextColor="{Binding DisplayColor}"
+                                                      FontSize="9"
+                                                      FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
                                                 <Span Text="{Binding DisplayName}"
                                                       TextColor="{Binding DisplayColor}"
                                                       FontSize="11"
@@ -853,6 +857,10 @@
                                                 <Label FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}">
                                                     <Label.FormattedText>
                                                         <FormattedString>
+                                                            <Span Text="{Binding DisplayPrefix}"
+                                                                  TextColor="{Binding DisplayColor}"
+                                                                  FontSize="9"
+                                                                  FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
                                                             <Span Text="{Binding DisplayName}"
                                                                   TextColor="{Binding DisplayColor}"
                                                                   FontSize="11"
@@ -904,6 +912,9 @@
                                                                        FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}">
                                                                     <Label.FormattedText>
                                                                         <FormattedString>
+                                                                            <Span Text="{Binding DisplayPrefix}"
+                                                                                  TextColor="{Binding DisplayColor}" FontSize="9"
+                                                                                  FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
                                                                             <Span Text="{Binding DisplayName}"
                                                                                   TextColor="{Binding DisplayColor}" FontSize="11"
                                                                                   FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
@@ -1263,8 +1274,8 @@
                     <Label FontSize="11" IsVisible="{OnPlatform WinUI=true, Default=false}">
                         <Label.FormattedText>
                             <FormattedString>
-                                <Span Text="$^Q / $^W / $^E" TextColor="#58a6ff"/>
-                                <Span Text="  Bind commands to Ctrl-Q, Ctrl-W, or Ctrl-E" TextColor="#888888"/>
+                                <Span Text="^1 / ^2 / ^3 / ^4 / ^5" TextColor="#58a6ff"/>
+                                <Span Text="  Bind commands to Ctrl-1..Ctrl-5" TextColor="#888888"/>
                             </FormattedString>
                         </Label.FormattedText>
                     </Label>

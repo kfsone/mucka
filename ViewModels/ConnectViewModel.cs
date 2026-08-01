@@ -60,12 +60,8 @@ public sealed class ConnectViewModel : BaseViewModel
     public bool KeepScreenOn { get => _keepScreenOn; set => Set(ref _keepScreenOn, value); }
     public bool IsCaptureRequested { get => _captureRequested; set => Set(ref _captureRequested, value); }
 
-    public bool IsCaptureFacilityAvailable { get; } =
-#if DEBUG
-        true;
-#else
-        false;
-#endif
+    /// <summary>Advanced feature: pre-connect capture arming is available on all builds/platforms.</summary>
+    public bool IsCaptureFacilityAvailable { get; } = true;
 
     public string CaptureButtonText => IsCaptureRequested ? "Capture: Armed" : "Capture: Off";
     public bool AdvancedVisible

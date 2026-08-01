@@ -8,7 +8,7 @@ namespace Mucka.Core;
 
 /// <summary>
 /// Mucka's TCP connection layer. Owns the socket and read loop, wraps MudSession,
-/// and (in DEBUG builds) intercepts raw RX/TX bytes before they reach the parser.
+/// and intercepts raw RX/TX bytes before they reach the parser for optional session capture.
 ///
 /// THREADING:
 /// - ConnectAsync/DisconnectAsync are called from any thread.
@@ -30,9 +30,7 @@ public sealed class MuckaConnection : IAsyncDisposable
     private Channel<byte[]>? _sendChannel;
     private string _host = string.Empty;
 
-#if DEBUG || WINDOWS
     private readonly SessionCapture _capture = new();
-#endif
 
     // ── Public events (forwarded from MudSession) ─────────────────────────────
     public event Action<StyledLine>? LineReady;
@@ -87,16 +85,10 @@ public sealed class MuckaConnection : IAsyncDisposable
     public bool IsConnected => _client?.Connected ?? false;
     public bool InGameMode => _session.InGameMode;
 
-#if DEBUG || WINDOWS
     public bool IsCapturing => _capture.IsRecording;
     public string? CaptureFilePath => _capture.FilePath;
     /// <summary>Write a free-text annotation into the active capture log.</summary>
     public void Annotate(string message) => _capture.Annotate(message);
-#else
-    public bool IsCapturing => false;
-    public string? CaptureFilePath => null;
-    public void Annotate(string message) { }
-#endif
 
     private int _windowCols;
 
@@ -188,22 +180,12 @@ public sealed class MuckaConnection : IAsyncDisposable
 
     public bool TryStartCapture(string? hostOverride, out string? error)
     {
-#if DEBUG || WINDOWS
         var host = string.IsNullOrWhiteSpace(hostOverride) ? _host : hostOverride!.Trim();
         if (string.IsNullOrWhiteSpace(host)) host = "unknown";
         return _capture.TryStart(host, out error);
-#else
-        error = "Capture is only available in debug builds.";
-        return false;
-#endif
     }
 
-    public void StopCapture()
-    {
-#if DEBUG || WINDOWS
-        _capture.Stop();
-#endif
-    }
+    public void StopCapture() => _capture.Stop();
 
     /// <summary>Send a line of text to the server (appends \r\n).</summary>
     public void SendLine(string line) => _session.SendLine(line);
@@ -333,9 +315,7 @@ public sealed class MuckaConnection : IAsyncDisposable
         await DisconnectAsync().ConfigureAwait(false);
         _loginHandler?.Detach();
         _session.Dispose();
-#if DEBUG || WINDOWS
         _capture.Dispose();
-#endif
     }
 
     // ── Private ────────────────────────────────────────────────────────────────
@@ -350,9 +330,7 @@ public sealed class MuckaConnection : IAsyncDisposable
             {
                 int read = await stream.ReadAsync(buf, ct).ConfigureAwait(false);
                 if (read == 0) break; // server closed connection
-#if DEBUG || WINDOWS
                 _capture.RecordRx(buf.AsSpan(0, read));
-#endif
 #if WINDOWS
                 RawBytesReceived?.Invoke(buf[..read]);
 #endif
@@ -380,9 +358,7 @@ public sealed class MuckaConnection : IAsyncDisposable
             while (true)
             {
                 var bytes = await reader.ReadAsync(ct).ConfigureAwait(false);
-#if DEBUG || WINDOWS
                 _capture.RecordTx(bytes);
-#endif
 #if WINDOWS
                 RawBytesSent?.Invoke(bytes);
 #endif
@@ -419,12 +395,10 @@ public sealed class MuckaConnection : IAsyncDisposable
         _session.CharacterIdentified += n => CharacterIdentified?.Invoke(n);
         _session.DreamwordChanged   += w =>
         {
-#if DEBUG || WINDOWS
             if (w != null)
                 _capture.Annotate($"dreamword detected: {w}");
             else
                 _capture.Annotate("dreamword cleared");
-#endif
             DreamwordChanged?.Invoke(w);
         };
         _session.SoundRequested     += s => SoundRequested?.Invoke(s);
@@ -452,22 +426,18 @@ public sealed class MuckaConnection : IAsyncDisposable
     // log, when the per-profile toggle is on. Annotate() no-ops unless a capture is active.
     private void OnResetDiagnostic(string note)
     {
-#if DEBUG || WINDOWS
         if (LogResetDiagnostics)
             _capture.Annotate($"reset! {note}");
-#endif
     }
 
     // Reset-projection diagnostics: append each folded reading to the capture log when the per-profile
     // toggle is on. Annotate() is a no-op unless a capture is active, so the flag is the only extra gate.
     private void OnResetObservation(ResetObservation o)
     {
-#if DEBUG || WINDOWS
         if (!LogResetDiagnostics) return;
         _capture.Annotate(
             $"reset {o.Phase} v={o.Minutes}{(o.Sample ? " sample" : "")} rtt={o.RttMs:F0}ms " +
             $"win=[{o.WindowLoSecFromNow:F2},{o.WindowHiSecFromNow:F2})s ±{o.UncertaintySec:F2}s");
-#endif
     }
 
     private void OnTerminalWidthConfirmed(int confirmedWidth)
@@ -475,8 +445,6 @@ public sealed class MuckaConnection : IAsyncDisposable
         if (confirmedWidth != _windowCols)
             System.Diagnostics.Debug.WriteLine(
                 $"[MuckaConnection] Terminal width mismatch: requested {_windowCols}, confirmed {confirmedWidth}");
-#if DEBUG || WINDOWS
         _capture.Annotate($"terminal width confirmed: {confirmedWidth}");
-#endif
     }
 }

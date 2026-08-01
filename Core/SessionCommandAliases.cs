@@ -6,7 +6,7 @@ namespace Mucka.Core;
 internal sealed class SessionCommandAliases
 {
     private static readonly Regex AliasRefRegex = new(
-        @"\$(\^[QWEqwe]|[A-Za-z][A-Za-z0-9_]*|[?<])",
+        @"\$(\^[1-5]|[A-Za-z][A-Za-z0-9_]*|[?<])|(\^[1-5])",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
     private readonly string _versionExpansion;
@@ -53,7 +53,7 @@ internal sealed class SessionCommandAliases
 
         foreach (Match match in AliasRefRegex.Matches(command))
         {
-            var reference = match.Groups[1].Value;
+            var reference = ReferenceOf(match);
             if (IsReservedClientCommand(reference) && reference != "VER")
             {
                 error = $"cannot use built-in ${reference} in a command definition";
@@ -63,7 +63,7 @@ internal sealed class SessionCommandAliases
 
         command = AliasRefRegex.Replace(command, match =>
         {
-            var reference = match.Groups[1].Value;
+            var reference = ReferenceOf(match);
             if (reference == "VER")
                 return _versionExpansion;
 
@@ -94,7 +94,7 @@ internal sealed class SessionCommandAliases
     public string Expand(string text)
         => AliasRefRegex.Replace(text, match =>
         {
-            var reference = match.Groups[1].Value;
+            var reference = ReferenceOf(match);
             if (reference == "VER")
                 return _versionExpansion;
 
@@ -103,13 +103,17 @@ internal sealed class SessionCommandAliases
                 : match.Value;
         });
 
+    // Group 1 covers "$name"/"$^n" references; group 2 covers bare "^n" control-macro references.
+    private static string ReferenceOf(Match match)
+        => match.Groups[1].Success ? match.Groups[1].Value : match.Groups[2].Value;
+
     public void Clear() => _commands.Clear();
 
     private static bool IsValidName(string name)
     {
         if (name.Length == 2
             && name[0] == '^'
-            && name[1] is 'Q' or 'q' or 'W' or 'w' or 'E' or 'e')
+            && name[1] is >= '1' and <= '5')
             return true;
 
         if (name.Length == 0 || !IsAsciiLetter(name[0]))

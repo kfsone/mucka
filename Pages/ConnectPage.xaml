@@ -241,7 +241,7 @@
                     </Grid>
                 </Grid>
 
-                <Grid ColumnDefinitions="*,Auto"
+                <Grid ColumnDefinitions="*"
                       ColumnSpacing="8">
                     <Button Grid.Column="0"
                             Text="Connect  &#x25B6;"
@@ -251,24 +251,6 @@
                             TextColor="White"
                             CornerRadius="6"
                             HeightRequest="48" />
-                    <Button Grid.Column="1"
-                            Text="{Binding CaptureButtonText}"
-                            Command="{Binding ToggleCaptureCommand}"
-                            IsVisible="{Binding IsCaptureFacilityAvailable}"
-                            BackgroundColor="#2d333b"
-                            TextColor="#cccccc"
-                            CornerRadius="6"
-                            HeightRequest="48"
-                            Padding="10,0"
-                            SemanticProperties.Description="Toggle pre-connect capture"
-                            SemanticProperties.Hint="Arms or disarms session capture before connecting">
-                        <Button.Triggers>
-                            <DataTrigger TargetType="Button" Binding="{Binding IsCaptureRequested}" Value="True">
-                                <Setter Property="BackgroundColor" Value="#c02020"/>
-                                <Setter Property="TextColor" Value="White"/>
-                            </DataTrigger>
-                        </Button.Triggers>
-                    </Button>
                 </Grid>
 
                 <!-- Advanced toggle -->
@@ -342,6 +324,25 @@
                                TextColor="#888888"
                                VerticalOptions="Center"/>
                     </Grid>
+
+                    <!-- Session recording (advanced feature): arm/disarm whole-session capture before connecting -->
+                    <Button Text="{Binding CaptureButtonText}"
+                            Command="{Binding ToggleCaptureCommand}"
+                            IsVisible="{Binding IsCaptureFacilityAvailable}"
+                            BackgroundColor="#2d333b"
+                            TextColor="#cccccc"
+                            CornerRadius="6"
+                            HeightRequest="44"
+                            HorizontalOptions="Fill"
+                            SemanticProperties.Description="Toggle pre-connect capture"
+                            SemanticProperties.Hint="Arms or disarms session capture before connecting">
+                        <Button.Triggers>
+                            <DataTrigger TargetType="Button" Binding="{Binding IsCaptureRequested}" Value="True">
+                                <Setter Property="BackgroundColor" Value="#c02020"/>
+                                <Setter Property="TextColor" Value="White"/>
+                            </DataTrigger>
+                        </Button.Triggers>
+                    </Button>
 
                     <!-- Delete Profile -->
                     <Button Text="Delete Profile"

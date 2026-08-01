@@ -1252,12 +1252,16 @@ public partial class GamePage : ContentPage
             () => { if (Terminal.IsHistoryMode) Terminal.ScrollToBottom(); _vm.Flee(); });
         Add(Windows.System.VirtualKey.F, Windows.System.VirtualKeyModifiers.Control | Windows.System.VirtualKeyModifiers.Shift,
             () => { if (Terminal.IsHistoryMode) Terminal.ScrollToBottom(); _vm.FleeThen(); });
-        Add(Windows.System.VirtualKey.Q, Windows.System.VirtualKeyModifiers.Control,
-            () => { if (Terminal.IsHistoryMode) Terminal.ScrollToBottom(); _vm.SendControlAlias('Q'); });
-        Add(Windows.System.VirtualKey.W, Windows.System.VirtualKeyModifiers.Control,
-            () => { if (Terminal.IsHistoryMode) Terminal.ScrollToBottom(); _vm.SendControlAlias('W'); });
-        Add(Windows.System.VirtualKey.E, Windows.System.VirtualKeyModifiers.Control,
-            () => { if (Terminal.IsHistoryMode) Terminal.ScrollToBottom(); _vm.SendControlAlias('E'); });
+        Add(Windows.System.VirtualKey.Number1, Windows.System.VirtualKeyModifiers.Control,
+            () => { if (Terminal.IsHistoryMode) Terminal.ScrollToBottom(); _vm.SendControlAlias(1); });
+        Add(Windows.System.VirtualKey.Number2, Windows.System.VirtualKeyModifiers.Control,
+            () => { if (Terminal.IsHistoryMode) Terminal.ScrollToBottom(); _vm.SendControlAlias(2); });
+        Add(Windows.System.VirtualKey.Number3, Windows.System.VirtualKeyModifiers.Control,
+            () => { if (Terminal.IsHistoryMode) Terminal.ScrollToBottom(); _vm.SendControlAlias(3); });
+        Add(Windows.System.VirtualKey.Number4, Windows.System.VirtualKeyModifiers.Control,
+            () => { if (Terminal.IsHistoryMode) Terminal.ScrollToBottom(); _vm.SendControlAlias(4); });
+        Add(Windows.System.VirtualKey.Number5, Windows.System.VirtualKeyModifiers.Control,
+            () => { if (Terminal.IsHistoryMode) Terminal.ScrollToBottom(); _vm.SendControlAlias(5); });
         Add(Windows.System.VirtualKey.L, Windows.System.VirtualKeyModifiers.Control, () => _vm.ClearScreen());
         Add((Windows.System.VirtualKey)0xC0, Windows.System.VirtualKeyModifiers.Control, () => _ = TakeSelfieAsync());
 
@@ -1285,9 +1289,11 @@ public partial class GamePage : ContentPage
         if (IsModifierKey(key)) return;   // lone modifiers pass through harmlessly
         bool ctrl = (GetKeyState((int)Windows.System.VirtualKey.Control) & 0x8000) != 0;
 
-        if (ctrl && key is Windows.System.VirtualKey.Q
-            or Windows.System.VirtualKey.W
-            or Windows.System.VirtualKey.E)
+        if (ctrl && key is Windows.System.VirtualKey.Number1
+            or Windows.System.VirtualKey.Number2
+            or Windows.System.VirtualKey.Number3
+            or Windows.System.VirtualKey.Number4
+            or Windows.System.VirtualKey.Number5)
         {
             Terminal.ScrollToBottom();
             TrySendControlAlias(key);
@@ -1582,17 +1588,19 @@ public partial class GamePage : ContentPage
 
     private bool TrySendControlAlias(Windows.System.VirtualKey key)
     {
-        var alias = key switch
+        var slot = key switch
         {
-            Windows.System.VirtualKey.Q => 'Q',
-            Windows.System.VirtualKey.W => 'W',
-            Windows.System.VirtualKey.E => 'E',
-            _ => '\0',
+            Windows.System.VirtualKey.Number1 => 1,
+            Windows.System.VirtualKey.Number2 => 2,
+            Windows.System.VirtualKey.Number3 => 3,
+            Windows.System.VirtualKey.Number4 => 4,
+            Windows.System.VirtualKey.Number5 => 5,
+            _ => 0,
         };
-        if (alias == '\0')
+        if (slot == 0)
             return false;
 
-        _vm.SendControlAlias(alias);
+        _vm.SendControlAlias(slot);
         return true;
     }
 

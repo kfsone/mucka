@@ -93,17 +93,16 @@ public class SessionCommandAliasesTests
     }
 
     [Theory]
-    [InlineData("^Q")]
-    [InlineData("^q")]
-    [InlineData("^W")]
-    [InlineData("^w")]
-    [InlineData("^E")]
-    [InlineData("^e")]
+    [InlineData("^1")]
+    [InlineData("^2")]
+    [InlineData("^3")]
+    [InlineData("^4")]
+    [InlineData("^5")]
     public void ControlAliasCanBeDefinedAndExpanded(string name)
     {
         var aliases = CreateAliases();
         Define(aliases, $"{name}=look");
-        Define(aliases, $"wrapped=before ${name} after");
+        Define(aliases, $"wrapped=before {name} after");
 
         Assert.True(aliases.TryGet(name, out var command));
         Assert.Equal("look", command);

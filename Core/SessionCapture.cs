@@ -4,7 +4,8 @@ using System.Text.Json;
 namespace Mucka.Core;
 
 /// <summary>
-/// Debug session capture. Records raw RX/TX bytes and text annotations to a JSONL file.
+/// Whole-session recording (an advanced/opt-in feature). Records raw RX/TX bytes and text
+/// annotations to a JSONL file. Available in all builds/platforms.
 /// Each line: [timestamp_ms,"rx"|"tx"|"an",data_string]
 /// File: session-rec.{hostname}.{start_datetime}.jsonl in the app's data directory.
 /// </summary>

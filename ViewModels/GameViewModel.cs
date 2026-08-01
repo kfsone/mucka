@@ -172,23 +172,14 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public bool MuteBeepSession     { get => _muteBeepSession;     set => _muteBeepSession = value; }
     public bool MuteBeepPermanently => _muteBeepPermanently;
 
-    /// <summary>True in debug builds and on Windows release — controls visibility of the capture button.</summary>
-    public bool IsCaptureFacilityAvailable { get; } =
-#if DEBUG || WINDOWS
-        true;
-#else
-        false;
-#endif
+    /// <summary>Advanced feature: session recording is available on all builds/platforms.</summary>
+    public bool IsCaptureFacilityAvailable { get; } = true;
 
     public bool IsInGameMode => _inGameMode;
 
-    /// <summary>True when the capture button should be shown. Debug: always when facility available; Release: also requires game mode.</summary>
+    /// <summary>True when the capture button should be shown — an advanced feature, only surfaced once in game.</summary>
     public bool IsRecordingButtonVisible =>
-#if DEBUG
-        IsCaptureFacilityAvailable;
-#else
         IsCaptureFacilityAvailable && _inGameMode;
-#endif
 
     // Value-only strings (no label prefix) for FormattedString spans in the status bar.
     // Current and "/max" are separate spans so the max half renders one font point smaller.
@@ -952,6 +943,27 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private bool HandleCommand(string text)
     {
 #if WINDOWS
+        // ^1=command / ^2=command / .../^5=command (or bare ^1..^5) — bind/send the five
+        // Ctrl-1..Ctrl-5 control-macro slots. No "$" prefix: this is the one command family
+        // that is typed with a bare "^" lead, matching the physical Ctrl+<digit> shortcut.
+        if (text.Length >= 2 && text[0] == '^' && text[1] is >= '1' and <= '5'
+            && (text.Length == 2 || text[2] == '='))
+        {
+            if (_sessionAliases.TryDefine(text, out var ctrlAliasName, out var ctrlAliasCommand, out var ctrlError))
+            {
+                if (ctrlError != null)
+                    AddSystemLine($"[command] cannot define {ctrlAliasName}: {ctrlError}", 9);
+                else
+                    AddSystemLine($"[command] {ctrlAliasName} = {ctrlAliasCommand}", 14);
+            }
+            else if (_sessionAliases.TryGet(text, out var ctrlCommand))
+            {
+                _conn.SendLine(ExpandOutgoingCommand(ctrlCommand));
+                _lastSentUtc = DateTime.UtcNow;
+            }
+            return true;
+        }
+
         if (text.StartsWith('$'))
         {
             var name = text[1..];
@@ -1006,9 +1018,10 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private string ExpandOutgoingCommand(string command)
         => _watchwords.ExpandSlots(_sessionAliases.Expand(command));
 
-    public void SendControlAlias(char key)
+    /// <summary>Send the control-macro bound to Ctrl+&lt;slot&gt; (slot 1-5, see "^1".."^5" definitions).</summary>
+    public void SendControlAlias(int slot)
     {
-        if (_sessionAliases.TryGet($"^{key}", out var command))
+        if (_sessionAliases.TryGet($"^{slot}", out var command))
         {
             _conn.SendLine(ExpandOutgoingCommand(command));
             _lastSentUtc = DateTime.UtcNow;
@@ -1074,7 +1087,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         AddSystemLine("  $VER                  expands to the current Mucka version", 14);
         AddSystemLine("  $name=command         define a command until you exit the gameworld", 14);
         AddSystemLine("  $name                 run a command defined above", 14);
-        AddSystemLine("  $^Q/$^W/$^E=command   bind Ctrl-Q, Ctrl-W, or Ctrl-E", 14);
+        AddSystemLine("  ^1/^2/^3/^4/^5=command  bind Ctrl-1..Ctrl-5", 14);
     }
 
     // $fkeys [shift|ctrl] — list the 12 macros on the requested layer, echoing each line into the
