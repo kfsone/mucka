@@ -357,6 +357,8 @@ public static class SettingsStore
             if (GetInt (ini, section, "antiidle")         is int idle)   p.AntiIdleSeconds    = idle;
             if (GetBool(ini, section, "keepscreenon")     is bool keep)  p.KeepScreenOn       = keep;
             if (GetBool(ini, section, "defaulthotkeys")   is bool defs)  p.DefaultHotkeys     = defs;
+            if (GetBool(ini, section, "guidedlogin")      is bool gl)    p.GuidedLogin        = gl;
+            p.GuidedLoginPersona = ini.Get(section, "guidedloginpersona") ?? string.Empty;
             profiles.Add(p);
         }
         return profiles;
@@ -397,6 +399,8 @@ public static class SettingsStore
             ini.Set(section, "antiidle",         p.AntiIdleSeconds.ToString());
             ini.Set(section, "keepscreenon",     p.KeepScreenOn       ? "yes" : "no");
             ini.Set(section, "defaulthotkeys",   p.DefaultHotkeys     ? "yes" : "no");
+            ini.Set(section, "guidedlogin",       p.GuidedLogin        ? "yes" : "no");
+            ini.Set(section, "guidedloginpersona", p.GuidedLoginPersona);
         }
     }
 

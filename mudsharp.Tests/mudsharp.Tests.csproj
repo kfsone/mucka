@@ -24,6 +24,7 @@
 
   <ItemGroup>
     <Compile Include="..\Core\SessionCommandAliases.cs" Link="Core\SessionCommandAliases.cs" />
+    <Compile Include="..\Core\GuidedLogin\ShellText.cs" Link="Core\GuidedLogin\ShellText.cs" />
   </ItemGroup>
 
 </Project>

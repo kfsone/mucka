@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:vm="clr-namespace:Mucka.ViewModels"
+             x:Class="Mucka.Pages.GuidedLoginPage"
+             x:DataType="vm:GuidedLoginViewModel"
+             Title="Guided Login"
+             BackgroundColor="#0C0C0C"
+             SafeAreaEdges="All">
+    <Grid RowDefinitions="*,Auto" Padding="24">
+        <VerticalStackLayout Grid.Row="0" VerticalOptions="Center" Spacing="16">
+
+            <ActivityIndicator IsRunning="True" Color="#1f6feb" HorizontalOptions="Center"/>
+
+            <Label Text="{Binding Status}"
+                   TextColor="#cccccc"
+                   FontSize="16"
+                   HorizontalOptions="Center"/>
+
+            <!-- Tiny-font render of the login splash/banner as it arrives, purely cosmetic. -->
+            <Border IsVisible="{Binding HasSplash}"
+                    BackgroundColor="#111111"
+                    Stroke="#333333"
+                    StrokeThickness="1"
+                    Padding="8"
+                    MaximumHeightRequest="220">
+                <ScrollView>
+                    <Label Text="{Binding SplashText}"
+                           TextColor="#555555"
+                           FontFamily="Courier"
+                           FontSize="6"
+                           LineBreakMode="WordWrap"/>
+                </ScrollView>
+            </Border>
+        </VerticalStackLayout>
+
+        <Button Grid.Row="1"
+                Text="Cancel"
+                Command="{Binding CancelCommand}"
+                BackgroundColor="#2d333b"
+                TextColor="#cccccc"
+                CornerRadius="6"
+                HeightRequest="48"
+                Margin="0,16,0,0"/>
+    </Grid>
+</ContentPage>

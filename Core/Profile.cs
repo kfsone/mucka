@@ -11,6 +11,12 @@ public class Profile
     public bool RememberPassword { get; set; }
     public bool TelnetLoginEnabled { get; set; } = true;
     public string TelnetLoginName { get; set; } = "mud";
+    /// <summary>Automate the MUD Shell (Option menu -> persona selection) after login instead of
+    /// leaving the raw shell prompts for the user to type through manually.</summary>
+    public bool GuidedLogin { get; set; }
+    /// <summary>Persona name to auto-select (or offer to create, if a slot is free) when
+    /// GuidedLogin is enabled. Empty = let the user choose interactively during connect.</summary>
+    public string GuidedLoginPersona { get; set; } = string.Empty;
     /// <summary>Maximum terminal columns to advertise via NAWS. 0 = auto-size to window (default).</summary>
     public int MaxColumns { get; set; } = 0;
     /// <summary>Seconds of player inactivity before sending a blank keep-alive command. 0 = disabled.</summary>

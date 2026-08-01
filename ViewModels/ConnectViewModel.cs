@@ -21,6 +21,8 @@ public sealed class ConnectViewModel : BaseViewModel
     private string _telnetLoginName = "mud";
     private bool _advancedVisible;
     private bool _captureRequested;
+    private bool _guidedLogin;
+    private string _guidedLoginPersona = string.Empty;
     private int _maxColumns = 80;
     private int _antiIdleSeconds = 0;
     private int _profileSelectionVersion;
@@ -60,6 +62,11 @@ public sealed class ConnectViewModel : BaseViewModel
     public bool KeepScreenOn { get => _keepScreenOn; set => Set(ref _keepScreenOn, value); }
     public bool IsCaptureRequested { get => _captureRequested; set => Set(ref _captureRequested, value); }
 
+    /// <summary>Advanced feature: automate the MUD Shell (login through persona select/create)
+    /// instead of requiring the player to drive it by hand after connecting.</summary>
+    public bool GuidedLogin { get => _guidedLogin; set => Set(ref _guidedLogin, value); }
+    public string GuidedLoginPersona { get => _guidedLoginPersona; set => Set(ref _guidedLoginPersona, value); }
+
     /// <summary>Advanced feature: pre-connect capture arming is available on all builds/platforms.</summary>
     public bool IsCaptureFacilityAvailable { get; } = true;
 
@@ -91,6 +98,11 @@ public sealed class ConnectViewModel : BaseViewModel
     public ICommand DeleteProfileCommand { get; }
 
     public Func<PasswordPromptArgs, Task<PasswordResult?>>? PasswordRequired;
+
+    /// <summary>Runs the guided-login state machine UI. Set by the page hosting this view model.
+    /// Return true to proceed to the game (existing <see cref="Connected"/> flow); false to abort
+    /// the connection attempt (the caller has already shown any error to the player).</summary>
+    public Func<Mucka.Core.GuidedLogin.GuidedLoginController, Profile, Task<bool>>? GuidedLoginRequired;
 
     public event Action<MuckaConnection, Profile>? Connected;
 
@@ -183,6 +195,8 @@ public sealed class ConnectViewModel : BaseViewModel
                 MaxColumns = MaxColumns,
                 AntiIdleSeconds = AntiIdleSeconds,
                 KeepScreenOn = KeepScreenOn,
+                GuidedLogin = GuidedLogin,
+                GuidedLoginPersona = GuidedLoginPersona.Trim(),
                 DefaultHotkeys = saved?.DefaultHotkeys ?? true,
                 FontSize = saved?.FontSize ?? 0,
                 Volume = saved?.Volume ?? 75,
@@ -216,6 +230,27 @@ public sealed class ConnectViewModel : BaseViewModel
             {
                 await SaveCurrentProfileAsync(profile, RememberPassword ? resolvedPassword : null);
             }
+
+            if (profile.GuidedLogin)
+            {
+                var controller = new Mucka.Core.GuidedLogin.GuidedLoginController(conn, profile.GuidedLoginPersona);
+                bool proceed;
+                try
+                {
+                    proceed = GuidedLoginRequired != null && await GuidedLoginRequired(controller, profile);
+                }
+                finally
+                {
+                    controller.Dispose();
+                }
+
+                if (!proceed)
+                {
+                    await conn.DisposeAsync();
+                    return;
+                }
+            }
+
             Connected?.Invoke(conn, profile);
         }
         catch (Exception ex)
@@ -256,6 +291,8 @@ public sealed class ConnectViewModel : BaseViewModel
         MaxColumns = p.MaxColumns;
         AntiIdleSeconds = p.AntiIdleSeconds;
         KeepScreenOn = p.KeepScreenOn;
+        GuidedLogin = p.GuidedLogin;
+        GuidedLoginPersona = p.GuidedLoginPersona;
         return Interlocked.Increment(ref _profileSelectionVersion);
     }
 
@@ -493,6 +530,8 @@ public sealed class ConnectViewModel : BaseViewModel
             existing.MaxColumns = incoming.MaxColumns;
             existing.AntiIdleSeconds = incoming.AntiIdleSeconds;
             existing.KeepScreenOn = incoming.KeepScreenOn;
+            existing.GuidedLogin = incoming.GuidedLogin;
+            existing.GuidedLoginPersona = incoming.GuidedLoginPersona;
             existing.Fkeys = incoming.Fkeys;
             var idx = SavedProfiles.IndexOf(existing);
             if (idx > 0)

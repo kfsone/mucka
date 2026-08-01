@@ -24,6 +24,7 @@ public partial class ConnectPage : ContentPage
         BindingContext = _vm;
         _vm.Connected += OnConnected;
         _vm.PasswordRequired = PromptPasswordAsync;
+        _vm.GuidedLoginRequired = RunGuidedLoginAsync;
         VersionLabel.Text = $"v{AppInfo.VersionString}";
         TitleLabel.Text = $"mucka  v{AppInfo.VersionString}";
 
@@ -154,6 +155,40 @@ public partial class ConnectPage : ContentPage
             await Navigation.PushModalAsync(page);
         });
         return await tcs.Task;
+    }
+
+    private async Task<bool> RunGuidedLoginAsync(Mucka.Core.GuidedLogin.GuidedLoginController controller, Profile profile)
+    {
+        var vm = new GuidedLoginViewModel(controller);
+        GuidedLoginPage? page = null;
+        try
+        {
+            await MainThread.InvokeOnMainThreadAsync(async () =>
+            {
+                page = new GuidedLoginPage(vm);
+                await Navigation.PushModalAsync(page);
+            });
+
+            var result = await controller.RunAsync(page!.CancellationToken);
+
+            if (result.Outcome == Mucka.Core.GuidedLogin.GuidedLoginOutcome.Succeeded)
+                return true;
+
+            if (result.Outcome == Mucka.Core.GuidedLogin.GuidedLoginOutcome.Failed && result.FailureReason != null)
+            {
+                await DisplayAlertAsync(
+                    "Guided Login Failed",
+                    $"{result.FailureReason}\n\nYou may want to disable Guided Login for this profile and log in manually.",
+                    "OK");
+            }
+            return false;
+        }
+        finally
+        {
+            vm.Detach();
+            if (page != null)
+                await MainThread.InvokeOnMainThreadAsync(() => Navigation.PopModalAsync());
+        }
     }
 
     // Blank → auto (0); a valid number is clamped by the VM setter; anything else restores display.

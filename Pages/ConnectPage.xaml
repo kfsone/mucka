@@ -310,6 +310,35 @@
                                ReturnType="Done"/>
                     </Grid>
 
+                    <!-- Guided Login: automate the MUD Shell (login through persona select/create) -->
+                    <Grid ColumnDefinitions="Auto,*,Auto"
+                          ColumnSpacing="8">
+                        <CheckBox Grid.Column="0"
+                                  IsChecked="{Binding GuidedLogin}"
+                                  Color="#1f6feb"
+                                  VerticalOptions="Center"/>
+                        <Label Grid.Column="1"
+                               Text="Guided Login"
+                               TextColor="#888888"
+                               VerticalOptions="Center"/>
+                    </Grid>
+                    <Grid ColumnDefinitions="80,*"
+                          ColumnSpacing="10"
+                          IsVisible="{Binding GuidedLogin}">
+                        <Label Grid.Column="0"
+                               Text="Persona"
+                               TextColor="#888888"
+                               VerticalOptions="Center"/>
+                        <Entry Grid.Column="1"
+                               Text="{Binding GuidedLoginPersona}"
+                               TextColor="White"
+                               BackgroundColor="#161b22"
+                               PlaceholderColor="#444444"
+                               Placeholder="leave blank to choose at connect time"
+                               SemanticProperties.Description="Guided login persona name"
+                               ReturnType="Done"/>
+                    </Grid>
+
                     <!-- Keep Screen On (Android only) -->
                     <Grid ColumnDefinitions="Auto,Auto"
                           HorizontalOptions="Start"
