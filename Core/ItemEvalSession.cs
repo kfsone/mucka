@@ -18,9 +18,12 @@ namespace Mucka.Core;
 /// with a stats read on each side isolates that single item's contribution.
 ///
 /// <para>Sequence: "look &lt;id&gt;" (description), "weigh &lt;id&gt;" (weight), then
-/// "drop &lt;id&gt;" / "get &lt;id&gt;" bracketing the before/after FES reads. The get-back step
-/// always runs (try/finally) even if the drop step times out or throws, so a fumbled eval never
-/// leaves the item lying on the ground.</para>
+/// "drop &lt;id&gt;" / "get &lt;id&gt;" bracketing the before/after FES reads, plus a "sc" probe
+/// after each. All six sub-commands are sent as ONE comma-joined line — MUD2 already runs a
+/// comma-joined command as a strict sequence of separate game turns, so this preserves correct
+/// ordering (no risk of "sc" landing before drop/get takes effect) while avoiding a client/server
+/// round trip between every step. Because "get" is always part of that single sent line, the item
+/// is never left lying on the ground even if the reply-capture logic below times out.</para>
 ///
 /// <para>GameViewModel does a cheap local sanity check against the last carried-items (FEI)
 /// snapshot before calling <see cref="RunAsync"/>, but that check is only a heuristic — FEI shows
@@ -40,10 +43,11 @@ namespace Mucka.Core;
 /// </summary>
 public sealed class ItemEvalSession
 {
-    private static readonly TimeSpan LineTimeout  = TimeSpan.FromSeconds(5);
-    private static readonly TimeSpan StatsTimeout = TimeSpan.FromSeconds(6);
     private static readonly TimeSpan IdentifyQuietPeriod = TimeSpan.FromMilliseconds(700);
     private static readonly TimeSpan IdentifyTimeout = TimeSpan.FromSeconds(4);
+    // Covers the whole look/weigh/drop/sc/get/sc batch (6 sequential game turns at up to ~700ms
+    // each, per MudSession's observed per-turn trickle) sent as a single comma-joined command.
+    private static readonly TimeSpan BatchTimeout = TimeSpan.FromSeconds(10);
 
     // "The weight of the staff is 4kg." / "...is 0.5kg." — MUD2 always names the item generically
     // ("the staff"), not by itemid, so we match on the surrounding phrase, not the noun.
@@ -92,11 +96,36 @@ public sealed class ItemEvalSession
         if (!string.Equals(resolvedName, itemId, StringComparison.OrdinalIgnoreCase))
             _report($"[clog eval] '{itemId}' resolved to '{resolvedName}' via 'identify'.");
 
-        var description = await SendAndCaptureLineAsync($"look {resolvedName}");
+        // Baseline: read the live merged snapshot directly (MudSession.CurrentStats) rather than
+        // sending 'qs' — MUD2's 'qs' reply ("eff str 45  eff dex 61  ...") is a different, terser
+        // format than GameLineAnalyzer parses (it only recognises the 'sc'/full-status
+        // "strength: N  effective strength: M" line), so a prior version that awaited a
+        // StatsUpdated event after sending 'qs' always timed out and silently fell back to a
+        // stale/empty snapshot — the reported "str: ? -> 45" bug. CurrentStats is always fresh
+        // thanks to the client's periodic FES heartbeat, no round trip required.
+        var before = _conn.CurrentStats;
+
+        // Send look/weigh/drop/get + 2 stats probes as ONE comma-separated command line. MUD2
+        // already processes a comma-joined command as a strict sequence of separate game turns
+        // (per the user: "cripple thief,e,e,e,...,kill thief" runs each sub-command on its own
+        // turn), so this preserves the exact ordering guarantee the earlier per-command
+        // confirmation-wait was working around — without paying for a client/server round trip
+        // between every step. "sc" (not 'qs') forces the parseable "strength: N  effective
+        // strength: M" reply GameLineAnalyzer understands, once immediately after 'drop' and once
+        // after 'get'.
+        var lookEcho = $"look {resolvedName}";
+        var weighEcho = $"weigh {resolvedName}";
+        var combined = $"{lookEcho},{weighEcho},drop {resolvedName},sc,get {resolvedName},sc";
+
+        var textTask = CaptureLookAndWeighAsync(lookEcho, weighEcho);
+        var statsTask = CollectStatsAsync(count: 2);
+        _conn.SendLine(combined);
+        await Task.WhenAll(textTask, statsTask);
+
+        var (description, weighLine) = textTask.Result;
         if (description == null)
             _report($"[clog eval] no description line seen for 'look {resolvedName}' (timed out) — continuing anyway.");
 
-        var weighLine = await SendAndCaptureLineAsync($"weigh {resolvedName}", WeighRegex.IsMatch);
         double? weightKg = null;
         if (weighLine != null)
         {
@@ -109,25 +138,100 @@ public sealed class ItemEvalSession
             _report($"[clog eval] no weight line seen for 'weigh {resolvedName}' (timed out).");
         }
 
-        // Baseline: read the live merged snapshot directly (MudSession.CurrentStats) rather than
-        // sending 'qs' — MUD2's 'qs' reply ("eff str 45  eff dex 61  ...") is a different, terser
-        // format than GameLineAnalyzer parses (it only recognises the 'sc'/full-status
-        // "strength: N  effective strength: M" line), so a prior version that awaited a
-        // StatsUpdated event after sending 'qs' always timed out and silently fell back to a
-        // stale/empty snapshot — the reported "str: ? -> 45" bug. CurrentStats is always fresh
-        // thanks to the client's periodic FES heartbeat, no round trip required.
-        var before = _conn.CurrentStats;
-        var afterDrop = before;
+        var stats = statsTask.Result;
+        if (stats.Count < 2)
+            _report($"[clog eval] only saw {stats.Count}/2 expected 'sc' stats replies (timed out) — some before/after values may be stale.");
+        var afterDrop = stats.Count >= 1 ? stats[0] : before;
+        var afterGet = stats.Count >= 2 ? stats[1] : afterDrop;
+
+        // 'get' was already sent as part of the combined command above regardless of whether the
+        // capture logic above timed out, so the item is never left lying on the ground even if
+        // this eval's reporting is incomplete.
+        ReportAndLog(itemId, resolvedName, description, weightKg, before, afterDrop, afterGet);
+    }
+
+    /// <summary>Watches for "look &lt;resolvedName&gt;" then its description line, followed by
+    /// "weigh &lt;resolvedName&gt;" then its weight line, as anchors within the single combined
+    /// batch command's reply stream. Intervening lines that belong to other sub-commands in the
+    /// batch (their echoes, "sc" stats blocks, prompts) are simply skipped — each anchor is only
+    /// recognised once the FSM is actually waiting for it, so out-of-order noise cannot be
+    /// mistaken for the wrong slot's answer.</summary>
+    private Task<(string? Description, string? WeighLine)> CaptureLookAndWeighAsync(string lookEcho, string weighEcho)
+    {
+        var tcs = new TaskCompletionSource<(string?, string?)>(TaskCreationOptions.RunContinuationsAsynchronously);
+        string? description = null;
+        string? weighLine = null;
+        var state = 0; // 0=await look echo, 1=await description, 2=await weigh echo, 3=await weight line
+
+        void Handler(StyledLine line)
+        {
+            var text = line.PlainText?.Trim();
+            if (string.IsNullOrEmpty(text))
+                return;
+            switch (state)
+            {
+                case 0:
+                    if (string.Equals(text, lookEcho, StringComparison.OrdinalIgnoreCase))
+                        state = 1;
+                    break;
+                case 1:
+                    description = text;
+                    state = 2;
+                    break;
+                case 2:
+                    if (string.Equals(text, weighEcho, StringComparison.OrdinalIgnoreCase))
+                        state = 3;
+                    break;
+                case 3:
+                    if (WeighRegex.IsMatch(text))
+                    {
+                        weighLine = text;
+                        tcs.TrySetResult((description, weighLine));
+                    }
+                    break;
+            }
+        }
+
+        _conn.LineReady += Handler;
+        return WaitThenUnsubscribeAsync(tcs.Task, () => (description, weighLine),
+            () => _conn.LineReady -= Handler, BatchTimeout);
+    }
+
+    /// <summary>Collects up to <paramref name="count"/> merged stats snapshots (each reporting
+    /// both Strength and Dexterity, i.e. a genuine "sc" reply — see the parser-coverage note
+    /// above) in arrival order, then stops.</summary>
+    private Task<List<GameStatsSnapshot>> CollectStatsAsync(int count)
+    {
+        var results = new List<GameStatsSnapshot>();
+        var tcs = new TaskCompletionSource<List<GameStatsSnapshot>>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        void Handler(GameStatsSnapshot s)
+        {
+            if (!s.Strength.HasValue || !s.Dexterity.HasValue)
+                return;
+            results.Add(s);
+            if (results.Count >= count)
+                tcs.TrySetResult(results);
+        }
+
+        _conn.StatsUpdated += Handler;
+        return WaitThenUnsubscribeAsync(tcs.Task, () => results,
+            () => _conn.StatsUpdated -= Handler, BatchTimeout);
+    }
+
+    /// <summary>Awaits <paramref name="signal"/> up to <see cref="BatchTimeout"/>, always
+    /// unsubscribing via <paramref name="unsubscribe"/> before returning either the signalled
+    /// result or (on timeout) whatever <paramref name="fallback"/> had accumulated so far.</summary>
+    private static async Task<T> WaitThenUnsubscribeAsync<T>(Task<T> signal, Func<T> fallback, Action unsubscribe, TimeSpan timeout)
+    {
         try
         {
-            afterDrop = await SendAndAwaitStatsAsync($"drop {resolvedName}", before);
+            var completed = await Task.WhenAny(signal, Task.Delay(timeout));
+            return completed == signal ? await signal : fallback();
         }
         finally
         {
-            // Always attempt to restore the item, even if the drop step above timed out or threw —
-            // an eval must never leave the character's inventory worse off than it found it.
-            var afterGet = await SendAndAwaitStatsAsync($"get {resolvedName}", afterDrop);
-            ReportAndLog(itemId, resolvedName, description, weightKg, before, afterDrop, afterGet);
+            unsubscribe();
         }
     }
 
@@ -172,87 +276,6 @@ public sealed class ItemEvalSession
             _conn.LineReady -= Handler;
         }
         return names;
-    }
-
-    /// <summary>Send <paramref name="command"/> and return the first subsequent line accepted by
-    /// <paramref name="accept"/> (default: first non-blank line that isn't the command's own
-    /// echo). Returns null on timeout — the caller carries on best-effort.</summary>
-    private async Task<string?> SendAndCaptureLineAsync(string command, Func<string, bool>? accept = null)
-    {
-        var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        void Handler(StyledLine line)
-        {
-            var text = line.PlainText?.Trim();
-            if (string.IsNullOrEmpty(text))
-                return;
-            if (string.Equals(text, command, StringComparison.OrdinalIgnoreCase))
-                return; // the server's echo of our own command
-            if (accept != null && !accept(text))
-                return;
-            tcs.TrySetResult(text);
-        }
-
-        _conn.LineReady += Handler;
-        try
-        {
-            _conn.SendLine(command);
-            var completed = await Task.WhenAny(tcs.Task, Task.Delay(LineTimeout));
-            return completed == tcs.Task ? await tcs.Task : null;
-        }
-        finally
-        {
-            _conn.LineReady -= Handler;
-        }
-    }
-
-    /// <summary>Send <paramref name="command"/>, wait for its own confirmation line (e.g.
-    /// "Croquet mallet dropped."/"Croquet mallet taken."), then — only once that's landed —
-    /// force a fresh parseable stats reply with "sc" (MUD2's full-status/score command — its
-    /// "strength: N  effective strength: M" / "dexterity: N  effective dexterity: M" lines are
-    /// what GameLineAnalyzer actually parses; 'qs' looks similar to a human but is a different,
-    /// unparsed format), and return the next merged snapshot that reports both Strength and
-    /// Dexterity.
-    ///
-    /// <para>MUD2 executes one command per game turn and replies can trickle in over ~700ms (see
-    /// MudSession's login-sequence comments), so firing "sc" immediately after
-    /// <paramref name="command"/> — with no synchronization — risked both landing in the same
-    /// tick, with 'sc' snapshotting stats calculated *before* the drop/get's effect was applied.
-    /// That produced the reported "still chokes on qs/score data" off-by-one/stale readings.
-    /// Waiting for the command's own confirmation line first guarantees 'sc' is sent on a
-    /// strictly later turn, once the effect is already applied.</para>
-    ///
-    /// <para>Falls back to <paramref name="fallback"/> on timeout (the command and "sc" are still
-    /// sent either way — this only affects what we report/log, never what we send).</para>
-    /// </summary>
-    private async Task<GameStatsSnapshot> SendAndAwaitStatsAsync(string command, GameStatsSnapshot fallback)
-    {
-        var confirmation = await SendAndCaptureLineAsync(command);
-        if (confirmation == null)
-            _report($"[clog eval] no confirmation line seen for '{command}' (timed out) — sending 'sc' anyway.");
-
-        var tcs = new TaskCompletionSource<GameStatsSnapshot>(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        void Handler(GameStatsSnapshot s)
-        {
-            if (s.Strength.HasValue && s.Dexterity.HasValue)
-                tcs.TrySetResult(s);
-        }
-
-        _conn.StatsUpdated += Handler;
-        try
-        {
-            _conn.SendLine("sc");
-            var completed = await Task.WhenAny(tcs.Task, Task.Delay(StatsTimeout));
-            if (completed == tcs.Task)
-                return await tcs.Task;
-            _report($"[clog eval] timed out waiting for stats after '{command}' — using last known values.");
-            return fallback;
-        }
-        finally
-        {
-            _conn.StatsUpdated -= Handler;
-        }
     }
 
     private void ReportAndLog(

@@ -66,15 +66,25 @@ A repository search over the research capture and current clogs found scorecard 
 ## `$clog eval` sequencing fix: "chokes on qs/score data"
 
 Following the identify-resolution/`CurrentStats` fixes (see below), the user still reported eval
-"chokes on qs/score data" in a subsequent live test. Root cause: `SendAndAwaitStatsAsync` sent the
-action command (`drop`/`get`) and the follow-up `"sc"` immediately back-to-back with no
-synchronization. MUD2 executes one command per game turn and replies can trickle in over ~700ms
-(confirmed by `MudSession`'s own login-sequence comments), so both commands could land in the same
-tick, with `sc`'s snapshot reflecting stats calculated *before* the drop/get's effect was applied —
-producing the intermittent off-by-one/stale readings. Fixed by making `SendAndAwaitStatsAsync` wait
-for the action command's own confirmation line (e.g. "Croquet mallet dropped."/"Croquet mallet
-taken.") before sending `"sc"`, guaranteeing `sc` runs on a strictly later turn. Verified via build +
-`mudsharp.Tests` (473/473); not yet re-verified against a live session.
+"chokes on qs/score data" in a subsequent live test. First fix attempt: made
+`SendAndAwaitStatsAsync` wait for the action command's own confirmation line before sending a
+separate `"sc"`, to avoid both landing in the same MUD2 game turn — this worked but still paid for
+a client/server round trip between every step (look, weigh, drop, sc, get, sc — six round trips).
+
+**Superseded by batching**: the user pointed out MUD2 already supports sending several
+comma-separated sub-commands in one input line, each still executed on its own sequential game
+turn server-side (confirmed by the user's own example: `"cripple thief,e,e,e,e,e,e,e,kill
+thief"`). So `RunAsync` now sends the *entire* `look/weigh/drop/sc/get/sc` sequence as ONE combined
+line (`"look X,weigh X,drop X,sc,get X,sc"`), eliminating all 6 round trips down to 1 while keeping
+the exact per-turn ordering guarantee that made the previous confirmation-wait fix work — the
+server itself, not our client, now guarantees `sc` never runs before the preceding drop/get lands.
+Replies are captured with two independent listeners running concurrently: a small line-based FSM
+(`CaptureLookAndWeighAsync`) that anchors on the `look`/`weigh` echo lines to grab their reply text
+(ignoring intervening `sc`/`drop`/`get` echoes and stats blocks, since it only recognises an anchor
+while actively waiting for it), and a `StatsUpdated` collector (`CollectStatsAsync`) that takes the
+first two snapshots reporting both Strength and Dexterity, in arrival order (afterDrop, then
+afterGet). Verified via build (Windows + Android) + `mudsharp.Tests` (473/473); not yet
+re-verified against a live session.
 
 ## Score-to-level thresholds (todo, unverified)
 
