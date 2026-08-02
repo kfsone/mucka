@@ -40,13 +40,18 @@ Suggested analysis sequence:
 - Capture nearest scorecard snapshot after weapon-equip or weapon-break events when practical.
 - If any command or prose reveals weapon weight directly, record that verbatim alongside the equipped weapon.
 - Consider an explicit light/darkness flag if the protocol exposes one; some user hypotheses depend on visibility.
-- **NPC-carried weapons are not observed at all.** The per-tick "The X hits you (N/M)." line never
-  names a weapon, so `CombatTracker`/`ClogWriter` currently have no way to know (or record) that an
-  NPC is fighting with a weapon rather than bare-handed — per the user, this was directly observed
-  live in a real fight, and NPC weapon choice presumably affects their damage output the same way
-  it does for the player. Whatever text does carry this (if any — a join/description line, e.g.
-  "wields"/"brandishes", or something only visible via `look <npc>`) hasn't been identified yet; a
-  targeted search across a session where this is known to happen would be the next step.
+- **NPC-carried weapons are now observed and tracked (previously a known gap).** Confirmed live:
+  `"The zombie has started to use the fork to fight!"` — distinct from the per-tick "The X hits you
+  (N/M)." line, which never names a weapon. `CombatTracker` now has a dedicated
+  `CombatEventKind.NpcWeaponEquip` regex/event (`"^The (?<npc>.+?) has started to use the
+  (?<weapon>.+?) to fight!$"`), `ClogWriter` logs it automatically (it logs every `CombatEvent`
+  generically, no plumbing needed), and `CombatStatsAggregator` now tracks each active NPC's
+  last-known weapon in a per-name dictionary, surfacing it in the live HUD's active-NPC list as
+  `"zombie (fork)"` once observed (most NPCs never announce a weapon at all — presumably
+  fists/claws/bite — so the common case is still just the bare name). Not yet confirmed: whether
+  any other text (a join/description line, "wields"/"brandishes", or `look <npc>`) also reveals an
+  NPC's *starting* weapon before any mid-fight switch.
+
 - **Live-HUD "damage taken" was reported as not visibly increasing during one fight.** A pass over
   this session's freshly captured clogs shows the underlying data is actually fine (`HitByNpc`
   events' stamina readings decrease consistently within an encounter, e.g. rat 58→55→54→51→48→47),
@@ -58,7 +63,30 @@ Suggested analysis sequence:
 
 A repository search over the research capture and current clogs found scorecard "weight carried" lines, but no direct prose reporting a weapon's own weight next to its weapon name. That means the current best path is still indirect inference: use controlled same-target comparisons while holding carried weight and effective stats as constant as possible.
 
-## Non-fightbrief ("narrative") combat mode — confirmed gap and partial fix
+## `$clog eval` sequencing fix: "chokes on qs/score data"
+
+Following the identify-resolution/`CurrentStats` fixes (see below), the user still reported eval
+"chokes on qs/score data" in a subsequent live test. Root cause: `SendAndAwaitStatsAsync` sent the
+action command (`drop`/`get`) and the follow-up `"sc"` immediately back-to-back with no
+synchronization. MUD2 executes one command per game turn and replies can trickle in over ~700ms
+(confirmed by `MudSession`'s own login-sequence comments), so both commands could land in the same
+tick, with `sc`'s snapshot reflecting stats calculated *before* the drop/get's effect was applied —
+producing the intermittent off-by-one/stale readings. Fixed by making `SendAndAwaitStatsAsync` wait
+for the action command's own confirmation line (e.g. "Croquet mallet dropped."/"Croquet mallet
+taken.") before sending `"sc"`, guaranteeing `sc` runs on a strictly later turn. Verified via build +
+`mudsharp.Tests` (473/473); not yet re-verified against a live session.
+
+## Score-to-level thresholds (todo, unverified)
+
+Per the user, MUD2's level-up thresholds on the `sc`/`qs` score value appear to be simple
+fixed-point breakpoints: level 0 = 0-199, level 1 = 200-399, level 2 = 400-799, level 3 = 800-1599,
+continuing (roughly doubling) up through rank 11 ("wizard"). Not yet independently verified against
+more data points. Tracked as a todo (`score-level-thresholds` in the session's todo DB) — potential
+use: predict an approaching level crossing from the last known score + gain rate, and only send a
+targeted `sc` probe near that crossing instead of polling constantly. A distinct sound per direction
+(ding up / dong down) was suggested but explicitly deferred by the user — do not implement yet.
+
+
 
 Confirmed live (2026-08-01, `session-rec.mud2.co.uk.20260801-234914.jsonl` / `clog.20260801-234954.jsonl`): a
 character that never toggled MUD2's `fightbrief` setting produces a completely different combat message

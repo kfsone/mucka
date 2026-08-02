@@ -206,15 +206,31 @@ public sealed class ItemEvalSession
         }
     }
 
-    /// <summary>Send <paramref name="command"/>, then force a fresh parseable stats reply with
-    /// "sc" (MUD2's full-status/score command — its "strength: N  effective strength: M" /
-    /// "dexterity: N  effective dexterity: M" lines are what GameLineAnalyzer actually parses;
-    /// 'qs' looks similar to a human but is a different, unparsed format), and return the next
-    /// merged snapshot that reports both Strength and Dexterity. Falls back to
-    /// <paramref name="fallback"/> on timeout (both commands are still sent either way — this
-    /// only affects what we report/log, never what we send).</summary>
+    /// <summary>Send <paramref name="command"/>, wait for its own confirmation line (e.g.
+    /// "Croquet mallet dropped."/"Croquet mallet taken."), then — only once that's landed —
+    /// force a fresh parseable stats reply with "sc" (MUD2's full-status/score command — its
+    /// "strength: N  effective strength: M" / "dexterity: N  effective dexterity: M" lines are
+    /// what GameLineAnalyzer actually parses; 'qs' looks similar to a human but is a different,
+    /// unparsed format), and return the next merged snapshot that reports both Strength and
+    /// Dexterity.
+    ///
+    /// <para>MUD2 executes one command per game turn and replies can trickle in over ~700ms (see
+    /// MudSession's login-sequence comments), so firing "sc" immediately after
+    /// <paramref name="command"/> — with no synchronization — risked both landing in the same
+    /// tick, with 'sc' snapshotting stats calculated *before* the drop/get's effect was applied.
+    /// That produced the reported "still chokes on qs/score data" off-by-one/stale readings.
+    /// Waiting for the command's own confirmation line first guarantees 'sc' is sent on a
+    /// strictly later turn, once the effect is already applied.</para>
+    ///
+    /// <para>Falls back to <paramref name="fallback"/> on timeout (the command and "sc" are still
+    /// sent either way — this only affects what we report/log, never what we send).</para>
+    /// </summary>
     private async Task<GameStatsSnapshot> SendAndAwaitStatsAsync(string command, GameStatsSnapshot fallback)
     {
+        var confirmation = await SendAndCaptureLineAsync(command);
+        if (confirmation == null)
+            _report($"[clog eval] no confirmation line seen for '{command}' (timed out) — sending 'sc' anyway.");
+
         var tcs = new TaskCompletionSource<GameStatsSnapshot>(TaskCreationOptions.RunContinuationsAsynchronously);
 
         void Handler(GameStatsSnapshot s)
@@ -226,7 +242,6 @@ public sealed class ItemEvalSession
         _conn.StatsUpdated += Handler;
         try
         {
-            _conn.SendLine(command);
             _conn.SendLine("sc");
             var completed = await Task.WhenAny(tcs.Task, Task.Delay(StatsTimeout));
             if (completed == tcs.Task)

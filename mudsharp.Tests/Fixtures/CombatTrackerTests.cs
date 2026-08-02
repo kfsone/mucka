@@ -318,6 +318,25 @@ public class CombatTrackerTests
     }
 
     [Fact]
+    public void NpcWeaponEquip_ZombieSwitchesToFork_IsClassifiedAndKeepsCombatOpen()
+    {
+        // Confirmed live text (previously unseen in any capture): NPCs DO announce weapon use
+        // explicitly, distinct from the per-tick "The X hits/misses you." lines which never name
+        // a weapon.
+        var (t, _, events) = NewTracker();
+        t.Observe(Line("You attack the zombie, using the falchion as a weapon."), DateTime.UtcNow);
+        t.Observe(Line("You miss the zombie."), DateTime.UtcNow);
+        t.Observe(Line("The zombie misses you."), DateTime.UtcNow);
+        t.Observe(Line("The zombie has started to use the fork to fight!"), DateTime.UtcNow);
+
+        Assert.True(t.InCombat);
+        var equipEvent = Assert.Single(events, e => e.Kind == CombatEventKind.NpcWeaponEquip);
+        Assert.Equal("zombie", equipEvent.NpcName);
+        Assert.Equal("fork", equipEvent.Weapon);
+        Assert.Equal(CombatActor.Npc, equipEvent.Actor);
+    }
+
+    [Fact]
     public void FightEndOther_IsInformationalOnly_DoesNotCloseCombat()
     {
         // Verified against the full research capture: this line (108/108... 27 in the smaller

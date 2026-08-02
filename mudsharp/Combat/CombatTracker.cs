@@ -62,6 +62,8 @@ public sealed class CombatTracker
     private static readonly Regex FightEndOther = new(@"^You can fight it no longer\.$", RegexOptions.Compiled);
     private static readonly Regex WeaponEquip = new(
         @"^You are now using the (?<weapon>.+?) to fight!$", RegexOptions.Compiled);
+    private static readonly Regex NpcWeaponEquip = new(
+        @"^The (?<npc>.+?) has started to use the (?<weapon>.+?) to fight!$", RegexOptions.Compiled);
     private static readonly Regex WeaponSwitch = new(
         @"^You drop your guard as you switch from using the (?<from>.+?) to the (?<to>.+?)\.$", RegexOptions.Compiled);
     private static readonly Regex WeaponBroke = new(@"^The (?<weapon>.+?) breaks to bits\.$", RegexOptions.Compiled);
@@ -233,6 +235,15 @@ public sealed class CombatTracker
         else if ((m = WeaponEquip.Match(text)).Success)
         {
             Emit(timestampUtc, CombatEventKind.WeaponEquip, CombatActor.Player, null, m.Groups["weapon"].Value, null, null, text);
+        }
+        else if ((m = NpcWeaponEquip.Match(text)).Success)
+        {
+            // Confirmed live: "The zombie has started to use the fork to fight!" mid-fight,
+            // following ordinary miss/miss lines that named it, so it's already an active
+            // participant — but Begin() defensively in case this is somehow the first line
+            // naming that NPC (mirrors YouHit's own defensive Begin() for the same reason).
+            Begin(m.Groups["npc"].Value);
+            Emit(timestampUtc, CombatEventKind.NpcWeaponEquip, CombatActor.Npc, m.Groups["npc"].Value, m.Groups["weapon"].Value, null, null, text);
         }
     }
 

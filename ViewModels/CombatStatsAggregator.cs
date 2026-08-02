@@ -22,6 +22,7 @@ public sealed class CombatStatsAggregator
 {
     private readonly HashSet<string> _activeNpcSet = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<string> _activeNpcOrder = new();
+    private readonly Dictionary<string, string> _npcWeapons = new(StringComparer.OrdinalIgnoreCase);
 
     private DateTime? _encounterStartUtc;
     private string? _currentWeapon;
@@ -49,6 +50,7 @@ public sealed class CombatStatsAggregator
         _approxDamageTaken = 0;
         _activeNpcSet.Clear();
         _activeNpcOrder.Clear();
+        _npcWeapons.Clear();
     }
 
     public void EndEncounter() => InCombat = false;
@@ -100,6 +102,12 @@ public sealed class CombatStatsAggregator
                     _currentWeapon = combatEvent.Weapon;
                 break;
 
+            case CombatEventKind.NpcWeaponEquip:
+                AddParticipant(combatEvent.NpcName);
+                if (!string.IsNullOrWhiteSpace(combatEvent.NpcName) && !string.IsNullOrWhiteSpace(combatEvent.Weapon))
+                    _npcWeapons[combatEvent.NpcName] = combatEvent.Weapon;
+                break;
+
             case CombatEventKind.WeaponBroke:
                 _currentWeapon = null;
                 break;
@@ -137,6 +145,7 @@ public sealed class CombatStatsAggregator
             case CombatEventKind.YouFled:
                 _activeNpcSet.Clear();
                 _activeNpcOrder.Clear();
+                _npcWeapons.Clear();
                 break;
 
             // FightEndOther ("You can fight it no longer.") is deliberately NOT treated as a
@@ -166,7 +175,7 @@ public sealed class CombatStatsAggregator
             HasEncounter,
             InCombat,
             _currentWeapon,
-            _activeNpcOrder.ToArray(),
+            FormatActiveNpcs(),
             _youHits,
             _youMisses,
             _theyHits,
@@ -208,5 +217,26 @@ public sealed class CombatStatsAggregator
             return;
 
         _activeNpcOrder.RemoveAll(name => string.Equals(name, npcName, StringComparison.OrdinalIgnoreCase));
+        _npcWeapons.Remove(npcName);
+    }
+
+    /// <summary>Formats each active NPC name with its last-observed weapon, e.g. "zombie (fork)",
+    /// when one has been confirmed via a "The X has started to use the Y to fight!" line. Most
+    /// NPCs never announce a weapon (fists/claws/bite presumably), so the common case is just the
+    /// bare name.</summary>
+    private IReadOnlyList<string> FormatActiveNpcs()
+    {
+        if (_activeNpcOrder.Count == 0)
+            return Array.Empty<string>();
+
+        var result = new List<string>(_activeNpcOrder.Count);
+        foreach (var name in _activeNpcOrder)
+        {
+            result.Add(_npcWeapons.TryGetValue(name, out var weapon)
+                ? $"{name} ({weapon})"
+                : name);
+        }
+
+        return result;
     }
 }

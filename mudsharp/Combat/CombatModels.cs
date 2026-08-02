@@ -45,6 +45,12 @@ public enum CombatEventKind
     FightEndOther,
     /// <summary>"You are now using the X to fight!" — new/confirmed weapon in use.</summary>
     WeaponEquip,
+    /// <summary>"The X has started to use the Y to fight!" — an NPC equips/switches to a weapon
+    /// mid-fight (confirmed live: a zombie switching to a fork). The per-tick "The X hits you
+    /// (N/M)." line never names a weapon, so this equip line is the only observed source of NPC
+    /// weapon identity — track it, since NPC weapon choice presumably affects their damage output
+    /// the same way it does the player's.</summary>
+    NpcWeaponEquip,
     /// <summary>"The X breaks to bits." — the weapon in use broke mid-fight, forcing a guard drop.</summary>
     WeaponBroke,
     /// <summary>"Your guard drops..." (weapon switch or post-break confusion) — no C1 wrapper observed.</summary>
