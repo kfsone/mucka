@@ -38,6 +38,26 @@ internal sealed class GameLineAnalyzer
         @"^dexterity:\s*(\d+)(?:.*?effective dexterity:\s*(\d+))?",
         RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
+    // "weight carried: 750g    max: 100kg"
+    private static readonly Regex WeightCarriedRegex = new(
+        @"^weight carried:\s*(?<carried>\d+)(?<cunit>g|kg)\s+max:\s*(?<max>\d+)(?<munit>g|kg)",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    // "objects carried:        1       max:    12"
+    private static readonly Regex ObjectsCarriedRegex = new(
+        @"^objects carried:\s*(?<n>\d+)\s+max:\s*(?<max>\d+)",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    // "level:  7       champion"
+    private static readonly Regex LevelRegex = new(
+        @"^level:\s*(?<n>\d+)",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    // "games played:   18"
+    private static readonly Regex GamesPlayedRegex = new(
+        @"^games played:\s*(?<n>\d+)",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
     // "score:  1,785 points    this game: ..."
     private static readonly Regex ScoreRegex = new(
         @"^score:\s*([\d,]+)",
@@ -98,7 +118,7 @@ internal sealed class GameLineAnalyzer
         if (m.Success && int.TryParse(m.Groups[1].Value, out var strRaw))
         {
             var effective = m.Groups[2].Success && int.TryParse(m.Groups[2].Value, out var strEff) ? strEff : strRaw;
-            return GameStatsSnapshot.Empty with { Strength = effective };
+            return GameStatsSnapshot.Empty with { RawStrength = strRaw, Strength = effective };
         }
 
         // "dexterity: N [effective dexterity: M]"  — use effective when present, else raw
@@ -106,8 +126,32 @@ internal sealed class GameLineAnalyzer
         if (m.Success && int.TryParse(m.Groups[1].Value, out var dexRaw))
         {
             var effective = m.Groups[2].Success && int.TryParse(m.Groups[2].Value, out var dexEff) ? dexEff : dexRaw;
-            return GameStatsSnapshot.Empty with { Dexterity = effective };
+            return GameStatsSnapshot.Empty with { RawDexterity = dexRaw, Dexterity = effective };
         }
+
+        // "weight carried: 750g max: 100kg"
+        m = WeightCarriedRegex.Match(text);
+        if (m.Success
+            && TryParseWeightGrams(m.Groups["carried"].Value, m.Groups["cunit"].Value, out var carried)
+            && TryParseWeightGrams(m.Groups["max"].Value, m.Groups["munit"].Value, out var max))
+            return GameStatsSnapshot.Empty with { WeightCarriedGrams = carried, MaxWeightGrams = max };
+
+        // "objects carried: N max: M"
+        m = ObjectsCarriedRegex.Match(text);
+        if (m.Success
+            && int.TryParse(m.Groups["n"].Value, out var objectsCarried)
+            && int.TryParse(m.Groups["max"].Value, out var maxObjectsCarried))
+            return GameStatsSnapshot.Empty with { ObjectsCarried = objectsCarried, MaxObjectsCarried = maxObjectsCarried };
+
+        // "level: N ..."
+        m = LevelRegex.Match(text);
+        if (m.Success && int.TryParse(m.Groups["n"].Value, out var level))
+            return GameStatsSnapshot.Empty with { Level = level };
+
+        // "games played: N"
+        m = GamesPlayedRegex.Match(text);
+        if (m.Success && int.TryParse(m.Groups["n"].Value, out var gamesPlayed))
+            return GameStatsSnapshot.Empty with { GamesPlayed = gamesPlayed };
 
         // "score: N,NNN points ..."
         m = ScoreRegex.Match(text);
@@ -163,6 +207,19 @@ internal sealed class GameLineAnalyzer
         foreach (var c in s)
             if (c != ',') buf[len++] = c;
         return int.TryParse(buf[..len], out var val) ? val : 0;
+    }
+
+    private static bool TryParseWeightGrams(string magnitudeText, string unitText, out int grams)
+    {
+        grams = 0;
+        if (!int.TryParse(magnitudeText, out var magnitude))
+            return false;
+        var multiplier = unitText.Equals("kg", StringComparison.OrdinalIgnoreCase) ? 1000 : 1;
+        long scaled = (long)magnitude * multiplier;
+        if (scaled > int.MaxValue || scaled < int.MinValue)
+            return false;
+        grams = (int)scaled;
+        return true;
     }
 
     // Text triggers mirror Clio's sound.c pattern matches (game mode only).

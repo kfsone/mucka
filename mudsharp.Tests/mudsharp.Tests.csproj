@@ -26,6 +26,7 @@
     <Compile Include="..\Core\SessionCommandAliases.cs" Link="Core\SessionCommandAliases.cs" />
     <Compile Include="..\Core\GuidedLogin\ShellText.cs" Link="Core\GuidedLogin\ShellText.cs" />
     <Compile Include="..\Core\GuidedLogin\SessionDropContext.cs" Link="Core\GuidedLogin\SessionDropContext.cs" />
+    <Compile Include="..\ViewModels\CombatStatsAggregator.cs" Link="ViewModels\CombatStatsAggregator.cs" />
   </ItemGroup>
 
 </Project>

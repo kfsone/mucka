@@ -88,6 +88,7 @@ public partial class GamePage : ContentPage
     private bool _auxiliaryWindowOpened;
     private Window? _rawConsoleWindow;
     private Window? _mapWindow;
+    private Window? _clogWindow;
     private Microsoft.UI.Xaml.Controls.TextBox? _inputTextBox;
     private Microsoft.UI.Xaml.Controls.ScrollViewer? _inputScroller;   // _inputTextBox's inner ScrollViewer
     private Microsoft.UI.Xaml.UIElement? _terminalElement;   // SKXamlCanvas, for wheel scrollback
@@ -262,6 +263,8 @@ public partial class GamePage : ContentPage
                 SendButton.Clicked += OnSendButtonClicked;
                 _vm.OpenRawConsoleRequested += OnOpenRawConsoleRequested;
                 _vm.MapPanelRequested += OnMapPanelRequested;
+                _vm.OpenClogWindowRequested += OnOpenClogWindowRequested;
+                _vm.CloseClogWindowRequested += OnCloseClogWindowRequested;
                 // Enforce minimum window width based on the configured terminal columns.
                 _vm.SidePanel.PropertyChanged += OnSidePanelPropertyChanged;
                 SetupWindowMinimumSize();
@@ -414,6 +417,8 @@ public partial class GamePage : ContentPage
         }
         _vm.OpenRawConsoleRequested -= OnOpenRawConsoleRequested;
         _vm.MapPanelRequested -= OnMapPanelRequested;
+        _vm.OpenClogWindowRequested -= OnOpenClogWindowRequested;
+        _vm.CloseClogWindowRequested -= OnCloseClogWindowRequested;
         _vm.SidePanel.PropertyChanged -= OnSidePanelPropertyChanged;
         TeardownWindowMinimumSize();
 #if INPUT_DIAG
@@ -429,6 +434,7 @@ public partial class GamePage : ContentPage
     {
         _vm.AntiIdleTick();
         _vm.TickResetCountdown();
+        _vm.TickCombatDisplay();
     }
 
     // Server output arrived. Fires on the TCP thread (coalesced to one pending flush by the VM's
@@ -1794,6 +1800,38 @@ public partial class GamePage : ContentPage
             Height = 550,
         };
         Application.Current?.OpenWindow(_mapWindow);
+    }
+
+    private void OnOpenClogWindowRequested()
+    {
+        _auxiliaryWindowOpened = true;
+        // Reuse existing window if it is still open.
+        if (_clogWindow != null &&
+            Application.Current?.Windows.Contains(_clogWindow) == true)
+            return;
+        _clogWindow = new Window(new ClogPage(_vm))
+        {
+            Title  = "Mucka — Clog",
+            Width  = 260,
+            Height = 460,
+        };
+        _clogWindow.Destroying += OnClogWindowDestroying;
+        Application.Current?.OpenWindow(_clogWindow);
+    }
+
+    private void OnCloseClogWindowRequested()
+    {
+        if (_clogWindow != null && Application.Current?.Windows.Contains(_clogWindow) == true)
+            Application.Current.CloseWindow(_clogWindow);
+    }
+
+    private void OnClogWindowDestroying(object? sender, EventArgs e)
+    {
+        if (_clogWindow != null)
+            _clogWindow.Destroying -= OnClogWindowDestroying;
+        // The window IS the on/off switch: closing it (native ✕) turns clogging back off.
+        // syncWindow:false — the window is already the thing closing; don't ask it to close again.
+        _vm.SetClogEnabled(false, syncWindow: false);
     }
 
 #if INPUT_DIAG

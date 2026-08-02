@@ -1,0 +1,156 @@
+# Combat mechanics notes
+
+## Current observables in the merged database
+
+- Per-fight outcome, duration, weapon, npc instance, and npc group.
+- Per-hit player damage ranges from combat prose, stored as replayable event text.
+- Approximate damage taken inferred from stamina-before minus stamina-after when a hit line reports it.
+- Encounter-start room, weather, and status/effect snapshot from live clogs.
+- Effective strength/dexterity from the older research capture, plus new live-capture fields for raw strength, raw dexterity, carried weight, carried object count, level, and games played.
+
+## Hidden weapon modifier methodology
+
+The cleanest way to isolate a hidden per-weapon damage modifier is controlled A/B sampling:
+
+1. Hold the target constant: same npc_group, ideally same room/light/weather where possible.
+2. Hold the player state constant: same raw/effective strength, raw/effective dexterity, similar stamina, same afflictions, same carried weight, same carried object count.
+3. Vary only the weapon.
+4. Collect enough swings per condition to compare both hit rate and damage-per-hit distribution, not just one kill time.
+5. Prefer repeated single-target fights over pack fights, since joins and retargets muddy fight duration and weapon provenance.
+
+Suggested analysis sequence:
+
+- First compare average hit midpoint and hit rate for the same weapon against the same npc_group.
+- Then compare two weapons against that same npc_group under matching raw/effective stats buckets.
+- If a weapon shows consistently higher damage at the same raw strength and same target, the residual is a candidate hidden modifier.
+- If hit rate changes but damage-per-hit does not, the hidden property may be accuracy or timing rather than raw damage.
+
+## What is still missing for rigorous proof
+
+- Most existing rows do not yet have raw_strength, raw_dexterity, weight_carried_grams, or objects_carried because the older captures predate the new scorecard parsing.
+- We still do not know the exact in-game formula mapping strength, weight, and dexterity to hit chance or damage.
+- We do not have direct npc stats; we only see outcomes.
+- We do not persist explicit room lighting state, only room prose and weather.
+- Current live clogs snapshot stats at encounter start, not every weapon switch or every joiner start inside a long encounter.
+
+## Highest-value next data improvements
+
+- Keep collecting live clogs after the new scorecard fields land so raw/effective stat deltas become queryable.
+- Add inventory parsing so carried item identities can be correlated with weight and dex penalties.
+- Capture nearest scorecard snapshot after weapon-equip or weapon-break events when practical.
+- If any command or prose reveals weapon weight directly, record that verbatim alongside the equipped weapon.
+- Consider an explicit light/darkness flag if the protocol exposes one; some user hypotheses depend on visibility.
+
+## Search result: direct weapon-weight evidence
+
+A repository search over the research capture and current clogs found scorecard "weight carried" lines, but no direct prose reporting a weapon's own weight next to its weapon name. That means the current best path is still indirect inference: use controlled same-target comparisons while holding carried weight and effective stats as constant as possible.
+
+## Non-fightbrief ("narrative") combat mode — confirmed gap and partial fix
+
+Confirmed live (2026-08-01, `session-rec.mud2.co.uk.20260801-234914.jsonl` / `clog.20260801-234954.jsonl`): a
+character that never toggled MUD2's `fightbrief` setting produces a completely different combat message
+format. A vampire aggro'd, cast blindness mid-fight, then cast sleep, then killed the player while asleep.
+
+**What still works without fightbrief:** `FightStart` classification (NPC aggro verb-phrase list matches
+regardless of fightbrief), and both death lines (`"The X has killed you."` and, newly added, the narrative
+`"You have been killed by the X/someone."`).
+
+**What is completely lost without fightbrief:** every per-swing `Hit`/`Miss`/`HitByNpc`/`MissByNpc` line.
+Narrative mode uses a large, flavourful message-template library instead of the fixed `"You hit the X
+(A-B)."` / `"The X hits you (C/M)."` forms, e.g.:
+
+```
+You are grieved by the violence of a crafty lunge from the vampire.
+Stamina=24/67.
+The vampire is cut by the effort of your well-aimed bite.
+Damage: 3.
+```
+
+No regex was added for these yet — the verb/adjective combinations look like a sizeable enumerated
+template set (`grieved`/`winded`/`numbed`/`only just injured`/etc. crossed with `violence`/`effort`/
+`impetus`/`force`/`strength`/`brutality`/etc.), not a small fixed handful. **Recommendation: always enable
+`fightbrief` for any character used for combat-mechanics data collection** — the fixed-format lines are
+what the whole offline pipeline (weapon×npc effectiveness, hit-rate correlation) depends on. Narrative-mode
+clogs will still get an accurate encounter/fight boundary and death outcome, but will show near-zero
+hit/miss counts, which would badly skew aggregate hit-rate stats if mixed in without flagging the capture as
+narrative-mode.
+
+**Death-detection bug fixed while investigating this**: even in fightbrief mode, `NpcKilledYou` was
+previously routed through `End()` with the same 5-second post-kill grace window used for NPC deaths
+(waiting for other pack participants). A player death is unconditionally the end of the whole encounter —
+using the grace path meant a death immediately followed by a disconnect (the common real case: the player
+quits from the death/respawn menu) never got a chance to expire the grace window, so the encounter stayed
+open until `ForceEnd`'s generic `"(forced end: reset/disconnect)"` closed it — exactly what the original
+2026-08-01 clog shows, with **no `KilledByNpc` event recorded at all**. Player deaths (both fightbrief and
+narrative forms) now call `EndAll()` immediately. See `CombatTracker.cs` (`NpcKilledYou`,
+`NpcKilledYouNarrative`) and the regression tests in `CombatTrackerTests.cs`.
+
+**Blindness anonymizes the killer's name.** Narrative death text says `"You have been killed by someone."`
+instead of naming the NPC whenever the player is blind at the moment of death (confirmed: the vampire cast
+blindness on the player before the killing blow). `CombatTracker` best-effort resolves `"someone"` back to
+the sole currently-active NPC when there is exactly one; with multiple active participants it keeps the
+literal `"someone"` rather than guessing wrong. This same blind-hides-identity behavior likely applies to
+ordinary narrative hit/miss lines too (not yet parsed) and to fightbrief mode's own NPC-name text if MUD2
+applies the same anonymization there — not yet confirmed either way.
+
+**Caution: even the "sole active NPC" resolution of "someone" can be wrong.** A blind player cannot see
+room arrivals, departures, or (per the user) other NPCs fleeing — so "you are fighting exactly one NPC"
+according to `CombatTracker`'s bookkeeping does not guarantee only that NPC could have landed the hit.
+Concretely: attack rat0, cast blind on rat0 but the spell fails and blinds you instead, then "Someone hits
+you" arrives — this could genuinely be rat0, but it could equally be a second rat that wandered in and
+joined the fight unseen, an unrelated NPC that entered and attacked, or another player attacking you, none
+of which a blind player is told about. `CombatTracker`'s resolution is a best-effort label for display and
+clogging, **not a verified fact** — any analysis pass consuming `KilledByNpc`/anonymized-hit attributions
+should treat the resolved name as "most likely, unverifiable" whenever blindness was active, and this
+caveat should be repeated in any future narrative hit/miss parsing work (see the deferred item above).
+
+**New hidden mechanic worth tracking later: sleep suppresses ALL client-visible combat resolution.** From
+the raw session recording, once `"You have fallen into a magically-induced sleep..."` lands, no combat
+text of any kind appears for either side — not even the periodic stamina-bar prompt updates — until
+`"You have just been woken up!"`, immediately followed by the fatal hit. This means a sleeping player can
+take real, unreported damage/hits with zero client-visible signal in between, which would show as an
+implausible instantaneous stamina drop if naively diffed. Sleep/wake are not yet threaded through
+`EffectTracker`/`ClogWriter` as a tracked state (unlike blind/deaf/dumb/crippled, which already come from
+the periodic scorecard status-line flags, not text) — this is a good candidate for a future dedicated pass
+given the user's specific interest in the hit/miss/pass hidden-tick mechanic.
+
+## In-client data collection: "$clog" (opt-in) and "$clog eval"
+
+Clogging is now **opt-in**, toggled from the game input box:
+
+- `$clog on` — starts recording every subsequent combat encounter to `~/.mucka/clogs/clog.*.jsonl`
+  (see `ClogWriter`), and opens a small floating "Clog" window (see `ClogPage`/`GamePage`'s
+  `OnOpenClogWindowRequested`) showing the live combat-stats readout that used to live in the
+  extras side panel. Closing that window (its native ✕) turns clogging back off — the window
+  itself is the on/off indicator, so there is exactly one place to check.
+- `$clog off` — stops recording (closing any in-progress encounter cleanly) and closes the window.
+- `$clog` / `$clog status` — prints the current on/off + recording state without changing anything.
+
+**`$clog eval <itemid>`** (only available while clogging is on) automates the manual item-inspection
+sequence used to reverse-engineer an item's hidden strength/dexterity cost:
+
+1. Requires `<itemid>` to already be in the last FEI carried-items snapshot (GameViewModel's
+   `SidePanel.InventoryList`) — eval only measures items you're already holding, never picks up
+   something new from the room floor.
+2. `look <itemid>` for its description, `weigh <itemid>` for its reported weight (MUD2 always
+   phrases this generically — `"The weight of the staff is 4kg."` — never by itemid, so the parser
+   matches on the surrounding phrase).
+3. Reads the current FES-effective strength/dexterity (`GameStatsSnapshot.Strength`/`Dexterity` —
+   confirmed against `qs`'s "eff str"/"eff dex" quick-stats text, so these are already the
+   post-load effective values, not raw stats).
+4. `drop <itemid>`, reads strength/dexterity again — the delta is that single item's str/dex cost.
+5. `get <itemid>` to restore the original carried state, reading strength/dexterity a third time
+   to confirm the restoration. This get-back step always runs (`try`/`finally`), even if the drop
+   step above timed out or threw, so a fumbled eval never leaves the item lying on the ground.
+
+Results print to the terminal and append one JSON line per eval to `~/.mucka/clogs/items.jsonl`
+(`type: "item_eval"`), so item-cost data accumulates across sessions the same way combat clogs do.
+This is exactly the workflow that surfaced the staff example: picking up a 4kg staff cost 6
+effective strength and 1 effective dexterity in one live test — a cost not reported anywhere else
+in the client, and (per the user) not necessarily proportional to weight alone for every item.
+
+Not yet implemented: `inspect <itemid>` was tried live and produced no additional useful data over
+`look`, so eval does not send it. Item *labels* (e.g. "shining falchion" vs the itemid "falchion")
+are not queried either — there is no reliable command found so far to retrieve them, so eval only
+ever reports/logs the itemid.
+

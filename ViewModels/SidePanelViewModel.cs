@@ -1,7 +1,9 @@
 using Microsoft.Maui.Graphics;
+using MudSharp.Combat;
 using MudSharp.Models;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Globalization;
 using System.Linq;
 using System.Windows.Input;
 
@@ -25,6 +27,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     // Each section heading has a ▼/▶ widget; folding is equivalent to disabling in settings.
     private bool _isOnlineExpanded   = true;
     private bool _isInventoryExpanded = true;
+    private bool _isCombatExpanded = true;
     private bool _isItemsHereExpanded = true;
     private bool _isMapExpanded      = true;
     private bool _isOnlinePinned = true;   // pinned (floating panel follows when side panel is hidden)
@@ -73,6 +76,13 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         }
     }
     public string InventoryFoldGlyph => _isInventoryExpanded ? "\u25bc" : "\u25b6";
+
+    public bool IsCombatExpanded
+    {
+        get => _isCombatExpanded;
+        set => SetAndNotify(ref _isCombatExpanded, value, [nameof(CombatFoldGlyph)]);
+    }
+    public string CombatFoldGlyph => _isCombatExpanded ? "\u25bc" : "\u25b6";
 
     public bool IsItemsHereExpanded
     {
@@ -201,6 +211,251 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     public string BlindTip           => _blindTip      ?? "You are blind";
     public string DumbTip            => _dumbTip       ?? "You are dumb";
     public string CrippledTip        => _crippledTip   ?? "You are crippled";
+
+    // ── Combat / clogging indicator ────────────────────────────────────────────
+    // Driven by MudSharp.Combat.CombatTracker via MuckaConnection.InCombatChanged. IsClogging
+    // mirrors InCombat in v1 (a clog is recorded for the full duration of every detected
+    // encounter) — kept as a separate property so the UI can later show "in combat but not
+    // recording" if clog writing ever fails independently of detection.
+    private readonly CombatStatsAggregator _combatStats = new();
+    private bool _inCombat, _isClogging, _hasCombatData;
+    private int _combatClearGeneration;
+    private string _combatWeapon = "--";
+    private string _combatTargets = "--";
+    private int _combatYouHits;
+    private int _combatYouMisses;
+    private int _combatTheyHits;
+    private int _combatTheyMisses;
+    private string _combatYouHitRate = "0%";
+    private string _combatTheyHitRate = "0%";
+    private string _combatDamageDone = "0.0";
+    private string _combatDamageTaken = "0.0";
+    private string _combatDuration = "00:00";
+    private string _combatDps = "0.0";
+    private string _combatStamina = "--";
+    private string _combatStrength = "--";
+    private string _combatDexterity = "--";
+    private string _combatMagic = "--";
+    private string _combatCarry = "--";
+    private string _combatProgress = "--";
+
+    public bool InCombat   => _inCombat;
+    public bool IsClogging => _isClogging;
+    public string CombatTip => _isClogging ? "In combat — recording a clog" : "In combat";
+    public bool HasCombatData => _hasCombatData;
+    public bool NoCombatData => !_hasCombatData;
+    public string CombatWeapon => _combatWeapon;
+    public string CombatTargets => _combatTargets;
+    public int CombatYouHits => _combatYouHits;
+    public int CombatYouMisses => _combatYouMisses;
+    public int CombatTheyHits => _combatTheyHits;
+    public int CombatTheyMisses => _combatTheyMisses;
+    public string CombatYouHitRate => _combatYouHitRate;
+    public string CombatTheyHitRate => _combatTheyHitRate;
+    public string CombatDamageDone => _combatDamageDone;
+    public string CombatDamageTaken => _combatDamageTaken;
+    public string CombatDuration => _combatDuration;
+    public string CombatDps => _combatDps;
+    public string CombatStamina => _combatStamina;
+    public string CombatStrength => _combatStrength;
+    public string CombatDexterity => _combatDexterity;
+    public string CombatMagic => _combatMagic;
+    public string CombatCarry => _combatCarry;
+    public string CombatProgress => _combatProgress;
+
+    public void OnInCombatChanged(bool inCombat, bool isClogging)
+    {
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            if (inCombat)
+            {
+                _combatClearGeneration++;
+                _combatStats.BeginEncounter(DateTime.UtcNow);
+                _hasCombatData = true;
+            }
+            else
+            {
+                _combatStats.EndEncounter();
+            }
+
+            _inCombat = inCombat;
+            _isClogging = isClogging;
+            RefreshCombatDisplay(DateTime.UtcNow);
+            OnPropertiesChanged(nameof(InCombat), nameof(IsClogging), nameof(CombatTip));
+
+            if (!inCombat)
+                ScheduleCombatSummaryClear();
+        });
+    }
+
+    public void OnCombatEvent(CombatEvent combatEvent)
+        => MainThread.BeginInvokeOnMainThread(() =>
+        {
+            _combatClearGeneration++;
+            _combatStats.Observe(combatEvent);
+            if (_combatStats.HasEncounter)
+                _hasCombatData = true;
+            RefreshCombatDisplay(DateTime.UtcNow);
+        });
+
+    public void OnStatsUpdated(GameStatsSnapshot stats)
+        => MainThread.BeginInvokeOnMainThread(() =>
+        {
+            _combatStats.ObserveStamina(stats.Stamina);
+            _combatStamina = FormatPair(stats.Stamina, stats.MaxStamina);
+            _combatStrength = FormatEffectiveStat(stats.Strength, stats.RawStrength, stats.MaxStrength);
+            _combatDexterity = FormatEffectiveStat(stats.Dexterity, stats.RawDexterity, stats.MaxDexterity);
+            _combatMagic = FormatPair(stats.CurrentMagic, stats.MaxMagic);
+            _combatCarry = FormatCarry(stats.WeightCarriedGrams, stats.MaxWeightGrams, stats.ObjectsCarried, stats.MaxObjectsCarried);
+            _combatProgress = FormatProgress(stats.Level, stats.GamesPlayed);
+            RefreshCombatDisplay(DateTime.UtcNow);
+        });
+
+    public void TickCombatDisplay()
+    {
+        if (!_hasCombatData)
+            return;
+
+        MainThread.BeginInvokeOnMainThread(() => RefreshCombatDisplay(DateTime.UtcNow));
+    }
+
+    private void ScheduleCombatSummaryClear()
+    {
+        if (_dispatcher is null)
+        {
+            ClearCombatSummary();
+            return;
+        }
+
+        var generation = ++_combatClearGeneration;
+        _dispatcher.DispatchDelayed(TimeSpan.FromSeconds(8), () =>
+        {
+            if (generation != _combatClearGeneration || _combatStats.InCombat)
+                return;
+
+            ClearCombatSummary();
+        });
+    }
+
+    private void ClearCombatSummary()
+    {
+        _combatStats.Reset();
+        _hasCombatData = false;
+        RefreshCombatDisplay(DateTime.UtcNow);
+    }
+
+    private void RefreshCombatDisplay(DateTime nowUtc)
+    {
+        if (!_hasCombatData)
+        {
+            _combatWeapon = "--";
+            _combatTargets = "--";
+            _combatYouHits = 0;
+            _combatYouMisses = 0;
+            _combatTheyHits = 0;
+            _combatTheyMisses = 0;
+            _combatYouHitRate = "0%";
+            _combatTheyHitRate = "0%";
+            _combatDamageDone = "0.0";
+            _combatDamageTaken = "0.0";
+            _combatDuration = "00:00";
+            _combatDps = "0.0";
+        }
+        else
+        {
+            var snapshot = _combatStats.Snapshot(nowUtc);
+            _combatWeapon = string.IsNullOrWhiteSpace(snapshot.CurrentWeapon) ? "--" : snapshot.CurrentWeapon;
+            _combatTargets = snapshot.ActiveNpcs.Count == 0 ? "--" : string.Join(", ", snapshot.ActiveNpcs);
+            _combatYouHits = snapshot.YouHits;
+            _combatYouMisses = snapshot.YouMisses;
+            _combatTheyHits = snapshot.TheyHits;
+            _combatTheyMisses = snapshot.TheyMisses;
+            _combatYouHitRate = FormatPercent(snapshot.YouHitRate);
+            _combatTheyHitRate = FormatPercent(snapshot.TheyHitRate);
+            _combatDamageDone = FormatNumber(snapshot.ApproxDamageDone);
+            _combatDamageTaken = FormatNumber(snapshot.ApproxDamageTaken);
+            _combatDuration = FormatDuration(snapshot.Duration);
+            _combatDps = FormatNumber(snapshot.ApproxDps);
+        }
+
+        OnPropertiesChanged(
+            nameof(HasCombatData), nameof(NoCombatData),
+            nameof(CombatWeapon), nameof(CombatTargets),
+            nameof(CombatYouHits), nameof(CombatYouMisses), nameof(CombatTheyHits), nameof(CombatTheyMisses),
+            nameof(CombatYouHitRate), nameof(CombatTheyHitRate),
+            nameof(CombatDamageDone), nameof(CombatDamageTaken), nameof(CombatDuration), nameof(CombatDps),
+            nameof(CombatStamina), nameof(CombatStrength), nameof(CombatDexterity), nameof(CombatMagic),
+            nameof(CombatCarry), nameof(CombatProgress));
+    }
+
+    private static string FormatPercent(double value)
+        => $"{Math.Round(value * 100, MidpointRounding.AwayFromZero).ToString(CultureInfo.InvariantCulture)}%";
+
+    private static string FormatNumber(double value)
+        => value.ToString("0.0", CultureInfo.InvariantCulture);
+
+    private static string FormatDuration(TimeSpan duration)
+        => $"{(int)duration.TotalMinutes:00}:{duration.Seconds:00}";
+
+    private static string FormatPair(int? current, int? maximum)
+    {
+        if (current is null && maximum is null)
+            return "--";
+        if (current is null)
+            return $"--/{maximum}";
+        if (maximum is null)
+            return current.Value.ToString(CultureInfo.InvariantCulture);
+        return $"{current}/{maximum}";
+    }
+
+    private static string FormatEffectiveStat(int? effective, int? raw, int? maximum)
+    {
+        if (effective is null && raw is null && maximum is null)
+            return "--";
+
+        var current = effective?.ToString(CultureInfo.InvariantCulture) ?? "--";
+        var cap = maximum is null ? string.Empty : $"/{maximum.Value.ToString(CultureInfo.InvariantCulture)}";
+        if (raw is null)
+            return $"{current}{cap}";
+
+        return $"{current}{cap} raw {raw.Value.ToString(CultureInfo.InvariantCulture)}";
+    }
+
+    private static string FormatCarry(int? weightCarriedGrams, int? maxWeightGrams, int? objectsCarried, int? maxObjectsCarried)
+    {
+        var haveWeight = weightCarriedGrams is not null || maxWeightGrams is not null;
+        var haveObjects = objectsCarried is not null || maxObjectsCarried is not null;
+        if (!haveWeight && !haveObjects)
+            return "--";
+
+        var parts = new List<string>(2);
+        if (haveWeight)
+        {
+            var current = weightCarriedGrams?.ToString(CultureInfo.InvariantCulture) ?? "--";
+            var maximum = maxWeightGrams?.ToString(CultureInfo.InvariantCulture) ?? "--";
+            parts.Add($"{current}/{maximum}g");
+        }
+        if (haveObjects)
+        {
+            var current = objectsCarried?.ToString(CultureInfo.InvariantCulture) ?? "--";
+            var maximum = maxObjectsCarried?.ToString(CultureInfo.InvariantCulture) ?? "--";
+            parts.Add($"{current}/{maximum} obj");
+        }
+
+        return string.Join("  ", parts);
+    }
+
+    private static string FormatProgress(int? level, int? gamesPlayed)
+    {
+        if (level is null && gamesPlayed is null)
+            return "--";
+        if (level is null)
+            return $"games {gamesPlayed!.Value.ToString(CultureInfo.InvariantCulture)}";
+        if (gamesPlayed is null)
+            return $"lvl {level.Value.ToString(CultureInfo.InvariantCulture)}";
+        return $"lvl {level.Value.ToString(CultureInfo.InvariantCulture)}  games {gamesPlayed.Value.ToString(CultureInfo.InvariantCulture)}";
+    }
+
 
     /// <summary>Apply a new status-effect snapshot from the session (fires on the read-loop thread).</summary>
     public void OnStatusEffectsChanged(StatusEffectState s)
@@ -402,6 +657,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     public ICommand OpenLinkCommand { get; }
     public ICommand ToggleOnlineCommand { get; }
     public ICommand ToggleInventoryCommand { get; }
+    public ICommand ToggleCombatCommand { get; }
     public ICommand ToggleItemsHereCommand { get; }
     public ICommand ToggleMapCommand { get; }
     public ICommand ToggleOnlinePinnedCommand { get; }
@@ -433,6 +689,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         });
         ToggleOnlineCommand    = new Command(() => IsOnlineExpanded    = !IsOnlineExpanded);
         ToggleInventoryCommand = new Command(() => IsInventoryExpanded = !IsInventoryExpanded);
+        ToggleCombatCommand    = new Command(() => { IsCombatExpanded = !IsCombatExpanded; RequestFocus?.Invoke(); });
         ToggleItemsHereCommand = new Command(() => IsItemsHereExpanded = !IsItemsHereExpanded);
         ToggleMapCommand       = new Command(() => IsMapExpanded       = !IsMapExpanded);
         ToggleOnlinePinnedCommand = new Command(() => { IsOnlinePinned = !IsOnlinePinned; RequestFocus?.Invoke(); });

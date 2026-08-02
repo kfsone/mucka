@@ -1,3 +1,4 @@
+using MudSharp.Combat;
 using MudSharp.Models;
 using MudSharp.Protocol;
 
@@ -96,6 +97,16 @@ public sealed class MudSession : IDisposable
     // online list remains reliable and an arriving PKer is visible.
     private bool _mappingFocus;
     private readonly EffectTracker _effects = new();
+    private readonly CombatTracker _combat = new();
+
+    // Testability seam only: production code never overrides this, so combat timestamps are
+    // always the real wall clock (the correct behaviour for the live grace-period logic in
+    // CombatTracker). CombatCaptureReplayTests overrides it to replay the research capture's own
+    // original timestamps, since a fast in-memory replay's real elapsed time bears no relation to
+    // the many-hour session it captures and would otherwise never trip (or would spuriously trip)
+    // CombatTracker's 5-second post-kill grace window.
+    internal Func<DateTime> CombatClock { get; set; } = () => DateTime.UtcNow;
+
     // Reset-time projection: folds the minute-granular FES reset value into an absolute target and,
     // once per session near the start, runs a staged burst (~1 s then ~250 ms probes) to pin it to
     // sub-second. Owned here (not the VM) so all sub-second probe timing stays off the UI thread and
@@ -130,6 +141,10 @@ public sealed class MudSession : IDisposable
     public event Action<string, string>? ExitLineReady;
     /// <summary>The local player's active temporary-effect set changed (buffs/debuffs/glow).</summary>
     public event Action<StatusEffectState>? StatusEffectsChanged;
+    /// <summary>Fires whenever combat is entered/left (see <see cref="CombatTracker"/>).</summary>
+    public event Action<bool>? InCombatChanged;
+    /// <summary>Fires for every classified combat line while (or just as) InCombat.</summary>
+    public event Action<CombatEvent>? CombatEventOccurred;
     /// <summary>
     /// Server confirmed the terminal width (ESC-<n>W response or "[New terminal width is N]" annotation).
     /// Payload is the confirmed column count.
@@ -172,6 +187,7 @@ public sealed class MudSession : IDisposable
     public GameStatsSnapshot CurrentStats => _currentStats;
     public string? CurrentDreamword => _currentDreamword;
     public bool InGameMode => _parser.InGameMode;
+    public bool InCombat => _combat.InCombat;
     /// <summary>Latest reset-time projection snapshot (target instant + uncertainty + phase).</summary>
     public ResetEstimate ResetEstimate => _resetClock.Snapshot();
 
@@ -344,6 +360,7 @@ public sealed class MudSession : IDisposable
             // only runs while a dreamword is active. See TryCancelSpokenDreamword.
             if (_currentDreamword is not null)
                 TryCancelSpokenDreamword(line);
+            _combat.Observe(line, CombatClock());
             LineReady?.Invoke(line);
         };
         _parser.StatsUpdated += MergeStats;
@@ -360,10 +377,13 @@ public sealed class MudSession : IDisposable
         {
             _resetClock.NoteAutoResetInitiated(_resetClock.NowMono);
             AutoResetInitiated?.Invoke();
+            _combat.ForceEnd(CombatClock());   // a reset wipes game state — no fight-end line ever arrives
         };
         _parser.PresenceNameSeen  += OnPresenceName;
         _parser.StatusEffectChanged += _effects.Apply;
         _effects.Changed += state => StatusEffectsChanged?.Invoke(state);
+        _combat.InCombatChanged += v => InCombatChanged?.Invoke(v);
+        _combat.EventOccurred += e => CombatEventOccurred?.Invoke(e);
         _parser.FewPlayerReady += (name, color) =>
         {
             _pendingOnlineNames.Add(PlayerNameParts.Parse(name).PersonaName);
@@ -424,8 +444,8 @@ public sealed class MudSession : IDisposable
         else
         {
             if (partial.Stamina      is not null || partial.MaxStamina   is not null) refreshed |= StaleStats.Stamina;
-            if (partial.Strength     is not null || partial.MaxStrength  is not null) refreshed |= StaleStats.Strength;
-            if (partial.Dexterity    is not null || partial.MaxDexterity is not null) refreshed |= StaleStats.Dexterity;
+            if (partial.Strength     is not null || partial.RawStrength is not null || partial.MaxStrength  is not null) refreshed |= StaleStats.Strength;
+            if (partial.Dexterity    is not null || partial.RawDexterity is not null || partial.MaxDexterity is not null) refreshed |= StaleStats.Dexterity;
             if (partial.CurrentMagic is not null || partial.MaxMagic     is not null) refreshed |= StaleStats.Magic;
             if (partial.Score        is not null)                                     refreshed |= StaleStats.Score;
         }
@@ -446,11 +466,19 @@ public sealed class MudSession : IDisposable
             MaxStamina:   partial.MaxStamina   ?? _currentStats.MaxStamina,
             Score:        partial.Score        ?? _currentStats.Score,
             Strength:     partial.Strength     ?? _currentStats.Strength,
+            RawStrength:  partial.RawStrength  ?? _currentStats.RawStrength,
             MaxStrength:  partial.MaxStrength  ?? _currentStats.MaxStrength,
             Dexterity:    partial.Dexterity    ?? _currentStats.Dexterity,
+            RawDexterity: partial.RawDexterity ?? _currentStats.RawDexterity,
             MaxDexterity: partial.MaxDexterity ?? _currentStats.MaxDexterity,
             CurrentMagic: partial.CurrentMagic ?? _currentStats.CurrentMagic,
             MaxMagic:     partial.MaxMagic     ?? _currentStats.MaxMagic,
+            WeightCarriedGrams: partial.WeightCarriedGrams ?? _currentStats.WeightCarriedGrams,
+            MaxWeightGrams:     partial.MaxWeightGrams     ?? _currentStats.MaxWeightGrams,
+            ObjectsCarried:     partial.ObjectsCarried     ?? _currentStats.ObjectsCarried,
+            MaxObjectsCarried:  partial.MaxObjectsCarried  ?? _currentStats.MaxObjectsCarried,
+            Level:              partial.Level              ?? _currentStats.Level,
+            GamesPlayed:        partial.GamesPlayed        ?? _currentStats.GamesPlayed,
             // Boolean flags from FES are authoritative (replace); from text-analysis they OR-accumulate.
             // This lets FES N-snapshots clear IsBlind/IsDeaf/IsCrippled/IsDumb/PersonaSaved when
             // the condition is gone, while text-analysis mentions (rare pre-game path) still set them.
@@ -538,6 +566,7 @@ public sealed class MudSession : IDisposable
         _setupCloseAfterFrame = false;
         _currentCharName      = null;
         _effects.Reset();     // relog/logout clears all effects
+        _combat.ForceEnd(CombatClock());   // logout ends any open encounter — no fight-end line will arrive
         _resetClock.OnGameModeExited();   // drop the projection incl. the once-per-session token
         GameModeExited?.Invoke();
     }

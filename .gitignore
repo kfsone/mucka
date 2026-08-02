@@ -44,3 +44,8 @@ fecodes.txt
 __pycache__/
 *.pyc
 
+# Regenerable combat-research scratch databases (see tools/combat/README.md — reduce_combat.py
+# rebuilds these from the tracked RESEARCH/*.jsonl captures; too large/derived to commit).
+tools/combat/*.db
+tools/mapping/*.db
+

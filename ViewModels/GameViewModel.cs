@@ -6,6 +6,7 @@ using Microsoft.Maui.Graphics;
 using Mucka.Audio;
 using Mucka.Core;
 using Mucka.Core.GuidedLogin;
+using MudSharp.Combat;
 using MudSharp.Models;
 using MudSharp.Session;
 
@@ -24,6 +25,8 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private readonly SessionCommandAliases _sessionAliases;
     private readonly string _profileHost;
     private Mucka.Core.Mapping.MappingSession? _mapSession;
+    private ItemEvalSession? _itemEval;
+    private bool _itemEvalRunning;
 #endif
     private int _historyIndex = -1;
 
@@ -545,6 +548,11 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public event Action? OpenRawConsoleRequested;
     /// <summary>Raised by $map — GamePage opens (or surfaces) the mapping panel window.</summary>
     public event Action? MapPanelRequested;
+    /// <summary>Raised by "$clog on" — GamePage opens (or surfaces) the floating clog/combat-stats
+    /// window. The window IS the on/off indicator: closing it (native ✕) turns clogging back off.</summary>
+    public event Action? OpenClogWindowRequested;
+    /// <summary>Raised by "$clog off" — GamePage closes the floating clog window if it is open.</summary>
+    public event Action? CloseClogWindowRequested;
     public event Action<byte[]>? RawBytesReceived
     {
         add    => _conn.RawBytesReceived += value;
@@ -959,8 +967,15 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     }
 
     // Stats come exclusively from StatsUpdatedEvent — no text-based stat extraction.
+    private void OnInCombatChanged(bool inCombat)
+        => SidePanel.OnInCombatChanged(inCombat, _conn.IsClogging);
+
+    private void OnCombatEventOccurred(CombatEvent combatEvent)
+        => SidePanel.OnCombatEvent(combatEvent);
+
     private void OnStatsUpdated(GameStatsSnapshot stats)
     {
+        SidePanel.OnStatsUpdated(stats);
         MainThread.BeginInvokeOnMainThread(() =>
         {
             Core.InputDiag.Log("STATS update");
@@ -1033,6 +1048,8 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         }
         OnPropertiesChanged(nameof(TtrText), nameof(TtrVisible), nameof(TtrTooltip), nameof(AnyRightStatVisible));
     }
+
+    public void TickCombatDisplay() => SidePanel.TickCombatDisplay();
 
     // Drop the cached projection (back at the option menu, or disconnected: no live world to count
     // down). The session-layer ResetClock clears its own state on disconnect/exit. Callers fire the
@@ -1208,6 +1225,8 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
                 OpenRawConsoleRequested?.Invoke();
             else if (name == "map" || name.StartsWith("map ", StringComparison.OrdinalIgnoreCase))
                 HandleMapCommand(name.Length > 3 ? name[4..].Trim() : string.Empty);
+            else if (name == "clog" || name.StartsWith("clog ", StringComparison.OrdinalIgnoreCase))
+                HandleClogCommand(name.Length > 4 ? name[5..].Trim() : string.Empty);
             else if (name == "fkeys" || name.StartsWith("fkeys ", StringComparison.OrdinalIgnoreCase))
                 PrintFkeys(name.Length > 5 ? name[6..].Trim() : string.Empty);
             // $f<n>: annotate with fkey n's macro (absolute 1-36). Checked after "fkeys" so it
@@ -1315,6 +1334,8 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         AddSystemLine("  $<                    scan recent output for watchword answers", 14);
         AddSystemLine("  $con                  open the raw protocol console", 14);
         AddSystemLine("  $map [arg]            open the map panel (or probe / dir / ...)", 14);
+        AddSystemLine("  $clog [on|off|status] toggle combat-clogging + the floating clog window", 14);
+        AddSystemLine("  $clog eval <itemid>   weigh/look/drop+get an item to measure its str/dex cost", 14);
         AddSystemLine("  $fkeys [shift|ctrl]   list your function-key macros", 14);
         AddSystemLine("  $f<n>                 annotate output with fkey n's text (1-36)", 14);
         AddSystemLine("  $VER                  expands to the current Mucka version", 14);
@@ -1427,6 +1448,93 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             default:
                 AddSystemLine("[map] usage: $map (panel) | $map probe | $map dir | $map reload", 14);
                 break;
+        }
+    }
+
+    // ── $clog: opt-in combat clogging + item-eval (see ClogWriter/ItemEvalSession) ────────────
+
+    private void HandleClogCommand(string arg)
+    {
+        if (arg.Length == 0 || string.Equals(arg, "status", StringComparison.OrdinalIgnoreCase))
+        {
+            AddSystemLine($"[clog] {_conn.DescribeClogStatus()}", 14);
+            return;
+        }
+        if (string.Equals(arg, "on", StringComparison.OrdinalIgnoreCase))
+        {
+            SetClogEnabled(true);
+            return;
+        }
+        if (string.Equals(arg, "off", StringComparison.OrdinalIgnoreCase))
+        {
+            SetClogEnabled(false);
+            return;
+        }
+        if (arg.StartsWith("eval", StringComparison.OrdinalIgnoreCase)
+            && (arg.Length == 4 || arg[4] == ' '))
+        {
+            var itemId = arg.Length > 4 ? arg[4..].Trim() : string.Empty;
+            _ = RunItemEvalAsync(itemId);
+            return;
+        }
+        AddSystemLine("[clog] usage: $clog [on|off|status|eval <itemid>]", 9);
+    }
+
+    /// <summary>Turn clogging on/off. Also opens/closes the floating clog window — except when
+    /// called from GamePage's own window-close handler (<paramref name="syncWindow"/> false),
+    /// since in that case the window is already the thing closing and re-requesting its closure
+    /// would be a pointless (harmless, but noisy) round-trip.</summary>
+    public void SetClogEnabled(bool enabled, bool syncWindow = true)
+    {
+        _conn.SetClogEnabled(enabled);
+        AddSystemLine(enabled
+            ? "[clog] on — recording combat encounters to ~/.mucka/clogs (see the floating clog window)"
+            : "[clog] off", enabled ? (byte)14 : (byte)9);
+        if (!syncWindow)
+            return;
+        if (enabled)
+            OpenClogWindowRequested?.Invoke();
+        else
+            CloseClogWindowRequested?.Invoke();
+    }
+
+    private async Task RunItemEvalAsync(string itemId)
+    {
+        if (string.IsNullOrWhiteSpace(itemId))
+        {
+            AddSystemLine("[clog eval] usage: $clog eval <itemid>", 9);
+            return;
+        }
+        if (!_conn.ClogEnabled)
+        {
+            AddSystemLine("[clog eval] clog is off — turn it on first with '$clog on'.", 9);
+            return;
+        }
+        if (_itemEvalRunning)
+        {
+            AddSystemLine("[clog eval] an evaluation is already in progress — wait for it to finish.", 9);
+            return;
+        }
+        if (!SidePanel.InventoryList.Any(i => string.Equals(i, itemId, StringComparison.OrdinalIgnoreCase)))
+        {
+            AddSystemLine($"[clog eval] '{itemId}' was not in the last FEI carried-items snapshot — carry it first.", 9);
+            return;
+        }
+
+        _itemEvalRunning = true;
+        AddSystemLine($"[clog eval] evaluating '{itemId}' — avoid sending other commands until this finishes.", 14);
+        try
+        {
+            _itemEval ??= new ItemEvalSession(_conn, msg => AddSystemLine(msg, 14));
+            await _itemEval.RunAsync(itemId);
+        }
+        catch (Exception ex)
+        {
+            AddSystemLine($"[clog eval] failed: {ex.Message}", 9);
+        }
+        finally
+        {
+            _itemEvalRunning = false;
         }
     }
 #endif
@@ -1733,6 +1841,8 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _conn.PersonaWiped     += OnPersonaWiped;
         _conn.AutoResetInitiated += OnAutoResetInitiated;
         _conn.StatusEffectsChanged += SidePanel.OnStatusEffectsChanged;
+        _conn.InCombatChanged  += OnInCombatChanged;
+        _conn.CombatEventOccurred += OnCombatEventOccurred;
         _conn.GameModeEntered  += OnGameModeEntered;
         _conn.GameModeExited   += OnGameModeExited;
         _conn.GameModeExited   += SidePanel.OnGameModeExited;
@@ -1763,6 +1873,8 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _conn.PersonaWiped     -= OnPersonaWiped;
         _conn.AutoResetInitiated -= OnAutoResetInitiated;
         _conn.StatusEffectsChanged -= SidePanel.OnStatusEffectsChanged;
+        _conn.InCombatChanged  -= OnInCombatChanged;
+        _conn.CombatEventOccurred -= OnCombatEventOccurred;
         _conn.GameModeEntered  -= OnGameModeEntered;
         _conn.GameModeExited   -= OnGameModeExited;
         _conn.GameModeExited   -= SidePanel.OnGameModeExited;

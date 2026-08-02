@@ -60,6 +60,7 @@ public class GameLineAnalyzerTests
         var h = new ParserHarness();
         h.Feed("strength:       94\n");
         Assert.Single(h.Stats);
+        Assert.Equal(94, h.Stats[0].RawStrength);
         Assert.Equal(94, h.Stats[0].Strength);
     }
 
@@ -70,7 +71,76 @@ public class GameLineAnalyzerTests
         var h = new ParserHarness();
         h.Feed("dexterity:      95\n");
         Assert.Single(h.Stats);
+        Assert.Equal(95, h.Stats[0].RawDexterity);
         Assert.Equal(95, h.Stats[0].Dexterity);
+    }
+
+    [Fact]
+    public void StrengthLine_WithEffectiveStrength_ExtractsRawAndEffective()
+    {
+        var h = new ParserHarness();
+        h.Feed("strength:       100     effective strength:    88\n");
+        Assert.Single(h.Stats);
+        Assert.Equal(100, h.Stats[0].RawStrength);
+        Assert.Equal(88, h.Stats[0].Strength);
+    }
+
+    [Fact]
+    public void DexterityLine_WithEffectiveDexterity_ExtractsRawAndEffective()
+    {
+        var h = new ParserHarness();
+        h.Feed("dexterity:      100     effective dexterity:    99\n");
+        Assert.Single(h.Stats);
+        Assert.Equal(100, h.Stats[0].RawDexterity);
+        Assert.Equal(99, h.Stats[0].Dexterity);
+    }
+
+    [Fact]
+    public void WeightCarriedLine_ParsesGramsAndKilograms()
+    {
+        var h = new ParserHarness();
+        h.Feed("weight carried: 750g    max:    100kg\n");
+        Assert.Single(h.Stats);
+        Assert.Equal(750, h.Stats[0].WeightCarriedGrams);
+        Assert.Equal(100000, h.Stats[0].MaxWeightGrams);
+    }
+
+    [Fact]
+    public void WeightCarriedLine_ParsesKilogramsAndGrams()
+    {
+        var h = new ParserHarness();
+        h.Feed("weight carried: 2kg    max:    750g\n");
+        Assert.Single(h.Stats);
+        Assert.Equal(2000, h.Stats[0].WeightCarriedGrams);
+        Assert.Equal(750, h.Stats[0].MaxWeightGrams);
+    }
+
+    [Fact]
+    public void ObjectsCarriedLine_ParsesCounts()
+    {
+        var h = new ParserHarness();
+        h.Feed("objects carried:        1       max:    12\n");
+        Assert.Single(h.Stats);
+        Assert.Equal(1, h.Stats[0].ObjectsCarried);
+        Assert.Equal(12, h.Stats[0].MaxObjectsCarried);
+    }
+
+    [Fact]
+    public void LevelLine_ParsesLevel()
+    {
+        var h = new ParserHarness();
+        h.Feed("level:  7       champion\n");
+        Assert.Single(h.Stats);
+        Assert.Equal(7, h.Stats[0].Level);
+    }
+
+    [Fact]
+    public void GamesPlayedLine_ParsesCount()
+    {
+        var h = new ParserHarness();
+        h.Feed("games played:   18\n");
+        Assert.Single(h.Stats);
+        Assert.Equal(18, h.Stats[0].GamesPlayed);
     }
 
     [Fact]
