@@ -48,6 +48,9 @@ public sealed class MuckaConnection : IAsyncDisposable
     public event Action<StatusEffectState>? StatusEffectsChanged;
     /// <summary>Fires whenever combat is entered/left (see MudSharp.Combat.CombatTracker).</summary>
     public event Action<bool>? InCombatChanged;
+    /// <summary>Fires whenever <see cref="IsInCombatGracePeriod"/> flips (see
+    /// MudSharp.Combat.CombatTracker.GracePeriodChanged).</summary>
+    public event Action<bool>? CombatGracePeriodChanged;
     /// <summary>Fires for every classified combat line while (or just as) InCombat.</summary>
     public event Action<CombatEvent>? CombatEventOccurred;
     public event Action? BellReceived;
@@ -105,6 +108,10 @@ public sealed class MuckaConnection : IAsyncDisposable
     public void Annotate(string message) => _capture.Annotate(message);
 
     public bool InCombat => _session.InCombat;
+    /// <summary>See MudSharp.Combat.CombatTracker.IsInGracePeriod.</summary>
+    public bool IsInCombatGracePeriod => _session.IsInCombatGracePeriod;
+    /// <summary>UI-side ~1 Hz tick — see <see cref="MudSession.TickCombat"/>.</summary>
+    public void TickCombat() => _session.TickCombat();
     public bool IsClogging => _clog.IsRecording;
 
     /// <summary>The current merged stats snapshot — see <see cref="MudSharp.Session.MudSession.CurrentStats"/>.
@@ -426,6 +433,7 @@ public sealed class MuckaConnection : IAsyncDisposable
         _session.StatsUpdated       += s => { _clog.OnStatsUpdated(s); StatsUpdated?.Invoke(s); };
         _session.StatusEffectsChanged += s => { _clog.OnStatusEffectsChanged(s); StatusEffectsChanged?.Invoke(s); };
         _session.InCombatChanged     += v => { _clog.OnInCombatChanged(v); InCombatChanged?.Invoke(v); };
+        _session.CombatGracePeriodChanged += v => CombatGracePeriodChanged?.Invoke(v);
         _session.CombatEventOccurred += e => { _clog.OnCombatEvent(e); CombatEventOccurred?.Invoke(e); };
         _session.BellReceived       += () => BellReceived?.Invoke();
         _session.GameModeEntered    += () => GameModeEntered?.Invoke();

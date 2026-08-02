@@ -970,6 +970,9 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private void OnInCombatChanged(bool inCombat)
         => SidePanel.OnInCombatChanged(inCombat, _conn.IsClogging);
 
+    private void OnCombatGracePeriodChanged(bool isGrace)
+        => SidePanel.OnCombatGracePeriodChanged(isGrace);
+
     private void OnCombatEventOccurred(CombatEvent combatEvent)
         => SidePanel.OnCombatEvent(combatEvent);
 
@@ -1049,7 +1052,11 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         OnPropertiesChanged(nameof(TtrText), nameof(TtrVisible), nameof(TtrTooltip), nameof(AnyRightStatVisible));
     }
 
-    public void TickCombatDisplay() => SidePanel.TickCombatDisplay();
+    public void TickCombatDisplay()
+    {
+        _conn.TickCombat();
+        SidePanel.TickCombatDisplay();
+    }
 
     // Drop the cached projection (back at the option menu, or disconnected: no live world to count
     // down). The session-layer ResetClock clears its own state on disconnect/exit. Callers fire the
@@ -1847,6 +1854,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _conn.AutoResetInitiated += OnAutoResetInitiated;
         _conn.StatusEffectsChanged += SidePanel.OnStatusEffectsChanged;
         _conn.InCombatChanged  += OnInCombatChanged;
+        _conn.CombatGracePeriodChanged += OnCombatGracePeriodChanged;
         _conn.CombatEventOccurred += OnCombatEventOccurred;
         _conn.GameModeEntered  += OnGameModeEntered;
         _conn.GameModeExited   += OnGameModeExited;
@@ -1879,6 +1887,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _conn.AutoResetInitiated -= OnAutoResetInitiated;
         _conn.StatusEffectsChanged -= SidePanel.OnStatusEffectsChanged;
         _conn.InCombatChanged  -= OnInCombatChanged;
+        _conn.CombatGracePeriodChanged -= OnCombatGracePeriodChanged;
         _conn.CombatEventOccurred -= OnCombatEventOccurred;
         _conn.GameModeEntered  -= OnGameModeEntered;
         _conn.GameModeExited   -= OnGameModeExited;

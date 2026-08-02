@@ -96,6 +96,26 @@ use: predict an approaching level crossing from the last known score + gain rate
 targeted `sc` probe near that crossing instead of polling constantly. A distinct sound per direction
 (ding up / dong down) was suggested but explicitly deferred by the user — do not implement yet.
 
+## Combat indicator lingering after the last kill until an unrelated line arrives
+
+Reported live: after `You have killed the zombie0.`/`The zombie0 has expired.`, the combat icon
+stayed fully lit for ~2-3s — coincidentally until the next unrelated server line (`You can hear the
+sound of rain on the trees.`) arrived. Root cause: `CombatTracker`'s post-kill grace window
+(`KillGrace`, 5s — lets a pack-fight NPC that hasn't traded blows yet keep the SAME encounter open)
+only re-evaluated via `ExpireKillGrace`, which was called exclusively from inside `Observe()`. A
+solo kill with total server silence afterwards left `InCombat`/the grace state stale indefinitely —
+correct only by accident whenever *some* unrelated line happened to show up soon after.
+
+Fix: `CombatTracker` now exposes `IsInGracePeriod` (true once the last tracked NPC is dead/gone but
+the encounter is still open pending `KillGrace`) and a `GracePeriodChanged` event, plus a public
+`Tick(DateTime nowUtc)` that just re-runs `ExpireKillGrace` — callable independently of any new
+line. `MudSession.TickCombat()` / `MuckaConnection.TickCombat()` plumb this down to the existing
+1 Hz UI tick (`GamePage.OnAntiIdleTick` → `GameViewModel.TickCombatDisplay`), so the grace window
+now expires on real wall-clock time instead of waiting for the next line of *any* kind. The combat
+icon (`SidePanelViewModel.CombatIconOpacity`) also dims to 0.4 opacity while `IsCombatGracePeriod`
+is true, so "actively fighting" and "last kill just landed, winding down" are now visually distinct
+instead of looking identical. See `CombatTrackerTests.Kill_SetsGracePeriodUntilTickExpiresIt_*`.
+
 
 
 Confirmed live (2026-08-01, `session-rec.mud2.co.uk.20260801-234914.jsonl` / `clog.20260801-234954.jsonl`): a

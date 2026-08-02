@@ -143,6 +143,8 @@ public sealed class MudSession : IDisposable
     public event Action<StatusEffectState>? StatusEffectsChanged;
     /// <summary>Fires whenever combat is entered/left (see <see cref="CombatTracker"/>).</summary>
     public event Action<bool>? InCombatChanged;
+    /// <summary>Fires whenever <see cref="IsInCombatGracePeriod"/> flips.</summary>
+    public event Action<bool>? CombatGracePeriodChanged;
     /// <summary>Fires for every classified combat line while (or just as) InCombat.</summary>
     public event Action<CombatEvent>? CombatEventOccurred;
     /// <summary>
@@ -193,6 +195,8 @@ public sealed class MudSession : IDisposable
     public string? CurrentDreamword => _currentDreamword;
     public bool InGameMode => _parser.InGameMode;
     public bool InCombat => _combat.InCombat;
+    /// <summary>See <see cref="CombatTracker.IsInGracePeriod"/>.</summary>
+    public bool IsInCombatGracePeriod => _combat.IsInGracePeriod;
     /// <summary>Latest reset-time projection snapshot (target instant + uncertainty + phase).</summary>
     public ResetEstimate ResetEstimate => _resetClock.Snapshot();
 
@@ -248,6 +252,12 @@ public sealed class MudSession : IDisposable
     /// <summary>Mapping window focus gained (true) / lost (false). While focused the
     /// periodic heartbeat omits FEI but retains FES+FEW so the online list refreshes reliably.
     /// May be called from any thread.</summary>
+    /// <summary>UI-side ~1 Hz tick so the post-kill grace window (see
+    /// <see cref="CombatTracker.Tick"/>) can expire on its own even when the server goes quiet
+    /// after the last kill — otherwise InCombat/IsInCombatGracePeriod only re-evaluate whenever
+    /// the next unrelated line happens to arrive.</summary>
+    public void TickCombat() => _combat.Tick(CombatClock());
+
     public void SetMappingFocus(bool focused)
     {
         lock (_fesLock)
@@ -388,6 +398,7 @@ public sealed class MudSession : IDisposable
         _parser.StatusEffectChanged += _effects.Apply;
         _effects.Changed += state => StatusEffectsChanged?.Invoke(state);
         _combat.InCombatChanged += v => InCombatChanged?.Invoke(v);
+        _combat.GracePeriodChanged += v => CombatGracePeriodChanged?.Invoke(v);
         _combat.EventOccurred += e => CombatEventOccurred?.Invoke(e);
         _parser.FewPlayerReady += (name, color) =>
         {

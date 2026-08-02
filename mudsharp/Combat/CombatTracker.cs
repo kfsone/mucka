@@ -89,8 +89,17 @@ public sealed class CombatTracker
 
     public bool InCombat => _encounterOpen;
 
+    /// <summary>True while the encounter is only being kept open by the post-kill grace window
+    /// (see <see cref="KillGrace"/>) — every tracked NPC is dead/gone but the window hasn't
+    /// lapsed yet. Distinct from <see cref="InCombat"/> so a UI can dim its combat indicator
+    /// instead of showing full "actively fighting" during this tail period.</summary>
+    public bool IsInGracePeriod => _pendingKillGraceSince != null;
+
     /// <summary>Fires whenever <see cref="InCombat"/> flips (true = encounter started).</summary>
     public event Action<bool>? InCombatChanged;
+
+    /// <summary>Fires whenever <see cref="IsInGracePeriod"/> flips.</summary>
+    public event Action<bool>? GracePeriodChanged;
 
     /// <summary>Fires for every classified combat line, in order, while (or just as) InCombat.</summary>
     public event Action<CombatEvent>? EventOccurred;
@@ -247,6 +256,15 @@ public sealed class CombatTracker
         }
     }
 
+    /// <summary>Periodic time-only check for the post-kill grace window expiring. Observe() only
+    /// runs ExpireKillGrace when a new line actually arrives, so a quiet final kill (no further
+    /// server output for a while) leaves InCombat/IsInGracePeriod stale — sitting "fully in
+    /// combat" until whatever line happens to show up next (confirmed live: a solo zombie kill
+    /// stayed lit until an unrelated weather line arrived ~2-3s later). Callers should invoke
+    /// this from a UI-side ~1 Hz tick so the grace window (and its dimmed-icon UI state) expires
+    /// on its own even when the server goes quiet.</summary>
+    public void Tick(DateTime nowUtc) => ExpireKillGrace(nowUtc);
+
     /// <summary>Force-close any open encounter without a matching end line (e.g. an auto-reset
     /// wiping the game state mid-fight, or logout/relog).</summary>
     public void ForceEnd(DateTime timestampUtc)
@@ -271,7 +289,7 @@ public sealed class CombatTracker
     {
         // A new participant engaging cancels any pending post-kill grace close — the encounter
         // continues even though a moment ago _active briefly held no one.
-        _pendingKillGraceSince = null;
+        ClearGrace();
         _active.Add(npc);
         if (!_encounterOpen)
         {
@@ -291,7 +309,7 @@ public sealed class CombatTracker
             // Grace period: pack fights routinely have unengaged NPCs still aggroing when the
             // currently-tracked participant dies. Don't close the encounter yet — a new Begin()
             // within KillGrace continues it; ExpireKillGrace closes it once the window lapses.
-            _pendingKillGraceSince = timestampUtc;
+            EnterGrace(timestampUtc);
         }
         else
         {
@@ -308,11 +326,27 @@ public sealed class CombatTracker
 
     private void CloseEncounter()
     {
-        _pendingKillGraceSince = null;
+        ClearGrace();
         if (!_encounterOpen)
             return;
         _encounterOpen = false;
         InCombatChanged?.Invoke(false);
+    }
+
+    private void EnterGrace(DateTime timestampUtc)
+    {
+        var wasGrace = _pendingKillGraceSince != null;
+        _pendingKillGraceSince = timestampUtc;
+        if (!wasGrace)
+            GracePeriodChanged?.Invoke(true);
+    }
+
+    private void ClearGrace()
+    {
+        var wasGrace = _pendingKillGraceSince != null;
+        _pendingKillGraceSince = null;
+        if (wasGrace)
+            GracePeriodChanged?.Invoke(false);
     }
 
     private void Emit(DateTime ts, CombatEventKind kind, CombatActor? actor, string? npc, string? weapon,

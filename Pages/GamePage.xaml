@@ -164,7 +164,7 @@
                         <Image Grid.Column="4" Source="glow.png" IsVisible="{Binding SidePanel.Glow}" ToolTipProperties.Text="{Binding SidePanel.GlowTip}" WidthRequest="26" HeightRequest="26" VerticalOptions="Center" HorizontalOptions="Center"/>
                         <!-- Combat / clogging indicator (crossed swords) — lit while CombatTracker
                              believes we're in a fight; tooltip distinguishes "recording" vs not. -->
-                        <Image Grid.Column="5" Source="combat.png" IsVisible="{Binding SidePanel.InCombat}" ToolTipProperties.Text="{Binding SidePanel.CombatTip}" WidthRequest="26" HeightRequest="26" VerticalOptions="Center" HorizontalOptions="Center"/>
+                        <Image Grid.Column="5" Source="combat.png" IsVisible="{Binding SidePanel.InCombat}" Opacity="{Binding SidePanel.CombatIconOpacity}" ToolTipProperties.Text="{Binding SidePanel.CombatTip}" WidthRequest="26" HeightRequest="26" VerticalOptions="Center" HorizontalOptions="Center"/>
                         <!-- | separator before ailments -->
                         <BoxView Grid.Column="6" WidthRequest="1" HeightRequest="12" Color="#3a3f45" VerticalOptions="Center" Margin="4,0"/>
                         <!-- Ailments — full-colour emoji-style icons (26px) centred in fixed 30px slots. -->

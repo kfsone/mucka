@@ -218,7 +218,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     // encounter) — kept as a separate property so the UI can later show "in combat but not
     // recording" if clog writing ever fails independently of detection.
     private readonly CombatStatsAggregator _combatStats = new();
-    private bool _inCombat, _isClogging, _hasCombatData;
+    private bool _inCombat, _isClogging, _hasCombatData, _isCombatGrace;
     private int _combatClearGeneration;
     private string _combatWeapon = "--";
     private string _combatTargets = "--";
@@ -241,7 +241,14 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
 
     public bool InCombat   => _inCombat;
     public bool IsClogging => _isClogging;
-    public string CombatTip => _isClogging ? "In combat — recording a clog" : "In combat";
+    /// <summary>True while the encounter is only lingering on the post-kill grace window (last
+    /// tracked NPC already dead/gone) — bind the combat indicator's opacity to this so it dims
+    /// instead of looking identical to an actively-ongoing fight.</summary>
+    public bool IsCombatGracePeriod => _isCombatGrace;
+    public double CombatIconOpacity => _isCombatGrace ? 0.4 : 1.0;
+    public string CombatTip => _isCombatGrace
+        ? "Combat winding down..."
+        : _isClogging ? "In combat — recording a clog" : "In combat";
     public bool HasCombatData => _hasCombatData;
     public bool NoCombatData => !_hasCombatData;
     public string CombatWeapon => _combatWeapon;
@@ -280,13 +287,25 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
 
             _inCombat = inCombat;
             _isClogging = isClogging;
+            _isCombatGrace = false;   // a fresh Begin() always clears the tracker's own grace state
             RefreshCombatDisplay(DateTime.UtcNow);
-            OnPropertiesChanged(nameof(InCombat), nameof(IsClogging), nameof(CombatTip));
+            OnPropertiesChanged(nameof(InCombat), nameof(IsClogging), nameof(IsCombatGracePeriod),
+                nameof(CombatIconOpacity), nameof(CombatTip));
 
             if (!inCombat)
                 ScheduleCombatSummaryClear();
         });
     }
+
+    /// <summary>See <see cref="MudSharp.Combat.CombatTracker.GracePeriodChanged"/> — flips true
+    /// once the last tracked NPC is dead/gone but the encounter is still open pending the
+    /// post-kill grace window, so the indicator can dim rather than look fully "in combat".</summary>
+    public void OnCombatGracePeriodChanged(bool isGrace)
+        => MainThread.BeginInvokeOnMainThread(() =>
+        {
+            _isCombatGrace = isGrace;
+            OnPropertiesChanged(nameof(IsCombatGracePeriod), nameof(CombatIconOpacity), nameof(CombatTip));
+        });
 
     public void OnCombatEvent(CombatEvent combatEvent)
         => MainThread.BeginInvokeOnMainThread(() =>

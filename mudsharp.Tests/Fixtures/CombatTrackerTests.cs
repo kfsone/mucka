@@ -143,6 +143,37 @@ public class CombatTrackerTests
 
 
     [Fact]
+    public void Kill_SetsGracePeriodUntilTickExpiresIt_WithNoFurtherLineRequired()
+    {
+        // Regression: a solo kill followed by total server silence (no more lines of any kind)
+        // used to leave InCombat/IsInGracePeriod stale forever, since ExpireKillGrace previously
+        // only ran from inside Observe(). Confirmed live: a solo zombie kill stayed "fully in
+        // combat" for ~2-3s until an unrelated weather line happened to arrive. Tick() lets a
+        // UI-side ~1 Hz poll expire the grace window on its own, with no server line needed.
+        var (t, inCombat, _) = NewTracker();
+        var grace = new List<bool>();
+        t.GracePeriodChanged += grace.Add;
+        var t0 = DateTime.UtcNow;
+
+        t.Observe(Line("You attack the zombie0, using the falchion as a weapon."), t0);
+        t.Observe(Line("You have killed the zombie0."), t0 + TimeSpan.FromSeconds(1));
+
+        Assert.True(t.InCombat);
+        Assert.True(t.IsInGracePeriod);
+        Assert.Equal([true], grace);
+
+        t.Tick(t0 + TimeSpan.FromSeconds(3));   // still within the 5s grace window
+        Assert.True(t.InCombat);
+        Assert.True(t.IsInGracePeriod);
+
+        t.Tick(t0 + TimeSpan.FromSeconds(7));   // grace window lapsed — no new line required
+        Assert.False(t.InCombat);
+        Assert.False(t.IsInGracePeriod);
+        Assert.Equal([true, false], inCombat);
+        Assert.Equal([true, false], grace);
+    }
+
+    [Fact]
     public void NpcKillsYou_ClosesEncounterImmediatelyWithNoGraceWindow()
     {
         // Regression: player death must close the WHOLE encounter unconditionally, unlike an
