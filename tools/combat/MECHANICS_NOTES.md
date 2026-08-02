@@ -129,22 +129,45 @@ Clogging is now **opt-in**, toggled from the game input box:
 **`$clog eval <itemid>`** (only available while clogging is on) automates the manual item-inspection
 sequence used to reverse-engineer an item's hidden strength/dexterity cost:
 
-1. Requires `<itemid>` to already be in the last FEI carried-items snapshot (GameViewModel's
-   `SidePanel.InventoryList`) — eval only measures items you're already holding, never picks up
-   something new from the room floor.
-2. `look <itemid>` for its description, `weigh <itemid>` for its reported weight (MUD2 always
-   phrases this generically — `"The weight of the staff is 4kg."` — never by itemid, so the parser
-   matches on the surrounding phrase).
-3. Reads the current FES-effective strength/dexterity (`GameStatsSnapshot.Strength`/`Dexterity` —
-   confirmed against `qs`'s "eff str"/"eff dex" quick-stats text, so these are already the
-   post-load effective values, not raw stats).
-4. `drop <itemid>`, reads strength/dexterity again — the delta is that single item's str/dex cost.
-5. `get <itemid>` to restore the original carried state, reading strength/dexterity a third time
-   to confirm the restoration. This get-back step always runs (`try`/`finally`), even if the drop
-   step above timed out or threw, so a fumbled eval never leaves the item lying on the ground.
+1. `GameViewModel` does a cheap local sanity check against the last FEI carried-items snapshot
+   (`SidePanel.InventoryList`) before starting, but it's only a heuristic (warns, doesn't block) —
+   FEI shows an item's display **name/label** (e.g. `"croquet mallet"`), which need not equal the
+   short **id** a player can type for it (e.g. `"mallet"`), so a strict string-equality check
+   against FEI produced false "not carried" rejections in practice.
+2. The authoritative resolution step is `identify <itemid>`: MUD2 replies
+   `"The X is referred to as X when identification numbers are requested."` for a single
+   carried/visible match, naming the item's canonical display text, which is what the rest of the
+   sequence then uses (look/weigh/drop/get all accept it directly). Zero matches aborts the eval
+   (not carried/visible, or an unknown id). If `<itemid>` instead names a whole **weapon class**
+   (e.g. `"axe"` while carrying a falchion and a halberd), MUD2 replies once per matching carried
+   item — eval detects that (more than one match) and aborts rather than guessing which one was
+   meant, but logs the matches as a `type: "identify_class"` entry since class membership is
+   independently useful research data (this is also a promising avenue for mapping the informal
+   weapon classes mentioned elsewhere in this doc — `identify <classname>` against a full
+   inventory is effectively a membership query).
+3. `look <name>` for its description, `weigh <name>` for its reported weight (MUD2 always phrases
+   this generically — `"The weight of the staff is 4kg."` — never by itemid, so the parser matches
+   on the surrounding phrase).
+4. Reads a **baseline** strength/dexterity from `MuckaConnection.CurrentStats`, which mirrors
+   `MudSession`'s continuously-updated merged FES snapshot (kept fresh by the client's periodic FES
+   heartbeat) — read directly, not awaited from a fresh event, since subscribing and waiting for
+   the *next* `StatsUpdated` event races the heartbeat's own cadence and can time out into an empty
+   snapshot right after subscribing (this was an earlier bug: baseline printed as `"str: ? -> 45"`).
+5. `drop <name>` followed by an explicit `sc` (score/full-status) to force a fresh, parseable stats
+   reply, then reads strength/dexterity again — the delta is that single item's str/dex cost. `sc`
+   matters specifically because its `"strength: N  effective strength: M"` /
+   `"dexterity: N  effective dexterity: M"` lines are what `GameLineAnalyzer` actually parses;
+   MUD2's terser `qs` quick-stats reply (`"eff str 45  eff dex 61  ..."`) looks similar to a human
+   eye but is a different format the parser doesn't recognise at all — an earlier version sent
+   `qs` for this and always silently timed out.
+6. `get <name>` to restore the original carried state (again followed by `sc`), reading
+   strength/dexterity a third time to confirm the restoration. This get-back step always runs
+   (`try`/`finally`), even if the drop step above timed out or threw, so a fumbled eval never
+   leaves the item lying on the ground.
 
 Results print to the terminal and append one JSON line per eval to `~/.mucka/clogs/items.jsonl`
-(`type: "item_eval"`), so item-cost data accumulates across sessions the same way combat clogs do.
+(`type: "item_eval"`, recording both the original `itemId` typed and the `identify`-resolved
+`resolvedName`), so item-cost data accumulates across sessions the same way combat clogs do.
 This is exactly the workflow that surfaced the staff example: picking up a 4kg staff cost 6
 effective strength and 1 effective dexterity in one live test — a cost not reported anywhere else
 in the client, and (per the user) not necessarily proportional to weight alone for every item.
@@ -152,5 +175,10 @@ in the client, and (per the user) not necessarily proportional to weight alone f
 Not yet implemented: `inspect <itemid>` was tried live and produced no additional useful data over
 `look`, so eval does not send it. Item *labels* (e.g. "shining falchion" vs the itemid "falchion")
 are not queried either — there is no reliable command found so far to retrieve them, so eval only
-ever reports/logs the itemid.
+ever reports/logs the itemid/resolved name, not a decorated label. NPCs' own carried
+weapons/items are also not currently observable at all (we only ever `identify`/`look`/`weigh`
+our own inventory) — their weight presumably still affects their effective str/dex the same way,
+but we have no way to measure or even confirm what an NPC is carrying beyond the "weapon in use"
+line the `sc` sheet reports while fighting one.
+
 

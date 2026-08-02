@@ -106,6 +106,12 @@ public sealed class MuckaConnection : IAsyncDisposable
 
     public bool InCombat => _session.InCombat;
     public bool IsClogging => _clog.IsRecording;
+
+    /// <summary>The current merged stats snapshot — see <see cref="MudSharp.Session.MudSession.CurrentStats"/>.
+    /// Read this for an immediate "whatever we currently know" value; do not subscribe to
+    /// <see cref="StatsUpdated"/> and wait for the next event when a synchronous read will do, since
+    /// that races the FES heartbeat's own cadence.</summary>
+    public GameStatsSnapshot CurrentStats => _session.CurrentStats;
     public string? ClogFilePath => _clog.FilePath;
     /// <summary>Whether "$clog on" is currently active (independent of whether an encounter is
     /// actively being recorded right now — see IsClogging for that).</summary>

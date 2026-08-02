@@ -1515,10 +1515,15 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             AddSystemLine("[clog eval] an evaluation is already in progress — wait for it to finish.", 9);
             return;
         }
-        if (!SidePanel.InventoryList.Any(i => string.Equals(i, itemId, StringComparison.OrdinalIgnoreCase)))
+        // FEI lines are the item's display name/label, not necessarily the bare id you type
+        // ("croquet mallet" in FEI vs "mallet" as a valid short id for the same object) — so this
+        // is only a cheap local sanity check (substring match either way), not authoritative.
+        // ItemEvalSession resolves the real name via 'identify' before doing anything else.
+        if (!SidePanel.InventoryList.Any(i =>
+                i.Contains(itemId, StringComparison.OrdinalIgnoreCase) ||
+                itemId.Contains(i, StringComparison.OrdinalIgnoreCase)))
         {
-            AddSystemLine($"[clog eval] '{itemId}' was not in the last FEI carried-items snapshot — carry it first.", 9);
-            return;
+            AddSystemLine($"[clog eval] '{itemId}' doesn't obviously match the last FEI carried-items snapshot — trying anyway via 'identify'.", 9);
         }
 
         _itemEvalRunning = true;

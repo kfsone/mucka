@@ -184,6 +184,11 @@ public sealed class MudSession : IDisposable
     public event Action? AutoResetInitiated;
 
     // ── Public state ───────────────────────────────────────────────────────────
+    /// <summary>The current merged stats snapshot (see <c>MergeStats</c>) — always up to date
+    /// thanks to the periodic FES heartbeat, so callers that just need "whatever we currently
+    /// know" (e.g. a baseline read before an item-eval drop/get pair) should read this directly
+    /// rather than subscribing to <see cref="StatsUpdated"/> and waiting for the next event, which
+    /// races the heartbeat's own cadence and can read as empty right after subscribing.</summary>
     public GameStatsSnapshot CurrentStats => _currentStats;
     public string? CurrentDreamword => _currentDreamword;
     public bool InGameMode => _parser.InGameMode;
