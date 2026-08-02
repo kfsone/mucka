@@ -92,6 +92,42 @@ public sealed class CombatStatsAggregatorTests
     }
 
     [Fact]
+    public void Snapshot_RegenerationBetweenHits_RevisesBaselineSoNextHitIsNotOverOrUnderCounted()
+    {
+        // Player-requested behaviour: stamina can rise mid-fight (natural 1-point regen ticks,
+        // the dreamword's stamina recovery, the temporary-heal spell, eating a wafer) via a line
+        // that carries NO accompanying combat event of its own — basing damage-taken on a fixed
+        // pre-fight baseline would misattribute that recovery as "the NPC hit for less" on the
+        // NEXT blow. The running _lastKnownStamina chain must instead revise the baseline as each
+        // regen/heal reading arrives, so a later hit's delta is diffed against the truly-current
+        // pre-hit value, not a stale one from several ticks earlier.
+        var start = new DateTime(2026, 8, 1, 12, 0, 0, DateTimeKind.Utc);
+        var aggregator = new CombatStatsAggregator();
+
+        aggregator.ObserveStamina(100);
+        aggregator.BeginEncounter(start);
+        aggregator.Observe(new CombatEvent(start, CombatEventKind.FightStart, CombatActor.Player, "rat0", "dagger0", null, null, ""));
+
+        aggregator.ObserveStamina(95);   // same-line relay ahead of the matching hit
+        aggregator.Observe(new CombatEvent(start.AddSeconds(1), CombatEventKind.HitByNpc, CombatActor.Npc, "rat0", null, 95, 100, ""));
+
+        // A natural regen tick (or heal/wafer/dreamword) recovers 2 points — no combat event at
+        // all accompanies this line, just a bare stat update.
+        aggregator.ObserveStamina(97);
+
+        aggregator.ObserveStamina(90);   // same-line relay ahead of the second hit
+        aggregator.Observe(new CombatEvent(start.AddSeconds(3), CombatEventKind.HitByNpc, CombatActor.Npc, "rat0", null, 90, 100, ""));
+
+        var snapshot = aggregator.Snapshot(start.AddSeconds(3));
+
+        Assert.Equal(2, snapshot.TheyHits);
+        // hit1: 100 -> 95 = 5. regen: 95 -> 97 (not damage). hit2: 97 -> 90 = 7. Total = 12, NOT
+        // 100 -> 90 = 10 (which would silently swallow the regen into the tally) and NOT the
+        // naive "always diff against the fixed pre-fight 100" answer of 5 + 10 = 15 either.
+        Assert.Equal(12.0, snapshot.ApproxDamageTaken, 3);
+    }
+
+    [Fact]
     public void Snapshot_TracksParticipantsWithoutExplicitStartLines()
     {
         var start = new DateTime(2026, 8, 1, 12, 0, 0, DateTimeKind.Utc);

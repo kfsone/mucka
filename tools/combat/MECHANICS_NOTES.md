@@ -130,13 +130,37 @@ diff the hit's own value directly against `_lastKnownStamina` — but by the tim
 `StatsUpdated` path moments earlier, so every delta computed to exactly 0. Most visible on a
 single-hit fight (the common case — NPCs miss often), which matches the reported symptom exactly.
 
-Fix: decoupled the two concerns. `_lastKnownStamina` (fed by every external stat reading) is now
-used ONLY to seed a dedicated `_combatBaselineStamina` once, at `BeginEncounter` (a `FightStart`
-line never itself embeds a stamina pair, so that snapshot always predates any in-fight hit).
-`ObserveDamageTaken` diffs against `_combatBaselineStamina` and updates ONLY that field afterwards
-— never re-seeded from `ObserveStamina` mid-encounter, so the same-line race can no longer
-overwrite the pre-hit baseline before the delta is computed. See
-`CombatStatsAggregatorTests.Snapshot_SingleHitFight_StillComputesDamageDespiteSameLineStatsRace`.
+First attempt (superseded): a dedicated `_combatBaselineStamina`, seeded once from
+`_lastKnownStamina` at `BeginEncounter` and thereafter updated only by `ObserveDamageTaken`
+itself. That fixed the always-0 symptom but was wrong in a subtler way — it made the whole
+encounter's damage tally hang off a *fixed* pre-fight snapshot, deliberately deaf to every
+mid-fight stamina change that isn't an NPC hit. Stamina genuinely rises during a fight: the
+dreamword recovers it, the temporary-heal spell tops it up, eating a wafer heals, and an
+unhit combatant regenerates ~1 point periodically (NPCs regen too). Any of those would be
+silently absorbed into the running tally, so a heal mid-fight would understate the NPC's real
+output on every subsequent blow.
+
+Fix (current): keep `_lastKnownStamina` as the single continuously-revised source of truth,
+fed by *every* stat reading (qs/heartbeat, regen ticks, heals, wafers, dreamword), and defeat
+the same-line race with a one-shot relay instead. `ObserveStamina` stashes the value
+`_lastKnownStamina` held immediately before its own update into `_pendingPreUpdateStamina`;
+the `ObserveDamageTaken` that follows on the same line consumes that relay as its baseline, so
+the delta reflects only that hit's own effect while all *other* lines' changes still revise the
+baseline normally. This is the "one event parser relays details to the next parser" pattern.
+
+The relay is trusted only when `_lastKnownStamina == currentStamina` — i.e. `ObserveStamina`
+really did fire for this same line. When it didn't (notably a hit that drops the player to
+exactly 0, which `GameLineAnalyzer`'s compact-stamina scan skips because it requires `sta > 0`),
+`_lastKnownStamina` was never touched by this line and already holds the correct pre-hit value,
+so we diff against it directly. The relay is nulled after use so a stale, never-consumed one
+can't outrank a fresher reading later.
+
+Known residual (unfixable — intentional MUD2 fog of war): the automatic regen tick is not
+reported just before an incoming hit, so a round where you gained 1 and lost 5–10 reads as one
+point light. Accepted; do not try to model it away.
+
+See `CombatStatsAggregatorTests.Snapshot_SingleHitFight_StillComputesDamageDespiteSameLineStatsRace`
+and `Snapshot_RegenerationBetweenHits_RevisesBaselineSoNextHitIsNotOverOrUnderCounted`.
 
 
 Confirmed live (2026-08-01, `session-rec.mud2.co.uk.20260801-234914.jsonl` / `clog.20260801-234954.jsonl`): a
