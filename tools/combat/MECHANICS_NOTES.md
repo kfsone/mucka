@@ -116,6 +116,27 @@ icon (`SidePanelViewModel.CombatIconOpacity`) also dims to 0.4 opacity while `Is
 is true, so "actively fighting" and "last kill just landed, winding down" are now visually distinct
 instead of looking identical. See `CombatTrackerTests.Kill_SetsGracePeriodUntilTickExpiresIt_*`.
 
+## "Damage taken" always showing 0.0
+
+Reported live. Root cause: an NPC hit line like `The zombie0 hits you (95/100).` gets parsed
+TWICE by two independent regexes — once by `CombatTracker`'s `HitByNpc` (feeds
+`CombatEventKind.HitByNpc` with `RangeLow=95`), and once generically by `GameLineAnalyzer`'s
+`CombatStaminaRegex` (any embedded `(N/M)` — fires `StatsUpdated` with `Stamina=95`, purely so the
+live "Sta" HUD readout stays fresh without needing an explicit `qs`). Crucially,
+`MudStreamParser` fires `StatsUpdated` for a line strictly BEFORE `LineReady` (and therefore
+`CombatTracker.Observe`) for that SAME line. `CombatStatsAggregator.ObserveDamageTaken` used to
+diff the hit's own value directly against `_lastKnownStamina` — but by the time it ran,
+`_lastKnownStamina` had ALREADY been overwritten with that exact hit's own post-hit value by the
+`StatsUpdated` path moments earlier, so every delta computed to exactly 0. Most visible on a
+single-hit fight (the common case — NPCs miss often), which matches the reported symptom exactly.
+
+Fix: decoupled the two concerns. `_lastKnownStamina` (fed by every external stat reading) is now
+used ONLY to seed a dedicated `_combatBaselineStamina` once, at `BeginEncounter` (a `FightStart`
+line never itself embeds a stamina pair, so that snapshot always predates any in-fight hit).
+`ObserveDamageTaken` diffs against `_combatBaselineStamina` and updates ONLY that field afterwards
+— never re-seeded from `ObserveStamina` mid-encounter, so the same-line race can no longer
+overwrite the pre-hit baseline before the delta is computed. See
+`CombatStatsAggregatorTests.Snapshot_SingleHitFight_StillComputesDamageDespiteSameLineStatsRace`.
 
 
 Confirmed live (2026-08-01, `session-rec.mud2.co.uk.20260801-234914.jsonl` / `clog.20260801-234954.jsonl`): a

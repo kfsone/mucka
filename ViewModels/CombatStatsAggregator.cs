@@ -32,7 +32,22 @@ public sealed class CombatStatsAggregator
     private int _theyMisses;
     private double _approxDamageDone;
     private double _approxDamageTaken;
+    // Fed continuously by every external stat reading (qs/heartbeat/etc.) — used ONLY to seed
+    // _combatBaselineStamina at the start of the NEXT encounter (see BeginEncounter). Must never
+    // be read directly inside ObserveDamageTaken: MudStreamParser fires StatsUpdated for a line
+    // BEFORE LineReady/_combat.Observe for that SAME line, and GameLineAnalyzer's own
+    // CombatStaminaRegex extracts the identical "(cur/max)" pair embedded in an NPC hit line
+    // (e.g. "The zombie hits you (95/100)."), so by the time CombatTracker's HitByNpc reaches
+    // here _lastKnownStamina has ALREADY been overwritten with that same hit's own post-hit
+    // value — diffing against it would always yield delta 0 (confirmed live: damage taken always
+    // showed 0.0). _combatBaselineStamina below is the delta-tracking chain instead, decoupled
+    // from this field once an encounter is underway.
     private int? _lastKnownStamina;
+    // Dedicated pre-hit baseline for HitByNpc delta tracking, seeded once from _lastKnownStamina
+    // at BeginEncounter (a FightStart line never itself embeds a stamina pair, so that snapshot
+    // predates any in-fight hit) and then updated ONLY by ObserveDamageTaken itself thereafter —
+    // never re-seeded from ObserveStamina mid-encounter, which is what avoids the race above.
+    private int? _combatBaselineStamina;
 
     public bool InCombat { get; private set; }
     public bool HasEncounter => _encounterStartUtc is not null;
@@ -48,6 +63,7 @@ public sealed class CombatStatsAggregator
         _theyMisses = 0;
         _approxDamageDone = 0;
         _approxDamageTaken = 0;
+        _combatBaselineStamina = _lastKnownStamina;
         _activeNpcSet.Clear();
         _activeNpcOrder.Clear();
         _npcWeapons.Clear();
@@ -66,6 +82,7 @@ public sealed class CombatStatsAggregator
         _theyMisses = 0;
         _approxDamageDone = 0;
         _approxDamageTaken = 0;
+        _combatBaselineStamina = null;
         _activeNpcSet.Clear();
         _activeNpcOrder.Clear();
     }
@@ -193,14 +210,17 @@ public sealed class CombatStatsAggregator
         if (currentStamina is null)
             return;
 
-        if (_lastKnownStamina is not null)
+        // Deliberately diffs against _combatBaselineStamina, NOT _lastKnownStamina — see the
+        // field comment above _lastKnownStamina for why using the latter here always produced a
+        // delta of exactly 0 in production.
+        if (_combatBaselineStamina is not null)
         {
-            var delta = _lastKnownStamina.Value - currentStamina.Value;
+            var delta = _combatBaselineStamina.Value - currentStamina.Value;
             if (delta >= 0)
                 _approxDamageTaken += delta;
         }
 
-        _lastKnownStamina = currentStamina.Value;
+        _combatBaselineStamina = currentStamina.Value;
     }
 
     private void AddParticipant(string? npcName)

@@ -36,18 +36,59 @@ public sealed class CombatStatsAggregatorTests
         var start = new DateTime(2026, 8, 1, 12, 0, 0, DateTimeKind.Utc);
         var aggregator = new CombatStatsAggregator();
 
-        aggregator.BeginEncounter(start);
+        // Pre-fight stamina must be known BEFORE BeginEncounter — that's the only reading
+        // BeginEncounter can safely seed its combat baseline from (see the regression test
+        // below for why mid-fight ObserveStamina calls must NOT be used for this).
         aggregator.ObserveStamina(100);
+        aggregator.BeginEncounter(start);
         aggregator.Observe(new CombatEvent(start.AddSeconds(1), CombatEventKind.HitByNpc, CombatActor.Npc, "rat0", null, 94, 100, ""));
         aggregator.Observe(new CombatEvent(start.AddSeconds(2), CombatEventKind.HitByNpc, CombatActor.Npc, "rat0", null, 92, 100, ""));
-        aggregator.ObserveStamina(95);
+        // Simulates MudStreamParser's real firing order: GameLineAnalyzer's own stamina scan
+        // fires StatsUpdated -> ObserveStamina with a hit line's OWN embedded (cur/max) BEFORE
+        // CombatTracker's matching HitByNpc event reaches here for that same line. Must have
+        // zero effect on the delta chain (see next test for the bug this used to cause).
+        aggregator.ObserveStamina(91);
         aggregator.Observe(new CombatEvent(start.AddSeconds(3), CombatEventKind.HitByNpc, CombatActor.Npc, "rat0", null, 91, 100, ""));
+        aggregator.ObserveStamina(93);
         aggregator.Observe(new CombatEvent(start.AddSeconds(4), CombatEventKind.HitByNpc, CombatActor.Npc, "rat0", null, 93, 100, ""));
 
         var snapshot = aggregator.Snapshot(start.AddSeconds(4));
 
         Assert.Equal(4, snapshot.TheyHits);
-        Assert.Equal(12.0, snapshot.ApproxDamageTaken, 3);
+        // 100->94 (6) + 94->92 (2) + 92->91 (1) + 91->93 (regen, discarded) = 9
+        Assert.Equal(9.0, snapshot.ApproxDamageTaken, 3);
+    }
+
+    [Fact]
+    public void Snapshot_SingleHitFight_StillComputesDamageDespiteSameLineStatsRace()
+    {
+        // Regression: reported live as "damage taken always shows 0.0". Root cause: a hit line
+        // like "The zombie0 hits you (95/100)." is parsed TWICE — once generically by
+        // GameLineAnalyzer (which fires StatsUpdated -> ObserveStamina(95)) and once by
+        // CombatTracker's HitByNpc regex (RangeLow=95) — and MudStreamParser fires StatsUpdated
+        // for a line strictly BEFORE LineReady/_combat.Observe for that SAME line. The old code
+        // read _lastKnownStamina directly inside ObserveDamageTaken, so it had ALREADY been
+        // overwritten with this exact hit's OWN value by the time the delta was computed,
+        // making every delta exactly 0 — most visible on a single-hit fight (the common case:
+        // most NPC swings miss), which is exactly what a real live zombie fight looked like.
+        var start = new DateTime(2026, 8, 1, 12, 0, 0, DateTimeKind.Utc);
+        var aggregator = new CombatStatsAggregator();
+
+        aggregator.ObserveStamina(100);   // known pre-fight stamina, e.g. from an earlier qs
+        aggregator.BeginEncounter(start);
+        aggregator.Observe(new CombatEvent(start.AddSeconds(1), CombatEventKind.FightStart, CombatActor.Player, "zombie0", "falchion", null, null, ""));
+        aggregator.Observe(new CombatEvent(start.AddSeconds(2), CombatEventKind.Miss, CombatActor.Player, "zombie0", null, null, null, ""));
+        aggregator.Observe(new CombatEvent(start.AddSeconds(2), CombatEventKind.MissByNpc, CombatActor.Npc, "zombie0", null, null, null, ""));
+        // Same-line race: GameLineAnalyzer's generic scan fires first with the hit's own value...
+        aggregator.ObserveStamina(95);
+        // ...then CombatTracker's HitByNpc for that identical line.
+        aggregator.Observe(new CombatEvent(start.AddSeconds(3), CombatEventKind.HitByNpc, CombatActor.Npc, "zombie0", null, 95, 100, ""));
+        aggregator.Observe(new CombatEvent(start.AddSeconds(4), CombatEventKind.Kill, CombatActor.Player, "zombie0", null, null, null, ""));
+
+        var snapshot = aggregator.Snapshot(start.AddSeconds(4));
+
+        Assert.Equal(1, snapshot.TheyHits);
+        Assert.Equal(5.0, snapshot.ApproxDamageTaken, 3);   // 100 -> 95, NOT 0
     }
 
     [Fact]
