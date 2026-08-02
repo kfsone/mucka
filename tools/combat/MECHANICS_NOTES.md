@@ -40,6 +40,19 @@ Suggested analysis sequence:
 - Capture nearest scorecard snapshot after weapon-equip or weapon-break events when practical.
 - If any command or prose reveals weapon weight directly, record that verbatim alongside the equipped weapon.
 - Consider an explicit light/darkness flag if the protocol exposes one; some user hypotheses depend on visibility.
+- **NPC-carried weapons are not observed at all.** The per-tick "The X hits you (N/M)." line never
+  names a weapon, so `CombatTracker`/`ClogWriter` currently have no way to know (or record) that an
+  NPC is fighting with a weapon rather than bare-handed — per the user, this was directly observed
+  live in a real fight, and NPC weapon choice presumably affects their damage output the same way
+  it does for the player. Whatever text does carry this (if any — a join/description line, e.g.
+  "wields"/"brandishes", or something only visible via `look <npc>`) hasn't been identified yet; a
+  targeted search across a session where this is known to happen would be the next step.
+- **Live-HUD "damage taken" was reported as not visibly increasing during one fight.** A pass over
+  this session's freshly captured clogs shows the underlying data is actually fine (`HitByNpc`
+  events' stamina readings decrease consistently within an encounter, e.g. rat 58→55→54→51→48→47),
+  and `CombatStatsAggregator`/`SidePanelViewModel` wiring looks correct end-to-end, so this may have
+  been a momentary/visual observation rather than a data bug — flagged here to re-check against the
+  next live session rather than "fixed" on unverified suspicion.
 
 ## Search result: direct weapon-weight evidence
 
