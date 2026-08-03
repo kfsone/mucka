@@ -549,7 +549,11 @@ public partial class GamePage : ContentPage
             await Navigation.PushModalAsync(page);
 
             var result = await controller.RunAsync(page.CancellationToken);
-            if (result.Outcome == Mucka.Core.GuidedLogin.GuidedLoginOutcome.Failed && result.FailureReason != null)
+            // Not worth an alert if the session went away underneath us (an account logout also
+            // exits game mode) -- the disconnect handling already tells the player.
+            if (result.Outcome == Mucka.Core.GuidedLogin.GuidedLoginOutcome.Failed
+                && result.FailureReason != null
+                && _vm.IsConnected)
             {
                 await DisplayAlertAsync(
                     "Persona Login Failed",

@@ -137,6 +137,23 @@ public class ShellTextTests
     }
 
     [Fact]
+    public void OurOwnEchoedCommandMatchesTheOptionPrompt_SoItCannotBeUsedAsAReplyLandmark()
+    {
+        // The shell echoes what we type onto the prompt line itself, and a partial line is
+        // re-published every time it grows, so this lands in a freshly cleared buffer the instant
+        // we send "p". Guided login must not read it as "the shell answered": it once did, threw
+        // away the persona list arriving behind it, and re-sent "p" into the name prompt, which the
+        // shell answered with 'Sorry, I can't call you "P".'
+        var n = ShellText.NormalizeWhitespace("Option (H for help): p");
+
+        Assert.True(ShellText.IsShellOptionPrompt(n));
+        Assert.False(ShellText.IsPersonaNamePrompt(n));
+        Assert.False(ShellText.IsDatabaseStillInitialisingLine(n));
+        Assert.False(ShellText.IsDatabaseStartedInitialisingLine(n));
+        Assert.False(ShellText.IsDatabaseFinishedInitialisingLine(n));
+    }
+
+    [Fact]
     public void ParsesPersonaSlots_DotUkCapture_AllSlotsUsed()
     {
         // Verbatim (minus ANSI) from mud-option-menu.dotuk.jsonl: three full slots, no creation room.

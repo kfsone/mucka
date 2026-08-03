@@ -111,15 +111,11 @@ public sealed class GuidedLoginController : IDisposable
         {
             SetPhase(GuidedLoginPhase.Connecting);
 
-            if (_options.StartAtOptionMenu)
-            {
-                SetPhase(GuidedLoginPhase.NegotiatingShell);
-                var sawOption = await RefreshOptionMenuPromptAsync(ct).ConfigureAwait(false);
-                if (!sawOption)
-                    return Fail("Timed out waiting for the MUD Shell's Option menu after leaving the game.");
-                ResetBuffer();
-            }
-            else
+            // On re-entry the shell is already sitting at the Option menu waiting for a command:
+            // that prompt is HOW game-mode exit gets detected. Nudging it with a blank line only
+            // earns an "Option unavailable." and a redundant prompt, so fall straight through to
+            // the persona query.
+            if (!_options.StartAtOptionMenu)
             {
                 // Some servers (mud2.com) show a "Skip the rest? (y/n)" MOTD prompt before the login
                 // splash/banner; others (mud2.co.uk) go straight to the banner. Answer "y" if asked,
@@ -199,7 +195,9 @@ public sealed class GuidedLoginController : IDisposable
     }
 
     /// <summary>Sends "q" at the "By what name...?" prompt to back out to the Option menu without
-    /// selecting/creating anything, best-effort (a failed connection makes this a no-op).</summary>
+    /// selecting/creating anything, best-effort (a failed connection makes this a no-op).
+    /// Only ever call this while the persona-name prompt is up: "q" AT the Option menu means QUIT,
+    /// and would log the player out.</summary>
     private void AbandonPersonaPrompt()
     {
         if (!_disconnected)
@@ -261,62 +259,65 @@ public sealed class GuidedLoginController : IDisposable
         }
     }
 
-    /// <summary>Sends "p" and waits for the numbered slot list, retrying through the verified
-    /// reset-time database rebuild messages until the personae prompt is available again.</summary>
+    /// <summary>
+    /// Sends "p" at the Option menu and returns the numbered persona slot list.
+    ///
+    /// <para>The Option prompt is deliberately NOT a landmark here. The shell echoes whatever we
+    /// type onto the prompt line itself ("Option (H for help): p"), and a partial line is
+    /// re-published every time it grows, so a freshly cleared buffer matches "option (h for help)"
+    /// the instant we send anything. Treating that as the shell's reply made this loop conclude the
+    /// command had been refused, discard the persona list arriving behind it, and fire another "p"
+    /// into the "By what name...?" prompt -- which the shell answered with
+    /// 'Sorry, I can't call you "P".'</para>
+    ///
+    /// <para>So "p" goes out once, and is only re-sent when the shell explicitly refuses it because
+    /// a reset is rebuilding the database. Anything we do not recognise rides the outer deadline and
+    /// fails cleanly instead of typing into a prompt we have not identified.</para>
+    /// </summary>
     private async Task<IReadOnlyList<PersonaSlot>?> SendPlayAndGetSlotsAsync(CancellationToken ct)
     {
         var deadline = DateTime.UtcNow + _playRetryWindow + LandmarkTimeout;
+        var sendPlay = true;
         while (DateTime.UtcNow < deadline)
         {
             if (_disconnected)
                 return null;
 
-            var sentAt = DateTime.UtcNow;
-            ResetBuffer();
-            _conn.SendLine("p");
+            if (sendPlay)
+            {
+                ResetBuffer();
+                _conn.SendLine("p");
+                sendPlay = false;
+            }
+
             var sawReply = await WaitForLandmarkAsync(
                     normalized => ShellText.IsPersonaNamePrompt(normalized)
-                        || ShellText.IsShellOptionPrompt(normalized)
+                        || ShellText.IsDatabaseStillInitialisingLine(normalized)
+                        || ShellText.IsDatabaseStartedInitialisingLine(normalized)
                         || ShellText.IsDatabaseFinishedInitialisingLine(normalized),
                     DbRetryInterval,
                     ct)
                 .ConfigureAwait(false);
+            if (!sawReply)
+                continue;   // nothing we recognise yet; the outer deadline bounds the wait
 
-            // Set when the rebuild announced itself finished, so we can re-send "p" the moment the
-            // personae are back rather than sitting out the pacing delay below.
-            var rebuildFinished = false;
-            if (sawReply)
+            var buffer = NormalizedBufferSnapshot();
+            if (ShellText.IsPersonaNamePrompt(buffer))
             {
-                var normalized = NormalizedBufferSnapshot();
-                if (ShellText.IsPersonaNamePrompt(normalized))
-                {
-                    var slots = ShellText.TryParsePersonaSlots(normalized);
-                    if (slots is not null)
-                        return slots;
-                }
-
-                if (ShellText.IsDatabaseFinishedInitialisingLine(normalized))
-                {
-                    rebuildFinished = true;
-                }
-                else if (ShellText.IsDatabaseStillInitialisingLine(normalized)
-                    || ShellText.IsDatabaseStartedInitialisingLine(normalized))
-                {
-                    rebuildFinished = await WaitForLandmarkAsync(
-                            ShellText.IsDatabaseFinishedInitialisingLine, DbRetryInterval, ct)
-                        .ConfigureAwait(false);
-                }
+                var slots = ShellText.TryParsePersonaSlots(buffer);
+                if (slots is null)
+                    AbandonPersonaPrompt();   // at the name prompt, the one place "q" backs out safely
+                return slots;
             }
 
-            if (rebuildFinished)
-                continue;
-
-            // Pace the retries. Any reply we did not recognise (a stray prompt, leftover output)
-            // otherwise falls straight through to another "p" with no delay, which over a
-            // reset-length retry window would machine-gun the shell.
-            var sinceSend = DateTime.UtcNow - sentAt;
-            if (sinceSend < DbRetryInterval)
-                await Task.Delay(DbRetryInterval - sinceSend, ct).ConfigureAwait(false);
+            // A reset is rebuilding the persona database. Ask again the moment it reports itself
+            // finished; otherwise pace the retries so we do not machine-gun the shell.
+            if (!ShellText.IsDatabaseFinishedInitialisingLine(buffer))
+            {
+                await WaitForLandmarkAsync(ShellText.IsDatabaseFinishedInitialisingLine, DbRetryInterval, ct)
+                    .ConfigureAwait(false);
+            }
+            sendPlay = true;
         }
         return null;
     }
@@ -401,24 +402,20 @@ public sealed class GuidedLoginController : IDisposable
         if (_disconnected)
             return Fail(_disconnectError?.Message ?? "Disconnected while returning to the Option menu.");
 
+        // "q" at the "By what name...?" prompt backs out to the Option menu, which prints its own
+        // prompt -- so the player lands on a live prompt without us sending anything else.
         ResetBuffer();
         _conn.SendLine("q");
         var sawOption = await WaitForLandmarkAsync(ShellText.IsShellOptionPrompt, LandmarkTimeout, ct).ConfigureAwait(false);
-        if (!sawOption)
-        {
-            var rePrompted = await RefreshOptionMenuPromptAsync(ct).ConfigureAwait(false);
-            if (!rePrompted)
-                return Fail("Timed out returning to the Option menu.");
-        }
-        else
-        {
-            ResetBuffer();
-            _conn.SendLine(string.Empty);
-        }
+        if (!sawOption && !await RefreshOptionMenuPromptAsync(ct).ConfigureAwait(false))
+            return Fail("Timed out returning to the Option menu.");
 
         return ManualAtOptionMenu();
     }
 
+    /// <summary>Last-resort nudge when "q" did not produce a prompt: a blank line makes the shell
+    /// answer "Option unavailable." and reprint the Option prompt, which is at least a live prompt
+    /// for the player to type at.</summary>
     private async Task<bool> RefreshOptionMenuPromptAsync(CancellationToken ct)
     {
         if (_disconnected)
