@@ -81,11 +81,27 @@ public static class ShellText
     public static bool IsPersonaNamePrompt(string normalized)
         => ContainsPhrase(normalized, "by what name shall i call you");
 
+    /// <summary>The Option-menu response shown while a reset is rebuilding the persona database.</summary>
+    public static bool IsDatabaseStillInitialisingLine(string normalized)
+        => ContainsPhrase(normalized, "the database is still initialising");
+
+    /// <summary>Asynchronous notice that the reset-driven database rebuild has begun.</summary>
+    public static bool IsDatabaseStartedInitialisingLine(string normalized)
+        => ContainsPhrase(normalized, "the database has started initialising");
+
+    /// <summary>Asynchronous notice that the reset-driven database rebuild has finished.</summary>
+    public static bool IsDatabaseFinishedInitialisingLine(string normalized)
+        => ContainsPhrase(normalized, "the database has finished initialising");
+
     /// <summary>"Creating new persona." confirmation line.</summary>
     public static bool IsCreatingPersonaLine(string normalized) => ContainsPhrase(normalized, "creating new persona");
 
     /// <summary>The new-persona "What sex do you wish to be?" prompt (answer with 'm', 'f', or 'q').</summary>
     public static bool IsSexPrompt(string normalized) => ContainsPhrase(normalized, "what sex do you wish to be");
+
+    /// <summary>Permadeath/session-end landmark immediately before the shell drops back to Option.</summary>
+    public static bool IsNotUpdatingPersonaLine(string normalized)
+        => ContainsPhrase(normalized, "not updating persona");
 
     /// <summary>
     /// Parses the numbered persona list out of the "personae available to you" block

@@ -5,6 +5,7 @@ using System.Windows.Input;
 using Microsoft.Maui.Graphics;
 using Mucka.Audio;
 using Mucka.Core;
+using Mucka.Core.GuidedLogin;
 using MudSharp.Models;
 using MudSharp.Session;
 
@@ -17,6 +18,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private readonly List<string> _history = new();
     private readonly string[] _allFkeys = new string[36];
     private readonly string _profileName;
+    private readonly bool _guidedLoginEnabled;
 #if WINDOWS
     private readonly WatchwordStore _watchwords;
     private readonly SessionCommandAliases _sessionAliases;
@@ -99,6 +101,15 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private SoundSettings _sounds = new();
     private bool _settingsPerProfile;
     private bool _fkeysPerProfile;
+    private bool _personaInvalidated;
+    // Last non-null reset target seen this game session. ResetClock wipes its own projection the
+    // instant game mode exits, and the 1 Hz tick can poll that cleared snapshot before the exit
+    // callback lands on the UI thread, so _reset alone cannot tell us whether the drop we are
+    // handling was a reset. This survives the wipe; cleared on the next game-mode entry.
+    private DateTime? _lastResetTargetUtc;
+    private static readonly TimeSpan ResetRelogLeadWindow = TimeSpan.FromMinutes(3);
+    private static readonly TimeSpan ResetRelogLagWindow = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan ResetRelogRetryWindow = TimeSpan.FromMinutes(2);
 
     // Lines from the TCP thread are enqueued here; the UI thread drains them in batches.
     // Draining is event-driven (see OnLineReady/OutputAvailable) — no polling timer.
@@ -490,6 +501,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public event Action? RequestFocus;
     public event Action? ConfigRequested;
     public event Action? ClearScreenRequested;
+    public event Action<GuidedLoginOptions>? GuidedLoginReentryRequested;
     /// <summary>Raised after <see cref="ChatMode"/> flips — GamePage clears and repaints the terminal
     /// from the matching buffer (chat-only when on, full history when off).</summary>
     public event Action? ChatModeChanged;
@@ -523,6 +535,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _saveSettingsAsync = saveSettingsAsync;
         IsCapturing = _conn.IsCapturing;
         _profileName = profile.Name;
+        _guidedLoginEnabled = profile.GuidedLogin;
 #if WINDOWS
         _watchwords = WatchwordStore.Load();
         _sessionAliases = new SessionCommandAliases(AppInfo.VersionString);
@@ -693,6 +706,14 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
 
     private void OnLineReady(StyledLine line)
     {
+        // Permadeath: "Not updating persona." is the shell's last word before it drops us to the
+        // Option menu with the persona gone. Cheap word test first so the common line pays nothing
+        // more than an ordinal scan (this runs on the TCP read thread for every line).
+        if (_inGameMode
+            && line.PlainText.Contains("persona", StringComparison.OrdinalIgnoreCase)
+            && ShellText.IsNotUpdatingPersonaLine(ShellText.NormalizeWhitespace(line.PlainText)))
+            _personaInvalidated = true;
+
         _pendingLines.Enqueue(line);
         if (Interlocked.Exchange(ref _flushScheduled, 1) == 0)
             OutputAvailable?.Invoke();
@@ -704,6 +725,8 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         => MainThread.BeginInvokeOnMainThread(() =>
         {
             _inGameMode = true;
+            _personaInvalidated = false;
+            _lastResetTargetUtc = null;   // new session: the new cycle's target gets observed afresh
             _lastSentUtc = DateTime.UtcNow;
             OnPropertiesChanged(nameof(IsInGameMode), nameof(IsRecordingButtonVisible));
         });
@@ -711,6 +734,8 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private void OnGameModeExited()
         => MainThread.BeginInvokeOnMainThread(() =>
         {
+            var exitedPersona = _currentChar;
+            var autoRelogAfterReset = ShouldAutoRelogAfterReset(exitedPersona);
             _inGameMode = false;
 #if WINDOWS
             _sessionAliases.Clear();
@@ -725,6 +750,21 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
                 nameof(WindowTitle),
                 nameof(ScoreDeltaValue), nameof(ScoreDisplayValue), nameof(ScoreColor),
                 nameof(TtrText), nameof(TtrVisible), nameof(TtrTooltip), nameof(AnyRightStatVisible));
+
+            // _conn.IsConnected, not the VM's flag: on a dropped link the parser fires its
+            // game-mode exit before our Disconnected handler flips IsConnected, and re-running the
+            // shell dance down a dead socket just times out into a spurious failure dialog.
+            if (_guidedLoginEnabled && _conn.IsConnected)
+            {
+                GuidedLoginReentryRequested?.Invoke(new GuidedLoginOptions(
+                    PreferredPersonaName: autoRelogAfterReset ? exitedPersona : null,
+                    StartAtOptionMenu: true,
+                    ForcePersonaChoice: !autoRelogAfterReset,
+                    AllowCreatePreferredPersona: false,
+                    PlayRetryWindow: autoRelogAfterReset ? ResetRelogRetryWindow : null));
+            }
+
+            _personaInvalidated = false;
         });
 
     // The character was identified from the setup `score` reply (fires on the Feed thread).
@@ -795,7 +835,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             _magic        = stats.CurrentMagic ?? 0;
             _maxMagic     = stats.MaxMagic     ?? 0;
 
-            var prevScore = _score;
             _score        = stats.Score ?? 0;
             if (_baseScore < 0 && _score > 0)
             {
@@ -807,7 +846,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             _deaf         = stats.IsDeaf;
             _crippled     = stats.IsCrippled;
             _dumb         = stats.IsDumb;
-            _reset = _conn.ResetEstimate;   // reflect the session-layer projection in this batch
+            PollResetEstimate();            // reflect the session-layer projection in this batch
             _weather      = stats.Weather;
             _staminaColor = stats.StaminaColor ?? 0;
 
@@ -844,7 +883,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public void TickResetCountdown()
     {
         var had = _reset.TargetUtc is not null;
-        _reset = _conn.ResetEstimate;
+        PollResetEstimate();
         // Show nothing once a projected target has lapsed (secs<=0 → TtrText empty).
         if (_reset.TargetUtc is null)
         {
@@ -860,6 +899,15 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     // TTR notifications.
     private void ClearResetProjection() => _reset = default;
 
+    // Poll the session-layer projection into the local snapshot, remembering the last real target
+    // for ShouldAutoRelogAfterReset (see _lastResetTargetUtc).
+    private void PollResetEstimate()
+    {
+        _reset = _conn.ResetEstimate;
+        if (_reset.TargetUtc is DateTime target)
+            _lastResetTargetUtc = target;
+    }
+
     // Fired off the UI thread when the session-layer projection changes. We let the 1 Hz tick handle
     // routine folds, but jump the display ahead for the sub-second lock so the seconds countdown snaps
     // on the instant it's pinned rather than up to a second later.
@@ -869,7 +917,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             return;
         MainThread.BeginInvokeOnMainThread(() =>
         {
-            _reset = _conn.ResetEstimate;
+            PollResetEstimate();
             OnPropertiesChanged(nameof(TtrText), nameof(TtrVisible), nameof(TtrTooltip), nameof(AnyRightStatVisible));
         });
     }
@@ -888,8 +936,27 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             ClearResetProjection();   // stop the countdown; a stale target would keep ticking down
             OnPropertiesChanged(nameof(IsInGameMode), nameof(IsRecordingButtonVisible),
                 nameof(TtrText), nameof(TtrVisible), nameof(TtrTooltip), nameof(AnyRightStatVisible));
+            _personaInvalidated = false;
+            _lastResetTargetUtc = null;
             Disconnected?.Invoke();
         });
+
+    // True when the drop to the Option menu we are handling looks like a game reset rather than a
+    // deliberate quit or a permadeath: the last projected reset instant is close to now, and the
+    // persona we were playing was still being saved. Only then do we relog straight back in.
+    private bool ShouldAutoRelogAfterReset(string? exitedPersona)
+    {
+        if (_personaInvalidated || string.IsNullOrWhiteSpace(exitedPersona))
+            return false;
+        if (_lastResetTargetUtc is not DateTime target)
+            return false;
+
+        var delta = target - DateTime.UtcNow;
+        return delta <= ResetRelogLeadWindow && delta >= -ResetRelogLagWindow;
+    }
+
+    public GuidedLoginController CreateGuidedLoginController(GuidedLoginOptions options)
+        => new(_conn, options);
 
     // Called from the TCP read thread — fire-and-forget, never block.
     // PlayServerSound applies the Sounds-tab gating (master/group/sound + fallback).

@@ -165,7 +165,7 @@ public partial class ConnectPage : ContentPage
     /// very start of the automated shell dance -- including the persona-selection response and the
     /// tearoom description that immediately follows it.
     /// </summary>
-    private async Task<bool> RunGuidedLoginOverlayAsync(MuckaConnection conn, Profile profile)
+    private async Task<GuidedLoginResult> RunGuidedLoginOverlayAsync(MuckaConnection conn, Profile profile)
     {
         var controller = new GuidedLoginController(conn, profile.GuidedLoginPersona);
         var vm = new GuidedLoginViewModel(controller);
@@ -179,10 +179,6 @@ public partial class ConnectPage : ContentPage
             });
 
             var result = await controller.RunAsync(page!.CancellationToken);
-
-            if (result.Outcome == GuidedLoginOutcome.Succeeded)
-                return true;
-
             if (result.Outcome == GuidedLoginOutcome.Failed && result.FailureReason != null)
             {
                 await DisplayAlertAsync(
@@ -190,7 +186,7 @@ public partial class ConnectPage : ContentPage
                     $"{result.FailureReason}\n\nYou may want to disable Persona Login for this profile and log in manually.",
                     "OK");
             }
-            return false;
+            return result;
         }
         finally
         {
@@ -237,8 +233,8 @@ public partial class ConnectPage : ContentPage
 
                 if (profile.GuidedLogin)
                 {
-                    var ok = await RunGuidedLoginOverlayAsync(conn, profile);
-                    if (!ok)
+                    var result = await RunGuidedLoginOverlayAsync(conn, profile);
+                    if (result.Outcome is not (GuidedLoginOutcome.Succeeded or GuidedLoginOutcome.ManualAtOptionMenu))
                     {
                         await gameVm.DisposeAsync();
                         return;

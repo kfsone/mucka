@@ -68,6 +68,8 @@ public partial class GamePage : ContentPage
 #endif
 
     private bool _isFkeyEditorOpen;
+    private bool _isGuidedLoginOverlayOpen;
+    private bool _guidedLoginOverlayRunning;
     private bool _eventsSubscribed;
     private double _floatTransX;
     private double _floatTransY;
@@ -137,6 +139,7 @@ public partial class GamePage : ContentPage
     protected override void OnAppearing()
     {
         _isFkeyEditorOpen = false;
+        _isGuidedLoginOverlayOpen = false;
         base.OnAppearing();
 
         try { DeviceDisplay.Current.KeepScreenOn = _vm.KeepScreenOn; }
@@ -154,6 +157,7 @@ public partial class GamePage : ContentPage
                 _vm.SidePanel.FloatingOpenDisplaySettings += OnFloatingOpenDisplaySettings;
                 _vm.ConfigRequested     += OnConfigRequested;
                 _vm.ClearScreenRequested += OnClearScreenRequested;
+                _vm.GuidedLoginReentryRequested += OnGuidedLoginReentryRequested;
                 _vm.ChatModeChanged     += OnChatModeChanged;
                 _vm.SettingsSaved       += OnSettingsSaved;
                 _vm.ToastRequested      += ShowToast;
@@ -262,7 +266,8 @@ public partial class GamePage : ContentPage
         }
         else
         {
-            // Returning from FkeyEditor: events and platform hooks are still active; just resume the timer.
+            // Returning from a modal we pushed ourselves (FkeyEditor, the Persona Login overlay):
+            // events and platform hooks are still active; just resume the timer.
             _antiIdleTimer.Start();
         }
 
@@ -314,7 +319,7 @@ public partial class GamePage : ContentPage
         _androidHistoryDownHandler = null;
         _androidEscapeHandler = null;
 #endif
-        if (_isFkeyEditorOpen)
+        if (_isFkeyEditorOpen || _isGuidedLoginOverlayOpen)
         {
             // Pause the timer while the modal is open. Keep it non-null so OnAppearing
             // knows not to reinitialize the terminal or re-hook events on return.
@@ -333,6 +338,7 @@ public partial class GamePage : ContentPage
         _vm.SidePanel.FloatingOpenDisplaySettings -= OnFloatingOpenDisplaySettings;
         _vm.ConfigRequested     -= OnConfigRequested;
         _vm.ClearScreenRequested -= OnClearScreenRequested;
+        _vm.GuidedLoginReentryRequested -= OnGuidedLoginReentryRequested;
         _vm.ChatModeChanged      -= OnChatModeChanged;
         _vm.SettingsSaved       -= OnSettingsSaved;
         _vm.ToastRequested      -= ShowToast;
@@ -513,6 +519,56 @@ public partial class GamePage : ContentPage
 
     private async void OnConfigRequested() => await OpenConfigAsync(initialTab: 0);
     private async void OnFloatingOpenDisplaySettings() => await OpenConfigAsync(initialTab: 1);
+
+    // Fired when the shell drops us back to the Option menu (quit, permadeath, or a game reset):
+    // re-run the persona dance rather than stranding the player at a bare menu prompt.
+    private void OnGuidedLoginReentryRequested(Mucka.Core.GuidedLogin.GuidedLoginOptions options)
+        => _ = RunGuidedLoginOverlayAsync(options);
+
+    private async Task RunGuidedLoginOverlayAsync(Mucka.Core.GuidedLogin.GuidedLoginOptions options)
+    {
+        // Fire-and-forget from the VM event, so nothing above us observes a faulted task.
+        try { await RunGuidedLoginOverlayCoreAsync(options); }
+        catch (Exception ex) { CrashLog.Write("GuidedLoginReentry", ex); }
+    }
+
+    private async Task RunGuidedLoginOverlayCoreAsync(Mucka.Core.GuidedLogin.GuidedLoginOptions options)
+    {
+        // Both guards run on the UI thread with no await in between, so this is a real latch.
+        if (_guidedLoginOverlayRunning)
+            return;
+        _guidedLoginOverlayRunning = true;
+
+        var controller = _vm.CreateGuidedLoginController(options);
+        var loginVm = new GuidedLoginViewModel(controller);
+        GuidedLoginPage? page = null;
+        try
+        {
+            _isGuidedLoginOverlayOpen = true;
+            page = new GuidedLoginPage(loginVm);
+            await Navigation.PushModalAsync(page);
+
+            var result = await controller.RunAsync(page.CancellationToken);
+            if (result.Outcome == Mucka.Core.GuidedLogin.GuidedLoginOutcome.Failed && result.FailureReason != null)
+            {
+                await DisplayAlertAsync(
+                    "Persona Login Failed",
+                    $"{result.FailureReason}\n\nYou can stay at the Option menu and continue manually.",
+                    "OK");
+            }
+        }
+        finally
+        {
+            loginVm.Detach();
+            controller.Dispose();
+            if (page != null)
+                await Navigation.PopModalAsync();
+            _isGuidedLoginOverlayOpen = false;
+            _guidedLoginOverlayRunning = false;
+            if (!Terminal.IsHistoryMode)
+                FocusInput();
+        }
+    }
 
     // Dragging is only allowed while the windlet is unlocked (the lock icon toggles it).
     private void OnFloatingPanelPanUpdated(object? sender, PanUpdatedEventArgs e)

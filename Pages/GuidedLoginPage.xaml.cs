@@ -33,22 +33,26 @@ public partial class GuidedLoginPage : ContentPage
 
     private async Task ShowPersonaChoiceAsync(PersonaChoice choice)
     {
-        var options = choice.Existing.Select(p => p.Name).ToList();
+        var options = choice.Slots
+            .Where(slot => !slot.IsUnused && !string.IsNullOrWhiteSpace(slot.Name))
+            .Select(slot => slot.Name!)
+            .ToList();
         if (choice.CanCreateNew)
             options.Add("+ Create new");
-
-        if (options.Count == 0)
-        {
-            // No existing personae and no free slot -- nothing to offer; let the controller
-            // fail/timeout naturally so the caller reports it consistently.
-            _vm.Controller.CancelPersonaChoice();
-            return;
-        }
+        // Always offered, so the sheet is never empty: leaves the shell sitting at the Option
+        // menu with the player driving it by hand, rather than dropping the connection.
+        options.Add("[Drop to menu]");
 
         var pick = await DisplayActionSheetAsync("Choose a persona", "Cancel", null, options.ToArray());
         if (string.IsNullOrEmpty(pick) || pick == "Cancel")
         {
             _vm.Controller.CancelPersonaChoice();
+            return;
+        }
+
+        if (pick == "[Drop to menu]")
+        {
+            _vm.Controller.DropToMenu();
             return;
         }
 
@@ -69,11 +73,13 @@ public partial class GuidedLoginPage : ContentPage
 
     private async Task ShowCreateConfirmationAsync(string personaName)
     {
-        var choice = await DisplayActionSheetAsync($"Create persona \"{personaName}\"?", "Cancel", null, "Male", "Female");
+        var choice = await DisplayActionSheetAsync($"Create persona \"{personaName}\"?", "Cancel", null, "Male", "Female", "[Drop to menu]");
         if (choice == "Male")
             _vm.Controller.ConfirmCreateSex('m');
         else if (choice == "Female")
             _vm.Controller.ConfirmCreateSex('f');
+        else if (choice == "[Drop to menu]")
+            _vm.Controller.DropToMenu();
         else
             _vm.Controller.CancelCreate();
     }

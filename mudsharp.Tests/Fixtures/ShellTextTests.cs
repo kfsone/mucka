@@ -19,8 +19,12 @@ public class ShellTextTests
         Assert.False(ShellText.IsShellOptionPrompt(n));
         Assert.False(ShellText.IsExaminePrompt(n));
         Assert.False(ShellText.IsPersonaNamePrompt(n));
+        Assert.False(ShellText.IsDatabaseStillInitialisingLine(n));
+        Assert.False(ShellText.IsDatabaseStartedInitialisingLine(n));
+        Assert.False(ShellText.IsDatabaseFinishedInitialisingLine(n));
         Assert.False(ShellText.IsCreatingPersonaLine(n));
         Assert.False(ShellText.IsSexPrompt(n));
+        Assert.False(ShellText.IsNotUpdatingPersonaLine(n));
     }
 
     [Fact]
@@ -57,6 +61,24 @@ public class ShellTextTests
     }
 
     [Fact]
+    public void DetectsDatabaseInitialisingLifecycleMessages()
+    {
+        Assert.True(ShellText.IsDatabaseStillInitialisingLine(
+            ShellText.NormalizeWhitespace("p\r\nThe database is still initialising.\r\nOption (H for help): ")));
+        Assert.True(ShellText.IsDatabaseStartedInitialisingLine(
+            ShellText.NormalizeWhitespace("\r\n+- The database has started initialising -+\r\n")));
+        Assert.True(ShellText.IsDatabaseFinishedInitialisingLine(
+            ShellText.NormalizeWhitespace("\r\n+- The database has finished initialising -+\r\n")));
+    }
+
+    [Fact]
+    public void DetectsNotUpdatingPersonaLine()
+    {
+        var raw = "You have been killed by someone.\r\u0000\r\n\u00A3\u00A8\u00FF\u00FFNot updating persona.\u00FF\u00FF\r\u0000\r\n \r\n";
+        Assert.True(ShellText.IsNotUpdatingPersonaLine(ShellText.NormalizeWhitespace(raw)));
+    }
+
+    [Fact]
     public void ParsesPersonaSlots_DotComCapture_WithUnusedSlot()
     {
         // Verbatim (minus ANSI) from mud-option-menu.dotcom.jsonl: an existing account with an
@@ -72,6 +94,46 @@ public class ShellTextTests
         Assert.Equal(new PersonaSlot(1, "Ollie", false), slots[0]);
         Assert.Equal(new PersonaSlot(2, null, true), slots[1]);
         Assert.Equal(new PersonaSlot(3, "Awlie", false), slots[2]);
+    }
+
+    [Fact]
+    public void ParsesPersonaSlots_AfterGameReset_SkipsTheReprintedBanner()
+    {
+        // Verbatim (minus ANSI) from RESEARCH/game-reset.jsonl: once the rebuilt database is up,
+        // "p" replies with the whole login banner again before the persona list. The dated
+        // "MUD last reset on 2-AUG-2026 at 20:19:05." line sits above the start landmark and must
+        // not be mistaken for a slot.
+        var raw = "p\r\nMUD version 4E.\r\nCopyright (C) 1991-2026\r\nMulti-User Entertainment Ltd.\r\n" +
+                  "Licensed (number 57009120) to Richard Underwood.\r\n\r\n" +
+                  "+- Please change your password. Type /P at the \"*\" prompt. -+\r\u0000\r\n" +
+                  "Your last game of MUD began on 2-AUG-2026 at 19:54:50.\r\u0000\r\n" +
+                  "MUD last reset on 2-AUG-2026 at 20:19:05.\r\u0000\r\n" +
+                  "This reset is number 126509.\r\u0000\r\n\r\n" +
+                  "The personae available to you are:\r\u0000\r\n(1)     Ollie,\r\u0000\r\n" +
+                  "(2)     Shezerah,\r\u0000\r\n(3)     Nessa.\r\u0000\r\n" +
+                  "By what name shall I call you (Q to quit)?\r\n";
+
+        var normalized = ShellText.NormalizeWhitespace(raw);
+        Assert.True(ShellText.IsPersonaNamePrompt(normalized));
+
+        var slots = ShellText.TryParsePersonaSlots(normalized);
+
+        Assert.NotNull(slots);
+        Assert.Equal(new[] { "Ollie", "Shezerah", "Nessa" }, slots!.Select(s => s.Name));
+        Assert.All(slots, s => Assert.False(s.IsUnused));
+    }
+
+    [Fact]
+    public void PlayIsRefusedWhileTheDatabaseRebuilds_ButTheOptionPromptStillLands()
+    {
+        // The reset-time "p" reply: no persona list, just the refusal and a fresh Option prompt.
+        // Guided login has to tell this apart from a real slot list and keep retrying.
+        var n = ShellText.NormalizeWhitespace("p\r\nThe database is still initialising.\r\nOption (H for help): ");
+
+        Assert.True(ShellText.IsDatabaseStillInitialisingLine(n));
+        Assert.True(ShellText.IsShellOptionPrompt(n));
+        Assert.False(ShellText.IsPersonaNamePrompt(n));
+        Assert.Null(ShellText.TryParsePersonaSlots(n));
     }
 
     [Fact]

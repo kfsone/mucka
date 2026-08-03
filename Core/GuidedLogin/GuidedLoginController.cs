@@ -20,14 +20,24 @@ public enum GuidedLoginPhase
 
 /// <summary>Existing personae plus whether a free slot is available, offered to the UI when
 /// the profile has no configured persona name (or picking is otherwise required).</summary>
-public sealed record PersonaChoice(IReadOnlyList<ExaminePersona> Existing, bool CanCreateNew);
+public sealed record PersonaChoice(IReadOnlyList<PersonaSlot> Slots, bool CanCreateNew);
 
-public enum GuidedLoginOutcome { Succeeded, Failed, Cancelled }
+/// <summary>Options for a guided-login pass. The initial connect uses the default mode; relogging
+/// from the shell menu can start by re-prompting the menu and can either force a fresh picker or
+/// prefer one persona for fast relog.</summary>
+public sealed record GuidedLoginOptions(
+    string? PreferredPersonaName = null,
+    bool StartAtOptionMenu = false,
+    bool ForcePersonaChoice = false,
+    bool AllowCreatePreferredPersona = true,
+    TimeSpan? PlayRetryWindow = null);
+
+public enum GuidedLoginOutcome { Succeeded, Failed, Cancelled, ManualAtOptionMenu }
 
 public sealed record GuidedLoginResult(GuidedLoginOutcome Outcome, string? FailureReason = null);
 
 /// <summary>
-/// Drives the MUD Shell (Option menu -&gt; EXAMINE -&gt; persona select/create -&gt; tearoom) on behalf
+/// Drives the MUD Shell (Option menu -&gt; persona select/create -&gt; tearoom) on behalf
 /// of a profile with Guided Login enabled, so the player can skip the manual shell dance.
 /// Runs entirely off <see cref="MuckaConnection"/>'s line/game-mode events; <see cref="MudLoginHandler"/>
 /// (already wired into the connection) still owns the pre-shell login/password/client-mode steps.
@@ -39,7 +49,9 @@ public sealed class GuidedLoginController : IDisposable
     private static readonly TimeSpan DbRetryInterval = TimeSpan.FromSeconds(2);
 
     private readonly MuckaConnection _conn;
-    private readonly string? _configuredPersonaName;
+    private readonly GuidedLoginOptions _options;
+    private readonly string? _preferredPersonaName;
+    private readonly TimeSpan _playRetryWindow;
 
     private readonly List<StyledLine> _buffer = new();
     private readonly object _bufferLock = new();
@@ -47,6 +59,7 @@ public sealed class GuidedLoginController : IDisposable
     private bool _gameModeEntered;
     private Exception? _disconnectError;
     private bool _disconnected;
+    private int _dropToMenuRequested;
 
     private TaskCompletionSource<string?>? _personaDecision;   // resolved by SelectExistingPersona/RequestCreateNew
     private TaskCompletionSource<char?>? _sexDecision;         // resolved by ConfirmCreateSex/CancelCreate ('m'/'f'/null=cancel)
@@ -67,9 +80,16 @@ public sealed class GuidedLoginController : IDisposable
     public event Action? Completed;
 
     public GuidedLoginController(MuckaConnection conn, string? configuredPersonaName)
+        : this(conn, new GuidedLoginOptions(PreferredPersonaName: configuredPersonaName))
+    {
+    }
+
+    public GuidedLoginController(MuckaConnection conn, GuidedLoginOptions options)
     {
         _conn = conn;
-        _configuredPersonaName = string.IsNullOrWhiteSpace(configuredPersonaName) ? null : configuredPersonaName.Trim();
+        _options = options;
+        _preferredPersonaName = string.IsNullOrWhiteSpace(options.PreferredPersonaName) ? null : options.PreferredPersonaName.Trim();
+        _playRetryWindow = options.PlayRetryWindow ?? DbRetryWindow;
 
         _conn.LineReady += OnLineReady;
         _conn.GameModeEntered += OnGameModeEntered;
@@ -91,124 +111,44 @@ public sealed class GuidedLoginController : IDisposable
         {
             SetPhase(GuidedLoginPhase.Connecting);
 
-            // Some servers (mud2.com) show a "Skip the rest? (y/n)" MOTD prompt before the login
-            // splash/banner; others (mud2.co.uk) go straight to the banner. Answer "y" if asked,
-            // then capture everything up to the FIRST "Option" prompt as the splash/banner for the
-            // tiny-font preview. MudLoginHandler already sent login/account/password and the
-            // client-mode entry on that first "Option" prompt; it reappears a second time once the
-            // server has echoed back the confirmed terminal width -- that second occurrence is when
-            // the shell is actually idle and ready for our own commands.
-            var sawFirstOption = await NegotiateBannerAsync(ct).ConfigureAwait(false);
-            if (!sawFirstOption)
-                return Fail("Timed out waiting for the MUD Shell's Option menu.");
-            ResetBuffer();
-
-            SetPhase(GuidedLoginPhase.NegotiatingShell);
-            var sawSecondOption = await WaitForLandmarkAsync(ShellText.IsShellOptionPrompt, LandmarkTimeout, ct)
-                .ConfigureAwait(false);
-            if (!sawSecondOption)
-                return Fail("Timed out waiting for the MUD Shell to finish negotiating the terminal.");
-            ResetBuffer();
-
-            // -- Query existing personae via EXAMINE ("E") --------------------------------------
-            SetPhase(GuidedLoginPhase.QueryingPersonae);
-            _conn.SendLine("e");
-            var sawExamine = await WaitForLandmarkAsync(ShellText.IsExaminePrompt, LandmarkTimeout, ct)
-                .ConfigureAwait(false);
-            if (!sawExamine)
-                return Fail("Timed out waiting for the EXAMINE persona list.");
-            var existing = ShellText.ParseExaminePersonae(NormalizedBufferSnapshot());
-            ResetBuffer();
-
-            _conn.SendLine("q");
-            var sawBackAtOption = await WaitForLandmarkAsync(ShellText.IsShellOptionPrompt, LandmarkTimeout, ct)
-                .ConfigureAwait(false);
-            if (!sawBackAtOption)
-                return Fail("Timed out returning to the Option menu after EXAMINE.");
-            ResetBuffer();
-
-            // -- Decide what to do with the persona list ----------------------------------------
-            var matched = _configuredPersonaName is null
-                ? null
-                : existing.FirstOrDefault(p => string.Equals(p.Name, _configuredPersonaName, StringComparison.OrdinalIgnoreCase));
-
-            string? personaToSelect = matched?.Name;
-            string? personaToCreate = null;
-
-            if (personaToSelect is null)
+            if (_options.StartAtOptionMenu)
             {
-                // Send "p" now: the numbered slot list (with **Unused** markers) is the only
-                // authoritative source of free-slot information -- EXAMINE never shows empty slots.
-                SetPhase(GuidedLoginPhase.SelectingPersona);
-                var slots = await SendPlayAndGetSlotsAsync(ct).ConfigureAwait(false);
-                if (slots is null)
-                    return Fail("Timed out waiting for the persona slot list.");
+                SetPhase(GuidedLoginPhase.NegotiatingShell);
+                var sawOption = await RefreshOptionMenuPromptAsync(ct).ConfigureAwait(false);
+                if (!sawOption)
+                    return Fail("Timed out waiting for the MUD Shell's Option menu after leaving the game.");
+                ResetBuffer();
+            }
+            else
+            {
+                // Some servers (mud2.com) show a "Skip the rest? (y/n)" MOTD prompt before the login
+                // splash/banner; others (mud2.co.uk) go straight to the banner. Answer "y" if asked,
+                // then capture everything up to the FIRST "Option" prompt as the splash/banner for the
+                // tiny-font preview. MudLoginHandler already sent login/account/password and the
+                // client-mode entry on that first "Option" prompt; it reappears a second time once the
+                // server has echoed back the confirmed terminal width -- that second occurrence is when
+                // the shell is actually idle and ready for our own commands.
+                var sawFirstOption = await NegotiateBannerAsync(ct).ConfigureAwait(false);
+                if (!sawFirstOption)
+                    return Fail("Timed out waiting for the MUD Shell's Option menu.");
+                ResetBuffer();
 
-                var hasFreeSlot = slots.Any(s => s.IsUnused);
-
-                if (_configuredPersonaName is not null)
-                {
-                    // Configured name not found among existing personae.
-                    if (!hasFreeSlot)
-                    {
-                        AbandonPersonaPrompt();
-                        return Fail($"Persona \"{_configuredPersonaName}\" was not found and there is no free slot to create it.");
-                    }
-
-                    SetPhase(GuidedLoginPhase.AwaitingCreateConfirmation);
-                    _sexDecision = new TaskCompletionSource<char?>(TaskCreationOptions.RunContinuationsAsynchronously);
-                    CreateConfirmationReady?.Invoke(_configuredPersonaName);
-                    var sex = await _sexDecision.Task.ConfigureAwait(false);
-                    if (sex is null)
-                    {
-                        AbandonPersonaPrompt();
-                        return Cancel();
-                    }
-                    personaToCreate = _configuredPersonaName;
-                    return await CreatePersonaAsync(personaToCreate, sex.Value, ct).ConfigureAwait(false);
-                }
-
-                // No configured persona name at all -- ask the UI to pick or create.
-                SetPhase(GuidedLoginPhase.AwaitingPersonaChoice);
-                _personaDecision = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
-                PersonaChoiceReady?.Invoke(new PersonaChoice(existing, hasFreeSlot));
-                var choice = await _personaDecision.Task.ConfigureAwait(false);
-                if (choice is null)
-                {
-                    AbandonPersonaPrompt();
-                    return Cancel();
-                }
-
-                var isExisting = slots.Any(s => !s.IsUnused && string.Equals(s.Name, choice, StringComparison.OrdinalIgnoreCase));
-                if (isExisting)
-                {
-                    return await SelectExistingAtPromptAsync(choice, ct).ConfigureAwait(false);
-                }
-
-                if (!hasFreeSlot)
-                {
-                    AbandonPersonaPrompt();
-                    return Fail("No free persona slot is available to create a new one.");
-                }
-
-                SetPhase(GuidedLoginPhase.AwaitingSexChoice);
-                _sexDecision = new TaskCompletionSource<char?>(TaskCreationOptions.RunContinuationsAsynchronously);
-                CreateConfirmationReady?.Invoke(choice);
-                var newSex = await _sexDecision.Task.ConfigureAwait(false);
-                if (newSex is null)
-                {
-                    AbandonPersonaPrompt();
-                    return Cancel();
-                }
-                return await CreatePersonaAsync(choice, newSex.Value, ct).ConfigureAwait(false);
+                SetPhase(GuidedLoginPhase.NegotiatingShell);
+                var sawSecondOption = await WaitForLandmarkAsync(ShellText.IsShellOptionPrompt, LandmarkTimeout, ct)
+                    .ConfigureAwait(false);
+                if (!sawSecondOption)
+                    return Fail("Timed out waiting for the MUD Shell to finish negotiating the terminal.");
+                ResetBuffer();
             }
 
-            // Configured persona name matched an existing one -- go straight to "p" and select it.
-            SetPhase(GuidedLoginPhase.SelectingPersona);
-            var directSlots = await SendPlayAndGetSlotsAsync(ct).ConfigureAwait(false);
-            if (directSlots is null)
+            // Query personae directly from the Play prompt. That list already includes the live
+            // occupied names plus any "**Unused**" slots, so it is both the authoritative source
+            // of selectable names and the free-slot check.
+            SetPhase(GuidedLoginPhase.QueryingPersonae);
+            var slots = await SendPlayAndGetSlotsAsync(ct).ConfigureAwait(false);
+            if (slots is null)
                 return Fail("Timed out waiting for the persona slot list.");
-            return await SelectExistingAtPromptAsync(personaToSelect, ct).ConfigureAwait(false);
+            return await ResolvePersonaPromptAsync(slots, ct).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
@@ -225,6 +165,14 @@ public sealed class GuidedLoginController : IDisposable
     /// <summary>Cancel the persona picker (drop back to manual mode).</summary>
     public void CancelPersonaChoice() => _personaDecision?.TrySetResult(null);
 
+    /// <summary>Drop back to the shell's Option menu and leave the connection in manual mode.</summary>
+    public void DropToMenu()
+    {
+        Interlocked.Exchange(ref _dropToMenuRequested, 1);
+        _personaDecision?.TrySetResult(null);
+        _sexDecision?.TrySetResult(null);
+    }
+
     /// <summary>Call from the create-confirmation UI with 'm' or 'f'.</summary>
     public void ConfirmCreateSex(char sex) => _sexDecision?.TrySetResult(char.ToLowerInvariant(sex));
 
@@ -235,6 +183,12 @@ public sealed class GuidedLoginController : IDisposable
     {
         SetPhase(GuidedLoginPhase.Cancelled);
         return new GuidedLoginResult(GuidedLoginOutcome.Cancelled);
+    }
+
+    private GuidedLoginResult ManualAtOptionMenu()
+    {
+        SetPhase(GuidedLoginPhase.Cancelled);
+        return new GuidedLoginResult(GuidedLoginOutcome.ManualAtOptionMenu);
     }
 
     private GuidedLoginResult Fail(string reason)
@@ -251,6 +205,8 @@ public sealed class GuidedLoginController : IDisposable
         if (!_disconnected)
             _conn.SendLine("q");
     }
+
+    private bool ConsumeDropToMenuRequest() => Interlocked.Exchange(ref _dropToMenuRequested, 0) != 0;
 
     /// <summary>
     /// Waits for the first "Option (H for help):" prompt, answering any "(y/n)" confirmation prompt
@@ -305,29 +261,172 @@ public sealed class GuidedLoginController : IDisposable
         }
     }
 
-    /// <summary>Sends "p" and waits for the numbered slot list, retrying a couple of times to ride
-    /// out a possible transient "database restarting" delay (exact wording unknown/unverified --
-    /// this is a generic timeout+retry rather than a hardcoded string match).</summary>
+    /// <summary>Sends "p" and waits for the numbered slot list, retrying through the verified
+    /// reset-time database rebuild messages until the personae prompt is available again.</summary>
     private async Task<IReadOnlyList<PersonaSlot>?> SendPlayAndGetSlotsAsync(CancellationToken ct)
     {
-        var deadline = DateTime.UtcNow + DbRetryWindow + LandmarkTimeout;
+        var deadline = DateTime.UtcNow + _playRetryWindow + LandmarkTimeout;
         while (DateTime.UtcNow < deadline)
         {
+            if (_disconnected)
+                return null;
+
+            var sentAt = DateTime.UtcNow;
             ResetBuffer();
             _conn.SendLine("p");
-            var seenPrompt = await WaitForLandmarkAsync(ShellText.IsPersonaNamePrompt, DbRetryInterval, ct)
+            var sawReply = await WaitForLandmarkAsync(
+                    normalized => ShellText.IsPersonaNamePrompt(normalized)
+                        || ShellText.IsShellOptionPrompt(normalized)
+                        || ShellText.IsDatabaseFinishedInitialisingLine(normalized),
+                    DbRetryInterval,
+                    ct)
                 .ConfigureAwait(false);
-            if (seenPrompt)
+
+            // Set when the rebuild announced itself finished, so we can re-send "p" the moment the
+            // personae are back rather than sitting out the pacing delay below.
+            var rebuildFinished = false;
+            if (sawReply)
             {
-                var slots = ShellText.TryParsePersonaSlots(NormalizedBufferSnapshot());
-                if (slots is not null)
-                    return slots;
+                var normalized = NormalizedBufferSnapshot();
+                if (ShellText.IsPersonaNamePrompt(normalized))
+                {
+                    var slots = ShellText.TryParsePersonaSlots(normalized);
+                    if (slots is not null)
+                        return slots;
+                }
+
+                if (ShellText.IsDatabaseFinishedInitialisingLine(normalized))
+                {
+                    rebuildFinished = true;
+                }
+                else if (ShellText.IsDatabaseStillInitialisingLine(normalized)
+                    || ShellText.IsDatabaseStartedInitialisingLine(normalized))
+                {
+                    rebuildFinished = await WaitForLandmarkAsync(
+                            ShellText.IsDatabaseFinishedInitialisingLine, DbRetryInterval, ct)
+                        .ConfigureAwait(false);
+                }
             }
-            // Not there yet -- either still loading or the server hasn't replied. Give it another
-            // beat before resending "p" (harmless if the shell already showed the prompt and is
-            // just waiting on us: it will simply reprint the same list).
+
+            if (rebuildFinished)
+                continue;
+
+            // Pace the retries. Any reply we did not recognise (a stray prompt, leftover output)
+            // otherwise falls straight through to another "p" with no delay, which over a
+            // reset-length retry window would machine-gun the shell.
+            var sinceSend = DateTime.UtcNow - sentAt;
+            if (sinceSend < DbRetryInterval)
+                await Task.Delay(DbRetryInterval - sinceSend, ct).ConfigureAwait(false);
         }
         return null;
+    }
+
+    private async Task<GuidedLoginResult> ResolvePersonaPromptAsync(IReadOnlyList<PersonaSlot> slots, CancellationToken ct)
+    {
+        var hasFreeSlot = slots.Any(s => s.IsUnused);
+        var matched = _options.ForcePersonaChoice || _preferredPersonaName is null
+            ? null
+            : slots.FirstOrDefault(s => !s.IsUnused
+                && string.Equals(s.Name, _preferredPersonaName, StringComparison.OrdinalIgnoreCase));
+
+        if (matched?.Name is string personaToSelect)
+        {
+            SetPhase(GuidedLoginPhase.SelectingPersona);
+            return await SelectExistingAtPromptAsync(personaToSelect, ct).ConfigureAwait(false);
+        }
+
+        if (_preferredPersonaName is not null && !_options.ForcePersonaChoice && _options.AllowCreatePreferredPersona)
+        {
+            if (!hasFreeSlot)
+            {
+                AbandonPersonaPrompt();
+                return Fail($"Persona \"{_preferredPersonaName}\" was not found and there is no free slot to create it.");
+            }
+
+            SetPhase(GuidedLoginPhase.AwaitingCreateConfirmation);
+            _sexDecision = new TaskCompletionSource<char?>(TaskCreationOptions.RunContinuationsAsynchronously);
+            CreateConfirmationReady?.Invoke(_preferredPersonaName);
+            var sex = await _sexDecision.Task.ConfigureAwait(false);
+            if (sex is null)
+            {
+                if (ConsumeDropToMenuRequest())
+                    return await DropToMenuAsync(ct).ConfigureAwait(false);
+                AbandonPersonaPrompt();
+                return Cancel();
+            }
+            return await CreatePersonaAsync(_preferredPersonaName, sex.Value, ct).ConfigureAwait(false);
+        }
+
+        SetPhase(GuidedLoginPhase.AwaitingPersonaChoice);
+        _personaDecision = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        PersonaChoiceReady?.Invoke(new PersonaChoice(slots.Where(s => !s.IsUnused).ToList(), hasFreeSlot));
+        var choice = await _personaDecision.Task.ConfigureAwait(false);
+        if (choice is null)
+        {
+            if (ConsumeDropToMenuRequest())
+                return await DropToMenuAsync(ct).ConfigureAwait(false);
+            AbandonPersonaPrompt();
+            return Cancel();
+        }
+
+        var isExisting = slots.Any(s => !s.IsUnused && string.Equals(s.Name, choice, StringComparison.OrdinalIgnoreCase));
+        if (isExisting)
+        {
+            SetPhase(GuidedLoginPhase.SelectingPersona);
+            return await SelectExistingAtPromptAsync(choice, ct).ConfigureAwait(false);
+        }
+
+        if (!hasFreeSlot)
+        {
+            AbandonPersonaPrompt();
+            return Fail("No free persona slot is available to create a new one.");
+        }
+
+        SetPhase(GuidedLoginPhase.AwaitingSexChoice);
+        _sexDecision = new TaskCompletionSource<char?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        CreateConfirmationReady?.Invoke(choice);
+        var newSex = await _sexDecision.Task.ConfigureAwait(false);
+        if (newSex is null)
+        {
+            if (ConsumeDropToMenuRequest())
+                return await DropToMenuAsync(ct).ConfigureAwait(false);
+            AbandonPersonaPrompt();
+            return Cancel();
+        }
+        return await CreatePersonaAsync(choice, newSex.Value, ct).ConfigureAwait(false);
+    }
+
+    private async Task<GuidedLoginResult> DropToMenuAsync(CancellationToken ct)
+    {
+        if (_disconnected)
+            return Fail(_disconnectError?.Message ?? "Disconnected while returning to the Option menu.");
+
+        ResetBuffer();
+        _conn.SendLine("q");
+        var sawOption = await WaitForLandmarkAsync(ShellText.IsShellOptionPrompt, LandmarkTimeout, ct).ConfigureAwait(false);
+        if (!sawOption)
+        {
+            var rePrompted = await RefreshOptionMenuPromptAsync(ct).ConfigureAwait(false);
+            if (!rePrompted)
+                return Fail("Timed out returning to the Option menu.");
+        }
+        else
+        {
+            ResetBuffer();
+            _conn.SendLine(string.Empty);
+        }
+
+        return ManualAtOptionMenu();
+    }
+
+    private async Task<bool> RefreshOptionMenuPromptAsync(CancellationToken ct)
+    {
+        if (_disconnected)
+            return false;
+
+        ResetBuffer();
+        _conn.SendLine(string.Empty);
+        return await WaitForLandmarkAsync(ShellText.IsShellOptionPrompt, LandmarkTimeout, ct).ConfigureAwait(false);
     }
 
     private async Task<GuidedLoginResult> SelectExistingAtPromptAsync(string name, CancellationToken ct)
