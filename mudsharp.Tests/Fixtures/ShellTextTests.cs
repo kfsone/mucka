@@ -154,6 +154,58 @@ public class ShellTextTests
     }
 
     [Fact]
+    public void OptionUnavailableNoiseIsRecognisedButIsNotAPromptWeActOn()
+    {
+        // What the shell says when it is handed something it cannot parse -- a bare CR, or an
+        // unterminated FES probe that was in flight when the server dropped us to the menu and got
+        // flushed. Guided login has to read straight past it.
+        var n = ShellText.NormalizeWhitespace(
+            "MUD login menu.\r\nOption (H for help): Option unavailable.\r\nOption (H for help): ");
+
+        Assert.True(ShellText.IsOptionUnavailableLine(n));
+        Assert.True(ShellText.IsShellOptionPrompt(n));
+        Assert.False(ShellText.IsPersonaNamePrompt(n));
+        Assert.False(ShellText.IsNameRejectedPrompt(n));
+        Assert.Null(ShellText.TryParsePersonaSlots(n));
+    }
+
+    [Fact]
+    public void ParsesPersonaSlots_ThroughInterleavedOptionUnavailableNoise()
+    {
+        // The whole re-entry exchange as the player saw it: an in-flight FES probe drawing an
+        // "Option unavailable.", the flush prompt, our echoed "p", then the reprinted banner and the
+        // real list. The junk sits between the landmarks and must not disturb the parse.
+        var raw = "Option (H for help): Option unavailable.\r\nOption (H for help): \r\n" +
+                  "Option (H for help): p\r\nMUD version 4E.\r\nCopyright (C) 1991-2026\r\n" +
+                  "Multi-User Entertainment Ltd.\r\n\r\n" +
+                  "The personae available to you are:\r \r\n(1)     Ollie,\r \r\n" +
+                  "(2)     Shezerah,\r \r\n(3)     Nessa.\r \r\n" +
+                  "By what name shall I call you (Q to quit)?\r\n";
+
+        var n = ShellText.NormalizeWhitespace(raw);
+
+        Assert.True(ShellText.IsPersonaNamePrompt(n));
+        var slots = ShellText.TryParsePersonaSlots(n);
+        Assert.NotNull(slots);
+        Assert.Equal(new[] { "Ollie", "Shezerah", "Nessa" }, slots!.Select(s => s.Name));
+    }
+
+    [Fact]
+    public void DetectsNameRejectedPrompt_AndDoesNotConfuseItWithTheFirstNamePrompt()
+    {
+        // Something got typed into the name prompt ahead of our answer (the same in-flight probe),
+        // so the shell refuses it and re-asks. Still a name prompt: the answer is a persona name.
+        var rejected = ShellText.NormalizeWhitespace(
+            "*p\r\nSorry, I can't call you \"P\".\r\nWhat shall I call you instead?\r\n");
+        Assert.True(ShellText.IsNameRejectedPrompt(rejected));
+        Assert.False(ShellText.IsPersonaNamePrompt(rejected));
+
+        var firstAsk = ShellText.NormalizeWhitespace("By what name shall I call you (Q to quit)?\r\n");
+        Assert.False(ShellText.IsNameRejectedPrompt(firstAsk));
+        Assert.True(ShellText.IsPersonaNamePrompt(firstAsk));
+    }
+
+    [Fact]
     public void ParsesPersonaSlots_DotUkCapture_AllSlotsUsed()
     {
         // Verbatim (minus ANSI) from mud-option-menu.dotuk.jsonl: three full slots, no creation room.

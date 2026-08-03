@@ -81,6 +81,17 @@ public static class ShellText
     public static bool IsPersonaNamePrompt(string normalized)
         => ContainsPhrase(normalized, "by what name shall i call you");
 
+    /// <summary>The re-ask after the shell refused a name ('Sorry, I can't call you "P".' ->
+    /// "What shall I call you instead?"). Still a name prompt, so the answer is a persona name.</summary>
+    public static bool IsNameRejectedPrompt(string normalized)
+        => ContainsPhrase(normalized, "what shall i call you instead");
+
+    /// <summary>The Option menu's rejection of something it did not understand. Expected noise
+    /// rather than an error: a bare CR draws one, and so does an unterminated FES probe that the
+    /// shell was holding when we flushed it.</summary>
+    public static bool IsOptionUnavailableLine(string normalized)
+        => ContainsPhrase(normalized, "option unavailable");
+
     /// <summary>The Option-menu response shown while a reset is rebuilding the persona database.</summary>
     public static bool IsDatabaseStillInitialisingLine(string normalized)
         => ContainsPhrase(normalized, "the database is still initialising");

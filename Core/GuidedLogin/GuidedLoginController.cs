@@ -47,6 +47,11 @@ public sealed class GuidedLoginController : IDisposable
     private static readonly TimeSpan LandmarkTimeout = TimeSpan.FromSeconds(8);
     private static readonly TimeSpan DbRetryWindow = TimeSpan.FromSeconds(6);
     private static readonly TimeSpan DbRetryInterval = TimeSpan.FromSeconds(2);
+    /// <summary>How many times to answer a persona-name prompt. Two, because the thing that eats an
+    /// answer is a single unterminated FES probe left in the shell's input buffer; a name the shell
+    /// genuinely will not take is refused just as firmly the second time, so there is no point
+    /// spraying it. Guards against a rejection loop either way.</summary>
+    private const int NamePromptAttempts = 2;
 
     private readonly MuckaConnection _conn;
     private readonly GuidedLoginOptions _options;
@@ -111,11 +116,20 @@ public sealed class GuidedLoginController : IDisposable
         {
             SetPhase(GuidedLoginPhase.Connecting);
 
-            // On re-entry the shell is already sitting at the Option menu waiting for a command:
-            // that prompt is HOW game-mode exit gets detected. Nudging it with a blank line only
-            // earns an "Option unavailable." and a redundant prompt, so fall straight through to
-            // the persona query.
-            if (!_options.StartAtOptionMenu)
+            if (_options.StartAtOptionMenu)
+            {
+                // The shell is already at the Option menu -- that prompt is HOW game-mode exit gets
+                // detected -- so there is nothing to wait for. But it may be holding a partial line:
+                // an FES probe carries no trailing CR, so one that was in flight when the server
+                // dropped us sits in the shell's input buffer and gets spliced onto the front of
+                // whatever we send next ("<probe>p" -> "Option unavailable.", and no persona list
+                // ever comes). A bare CR flushes it. The shell answers that with one
+                // "Option unavailable." of its own, which is expected noise, not an error -- and is
+                // deliberately not a landmark anywhere below.
+                ResetBuffer();
+                _conn.SendLine(string.Empty);
+            }
+            else
             {
                 // Some servers (mud2.com) show a "Skip the rest? (y/n)" MOTD prompt before the login
                 // splash/banner; others (mud2.co.uk) go straight to the banner. Answer "y" if asked,
@@ -428,23 +442,53 @@ public sealed class GuidedLoginController : IDisposable
 
     private async Task<GuidedLoginResult> SelectExistingAtPromptAsync(string name, CancellationToken ct)
     {
-        _conn.SendLine(name);
-        return await WaitForGameModeAsync(ct).ConfigureAwait(false);
+        for (var attempt = 1; attempt <= NamePromptAttempts; attempt++)
+        {
+            ResetBuffer();
+            _conn.SendLine(name);
+
+            // Null means the shell refused the name rather than starting the game, so our answer
+            // never reached the prompt -- say it again. See NamePromptAttempts.
+            var result = await WaitForGameModeAsync(ct).ConfigureAwait(false);
+            if (result is not null)
+                return result;
+        }
+        return Fail(NameRefusedReason(name));
     }
 
     private async Task<GuidedLoginResult> CreatePersonaAsync(string name, char sex, CancellationToken ct)
     {
-        _conn.SendLine(name);
-        var sawSexPrompt = await WaitForLandmarkAsync(ShellText.IsSexPrompt, LandmarkTimeout, ct).ConfigureAwait(false);
-        if (!sawSexPrompt)
-            return Fail($"Timed out waiting for the new-persona sex prompt after naming \"{name}\".");
-        ResetBuffer();
+        for (var attempt = 1; attempt <= NamePromptAttempts; attempt++)
+        {
+            ResetBuffer();
+            _conn.SendLine(name);
+            var sawPrompt = await WaitForLandmarkAsync(
+                    normalized => ShellText.IsSexPrompt(normalized) || ShellText.IsNameRejectedPrompt(normalized),
+                    LandmarkTimeout,
+                    ct)
+                .ConfigureAwait(false);
+            if (!sawPrompt)
+                return Fail($"Timed out waiting for the new-persona sex prompt after naming \"{name}\".");
 
-        _conn.SendLine(sex.ToString());
-        return await WaitForGameModeAsync(ct).ConfigureAwait(false);
+            if (!ShellText.IsSexPrompt(NormalizedBufferSnapshot()))
+                continue;   // name refused -- retry it, then give up with the shell's verdict
+
+            ResetBuffer();
+            _conn.SendLine(sex.ToString());
+            // A name refusal cannot follow the sex answer, so a null here is unreachable; treat it
+            // as a refusal anyway rather than dereferencing it.
+            return await WaitForGameModeAsync(ct).ConfigureAwait(false) ?? Fail(NameRefusedReason(name));
+        }
+        return Fail(NameRefusedReason(name));
     }
 
-    private async Task<GuidedLoginResult> WaitForGameModeAsync(CancellationToken ct)
+    private static string NameRefusedReason(string name)
+        => $"The MUD Shell would not accept the persona name \"{name}\".";
+
+    /// <summary>Waits to land in the game after answering a name prompt. Returns null if the shell
+    /// re-asked for the name instead ("What shall I call you instead?"), so the caller can answer it
+    /// again -- see <see cref="NamePromptAttempts"/>.</summary>
+    private async Task<GuidedLoginResult?> WaitForGameModeAsync(CancellationToken ct)
     {
         SetPhase(GuidedLoginPhase.WaitingForGameMode);
         var deadline = Task.Delay(LandmarkTimeout, ct);
@@ -458,6 +502,8 @@ public sealed class GuidedLoginController : IDisposable
 
             if (_disconnected)
                 return Fail("Disconnected while waiting to enter the game.");
+            if (ShellText.IsNameRejectedPrompt(NormalizedBufferSnapshot()))
+                return null;
 
             var completed = await Task.WhenAny(signal, deadline).ConfigureAwait(false);
             if (completed == deadline)
