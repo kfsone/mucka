@@ -17,6 +17,10 @@ public sealed record CombatEncounterSnapshot(
     double ApproxDamageTaken,
     TimeSpan Duration,
     double ApproxDps,
+    // TheirApproxDps: the NPC side's damage rate. Without it the readout answered only half of
+    // "am I winning this". (Plain comment, not an XML one: a positional record parameter is not a
+    // valid target for /// and warns CS1587.)
+    double TheirApproxDps,
     IReadOnlyList<FightSnapshot> Fights);
 
 /// <summary>One NPC's fight within the current encounter, in first-engaged order. Includes fights
@@ -252,6 +256,7 @@ public sealed class CombatStatsAggregator
         var theirHitRate = theirAttempts == 0 ? 0 : _theyHits / (double)theirAttempts;
         var durationSeconds = duration.TotalSeconds;
         var dps = durationSeconds <= 0 ? 0 : _approxDamageDone / durationSeconds;
+        var theirDps = durationSeconds <= 0 ? 0 : _approxDamageTaken / durationSeconds;
 
         return new CombatEncounterSnapshot(
             HasEncounter,
@@ -268,6 +273,7 @@ public sealed class CombatStatsAggregator
             _approxDamageTaken,
             duration,
             dps,
+            theirDps,
             BuildFightSnapshots(nowUtc));
     }
 

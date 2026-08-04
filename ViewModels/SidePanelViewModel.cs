@@ -221,39 +221,24 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     private readonly CombatStatsAggregator _combatStats = new();
     private bool _inCombat, _isClogging, _hasCombatData, _isCombatGrace;
     private int _combatClearGeneration;
-    private string _combatWeapon = "--";
-    private string _combatTargets = "--";
-    private int _combatYouHits;
-    private int _combatYouMisses;
-    private int _combatTheyHits;
-    private int _combatTheyMisses;
-    private string _combatYouHitRate = "0%";
-    private string _combatTheyHitRate = "0%";
-    private string _combatDamageDone = "0.0";
-    private string _combatDamageTaken = "0.0";
-    private string _combatDuration = "00:00";
-    private string _combatDps = "0.0";
-    private string _combatStamina = "--";
-    private string _combatStrength = "--";
-    private string _combatDexterity = "--";
-    private string _combatMagic = "--";
-    private string _combatCarry = "--";
-    private string _combatProgress = "--";
-    private string _combatFightRows = string.Empty;
-    private string _combatHistoryHeader = string.Empty;
-    private string _combatHistoryRows = string.Empty;
+    // The whole readout, as styled lines. Replaced the previous one-property-per-row surface: labels
+    // were consuming most of the panel's width, and absolute Sta/Str/Dex/Mag/Carry/Level/Games told
+    // the reader nothing actionable mid-fight. See CombatHistoryFormatter for the layout rationale.
+    private IReadOnlyList<ClogLine> _clogLines = [];
+    // Latest stats, kept so a refresh triggered by a combat event (not a stats event) can still
+    // report the current load penalty.
+    private CombatStatDeficits _combatDeficits = CombatStatDeficits.None;
 
     // Set once at startup (see AttachFightHistory). Null in unit/design contexts, in which case the
     // history block simply stays hidden.
     private FightHistoryStore? _fightHistory;
-    // The historical medians only change when new rows are appended (at encounter end) or when the
-    // target changes, so the scan is cached against those two keys instead of re-running on every
-    // combat event and every 1 Hz tick (Invariant #1). The live "now" figures are formatted fresh
-    // each refresh, which costs only string building.
-    private string? _historyCacheGroup;
+    // The historical scan only changes when new rows are appended (at encounter end) or when the
+    // target changes, so it is cached against those keys instead of re-running on every combat event
+    // and every 1 Hz tick (Invariant #1). The live "now" figures are formatted fresh each refresh,
+    // which costs only string building.
+    private string? _historyCacheInstance;
     private int _historyCacheRowCount = -1;
-    private FightHistorySummary _historyCacheSummary = FightHistorySummary.Empty;
-    private IReadOnlyList<WeaponHistorySummary> _historyCacheByWeapon = [];
+    private CombatHistoryContext _historyCache = CombatHistoryContext.Empty;
 
     public bool InCombat   => _inCombat;
     public bool IsClogging => _isClogging;
@@ -267,33 +252,11 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         : _isClogging ? "In combat — recording a clog" : "In combat";
     public bool HasCombatData => _hasCombatData;
     public bool NoCombatData => !_hasCombatData;
-    public string CombatWeapon => _combatWeapon;
-    public string CombatTargets => _combatTargets;
-    public int CombatYouHits => _combatYouHits;
-    public int CombatYouMisses => _combatYouMisses;
-    public int CombatTheyHits => _combatTheyHits;
-    public int CombatTheyMisses => _combatTheyMisses;
-    public string CombatYouHitRate => _combatYouHitRate;
-    public string CombatTheyHitRate => _combatTheyHitRate;
-    public string CombatDamageDone => _combatDamageDone;
-    public string CombatDamageTaken => _combatDamageTaken;
-    public string CombatDuration => _combatDuration;
-    public string CombatDps => _combatDps;
-    public string CombatStamina => _combatStamina;
-    public string CombatStrength => _combatStrength;
-    public string CombatDexterity => _combatDexterity;
-    public string CombatMagic => _combatMagic;
-    public string CombatCarry => _combatCarry;
-    public string CombatProgress => _combatProgress;
 
-    /// <summary>Per-NPC breakdown of the current encounter, pre-formatted for a monospace label.
-    /// Empty (and hidden) for a single-NPC encounter, where the totals above already say it all.</summary>
-    public string CombatFightRows => _combatFightRows;
-    public bool HasCombatFightRows => _combatFightRows.Length > 0;
-    /// <summary>e.g. "rats: 7 prior fights, 5 with detail".</summary>
-    public string CombatHistoryHeader => _combatHistoryHeader;
-    public string CombatHistoryRows => _combatHistoryRows;
-    public bool HasCombatHistory => _combatHistoryHeader.Length > 0;
+    /// <summary>The entire clog readout as styled lines; the page renders these into one
+    /// FormattedString. Only raises PropertyChanged when the content actually differs, so the
+    /// per-event and 1 Hz refreshes do not re-template the label for nothing (Invariant #1).</summary>
+    public IReadOnlyList<ClogLine> ClogLines => _clogLines;
 
     /// <summary>Supplies the accumulated per-fight history the live figures are contrasted against.
     /// Call once at startup; the store loads itself off-thread (see MuckaConnection).</summary>
@@ -350,12 +313,16 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         => MainThread.BeginInvokeOnMainThread(() =>
         {
             _combatStats.ObserveStamina(stats.Stamina);
-            _combatStamina = FormatPair(stats.Stamina, stats.MaxStamina);
-            _combatStrength = FormatEffectiveStat(stats.Strength, stats.RawStrength, stats.MaxStrength);
-            _combatDexterity = FormatEffectiveStat(stats.Dexterity, stats.RawDexterity, stats.MaxDexterity);
-            _combatMagic = FormatPair(stats.CurrentMagic, stats.MaxMagic);
-            _combatCarry = FormatCarry(stats.WeightCarriedGrams, stats.MaxWeightGrams, stats.ObjectsCarried, stats.MaxObjectsCarried);
-            _combatProgress = FormatProgress(stats.Level, stats.GamesPlayed);
+            // Deltas, not absolutes: effective-minus-raw is what the player's current load and
+            // afflictions are costing them right now, which is actionable (drop the load) where a
+            // bare "83/100 raw 94" was not.
+            _combatDeficits = new CombatStatDeficits(
+                StrengthDelta: Delta(stats.Strength, stats.RawStrength),
+                DexterityDelta: Delta(stats.Dexterity, stats.RawDexterity),
+                StaminaCurrent: stats.Stamina,
+                StaminaMax: stats.MaxStamina,
+                WeightCarriedGrams: stats.WeightCarriedGrams,
+                ObjectsCarried: stats.ObjectsCarried);
             RefreshCombatDisplay(DateTime.UtcNow);
         });
 
@@ -394,165 +361,52 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
 
     private void RefreshCombatDisplay(DateTime nowUtc)
     {
-        if (!_hasCombatData)
-        {
-            _combatWeapon = "--";
-            _combatTargets = "--";
-            _combatYouHits = 0;
-            _combatYouMisses = 0;
-            _combatTheyHits = 0;
-            _combatTheyMisses = 0;
-            _combatYouHitRate = "0%";
-            _combatTheyHitRate = "0%";
-            _combatDamageDone = "0.0";
-            _combatDamageTaken = "0.0";
-            _combatDuration = "00:00";
-            _combatDps = "0.0";
-            _combatFightRows = string.Empty;
-            _combatHistoryHeader = string.Empty;
-            _combatHistoryRows = string.Empty;
-        }
-        else
-        {
-            var snapshot = _combatStats.Snapshot(nowUtc);
-            _combatWeapon = string.IsNullOrWhiteSpace(snapshot.CurrentWeapon) ? "--" : snapshot.CurrentWeapon;
-            _combatTargets = snapshot.ActiveNpcs.Count == 0 ? "--" : string.Join(", ", snapshot.ActiveNpcs);
-            _combatYouHits = snapshot.YouHits;
-            _combatYouMisses = snapshot.YouMisses;
-            _combatTheyHits = snapshot.TheyHits;
-            _combatTheyMisses = snapshot.TheyMisses;
-            _combatYouHitRate = FormatPercent(snapshot.YouHitRate);
-            _combatTheyHitRate = FormatPercent(snapshot.TheyHitRate);
-            _combatDamageDone = FormatNumber(snapshot.ApproxDamageDone);
-            _combatDamageTaken = FormatNumber(snapshot.ApproxDamageTaken);
-            _combatDuration = FormatDuration(snapshot.Duration);
-            _combatDps = FormatNumber(snapshot.ApproxDps);
-            _combatFightRows = CombatHistoryFormatter.FormatFightRows(snapshot.Fights);
-            RefreshHistoryBlock(snapshot);
-        }
+        var lines = _hasCombatData
+            ? CombatHistoryFormatter.Build(_combatStats.Snapshot(nowUtc), _combatDeficits, ResolveHistory(nowUtc))
+            : (IReadOnlyList<ClogLine>)[];
 
-        OnPropertiesChanged(
-            nameof(HasCombatData), nameof(NoCombatData),
-            nameof(CombatWeapon), nameof(CombatTargets),
-            nameof(CombatYouHits), nameof(CombatYouMisses), nameof(CombatTheyHits), nameof(CombatTheyMisses),
-            nameof(CombatYouHitRate), nameof(CombatTheyHitRate),
-            nameof(CombatDamageDone), nameof(CombatDamageTaken), nameof(CombatDuration), nameof(CombatDps),
-            nameof(CombatStamina), nameof(CombatStrength), nameof(CombatDexterity), nameof(CombatMagic),
-            nameof(CombatCarry), nameof(CombatProgress),
-            nameof(CombatFightRows), nameof(HasCombatFightRows),
-            nameof(CombatHistoryHeader), nameof(CombatHistoryRows), nameof(HasCombatHistory));
+        // Diff before publishing: at 1 Hz plus one refresh per combat line, an unconditional notify
+        // would rebuild the label's FormattedString constantly for identical content, which is
+        // exactly the UI-thread churn Invariant #1 forbids.
+        if (ClogLine.SequenceEquals(_clogLines, lines))
+            return;
+
+        _clogLines = lines;
+        OnPropertiesChanged(nameof(HasCombatData), nameof(NoCombatData), nameof(ClogLines));
     }
 
-    /// <summary>Rebuilds the "vs history" block for the encounter's primary target. The historical
-    /// scan itself is cached (see the _historyCache* fields); only the live-vs-median formatting
-    /// runs every refresh.</summary>
-    private void RefreshHistoryBlock(CombatEncounterSnapshot snapshot)
+    /// <summary>Assembles the history context for the encounter's primary target. The scan itself is
+    /// cached against (instance, row count) — the medians cannot move mid-fight, only the live
+    /// figures compared against them can.</summary>
+    private CombatHistoryContext ResolveHistory(DateTime nowUtc)
     {
-        var primary = PrimaryFight(snapshot);
+        var primary = CombatHistoryFormatter.PrimaryFight(_combatStats.Snapshot(nowUtc));
         if (_fightHistory is null || primary is null || string.IsNullOrWhiteSpace(primary.NpcGroup))
-        {
-            _combatHistoryHeader = string.Empty;
-            _combatHistoryRows = string.Empty;
-            return;
-        }
+            return CombatHistoryContext.Empty;
 
         var records = _fightHistory.Snapshot();
-        if (!string.Equals(_historyCacheGroup, primary.NpcGroup, StringComparison.OrdinalIgnoreCase)
+        if (!string.Equals(_historyCacheInstance, primary.NpcName, StringComparison.OrdinalIgnoreCase)
             || _historyCacheRowCount != records.Count)
         {
-            _historyCacheGroup = primary.NpcGroup;
+            _historyCacheInstance = primary.NpcName;
             _historyCacheRowCount = records.Count;
-            _historyCacheSummary = FightHistory.Summarize(records, primary.NpcGroup);
-            _historyCacheByWeapon = FightHistory.SummarizeByWeapon(records, primary.NpcGroup);
+            _historyCache = new CombatHistoryContext(
+                primary.NpcName,
+                primary.NpcGroup,
+                // Instance-level: difficulty is per-instance (rat0 is far nastier than its siblings,
+                // dwarf48 harder than most dwarves).
+                FightHistory.SummarizeInstance(records, primary.NpcName),
+                FightHistory.Summarize(records, primary.NpcGroup),
+                // Weapon susceptibility stays keyed on the GROUP: dwarf48 is still a dwarf and still
+                // takes extra from a pick, and the group is where sample counts actually accumulate.
+                FightHistory.SummarizeByWeapon(records, primary.NpcGroup));
         }
 
-        _combatHistoryHeader = CombatHistoryFormatter.FormatHistoryHeader(primary.NpcGroup, _historyCacheSummary);
-        _combatHistoryRows = CombatHistoryFormatter.FormatHistoryRows(primary, _historyCacheSummary, _historyCacheByWeapon);
+        return _historyCache;
     }
 
-    /// <summary>The fight the history block describes: the first still-unresolved one (what the
-    /// player is actually up against right now), falling back to the first of the encounter so the
-    /// comparison stays on screen through the post-kill grace window.</summary>
-    private static FightSnapshot? PrimaryFight(CombatEncounterSnapshot snapshot)
-    {
-        FightSnapshot? first = null;
-        foreach (var fight in snapshot.Fights)
-        {
-            first ??= fight;
-            if (!fight.IsResolved)
-                return fight;
-        }
-
-        return first;
-    }
-
-    private static string FormatPercent(double value)
-        => $"{Math.Round(value * 100, MidpointRounding.AwayFromZero).ToString(CultureInfo.InvariantCulture)}%";
-
-    private static string FormatNumber(double value)
-        => value.ToString("0.0", CultureInfo.InvariantCulture);
-
-    private static string FormatDuration(TimeSpan duration)
-        => $"{(int)duration.TotalMinutes:00}:{duration.Seconds:00}";
-
-    private static string FormatPair(int? current, int? maximum)
-    {
-        if (current is null && maximum is null)
-            return "--";
-        if (current is null)
-            return $"--/{maximum}";
-        if (maximum is null)
-            return current.Value.ToString(CultureInfo.InvariantCulture);
-        return $"{current}/{maximum}";
-    }
-
-    private static string FormatEffectiveStat(int? effective, int? raw, int? maximum)
-    {
-        if (effective is null && raw is null && maximum is null)
-            return "--";
-
-        var current = effective?.ToString(CultureInfo.InvariantCulture) ?? "--";
-        var cap = maximum is null ? string.Empty : $"/{maximum.Value.ToString(CultureInfo.InvariantCulture)}";
-        if (raw is null)
-            return $"{current}{cap}";
-
-        return $"{current}{cap} raw {raw.Value.ToString(CultureInfo.InvariantCulture)}";
-    }
-
-    private static string FormatCarry(int? weightCarriedGrams, int? maxWeightGrams, int? objectsCarried, int? maxObjectsCarried)
-    {
-        var haveWeight = weightCarriedGrams is not null || maxWeightGrams is not null;
-        var haveObjects = objectsCarried is not null || maxObjectsCarried is not null;
-        if (!haveWeight && !haveObjects)
-            return "--";
-
-        var parts = new List<string>(2);
-        if (haveWeight)
-        {
-            var current = weightCarriedGrams?.ToString(CultureInfo.InvariantCulture) ?? "--";
-            var maximum = maxWeightGrams?.ToString(CultureInfo.InvariantCulture) ?? "--";
-            parts.Add($"{current}/{maximum}g");
-        }
-        if (haveObjects)
-        {
-            var current = objectsCarried?.ToString(CultureInfo.InvariantCulture) ?? "--";
-            var maximum = maxObjectsCarried?.ToString(CultureInfo.InvariantCulture) ?? "--";
-            parts.Add($"{current}/{maximum} obj");
-        }
-
-        return string.Join("  ", parts);
-    }
-
-    private static string FormatProgress(int? level, int? gamesPlayed)
-    {
-        if (level is null && gamesPlayed is null)
-            return "--";
-        if (level is null)
-            return $"games {gamesPlayed!.Value.ToString(CultureInfo.InvariantCulture)}";
-        if (gamesPlayed is null)
-            return $"lvl {level.Value.ToString(CultureInfo.InvariantCulture)}";
-        return $"lvl {level.Value.ToString(CultureInfo.InvariantCulture)}  games {gamesPlayed.Value.ToString(CultureInfo.InvariantCulture)}";
-    }
+    private static int? Delta(int? effective, int? raw)
+        => effective is null || raw is null ? null : effective.Value - raw.Value;
 
 
     /// <summary>Apply a new status-effect snapshot from the session (fires on the read-loop thread).</summary>

@@ -89,6 +89,31 @@ public static class FightHistory
         return Summarize(matching);
     }
 
+    /// <summary>
+    /// Aggregates prior fights against one specific NPC INSTANCE (e.g. "rat0", not "rats").
+    ///
+    /// <para>MUD2 instances of the same creature are not equivalent opponents: rat0 is far more
+    /// dangerous than the other rats, and dwarf48 harder than most dwarves. Difficulty figures —
+    /// damage, duration, outcomes, stamina pool — therefore belong to the instance once it has
+    /// samples of its own. Weapon susceptibility does NOT: dwarf48 is still a dwarf and still takes
+    /// extra from a pick, so <see cref="SummarizeByWeapon"/> stays keyed on the group, which is also
+    /// where sample counts actually accumulate.</para>
+    /// </summary>
+    public static FightHistorySummary SummarizeInstance(IEnumerable<FightRecord> records, string npcName)
+    {
+        if (string.IsNullOrWhiteSpace(npcName))
+            return FightHistorySummary.Empty;
+
+        var matching = new List<FightRecord>();
+        foreach (var record in records)
+        {
+            if (string.Equals(record.NpcName, npcName, StringComparison.OrdinalIgnoreCase))
+                matching.Add(record);
+        }
+
+        return Summarize(matching);
+    }
+
     /// <summary>Per-weapon breakdown against one NPC group, ordered by sample size descending then
     /// weapon name, so the best-evidenced weapon reads first.</summary>
     public static IReadOnlyList<WeaponHistorySummary> SummarizeByWeapon(

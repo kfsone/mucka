@@ -1,168 +1,142 @@
 #if WINDOWS
+using System.ComponentModel;
 using Mucka.ViewModels;
 
 namespace Mucka.Pages;
 
 /// <summary>
 /// Windows-only floating "clog" window opened by "$clog on" (see GameViewModel.HandleClogCommand).
-/// Shows the same live combat-stats readout that used to live in the extras side panel — moved
-/// here so it has room to grow (item-eval results, hidden-mechanic notes, etc.) without competing
-/// for space with the always-busy side panel.
 ///
-/// <para>Minimal chrome by design: a native title bar (for drag/close) and nothing else — no
-/// custom buttons. The window itself doubles as the on/off indicator: closing it (the native ✕)
-/// turns clogging back off (see GamePage's Destroying handler), so there is exactly one place
-/// to look to know whether clogging is active.</para>
+/// <para>Minimal chrome by design: a native title bar (for drag/close) and nothing else. The window
+/// itself doubles as the on/off indicator: closing it (the native X) turns clogging back off (see
+/// GamePage's Destroying handler), so there is exactly one place to look to know whether clogging is
+/// active. There is deliberately no in-window "Combat" heading — the title bar already reads
+/// "Mucka - Clog", so a heading was pure duplication.</para>
 ///
-/// <para>Data-bound directly to GameViewModel.SidePanel's existing Combat* properties (added by
-/// the earlier HUD-prototype work) — this page adds no new view-model surface, it only relocates
-/// the presentation.</para>
+/// <para>The whole readout arrives pre-styled as <see cref="ClogLine"/>s from
+/// CombatHistoryFormatter and renders into ONE Label's FormattedString. That keeps the layout to a
+/// single native view and one text remeasure per genuine change; the view model only raises
+/// PropertyChanged when the content actually differs, so the 1 Hz tick costs nothing when idle
+/// (Invariant #1).</para>
 /// </summary>
 internal sealed class ClogPage : ContentPage
 {
+    private readonly SidePanelViewModel _panel;
+    private readonly Label _readout;
+    private readonly Label _empty;
+
     public ClogPage(GameViewModel vm)
     {
         BackgroundColor = Color.FromArgb("#0C0C0C");
-        BindingContext = vm.SidePanel;
+        _panel = vm.SidePanel;
+        BindingContext = _panel;
 
-        var stack = new VerticalStackLayout { Spacing = 4, Padding = new Thickness(10) };
-
-        var heading = new Label
+        _readout = new Label
         {
-            Text = "Combat", TextColor = Color.FromArgb("#58a6ff"), FontSize = 13,
-            FontAttributes = FontAttributes.Bold,
+            FontSize = 11,
+            FontFamily = "Cascadia Mono, Consolas, monospace",
+            LineBreakMode = LineBreakMode.NoWrap,
+            TextColor = ToneColor(ClogTone.Value),
         };
-        stack.Add(heading);
 
-        var noData = new Label
+        _empty = new Label
         {
-            Text = "\u2014 no combat data yet \u2014", TextColor = Color.FromArgb("#555555"),
-            FontSize = 12, FontAttributes = FontAttributes.Italic,
+            Text = "— no combat data yet —",
+            TextColor = ToneColor(ClogTone.Dim),
+            FontSize = 12,
+            FontAttributes = FontAttributes.Italic,
         };
-        noData.SetBinding(IsVisibleProperty, nameof(SidePanelViewModel.NoCombatData));
-        stack.Add(noData);
-
-        var data = new VerticalStackLayout { Spacing = 2 };
-        data.SetBinding(IsVisibleProperty, nameof(SidePanelViewModel.HasCombatData));
-        stack.Add(data);
-
-        data.Add(Row("Weapon", nameof(SidePanelViewModel.CombatWeapon)));
-        data.Add(Row("Targets", nameof(SidePanelViewModel.CombatTargets)));
-        data.Add(RowPair("You", nameof(SidePanelViewModel.CombatYouHits), "hit", nameof(SidePanelViewModel.CombatYouMisses), "miss", nameof(SidePanelViewModel.CombatYouHitRate)));
-        data.Add(RowPair("Them", nameof(SidePanelViewModel.CombatTheyHits), "hit", nameof(SidePanelViewModel.CombatTheyMisses), "miss", nameof(SidePanelViewModel.CombatTheyHitRate)));
-        data.Add(Row("Damage done/taken", null, nameof(SidePanelViewModel.CombatDamageDone), nameof(SidePanelViewModel.CombatDamageTaken)));
-        data.Add(Row("Tempo/dps", null, nameof(SidePanelViewModel.CombatDuration), nameof(SidePanelViewModel.CombatDps)));
-        data.Add(Row("Sta", nameof(SidePanelViewModel.CombatStamina)));
-        data.Add(Row("Str", nameof(SidePanelViewModel.CombatStrength)));
-        data.Add(Row("Dex", nameof(SidePanelViewModel.CombatDexterity)));
-        data.Add(Row("Mag", nameof(SidePanelViewModel.CombatMagic)));
-        data.Add(Row("Carry", nameof(SidePanelViewModel.CombatCarry)));
-        data.Add(Row("Level", nameof(SidePanelViewModel.CombatProgress)));
-
-        // Per-NPC breakdown — only present for a multi-NPC encounter, where the totals above cannot
-        // tell you which target the damage actually went to.
-        var fightsBlock = new VerticalStackLayout { Spacing = 2, Margin = new Thickness(0, 6, 0, 0) };
-        fightsBlock.SetBinding(IsVisibleProperty, nameof(SidePanelViewModel.HasCombatFightRows));
-        fightsBlock.Add(SectionHeading("per fight"));
-        fightsBlock.Add(Mono(nameof(SidePanelViewModel.CombatFightRows)));
-        data.Add(fightsBlock);
-
-        // "vs history" — this fight against prior fights with the same NPC group. Hidden entirely
-        // until there is at least one prior fight on record, so a first encounter shows nothing
-        // rather than a block of "--".
-        var historyBlock = new VerticalStackLayout { Spacing = 2, Margin = new Thickness(0, 8, 0, 0) };
-        historyBlock.SetBinding(IsVisibleProperty, nameof(SidePanelViewModel.HasCombatHistory));
-        historyBlock.Add(Mono(nameof(SidePanelViewModel.CombatHistoryHeader), Color.FromArgb("#58a6ff")));
-        historyBlock.Add(Mono(nameof(SidePanelViewModel.CombatHistoryRows)));
-        data.Add(historyBlock);
-
-        var sep = new BoxView { Color = Color.FromArgb("#2d333b"), HeightRequest = 1, Margin = new Thickness(0, 8, 0, 4) };
-        stack.Add(sep);
+        _empty.SetBinding(IsVisibleProperty, nameof(SidePanelViewModel.NoCombatData));
 
         var hint = new Label
         {
             Text = "$clog eval <itemid> — weigh/look/drop+get an item\nto measure its str/dex cost.",
-            TextColor = Color.FromArgb("#6e7681"), FontSize = 10,
+            TextColor = ToneColor(ClogTone.Dim),
+            FontSize = 10,
         };
-        stack.Add(hint);
+
+        var stack = new VerticalStackLayout
+        {
+            Spacing = 4,
+            Padding = new Thickness(10),
+            Children =
+            {
+                _empty,
+                _readout,
+                new BoxView { Color = Color.FromArgb("#2d333b"), HeightRequest = 1, Margin = new Thickness(0, 8, 0, 4) },
+                hint,
+            },
+        };
 
         Content = new ScrollView { Content = stack };
+
+        _panel.PropertyChanged += OnPanelPropertyChanged;
+        Render(_panel.ClogLines);
     }
 
-    private static View Row(string label, string? valueProperty, string? valueA = null, string? valueB = null)
+    protected override void OnHandlerChanged()
     {
-        var grid = new Grid { ColumnDefinitions = { new ColumnDefinition(GridLength.Auto), new ColumnDefinition(GridLength.Star) } };
-        grid.Add(Lbl(label, Color.FromArgb("#58a6ff")), 0, 0);
+        base.OnHandlerChanged();
+        // Unsubscribe once the window is torn down, so a closed clog window does not keep receiving
+        // (and re-rendering for) every combat line of the rest of the session.
+        if (Handler is null)
+            _panel.PropertyChanged -= OnPanelPropertyChanged;
+    }
 
-        View valueView;
-        if (valueProperty != null)
+    private void OnPanelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is not (nameof(SidePanelViewModel.ClogLines) or null))
+            return;
+
+        Render(_panel.ClogLines);
+    }
+
+    private void Render(IReadOnlyList<ClogLine> lines)
+    {
+        if (lines.Count == 0)
         {
-            var v = Lbl(string.Empty, Color.FromArgb("#cccccc"));
-            v.SetBinding(Label.TextProperty, valueProperty);
-            valueView = v;
+            _readout.FormattedText = null;
+            _readout.Text = string.Empty;
+            _readout.IsVisible = false;
+            return;
         }
-        else
+
+        var formatted = new FormattedString();
+        for (var i = 0; i < lines.Count; i++)
         {
-            var a = Lbl(string.Empty, Color.FromArgb("#cccccc"));
-            a.SetBinding(Label.TextProperty, valueA);
-            var b = Lbl(string.Empty, Color.FromArgb("#cccccc"));
-            b.SetBinding(Label.TextProperty, valueB);
-            valueView = new HorizontalStackLayout { Spacing = 6, HorizontalOptions = LayoutOptions.End, Children = { a, b } };
+            if (i > 0)
+                formatted.Spans.Add(new Span { Text = "\n" });
+
+            var spans = lines[i].Spans;
+            if (spans.Count == 0)
+                continue;   // a blank spacer line: the newline above is the whole content
+
+            foreach (var span in spans)
+            {
+                formatted.Spans.Add(new Span
+                {
+                    Text = span.Text,
+                    TextColor = ToneColor(span.Tone),
+                    TextDecorations = span.Strike ? TextDecorations.Strikethrough : TextDecorations.None,
+                });
+            }
         }
-        valueView.HorizontalOptions = LayoutOptions.End;
-        grid.Add(valueView, 1, 0);
-        return grid;
+
+        _readout.FormattedText = formatted;
+        _readout.IsVisible = true;
     }
 
-    private static View RowPair(string label, string hitsProp, string hitsSuffix, string missesProp, string missesSuffix, string rateProp)
+    /// <summary>The single place tones become colours. Friendly/hostile carry what row labels used to,
+    /// which is what freed up the width the first layout was spending on them.</summary>
+    private static Color ToneColor(ClogTone tone) => tone switch
     {
-        var grid = new Grid { ColumnDefinitions = { new ColumnDefinition(GridLength.Auto), new ColumnDefinition(GridLength.Star) } };
-        grid.Add(Lbl(label, Color.FromArgb("#58a6ff")), 0, 0);
-
-        var formatted = new Label { FontSize = 11, HorizontalOptions = LayoutOptions.End };
-        var span = new FormattedString();
-        span.Spans.Add(BoundSpan(hitsProp, Color.FromArgb("#cccccc")));
-        span.Spans.Add(new Span { Text = $" {hitsSuffix}  ", TextColor = Color.FromArgb("#6e7681") });
-        span.Spans.Add(BoundSpan(missesProp, Color.FromArgb("#cccccc")));
-        span.Spans.Add(new Span { Text = $" {missesSuffix}  ", TextColor = Color.FromArgb("#6e7681") });
-        span.Spans.Add(BoundSpan(rateProp, Color.FromArgb("#cccccc")));
-        formatted.FormattedText = span;
-        grid.Add(formatted, 1, 0);
-        return grid;
-    }
-
-    private static Label SectionHeading(string text) => new()
-    {
-        Text = text, TextColor = Color.FromArgb("#6e7681"), FontSize = 10,
-        FontFamily = "Cascadia Mono, Consolas, monospace",
-    };
-
-    /// <summary>A monospace label bound to a pre-formatted multi-line string. The formatter builds
-    /// column-aligned text (see CombatHistoryFormatter) precisely so these can be plain labels
-    /// instead of bound lists, which would re-template native views on every refresh.</summary>
-    private static Label Mono(string property, Color? color = null)
-    {
-        var label = new Label
-        {
-            TextColor = color ?? Color.FromArgb("#cccccc"), FontSize = 11,
-            FontFamily = "Cascadia Mono, Consolas, monospace",
-            LineBreakMode = LineBreakMode.NoWrap,
-        };
-        label.SetBinding(Label.TextProperty, property);
-        return label;
-    }
-
-    private static Span BoundSpan(string property, Color color)
-    {
-        var span = new Span { TextColor = color };
-        span.SetBinding(Span.TextProperty, property);
-        return span;
-    }
-
-    private static Label Lbl(string text, Color color) => new()
-    {
-        Text = text, TextColor = color, FontSize = 11,
-        FontFamily = "Cascadia Mono, Consolas, monospace",
+        ClogTone.Dim => Color.FromArgb("#6e7681"),
+        ClogTone.Friendly => Color.FromArgb("#58a6ff"),   // the player's side
+        ClogTone.Hostile => Color.FromArgb("#f85149"),    // NPCs
+        ClogTone.Good => Color.FromArgb("#3fb950"),       // beating the best on record
+        ClogTone.Warn => Color.FromArgb("#d29922"),       // underperforming, or a live stat penalty
+        ClogTone.Heading => Color.FromArgb("#a371f7"),
+        _ => Color.FromArgb("#cccccc"),
     };
 }
 #endif

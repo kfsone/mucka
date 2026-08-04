@@ -298,3 +298,80 @@ but we have no way to measure or even confirm what an NPC is carrying beyond the
 line the `sc` sheet reports while fighting one.
 
 
+
+## Carried load vs dexterity (user, 2026-08-04)
+
+What you carry costs you stats, and the cost is not uniform:
+
+- Carried weight penalizes **dexterity**.
+- The **same weight stowed in a bag** costs the same **strength** but **much less dexterity**.
+- Hence standard MUD practice: **drop everything before a real fight**.
+- **Exception: the swamp.** Items dropped there are lost for the rest of the game, so the usual
+  drop-everything opener is a trap in that room.
+
+Consequences for the tooling:
+
+- The clog readout shows stat DELTAS (effective minus raw) plus the carried weight/object count
+  causing them, rather than absolute Str/Dex readouts, because the delta is the actionable part.
+  See `CombatStatDeficits` and `CombatHistoryFormatter.AppendDeficits`.
+- `FightRecord` already stores `weight_carried_grams` and `objects_carried` per fight, so the
+  bag-vs-held distinction is analyzable later — but note we do NOT currently know which carried
+  items were in a bag, so the recorded weight cannot yet be split into "held" and "stowed". Adding
+  inventory container parsing would be needed to test the dexterity claim quantitatively.
+
+## NPC instances are not interchangeable (user, 2026-08-04)
+
+Instances of the same creature differ sharply in difficulty: `rat0` is far more powerful and
+dangerous than the other rats, and `dwarf48` much harder than most dwarves.
+
+Crucially, this does **not** make them a different creature type: dwarf48 "is still a dwarf, so he's
+still susceptible to various weapon types". So the two axes must be keyed differently:
+
+| Question | Keyed on | Why |
+| --- | --- | --- |
+| How hard is this thing, how much stamina, how long does it take | **instance** (`rat0`) | difficulty is per-instance |
+| Which weapon works on it | **group** (`rats`) | susceptibility is a property of the type, and the group is where sample counts accumulate |
+
+Implemented as a two-tier lookup with no configuration needed: `CombatHistoryContext` carries both
+summaries and prefers the instance once it has `InstanceSampleFloor` (2) fights of its own, falling
+back to the group before that; `SummarizeByWeapon` is always group-keyed. See
+`FightHistory.SummarizeInstance`.
+
+Still open: an explicit override list, for cases where the automatic threshold is wrong or where two
+differently-named NPCs should share a bucket (or one name should be split by some other property).
+Not built - the automatic split covers rat0 and dwarf48 without it.
+
+## NPC value / points (user question, 2026-08-04, UNRESOLVED)
+
+Killing an NPC awards points, so an NPC's value is worth knowing before committing to a fight. MUD2
+appears to expose it via a `value <target>` command.
+
+Open question the user raised, not yet decided: should the client inject `value <enemy>` into its
+in-combat status probe? Considerations to weigh before doing it:
+
+- It costs a command round-trip mid-fight, and MUD2 combat is tick-based - an extra command may
+  consume a turn or otherwise perturb the fight being measured, which would contaminate the very
+  data we are collecting.
+- Value is presumably a static property of the NPC type, so it only needs fetching ONCE per
+  npc_group, not per fight. A one-shot lookup cached in the history index would get the benefit
+  without the per-fight cost.
+- Safer alternative: probe `value` OUTSIDE combat (on first sighting, or via the existing
+  `$clog eval` path) and store it against the group.
+
+Recommendation: cache-once-per-group, fetched outside combat, rather than a per-fight in-combat
+probe.
+
+## Estimating the NPC side's stats (user aspiration, 2026-08-04)
+
+The user asked whether we could calculate an NPC's sta/str/dex, noting "we don't know the rules".
+Current assessment:
+
+- **Stamina: partially derivable.** The pool estimate (median damage dealt across prior KILLS of
+  that instance/group) gives a total, and subtracting this fight's damage-done gives a remaining
+  estimate. This is exactly the numerator of the deferred "are you winning" projection, so it is
+  NOT displayed yet - see STATS_DESIGN.md, and note the fog-of-war caveats there (unobservable NPC
+  regen, the silent pass tick).
+- **Strength / dexterity: not derivable from anything we currently observe.** We see only outcomes
+  (hit/miss/damage), never the NPC's stats, and hit rate conflates their dexterity with our own plus
+  weapon and room effects. Would need either a game-side readout we have not found or a large
+  controlled dataset plus an assumed model. Recorded as an aspiration, not a plan.
