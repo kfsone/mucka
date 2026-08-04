@@ -425,3 +425,110 @@ SELECT
 FROM combat_fights
 GROUP BY COALESCE(NULLIF(weapon_used, ''), '(unknown)'), npc_group
 ORDER BY fight_count DESC, weapon_used, npc_group;
+
+-- ============================================================
+-- LIVE PER-FIGHT ROLLUP LAYER
+-- ============================================================
+-- Rows written directly by the client to ~/.mucka/clogs/fights.jsonl, one per completed per-NPC
+-- fight (see Core/FightHistoryRecorder.cs and tools/combat/STATS_DESIGN.md). Kept separate from
+-- combat_fights, which is derived from a full capture and carries capture/session foreign keys:
+-- these rows are standalone rollups with no capture behind them, and inventing placeholder parent
+-- rows just to satisfy the FKs would pollute the encounter layer.
+--
+-- npc_group here is produced by the C# port of normalize_npc_group (mudsharp/Combat/NpcGroups.cs),
+-- pinned to the Python implementation by npc_group_fixture.txt so both sides bucket identically.
+
+CREATE TABLE IF NOT EXISTS live_fights (
+    id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_file          TEXT    NOT NULL,
+    started_at_ms        INTEGER NOT NULL,
+    ended_at_ms          INTEGER,
+    duration_ms          INTEGER,
+    npc_name             TEXT    NOT NULL,
+    npc_group            TEXT    NOT NULL,
+    weapon_used          TEXT,
+    outcome              TEXT    NOT NULL,
+    you_hits             INTEGER NOT NULL DEFAULT 0,
+    you_misses           INTEGER NOT NULL DEFAULT 0,
+    they_hits            INTEGER NOT NULL DEFAULT 0,
+    they_misses          INTEGER NOT NULL DEFAULT 0,
+    approx_damage_done   REAL    NOT NULL DEFAULT 0,
+    approx_damage_taken  REAL    NOT NULL DEFAULT 0,
+    -- 1 when the fight resolved without a single parsed swing: the signature of a character with
+    -- MUD2's fightbrief off. Such rows MUST be excluded from hit-rate and damage aggregates (the
+    -- views below do) or they drag every average toward zero.
+    narrative_mode       INTEGER NOT NULL DEFAULT 0,
+    room                 TEXT,
+    weather              TEXT,
+    strength             INTEGER,
+    raw_strength         INTEGER,
+    dexterity            INTEGER,
+    raw_dexterity        INTEGER,
+    stamina_at_start     INTEGER,
+    max_stamina          INTEGER,
+    weight_carried_grams INTEGER,
+    objects_carried      INTEGER,
+    level                INTEGER,
+    is_blind             INTEGER NOT NULL DEFAULT 0,
+    is_deaf              INTEGER NOT NULL DEFAULT 0,
+    is_crippled          INTEGER NOT NULL DEFAULT 0,
+    is_dumb              INTEGER NOT NULL DEFAULT 0,
+    effects_json         TEXT    NOT NULL DEFAULT '[]',
+    -- One fight per NPC per start instant; makes re-ingesting the append-only file idempotent.
+    UNIQUE (started_at_ms, npc_name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_live_fights_group
+    ON live_fights(npc_group, weapon_used, outcome);
+CREATE INDEX IF NOT EXISTS idx_live_fights_started
+    ON live_fights(started_at_ms);
+
+-- Medians are not available in plain SQLite, so these views report means and counts; use them to
+-- find where the data is, then compute medians in the analysis layer (the client uses medians --
+-- see FightHistory.cs -- because single-digit samples make means fragile).
+CREATE VIEW IF NOT EXISTS v_live_by_npc_group AS
+SELECT
+    npc_group,
+    COUNT(*) AS fight_count,
+    SUM(CASE WHEN narrative_mode = 0 THEN 1 ELSE 0 END) AS detailed_fight_count,
+    COUNT(CASE WHEN outcome = 'Killed' THEN 1 END) AS kills,
+    COUNT(CASE WHEN outcome = 'KilledByNpc' THEN 1 END) AS deaths,
+    COUNT(CASE WHEN outcome = 'NpcFled' THEN 1 END) AS npc_flees,
+    COUNT(CASE WHEN outcome = 'YouFled' THEN 1 END) AS your_flees,
+    COUNT(CASE WHEN outcome = 'Withdrawn' THEN 1 END) AS withdrawn,
+    COUNT(CASE WHEN outcome = 'Unresolved' THEN 1 END) AS unresolved,
+    ROUND(AVG(CASE WHEN narrative_mode = 0 THEN approx_damage_done END), 3) AS avg_damage_done,
+    ROUND(AVG(CASE WHEN narrative_mode = 0 THEN approx_damage_taken END), 3) AS avg_damage_taken,
+    -- Only kills bound the pool from above; a survivor merely proves its pool exceeds what we dealt.
+    ROUND(AVG(CASE WHEN outcome = 'Killed' AND narrative_mode = 0 THEN approx_damage_done END), 3)
+        AS est_stamina_pool,
+    ROUND(AVG(CASE WHEN narrative_mode = 0 THEN duration_ms END) / 1000.0, 3) AS avg_duration_seconds
+FROM live_fights
+GROUP BY npc_group
+ORDER BY fight_count DESC, npc_group;
+
+CREATE VIEW IF NOT EXISTS v_live_by_weapon_npc_group AS
+SELECT
+    COALESCE(NULLIF(weapon_used, ''), '(none)') AS weapon_used,
+    npc_group,
+    COUNT(*) AS fight_count,
+    SUM(CASE WHEN narrative_mode = 0 THEN 1 ELSE 0 END) AS detailed_fight_count,
+    COUNT(CASE WHEN outcome = 'Killed' THEN 1 END) AS kills,
+    SUM(CASE WHEN narrative_mode = 0 THEN you_hits ELSE 0 END) AS you_hits,
+    SUM(CASE WHEN narrative_mode = 0 THEN you_misses ELSE 0 END) AS you_misses,
+    ROUND(AVG(CASE WHEN narrative_mode = 0 THEN approx_damage_done END), 3) AS avg_damage_done,
+    CASE
+        WHEN SUM(CASE WHEN narrative_mode = 0 THEN you_hits ELSE 0 END) > 0
+            THEN ROUND(SUM(CASE WHEN narrative_mode = 0 THEN approx_damage_done ELSE 0 END)
+                       / SUM(CASE WHEN narrative_mode = 0 THEN you_hits ELSE 0 END), 3)
+        ELSE NULL
+    END AS avg_damage_per_hit,
+    CASE
+        WHEN SUM(CASE WHEN narrative_mode = 0 THEN you_hits + you_misses ELSE 0 END) > 0
+            THEN ROUND(1.0 * SUM(CASE WHEN narrative_mode = 0 THEN you_hits ELSE 0 END)
+                       / SUM(CASE WHEN narrative_mode = 0 THEN you_hits + you_misses ELSE 0 END), 3)
+        ELSE NULL
+    END AS hit_rate
+FROM live_fights
+GROUP BY COALESCE(NULLIF(weapon_used, ''), '(none)'), npc_group
+ORDER BY fight_count DESC, weapon_used, npc_group;

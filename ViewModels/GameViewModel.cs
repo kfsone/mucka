@@ -615,6 +615,10 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         SoundService.WarmUp();
 
         SidePanel = new SidePanelViewModel();
+        SidePanel.AttachFightHistory(_conn.FightHistory);
+        // Fire-and-forget: the index is only needed once a fight starts, and reading it must never
+        // sit on the UI thread (Invariant #1). LoadAsync swallows its own I/O failures.
+        _ = _conn.LoadFightHistoryAsync();
         SidePanel.IsOnlineExpanded    = profile.ShowOnline;
         SidePanel.IsInventoryExpanded = profile.ShowInventory;
         SidePanel.IsItemsHereExpanded = profile.ShowItemsHere;

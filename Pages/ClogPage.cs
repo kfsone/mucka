@@ -59,6 +59,23 @@ internal sealed class ClogPage : ContentPage
         data.Add(Row("Carry", nameof(SidePanelViewModel.CombatCarry)));
         data.Add(Row("Level", nameof(SidePanelViewModel.CombatProgress)));
 
+        // Per-NPC breakdown — only present for a multi-NPC encounter, where the totals above cannot
+        // tell you which target the damage actually went to.
+        var fightsBlock = new VerticalStackLayout { Spacing = 2, Margin = new Thickness(0, 6, 0, 0) };
+        fightsBlock.SetBinding(IsVisibleProperty, nameof(SidePanelViewModel.HasCombatFightRows));
+        fightsBlock.Add(SectionHeading("per fight"));
+        fightsBlock.Add(Mono(nameof(SidePanelViewModel.CombatFightRows)));
+        data.Add(fightsBlock);
+
+        // "vs history" — this fight against prior fights with the same NPC group. Hidden entirely
+        // until there is at least one prior fight on record, so a first encounter shows nothing
+        // rather than a block of "--".
+        var historyBlock = new VerticalStackLayout { Spacing = 2, Margin = new Thickness(0, 8, 0, 0) };
+        historyBlock.SetBinding(IsVisibleProperty, nameof(SidePanelViewModel.HasCombatHistory));
+        historyBlock.Add(Mono(nameof(SidePanelViewModel.CombatHistoryHeader), Color.FromArgb("#58a6ff")));
+        historyBlock.Add(Mono(nameof(SidePanelViewModel.CombatHistoryRows)));
+        data.Add(historyBlock);
+
         var sep = new BoxView { Color = Color.FromArgb("#2d333b"), HeightRequest = 1, Margin = new Thickness(0, 8, 0, 4) };
         stack.Add(sep);
 
@@ -112,6 +129,27 @@ internal sealed class ClogPage : ContentPage
         formatted.FormattedText = span;
         grid.Add(formatted, 1, 0);
         return grid;
+    }
+
+    private static Label SectionHeading(string text) => new()
+    {
+        Text = text, TextColor = Color.FromArgb("#6e7681"), FontSize = 10,
+        FontFamily = "Cascadia Mono, Consolas, monospace",
+    };
+
+    /// <summary>A monospace label bound to a pre-formatted multi-line string. The formatter builds
+    /// column-aligned text (see CombatHistoryFormatter) precisely so these can be plain labels
+    /// instead of bound lists, which would re-template native views on every refresh.</summary>
+    private static Label Mono(string property, Color? color = null)
+    {
+        var label = new Label
+        {
+            TextColor = color ?? Color.FromArgb("#cccccc"), FontSize = 11,
+            FontFamily = "Cascadia Mono, Consolas, monospace",
+            LineBreakMode = LineBreakMode.NoWrap,
+        };
+        label.SetBinding(Label.TextProperty, property);
+        return label;
     }
 
     private static Span BoundSpan(string property, Color color)

@@ -16,13 +16,36 @@ public sealed record CombatEncounterSnapshot(
     double ApproxDamageDone,
     double ApproxDamageTaken,
     TimeSpan Duration,
-    double ApproxDps);
+    double ApproxDps,
+    IReadOnlyList<FightSnapshot> Fights);
+
+/// <summary>One NPC's fight within the current encounter, in first-engaged order. Includes fights
+/// that have already resolved, so a multi-NPC encounter shows "goat kill / ram live" rather than
+/// silently dropping the finished one.</summary>
+public sealed record FightSnapshot(
+    string NpcName,
+    string NpcGroup,
+    string? Weapon,
+    int YouHits,
+    int YouMisses,
+    int TheyHits,
+    int TheyMisses,
+    double ApproxDamageDone,
+    double ApproxDamageTaken,
+    TimeSpan Duration,
+    FightOutcome Outcome,
+    bool IsResolved);
 
 public sealed class CombatStatsAggregator
 {
     private readonly HashSet<string> _activeNpcSet = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<string> _activeNpcOrder = new();
     private readonly Dictionary<string, string> _npcWeapons = new(StringComparer.OrdinalIgnoreCase);
+    // Per-NPC fights within this encounter, in first-engaged order. Retains RESOLVED fights too
+    // (unlike _activeNpcOrder, which only tracks who is still up) so the display can show how each
+    // one ended, and so a rejoining NPC does not silently reset its own tally.
+    private readonly Dictionary<string, FightAccumulator> _fights = new(StringComparer.OrdinalIgnoreCase);
+    private readonly List<FightAccumulator> _fightOrder = new();
 
     private DateTime? _encounterStartUtc;
     private string? _currentWeapon;
@@ -69,6 +92,8 @@ public sealed class CombatStatsAggregator
         _activeNpcSet.Clear();
         _activeNpcOrder.Clear();
         _npcWeapons.Clear();
+        _fights.Clear();
+        _fightOrder.Clear();
     }
 
     public void EndEncounter() => InCombat = false;
@@ -86,6 +111,8 @@ public sealed class CombatStatsAggregator
         _approxDamageTaken = 0;
         _activeNpcSet.Clear();
         _activeNpcOrder.Clear();
+        _fights.Clear();
+        _fightOrder.Clear();
     }
 
     public void ObserveStamina(int? currentStamina)
@@ -116,21 +143,35 @@ public sealed class CombatStatsAggregator
                 AddParticipant(combatEvent.NpcName);
                 if (!string.IsNullOrWhiteSpace(combatEvent.Weapon))
                     _currentWeapon = combatEvent.Weapon;
+                FightFor(combatEvent)?.NoteWeapon(_currentWeapon);
                 break;
 
             case CombatEventKind.WeaponEquip:
                 if (!string.IsNullOrWhiteSpace(combatEvent.Weapon))
                     _currentWeapon = combatEvent.Weapon;
+                // A new weapon applies to every fight still in progress: MUD2 extends the weapon
+                // you are wielding to all your active fights, it does not scope it to one target.
+                foreach (var fight in _fightOrder)
+                {
+                    if (!fight.IsResolved)
+                        fight.NoteWeapon(_currentWeapon);
+                }
                 break;
 
             case CombatEventKind.NpcWeaponEquip:
                 AddParticipant(combatEvent.NpcName);
                 if (!string.IsNullOrWhiteSpace(combatEvent.NpcName) && !string.IsNullOrWhiteSpace(combatEvent.Weapon))
                     _npcWeapons[combatEvent.NpcName] = combatEvent.Weapon;
+                FightFor(combatEvent);
                 break;
 
             case CombatEventKind.WeaponBroke:
                 _currentWeapon = null;
+                foreach (var fight in _fightOrder)
+                {
+                    if (!fight.IsResolved)
+                        fight.NoteWeaponBroke();
+                }
                 break;
 
             case CombatEventKind.Hit:
@@ -138,32 +179,52 @@ public sealed class CombatStatsAggregator
                 AddParticipant(combatEvent.NpcName);
                 if (combatEvent.RangeLow is int low && combatEvent.RangeHigh is int high)
                     _approxDamageDone += (low + high) / 2.0;
+                FightFor(combatEvent)?.AddYouHit(combatEvent.RangeLow, combatEvent.RangeHigh);
                 break;
 
             case CombatEventKind.Miss:
                 _youMisses++;
                 AddParticipant(combatEvent.NpcName);
+                FightFor(combatEvent)?.AddYouMiss();
                 break;
 
             case CombatEventKind.HitByNpc:
                 _theyHits++;
                 AddParticipant(combatEvent.NpcName);
-                ObserveDamageTaken(combatEvent.RangeLow);
+                // The encounter-level baseline chain owns the delta; the fight bucket receives the
+                // already-resolved figure so both agree and the baseline is only advanced once.
+                var damageTaken = ObserveDamageTaken(combatEvent.RangeLow);
+                FightFor(combatEvent)?.AddTheyHit(damageTaken);
                 break;
 
             case CombatEventKind.MissByNpc:
                 _theyMisses++;
                 AddParticipant(combatEvent.NpcName);
+                FightFor(combatEvent)?.AddTheyMiss();
                 break;
 
             case CombatEventKind.Kill:
-            case CombatEventKind.KilledByNpc:
             case CombatEventKind.Withdrawn:
             case CombatEventKind.NpcFled:
+                ResolveFight(combatEvent, OutcomeFor(combatEvent.Kind));
+                RemoveParticipant(combatEvent.NpcName);
+                break;
+
+            case CombatEventKind.KilledByNpc:
+                // The player died, which ends the WHOLE encounter — CombatTracker emits this once
+                // naming only the killer and then calls EndAll(), so no other fight gets its own
+                // close event. Resolve them all: "this fight ended with me dead" is true of every
+                // one of them, and leaving the others Unresolved would understate how badly a
+                // pile-on went.
+                foreach (var fight in _fightOrder)
+                    fight.Resolve(FightOutcome.KilledByNpc, combatEvent.TimestampUtc);
                 RemoveParticipant(combatEvent.NpcName);
                 break;
 
             case CombatEventKind.YouFled:
+                // Fleeing ends EVERY active fight, and none of them name themselves on this line.
+                foreach (var fight in _fightOrder)
+                    fight.Resolve(FightOutcome.YouFled, combatEvent.TimestampUtc);
                 _activeNpcSet.Clear();
                 _activeNpcOrder.Clear();
                 _npcWeapons.Clear();
@@ -206,13 +267,76 @@ public sealed class CombatStatsAggregator
             _approxDamageDone,
             _approxDamageTaken,
             duration,
-            dps);
+            dps,
+            BuildFightSnapshots(nowUtc));
     }
 
-    private void ObserveDamageTaken(int? currentStamina)
+    /// <summary>The per-NPC fights of this encounter, in first-engaged order.</summary>
+    public IReadOnlyList<FightAccumulator> Fights => _fightOrder;
+
+    private IReadOnlyList<FightSnapshot> BuildFightSnapshots(DateTime nowUtc)
+    {
+        if (_fightOrder.Count == 0)
+            return Array.Empty<FightSnapshot>();
+
+        var result = new List<FightSnapshot>(_fightOrder.Count);
+        foreach (var fight in _fightOrder)
+        {
+            result.Add(new FightSnapshot(
+                fight.NpcName,
+                fight.NpcGroup,
+                fight.WeaponUsed,
+                fight.YouHits,
+                fight.YouMisses,
+                fight.TheyHits,
+                fight.TheyMisses,
+                fight.ApproxDamageDone,
+                fight.ApproxDamageTaken,
+                fight.DurationAt(nowUtc),
+                fight.Outcome,
+                fight.IsResolved));
+        }
+
+        return result;
+    }
+
+    /// <summary>Gets (or lazily creates) the fight bucket for an event's NPC. Creation seeds the
+    /// weapon from the encounter's current one, because a fight that JOINS mid-encounter never gets
+    /// its own equip line — MUD2 silently extends your wielded weapon to the new attacker.</summary>
+    private FightAccumulator? FightFor(CombatEvent combatEvent)
+    {
+        var npcName = combatEvent.NpcName;
+        if (string.IsNullOrWhiteSpace(npcName))
+            return null;
+
+        if (_fights.TryGetValue(npcName, out var existing))
+            return existing;
+
+        var fight = new FightAccumulator(npcName, combatEvent.TimestampUtc, _currentWeapon);
+        _fights[npcName] = fight;
+        _fightOrder.Add(fight);
+        return fight;
+    }
+
+    private void ResolveFight(CombatEvent combatEvent, FightOutcome outcome)
+        => FightFor(combatEvent)?.Resolve(outcome, combatEvent.TimestampUtc);
+
+    private static FightOutcome OutcomeFor(CombatEventKind kind) => kind switch
+    {
+        CombatEventKind.Kill => FightOutcome.Killed,
+        CombatEventKind.KilledByNpc => FightOutcome.KilledByNpc,
+        CombatEventKind.Withdrawn => FightOutcome.Withdrawn,
+        CombatEventKind.NpcFled => FightOutcome.NpcFled,
+        CombatEventKind.YouFled => FightOutcome.YouFled,
+        _ => FightOutcome.Unresolved,
+    };
+
+    /// <summary>Returns the stamina delta attributed to this blow, so the caller can credit it to
+    /// the right per-NPC fight, or null when no baseline was available.</summary>
+    private double? ObserveDamageTaken(int? currentStamina)
     {
         if (currentStamina is null)
-            return;
+            return null;
 
         // Trust the one-shot relay ONLY when the most recent ObserveStamina call was for this
         // exact value — i.e. it really did fire for this SAME line (see _pendingPreUpdateStamina's
@@ -226,15 +350,20 @@ public sealed class CombatStatsAggregator
             ? _pendingPreUpdateStamina
             : _lastKnownStamina;
 
+        double? attributed = null;
         if (baseline is not null)
         {
             var delta = baseline.Value - currentStamina.Value;
             if (delta >= 0)
+            {
                 _approxDamageTaken += delta;
+                attributed = delta;
+            }
         }
 
         _lastKnownStamina = currentStamina.Value;
         _pendingPreUpdateStamina = null;
+        return attributed;
     }
 
     private void AddParticipant(string? npcName)

@@ -53,6 +53,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--db", type=Path, default=DEFAULT_DB, help="SQLite DB path.")
     parser.add_argument("--clog-dir", type=Path, default=DEFAULT_CLOG_DIR, help="Directory containing clog JSONL files.")
     parser.add_argument("--force", action="store_true", help="Reingest files already present in captures.")
+    parser.add_argument(
+        "--fights-file",
+        type=Path,
+        default=None,
+        help="Per-fight rollup index written by the client (defaults to <clog-dir>/fights.jsonl).",
+    )
     return parser.parse_args()
 
 
@@ -731,13 +737,104 @@ def ingest_one(con: sqlite3.Connection, clog_path: Path, force: bool) -> dict[st
     }
 
 
+LIVE_FIGHT_COLUMNS = (
+    "source_file", "started_at_ms", "ended_at_ms", "duration_ms", "npc_name", "npc_group",
+    "weapon_used", "outcome", "you_hits", "you_misses", "they_hits", "they_misses",
+    "approx_damage_done", "approx_damage_taken", "narrative_mode", "room", "weather", "strength",
+    "raw_strength", "dexterity", "raw_dexterity", "stamina_at_start", "max_stamina",
+    "weight_carried_grams", "objects_carried", "level", "is_blind", "is_deaf", "is_crippled",
+    "is_dumb", "effects_json",
+)
+
+
+def ingest_fights(con: sqlite3.Connection, fights_path: Path) -> dict[str, Any]:
+    """Load the client's per-fight rollup index (fights.jsonl) into live_fights.
+
+    The client writes these rows itself, already keyed with the same npc_group the offline pipeline
+    computes (mudsharp/Combat/NpcGroups.cs is pinned to normalize_npc_group by
+    npc_group_fixture.txt), so no re-derivation happens here -- re-deriving would be a second place
+    for the two to drift.
+
+    Idempotent: the UNIQUE (started_at_ms, npc_name) key means re-running over the append-only file
+    replaces rather than duplicates, so there is no --force equivalent to worry about.
+    """
+    if not fights_path.exists():
+        return {"file": fights_path.name, "status": "skipped", "reason": "no fights.jsonl", "rows": 0}
+
+    source_file = str(fights_path.resolve())
+    inserted = 0
+    malformed = 0
+
+    for line in fights_path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            # A row truncated by a crash mid-write costs that row, not the whole file.
+            malformed += 1
+            continue
+
+        values = (
+            source_file,
+            coerce_int(row.get("started_at_ms")),
+            coerce_int(row.get("ended_at_ms")),
+            coerce_int(row.get("duration_ms")),
+            row.get("npc_name") or "",
+            row.get("npc_group") or "",
+            row.get("weapon_used"),
+            row.get("outcome") or "Unresolved",
+            coerce_int(row.get("you_hits")) or 0,
+            coerce_int(row.get("you_misses")) or 0,
+            coerce_int(row.get("they_hits")) or 0,
+            coerce_int(row.get("they_misses")) or 0,
+            float(row.get("approx_damage_done") or 0.0),
+            float(row.get("approx_damage_taken") or 0.0),
+            1 if row.get("narrative_mode") else 0,
+            row.get("room"),
+            row.get("weather"),
+            coerce_int(row.get("strength")),
+            coerce_int(row.get("raw_strength")),
+            coerce_int(row.get("dexterity")),
+            coerce_int(row.get("raw_dexterity")),
+            coerce_int(row.get("stamina_at_start")),
+            coerce_int(row.get("max_stamina")),
+            coerce_int(row.get("weight_carried_grams")),
+            coerce_int(row.get("objects_carried")),
+            coerce_int(row.get("level")),
+            1 if row.get("is_blind") else 0,
+            1 if row.get("is_deaf") else 0,
+            1 if row.get("is_crippled") else 0,
+            1 if row.get("is_dumb") else 0,
+            json.dumps(row.get("effects") or []),
+        )
+
+        placeholders = ", ".join("?" for _ in LIVE_FIGHT_COLUMNS)
+        con.execute(
+            f"INSERT OR REPLACE INTO live_fights ({', '.join(LIVE_FIGHT_COLUMNS)}) VALUES ({placeholders})",
+            values,
+        )
+        inserted += 1
+
+    return {
+        "file": fights_path.name,
+        "status": "ingested",
+        "rows": inserted,
+        "malformed": malformed,
+    }
+
+
 def main() -> int:
     args = parse_args()
     args.db.parent.mkdir(parents=True, exist_ok=True)
     con = sqlite3.connect(args.db)
     try:
         ensure_schema(con)
-        clog_paths = sorted(args.clog_dir.glob("*.jsonl"))
+        # "clog.*.jsonl" rather than "*.jsonl": the same directory also holds items.jsonl (from
+        # "$clog eval") and fights.jsonl (the per-fight rollup index, ingested separately below),
+        # neither of which is an encounter clog.
+        clog_paths = sorted(args.clog_dir.glob("clog.*.jsonl"))
         results: list[dict[str, Any]] = []
         for clog_path in clog_paths:
             try:
@@ -761,6 +858,23 @@ def main() -> int:
                 print(f"  + {row['file']}: {row['events']} events, {row['fights']} fights")
             else:
                 print(f"  - {row['file']}: {row['reason']}")
+
+        try:
+            fights_result = ingest_fights(con, args.fights_file or (args.clog_dir / "fights.jsonl"))
+            con.commit()
+        except Exception as exc:  # pragma: no cover - operational path
+            con.rollback()
+            fights_result = {"file": "fights.jsonl", "status": "error", "reason": str(exc)}
+            errors.append(fights_result)
+
+        if fights_result["status"] == "ingested":
+            note = f"  + {fights_result['file']}: {fights_result['rows']} live fight rows"
+            if fights_result.get("malformed"):
+                note += f" ({fights_result['malformed']} malformed lines skipped)"
+            print(note)
+        else:
+            print(f"  - {fights_result['file']}: {fights_result['reason']}")
+
         return 1 if errors else 0
     finally:
         con.close()

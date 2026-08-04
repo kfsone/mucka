@@ -1,4 +1,5 @@
 using Microsoft.Maui.Graphics;
+using Mucka.Core;
 using MudSharp.Combat;
 using MudSharp.Models;
 using System.Collections.ObjectModel;
@@ -238,6 +239,21 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     private string _combatMagic = "--";
     private string _combatCarry = "--";
     private string _combatProgress = "--";
+    private string _combatFightRows = string.Empty;
+    private string _combatHistoryHeader = string.Empty;
+    private string _combatHistoryRows = string.Empty;
+
+    // Set once at startup (see AttachFightHistory). Null in unit/design contexts, in which case the
+    // history block simply stays hidden.
+    private FightHistoryStore? _fightHistory;
+    // The historical medians only change when new rows are appended (at encounter end) or when the
+    // target changes, so the scan is cached against those two keys instead of re-running on every
+    // combat event and every 1 Hz tick (Invariant #1). The live "now" figures are formatted fresh
+    // each refresh, which costs only string building.
+    private string? _historyCacheGroup;
+    private int _historyCacheRowCount = -1;
+    private FightHistorySummary _historyCacheSummary = FightHistorySummary.Empty;
+    private IReadOnlyList<WeaponHistorySummary> _historyCacheByWeapon = [];
 
     public bool InCombat   => _inCombat;
     public bool IsClogging => _isClogging;
@@ -269,6 +285,19 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     public string CombatMagic => _combatMagic;
     public string CombatCarry => _combatCarry;
     public string CombatProgress => _combatProgress;
+
+    /// <summary>Per-NPC breakdown of the current encounter, pre-formatted for a monospace label.
+    /// Empty (and hidden) for a single-NPC encounter, where the totals above already say it all.</summary>
+    public string CombatFightRows => _combatFightRows;
+    public bool HasCombatFightRows => _combatFightRows.Length > 0;
+    /// <summary>e.g. "rats: 7 prior fights, 5 with detail".</summary>
+    public string CombatHistoryHeader => _combatHistoryHeader;
+    public string CombatHistoryRows => _combatHistoryRows;
+    public bool HasCombatHistory => _combatHistoryHeader.Length > 0;
+
+    /// <summary>Supplies the accumulated per-fight history the live figures are contrasted against.
+    /// Call once at startup; the store loads itself off-thread (see MuckaConnection).</summary>
+    public void AttachFightHistory(FightHistoryStore store) => _fightHistory = store;
 
     public void OnInCombatChanged(bool inCombat, bool isClogging)
     {
@@ -379,6 +408,9 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             _combatDamageTaken = "0.0";
             _combatDuration = "00:00";
             _combatDps = "0.0";
+            _combatFightRows = string.Empty;
+            _combatHistoryHeader = string.Empty;
+            _combatHistoryRows = string.Empty;
         }
         else
         {
@@ -395,6 +427,8 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             _combatDamageTaken = FormatNumber(snapshot.ApproxDamageTaken);
             _combatDuration = FormatDuration(snapshot.Duration);
             _combatDps = FormatNumber(snapshot.ApproxDps);
+            _combatFightRows = CombatHistoryFormatter.FormatFightRows(snapshot.Fights);
+            RefreshHistoryBlock(snapshot);
         }
 
         OnPropertiesChanged(
@@ -404,7 +438,52 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             nameof(CombatYouHitRate), nameof(CombatTheyHitRate),
             nameof(CombatDamageDone), nameof(CombatDamageTaken), nameof(CombatDuration), nameof(CombatDps),
             nameof(CombatStamina), nameof(CombatStrength), nameof(CombatDexterity), nameof(CombatMagic),
-            nameof(CombatCarry), nameof(CombatProgress));
+            nameof(CombatCarry), nameof(CombatProgress),
+            nameof(CombatFightRows), nameof(HasCombatFightRows),
+            nameof(CombatHistoryHeader), nameof(CombatHistoryRows), nameof(HasCombatHistory));
+    }
+
+    /// <summary>Rebuilds the "vs history" block for the encounter's primary target. The historical
+    /// scan itself is cached (see the _historyCache* fields); only the live-vs-median formatting
+    /// runs every refresh.</summary>
+    private void RefreshHistoryBlock(CombatEncounterSnapshot snapshot)
+    {
+        var primary = PrimaryFight(snapshot);
+        if (_fightHistory is null || primary is null || string.IsNullOrWhiteSpace(primary.NpcGroup))
+        {
+            _combatHistoryHeader = string.Empty;
+            _combatHistoryRows = string.Empty;
+            return;
+        }
+
+        var records = _fightHistory.Snapshot();
+        if (!string.Equals(_historyCacheGroup, primary.NpcGroup, StringComparison.OrdinalIgnoreCase)
+            || _historyCacheRowCount != records.Count)
+        {
+            _historyCacheGroup = primary.NpcGroup;
+            _historyCacheRowCount = records.Count;
+            _historyCacheSummary = FightHistory.Summarize(records, primary.NpcGroup);
+            _historyCacheByWeapon = FightHistory.SummarizeByWeapon(records, primary.NpcGroup);
+        }
+
+        _combatHistoryHeader = CombatHistoryFormatter.FormatHistoryHeader(primary.NpcGroup, _historyCacheSummary);
+        _combatHistoryRows = CombatHistoryFormatter.FormatHistoryRows(primary, _historyCacheSummary, _historyCacheByWeapon);
+    }
+
+    /// <summary>The fight the history block describes: the first still-unresolved one (what the
+    /// player is actually up against right now), falling back to the first of the encounter so the
+    /// comparison stays on screen through the post-kill grace window.</summary>
+    private static FightSnapshot? PrimaryFight(CombatEncounterSnapshot snapshot)
+    {
+        FightSnapshot? first = null;
+        foreach (var fight in snapshot.Fights)
+        {
+            first ??= fight;
+            if (!fight.IsResolved)
+                return fight;
+        }
+
+        return first;
     }
 
     private static string FormatPercent(double value)

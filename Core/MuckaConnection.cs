@@ -33,6 +33,10 @@ public sealed class MuckaConnection : IAsyncDisposable
 
     private readonly SessionCapture _capture = new();
     private readonly ClogWriter _clog = new();
+    private readonly FightHistoryStore _fightHistory = new(
+        Path.Combine(ClogWriter.GetClogDirectory(), FightHistoryStore.DefaultFileName),
+        CrashLog.Write);
+    private readonly FightHistoryRecorder _fightRecorder;
 
     // ── Public events (forwarded from MudSession) ─────────────────────────────
     public event Action<StyledLine>? LineReady;
@@ -127,11 +131,21 @@ public sealed class MuckaConnection : IAsyncDisposable
     public void SetClogEnabled(bool enabled) => _clog.SetEnabled(enabled);
     public string DescribeClogStatus() => _clog.DescribeStatus();
 
+    /// <summary>The accumulated per-fight history index, for contrasting the current fight against
+    /// prior ones. Unlike clogging this always records — see FightHistoryRecorder's remarks.</summary>
+    public FightHistoryStore FightHistory => _fightHistory;
+
+    /// <summary>Loads the fight-history index. Fire-and-forget from startup; must not be awaited on
+    /// the UI thread (Invariant #1). Safe to call before any fight has been recorded.</summary>
+    public Task LoadFightHistoryAsync(CancellationToken cancellationToken = default)
+        => _fightHistory.LoadAsync(cancellationToken);
+
     private int _windowCols;
 
     public MuckaConnection(string? accountId = null, string? password = null, int maxCols = 80, string loginName = "mud")
     {
         _windowCols = Math.Clamp(maxCols, 20, 160);
+        _fightRecorder = new FightHistoryRecorder(_fightHistory);
         _session = new MudSession();
         _session.SetWindowSize(_windowCols, 21);
         _session.SetLoginUser(loginName);
@@ -430,11 +444,11 @@ public sealed class MuckaConnection : IAsyncDisposable
         _session.AutoResetInitiated += () => AutoResetInitiated?.Invoke();
         _session.StatusEffectsChanged += s => StatusEffectsChanged?.Invoke(s);
         _session.LineReady          += l => { _clog.OnLineReady(l); LineReady?.Invoke(l); };
-        _session.StatsUpdated       += s => { _clog.OnStatsUpdated(s); StatsUpdated?.Invoke(s); };
-        _session.StatusEffectsChanged += s => { _clog.OnStatusEffectsChanged(s); StatusEffectsChanged?.Invoke(s); };
-        _session.InCombatChanged     += v => { _clog.OnInCombatChanged(v); InCombatChanged?.Invoke(v); };
+        _session.StatsUpdated       += s => { _clog.OnStatsUpdated(s); _fightRecorder.OnStatsUpdated(s); StatsUpdated?.Invoke(s); };
+        _session.StatusEffectsChanged += s => { _clog.OnStatusEffectsChanged(s); _fightRecorder.OnStatusEffectsChanged(s); StatusEffectsChanged?.Invoke(s); };
+        _session.InCombatChanged     += v => { _clog.OnInCombatChanged(v); _fightRecorder.OnInCombatChanged(v); InCombatChanged?.Invoke(v); };
         _session.CombatGracePeriodChanged += v => CombatGracePeriodChanged?.Invoke(v);
-        _session.CombatEventOccurred += e => { _clog.OnCombatEvent(e); CombatEventOccurred?.Invoke(e); };
+        _session.CombatEventOccurred += e => { _clog.OnCombatEvent(e); _fightRecorder.OnCombatEvent(e); CombatEventOccurred?.Invoke(e); };
         _session.BellReceived       += () => BellReceived?.Invoke();
         _session.GameModeEntered    += () => GameModeEntered?.Invoke();
         _session.GameModeExited     += () => GameModeExited?.Invoke();
@@ -452,7 +466,7 @@ public sealed class MuckaConnection : IAsyncDisposable
         _session.FewListStarting    += () => FewListStarting?.Invoke();
         _session.FewListComplete    += () => FewListComplete?.Invoke();
         _session.RoomEntered        += () => RoomEntered?.Invoke();
-        _session.RoomShortReady     += name => { _clog.OnRoomShortReady(name); RoomShortReady?.Invoke(name); };
+        _session.RoomShortReady     += name => { _clog.OnRoomShortReady(name); _fightRecorder.OnRoomShortReady(name); RoomShortReady?.Invoke(name); };
         _session.FeiListStarting    += () => FeiListStarting?.Invoke();
         _session.FeiItemReady       += item => FeiItemReady?.Invoke(item);
         _session.FeiListComplete    += () => FeiListComplete?.Invoke();
