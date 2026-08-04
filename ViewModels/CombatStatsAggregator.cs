@@ -5,6 +5,10 @@ namespace Mucka.ViewModels;
 public sealed record CombatEncounterSnapshot(
     bool HasEncounter,
     bool InCombat,
+    // StartedUtc: when this encounter began, or null when idle. Needed so the history comparison can
+    // EXCLUDE this encounter's own rows: FightHistoryRecorder flushes them to the store before the
+    // view model refreshes, so without this filter the readout compares the fight against itself.
+    DateTime? StartedUtc,
     string? CurrentWeapon,
     IReadOnlyList<string> ActiveNpcs,
     int YouHits,
@@ -261,6 +265,7 @@ public sealed class CombatStatsAggregator
         return new CombatEncounterSnapshot(
             HasEncounter,
             InCombat,
+            _encounterStartUtc,
             _currentWeapon,
             FormatActiveNpcs(),
             _youHits,

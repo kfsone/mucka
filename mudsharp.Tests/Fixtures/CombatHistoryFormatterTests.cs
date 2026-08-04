@@ -5,6 +5,11 @@ namespace mudsharp.Tests.Fixtures;
 
 public sealed class CombatHistoryFormatterTests
 {
+    /// <summary>Encounter start for the snapshots under test. Records built by <see cref="Record"/>
+    /// have StartedAtMs 0, so they all fall before this and are treated as genuine prior history
+    /// rather than being filtered out as belonging to the current encounter.</summary>
+    private static readonly DateTime EncounterStart = new(2026, 8, 4, 12, 0, 0, DateTimeKind.Utc);
+
     private static FightSnapshot Snap(
         string npcName = "rat0",
         string? weapon = "axe0",
@@ -33,7 +38,7 @@ public sealed class CombatHistoryFormatterTests
         var taken = fights.Sum(f => f.ApproxDamageTaken);
         var duration = TimeSpan.FromSeconds(durationSeconds);
         return new CombatEncounterSnapshot(
-            HasEncounter: true, InCombat: true, CurrentWeapon: weapon,
+            HasEncounter: true, InCombat: true, StartedUtc: EncounterStart, CurrentWeapon: weapon,
             ActiveNpcs: fights.Where(f => !f.IsResolved).Select(f => f.NpcName).ToList(),
             YouHits: youHits, YouMisses: youMisses, TheyHits: theyHits, TheyMisses: theyMisses,
             YouHitRate: youHits + youMisses == 0 ? 0 : youHits / (double)(youHits + youMisses),
@@ -452,7 +457,7 @@ public sealed class CombatHistoryFormatterTests
     [Fact]
     public void Build_EmitsNothingAtAllWithoutAnEncounter()
     {
-        var idle = new CombatEncounterSnapshot(false, false, null, [], 0, 0, 0, 0, 0, 0, 0, 0,
+        var idle = new CombatEncounterSnapshot(false, false, null, null, [], 0, 0, 0, 0, 0, 0, 0, 0,
             TimeSpan.Zero, 0, 0, []);
 
         Assert.Empty(CombatHistoryFormatter.Build(idle, CombatStatDeficits.None, CombatHistoryContext.Empty));
@@ -645,7 +650,7 @@ public sealed class CombatHistoryFormatterTests
     {
         // The panel used to go blank between fights; it now reports the session in the same terms the
         // live rows use.
-        var idle = new CombatEncounterSnapshot(false, false, null, [], 0, 0, 0, 0, 0, 0, 0, 0,
+        var idle = new CombatEncounterSnapshot(false, false, null, null, [], 0, 0, 0, 0, 0, 0, 0, 0,
             TimeSpan.Zero, 0, 0, []);
         var session = new SessionCombatTotals(3, 5, 4, 1, 0, 210.5, 88.0, TimeSpan.FromSeconds(190));
 
@@ -662,7 +667,7 @@ public sealed class CombatHistoryFormatterTests
     [Fact]
     public void Build_StillEmitsNothingWhenIdleWithNoSessionHistory()
     {
-        var idle = new CombatEncounterSnapshot(false, false, null, [], 0, 0, 0, 0, 0, 0, 0, 0,
+        var idle = new CombatEncounterSnapshot(false, false, null, null, [], 0, 0, 0, 0, 0, 0, 0, 0,
             TimeSpan.Zero, 0, 0, []);
 
         Assert.Empty(CombatHistoryFormatter.Build(idle, CombatStatDeficits.None, CombatHistoryContext.Empty));
@@ -684,6 +689,96 @@ public sealed class CombatHistoryFormatterTests
         Assert.Equal(0, totals.Deaths);
         Assert.Equal(28.0, totals.DamageDealt, 3);
         Assert.Equal(8.0, totals.DamageTaken, 3);
+    }
+
+    // ── display names ─────────────────────────────────────────────────────────
+
+    [Theory]
+    // Over the threshold with a numbered last word: shorten to that word.
+    [InlineData("a rusty pick2", "pick2")]
+    [InlineData("the ornate falchion3", "falchion3")]
+    [InlineData("a very large battleaxe12", "battleaxe12")]
+    // Short enough already: left alone even though the last word is numbered.
+    [InlineData("big axe0", "big axe0")]
+    [InlineData("pick2", "pick2")]
+    // Long but the last word carries no instance number: shortening would be a lossy guess, not a
+    // canonical short form.
+    [InlineData("croquet mallet", "croquet mallet")]
+    [InlineData("a bar of soap", "a bar of soap")]
+    // Degenerate input must not throw.
+    [InlineData("", "")]
+    [InlineData(null, "")]
+    public void DisplayName_ShortensLongNumberedItemNamesOnly(string? input, string expected)
+        => Assert.Equal(expected, CombatHistoryFormatter.DisplayName(input));
+
+    [Fact]
+    public void Build_UsesTheShortenedWeaponNameInTheHeadlineAndWeaponTable()
+    {
+        var records = new[] { Record(weapon: "a rusty pick2", damageDone: 40, youHits: 4) };
+
+        var lines = CombatHistoryFormatter.Build(
+            Encounter("a rusty pick2", 20, Snap("rat0", weapon: "a rusty pick2")),
+            CombatStatDeficits.None, History(records));
+
+        var text = PlainText(lines);
+        Assert.StartsWith("pick2 vs rat0", text);
+        Assert.DoesNotContain("a rusty pick2", text);
+    }
+
+    [Fact]
+    public void Build_ShorteningIsDisplayOnlyAndStillMatchesTheWeaponInHand()
+    {
+        // The current-weapon marker depends on matching the FULL stored name against history, so the
+        // shortened label must not break that.
+        var records = new[] { Record(weapon: "a rusty pick2", damageDone: 40, youHits: 4) };
+
+        var lines = CombatHistoryFormatter.Build(
+            Encounter("a rusty pick2", 20, Snap("rat0", weapon: "a rusty pick2", youHits: 2, damageDone: 30)),
+            CombatStatDeficits.None, History(records));
+
+        Assert.Contains("»pick2", PlainText(lines));
+    }
+
+    // ── self-comparison ───────────────────────────────────────────────────────
+
+    [Fact]
+    public void ExcludingEncounterFrom_DropsRowsBelongingToTheEncounterOnScreen()
+    {
+        // FightHistoryRecorder writes a finished encounter's rows BEFORE the view model rebuilds, so
+        // without this filter the readout compares the fight the player just had against itself —
+        // which is what made "now" and "usual" render as identical numbers.
+        var start = new DateTime(2026, 8, 4, 12, 0, 0, DateTimeKind.Utc);
+        var startMs = new DateTimeOffset(start, TimeSpan.Zero).ToUnixTimeMilliseconds();
+
+        var records = new[]
+        {
+            Record() with { StartedAtMs = startMs - 60_000 },   // genuine earlier fight
+            Record() with { StartedAtMs = startMs },            // this encounter, just written
+            Record() with { StartedAtMs = startMs + 5_000 },    // a joiner in this encounter
+        };
+
+        var kept = FightHistory.ExcludingEncounterFrom(records, start).ToList();
+
+        Assert.Single(kept);
+        Assert.Equal(startMs - 60_000, kept[0].StartedAtMs);
+    }
+
+    [Fact]
+    public void ExcludingEncounterFrom_KeepsEverythingWhenThereIsNoEncounter()
+    {
+        var records = new[] { Record(), Record() };
+        Assert.Equal(2, FightHistory.ExcludingEncounterFrom(records, null).Count());
+    }
+
+    [Fact]
+    public void Build_SaysOneKillNotOneKills()
+    {
+        var lines = CombatHistoryFormatter.Build(
+            Encounter("axe0", 10, Snap("rat0")), CombatStatDeficits.None, History([Record()]));
+
+        var text = PlainText(lines);
+        Assert.Contains("over 1 kill", text);
+        Assert.DoesNotContain("1 kills", text);
     }
 
     [Fact]

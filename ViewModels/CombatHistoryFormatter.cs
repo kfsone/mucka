@@ -209,7 +209,7 @@ internal static class CombatHistoryFormatter
     {
         var spans = new List<ClogSpan>(8)
         {
-            new(string.IsNullOrWhiteSpace(snapshot.CurrentWeapon) ? "unarmed" : snapshot.CurrentWeapon!,
+            new(string.IsNullOrWhiteSpace(snapshot.CurrentWeapon) ? "unarmed" : DisplayName(snapshot.CurrentWeapon),
                 ClogTone.Friendly),
             new(" vs ", ClogTone.Dim),
         };
@@ -341,7 +341,7 @@ internal static class CombatHistoryFormatter
             lines.Add(ClogLine.Of(
                 new ClogSpan($"{"to kill",-8}", ClogTone.Dim),
                 new ClogSpan($"{"~" + Num(pool),7}", ClogTone.Hostile),
-                new ClogSpan($"  dmg, over {summary.Kills} kills", ClogTone.Dim)));
+                new ClogSpan($"  dmg, over {summary.Kills} {(summary.Kills == 1 ? "kill" : "kills")}", ClogTone.Dim)));
         }
         else
         {
@@ -385,13 +385,15 @@ internal static class CombatHistoryFormatter
         {
             if (entry.Summary.MedianDamagePerHit is double perHit && (best is null || perHit > best))
                 best = perHit;
-            rows.Add((entry.Weapon, entry.Summary.MedianDamagePerHit, entry.Summary.FightCount,
+            // Matching stays on the FULL name (DisplayName is display-only), so "a rusty pick2" in
+            // history still matches the same weapon in hand.
+            rows.Add((DisplayName(entry.Weapon), entry.Summary.MedianDamagePerHit, entry.Summary.FightCount,
                 IsCurrentWeapon(entry.Weapon, current)));
         }
 
         var haveCurrentRow = rows.Any(row => row.IsCurrent);
         if (!haveCurrentRow && !string.IsNullOrWhiteSpace(current))
-            rows.Add((current!, null, 0, true));   // first outing with this weapon against this group
+            rows.Add((DisplayName(current), null, 0, true));   // first outing with this weapon here
 
         if (rows.Count == 0)
             return;
@@ -520,4 +522,36 @@ internal static class CombatHistoryFormatter
 
     private static string Truncate(string value, int width)
         => value.Length <= width ? value : value[..width];
+
+    /// <summary>
+    /// Shortens a long item name for DISPLAY only, never for recording.
+    ///
+    /// <para>MUD2 item names carry descriptive prefixes ("a rusty pick2", "the ornate falchion3") but
+    /// the trailing token with its instance number is the part that identifies the thing and the part
+    /// the player types. So for anything over <see cref="DisplayNameThreshold"/> characters whose last
+    /// word ends in a digit, that last word becomes the label — "a rusty pick2" shows as "pick2",
+    /// which also stops one long name from widening the whole weapon column.</para>
+    ///
+    /// <para>Names whose last word does NOT end in a digit are left alone: "croquet mallet" has no
+    /// instance number, so "mallet" would be a lossy guess rather than the canonical short form.
+    /// FightRecord always stores the full name, so history and the offline pipeline are unaffected.</para>
+    /// </summary>
+    internal static string DisplayName(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return string.Empty;
+
+        var trimmed = name.Trim();
+        if (trimmed.Length <= DisplayNameThreshold)
+            return trimmed;
+
+        var lastSpace = trimmed.LastIndexOf(' ');
+        if (lastSpace < 0 || lastSpace == trimmed.Length - 1)
+            return trimmed;
+
+        var lastWord = trimmed[(lastSpace + 1)..];
+        return char.IsAsciiDigit(lastWord[^1]) ? lastWord : trimmed;
+    }
+
+    private const int DisplayNameThreshold = 10;
 }

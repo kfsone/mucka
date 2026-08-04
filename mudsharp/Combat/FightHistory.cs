@@ -74,6 +74,26 @@ public static class FightHistory
 {
     /// <summary>Aggregates the fights matching <paramref name="npcGroup"/>, optionally narrowed to
     /// a single weapon. Pass <paramref name="weapon"/> null for "any weapon".</summary>
+    /// <summary>
+    /// Drops rows belonging to the encounter currently on screen.
+    ///
+    /// <para>Essential, not cosmetic: <c>FightHistoryRecorder</c> appends a finished encounter's rows
+    /// to the store BEFORE the view model rebuilds its readout, so without this filter the panel
+    /// compares the fight the player just had against itself — which makes "now" and "usual"
+    /// identical by construction at one sample, and biases the baseline toward the current fight at
+    /// any sample size.</para>
+    /// </summary>
+    public static IEnumerable<FightRecord> ExcludingEncounterFrom(
+        IEnumerable<FightRecord> records,
+        DateTime? encounterStartUtc)
+    {
+        if (encounterStartUtc is not DateTime start)
+            return records;
+
+        var cutoffMs = new DateTimeOffset(start, TimeSpan.Zero).ToUnixTimeMilliseconds();
+        return records.Where(record => record.StartedAtMs < cutoffMs);
+    }
+
     public static FightHistorySummary Summarize(
         IEnumerable<FightRecord> records,
         string npcGroup,

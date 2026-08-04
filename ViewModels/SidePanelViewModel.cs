@@ -383,7 +383,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     /// <summary>Stand-in for "no encounter", so the formatter's session-totals path can run without a
     /// live snapshot.</summary>
     private static readonly CombatEncounterSnapshot IdleSnapshot = new(
-        HasEncounter: false, InCombat: false, CurrentWeapon: null, ActiveNpcs: [],
+        HasEncounter: false, InCombat: false, StartedUtc: null, CurrentWeapon: null, ActiveNpcs: [],
         YouHits: 0, YouMisses: 0, TheyHits: 0, TheyMisses: 0, YouHitRate: 0, TheyHitRate: 0,
         ApproxDamageDone: 0, ApproxDamageTaken: 0, Duration: TimeSpan.Zero,
         ApproxDps: 0, TheirApproxDps: 0, Fights: []);
@@ -397,7 +397,13 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         if (_fightHistory is null || primary is null || string.IsNullOrWhiteSpace(primary.NpcGroup))
             return CombatHistoryContext.Empty;
 
-        var records = _fightHistory.Snapshot();
+        var all = _fightHistory.Snapshot();
+        // Exclude this encounter's own rows — the recorder has already written them, and comparing a
+        // fight against itself is what made "now" and "usual" identical. See ExcludingEncounterFrom.
+        var records = FightHistory
+            .ExcludingEncounterFrom(all, _combatStats.Snapshot(nowUtc).StartedUtc)
+            .ToList();
+
         if (!string.Equals(_historyCacheInstance, primary.NpcName, StringComparison.OrdinalIgnoreCase)
             || _historyCacheRowCount != records.Count)
         {
