@@ -22,24 +22,184 @@ internal static class CombatHistoryFormatter
     public static List<ClogLine> Build(
         CombatEncounterSnapshot snapshot,
         CombatStatDeficits deficits,
-        CombatHistoryContext history)
+        CombatHistoryContext history,
+        SessionCombatTotals? session = null)
     {
-        var lines = new List<ClogLine>(24);
+        session ??= SessionCombatTotals.Empty;
+        var lines = new List<ClogLine>(28);
         if (!snapshot.HasEncounter)
+        {
+            AppendSessionTotals(lines, session);
             return lines;
+        }
 
+        // Result banner first: once a fight is over the outcome is the thing you want to see, and it
+        // now stays on screen until explicitly cleared rather than vanishing after 8 seconds.
+        AppendResultBanner(lines, snapshot);
         AppendHeadline(lines, snapshot);
         AppendExchange(lines, snapshot);
         AppendDeficits(lines, deficits);
+        AppendOutlook(lines, snapshot, deficits, history);
 
-        if (!history.HasAnything)
-            return lines;
+        if (history.HasAnything)
+        {
+            lines.Add(ClogLine.Blank);
+            AppendHistoryHeading(lines, history);
+            AppendFleeRisk(lines, history);
+            AppendHistoryComparison(lines, snapshot, history);
+            AppendWeaponTable(lines, snapshot, history);
+        }
 
-        lines.Add(ClogLine.Blank);
-        AppendHistoryHeading(lines, history);
-        AppendHistoryComparison(lines, snapshot, history);
-        AppendWeaponTable(lines, snapshot, history);
+        if (!snapshot.InCombat && session.HasAnything)
+        {
+            lines.Add(ClogLine.Blank);
+            AppendSessionTotals(lines, session);
+        }
+
         return lines;
+    }
+
+    /// <summary>"killed zombie0  0:27  65.5 dealt" once the encounter has closed. Nothing while the
+    /// fight is still live — the headline already covers that, and a verdict mid-fight would be a
+    /// lie.</summary>
+    private static void AppendResultBanner(List<ClogLine> lines, CombatEncounterSnapshot snapshot)
+    {
+        if (snapshot.InCombat)
+            return;
+
+        var decisive = ResultOf(snapshot);
+        if (decisive is null)
+            return;
+
+        var (glyph, verb, tone) = decisive.Outcome switch
+        {
+            FightOutcome.Killed => ("✔", "killed", ClogTone.Good),
+            FightOutcome.KilledByNpc => ("✘", "killed by", ClogTone.Hostile),
+            FightOutcome.NpcFled => ("→", "fled:", ClogTone.Warn),
+            FightOutcome.YouFled => ("←", "you fled", ClogTone.Warn),
+            FightOutcome.Withdrawn => ("―", "withdrew", ClogTone.Dim),
+            _ => ("·", "open", ClogTone.Dim),
+        };
+
+        lines.Add(ClogLine.Of(
+            new ClogSpan($"{glyph} {verb} ", tone),
+            new ClogSpan(decisive.NpcName, ClogTone.Hostile),
+            new ClogSpan($"  {Duration(decisive.Duration.TotalSeconds)}", ClogTone.Dim),
+            // That fight's own damage, not the encounter total: the figure sits next to a specific
+            // NPC's name, so an encounter-wide number would read as having been dealt to it.
+            new ClogSpan($"  {Num(decisive.ApproxDamageDone)} dealt", ClogTone.Dim)));
+        lines.Add(ClogLine.Blank);
+    }
+
+    /// <summary>The fight that decided the encounter: a player death outranks everything, then a
+    /// kill, else the last resolved fight.</summary>
+    private static FightSnapshot? ResultOf(CombatEncounterSnapshot snapshot)
+    {
+        FightSnapshot? fallback = null;
+        foreach (var fight in snapshot.Fights)
+        {
+            if (fight.Outcome == FightOutcome.KilledByNpc)
+                return fight;
+            if (fight.IsResolved)
+                fallback = fight.Outcome == FightOutcome.Killed ? fight : fallback ?? fight;
+        }
+
+        return fallback;
+    }
+
+    /// <summary>Between-fights view: what this session has amounted to, in the same terms the live
+    /// rows use so the panel reads as one thing rather than two.</summary>
+    private static void AppendSessionTotals(List<ClogLine> lines, SessionCombatTotals session)
+    {
+        if (!session.HasAnything)
+            return;
+
+        lines.Add(ClogLine.Of(new ClogSpan("this session", ClogTone.Heading)));
+        lines.Add(ClogLine.Of(
+            new ClogSpan($"{"fights",-8}", ClogTone.Dim),
+            new ClogSpan($"{session.Fights,7}", ClogTone.Value),
+            new ClogSpan($"  in {session.Encounters} enc", ClogTone.Dim)));
+        lines.Add(ClogLine.Of(
+            new ClogSpan($"{"killed",-8}", ClogTone.Dim),
+            new ClogSpan($"{session.Kills,7}", ClogTone.Good),
+            new ClogSpan(session.Deaths > 0 ? $"  died {session.Deaths}" : string.Empty, ClogTone.Hostile),
+            new ClogSpan(session.NpcFled > 0 ? $"  fled {session.NpcFled}" : string.Empty, ClogTone.Warn)));
+        lines.Add(ClogLine.Of(
+            new ClogSpan($"{"dealt",-8}", ClogTone.Dim),
+            new ClogSpan($"{Num(session.DamageDealt),7}", ClogTone.Friendly)));
+        lines.Add(ClogLine.Of(
+            new ClogSpan($"{"taken",-8}", ClogTone.Dim),
+            new ClogSpan($"{Num(session.DamageTaken),7}", ClogTone.Hostile)));
+        lines.Add(ClogLine.Of(
+            new ClogSpan($"{"fighting",-8}", ClogTone.Dim),
+            new ClogSpan($"{Duration(session.TimeInCombat.TotalSeconds),7}", ClogTone.Value)));
+    }
+
+    /// <summary>Whether this opponent is likely to run. Only rendered at or above a coin flip, since
+    /// below that it is not decision-changing and would just be another always-present row.</summary>
+    private static void AppendFleeRisk(List<ClogLine> lines, CombatHistoryContext history)
+    {
+        var summary = history.Primary;
+        if (summary.FleeRate is not double rate || rate < 0.5)
+            return;
+
+        lines.Add(ClogLine.Of(
+            new ClogSpan("flees", ClogTone.Warn),
+            new ClogSpan($"   {Percent(rate)} of the time", ClogTone.Warn),
+            new ClogSpan($" ({summary.NpcFled}/{summary.FightCount})", ClogTone.Dim)));
+    }
+
+    /// <summary>The "am I going to die first" line. Silent until there is enough to say — see
+    /// <see cref="CombatOutlook"/> for why an early guess is worse than none.</summary>
+    private static void AppendOutlook(
+        List<ClogLine> lines,
+        CombatEncounterSnapshot snapshot,
+        CombatStatDeficits deficits,
+        CombatHistoryContext history)
+    {
+        if (!snapshot.InCombat)
+            return;
+
+        var primary = PrimaryFight(snapshot);
+        if (primary is null)
+            return;
+
+        var outlook = CombatOutlook.Project(
+            primary.Duration.TotalSeconds,
+            primary.ApproxDamageDone,
+            primary.ApproxDamageTaken,
+            primary.YouHits,
+            primary.TheyHits,
+            deficits.StaminaCurrent,
+            history.Primary.EstimatedStaminaPool);
+
+        if (outlook.Verdict == OutlookVerdict.Unknown)
+            return;
+
+        var (text, tone) = outlook.Verdict switch
+        {
+            OutlookVerdict.Winning => ("winning", ClogTone.Good),
+            OutlookVerdict.Losing => ("LOSING", ClogTone.Hostile),
+            OutlookVerdict.Even => ("too close", ClogTone.Warn),
+            _ => ("unhurt so far", ClogTone.Good),
+        };
+
+        var spans = new List<ClogSpan>(4)
+        {
+            new("outlook ", ClogTone.Dim),
+            new(text, tone),
+        };
+
+        // Both projected times, because the verdict alone hides how wide the margin is.
+        if (outlook.SecondsToKill is double kill)
+        {
+            spans.Add(new ClogSpan($"  kill {Duration(kill)}", ClogTone.Dim));
+            spans.Add(new ClogSpan(
+                outlook.SecondsToDie is double die ? $" / die {Duration(die)}" : " / die --",
+                ClogTone.Dim));
+        }
+
+        lines.Add(new ClogLine(spans));
     }
 
     /// <summary>"{weapon} vs {live targets}, {dead targets}    {elapsed}". Dead targets sort to the
@@ -156,9 +316,11 @@ internal static class CombatHistoryFormatter
         var summary = history.Primary;
         var primary = PrimaryFight(snapshot);
 
-        // Without this the rows below are two bare numbers with no clue which is the live figure and
-        // which is the historical median.
-        lines.Add(ClogLine.Of(new ClogSpan($"{string.Empty,-8}{"now",7}{"med",8}", ClogTone.Dim)));
+        // "usual" rather than "med": the figure IS a median, but in a game with magic "med" reads as
+        // medium/meditate, and the user flagged it as genuinely ambiguous. "usual" says what the
+        // column is FOR without the collision. (Still a median, not a mean — one wandered-off fight
+        // is a large fraction of a single-digit sample and would wreck an average.)
+        lines.Add(ClogLine.Of(new ClogSpan($"{string.Empty,-8}{"now",7}{"usual",8}", ClogTone.Dim)));
 
         AppendPair(lines, "dealt", primary is null ? null : primary.ApproxDamageDone, summary.MedianDamageDone, Num);
         AppendPair(lines, "taken", primary is null ? null : primary.ApproxDamageTaken, summary.MedianDamageTaken, Num);
@@ -170,18 +332,23 @@ internal static class CombatHistoryFormatter
 
         lines.Add(ClogLine.Of(new ClogSpan(OutcomeTally(summary), ClogTone.Dim)));
 
-        // The pool estimate is the only route to an NPC's stamina — MUD2 never reports it — so the
-        // kill count it rests on is stated rather than hidden behind a bare number.
+        // Labelled "to kill" rather than "pool": the user reported not understanding what "pool"
+        // meant, and the plain reading of the number is "how much damage it usually takes to put one
+        // of these down". Still the only route to an NPC's stamina, since MUD2 never reports it, so
+        // the kill count behind the estimate is stated rather than hidden.
         if (summary.EstimatedStaminaPool is double pool)
         {
             lines.Add(ClogLine.Of(
-                new ClogSpan("pool", ClogTone.Dim),
-                new ClogSpan($" ~{Num(pool)}", ClogTone.Hostile),
-                new ClogSpan($" ({summary.Kills}k)", ClogTone.Dim)));
+                new ClogSpan($"{"to kill",-8}", ClogTone.Dim),
+                new ClogSpan($"{"~" + Num(pool),7}", ClogTone.Hostile),
+                new ClogSpan($"  dmg, over {summary.Kills} kills", ClogTone.Dim)));
         }
         else
         {
-            lines.Add(ClogLine.Of(new ClogSpan("pool  -- (never killed one)", ClogTone.Dim)));
+            lines.Add(ClogLine.Of(
+                new ClogSpan($"{"to kill",-8}", ClogTone.Dim),
+                new ClogSpan($"{NoValue,7}", ClogTone.Dim),
+                new ClogSpan("  never killed one", ClogTone.Dim)));
         }
     }
 

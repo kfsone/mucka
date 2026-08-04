@@ -386,14 +386,32 @@ public sealed class CombatHistoryFormatterTests
     // ── pool estimate and outcomes ────────────────────────────────────────────
 
     [Fact]
-    public void Build_StatesThePoolEstimateWithTheKillCountBehindIt()
+    public void Build_StatesTheKillEstimateWithTheKillCountBehindIt()
     {
+        // Labelled "to kill", not "pool": the user reported not understanding "pool", and the plain
+        // reading of the number is how much damage it usually takes to put one of these down.
         var records = new[] { Record(damageDone: 30), Record(damageDone: 34) };
 
         var lines = CombatHistoryFormatter.Build(
             Encounter("axe0", 10, Snap("rat0")), CombatStatDeficits.None, History(records));
 
-        Assert.Contains("pool ~32.0 (2k)", PlainText(lines));
+        var text = PlainText(lines);
+        Assert.Contains("to kill", text);
+        Assert.Contains("~32.0", text);
+        Assert.Contains("over 2 kills", text);
+        Assert.DoesNotContain("pool", text);
+    }
+
+    [Fact]
+    public void Build_ComparisonColumnIsLabelledUsualNotMed()
+    {
+        // "med" reads as medium/meditate in a game with magic — the user flagged it as ambiguous.
+        var lines = CombatHistoryFormatter.Build(
+            Encounter("axe0", 10, Snap("rat0")), CombatStatDeficits.None, History([Record()]));
+
+        var text = PlainText(lines);
+        Assert.Contains("usual", text);
+        Assert.DoesNotContain(" med", text);
     }
 
     [Fact]
@@ -460,6 +478,212 @@ public sealed class CombatHistoryFormatterTests
             Encounter("axe0", 10, Snap("rat0")), CombatStatDeficits.None, History([Record()]));
 
         Assert.DoesNotContain("Combat", PlainText(lines));
+    }
+
+    // ── flee risk ─────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void Build_WarnsWhenTheOpponentUsuallyRunsAway()
+    {
+        // Per the user, water snakes almost always flee, and a fleeing target has to be chased through
+        // rooms or the kill is lost — worth knowing before committing.
+        var records = new[]
+        {
+            Record("snake0", outcome: FightOutcome.NpcFled),
+            Record("snake1", outcome: FightOutcome.NpcFled),
+            Record("snake2", outcome: FightOutcome.Killed),
+        };
+
+        var lines = CombatHistoryFormatter.Build(
+            Encounter("axe0", 10, Snap("snake9")), CombatStatDeficits.None, History(records, "snake9"));
+
+        var text = PlainText(lines);
+        Assert.Contains("flees", text);
+        Assert.Contains("67%", text);
+        Assert.Contains("(2/3)", text);
+        Assert.Contains(AllSpans(lines), s => s.Text == "flees" && s.Tone == ClogTone.Warn);
+    }
+
+    [Fact]
+    public void Build_StaysQuietAboutFleeingBelowACoinFlip()
+    {
+        // Below 50% it is not decision-changing, and would just be another always-present row.
+        var records = new[]
+        {
+            Record(outcome: FightOutcome.NpcFled),
+            Record(outcome: FightOutcome.Killed),
+            Record(outcome: FightOutcome.Killed),
+        };
+
+        var lines = CombatHistoryFormatter.Build(
+            Encounter("axe0", 10, Snap("rat0")), CombatStatDeficits.None, History(records));
+
+        Assert.DoesNotContain("flees", PlainText(lines));
+    }
+
+    // ── outlook ───────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void Build_ShowsALosingOutlookInHostileTone()
+    {
+        var records = new[] { Record(damageDone: 200), Record(damageDone: 200) };
+        var deficits = new CombatStatDeficits(null, null, StaminaCurrent: 50, StaminaMax: 100, null, null);
+
+        var lines = CombatHistoryFormatter.Build(
+            Encounter("dagger0", 20, Snap("rat0", weapon: "dagger0", youHits: 2, theyHits: 8,
+                damageDone: 10, damageTaken: 40, durationSeconds: 20)),
+            deficits, History(records));
+
+        Assert.Contains("LOSING", PlainText(lines));
+        Assert.Contains(AllSpans(lines), s => s.Text == "LOSING" && s.Tone == ClogTone.Hostile);
+    }
+
+    [Fact]
+    public void Build_ShowsBothProjectedTimesNotJustTheVerdict()
+    {
+        // The verdict alone hides how wide the margin is.
+        var records = new[] { Record(damageDone: 50), Record(damageDone: 50) };
+        var deficits = new CombatStatDeficits(null, null, StaminaCurrent: 100, StaminaMax: 100, null, null);
+
+        var lines = CombatHistoryFormatter.Build(
+            Encounter("axe0", 20, Snap("rat0", youHits: 4, theyHits: 2,
+                damageDone: 40, damageTaken: 10, durationSeconds: 20)),
+            deficits, History(records));
+
+        var text = PlainText(lines);
+        Assert.Contains("outlook", text);
+        Assert.Contains("kill 0:05", text);
+        Assert.Contains("die 3:20", text);
+    }
+
+    [Fact]
+    public void Build_OmitsTheOutlookEntirelyWhenItCannotBeProjected()
+    {
+        // No prior kills means no estimate to divide into, so no line at all rather than a guess.
+        var records = new[] { Record(outcome: FightOutcome.YouFled), Record(outcome: FightOutcome.YouFled) };
+        var deficits = new CombatStatDeficits(null, null, StaminaCurrent: 100, StaminaMax: 100, null, null);
+
+        var lines = CombatHistoryFormatter.Build(
+            Encounter("axe0", 30, Snap("rat0", youHits: 4, theyHits: 3)), deficits, History(records));
+
+        Assert.DoesNotContain("outlook", PlainText(lines));
+    }
+
+    [Fact]
+    public void Build_OmitsTheOutlookOnceTheFightIsOver()
+    {
+        // Projecting a finished fight is meaningless; the result banner covers it instead.
+        var records = new[] { Record(damageDone: 50), Record(damageDone: 50) };
+        var deficits = new CombatStatDeficits(null, null, StaminaCurrent: 100, StaminaMax: 100, null, null);
+        var finished = Encounter("axe0", 20, Snap("rat0", youHits: 4, theyHits: 2,
+            damageDone: 40, damageTaken: 10, outcome: FightOutcome.Killed)) with { InCombat = false };
+
+        var lines = CombatHistoryFormatter.Build(finished, deficits, History(records));
+
+        Assert.DoesNotContain("outlook", PlainText(lines));
+    }
+
+    // ── result banner and session totals ──────────────────────────────────────
+
+    [Fact]
+    public void Build_ShowsAResultBannerOnceTheEncounterCloses()
+    {
+        var finished = Encounter("axe0", 27, Snap("zombie0", outcome: FightOutcome.Killed, damageDone: 65.5))
+            with { InCombat = false };
+
+        var lines = CombatHistoryFormatter.Build(finished, CombatStatDeficits.None, CombatHistoryContext.Empty);
+
+        var first = PlainText(lines).Split('\n')[0];
+        Assert.Contains("killed", first);
+        Assert.Contains("zombie0", first);
+        Assert.Contains("65.5 dealt", first);
+    }
+
+    [Fact]
+    public void Build_ResultBannerCreditsOnlyTheNamedFightsDamage()
+    {
+        // The figure sits beside one NPC's name, so it must be that fight's damage rather than the
+        // encounter total — otherwise a pack fight reads as having dealt all of it to the last target.
+        var finished = Encounter("axe0", 40,
+            Snap("goat0", outcome: FightOutcome.Killed, damageDone: 12),
+            Snap("ram1", outcome: FightOutcome.NpcFled, damageDone: 90)) with { InCombat = false };
+
+        var lines = CombatHistoryFormatter.Build(finished, CombatStatDeficits.None, CombatHistoryContext.Empty);
+
+        var first = PlainText(lines).Split('\n')[0];
+        Assert.Contains("goat0", first);
+        Assert.Contains("12.0 dealt", first);
+        Assert.DoesNotContain("102.0", first);   // not the encounter-wide sum
+    }
+
+    [Fact]
+    public void Build_ResultBannerReportsADeathAsSuchAndOutranksAKillInTheSameEncounter()
+    {
+        // Dying is the outcome that matters, even if you took something down on the way.
+        var finished = Encounter("axe0", 40,
+            Snap("goat0", outcome: FightOutcome.Killed),
+            Snap("ram1", outcome: FightOutcome.KilledByNpc)) with { InCombat = false };
+
+        var lines = CombatHistoryFormatter.Build(finished, CombatStatDeficits.None, CombatHistoryContext.Empty);
+
+        var first = PlainText(lines).Split('\n')[0];
+        Assert.Contains("killed by", first);
+        Assert.Contains("ram1", first);
+    }
+
+    [Fact]
+    public void Build_ShowsNoResultBannerWhileTheFightIsStillLive()
+    {
+        var lines = CombatHistoryFormatter.Build(
+            Encounter("axe0", 10, Snap("rat0")), CombatStatDeficits.None, CombatHistoryContext.Empty);
+
+        Assert.DoesNotContain("killed", PlainText(lines));
+    }
+
+    [Fact]
+    public void Build_ShowsSessionTotalsWhenThereIsNoEncounterAtAll()
+    {
+        // The panel used to go blank between fights; it now reports the session in the same terms the
+        // live rows use.
+        var idle = new CombatEncounterSnapshot(false, false, null, [], 0, 0, 0, 0, 0, 0, 0, 0,
+            TimeSpan.Zero, 0, 0, []);
+        var session = new SessionCombatTotals(3, 5, 4, 1, 0, 210.5, 88.0, TimeSpan.FromSeconds(190));
+
+        var lines = CombatHistoryFormatter.Build(idle, CombatStatDeficits.None, CombatHistoryContext.Empty, session);
+
+        var text = PlainText(lines);
+        Assert.Contains("this session", text);
+        Assert.Contains("in 3 enc", text);
+        Assert.Contains("210.5", text);
+        Assert.Contains("died 1", text);
+        Assert.Contains("3:10", text);
+    }
+
+    [Fact]
+    public void Build_StillEmitsNothingWhenIdleWithNoSessionHistory()
+    {
+        var idle = new CombatEncounterSnapshot(false, false, null, [], 0, 0, 0, 0, 0, 0, 0, 0,
+            TimeSpan.Zero, 0, 0, []);
+
+        Assert.Empty(CombatHistoryFormatter.Build(idle, CombatStatDeficits.None, CombatHistoryContext.Empty));
+    }
+
+    [Fact]
+    public void SessionTotals_AccumulateFoldsEachEncountersOutcomesIn()
+    {
+        var encounter = Encounter("axe0", 30,
+            Snap("goat0", outcome: FightOutcome.Killed, damageDone: 20, damageTaken: 5),
+            Snap("ram1", outcome: FightOutcome.NpcFled, damageDone: 8, damageTaken: 3));
+
+        var totals = SessionCombatTotals.Empty.Accumulate(encounter);
+
+        Assert.Equal(1, totals.Encounters);
+        Assert.Equal(2, totals.Fights);
+        Assert.Equal(1, totals.Kills);
+        Assert.Equal(1, totals.NpcFled);
+        Assert.Equal(0, totals.Deaths);
+        Assert.Equal(28.0, totals.DamageDealt, 3);
+        Assert.Equal(8.0, totals.DamageTaken, 3);
     }
 
     [Fact]

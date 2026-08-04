@@ -243,6 +243,23 @@ public class CombatTrackerTests
     }
 
     [Fact]
+    public void NpcTriedToGo_IsNotAFlee_AndLeavesTheFightOpen()
+    {
+        // Per the user: an NPC that cannot move reports that it TRIED to go somewhere, and is still
+        // in the room. Treating that as a flee would close a live fight and (once pursuit lands) walk
+        // the player out of it. The NpcFled regex requires the literal "has fled by going", so this
+        // already does not match — pinned here because that was correct by luck rather than by design,
+        // and pursuit work is about to depend on the distinction.
+        // See tools/combat/MECHANICS_NOTES.md "Fleeing NPCs and pursuit".
+        var (t, inCombat, events) = NewTracker();
+        t.Observe(Line("You attack the billy goat, using the falchion as a weapon."), DateTime.UtcNow);
+        t.Observe(Line("The billy goat has tried to go north."), DateTime.UtcNow);
+
+        Assert.True(t.InCombat);
+        Assert.DoesNotContain(events, e => e.Kind == CombatEventKind.NpcFled);
+    }
+
+    [Fact]
     public void NpcFlee_EndsThatFightOnly()
     {
         var (t, inCombat, events) = NewTracker();

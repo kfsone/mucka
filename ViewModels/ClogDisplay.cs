@@ -88,6 +88,53 @@ public sealed record CombatStatDeficits(
 }
 
 /// <summary>
+/// Running totals for the current play session, so the window says something useful between fights
+/// instead of going blank. Deliberately mirrors the in-fight rows (kills, damage dealt/taken, time)
+/// so the idle and active readouts read as the same panel rather than two unrelated screens.
+/// </summary>
+public sealed record SessionCombatTotals(
+    int Encounters,
+    int Fights,
+    int Kills,
+    int Deaths,
+    int NpcFled,
+    double DamageDealt,
+    double DamageTaken,
+    TimeSpan TimeInCombat)
+{
+    public static readonly SessionCombatTotals Empty = new(0, 0, 0, 0, 0, 0, 0, TimeSpan.Zero);
+
+    public bool HasAnything => Fights > 0;
+
+    /// <summary>Folds a finished encounter in. Called once per encounter close.</summary>
+    public SessionCombatTotals Accumulate(CombatEncounterSnapshot snapshot)
+    {
+        var kills = 0;
+        var deaths = 0;
+        var fled = 0;
+        foreach (var fight in snapshot.Fights)
+        {
+            switch (fight.Outcome)
+            {
+                case MudSharp.Combat.FightOutcome.Killed: kills++; break;
+                case MudSharp.Combat.FightOutcome.KilledByNpc: deaths++; break;
+                case MudSharp.Combat.FightOutcome.NpcFled: fled++; break;
+            }
+        }
+
+        return new SessionCombatTotals(
+            Encounters + 1,
+            Fights + snapshot.Fights.Count,
+            Kills + kills,
+            Deaths + deaths,
+            NpcFled + fled,
+            DamageDealt + snapshot.ApproxDamageDone,
+            DamageTaken + snapshot.ApproxDamageTaken,
+            TimeInCombat + snapshot.Duration);
+    }
+}
+
+/// <summary>
 /// The history a fight is being contrasted against, assembled by the view model so the formatter
 /// stays pure.
 ///

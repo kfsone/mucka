@@ -21,9 +21,17 @@ namespace Mucka.Pages;
 /// </summary>
 internal sealed class ClogPage : ContentPage
 {
+    /// <summary>The family name registered in MauiProgram (fonts.AddFont("CascadiaMono.ttf", ...)).
+    /// MUST be exactly that alias: MAUI does NOT parse CSS-style fallback lists, so the previous
+    /// "Cascadia Mono, Consolas, monospace" resolved to nothing and silently fell back to a
+    /// PROPORTIONAL font — which is why every carefully aligned column rendered ragged.</summary>
+    private const string MonoFont = "Cascadia Mono";
+
     private readonly SidePanelViewModel _panel;
     private readonly Label _readout;
     private readonly Label _empty;
+    private readonly Border _frame;
+    private readonly Button _clear;
 
     public ClogPage(GameViewModel vm)
     {
@@ -34,7 +42,7 @@ internal sealed class ClogPage : ContentPage
         _readout = new Label
         {
             FontSize = 11,
-            FontFamily = "Cascadia Mono, Consolas, monospace",
+            FontFamily = MonoFont,
             LineBreakMode = LineBreakMode.NoWrap,
             TextColor = ToneColor(ClogTone.Value),
         };
@@ -46,7 +54,23 @@ internal sealed class ClogPage : ContentPage
             FontSize = 12,
             FontAttributes = FontAttributes.Italic,
         };
-        _empty.SetBinding(IsVisibleProperty, nameof(SidePanelViewModel.NoCombatData));
+        _empty.SetBinding(IsVisibleProperty, nameof(SidePanelViewModel.NoClogContent));
+
+        // Dismisses a finished encounter's summary. It used to self-erase after 8 seconds, which was
+        // too fast to actually read; it now persists until this is pressed.
+        _clear = new Button
+        {
+            Text = "clear",
+            FontSize = 10,
+            FontFamily = MonoFont,
+            Padding = new Thickness(6, 0),
+            HeightRequest = 22,
+            BackgroundColor = Color.FromArgb("#21262d"),
+            TextColor = ToneColor(ClogTone.Dim),
+            HorizontalOptions = LayoutOptions.End,
+        };
+        _clear.Clicked += OnClearClicked;
+        _clear.SetBinding(IsVisibleProperty, nameof(SidePanelViewModel.CanClearCombatSummary));
 
         var hint = new Label
         {
@@ -58,9 +82,9 @@ internal sealed class ClogPage : ContentPage
         var stack = new VerticalStackLayout
         {
             Spacing = 4,
-            Padding = new Thickness(10),
             Children =
             {
+                _clear,
                 _empty,
                 _readout,
                 new BoxView { Color = Color.FromArgb("#2d333b"), HeightRequest = 1, Margin = new Thickness(0, 8, 0, 4) },
@@ -68,11 +92,38 @@ internal sealed class ClogPage : ContentPage
             },
         };
 
-        Content = new ScrollView { Content = stack };
+        // Border rather than a pulsing animation: CLAUDE.md's Invariant #1 forbids repeating
+        // UI-thread timers driving visual effects, because they compete with typing, and this window
+        // shares the UI thread with the command box. A solid colour change carries the same "you are
+        // in combat" signal for zero recurring cost. (Real pulsing would need to be driven on the
+        // compositor/render thread, like the existing stale-dim behaviors.)
+        _frame = new Border
+        {
+            Stroke = IdleStroke,
+            StrokeThickness = 2,
+            Padding = new Thickness(8),
+            Content = stack,
+        };
+
+        Content = new ScrollView { Content = _frame };
 
         _panel.PropertyChanged += OnPanelPropertyChanged;
         Render(_panel.ClogLines);
+        RefreshFrame();
     }
+
+    private static readonly Color IdleStroke = Color.FromArgb("#2d333b");
+    private static readonly Color CombatStroke = Color.FromArgb("#f85149");
+    private static readonly Color GraceStroke = Color.FromArgb("#7d2b28");
+
+    private void OnClearClicked(object? sender, EventArgs e) => _panel.ClearCombatSummaryCommand();
+
+    /// <summary>Red while a fight is live, muted red through the post-kill grace window, neutral when
+    /// idle — so "in combat" is visible from the window's edge without reading a word of it.</summary>
+    private void RefreshFrame()
+        => _frame.Stroke = _panel.InCombat
+            ? (_panel.IsCombatGracePeriod ? GraceStroke : CombatStroke)
+            : IdleStroke;
 
     protected override void OnHandlerChanged()
     {
@@ -80,15 +131,28 @@ internal sealed class ClogPage : ContentPage
         // Unsubscribe once the window is torn down, so a closed clog window does not keep receiving
         // (and re-rendering for) every combat line of the rest of the session.
         if (Handler is null)
+        {
             _panel.PropertyChanged -= OnPanelPropertyChanged;
+            _clear.Clicked -= OnClearClicked;
+        }
     }
 
     private void OnPanelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName is not (nameof(SidePanelViewModel.ClogLines) or null))
-            return;
-
-        Render(_panel.ClogLines);
+        switch (e.PropertyName)
+        {
+            case nameof(SidePanelViewModel.ClogLines):
+                Render(_panel.ClogLines);
+                break;
+            case nameof(SidePanelViewModel.InCombat):
+            case nameof(SidePanelViewModel.IsCombatGracePeriod):
+                RefreshFrame();
+                break;
+            case null:
+                Render(_panel.ClogLines);
+                RefreshFrame();
+                break;
+        }
     }
 
     private void Render(IReadOnlyList<ClogLine> lines)

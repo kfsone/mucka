@@ -225,6 +225,8 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     // were consuming most of the panel's width, and absolute Sta/Str/Dex/Mag/Carry/Level/Games told
     // the reader nothing actionable mid-fight. See CombatHistoryFormatter for the layout rationale.
     private IReadOnlyList<ClogLine> _clogLines = [];
+    // Running session tally, so the window reports something between fights instead of blanking.
+    private SessionCombatTotals _session = SessionCombatTotals.Empty;
     // Latest stats, kept so a refresh triggered by a combat event (not a stats event) can still
     // report the current load penalty.
     private CombatStatDeficits _combatDeficits = CombatStatDeficits.None;
@@ -258,6 +260,16 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     /// per-event and 1 Hz refreshes do not re-template the label for nothing (Invariant #1).</summary>
     public IReadOnlyList<ClogLine> ClogLines => _clogLines;
 
+    /// <summary>True once there is a finished encounter on screen worth dismissing. Never while the
+    /// fight is live — clearing mid-fight would just refill on the next line.</summary>
+    public bool CanClearCombatSummary => _hasCombatData && !_inCombat;
+
+    /// <summary>Whether there is anything at all to render. Distinct from <see cref="HasCombatData"/>:
+    /// with no encounter on screen the panel still shows the session's running totals, so "no
+    /// encounter" and "nothing to show" stopped being the same thing.</summary>
+    public bool HasClogContent => _clogLines.Count > 0;
+    public bool NoClogContent => _clogLines.Count == 0;
+
     /// <summary>Supplies the accumulated per-fight history the live figures are contrasted against.
     /// Call once at startup; the store loads itself off-thread (see MuckaConnection).</summary>
     public void AttachFightHistory(FightHistoryStore store) => _fightHistory = store;
@@ -268,13 +280,15 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         {
             if (inCombat)
             {
-                _combatClearGeneration++;
                 _combatStats.BeginEncounter(DateTime.UtcNow);
                 _hasCombatData = true;
             }
             else
             {
                 _combatStats.EndEncounter();
+                // Fold the finished encounter into the session tally BEFORE anything can clear it, so
+                // dismissing the summary never costs the session totals.
+                _session = _session.Accumulate(_combatStats.Snapshot(DateTime.UtcNow));
             }
 
             _inCombat = inCombat;
@@ -282,10 +296,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             _isCombatGrace = false;   // a fresh Begin() always clears the tracker's own grace state
             RefreshCombatDisplay(DateTime.UtcNow);
             OnPropertiesChanged(nameof(InCombat), nameof(IsClogging), nameof(IsCombatGracePeriod),
-                nameof(CombatIconOpacity), nameof(CombatTip));
-
-            if (!inCombat)
-                ScheduleCombatSummaryClear();
+                nameof(CombatIconOpacity), nameof(CombatTip), nameof(CanClearCombatSummary));
         });
     }
 
@@ -334,36 +345,29 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         MainThread.BeginInvokeOnMainThread(() => RefreshCombatDisplay(DateTime.UtcNow));
     }
 
-    private void ScheduleCombatSummaryClear()
-    {
-        if (_dispatcher is null)
-        {
-            ClearCombatSummary();
-            return;
-        }
-
-        var generation = ++_combatClearGeneration;
-        _dispatcher.DispatchDelayed(TimeSpan.FromSeconds(8), () =>
-        {
-            if (generation != _combatClearGeneration || _combatStats.InCombat)
-                return;
-
-            ClearCombatSummary();
-        });
-    }
+    /// <summary>Wipes the last encounter's readout, leaving the session totals. Bound to the clog
+    /// window's clear button — the summary used to self-erase after 8 seconds, which was far too
+    /// quick to read after a fight, so it now persists until dismissed on purpose.</summary>
+    public void ClearCombatSummaryCommand() => ClearCombatSummary();
 
     private void ClearCombatSummary()
     {
         _combatStats.Reset();
         _hasCombatData = false;
         RefreshCombatDisplay(DateTime.UtcNow);
+        OnPropertiesChanged(nameof(CanClearCombatSummary));
     }
 
     private void RefreshCombatDisplay(DateTime nowUtc)
     {
-        var lines = _hasCombatData
-            ? CombatHistoryFormatter.Build(_combatStats.Snapshot(nowUtc), _combatDeficits, ResolveHistory(nowUtc))
-            : (IReadOnlyList<ClogLine>)[];
+        // Session totals still render with no encounter on screen, so this is no longer gated on
+        // _hasCombatData — the panel reports the session's running tally between fights instead of
+        // going blank.
+        var lines = CombatHistoryFormatter.Build(
+            _hasCombatData ? _combatStats.Snapshot(nowUtc) : IdleSnapshot,
+            _combatDeficits,
+            _hasCombatData ? ResolveHistory(nowUtc) : CombatHistoryContext.Empty,
+            _session);
 
         // Diff before publishing: at 1 Hz plus one refresh per combat line, an unconditional notify
         // would rebuild the label's FormattedString constantly for identical content, which is
@@ -372,8 +376,17 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             return;
 
         _clogLines = lines;
-        OnPropertiesChanged(nameof(HasCombatData), nameof(NoCombatData), nameof(ClogLines));
+        OnPropertiesChanged(nameof(HasCombatData), nameof(NoCombatData), nameof(ClogLines),
+            nameof(HasClogContent), nameof(NoClogContent));
     }
+
+    /// <summary>Stand-in for "no encounter", so the formatter's session-totals path can run without a
+    /// live snapshot.</summary>
+    private static readonly CombatEncounterSnapshot IdleSnapshot = new(
+        HasEncounter: false, InCombat: false, CurrentWeapon: null, ActiveNpcs: [],
+        YouHits: 0, YouMisses: 0, TheyHits: 0, TheyMisses: 0, YouHitRate: 0, TheyHitRate: 0,
+        ApproxDamageDone: 0, ApproxDamageTaken: 0, Duration: TimeSpan.Zero,
+        ApproxDps: 0, TheirApproxDps: 0, Fights: []);
 
     /// <summary>Assembles the history context for the encounter's primary target. The scan itself is
     /// cached against (instance, row count) — the medians cannot move mid-fight, only the live

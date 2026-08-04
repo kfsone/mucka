@@ -375,3 +375,58 @@ Current assessment:
   (hit/miss/damage), never the NPC's stats, and hit rate conflates their dexterity with our own plus
   weapon and room effects. Would need either a game-side readout we have not found or a large
   controlled dataset plus an assumed model. Recorded as an aspiration, not a plan.
+
+## Fleeing NPCs and pursuit (user, 2026-08-04) - DESIGN THREAD, not yet implemented
+
+Pain point, verbatim: "very annoying having to try and find the flee message and type: se,kill that
+thing with this weapon *before* that thing wanders off."
+
+The command the player wants generated, from a line like `The zombie0 has fled by going south.`:
+
+```
+se,k <target> wi <weap>
+```
+
+i.e. move in the flee direction, then re-engage with the weapon already in hand, batched into one
+comma-separated MUD2 line (the server executes each sub-command on its own sequential game turn -
+same mechanism `$clog eval` already relies on).
+
+Note the direction abbreviation in the user's example is `se` while the message said "south". The
+message names a direction in full; the movement command wants the MUD2 abbreviation. A full
+direction-word -> abbreviation map is needed (n/s/e/w/ne/nw/se/sw/u/d, plus whatever MUD2 uses for
+in/out). Do NOT assume first-letter truncation - "south" -> "s" but "southeast" -> "se".
+
+### Caveats that must be handled (all from the user)
+
+1. **"tried to go" is NOT a flee.** Sometimes the NPC cannot move, and the message says it *tried*
+   to go somewhere. It is still in the room, and pursuing would walk the player away from a live
+   fight. The two phrasings must be distinguished, and only the successful one offers pursuit.
+2. **Cannot follow while another fight is open.** With two opponents engaged, the player cannot leave
+   until the second is dead. So a pursuit offer must be suppressed while any other fight in the
+   encounter is unresolved - offering a move that the server will refuse is worse than offering
+   nothing.
+3. **Multiple fleers, different directions.** With two opponents both fleeing, they may leave in
+   different directions, so there can be more than one pending pursuit candidate. The UI has to let
+   the player pick, or at minimum show which went where, rather than silently guessing one.
+
+### Additional unknowns to resolve before building
+
+- Does the flee message always name a direction? (A flee into water/a portal may not.)
+- Is the "tried to go" phrasing also used for the player, and does `CombatTracker` currently
+  misclassify it? **Worth auditing: the existing NpcFled regex is `"The X has fled by going <dir>."`
+  so a "tried to go" line probably does not match at all today - which is correct behaviour by luck
+  rather than by design, and is untested.** Add a regression test either way.
+- How long does the player realistically have before the NPC wanders further? Determines whether a
+  pursuit offer should expire.
+
+### Proposed shape (not built)
+
+- Extend the flee event with the parsed direction, and add a distinct event kind (or flag) for the
+  "tried to go" non-flee so the two are never conflated.
+- Track pending pursuit candidates per encounter: (npc, direction, when).
+- Surface in the clog window as a prominent, single-activation action - e.g. a button per fleeing
+  NPC reading "chase zombie0 se" - that injects `se,k zombie0 wi <current weapon>`.
+- Suppress entirely while any other fight in the encounter is unresolved (caveat 2).
+- Because it SENDS a command on the player's behalf, it must be explicit-activation only. No
+  auto-pursuit: a mis-parsed direction would walk the player into an unknown room mid-fight.
+- Keyboard-reachable, and must return focus to the command box immediately (Invariant #0).

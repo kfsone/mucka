@@ -44,6 +44,12 @@ public sealed record FightHistorySummary
     /// <summary>Kills as a fraction of all matching fights, or null with no fights at all.</summary>
     public double? KillRate => FightCount == 0 ? null : Kills / (double)FightCount;
 
+    /// <summary>How often this opponent has run away, as a fraction of all recorded fights. Some
+    /// MUD2 NPCs are strongly flight-prone (per the user, water snakes almost always flee), which
+    /// matters BEFORE committing: a fleeing target has to be chased through rooms or the kill is
+    /// lost. Null with no fights on record.</summary>
+    public double? FleeRate => FightCount == 0 ? null : NpcFled / (double)FightCount;
+
     public static readonly FightHistorySummary Empty = new();
 }
 
