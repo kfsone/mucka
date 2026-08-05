@@ -1812,8 +1812,10 @@ public partial class GamePage : ContentPage
         _clogWindow = new Window(new ClogPage(_vm))
         {
             Title  = "Mucka — Clog",
-            Width  = 260,
-            Height = 460,
+            // Widened from 260 to fit the two-column you/them table and the weapon table's
+            // name+now+hist columns without wrapping — the user agreed to the extra width.
+            Width  = 330,
+            Height = 520,
         };
         _clogWindow.Destroying += OnClogWindowDestroying;
         Application.Current?.OpenWindow(_clogWindow);

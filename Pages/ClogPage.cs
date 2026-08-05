@@ -58,16 +58,24 @@ internal sealed class ClogPage : ContentPage
 
         // Dismisses a finished encounter's summary. It used to self-erase after 8 seconds, which was
         // too fast to actually read; it now persists until this is pressed.
+        //
+        // A bare glyph with no background fill, and FLOATED in a Grid cell shared with the readout
+        // rather than stacked above it — as a stacked button it was a large grey block pushing the
+        // whole panel down and dominating the top of the window.
         _clear = new Button
         {
-            Text = "clear",
-            FontSize = 10,
+            Text = "×",
+            FontSize = 15,
             FontFamily = MonoFont,
-            Padding = new Thickness(6, 0),
-            HeightRequest = 22,
-            BackgroundColor = Color.FromArgb("#21262d"),
+            Padding = new Thickness(0),
+            WidthRequest = 20,
+            HeightRequest = 20,
+            CornerRadius = 0,
+            BorderWidth = 0,
+            BackgroundColor = Colors.Transparent,
             TextColor = ToneColor(ClogTone.Dim),
             HorizontalOptions = LayoutOptions.End,
+            VerticalOptions = LayoutOptions.Start,
         };
         _clear.Clicked += OnClearClicked;
         _clear.SetBinding(IsVisibleProperty, nameof(SidePanelViewModel.CanClearCombatSummary));
@@ -84,13 +92,16 @@ internal sealed class ClogPage : ContentPage
             Spacing = 4,
             Children =
             {
-                _clear,
                 _empty,
                 _readout,
                 new BoxView { Color = Color.FromArgb("#2d333b"), HeightRequest = 1, Margin = new Thickness(0, 8, 0, 4) },
                 hint,
             },
         };
+
+        // Single-cell Grid so the clear glyph overlays the readout's top-right instead of occupying a
+        // row of its own. Added last so it sits above the text in z-order.
+        var overlay = new Grid { Children = { stack, _clear } };
 
         // Border rather than a pulsing animation: CLAUDE.md's Invariant #1 forbids repeating
         // UI-thread timers driving visual effects, because they compete with typing, and this window
@@ -102,7 +113,7 @@ internal sealed class ClogPage : ContentPage
             Stroke = IdleStroke,
             StrokeThickness = 2,
             Padding = new Thickness(8),
-            Content = stack,
+            Content = overlay,
         };
 
         Content = new ScrollView { Content = _frame };

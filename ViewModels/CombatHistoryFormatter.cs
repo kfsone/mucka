@@ -37,6 +37,7 @@ internal static class CombatHistoryFormatter
         // now stays on screen until explicitly cleared rather than vanishing after 8 seconds.
         AppendResultBanner(lines, snapshot);
         AppendHeadline(lines, snapshot);
+        AppendParticipants(lines, snapshot);
         AppendExchange(lines, snapshot);
         AppendDeficits(lines, deficits);
         AppendOutlook(lines, snapshot, deficits, history);
@@ -81,13 +82,12 @@ internal static class CombatHistoryFormatter
             _ => ("·", "open", ClogTone.Dim),
         };
 
+        // Verdict and target only. The duration lives on this fight's participant line and the damage
+        // in the exchange table below, so repeating either here is what made the same number appear
+        // six times in one panel.
         lines.Add(ClogLine.Of(
             new ClogSpan($"{glyph} {verb} ", tone),
-            new ClogSpan(decisive.NpcName, ClogTone.Hostile),
-            new ClogSpan($"  {Duration(decisive.Duration.TotalSeconds)}", ClogTone.Dim),
-            // That fight's own damage, not the encounter total: the figure sits next to a specific
-            // NPC's name, so an encounter-wide number would read as having been dealt to it.
-            new ClogSpan($"  {Num(decisive.ApproxDamageDone)} dealt", ClogTone.Dim)));
+            new ClogSpan(decisive.NpcName, ClogTone.Hostile)));
         lines.Add(ClogLine.Blank);
     }
 
@@ -114,25 +114,28 @@ internal static class CombatHistoryFormatter
         if (!session.HasAnything)
             return;
 
-        lines.Add(ClogLine.Of(new ClogSpan("this session", ClogTone.Heading)));
-        lines.Add(ClogLine.Of(
-            new ClogSpan($"{"fights",-8}", ClogTone.Dim),
-            new ClogSpan($"{session.Fights,7}", ClogTone.Value),
-            new ClogSpan($"  in {session.Encounters} enc", ClogTone.Dim)));
-        lines.Add(ClogLine.Of(
-            new ClogSpan($"{"killed",-8}", ClogTone.Dim),
-            new ClogSpan($"{session.Kills,7}", ClogTone.Good),
-            new ClogSpan(session.Deaths > 0 ? $"  died {session.Deaths}" : string.Empty, ClogTone.Hostile),
-            new ClogSpan(session.NpcFled > 0 ? $"  fled {session.NpcFled}" : string.Empty, ClogTone.Warn)));
-        lines.Add(ClogLine.Of(
-            new ClogSpan($"{"dealt",-8}", ClogTone.Dim),
-            new ClogSpan($"{Num(session.DamageDealt),7}", ClogTone.Friendly)));
-        lines.Add(ClogLine.Of(
-            new ClogSpan($"{"taken",-8}", ClogTone.Dim),
-            new ClogSpan($"{Num(session.DamageTaken),7}", ClogTone.Hostile)));
-        lines.Add(ClogLine.Of(
-            new ClogSpan($"{"fighting",-8}", ClogTone.Dim),
-            new ClogSpan($"{Duration(session.TimeInCombat.TotalSeconds),7}", ClogTone.Value)));
+        // One line, not six: after a single fight the old block restated every figure the readout
+        // above had already given. Compressed to a running tally that adds information only once
+        // there is more than one fight behind it.
+        var spans = new List<ClogSpan>(6)
+        {
+            new("session ", ClogTone.Heading),
+            new($"{session.Fights}f", ClogTone.Value),
+            new($"/{session.Encounters}e ", ClogTone.Dim),
+            new($"{session.Kills}k", ClogTone.Good),
+        };
+
+        if (session.Deaths > 0)
+            spans.Add(new ClogSpan($" {session.Deaths}d", ClogTone.Hostile));
+        if (session.NpcFled > 0)
+            spans.Add(new ClogSpan($" {session.NpcFled}fled", ClogTone.Warn));
+
+        spans.Add(new ClogSpan($"  {Num(session.DamageDealt)}", ClogTone.Friendly));
+        spans.Add(new ClogSpan("/", ClogTone.Dim));
+        spans.Add(new ClogSpan($"{Num(session.DamageTaken)}", ClogTone.Hostile));
+        spans.Add(new ClogSpan($"  {Duration(session.TimeInCombat.TotalSeconds)}", ClogTone.Dim));
+
+        lines.Add(new ClogLine(spans));
     }
 
     /// <summary>Whether this opponent is likely to run. Only rendered at or above a coin flip, since
@@ -226,9 +229,56 @@ internal static class CombatHistoryFormatter
         if (written == 0)
             spans.Add(new ClogSpan("--", ClogTone.Dim));
 
-        spans.Add(new ClogSpan("  " + Duration(snapshot.Duration.TotalSeconds), ClogTone.Dim));
+        // ENCOUNTER clock here; each participant carries its own fight clock on its own line below.
+        // The two differ — an encounter can run on past a kill (grace window, a second attacker), so
+        // collapsing them into one number would misreport both.
+        spans.Add(new ClogSpan("  enc " + Duration(snapshot.Duration.TotalSeconds), ClogTone.Dim));
         lines.Add(new ClogLine(spans));
     }
+
+    /// <summary>One line per NPC engaged this encounter, carrying that fight's own duration and how it
+    /// ended. This is where per-fight timing lives, as distinct from the encounter clock above.</summary>
+    private static void AppendParticipants(List<ClogLine> lines, CombatEncounterSnapshot snapshot)
+    {
+        if (snapshot.Fights.Count == 0)
+            return;
+
+        var width = Math.Min(snapshot.Fights.Max(f => f.NpcName.Length), 14);
+        foreach (var fight in OrderedTargets(snapshot.Fights))
+        {
+            // Name and its column padding are separate spans so the strikethrough covers the NAME only
+            // — struck padding renders as a stray dash trailing off into empty space.
+            var name = Truncate(fight.NpcName, width);
+            lines.Add(ClogLine.Of(
+                new ClogSpan(" ", ClogTone.Dim),
+                new ClogSpan(name, ClogTone.Hostile, Strike: fight.IsResolved),
+                new ClogSpan(new string(' ', width - name.Length), ClogTone.Dim),
+                new ClogSpan($" {Duration(fight.Duration.TotalSeconds),5}", ClogTone.Value),
+                // This fight's own damage dealt/taken. The exchange table above is encounter-wide, so
+                // without this a pack fight could not say which target absorbed what.
+                new ClogSpan($" {Num(fight.ApproxDamageDone),6}", ClogTone.Friendly),
+                new ClogSpan($"/{Num(fight.ApproxDamageTaken)}", ClogTone.Hostile),
+                new ClogSpan($"  {DescribeOutcome(fight)}", OutcomeTone(fight.Outcome))));
+        }
+    }
+
+    private static string DescribeOutcome(FightSnapshot fight) => fight.Outcome switch
+    {
+        FightOutcome.Killed => "killed",
+        FightOutcome.KilledByNpc => "killed you",
+        FightOutcome.NpcFled => "fled",
+        FightOutcome.YouFled => "you fled",
+        FightOutcome.Withdrawn => "withdrew",
+        _ => "live",
+    };
+
+    private static ClogTone OutcomeTone(FightOutcome outcome) => outcome switch
+    {
+        FightOutcome.Killed => ClogTone.Good,
+        FightOutcome.KilledByNpc => ClogTone.Hostile,
+        FightOutcome.NpcFled or FightOutcome.YouFled => ClogTone.Warn,
+        _ => ClogTone.Dim,
+    };
 
     private static IEnumerable<FightSnapshot> OrderedTargets(IReadOnlyList<FightSnapshot> fights)
     {
@@ -245,25 +295,36 @@ internal static class CombatHistoryFormatter
         }
     }
 
-    /// <summary>Two symmetrical lines, one per side. The first pass reported the player's dps but not
-    /// the NPC's, which is exactly half of the question "am I winning this".</summary>
+    /// <summary>
+    /// The exchange as a two-column table, player against opponent, one metric per row.
+    ///
+    /// <para>Replaced the previous one-line-per-side form: with the values running horizontally there
+    /// was no way to compare like against like without counting columns, and the row labels had to be
+    /// re-read on every line. Vertically, each metric sits on one row and the two numbers are directly
+    /// above and below each other.</para>
+    /// </summary>
     private static void AppendExchange(List<ClogLine> lines, CombatEncounterSnapshot snapshot)
     {
-        lines.Add(ExchangeLine("you ", ClogTone.Friendly, snapshot.YouHits, snapshot.YouMisses,
-            snapshot.YouHitRate, snapshot.ApproxDamageDone, snapshot.ApproxDps));
-        lines.Add(ExchangeLine("them", ClogTone.Hostile, snapshot.TheyHits, snapshot.TheyMisses,
-            snapshot.TheyHitRate, snapshot.ApproxDamageTaken, snapshot.TheirApproxDps));
+        lines.Add(ClogLine.Of(
+            new ClogSpan($"{string.Empty,-9}", ClogTone.Dim),
+            new ClogSpan($"{"you",7}", ClogTone.Friendly),
+            new ClogSpan($"{"them",7}", ClogTone.Hostile)));
+
+        AppendExchangeRow(lines, "hit/miss",
+            $"{snapshot.YouHits}/{snapshot.YouMisses}",
+            $"{snapshot.TheyHits}/{snapshot.TheyMisses}");
+        AppendExchangeRow(lines, "hit%",
+            Percent(snapshot.YouHits + snapshot.YouMisses == 0 ? null : snapshot.YouHitRate),
+            Percent(snapshot.TheyHits + snapshot.TheyMisses == 0 ? null : snapshot.TheyHitRate));
+        AppendExchangeRow(lines, "damage", Num(snapshot.ApproxDamageDone), Num(snapshot.ApproxDamageTaken));
+        AppendExchangeRow(lines, "rate", Num(snapshot.ApproxDps) + "/s", Num(snapshot.TheirApproxDps) + "/s");
     }
 
-    private static ClogLine ExchangeLine(
-        string label, ClogTone tone, int hits, int misses, double hitRate, double damage, double dps)
-        => ClogLine.Of(
-            new ClogSpan(label, tone),
-            new ClogSpan($" {hits,2}h", ClogTone.Value),
-            new ClogSpan($" {misses,2}m", ClogTone.Dim),
-            new ClogSpan($" {Percent(hits + misses == 0 ? null : hitRate),4}", ClogTone.Value),
-            new ClogSpan($" {Num(damage),6}", ClogTone.Value),
-            new ClogSpan($" {Num(dps)}/s", ClogTone.Dim));
+    private static void AppendExchangeRow(List<ClogLine> lines, string label, string mine, string theirs)
+        => lines.Add(ClogLine.Of(
+            new ClogSpan($"{label,-9}", ClogTone.Dim),
+            new ClogSpan($"{mine,7}", ClogTone.Friendly),
+            new ClogSpan($"{theirs,7}", ClogTone.Hostile)));
 
     /// <summary>Only rendered when something is actually costing the player stats. A line that always
     /// reads "0" is a line that stops being read.</summary>

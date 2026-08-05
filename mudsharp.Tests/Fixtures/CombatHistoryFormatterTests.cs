@@ -125,7 +125,8 @@ public sealed class CombatHistoryFormatterTests
         var headline = PlainText(lines).Split('\n')[0];
         Assert.Contains("axe0 vs rat0, rat1", headline);   // live rat0 first despite being listed second
 
-        var struck = AllSpans(lines).Where(s => s.Strike).Select(s => s.Text).ToList();
+        // Struck in two places now: the headline's target list AND that fight's participant line.
+        var struck = AllSpans(lines).Where(s => s.Strike).Select(s => s.Text.Trim()).Distinct().ToList();
         Assert.Equal(["rat1"], struck);
     }
 
@@ -164,8 +165,8 @@ public sealed class CombatHistoryFormatterTests
         var lines = CombatHistoryFormatter.Build(
             Encounter("axe0", 10, Snap("rat0")), CombatStatDeficits.None, CombatHistoryContext.Empty);
 
-        Assert.Contains(AllSpans(lines), s => s.Text == "you " && s.Tone == ClogTone.Friendly);
-        Assert.Contains(AllSpans(lines), s => s.Text == "them" && s.Tone == ClogTone.Hostile);
+        Assert.Contains(AllSpans(lines), s => s.Text.Trim() == "you" && s.Tone == ClogTone.Friendly);
+        Assert.Contains(AllSpans(lines), s => s.Text.Trim() == "them" && s.Tone == ClogTone.Hostile);
     }
 
     [Fact]
@@ -598,27 +599,44 @@ public sealed class CombatHistoryFormatterTests
 
         var lines = CombatHistoryFormatter.Build(finished, CombatStatDeficits.None, CombatHistoryContext.Empty);
 
-        var first = PlainText(lines).Split('\n')[0];
+        var text = PlainText(lines);
+        var first = text.Split('\n')[0];
         Assert.Contains("killed", first);
         Assert.Contains("zombie0", first);
-        Assert.Contains("65.5 dealt", first);
+        // Verdict and target ONLY. The duration and damage live on the participant line below, and
+        // repeating them in the banner is what produced six copies of the same number.
+        Assert.DoesNotContain("dealt", first);
+        Assert.DoesNotContain("65.5", first);
+        Assert.Contains("65.5", text);   // still present, once, further down
     }
 
     [Fact]
-    public void Build_ResultBannerCreditsOnlyTheNamedFightsDamage()
+    public void Build_ParticipantLinesCreditEachFightsOwnDamageAndDuration()
     {
-        // The figure sits beside one NPC's name, so it must be that fight's damage rather than the
-        // encounter total — otherwise a pack fight reads as having dealt all of it to the last target.
+        // The exchange table is encounter-wide, so per-target damage lives here — otherwise a pack
+        // fight cannot say which one absorbed what. Each line also carries that FIGHT's clock, as
+        // distinct from the encounter clock on the headline.
         var finished = Encounter("axe0", 40,
-            Snap("goat0", outcome: FightOutcome.Killed, damageDone: 12),
-            Snap("ram1", outcome: FightOutcome.NpcFled, damageDone: 90)) with { InCombat = false };
+            Snap("goat0", outcome: FightOutcome.Killed, damageDone: 12, damageTaken: 3, durationSeconds: 15),
+            Snap("ram1", outcome: FightOutcome.NpcFled, damageDone: 90, damageTaken: 20, durationSeconds: 25))
+            with { InCombat = false };
 
         var lines = CombatHistoryFormatter.Build(finished, CombatStatDeficits.None, CombatHistoryContext.Empty);
+        var text = PlainText(lines);
 
-        var first = PlainText(lines).Split('\n')[0];
-        Assert.Contains("goat0", first);
-        Assert.Contains("12.0 dealt", first);
-        Assert.DoesNotContain("102.0", first);   // not the encounter-wide sum
+        // Matched on the duration rather than the outcome word: the result banner also reads
+        // "killed goat0", so an outcome-only filter matches two lines.
+        var goat = text.Split('\n').Single(l => l.Contains("goat0") && l.Contains("0:15"));
+        Assert.Contains("12.0", goat);
+        Assert.Contains("3.0", goat);
+        Assert.Contains("killed", goat);
+
+        var ram = text.Split('\n').Single(l => l.Contains("ram1") && l.Contains("0:25"));
+        Assert.Contains("90.0", ram);
+        Assert.Contains("fled", ram);
+
+        // The headline carries the ENCOUNTER clock, which is neither fight's own.
+        Assert.Contains("enc 0:40", text.Split('\n')[2]);
     }
 
     [Fact]
@@ -656,12 +674,16 @@ public sealed class CombatHistoryFormatterTests
 
         var lines = CombatHistoryFormatter.Build(idle, CombatStatDeficits.None, CombatHistoryContext.Empty, session);
 
+        // One compact line, not six: after a single fight the old block restated every figure the
+        // readout above had already given.
         var text = PlainText(lines);
-        Assert.Contains("this session", text);
-        Assert.Contains("in 3 enc", text);
-        Assert.Contains("210.5", text);
-        Assert.Contains("died 1", text);
+        Assert.Contains("session", text);
+        Assert.Contains("5f/3e", text);
+        Assert.Contains("4k", text);
+        Assert.Contains("1d", text);
+        Assert.Contains("210.5/88.0", text);
         Assert.Contains("3:10", text);
+        Assert.Single(text.Split('\n', StringSplitOptions.RemoveEmptyEntries));
     }
 
     [Fact]
