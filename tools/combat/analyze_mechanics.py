@@ -44,6 +44,25 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--db", type=Path, default=DEFAULT_DB, help="SQLite DB path.")
     parser.add_argument("--notes-out", type=Path, default=DEFAULT_NOTES, help="Methodology notes path.")
+    # Off by default: write_notes()'s template is a fixed skeleton that only covers the
+    # methodology sections, while MECHANICS_NOTES.md has accumulated ~370 lines of hand-written
+    # live-session research findings on top of it. Overwriting unconditionally silently destroyed
+    # that. Requiring an explicit opt-in means running this tool for its normal purpose (the
+    # console report) can never lose notes by accident.
+    parser.add_argument(
+        "--write-notes",
+        action="store_true",
+        help="Overwrite --notes-out with the methodology template. Off by default: this tool's "
+        "normal use is the console report; refreshing the notes file is a separate, deliberate "
+        "action. Refuses to shrink an existing file unless --force-notes-overwrite is also given.",
+    )
+    parser.add_argument(
+        "--force-notes-overwrite",
+        action="store_true",
+        help="With --write-notes, allow overwriting --notes-out even if the existing file is "
+        "larger than the template about to be written (i.e. it likely has hand-written content "
+        "the template does not reproduce). Without this, a larger existing file is left untouched.",
+    )
     return parser.parse_args()
 
 
@@ -270,7 +289,15 @@ def build_stat_bucket_rows(nearest_rows: list[sqlite3.Row]) -> tuple[list[dict[s
     return rows, coverage
 
 
-def write_notes(path: Path) -> None:
+def write_notes(path: Path, force: bool = False) -> str | None:
+    """Overwrite path with the fixed methodology template. Returns None on success, or a
+    human-readable reason the write was refused (path is left untouched in that case).
+
+    This template only ever reproduces the methodology sections below - MECHANICS_NOTES.md is
+    expected to accumulate hand-written live-session research findings on top of it, so writing
+    over an existing file that is already bigger than the template would silently discard that
+    research. Refuse unless the caller passes force=True (wired to --force-notes-overwrite).
+    """
     text = """# Combat mechanics notes
 
 ## Current observables in the merged database
@@ -318,7 +345,17 @@ Suggested analysis sequence:
 
 A repository search over the research capture and current clogs found scorecard "weight carried" lines, but no direct prose reporting a weapon's own weight next to its weapon name. That means the current best path is still indirect inference: use controlled same-target comparisons while holding carried weight and effective stats as constant as possible.
 """
+    new_size = len(text.encode("ascii"))
+    if path.exists() and not force:
+        existing_size = path.stat().st_size
+        if existing_size > new_size:
+            return (
+                f"refusing to overwrite {path} ({existing_size} bytes) with the smaller "
+                f"template ({new_size} bytes) - it likely holds hand-written notes the template "
+                "does not reproduce; pass --force-notes-overwrite to override"
+            )
     path.write_text(text, encoding="ascii")
+    return None
 
 
 def main() -> int:
@@ -341,7 +378,15 @@ def main() -> int:
     finally:
         con.close()
 
-    write_notes(args.notes_out)
+    # Opt-in only (--write-notes) - see write_notes()'s docstring and --write-notes' help text:
+    # the notes file accumulates hand-written research on top of this tool's fixed template, so
+    # the default run (the console report below) must never touch it.
+    notes_status: str
+    if not args.write_notes:
+        notes_status = f"not written (pass --write-notes to refresh `{args.notes_out}`)"
+    else:
+        refusal = write_notes(args.notes_out, force=args.force_notes_overwrite)
+        notes_status = refusal if refusal else f"written to `{args.notes_out}`"
 
     top_matrix = [
         {
@@ -430,7 +475,7 @@ def main() -> int:
     else:
         lines.append("No fights had a stats snapshot within 30s of fight start.")
     lines.append("")
-    lines.append(f"Methodology notes written to `{args.notes_out}`.")
+    lines.append(f"Methodology notes: {notes_status}")
     print("\n".join(lines))
     return 0
 

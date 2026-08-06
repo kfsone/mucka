@@ -244,6 +244,92 @@ public sealed class CombatPerFightTests
     }
 
     [Fact]
+    public void Fights_RecentSwingsStayBoundedToTheRingCapacity()
+    {
+        // A fight can run to hundreds of swings; the recent-hits strip only ever wants the last
+        // handful, so the ring must never grow past its capacity no matter how long the fight runs
+        // (Invariant #1 - AddYouHit runs on every combat line, so an unbounded list here would be
+        // pure churn on a hot path).
+        var aggregator = new CombatStatsAggregator();
+        aggregator.BeginEncounter(Start);
+        aggregator.Observe(Event(CombatEventKind.FightStart, "goat0", weapon: "axe0"));
+
+        for (var i = 0; i < 20; i++)
+            aggregator.Observe(Event(CombatEventKind.Hit, "goat0", rangeLow: 4, rangeHigh: 4, atSecond: i + 1));
+
+        var snapshot = aggregator.Snapshot(Start.AddSeconds(21));
+
+        Assert.Equal(FightAccumulator.RecentSwingCapacity, snapshot.Fights[0].RecentYourSwings.Count);
+    }
+
+    [Fact]
+    public void Fights_RecentSwingsRecordMissesInTheirChronologicalSlot()
+    {
+        // The miss rhythm matters as much as the hit magnitude - a miss between two hits must show
+        // up as a miss marker in the right position, not be silently dropped or reordered.
+        var aggregator = new CombatStatsAggregator();
+        aggregator.BeginEncounter(Start);
+        aggregator.Observe(Event(CombatEventKind.FightStart, "goat0", weapon: "axe0"));
+
+        aggregator.Observe(Event(CombatEventKind.Hit, "goat0", rangeLow: 8, rangeHigh: 12, atSecond: 1));   // 10.0
+        aggregator.Observe(Event(CombatEventKind.Miss, "goat0", atSecond: 2));
+        aggregator.Observe(Event(CombatEventKind.Hit, "goat0", rangeLow: 4, rangeHigh: 4, atSecond: 3));    // 4.0
+
+        var snapshot = aggregator.Snapshot(Start.AddSeconds(4));
+        var swings = snapshot.Fights[0].RecentYourSwings;
+
+        Assert.Equal(3, swings.Count);
+        Assert.True(swings[0].IsHit);
+        Assert.Equal(10.0, swings[0].Damage, 3);
+        Assert.False(swings[1].IsHit);
+        Assert.True(swings[2].IsHit);
+        Assert.Equal(4.0, swings[2].Damage, 3);
+    }
+
+    [Fact]
+    public void Fights_RecentSwingsTrackTheIncomingSideIndependentlyOfTheOutgoingSide()
+    {
+        var aggregator = new CombatStatsAggregator();
+        aggregator.ObserveStamina(100);
+        aggregator.BeginEncounter(Start);
+        aggregator.Observe(Event(CombatEventKind.FightStart, "goat0", weapon: "axe0"));
+
+        aggregator.ObserveStamina(94);
+        aggregator.Observe(Event(CombatEventKind.HitByNpc, "goat0", rangeLow: 94, rangeHigh: 100, atSecond: 1));
+        aggregator.Observe(Event(CombatEventKind.MissByNpc, "goat0", atSecond: 2));
+
+        var snapshot = aggregator.Snapshot(Start.AddSeconds(3));
+        var theirs = snapshot.Fights[0].RecentTheirSwings;
+
+        Assert.Equal(2, theirs.Count);
+        Assert.True(theirs[0].IsHit);
+        Assert.Equal(6.0, theirs[0].Damage, 3);   // 100 -> 94
+        Assert.False(theirs[1].IsHit);
+    }
+
+    [Fact]
+    public void Fights_RecentSwingsRingOverwritesOldestFirstOnceFull()
+    {
+        // Once the ring has filled, the NEXT write must overwrite the OLDEST slot, not some
+        // arbitrary one - otherwise "newest on the right" would silently stop being true.
+        var aggregator = new CombatStatsAggregator();
+        aggregator.BeginEncounter(Start);
+        aggregator.Observe(Event(CombatEventKind.FightStart, "goat0", weapon: "axe0"));
+
+        // Fill the ring (capacity 6) with ascending damage 1..6, then land a 7th hit for 99 damage.
+        for (var i = 1; i <= FightAccumulator.RecentSwingCapacity; i++)
+            aggregator.Observe(Event(CombatEventKind.Hit, "goat0", rangeLow: i, rangeHigh: i, atSecond: i));
+        aggregator.Observe(Event(
+            CombatEventKind.Hit, "goat0", rangeLow: 99, rangeHigh: 99, atSecond: FightAccumulator.RecentSwingCapacity + 1));
+
+        var swings = aggregator.Snapshot(Start.AddSeconds(FightAccumulator.RecentSwingCapacity + 2)).Fights[0].RecentYourSwings;
+
+        Assert.Equal(FightAccumulator.RecentSwingCapacity, swings.Count);
+        Assert.Equal(2.0, swings[0].Damage, 3);    // the original "1" fell off, "2" is now oldest
+        Assert.Equal(99.0, swings[^1].Damage, 3);  // the newest swing is last, i.e. rightmost on screen
+    }
+
+    [Fact]
     public void BeginEncounter_ClearsThePreviousEncountersFights()
     {
         var aggregator = new CombatStatsAggregator();

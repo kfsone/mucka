@@ -1497,9 +1497,18 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     /// would be a pointless (harmless, but noisy) round-trip.</summary>
     public void SetClogEnabled(bool enabled, bool syncWindow = true)
     {
+        // Idempotent by design: GamePage's clog-window Destroying handler re-enters here
+        // (syncWindow: false) whenever the window closes, including as a knock-on effect of the
+        // CloseClogWindowRequested this same method raises a few lines down for the "$clog off"
+        // path. Without this guard that re-entrant pass printed the status line a second time and
+        // ran the rest of this method again against a window already mid-teardown. Bailing out
+        // before touching _conn/AddSystemLine/the window events makes the second pass a no-op
+        // however it is reached, so the status line prints exactly once either way.
+        if (enabled == _conn.ClogEnabled)
+            return;
         _conn.SetClogEnabled(enabled);
         AddSystemLine(enabled
-            ? "[clog] on — recording combat encounters to ~/.mucka/clogs (see the floating clog window)"
+            ? "[clog] on - recording combat encounters to ~/.mucka/clogs (see the floating clog window)"
             : "[clog] off", enabled ? (byte)14 : (byte)9);
         if (!syncWindow)
             return;

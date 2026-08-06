@@ -10,7 +10,7 @@ namespace Mucka.Pages;
 /// <para>Minimal chrome by design: a native title bar (for drag/close) and nothing else. The window
 /// itself doubles as the on/off indicator: closing it (the native X) turns clogging back off (see
 /// GamePage's Destroying handler), so there is exactly one place to look to know whether clogging is
-/// active. There is deliberately no in-window "Combat" heading — the title bar already reads
+/// active. There is deliberately no in-window "Combat" heading - the title bar already reads
 /// "Mucka - Clog", so a heading was pure duplication.</para>
 ///
 /// <para>The whole readout arrives pre-styled as <see cref="ClogLine"/>s from
@@ -24,7 +24,7 @@ internal sealed class ClogPage : ContentPage
     /// <summary>The family name registered in MauiProgram (fonts.AddFont("CascadiaMono.ttf", ...)).
     /// MUST be exactly that alias: MAUI does NOT parse CSS-style fallback lists, so the previous
     /// "Cascadia Mono, Consolas, monospace" resolved to nothing and silently fell back to a
-    /// PROPORTIONAL font — which is why every carefully aligned column rendered ragged.</summary>
+    /// PROPORTIONAL font - which is why every carefully aligned column rendered ragged.</summary>
     private const string MonoFont = "Cascadia Mono";
 
     private readonly SidePanelViewModel _panel;
@@ -49,7 +49,7 @@ internal sealed class ClogPage : ContentPage
 
         _empty = new Label
         {
-            Text = "— no combat data yet —",
+            Text = "- no combat data yet -",
             TextColor = ToneColor(ClogTone.Dim),
             FontSize = 12,
             FontAttributes = FontAttributes.Italic,
@@ -60,11 +60,11 @@ internal sealed class ClogPage : ContentPage
         // too fast to actually read; it now persists until this is pressed.
         //
         // A bare glyph with no background fill, and FLOATED in a Grid cell shared with the readout
-        // rather than stacked above it — as a stacked button it was a large grey block pushing the
+        // rather than stacked above it - as a stacked button it was a large grey block pushing the
         // whole panel down and dominating the top of the window.
         _clear = new Button
         {
-            Text = "×",
+            Text = "X",
             FontSize = 15,
             FontFamily = MonoFont,
             Padding = new Thickness(0),
@@ -80,13 +80,11 @@ internal sealed class ClogPage : ContentPage
         _clear.Clicked += OnClearClicked;
         _clear.SetBinding(IsVisibleProperty, nameof(SidePanelViewModel.CanClearCombatSummary));
 
-        var hint = new Label
-        {
-            Text = "$clog eval <itemid> — weigh/look/drop+get an item\nto measure its str/dex cost.",
-            TextColor = ToneColor(ClogTone.Dim),
-            FontSize = 10,
-        };
-
+        // The permanent "$clog eval <itemid>" hint (and the divider that sat under it) is gone: on a
+        // 330x520 window it was fixed chrome eating ~6% of the height forever, for a command most
+        // sessions never touch. See the report accompanying this change for a proposed
+        // discoverability affordance in its place (not implemented here per the brief - no new UI
+        // element without being asked for one).
         var stack = new VerticalStackLayout
         {
             Spacing = 4,
@@ -94,8 +92,6 @@ internal sealed class ClogPage : ContentPage
             {
                 _empty,
                 _readout,
-                new BoxView { Color = Color.FromArgb("#2d333b"), HeightRequest = 1, Margin = new Thickness(0, 8, 0, 4) },
-                hint,
             },
         };
 
@@ -130,7 +126,7 @@ internal sealed class ClogPage : ContentPage
     private void OnClearClicked(object? sender, EventArgs e) => _panel.ClearCombatSummaryCommand();
 
     /// <summary>Red while a fight is live, muted red through the post-kill grace window, neutral when
-    /// idle — so "in combat" is visible from the window's edge without reading a word of it.</summary>
+    /// idle - so "in combat" is visible from the window's edge without reading a word of it.</summary>
     private void RefreshFrame()
         => _frame.Stroke = _panel.InCombat
             ? (_panel.IsCombatGracePeriod ? GraceStroke : CombatStroke)
@@ -142,14 +138,42 @@ internal sealed class ClogPage : ContentPage
         // Unsubscribe once the window is torn down, so a closed clog window does not keep receiving
         // (and re-rendering for) every combat line of the rest of the session.
         if (Handler is null)
-        {
-            _panel.PropertyChanged -= OnPanelPropertyChanged;
-            _clear.Clicked -= OnClearClicked;
-        }
+            Detach();
+    }
+
+    /// <summary>Deterministic teardown. MUST be called when the hosting window is destroyed.
+    ///
+    /// OnHandlerChanged(Handler is null) is NOT reliable for a page hosted in a secondary Window
+    /// closed via Application.CloseWindow - the null-handler callback may never arrive, or arrive
+    /// after the native content is already gone. When that happens the page stays subscribed to the
+    /// view model, and the view model's delegate is what keeps the dead page alive: the next
+    /// combat line raises ClogLines, this page renders into WinUI objects that have already been
+    /// closed, and the process dies with a stowed exception wrapping RO_E_CLOSED (0x80000013,
+    /// "the object has been closed"). That is a hard crash, not an exception we get to handle.
+    ///
+    /// It reproduces on the SECOND $clog on: the first window's page is still listening, so the
+    /// first hit of the next fight renders into both the live page and the dead one.
+    ///
+    /// BindingContext is cleared too - _empty.IsVisible and _clear.IsVisible are live bindings and
+    /// would fault exactly the same way. Idempotent: -= on an unsubscribed handler is a no-op, and
+    /// this runs from both the window Destroying event and the handler callback.</summary>
+    public void Detach()
+    {
+        _panel.PropertyChanged -= OnPanelPropertyChanged;
+        _clear.Clicked -= OnClearClicked;
+        BindingContext = null;
     }
 
     private void OnPanelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
+        // Belt and braces behind Detach(): never render into a page whose native views are gone.
+        // If teardown is ever missed, rendering here would touch closed WinUI objects and take the
+        // whole process down with RO_E_CLOSED - not an exception we can catch, and it costs the
+        // user real in-game progress. A skipped render while detached is free: the window is
+        // closed, and the 1 Hz tick repaints a live window on the next pass anyway.
+        if (Handler is null)
+            return;
+
         switch (e.PropertyName)
         {
             case nameof(SidePanelViewModel.ClogLines):

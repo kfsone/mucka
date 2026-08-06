@@ -72,6 +72,12 @@ public sealed record WeaponHistorySummary(string Weapon, FightHistorySummary Sum
 /// </summary>
 public static class FightHistory
 {
+    /// <summary>Bucket key for fights fought bare-handed. Shared between
+    /// <see cref="SummarizeByWeapon"/> (which writes it) and the clog formatter (which renders it
+    /// as "unarmed" - a single literal in two places is how that mapping silently drifted apart
+    /// before; a shared constant makes drifting apart a compile error instead.</summary>
+    public const string NoWeaponKey = "(none)";
+
     /// <summary>Aggregates the fights matching <paramref name="npcGroup"/>, optionally narrowed to
     /// a single weapon. Pass <paramref name="weapon"/> null for "any weapon".</summary>
     /// <summary>
@@ -156,7 +162,7 @@ public static class FightHistory
                 continue;
             // Unarmed and unknown-weapon fights are real data (MUD2 lets you fight bare-handed),
             // so they get their own bucket rather than being dropped.
-            var key = string.IsNullOrWhiteSpace(record.WeaponUsed) ? "(none)" : record.WeaponUsed;
+            var key = string.IsNullOrWhiteSpace(record.WeaponUsed) ? NoWeaponKey : record.WeaponUsed;
             if (!byWeapon.TryGetValue(key, out var list))
                 byWeapon[key] = list = [];
             list.Add(record);
@@ -172,6 +178,29 @@ public static class FightHistory
             return bySample != 0 ? bySample : string.Compare(a.Weapon, b.Weapon, StringComparison.OrdinalIgnoreCase);
         });
         return result;
+    }
+
+    /// <summary>
+    /// A weapon's record against EVERY creature on file, not scoped to one NPC group.
+    ///
+    /// <para><see cref="SummarizeByWeapon"/> is deliberately group-scoped (susceptibility is a
+    /// property of the creature type), which means the weapon table's "usual" column only ever
+    /// answers "how does this weapon do against THIS group" - it cannot say whether the group in
+    /// front of you is unusually generous or stingy for that weapon overall. This is the ungrouped
+    /// counterpart that answers that second question, rendered as the table's "vs all" row.</para>
+    /// </summary>
+    public static FightHistorySummary SummarizeWeaponGlobal(IEnumerable<FightRecord> records, string? weapon)
+    {
+        var key = string.IsNullOrWhiteSpace(weapon) ? string.Empty : weapon;
+        var matching = new List<FightRecord>();
+        foreach (var record in records)
+        {
+            var recordKey = string.IsNullOrWhiteSpace(record.WeaponUsed) ? string.Empty : record.WeaponUsed;
+            if (string.Equals(recordKey, key, StringComparison.OrdinalIgnoreCase))
+                matching.Add(record);
+        }
+
+        return Summarize(matching);
     }
 
     private static FightHistorySummary Summarize(List<FightRecord> matching)

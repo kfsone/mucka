@@ -52,11 +52,24 @@ Ingest live per-encounter clog files from `~/.mucka/clogs` into the same databas
 uv run tools/combat/ingest_clogs.py
 ```
 
-Run the merged mechanics analysis pass and refresh `MECHANICS_NOTES.md`:
+Run the merged mechanics analysis pass and print a coverage/effectiveness report:
 
 ```bash
 uv run tools/combat/analyze_mechanics.py
 ```
+
+This does NOT touch `MECHANICS_NOTES.md` by default: that file accumulates hand-written
+live-session research findings on top of a small fixed methodology template, so refreshing it is
+a separate, deliberate action:
+
+```bash
+uv run tools/combat/analyze_mechanics.py --write-notes
+```
+
+`--write-notes` itself refuses to shrink an existing `MECHANICS_NOTES.md` (i.e. it will not
+overwrite a file bigger than the template), since a bigger file almost certainly holds
+hand-written notes the template does not reproduce. Pass `--force-notes-overwrite` in addition
+only if you are certain you want to discard that content.
 
 ## Current detection rules
 

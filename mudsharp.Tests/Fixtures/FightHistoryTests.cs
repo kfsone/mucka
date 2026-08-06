@@ -169,6 +169,45 @@ public sealed class FightHistoryTests
     }
 
     [Fact]
+    public void SummarizeWeaponGlobal_AggregatesAcrossEveryGroupForOneWeapon()
+    {
+        // Unlike SummarizeByWeapon (group-scoped by design - susceptibility is a property of the
+        // creature type), this answers "how does this weapon do against EVERY creature on file" -
+        // the axis the clog window's weapon table "vs all" row needs, so the reader can tell
+        // whether one particular group is unusually kind or harsh to the weapon in hand.
+        var records = new[]
+        {
+            Fight("rat0", weapon: "axe0", damageDone: 40, youHits: 4),     // rats: 10.0/hit
+            Fight("goat0", weapon: "axe0", damageDone: 20, youHits: 4),    // goats: 5.0/hit
+            Fight("rat1", weapon: "dagger0", damageDone: 8, youHits: 4),   // different weapon - excluded
+        };
+
+        var summary = FightHistory.SummarizeWeaponGlobal(records, "axe0");
+
+        Assert.Equal(2, summary.FightCount);
+        Assert.Equal(7.5, summary.MedianDamagePerHit!.Value, 3);   // (10.0 + 5.0) / 2, across BOTH groups
+    }
+
+    [Fact]
+    public void SummarizeWeaponGlobal_TreatsNullAndMissingWeaponAsTheSameUnarmedBucket()
+    {
+        var records = new[] { Fight(weapon: null), Fight(weapon: "axe0") };
+
+        var summary = FightHistory.SummarizeWeaponGlobal(records, null);
+
+        Assert.Equal(1, summary.FightCount);
+    }
+
+    [Fact]
+    public void SummarizeWeaponGlobal_EmptyInputYieldsNullsRatherThanZeros()
+    {
+        var summary = FightHistory.SummarizeWeaponGlobal(Array.Empty<FightRecord>(), "axe0");
+
+        Assert.Equal(0, summary.FightCount);
+        Assert.Null(summary.MedianDamagePerHit);
+    }
+
+    [Fact]
     public void Summarize_EmptyInputYieldsNullsRatherThanZeros()
     {
         var summary = FightHistory.Summarize(Array.Empty<FightRecord>(), "rats");

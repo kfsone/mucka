@@ -20,10 +20,14 @@ public sealed class CombatHistoryFormatterTests
         double damageDone = 30,
         double damageTaken = 6,
         int durationSeconds = 52,
-        FightOutcome outcome = FightOutcome.Unresolved)
-        => new(npcName, NpcGroups.Normalize(npcName), weapon, youHits, youMisses, theyHits, theyMisses,
+        FightOutcome outcome = FightOutcome.Unresolved,
+        string? npcWeapon = null,
+        IReadOnlyList<SwingOutcome>? recentYourSwings = null,
+        IReadOnlyList<SwingOutcome>? recentTheirSwings = null)
+        => new(npcName, NpcGroups.Normalize(npcName), weapon, npcWeapon, youHits, youMisses, theyHits, theyMisses,
             damageDone, damageTaken, TimeSpan.FromSeconds(durationSeconds), outcome,
-            outcome != FightOutcome.Unresolved);
+            outcome != FightOutcome.Unresolved,
+            recentYourSwings ?? Array.Empty<SwingOutcome>(), recentTheirSwings ?? Array.Empty<SwingOutcome>());
 
     private static CombatEncounterSnapshot Encounter(
         string? weapon = "axe0",
@@ -71,14 +75,19 @@ public sealed class CombatHistoryFormatterTests
             DurationMs = 64_000,
         };
 
-    private static CombatHistoryContext History(IReadOnlyList<FightRecord> records, string instance = "rat0")
+    private static CombatHistoryContext History(
+        IReadOnlyList<FightRecord> records, string instance = "rat0", string? currentWeapon = null)
     {
         var group = NpcGroups.Normalize(instance);
         return new CombatHistoryContext(
             instance, group,
             FightHistory.SummarizeInstance(records, instance),
             FightHistory.Summarize(records, group),
-            FightHistory.SummarizeByWeapon(records, group));
+            FightHistory.SummarizeByWeapon(records, group),
+            // currentWeapon defaults to null (no weapon in hand to report a global figure for) -
+            // most tests do not exercise the "vs all" row and this stays FightHistorySummary.Empty
+            // for them, exactly as before this field existed.
+            FightHistory.SummarizeWeaponGlobal(records, currentWeapon));
     }
 
     private static string PlainText(IReadOnlyList<ClogLine> lines)
@@ -143,9 +152,12 @@ public sealed class CombatHistoryFormatterTests
     // ── exchange ──────────────────────────────────────────────────────────────
 
     [Fact]
-    public void Build_ReportsBothSidesDamageRateNotJustThePlayers()
+    public void Build_ReportsDamagePerLandedHitNotJustARate()
     {
-        // The first layout showed our dps but not theirs, which is half of "am I winning this".
+        // The old "rate" row (x.x/s each side) was replaced with damage-per-LANDED-hit: the user
+        // specifically flagged DPS as the wrong metric here, since MUD2 fights are slow with a high
+        // miss rate, and a per-second rate blurs together how OFTEN blows land (already covered by
+        // hit% below) with how HARD they land when they do. This is that second question on its own.
         var lines = CombatHistoryFormatter.Build(
             Encounter("axe0", 50, Snap("rat0", youHits: 6, youMisses: 1, theyHits: 2, theyMisses: 4,
                 damageDone: 50, damageTaken: 10)),
@@ -154,8 +166,10 @@ public sealed class CombatHistoryFormatterTests
         var text = PlainText(lines);
         Assert.Contains("you ", text);
         Assert.Contains("them", text);
-        Assert.Contains("1.0/s", text);   // 50 dealt over 50s
-        Assert.Contains("0.2/s", text);   // 10 taken over 50s
+        Assert.Contains("per hit", text);
+        Assert.Contains("8.3", text);   // 50 dealt / 6 landed hits
+        Assert.Contains("5.0", text);   // 10 taken / 2 landed hits
+        Assert.DoesNotContain("/s", text);   // the old rate row is gone entirely
     }
 
     [Fact]
@@ -180,6 +194,23 @@ public sealed class CombatHistoryFormatterTests
 
         Assert.Contains("--", PlainText(lines));
         Assert.DoesNotContain("0%", PlainText(lines));
+    }
+
+    [Fact]
+    public void Build_PerHitRowShowsDashRatherThanDividingByZeroLandedHits()
+    {
+        // All misses on both sides: zero landed hits on either side must render "--", never NaN or
+        // Infinity from a division by zero.
+        var lines = CombatHistoryFormatter.Build(
+            Encounter("axe0", 20, Snap("rat0", youHits: 0, youMisses: 4, theyHits: 0, theyMisses: 3,
+                damageDone: 0, damageTaken: 0)),
+            CombatStatDeficits.None, CombatHistoryContext.Empty);
+
+        var text = PlainText(lines);
+        var perHitLine = text.Split('\n').Single(l => l.Contains("per hit"));
+        Assert.Contains("--", perHitLine);
+        Assert.DoesNotContain("NaN", perHitLine);
+        Assert.DoesNotContain("Infinity", perHitLine);
     }
 
     // ── stat deficits ─────────────────────────────────────────────────────────
@@ -341,7 +372,7 @@ public sealed class CombatHistoryFormatterTests
             Encounter("axe0", 10, Snap("rat0", weapon: "axe0", youHits: 2, damageDone: 40)),
             CombatStatDeficits.None, History(records));
 
-        Assert.Contains("»", PlainText(lines));
+        Assert.Contains(">", PlainText(lines));
         Assert.Contains(AllSpans(lines), s => s.Text.StartsWith("axe0") && s.Tone == ClogTone.Good);
     }
 
@@ -389,13 +420,78 @@ public sealed class CombatHistoryFormatterTests
         Assert.True(text.IndexOf("axe0", StringComparison.Ordinal) < text.IndexOf("club0", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public void Build_WeaponTableSortsByTheLiveFigureOnceThreeHitsHaveLanded()
+    {
+        // Below the trust gate an untried weapon's historical figure is null and sinks to the
+        // bottom regardless of how well it is doing live. Once 3+ hits have landed THIS fight, the
+        // live figure is trusted enough to rank it - so a weapon with no history at all can still
+        // out-rank a well-evidenced one when it is clearly working.
+        var records = new[] { Record(weapon: "falchion", damageDone: 24, youHits: 2) };   // 12.0/hit usual
+
+        var lines = CombatHistoryFormatter.Build(
+            Encounter("axe0", 10, Snap("rat0", weapon: "axe0", youHits: 3, damageDone: 60)),  // 20.0/hit live
+            CombatStatDeficits.None, History(records));
+
+        var text = PlainText(lines);
+        var table = text[text.IndexOf("weapon ", StringComparison.Ordinal)..];
+        Assert.True(
+            table.IndexOf("axe0", StringComparison.Ordinal) < table.IndexOf("falchion", StringComparison.Ordinal),
+            $"expected axe0 (live 20.0/hit, trusted at 3 hits) ahead of falchion (usual 12.0/hit) in:\n{table}");
+    }
+
+    [Fact]
+    public void Build_WeaponTableFallsBackToTheHistoricalFigureBelowTheThreeHitGate()
+    {
+        // Same live per-hit figure as above (20.0/hit), but only 2 hits landed this fight - below
+        // the gate, so the untried current weapon must still sink to the bottom on its (null)
+        // historical figure rather than being flung to the top by one or two lucky swings.
+        var records = new[] { Record(weapon: "falchion", damageDone: 24, youHits: 2) };   // 12.0/hit usual
+
+        var lines = CombatHistoryFormatter.Build(
+            Encounter("axe0", 10, Snap("rat0", weapon: "axe0", youHits: 2, damageDone: 40)),  // 20.0/hit live, only 2 hits
+            CombatStatDeficits.None, History(records));
+
+        var text = PlainText(lines);
+        var table = text[text.IndexOf("weapon ", StringComparison.Ordinal)..];
+        Assert.True(
+            table.IndexOf("falchion", StringComparison.Ordinal) < table.IndexOf("axe0", StringComparison.Ordinal),
+            $"expected falchion (usual 12.0/hit, evidenced) ahead of axe0 (gate not met at 2 hits) in:\n{table}");
+    }
+
+    [Fact]
+    public void Build_ShowsAGlobalRowForTheCurrentWeaponUnderItsGroupRow()
+    {
+        // The group-scoped row above can only say how the weapon does against THIS group; the
+        // "vs all" row says whether that group is typical for the weapon at all - proven here by
+        // making the two figures differ (a second, different group's fights with the same weapon).
+        var records = new[] { Record("rat0", weapon: "axe0", damageDone: 40, youHits: 4) };   // rats: 10.0/hit
+        var globalRecords = records.Append(new FightRecord
+        {
+            NpcName = "goat0", NpcGroup = "goats", WeaponUsed = "axe0",
+            Outcome = nameof(FightOutcome.Killed), YouHits = 4, ApproxDamageDone = 20, DurationMs = 60_000,
+        }).ToArray();   // goats: 5.0/hit - not counted in the group row, but IS counted in "vs all"
+
+        var lines = CombatHistoryFormatter.Build(
+            Encounter("axe0", 10, Snap("rat0")), CombatStatDeficits.None,
+            History(globalRecords, currentWeapon: "axe0"));
+
+        var text = PlainText(lines);
+        var table = text[text.IndexOf("weapon ", StringComparison.Ordinal)..];
+        Assert.Contains("vs all", table);
+        Assert.Contains("[1x]", table);   // the group-scoped axe0 row: rat0's fight only
+        Assert.Contains("[2x]", table);   // the "vs all" row: rat0's AND goat0's fights
+    }
+
     // ── pool estimate and outcomes ────────────────────────────────────────────
 
     [Fact]
     public void Build_StatesTheKillEstimateWithTheKillCountBehindIt()
     {
         // Labelled "to kill", not "pool": the user reported not understanding "pool", and the plain
-        // reading of the number is how much damage it usually takes to put one of these down.
+        // reading of the number is how much damage it usually takes to put one of these down. The
+        // sample count now uses the weapon table's own "[Nx]" idiom rather than the old spelled-out
+        // ", dmg, over N kills" prose - same information, compressed to the table's idiom.
         var records = new[] { Record(damageDone: 30), Record(damageDone: 34) };
 
         var lines = CombatHistoryFormatter.Build(
@@ -404,8 +500,9 @@ public sealed class CombatHistoryFormatterTests
         var text = PlainText(lines);
         Assert.Contains("to kill", text);
         Assert.Contains("~32.0", text);
-        Assert.Contains("over 2 kills", text);
+        Assert.Contains("[2x]", text);
         Assert.DoesNotContain("pool", text);
+        Assert.DoesNotContain("dmg,", text);
     }
 
     [Fact]
@@ -527,7 +624,7 @@ public sealed class CombatHistoryFormatterTests
         Assert.DoesNotContain("flees", PlainText(lines));
     }
 
-    // ── outlook ───────────────────────────────────────────────────────────────
+    // -- survivability (outlook + stamina) --------------------------------------
 
     [Fact]
     public void Build_ShowsALosingOutlookInHostileTone()
@@ -547,7 +644,9 @@ public sealed class CombatHistoryFormatterTests
     [Fact]
     public void Build_ShowsBothProjectedTimesNotJustTheVerdict()
     {
-        // The verdict alone hides how wide the margin is.
+        // The verdict alone hides how wide the margin is. No "outlook" label any more - the whole
+        // block was promoted to sit directly under the headline, which is signal enough for what it
+        // is (see AppendSurvivability).
         var records = new[] { Record(damageDone: 50), Record(damageDone: 50) };
         var deficits = new CombatStatDeficits(null, null, StaminaCurrent: 100, StaminaMax: 100, null, null);
 
@@ -557,28 +656,50 @@ public sealed class CombatHistoryFormatterTests
             deficits, History(records));
 
         var text = PlainText(lines);
-        Assert.Contains("outlook", text);
+        Assert.Contains("winning", text);
         Assert.Contains("kill 0:05", text);
         Assert.Contains("die 3:20", text);
     }
 
     [Fact]
-    public void Build_OmitsTheOutlookEntirelyWhenItCannotBeProjected()
+    public void Build_ShowsCurrentStaminaEvenWhenTheOutlookCannotBeProjectedYet()
     {
-        // No prior kills means no estimate to divide into, so no line at all rather than a guess.
+        // No prior kills means no estimate to divide into, so no VERDICT - but current stamina
+        // needs no projection to be true, so it renders on its own rather than leaving the whole
+        // survivability block empty just because the outlook half has nothing to say yet.
         var records = new[] { Record(outcome: FightOutcome.YouFled), Record(outcome: FightOutcome.YouFled) };
         var deficits = new CombatStatDeficits(null, null, StaminaCurrent: 100, StaminaMax: 100, null, null);
 
         var lines = CombatHistoryFormatter.Build(
             Encounter("axe0", 30, Snap("rat0", youHits: 4, theyHits: 3)), deficits, History(records));
 
-        Assert.DoesNotContain("outlook", PlainText(lines));
+        var text = PlainText(lines);
+        Assert.Contains("sta 100/100", text);
+        Assert.DoesNotContain("winning", text);
+        Assert.DoesNotContain("LOSING", text);
+        Assert.DoesNotContain("too close", text);
     }
 
     [Fact]
-    public void Build_OmitsTheOutlookOnceTheFightIsOver()
+    public void Build_OmitsTheSurvivabilityBlockEntirelyWithNeitherOutlookNorStaminaToShow()
     {
-        // Projecting a finished fight is meaningless; the result banner covers it instead.
+        // Neither half has anything to say (no pool estimate, no stamina reading at all) - the
+        // block must not leave a stray blank line behind either.
+        var records = new[] { Record(outcome: FightOutcome.YouFled), Record(outcome: FightOutcome.YouFled) };
+
+        var lines = CombatHistoryFormatter.Build(
+            Encounter("axe0", 30, Snap("rat0", youHits: 4, theyHits: 3)), CombatStatDeficits.None, History(records));
+
+        var text = PlainText(lines);
+        Assert.DoesNotContain("winning", text);
+        Assert.DoesNotContain("sta ", text);
+    }
+
+    [Fact]
+    public void Build_OmitsTheSurvivabilityBlockOnceTheFightIsOver()
+    {
+        // Projecting (or showing stamina for) a finished fight is meaningless; the result banner
+        // covers it instead.
         var records = new[] { Record(damageDone: 50), Record(damageDone: 50) };
         var deficits = new CombatStatDeficits(null, null, StaminaCurrent: 100, StaminaMax: 100, null, null);
         var finished = Encounter("axe0", 20, Snap("rat0", youHits: 4, theyHits: 2,
@@ -586,7 +707,9 @@ public sealed class CombatHistoryFormatterTests
 
         var lines = CombatHistoryFormatter.Build(finished, deficits, History(records));
 
-        Assert.DoesNotContain("outlook", PlainText(lines));
+        var text = PlainText(lines);
+        Assert.DoesNotContain("winning", text);
+        Assert.DoesNotContain("sta 100/100", text);
     }
 
     // ── result banner and session totals ──────────────────────────────────────
@@ -639,6 +762,149 @@ public sealed class CombatHistoryFormatterTests
         Assert.Contains("enc 0:40", text.Split('\n')[2]);
     }
 
+    // -- participant cap ----------------------------------------------------------
+
+    [Fact]
+    public void Build_ParticipantsUnderTheCapShowsEveryLineAndNoMoreFooter()
+    {
+        var lines = CombatHistoryFormatter.Build(
+            Encounter("axe0", 10, Snap("rat0"), Snap("rat1"), Snap("rat2")),
+            CombatStatDeficits.None, CombatHistoryContext.Empty);
+
+        var text = PlainText(lines);
+        Assert.Contains("rat0", text);
+        Assert.Contains("rat1", text);
+        Assert.Contains("rat2", text);
+        Assert.DoesNotContain("more", text);
+    }
+
+    [Fact]
+    public void Build_ParticipantsAtExactlyTheCapShowsEveryLineAndNoMoreFooter()
+    {
+        // Five is the cap (see CombatHistoryFormatter.MaxParticipantRows) - exactly five must render
+        // in full, with no truncation footer at the boundary.
+        var fights = Enumerable.Range(0, 5).Select(i => Snap($"rat{i}")).ToArray();
+
+        var lines = CombatHistoryFormatter.Build(
+            Encounter("axe0", 10, fights), CombatStatDeficits.None, CombatHistoryContext.Empty);
+
+        var text = PlainText(lines);
+        for (var i = 0; i < 5; i++)
+            Assert.Contains($"rat{i}", text);
+        Assert.DoesNotContain("more", text);
+    }
+
+    [Fact]
+    public void Build_ParticipantsOverTheCapTruncatesWithAnAndNMoreFooter()
+    {
+        // An 11-rat pack fight (the reported case) must not put 11 participant lines on screen.
+        var fights = Enumerable.Range(0, 11).Select(i => Snap($"rat{i}")).ToArray();
+
+        var lines = CombatHistoryFormatter.Build(
+            Encounter("axe0", 10, fights), CombatStatDeficits.None, CombatHistoryContext.Empty);
+
+        var text = PlainText(lines);
+        var participantLines = text.Split('\n').Count(l => l.TrimStart().StartsWith("rat"));
+        Assert.Equal(5, participantLines);
+        Assert.Contains("and 6 more", text);
+    }
+
+    [Fact]
+    public void Build_ParticipantCapDropsResolvedFightsBeforeLiveOnes()
+    {
+        // OrderedTargets already sorts live ahead of resolved; the cap must respect that ordering
+        // rather than truncating positionally, so a pack fight's still-live targets are never the
+        // ones sacrificed to make room.
+        var fights = new[]
+        {
+            Snap("dead0", outcome: FightOutcome.Killed),
+            Snap("dead1", outcome: FightOutcome.Killed),
+            Snap("dead2", outcome: FightOutcome.Killed),
+            Snap("live0"),
+            Snap("live1"),
+            Snap("live2"),
+            Snap("live3"),
+        };
+
+        var lines = CombatHistoryFormatter.Build(
+            Encounter("axe0", 10, fights),
+            CombatStatDeficits.None, CombatHistoryContext.Empty);
+
+        var text = PlainText(lines);
+        // The headline (line 0) also lists every target regardless of the cap, so restrict the
+        // count to the participant rows below it, which is the block the cap actually governs.
+        var participantLines = text.Split('\n').Skip(1).ToList();
+        bool ShownAsParticipant(string name) => participantLines.Any(l => l.TrimStart().StartsWith(name));
+
+        // All four live targets survive; only one of the three resolved ones fits in the
+        // remaining slot, and the other two are folded into the footer.
+        Assert.True(ShownAsParticipant("live0"));
+        Assert.True(ShownAsParticipant("live1"));
+        Assert.True(ShownAsParticipant("live2"));
+        Assert.True(ShownAsParticipant("live3"));
+        var deadShown = new[] { "dead0", "dead1", "dead2" }.Count(ShownAsParticipant);
+        Assert.Equal(1, deadShown);
+        Assert.Contains("and 2 more", text);
+    }
+
+    [Fact]
+    public void Build_SurfacesTheNpcsOwnWeaponUnderItsParticipantLine()
+    {
+        // Already captured (CombatStatsAggregator's NpcWeaponEquip handling) and never shown before
+        // this change - an NPC picking up a weapon mid-fight can materially change the damage it
+        // deals, and the window previously gave no hint why a jump happened.
+        var lines = CombatHistoryFormatter.Build(
+            Encounter("axe0", 10, Snap("zombie6", npcWeapon: "a rusty fork2")),
+            CombatStatDeficits.None, CombatHistoryContext.Empty);
+
+        var text = PlainText(lines);
+        Assert.Contains("armed with", text);
+        Assert.Contains("fork2", text);   // DisplayName-shortened, same as any other long item name
+    }
+
+    [Fact]
+    public void Build_OmitsTheArmedWithLineWhenTheNpcsWeaponIsUnknown()
+    {
+        // Most NPCs never announce a weapon (fists/claws/bite) - the common case must stay silent
+        // rather than printing "armed with" every single fight.
+        var lines = CombatHistoryFormatter.Build(
+            Encounter("axe0", 10, Snap("rat0", npcWeapon: null)), CombatStatDeficits.None, CombatHistoryContext.Empty);
+
+        Assert.DoesNotContain("armed with", PlainText(lines));
+    }
+
+    [Fact]
+    public void Build_ShowsTheRecentHitsStripForThePrimaryFightNewestOnTheRight()
+    {
+        // The last few swings per side, in chronological order - "how hard is it hitting" and the
+        // miss rhythm, which DPS could not show. Only the PRIMARY fight gets a strip: this is a
+        // live-combat aid, not a log of every target in the encounter.
+        var yours = new SwingOutcome[] { SwingOutcome.Hit(9), SwingOutcome.Miss, SwingOutcome.Hit(12) };
+        var theirs = new SwingOutcome[] { SwingOutcome.Hit(4), SwingOutcome.Miss };
+
+        var lines = CombatHistoryFormatter.Build(
+            Encounter("axe0", 10, Snap("rat0", recentYourSwings: yours, recentTheirSwings: theirs)),
+            CombatStatDeficits.None, CombatHistoryContext.Empty);
+
+        var text = PlainText(lines);
+        Assert.Contains("recent", text);
+        Assert.Contains("you", text);
+        Assert.Contains("them", text);
+
+        var youLine = text.Split('\n').Single(l => l.Contains("recent"));
+        // Newest ("12") reads to the right of the oldest ("9"), with the miss between them as "-".
+        Assert.True(youLine.IndexOf('9') < youLine.IndexOf('-') && youLine.IndexOf('-') < youLine.LastIndexOf("12"));
+    }
+
+    [Fact]
+    public void Build_OmitsTheRecentHitsStripWithNoSwingsYet()
+    {
+        var lines = CombatHistoryFormatter.Build(
+            Encounter("axe0", 10, Snap("rat0")), CombatStatDeficits.None, CombatHistoryContext.Empty);
+
+        Assert.DoesNotContain("recent", PlainText(lines));
+    }
+
     [Fact]
     public void Build_ResultBannerReportsADeathAsSuchAndOutranksAKillInTheSameEncounter()
     {
@@ -666,24 +932,24 @@ public sealed class CombatHistoryFormatterTests
     [Fact]
     public void Build_ShowsSessionTotalsWhenThereIsNoEncounterAtAll()
     {
-        // The panel used to go blank between fights; it now reports the session in the same terms the
-        // live rows use.
+        // The panel used to go blank between fights; it now reports the session in the same terms
+        // the live rows use. Two labelled lines, not one line of single-letter abbreviations plus
+        // two bare unlabelled numbers - the user called that out directly as inconsistent.
         var idle = new CombatEncounterSnapshot(false, false, null, null, [], 0, 0, 0, 0, 0, 0, 0, 0,
             TimeSpan.Zero, 0, 0, []);
         var session = new SessionCombatTotals(3, 5, 4, 1, 0, 210.5, 88.0, TimeSpan.FromSeconds(190));
 
         var lines = CombatHistoryFormatter.Build(idle, CombatStatDeficits.None, CombatHistoryContext.Empty, session);
 
-        // One compact line, not six: after a single fight the old block restated every figure the
-        // readout above had already given.
         var text = PlainText(lines);
         Assert.Contains("session", text);
-        Assert.Contains("5f/3e", text);
-        Assert.Contains("4k", text);
-        Assert.Contains("1d", text);
-        Assert.Contains("210.5/88.0", text);
+        Assert.Contains("5 fights", text);
+        Assert.Contains("4 killed", text);
+        Assert.Contains("1 died", text);
+        Assert.Contains("210.5 dealt", text);
+        Assert.Contains("88.0 taken", text);
         Assert.Contains("3:10", text);
-        Assert.Single(text.Split('\n', StringSplitOptions.RemoveEmptyEntries));
+        Assert.Equal(2, text.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length);
     }
 
     [Fact]
@@ -758,7 +1024,7 @@ public sealed class CombatHistoryFormatterTests
             Encounter("a rusty pick2", 20, Snap("rat0", weapon: "a rusty pick2", youHits: 2, damageDone: 30)),
             CombatStatDeficits.None, History(records));
 
-        Assert.Contains("»pick2", PlainText(lines));
+        Assert.Contains(">pick2", PlainText(lines));
     }
 
     // ── self-comparison ───────────────────────────────────────────────────────
@@ -793,14 +1059,17 @@ public sealed class CombatHistoryFormatterTests
     }
 
     [Fact]
-    public void Build_SaysOneKillNotOneKills()
+    public void Build_ToKillCountUsesTheNumericIdiomNotSpelledOutPluralization()
     {
+        // The old spelled-out "over 1 kill" / "over N kills" prose is gone, replaced by the same
+        // "[Nx]" idiom the weapon table below already uses - which sidesteps singular/plural
+        // entirely because there is no word left to get wrong.
         var lines = CombatHistoryFormatter.Build(
             Encounter("axe0", 10, Snap("rat0")), CombatStatDeficits.None, History([Record()]));
 
         var text = PlainText(lines);
-        Assert.Contains("over 1 kill", text);
-        Assert.DoesNotContain("1 kills", text);
+        Assert.Contains("[1x]", text);
+        Assert.DoesNotContain("kills", text);
     }
 
     [Fact]

@@ -33,7 +33,11 @@ public sealed record CombatEncounterSnapshot(
 public sealed record FightSnapshot(
     string NpcName,
     string NpcGroup,
+    // Weapon: the PLAYER'S weapon for THIS fight (see FightAccumulator.WeaponUsed). NpcWeapon is
+    // the separate, independently-armed NPC side - conflating the two would have silently
+    // overwritten one side's weapon with the other's the first time they differed.
     string? Weapon,
+    string? NpcWeapon,
     int YouHits,
     int YouMisses,
     int TheyHits,
@@ -42,7 +46,12 @@ public sealed record FightSnapshot(
     double ApproxDamageTaken,
     TimeSpan Duration,
     FightOutcome Outcome,
-    bool IsResolved);
+    bool IsResolved,
+    // Recent-hits strip data (clog window, primary fight only - see CombatHistoryFormatter). Every
+    // fight carries its own bounded ring regardless, since the cost is a handful of structs and
+    // BuildFightSnapshots already allocates one FightSnapshot per active NPC on every refresh.
+    IReadOnlyList<SwingOutcome> RecentYourSwings,
+    IReadOnlyList<SwingOutcome> RecentTheirSwings);
 
 public sealed class CombatStatsAggregator
 {
@@ -170,7 +179,7 @@ public sealed class CombatStatsAggregator
                 AddParticipant(combatEvent.NpcName);
                 if (!string.IsNullOrWhiteSpace(combatEvent.NpcName) && !string.IsNullOrWhiteSpace(combatEvent.Weapon))
                     _npcWeapons[combatEvent.NpcName] = combatEvent.Weapon;
-                FightFor(combatEvent);
+                FightFor(combatEvent)?.NoteNpcWeapon(combatEvent.Weapon);
                 break;
 
             case CombatEventKind.WeaponBroke:
@@ -297,6 +306,7 @@ public sealed class CombatStatsAggregator
                 fight.NpcName,
                 fight.NpcGroup,
                 fight.WeaponUsed,
+                fight.NpcWeapon,
                 fight.YouHits,
                 fight.YouMisses,
                 fight.TheyHits,
@@ -305,7 +315,9 @@ public sealed class CombatStatsAggregator
                 fight.ApproxDamageTaken,
                 fight.DurationAt(nowUtc),
                 fight.Outcome,
-                fight.IsResolved));
+                fight.IsResolved,
+                fight.RecentYourSwings,
+                fight.RecentTheirSwings));
         }
 
         return result;

@@ -35,6 +35,7 @@
     <Compile Include="..\Core\GuidedLogin\SessionDropContext.cs" Link="Core\GuidedLogin\SessionDropContext.cs" />
     <Compile Include="..\ViewModels\CombatStatsAggregator.cs" Link="ViewModels\CombatStatsAggregator.cs" />
     <Compile Include="..\ViewModels\ClogDisplay.cs" Link="ViewModels\ClogDisplay.cs" />
+    <Compile Include="..\ViewModels\ClogRenderGate.cs" Link="ViewModels\ClogRenderGate.cs" />
     <Compile Include="..\ViewModels\CombatHistoryFormatter.cs" Link="ViewModels\CombatHistoryFormatter.cs" />
     <Compile Include="..\Core\FightHistoryStore.cs" Link="Core\FightHistoryStore.cs" />
   </ItemGroup>

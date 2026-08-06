@@ -9,8 +9,16 @@ namespace Mucka.ViewModels;
 /// <para>Layout intent, per the user's review of the first pass: labels were eating most of the
 /// width, and the panel was full of things that do not help mid-swing (absolute Sta/Str/Dex/Mag,
 /// carry, level, games played, a redundant "Combat" heading under a window already titled Clog).
-/// Colour now carries what labels used to — friendly for the player's side, hostile for the NPC's —
+/// Colour now carries what labels used to - friendly for the player's side, hostile for the NPC's -
 /// and only stat DEFICITS are shown, since a penalty is actionable where a raw number is not.</para>
+///
+/// <para>Second pass, per the user's stated goal for this window (survivability assistance during
+/// combat, plus surfacing hidden combat factors): the survivability read - outlook verdict, die/kill
+/// projection, current stamina - is promoted to directly under the headline rather than buried below
+/// the exchange table, since it is the whole point of the window. DPS gave way to damage-per-LANDED-
+/// hit throughout ("how hard is it hitting", which matters more than a rate in MUD2's slow,
+/// high-miss-rate fights), and a bounded recent-hits strip was added so the miss rhythm and hit
+/// magnitude are visible at a glance for the fight actually on screen.</para>
 ///
 /// <para>Pure string/span building with no MAUI types, so it is linked into mudsharp.Tests.</para>
 /// </summary>
@@ -37,10 +45,15 @@ internal static class CombatHistoryFormatter
         // now stays on screen until explicitly cleared rather than vanishing after 8 seconds.
         AppendResultBanner(lines, snapshot);
         AppendHeadline(lines, snapshot);
+        // Survivability - outlook + stamina - sits directly under the headline, ahead of even the
+        // participant lines: it is the window's whole reason for existing (see class remarks), and
+        // burying it below the exchange/history tables meant the signal that actually matters most
+        // was the last thing on screen instead of the first.
+        AppendSurvivability(lines, snapshot, deficits, history);
         AppendParticipants(lines, snapshot);
         AppendExchange(lines, snapshot);
+        AppendRecentHits(lines, snapshot);
         AppendDeficits(lines, deficits);
-        AppendOutlook(lines, snapshot, deficits, history);
 
         if (history.HasAnything)
         {
@@ -61,7 +74,7 @@ internal static class CombatHistoryFormatter
     }
 
     /// <summary>"killed zombie0  0:27  65.5 dealt" once the encounter has closed. Nothing while the
-    /// fight is still live — the headline already covers that, and a verdict mid-fight would be a
+    /// fight is still live - the headline already covers that, and a verdict mid-fight would be a
     /// lie.</summary>
     private static void AppendResultBanner(List<ClogLine> lines, CombatEncounterSnapshot snapshot)
     {
@@ -72,14 +85,16 @@ internal static class CombatHistoryFormatter
         if (decisive is null)
             return;
 
+        // ASCII glyphs, each exactly one cell wide in Cascadia Mono (unlike the Unicode marks these
+        // replaced, which were not fixed-advance and silently broke this column's alignment).
         var (glyph, verb, tone) = decisive.Outcome switch
         {
-            FightOutcome.Killed => ("✔", "killed", ClogTone.Good),
-            FightOutcome.KilledByNpc => ("✘", "killed by", ClogTone.Hostile),
-            FightOutcome.NpcFled => ("→", "fled:", ClogTone.Warn),
-            FightOutcome.YouFled => ("←", "you fled", ClogTone.Warn),
-            FightOutcome.Withdrawn => ("―", "withdrew", ClogTone.Dim),
-            _ => ("·", "open", ClogTone.Dim),
+            FightOutcome.Killed => ("+", "killed", ClogTone.Good),
+            FightOutcome.KilledByNpc => ("x", "killed by", ClogTone.Hostile),
+            FightOutcome.NpcFled => (">", "fled:", ClogTone.Warn),
+            FightOutcome.YouFled => ("<", "you fled", ClogTone.Warn),
+            FightOutcome.Withdrawn => ("-", "withdrew", ClogTone.Dim),
+            _ => (".", "open", ClogTone.Dim),
         };
 
         // Verdict and target only. The duration lives on this fight's participant line and the damage
@@ -114,28 +129,28 @@ internal static class CombatHistoryFormatter
         if (!session.HasAnything)
             return;
 
-        // One line, not six: after a single fight the old block restated every figure the readout
-        // above had already given. Compressed to a running tally that adds information only once
-        // there is more than one fight behind it.
-        var spans = new List<ClogSpan>(6)
+        // Two labelled lines, not one line of abbreviations: the old form squeezed fights/encounters
+        // to "12f/3e", spelled out only "fled", then tacked on two bare unlabelled numbers and a bare
+        // duration - the user called this out directly as inconsistent. Every number here now says
+        // what it is, in the same units ("dealt"/"taken") the live exchange table already uses.
+        var top = new List<ClogSpan>(5)
         {
-            new("session ", ClogTone.Heading),
-            new($"{session.Fights}f", ClogTone.Value),
-            new($"/{session.Encounters}e ", ClogTone.Dim),
-            new($"{session.Kills}k", ClogTone.Good),
+            new("session  ", ClogTone.Heading),
+            new($"{session.Fights} {(session.Fights == 1 ? "fight" : "fights")}", ClogTone.Value),
+            new($"  {session.Kills} killed", ClogTone.Good),
         };
-
         if (session.Deaths > 0)
-            spans.Add(new ClogSpan($" {session.Deaths}d", ClogTone.Hostile));
+            top.Add(new ClogSpan($"  {session.Deaths} died", ClogTone.Hostile));
         if (session.NpcFled > 0)
-            spans.Add(new ClogSpan($" {session.NpcFled}fled", ClogTone.Warn));
+            top.Add(new ClogSpan($"  {session.NpcFled} fled", ClogTone.Warn));
+        lines.Add(new ClogLine(top));
 
-        spans.Add(new ClogSpan($"  {Num(session.DamageDealt)}", ClogTone.Friendly));
-        spans.Add(new ClogSpan("/", ClogTone.Dim));
-        spans.Add(new ClogSpan($"{Num(session.DamageTaken)}", ClogTone.Hostile));
-        spans.Add(new ClogSpan($"  {Duration(session.TimeInCombat.TotalSeconds)}", ClogTone.Dim));
-
-        lines.Add(new ClogLine(spans));
+        lines.Add(ClogLine.Of(
+            new ClogSpan("         ", ClogTone.Dim),
+            new ClogSpan($"{Num(session.DamageDealt)} dealt", ClogTone.Friendly),
+            new ClogSpan(" / ", ClogTone.Dim),
+            new ClogSpan($"{Num(session.DamageTaken)} taken", ClogTone.Hostile),
+            new ClogSpan($"  {Duration(session.TimeInCombat.TotalSeconds)}", ClogTone.Dim)));
     }
 
     /// <summary>Whether this opponent is likely to run. Only rendered at or above a coin flip, since
@@ -152,9 +167,18 @@ internal static class CombatHistoryFormatter
             new ClogSpan($" ({summary.NpcFled}/{summary.FightCount})", ClogTone.Dim)));
     }
 
-    /// <summary>The "am I going to die first" line. Silent until there is enough to say — see
-    /// <see cref="CombatOutlook"/> for why an early guess is worse than none.</summary>
-    private static void AppendOutlook(
+    /// <summary>
+    /// The survivability block: the outlook verdict ("am I going to die first"), the projected
+    /// die/kill times, and current stamina - the window's whole reason for existing, per the user's
+    /// stated goal. Promoted to sit directly under the headline (see <see cref="Build"/>).
+    ///
+    /// <para>Independently gated: the outlook row stays silent until <see cref="CombatOutlook"/> has
+    /// enough to say something honest (an early guess is worse than none), while the stamina row
+    /// shows whenever a reading exists at all, since "how much stamina do I have right now" needs no
+    /// projection to be true. Neither half renders an empty block when idle - see the joint guard
+    /// below.</para>
+    /// </summary>
+    private static void AppendSurvivability(
         List<ClogLine> lines,
         CombatEncounterSnapshot snapshot,
         CombatStatDeficits deficits,
@@ -164,45 +188,73 @@ internal static class CombatHistoryFormatter
             return;
 
         var primary = PrimaryFight(snapshot);
-        if (primary is null)
+        var outlook = primary is null
+            ? CombatOutlook.Unknown
+            : CombatOutlook.Project(
+                primary.Duration.TotalSeconds,
+                primary.ApproxDamageDone,
+                primary.ApproxDamageTaken,
+                primary.YouHits,
+                primary.TheyHits,
+                deficits.StaminaCurrent,
+                history.Primary.EstimatedStaminaPool);
+
+        var hasOutlook = outlook.Verdict != OutlookVerdict.Unknown;
+        var hasStamina = deficits.StaminaCurrent is not null;
+        if (!hasOutlook && !hasStamina)
             return;
 
-        var outlook = CombatOutlook.Project(
-            primary.Duration.TotalSeconds,
-            primary.ApproxDamageDone,
-            primary.ApproxDamageTaken,
-            primary.YouHits,
-            primary.TheyHits,
-            deficits.StaminaCurrent,
-            history.Primary.EstimatedStaminaPool);
+        lines.Add(ClogLine.Blank);
 
-        if (outlook.Verdict == OutlookVerdict.Unknown)
-            return;
-
-        var (text, tone) = outlook.Verdict switch
+        if (hasOutlook)
         {
-            OutlookVerdict.Winning => ("winning", ClogTone.Good),
-            OutlookVerdict.Losing => ("LOSING", ClogTone.Hostile),
-            OutlookVerdict.Even => ("too close", ClogTone.Warn),
-            _ => ("unhurt so far", ClogTone.Good),
-        };
+            var (text, tone) = outlook.Verdict switch
+            {
+                OutlookVerdict.Winning => ("winning", ClogTone.Good),
+                OutlookVerdict.Losing => ("LOSING", ClogTone.Hostile),
+                OutlookVerdict.Even => ("too close", ClogTone.Warn),
+                _ => ("unhurt so far", ClogTone.Good),
+            };
 
-        var spans = new List<ClogSpan>(4)
-        {
-            new("outlook ", ClogTone.Dim),
-            new(text, tone),
-        };
+            var spans = new List<ClogSpan>(4) { new("  ", ClogTone.Dim), new(text, tone) };
 
-        // Both projected times, because the verdict alone hides how wide the margin is.
-        if (outlook.SecondsToKill is double kill)
-        {
-            spans.Add(new ClogSpan($"  kill {Duration(kill)}", ClogTone.Dim));
-            spans.Add(new ClogSpan(
-                outlook.SecondsToDie is double die ? $" / die {Duration(die)}" : " / die --",
-                ClogTone.Dim));
+            // Die before kill - the scarier number leads, since this block exists to answer "am I
+            // going to die" before anything else.
+            if (outlook.SecondsToKill is double kill)
+            {
+                spans.Add(new ClogSpan(
+                    outlook.SecondsToDie is double die ? $"   die {Duration(die)}" : "   die --",
+                    ClogTone.Dim));
+                spans.Add(new ClogSpan($"   kill {Duration(kill)}", ClogTone.Dim));
+            }
+
+            lines.Add(new ClogLine(spans));
         }
 
-        lines.Add(new ClogLine(spans));
+        if (hasStamina)
+        {
+            var current = deficits.StaminaCurrent!.Value;
+            var staText = deficits.StaminaMax is int max
+                ? $"{current}/{max}"
+                : current.ToString(CultureInfo.InvariantCulture);
+            lines.Add(ClogLine.Of(
+                new ClogSpan("  sta ", ClogTone.Dim),
+                new ClogSpan(staText, StaminaTone(current, deficits.StaminaMax))));
+        }
+    }
+
+    /// <summary>Hostile once stamina is critically low, warn once it is getting there, otherwise
+    /// plain - so the number that most directly answers "how much longer can I take this" carries
+    /// its own urgency rather than reading as inert as everything else on the line.</summary>
+    private static ClogTone StaminaTone(int current, int? max)
+    {
+        if (max is not int m || m <= 0)
+            return ClogTone.Value;
+
+        var fraction = current / (double)m;
+        if (fraction <= 0.25)
+            return ClogTone.Hostile;
+        return fraction <= 0.5 ? ClogTone.Warn : ClogTone.Value;
     }
 
     /// <summary>"{weapon} vs {live targets}, {dead targets}    {elapsed}". Dead targets sort to the
@@ -218,7 +270,7 @@ internal static class CombatHistoryFormatter
         };
 
         var written = 0;
-        // Live first, then resolved — the ordering IS the information here.
+        // Live first, then resolved - the ordering IS the information here.
         foreach (var fight in OrderedTargets(snapshot.Fights))
         {
             if (written++ > 0)
@@ -230,24 +282,39 @@ internal static class CombatHistoryFormatter
             spans.Add(new ClogSpan("--", ClogTone.Dim));
 
         // ENCOUNTER clock here; each participant carries its own fight clock on its own line below.
-        // The two differ — an encounter can run on past a kill (grace window, a second attacker), so
+        // The two differ - an encounter can run on past a kill (grace window, a second attacker), so
         // collapsing them into one number would misreport both.
         spans.Add(new ClogSpan("  enc " + Duration(snapshot.Duration.TotalSeconds), ClogTone.Dim));
         lines.Add(new ClogLine(spans));
     }
 
+    /// <summary>
+    /// Maximum participant rows rendered per encounter. Each row is its own native span rebuild in
+    /// the clog window (see ClogPage.Render), and an 11-rat pack fight puts up to 22 lines (a
+    /// participant line plus a possible "armed with" line each) on screen every time the readout
+    /// refreshes - nobody reads eleven rat names mid-swing anyway. Five keeps the current melee
+    /// visible at a glance; <see cref="OrderedTargets"/> already sorts live fights ahead of
+    /// resolved ones, so capping AFTER that ordering means a truncated pack fight always keeps
+    /// whoever is still swinging and drops finished fights first.
+    /// </summary>
+    private const int MaxParticipantRows = 5;
+
     /// <summary>One line per NPC engaged this encounter, carrying that fight's own duration and how it
-    /// ended. This is where per-fight timing lives, as distinct from the encounter clock above.</summary>
+    /// ended, plus a second indented line naming the NPC's own weapon once one is confirmed. This is
+    /// where per-fight timing lives, as distinct from the encounter clock above.</summary>
     private static void AppendParticipants(List<ClogLine> lines, CombatEncounterSnapshot snapshot)
     {
         if (snapshot.Fights.Count == 0)
             return;
 
-        var width = Math.Min(snapshot.Fights.Max(f => f.NpcName.Length), 14);
-        foreach (var fight in OrderedTargets(snapshot.Fights))
+        var ordered = OrderedTargets(snapshot.Fights).ToList();
+        var shown = ordered.Count > MaxParticipantRows ? ordered.Take(MaxParticipantRows).ToList() : ordered;
+
+        var width = Math.Min(shown.Max(f => f.NpcName.Length), 14);
+        foreach (var fight in shown)
         {
             // Name and its column padding are separate spans so the strikethrough covers the NAME only
-            // — struck padding renders as a stray dash trailing off into empty space.
+            // - struck padding renders as a stray dash trailing off into empty space.
             var name = Truncate(fight.NpcName, width);
             lines.Add(ClogLine.Of(
                 new ClogSpan(" ", ClogTone.Dim),
@@ -259,6 +326,26 @@ internal static class CombatHistoryFormatter
                 new ClogSpan($" {Num(fight.ApproxDamageDone),6}", ClogTone.Friendly),
                 new ClogSpan($"/{Num(fight.ApproxDamageTaken)}", ClogTone.Hostile),
                 new ClogSpan($"  {DescribeOutcome(fight)}", OutcomeTone(fight.Outcome))));
+
+            // The NPC's own weapon, once one has been confirmed. Most NPCs never announce one
+            // (fists/claws/bite), so this line is the exception rather than the rule - but it is
+            // exactly the missing context for a damage jump that has no other explanation, since
+            // MUD2 gives an NPC picking up a weapon mid-fight no other visible signal at all.
+            if (!string.IsNullOrWhiteSpace(fight.NpcWeapon))
+            {
+                lines.Add(ClogLine.Of(
+                    new ClogSpan("   armed with ", ClogTone.Dim),
+                    new ClogSpan(DisplayName(fight.NpcWeapon), ClogTone.Hostile)));
+            }
+        }
+
+        var hidden = ordered.Count - shown.Count;
+        if (hidden > 0)
+        {
+            // Resolved fights are always the ones missing here (see MaxParticipantRows) - unless
+            // the pack itself already outnumbers the cap while still live, in which case there was
+            // never room for all of them regardless of outcome.
+            lines.Add(ClogLine.Of(new ClogSpan($"   and {hidden} more", ClogTone.Dim)));
         }
     }
 
@@ -317,7 +404,16 @@ internal static class CombatHistoryFormatter
             Percent(snapshot.YouHits + snapshot.YouMisses == 0 ? null : snapshot.YouHitRate),
             Percent(snapshot.TheyHits + snapshot.TheyMisses == 0 ? null : snapshot.TheyHitRate));
         AppendExchangeRow(lines, "damage", Num(snapshot.ApproxDamageDone), Num(snapshot.ApproxDamageTaken));
-        AppendExchangeRow(lines, "rate", Num(snapshot.ApproxDps) + "/s", Num(snapshot.TheirApproxDps) + "/s");
+
+        // "per hit" replaces the old "rate" (x.x/s) row. The user specifically flagged DPS as the
+        // wrong metric here: MUD2 fights are slow with a high miss rate, so a per-second rate blurs
+        // together two different questions - how often blows land (already covered by hit% above)
+        // and how hard they land when they do. Damage per LANDED blow isolates that second question,
+        // and matches the units the history comparison and weapon table already report. Guarded
+        // against zero landed hits rather than dividing by zero.
+        AppendExchangeRow(lines, "per hit",
+            Num(snapshot.YouHits == 0 ? null : snapshot.ApproxDamageDone / snapshot.YouHits),
+            Num(snapshot.TheyHits == 0 ? null : snapshot.ApproxDamageTaken / snapshot.TheyHits));
     }
 
     private static void AppendExchangeRow(List<ClogLine> lines, string label, string mine, string theirs)
@@ -325,6 +421,43 @@ internal static class CombatHistoryFormatter
             new ClogSpan($"{label,-9}", ClogTone.Dim),
             new ClogSpan($"{mine,7}", ClogTone.Friendly),
             new ClogSpan($"{theirs,7}", ClogTone.Hostile)));
+
+    /// <summary>
+    /// The last few swings per side, newest on the right so the strip reads as a timeline - added
+    /// because DPS and even the exchange table's totals cannot show "how hard is it hitting" and the
+    /// miss rhythm the way a sequence of individual swings can. PRIMARY fight only: this is a live-
+    /// combat aid for the fight actually in front of the player, not a log of every target this
+    /// encounter, so a pack fight does not get one strip per NPC.
+    /// </summary>
+    private static void AppendRecentHits(List<ClogLine> lines, CombatEncounterSnapshot snapshot)
+    {
+        var primary = PrimaryFight(snapshot);
+        if (primary is null || (primary.RecentYourSwings.Count == 0 && primary.RecentTheirSwings.Count == 0))
+            return;
+
+        lines.Add(RecentHitsRow("recent", "you", primary.RecentYourSwings, ClogTone.Friendly));
+        lines.Add(RecentHitsRow(string.Empty, "them", primary.RecentTheirSwings, ClogTone.Hostile));
+    }
+
+    private static ClogLine RecentHitsRow(string label, string side, IReadOnlyList<SwingOutcome> swings, ClogTone tone)
+    {
+        var spans = new List<ClogSpan>(2 + FightAccumulator.RecentSwingCapacity)
+        {
+            new($"{label,-8}", ClogTone.Dim),
+            new($"{side,-5}", tone),
+        };
+
+        // Left-pad with empty columns so a fight that has not yet built up a full ring still lines
+        // its newest swing up under the SAME column the strip settles into once full, rather than
+        // visibly drifting rightward as swings accumulate.
+        for (var i = swings.Count; i < FightAccumulator.RecentSwingCapacity; i++)
+            spans.Add(new ClogSpan("    ", ClogTone.Dim));
+
+        foreach (var swing in swings)
+            spans.Add(new ClogSpan(swing.IsHit ? $"{swing.Damage,4:0}" : $"{"-",4}", tone));
+
+        return new ClogLine(spans);
+    }
 
     /// <summary>Only rendered when something is actually costing the player stats. A line that always
     /// reads "0" is a line that stops being read.</summary>
@@ -379,8 +512,10 @@ internal static class CombatHistoryFormatter
 
         // "usual" rather than "med": the figure IS a median, but in a game with magic "med" reads as
         // medium/meditate, and the user flagged it as genuinely ambiguous. "usual" says what the
-        // column is FOR without the collision. (Still a median, not a mean — one wandered-off fight
-        // is a large fraction of a single-digit sample and would wreck an average.)
+        // column is FOR without the collision. (Still a median, not a mean - one wandered-off fight
+        // is a large fraction of a single-digit sample and would wreck an average.) Standardised on
+        // this term everywhere the same concept shows up - see AppendWeaponTable, which used to say
+        // "hist" for the identical column.
         lines.Add(ClogLine.Of(new ClogSpan($"{string.Empty,-8}{"now",7}{"usual",8}", ClogTone.Dim)));
 
         AppendPair(lines, "dealt", primary is null ? null : primary.ApproxDamageDone, summary.MedianDamageDone, Num);
@@ -395,14 +530,15 @@ internal static class CombatHistoryFormatter
 
         // Labelled "to kill" rather than "pool": the user reported not understanding what "pool"
         // meant, and the plain reading of the number is "how much damage it usually takes to put one
-        // of these down". Still the only route to an NPC's stamina, since MUD2 never reports it, so
-        // the kill count behind the estimate is stated rather than hidden.
+        // of these down". Compressed to the table's own "[Nx]" sample-count idiom (already used by
+        // the weapon table below) rather than the old spelled-out ", dmg, over N kills" prose - same
+        // information, same idiom the rest of the panel already uses for "how many samples".
         if (summary.EstimatedStaminaPool is double pool)
         {
             lines.Add(ClogLine.Of(
                 new ClogSpan($"{"to kill",-8}", ClogTone.Dim),
                 new ClogSpan($"{"~" + Num(pool),7}", ClogTone.Hostile),
-                new ClogSpan($"  dmg, over {summary.Kills} {(summary.Kills == 1 ? "kill" : "kills")}", ClogTone.Dim)));
+                new ClogSpan($"  [{summary.Kills}x]", ClogTone.Dim)));
         }
         else
         {
@@ -427,13 +563,16 @@ internal static class CombatHistoryFormatter
     }
 
     /// <summary>
-    /// Per-weapon table for the NPC's GROUP (never the instance — susceptibility is a property of
+    /// Per-weapon table for the NPC's GROUP (never the instance - susceptibility is a property of
     /// the creature type, and the group is where samples accumulate).
     ///
-    /// <para>Sorted best-per-hit first, and the weapon currently in hand is always present even with
-    /// no history at all, marked and tinted against the best on record: green when it is beating the
-    /// best, amber when it is not. That live over/under signal is the point — it is what makes
-    /// experimenting with weapons mid-fight legible.</para>
+    /// <para>Sorted by the live "now" figure once it is trusted, falling back to the historical
+    /// "usual" median otherwise (see the sort's own comment for the trust gate). The weapon currently
+    /// in hand is always present even with no history at all, marked and tinted against the best on
+    /// record: green when it is beating the best, amber when it is not. That live over/under signal
+    /// is the point - it is what makes experimenting with weapons mid-fight legible. A "vs all" row
+    /// under the current weapon shows its median across EVERY creature on file, not just this NPC's
+    /// group, so the reader can tell whether this particular group is unusually kind or harsh to it.</para>
     /// </summary>
     private static void AppendWeaponTable(
         List<ClogLine> lines, CombatEncounterSnapshot snapshot, CombatHistoryContext history)
@@ -446,9 +585,15 @@ internal static class CombatHistoryFormatter
         {
             if (entry.Summary.MedianDamagePerHit is double perHit && (best is null || perHit > best))
                 best = perHit;
+
+            // "unarmed" matches the headline's own wording for the same state - the bucket's raw
+            // storage key ("(none)") read as a data placeholder rather than a real state.
+            var label = string.Equals(entry.Weapon, FightHistory.NoWeaponKey, StringComparison.Ordinal)
+                ? "unarmed"
+                : DisplayName(entry.Weapon);
             // Matching stays on the FULL name (DisplayName is display-only), so "a rusty pick2" in
             // history still matches the same weapon in hand.
-            rows.Add((DisplayName(entry.Weapon), entry.Summary.MedianDamagePerHit, entry.Summary.FightCount,
+            rows.Add((label, entry.Summary.MedianDamagePerHit, entry.Summary.FightCount,
                 IsCurrentWeapon(entry.Weapon, current)));
         }
 
@@ -459,30 +604,45 @@ internal static class CombatHistoryFormatter
         if (rows.Count == 0)
             return;
 
-        // Best first; unmeasured weapons sink to the bottom rather than sorting as zero.
+        var primary = PrimaryFight(snapshot);
+        var liveNow = LivePerHit(snapshot, history);
+
+        // Below this many landed hits THIS fight, the live per-hit figure is too noisy to trust as a
+        // SORT key: one lucky or unlucky opening swing would fling the current weapon to the top or
+        // bottom of the table, and it would visibly climb/sink back down as more swings land. The row
+        // still DISPLAYS the live figure below the gate (see nowText below) - only its RANK falls back
+        // to the historical median until this fight has built up enough evidence of its own.
+        const int MinHitsForLiveSort = 3;
+        var useLiveSort = liveNow is not null && primary is not null && primary.YouHits >= MinHitsForLiveSort;
+
+        // Best first - the live figure once trusted, else the historical median (see gate above).
+        // Unmeasured weapons sink to the bottom rather than sorting as zero.
         rows.Sort((a, b) =>
         {
-            if (a.Hist is null && b.Hist is null)
+            var aKey = a.IsCurrent && useLiveSort ? liveNow : a.Hist;
+            var bKey = b.IsCurrent && useLiveSort ? liveNow : b.Hist;
+            if (aKey is null && bKey is null)
                 return string.Compare(a.Weapon, b.Weapon, StringComparison.OrdinalIgnoreCase);
-            if (a.Hist is null)
+            if (aKey is null)
                 return 1;
-            if (b.Hist is null)
+            if (bKey is null)
                 return -1;
-            var byHist = b.Hist.Value.CompareTo(a.Hist.Value);
-            return byHist != 0 ? byHist : string.Compare(a.Weapon, b.Weapon, StringComparison.OrdinalIgnoreCase);
+            var byKey = bKey.Value.CompareTo(aKey.Value);
+            return byKey != 0 ? byKey : string.Compare(a.Weapon, b.Weapon, StringComparison.OrdinalIgnoreCase);
         });
 
-        var liveNow = LivePerHit(snapshot, history);
         var width = Math.Min(rows.Max(row => row.Weapon.Length), 15);
 
         // Header widths are derived from the same column widths the rows use below, so a long weapon
-        // name ("croquet mallet") cannot slide the values out from under their labels.
+        // name ("croquet mallet") cannot slide the values out from under their labels. "usual" rather
+        // than the old "hist" - standardised on the same term AppendHistoryComparison uses for the
+        // identical concept, so the reader is not re-learning what a column means twice in one panel.
         lines.Add(ClogLine.Of(
             new ClogSpan(" " + "weapon".PadRight(width), ClogTone.Heading),
-            new ClogSpan($" {"now",5} {"hist",6}", ClogTone.Dim)));
+            new ClogSpan($" {"now",5} {"usual",6}", ClogTone.Dim)));
         foreach (var row in rows)
         {
-            var marker = row.IsCurrent ? "»" : " ";
+            var marker = row.IsCurrent ? ">" : " ";
             var nowText = row.IsCurrent && liveNow is not null ? Num(liveNow) : NoValue;
             var tone = row.IsCurrent ? CurrentWeaponTone(liveNow, best) : ClogTone.Value;
 
@@ -492,6 +652,18 @@ internal static class CombatHistoryFormatter
                 new ClogSpan($" {nowText,5}", tone),
                 new ClogSpan($" {(row.Hist is null ? NoValue : Num(row.Hist)),6}", ClogTone.Dim),
                 new ClogSpan(row.Count > 0 ? $" [{row.Count}x]" : " [new]", ClogTone.Dim)));
+
+            // The current weapon's record against EVERY creature on file, not just this NPC's
+            // group - the group-scoped row above can only say how the weapon does against THIS
+            // group; this says whether that group is typical for the weapon at all.
+            if (row.IsCurrent && history.CurrentWeaponGlobal.FightCount > 0)
+            {
+                lines.Add(ClogLine.Of(
+                    new ClogSpan("  vs all".PadRight(1 + width), ClogTone.Dim),
+                    new ClogSpan($" {string.Empty,5}", ClogTone.Dim),
+                    new ClogSpan($" {Num(history.CurrentWeaponGlobal.MedianDamagePerHit),6}", ClogTone.Dim),
+                    new ClogSpan($" [{history.CurrentWeaponGlobal.FightCount}x]", ClogTone.Dim)));
+            }
         }
     }
 
@@ -590,7 +762,7 @@ internal static class CombatHistoryFormatter
     /// <para>MUD2 item names carry descriptive prefixes ("a rusty pick2", "the ornate falchion3") but
     /// the trailing token with its instance number is the part that identifies the thing and the part
     /// the player types. So for anything over <see cref="DisplayNameThreshold"/> characters whose last
-    /// word ends in a digit, that last word becomes the label — "a rusty pick2" shows as "pick2",
+    /// word ends in a digit, that last word becomes the label - "a rusty pick2" shows as "pick2",
     /// which also stops one long name from widening the whole weapon column.</para>
     ///
     /// <para>Names whose last word does NOT end in a digit are left alone: "croquet mallet" has no

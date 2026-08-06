@@ -5,7 +5,7 @@ namespace Mucka.ViewModels;
 /// (ClogPage.ToneColor).</summary>
 public enum ClogTone
 {
-    /// <summary>Labels and units — deliberately low contrast so the numbers carry the eye.</summary>
+    /// <summary>Labels and units - deliberately low contrast so the numbers carry the eye.</summary>
     Dim,
     Value,
     /// <summary>The player and the player's side of an exchange.</summary>
@@ -31,7 +31,7 @@ public sealed record ClogLine(IReadOnlyList<ClogSpan> Spans)
 
     /// <summary>Structural comparison. Needed because <see cref="ClogLine"/> is a record holding a
     /// LIST, so its synthesized equality compares that list by reference and would report every
-    /// freshly-built line as different — which would defeat the whole point of diffing before
+    /// freshly-built line as different - which would defeat the whole point of diffing before
     /// rebuilding the label (Invariant #1).</summary>
     public static bool SequenceEquals(IReadOnlyList<ClogLine> left, IReadOnlyList<ClogLine> right)
     {
@@ -64,7 +64,7 @@ public sealed record ClogLine(IReadOnlyList<ClogSpan> Spans)
 ///
 /// <para>The deltas are effective-minus-raw, i.e. what the player's current load and afflictions are
 /// costing them. Carried weight is the usual culprit: MUD2 charges dexterity for what you hold, and
-/// the same weight stowed in a bag costs the same strength but far less dexterity — which is why
+/// the same weight stowed in a bag costs the same strength but far less dexterity - which is why
 /// dropping everything before a fight is standard practice (except in the swamp, where dropped items
 /// are lost for the rest of the game).</para>
 /// </summary>
@@ -78,11 +78,11 @@ public sealed record CombatStatDeficits(
 {
     public static readonly CombatStatDeficits None = new(null, null, null, null, null, null);
 
-    /// <summary>True when a stat is currently off its raw value in EITHER direction — a bonus is as
+    /// <summary>True when a stat is currently off its raw value in EITHER direction - a bonus is as
     /// worth a line of screen space as a penalty, and testing only for &lt; 0 silently hid every buff.</summary>
     public bool HasStatDelta => (StrengthDelta is int str && str != 0) || (DexterityDelta is int dex && dex != 0);
 
-    /// <summary>True when the player is carrying anything at all — worth surfacing next to the
+    /// <summary>True when the player is carrying anything at all - worth surfacing next to the
     /// penalty, since it is usually the cause and is directly actionable (drop it).</summary>
     public bool HasLoad => WeightCarriedGrams is > 0 || ObjectsCarried is > 0;
 }
@@ -139,7 +139,7 @@ public sealed record SessionCombatTotals(
 /// stays pure.
 ///
 /// <para><see cref="Instance"/> and <see cref="Group"/> are BOTH carried deliberately. Difficulty is
-/// per-instance — rat0 is far nastier than the other rats, and dwarf48 harder than most dwarves — but
+/// per-instance - rat0 is far nastier than the other rats, and dwarf48 harder than most dwarves - but
 /// weapon susceptibility is per-group, because dwarf48 is still a dwarf and still takes extra from a
 /// pick. So the damage/outcome/pool figures prefer the instance once it has enough samples of its
 /// own, while the weapon table always comes from the group, where the samples actually accumulate.</para>
@@ -149,13 +149,19 @@ public sealed record CombatHistoryContext(
     string GroupName,
     MudSharp.Combat.FightHistorySummary Instance,
     MudSharp.Combat.FightHistorySummary Group,
-    IReadOnlyList<MudSharp.Combat.WeaponHistorySummary> ByWeapon)
+    IReadOnlyList<MudSharp.Combat.WeaponHistorySummary> ByWeapon,
+    // The weapon currently in hand's record against EVERY creature, not just this NPC's group -
+    // the "vs all" row under the weapon table's current-weapon entry, so the reader can tell
+    // whether THIS group is unusually kind or harsh to the weapon rather than just how the weapon
+    // does in general. Empty (not null) when there is nothing on file for it yet.
+    MudSharp.Combat.FightHistorySummary CurrentWeaponGlobal)
 {
     public static readonly CombatHistoryContext Empty = new(
         string.Empty, string.Empty,
         MudSharp.Combat.FightHistorySummary.Empty,
         MudSharp.Combat.FightHistorySummary.Empty,
-        []);
+        [],
+        MudSharp.Combat.FightHistorySummary.Empty);
 
     /// <summary>Minimum fights before an instance is trusted to describe itself rather than
     /// borrowing its group's numbers. Two is enough to notice "this one is different" without

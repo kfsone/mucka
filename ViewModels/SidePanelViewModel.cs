@@ -219,6 +219,12 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     // encounter) — kept as a separate property so the UI can later show "in combat but not
     // recording" if clog writing ever fails independently of detection.
     private readonly CombatStatsAggregator _combatStats = new();
+    // Bounds how often the clog readout actually rebuilds/republishes (see ClogRenderGate). Combat
+    // events and the FES heartbeat can fire many times a second in a pack fight; this collapses
+    // that burst to a bounded rate while the existing 1 Hz tick (TickCombatDisplay) guarantees any
+    // deferred ("dirty") state is still flushed within a second, and combat-ending transitions
+    // render directly so a final state is never lost behind the throttle.
+    private readonly ClogRenderGate _clogRenderGate = new();
     private bool _inCombat, _isClogging, _hasCombatData, _isCombatGrace;
     private int _combatClearGeneration;
     // The whole readout, as styled lines. Replaced the previous one-property-per-row surface: labels
@@ -240,6 +246,12 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     // which costs only string building.
     private string? _historyCacheInstance;
     private int _historyCacheRowCount = -1;
+    private DateTime? _historyCacheEncounterStart;
+    // The current weapon has to be part of the cache key too: CurrentWeaponGlobal is scoped to
+    // THIS weapon (see ResolveHistory), so a mid-fight weapon switch that leaves instance/row
+    // count/encounter-start all unchanged would otherwise keep serving the previous weapon's
+    // global figures under the new weapon's row.
+    private string? _historyCacheWeapon;
     private CombatHistoryContext _historyCache = CombatHistoryContext.Empty;
 
     public bool InCombat   => _inCombat;
@@ -294,7 +306,12 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             _inCombat = inCombat;
             _isClogging = isClogging;
             _isCombatGrace = false;   // a fresh Begin() always clears the tracker's own grace state
-            RefreshCombatDisplay(DateTime.UtcNow);
+            // Unthrottled and direct: a combat start/end transition must never be swallowed by the
+            // render gate, so it bypasses RequestRender and renders straight away, then tells the
+            // gate a render just happened so its throttle window measures from THIS moment onward.
+            var now = DateTime.UtcNow;
+            RefreshCombatDisplay(now);
+            _clogRenderGate.MarkRendered(now);
             OnPropertiesChanged(nameof(InCombat), nameof(IsClogging), nameof(IsCombatGracePeriod),
                 nameof(CombatIconOpacity), nameof(CombatTip), nameof(CanClearCombatSummary));
         });
@@ -317,7 +334,14 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             _combatStats.Observe(combatEvent);
             if (_combatStats.HasEncounter)
                 _hasCombatData = true;
-            RefreshCombatDisplay(DateTime.UtcNow);
+            // A pack fight can fire this once per swing per participant - far faster than anyone
+            // can read the readout, and each render rebuilds a native FormattedString on the UI
+            // thread (see ClogPage.Render). Route through the render gate so a burst collapses to
+            // a bounded rate instead of one full rebuild per event (CLAUDE.md Invariant #1); a
+            // throttled event is not lost, it just waits for the next tick (TickCombatDisplay).
+            var now = DateTime.UtcNow;
+            if (_clogRenderGate.RequestRender(now))
+                RefreshCombatDisplay(now);
         });
 
     public void OnStatsUpdated(GameStatsSnapshot stats)
@@ -334,7 +358,12 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
                 StaminaMax: stats.MaxStamina,
                 WeightCarriedGrams: stats.WeightCarriedGrams,
                 ObjectsCarried: stats.ObjectsCarried);
-            RefreshCombatDisplay(DateTime.UtcNow);
+            // Same reasoning as OnCombatEvent above: this fires on every FES heartbeat, which is
+            // independent of (and can be faster than) the combat tick, so it goes through the same
+            // render gate rather than forcing a rebuild every time.
+            var now = DateTime.UtcNow;
+            if (_clogRenderGate.RequestRender(now))
+                RefreshCombatDisplay(now);
         });
 
     public void TickCombatDisplay()
@@ -342,7 +371,20 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         if (!_hasCombatData)
             return;
 
-        MainThread.BeginInvokeOnMainThread(() => RefreshCombatDisplay(DateTime.UtcNow));
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            // The flush pump: this is GamePage's existing 1 Hz timer (see GamePage.OnAntiIdleTick),
+            // not a new one (CLAUDE.md forbids adding a second UI-thread ticker for this). It
+            // always renders unconditionally - both because 1 Hz is already comfortably under the
+            // render gate's own rate cap, so it is never throttled anyway, and because the
+            // encounter/fight duration clocks need to visibly advance once a second even with no
+            // new combat event. That unconditional render also guarantees any event the gate
+            // deferred ("dirty") during the last second is now flushed - no render is ever lost,
+            // just delayed by at most one tick.
+            var now = DateTime.UtcNow;
+            RefreshCombatDisplay(now);
+            _clogRenderGate.MarkRendered(now);
+        });
     }
 
     /// <summary>Wipes the last encounter's readout, leaving the session totals. Bound to the clog
@@ -354,7 +396,9 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     {
         _combatStats.Reset();
         _hasCombatData = false;
-        RefreshCombatDisplay(DateTime.UtcNow);
+        var now = DateTime.UtcNow;
+        RefreshCombatDisplay(now);
+        _clogRenderGate.MarkRendered(now);   // discrete user action, not a hot-path event: always renders
         OnPropertiesChanged(nameof(CanClearCombatSummary));
     }
 
@@ -363,10 +407,17 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         // Session totals still render with no encounter on screen, so this is no longer gated on
         // _hasCombatData — the panel reports the session's running tally between fights instead of
         // going blank.
+        //
+        // Snapshot once and hand it down to ResolveHistory instead of letting each spot call
+        // _combatStats.Snapshot() again - Snapshot() allocates a fresh FightSnapshot per active
+        // NPC, and this whole method runs on every combat event, every StatsUpdated (FES
+        // heartbeat), and every 1 Hz tick, so a per-call allocation here is UI-thread churn that
+        // adds up (Invariant #1).
+        var snapshot = _hasCombatData ? _combatStats.Snapshot(nowUtc) : IdleSnapshot;
         var lines = CombatHistoryFormatter.Build(
-            _hasCombatData ? _combatStats.Snapshot(nowUtc) : IdleSnapshot,
+            snapshot,
             _combatDeficits,
-            _hasCombatData ? ResolveHistory(nowUtc) : CombatHistoryContext.Empty,
+            _hasCombatData ? ResolveHistory(snapshot) : CombatHistoryContext.Empty,
             _session);
 
         // Diff before publishing: at 1 Hz plus one refresh per combat line, an unconditional notify
@@ -391,35 +442,64 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     /// <summary>Assembles the history context for the encounter's primary target. The scan itself is
     /// cached against (instance, row count) — the medians cannot move mid-fight, only the live
     /// figures compared against them can.</summary>
-    private CombatHistoryContext ResolveHistory(DateTime nowUtc)
+    private CombatHistoryContext ResolveHistory(CombatEncounterSnapshot snapshot)
     {
-        var primary = CombatHistoryFormatter.PrimaryFight(_combatStats.Snapshot(nowUtc));
+        var primary = CombatHistoryFormatter.PrimaryFight(snapshot);
         if (_fightHistory is null || primary is null || string.IsNullOrWhiteSpace(primary.NpcGroup))
             return CombatHistoryContext.Empty;
 
+        // Snapshot() is cheap (copy-on-write: it just hands back the store's current list
+        // reference - see FightHistoryStore), so the cache-key check must run against it BEFORE
+        // any filtering. ExcludingEncounterFrom(...).ToList() below copies the WHOLE loaded fight
+        // history, and this method runs on every combat event, every StatsUpdated (FES heartbeat),
+        // and every 1 Hz tick - on a cache hit that copy must not happen at all.
+        //
+        // The key is (instance, all.Count, snapshot.StartedUtc) - deliberately NOT records.Count
+        // (the post-exclusion count). all.Count is cheap because Snapshot() is O(1); records.Count
+        // would require materializing ExcludingEncounterFrom(...).ToList() on every call just to
+        // read it, which reintroduces the copy this cache is here to avoid.
+        //
+        // snapshot.StartedUtc has to be in the key because it IS the exclusion boundary: the same
+        // row set filtered against a different encounter start yields a different result, so
+        // without it a stale context could be served across an encounter boundary that happens to
+        // leave all.Count unchanged.
+        //
+        // Known and accepted cost: all.Count over-invalidates during a multi-fight pack encounter.
+        // Each fight that resolves mid-encounter appends a row to `all`, but ExcludingEncounterFrom
+        // filters that row straight back out, so `records` is unchanged and the recompute was not
+        // actually needed. Keying on records.Count would avoid that, at the price of materializing
+        // the filtered list on every call - a far worse trade. The waste is bounded by the number
+        // of fights in one encounter.
         var all = _fightHistory.Snapshot();
+        if (string.Equals(_historyCacheInstance, primary.NpcName, StringComparison.OrdinalIgnoreCase)
+            && _historyCacheRowCount == all.Count
+            && _historyCacheEncounterStart == snapshot.StartedUtc
+            && string.Equals(_historyCacheWeapon, snapshot.CurrentWeapon, StringComparison.OrdinalIgnoreCase))
+        {
+            return _historyCache;
+        }
+
         // Exclude this encounter's own rows — the recorder has already written them, and comparing a
         // fight against itself is what made "now" and "usual" identical. See ExcludingEncounterFrom.
-        var records = FightHistory
-            .ExcludingEncounterFrom(all, _combatStats.Snapshot(nowUtc).StartedUtc)
-            .ToList();
+        var records = FightHistory.ExcludingEncounterFrom(all, snapshot.StartedUtc).ToList();
 
-        if (!string.Equals(_historyCacheInstance, primary.NpcName, StringComparison.OrdinalIgnoreCase)
-            || _historyCacheRowCount != records.Count)
-        {
-            _historyCacheInstance = primary.NpcName;
-            _historyCacheRowCount = records.Count;
-            _historyCache = new CombatHistoryContext(
-                primary.NpcName,
-                primary.NpcGroup,
-                // Instance-level: difficulty is per-instance (rat0 is far nastier than its siblings,
-                // dwarf48 harder than most dwarves).
-                FightHistory.SummarizeInstance(records, primary.NpcName),
-                FightHistory.Summarize(records, primary.NpcGroup),
-                // Weapon susceptibility stays keyed on the GROUP: dwarf48 is still a dwarf and still
-                // takes extra from a pick, and the group is where sample counts actually accumulate.
-                FightHistory.SummarizeByWeapon(records, primary.NpcGroup));
-        }
+        _historyCacheInstance = primary.NpcName;
+        _historyCacheRowCount = all.Count;
+        _historyCacheEncounterStart = snapshot.StartedUtc;
+        _historyCacheWeapon = snapshot.CurrentWeapon;
+        _historyCache = new CombatHistoryContext(
+            primary.NpcName,
+            primary.NpcGroup,
+            // Instance-level: difficulty is per-instance (rat0 is far nastier than its siblings,
+            // dwarf48 harder than most dwarves).
+            FightHistory.SummarizeInstance(records, primary.NpcName),
+            FightHistory.Summarize(records, primary.NpcGroup),
+            // Weapon susceptibility stays keyed on the GROUP: dwarf48 is still a dwarf and still
+            // takes extra from a pick, and the group is where sample counts actually accumulate.
+            FightHistory.SummarizeByWeapon(records, primary.NpcGroup),
+            // Ungrouped, so the weapon table can show whether THIS group is unusual for the
+            // weapon rather than just how the weapon does against it specifically.
+            FightHistory.SummarizeWeaponGlobal(records, snapshot.CurrentWeapon));
 
         return _historyCache;
     }

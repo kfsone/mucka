@@ -89,6 +89,9 @@ public partial class GamePage : ContentPage
     private Window? _rawConsoleWindow;
     private Window? _mapWindow;
     private Window? _clogWindow;
+    // Held explicitly so teardown never depends on Window.Page still being populated at Destroying
+    // time - see OnClogWindowDestroying.
+    private ClogPage? _clogPage;
     private Microsoft.UI.Xaml.Controls.TextBox? _inputTextBox;
     private Microsoft.UI.Xaml.Controls.ScrollViewer? _inputScroller;   // _inputTextBox's inner ScrollViewer
     private Microsoft.UI.Xaml.UIElement? _terminalElement;   // SKXamlCanvas, for wheel scrollback
@@ -1809,7 +1812,8 @@ public partial class GamePage : ContentPage
         if (_clogWindow != null &&
             Application.Current?.Windows.Contains(_clogWindow) == true)
             return;
-        _clogWindow = new Window(new ClogPage(_vm))
+        _clogPage = new ClogPage(_vm);
+        _clogWindow = new Window(_clogPage)
         {
             Title  = "Mucka — Clog",
             // Widened from 260 to fit the two-column you/them table and the weapon table's
@@ -1829,8 +1833,23 @@ public partial class GamePage : ContentPage
 
     private void OnClogWindowDestroying(object? sender, EventArgs e)
     {
+        // Tear the page down HERE rather than trusting ClogPage.OnHandlerChanged to see a null
+        // handler - for a secondary window that callback may never arrive, leaving the dead page
+        // subscribed to the view model. The next combat line then renders into closed WinUI
+        // objects and the process dies with RO_E_CLOSED. See ClogPage.Detach.
+        //
+        // Deliberately using the field we captured at construction rather than sender's Window.Page:
+        // this whole bug is MAUI's secondary-window lifecycle not being trustworthy, so hanging the
+        // fix on another of its lifecycle guarantees (Page still being populated at Destroying time)
+        // would risk silently skipping Detach and leaving the crash in place while looking fixed.
+        _clogPage?.Detach();
+        _clogPage = null;
+
         if (_clogWindow != null)
+        {
             _clogWindow.Destroying -= OnClogWindowDestroying;
+            _clogWindow = null;
+        }
         // The window IS the on/off switch: closing it (native ✕) turns clogging back off.
         // syncWindow:false — the window is already the thing closing; don't ask it to close again.
         _vm.SetClogEnabled(false, syncWindow: false);

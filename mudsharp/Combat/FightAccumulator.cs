@@ -14,6 +14,18 @@ public enum FightOutcome
 }
 
 /// <summary>
+/// One swing's outcome, for the clog window's recent-hits strip: a landed blow's damage
+/// magnitude, or a miss. Deliberately NOT nullable-double - a null "hit" and a "miss" read the
+/// same to a caller that forgets to check, and the two are different information (a miss tells
+/// you the swing rhythm, a null tells you nothing was observed).
+/// </summary>
+public readonly record struct SwingOutcome(bool IsHit, double Damage)
+{
+    public static readonly SwingOutcome Miss = new(false, 0);
+    public static SwingOutcome Hit(double damage) => new(true, damage);
+}
+
+/// <summary>
 /// Accumulates one NPC's fight within an encounter: the counters, the weapon actually used, and
 /// how it ended.
 ///
@@ -48,12 +60,32 @@ public sealed class FightAccumulator
     /// mid-encounter, and there is no equip line for B. reduce_combat.py does the same.</summary>
     public string? WeaponUsed { get; private set; }
 
+    /// <summary>The NPC's own weapon, once it has equipped one - e.g. a zombie that picked up a
+    /// fork mid-fight. Distinct from <see cref="WeaponUsed"/> (the PLAYER's weapon for this fight):
+    /// NPCs arm themselves independently and it can materially change their damage output, so this
+    /// needs its own field rather than overloading the player's. Null is the common case - most
+    /// NPCs fight with fists/claws/bite and never announce a weapon at all.</summary>
+    public string? NpcWeapon { get; private set; }
+
     public int YouHits { get; private set; }
     public int YouMisses { get; private set; }
     public int TheyHits { get; private set; }
     public int TheyMisses { get; private set; }
     public double ApproxDamageDone { get; private set; }
     public double ApproxDamageTaken { get; private set; }
+
+    /// <summary>How many of each side's most recent swings the clog window's recent-hits strip
+    /// shows. A fixed-size ring, not a growing list: one fight can run to hundreds of swings and
+    /// the display only ever wants the last handful, so unbounded growth would be pure churn on a
+    /// path (AddYouHit/AddTheyHit/etc) that runs on every combat line (Invariant #1).</summary>
+    public const int RecentSwingCapacity = 6;
+
+    private readonly SwingOutcome[] _yourRecent = new SwingOutcome[RecentSwingCapacity];
+    private readonly SwingOutcome[] _theirRecent = new SwingOutcome[RecentSwingCapacity];
+    private int _yourRecentHead;
+    private int _yourRecentCount;
+    private int _theirRecentHead;
+    private int _theirRecentCount;
 
     public bool IsResolved => Outcome != FightOutcome.Unresolved;
 
@@ -72,14 +104,34 @@ public sealed class FightAccumulator
 
     public void NoteWeaponBroke() => WeaponUsed = null;
 
+    /// <summary>Records the NPC's own weapon once a "The X has started to use the Y to fight!"
+    /// line confirms one. Never cleared by <see cref="NoteWeaponBroke"/> - that line is about the
+    /// PLAYER'S weapon breaking, and MUD2 gives no equivalent "NPC weapon broke" line to react to,
+    /// so the last-known NPC weapon is the honest thing to keep showing.</summary>
+    public void NoteNpcWeapon(string? weapon)
+    {
+        if (!string.IsNullOrWhiteSpace(weapon))
+            NpcWeapon = weapon;
+    }
+
     public void AddYouHit(int? rangeLow, int? rangeHigh)
     {
         YouHits++;
         if (rangeLow is int low && rangeHigh is int high)
-            ApproxDamageDone += (low + high) / 2.0;
+        {
+            var midpoint = (low + high) / 2.0;
+            ApproxDamageDone += midpoint;
+            RecordSwing(_yourRecent, ref _yourRecentHead, ref _yourRecentCount, SwingOutcome.Hit(midpoint));
+        }
+        // No range means no parsed swing detail (narrative mode) - nothing to put in the ring
+        // buffer either, since there is no magnitude to show and a placeholder would be a guess.
     }
 
-    public void AddYouMiss() => YouMisses++;
+    public void AddYouMiss()
+    {
+        YouMisses++;
+        RecordSwing(_yourRecent, ref _yourRecentHead, ref _yourRecentCount, SwingOutcome.Miss);
+    }
 
     /// <summary>Records an incoming hit. <paramref name="damage"/> is the already-resolved stamina
     /// delta for this blow (the caller owns baseline tracking — see
@@ -90,9 +142,56 @@ public sealed class FightAccumulator
         TheyHits++;
         if (damage is double value && value > 0)
             ApproxDamageTaken += value;
+
+        // The ring buffer records the swing whenever a magnitude was resolved at all, even a zero
+        // delta (armour soaking a blow is still a landed hit) - only a genuinely unresolvable
+        // baseline (damage null) is skipped, since there is nothing honest to show for it.
+        if (damage is double resolved)
+            RecordSwing(_theirRecent, ref _theirRecentHead, ref _theirRecentCount, SwingOutcome.Hit(Math.Max(resolved, 0)));
     }
 
-    public void AddTheyMiss() => TheyMisses++;
+    public void AddTheyMiss()
+    {
+        TheyMisses++;
+        RecordSwing(_theirRecent, ref _theirRecentHead, ref _theirRecentCount, SwingOutcome.Miss);
+    }
+
+    /// <summary>Oldest-to-newest snapshot of the player's last <see cref="RecentSwingCapacity"/>
+    /// swings against this NPC, so the clog window reads it left-to-right as a timeline.</summary>
+    public IReadOnlyList<SwingOutcome> RecentYourSwings
+        => OrderedRingCopy(_yourRecent, _yourRecentHead, _yourRecentCount);
+
+    /// <summary>Oldest-to-newest snapshot of this NPC's last <see cref="RecentSwingCapacity"/>
+    /// swings against the player.</summary>
+    public IReadOnlyList<SwingOutcome> RecentTheirSwings
+        => OrderedRingCopy(_theirRecent, _theirRecentHead, _theirRecentCount);
+
+    /// <summary>Writes into a fixed-capacity ring: <paramref name="head"/> is the next write index,
+    /// wrapping at capacity, and <paramref name="count"/> saturates at capacity once the ring has
+    /// filled at least once (it never needs to count past that).</summary>
+    private static void RecordSwing(SwingOutcome[] ring, ref int head, ref int count, SwingOutcome outcome)
+    {
+        ring[head] = outcome;
+        head = (head + 1) % ring.Length;
+        if (count < ring.Length)
+            count++;
+    }
+
+    /// <summary>Copies a ring buffer out in chronological (oldest-first) order. While the ring has
+    /// not yet filled, the oldest entry is always index 0 (writes started there and have not
+    /// wrapped); once full, <paramref name="head"/> itself points at the oldest entry, because that
+    /// is exactly the slot the NEXT write is about to overwrite.</summary>
+    private static SwingOutcome[] OrderedRingCopy(SwingOutcome[] ring, int head, int count)
+    {
+        if (count == 0)
+            return Array.Empty<SwingOutcome>();
+
+        var result = new SwingOutcome[count];
+        var oldest = count < ring.Length ? 0 : head;
+        for (var i = 0; i < count; i++)
+            result[i] = ring[(oldest + i) % ring.Length];
+        return result;
+    }
 
     /// <summary>First resolution wins: a Kill followed by a trailing FightEndOther, or a player
     /// death that also force-closes the encounter, must not overwrite the real outcome.</summary>
