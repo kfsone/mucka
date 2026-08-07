@@ -1,70 +1,5 @@
 namespace Mucka.ViewModels;
 
-/// <summary>Semantic role of a run of text in the Combat Rail. The render surface maps these to
-/// colours (see Rendering/CombatPanelCanvasView.cs's ToneColor, which resolves every one of them
-/// against TerminalTheme.Palette per DESIGN_FINAL.md D11 - no new hex value), so this formatter
-/// never mentions a colour itself and the palette lives in exactly one place.</summary>
-public enum ClogTone
-{
-    /// <summary>Labels and units - deliberately low contrast so the numbers carry the eye.</summary>
-    Dim,
-    Value,
-    /// <summary>The player and the player's side of an exchange.</summary>
-    Friendly,
-    /// <summary>NPCs and the NPC side of an exchange.</summary>
-    Hostile,
-    /// <summary>Outperforming the best on record.</summary>
-    Good,
-    /// <summary>Underperforming, or a stat penalty currently in effect.</summary>
-    Warn,
-    Heading,
-    /// <summary>Lethal risk (DESIGN_FINAL.md 4.1 "Danger" role) - same hue as <see cref="Hostile"/>,
-    /// promoted bright. Distinct from Hostile: "an opponent" becomes "the opponent is about to kill
-    /// you" by brightening the SAME colour, not by inventing a new one.</summary>
-    Danger,
-    /// <summary>Encumbrance / self-inflicted stat penalty (4.1 "Load" role) - a colour Hostile/Danger
-    /// and Warn/Caution do not already own, so a strength-cost line reads as its own kind of thing
-    /// rather than as either "the enemy" or "generically degraded".</summary>
-    Load,
-}
-
-/// <summary>A run of same-styled text within a line.</summary>
-public sealed record ClogSpan(string Text, ClogTone Tone = ClogTone.Value, bool Strike = false);
-
-/// <summary>One rendered line of the clog readout.</summary>
-public sealed record ClogLine(IReadOnlyList<ClogSpan> Spans)
-{
-    public static readonly ClogLine Blank = new([]);
-
-    public static ClogLine Of(params ClogSpan[] spans) => new(spans);
-
-    /// <summary>Structural comparison. Needed because <see cref="ClogLine"/> is a record holding a
-    /// LIST, so its synthesized equality compares that list by reference and would report every
-    /// freshly-built line as different - which would defeat the whole point of diffing before
-    /// rebuilding the label (Invariant #1).</summary>
-    public static bool SequenceEquals(IReadOnlyList<ClogLine> left, IReadOnlyList<ClogLine> right)
-    {
-        if (ReferenceEquals(left, right))
-            return true;
-        if (left.Count != right.Count)
-            return false;
-
-        for (var i = 0; i < left.Count; i++)
-        {
-            var a = left[i].Spans;
-            var b = right[i].Spans;
-            if (a.Count != b.Count)
-                return false;
-            for (var j = 0; j < a.Count; j++)
-            {
-                if (a[j] != b[j])   // ClogSpan is a record of value-typed members, so this is structural
-                    return false;
-            }
-        }
-
-        return true;
-    }
-}
 
 /// <summary>
 /// The player-stat penalties worth showing mid-fight. Only DEFICITS and bonuses, never the raw
@@ -223,17 +158,19 @@ public sealed record CombatMeasure(
     bool IsPercentage);
 
 /// <summary>
-/// Everything the Combat Rail's canvas composes as the LIVE hero section: the threat indicator, the
-/// opposition roster, and the survival numbers backing both. Built fresh on every refresh from the
-/// exact same snapshot/deficits/history/outlook that also produce <see cref="SidePanelViewModel"/>'s
-/// review-only <c>ClogLines</c>, so the hero section and the review tail can never quietly describe
-/// two different fights.
+/// The immutable frame state the Combat Rail's canvas draws. Built fresh on each refresh from one
+/// snapshot/deficits/history/outlook set, published to the render surface by a single volatile
+/// write, and never mutated afterwards - so the canvas can read it from a paint handler without
+/// locking and can never observe a half-updated fight.
 ///
-/// <para>This is the type the render surface (Rendering/CombatPanelCanvasView.cs) reads to compose
-/// its own layout, rather than inheriting layout from <c>CombatHistoryFormatter</c>'s text lines -
-/// the exact failure this design exists to fix (a real <c>SKCanvasView</c> that drew the OLD text
-/// formatter's output verbatim, so the survivability/opposition signal that mattered most was never
-/// actually composed for the canvas at all).</para>
+/// <para>This is the whole model-to-view contract: the render surface composes its own layout from
+/// these values and inherits no layout from anywhere else. That direction matters - the previous
+/// implementation drew a text formatter's pre-composed lines verbatim onto a canvas, so the signal
+/// that mattered most was never actually composed for the canvas at all.</para>
+///
+/// <para>Being a record of value-typed members, equality is structural, which is what lets the
+/// refresh path skip invalidating the canvas when nothing actually changed (Invariant #1 - the
+/// canvas is invalidated only on genuine state change, never per frame).</para>
 /// </summary>
 public sealed record CombatLiveView(
     bool InCombat,

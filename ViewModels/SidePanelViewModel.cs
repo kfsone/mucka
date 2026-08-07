@@ -233,18 +233,15 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     // reset in OnInCombatChanged(inCombat: true) so a fresh fight always starts both bracket
     // latches armed.
     private readonly CombatTierResolver _tierResolver = new();
-    private ClogLine? _fleeSummaryLine;
-    private ClogLine? _whyLine;
+    // The plain-language "why is this going badly" line, as text. Deliberately NOT a styled-span
+    // type: the canvas owns colour, and the view model owns wording.
+    private string? _whyText;
     private CombatTier _pulseTier = CombatTier.None;
     private CombatTier _encumbranceTier = CombatTier.None;
     // The Combat Rail's LIVE hero section - threat indicator, opposition roster, survival numbers -
     // composed fresh each refresh (see RefreshCombatSignals). CombatLiveView.Idle until an encounter
     // exists at all, exactly like every other combat signal field in this file.
     private CombatLiveView _live = CombatLiveView.Idle;
-    // The whole readout, as styled lines. Replaced the previous one-property-per-row surface: labels
-    // were consuming most of the panel's width, and absolute Sta/Str/Dex/Mag/Carry/Level/Games told
-    // the reader nothing actionable mid-fight. See CombatHistoryFormatter for the layout rationale.
-    private IReadOnlyList<ClogLine> _clogLines = [];
     // Running session tally, so the window reports something between fights instead of blanking.
     private SessionCombatTotals _session = SessionCombatTotals.Empty;
     // Latest stats, kept so a refresh triggered by a combat event (not a stats event) can still
@@ -273,19 +270,6 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     public bool HasCombatData => _hasCombatData;
     public bool NoCombatData => !_hasCombatData;
 
-    /// <summary>
-    /// The REVIEW-only tail of the readout, as styled lines (<see cref="CombatHistoryFormatter.BuildReview"/>):
-    /// the result banner, exchange table, recent-swing strip, history comparison, weapon table, and
-    /// session totals. Content that is genuinely useful but must never compete with the live threat
-    /// signal for the eye's attention - the live hero section (threat indicator, opposition roster,
-    /// survival numbers) is <see cref="Live"/> instead, composed directly for the canvas rather than
-    /// as a second copy of the same numbers in text-line form. The Combat Rail's Skia canvas paints
-    /// these as fixed-layout text draw calls (never a native Label/FormattedString - DESIGN_FINAL.md
-    /// D8). Only raises PropertyChanged when the content actually differs, so the per-event and 1 Hz
-    /// refreshes do not force a repaint for nothing (Invariant #1).
-    /// </summary>
-    public IReadOnlyList<ClogLine> ClogLines => _clogLines;
-
     /// <summary>Whether the Combat Rail (the new right-edge panel) is shown. Toggled by "$clog
     /// on"/"$clog off" and, when it changes, by GamePage resizing the window by the panel's own
     /// width (DESIGN_FINAL.md D3/2.2) - never by anything else; this property does not change on
@@ -296,30 +280,16 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         set => Set(ref _isCombatPanelVisible, value);
     }
 
-    /// <summary>
-    /// The Combat Rail's single condensed flee line (DESIGN_FINAL.md section 5, amended after the
-    /// owner's review of the first implementation, which rendered the full 4-row ladder permanently:
-    /// "the bottom half of this page is filled with a list of the cost to flee". Prominence is not
-    /// permanence - this renders AT MOST one line, and only when fleeing is actually a live decision
-    /// (losing, or stamina already degraded per the same tier table driving the threat indicator).
-    /// Null the rest of the time. Still keeps D6's honest 3-anchor treatment (a `~` prefix, never the
-    /// same visual weight as an anchor, for anything interpolated between the two owner-given points)
-    /// and D7/4.4's hard floor (never reads calmer than Warn once stamina sits at or under the
-    /// free-flee threshold, however cheap fleeing has become).
-    /// </summary>
-    public ClogLine? FleeSummaryLine => _fleeSummaryLine;
-
-    /// <summary>The plain-language "why is this going badly" line (3.8), or null when nothing in
-    /// the priority table currently applies.</summary>
-    public ClogLine? WhyLine => _whyLine;
+    /// <summary>The plain-language "why is this going badly" line, or null when nothing in the
+    /// priority table currently applies. Text only - the canvas decides how it looks.</summary>
+    public string? WhyText => _whyText;
 
     /// <summary>
-    /// The Combat Rail's LIVE hero section: the threat indicator, the opposition roster (live/dead
-    /// split, current-target emphasis), and the survival numbers backing both - the canvas render
-    /// surface composes its layout directly from this rather than from <see cref="ClogLines"/>'
-    /// text (see Rendering/CombatPanelCanvasView.cs's remarks on why - this is the direct fix for
-    /// the panel having drawn the old text formatter's output verbatim and never actually composing
-    /// the survivability/opposition signal for the canvas at all).
+    /// The Combat Rail's whole frame state: threat, opposition roster, and the survival numbers
+    /// behind both. The render surface composes its own layout from this and inherits layout from
+    /// nowhere else - the direct fix for a canvas that previously drew a text formatter's
+    /// pre-composed lines verbatim, so the signal that mattered most was never composed for the
+    /// canvas at all.
     /// </summary>
     public CombatLiveView Live => _live;
 
@@ -340,9 +310,9 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
 
     /// <summary>Whether there is anything at all to render. Distinct from <see cref="HasCombatData"/>:
     /// with no encounter on screen the panel still shows the session's running totals, so "no
-    /// encounter" and "nothing to show" stopped being the same thing.</summary>
-    public bool HasClogContent => _clogLines.Count > 0;
-    public bool NoClogContent => _clogLines.Count == 0;
+    /// encounter" and "nothing to show" are not the same thing.</summary>
+    public bool HasClogContent => _hasCombatData || _session.HasAnything;
+    public bool NoClogContent => !HasClogContent;
 
     /// <summary>Supplies the accumulated per-fight history the live figures are contrasted against.
     /// Call once at startup; the store loads itself off-thread (see MuckaConnection).</summary>
@@ -496,26 +466,16 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         // adds up (Invariant #1).
         var snapshot = _hasCombatData ? _combatStats.Snapshot(nowUtc) : IdleSnapshot;
         var history = _hasCombatData ? ResolveHistory(snapshot) : CombatHistoryContext.Empty;
-        // Review-only tail (result banner, exchange table, recent-swing strip, history comparison,
-        // weapon table, session totals) - the live hero section (threat/roster/survival numbers) is
-        // computed separately below into Live, composed directly for the canvas rather than as a
-        // second copy of the same numbers in text-line form (see ClogLines'/Live's own remarks).
-        var lines = CombatHistoryFormatter.BuildReview(snapshot, history, _session);
-
-        // Diff before publishing: at 1 Hz plus one refresh per combat line, an unconditional notify
-        // would rebuild the label's FormattedString constantly for identical content, which is
-        // exactly the UI-thread churn Invariant #1 forbids.
-        if (ClogLine.SequenceEquals(_clogLines, lines))
-            return;
-
-        _clogLines = lines;
-        // The ladder/why-line/tier/live-view all derive from the same snapshot/deficits/history that
-        // just produced a genuinely different `lines` - see this method's remarks above for why it is
-        // safe to gate their recomputation behind the SAME diff rather than a second one.
+        // Compose the live frame state. The previous implementation built a list of styled text
+        // lines here and diffed it before publishing, because publishing rebuilt a native
+        // FormattedString - one WinUI Run per span, a full teardown-and-remeasure on the UI thread.
+        // That surface is gone: the canvas draws this state directly, so the only cost of a publish
+        // is an invalidate. Rate limiting is still enforced upstream by _clogRenderGate, which is
+        // what actually protects Invariant #1 here.
         RefreshCombatSignals(snapshot, _combatDeficits, history, nowUtc);
-        OnPropertiesChanged(nameof(HasCombatData), nameof(NoCombatData), nameof(ClogLines),
-            nameof(HasClogContent), nameof(NoClogContent),
-            nameof(FleeSummaryLine), nameof(WhyLine), nameof(PulseTier),
+
+        OnPropertiesChanged(nameof(HasCombatData), nameof(NoCombatData),
+            nameof(WhyText), nameof(PulseTier),
             nameof(EncumbranceTier), nameof(Live));
     }
 
@@ -538,19 +498,18 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
 
         if (!snapshot.HasEncounter)
         {
-            _fleeSummaryLine = null;
-            _whyLine = null;
+            _whyText = null;
             _pulseTier = CombatTier.None;
             _live = CombatLiveView.Idle;
             return;
         }
 
         // Roster/weapon/duration context is worth showing whenever an encounter exists at all, live
-        // or just-finished - mirrors CombatHistoryFormatter.Build's own AppendHeadline/AppendParticipants,
+        // or just-finished - mirrors CombatComposition.Build's own AppendHeadline/AppendParticipants,
         // which never gated on InCombat either (2.4/3.7's post-combat wireframe still names the target).
         var roster = ParticipantRoster.Build(ToParticipantFacts(snapshot.Fights));
         var hasWeapon = !string.IsNullOrWhiteSpace(snapshot.CurrentWeapon);
-        var weaponText = hasWeapon ? CombatHistoryFormatter.DisplayName(snapshot.CurrentWeapon) : "UNARMED";
+        var weaponText = hasWeapon ? CombatComposition.DisplayName(snapshot.CurrentWeapon) : "UNARMED";
         // The current target's own weapon (owner's standing "NPC weapon use highlighted"
         // requirement) - null once nobody is still live, matching "no current target" everywhere
         // else in this method.
@@ -561,8 +520,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             // Post-combat / grace window: only the survival PROJECTION (threat/flee/why) goes quiet -
             // projecting a finished fight's death clock would be a lie. The roster and weapon/duration
             // context stay, exactly as the old formatter's headline/participant rows did.
-            _fleeSummaryLine = null;
-            _whyLine = null;
+            _whyText = null;
             _pulseTier = CombatTier.None;
             _live = new CombatLiveView(
                 InCombat: false, HasEncounter: true, WeaponText: weaponText, IsUnarmed: !hasWeapon,
@@ -576,13 +534,13 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
                 // stay up through the post-fight grace window - reviewing the fight you just had is
                 // the whole reason that window exists. Kill progress does not: the target is
                 // resolved, so a partial "how close was it" bar would be answering nothing.
-                Measures: BuildMeasures(snapshot, history, CombatHistoryFormatter.PrimaryFight(snapshot)),
+                Measures: BuildMeasures(snapshot, history, CombatComposition.PrimaryFight(snapshot)),
                 TargetDamageDone: null, TargetEstimatedPool: null);
             return;
         }
 
-        var primary = CombatHistoryFormatter.PrimaryFight(snapshot);
-        var outlook = CombatHistoryFormatter.ComputeOutlook(snapshot, deficits, history, primary);
+        var primary = CombatComposition.PrimaryFight(snapshot);
+        var outlook = CombatComposition.ComputeOutlook(snapshot, deficits, history, primary);
 
         // Incoming per-hit rate this fight - thin-sample gated (MinimumOwnHits) the same way the old
         // ladder's own risk pairing gated it, reused here for the tier table's "hits-left" trigger
@@ -601,17 +559,14 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             deficits.StaminaCurrent, deficits.StaminaMax, hitsLeft, outlook.SecondsToDie, outlook.SecondsToKill);
         _pulseTier = CombatTierResolver.ResolvePulseTier(staminaTier, CombatTier.None);
 
-        if (deficits.StaminaCurrent is int staForLadder)
-        {
-            var floorTier = CombatTierResolver.FleeCostBlockTier(staminaTier, staForLadder);
-            _fleeSummaryLine = BuildFleeSummaryLine(staminaTier, staForLadder, deficits.Score, outlook.Verdict, floorTier);
-        }
-        else
-        {
-            _fleeSummaryLine = null;
-        }
-
-        _whyLine = BuildWhyLine(snapshot, deficits, history, primary, nowUtc);
+        // No flee-cost figure is computed or published here, deliberately. The owner's instruction is
+        // explicit: "We don't need to be telling/showing the player the flee statistics - that's
+        // stupid cognitive burden." The player already knows fleeing is expensive - one accidental
+        // flee from a zombie at 90/100 stamina cost 1300 of 13,000 points and a level. What the panel
+        // owes them is the zone signal (staminaTier, above) and a valid direction to run, not a price
+        // tag to read while deciding. FleeCostLadder is retained as documented domain knowledge so
+        // nobody re-introduces a "fleeing is cheap here" affordance; it drives no UI.
+        _whyText = BuildWhyText(snapshot, deficits, history, primary, nowUtc);
 
         var threat = ThreatIndicator.Resolve(
             inCombat: true, staminaTier, outlook.Verdict, outlook.SecondsToDie, hitsLeft,
@@ -684,63 +639,19 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         return facts;
     }
 
-    /// <summary>
-    /// The Combat Rail's single condensed flee line (DESIGN_FINAL.md section 5, amended after the
-    /// owner's review - the previous implementation rendered the full 4-row ladder permanently, which
-    /// the owner directly called out: "the bottom half of this page is filled with a list of the cost
-    /// to flee". Prominence is not permanence: this renders AT MOST one line, and only when fleeing is
-    /// actually a live decision (losing, or stamina already degraded per the same tier table driving
-    /// the threat indicator) - never as a permanent fixture. Still keeps D6's honest 3-anchor
-    /// treatment (a `~` prefix, never the same visual weight as an anchor, for anything interpolated
-    /// between the two owner-given points) and D7/4.4's hard floor (never reads calmer than Warn once
-    /// stamina sits at or under the free-flee threshold, regardless of how cheap fleeing has become).
-    /// </summary>
-    private static ClogLine? BuildFleeSummaryLine(
-        CombatTier staminaTier, double stamina, double? score, OutlookVerdict verdict, CombatTier floorTier)
-    {
-        var isLiveDecision = verdict == OutlookVerdict.Losing || staminaTier != CombatTier.None;
-        if (!isLiveDecision)
-            return null;
-
-        var fraction = FleeCostLadder.CostFraction(stamina, out var isAnchor);
-        var isFree = stamina < FleeCostLadder.FreeThreshold;
-        var valueText = isFree ? "FREE" : (isAnchor ? string.Empty : "~") + PercentText(fraction);
-        var pointsText = !isFree && score is double s
-            ? $"  -{Math.Round(fraction * s, MidpointRounding.AwayFromZero):0} pts"
-            : string.Empty;
-
-        // Hard floor (4.4/D7): the fraction/FREE text can de-escalate, but the COLOUR never does - 
-        // a free flee at 4 stamina is not good news, so this stays no calmer than Warn once
-        // floorTier has already been promoted to at least T2 by CombatTierResolver.FleeCostBlockTier.
-        var tone = floorTier switch
-        {
-            CombatTier.T3 or CombatTier.T2 => ClogTone.Danger,
-            CombatTier.T1 => ClogTone.Warn,
-            _ => ClogTone.Dim,
-        };
-
-        return ClogLine.Of(
-            new ClogSpan("flee now  ", ClogTone.Dim),
-            new ClogSpan(valueText, tone),
-            new ClogSpan(pointsText, ClogTone.Dim));
-    }
-
-    private static string PercentText(double fraction)
-        => Math.Round(fraction * 100, MidpointRounding.AwayFromZero).ToString(
-            "0", System.Globalization.CultureInfo.InvariantCulture) + "%";
-
-    /// <summary>The plain-language "why" line (3.8) - surfaces causes, never coefficients, and
-    /// renders at most one sentence (the single highest-priority active condition).</summary>
-    private ClogLine? BuildWhyLine(
+    /// <summary>The plain-language "why" line - surfaces causes, never coefficients, and yields at
+    /// most one sentence (the single highest-priority active condition). Returns text; the canvas
+    /// owns how it is drawn.</summary>
+    private string? BuildWhyText(
         CombatEncounterSnapshot snapshot, CombatStatDeficits deficits, CombatHistoryContext history,
         FightSnapshot? primary, DateTime nowUtc)
     {
         var hasWeapon = !string.IsNullOrWhiteSpace(snapshot.CurrentWeapon);
-        var livePerHit = CombatHistoryFormatter.LivePerHit(snapshot, history);
+        var livePerHit = CombatComposition.LivePerHit(snapshot, history);
 
         var weaponEntry = history.ByWeapon.FirstOrDefault(e =>
             hasWeapon && string.Equals(e.Weapon, snapshot.CurrentWeapon, StringComparison.OrdinalIgnoreCase));
-        var weaponDisplayName = hasWeapon ? CombatHistoryFormatter.DisplayName(snapshot.CurrentWeapon) : null;
+        var weaponDisplayName = hasWeapon ? CombatComposition.DisplayName(snapshot.CurrentWeapon) : null;
 
         var attempts = (primary?.YouHits ?? 0) + (primary?.YouMisses ?? 0);
         double? liveHitRate = attempts == 0 ? null : primary!.YouHits / (double)attempts;
@@ -749,7 +660,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             ? (nowUtc - equippedUtc).TotalSeconds
             : null;
         var npcWeaponDisplayName = primary?.NpcWeapon is string npcWeapon
-            ? CombatHistoryFormatter.DisplayName(npcWeapon)
+            ? CombatComposition.DisplayName(npcWeapon)
             : null;
 
         var result = CombatWhyLine.Resolve(
@@ -767,7 +678,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             primary?.NpcName,
             npcWeaponDisplayName);
 
-        return result is { } r ? ClogLine.Of(new ClogSpan(r.Text, ClogTone.Warn)) : null;
+        return result?.Text;
     }
 
     /// <summary>Stand-in for "no encounter", so the formatter's session-totals path can run without a
@@ -784,7 +695,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     /// clog window's lag source on a long session.</summary>
     private CombatHistoryContext ResolveHistory(CombatEncounterSnapshot snapshot)
     {
-        var primary = CombatHistoryFormatter.PrimaryFight(snapshot);
+        var primary = CombatComposition.PrimaryFight(snapshot);
         if (_fightHistory is null || primary is null || string.IsNullOrWhiteSpace(primary.NpcGroup))
             return CombatHistoryContext.Empty;
 

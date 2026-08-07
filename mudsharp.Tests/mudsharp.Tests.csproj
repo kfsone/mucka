@@ -34,9 +34,9 @@
     <Compile Include="..\Core\GuidedLogin\ShellText.cs" Link="Core\GuidedLogin\ShellText.cs" />
     <Compile Include="..\Core\GuidedLogin\SessionDropContext.cs" Link="Core\GuidedLogin\SessionDropContext.cs" />
     <Compile Include="..\ViewModels\CombatStatsAggregator.cs" Link="ViewModels\CombatStatsAggregator.cs" />
-    <Compile Include="..\ViewModels\ClogDisplay.cs" Link="ViewModels\ClogDisplay.cs" />
+    <Compile Include="..\ViewModels\CombatContracts.cs" Link="ViewModels\CombatContracts.cs" />
+    <Compile Include="..\ViewModels\CombatComposition.cs" Link="ViewModels\CombatComposition.cs" />
     <Compile Include="..\ViewModels\ClogRenderGate.cs" Link="ViewModels\ClogRenderGate.cs" />
-    <Compile Include="..\ViewModels\CombatHistoryFormatter.cs" Link="ViewModels\CombatHistoryFormatter.cs" />
     <Compile Include="..\ViewModels\CombatHistoryCache.cs" Link="ViewModels\CombatHistoryCache.cs" />
     <Compile Include="..\Core\FightHistoryStore.cs" Link="Core\FightHistoryStore.cs" />
     <Compile Include="..\Core\FightHistoryRecorder.cs" Link="Core\FightHistoryRecorder.cs" />

@@ -1129,12 +1129,12 @@
                 <!-- The render surface itself: a single SkiaSharp canvas, never a Label/
                      FormattedString (D8) - see CombatPanelCanvasView's own remarks. Read-only: no
                      gesture recognizers, cannot take keyboard focus (Invariant #0). -->
-                <render:CombatPanelCanvasView x:Name="CombatPanelCanvas"
-                                               SidePanel="{Binding SidePanel}"
-                                               BackgroundColor="Transparent"
-                                               HorizontalOptions="Fill"
-                                               VerticalOptions="Fill"
-                                               InputTransparent="True"/>
+                <render:CombatRailView x:Name="CombatPanelCanvas"
+                                       SidePanel="{Binding SidePanel}"
+                                       BackgroundColor="Transparent"
+                                       HorizontalOptions="Fill"
+                                       VerticalOptions="Fill"
+                                       InputTransparent="True"/>
             </Grid>
         </Border>
 
