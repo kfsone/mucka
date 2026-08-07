@@ -54,7 +54,7 @@ internal sealed class RawConsolePage : ContentPage
         // Read-only Editor: maps to WinUI3 TextBox — supports selection and copy natively.
         _outputEditor = new Editor
         {
-            FontFamily      = "Cascadia Mono, Consolas, monospace",
+            FontFamily      = "Cascadia Mono",
             FontSize        = 12,
             TextColor       = Color.FromArgb("#CCCCCC"),
             BackgroundColor = Color.FromArgb("#0C0C0C"),
@@ -65,7 +65,7 @@ internal sealed class RawConsolePage : ContentPage
 
         _seqLabel = new Label
         {
-            FontFamily           = "Cascadia Mono, Consolas, monospace",
+            FontFamily           = "Cascadia Mono",
             FontSize             = 13,
             TextColor            = Color.FromArgb("#F9F1A5"),
             Text                 = "(press keys to build sequence — Backspace removes last byte)",
@@ -77,7 +77,7 @@ internal sealed class RawConsolePage : ContentPage
 
         _hexLabel = new Label
         {
-            FontFamily  = "Cascadia Mono, Consolas, monospace",
+            FontFamily  = "Cascadia Mono",
             FontSize    = 11,
             TextColor   = Color.FromArgb("#767676"),
             Padding     = new Thickness(4, 1),
@@ -85,7 +85,7 @@ internal sealed class RawConsolePage : ContentPage
 
         _statusLabel = new Label
         {
-            FontFamily      = "Cascadia Mono, Consolas, monospace",
+            FontFamily      = "Cascadia Mono",
             FontSize        = 11,
             TextColor       = Color.FromArgb("#767676"),
             VerticalOptions = LayoutOptions.Center,
@@ -95,7 +95,7 @@ internal sealed class RawConsolePage : ContentPage
         _cancelLabel = new Label
         {
             Text                    = "✕",
-            FontFamily              = "Cascadia Mono, Consolas, monospace",
+            FontFamily              = "Cascadia Mono",
             FontSize                = 12,
             TextColor               = Color.FromArgb("#666666"),
             Padding                 = new Thickness(6, 2),
@@ -166,7 +166,7 @@ internal sealed class RawConsolePage : ContentPage
         var probeBlockLabel = new Label
         {
             Text            = "Stop status probes",
-            FontFamily      = "Cascadia Mono, Consolas, monospace",
+            FontFamily      = "Cascadia Mono",
             FontSize        = 11,
             TextColor       = Color.FromArgb("#CCCCCC"),
             VerticalOptions = LayoutOptions.Center,

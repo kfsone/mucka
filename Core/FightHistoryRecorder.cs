@@ -17,8 +17,14 @@ namespace Mucka.Core;
 /// worth opting into; a fight row is ~400 bytes and is the accumulating dataset the whole
 /// comparison feature depends on, so it records always. Nothing here is written while the player
 /// is not actually in a fight.</para>
+///
+/// <para><see cref="Dispose"/> is a belt-and-braces flush for whatever is still open at shutdown -
+/// the primary path is MudSession.Dispose calling CombatTracker.ForceEnd, whose InCombatChanged
+/// cascade already reaches <see cref="OnInCombatChanged"/> and flushes normally. This exists in
+/// case that wiring is ever bypassed or reordered; FlushLocked is idempotent (a no-op with nothing
+/// open), so calling it twice is harmless.</para>
 /// </summary>
-public sealed class FightHistoryRecorder
+public sealed class FightHistoryRecorder : IDisposable
 {
     private readonly FightHistoryStore _store;
     private readonly object _lock = new();
@@ -28,6 +34,23 @@ public sealed class FightHistoryRecorder
     private string? _currentWeapon;
     private int? _lastKnownStamina;
     private int? _pendingPreUpdateStamina;
+    // Last score observed via the FES heartbeat. Unlike _lastKnownStamina this needs no
+    // pending-relay dance: score has no "double-parsed on the same line" hazard the way an inline
+    // "(cur/max)" stamina delta does, so a plain carried-forward value is honest as-is.
+    private int? _lastKnownScore;
+
+    // The character occupying this session, from MudSession.CharacterIdentified (the post-login
+    // "score" reply). Threaded through so every alt's fights stop pooling into one undifferentiated
+    // history (see FightRecord.CharacterName's remarks). Session-scoped, not encounter-scoped: it
+    // does not reset on BeginEncounter/FlushLocked, only on a fresh CharacterIdentified.
+    private string? _characterName;
+
+    // Unix-ms of the instant THIS encounter began (CombatTracker.InCombatChanged -> true), shared by
+    // every fight opened within it so per-fight rows can be regrouped back into their encounter. Set
+    // in OnInCombatChanged(true); cleared to null once flushed so a stray late-arriving fight after
+    // FlushLocked (should not happen, but see BuildRecord's own defensiveness elsewhere) cannot be
+    // mis-stamped with the PREVIOUS encounter's id.
+    private long? _encounterStartedAtMs;
 
     // Context captured at ENCOUNTER start and stamped onto every fight in it. A joiner inherits the
     // opening context because we never re-probe stats mid-encounter — see FightRecord's remarks.
@@ -47,11 +70,38 @@ public sealed class FightHistoryRecorder
         {
             _lastStats = stats;
             ObserveStaminaLocked(stats.Stamina);
+            if (stats.Score is int score)
+                _lastKnownScore = score;
+
+            // Broadcast to every fight still open, not just the primary target: stamina and score
+            // are player-scoped, not per-NPC, so a pack fight's concurrent rows all share the same
+            // readings (mirrors the existing WeaponEquip broadcast below). A resolved fight is
+            // skipped on purpose - that is what freezes its StaminaAtEnd/ScoreAtEnd/MinStamina at
+            // "last known while still open" instead of drifting into post-fight regen or a later
+            // fight's own score changes.
+            foreach (var fight in _fightOrder)
+            {
+                if (fight.IsResolved)
+                    continue;
+                fight.NoteStamina(stats.Stamina);
+                fight.NoteScore(stats.Score);
+            }
         }
     }
 
     public void OnStatusEffectsChanged(StatusEffectState effects) => _lastEffects = effects;
     public void OnRoomShortReady(string room) => _lastRoom = room;
+
+    /// <summary>The character occupying this session was identified (MudSession.CharacterIdentified,
+    /// fired once per game-mode entry from the post-login "score" reply). Stamped onto every fight
+    /// row from here on - see FightRecord.CharacterName's remarks for why this matters.</summary>
+    public void OnCharacterIdentified(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return;
+        lock (_lock)
+            _characterName = name;
+    }
 
     public void OnInCombatChanged(bool inCombat)
     {
@@ -63,6 +113,12 @@ public sealed class FightHistoryRecorder
                 _encounterStats = _lastStats;
                 _encounterEffects = _lastEffects;
                 _encounterRoom = _lastRoom;
+                // The encounter's own natural key (see FightRecord.EncounterStartedAtMs's remarks).
+                // DateTime.UtcNow here, not the triggering combat event's own timestamp: this fires
+                // synchronously from the same Feed-thread call that flips CombatTracker.InCombat,
+                // ahead of the FightStart event for the SAME line (Begin() raises InCombatChanged
+                // before Observe() calls Emit()), so the two are effectively the same instant anyway.
+                _encounterStartedAtMs = new DateTimeOffset(DateTime.UtcNow, TimeSpan.Zero).ToUnixTimeMilliseconds();
                 _fights.Clear();
                 _fightOrder.Clear();
                 _currentWeapon = null;
@@ -95,7 +151,10 @@ public sealed class FightHistoryRecorder
                     }
                     break;
 
+                // WeaponUnusable shares this - see the matching case in CombatStatsAggregator for
+                // why. The two aggregators consume the same event stream and must not disagree.
                 case CombatEventKind.WeaponBroke:
+                case CombatEventKind.WeaponUnusable:
                     _currentWeapon = null;
                     foreach (var fight in _fightOrder)
                     {
@@ -151,6 +210,16 @@ public sealed class FightHistoryRecorder
         }
     }
 
+    /// <summary>Flushes any encounter still open (see the class remarks) - safe to call even when
+    /// nothing is open, and safe to call more than once. Does NOT dispose <see cref="_store"/>:
+    /// MuckaConnection owns that lifetime separately, since the store outlives any one recorder in
+    /// principle and is what actually needs to drain its own background writer on shutdown.</summary>
+    public void Dispose()
+    {
+        lock (_lock)
+            FlushLocked();
+    }
+
     /// <summary>Writes out every fight of the encounter that just closed. Unresolved fights are
     /// still written, flagged <see cref="FightOutcome.Unresolved"/>: an encounter that ended by
     /// reset/disconnect is real evidence about duration and damage even though the outcome is
@@ -167,6 +236,10 @@ public sealed class FightHistoryRecorder
         _fights.Clear();
         _fightOrder.Clear();
         _currentWeapon = null;
+        // Clear the encounter key too: FightForLocked must never stamp a stray late fight (should
+        // not happen post-clear, but leaving a stale value around risks a silent mis-attribution to
+        // the encounter that just closed if it ever did) with the PREVIOUS encounter's id.
+        _encounterStartedAtMs = null;
     }
 
     private FightRecord BuildRecord(FightAccumulator fight, DateTime encounterEndUtc)
@@ -180,9 +253,15 @@ public sealed class FightHistoryRecorder
 
         return new FightRecord
         {
+            CharacterName = _characterName,
+            EncounterStartedAtMs = _encounterStartedAtMs,
             StartedAtMs = new DateTimeOffset(fight.StartedUtc, TimeSpan.Zero).ToUnixTimeMilliseconds(),
             EndedAtMs = new DateTimeOffset(endedUtc, TimeSpan.Zero).ToUnixTimeMilliseconds(),
             DurationMs = (long)duration.TotalMilliseconds,
+            MinStamina = fight.MinStamina,
+            StaminaAtEnd = fight.StaminaAtEnd,
+            ScoreAtStart = fight.ScoreAtStart,
+            ScoreAtEnd = fight.ScoreAtEnd,
             NpcName = fight.NpcName,
             NpcGroup = fight.NpcGroup,
             WeaponUsed = fight.WeaponUsed,
@@ -243,7 +322,11 @@ public sealed class FightHistoryRecorder
         if (_fights.TryGetValue(npcName, out var existing))
             return existing;
 
-        var fight = new FightAccumulator(npcName, combatEvent.TimestampUtc, _currentWeapon);
+        // Seed the min/end trackers from whatever we already know at the instant this NPC joins -
+        // see FightAccumulator's constructor remarks for why (a one-sided fight may never trigger
+        // another stats reading before it resolves).
+        var fight = new FightAccumulator(
+            npcName, combatEvent.TimestampUtc, _currentWeapon, _lastKnownStamina, _lastKnownScore);
         _fights[npcName] = fight;
         _fightOrder.Add(fight);
         return fight;

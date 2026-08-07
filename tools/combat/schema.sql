@@ -441,6 +441,20 @@ ORDER BY fight_count DESC, weapon_used, npc_group;
 CREATE TABLE IF NOT EXISTS live_fights (
     id                   INTEGER PRIMARY KEY AUTOINCREMENT,
     source_file          TEXT    NOT NULL,
+    -- Schema version of the SOURCE ROW (mudsharp/Combat/FightRecord.cs's FormatVersion), not of
+    -- this table - lets a query tell "no character/encounter/stamina-end/score data" (< 2) apart
+    -- from "field genuinely absent" (>= 2 but null). The client discards (renames aside) anything
+    -- older than its own current version before it ever reaches fights.jsonl, so in practice every
+    -- ingested row is current; this column makes that fact checkable, not assumed.
+    format_version       INTEGER NOT NULL DEFAULT 1,
+    -- The persona that fought this fight (v2+; null on anything ingested before this column
+    -- existed). Group/filter by this column to stop every alt's fights pooling into one
+    -- undifferentiated history offline too.
+    character_name       TEXT,
+    -- Unix-ms of the ENCOUNTER this fight belongs to (v2+) - shared by every fight opened within
+    -- the same encounter, so a pack fight's rows can be regrouped without re-deriving adjacency
+    -- from timestamps.
+    encounter_started_at_ms INTEGER,
     started_at_ms        INTEGER NOT NULL,
     ended_at_ms          INTEGER,
     duration_ms          INTEGER,
@@ -466,6 +480,15 @@ CREATE TABLE IF NOT EXISTS live_fights (
     raw_dexterity        INTEGER,
     stamina_at_start     INTEGER,
     max_stamina          INTEGER,
+    -- Lowest/last player stamina observed while THIS fight was open (v2+) - "how close did I come
+    -- to dying" fighting this specific opponent, and the honest end-of-fight reading. Distinct from
+    -- stamina_at_start, which is the ENCOUNTER's opening snapshot shared by every fight in it.
+    min_stamina           INTEGER,
+    stamina_at_end        INTEGER,
+    -- Player score at fight start/end (v2+) - needed for the flee-cost ladder's economics work
+    -- (DESIGN_FINAL.md section 5); dropped entirely before format v2.
+    score_at_start        INTEGER,
+    score_at_end          INTEGER,
     weight_carried_grams INTEGER,
     objects_carried      INTEGER,
     level                INTEGER,

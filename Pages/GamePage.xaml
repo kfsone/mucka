@@ -378,7 +378,10 @@
 
         <!-- ── Body: side panel on the left; scrollback, toolbar and input stacked
              on the right so the panel indents all three ── -->
-        <Grid Grid.Row="2" ColumnDefinitions="Auto,*">
+        <!-- Third column (Auto) added for the new Combat Rail panel on the right edge - see the
+             Border named CombatPanelBorder below. DESIGN_FINAL.md D3/2.2 (corrected): additive,
+             separate from the left SidePanelBorder, shown/hidden via IsCombatPanelVisible only. -->
+        <Grid Grid.Row="2" ColumnDefinitions="Auto,*,Auto">
 
         <!-- Right-hand stack -->
         <Grid Grid.Column="1" RowDefinitions="*,Auto,Auto">
@@ -797,7 +800,7 @@
         <Border Grid.Column="0"
                 x:Name="SidePanelBorder"
                 IsVisible="{Binding SidePanel.IsPanelExpanded}"
-                WidthRequest="212"
+                WidthRequest="228"
                 BackgroundColor="#101618"
                 Stroke="#2d333b" StrokeThickness="1"
                 Padding="0">
@@ -1098,6 +1101,41 @@
                             </VerticalStackLayout>
 
                 </Grid>
+        </Border>
+
+        <!-- - Combat panel - NEW, additional panel on the RIGHT edge, off by default -
+             DESIGN_FINAL.md D3/2.2 (corrected). This is NOT the left SidePanelBorder above widened;
+             it is a wholly separate panel with its own width, shown/hidden only by "$clog on"/
+             "$clog off" (GameViewModel.SetClogEnabled -> GamePage's OnOpenClogWindowRequested/
+             OnCloseClogWindowRequested, which now toggle this panel and resize the window by
+             CombatPanelWidthDp instead of opening a floating window). The window never resizes for
+             any other reason - not combat start, not combat end. -->
+        <Border Grid.Column="2"
+                x:Name="CombatPanelBorder"
+                IsVisible="{Binding SidePanel.IsCombatPanelVisible}"
+                WidthRequest="300"
+                BackgroundColor="#101618"
+                Stroke="#2d333b" StrokeThickness="1"
+                Padding="0">
+            <Grid>
+                <!-- Glow layer BEHIND the canvas (D9): opacity animated ONLY via WinUI Composition
+                     (PulseLayer, GamePage.xaml.cs), never via a UI-thread timer and never by
+                     recolouring the canvas's own drawn text. Rests at Opacity 0 (invisible) whenever
+                     no tier is pulsing. -->
+                <BoxView x:Name="CombatPanelGlow"
+                         Color="#C50F1F"
+                         Opacity="0"
+                         InputTransparent="True"/>
+                <!-- The render surface itself: a single SkiaSharp canvas, never a Label/
+                     FormattedString (D8) - see CombatPanelCanvasView's own remarks. Read-only: no
+                     gesture recognizers, cannot take keyboard focus (Invariant #0). -->
+                <render:CombatPanelCanvasView x:Name="CombatPanelCanvas"
+                                               SidePanel="{Binding SidePanel}"
+                                               BackgroundColor="Transparent"
+                                               HorizontalOptions="Fill"
+                                               VerticalOptions="Fill"
+                                               InputTransparent="True"/>
+            </Grid>
         </Border>
 
         </Grid>

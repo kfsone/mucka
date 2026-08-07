@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using Mucka.Core;
+using Mucka.Rendering;
 using Mucka.ViewModels;
 using MudSharp.Models;   // StyledLine/StyledSpan/TextStyle — used by the chat placeholder (all targets) and the $f<n> annotation handler (Windows)
 
@@ -88,10 +89,10 @@ public partial class GamePage : ContentPage
     private bool _auxiliaryWindowOpened;
     private Window? _rawConsoleWindow;
     private Window? _mapWindow;
-    private Window? _clogWindow;
-    // Held explicitly so teardown never depends on Window.Page still being populated at Destroying
-    // time - see OnClogWindowDestroying.
-    private ClogPage? _clogPage;
+    // The old floating clog window (ClogPage) is gone - DESIGN_FINAL.md D1/D2: the live readout now
+    // lives in the docked CombatPanelBorder (GamePage.xaml) instead of a second window, so there is
+    // nothing here to hold a Window/Page reference for any more.
+    private PulseLayer? _combatPanelPulse;
     private Microsoft.UI.Xaml.Controls.TextBox? _inputTextBox;
     private Microsoft.UI.Xaml.Controls.ScrollViewer? _inputScroller;   // _inputTextBox's inner ScrollViewer
     private Microsoft.UI.Xaml.UIElement? _terminalElement;   // SKXamlCanvas, for wheel scrollback
@@ -103,8 +104,23 @@ public partial class GamePage : ContentPage
     private readonly List<Microsoft.UI.Xaml.Input.KeyboardAccelerator> _accelerators = new();
     private int _wheelAccum;   // accumulates wheel delta so touchpad drift doesn't trip scrollback
     // ── Window minimum-size enforcement ─────────────────────────────────────
-    // Must match the WidthRequest of the side-panel Border in GamePage.xaml.
+    // Must match the WidthRequest of SidePanelBorder (the LEFT panel: Online/Items/Map) in
+    // GamePage.xaml. Deliberately unchanged and untouched by the Combat Rail work below: that panel
+    // keeps the width the player already plays with. Disturbing a working layout in a PvP,
+    // permadeath game is its own hazard - see DESIGN_FINAL.md D3, which corrects an earlier draft
+    // that said to widen THIS constant to 300 and dock combat content in it. That was wrong; the
+    // Combat Rail is a wholly separate, additional panel (see CombatPanelWidthDp below).
     private const double SidePanelWidthDp = 228.0;
+
+    // - Combat Rail: the new, additional right-edge panel (DESIGN_FINAL.md D3/2.2) -
+    // Own width constant, deliberately separate from SidePanelWidthDp above. Shown/hidden only by
+    // "$clog on"/"$clog off" (OnOpenClogWindowRequested/OnCloseClogWindowRequested below), which
+    // resize the window by exactly this many DIPs via ResizeWindowForCombatPanel - the ONLY place
+    // this window resizes for combat-panel reasons. It is never included in
+    // PreferredWindowWidthDp/UpdateWindowMinimumWidth below: those compute the LEFT panel + terminal
+    // minimum only, so the combat panel's own show/hide never feeds back into "what is the smallest
+    // this window may be" - it simply occupies whatever space the toggle already made for it.
+    private const double CombatPanelWidthDp = 300.0;
     // Default terminal-view width (in characters) used to size the window on first appearance.
     // Two columns wider than the 80-column wrap so the rightmost text isn't flush against the panel.
     private const double DefaultViewColumns = 82.0;
@@ -266,10 +282,16 @@ public partial class GamePage : ContentPage
                 SendButton.Clicked += OnSendButtonClicked;
                 _vm.OpenRawConsoleRequested += OnOpenRawConsoleRequested;
                 _vm.MapPanelRequested += OnMapPanelRequested;
+                // "$clog on"/"$clog off" now show/hide the docked Combat Rail (and resize the
+                // window by CombatPanelWidthDp) instead of opening/closing a floating window  -
+                // see the two handlers' own remarks below.
                 _vm.OpenClogWindowRequested += OnOpenClogWindowRequested;
                 _vm.CloseClogWindowRequested += OnCloseClogWindowRequested;
-                // Enforce minimum window width based on the configured terminal columns.
+                // Enforce minimum window width based on the configured terminal columns, and
+                // (same handler) drive the Combat Rail's shared pulse layer on tier changes.
                 _vm.SidePanel.PropertyChanged += OnSidePanelPropertyChanged;
+                CombatPanelGlow.HandlerChanged += OnCombatPanelGlowHandlerChanged;
+                OnCombatPanelGlowHandlerChanged(CombatPanelGlow, EventArgs.Empty);
                 SetupWindowMinimumSize();
                 // Size the window once so the terminal view fits ~82 columns + the side panel,
                 // rather than inheriting WinUI's oversized default window width.
@@ -423,6 +445,13 @@ public partial class GamePage : ContentPage
         _vm.OpenClogWindowRequested -= OnOpenClogWindowRequested;
         _vm.CloseClogWindowRequested -= OnCloseClogWindowRequested;
         _vm.SidePanel.PropertyChanged -= OnSidePanelPropertyChanged;
+        CombatPanelGlow.HandlerChanged -= OnCombatPanelGlowHandlerChanged;
+        // Belt-and-braces alongside PulseLayer's own host.Unloaded hook (see PulseLayer's remarks):
+        // stop any running Composition animation before this page's own teardown proceeds, so a
+        // torn-down visual can never still have a live animation referencing it (the RO_E_CLOSED
+        // crash class the old ClogPage hit once already).
+        _combatPanelPulse?.Stop();
+        _combatPanelPulse = null;
         TeardownWindowMinimumSize();
 #if INPUT_DIAG
         StopUiThreadProbe();
@@ -1196,7 +1225,12 @@ public partial class GamePage : ContentPage
 
     /// <summary>
     /// Responds to SidePanelViewModel property changes: updates the minimum window width
-    /// (and resizes if needed) whenever the panel is expanded or collapsed.
+    /// (and resizes if needed) whenever the LEFT panel is expanded or collapsed, and drives the
+    /// Combat Rail's shared pulse layer whenever its tier changes. Deliberately one handler for
+    /// both - they are the same class of "a view-model flag changed, react on the UI thread" work,
+    /// and the LEFT panel's own resize-then-refocus dance below is unrelated to (and must not be
+    /// duplicated for) the combat panel's own resize, which lives in
+    /// ResizeWindowForCombatPanel/OnOpenClogWindowRequested/OnCloseClogWindowRequested instead.
     /// </summary>
     private void OnSidePanelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
@@ -1213,6 +1247,26 @@ public partial class GamePage : ContentPage
                     _inputTextBox?.Focus(Microsoft.UI.Xaml.FocusState.Programmatic);
             });
         }
+        else if (e.PropertyName == nameof(SidePanelViewModel.PulseTier))
+        {
+            // Only T3 ever requests real motion (see SidePanelViewModel.RefreshCombatSignals's
+            // remarks on why lower/event tiers are static colour only in this implementation phase).
+            var isCritical = _vm.SidePanel.PulseTier == MudSharp.Combat.CombatTier.T3;
+            _combatPanelPulse?.SetTier(isCritical ? PulseTier.T3 : PulseTier.None);
+        }
+    }
+
+    /// <summary>
+    /// Fires once when the Combat Rail's glow layer's native platform view first exists (and again
+    /// if the handler is ever recreated) - mirrors OnTerminalHandlerChanged/OnFnButtonHandlerChanged
+    /// above. Creates the PulseLayer bound to that native FrameworkElement; DESIGN_FINAL.md 7.1's
+    /// PulseLayer sketch needs a real WinUI element to attach a Composition visual to, which a MAUI
+    /// BoxView only exposes once its handler has produced one.
+    /// </summary>
+    private void OnCombatPanelGlowHandlerChanged(object? sender, EventArgs e)
+    {
+        if (CombatPanelGlow.Handler?.PlatformView is Microsoft.UI.Xaml.FrameworkElement fe)
+            _combatPanelPulse = PulseLayer.Attach(fe);
     }
 
     [System.Runtime.InteropServices.DllImport("user32.dll")]
@@ -1805,54 +1859,58 @@ public partial class GamePage : ContentPage
         Application.Current?.OpenWindow(_mapWindow);
     }
 
+    /// <summary>
+    /// "$clog on": shows the docked Combat Rail and widens the window by CombatPanelWidthDp.
+    /// Replaces the old floating-window behaviour entirely (D1/D2) - there is no second window to
+    /// open any more, just a panel that was already sitting in the XAML tree, hidden.
+    /// </summary>
     private void OnOpenClogWindowRequested()
     {
-        _auxiliaryWindowOpened = true;
-        // Reuse existing window if it is still open.
-        if (_clogWindow != null &&
-            Application.Current?.Windows.Contains(_clogWindow) == true)
-            return;
-        _clogPage = new ClogPage(_vm);
-        _clogWindow = new Window(_clogPage)
-        {
-            Title  = "Mucka — Clog",
-            // Widened from 260 to fit the two-column you/them table and the weapon table's
-            // name+now+hist columns without wrapping — the user agreed to the extra width.
-            Width  = 330,
-            Height = 520,
-        };
-        _clogWindow.Destroying += OnClogWindowDestroying;
-        Application.Current?.OpenWindow(_clogWindow);
+        if (_vm.SidePanel.IsCombatPanelVisible)
+            return;   // already showing - mirrors the old "reuse existing window" idempotency
+        _vm.SidePanel.IsCombatPanelVisible = true;
+        ResizeWindowForCombatPanel(showing: true);
     }
 
+    /// <summary>"$clog off": hides the Combat Rail and shrinks the window back by the same amount.</summary>
     private void OnCloseClogWindowRequested()
     {
-        if (_clogWindow != null && Application.Current?.Windows.Contains(_clogWindow) == true)
-            Application.Current.CloseWindow(_clogWindow);
+        if (!_vm.SidePanel.IsCombatPanelVisible)
+            return;
+        _vm.SidePanel.IsCombatPanelVisible = false;
+        ResizeWindowForCombatPanel(showing: false);
     }
 
-    private void OnClogWindowDestroying(object? sender, EventArgs e)
+    /// <summary>
+    /// Grows or shrinks the window by exactly CombatPanelWidthDp, converted to physical pixels at
+    /// the window's current DPI. Deliberately a DELTA on the window's CURRENT size rather than a
+    /// recompute from PreferredWindowWidthDp: the terminal's column count and the left panel's
+    /// width must never change as a side effect of this toggle (DESIGN_FINAL.md D3) - only the
+    /// combat panel's own space should appear/disappear. This is the ONLY place the window resizes
+    /// for a combat-panel reason; it never resizes on combat start/end.
+    /// </summary>
+    private void ResizeWindowForCombatPanel(bool showing)
     {
-        // Tear the page down HERE rather than trusting ClogPage.OnHandlerChanged to see a null
-        // handler - for a secondary window that callback may never arrive, leaving the dead page
-        // subscribed to the view model. The next combat line then renders into closed WinUI
-        // objects and the process dies with RO_E_CLOSED. See ClogPage.Detach.
-        //
-        // Deliberately using the field we captured at construction rather than sender's Window.Page:
-        // this whole bug is MAUI's secondary-window lifecycle not being trustworthy, so hanging the
-        // fix on another of its lifecycle guarantees (Page still being populated at Destroying time)
-        // would risk silently skipping Detach and leaving the crash in place while looking fixed.
-        _clogPage?.Detach();
-        _clogPage = null;
+        if (_hwnd == IntPtr.Zero) return;
+        var nativeWindow = Window?.Handler?.PlatformView as Microsoft.UI.Xaml.Window;
+        if (nativeWindow is null) return;
 
-        if (_clogWindow != null)
+        var dpi = GetDpiForWindow(_hwnd);
+        var deltaPx = (int)Math.Round(CombatPanelWidthDp * dpi / 96.0);
+        var appWindow = nativeWindow.AppWindow;
+        var targetWidth = showing
+            ? appWindow.Size.Width + deltaPx
+            : Math.Max(_minWindowWidthPx, appWindow.Size.Width - deltaPx);
+        appWindow.Resize(new Windows.Graphics.SizeInt32(targetWidth, appWindow.Size.Height));
+
+        // Same race as OnSidePanelPropertyChanged's left-panel resize above: the resize itself can
+        // land keyboard focus elsewhere after $clog's own RequestFocus already fired. Re-assert once
+        // the resize/re-layout has settled (Invariant #0).
+        Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(50), () =>
         {
-            _clogWindow.Destroying -= OnClogWindowDestroying;
-            _clogWindow = null;
-        }
-        // The window IS the on/off switch: closing it (native ✕) turns clogging back off.
-        // syncWindow:false — the window is already the thing closing; don't ask it to close again.
-        _vm.SetClogEnabled(false, syncWindow: false);
+            if (!_isFkeyEditorOpen && !Terminal.IsHistoryMode && !InputEntry.IsFocused)
+                _inputTextBox?.Focus(Microsoft.UI.Xaml.FocusState.Programmatic);
+        });
     }
 
 #if INPUT_DIAG

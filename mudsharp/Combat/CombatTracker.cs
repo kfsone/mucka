@@ -34,8 +34,20 @@ public sealed class CombatTracker
         @"^The (?<npc>.+?) is (?:looking at|glaring at|snarling at|moving towards|rushing at|advancing towards|approaching|staring at) you \w+\.*$",
         RegexOptions.Compiled);
 
+    // Two forms, and the UNARMED one has no weapon clause at all:
+    //   armed:   "You attack the thief, using the falchion as a weapon."
+    //   unarmed: "You attack the thief."
+    // Only the armed form used to be matched, so opening a fight bare-handed did not start an
+    // encounter here at all - it limped along until YouHit's defensive Begin() picked it up. That
+    // also swallowed any "use <weapon>" issued between the attack and the first blow, because the
+    // weapon-equip line had no open encounter to attach to and the readout still said "unarmed".
+    // Two patterns rather than one with an optional weapon clause: with a lazy npc group and the
+    // clause optional, the engine prefers skipping the optional group and swallows ", using the X
+    // as a weapon" into the npc name itself. Matched armed-first so the specific form wins.
     private static readonly Regex PlayerAttackStart = new(
         @"^You attack the (?<npc>.+?), using the (?<weapon>.+?) as a weapon\.$", RegexOptions.Compiled);
+    private static readonly Regex PlayerAttackStartUnarmed = new(
+        @"^You attack the (?<npc>.+?)\.$", RegexOptions.Compiled);
     private static readonly Regex YouHit = new(
         @"^You hit the (?<npc>.+?) \((?<lo>\d+)-(?<hi>\d+)\)\.$", RegexOptions.Compiled);
     private static readonly Regex YouMiss = new(@"^You miss the (?<npc>.+?)\.$", RegexOptions.Compiled);
@@ -67,6 +79,22 @@ public sealed class CombatTracker
     private static readonly Regex WeaponSwitch = new(
         @"^You drop your guard as you switch from using the (?<from>.+?) to the (?<to>.+?)\.$", RegexOptions.Compiled);
     private static readonly Regex WeaponBroke = new(@"^The (?<weapon>.+?) breaks to bits\.$", RegexOptions.Compiled);
+
+    /// <summary>The wield-refusal line. Two very different causes share it:
+    ///   1. the weapon just broke, so it no longer exists to fight with (observed live: "The dagger0
+    ///      breaks to bits." immediately followed by this), and
+    ///   2. MUD2 REFUSING a wield because the player cannot handle that weapon right now - the
+    ///      hidden gate on effective strength, which is itself depressed by carried weight and, per
+    ///      the owner, by low stamina.
+    /// Cause 2 is the only direct evidence of that gate MUD2 ever emits, and until now nothing
+    /// parsed this line at all (the sole reference in the whole project was a dead regex at
+    /// tools/combat/reduce_combat.py:77, defined and never called), so the research corpus contains
+    /// ZERO observations of it. Recording the refusal together with the stats at that instant is
+    /// what would let the threshold be bracketed. See MECHANICS_NOTES.md.
+    /// The two causes are not distinguishable from this line alone; a break arriving immediately
+    /// before it is the only signal, and the consumer decides what to make of that.</summary>
+    private static readonly Regex WeaponUnusable = new(
+        @"^You cannot use the (?<weapon>.+?) to fight now!$", RegexOptions.Compiled);
     private static readonly Regex GuardConfusion = new(
         @"^Your guard drops momentarily in your confusion\.$", RegexOptions.Compiled);
 
@@ -122,6 +150,13 @@ public sealed class CombatTracker
         {
             Begin(m.Groups["npc"].Value);
             Emit(timestampUtc, CombatEventKind.FightStart, CombatActor.Player, m.Groups["npc"].Value, m.Groups["weapon"].Value, null, null, text);
+        }
+        else if ((m = PlayerAttackStartUnarmed.Match(text)).Success)
+        {
+            // Bare-handed opening. Weapon is deliberately null: the fight really did start unarmed,
+            // and a "use <weapon>" issued a moment later arrives as its own WeaponEquip event.
+            Begin(m.Groups["npc"].Value);
+            Emit(timestampUtc, CombatEventKind.FightStart, CombatActor.Player, m.Groups["npc"].Value, null, null, null, text);
         }
         else if ((m = NpcAggroStart.Match(text)).Success)
         {
@@ -241,8 +276,21 @@ public sealed class CombatTracker
         {
             Emit(timestampUtc, CombatEventKind.WeaponBroke, CombatActor.Player, null, m.Groups["weapon"].Value, null, null, text);
         }
+        else if ((m = WeaponUnusable.Match(text)).Success)
+        {
+            // Matched BEFORE WeaponEquip below purely for readability; the two patterns cannot
+            // collide ("cannot use ... to fight now!" vs "are now using ... to fight!").
+            Emit(timestampUtc, CombatEventKind.WeaponUnusable, CombatActor.Player, null, m.Groups["weapon"].Value, null, null, text);
+        }
         else if ((m = WeaponEquip.Match(text)).Success)
         {
+            // No Begin() here, deliberately: this line names no NPC, so there is nothing to open an
+            // encounter AGAINST. It arrives between "You attack the thief." and the first blow, and
+            // before the PlayerAttackStart fix above that attack line was not matched at all - so
+            // the encounter did not exist yet and the weapon was dropped on the floor, leaving the
+            // readout showing "unarmed" for the rest of the fight. With the unarmed attack form now
+            // matched, the encounter is already open by the time this fires and the weapon lands on
+            // it. (NpcWeaponEquip below DOES Begin(), because that line does name its NPC.)
             Emit(timestampUtc, CombatEventKind.WeaponEquip, CombatActor.Player, null, m.Groups["weapon"].Value, null, null, text);
         }
         else if ((m = NpcWeaponEquip.Match(text)).Success)

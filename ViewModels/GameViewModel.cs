@@ -105,6 +105,11 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private bool _settingsPerProfile;
     private bool _fkeysPerProfile;
     private bool _personaInvalidated;
+    // Set when the server's "Cheerio!" farewell says this exit was the player's own doing (qq).
+    // Written on the TCP read thread, read on the UI thread inside OnGameModeExited's marshalled
+    // body -- safe because the parser emits that line before it fires the exit, and the dispatcher
+    // queue orders the read after the write. Cleared on every mode transition, both directions.
+    private bool _deliberateQuit;
     // Last non-null reset target seen this game session. ResetClock wipes its own projection the
     // instant game mode exits, and the 1 Hz tick can poll that cleared snapshot before the exit
     // callback lands on the UI thread, so _reset alone cannot tell us whether the drop we are
@@ -548,10 +553,12 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public event Action? OpenRawConsoleRequested;
     /// <summary>Raised by $map — GamePage opens (or surfaces) the mapping panel window.</summary>
     public event Action? MapPanelRequested;
-    /// <summary>Raised by "$clog on" — GamePage opens (or surfaces) the floating clog/combat-stats
-    /// window. The window IS the on/off indicator: closing it (native ✕) turns clogging back off.</summary>
+    /// <summary>Raised by "$clog on" - GamePage shows the docked Combat Rail panel (and widens the
+    /// window by its width). Event names kept from the old floating-window design for minimal
+    /// churn; there is no window left to open - see GamePage.OnOpenClogWindowRequested.</summary>
     public event Action? OpenClogWindowRequested;
-    /// <summary>Raised by "$clog off" — GamePage closes the floating clog window if it is open.</summary>
+    /// <summary>Raised by "$clog off" - GamePage hides the Combat Rail panel and shrinks the window
+    /// back down. See GamePage.OnCloseClogWindowRequested.</summary>
     public event Action? CloseClogWindowRequested;
     public event Action<byte[]>? RawBytesReceived
     {
@@ -617,8 +624,10 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         SidePanel = new SidePanelViewModel();
         SidePanel.AttachFightHistory(_conn.FightHistory);
         // Fire-and-forget: the index is only needed once a fight starts, and reading it must never
-        // sit on the UI thread (Invariant #1). LoadAsync swallows its own I/O failures.
-        _ = _conn.LoadFightHistoryAsync();
+        // sit on the UI thread (Invariant #1). LoadAsync swallows its own I/O failures. The
+        // continuation only checks for (and prints) a stale-format migration notice - see
+        // FightHistoryStore.MigrationNotice - so an owner-authorised discard is never a silent one.
+        _ = LoadFightHistoryAndReportAsync();
         SidePanel.IsOnlineExpanded    = profile.ShowOnline;
         SidePanel.IsInventoryExpanded = profile.ShowInventory;
         SidePanel.IsItemsHereExpanded = profile.ShowItemsHere;
@@ -750,6 +759,24 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
 
     private void OnLineReady(StyledLine line)
     {
+<<<<<<< HEAD
+=======
+        // Permadeath: "Not updating persona." is the shell's last word before it drops us to the
+        // Option menu with the persona gone. Cheap word test first so the common line pays nothing
+        // more than an ordinal scan (this runs on the TCP read thread for every line).
+        if (_inGameMode
+            && line.PlainText.Contains("persona", StringComparison.OrdinalIgnoreCase)
+            && ShellText.IsNotUpdatingPersonaLine(ShellText.NormalizeWhitespace(line.PlainText)))
+            _personaInvalidated = true;
+
+        // Same cheap-word-first shape: "Cheerio!" marks a deliberate qq, which must not trigger
+        // guided-login re-entry (see OnGameModeExited).
+        if (_inGameMode
+            && line.PlainText.Contains("Cheerio", StringComparison.OrdinalIgnoreCase)
+            && ShellText.IsQuitFarewellLine(ShellText.NormalizeWhitespace(line.PlainText)))
+            _deliberateQuit = true;
+
+>>>>>>> 79dba10 (Checkpoint: combat WIP before the Combat Insights redesign)
         _pendingLines.Enqueue(line);
         RememberRecentLine(line);
         if (Interlocked.Exchange(ref _flushScheduled, 1) == 0)
@@ -813,6 +840,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         {
             _inGameMode = true;
             _personaInvalidated = false;
+            _deliberateQuit = false;
             _lastResetTargetUtc = null;   // new session: the new cycle's target gets observed afresh
             Interlocked.Exchange(ref _autoResetInitiatedTicks, 0);
             ClearRecentLines();
@@ -830,6 +858,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         MainThread.BeginInvokeOnMainThread(() =>
         {
             var exitedPersona = _currentChar;
+<<<<<<< HEAD
             // Classify BEFORE anything below clears the state it reads -- this is the moment the
             // terminal disappears behind the overlay.
             var drop = ClassifyDrop(exitedPersona, tail);
@@ -837,6 +866,10 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             // picker -- the headline is unaffected either way.
             var autoRelogAfterReset = drop.Reason == SessionDropReason.Reset
                 && !string.IsNullOrWhiteSpace(exitedPersona);
+=======
+            var deliberateQuit = _deliberateQuit;
+            var autoRelogAfterReset = ShouldAutoRelogAfterReset(exitedPersona);
+>>>>>>> 79dba10 (Checkpoint: combat WIP before the Combat Insights redesign)
             _inGameMode = false;
 #if WINDOWS
             _sessionAliases.Clear();
@@ -855,23 +888,43 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             // _conn.IsConnected, not the VM's flag: on a dropped link the parser fires its
             // game-mode exit before our Disconnected handler flips IsConnected, and re-running the
             // shell dance down a dead socket just times out into a spurious failure dialog.
+            //
             if (_guidedLoginEnabled && _conn.IsConnected)
             {
+<<<<<<< HEAD
                 // Auto-persona (skip the picker and go straight back in as who we were) is allowed
                 // in exactly two situations: opening a connection, which ConnectPage owns, and a
                 // reset, which is this branch. Every other drop -- quit, permadeath, idle boot,
                 // anything unclassified -- goes to the picker, so the player sees the headline and
                 // chooses deliberately.
+=======
+                // A deliberate qq still re-enters guided login -- being dropped at a bare Option
+                // menu is the nuisance re-entry exists to spare -- but it must stop at the persona
+                // PICKER and never pick for you. Choosing to leave a character is not a request to
+                // be put straight back into it, and silently relogging the same persona undid the
+                // one thing the player had just asked for.
+                //
+                // So a quit suppresses the auto-relog branch specifically, rather than the whole
+                // re-entry. That also makes it irrelevant whether the quit happened to land inside
+                // ShouldAutoRelogAfterReset's window around a reset: an explicit quit outranks the
+                // inferred reason every time.
+                var autoRelog = autoRelogAfterReset && !deliberateQuit;
+>>>>>>> 79dba10 (Checkpoint: combat WIP before the Combat Insights redesign)
                 GuidedLoginReentryRequested?.Invoke(new GuidedLoginOptions(
-                    PreferredPersonaName: autoRelogAfterReset ? exitedPersona : null,
+                    PreferredPersonaName: autoRelog ? exitedPersona : null,
                     StartAtOptionMenu: true,
-                    ForcePersonaChoice: !autoRelogAfterReset,
+                    ForcePersonaChoice: !autoRelog,
                     AllowCreatePreferredPersona: false,
+<<<<<<< HEAD
                     PlayRetryWindow: autoRelogAfterReset ? ResetRelogRetryWindow : null),
                     drop);
+=======
+                    PlayRetryWindow: autoRelog ? ResetRelogRetryWindow : null));
+>>>>>>> 79dba10 (Checkpoint: combat WIP before the Combat Insights redesign)
             }
 
             _personaInvalidated = false;
+            _deliberateQuit = false;
         });
     }
 
@@ -1345,7 +1398,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         AddSystemLine("  $<                    scan recent output for watchword answers", 14);
         AddSystemLine("  $con                  open the raw protocol console", 14);
         AddSystemLine("  $map [arg]            open the map panel (or probe / dir / ...)", 14);
-        AddSystemLine("  $clog [on|off|status] toggle combat-clogging + the floating clog window", 14);
+        AddSystemLine("  $clog [on|off|status] toggle combat-clogging + the Combat Rail panel", 14);
         AddSystemLine("  $clog eval <itemid>   weigh/look/drop+get an item to measure its str/dex cost", 14);
         AddSystemLine("  $fkeys [shift|ctrl]   list your function-key macros", 14);
         AddSystemLine("  $f<n>                 annotate output with fkey n's text (1-36)", 14);
@@ -1491,24 +1544,22 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         AddSystemLine("[clog] usage: $clog [on|off|status|eval <itemid>]", 9);
     }
 
-    /// <summary>Turn clogging on/off. Also opens/closes the floating clog window — except when
-    /// called from GamePage's own window-close handler (<paramref name="syncWindow"/> false),
-    /// since in that case the window is already the thing closing and re-requesting its closure
-    /// would be a pointless (harmless, but noisy) round-trip.</summary>
+    /// <summary>Turn clogging on/off. Also shows/hides the docked Combat Rail panel via
+    /// <see cref="OpenClogWindowRequested"/>/<see cref="CloseClogWindowRequested"/> - except when
+    /// <paramref name="syncWindow"/> is false, which skips that UI side effect entirely. The old
+    /// floating clog window is gone (D1/D2), so nothing calls this with syncWindow:false today; the
+    /// parameter is kept because a future caller (e.g. an app-exit path that wants clogging turned
+    /// off without touching the panel/window) may still need it, and the idempotency guard below is
+    /// cheap insurance regardless of which path calls in.</summary>
     public void SetClogEnabled(bool enabled, bool syncWindow = true)
     {
-        // Idempotent by design: GamePage's clog-window Destroying handler re-enters here
-        // (syncWindow: false) whenever the window closes, including as a knock-on effect of the
-        // CloseClogWindowRequested this same method raises a few lines down for the "$clog off"
-        // path. Without this guard that re-entrant pass printed the status line a second time and
-        // ran the rest of this method again against a window already mid-teardown. Bailing out
-        // before touching _conn/AddSystemLine/the window events makes the second pass a no-op
-        // however it is reached, so the status line prints exactly once either way.
+        // Idempotent: a second call with the same `enabled` value is a no-op rather than re-printing
+        // the status line or re-raising Open/CloseClogWindowRequested.
         if (enabled == _conn.ClogEnabled)
             return;
         _conn.SetClogEnabled(enabled);
         AddSystemLine(enabled
-            ? "[clog] on - recording combat encounters to ~/.mucka/clogs (see the floating clog window)"
+            ? "[clog] on - recording combat encounters to ~/.mucka/clogs (see the Combat Rail panel)"
             : "[clog] off", enabled ? (byte)14 : (byte)9);
         if (!syncWindow)
             return;
@@ -1857,6 +1908,18 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         var style = new TextStyle(Foreground: (AnsiColor)fg);
         var line = new StyledLine(new[] { new StyledSpan($"|mucka| {msg}", style) });
         OnLineReady(line);
+    }
+
+    /// <summary>Awaits the fight-history load off the UI thread, then prints a local system line if
+    /// (and only if) it discarded a stale-format fights.jsonl (see
+    /// FightHistoryStore.MigrationNotice). Split out of the constructor's fire-and-forget call so
+    /// the load itself stays fire-and-forget (Invariant #1) while the rare notice still reaches the
+    /// player instead of only ever landing in the crash log.</summary>
+    private async Task LoadFightHistoryAndReportAsync()
+    {
+        await _conn.LoadFightHistoryAsync().ConfigureAwait(false);
+        if (_conn.FightHistoryMigrationNotice is { } notice)
+            AddSystemLine($"[combat history] {notice}", 9);
     }
 
     private void SubscribeConnectionEvents()

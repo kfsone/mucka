@@ -342,6 +342,15 @@ public sealed class MudSession : IDisposable
 
     public void Dispose()
     {
+        // Force-close any open encounter BEFORE tearing anything else down: unlike Reset() (used for
+        // an ordinary disconnect/relog, where the server-side reset/logout already ends combat on its
+        // own), app exit gives no such signal, so without this an encounter that was live at shutdown
+        // never resolves and its fight rows are lost entirely (they only ever get written from
+        // CombatTracker.InCombatChanged -> false). ForceEnd is idempotent (no-op if not InCombat) and
+        // raises the same InCombatChanged(false)/EventOccurred events a normal fight-end would, which
+        // MuckaConnection has already wired to FightHistoryRecorder for the lifetime of this session -
+        // so this one call is what makes "no fight rows lost on app exit mid-fight" true.
+        _combat.ForceEnd(CombatClock());
         StopFesTimer();
         lock (_fesLock)
         {

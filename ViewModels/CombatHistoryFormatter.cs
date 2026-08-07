@@ -73,6 +73,57 @@ internal static class CombatHistoryFormatter
         return lines;
     }
 
+    /// <summary>
+    /// Composes only the REVIEW-relevant subset of the readout - content that is still genuinely
+    /// useful but must never compete with the live threat signal for the eye's attention (DESIGN_FINAL.md's
+    /// Combat Rail redesign, following the owner's direct complaint that the panel showed 20+ rows of
+    /// numbers and not the one that mattered - see Rendering/CombatPanelCanvasView.cs). The headline,
+    /// survivability block, participant roster, and stat-deficit line are deliberately OMITTED here:
+    /// they are superseded by <see cref="ThreatIndicator"/>/<see cref="ParticipantRoster"/> composed
+    /// directly for the canvas (see <see cref="CombatLiveView"/>), not reimplemented as a second copy
+    /// of the same numbers in text-line form.
+    ///
+    /// <para>Kept as a genuinely separate method from <see cref="Build"/> - rather than trimming
+    /// <see cref="Build"/> itself - specifically so <see cref="Build"/>'s own long-standing test suite
+    /// (<c>CombatHistoryFormatterTests</c>) keeps exercising the FULL formatter unchanged; nothing
+    /// about this method's existence implies the old one is wrong or unused, only that the Combat
+    /// Rail's live canvas now reads a narrower slice of the same computed values.</para>
+    /// </summary>
+    public static List<ClogLine> BuildReview(
+        CombatEncounterSnapshot snapshot,
+        CombatHistoryContext history,
+        SessionCombatTotals? session = null)
+    {
+        session ??= SessionCombatTotals.Empty;
+        var lines = new List<ClogLine>(20);
+        if (!snapshot.HasEncounter)
+        {
+            AppendSessionTotals(lines, session);
+            return lines;
+        }
+
+        AppendResultBanner(lines, snapshot);
+        AppendExchange(lines, snapshot);
+        AppendRecentHits(lines, snapshot);
+
+        if (history.HasAnything)
+        {
+            lines.Add(ClogLine.Blank);
+            AppendHistoryHeading(lines, history);
+            AppendFleeRisk(lines, history);
+            AppendHistoryComparison(lines, snapshot, history);
+            AppendWeaponTable(lines, snapshot, history);
+        }
+
+        if (!snapshot.InCombat && session.HasAnything)
+        {
+            lines.Add(ClogLine.Blank);
+            AppendSessionTotals(lines, session);
+        }
+
+        return lines;
+    }
+
     /// <summary>"killed zombie0  0:27  65.5 dealt" once the encounter has closed. Nothing while the
     /// fight is still live - the headline already covers that, and a verdict mid-fight would be a
     /// lie.</summary>
@@ -188,16 +239,7 @@ internal static class CombatHistoryFormatter
             return;
 
         var primary = PrimaryFight(snapshot);
-        var outlook = primary is null
-            ? CombatOutlook.Unknown
-            : CombatOutlook.Project(
-                primary.Duration.TotalSeconds,
-                primary.ApproxDamageDone,
-                primary.ApproxDamageTaken,
-                primary.YouHits,
-                primary.TheyHits,
-                deficits.StaminaCurrent,
-                history.Primary.EstimatedStaminaPool);
+        var outlook = ComputeOutlook(snapshot, deficits, history, primary);
 
         var hasOutlook = outlook.Verdict != OutlookVerdict.Unknown;
         var hasStamina = deficits.StaminaCurrent is not null;
@@ -243,6 +285,33 @@ internal static class CombatHistoryFormatter
         }
     }
 
+    /// <summary>
+    /// "Am I going to die before it does" - <see cref="CombatOutlook.Project"/> against the
+    /// encounter's primary fight. Extracted so the Combat Rail's tier resolver (DESIGN_FINAL.md 4.3)
+    /// and flee-cost risk pairing (5.4) can reuse the EXACT SAME projection
+    /// <see cref="AppendSurvivability"/> renders, rather than each computing their own and risking
+    /// the outlook line and the tier/ladder disagreeing about "how close is this fight".
+    /// </summary>
+    internal static CombatOutlook ComputeOutlook(
+        CombatEncounterSnapshot snapshot, CombatStatDeficits deficits, CombatHistoryContext history,
+        FightSnapshot? primary = null)
+    {
+        if (!snapshot.InCombat)
+            return CombatOutlook.Unknown;
+
+        primary ??= PrimaryFight(snapshot);
+        return primary is null
+            ? CombatOutlook.Unknown
+            : CombatOutlook.Project(
+                primary.Duration.TotalSeconds,
+                primary.ApproxDamageDone,
+                primary.ApproxDamageTaken,
+                primary.YouHits,
+                primary.TheyHits,
+                deficits.StaminaCurrent,
+                history.Primary.EstimatedStaminaPool);
+    }
+
     /// <summary>Hostile once stamina is critically low, warn once it is getting there, otherwise
     /// plain - so the number that most directly answers "how much longer can I take this" carries
     /// its own urgency rather than reading as inert as everything else on the line.</summary>
@@ -251,9 +320,11 @@ internal static class CombatHistoryFormatter
         if (max is not int m || m <= 0)
             return ClogTone.Value;
 
+        // Danger (the promoted/bright variant of Hostile, D11), not plain Hostile: critically low
+        // stamina is lethal risk, not merely "the opponent's colour".
         var fraction = current / (double)m;
         if (fraction <= 0.25)
-            return ClogTone.Hostile;
+            return ClogTone.Danger;
         return fraction <= 0.5 ? ClogTone.Warn : ClogTone.Value;
     }
 
@@ -262,10 +333,15 @@ internal static class CombatHistoryFormatter
     /// already gone down without spending a line on either.</summary>
     private static void AppendHeadline(List<ClogLine> lines, CombatEncounterSnapshot snapshot)
     {
+        // UNARMED renders in the alert colour, uppercase, not the neutral player-side label the
+        // weapon name otherwise gets - DESIGN_FINAL.md 3.5/4.3 (T2, "always, whenever current
+        // weapon is null and a fight is live"): fighting bare-handed is itself worth noticing, not
+        // just another fact about the encounter.
+        var unarmed = string.IsNullOrWhiteSpace(snapshot.CurrentWeapon);
         var spans = new List<ClogSpan>(8)
         {
-            new(string.IsNullOrWhiteSpace(snapshot.CurrentWeapon) ? "unarmed" : DisplayName(snapshot.CurrentWeapon),
-                ClogTone.Friendly),
+            new(unarmed ? "UNARMED" : DisplayName(snapshot.CurrentWeapon),
+                unarmed ? ClogTone.Danger : ClogTone.Friendly),
             new(" vs ", ClogTone.Dim),
         };
 
@@ -333,9 +409,12 @@ internal static class CombatHistoryFormatter
             // MUD2 gives an NPC picking up a weapon mid-fight no other visible signal at all.
             if (!string.IsNullOrWhiteSpace(fight.NpcWeapon))
             {
+                // Danger, not plain Hostile: an NPC that armed itself mid-fight is exactly the E2
+                // "NPC weapon pickup" alert (4.3) - its damage output just changed and nothing else
+                // on screen says so.
                 lines.Add(ClogLine.Of(
                     new ClogSpan("   armed with ", ClogTone.Dim),
-                    new ClogSpan(DisplayName(fight.NpcWeapon), ClogTone.Hostile)));
+                    new ClogSpan(DisplayName(fight.NpcWeapon), ClogTone.Danger)));
             }
         }
 
@@ -463,15 +542,33 @@ internal static class CombatHistoryFormatter
     /// reads "0" is a line that stops being read.</summary>
     private static void AppendDeficits(List<ClogLine> lines, CombatStatDeficits deficits)
     {
+        if (BuildDeficitsLine(deficits) is { } line)
+            lines.Add(line);
+    }
+
+    /// <summary>
+    /// The encumbrance/stat-deficit line, factored out of <see cref="AppendDeficits"/> so the Combat
+    /// Rail's canvas can draw it directly as part of the LIVE hero section (owner: "encumbrance on
+    /// effective strength below 75% of max, intensifying below 50%" is a standing, always-visible
+    /// requirement, not review material) without re-deriving the same str/dex/load logic a second
+    /// time. Null when nothing is actually costing the player stats - a line that always reads "0" is
+    /// a line that stops being read.
+    /// </summary>
+    internal static ClogLine? BuildDeficitsLine(CombatStatDeficits deficits)
+    {
         if (!deficits.HasStatDelta && !deficits.HasLoad)
-            return;
+            return null;
 
         var spans = new List<ClogSpan>(6) { new("load", ClogTone.Dim) };
 
+        // Load (purple), not Warn (amber), for a NEGATIVE delta - DESIGN_FINAL.md 4.1 reserves Load
+        // specifically for "encumbrance, self-inflicted stat penalties", distinct from Warn's
+        // "degraded, not lethal" role, so carrying too much reads as its own kind of thing rather
+        // than the same colour as e.g. an underperforming weapon.
         if (deficits.StrengthDelta is int strength && strength != 0)
-            spans.Add(new ClogSpan($" str {Signed(strength)}", strength < 0 ? ClogTone.Warn : ClogTone.Good));
+            spans.Add(new ClogSpan($" str {Signed(strength)}", strength < 0 ? ClogTone.Load : ClogTone.Good));
         if (deficits.DexterityDelta is int dexterity && dexterity != 0)
-            spans.Add(new ClogSpan($" dex {Signed(dexterity)}", dexterity < 0 ? ClogTone.Warn : ClogTone.Good));
+            spans.Add(new ClogSpan($" dex {Signed(dexterity)}", dexterity < 0 ? ClogTone.Load : ClogTone.Good));
 
         // The cause, and the fix: dropping it is standard practice before a real fight.
         if (deficits.WeightCarriedGrams is int grams && grams > 0)
@@ -479,8 +576,7 @@ internal static class CombatHistoryFormatter
         if (deficits.ObjectsCarried is int objects && objects > 0)
             spans.Add(new ClogSpan($" {objects}obj", ClogTone.Dim));
 
-        if (spans.Count > 1)
-            lines.Add(new ClogLine(spans));
+        return spans.Count > 1 ? new ClogLine(spans) : null;
     }
 
     /// <summary>Names what the medians below describe, and says when the instance is speaking for
@@ -679,7 +775,7 @@ internal static class CombatHistoryFormatter
     /// <summary>Damage per landed blow so far in the current fight, which is what the historical
     /// per-hit figures are comparable against. Taken from the primary fight rather than the whole
     /// encounter so a second target of a different species cannot pollute it.</summary>
-    private static double? LivePerHit(CombatEncounterSnapshot snapshot, CombatHistoryContext history)
+    internal static double? LivePerHit(CombatEncounterSnapshot snapshot, CombatHistoryContext history)
     {
         var primary = PrimaryFight(snapshot);
         if (primary is null || primary.YouHits == 0 || primary.ApproxDamageDone <= 0)

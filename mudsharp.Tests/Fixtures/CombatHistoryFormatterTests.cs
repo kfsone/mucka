@@ -22,9 +22,11 @@ public sealed class CombatHistoryFormatterTests
         int durationSeconds = 52,
         FightOutcome outcome = FightOutcome.Unresolved,
         string? npcWeapon = null,
+        DateTime? npcWeaponEquippedUtc = null,
         IReadOnlyList<SwingOutcome>? recentYourSwings = null,
         IReadOnlyList<SwingOutcome>? recentTheirSwings = null)
-        => new(npcName, NpcGroups.Normalize(npcName), weapon, npcWeapon, youHits, youMisses, theyHits, theyMisses,
+        => new(npcName, NpcGroups.Normalize(npcName), weapon, npcWeapon, npcWeaponEquippedUtc,
+            youHits, youMisses, theyHits, theyMisses,
             damageDone, damageTaken, TimeSpan.FromSeconds(durationSeconds), outcome,
             outcome != FightOutcome.Unresolved,
             recentYourSwings ?? Array.Empty<SwingOutcome>(), recentTheirSwings ?? Array.Empty<SwingOutcome>());
@@ -113,11 +115,13 @@ public sealed class CombatHistoryFormatterTests
     public void Build_HeadlineSaysUnarmedRatherThanDashWhenNoWeaponIsInUse()
     {
         // MUD2 only wields what you explicitly told it to, so "no weapon" is a real and important
-        // state, not missing data.
+        // state, not missing data. Uppercase and Danger-toned, not a neutral label - DESIGN_FINAL.md
+        // 3.5/4.3: fighting bare-handed is a T2 alert, always, whenever a fight is live.
         var lines = CombatHistoryFormatter.Build(
             Encounter(null, 10, Snap("rat0", weapon: null)), CombatStatDeficits.None, CombatHistoryContext.Empty);
 
-        Assert.StartsWith("unarmed vs rat0", PlainText(lines));
+        Assert.StartsWith("UNARMED vs rat0", PlainText(lines));
+        Assert.Contains(AllSpans(lines), s => s.Text == "UNARMED" && s.Tone == ClogTone.Danger);
     }
 
     [Fact]
@@ -248,13 +252,17 @@ public sealed class CombatHistoryFormatterTests
     }
 
     [Fact]
-    public void Build_TonesAPenaltyAsWarnAndABonusAsGood()
+    public void Build_TonesAPenaltyAsLoadAndABonusAsGood()
     {
+        // Load (purple), not Warn (amber) - DESIGN_FINAL.md 4.1 reserves Load specifically for
+        // "encumbrance, self-inflicted stat penalties", distinct from Warn's "degraded, not lethal"
+        // role, so this penalty reads as its own kind of thing rather than the same colour as e.g.
+        // an underperforming weapon.
         var penalty = CombatHistoryFormatter.Build(
             Encounter("axe0", 10, Snap("rat0")),
             new CombatStatDeficits(-11, null, null, null, null, null),
             CombatHistoryContext.Empty);
-        Assert.Contains(AllSpans(penalty), s => s.Text.Contains("str -11") && s.Tone == ClogTone.Warn);
+        Assert.Contains(AllSpans(penalty), s => s.Text.Contains("str -11") && s.Tone == ClogTone.Load);
 
         var bonus = CombatHistoryFormatter.Build(
             Encounter("axe0", 10, Snap("rat0")),

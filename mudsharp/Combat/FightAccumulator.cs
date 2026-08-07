@@ -40,12 +40,22 @@ public readonly record struct SwingOutcome(bool IsHit, double Damage)
 /// </summary>
 public sealed class FightAccumulator
 {
-    public FightAccumulator(string npcName, DateTime startedUtc, string? weaponAtStart)
+    public FightAccumulator(
+        string npcName, DateTime startedUtc, string? weaponAtStart,
+        int? staminaAtStart = null, int? scoreAtStart = null)
     {
         NpcName = npcName;
         NpcGroup = NpcGroups.Normalize(npcName);
         StartedUtc = startedUtc;
         WeaponUsed = weaponAtStart;
+        // Seed the min/end trackers from whatever the caller already knew at the instant this NPC
+        // joined the fight (FightHistoryRecorder passes its running "last known" stamina/score) -
+        // without this, a one-sided kill that never triggers an inline "(cur/max)" stamina line or
+        // a FES heartbeat before resolving would leave MinStamina/StaminaAtEnd/ScoreAtStart null
+        // despite the value being perfectly knowable. NoteStamina/NoteScore then refine these as
+        // real readings arrive over the fight's lifetime.
+        if (staminaAtStart is int sta) { MinStamina = sta; StaminaAtEnd = sta; }
+        ScoreAtStart = scoreAtStart;
     }
 
     public string NpcName { get; }
@@ -67,12 +77,37 @@ public sealed class FightAccumulator
     /// NPCs fight with fists/claws/bite and never announce a weapon at all.</summary>
     public string? NpcWeapon { get; private set; }
 
+    /// <summary>UTC time the NPC's own weapon was last confirmed via <see cref="NoteNpcWeapon"/>  -
+    /// i.e. when the "The X has started to use the Y to fight!" line landed. Drives the "why" line's
+    /// priority-5 rule and the panel's E2 weapon-pickup alert (DESIGN_FINAL.md 3.8/4.3): both need
+    /// "how long ago did this NPC arm itself", not just "is it armed".</summary>
+    public DateTime? NpcWeaponEquippedUtc { get; private set; }
+
     public int YouHits { get; private set; }
     public int YouMisses { get; private set; }
     public int TheyHits { get; private set; }
     public int TheyMisses { get; private set; }
     public double ApproxDamageDone { get; private set; }
     public double ApproxDamageTaken { get; private set; }
+
+    /// <summary>Lowest player stamina observed while this fight was open - "how close did I come
+    /// to dying" fighting THIS npc specifically. Null only when no reading was ever available (no
+    /// FES heartbeat and no inline "(cur/max)" line landed before the fight resolved).</summary>
+    public int? MinStamina { get; private set; }
+
+    /// <summary>Player stamina as of the last reading observed WHILE this fight was still open -
+    /// the honest "stamina at end of fight" figure. Deliberately NOT re-probed after resolution
+    /// (same non-fabrication rule FightRecord's remarks already apply to room/weather/stats: we do
+    /// not chase a fresher value once the fight we are attributing it to has already closed).</summary>
+    public int? StaminaAtEnd { get; private set; }
+
+    /// <summary>Player score at the instant this fight began (seeded once at construction, never
+    /// revised) - the baseline the flee-economics work (DESIGN_FINAL.md 5.6) will diff against.</summary>
+    public int? ScoreAtStart { get; private set; }
+
+    /// <summary>Player score as of the last reading observed while this fight was still open. Same
+    /// "no re-probe after close" honesty rule as <see cref="StaminaAtEnd"/>.</summary>
+    public int? ScoreAtEnd { get; private set; }
 
     /// <summary>How many of each side's most recent swings the clog window's recent-hits strip
     /// shows. A fixed-size ring, not a growing list: one fight can run to hundreds of swings and
@@ -104,14 +139,40 @@ public sealed class FightAccumulator
 
     public void NoteWeaponBroke() => WeaponUsed = null;
 
+    /// <summary>Folds in one more player-stamina reading. Callers broadcast this to every
+    /// UNRESOLVED fight on every stats update (mirroring the existing WeaponEquip broadcast) -
+    /// stamina is a player-scoped stat, not per-NPC, so every concurrent pack-fight row shares the
+    /// same readings. A no-op once the fight has resolved simply by the caller no longer calling
+    /// it (see FightHistoryRecorder.OnStatsUpdated), which is what freezes StaminaAtEnd/MinStamina
+    /// at "last known while still open" rather than drifting into post-fight regen.</summary>
+    public void NoteStamina(int? stamina)
+    {
+        if (stamina is not int value)
+            return;
+        StaminaAtEnd = value;
+        MinStamina = MinStamina is null ? value : Math.Min(MinStamina.Value, value);
+    }
+
+    /// <summary>Folds in one more player-score reading. Same broadcast/freeze contract as
+    /// <see cref="NoteStamina"/>; ScoreAtStart is deliberately untouched here - it is seeded once at
+    /// construction and never revised.</summary>
+    public void NoteScore(int? score)
+    {
+        if (score is int value)
+            ScoreAtEnd = value;
+    }
+
     /// <summary>Records the NPC's own weapon once a "The X has started to use the Y to fight!"
     /// line confirms one. Never cleared by <see cref="NoteWeaponBroke"/> - that line is about the
     /// PLAYER'S weapon breaking, and MUD2 gives no equivalent "NPC weapon broke" line to react to,
     /// so the last-known NPC weapon is the honest thing to keep showing.</summary>
-    public void NoteNpcWeapon(string? weapon)
+    public void NoteNpcWeapon(string? weapon, DateTime timestampUtc)
     {
         if (!string.IsNullOrWhiteSpace(weapon))
+        {
             NpcWeapon = weapon;
+            NpcWeaponEquippedUtc = timestampUtc;
+        }
     }
 
     public void AddYouHit(int? rangeLow, int? rangeHigh)

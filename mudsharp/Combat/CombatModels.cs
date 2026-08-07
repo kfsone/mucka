@@ -55,6 +55,12 @@ public enum CombatEventKind
     WeaponBroke,
     /// <summary>"Your guard drops..." (weapon switch or post-break confusion) — no C1 wrapper observed.</summary>
     DroppedGuard,
+    /// <summary>"You cannot use the X to fight now!" - the wield refusal. Fires both when the weapon
+    /// has just broken and when MUD2 refuses the wield outright because effective strength (itself
+    /// reduced by carried weight, and per the owner by low stamina) is below the hidden threshold
+    /// for that weapon. The second case is the ONLY direct evidence of that gate the game emits,
+    /// and nothing parsed this line before, so no observation of it has ever been recorded.</summary>
+    WeaponUnusable,
 }
 
 /// <summary>

@@ -738,10 +738,12 @@ def ingest_one(con: sqlite3.Connection, clog_path: Path, force: bool) -> dict[st
 
 
 LIVE_FIGHT_COLUMNS = (
-    "source_file", "started_at_ms", "ended_at_ms", "duration_ms", "npc_name", "npc_group",
+    "source_file", "format_version", "character_name", "encounter_started_at_ms", "started_at_ms",
+    "ended_at_ms", "duration_ms", "npc_name", "npc_group",
     "weapon_used", "outcome", "you_hits", "you_misses", "they_hits", "they_misses",
     "approx_damage_done", "approx_damage_taken", "narrative_mode", "room", "weather", "strength",
     "raw_strength", "dexterity", "raw_dexterity", "stamina_at_start", "max_stamina",
+    "min_stamina", "stamina_at_end", "score_at_start", "score_at_end",
     "weight_carried_grams", "objects_carried", "level", "is_blind", "is_deaf", "is_crippled",
     "is_dumb", "effects_json",
 )
@@ -778,6 +780,12 @@ def ingest_fights(con: sqlite3.Connection, fights_path: Path) -> dict[str, Any]:
 
         values = (
             source_file,
+            # Rows this old (pre-versioning entirely) would already have been discarded/renamed
+            # aside client-side before reaching fights.jsonl (see FightHistoryStore.LoadAsync) - the
+            # "or 1" fallback here only matters for a hand-edited/older test fixture line.
+            coerce_int(row.get("format_version")) or 1,
+            row.get("character_name"),
+            coerce_int(row.get("encounter_started_at_ms")),
             coerce_int(row.get("started_at_ms")),
             coerce_int(row.get("ended_at_ms")),
             coerce_int(row.get("duration_ms")),
@@ -800,6 +808,10 @@ def ingest_fights(con: sqlite3.Connection, fights_path: Path) -> dict[str, Any]:
             coerce_int(row.get("raw_dexterity")),
             coerce_int(row.get("stamina_at_start")),
             coerce_int(row.get("max_stamina")),
+            coerce_int(row.get("min_stamina")),
+            coerce_int(row.get("stamina_at_end")),
+            coerce_int(row.get("score_at_start")),
+            coerce_int(row.get("score_at_end")),
             coerce_int(row.get("weight_carried_grams")),
             coerce_int(row.get("objects_carried")),
             coerce_int(row.get("level")),

@@ -115,6 +115,19 @@ public static class ShellText
         => ContainsPhrase(normalized, "not updating persona");
 
     /// <summary>
+    /// The server's farewell to a deliberate quit ("qq"), sent just before the Option menu prompt
+    /// (see GameModeExitTests' captured byte sequence). This is the only signal distinguishing a
+    /// player who chose to leave from one dropped by a reset or killed outright -- the client never
+    /// sees the quit command itself, since it can arrive via an fkey, an alias, or a comma batch.
+    ///
+    /// Whole-line equality, NOT ContainsPhrase: every other landmark here matches shell output,
+    /// where no other speaker exists, but this one is tested against in-game lines where a player
+    /// can say anything. 'Ollie says "Cheerio!"' must not read as a quit.
+    /// </summary>
+    public static bool IsQuitFarewellLine(string normalized)
+        => string.Equals(normalized, "Cheerio!", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
     /// Parses the numbered persona list out of the "personae available to you" block
     /// (normalized text, between "are:" and "by what name..."). Returns null if the landmark
     /// text isn't present yet (e.g. more output is still arriving).

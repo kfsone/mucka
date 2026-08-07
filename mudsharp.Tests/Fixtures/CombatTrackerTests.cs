@@ -23,6 +23,84 @@ public class CombatTrackerTests
         return (t, inCombat, events);
     }
 
+    /// <summary>Reported live: a weapon broke mid-fight and the readout kept showing it equipped.
+    /// "You cannot use the X to fight now!" was parsed nowhere - the only reference in the project
+    /// was a dead regex in tools/combat/reduce_combat.py. It is also the wield-refusal line, the
+    /// sole direct evidence MUD2 emits of the hidden effective-strength gate, so it must be both
+    /// acted on (the player is now bare-handed) and recorded.</summary>
+    [Fact]
+    public void WeaponBreakThenUnusable_EmitsBothEvents()
+    {
+        var (t, _, events) = NewTracker();
+        var now = DateTime.UtcNow;
+        t.Observe(Line("You attack the thief, using the dagger0 as a weapon."), now);
+        t.Observe(Line("The dagger0 breaks to bits."), now.AddSeconds(1));
+        t.Observe(Line("You cannot use the dagger0 to fight now!"), now.AddSeconds(2));
+
+        Assert.Equal(CombatEventKind.WeaponBroke, events[1].Kind);
+        Assert.Equal("dagger0", events[1].Weapon);
+
+        Assert.Equal(CombatEventKind.WeaponUnusable, events[2].Kind);
+        Assert.Equal("dagger0", events[2].Weapon);
+        Assert.Equal(CombatActor.Player, events[2].Actor);
+    }
+
+    /// <summary>The refusal must not be confused with its near-twin equip line, which differs only
+    /// in a few words and would otherwise clear the weapon the moment it was equipped.</summary>
+    [Fact]
+    public void WeaponUnusable_DoesNotMatchTheEquipLine()
+    {
+        var (t, _, events) = NewTracker();
+        var now = DateTime.UtcNow;
+        t.Observe(Line("You attack the thief."), now);
+        t.Observe(Line("You are now using the staff0 to fight!"), now.AddSeconds(1));
+
+        Assert.Equal(CombatEventKind.WeaponEquip, events[1].Kind);
+        Assert.DoesNotContain(events, e => e.Kind == CombatEventKind.WeaponUnusable);
+    }
+
+    /// <summary>Bare-handed openings have no weapon clause: "You attack the thief." Only the armed
+    /// form used to be matched, so an unarmed attack opened no encounter at all.</summary>
+    [Fact]
+    public void PlayerAttackUnarmed_StartsCombatWithNoWeapon()
+    {
+        var (t, inCombat, events) = NewTracker();
+        t.Observe(Line("You attack the thief."), DateTime.UtcNow);
+
+        Assert.True(t.InCombat);
+        Assert.Equal([true], inCombat);
+        var e = Assert.Single(events);
+        Assert.Equal(CombatEventKind.FightStart, e.Kind);
+        Assert.Equal(CombatActor.Player, e.Actor);
+        Assert.Equal("thief", e.NpcName);
+        Assert.Null(e.Weapon);
+    }
+
+    /// <summary>Regression, reported live: attack bare-handed, then "use staff" mid-fight, and the
+    /// readout still said UNARMED. The unarmed attack line was unmatched, so no encounter existed
+    /// when the weapon-equip line arrived and the weapon was discarded. The npc name must also not
+    /// swallow the armed form's ", using the X as a weapon" clause - see the two-pattern comment on
+    /// PlayerAttackStart.</summary>
+    [Fact]
+    public void UnarmedAttackThenWeaponEquip_EmitsBothAndKeepsTheWeapon()
+    {
+        var (t, _, events) = NewTracker();
+        var now = DateTime.UtcNow;
+        t.Observe(Line("You attack the thief."), now);
+        t.Observe(Line("You are now using the staff0 to fight!"), now.AddSeconds(1));
+        t.Observe(Line("You hit the thief (5-9)."), now.AddSeconds(2));
+
+        Assert.Equal(CombatEventKind.FightStart, events[0].Kind);
+        Assert.Equal("thief", events[0].NpcName);
+        Assert.Null(events[0].Weapon);
+
+        Assert.Equal(CombatEventKind.WeaponEquip, events[1].Kind);
+        Assert.Equal("staff0", events[1].Weapon);
+
+        Assert.Equal(CombatEventKind.Hit, events[2].Kind);
+        Assert.Equal("thief", events[2].NpcName);
+    }
+
     [Fact]
     public void PlayerAttack_StartsCombatAndClassifiesInitiator()
     {

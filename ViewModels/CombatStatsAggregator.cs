@@ -38,6 +38,9 @@ public sealed record FightSnapshot(
     // overwritten one side's weapon with the other's the first time they differed.
     string? Weapon,
     string? NpcWeapon,
+    // When the NPC's own weapon was last confirmed - see FightAccumulator.NpcWeaponEquippedUtc.
+    // Null whenever NpcWeapon is null (never armed) or, in idle/design-time snapshots, always.
+    DateTime? NpcWeaponEquippedUtc,
     int YouHits,
     int YouMisses,
     int TheyHits,
@@ -179,10 +182,15 @@ public sealed class CombatStatsAggregator
                 AddParticipant(combatEvent.NpcName);
                 if (!string.IsNullOrWhiteSpace(combatEvent.NpcName) && !string.IsNullOrWhiteSpace(combatEvent.Weapon))
                     _npcWeapons[combatEvent.NpcName] = combatEvent.Weapon;
-                FightFor(combatEvent)?.NoteNpcWeapon(combatEvent.Weapon);
+                FightFor(combatEvent)?.NoteNpcWeapon(combatEvent.Weapon, combatEvent.TimestampUtc);
                 break;
 
+            // WeaponUnusable shares this: "You cannot use the X to fight now!" means the weapon is
+            // not in play whatever the cause (it just broke, or MUD2 refused the wield). Either way
+            // the player is fighting bare-handed from here, and the readout must say so - the owner
+            // lost a weapon mid-fight and the panel went on showing it as equipped.
             case CombatEventKind.WeaponBroke:
+            case CombatEventKind.WeaponUnusable:
                 _currentWeapon = null;
                 foreach (var fight in _fightOrder)
                 {
@@ -307,6 +315,7 @@ public sealed class CombatStatsAggregator
                 fight.NpcGroup,
                 fight.WeaponUsed,
                 fight.NpcWeapon,
+                fight.NpcWeaponEquippedUtc,
                 fight.YouHits,
                 fight.YouMisses,
                 fight.TheyHits,

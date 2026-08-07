@@ -1,8 +1,9 @@
 namespace Mucka.ViewModels;
 
-/// <summary>Semantic role of a run of text in the clog window. The page maps these to colours, so
-/// the formatter never mentions a colour and the palette lives in exactly one place
-/// (ClogPage.ToneColor).</summary>
+/// <summary>Semantic role of a run of text in the Combat Rail. The render surface maps these to
+/// colours (see Rendering/CombatPanelCanvasView.cs's ToneColor, which resolves every one of them
+/// against TerminalTheme.Palette per DESIGN_FINAL.md D11 - no new hex value), so this formatter
+/// never mentions a colour itself and the palette lives in exactly one place.</summary>
 public enum ClogTone
 {
     /// <summary>Labels and units - deliberately low contrast so the numbers carry the eye.</summary>
@@ -17,6 +18,14 @@ public enum ClogTone
     /// <summary>Underperforming, or a stat penalty currently in effect.</summary>
     Warn,
     Heading,
+    /// <summary>Lethal risk (DESIGN_FINAL.md 4.1 "Danger" role) - same hue as <see cref="Hostile"/>,
+    /// promoted bright. Distinct from Hostile: "an opponent" becomes "the opponent is about to kill
+    /// you" by brightening the SAME colour, not by inventing a new one.</summary>
+    Danger,
+    /// <summary>Encumbrance / self-inflicted stat penalty (4.1 "Load" role) - a colour Hostile/Danger
+    /// and Warn/Caution do not already own, so a strength-cost line reads as its own kind of thing
+    /// rather than as either "the enemy" or "generically degraded".</summary>
+    Load,
 }
 
 /// <summary>A run of same-styled text within a line.</summary>
@@ -74,7 +83,18 @@ public sealed record CombatStatDeficits(
     int? StaminaCurrent,
     int? StaminaMax,
     int? WeightCarriedGrams,
-    int? ObjectsCarried)
+    int? ObjectsCarried,
+    // Effective (not raw) strength/dexterity and their maxima - added for DESIGN_FINAL.md's
+    // encumbrance-tier signal (4.3: T1 below 75% of max effective strength, T2 below 50%), which
+    // needs the ABSOLUTE fraction-of-max, not the delta-from-raw the rest of this record already
+    // carried. Score is carried here too (not a stat, but arrives on the same FES snapshot) purely
+    // as a convenient single hop for the flee-cost ladder's points-cost column (5.5) - no new
+    // capture, just one more field read off a snapshot already flowing through this exact path.
+    int? StrengthEffective = null,
+    int? StrengthMax = null,
+    int? DexterityEffective = null,
+    int? DexterityMax = null,
+    int? Score = null)
 {
     public static readonly CombatStatDeficits None = new(null, null, null, null, null, null);
 
@@ -174,4 +194,90 @@ public sealed record CombatHistoryContext(
     public MudSharp.Combat.FightHistorySummary Primary => PreferInstance ? Instance : Group;
 
     public bool HasAnything => Group.FightCount > 0 || Instance.FightCount > 0;
+}
+
+/// <summary>
+/// One "now vs usual" measure, shaped for drawing rather than for printing: a filled bar for
+/// <see cref="Now"/> with a tick mark at <see cref="Usual"/> on the same track.
+///
+/// <para>This type exists to delete a table. The panel used to render a numeric matrix - a "now"
+/// column beside a "usual" column, four rows of it - which the owner reviewed as "a shit load of
+/// tables lazily thrown together". A bar with a reference tick answers the only question those
+/// numbers were being read for ("am I doing better or worse than normal, and by roughly how much")
+/// in one glance, with no column alignment and no arithmetic.</para>
+///
+/// <para><see cref="Usual"/> is null until history exists, and <see cref="SampleSize"/> travels with
+/// it so the surface can state the honest basis for the tick rather than implying a settled
+/// baseline - the same medians-with-n discipline FightHistory itself keeps.</para>
+/// </summary>
+/// <param name="FullScale">The value that maps to a full-width bar. Shared across measures that
+/// belong to the same comparison (your damage and theirs) so the two bars are read against each
+/// other, which is the entire point of drawing them adjacent.</param>
+public sealed record CombatMeasure(
+    string Label,
+    double? Now,
+    double? Usual,
+    double FullScale,
+    int SampleSize,
+    bool IsPlayerSide,
+    bool IsPercentage);
+
+/// <summary>
+/// Everything the Combat Rail's canvas composes as the LIVE hero section: the threat indicator, the
+/// opposition roster, and the survival numbers backing both. Built fresh on every refresh from the
+/// exact same snapshot/deficits/history/outlook that also produce <see cref="SidePanelViewModel"/>'s
+/// review-only <c>ClogLines</c>, so the hero section and the review tail can never quietly describe
+/// two different fights.
+///
+/// <para>This is the type the render surface (Rendering/CombatPanelCanvasView.cs) reads to compose
+/// its own layout, rather than inheriting layout from <c>CombatHistoryFormatter</c>'s text lines -
+/// the exact failure this design exists to fix (a real <c>SKCanvasView</c> that drew the OLD text
+/// formatter's output verbatim, so the survivability/opposition signal that mattered most was never
+/// actually composed for the canvas at all).</para>
+/// </summary>
+public sealed record CombatLiveView(
+    bool InCombat,
+    bool HasEncounter,
+    // "UNARMED" (uppercase) when no weapon is in hand, else the display-shortened weapon name -
+    // matches CombatHistoryFormatter.AppendHeadline's own wording so the two surfaces never drift.
+    string WeaponText,
+    bool IsUnarmed,
+    TimeSpan EncounterDuration,
+    MudSharp.Combat.ThreatReading Threat,
+    MudSharp.Combat.RosterPlan Roster,
+    // The current target's own weapon, once confirmed - owner's standing requirement "NPC weapon
+    // use highlighted". Distinct from WhyLine's priority-5 rule (3.8), which only speaks for ~20s
+    // right after the equip event; this is the permanent fact for as long as the NPC stays armed,
+    // matching the old formatter's "armed with X" participant line (now carried here instead, since
+    // the roster rows themselves are built from MAUI-independent ParticipantFacts with no weapon
+    // field - see SidePanelViewModel.ToParticipantFacts's own remarks).
+    string? CurrentTargetNpcWeapon,
+    MudSharp.Combat.OutlookVerdict OutlookVerdict,
+    double? SecondsToDie,
+    double? SecondsToKill,
+    int? StaminaCurrent,
+    int? StaminaMax,
+    int? StrengthDelta,
+    int? DexterityDelta,
+    int? WeightCarriedGrams,
+    int? ObjectsCarried,
+    // The exchange, as bars rather than as a numeric table: your hit rate against theirs, your
+    // damage per hit against theirs, each with its historical tick. See CombatMeasure.
+    IReadOnlyList<CombatMeasure> Measures,
+    // Kill progress against the current target: damage dealt this fight over the empirically
+    // estimated stamina pool for its kind (FightHistorySummary.EstimatedStaminaPool, which only
+    // counts fights that ended in a kill). Both null until a kill is on record for the group -
+    // MUD2 never reports NPC stamina, so there is no other route to "how close is this thing to
+    // dropping", and it is worth drawing precisely because it was previously unanswerable.
+    double? TargetDamageDone,
+    double? TargetEstimatedPool)
+{
+    public static readonly CombatLiveView Idle = new(
+        InCombat: false, HasEncounter: false, WeaponText: string.Empty, IsUnarmed: false,
+        EncounterDuration: TimeSpan.Zero, Threat: MudSharp.Combat.ThreatReading.Idle,
+        Roster: MudSharp.Combat.RosterPlan.Empty, CurrentTargetNpcWeapon: null,
+        OutlookVerdict: MudSharp.Combat.OutlookVerdict.Unknown,
+        SecondsToDie: null, SecondsToKill: null, StaminaCurrent: null, StaminaMax: null,
+        StrengthDelta: null, DexterityDelta: null, WeightCarriedGrams: null, ObjectsCarried: null,
+        Measures: [], TargetDamageDone: null, TargetEstimatedPool: null);
 }

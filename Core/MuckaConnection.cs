@@ -140,6 +140,12 @@ public sealed class MuckaConnection : IAsyncDisposable
     public Task LoadFightHistoryAsync(CancellationToken cancellationToken = default)
         => _fightHistory.LoadAsync(cancellationToken);
 
+    /// <summary>Set once <see cref="LoadFightHistoryAsync"/> completes, when the on-disk file was a
+    /// stale schema version and got moved aside (see FightHistoryStore.MigrationNotice). Null on an
+    /// ordinary load. The caller (GameViewModel) surfaces this as a local system line so a discard
+    /// authorised by the owner is never a SILENT one.</summary>
+    public string? FightHistoryMigrationNotice => _fightHistory.MigrationNotice;
+
     private int _windowCols;
 
     public MuckaConnection(string? accountId = null, string? password = null, int maxCols = 80, string loginName = "mud")
@@ -365,7 +371,17 @@ public sealed class MuckaConnection : IAsyncDisposable
     {
         await DisconnectAsync().ConfigureAwait(false);
         _loginHandler?.Detach();
+        // Order matters: _session.Dispose() force-closes any open encounter (MudSession.Dispose ->
+        // CombatTracker.ForceEnd), and that cascades through the events wired in WireSessionEvents
+        // to _fightRecorder.OnCombatEvent/OnInCombatChanged, which calls _store.Append(...) for every
+        // fight that was still open. _fightRecorder.Dispose() right after is a belt-and-braces flush
+        // (idempotent, see its remarks) in case that cascade is ever bypassed. Only once both have
+        // had the chance to enqueue their rows does _fightHistory.Dispose() drain the store's
+        // background writer to disk - disposing it any earlier could lose exactly the rows this
+        // whole ordering exists to save.
         _session.Dispose();
+        _fightRecorder.Dispose();
+        _fightHistory.Dispose();
         _capture.Dispose();
         _clog.Dispose();
     }
@@ -452,7 +468,7 @@ public sealed class MuckaConnection : IAsyncDisposable
         _session.BellReceived       += () => BellReceived?.Invoke();
         _session.GameModeEntered    += () => GameModeEntered?.Invoke();
         _session.GameModeExited     += () => GameModeExited?.Invoke();
-        _session.CharacterIdentified += n => CharacterIdentified?.Invoke(n);
+        _session.CharacterIdentified += n => { _fightRecorder.OnCharacterIdentified(n); CharacterIdentified?.Invoke(n); };
         _session.DreamwordChanged   += w =>
         {
             if (w != null)

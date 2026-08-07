@@ -287,4 +287,80 @@ public sealed class FightHistoryTests
         Assert.False(restored.IsDeaf);
         Assert.Equal<string[]>(["StrengthBuff", "StaminaDebuff"], restored.Effects);
     }
+
+    [Fact]
+    public void FightRecord_DefaultsToTheCurrentFormatVersion()
+    {
+        // Every row a CURRENT build constructs must self-identify as current, with no explicit
+        // opt-in required at each call site - FightHistoryStore.LoadAsync's stale-file detection
+        // depends on this default being right.
+        var record = Fight();
+
+        Assert.Equal(FightRecord.CurrentFormatVersion, record.FormatVersion);
+    }
+
+    [Fact]
+    public void FightRecord_RoundTripsTheCaptureSchemaAdditions()
+    {
+        // Character name, encounter id, min/end stamina, and score at start/end - added so alts stop
+        // pooling into one history, pack-fight rows can be regrouped by encounter, "how close did I
+        // come to dying" is recoverable, and the flee-cost ladder's economics work has a score
+        // baseline to diff against (DESIGN_FINAL.md section 5.6).
+        var record = Fight() with
+        {
+            CharacterName = "Ollie",
+            EncounterStartedAtMs = 1_700_000_000_000,
+            MinStamina = 22,
+            StaminaAtEnd = 40,
+            ScoreAtStart = 26_000,
+            ScoreAtEnd = 26_050,
+        };
+
+        var json = JsonSerializer.Serialize(record);
+        Assert.Contains("\"character_name\":\"Ollie\"", json);
+        Assert.Contains("\"encounter_started_at_ms\":1700000000000", json);
+        Assert.Contains("\"min_stamina\":22", json);
+        Assert.Contains("\"stamina_at_end\":40", json);
+        Assert.Contains("\"score_at_start\":26000", json);
+        Assert.Contains("\"score_at_end\":26050", json);
+        Assert.Contains($"\"format_version\":{FightRecord.CurrentFormatVersion}", json);
+
+        var restored = JsonSerializer.Deserialize<FightRecord>(json)!;
+        Assert.Equal("Ollie", restored.CharacterName);
+        Assert.Equal(1_700_000_000_000, restored.EncounterStartedAtMs);
+        Assert.Equal(22, restored.MinStamina);
+        Assert.Equal(40, restored.StaminaAtEnd);
+        Assert.Equal(26_000, restored.ScoreAtStart);
+        Assert.Equal(26_050, restored.ScoreAtEnd);
+        Assert.Equal(FightRecord.CurrentFormatVersion, restored.FormatVersion);
+    }
+
+    [Fact]
+    public void FightRecord_OldFormatJsonWithNoNewFields_StillDeserializesTheRestOfTheRowFine()
+    {
+        // The exact shape a pre-this-change fights.jsonl row has: none of the new properties exist
+        // at all. They must come back null (never throw), and the pre-existing fields must be
+        // completely unaffected by the new ones being absent.
+        //
+        // Deliberately NOT asserted here: FormatVersion on the deserialized object. System.Text.Json
+        // leaves an init property at its C# declared default (FightRecord.CurrentFormatVersion, so a
+        // freshly `new`'d record is correctly current-by-default) whenever the JSON never mentions
+        // that key at all - so this object reads back as FormatVersion == CurrentFormatVersion even
+        // though the JSON has no such field. That is exactly why
+        // FightHistoryStore.LoadAsync detects staleness from the RAW JSON's key presence, not from
+        // this property on the materialized object - see its remarks and
+        // FightHistoryStoreTests.LoadAsync_DetectsAnOldFormatFile_* for the level that actually
+        // exercises the detection.
+        const string oldRow = "{\"started_at_ms\":1000,\"npc_name\":\"rat0\",\"npc_group\":\"rats\"," +
+                               "\"outcome\":\"Killed\",\"you_hits\":3,\"approx_damage_done\":30}";
+
+        var restored = JsonSerializer.Deserialize<FightRecord>(oldRow)!;
+
+        Assert.Null(restored.CharacterName);
+        Assert.Null(restored.EncounterStartedAtMs);
+        Assert.Null(restored.MinStamina);
+        Assert.Null(restored.ScoreAtStart);
+        Assert.Equal("rat0", restored.NpcName);   // the rest of the row still reads fine
+        Assert.Equal(30.0, restored.ApproxDamageDone, 3);
+    }
 }
