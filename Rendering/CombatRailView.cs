@@ -1,3 +1,4 @@
+using MudSharp.Combat;
 using Mucka.ViewModels;
 using SkiaSharp;
 using SkiaSharp.Views.Maui;
@@ -6,99 +7,86 @@ using SkiaSharp.Views.Maui.Controls;
 namespace Mucka.Rendering;
 
 /// <summary>
-/// The Combat Rail's render surface: one SkiaSharp canvas drawing a FIXED layout from
+/// The Combat Rail's render surface: one SkiaSharp canvas drawing a fixed layout from
 /// <see cref="CombatLiveView"/>.
 ///
-/// <para><b>Fixed geometry is the whole design.</b> Every block below occupies the same pixels in
-/// combat, immediately after it, and when idle. Blocks not yet implemented still reserve their
-/// space and draw a hairline. Nothing moves, ever - the player learns where to look once, at
-/// leisure, and that knowledge stays valid mid-fight when there is no time to search. A panel that
-/// re-lays-out between glances has to be re-read every time, which defeats the point of having it.</para>
+/// <para><b>Only drawn when known.</b> A block appears when it has something to say and is absent
+/// otherwise. An earlier pass reserved every future block's space with a label and a rule so the
+/// geometry would be stable from day one; in practice that read as a column of empty boxes, which is
+/// clutter with no compensating benefit while there is nothing yet to memorise. Blocks are added
+/// back as they gain content.</para>
 ///
-/// <para><b>Invariant #1 - this class never animates.</b> It repaints only when
-/// <see cref="Live"/> is set to genuinely different state. There is no timer here and there must
-/// never be one: on WinUI <c>SKXamlCanvas</c> paints ON the UI thread, so a repeating repaint
-/// competes directly with typing. All continuous motion (pulse, glow) belongs to the Composition
-/// layer sitting behind this canvas - see <c>PulseLayer</c> and GamePage.xaml's CombatPanelGlow.</para>
+/// <para><b>Invariant #1 - this class never animates.</b> It repaints only when <see cref="Live"/>
+/// becomes genuinely different state. There is no timer here and there must never be one: on WinUI
+/// <c>SKXamlCanvas</c> paints ON the UI thread, so a repeating repaint competes directly with
+/// typing. Continuous motion belongs to the Composition layer behind this canvas (PulseLayer).</para>
 ///
-/// <para><b>Invariant #0 - this surface cannot take focus.</b> It carries no gesture recognizers and
-/// is mounted <c>InputTransparent</c>. There is nothing here to click, by construction rather than
-/// by discipline.</para>
+/// <para><b>Invariant #0 - this surface cannot take focus.</b> No gesture recognizers, mounted
+/// <c>InputTransparent</c>. There is nothing to click, by construction.</para>
 ///
-/// <para><b>Allocation.</b> Every paint object is a field built once. The paint handler allocates
-/// nothing per frame; it only mutates colours on the shared paints.</para>
+/// <para><b>Allocation.</b> Paint objects are fields built once; the paint handler allocates nothing
+/// per frame beyond the strings it must format.</para>
 /// </summary>
 public sealed class CombatRailView : SKCanvasView
 {
-    // ---- Layout constants (logical units; scaled by the canvas DPI at paint time) -------------
-    // The interior is 300dp wide minus the border, giving 288 units of content.
+    // ---- Layout (logical units, scaled to the surface at paint time) --------------------------
     private const float PanelWidth = 300f;
-    private const float Pad = 6f;
+    private const float Pad = 10f;
     private const float Content = PanelWidth - (Pad * 2);
+    private const float BlockGap = 14f;
 
-    private const float VerdictH = 84f;
-    private const float TickRailH = 36f;
-    private const float SpikeRulerH = 60f;
-    private const float ThreatRowsH = 40f;   // reserved in v1 (one row's worth)
-    private const float LoadoutH = 76f;
-    private const float FixLineH = 26f;      // reserved in v1, height never collapses
-    private const float FleeGateH = 72f;     // reserved in v1
-    private const float BlockGap = 4f;
+    // ---- Palette ------------------------------------------------------------------------------
+    // Campbell, by index, so this panel and the terminal can never drift. Derived shades are scaled
+    // FROM these bases rather than invented, which keeps one palette in one place while still
+    // allowing tints and fills.
+    private static readonly SKColor Ink = TerminalTheme.Palette[7];
+    private static readonly SKColor InkBright = TerminalTheme.Palette[15];
+    private static readonly SKColor InkDim = TerminalTheme.Palette[8];
+    private static readonly SKColor Hostile = TerminalTheme.Palette[9];
+    private static readonly SKColor Caution = TerminalTheme.Palette[11];
+    private static readonly SKColor Dead = TerminalTheme.Palette[8];
+    private static readonly SKColor Rule = Tint(TerminalTheme.Palette[8], 0.40f);
 
-    // ---- Stamina bands ------------------------------------------------------------------------
-    // Deliberately coarse, and deliberately fixed rather than scaled to the current opponent.
-    // Most things in MUD2 hit for 10-20, so under 20 is one or two swings from a permadeath that
-    // costs 100% of score, and other creatures or players can join an existing fight at any moment.
-    // A threat-relative band would read "safe" against a rat right up until three of them land on
-    // the same tick - so relative reasoning may only ever escalate these, never relax them.
-    private const int BandThinkAboutFleeing = 40;
-    private const int BandRedZone = 20;
-    private const int BandCritical = 10;
+    // Clio's colorcode() ladder, ported so the rail's stamina bar agrees with the status strip at
+    // the top of the window. The strip colours stamina from MUD2's own colour hint
+    // (GameStatsSnapshot.StaminaColor); this is the same ladder that hint follows, so the two read
+    // as one instrument instead of two opinions. Deliberately NOT the client's own flee doctrine:
+    // the 40/20 thresholds the player actually acts on drive the ALARM (the glow layer and the band
+    // marks), never the readout's own colour. A readout reports; an alarm interprets.
+    private static SKColor RatioColor(int value, int max)
+    {
+        if (value <= 0 || max <= 0)
+            return TerminalTheme.Palette[10];
+        var ratio = value * 100 / max;
+        if (ratio >= 100) return TerminalTheme.Palette[10];  // bright green
+        if (ratio >= 76) return TerminalTheme.Palette[2];    // green
+        if (ratio >= 36) return TerminalTheme.Palette[11];   // bright yellow
+        if (ratio >= 16) return TerminalTheme.Palette[3];    // yellow
+        if (ratio >= 6) return TerminalTheme.Palette[1];     // red
+        return TerminalTheme.Palette[9];                     // bright red
+    }
 
-    // ---- Palette (Campbell-derived; no free-floating hex) --------------------------------------
-    // Semantic roles resolve to TerminalTheme.Palette indices so the rail and the terminal can
-    // never drift apart. Tints and alphas are DERIVED from those bases rather than invented, which
-    // keeps one palette in one place while still allowing gradients and glow falloff.
-    private static readonly SKColor Ink = TerminalTheme.Palette[7];        // normal foreground
-    private static readonly SKColor InkBright = TerminalTheme.Palette[15]; // emphasis
-    private static readonly SKColor InkDim = TerminalTheme.Palette[8];     // labels and units
-    private static readonly SKColor You = TerminalTheme.Palette[10];       // your resource
-    private static readonly SKColor Them = TerminalTheme.Palette[12];      // theirs
-    private static readonly SKColor Caution = TerminalTheme.Palette[11];   // fixable by you
-    private static readonly SKColor Danger = TerminalTheme.Palette[9];     // lethal
-    private static readonly SKColor Rule = Tint(TerminalTheme.Palette[8], 0.45f);
+    private static SKColor Tint(SKColor c, float amount)
+        => new((byte)(c.Red * amount), (byte)(c.Green * amount), (byte)(c.Blue * amount), c.Alpha);
 
-    /// <summary>Scales a base palette colour toward the panel background. Used instead of new hex
-    /// values so every derived shade is provably a shade OF the shared palette.</summary>
-    private static SKColor Tint(SKColor baseColor, float amount)
-        => new(
-            (byte)(baseColor.Red * amount),
-            (byte)(baseColor.Green * amount),
-            (byte)(baseColor.Blue * amount),
-            baseColor.Alpha);
-
-    // ---- Paints (built once; never allocated in OnPaintSurface) --------------------------------
+    // ---- Paints (built once) -------------------------------------------------------------------
     private readonly SKPaint _fill = new() { IsAntialias = true, Style = SKPaintStyle.Fill };
     private readonly SKPaint _stroke = new() { IsAntialias = true, Style = SKPaintStyle.Stroke, StrokeWidth = 1f };
-    private readonly SKFont _numeralFont = new(SKTypeface.Default, 46f);
+    private readonly SKPaint _text = new() { IsAntialias = true };
+    private readonly SKFont _staminaFont = new(SKTypeface.Default, 30f);
     private readonly SKFont _labelFont = new(SKTypeface.Default, 9f);
-    private readonly SKFont _textFont = new(SKTypeface.Default, 12f);
-    private readonly SKPaint _textPaint = new() { IsAntialias = true };
+    private readonly SKFont _bodyFont = new(SKTypeface.Default, 13f);
+    private readonly SKFont _smallFont = new(SKTypeface.Default, 11f);
 
     private CombatLiveView _live = CombatLiveView.Idle;
 
     public CombatRailView()
     {
-        // Belt and braces for Invariant #0: this view is also mounted InputTransparent in XAML.
         InputTransparent = true;
-        IgnorePixelScaling = false;
     }
 
-    /// <summary>
-    /// The frame state to draw. Setting this repaints ONLY when the new state differs from the
-    /// current one, so the per-combat-event and 1 Hz refresh paths do not invalidate the canvas for
-    /// identical content (Invariant #1).
-    /// </summary>
+    /// <summary>The frame state to draw. Repaints only when the reference actually changes, so the
+    /// per-event and 1 Hz refresh paths do not invalidate for identical content (Invariant #1).</summary>
     public CombatLiveView Live
     {
         get => _live;
@@ -111,7 +99,6 @@ public sealed class CombatRailView : SKCanvasView
         }
     }
 
-    /// <summary>Bound in XAML; the view model raises PropertyChanged for Live and this pulls it.</summary>
     public static readonly BindableProperty SidePanelProperty = BindableProperty.Create(
         nameof(SidePanel), typeof(SidePanelViewModel), typeof(CombatRailView), null,
         propertyChanged: OnSidePanelChanged);
@@ -136,7 +123,6 @@ public sealed class CombatRailView : SKCanvasView
 
     private void OnSidePanelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
-        // Only Live drives this surface. Everything else on the view model belongs to the left panel.
         if (e.PropertyName is nameof(SidePanelViewModel.Live) or null && sender is SidePanelViewModel vm)
             Live = vm.Live;
     }
@@ -144,9 +130,8 @@ public sealed class CombatRailView : SKCanvasView
     protected override void OnHandlerChanged()
     {
         base.OnHandlerChanged();
-        // Teardown discipline is mandatory, not optional: this codebase has a live crash precedent
-        // (RO_E_CLOSED) from a surface that stayed subscribed after its host went away, so the next
-        // combat line rendered into already-destroyed objects and took the process down.
+        // Mandatory teardown: this codebase has a live crash precedent (RO_E_CLOSED) from a surface
+        // that stayed subscribed after its host was destroyed.
         if (Handler is null && SidePanel is { } vm)
             vm.PropertyChanged -= OnSidePanelPropertyChanged;
     }
@@ -156,194 +141,194 @@ public sealed class CombatRailView : SKCanvasView
         var canvas = e.Surface.Canvas;
         canvas.Clear(SKColors.Transparent);
 
-        // One scale factor maps the logical layout above onto the physical surface, so every
-        // constant in this file stays readable as "units of panel width".
-        var scale = e.Info.Width / PanelWidth;
         canvas.Save();
-        canvas.Scale(scale);
+        canvas.Scale(e.Info.Width / PanelWidth);
 
-        var y = Pad;
         var live = _live;
+        var y = Pad + 6f;
 
-        y = DrawVerdict(canvas, y, live);
-        y = DrawTickRail(canvas, y, live);
-        y = DrawSpikeRuler(canvas, y, live);
-        y = DrawReserved(canvas, y, ThreatRowsH, "OPPOSITION");
-        y = DrawLoadout(canvas, y, live);
-        y = DrawReserved(canvas, y, FixLineH, null);
-        DrawReserved(canvas, y, FleeGateH, "EXITS");
+        y = DrawStamina(canvas, y, live);
+        y = DrawOpposition(canvas, y, live);
+        DrawWeapon(canvas, y, live);
 
         canvas.Restore();
     }
 
     /// <summary>
-    /// B1 - the verdict. One large integer: how many more worst-case swings the player can absorb.
-    /// Deliberately the biggest thing on the panel, because it is the only number that decides
-    /// anything. The kill-side estimate joins it once the health-descriptor ladder is parsed; until
-    /// then this half stays honest by not being drawn at all rather than by guessing.
+    /// Stamina: the value and its bar on one line, so the number sits against the thing it measures
+    /// instead of floating above it. The bar's colour follows the same ladder as the status strip at
+    /// the top of the window (see <see cref="RatioColor"/>) - two readouts of one quantity must never
+    /// disagree about its colour.
     /// </summary>
-    private float DrawVerdict(SKCanvas canvas, float y, CombatLiveView live)
+    private float DrawStamina(SKCanvas canvas, float y, CombatLiveView live)
     {
-        DrawLabel(canvas, "STAMINA", Pad, y + 10f);
+        DrawLabel(canvas, "STAMINA", Pad, y);
+        y += 8f;
 
         var sta = live.StaminaCurrent;
-        var color = BandColor(sta);
+        var max = live.StaminaMax is int m && m > 0 ? m : 100;
+        var color = sta is int s ? RatioColor(s, max) : InkDim;
 
-        if (sta is int value)
-        {
-            _textPaint.Color = color;
-            _numeralFont.Size = 46f;
-            var text = value.ToString(System.Globalization.CultureInfo.InvariantCulture);
-            canvas.DrawText(text, Pad, y + 58f, SKTextAlign.Left, _numeralFont, _textPaint);
+        var valueText = sta is int v
+            ? v.ToString(System.Globalization.CultureInfo.InvariantCulture)
+            : "--";
 
-            if (live.StaminaMax is int max && max > 0)
-            {
-                _textPaint.Color = InkDim;
-                canvas.DrawText("/ " + max.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                    Pad + _numeralFont.MeasureText(text) + 8f, y + 58f, SKTextAlign.Left, _textFont, _textPaint);
-            }
-        }
-        else
-        {
-            // Unknown is drawn as its own thing, never as a zero - a panel that shows "0" when it
-            // simply has not been told yet is worse than one that admits it.
-            _textPaint.Color = InkDim;
-            _numeralFont.Size = 46f;
-            canvas.DrawText("--", Pad, y + 58f, SKTextAlign.Left, _numeralFont, _textPaint);
-        }
+        _text.Color = color;
+        canvas.DrawText(valueText, Pad, y + 24f, SKTextAlign.Left, _staminaFont, _text);
+        var valueWidth = _staminaFont.MeasureText(valueText);
 
-        // The band track: a fixed scale with the two thresholds that matter marked on it, so the
-        // number above always has somewhere to sit relative to "start thinking" and "red zone".
-        DrawBandTrack(canvas, Pad, y + 68f, Content, 8f, sta, live.StaminaMax);
+        _text.Color = InkDim;
+        canvas.DrawText("/" + max.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            Pad + valueWidth + 3f, y + 24f, SKTextAlign.Left, _smallFont, _text);
 
-        return y + VerdictH + BlockGap;
+        // The bar takes the rest of the line. It starts after the widest value this readout can
+        // show, not after the current one, so the bar does not jump left and right as stamina
+        // crosses 100 or 10.
+        var barX = Pad + 74f;
+        var barW = Content - 74f;
+        DrawStaminaBar(canvas, barX, y + 12f, barW, 12f, sta, max, color);
+
+        return y + 30f + BlockGap;
     }
 
-    /// <summary>The 40 and 20 marks drawn as structure (hairlines), never as colour. Structure gets
-    /// a line; danger gets the hue. Mixing the two would make the scale itself look alarming.</summary>
-    private void DrawBandTrack(SKCanvas canvas, float x, float y, float w, float h, int? sta, int? max)
+    private void DrawStaminaBar(SKCanvas canvas, float x, float y, float w, float h, int? sta, int max, SKColor color)
     {
-        _fill.Color = Tint(InkDim, 0.35f);
+        _fill.Color = Tint(InkDim, 0.30f);
         canvas.DrawRoundRect(x, y, w, h, h / 2f, h / 2f, _fill);
 
-        var scaleMax = max is int m && m > 0 ? m : 100;
-
-        if (sta is int value)
+        if (sta is int value && value > 0)
         {
-            var frac = Math.Clamp(value / (float)scaleMax, 0f, 1f);
-            _fill.Color = BandColor(sta);
+            var frac = Math.Clamp(value / (float)max, 0f, 1f);
+            _fill.Color = color;
             canvas.DrawRoundRect(x, y, Math.Max(w * frac, h), h, h / 2f, h / 2f, _fill);
         }
 
+        // The two thresholds the player actually acts on - 40 "start thinking about leaving" and 20
+        // "red zone" - drawn as structure, never as colour. Structure gets a hairline; danger gets
+        // the hue. Colouring the scale itself would make the ruler look like the alarm.
         _stroke.Color = Rule;
-        foreach (var mark in new[] { BandThinkAboutFleeing, BandRedZone })
+        foreach (var mark in new[] { 40, 20 })
         {
-            var mx = x + (w * (mark / (float)scaleMax));
+            var mx = x + (w * (mark / (float)max));
             canvas.DrawLine(mx, y - 2f, mx, y + h + 2f, _stroke);
         }
     }
 
-    private static SKColor BandColor(int? sta) => sta switch
+    /// <summary>
+    /// Who is actually fighting you. This is the first thing the panel owes the player and the first
+    /// thing it draws: a fight with no named opponent is not a readout of anything.
+    /// </summary>
+    private float DrawOpposition(SKCanvas canvas, float y, CombatLiveView live)
     {
-        null => InkDim,
-        <= BandCritical => Danger,
-        <= BandRedZone => Danger,
-        <= BandThinkAboutFleeing => Caution,
-        _ => You,
+        if (!live.HasEncounter)
+            return y;
+
+        var roster = live.Roster;
+        if (roster.Rows.Count == 0 && roster.TotalCount == 0)
+            return y;
+
+        DrawLabel(canvas, live.InCombat ? "FIGHTING" : "LAST FIGHT", Pad, y);
+
+        // The live/dead split, right-aligned against the label. In a pack fight "how many are still
+        // up" is the number that matters, and a capped row list alone cannot carry it.
+        if (roster.TotalCount > 1)
+        {
+            _text.Color = InkDim;
+            var counts = roster.LiveCount + " up";
+            if (roster.ResolvedCount > 0)
+                counts += "  " + roster.ResolvedCount + " down";
+            canvas.DrawText(counts, Pad + Content, y, SKTextAlign.Right, _labelFont, _text);
+        }
+
+        y += 14f;
+
+        foreach (var row in roster.Rows)
+        {
+            _text.Color = row.IsLive
+                ? (row.IsCurrentTarget ? InkBright : Ink)
+                : Dead;
+
+            // The current target carries a marker rather than a different size, so rows stay on a
+            // fixed pitch and the eye can track one name down the list as others resolve.
+            if (row.IsCurrentTarget && row.IsLive)
+            {
+                _fill.Color = Hostile;
+                canvas.DrawRect(Pad, y - 7f, 3f, 9f, _fill);
+            }
+
+            canvas.DrawText(row.Name, Pad + 8f, y, SKTextAlign.Left, _bodyFont, _text);
+
+            if (!row.IsLive)
+            {
+                _text.Color = Dead;
+                canvas.DrawText(OutcomeWord(row.Outcome), Pad + Content, y, SKTextAlign.Right, _smallFont, _text);
+            }
+
+            y += 17f;
+        }
+
+        if (roster.HasHidden)
+        {
+            _text.Color = InkDim;
+            var more = "+" + roster.HiddenCount + " more";
+            if (roster.HiddenLiveCount > 0)
+                more += " (" + roster.HiddenLiveCount + " up)";
+            canvas.DrawText(more, Pad + 8f, y, SKTextAlign.Left, _smallFont, _text);
+            y += 15f;
+        }
+
+        return y + BlockGap;
+    }
+
+    private static string OutcomeWord(FightOutcome outcome) => outcome switch
+    {
+        FightOutcome.Killed => "killed",
+        FightOutcome.KilledByNpc => "KILLED YOU",
+        FightOutcome.NpcFled => "fled",
+        FightOutcome.YouFled => "you fled",
+        FightOutcome.Withdrawn => "withdrew",
+        _ => string.Empty,
     };
 
-    /// <summary>B2 - the tick rail. MUD2 resolves combat on a 2.000s grid whose phase is stable, so
-    /// "how long until the next swing" is a real, free, renderable quantity. The sweep itself is a
-    /// Composition animation behind this canvas; what is drawn here is the history of recent ticks.</summary>
-    private float DrawTickRail(SKCanvas canvas, float y, CombatLiveView live)
-    {
-        DrawLabel(canvas, "TICKS", Pad, y + 8f);
-        _stroke.Color = Rule;
-        canvas.DrawLine(Pad, y + TickRailH - 2f, Pad + Content, y + TickRailH - 2f, _stroke);
-        return y + TickRailH + BlockGap;
-    }
-
-    /// <summary>B3 - the spike ruler: can THIS tick kill me. Segments are cumulative across every
-    /// active attacker, which is the case a single per-enemy threat readout cannot express - three
-    /// rats that individually cap at 5 still add to 15 on one tick, and at degraded dexterity they
-    /// land together far more often than their average suggests.</summary>
-    private float DrawSpikeRuler(SKCanvas canvas, float y, CombatLiveView live)
-    {
-        DrawLabel(canvas, "WORST TICK", Pad, y + 8f);
-        _stroke.Color = Rule;
-        canvas.DrawLine(Pad, y + SpikeRulerH - 2f, Pad + Content, y + SpikeRulerH - 2f, _stroke);
-        return y + SpikeRulerH + BlockGap;
-    }
-
     /// <summary>
-    /// B5 - loadout and drag. The weapon state, and how far strength and dexterity have fallen from
-    /// their maxima. Per the owner's decision this shows only THAT they are low, never a computed
-    /// encumbrance breakdown: the player stays in the loop about why.
+    /// What each side is fighting with. Immediately after the opposition, because "who and with
+    /// what" is one question. The NPC's own weapon matters as much as the player's and is easy to
+    /// miss in the scroll, especially when the creature arrived after the fight started.
     /// </summary>
-    private float DrawLoadout(SKCanvas canvas, float y, CombatLiveView live)
+    private void DrawWeapon(SKCanvas canvas, float y, CombatLiveView live)
     {
-        if (live.IsUnarmed && live.HasEncounter)
+        if (!live.HasEncounter)
+            return;
+
+        DrawLabel(canvas, "WEAPON", Pad, y);
+        y += 16f;
+
+        if (live.IsUnarmed)
         {
-            // The loudest non-alarm element on the panel. Being unarmed while carrying something you
-            // could wield is the single most recoverable way to lose a fight.
-            _fill.Color = Tint(Caution, 0.30f);
-            canvas.DrawRoundRect(Pad, y, Content, 24f, 3f, 3f, _fill);
-            _textPaint.Color = Caution;
-            canvas.DrawText("UNARMED", Pad + 8f, y + 17f, SKTextAlign.Left, _textFont, _textPaint);
+            // The loudest non-alarm element on the panel. Fighting unarmed while carrying something
+            // wieldable is the most recoverable way there is to lose a fight.
+            _fill.Color = Tint(Caution, 0.28f);
+            canvas.DrawRoundRect(Pad, y - 12f, Content, 20f, 3f, 3f, _fill);
+            _text.Color = Caution;
+            canvas.DrawText("UNARMED", Pad + 6f, y + 2f, SKTextAlign.Left, _bodyFont, _text);
         }
         else if (!string.IsNullOrEmpty(live.WeaponText))
         {
-            _textPaint.Color = Ink;
-            canvas.DrawText(live.WeaponText, Pad, y + 17f, SKTextAlign.Left, _textFont, _textPaint);
+            _text.Color = Ink;
+            canvas.DrawText(live.WeaponText, Pad, y, SKTextAlign.Left, _bodyFont, _text);
         }
 
-        DrawDeficitTrack(canvas, "STR", Pad, y + 34f, live.StrengthDelta);
-        DrawDeficitTrack(canvas, "DEX", Pad, y + 54f, live.DexterityDelta);
-
-        return y + LoadoutH + BlockGap;
-    }
-
-    /// <summary>A stat track. A deficit reads amber (something you did to yourself and can undo); a
-    /// bonus reads in the player's own colour. Zero draws as a bare track, which is visibly
-    /// different from having no reading at all.</summary>
-    private void DrawDeficitTrack(SKCanvas canvas, string label, float x, float y, int? delta)
-    {
-        DrawLabel(canvas, label, x, y + 9f);
-
-        var trackX = x + 26f;
-        var trackW = Content - 26f;
-
-        _fill.Color = Tint(InkDim, 0.35f);
-        canvas.DrawRoundRect(trackX, y, trackW, 10f, 5f, 5f, _fill);
-
-        if (delta is not int d || d == 0)
-            return;
-
-        // 30 points off maximum is treated as a full-width penalty: beyond that the exact size stops
-        // changing the decision, which is only ever "drop something" or "stop taking hits".
-        var frac = Math.Clamp(Math.Abs(d) / 30f, 0.05f, 1f);
-        _fill.Color = d < 0 ? Caution : You;
-        canvas.DrawRoundRect(trackX, y, trackW * frac, 10f, 5f, 5f, _fill);
-    }
-
-    /// <summary>
-    /// Draws a block that is not implemented yet. It still occupies its final height and draws its
-    /// rule, so the layout the player learns today is the layout they keep - later stages fill these
-    /// in without moving anything above or below them.
-    /// </summary>
-    private float DrawReserved(SKCanvas canvas, float y, float height, string? label)
-    {
-        if (label is not null)
-            DrawLabel(canvas, label, Pad, y + 8f);
-
-        _stroke.Color = Rule;
-        canvas.DrawLine(Pad, y + height - 2f, Pad + Content, y + height - 2f, _stroke);
-        return y + height + BlockGap;
+        if (live.CurrentTargetNpcWeapon is { Length: > 0 } npcWeapon)
+        {
+            y += 17f;
+            _text.Color = Hostile;
+            canvas.DrawText("they use " + npcWeapon, Pad, y, SKTextAlign.Left, _smallFont, _text);
+        }
     }
 
     private void DrawLabel(SKCanvas canvas, string text, float x, float y)
     {
-        _textPaint.Color = InkDim;
-        canvas.DrawText(text, x, y, SKTextAlign.Left, _labelFont, _textPaint);
+        _text.Color = InkDim;
+        canvas.DrawText(text, x, y, SKTextAlign.Left, _labelFont, _text);
     }
 }
