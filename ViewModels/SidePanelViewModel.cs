@@ -408,7 +408,9 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
                 StrengthMax: stats.MaxStrength,
                 DexterityEffective: stats.Dexterity,
                 DexterityMax: stats.MaxDexterity,
-                Score: stats.Score);
+                Score: stats.Score,
+                MagicCurrent: stats.CurrentMagic,
+                MagicMax: stats.MaxMagic);
             // Same reasoning as OnCombatEvent above: this fires on every FES heartbeat, which is
             // independent of (and can be faster than) the combat tick, so it goes through the same
             // render gate rather than forcing a rebuild every time.
@@ -535,7 +537,8 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
                 // the whole reason that window exists. Kill progress does not: the target is
                 // resolved, so a partial "how close was it" bar would be answering nothing.
                 Measures: BuildMeasures(snapshot, history, CombatComposition.PrimaryFight(snapshot)),
-                TargetDamageDone: null, TargetEstimatedPool: null);
+                TargetDamageDone: null, TargetEstimatedPool: null,
+                MagicCurrent: deficits.MagicCurrent, MagicMax: deficits.MagicMax);
             return;
         }
 
@@ -584,7 +587,8 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             // Kill progress is shown only against a target still standing, and only once a kill of
             // that kind is on record to estimate the pool from.
             TargetDamageDone: primary is { IsResolved: false } ? primary.ApproxDamageDone : null,
-            TargetEstimatedPool: primary is { IsResolved: false } ? history.Primary.EstimatedStaminaPool : null);
+            TargetEstimatedPool: primary is { IsResolved: false } ? history.Primary.EstimatedStaminaPool : null,
+            MagicCurrent: deficits.MagicCurrent, MagicMax: deficits.MagicMax);
     }
 
     /// <summary>

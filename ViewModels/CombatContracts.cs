@@ -29,7 +29,10 @@ public sealed record CombatStatDeficits(
     int? StrengthMax = null,
     int? DexterityEffective = null,
     int? DexterityMax = null,
-    int? Score = null)
+    int? Score = null,
+    // Magic rides the same FES snapshot. See CombatLiveView.MagicCurrent for why it matters.
+    int? MagicCurrent = null,
+    int? MagicMax = null)
 {
     public static readonly CombatStatDeficits None = new(null, null, null, null, null, null);
 
@@ -207,7 +210,18 @@ public sealed record CombatLiveView(
     // MUD2 never reports NPC stamina, so there is no other route to "how close is this thing to
     // dropping", and it is worth drawing precisely because it was previously unanswerable.
     double? TargetDamageDone,
-    double? TargetEstimatedPool)
+    double? TargetEstimatedPool,
+    // Magic, which the rail draws as a second seal beside stamina. Not a convenience stat:
+    // magic is gained by a quest that carries a real chance of deleting the character, and
+    // that chance never reaches zero however high the rank. Letting the pool hit 0 loses
+    // magic outright and means running that quest again at that same risk - so draining
+    // toward 0 is a slow-motion catastrophe with a permadeath price on recovery, and it
+    // deserves parity with stamina rather than a footnote.
+    //
+    // MagicMax is 0 for a character with no magic at all; the seal still renders, greyed and
+    // inert, because removing it would move everything else on the row.
+    int? MagicCurrent = null,
+    int? MagicMax = null)
 {
     public static readonly CombatLiveView Idle = new(
         InCombat: false, HasEncounter: false, WeaponText: string.Empty, IsUnarmed: false,
