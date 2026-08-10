@@ -10,13 +10,16 @@ namespace MudSharp.Combat;
 /// no numbers, no bar, no percentage - so the whole job here is turning those words into one ordinal
 /// scale that a gauge can draw. <see cref="Rungs"/> of them, best to worst.</para>
 ///
-/// <para><b>The ordering is measured, not assumed.</b> It comes from following individual creatures
-/// through whole fights in the capture corpus and reading which phrase replaced which as cumulative
-/// damage rose. That mattered: an earlier hand-written draft of this ladder placed "covered in wounds"
-/// BELOW "seriously injured", and the corpus says the opposite in four independent fights (a ram, a
-/// thief, a dwarf and a rat all pass through "covered in wounds" and only later reach "seriously
-/// injured"). Getting that backwards would have drawn a creature two rungs healthier than it was, in
-/// the direction that gets a character killed.</para>
+/// <para><b>The ordering is measured, not assumed.</b> It comes from counting which phrase replaced
+/// which, within single fights as segmented by the offline reducer: 62 transitions to a worse rung
+/// against 4 to a better one, and not one transition contradicting the order below. That mattered - an
+/// earlier hand-written draft placed "covered in wounds" BELOW "seriously injured", which would have
+/// drawn a creature two rungs healthier than it was, in the direction that gets a character killed.</para>
+///
+/// <para><b>No published source corroborates this.</b> The MUD2 strategy guide documents damage
+/// formulas, per-creature stamina pools and flee costs (see tools/combat/MUD2-PUBLISHED-MECHANICS.md)
+/// and says nothing whatever about the wound descriptions. This ladder is the best available reading
+/// of observed behaviour, not documented fact.</para>
 ///
 /// <para><b>Three vocabularies, one scale.</b> Living things are "injured", undead are "damaged", and
 /// a banshee is "drained"; the words differ but the rungs line up, and each vocabulary simply omits
@@ -24,11 +27,13 @@ namespace MudSharp.Combat;
 /// undead-only). Matching on the ADJECTIVE rather than on whole phrases is what lets a vocabulary
 /// nobody has seen yet still land on the right rung.</para>
 ///
-/// <para><b>What this ladder is not.</b> It is not a health percentage and must never be drawn as one.
-/// It is coarse (a rat0 stayed "critically injured" from 407 to 560 points of damage) and it is not a
-/// ratchet - creatures regenerate, and the corpus has a thief going from "seriously injured" back to
-/// "superficially injured" mid-fight. The reading to show is always the LATEST one, never the worst
-/// seen.</para>
+/// <para><b>What this ladder is not.</b> It is not a health percentage and must never be drawn as one:
+/// seven words cannot resolve a pool that runs from 1 (a firefly) to 800 (the dragon), and rung 2 on a
+/// 25-stamina rat is a different amount of trouble than rung 2 on a 100-stamina rat0. Nor is it a
+/// ratchet - creatures regenerate. A zombie in the corpus oscillates between "strong" and
+/// "superficially damaged" four times in one fight, and another climbs from "moderately damaged" back
+/// to "minor damage". Every observed improvement is exactly one rung, but they happen, so the reading
+/// to show is always the LATEST one, never the worst seen.</para>
 /// </summary>
 public static class NpcHealthRungs
 {

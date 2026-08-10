@@ -90,19 +90,19 @@ public sealed class NpcHealthTrackingTests
         Assert.NotNull(rat1.HealthReadUtc);
     }
 
-    /// <summary>Creatures regenerate: the corpus has a thief climbing back from "seriously injured" to
-    /// "superficially injured" mid-fight. The panel must report the LATEST reading - latching to the
-    /// worst seen would keep promising a kill that is no longer one swing away.</summary>
+    /// <summary>Creatures regenerate: the corpus has a zombie oscillating between "strong" and
+    /// "superficially damaged" four times inside one fight. The panel must report the LATEST reading -
+    /// latching to the worst seen would keep promising a kill that is no longer one swing away.</summary>
     [Fact]
     public void Accumulator_ReportsTheLatestReadingNotTheWorst()
     {
-        var fight = new FightAccumulator("thief", T0, weaponAtStart: null);
+        var fight = new FightAccumulator("zombie2", T0, weaponAtStart: null);
 
-        fight.NoteHealth(3, "seriously injured", T0);
-        fight.NoteHealth(6, "superficially injured", T0.AddSeconds(20));
+        fight.NoteHealth(6, "superficially damaged", T0);
+        fight.NoteHealth(7, "strong", T0.AddSeconds(20));
 
-        Assert.Equal(6, fight.HealthRung);
-        Assert.Equal("superficially injured", fight.HealthPhrase);
+        Assert.Equal(7, fight.HealthRung);
+        Assert.Equal("strong", fight.HealthPhrase);
         Assert.Equal(T0.AddSeconds(20), fight.HealthReadUtc);
     }
 

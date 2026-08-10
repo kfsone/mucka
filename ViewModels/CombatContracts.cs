@@ -206,9 +206,12 @@ public sealed record CombatLiveView(
     IReadOnlyList<CombatMeasure> Measures,
     // Kill progress against the current target: damage dealt this fight over the empirically
     // estimated stamina pool for its kind (FightHistorySummary.EstimatedStaminaPool, which only
-    // counts fights that ended in a kill). Both null until a kill is on record for the group -
-    // MUD2 never reports NPC stamina, so there is no other route to "how close is this thing to
-    // dropping", and it is worth drawing precisely because it was previously unanswerable.
+    // counts fights that ended in a kill). Both null until a kill is on record for the group.
+    //
+    // The estimate is not the only route to that pool, despite what this comment used to claim:
+    // MUD2 never reports NPC stamina over the wire, but every creature's stamina is published
+    // (tools/combat/bestiary.tsv) and agrees closely with what we measure. Swapping the estimate for
+    // a lookup is an open scope decision - see tools/combat/MUD2-PUBLISHED-MECHANICS.md section 10.
     double? TargetDamageDone,
     double? TargetEstimatedPool,
     // Magic, which the rail draws as a second seal beside stamina. Not a convenience stat:

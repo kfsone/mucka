@@ -7,10 +7,15 @@ namespace mudsharp.Tests.Fixtures;
 ///
 /// <para>The ordering assertions here are transcribed from real fights in the capture corpus, not from
 /// intuition, and they exist because intuition got it wrong once already: a hand-written draft placed
-/// "covered in wounds" below "seriously injured", where four independent fights (a ram, a thief, a
-/// dwarf and a rat) show a creature reaching "covered in wounds" first and only later degrading to
-/// "seriously injured". Two rungs of error, in the direction that reads a dying creature as healthier
-/// than it is - so these sequences are the regression that keeps the scale honest.</para>
+/// "covered in wounds" below "seriously injured", where the corpus (counted within reducer-segmented
+/// fights, so a reused instance name cannot splice two fights into one sequence) shows 4 transitions
+/// from "covered in wounds" to "seriously injured" and none the other way. Two rungs of error, in the
+/// direction that reads a dying creature as healthier than it is - so these sequences are the
+/// regression that keeps the scale honest.</para>
+///
+/// <para>No published source covers this. The MUD2 strategy guide gives damage formulas and per-
+/// creature stamina pools and says nothing at all about the wound descriptions - see
+/// tools/combat/MUD2-PUBLISHED-MECHANICS.md.</para>
 /// </summary>
 public sealed class NpcHealthRungTests
 {
@@ -31,8 +36,9 @@ public sealed class NpcHealthRungTests
         Assert.Equal(4, rung);
     }
 
-    /// <summary>Observed in one fight, in this order, as damage accumulated: a ram going from untouched
-    /// to dead. The whole living vocabulary in one sequence.</summary>
+    /// <summary>The living vocabulary, in the order the corpus establishes. One ram's fight supplies
+    /// all of it except the "minor injuries" rung, which comes from the thief and rat fights either
+    /// side of it (superficially -> minor injuries -> covered in wounds, both directions attested).</summary>
     [Fact]
     public void LivingLadder_DescendsInTheOrderTheCorpusShows()
     {

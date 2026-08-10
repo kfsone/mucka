@@ -7,8 +7,9 @@ namespace Mucka.Core;
 /// <summary>
 /// Owns ~/.mucka/clogs/fights.jsonl: the append-only per-fight history index the live HUD contrasts
 /// the current fight against, and the source of the NPC stamina-pool estimates any future
-/// "are you winning" projection will need (MUD2 never reports NPC stamina, so prior kills are the
-/// only route to a pool figure at all — see tools/combat/STATS_DESIGN.md).
+/// "are you winning" projection will need (MUD2 never reports NPC stamina over the wire, so prior
+/// kills are the only route to a pool figure the CLIENT can derive - though the figures themselves are
+/// published, see tools/combat/MUD2-PUBLISHED-MECHANICS.md and tools/combat/STATS_DESIGN.md).
 ///
 /// <para>A flat JSONL file rather than SQLite in the client: no new dependency, no MAUI/Android
 /// packaging question, small enough to hold in memory (one compact line per fight), and

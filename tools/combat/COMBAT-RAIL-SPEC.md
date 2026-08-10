@@ -109,16 +109,24 @@ undead "damaged", banshee "drained"), seven words each, and they line up rung fo
 | 2 | critically injured | critically damaged |
 | 1 | close to death | close to expiry |
 
-`covered in wounds` is rung **4**, not 6 - it is *better* than `seriously injured`. That is
-corpus-verified across four independent fights, and an earlier hand-written draft of this
-table had it backwards by two rungs in the direction that reads a dying creature as
-healthier than it is. Do not "correct" it from intuition.
+`covered in wounds` is rung **4**, not 6 - it is *better* than `seriously injured`. Counted
+within reducer-segmented fights: **62 transitions to a worse rung, 4 to a better one, none
+contradicting this order.** An earlier hand-written draft had it backwards by two rungs, in the
+direction that reads a dying creature as healthier than it is. Do not "correct" it from
+intuition.
 
-The ladder is **not a health percentage** and must never be drawn as one: a rat0 stayed
-`critically injured` from 407 to 560 points of damage. It is also **not a ratchet** -
-creatures regenerate, and a thief in the corpus climbs from `seriously injured` back to
-`superficially injured` mid-fight. Always show the **latest** reading, never the worst seen;
-latching to the worst keeps promising a kill that is no longer one swing away.
+**No published source covers the wound descriptions.** The MUD2 strategy guide documents damage
+formulas, per-creature stamina pools and flee costs and says nothing about them at all - see
+`MUD2-PUBLISHED-MECHANICS.md`. This ladder is the best available reading of observed behaviour,
+not documented fact.
+
+The ladder is **not a health percentage** and must never be drawn as one: seven words cannot
+resolve a pool that runs from 1 (a firefly) to 800 (the dragon), and rung 2 on a 25-stamina rat
+is not the same amount of trouble as rung 2 on a 100-stamina rat0. It is also **not a ratchet** -
+creatures regenerate; a zombie in the corpus oscillates `strong` <-> `superficially damaged`
+four times in one fight. Every observed improvement is exactly one rung, but they happen.
+Always show the **latest** reading, never the worst seen; latching to the worst keeps promising
+a kill that is no longer one swing away.
 
 Staleness: the ladder only updates when you land a hit (player hit rate 0.57). A one-tick
 gap is normal (68% of gaps); fade to **stale at 3 ticks** (6 s), to **unknown at 5** (10 s).

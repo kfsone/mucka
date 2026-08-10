@@ -35,10 +35,17 @@ public sealed record FightHistorySummary
     public double? MedianDamagePerHit { get; init; }
 
     /// <summary>Median total damage dealt across fights that ENDED IN A KILL — an empirical
-    /// estimate of this NPC group's stamina pool, and the only route to one, since MUD2 never
-    /// reports NPC stamina. Null until at least one kill is on record. Non-kills are deliberately
-    /// excluded: a survivor only proves its pool exceeds what we dealt (a censored observation),
-    /// so folding those in biases the estimate low. See STATS_DESIGN.md.</summary>
+    /// estimate of this NPC group's stamina pool. Null until at least one kill is on record.
+    /// Non-kills are deliberately excluded: a survivor only proves its pool exceeds what we dealt
+    /// (a censored observation), so folding those in biases the estimate low. See STATS_DESIGN.md.
+    ///
+    /// <para>This used to be described as "the only route" to an NPC's pool, on the grounds that
+    /// MUD2 never reports NPC stamina. True of the protocol, false of the world: every creature's
+    /// stamina is PUBLISHED (tools/combat/bestiary.tsv, 143 rows), and where the two can be compared
+    /// they agree closely - zombies 40-50 published against a 49.0 median here, water-snakes 90
+    /// against 100.5, rams 100 against 98.5. A lookup would be exact and available on a first
+    /// encounter, where this estimate needs a kill first. Replacing it is an open scope decision, not
+    /// an oversight - see MUD2-PUBLISHED-MECHANICS.md section 10.</para></summary>
     public double? EstimatedStaminaPool { get; init; }
 
     /// <summary>Kills as a fraction of all matching fights, or null with no fights at all.</summary>

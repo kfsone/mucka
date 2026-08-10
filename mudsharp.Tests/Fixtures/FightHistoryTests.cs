@@ -56,9 +56,10 @@ public sealed class FightHistoryTests
     [Fact]
     public void Summarize_EstimatesStaminaPoolFromKillsOnly()
     {
-        // The pool estimate is the only route to an NPC's stamina, since MUD2 never reports it — and
-        // it must ignore non-kills. A survivor only proves its pool EXCEEDS what we dealt (a
-        // censored observation), so folding in a 5-damage withdrawal would bias the estimate down.
+        // The pool estimate is the only route to an NPC's stamina the client can DERIVE (the real
+        // figures are published - see tools/combat/bestiary.tsv - but nothing reports them over the
+        // wire), and it must ignore non-kills. A survivor only proves its pool EXCEEDS what we dealt
+        // (a censored observation), so folding in a 5-damage withdrawal would bias the estimate down.
         var records = new[]
         {
             Fight(outcome: FightOutcome.Killed, damageDone: 30),
