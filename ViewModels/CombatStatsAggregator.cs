@@ -54,7 +54,14 @@ public sealed record FightSnapshot(
     // fight carries its own bounded ring regardless, since the cost is a handful of structs and
     // BuildFightSnapshots already allocates one FightSnapshot per active NPC on every refresh.
     IReadOnlyList<SwingOutcome> RecentYourSwings,
-    IReadOnlyList<SwingOutcome> RecentTheirSwings);
+    IReadOnlyList<SwingOutcome> RecentTheirSwings,
+    // How hurt this creature last looked, on NpcHealthRungs' 1-7 scale, with the game's own wording
+    // and when it was read. MUD2 reports this only on a landed blow, so the timestamp is not
+    // bookkeeping - it is what separates a current reading from a stale one, and the panel must never
+    // draw the two alike. Null throughout until the first descriptor lands.
+    int? HealthRung = null,
+    string? HealthPhrase = null,
+    DateTime? HealthReadUtc = null);
 
 public sealed class CombatStatsAggregator
 {
@@ -199,6 +206,14 @@ public sealed class CombatStatsAggregator
                 }
                 break;
 
+            case CombatEventKind.NpcHealth:
+                // No AddParticipant: CombatTracker only emits this for an NPC already engaged (the
+                // same line appears in room descriptions), so anything reaching here is a participant
+                // already. A fight that has resolved is left alone - a corpse has no health.
+                if (combatEvent.HealthRung is int rung && FightFor(combatEvent) is { IsResolved: false } hurt)
+                    hurt.NoteHealth(rung, combatEvent.HealthPhrase, combatEvent.TimestampUtc);
+                break;
+
             case CombatEventKind.Hit:
                 _youHits++;
                 AddParticipant(combatEvent.NpcName);
@@ -326,7 +341,10 @@ public sealed class CombatStatsAggregator
                 fight.Outcome,
                 fight.IsResolved,
                 fight.RecentYourSwings,
-                fight.RecentTheirSwings));
+                fight.RecentTheirSwings,
+                fight.HealthRung,
+                fight.HealthPhrase,
+                fight.HealthReadUtc));
         }
 
         return result;

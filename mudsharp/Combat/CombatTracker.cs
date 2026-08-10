@@ -302,6 +302,22 @@ public sealed class CombatTracker
             Begin(m.Groups["npc"].Value);
             Emit(timestampUtc, CombatEventKind.NpcWeaponEquip, CombatActor.Npc, m.Groups["npc"].Value, m.Groups["weapon"].Value, null, null, text);
         }
+        else if (NpcHealthRungs.TryParse(text, out var hurtNpc, out var rung, out var phrase))
+        {
+            // Matched last, and deliberately: "The X looks ..." is the most permissive shape in this
+            // whole chain, so every pattern that could share it gets first refusal.
+            //
+            // No Begin(), and reported only for an NPC ALREADY engaged. The identical line appears in
+            // room descriptions, so a wounded creature standing across the room would otherwise open
+            // an encounter against something the player has never touched - and in a permadeath game
+            // a phantom opponent on the panel is worse than a missing one.
+            if (_active.Contains(hurtNpc))
+            {
+                EventOccurred?.Invoke(new CombatEvent(
+                    timestampUtc, CombatEventKind.NpcHealth, CombatActor.Npc, hurtNpc, null, null, null,
+                    text, rung, phrase));
+            }
+        }
     }
 
     /// <summary>Periodic time-only check for the post-kill grace window expiring. Observe() only

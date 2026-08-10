@@ -192,6 +192,15 @@ public sealed class FightHistoryStore : IDisposable
         }
     }
 
+    /// <summary>Whether <paramref name="name"/> is on file as something the player has fought with -
+    /// see <see cref="HistoryIndex.IsKnownWeapon"/> for why that is the client's whole notion of
+    /// "this object is a weapon". Cheap enough to call per carried item on the refresh path.</summary>
+    public bool IsKnownWeapon(string? name)
+    {
+        lock (_lock)
+            return _index.IsKnownWeapon(name);
+    }
+
     /// <summary>Moves the stale-format file aside to "&lt;name&gt;.v{oldVersion}.bak" so a future
     /// Append starts a clean current-format file at the original path, without destroying the old
     /// data outright (the owner authorised deletion, but "prefer renaming aside" per the brief).

@@ -41,6 +41,7 @@ public sealed class CombatRailView : SKCanvasView
     private const float SlotGap = 5f;
     private const float BottomRowHeight = 96f;
     private const float TickRowHeight = 30f;
+    private const float TickTrackHeight = 5f;
     private const float SealSize = 92f;
 
     /// <summary>Upper bound on opponent slots. The measured maximum simultaneously-engaged
@@ -74,6 +75,11 @@ public sealed class CombatRailView : SKCanvasView
 
     private static SKColor Dim(SKColor c, float k)
         => new((byte)(c.Red * k), (byte)(c.Green * k), (byte)(c.Blue * k), c.Alpha);
+
+    /// <summary>How far a live colour is knocked back once the fight is over - enough to read as
+    /// "recorded" at a glance without losing the value's own hue, which is what makes the record
+    /// worth keeping on screen at all.</summary>
+    private const float SpentWash = 0.45f;
 
     /// <summary>
     /// Clio's colorcode() ladder, ported so the stamina seal agrees with the status strip at
@@ -258,10 +264,11 @@ public sealed class CombatRailView : SKCanvasView
     /// </summary>
     private void DrawHealthLadder(SKCanvas canvas, float x, float centerY, RosterRow row)
     {
-        // Until the health-descriptor parser lands, no rung is known: every pip renders in the
-        // dashed "unknown" state. That is deliberate - an unknown reading must never look like
-        // a full or an empty one.
-        var rung = HealthRungOf(row);
+        // Three states, and the third is not optional: lit, unlit, and "no idea". A reading the game
+        // has never given, or has not refreshed in five ticks, renders as dashed outlines - never as a
+        // full ladder and never as an empty one, because either of those is a confident claim.
+        var rung = row.UsableHealthRung;
+        var lit = row.IsHealthStale ? PipStale : PipLive;
 
         var top = centerY - (PipHeight / 2f);
         for (var i = 0; i < PipCount; i++)
@@ -276,24 +283,25 @@ public sealed class CombatRailView : SKCanvasView
                 continue;
             }
 
-            var lit = i < rung.Value;
-            _fill.Color = lit ? PipLive : PipEmptyFill;
+            var on = i < rung.Value;
+            _fill.Color = on ? lit : PipEmptyFill;
             canvas.DrawRoundRect(px, top, PipWidth, PipHeight, 2f, 2f, _fill);
-            if (!lit)
+            if (!on)
             {
                 _stroke.Color = PipEmptyEdge;
                 canvas.DrawRoundRect(px, top, PipWidth, PipHeight, 2f, 2f, _stroke);
             }
         }
 
-        var phrase = HealthPhraseOf(row);
-        if (string.IsNullOrEmpty(phrase))
+        if (rung is null || row.HealthPhrase is not { Length: > 0 } raw)
             return;
+
+        var phrase = NpcHealthRungs.Label(raw);
 
         // Overlaid, centred on the ladder. The pips are shorter than the text and read behind
         // and around it.
         var ladderWidth = (PipCount * PipWidth) + ((PipCount - 1) * PipGap);
-        _text.Color = InkBright;
+        _text.Color = row.IsHealthStale ? Ink : InkBright;
         canvas.DrawText(phrase, x + (ladderWidth / 2f), centerY + 4f, SKTextAlign.Center,
             _phraseFont, _text);
     }
@@ -313,10 +321,14 @@ public sealed class CombatRailView : SKCanvasView
         canvas.DrawText("+" + hidden.ToString(System.Globalization.CultureInfo.InvariantCulture),
             Pad + 10f, y + 18f, SKTextAlign.Left, _nameFont, _text);
 
-        // Names only, ordered by how much each has actually hurt the player - the ordering the
-        // owner asked for, because "who is doing the damage" is the only question this row can
-        // usefully answer.
-        var names = string.Join(", ", rows.Skip(shown).Select(r => r.Name));
+        // Names only, ordered by how much each has actually hurt the player, worst first - "who is
+        // doing the damage" is the only question a names-only row can usefully answer, and it is not
+        // the same question as "who joined first", which is the order the slots themselves keep (a
+        // slot that reorders itself as damage accrues would have to be re-found on every glance).
+        var names = string.Join(", ", rows
+            .Skip(shown)
+            .OrderByDescending(r => r.DamageTakenFrom)
+            .Select(r => r.Name));
         _text.Color = InkDim;
         canvas.DrawText(Ellipsize(names, Content - 52f, _smallFont), Pad + 42f, y + 18f,
             SKTextAlign.Left, _smallFont, _text);
@@ -329,12 +341,24 @@ public sealed class CombatRailView : SKCanvasView
         }
     }
 
-    /// <summary>Stamina seal, weapon, magic seal - one row, three fixed columns.</summary>
+    /// <summary>
+    /// Stamina seal, weapon, magic seal - one row, three fixed columns.
+    ///
+    /// <para>Out of combat both seals go grey. The numbers are still true (they ride the FES
+    /// heartbeat, and the top status strip keeps showing them in full colour), but a lit alarm
+    /// colour on this panel means "this is what is happening to you in this fight" - leaving the
+    /// seals hot after a fight ends would keep raising an alarm about a fight that is over. They are
+    /// dimmed rather than removed so the row never changes shape.</para>
+    /// </summary>
     private void DrawBottomRow(SKCanvas canvas, float y, CombatLiveView live)
     {
+        // Applied to the seal colours only, never to the pips or the tick - one grammar for
+        // "recorded, not current", in one place.
+        var wash = live.InCombat ? 1f : SpentWash;
+
         DrawSeal(canvas, Pad, y, "STA", live.StaminaCurrent, live.StaminaMax,
             live.StaminaCurrent is int s && live.StaminaMax is int m && m > 0
-                ? RatioColor(s, m)
+                ? Dim(RatioColor(s, m), wash)
                 : InkDim,
             inert: false);
 
@@ -342,7 +366,7 @@ public sealed class CombatRailView : SKCanvasView
         var magInert = magMax <= 0;
         var magColor = magInert
             ? InkDim
-            : live.MagicCurrent is int mc && mc < 20 ? Hostile : Magic;
+            : Dim(live.MagicCurrent is int mc && mc < 20 ? Hostile : Magic, wash);
         DrawSeal(canvas, Pad + Content - SealSize, y, "MAG", live.MagicCurrent, live.MagicMax,
             magColor, magInert);
 
@@ -388,41 +412,64 @@ public sealed class CombatRailView : SKCanvasView
     /// <para>`wield` is per-engagement, not sticky: every fight starts empty-handed until the
     /// player says otherwise, so an unarmed opening is normal and must not raise an alarm. Only
     /// once damage has landed does this go amber, and it never goes straight to red.</para>
+    ///
+    /// <para>That same rule is why the hand state is drawn ONLY while in combat. Between fights the
+    /// client genuinely does not know what is in the player's hands - "UNARMED" out of combat is a
+    /// claim, not an observation, and it was reading as one while the player sat in the tea room.
+    /// Rule 5 of the spec applies: unknown must never render as a measured state, so the column
+    /// stays empty (its space still reserved) until a fight states what is in hand.</para>
     /// </summary>
     private void DrawWeapon(SKCanvas canvas, float x, float y, float width, CombatLiveView live)
     {
         var midY = y + (SealSize / 2f);
 
-        if (live.IsUnarmed)
+        if (live.InCombat)
         {
-            var hurt = live.StaminaCurrent is int sta && live.StaminaMax is int max && max > 0 && sta < max;
-            var tone = hurt ? Caution : InkDim;
-            DrawOpenHand(canvas, x + 2f, midY - 16f, tone);
-            _text.Color = tone;
-            canvas.DrawText("UNARMED", x + 20f, midY - 8f, SKTextAlign.Left, _weaponFont, _text);
-        }
-        else if (!string.IsNullOrEmpty(live.WeaponText))
-        {
-            DrawSword(canvas, x + 2f, midY - 16f, Ink);
-            _text.Color = Ink;
-            canvas.DrawText(Ellipsize(live.WeaponText, width - 22f, _weaponFont), x + 20f, midY - 8f,
-                SKTextAlign.Left, _weaponFont, _text);
-        }
+            if (live.IsUnarmed)
+            {
+                var hurt = live.StaminaCurrent is int sta && live.StaminaMax is int max && max > 0 && sta < max;
+                var tone = hurt ? Caution : InkDim;
+                DrawOpenHand(canvas, x + 2f, midY - 16f, tone);
+                _text.Color = tone;
+                canvas.DrawText("UNARMED", x + 20f, midY - 8f, SKTextAlign.Left, _weaponFont, _text);
+            }
+            else if (!string.IsNullOrEmpty(live.WeaponText))
+            {
+                DrawSword(canvas, x + 2f, midY - 16f, Ink);
+                _text.Color = Ink;
+                canvas.DrawText(Ellipsize(live.WeaponText, width - 22f, _weaponFont), x + 20f, midY - 8f,
+                    SKTextAlign.Left, _weaponFont, _text);
+            }
 
-        if (live.CurrentTargetNpcWeapon is { Length: > 0 } npcWeapon)
-        {
-            _text.Color = Hostile;
-            canvas.DrawText(Ellipsize("they: " + npcWeapon, width, _smallFont), x, midY + 10f,
-                SKTextAlign.Left, _smallFont, _text);
+            if (live.CurrentTargetNpcWeapon is { Length: > 0 } npcWeapon)
+            {
+                _text.Color = Hostile;
+                canvas.DrawText(Ellipsize("they: " + npcWeapon, width, _smallFont), x, midY + 10f,
+                    SKTextAlign.Left, _smallFont, _text);
+            }
         }
 
         // Alternate weapon: hotkey chip left, name right-aligned. Ctrl+W, consistent with the
-        // client's other combat bindings; the handler must mark the event handled so it never
+        // client's other combat bindings; the accelerator marks the event handled so it never
         // reaches a default close-window action.
+        //
+        // Drawn only when there IS something to switch to. The chip is the key's only advertisement,
+        // so showing it with no candidate would advertise a dead key - and the candidate list is
+        // empty exactly when nothing carried is on file as a weapon, which includes every moment
+        // outside a fight. Its position is fixed either way, so lighting up mid-fight displaces
+        // nothing (spec rule 3).
+        if (live.AltWeapon is not { Length: > 0 } alt)
+            return;
+
+        const float chipWidth = 36f;
         _stroke.Color = Rule;
-        canvas.DrawRoundRect(x, midY + 18f, 34f, 13f, 3f, 3f, _stroke);
+        canvas.DrawRoundRect(x, midY + 18f, chipWidth, 13f, 3f, 3f, _stroke);
         _text.Color = InkDim;
-        canvas.DrawText("Ctrl+W", x + 17f, midY + 27.5f, SKTextAlign.Center, _tinyFont, _text);
+        canvas.DrawText("Ctrl+W", x + (chipWidth / 2f), midY + 27.5f, SKTextAlign.Center, _tinyFont, _text);
+
+        _text.Color = Ink;
+        canvas.DrawText(Ellipsize(CombatComposition.DisplayName(alt), width - chipWidth - 6f, _smallFont),
+            x + width, midY + 27.5f, SKTextAlign.Right, _smallFont, _text);
     }
 
     /// <summary>
@@ -432,21 +479,41 @@ public sealed class CombatRailView : SKCanvasView
     /// </summary>
     private void DrawTickRow(SKCanvas canvas, float y, CombatLiveView live)
     {
-        var trackY = y + (TickRowHeight / 2f) - 2.5f;
-        var sta = live.StaminaCurrent;
-
-        _fill.Color = new SKColor(0xff, 0xff, 0xff, 0x10);
-        canvas.DrawRoundRect(Pad, trackY, Content, 5f, 3f, 3f, _fill);
-
-        _fill.Color = sta is int s && s <= 30
-            ? Hostile.WithAlpha(0xC0)
-            : PipLive.WithAlpha(0x52);
-        canvas.DrawRoundRect(Pad, trackY, Content * 0.4f, 5f, 3f, 3f, _fill);
-
-        if (!live.HasEncounter)
+        // The whole row is a fight instrument, so it exists only during a fight. A tick still
+        // running in the tea room reads as a fight that never ended, and the opponent count over it
+        // would be counting corpses.
+        if (!live.InCombat)
             return;
 
+        // Only the empty track is drawn here. The moving fill inside it is a Composition-driven
+        // sibling behind this canvas (TickSweep) - see that class for why the UI thread must never
+        // be the thing animating a 2-second progress bar.
+        _fill.Color = new SKColor(0xff, 0xff, 0xff, 0x10);
+        canvas.DrawRoundRect(Pad, TrackTopIn(y), Content, TickTrackHeight, 3f, 3f, _fill);
+
         DrawEncounterGauge(canvas, y, live.Roster.LiveCount);
+    }
+
+    /// <summary>The tick track's top edge within its row. Shared with <see cref="TickTrackDp"/>, so
+    /// the Composition sweep cannot drift off the track the canvas draws.</summary>
+    private static float TrackTopIn(float rowTop)
+        => rowTop + (TickRowHeight / 2f) - (TickTrackHeight / 2f);
+
+    /// <summary>
+    /// Where the tick track sits, in device-independent units, for a rail rendered at
+    /// <paramref name="panelWidthDp"/> wide - the geometry the Composition sweep behind this canvas
+    /// has to match exactly.
+    ///
+    /// <para>The rail lays itself out in a fixed 336-unit coordinate space and scales that space to
+    /// whatever width it is given (see OnPaintSurface), so a sibling element positioned in real dp
+    /// has to have the same scale factor applied to it. Exposing it from here rather than restating
+    /// the numbers in XAML is deliberate: two copies of this arithmetic would silently disagree the
+    /// first time the row's height or padding changed.</para>
+    /// </summary>
+    public static (double Inset, double Bottom, double Height) TickTrackDp(double panelWidthDp)
+    {
+        var k = panelWidthDp / RailWidth;
+        return (Pad * k, (Pad + (TickRowHeight / 2f) - (TickTrackHeight / 2f)) * k, TickTrackHeight * k);
     }
 
     /// <summary>
@@ -529,15 +596,6 @@ public sealed class CombatRailView : SKCanvasView
     }
 
     // ---- Helpers ---------------------------------------------------------------------------
-
-    /// <summary>The creature's health rung, 1..7, or null when nothing has been observed yet.
-    /// Wired to null until the health-descriptor parser lands; an unknown reading renders as
-    /// dashed pips, which must never look like a full or an empty ladder.</summary>
-    private static int? HealthRungOf(RosterRow row) => null;
-
-    /// <summary>The game's own wording for this creature's condition, verbatim. Empty until the
-    /// descriptor parser lands.</summary>
-    private static string HealthPhraseOf(RosterRow row) => string.Empty;
 
     private static string OutcomeWord(FightOutcome outcome) => outcome switch
     {

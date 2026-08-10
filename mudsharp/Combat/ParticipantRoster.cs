@@ -8,7 +8,23 @@ namespace MudSharp.Combat;
 /// primitive-typed, and directly testable, matching <see cref="CombatTierResolver"/>/
 /// <see cref="FleeCostLadder"/>/<see cref="CombatWhyLine"/>'s own pattern in this same folder.
 /// </summary>
-public readonly record struct ParticipantFact(string Name, bool IsResolved, FightOutcome Outcome);
+/// <param name="HealthRung">How hurt it last looked, 1 (about to die) to 7 (unhurt), or null if the
+/// game has never said. See <see cref="NpcHealthRungs"/>.</param>
+/// <param name="HealthPhrase">The game's own wording for that reading, for echoing verbatim.</param>
+/// <param name="HealthAgeSeconds">How old the reading is. MUD2 only reports health on a landed blow
+/// and the player lands 57% of swings, so a reading with no age attached cannot be told apart from a
+/// current one - and the panel is required never to draw an unknown as a measurement.</param>
+/// <param name="DamageTakenFrom">Damage this participant has dealt the player this encounter. Orders
+/// the overflow row: with more opponents than slots, "who is actually hurting me" is the only question
+/// a names-only row can usefully answer.</param>
+public readonly record struct ParticipantFact(
+    string Name,
+    bool IsResolved,
+    FightOutcome Outcome,
+    int? HealthRung = null,
+    string? HealthPhrase = null,
+    double? HealthAgeSeconds = null,
+    double DamageTakenFrom = 0);
 
 /// <summary>
 /// One row of the opposition list as actually drawn. <see cref="IsCurrentTarget"/> marks the ONE live
@@ -16,7 +32,38 @@ public readonly record struct ParticipantFact(string Name, bool IsResolved, Figh
 /// <see cref="CombatOutlook"/>'s projection describes - so the render surface can make it draw the eye
 /// distinctly from a live NPC merely still standing elsewhere in the pack.
 /// </summary>
-public readonly record struct RosterRow(string Name, bool IsLive, bool IsCurrentTarget, FightOutcome Outcome);
+public readonly record struct RosterRow(
+    string Name,
+    bool IsLive,
+    bool IsCurrentTarget,
+    FightOutcome Outcome,
+    int? HealthRung = null,
+    string? HealthPhrase = null,
+    double? HealthAgeSeconds = null,
+    double DamageTakenFrom = 0)
+{
+    /// <summary>Age past which a reading is drawn as faded rather than current: three combat ticks.
+    /// One missed tick is ordinary (68% of gaps in the corpus are a single tick), so fading any sooner
+    /// would have the ladder flickering through every normal fight.</summary>
+    public const double StaleAfterSeconds = 6.0;
+
+    /// <summary>Age past which a reading is discarded and the ladder reads "unknown": five ticks. By
+    /// then 98% of real miss-streaks have ended, so silence this long means the reading is no longer
+    /// evidence about anything.</summary>
+    public const double UnknownAfterSeconds = 10.0;
+
+    /// <summary>The rung to draw, or null for "no idea" - either never reported or too old to still
+    /// mean anything. Kept here rather than in the renderer so the whole staleness policy is one
+    /// testable rule instead of two thresholds buried in a paint method.</summary>
+    public int? UsableHealthRung
+        => HealthRung is int rung && !(HealthAgeSeconds is double age && age >= UnknownAfterSeconds)
+            ? rung
+            : null;
+
+    /// <summary>True when there IS a usable reading but it is old enough to show as faded.</summary>
+    public bool IsHealthStale
+        => UsableHealthRung is not null && HealthAgeSeconds is double age && age >= StaleAfterSeconds;
+}
 
 /// <summary>
 /// The whole opposition readout for one encounter: a capped, ordered row list PLUS the counts a
@@ -55,11 +102,11 @@ public readonly record struct RosterPlan(
 /// </summary>
 public static class ParticipantRoster
 {
-    /// <summary>Row cap - mirrors <c>CombatHistoryFormatter.MaxParticipantRows</c> exactly (same
-    /// reasoning: nobody reads eleven names mid-swing, and each row is its own draw call the render
-    /// surface bounds by a fixed count regardless of pack size - DESIGN_FINAL.md section 7's
-    /// performance contract).</summary>
-    public const int MaxRows = 5;
+    /// <summary>Row cap. Bounds the draw-call count regardless of pack size (the performance contract
+    /// in DESIGN_FINAL.md section 7), and sits at the rail's own maximum slot count so the renderer's
+    /// height-derived capacity is what actually decides how many rows appear - a lower cap here would
+    /// silently overrule a tall window and hide opponents that had room to be drawn.</summary>
+    public const int MaxRows = 8;
 
     /// <summary>
     /// Live participants first (in their original first-engaged order), then resolved ones, capped at
@@ -89,7 +136,9 @@ public static class ParticipantRoster
         for (var i = 0; i < shownCount; i++)
         {
             var fact = ordered[i];
-            rows.Add(new RosterRow(fact.Name, !fact.IsResolved, IsCurrentTarget: i == 0 && !fact.IsResolved, fact.Outcome));
+            rows.Add(new RosterRow(
+                fact.Name, !fact.IsResolved, IsCurrentTarget: i == 0 && !fact.IsResolved, fact.Outcome,
+                fact.HealthRung, fact.HealthPhrase, fact.HealthAgeSeconds, fact.DamageTakenFrom));
         }
 
         var hiddenCount = ordered.Count - shownCount;

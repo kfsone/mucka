@@ -256,6 +256,10 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     // its own MAUI-independent class (CombatHistoryCache) so the self-comparison-exclusion invariant
     // is unit-testable - see that class's remarks for the full reasoning.
     private readonly CombatHistoryCache _historyCache = new();
+    // Cached once so the per-carried-item weapon test costs no allocation on the refresh path. Reads
+    // _fightHistory through the closure rather than capturing it, so attaching the store later (as
+    // startup does) is picked up without rebuilding the delegate.
+    private readonly Func<string, bool> _isKnownWeapon;
 
     public bool InCombat   => _inCombat;
     public bool IsClogging => _isClogging;
@@ -509,13 +513,26 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         // Roster/weapon/duration context is worth showing whenever an encounter exists at all, live
         // or just-finished - mirrors CombatComposition.Build's own AppendHeadline/AppendParticipants,
         // which never gated on InCombat either (2.4/3.7's post-combat wireframe still names the target).
-        var roster = ParticipantRoster.Build(ToParticipantFacts(snapshot.Fights));
+        var roster = ParticipantRoster.Build(ToParticipantFacts(snapshot.Fights, nowUtc));
         var hasWeapon = !string.IsNullOrWhiteSpace(snapshot.CurrentWeapon);
         var weaponText = hasWeapon ? CombatComposition.DisplayName(snapshot.CurrentWeapon) : "UNARMED";
         // The current target's own weapon (owner's standing "NPC weapon use highlighted"
         // requirement) - null once nobody is still live, matching "no current target" everywhere
         // else in this method.
         var currentTargetNpcWeapon = snapshot.Fights.FirstOrDefault(f => !f.IsResolved)?.NpcWeapon;
+        // The Ctrl+W offer, in combat only. MUD2 has no equipment slots and no default weapon: a
+        // weapon is chosen while fighting, or as part of starting a fight ("kill x with y"). There is
+        // nothing a wield could mean between fights, so the offer - and with it the chip advertising
+        // the key - exists only while a fight is live.
+        //
+        // Recomputed on every refresh rather than latched, because the pack changes mid-fight (things
+        // get picked up, weapons break) and a stale offer would send a wield for something no longer
+        // carried - which costs a dropped guard and a free enemy swing. Cheap: one dictionary probe
+        // per carried item over an inventory of a handful.
+        var altWeapon = snapshot.InCombat
+            ? CombatComposition.ChooseAltWeapon(
+                InventoryList, snapshot.CurrentWeapon, history.ByWeapon, _isKnownWeapon)
+            : null;
 
         if (!snapshot.InCombat)
         {
@@ -538,7 +555,8 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
                 // resolved, so a partial "how close was it" bar would be answering nothing.
                 Measures: BuildMeasures(snapshot, history, CombatComposition.PrimaryFight(snapshot)),
                 TargetDamageDone: null, TargetEstimatedPool: null,
-                MagicCurrent: deficits.MagicCurrent, MagicMax: deficits.MagicMax);
+                MagicCurrent: deficits.MagicCurrent, MagicMax: deficits.MagicMax,
+                AltWeapon: altWeapon);
             return;
         }
 
@@ -588,7 +606,8 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             // that kind is on record to estimate the pool from.
             TargetDamageDone: primary is { IsResolved: false } ? primary.ApproxDamageDone : null,
             TargetEstimatedPool: primary is { IsResolved: false } ? history.Primary.EstimatedStaminaPool : null,
-            MagicCurrent: deficits.MagicCurrent, MagicMax: deficits.MagicMax);
+            MagicCurrent: deficits.MagicCurrent, MagicMax: deficits.MagicMax,
+            AltWeapon: altWeapon);
     }
 
     /// <summary>
@@ -635,11 +654,23 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     /// facts <see cref="ParticipantRoster.Build"/> needs - that class lives in mudsharp (no MAUI
     /// dependency, directly unit-testable), so it cannot reference <see cref="FightSnapshot"/>
     /// itself.</summary>
-    private static IReadOnlyList<ParticipantFact> ToParticipantFacts(IReadOnlyList<FightSnapshot> fights)
+    private static IReadOnlyList<ParticipantFact> ToParticipantFacts(
+        IReadOnlyList<FightSnapshot> fights, DateTime nowUtc)
     {
         var facts = new ParticipantFact[fights.Count];
         for (var i = 0; i < fights.Count; i++)
-            facts[i] = new ParticipantFact(fights[i].NpcName, fights[i].IsResolved, fights[i].Outcome);
+        {
+            var fight = fights[i];
+            // Age is resolved to seconds here, at the one point that knows what "now" is, so nothing
+            // downstream has to be handed a clock. Negative ages (a reading timestamped marginally
+            // ahead of this refresh) clamp to zero rather than reading as fresher than fresh.
+            double? healthAge = fight.HealthReadUtc is DateTime read
+                ? Math.Max(0.0, (nowUtc - read).TotalSeconds)
+                : null;
+            facts[i] = new ParticipantFact(
+                fight.NpcName, fight.IsResolved, fight.Outcome,
+                fight.HealthRung, fight.HealthPhrase, healthAge, fight.ApproxDamageTaken);
+        }
         return facts;
     }
 
@@ -948,6 +979,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
 
     public SidePanelViewModel()
     {
+        _isKnownWeapon = name => _fightHistory?.IsKnownWeapon(name) ?? false;
         TogglePanelCommand = new Command(() => { IsPanelExpanded = !IsPanelExpanded; RequestFocus?.Invoke(); });
         ShowAboutCommand  = new Command(() => IsAboutVisible = true);
         CloseAboutCommand = new Command(() => { IsAboutVisible = false; RequestFocus?.Invoke(); });

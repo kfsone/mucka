@@ -83,6 +83,25 @@ public sealed class FightAccumulator
     /// "how long ago did this NPC arm itself", not just "is it armed".</summary>
     public DateTime? NpcWeaponEquippedUtc { get; private set; }
 
+    /// <summary>The NPC's health rung as last reported by the game, 1 (about to die) to 7 (unhurt), or
+    /// null while nothing has been reported yet. See <see cref="NpcHealthRungs"/>.
+    ///
+    /// <para>Latest reading, never the worst seen: creatures regenerate, and the corpus has a thief
+    /// climbing from "seriously injured" back to "superficially injured" mid-fight. Latching to the
+    /// worst would keep telling the player a target was nearly dead long after it had healed - the
+    /// exact "one more hit will do it" gamble that costs characters.</para></summary>
+    public int? HealthRung { get; private set; }
+
+    /// <summary>The descriptor as the game worded it ("covered in wounds"), so the panel can echo the
+    /// player's own scroll rather than paraphrase it. Null until first reported.</summary>
+    public string? HealthPhrase { get; private set; }
+
+    /// <summary>When the health reading landed. The ladder only updates on a landed blow and the
+    /// player's hit rate is 0.57, so age is what separates "this is current" from "this is what it
+    /// looked like four swings ago" - and an unknown reading must never be drawn as a measured
+    /// one.</summary>
+    public DateTime? HealthReadUtc { get; private set; }
+
     public int YouHits { get; private set; }
     public int YouMisses { get; private set; }
     public int TheyHits { get; private set; }
@@ -138,6 +157,15 @@ public sealed class FightAccumulator
     }
 
     public void NoteWeaponBroke() => WeaponUsed = null;
+
+    /// <summary>Records a health-descriptor reading for this NPC. Always overwrites - see
+    /// <see cref="HealthRung"/> on why the latest reading wins over the worst.</summary>
+    public void NoteHealth(int rung, string? phrase, DateTime timestampUtc)
+    {
+        HealthRung = rung;
+        HealthPhrase = phrase;
+        HealthReadUtc = timestampUtc;
+    }
 
     /// <summary>Folds in one more player-stamina reading. Callers broadcast this to every
     /// UNRESOLVED fight on every stats update (mirroring the existing WeaponEquip broadcast) -

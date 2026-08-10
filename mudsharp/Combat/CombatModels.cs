@@ -55,6 +55,15 @@ public enum CombatEventKind
     WeaponBroke,
     /// <summary>"Your guard drops..." (weapon switch or post-break confusion) — no C1 wrapper observed.</summary>
     DroppedGuard,
+    /// <summary>"The X looks seriously injured." - how hurt a creature is, in the game's own words
+    /// and the only report of it MUD2 ever gives. Printed on the line after a landed blow, so it goes
+    /// stale between hits (see NpcHealthRungs, which owns the words-to-rung mapping and the reasons
+    /// the mapping is what it is).
+    ///
+    /// <para>Unlike every other kind here, this one must NOT start a fight: the same line appears in
+    /// room descriptions, so a wounded creature standing across the room would otherwise register as
+    /// an opponent.</para></summary>
+    NpcHealth,
     /// <summary>"You cannot use the X to fight now!" - the wield refusal. Fires both when the weapon
     /// has just broken and when MUD2 refuses the wield outright because effective strength (itself
     /// reduced by carried weight, and per the owner by low stamina) is below the hidden threshold
@@ -76,4 +85,9 @@ public sealed record CombatEvent(
     string? Weapon,
     int? RangeLow,
     int? RangeHigh,
-    string RawText);
+    string RawText,
+    // Only set on NpcHealth: the creature's rung on NpcHealthRungs' scale, 1 (about to die) to 7
+    // (unhurt), plus the descriptor as the game worded it so the panel can echo the player's own
+    // scroll back at them rather than paraphrasing it.
+    int? HealthRung = null,
+    string? HealthPhrase = null);

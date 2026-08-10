@@ -1725,6 +1725,33 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         RequestFocus?.Invoke();
     }
 
+    /// <summary>
+    /// Send <c>wield &lt;alternate weapon&gt;</c> (Ctrl+W) - the Combat Rail's alt-weapon chip made
+    /// into one keystroke, because composing this command by hand mid-fight means naming an item
+    /// exactly while under a two-second tick.
+    ///
+    /// <para>A no-op with nothing to switch to, which is also when the rail draws no chip: MUD2 has
+    /// no equipment slots and no default weapon, so the offer only exists during a fight, and firing
+    /// a speculative wield is not free - switching weapons drops your guard and awards the opponent
+    /// a swing. Only the item's final token is sent (see
+    /// <see cref="CombatComposition.CommandNoun"/>); the game does not want the descriptive
+    /// words.</para>
+    /// </summary>
+    public void WieldAlternateWeapon()
+    {
+        var noun = CombatComposition.CommandNoun(SidePanel.Live.AltWeapon);
+        if (noun.Length == 0)
+        {
+            RequestFocus?.Invoke();
+            return;
+        }
+
+        _conn.Annotate($"alt weapon: wield {noun}");
+        _conn.SendLine($"wield {noun}");
+        _lastSentUtc = DateTime.UtcNow;
+        RequestFocus?.Invoke();
+    }
+
     public void ClearScreen()
     {
         ClearScreenRequested?.Invoke();

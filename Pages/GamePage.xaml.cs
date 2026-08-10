@@ -93,6 +93,15 @@ public partial class GamePage : ContentPage
     // lives in the docked CombatPanelBorder (GamePage.xaml) instead of a second window, so there is
     // nothing here to hold a Window/Page reference for any more.
     private PulseLayer? _combatPanelPulse;
+    private TickSweep? _combatTickSweep;
+    // Last combat state the tick sweep was told about, so the sweep is started/stopped only on a real
+    // transition. SidePanelViewModel.Live changes on every combat event, every FES heartbeat and every
+    // 1 Hz tick; restarting a Composition animation on each of those would yank the bar back to empty
+    // several times a second.
+    private bool _tickSweepRunning;
+    // Same reasoning for the sweep's colour: set only when the band actually changes, since assigning
+    // BoxView.Color rebuilds a native brush.
+    private bool _tickSweepAlarmed;
     private Microsoft.UI.Xaml.Controls.TextBox? _inputTextBox;
     private Microsoft.UI.Xaml.Controls.ScrollViewer? _inputScroller;   // _inputTextBox's inner ScrollViewer
     private Microsoft.UI.Xaml.UIElement? _terminalElement;   // SKXamlCanvas, for wheel scrollback
@@ -292,6 +301,8 @@ public partial class GamePage : ContentPage
                 _vm.SidePanel.PropertyChanged += OnSidePanelPropertyChanged;
                 CombatPanelGlow.HandlerChanged += OnCombatPanelGlowHandlerChanged;
                 OnCombatPanelGlowHandlerChanged(CombatPanelGlow, EventArgs.Empty);
+                CombatTickSweep.HandlerChanged += OnCombatTickSweepHandlerChanged;
+                OnCombatTickSweepHandlerChanged(CombatTickSweep, EventArgs.Empty);
                 SetupWindowMinimumSize();
                 // Size the window once so the terminal view fits ~82 columns + the side panel,
                 // rather than inheriting WinUI's oversized default window width.
@@ -446,12 +457,15 @@ public partial class GamePage : ContentPage
         _vm.CloseClogWindowRequested -= OnCloseClogWindowRequested;
         _vm.SidePanel.PropertyChanged -= OnSidePanelPropertyChanged;
         CombatPanelGlow.HandlerChanged -= OnCombatPanelGlowHandlerChanged;
+        CombatTickSweep.HandlerChanged -= OnCombatTickSweepHandlerChanged;
         // Belt-and-braces alongside PulseLayer's own host.Unloaded hook (see PulseLayer's remarks):
         // stop any running Composition animation before this page's own teardown proceeds, so a
         // torn-down visual can never still have a live animation referencing it (the RO_E_CLOSED
-        // crash class the old ClogPage hit once already).
+        // crash class the old ClogPage hit once already). The tick sweep is the same crash class.
         _combatPanelPulse?.Stop();
         _combatPanelPulse = null;
+        _combatTickSweep?.Stop();
+        _combatTickSweep = null;
         TeardownWindowMinimumSize();
 #if INPUT_DIAG
         StopUiThreadProbe();
@@ -1254,6 +1268,47 @@ public partial class GamePage : ContentPage
             var isCritical = _vm.SidePanel.PulseTier == MudSharp.Combat.CombatTier.T3;
             _combatPanelPulse?.SetTier(isCritical ? PulseTier.T3 : PulseTier.None);
         }
+        else if (e.PropertyName == nameof(SidePanelViewModel.Live))
+        {
+            UpdateCombatTickSweep(_vm.SidePanel.Live);
+        }
+    }
+
+    /// <summary>
+    /// Runs the Combat Rail's tick meter: sweeping while a fight is live, empty and still otherwise.
+    ///
+    /// <para>Gated on an actual transition rather than run on every notification, because
+    /// <c>Live</c> is republished on every combat event, every FES heartbeat and every 1 Hz tick -
+    /// restarting the animation each time would reset the bar to empty several times a second, which
+    /// is exactly the "it doesn't animate" symptom seen from the outside.</para>
+    ///
+    /// <para>The sweep is started at the first refresh of a fight, which is close enough to the
+    /// fight's first swing to stay in phase with MUD2's exactly-2.000s tick for the rest of it - see
+    /// TickSweep's remarks on why that is honest but not yet a prediction.</para>
+    /// </summary>
+    private void UpdateCombatTickSweep(Mucka.ViewModels.CombatLiveView live)
+    {
+        if (_combatTickSweep is null)
+            return;
+
+        if (live.InCombat != _tickSweepRunning)
+        {
+            _tickSweepRunning = live.InCombat;
+            if (live.InCombat)
+                _combatTickSweep.Restart();
+            else
+                _combatTickSweep.Stop();
+        }
+
+        // The spec's only two exceptions to "the tick carries no colour coding": red at 30 stamina
+        // and below. A timer is not a verdict, so nothing else ever recolours it.
+        var alarmed = live.InCombat && live.StaminaCurrent is int sta && sta <= 30;
+        if (alarmed != _tickSweepAlarmed)
+        {
+            _tickSweepAlarmed = alarmed;
+            CombatTickSweep.Color = alarmed ? Color.FromArgb("#E74856") : Colors.White;
+            CombatTickSweep.Opacity = alarmed ? 0.75 : 0.20;
+        }
     }
 
     /// <summary>
@@ -1267,6 +1322,29 @@ public partial class GamePage : ContentPage
     {
         if (CombatPanelGlow.Handler?.PlatformView is Microsoft.UI.Xaml.FrameworkElement fe)
             _combatPanelPulse = PulseLayer.Attach(fe);
+    }
+
+    /// <summary>
+    /// Fires once the tick sweep's native view exists. Sizes the element onto the exact track the
+    /// canvas draws (<see cref="CombatRailView.TickTrackDp"/> owns that arithmetic - the rail lays
+    /// itself out in a fixed 336-unit space scaled to the panel's real width, so a sibling in dp has
+    /// to have the same factor applied), then attaches the Composition animator.
+    /// </summary>
+    private void OnCombatTickSweepHandlerChanged(object? sender, EventArgs e)
+    {
+        var (inset, bottom, height) = CombatRailView.TickTrackDp(CombatPanelWidthDp);
+        CombatTickSweep.Margin = new Thickness(inset, 0, inset, bottom);
+        CombatTickSweep.HeightRequest = height;
+
+        if (CombatTickSweep.Handler?.PlatformView is Microsoft.UI.Xaml.FrameworkElement fe)
+        {
+            _combatTickSweep = TickSweep.Attach(fe);
+            // The handler can appear after a fight has already started (the panel is toggled by
+            // "$clog on", which can happen mid-combat), so adopt the current state rather than
+            // waiting for the next transition.
+            _tickSweepRunning = false;
+            UpdateCombatTickSweep(_vm.SidePanel.Live);
+        }
     }
 
     [System.Runtime.InteropServices.DllImport("user32.dll")]
@@ -1422,6 +1500,10 @@ public partial class GamePage : ContentPage
             () => { if (Terminal.IsHistoryMode) Terminal.ScrollToBottom(); _vm.Flee(); });
         Add(Windows.System.VirtualKey.F, Windows.System.VirtualKeyModifiers.Control | Windows.System.VirtualKeyModifiers.Shift,
             () => { if (Terminal.IsHistoryMode) Terminal.ScrollToBottom(); _vm.FleeThen(); });
+        // Ctrl+W wields the Combat Rail's alternate weapon. Registered as an accelerator like the
+        // rest, so it is marked Handled and never reaches any default close-window behaviour.
+        Add(Windows.System.VirtualKey.W, Windows.System.VirtualKeyModifiers.Control,
+            () => { if (Terminal.IsHistoryMode) Terminal.ScrollToBottom(); _vm.WieldAlternateWeapon(); });
         Add(Windows.System.VirtualKey.Number1, Windows.System.VirtualKeyModifiers.Control,
             () => { if (Terminal.IsHistoryMode) Terminal.ScrollToBottom(); _vm.SendControlAlias(1); });
         Add(Windows.System.VirtualKey.Number2, Windows.System.VirtualKeyModifiers.Control,

@@ -164,6 +164,12 @@ public sealed class ClogWriter : IDisposable
                 weapon = e.Weapon,
                 rangeLow = e.RangeLow,
                 rangeHigh = e.RangeHigh,
+                // NpcHealth only. Written even though `raw` carries the same sentence, because the
+                // rung is the interpretation and it is worth being able to re-read the corpus without
+                // re-deriving it - the health ladder's ordering was itself established from records
+                // like these.
+                healthRung = e.HealthRung,
+                healthPhrase = e.HealthPhrase,
                 raw = e.RawText,
             });
         }

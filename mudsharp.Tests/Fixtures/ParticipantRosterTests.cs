@@ -67,38 +67,44 @@ public sealed class ParticipantRosterTests
     public void Build_TheReportedFourteenRatCase_CountsAndHidesCorrectly()
     {
         // The exact failure case: 5 already dead, 9 more still alive and swinging - the old panel's
-        // "and 9 more" line gave no way to tell which. Cap is 5 rows.
-        var fights = Enumerable.Range(0, 5).Select(i => Dead($"dead{i}"))
-            .Concat(Enumerable.Range(0, 9).Select(i => Live($"live{i}")))
+        // "and 9 more" line gave no way to tell which. Expressed against MaxRows rather than a literal
+        // cap, because the cap has moved once already (5 -> 8, to stop it overruling the rail's own
+        // height-derived slot count) and the distinction under test is not about its value.
+        const int dead = 5;
+        const int live = 9;
+        var fights = Enumerable.Range(0, dead).Select(i => Dead($"dead{i}"))
+            .Concat(Enumerable.Range(0, live).Select(i => Live($"live{i}")))
             .ToArray();
 
         var plan = ParticipantRoster.Build(fights);
 
-        Assert.Equal(9, plan.LiveCount);
-        Assert.Equal(5, plan.ResolvedCount);
-        Assert.Equal(14, plan.TotalCount);
+        Assert.Equal(live, plan.LiveCount);
+        Assert.Equal(dead, plan.ResolvedCount);
+        Assert.Equal(dead + live, plan.TotalCount);
         Assert.Equal(ParticipantRoster.MaxRows, plan.Rows.Count);
-        // All 5 shown rows are live ones (live sorts first) - every single dead rat is hidden.
+        // Every shown row is a live one (live sorts first) - every single dead rat is hidden.
         Assert.All(plan.Rows, r => Assert.True(r.IsLive));
-        Assert.Equal(9, plan.HiddenCount);
-        // Critically: 4 of the hidden ones are STILL LIVE (9 live - 5 shown), not already dead - the
-        // exact distinction the old "and 9 more" line could never make.
-        Assert.Equal(4, plan.HiddenLiveCount);
-        Assert.Equal(5, plan.HiddenResolvedCount);
+        Assert.Equal(dead + live - ParticipantRoster.MaxRows, plan.HiddenCount);
+        // Critically: some of the hidden ones are STILL LIVE, not already dead - the exact distinction
+        // the old "and 9 more" line could never make.
+        Assert.Equal(live - ParticipantRoster.MaxRows, plan.HiddenLiveCount);
+        Assert.Equal(dead, plan.HiddenResolvedCount);
     }
 
     [Fact]
     public void Build_HiddenTailAllResolved_HiddenLiveCountIsZero()
     {
+        const int total = ParticipantRoster.MaxRows + 4;
         var fights = new[] { Live("live0") }
-            .Concat(Enumerable.Range(0, 8).Select(i => Dead($"dead{i}")))
+            .Concat(Enumerable.Range(0, total - 1).Select(i => Dead($"dead{i}")))
             .ToArray();
 
         var plan = ParticipantRoster.Build(fights);
 
-        Assert.Equal(4, plan.HiddenCount);   // 9 total - 5 shown
+        Assert.Equal(total - ParticipantRoster.MaxRows, plan.HiddenCount);
+        // The one live participant sorts first, so it is always shown - the whole hidden tail is dead.
         Assert.Equal(0, plan.HiddenLiveCount);
-        Assert.Equal(4, plan.HiddenResolvedCount);
+        Assert.Equal(total - ParticipantRoster.MaxRows, plan.HiddenResolvedCount);
     }
 
     [Fact]

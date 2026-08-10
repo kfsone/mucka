@@ -221,7 +221,12 @@ public sealed record CombatLiveView(
     // MagicMax is 0 for a character with no magic at all; the seal still renders, greyed and
     // inert, because removing it would move everything else on the row.
     int? MagicCurrent = null,
-    int? MagicMax = null)
+    int? MagicMax = null,
+    // The carried weapon Ctrl+W would switch to, full name as the game reported it (the rail
+    // shortens it for display; GameViewModel.WieldAlternateWeapon reduces it to a typeable noun).
+    // Null whenever nothing in the pack qualifies - which is also what hides the Ctrl+W chip, so
+    // the key is never advertised when it would do nothing. See CombatComposition.ChooseAltWeapon.
+    string? AltWeapon = null)
 {
     public static readonly CombatLiveView Idle = new(
         InCombat: false, HasEncounter: false, WeaponText: string.Empty, IsUnarmed: false,

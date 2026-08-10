@@ -221,4 +221,25 @@ public sealed class HistoryIndexTests
         Assert.Equal(2, summary.Kills);
         Assert.Equal(4, summary.FightCount);
     }
+
+    /// <summary>The alt-weapon offer's entire notion of "this object is a weapon" - see
+    /// <see cref="HistoryIndex.IsKnownWeapon"/>. It must recognise only what has actually been fought
+    /// with, because offering a wield for something that is not a weapon costs a dropped guard and a
+    /// free enemy swing.</summary>
+    [Fact]
+    public void IsKnownWeapon_RecognisesOnlyWeaponsActuallyFoughtWith()
+    {
+        var index = new HistoryIndex();
+        index.Insert(Fight(weapon: "dagger0"));
+        index.Insert(Fight(weapon: null));   // a bare-handed fight
+
+        Assert.True(index.IsKnownWeapon("dagger0"));
+        Assert.True(index.IsKnownWeapon("DAGGER0"));
+        Assert.False(index.IsKnownWeapon("postcard"));
+        // The unarmed bucket's own key must never be reachable as a wieldable name.
+        Assert.False(index.IsKnownWeapon(null));
+        Assert.False(index.IsKnownWeapon(""));
+        Assert.False(index.IsKnownWeapon("   "));
+        Assert.False(index.IsKnownWeapon(FightHistory.NoWeaponKey));
+    }
 }

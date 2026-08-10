@@ -121,6 +121,23 @@ public sealed class HistoryIndex
         return _byWeaponGlobal.TryGetValue(key, out var bucket) ? bucket.ToSummary() : FightHistorySummary.Empty;
     }
 
+    /// <summary>
+    /// Whether this name has EVER been recorded as a weapon the player fought with.
+    ///
+    /// <para>The only weapon vocabulary this client has, and it is earned rather than guessed: MUD2
+    /// never says "this object is a weapon", so the alternate-weapon offer (the rail's Ctrl+W chip)
+    /// decides what in the player's pack is swappable by asking which carried items are already on
+    /// file as having been wielded in a fight. A hand-written noun list would guess, and guessing
+    /// wrong here costs a wield attempt - which in MUD2 drops your guard and hands the opponent a
+    /// free swing.</para>
+    ///
+    /// <para>One dictionary probe, no allocation: this is called once per carried item on the
+    /// combat refresh path (Invariant #1). The unarmed bucket's "" key can never be reached, since
+    /// a blank name is rejected up front.</para>
+    /// </summary>
+    public bool IsKnownWeapon(string? name)
+        => !string.IsNullOrWhiteSpace(name) && _byWeaponGlobal.ContainsKey(name);
+
     private static IncrementalFightBucket GetOrAdd(Dictionary<string, IncrementalFightBucket> map, string key)
     {
         if (!map.TryGetValue(key, out var bucket))

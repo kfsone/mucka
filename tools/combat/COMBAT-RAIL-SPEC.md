@@ -90,13 +90,43 @@ Thin dashes, never boxes. They are **fixed width and must never stretch to fill*
 creature is hurt, so `close to death` shows one lit pip. This matches the stamina seal
 (both deplete) rather than inverting between two gauges on the same panel.
 
-**The health phrase** (`looks critically injured`) is drawn **overlaid on the pip row**,
-centred, in the terminal's monospace with a shadow for legibility - the pips are shorter
-than the text and read behind and around it. Echoing the game's own wording anchors the
-panel to what the player just read in the scroll.
+**The health phrase** (`critically injured`) is drawn **overlaid on the pip row**, centred, in
+the terminal's monospace with a shadow for legibility - the pips are shorter than the text
+and read behind and around it. Echoing the game's own wording anchors the panel to what the
+player just read in the scroll. The game's grammatical filler is stripped (`to have minor
+injuries` -> `minor injuries`) and nothing else is reworded.
+
+**The scale is measured** - see `NpcHealthRungs`. Three vocabularies (living "injured",
+undead "damaged", banshee "drained"), seven words each, and they line up rung for rung:
+
+| rung | living | undead |
+|---|---|---|
+| 7 | fit | strong |
+| 6 | superficially injured | superficially damaged |
+| 5 | minor injuries | minor damage |
+| 4 | covered in wounds | moderately damaged |
+| 3 | seriously injured | seriously damaged |
+| 2 | critically injured | critically damaged |
+| 1 | close to death | close to expiry |
+
+`covered in wounds` is rung **4**, not 6 - it is *better* than `seriously injured`. That is
+corpus-verified across four independent fights, and an earlier hand-written draft of this
+table had it backwards by two rungs in the direction that reads a dying creature as
+healthier than it is. Do not "correct" it from intuition.
+
+The ladder is **not a health percentage** and must never be drawn as one: a rat0 stayed
+`critically injured` from 407 to 560 points of damage. It is also **not a ratchet** -
+creatures regenerate, and a thief in the corpus climbs from `seriously injured` back to
+`superficially injured` mid-fight. Always show the **latest** reading, never the worst seen;
+latching to the worst keeps promising a kill that is no longer one swing away.
 
 Staleness: the ladder only updates when you land a hit (player hit rate 0.57). A one-tick
-gap is normal (68% of gaps); fade to **stale at 3 ticks**, to **unknown at 5**.
+gap is normal (68% of gaps); fade to **stale at 3 ticks** (6 s), to **unknown at 5** (10 s).
+The unknown state is dashed outlines - never a full ladder and never an empty one, because
+both of those are confident claims.
+
+The same sentence appears in **room descriptions**, so a health reading is accepted only for
+a creature already engaged. A phantom opponent on the panel is worse than a missing one.
 
 Current target: marked by emphasis **within its own slot** (border, brightness) - never by
 size.
@@ -113,15 +143,40 @@ size.
 - **Magic** is purple shading blue (around `#8F84EE`), turning **red below 20**. When
   `maxMag == 0` the seal is **greyed and inert but still present** - removing it would be a
   displacement. Magic reaching 0 costs a quest that can delete the character.
+- **Out of combat both seals go grey** (colour knocked back ~45%, hue kept). The numbers stay
+  true - they ride the FES heartbeat and the top strip still shows them in full colour - but a
+  lit alarm colour *on this panel* means "this is what is happening to you in this fight", so
+  leaving the seals hot after a fight ends keeps alarming about a fight that is over. Dimmed,
+  never removed: the row must not change shape.
 
-**Weapon (centre).**
+**Weapon (centre). In-combat only.**
 - Sword icon + weapon name, or open-hand icon + `UNARMED`. **Never the word "armed"** - the
   weapon name already says it.
-- Below it, the **alternate weapon**: hotkey chip left, name right-aligned. **`Ctrl+W`**
-  (consistent with `Ctrl+F` flee, `Ctrl+E` chase, `Ctrl+G` follow). The handler must mark the
-  key event handled so it never reaches a default close-window action.
-- Hovering the alt-weapon shows a terse comparison. How the alternate is chosen is out of
-  scope for now; assume a sensible comparison exists.
+- **Nothing is drawn here between fights.** MUD2 has no equipment slots and no default weapon:
+  a weapon is chosen while fighting, or as part of starting a fight (`kill x with y`), and
+  `wield` is per-engagement. So out of combat the client does not know what is in the player's
+  hands - `UNARMED` there is a claim, not an observation (it read as one while the player sat
+  in the tea room). Rule 5 applies; the space stays reserved and empty.
+
+**Alternate weapon**, below the weapon: hotkey chip left, name right-aligned. **`Ctrl+W`**
+(consistent with `Ctrl+F` flee, `Ctrl+E` chase, `Ctrl+G` follow). Registered as a keyboard
+accelerator so the event is marked handled and never reaches a default close-window action.
+- Sends `wield <noun>`, where the noun is the item name's final token - MUD2 does not want the
+  descriptive words ("a rusty pick2" -> `wield pick2`).
+- **Drawn only when there is a candidate**, since the chip is the key's only advertisement and
+  advertising a dead key is worse than showing nothing. Its position is fixed, so lighting up
+  mid-fight displaces nothing (rule 3).
+- **Candidates are carried items already on file as having been fought with.** That record is
+  the client's entire weapon vocabulary, and it is earned rather than guessed: MUD2 never says
+  "this object is a weapon", and a wrong wield is not free - switching drops your guard and
+  awards the opponent a swing. Ranked by highest median damage per landed blow *against this
+  creature group* (the axis MUD2's hidden per-creature modifiers appear on); weapons with no
+  record here rank after every weapon that has one, but are still offered. Deliberately not
+  gated on beating what is in hand - the key gets pressed when a weapon has just broken or
+  been refused, and at that moment "worse than what you had" is the only thing to fight with.
+- Recomputed every refresh, never latched: the pack changes mid-fight, and a stale offer would
+  wield something no longer carried.
+- Hovering the alt-weapon shows a terse comparison. (Not yet built.)
 
 **Unarmed timing.** `wield` is **per-engagement, not sticky** - every encounter starts with
 nothing in hand until stated. So an unarmed opening is *normal*: stay calm for the first
@@ -132,6 +187,14 @@ ticks, go amber only **after damage has landed**, and never straight to red.
 - Ember's tick, at the very bottom, **pale and dim** - grey/white, low opacity. It is a
   timer, not a judgement, so **no colour coding and no label**. A small drawn metronome mark
   is permitted; text is not.
+- **It moves.** The bar fills left to right over one tick, empties, refills - MUD2's tick is
+  exactly 2.000 s and phase-locked, so a sweep started at the fight's first swing stays in
+  phase for the rest of the fight without resyncing. The canvas draws the **empty track only**;
+  the fill is a Composition-animated sibling behind it (`TickSweep`), because a 2-second
+  progress bar repainted on the UI thread is the single most typing-hostile thing the panel
+  could contain.
+- **In-combat only.** The whole row - track, fill and opponent count - is absent between
+  fights. A tick still running in the tea room reads as a fight that never ended.
 - Two exceptions only: **red at stamina <= 30**, **glow at stamina <= 20**.
 - The **encounter gauge is drawn over the tick**, sharing its pixels - not above, below or
   beside it.

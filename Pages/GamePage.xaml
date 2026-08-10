@@ -1126,6 +1126,19 @@
                          Color="#C50F1F"
                          Opacity="0"
                          InputTransparent="True"/>
+                <!-- The tick meter's moving fill, also behind the canvas and also driven purely by
+                     Composition (TickSweep, GamePage.xaml.cs) - the canvas draws the empty track and
+                     the opponent count over it, but never the motion: SKXamlCanvas paints on the UI
+                     thread, and a 2-second progress bar repainted there competes with typing
+                     (Invariant #1). Its bounds are set in code from CombatRailView.TickTrackDp so
+                     the fill and the track it sits in can never drift apart. Rests scaled to zero
+                     width; only ever visible mid-fight. -->
+                <BoxView x:Name="CombatTickSweep"
+                         Color="#FFFFFF"
+                         Opacity="0.20"
+                         HorizontalOptions="Fill"
+                         VerticalOptions="End"
+                         InputTransparent="True"/>
                 <!-- The render surface itself: a single SkiaSharp canvas, never a Label/
                      FormattedString (D8) - see CombatPanelCanvasView's own remarks. Read-only: no
                      gesture recognizers, cannot take keyboard focus (Invariant #0). -->

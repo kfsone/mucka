@@ -63,6 +63,83 @@ internal static class CombatComposition
     private static bool IsCurrentWeapon(string weapon, string? current)
         => !string.IsNullOrWhiteSpace(current) && string.Equals(weapon, current, StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// The alternate weapon the rail offers on Ctrl+W: the carried item most worth switching to,
+    /// or null when nothing in the pack qualifies.
+    ///
+    /// <para>Candidates come from the live FEI inventory, narrowed by
+    /// <paramref name="isKnownWeapon"/> to items already on file as having been fought with (see
+    /// <c>HistoryIndex.IsKnownWeapon</c> - the client has no other way to tell a weapon from a
+    /// postcard, and guessing costs a dropped guard). The one in hand is excluded, since offering to
+    /// swap to what you are already holding is noise.</para>
+    ///
+    /// <para>Ranking is by this NPC group's own record: highest median damage per landed blow first,
+    /// which is the axis MUD2's hidden per-creature weapon modifiers show up on (dagger0 kills
+    /// zombies in 2.3 hits where axe0 needs 5.0). Weapons with no record against THIS group rank
+    /// after every weapon that has one, in inventory order - they are still real offers, just
+    /// unevidenced ones. Deliberately NOT gated on beating the weapon in hand: the player asks for
+    /// this key when their weapon has broken or been refused, and at that moment "worse than what
+    /// you had" is still the only thing to fight with.</para>
+    ///
+    /// <para>Out of combat <paramref name="byWeapon"/> is empty (there is no group to score
+    /// against), so the offer falls back to inventory order over known weapons.</para>
+    /// </summary>
+    internal static string? ChooseAltWeapon(
+        IReadOnlyList<string> carried,
+        string? currentWeapon,
+        IReadOnlyList<WeaponHistorySummary> byWeapon,
+        Func<string, bool> isKnownWeapon)
+    {
+        string? best = null;
+        double? bestPerHit = null;
+
+        foreach (var item in carried)
+        {
+            if (string.IsNullOrWhiteSpace(item) || IsCurrentWeapon(item, currentWeapon))
+                continue;
+            if (!isKnownWeapon(item))
+                continue;
+
+            double? perHit = null;
+            foreach (var entry in byWeapon)
+            {
+                if (!string.Equals(entry.Weapon, item, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                perHit = entry.Summary.MedianDamagePerHit;
+                break;
+            }
+
+            // First qualifying item wins by default; after that only a strictly better evidenced
+            // per-hit figure displaces it, so unevidenced candidates never outrank evidenced ones
+            // and ties resolve to inventory order.
+            if (best is null || (perHit is double rate && (bestPerHit is not double top || rate > top)))
+            {
+                best = item;
+                bestPerHit = perHit;
+            }
+        }
+
+        return best;
+    }
+
+    /// <summary>
+    /// The typeable noun for an item name - what goes after <c>wield</c>.
+    ///
+    /// <para>MUD2 item names may arrive with descriptive words in front ("a rusty pick2"), and only
+    /// the final token identifies the object to the parser. Distinct from
+    /// <see cref="DisplayName"/>, which shortens for a fixed-width column and deliberately leaves
+    /// short names alone - a display rule must never decide what gets typed at the game.</para>
+    /// </summary>
+    internal static string CommandNoun(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return string.Empty;
+
+        var trimmed = name.Trim();
+        var lastSpace = trimmed.LastIndexOf(' ');
+        return lastSpace < 0 || lastSpace == trimmed.Length - 1 ? trimmed : trimmed[(lastSpace + 1)..];
+    }
+
     /// <summary>The fight the comparison describes: the first still-unresolved one, falling back to
     /// the first of the encounter so the block survives the post-kill grace window.</summary>
     internal static FightSnapshot? PrimaryFight(CombatEncounterSnapshot snapshot)
