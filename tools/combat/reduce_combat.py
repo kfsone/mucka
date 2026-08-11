@@ -1222,6 +1222,7 @@ class Reducer:
         session = self.open_session
         if session is None:
             return
+        synthetic_id = end_event_id is None
         placeholder = RawEvent(
             id=end_event_id or stable_id(session.capture_id, timestamp_ms, reason, detail),
             capture_id=session.capture_id,
@@ -1240,8 +1241,13 @@ class Reducer:
             record_json="[]",
             is_client_probe=0,
         )
+        # Same foreign-key rule as _close_at_capture_end: a synthesised id names no real row until we
+        # write one. A caller-supplied end_event_id is already in raw_events and must not be
+        # re-inserted.
+        if synthetic_id:
+            self._insert_raw_event(placeholder)
         self._resolve_all_open_fights(session, placeholder, fight_outcome, detail)
-        session.end_event_id = end_event_id
+        session.end_event_id = end_event_id or placeholder.id
         session.end_timestamp_ms = timestamp_ms
         session.end_reason = reason
         session.end_detail = detail
@@ -1277,7 +1283,15 @@ class Reducer:
                 record_json="[]",
                 is_client_probe=0,
             )
+            # The placeholder has to EXIST as a raw event before anything references it:
+            # combat_fights.end_event_id and combat_sessions.end_event_id are both foreign keys into
+            # raw_events, so finalizing a session against an unwritten placeholder fails the
+            # constraint and takes the whole reduction down. Only captures that stop mid-fight reach
+            # here, which is why this survived every corpus file that ended cleanly and then broke on
+            # the first session recorded through a disconnect.
+            self._insert_raw_event(placeholder)
             self._resolve_all_open_fights(session, placeholder, "pass/unresolved", placeholder.decoded_text)
+            session.end_event_id = session.end_event_id or placeholder.id
             session.end_reason = session.end_reason or "ambiguous-capture-stop"
             session.end_detail = session.end_detail or placeholder.decoded_text
             session.end_timestamp_ms = stop_ts
