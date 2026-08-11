@@ -109,6 +109,9 @@ public partial class GamePage : ContentPage
     // press. MUD2's tick is exactly 2.000s and phase-locked, which is what makes a single anchor
     // hold good for the length of a fight.
     private DateTime _tickPhaseAnchorUtc;
+    // Whether the audible tick is currently running. Tracked separately from the visual sweep because
+    // the two have different run conditions - see UpdateCombatMetronome.
+    private bool _metronomeRunning;
     // Same reasoning for the sweep's colour: set only when the band actually changes, since assigning
     // BoxView.Color rebuilds a native brush.
     private bool _tickSweepAlarmed;
@@ -1293,8 +1296,15 @@ public partial class GamePage : ContentPage
             // Arming mid-fight joins the fight already in progress rather than waiting for the next
             // one - but on the BEAT, from the fight's own anchor, never from the button press.
             _combatMetronome.SetEnabled(_vm.SidePanel.IsCombatMetronomeEnabled);
-            if (_vm.SidePanel.IsCombatMetronomeEnabled && _tickSweepRunning)
-                _combatMetronome.Start(_tickPhaseAnchorUtc);
+            UpdateCombatMetronome();
+        }
+        else if (e.PropertyName is nameof(SidePanelViewModel.IsCombatPanelVisible)
+                                or nameof(SidePanelViewModel.IsCombatGracePeriod))
+        {
+            // Hiding the rail silences the click, and the post-kill grace window is not a fight.
+            // Neither of these raises the Live property, so without watching them directly the
+            // metronome carried on through both.
+            UpdateCombatMetronome();
         }
     }
 
@@ -1312,26 +1322,73 @@ public partial class GamePage : ContentPage
     /// </summary>
     private void UpdateCombatTickSweep(Mucka.ViewModels.CombatLiveView live)
     {
-        if (_combatTickSweep is null)
-            return;
-
-        if (live.InCombat != _tickSweepRunning)
+        // The visual sweep needs its native layer; the metronome does not, so its update sits outside
+        // this guard - the click must not depend on whether a Composition visual happens to exist.
+        if (_combatTickSweep is not null)
         {
-            _tickSweepRunning = live.InCombat;
-            if (live.InCombat)
+            if (live.InCombat != _tickSweepRunning)
             {
-                // One anchor, taken once, shared by both renderings of the tick.
-                _tickPhaseAnchorUtc = DateTime.UtcNow;
-                _combatTickSweep.Restart();
-                _combatMetronome.Start(_tickPhaseAnchorUtc);
+                _tickSweepRunning = live.InCombat;
+                if (live.InCombat)
+                {
+                    // One anchor, taken once, shared by both renderings of the tick.
+                    _tickPhaseAnchorUtc = DateTime.UtcNow;
+                    _combatTickSweep.Restart();
+                }
+                else
+                {
+                    _combatTickSweep.Stop();
+                }
             }
-            else
-            {
-                _combatTickSweep.Stop();
-                _combatMetronome.Stop();
-            }
+
+            UpdateTickSweepColour(live);
         }
 
+        UpdateCombatMetronome();
+    }
+
+    /// <summary>
+    /// Decides whether the audible tick should be running at all. Four conditions, and each one is
+    /// here because leaving it out produced a real complaint:
+    ///
+    /// <list type="bullet">
+    /// <item>armed by the player;</item>
+    /// <item><b>the rail is actually on screen.</b> The metronome's only switch is drawn on the rail,
+    /// so clicking away while the panel is hidden gives the player a noise they cannot see the source
+    /// of and cannot turn off without knowing to type <c>$clog on</c> first;</item>
+    /// <item>a fight is live;</item>
+    /// <item><b>and it is not merely the post-kill grace window.</b> CombatTracker keeps InCombat true
+    /// for several seconds after the last tracked NPC dies, so a pack fight's stragglers can rejoin
+    /// the same encounter. Nothing is swinging during that window, and a metronome that keeps
+    /// counting after the last opponent drops is counting nothing.</item>
+    /// </list>
+    ///
+    /// <para>Deliberately NOT applied to the visual sweep, which keeps running through the grace
+    /// window: the game's tick lattice is still turning, the encounter is genuinely still open, and
+    /// stopping and restarting the bar would break its phase continuity on screen for what may be a
+    /// two-second gap. Silence is the honest representation of "nothing is happening"; a frozen and
+    /// restarted bar is not.</para>
+    /// </summary>
+    private void UpdateCombatMetronome()
+    {
+        var panel = _vm.SidePanel;
+        var shouldRun = panel.IsCombatMetronomeEnabled
+            && panel.IsCombatPanelVisible
+            && panel.Live.InCombat
+            && !panel.IsCombatGracePeriod;
+
+        if (shouldRun == _metronomeRunning)
+            return;
+
+        _metronomeRunning = shouldRun;
+        if (shouldRun)
+            _combatMetronome.Start(_tickPhaseAnchorUtc);
+        else
+            _combatMetronome.Stop();
+    }
+
+    private void UpdateTickSweepColour(Mucka.ViewModels.CombatLiveView live)
+    {
         // The spec's only two exceptions to "the tick carries no colour coding": red at 30 stamina
         // and below. A timer is not a verdict, so nothing else ever recolours it.
         var alarmed = live.InCombat && live.StaminaCurrent is int sta && sta <= 30;
@@ -1407,6 +1464,7 @@ public partial class GamePage : ContentPage
         // raises no PropertyChanged, so the handler that normally carries this across would never
         // run and the click would stay silent until the player toggled it off and on again.
         _combatMetronome.SetEnabled(_vm.SidePanel.IsCombatMetronomeEnabled);
+        UpdateCombatMetronome();
     }
 
     [System.Runtime.InteropServices.DllImport("user32.dll")]

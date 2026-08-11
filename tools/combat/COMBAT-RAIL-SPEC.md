@@ -238,9 +238,22 @@ rather than added beside it, so the row's overall geometry is unchanged.
   being wrong by up to a full tick, which is worse than silence. The high/low alternation is derived
   from the fight's tick COUNT for the same reason - toggling off and on rejoins the pattern rather
   than inverting it.
-- Driven by a **thread-pool timer, never a UI-thread one** (Invariant #1), started and stopped on
-  exactly the same transitions as the visual sweep so the two never drift apart. Master mute wins
-  over the toggle.
+- Driven by a **thread-pool timer, never a UI-thread one** (Invariant #1). Master mute wins over the
+  toggle.
+- **It clicks only when all four hold: armed, the rail is on screen, a fight is live, and the fight
+  is not merely in its post-kill grace window.** Each was a real complaint:
+  - **Rail hidden.** The only switch is drawn on the rail, so clicking away while the panel is
+    hidden gives the player a noise whose source they cannot see and cannot silence without
+    knowing to type `$clog on` first.
+  - **Grace window.** `CombatTracker` holds `InCombat` true for several seconds after the last
+    tracked NPC dies, so a pack fight's stragglers can rejoin the same encounter. Nothing swings in
+    that window, and a metronome counting after the last opponent drops is counting nothing.
+  - Neither of those raises the `Live` property, so both must be watched directly.
+- **The grace rule is deliberately NOT applied to the visual sweep**, which keeps running: the
+  game's tick lattice is still turning, the encounter is genuinely still open, and stopping and
+  restarting the bar would break its phase continuity on screen for what may be a two-second gap.
+  Silence is the honest representation of "nothing is happening"; a bar that freezes and restarts
+  is not.
 - **The canvas takes no input.** The hit target is a separate invisible button laid over the drawn
   switch, with its tab stop cleared, and its click hands focus straight back to the command box.
   Invariant #0 holds by construction rather than by care - the rail itself stays `InputTransparent`
