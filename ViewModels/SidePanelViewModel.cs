@@ -298,16 +298,16 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     public CombatLiveView Live => _live;
 
     /// <summary>
-    /// Whether the combat metronome clicks once per tick. Session-scoped and off by default - it is
-    /// deliberately NOT persisted to mucka.ini yet, so a click that turns out to be maddening in a
-    /// long session cannot follow the player into the next one until they ask for that.
+    /// Whether the combat metronome clicks once per tick. **On by default** - the beat is the point,
+    /// and a feature that has to be found and switched on every session is a feature nobody uses.
+    /// Session-scoped: not yet persisted to mucka.ini, so switching it off lasts only until restart.
     /// </summary>
     public bool IsCombatMetronomeEnabled
     {
         get => _isCombatMetronomeEnabled;
         set => Set(ref _isCombatMetronomeEnabled, value);
     }
-    private bool _isCombatMetronomeEnabled;
+    private bool _isCombatMetronomeEnabled = true;
 
     /// <summary>Toggles the metronome and hands focus straight back to the command box. The
     /// focus hand-back is not optional - Invariant #0 - and is why this is a command on the view

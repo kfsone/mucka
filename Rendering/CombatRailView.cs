@@ -576,7 +576,7 @@ public sealed class CombatRailView : SKCanvasView
     /// <see cref="CombatLiveView"/>: it is a client preference, not something about the fight, and
     /// putting it in the frame state would mean republishing the whole fight to toggle a switch.</summary>
     public static readonly BindableProperty MetronomeEnabledProperty = BindableProperty.Create(
-        nameof(MetronomeEnabled), typeof(bool), typeof(CombatRailView), false,
+        nameof(MetronomeEnabled), typeof(bool), typeof(CombatRailView), true,
         propertyChanged: (b, _, _) => ((CombatRailView)b).InvalidateSurface());
 
     public bool MetronomeEnabled

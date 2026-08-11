@@ -30,7 +30,7 @@ internal sealed class CombatMetronome : IDisposable
 
     private readonly object _gate = new();
     private Timer? _timer;
-    private bool _high;
+    private DateTime _anchorUtc;
     private bool _disposed;
 
     /// <summary>Whether the player has asked for the click at all. Independent of whether a fight is
@@ -50,23 +50,42 @@ internal sealed class CombatMetronome : IDisposable
     }
 
     /// <summary>
-    /// Starts clicking, from now, if the player has it switched on. Idempotent - calling it while
+    /// Starts clicking on the beat, if the player has it switched on. Idempotent - calling it while
     /// already running does nothing, so it can be driven from the same combat-state handler as the
     /// visual sweep without restarting the beat several times a second.
     /// </summary>
-    public void Start()
+    /// <param name="tickAnchorUtc">A known tick boundary - the same instant the visual sweep was
+    /// started from. The first click is delayed to the next boundary measured from here, NOT fired
+    /// immediately, which is the whole point: arming the metronome halfway through a fight must not
+    /// re-anchor the beat to the moment the switch was flipped. A metronome that clicks on the
+    /// player's button press instead of on the game's tick is worse than silence - it would look
+    /// authoritative while being wrong by up to a full tick, and the entire value of this thing is
+    /// that the click coincides with the swing.</param>
+    public void Start(DateTime tickAnchorUtc)
     {
         lock (_gate)
         {
             if (_disposed || !Enabled || _timer is not null)
                 return;
 
-            // The first click fires immediately rather than after a delay: this is started at the
-            // fight's first refresh, so "now" IS the top of a tick, and waiting 2 s would put the
-            // whole sequence a beat behind the fight for as long as it lasts.
-            _high = true;
-            _timer = new Timer(_ => Click(), null, 0, TickMilliseconds);
+            _anchorUtc = tickAnchorUtc;
+            _timer = new Timer(_ => Click(), null, DelayToNextBeat(tickAnchorUtc), TickMilliseconds);
         }
+    }
+
+    /// <summary>Milliseconds until the next tick boundary after <paramref name="anchorUtc"/>. Fires
+    /// straight away when we are already within a hair of a boundary, so arming a moment after a
+    /// swing does not sit out the whole tick that just started.</summary>
+    private static int DelayToNextBeat(DateTime anchorUtc)
+    {
+        const double atBoundaryToleranceMs = 60.0;
+
+        var elapsed = (DateTime.UtcNow - anchorUtc).TotalMilliseconds;
+        var intoTick = elapsed % TickMilliseconds;
+        if (intoTick < 0)
+            intoTick += TickMilliseconds;
+
+        return intoTick <= atBoundaryToleranceMs ? 0 : (int)Math.Round(TickMilliseconds - intoTick);
     }
 
     public void Stop()
@@ -90,8 +109,13 @@ internal sealed class CombatMetronome : IDisposable
         {
             if (_disposed || _timer is null)
                 return;
-            asset = _high ? HighClick : LowClick;
-            _high = !_high;
+
+            // High/low derived from the fight's own tick COUNT rather than a flip-flop field, so the
+            // pattern is a property of the fight and not of when the switch happened to be pressed.
+            // Toggling off and on mid-fight rejoins the same alternation instead of inverting it.
+            var elapsed = (DateTime.UtcNow - _anchorUtc).TotalMilliseconds;
+            var tickIndex = (long)Math.Round(elapsed / TickMilliseconds);
+            asset = tickIndex % 2 == 0 ? HighClick : LowClick;
         }
 
         // Master mute wins over the toggle, matching how every other client-initiated sound in the

@@ -103,6 +103,12 @@ public partial class GamePage : ContentPage
     // 1 Hz tick; restarting a Composition animation on each of those would yank the bar back to empty
     // several times a second.
     private bool _tickSweepRunning;
+    // The instant the current fight's tick lattice was started from. Both the visual sweep and the
+    // audible click are anchored to it, so they are two renderings of one clock - and so arming the
+    // metronome mid-fight joins the existing beat rather than starting a new one from the button
+    // press. MUD2's tick is exactly 2.000s and phase-locked, which is what makes a single anchor
+    // hold good for the length of a fight.
+    private DateTime _tickPhaseAnchorUtc;
     // Same reasoning for the sweep's colour: set only when the band actually changes, since assigning
     // BoxView.Color rebuilds a native brush.
     private bool _tickSweepAlarmed;
@@ -1284,11 +1290,11 @@ public partial class GamePage : ContentPage
         }
         else if (e.PropertyName == nameof(SidePanelViewModel.IsCombatMetronomeEnabled))
         {
-            // Arming mid-fight starts the click immediately rather than at the next fight, which is
-            // the whole reason the switch is reachable during combat.
+            // Arming mid-fight joins the fight already in progress rather than waiting for the next
+            // one - but on the BEAT, from the fight's own anchor, never from the button press.
             _combatMetronome.SetEnabled(_vm.SidePanel.IsCombatMetronomeEnabled);
             if (_vm.SidePanel.IsCombatMetronomeEnabled && _tickSweepRunning)
-                _combatMetronome.Start();
+                _combatMetronome.Start(_tickPhaseAnchorUtc);
         }
     }
 
@@ -1314,8 +1320,10 @@ public partial class GamePage : ContentPage
             _tickSweepRunning = live.InCombat;
             if (live.InCombat)
             {
+                // One anchor, taken once, shared by both renderings of the tick.
+                _tickPhaseAnchorUtc = DateTime.UtcNow;
                 _combatTickSweep.Restart();
-                _combatMetronome.Start();
+                _combatMetronome.Start(_tickPhaseAnchorUtc);
             }
             else
             {
@@ -1394,6 +1402,11 @@ public partial class GamePage : ContentPage
             control.IsTabStop = false;
             control.UseSystemFocusVisuals = false;
         }
+
+        // Adopt the current setting. Necessary because the metronome is ON by default and a default
+        // raises no PropertyChanged, so the handler that normally carries this across would never
+        // run and the click would stay silent until the player toggled it off and on again.
+        _combatMetronome.SetEnabled(_vm.SidePanel.IsCombatMetronomeEnabled);
     }
 
     [System.Runtime.InteropServices.DllImport("user32.dll")]

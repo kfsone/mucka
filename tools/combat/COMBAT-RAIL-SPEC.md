@@ -231,6 +231,13 @@ rather than added beside it, so the row's overall geometry is unchanged.
 - When armed, one percussion click per tick, **alternating high and low** (`Perc_Stick_hi.wav` /
   `Perc_Stick_lo.wav`). The point is to make the fight's rhythm audible so the tick can be *heard*
   rather than looked at - a glance at the rail is a glance away from the terminal text.
+- **The click lands on the tick, never on the button press.** Both the sweep and the metronome are
+  anchored to one phase reference taken when the fight's lattice starts, so arming the metronome
+  halfway through a fight joins the beat already running instead of starting a new one from the
+  moment of the click. A metronome that ticks on the player's input would look authoritative while
+  being wrong by up to a full tick, which is worse than silence. The high/low alternation is derived
+  from the fight's tick COUNT for the same reason - toggling off and on rejoins the pattern rather
+  than inverting it.
 - Driven by a **thread-pool timer, never a UI-thread one** (Invariant #1), started and stopped on
   exactly the same transitions as the visual sweep so the two never drift apart. Master mute wins
   over the toggle.
@@ -238,7 +245,9 @@ rather than added beside it, so the row's overall geometry is unchanged.
   switch, with its tab stop cleared, and its click hands focus straight back to the command box.
   Invariant #0 holds by construction rather than by care - the rail itself stays `InputTransparent`
   with zero gesture recognizers, as section 10 requires.
-- Session-scoped and off by default; not yet persisted to `mucka.ini`.
+- **On by default** - the beat is the point, and a feature that must be found and switched on every
+  session is a feature nobody uses. Session-scoped; not yet persisted to `mucka.ini`, so switching
+  it off lasts until restart.
 
 ## 6a. The three stamina thresholds
 
