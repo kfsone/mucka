@@ -55,6 +55,19 @@ public enum CombatEventKind
     WeaponBroke,
     /// <summary>"Your guard drops..." (weapon switch or post-break confusion) — no C1 wrapper observed.</summary>
     DroppedGuard,
+    /// <summary>"The X has fled by trying to go &lt;dir&gt;." - a flee that FAILED. The creature is
+    /// still in the room and still has to be fought. Never confuse this with <see cref="NpcFled"/>:
+    /// chasing something standing in front of you is nonsense, and counting it as an escape corrupts
+    /// the per-class flee rates. Does not end the fight - see CombatTracker's own remarks.</summary>
+    NpcFleeFailed,
+    /// <summary>"The X has a stamina lying between 90 and 99." - the stethoscope's `diagnose` read,
+    /// carried in the RangeLow/RangeHigh fields. A probe, not free telemetry, but a DIRECT reading of
+    /// NPC stamina - which this codebase spent four separate comments asserting the game never
+    /// gives.</summary>
+    NpcStaminaRead,
+    /// <summary>"Axe0 dropped." - an item hit the floor, including automatically when fleeing strips
+    /// the weapon from your hands. Only acted on when it names the weapon in use.</summary>
+    ItemDropped,
     /// <summary>"The X looks seriously injured." - how hurt a creature is, in the game's own words
     /// and the only report of it MUD2 ever gives. Printed on the line after a landed blow, so it goes
     /// stale between hits (see NpcHealthRungs, which owns the words-to-rung mapping and the reasons

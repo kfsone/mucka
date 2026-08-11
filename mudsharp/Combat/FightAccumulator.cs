@@ -158,6 +158,14 @@ public sealed class FightAccumulator
 
     public void NoteWeaponBroke() => WeaponUsed = null;
 
+    /// <summary>Failed flee attempts by this creature - it tried to run and could not. Distinct from
+    /// the fight ending in a flee, which is an outcome; this is a creature that is still standing in
+    /// front of you. Water snakes attempt this repeatedly (7 times in 13 seconds in one captured
+    /// fight) and almost never get away.</summary>
+    public int FleeAttempts { get; private set; }
+
+    public void NoteFleeAttempt() => FleeAttempts++;
+
     /// <summary>Records a health-descriptor reading for this NPC. Always overwrites - see
     /// <see cref="HealthRung"/> on why the latest reading wins over the worst.</summary>
     public void NoteHealth(int rung, string? phrase, DateTime timestampUtc)

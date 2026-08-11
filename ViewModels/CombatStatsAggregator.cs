@@ -206,6 +206,29 @@ public sealed class CombatStatsAggregator
                 }
                 break;
 
+            case CombatEventKind.ItemDropped:
+                // Fleeing drops your weapon automatically, with no WeaponBroke line to explain it, so
+                // without this the panel keeps showing a weapon that is lying on the floor. Only the
+                // weapon in use matters here; everything else the player drops is inventory.
+                if (!string.IsNullOrWhiteSpace(combatEvent.Weapon)
+                    && string.Equals(combatEvent.Weapon, _currentWeapon, StringComparison.OrdinalIgnoreCase))
+                {
+                    _currentWeapon = null;
+                    foreach (var fight in _fightOrder)
+                    {
+                        if (!fight.IsResolved)
+                            fight.NoteWeaponBroke();
+                    }
+                }
+                break;
+
+            case CombatEventKind.NpcFleeFailed:
+                // The creature is still here; nothing about the fight has ended. Counted because a
+                // creature trying to run is worth knowing about - it is about to escape a kill the
+                // player has already paid for.
+                FightFor(combatEvent)?.NoteFleeAttempt();
+                break;
+
             case CombatEventKind.NpcHealth:
                 // No AddParticipant: CombatTracker only emits this for an NPC already engaged (the
                 // same line appears in room descriptions), so anything reaching here is a participant

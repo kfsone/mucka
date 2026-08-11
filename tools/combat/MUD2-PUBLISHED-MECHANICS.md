@@ -1,9 +1,20 @@
 # MUD2 published mechanics
 
 Transcribed from TheMudWiz's MUD2 Strategy Guide (v0.42, updated 2024-03-27) on GameFAQs -
-the `Combat and Stats` and `Mobiles` sections. Player-written, but it states formulas and
-per-creature stat tables as fact rather than estimate, and every figure in it that our own
-capture corpus can check, checks out (see "Corroboration" below).
+the `Combat and Stats` and `Mobiles` sections.
+
+> **These are HYPOTHESES, not ground truth.** The guide is player-derived and years old. It
+> states formulas and stat tables as fact, and the figures we have been able to check do agree
+> with our captures (see "Corroboration"), but agreement on a handful of creatures is not proof
+> of a formula, and MUD2 could have changed under it. **Nothing here may be treated as settled
+> until our own data settles it.**
+>
+> The tool for that is `verify_mechanics.py`, and its current findings are in
+> `MECHANICS-VERIFICATION.md`. Anything this client SHOWS the player must rest on what we have
+> verified; anything from this document alone belongs in analysis and design discussion, not on
+> the combat rail. That ordering is not pedantry - this is a permadeath game, and a confident
+> readout built on an unchecked player FAQ is exactly the kind of thing that gets a character
+> killed while its owner trusts the panel.
 
 Companion data: `bestiary.tsv` - all 143 rows of the guide's mobile table, tab-separated.
 
@@ -190,10 +201,15 @@ Per-fight cumulative bracket-midpoint damage in fights that ended in a kill, fro
 | rats (mixed with rat0) | 25 / 100 | 29.2, max 106.5 | 22 |
 | mice | 10 | 14.0 | 1 |
 
-Close enough to conclude that **summed bracket midpoints approximate damage in stamina points,
-and the published `STA` is the real pool.** Small creatures over-read (a dragonfly with 4
-stamina takes a 17-point blow) because a single hit overshoots, and creatures finished off
+Close enough to suggest that **summed bracket midpoints approximate damage in stamina points,
+and the published `STA` is close to the real pool.** Small creatures over-read (a dragonfly with
+4 stamina takes a 17-point blow) because a single hit overshoots, and creatures finished off
 after a chase under-read because most of their damage was dealt in an earlier fight.
+
+Note what this is and is not. Seven creature groups agreeing, most at n=1, is consistent with
+the guide being right; it does not establish that it is right, and it says nothing at all about
+the 136 rows of `bestiary.tsv` nobody in this corpus has fought. Treat a published `STA` as a
+prior to be checked, not a number to display.
 
 ## 9. What the guide does NOT contain
 

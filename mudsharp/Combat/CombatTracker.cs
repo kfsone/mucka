@@ -70,6 +70,24 @@ public sealed class CombatTracker
         @"^The (?<npc>.+?) withdraws from your fight, and so do you\.$", RegexOptions.Compiled);
     private static readonly Regex NpcFled = new(
         @"^The (?<npc>.+?) has fled by going \w+\.$", RegexOptions.Compiled);
+
+    /// <summary>
+    /// "The water-snake5 has fled by trying to go over." - a flee ATTEMPT that failed. One word of
+    /// difference from <see cref="NpcFled"/> ("trying to") and the opposite meaning: the creature is
+    /// still in the room, still hostile, and still has to be killed.
+    ///
+    /// <para>Observed 7 times in 13 seconds against a single water-snake, each in a different and
+    /// apparently random direction. The owner's report - snakes "often try to flee but almost never
+    /// succeed, it just breaks the fight sequence" - is exactly this.</para>
+    ///
+    /// <para>Getting this wrong in either direction is expensive. Matched as <see cref="NpcFled"/>, it
+    /// would send the chase assist after a creature standing in front of the player, and would poison
+    /// the per-class flee statistics with escapes that never happened (the corpus records water snakes
+    /// at 0 flees from 6 fights precisely BECAUSE this line matched nothing). Left unmatched, as it was
+    /// until now, the panel sees an unexplained fight end instead.</para>
+    /// </summary>
+    private static readonly Regex NpcFleeFailed = new(
+        @"^The (?<npc>.+?) has fled by trying to go \w+\.$", RegexOptions.Compiled);
     private static readonly Regex YouFled = new(@"^You have fled by going \w+\.$", RegexOptions.Compiled);
     private static readonly Regex FightEndOther = new(@"^You can fight it no longer\.$", RegexOptions.Compiled);
     private static readonly Regex WeaponEquip = new(
@@ -95,6 +113,30 @@ public sealed class CombatTracker
     /// before it is the only signal, and the consumer decides what to make of that.</summary>
     private static readonly Regex WeaponUnusable = new(
         @"^You cannot use the (?<weapon>.+?) to fight now!$", RegexOptions.Compiled);
+    /// <summary>
+    /// "The water-snake5 has a stamina lying between 90 and 99." - the stethoscope's `diagnose` read.
+    ///
+    /// <para><b>MUD2 does report NPC stamina after all.</b> Four separate comments in this codebase
+    /// asserted it never does, and built a whole estimator around that belief (see
+    /// FightHistory.EstimatedStaminaPool, which infers a creature's pool from the median damage of
+    /// fights that ended in a kill). It is a probe rather than free telemetry - it needs a stethoscope
+    /// and a typed command - but it is a direct, bracketed reading of the number everything else was
+    /// approximating.</para>
+    ///
+    /// <para>Worth parsing chiefly as an instrument: it is the only way to CHECK a published creature
+    /// stamina against the live game, and the owner's standing rule is that the published figures are
+    /// hypotheses until our own data settles them. Observed live: giant snake 117-126, water-snake5
+    /// 90-99 (published 90), viper 18-27 (published 20).</para>
+    /// </summary>
+    private static readonly Regex NpcStaminaRead = new(
+        @"^The (?<npc>.+?) has a stamina lying between (?<lo>\d+) and (?<hi>\d+)\.$", RegexOptions.Compiled);
+
+    /// <summary>"Axe0 dropped." - fires on a deliberate drop AND automatically when fleeing carries
+    /// your weapon out of your hands. Either way the weapon is gone, and without this the panel goes
+    /// on reporting a weapon the player is no longer holding.</summary>
+    private static readonly Regex ItemDropped = new(
+        @"^(?<item>[A-Za-z][A-Za-z0-9' -]*?) dropped\.$", RegexOptions.Compiled);
+
     private static readonly Regex GuardConfusion = new(
         @"^Your guard drops momentarily in your confusion\.$", RegexOptions.Compiled);
 
@@ -242,6 +284,20 @@ public sealed class CombatTracker
             Emit(timestampUtc, CombatEventKind.Withdrawn, CombatActor.Npc, m.Groups["npc"].Value, null, null, null, text);
             End(m.Groups["npc"].Value, timestampUtc, isKill: false);
         }
+        else if ((m = NpcFleeFailed.Match(text)).Success)
+        {
+            // Matched BEFORE NpcFled, because "has fled by trying to go" also contains "has fled by"
+            // and the two must never be confused - see NpcFleeFailed's own remarks.
+            //
+            // Deliberately does NOT End() the fight, even though the game prints "You can fight it no
+            // longer." right afterwards and makes the player re-issue their attack. The creature never
+            // left: it is still in the room and the player is still fighting it, so closing the fight
+            // here is what fragmented one 15-second snake fight into eight separate encounters in the
+            // capture - eight rows in the history, none of them describing the fight that happened.
+            // Keeping it open costs at most a two-second window where the panel says "in combat"
+            // during the player's own re-attack, and buys a roster that matches the room.
+            Emit(timestampUtc, CombatEventKind.NpcFleeFailed, CombatActor.Npc, m.Groups["npc"].Value, null, null, null, text);
+        }
         else if ((m = NpcFled.Match(text)).Success)
         {
             Emit(timestampUtc, CombatEventKind.NpcFled, CombatActor.Npc, m.Groups["npc"].Value, null, null, null, text);
@@ -301,6 +357,23 @@ public sealed class CombatTracker
             // naming that NPC (mirrors YouHit's own defensive Begin() for the same reason).
             Begin(m.Groups["npc"].Value);
             Emit(timestampUtc, CombatEventKind.NpcWeaponEquip, CombatActor.Npc, m.Groups["npc"].Value, m.Groups["weapon"].Value, null, null, text);
+        }
+        else if ((m = NpcStaminaRead.Match(text)).Success)
+        {
+            // A measurement, not a combat state change: no Begin(), and it is reported whether or not
+            // the creature is engaged, since diagnosing something BEFORE picking a fight with it is
+            // the whole point of carrying a stethoscope. The bracket travels in the range fields the
+            // damage lines already use.
+            Emit(timestampUtc, CombatEventKind.NpcStaminaRead, CombatActor.Npc, m.Groups["npc"].Value, null,
+                int.Parse(m.Groups["lo"].Value, System.Globalization.CultureInfo.InvariantCulture),
+                int.Parse(m.Groups["hi"].Value, System.Globalization.CultureInfo.InvariantCulture), text);
+        }
+        else if ((m = ItemDropped.Match(text)).Success)
+        {
+            // Only interesting when what hit the floor is what we were fighting with. Fleeing drops
+            // your weapon automatically, so this arrives in the same tick as a flee with no
+            // WeaponBroke to explain it, and the panel would otherwise keep the weapon on screen.
+            Emit(timestampUtc, CombatEventKind.ItemDropped, CombatActor.Player, null, m.Groups["item"].Value, null, null, text);
         }
         else if (NpcHealthRungs.TryParse(text, out var hurtNpc, out var rung, out var phrase))
         {

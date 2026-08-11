@@ -45,13 +45,21 @@ public static class NpcHealthRungs
     /// <summary>Rung of an unhurt creature - "fit" / "strong".</summary>
     public const int Unhurt = Rungs;
 
-    /// <summary>The line, e.g. "The large rat0 looks covered in wounds." Anchored at both ends so a
-    /// creature name can never absorb surrounding prose. Only "looks" is accepted: it is the only
-    /// verb observed in this line, and widening it would start matching object condition ("The coracle
-    /// looks to be in relatively good condition.") and NPC aggro poses ("The rat looks at you
-    /// furiously.").</summary>
+    /// <summary>
+    /// The line, e.g. "The large rat0 looks covered in wounds." Anchored at the start so a creature
+    /// name can never absorb surrounding prose. Only "looks" is accepted: it is the only verb observed
+    /// in this line, and widening it would start matching object condition ("The coracle looks to be
+    /// in relatively good condition.") and NPC aggro poses ("The rat looks at you furiously.").
+    ///
+    /// <para>The descriptor may end at a full stop OR run on after a comma: MUD2 sometimes folds the
+    /// reading into a longer sentence - "The ram looks covered in wounds, and is holding the
+    /// following:" - and an end-anchored pattern silently dropped a perfectly good rung-4 reading
+    /// every time it did. The descriptor match is lazy so the run-on clause is never absorbed into it,
+    /// and it still has to survive <see cref="TryRung"/>, which is what actually keeps aggro poses
+    /// and object condition out.</para>
+    /// </summary>
     private static readonly Regex Line = new(
-        @"^The (?<npc>.+?) looks (?<desc>[a-z][a-z ]*)\.$", RegexOptions.Compiled);
+        @"^The (?<npc>.+?) looks (?<desc>[a-z][a-z ]*?)(?:\.|,\s.*)$", RegexOptions.Compiled);
 
     /// <summary>
     /// Phrase to rung. Keyed on the descriptor exactly as the game prints it (minus "The X looks "
