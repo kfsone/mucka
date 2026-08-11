@@ -94,6 +94,10 @@ public partial class GamePage : ContentPage
     // nothing here to hold a Window/Page reference for any more.
     private PulseLayer? _combatPanelPulse;
     private TickSweep? _combatTickSweep;
+    // Audible half of the same tick clock. Owned here rather than by the view model so it starts,
+    // stops and is disposed on exactly the same transitions as the visual sweep - two renderings of
+    // one clock, never two clocks.
+    private readonly Mucka.Audio.CombatMetronome _combatMetronome = new();
     // Last combat state the tick sweep was told about, so the sweep is started/stopped only on a real
     // transition. SidePanelViewModel.Live changes on every combat event, every FES heartbeat and every
     // 1 Hz tick; restarting a Composition animation on each of those would yank the bar back to empty
@@ -303,6 +307,8 @@ public partial class GamePage : ContentPage
                 OnCombatPanelGlowHandlerChanged(CombatPanelGlow, EventArgs.Empty);
                 CombatTickSweep.HandlerChanged += OnCombatTickSweepHandlerChanged;
                 OnCombatTickSweepHandlerChanged(CombatTickSweep, EventArgs.Empty);
+                CombatMetronomeHit.HandlerChanged += OnCombatMetronomeHandlerChanged;
+                OnCombatMetronomeHandlerChanged(CombatMetronomeHit, EventArgs.Empty);
                 SetupWindowMinimumSize();
                 // Size the window once so the terminal view fits ~82 columns + the side panel,
                 // rather than inheriting WinUI's oversized default window width.
@@ -458,6 +464,10 @@ public partial class GamePage : ContentPage
         _vm.SidePanel.PropertyChanged -= OnSidePanelPropertyChanged;
         CombatPanelGlow.HandlerChanged -= OnCombatPanelGlowHandlerChanged;
         CombatTickSweep.HandlerChanged -= OnCombatTickSweepHandlerChanged;
+        CombatMetronomeHit.HandlerChanged -= OnCombatMetronomeHandlerChanged;
+        // A thread-pool timer outlives its page unless stopped; a metronome still clicking after the
+        // window closed is the audible version of the RO_E_CLOSED crash class below.
+        _combatMetronome.Dispose();
         // Belt-and-braces alongside PulseLayer's own host.Unloaded hook (see PulseLayer's remarks):
         // stop any running Composition animation before this page's own teardown proceeds, so a
         // torn-down visual can never still have a live animation referencing it (the RO_E_CLOSED
@@ -1272,6 +1282,14 @@ public partial class GamePage : ContentPage
         {
             UpdateCombatTickSweep(_vm.SidePanel.Live);
         }
+        else if (e.PropertyName == nameof(SidePanelViewModel.IsCombatMetronomeEnabled))
+        {
+            // Arming mid-fight starts the click immediately rather than at the next fight, which is
+            // the whole reason the switch is reachable during combat.
+            _combatMetronome.SetEnabled(_vm.SidePanel.IsCombatMetronomeEnabled);
+            if (_vm.SidePanel.IsCombatMetronomeEnabled && _tickSweepRunning)
+                _combatMetronome.Start();
+        }
     }
 
     /// <summary>
@@ -1295,9 +1313,15 @@ public partial class GamePage : ContentPage
         {
             _tickSweepRunning = live.InCombat;
             if (live.InCombat)
+            {
                 _combatTickSweep.Restart();
+                _combatMetronome.Start();
+            }
             else
+            {
                 _combatTickSweep.Stop();
+                _combatMetronome.Stop();
+            }
         }
 
         // The spec's only two exceptions to "the tick carries no colour coding": red at 30 stamina
@@ -1332,8 +1356,8 @@ public partial class GamePage : ContentPage
     /// </summary>
     private void OnCombatTickSweepHandlerChanged(object? sender, EventArgs e)
     {
-        var (inset, bottom, height) = CombatRailView.TickTrackDp(CombatPanelWidthDp);
-        CombatTickSweep.Margin = new Thickness(inset, 0, inset, bottom);
+        var (left, right, bottom, height) = CombatRailView.TickTrackDp(CombatPanelWidthDp);
+        CombatTickSweep.Margin = new Thickness(left, 0, right, bottom);
         CombatTickSweep.HeightRequest = height;
 
         if (CombatTickSweep.Handler?.PlatformView is Microsoft.UI.Xaml.FrameworkElement fe)
@@ -1344,6 +1368,31 @@ public partial class GamePage : ContentPage
             // waiting for the next transition.
             _tickSweepRunning = false;
             UpdateCombatTickSweep(_vm.SidePanel.Live);
+        }
+    }
+
+    /// <summary>
+    /// Positions the metronome toggle's invisible hit target over the switch the canvas draws, and
+    /// takes it out of the tab order.
+    ///
+    /// <para>The tab-stop removal is the Invariant #0 half of this control. The click itself already
+    /// hands focus back (SidePanelViewModel.ToggleCombatMetronome), but a focusable button in the
+    /// panel would also be reachable by Tab from the command box, which would strand the keyboard
+    /// somewhere the player never asked to go.</para>
+    /// </summary>
+    private void OnCombatMetronomeHandlerChanged(object? sender, EventArgs e)
+    {
+        // Same reserved block the canvas draws the switch in, so the target cannot drift off it.
+        var (_, _, bottom, _) = CombatRailView.TickTrackDp(CombatPanelWidthDp);
+        const double sizeDp = 24.0;
+        CombatMetronomeHit.WidthRequest = sizeDp;
+        CombatMetronomeHit.HeightRequest = sizeDp;
+        CombatMetronomeHit.Margin = new Thickness(0, 0, 6, bottom - (sizeDp / 2.0) + 2);
+
+        if (CombatMetronomeHit.Handler?.PlatformView is Microsoft.UI.Xaml.Controls.Control control)
+        {
+            control.IsTabStop = false;
+            control.UseSystemFocusVisuals = false;
         }
     }
 

@@ -221,6 +221,25 @@ ticks, go amber only **after damage has landed**, and never straight to red.
   never `+04`. Two digits is the practical ceiling.
 - The swords must read as weapons, not as a letter x - crossguards and pommels.
 
+**The metronome toggle** sits at the right end of the tick row, in 26dp taken out of the track
+rather than added beside it, so the row's overall geometry is unchanged.
+
+- Drawn **always**, in and out of combat: it is a control, not a readout, and a switch that vanished
+  when the fight ended could only be operated during a fight.
+- Armed: lit, with the pendulum leaning. Idle: outline, pendulum upright. The lean reads as
+  "running" with no motion required.
+- When armed, one percussion click per tick, **alternating high and low** (`Perc_Stick_hi.wav` /
+  `Perc_Stick_lo.wav`). The point is to make the fight's rhythm audible so the tick can be *heard*
+  rather than looked at - a glance at the rail is a glance away from the terminal text.
+- Driven by a **thread-pool timer, never a UI-thread one** (Invariant #1), started and stopped on
+  exactly the same transitions as the visual sweep so the two never drift apart. Master mute wins
+  over the toggle.
+- **The canvas takes no input.** The hit target is a separate invisible button laid over the drawn
+  switch, with its tab stop cleared, and its click hands focus straight back to the command box.
+  Invariant #0 holds by construction rather than by care - the rail itself stays `InputTransparent`
+  with zero gesture recognizers, as section 10 requires.
+- Session-scoped and off by default; not yet persisted to `mucka.ini`.
+
 ## 6a. The three stamina thresholds
 
 Three numbers matter, they are different KINDS of thing, and the panel must not collapse them onto

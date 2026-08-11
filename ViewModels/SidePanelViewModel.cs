@@ -297,6 +297,27 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     /// </summary>
     public CombatLiveView Live => _live;
 
+    /// <summary>
+    /// Whether the combat metronome clicks once per tick. Session-scoped and off by default - it is
+    /// deliberately NOT persisted to mucka.ini yet, so a click that turns out to be maddening in a
+    /// long session cannot follow the player into the next one until they ask for that.
+    /// </summary>
+    public bool IsCombatMetronomeEnabled
+    {
+        get => _isCombatMetronomeEnabled;
+        set => Set(ref _isCombatMetronomeEnabled, value);
+    }
+    private bool _isCombatMetronomeEnabled;
+
+    /// <summary>Toggles the metronome and hands focus straight back to the command box. The
+    /// focus hand-back is not optional - Invariant #0 - and is why this is a command on the view
+    /// model rather than a click handled inside the canvas.</summary>
+    public void ToggleCombatMetronome()
+    {
+        IsCombatMetronomeEnabled = !IsCombatMetronomeEnabled;
+        RequestFocus?.Invoke();
+    }
+
     /// <summary>The tier driving the Combat Rail's single shared Composition glow layer (4.2: "at
     /// most one T3 element at a time"). Only <see cref="CombatTier.T3"/> ever requests motion - the
     /// glow helper (PulseLayer) treats every other value as "stop".</summary>
@@ -972,6 +993,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     public ICommand ToggleFloatingOnlineLockCommand { get; }
     public ICommand ToggleFloatingMapLockCommand { get; }
     public ICommand ProbeRecentCommand { get; }
+    public ICommand ToggleCombatMetronomeCommand { get; }
 
     /// <summary>Raised when an interaction should hand keyboard focus back to the input box.
     /// Opening the About dialog deliberately does not raise it — focus belongs to the dialog.</summary>
@@ -992,6 +1014,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         ToggleInventoryCommand = new Command(() => IsInventoryExpanded = !IsInventoryExpanded);
         ToggleItemsHereCommand = new Command(() => IsItemsHereExpanded = !IsItemsHereExpanded);
         ToggleCombatPanelCommand = new Command(() => { IsCombatPanelVisible = !IsCombatPanelVisible; RequestFocus?.Invoke(); });
+        ToggleCombatMetronomeCommand = new Command(ToggleCombatMetronome);
         ToggleMapCommand       = new Command(() => IsMapExpanded       = !IsMapExpanded);
         ToggleOnlinePinnedCommand = new Command(() => { IsOnlinePinned = !IsOnlinePinned; RequestFocus?.Invoke(); });
         ToggleFloatingFoldCommand = new Command(() => IsFloatingOnlineFolded = !IsFloatingOnlineFolded);

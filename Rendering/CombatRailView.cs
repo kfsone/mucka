@@ -42,6 +42,12 @@ public sealed class CombatRailView : SKCanvasView
     private const float BottomRowHeight = 96f;
     private const float TickRowHeight = 30f;
     private const float TickTrackHeight = 5f;
+
+    /// <summary>Width reserved at the RIGHT end of the tick row for the metronome toggle. Taken out
+    /// of the track rather than laid beside it, so the row's overall geometry is unchanged and the
+    /// toggle occupies space that is reserved whether or not it is switched on (spec rule 3).</summary>
+    private const float MetronomeReserve = 26f;
+    private const float TickTrackWidth = Content - MetronomeReserve;
     private const float SealSize = 92f;
 
     /// <summary>Upper bound on opponent slots. The measured maximum simultaneously-engaged
@@ -479,7 +485,10 @@ public sealed class CombatRailView : SKCanvasView
     /// </summary>
     private void DrawTickRow(SKCanvas canvas, float y, CombatLiveView live)
     {
-        // The whole row is a fight instrument, so it exists only during a fight. A tick still
+        // The toggle is a control, not a readout, so it is drawn whether or not a fight is running.
+        DrawMetronomeToggle(canvas, y, MetronomeEnabled);
+
+        // The rest of the row is a fight instrument and exists only during a fight. A tick still
         // running in the tea room reads as a fight that never ended, and the opponent count over it
         // would be counting corpses.
         if (!live.InCombat)
@@ -489,9 +498,52 @@ public sealed class CombatRailView : SKCanvasView
         // sibling behind this canvas (TickSweep) - see that class for why the UI thread must never
         // be the thing animating a 2-second progress bar.
         _fill.Color = new SKColor(0xff, 0xff, 0xff, 0x10);
-        canvas.DrawRoundRect(Pad, TrackTopIn(y), Content, TickTrackHeight, 3f, 3f, _fill);
+        canvas.DrawRoundRect(Pad, TrackTopIn(y), TickTrackWidth, TickTrackHeight, 3f, 3f, _fill);
 
         DrawEncounterGauge(canvas, y, live.Roster.LiveCount);
+    }
+
+    /// <summary>
+    /// The metronome toggle, at the right end of the tick row. Drawn unconditionally - in combat and
+    /// out of it - because it is a control rather than a readout: a switch that vanished when the
+    /// fight ended could only be operated during a fight, which is the one moment nobody wants to be
+    /// hunting for a switch.
+    ///
+    /// <para>Lit when armed, outline when not. The hit target is a real (invisible) MAUI button laid
+    /// over this in GamePage.xaml - this canvas stays InputTransparent and takes no gestures, so
+    /// Invariant #0 is kept by construction rather than by care.</para>
+    /// </summary>
+    private void DrawMetronomeToggle(SKCanvas canvas, float rowTop, bool armed)
+    {
+        var cx = Pad + Content - (MetronomeReserve / 2f) + 3f;
+        var cy = rowTop + (TickRowHeight / 2f);
+        var tone = armed ? PipLive : Dim(InkDim, 0.8f);
+
+        // A metronome: tapered body, and a pendulum arm that leans when armed and stands upright
+        // when it is not - the lean is what reads as "running" at a glance, with no motion needed.
+        using var body = new SKPath();
+        body.MoveTo(cx - 5.5f, cy + 6f);
+        body.LineTo(cx + 5.5f, cy + 6f);
+        body.LineTo(cx + 2.5f, cy - 6f);
+        body.LineTo(cx - 2.5f, cy - 6f);
+        body.Close();
+
+        _stroke.Color = tone;
+        _stroke.StrokeWidth = 1.2f;
+        canvas.DrawPath(body, _stroke);
+
+        if (armed)
+        {
+            _fill.Color = tone.WithAlpha(0x30);
+            canvas.DrawPath(body, _fill);
+        }
+
+        _stroke.StrokeWidth = 1.4f;
+        canvas.DrawLine(cx, cy + 5f, armed ? cx + 3.5f : cx, cy - 8f, _stroke);
+        _stroke.StrokeWidth = 1f;
+
+        _fill.Color = tone;
+        canvas.DrawCircle(armed ? cx + 2.2f : cx, cy - 2.5f, 1.6f, _fill);
     }
 
     /// <summary>The tick track's top edge within its row. Shared with <see cref="TickTrackDp"/>, so
@@ -510,10 +562,27 @@ public sealed class CombatRailView : SKCanvasView
     /// the numbers in XAML is deliberate: two copies of this arithmetic would silently disagree the
     /// first time the row's height or padding changed.</para>
     /// </summary>
-    public static (double Inset, double Bottom, double Height) TickTrackDp(double panelWidthDp)
+    public static (double Left, double Right, double Bottom, double Height) TickTrackDp(double panelWidthDp)
     {
         var k = panelWidthDp / RailWidth;
-        return (Pad * k, (Pad + (TickRowHeight / 2f) - (TickTrackHeight / 2f)) * k, TickTrackHeight * k);
+        return (
+            Pad * k,
+            (Pad + MetronomeReserve) * k,
+            (Pad + (TickRowHeight / 2f) - (TickTrackHeight / 2f)) * k,
+            TickTrackHeight * k);
+    }
+
+    /// <summary>Whether the metronome click is armed. A view-level display flag rather than part of
+    /// <see cref="CombatLiveView"/>: it is a client preference, not something about the fight, and
+    /// putting it in the frame state would mean republishing the whole fight to toggle a switch.</summary>
+    public static readonly BindableProperty MetronomeEnabledProperty = BindableProperty.Create(
+        nameof(MetronomeEnabled), typeof(bool), typeof(CombatRailView), false,
+        propertyChanged: (b, _, _) => ((CombatRailView)b).InvalidateSurface());
+
+    public bool MetronomeEnabled
+    {
+        get => (bool)GetValue(MetronomeEnabledProperty);
+        set => SetValue(MetronomeEnabledProperty, value);
     }
 
     /// <summary>

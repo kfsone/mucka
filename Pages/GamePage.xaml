@@ -1144,10 +1144,25 @@
                      gesture recognizers, cannot take keyboard focus (Invariant #0). -->
                 <render:CombatRailView x:Name="CombatPanelCanvas"
                                        SidePanel="{Binding SidePanel}"
+                                       MetronomeEnabled="{Binding SidePanel.IsCombatMetronomeEnabled}"
                                        BackgroundColor="Transparent"
                                        HorizontalOptions="Fill"
                                        VerticalOptions="Fill"
                                        InputTransparent="True"/>
+                <!-- The metronome toggle's HIT TARGET only - the switch itself is drawn by the
+                     canvas. An invisible button rather than a gesture recognizer on the canvas, so
+                     the canvas stays InputTransparent with zero gestures and Invariant #0 holds by
+                     construction. Its own click hands focus straight back to the command box (see
+                     SidePanelViewModel.ToggleCombatMetronome), and OnCombatMetronomeHandlerChanged
+                     clears IsTabStop so Tab can never land on it. Bounds are set in code from the
+                     same geometry the canvas draws with. -->
+                <Button x:Name="CombatMetronomeHit"
+                        Command="{Binding SidePanel.ToggleCombatMetronomeCommand}"
+                        BackgroundColor="Transparent"
+                        BorderWidth="0"
+                        Padding="0"
+                        HorizontalOptions="End"
+                        VerticalOptions="End"/>
             </Grid>
         </Border>
 
