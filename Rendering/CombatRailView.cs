@@ -488,10 +488,15 @@ public sealed class CombatRailView : SKCanvasView
         // The toggle is a control, not a readout, so it is drawn whether or not a fight is running.
         DrawMetronomeToggle(canvas, y, MetronomeEnabled);
 
-        // The rest of the row is a fight instrument and exists only during a fight. A tick still
-        // running in the tea room reads as a fight that never ended, and the opponent count over it
-        // would be counting corpses.
-        if (!live.InCombat)
+        // The rest of the row is a fight instrument and exists only while something is actually
+        // swinging. A tick still running in the tea room reads as a fight that never ended, and the
+        // opponent count over it would be counting corpses.
+        //
+        // Grace counts as "not fighting". InCombat stays true for a few seconds after the last tracked
+        // opponent dies so a pack straggler can rejoin the same encounter - useful bookkeeping, but it
+        // does not mean anything is attacking. Leaving the track drawn with its fill stopped at zero
+        // would be worse than drawing nothing: on a countdown, empty means the swing is due NOW.
+        if (!live.InCombat || InGracePeriod)
             return;
 
         // Only the empty track is drawn here. The moving fill inside it is a Composition-driven
@@ -583,6 +588,24 @@ public sealed class CombatRailView : SKCanvasView
     {
         get => (bool)GetValue(MetronomeEnabledProperty);
         set => SetValue(MetronomeEnabledProperty, value);
+    }
+
+    /// <summary>
+    /// True while the encounter is being held open ONLY by the post-kill grace window - every tracked
+    /// opponent is already dead or gone.
+    ///
+    /// <para>Its own bindable property rather than a field of <see cref="CombatLiveView"/> because the
+    /// grace flag changes on its own notification without the frame state being rebuilt; folding it
+    /// into the frame would leave it stale exactly when it matters.</para>
+    /// </summary>
+    public static readonly BindableProperty InGracePeriodProperty = BindableProperty.Create(
+        nameof(InGracePeriod), typeof(bool), typeof(CombatRailView), false,
+        propertyChanged: (b, _, _) => ((CombatRailView)b).InvalidateSurface());
+
+    public bool InGracePeriod
+    {
+        get => (bool)GetValue(InGracePeriodProperty);
+        set => SetValue(InGracePeriodProperty, value);
     }
 
     /// <summary>

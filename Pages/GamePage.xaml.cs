@@ -1326,12 +1326,17 @@ public partial class GamePage : ContentPage
         // this guard - the click must not depend on whether a Composition visual happens to exist.
         if (_combatTickSweep is not null)
         {
-            if (live.InCombat != _tickSweepRunning)
+            var shouldSweep = TickIsMeaningful();
+            if (shouldSweep != _tickSweepRunning)
             {
-                _tickSweepRunning = live.InCombat;
-                if (live.InCombat)
+                _tickSweepRunning = shouldSweep;
+                if (shouldSweep)
                 {
-                    // One anchor, taken once, shared by both renderings of the tick.
+                    // Re-anchored on every resumption, not just at the start of an encounter. A
+                    // resumption means something has actually started swinging at us again, and that
+                    // moment is itself close to a tick boundary - which is the only reason a fresh
+                    // anchor is honest. Restart() begins at keyframe zero, so resuming WITHOUT
+                    // re-anchoring would put the bar out of phase, not merely make it jump.
                     _tickPhaseAnchorUtc = DateTime.UtcNow;
                     _combatTickSweep.Restart();
                 }
@@ -1348,34 +1353,36 @@ public partial class GamePage : ContentPage
     }
 
     /// <summary>
-    /// Decides whether the audible tick should be running at all. Four conditions, and each one is
-    /// here because leaving it out produced a real complaint:
+    /// Whether there is a next swing to count down to - the single condition both renderings of the
+    /// tick obey.
     ///
-    /// <list type="bullet">
-    /// <item>armed by the player;</item>
-    /// <item><b>the rail is actually on screen.</b> The metronome's only switch is drawn on the rail,
-    /// so clicking away while the panel is hidden gives the player a noise they cannot see the source
-    /// of and cannot turn off without knowing to type <c>$clog on</c> first;</item>
-    /// <item>a fight is live;</item>
-    /// <item><b>and it is not merely the post-kill grace window.</b> CombatTracker keeps InCombat true
-    /// for several seconds after the last tracked NPC dies, so a pack fight's stragglers can rejoin
-    /// the same encounter. Nothing is swinging during that window, and a metronome that keeps
-    /// counting after the last opponent drops is counting nothing.</item>
-    /// </list>
+    /// <para>`InCombat` alone is not that condition. CombatTracker keeps it true for a 5-second
+    /// post-kill grace window so that a pack fight's not-yet-engaged stragglers rejoin the same
+    /// encounter instead of opening a new one - a real and necessary heuristic, but bookkeeping about
+    /// what the CLIENT knows, not a statement that anything is still attacking. Kill the one zombie
+    /// you were fighting and nothing whatever is running; the encounter stays open only because we are
+    /// waiting to find out whether a straggler exists.</para>
     ///
-    /// <para>Deliberately NOT applied to the visual sweep, which keeps running through the grace
-    /// window: the game's tick lattice is still turning, the encounter is genuinely still open, and
-    /// stopping and restarting the bar would break its phase continuity on screen for what may be a
-    /// two-second gap. Silence is the honest representation of "nothing is happening"; a frozen and
-    /// restarted bar is not.</para>
+    /// <para>So during grace there is nothing to time, and a bar counting down to a swing that will
+    /// never come is a lie told by an instrument. Same for the click. An earlier version of this ran
+    /// the bar through grace anyway, justified by preserving phase - which was wrong twice over, since
+    /// resuming calls Restart() and begins at keyframe zero regardless.</para>
+    /// </summary>
+    private bool TickIsMeaningful()
+    {
+        var panel = _vm.SidePanel;
+        return panel.IsCombatPanelVisible && panel.Live.InCombat && !panel.IsCombatGracePeriod;
+    }
+
+    /// <summary>
+    /// The audible tick: <see cref="TickIsMeaningful"/> plus the player having armed it. The rail
+    /// being on screen is part of that condition because the metronome's only switch is drawn on the
+    /// rail - clicking away while the panel is hidden gives the player a noise whose source they
+    /// cannot see and cannot silence without knowing to type <c>$clog on</c> first.
     /// </summary>
     private void UpdateCombatMetronome()
     {
-        var panel = _vm.SidePanel;
-        var shouldRun = panel.IsCombatMetronomeEnabled
-            && panel.IsCombatPanelVisible
-            && panel.Live.InCombat
-            && !panel.IsCombatGracePeriod;
+        var shouldRun = _vm.SidePanel.IsCombatMetronomeEnabled && TickIsMeaningful();
 
         if (shouldRun == _metronomeRunning)
             return;

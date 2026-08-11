@@ -1145,6 +1145,7 @@
                 <render:CombatRailView x:Name="CombatPanelCanvas"
                                        SidePanel="{Binding SidePanel}"
                                        MetronomeEnabled="{Binding SidePanel.IsCombatMetronomeEnabled}"
+                                       InGracePeriod="{Binding SidePanel.IsCombatGracePeriod}"
                                        BackgroundColor="Transparent"
                                        HorizontalOptions="Fill"
                                        VerticalOptions="Fill"
