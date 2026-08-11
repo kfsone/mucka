@@ -10,6 +10,13 @@ namespace Mucka.Rendering;
 /// The Combat Rail's tick meter, animated on WinUI Composition - a bar that fills left to right over
 /// one MUD2 combat tick, empties, and fills again for as long as the fight lasts.
 ///
+/// <para><b>Linear, and it has to be said out loud.</b> Composition applies a cubic ease-in-out to
+/// keyframes that carry no easing function of their own, which makes a constant-rate countdown crawl
+/// at both ends and race through the middle. The owner caught it in play before this comment existed -
+/// "combat tick bar is not smooth - it seems to slow down towards the right" - and they are right that
+/// it disqualifies the thing: a clock that does not tick evenly is worse than no clock, because it is
+/// read as information. Every keyframe here takes an explicit linear easing and must keep doing so.</para>
+///
 /// <para><b>Why this is not drawn by the canvas.</b> The rail's <c>SKCanvasView</c> paints ON the UI
 /// thread on WinUI, so a timer repainting it 30 times a second would compete directly with typing
 /// (Invariant #1) - and a 2-second progress bar is the single most repaint-hungry thing on the panel.
@@ -70,13 +77,19 @@ internal sealed class TickSweep
     /// see the class remarks on why once per fight is enough.</summary>
     public void Restart()
     {
-        // Scale about the left edge, so the bar grows rightward out of the track's left end rather
-        // than outward from its middle.
+        // Scale about the left edge, so the bar's LEFT end stays pinned and its right end is what
+        // moves - the bar drains leftward rather than growing or shrinking about its middle.
         _visual.CenterPoint = Vector3.Zero;
 
-        var animation = _visual.Compositor.CreateVector3KeyFrameAnimation();
-        animation.InsertKeyFrame(0.0f, new Vector3(0f, 1f, 1f));
-        animation.InsertKeyFrame(1.0f, new Vector3(1f, 1f, 1f));
+        var compositor = _visual.Compositor;
+        var animation = compositor.CreateVector3KeyFrameAnimation();
+        // Full at the start of the tick, empty at the end: a countdown, not a progress bar. It shows
+        // how much time is LEFT before the next swing, which is the question being asked, and it
+        // matches the health pips (lit = remaining) rather than inverting between two gauges on one
+        // panel.
+        var linear = compositor.CreateLinearEasingFunction();
+        animation.InsertKeyFrame(0.0f, new Vector3(1f, 1f, 1f), linear);
+        animation.InsertKeyFrame(1.0f, new Vector3(0f, 1f, 1f), linear);
         animation.Duration = TimeSpan.FromMilliseconds(TickMilliseconds);
         animation.IterationBehavior = AnimationIterationBehavior.Forever;
 
@@ -97,6 +110,8 @@ internal sealed class TickSweep
         Rest();
     }
 
+    /// <summary>Empty and still. The rest state is zero width rather than full: out of combat there is
+    /// no tick to count down, and a full bar sitting there reads as "a swing is due right now".</summary>
     private void Rest()
     {
         _visual.CenterPoint = Vector3.Zero;

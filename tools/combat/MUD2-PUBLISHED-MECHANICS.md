@@ -83,10 +83,44 @@ mechanics defeat it - `Magic-Seer` mobiles see through everything and cannot be 
 `Keen-Smeller` mobiles do not lose the half against unseen opponents. Both are flagged per
 creature in `bestiary.tsv`.
 
-**Two different stamina knees, and neither is 20:** strength starts degrading below **30**
-stamina, dexterity below **40**. This is the mechanic behind the owner's repeated deaths to
-rats - at low stamina your dexterity is falling, which raises *their* hit chance, which is
-why three rats can all land on one tick instead of the usual ~0.7 of them.
+**Two stat knees: strength below 30 stamina, dexterity below 40.** Both verified against our own
+captures (`MECHANICS-VERIFICATION.md`). This is the mechanic behind the owner's repeated deaths to
+rats - at low stamina your dexterity is falling, which raises *their* hit chance, which is why
+three rats can all land on one tick instead of the usual ~0.7 of them.
+
+**There is a third knee at 20, and it is not a stat formula.** An early draft of this document said
+"neither is 20", which was wrong in the way that matters: it confused *what the engine computes*
+with *what the player must decide*. Three thresholds, three different kinds of thing:
+
+| stamina | what it is | evidence |
+|---|---|---|
+| **40** | dexterity begins degrading, `(40-S)/3` | formula, verified |
+| **30** | strength begins degrading, `(30-S)/2` | formula, verified |
+| **20** | **the survival threshold** | consequences, below |
+
+Why 20 is real, per the owner:
+
+- **It is where flee cost starts to fall**, because total-death risk has become significant. Above
+  it you are paying the full price to leave; fleeing at or above 20 can cost 2-3 hours of play.
+- **The game itself says so** - MUD2 prints its own "you might want to consider fleeing" at
+  around this point. The client is not inventing a threshold the game disagrees with.
+- **Many NPCs have a maximum hit in the 15-20 range**, so for most opponents this is the point at
+  which the next single blow can kill outright.
+- **It flips NPC aggression.** Several creatures go from peaceful to hostile against a player this
+  wounded - which is `RATE`/`PACIFICITY` (section 5) crossing its threshold, computed against your
+  degraded stats. So the stat knees at 40 and 30 are what *drive* the danger at 20.
+- **A newly-arrived NPC gets a surprise blow.** Even if the current opponent provably cannot hit
+  for more than 10, a hostile-capable creature walking in will attack and will likely land 5-15.
+  The owner's read is that surprise blows skew higher when an NPC strikes a player than the
+  reverse - unverified, and worth testing once we can identify surprise blows in a capture.
+
+The owner's own tally: **outside rats, of 5 occasions at exactly 20 stamina, 3 cost the
+character.** That is the number that matters. It is a small sample and it is also lived
+experience in a permadeath game, and it outranks any formula here for the purpose of deciding
+what the panel shouts about.
+
+**Consequence for the rail:** 40 and 30 explain *why* you are losing; 20 is *when to act*. They
+are not competing thresholds and the panel should not collapse them into one scale.
 
 ## 4. Combat
 
@@ -144,6 +178,29 @@ free below ~6.5 stamina.
 
 **Fleeing at full health costs four times the base rate** - which is exactly the accident that
 cost the owner 1300 of 13000 points and a level, fleeing a zombie at 90/100.
+
+### Where the points go
+
+**They are not destroyed - they are paid to the attackers you fled from.** Per the owner's own
+in-session annotation, fleeing the ram gave the ram points and potentially levelled it, and killing
+it afterwards in revenge returned only a fraction: 313 recovered against 2,079 lost.
+
+This resolves an anomaly `verify_mechanics.py` flagged and could not explain. The ram kill awarded
+**313 points against a published `Points` value of 106**, while every other species matched its
+table entry exactly. The ram had been *promoted by the owner's own flee* moments earlier. So the
+bestiary's `Points` is the value of a creature at its base rank, and a creature that has eaten a
+player's flight is worth more than the table says.
+
+**Creature value and rank are directly queryable** with the `value` command, per NPC. That is the
+route to grounding this - and to explaining the +4 seen on each of the water-snake's failed escapes,
+which the same annotation suggests is the same mechanism running the other way.
+
+**The PvP shape of this is severe.** Points bleed from the fleeing player to the attacker, so
+provoking a high-level player into an early flight is a strategy: a level-9 necromancer who runs
+loses 3-4,000 points and hands the attacker several hundred. A player who instead stands and loses
+gives up a couple of thousand - 60-90 minutes of ordinary play. Any future PvP-facing surface has to
+be designed knowing that *making the other player flee* is itself the win condition, which is the
+opposite of the PvE instinct that fleeing is merely a personal cost.
 
 This stays out of the UI. `COMBAT-RAIL-SPEC.md` section 10 puts flee cost out of scope
 permanently: the player knows fleeing is expensive, and a price tag at the decision moment is

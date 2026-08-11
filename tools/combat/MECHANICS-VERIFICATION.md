@@ -57,7 +57,15 @@ Observed, one continuous descent during a ram fight, base STR 97 / base DEX 104:
 
 Every below-knee value is exact. A grid over thresholds {0,20,25,30,35,40,45,50} and divisors
 {1,2,3,4} ranks `(30-S)/2` first for strength and `(40-S)/3` first for dexterity, with every
-rival strictly worse. **The folk knee at 20 fits worse than no knee at all.**
+rival strictly worse. **As a STAT formula, a knee at 20 fits worse than no knee at all.**
+
+> Read that narrowly. It says only that the engine does not change its strength or dexterity
+> arithmetic at 20 stamina. It does **not** say 20 is unimportant - 20 is the survival threshold,
+> where flee cost falls, where the game itself prompts you to consider fleeing, where a single blow
+> from most creatures can kill, and where several creatures turn hostile. Outside rats, 3 of the
+> owner's 5 visits to exactly 20 stamina cost the character. See `COMBAT-RAIL-SPEC.md` section 6a:
+> the stat knees at 40 and 30 EXPLAIN, the threshold at 20 ALARMS. Concluding otherwise from this
+> line would be reading an instrument as if it were an intent.
 
 **Honest limits.** The above-knee half of this is overwhelming - 87 of the 90 stamina changes
 moved effective strength not at all, which is what rules out any threshold higher than 30 or 40

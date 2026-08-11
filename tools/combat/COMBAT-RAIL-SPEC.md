@@ -195,21 +195,61 @@ ticks, go amber only **after damage has landed**, and never straight to red.
 - Ember's tick, at the very bottom, **pale and dim** - grey/white, low opacity. It is a
   timer, not a judgement, so **no colour coding and no label**. A small drawn metronome mark
   is permitted; text is not.
-- **It moves.** The bar fills left to right over one tick, empties, refills - MUD2's tick is
-  exactly 2.000 s and phase-locked, so a sweep started at the fight's first swing stays in
-  phase for the rest of the fight without resyncing. The canvas draws the **empty track only**;
-  the fill is a Composition-animated sibling behind it (`TickSweep`), because a 2-second
-  progress bar repainted on the UI thread is the single most typing-hostile thing the panel
-  could contain.
+- **It moves, and it drains.** The bar starts **full** at the top of a tick and shrinks
+  **leftwards** - its left end pinned, its right end travelling left - reaching empty as the next
+  swing lands. A countdown, not a progress bar: it answers "how long have I got", and it matches
+  the health pips (lit = remaining) rather than inverting between two gauges on one panel. This is
+  the behaviour of the prototype the owner approved; a version that grew from empty was rejected.
+- **Strictly linear.** WinUI Composition applies a cubic ease-in-out to any keyframe that carries
+  no easing function, which makes the bar crawl at both ends and race through the middle. It
+  shipped that way once and was caught in play - *"combat tick bar is not smooth, it seems to slow
+  down towards the right"*. A clock that does not tick evenly is worse than no clock, because it is
+  read as information. Every keyframe takes an explicit linear easing.
+- MUD2's tick is exactly 2.000 s and phase-locked, so a sweep started at the fight's first swing
+  stays in phase for the rest of the fight without resyncing. The canvas draws the **empty track
+  only**; the fill is a Composition-animated sibling behind it (`TickSweep`), because a 2-second
+  progress bar repainted on the UI thread is the single most typing-hostile thing the panel could
+  contain.
 - **In-combat only.** The whole row - track, fill and opponent count - is absent between
   fights. A tick still running in the tea room reads as a fight that never ended.
-- Two exceptions only: **red at stamina <= 30**, **glow at stamina <= 20**.
+- Two exceptions only: **red at stamina <= 30**, **glow at stamina <= 20**. Both are now backed by
+  mechanics rather than taste - see "The three stamina thresholds" below.
 - The **encounter gauge is drawn over the tick**, sharing its pixels - not above, below or
   beside it.
 - Count format: **up to 5 crossed-swords marks, plus `+N` for the remainder.** Nine opponents
   renders 5 swords and `+4`; fourteen renders 5 swords and `+9`. **Not zero-padded** - `+4`,
   never `+04`. Two digits is the practical ceiling.
 - The swords must read as weapons, not as a letter x - crossguards and pommels.
+
+## 6a. The three stamina thresholds
+
+Three numbers matter, they are different KINDS of thing, and the panel must not collapse them onto
+one scale. Full derivation and evidence in `MUD2-PUBLISHED-MECHANICS.md`.
+
+| stamina | what happens | what the panel owes the player |
+|---|---|---|
+| **40** | effective dexterity begins degrading, `(40-S)/3` | explanation: *why* you are now missing and being hit more |
+| **30** | effective strength begins degrading, `(30-S)/2` | explanation: *why* your damage is falling |
+| **20** | the survival threshold | **alarm**: act now |
+
+40 and 30 are engine formulas, verified against our own captures. **20 is not a formula** - it is
+where the consequences converge:
+
+- flee cost starts falling, because death risk has become significant;
+- MUD2 prints its own "consider fleeing" prompt near here;
+- most NPCs cap out at 15-20 damage, so one blow can now kill;
+- several creatures flip from peaceful to hostile against a player this wounded (that is `RATE`
+  crossing, computed against the stats the 40 and 30 knees have already degraded);
+- a newly-arrived NPC lands a surprise blow of 5-15 regardless of what the current opponent can do.
+
+**Owner's tally: outside rats, of 5 occasions at exactly 20 stamina, 3 cost the character.** Small
+sample, lived experience, permadeath. It outranks any formula for deciding what the panel shouts
+about.
+
+So: **the stat knees explain, the survival threshold alarms.** An earlier draft of the mechanics
+doc concluded "the folk threshold at 20 fits worse than no knee at all" - true of the stat
+formulas and irrelevant to the decision, which is the exact error of reading an instrument as if
+it were an intent.
 
 ## 7. Combat beats
 
@@ -241,6 +281,32 @@ reported that range is near-invisible on a dark UI, so this needs a look on real
 
 1. **Slot count is dynamic** (section 3) - v9 hard-coded four.
 2. **Encounter gauge format** (section 6) - v9 rendered `09`; correct is 5 swords + `+4`.
+
+## 9a. Raised in play, not yet decided
+
+From the owner's own `//NOTE` annotations during the 2026-08-10 sessions
+(`SESSION-NOTES-20260810.md`). **Recorded, not approved** - none of these is part of the locked
+design until the owner says so.
+
+1. **Maximum observed hit, per NPC.** Verbatim: *"useful to surface max observed hit for any given
+   npc, that might have saved me 1000 points"*, written immediately after the 2,079-point flee. Its
+   companion note is the whole problem statement for this project: *"But I couldn't tell how
+   dangerous staying was - and dying in combat = deletion."* Note that `bestiary.tsv` gives every
+   creature's STR, and the damage bound `1..(CS/6)+1` turns that into a hard ceiling rather than an
+   observed maximum - so this can be answered better than it was asked, for creatures on the table.
+   The honest surface probably shows both: what it *can* hit for, and what it *has*.
+2. **The `value` command** exposes a creature's value and rank, which is what makes kill awards and
+   flee transfers predictable. No parser for it yet.
+3. **Diagnose targeting is ambiguous and dangerous to trust.** In one capture `diagnose snake`
+   returned a stamina bracket for `water-snake5` while the player was actually fighting
+   `water-snake4`. Anything that labels a diagnose result as "the current opponent" will eventually
+   attribute one creature's health to another. Bind the reading to the name the game returned, never
+   to the current target.
+4. **NPC self-healing needs a visible cause.** A zombie ate a wafer and improved three rungs with no
+   player action; a HUD that only watches hit/miss/health lines shows health going up for no reason.
+5. **Buffs and their expiry** (`+str`/`+dex`/`refresh`) materially change the fight and are entirely
+   unparsed - including that `blind` and the stat-reduction spells can backfire onto the caster,
+   which happened in play.
 
 ## 10. Explicitly out of scope / never build
 
