@@ -169,6 +169,57 @@ public sealed class ParserGapTests
         Assert.Null(aggregator.Snapshot(T0.AddSeconds(1)).CurrentWeapon);
     }
 
+    /// <summary>
+    /// The fight must remember what it was fought WITH even after the weapon leaves your hands.
+    ///
+    /// <para>MUD2 auto-drops your weapon when you flee and prints the drop in the same tick, just
+    /// before the flee line - so an 83-second axe fight in the capture was recorded as having been
+    /// fought bare-handed. That poisons the weapon-vs-creature history the alternate-weapon offer is
+    /// ranked from: the axe gets no credit for its own fight and the unarmed bucket gains one it never
+    /// had.</para>
+    /// </summary>
+    [Fact]
+    public void DroppingTheWeapon_DoesNotErodeTheFightsOwnWeaponRecord()
+    {
+        var aggregator = new CombatStatsAggregator();
+        var tracker = new CombatTracker();
+        tracker.EventOccurred += aggregator.Observe;
+
+        tracker.Observe(Line("You attack the ram, using the axe0 as a weapon."), T0);
+        tracker.Observe(Line("You hit the ram (15-19)."), T0.AddSeconds(2));
+        // The real ordering from the capture: the drop lands before the flee, while the fight is still
+        // unresolved.
+        tracker.Observe(Line("Axe0 dropped."), T0.AddSeconds(4));
+        tracker.Observe(Line("You have fled by going west."), T0.AddSeconds(4));
+
+        var snapshot = aggregator.Snapshot(T0.AddSeconds(5));
+        var fight = Assert.Single(snapshot.Fights);
+
+        Assert.Equal("axe0", fight.Weapon);
+        Assert.Equal(FightOutcome.YouFled, fight.Outcome);
+        // The live hands are empty; the fight's record is not.
+        Assert.Null(snapshot.CurrentWeapon);
+    }
+
+    /// <summary>Same rule for a weapon that breaks mid-fight - the pre-existing half of the same
+    /// bug, which had already written two fights to the research corpus as unarmed.</summary>
+    [Fact]
+    public void BreakingTheWeapon_DoesNotErodeTheFightsOwnWeaponRecord()
+    {
+        var aggregator = new CombatStatsAggregator();
+        var tracker = new CombatTracker();
+        tracker.EventOccurred += aggregator.Observe;
+
+        tracker.Observe(Line("You attack the rat3, using the dagger0 as a weapon."), T0);
+        tracker.Observe(Line("The dagger0 breaks to bits."), T0.AddSeconds(2));
+        tracker.Observe(Line("You have killed the rat3."), T0.AddSeconds(4));
+
+        var fight = Assert.Single(aggregator.Snapshot(T0.AddSeconds(5)).Fights);
+
+        Assert.Equal("dagger0", fight.Weapon);
+        Assert.Equal(FightOutcome.Killed, fight.Outcome);
+    }
+
     /// <summary>Dropping anything else is inventory management, not disarmament.</summary>
     [Fact]
     public void DroppingSomethingElse_LeavesTheWeaponAlone()

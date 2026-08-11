@@ -159,7 +159,7 @@ public sealed class FightHistoryRecorder : IDisposable
                     foreach (var fight in _fightOrder)
                     {
                         if (!fight.IsResolved)
-                            fight.NoteWeaponBroke();
+                            fight.NoteDisarmed();
                     }
                     break;
 

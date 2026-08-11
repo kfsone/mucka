@@ -202,7 +202,7 @@ public sealed class CombatStatsAggregator
                 foreach (var fight in _fightOrder)
                 {
                     if (!fight.IsResolved)
-                        fight.NoteWeaponBroke();
+                        fight.NoteDisarmed();
                 }
                 break;
 
@@ -217,7 +217,7 @@ public sealed class CombatStatsAggregator
                     foreach (var fight in _fightOrder)
                     {
                         if (!fight.IsResolved)
-                            fight.NoteWeaponBroke();
+                            fight.NoteDisarmed();
                     }
                 }
                 break;

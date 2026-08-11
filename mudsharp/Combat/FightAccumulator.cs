@@ -156,7 +156,24 @@ public sealed class FightAccumulator
             WeaponUsed = weapon;
     }
 
-    public void NoteWeaponBroke() => WeaponUsed = null;
+    /// <summary>
+    /// True once the weapon left the player's hands during this fight - broken, refused, or dropped.
+    /// Records that it happened WITHOUT erasing what the fight was fought with.
+    ///
+    /// <para>This used to null <see cref="WeaponUsed"/>, which destroyed the one durable fact the
+    /// fight had to offer. MUD2 auto-drops your weapon when you flee and prints the drop in the same
+    /// tick, immediately BEFORE the flee line - so an 83-second fight, armed with an axe0 throughout
+    /// and 7 hits into it, was written to history as having been fought bare-handed. That silently
+    /// poisons <c>FightHistory.SummarizeByWeapon</c>, which is the table the alternate-weapon offer
+    /// and the whole weapon-vs-creature comparison are built on: the weapon gets no credit for its
+    /// own fight, and the unarmed bucket gets a fight it never had.</para>
+    ///
+    /// <para>The LIVE "what is in my hands right now" answer is not this field's job - that is the
+    /// encounter-level current weapon, which is cleared as it always was.</para>
+    /// </summary>
+    public bool WasDisarmed { get; private set; }
+
+    public void NoteDisarmed() => WasDisarmed = true;
 
     /// <summary>Failed flee attempts by this creature - it tried to run and could not. Distinct from
     /// the fight ending in a flee, which is an outcome; this is a creature that is still standing in
@@ -199,7 +216,7 @@ public sealed class FightAccumulator
     }
 
     /// <summary>Records the NPC's own weapon once a "The X has started to use the Y to fight!"
-    /// line confirms one. Never cleared by <see cref="NoteWeaponBroke"/> - that line is about the
+    /// line confirms one. Never cleared by <see cref="NoteDisarmed"/> - that line is about the
     /// PLAYER'S weapon breaking, and MUD2 gives no equivalent "NPC weapon broke" line to react to,
     /// so the last-known NPC weapon is the honest thing to keep showing.</summary>
     public void NoteNpcWeapon(string? weapon, DateTime timestampUtc)
