@@ -213,6 +213,51 @@ Settling it needs a flee on a character with a materially different maximum stam
 figures are the ones to trust for this character because they come from play rather than from a
 transcription.
 
+**Does the threshold scale above 100 maximum stamina?** The owner's own follow-on hypothesis, and it
+is a good one: maximum stamina is permanently boostable to 120, they have never tested whether going
+above 100 changes anything, and a threshold that is "20" on a 100-stamina character is exactly 20%.
+This character sits at 105, so it cannot distinguish the two readings either. Untested, and worth
+testing before anyone hard-codes 20.
+
+### The two models are not reconcilable at the top end
+
+Worth stating plainly, because it makes the guide's table the weaker source rather than the
+tie-breaker:
+
+Our one data point is **4.48% of score lost at 19/105 stamina**. Under the guide's bands that is the
+`11%-25%` row at a 50% modifier, so the `100%` base rate would have to be **8.96%** - which makes a
+full-health flee, at the published `400%`, cost **~36% of total score**. The owner's lived figure is
+that the maximum possible loss is **10%**.
+
+Run it the other way: if the maximum really is 10% and the guide's `400%` is right, the base rate is
+2.5%, and the `11%-25%` row predicts **1.25%**, or ~580 points. We measured 2,079.
+
+**Neither direction works.** No single base rate satisfies both the published modifier ladder and the
+observed loss. Either the guide's top-end modifiers are wrong, or its bands do not describe the same
+quantity the owner is describing. Our measurement fits the owner's model - flat 10% to 20, steep drop
+below - and does not fit the guide's structure at all.
+
+### Designing the experiment - and its price
+
+Four questions, in order of value:
+
+1. **Is the boundary at 20 absolute, or 25% of maximum?** On this character those are 20 and 26.25.
+   A single flee at **22-26 stamina** separates them: the absolute model charges the full 10%, the
+   fractional model charges about half.
+2. **Is the maximum loss 10%, or 4x a base?** One flee at full health answers it, and the two
+   predictions differ by a factor of three and a half.
+3. **Does anything change above 100 maximum stamina?** Needs a boosted character.
+4. **Absolute or fractional in general?** Needs a character with a very different maximum.
+
+**The cost is proportional to current score, which is the whole trick.** These experiments are
+ruinous on a 46,000-point necromancer - question 2 alone costs ~4,600 points - and nearly free on a
+fresh character, where 10% of a few hundred points is pocket change. A low-score character can map
+the entire curve for less than one bad fight costs at level 9.
+
+So: **do not run these on the main persona.** The right instrument is a throwaway character, and the
+data it produces is worth more than the same data bought at high score, because the low-score
+character also has a low maximum stamina - which answers questions 1 and 4 at the same time.
+
 **One earlier disagreement was mine, not the data's.** I reported the measured rate as conflicting
 with a remembered "1300 of 13,000". Those are two points on a steep curve at different stamina, not
 two estimates of one quantity, so there was never anything to reconcile.
