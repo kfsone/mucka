@@ -173,11 +173,49 @@ Fleeing removes a portion of the player's total points, scaled by remaining stam
 | 0% - 10% | 0% |
 
 The guide's last row literally reads `0% - %5`, a typo; the band above it starts at 11%, so
-the intended range is 0-10%. Corroborated by the owner's own prior observation that fleeing is
-free below ~6.5 stamina.
+the intended range is 0-10%.
 
-**Fleeing at full health costs four times the base rate** - which is exactly the accident that
-cost the owner 1300 of 13000 points and a level, fleeing a zombie at 90/100.
+### The owner's model, which is more precise and does not agree in shape
+
+Stated from play experience, in **absolute stamina** rather than percentage of maximum:
+
+- **Maximum loss is 10% of current score.**
+- That maximum is **flat all the way down to 20 stamina**.
+- **Below 20 it drops quickly.**
+- At about **7 stamina** the loss is small - the owner estimates 500-600 points on a ~46,000 score,
+  so roughly 1.2%.
+- **Below about 6 stamina, fleeing is free.**
+
+Measured against the one flee in the corpus: score **46,416 -> 44,337, exactly -2,079, at 19/105
+stamina**. That is **4.48% of score**, where the flat maximum would have been ~4,642.
+
+**So the cliff sits exactly at the survival threshold, and it is brutal: fleeing at 20 costs more
+than twice what fleeing at 19 costs.** That is a genuinely perverse incentive structure and it is
+worth understanding rather than displaying - at 20 stamina you are simultaneously one blow from
+death and paying the maximum price to leave, and the game rewards holding for one more tick at
+precisely the moment holding is most likely to kill you. (See `COMBAT-RAIL-SPEC.md` 6a; this is a
+further reason 20 is the threshold that matters.)
+
+### Absolute stamina or fraction of maximum? - the open test
+
+The guide's bands are **percentages of maximum stamina**; the owner's thresholds are **absolute**.
+On this character they nearly coincide - max stamina 105, so the guide's 11-25% band spans 12-26
+and its free band ends at 10, against the owner's 20 and 6 - which is presumably why a FAQ author
+with a ~100-stamina character wrote it in percentages at all.
+
+**They diverge sharply for anyone else.** A low-level character with 30 maximum stamina would, on
+the guide's reading, flee free below 3 and pay half up to 7; on the owner's reading they flee free
+below 6 and pay half up to 20 - two thirds of their whole bar. One reading is very wrong for new
+characters, and nothing in this corpus can say which.
+
+Settling it needs a flee on a character with a materially different maximum stamina. Until then
+`verify_mechanics.py` reports flee cost as INSUFFICIENT, which is honest, and the owner's absolute
+figures are the ones to trust for this character because they come from play rather than from a
+transcription.
+
+**One earlier disagreement was mine, not the data's.** I reported the measured rate as conflicting
+with a remembered "1300 of 13,000". Those are two points on a steep curve at different stamina, not
+two estimates of one quantity, so there was never anything to reconcile.
 
 ### Where the points go
 

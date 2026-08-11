@@ -178,7 +178,14 @@ You miss the raven. / The raven misses you.
 - Debuff risk on the ram: two notes flag that offensive stat-reduction spells against the ram are risky — `//NOTE: attempt to blind the ram (stat reduc, often backfires)` (note 10, and it did immediately backfire, self-blinding the caster) and `//NOTE: could 'clumsify' or 'weaken' the ram, but might backfire too` (note 11, never actually attempted in this capture).
 - Direct feature ask for the HUD: `//NOTE: useful to surface max observed hit for any given npc, that might have saved me 1000 points` (note 14) — i.e. surfacing per-NPC max observed damage as a decision aid before committing to a fight.
 - Diagnose/stethoscope ambiguity: note 19 and note 23 both reference "diagnose"/"stethoscope" as a stamina-range read tool; the actual in-game mechanism observed is the `diagnose <target>` **spell**, and it can target a different-numbered NPC than the one currently engaged (see item (a) note 23's detail) — a real risk if a future HUD auto-attributes diagnose output to "the current opponent."
-- Session framing: note 16's arithmetic (`I'm still -628 points from when I started this session`) doesn't reconcile exactly against the raw score log (45,531 start vs. 44,650 at that point = −881), so treat the owner's inline point deltas as approximate mental math, not authoritative — the raw `(Persona saved on ... = N)` lines are the ground truth.
+- ~~Session framing: note 16's arithmetic doesn't reconcile against the raw score log, so treat the
+  owner's inline point deltas as approximate mental math.~~ **RETRACTED - this was wrong, and the
+  error was the reviewer's.** Note 16 says "since I started this session", and a *session* is the
+  owner's play session, not this capture file: it spanned an earlier connection that predates the
+  recording, and Mucka reports score combined across connections. The capture opening at 45,531 is
+  simply where the log starts, not where the session started, so there is nothing to reconcile.
+  −628 was correct. Do not treat the owner's in-session annotations as sloppy arithmetic; check
+  what the words actually refer to first.
 
 ---
 

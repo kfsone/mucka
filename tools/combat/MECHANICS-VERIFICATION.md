@@ -200,14 +200,27 @@ mobile's `Speed`.
    INCONCLUSIVE into a real test**, and would matter for the client: a creature that outheals a
    weak attacker is a fight you should not start.
 
-5. **Flee cost: one measurement, and it does not obviously fit.** Fled at 19/105 stamina (18.1%,
-   the `11-25%` band, published modifier 50%) and lost **2079 points from 46416** - 4.48% of
-   score, implying a 100%-band base rate of 8.96%. The owner's remembered flee of 1300 from 13000
-   at 90/100 stamina (the `>75%` band, 200%) implies a base rate of 5%. Those two do not agree.
-   With **n=1** in the database, that is a note to chase, not a refutation - it could be the
-   remembered figures, a different band boundary, or a base other than total score. What this run
-   does establish is narrow but real: fleeing at 18% stamina was *not* free, which rules out the
-   `0%` band reaching that high.
+5. **Flee cost: one measurement, and the interesting question is not the one asked.** Fled at 19/105
+   stamina and lost **2079 points from 46416** - 4.48% of score.
+
+   An earlier draft of this section called that a disagreement with the owner's remembered flee of
+   1300 from 13000. **That comparison was invalid**: the two flees happened at different stamina on
+   what the owner describes as a steep curve, so they are two points on a slope rather than two
+   estimates of one quantity. Retracted.
+
+   The owner's model, from play: maximum loss is **10% of current score, flat down to 20 stamina**,
+   dropping quickly below that, roughly 1.2% at 7 stamina, and **free below about 6**. Our single
+   measurement sits neatly on it - 4.48% at 19, against a 10% maximum of ~4642 - and it means
+   **fleeing at 20 costs more than twice fleeing at 19**, a cliff sitting exactly on the survival
+   threshold.
+
+   The real open question is **whether the bands key on absolute stamina or on fraction of maximum**.
+   The guide says percentages; the owner's thresholds are absolute; on a 105-stamina character the
+   two nearly coincide, and for a 30-stamina character they differ enormously. Nothing in this
+   corpus can separate them - it needs a flee on a character with a very different maximum stamina.
+   Verdict stays INSUFFICIENT.
+
+   What this run does establish, narrowly: fleeing at 19 stamina was *not* free.
 
 ---
 
