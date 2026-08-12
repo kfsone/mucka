@@ -31,10 +31,21 @@ internal sealed class CombatMetronome : IDisposable
     /// visibly separate within a dozen ticks.</summary>
     private const int TickMilliseconds = 2000;
 
-    /// <summary>How far either side of the boundary the two clicks sit. Small enough that the pair
-    /// reads as one bracketed moment rather than two separate beats, and large enough to be heard as
-    /// two. The high click leads by this much, the low click trails by it.</summary>
-    private const int BracketMilliseconds = 100;
+    /// <summary>How far ahead of the boundary the high click sits - "the update is about to
+    /// land".</summary>
+    private const int LeadMilliseconds = 100;
+
+    /// <summary>
+    /// How far after the boundary the low click sits - "it has landed, this is your turn".
+    ///
+    /// <para>Deliberately NOT symmetric with the lead. Swing text arrives on a one-sided late tail:
+    /// 88% within 25 ms of the lattice, but ~9% between 120 and 196 ms late. A trailing click at
+    /// +100 ms would therefore fire BEFORE the text it claims has arrived on roughly one swing-
+    /// carrying tick in sixteen. At +200 it clears the measured worst case, so the claim is true every
+    /// time. A marker that means "it is here" has to be right about that or it is worse than
+    /// nothing.</para>
+    /// </summary>
+    private const int TrailMilliseconds = 200;
 
     private const string HighClick = "sounds/Perc_Stick_hi.wav";
     private const string LowClick = "sounds/Perc_Stick_lo.wav";
@@ -80,20 +91,20 @@ internal sealed class CombatMetronome : IDisposable
                 return;
 
             _anchorUtc = tickAnchorUtc;
-            // The periodic timer runs on the HIGH click, one bracket-width ahead of each boundary;
+            // The periodic timer runs on the HIGH click, one lead-width ahead of each boundary;
             // the low click is scheduled from it.
             _timer = new Timer(_ => Click(), null, DelayToNextLead(tickAnchorUtc), TickMilliseconds);
         }
     }
 
-    /// <summary>Milliseconds until the next high click - one bracket-width before the next tick
+    /// <summary>Milliseconds until the next high click - one lead-width before the next tick
     /// boundary measured from <paramref name="anchorUtc"/>.</summary>
     private static int DelayToNextLead(DateTime anchorUtc)
     {
         var elapsed = (DateTime.UtcNow - anchorUtc).TotalMilliseconds;
-        // Shift the phase forward by the bracket so the arithmetic below is about the LEAD instant
+        // Shift the phase forward by the lead so the arithmetic below is about the LEAD instant
         // rather than the boundary, which keeps the modulo from having to handle a negative target.
-        var intoCycle = (elapsed + BracketMilliseconds) % TickMilliseconds;
+        var intoCycle = (elapsed + LeadMilliseconds) % TickMilliseconds;
         if (intoCycle < 0)
             intoCycle += TickMilliseconds;
 
@@ -114,8 +125,8 @@ internal sealed class CombatMetronome : IDisposable
         _timer = null;
     }
 
-    /// <summary>Fires one bracket-width BEFORE a tick boundary: sounds the high click, then schedules
-    /// the low one for a bracket-width after the boundary.</summary>
+    /// <summary>Fires one lead-width BEFORE a tick boundary: sounds the high click, then schedules
+    /// the low one for a trail-width after the boundary.</summary>
     private void Click()
     {
         lock (_gate)
@@ -128,14 +139,14 @@ internal sealed class CombatMetronome : IDisposable
         _ = PlayTrailingClickAsync();
     }
 
-    /// <summary>The low click, two bracket-widths after the high one. Deliberately a delayed
+    /// <summary>The low click. Deliberately a delayed
     /// continuation rather than a second timer: it is a one-shot follow-up to a click that has already
     /// happened, and giving it its own Timer would mean a second disposable object per tick and a
     /// second thing that can outlive Stop(). Re-checks state on waking, so a fight that ends inside
     /// the bracket does not get a trailing click after the silence has started.</summary>
     private async Task PlayTrailingClickAsync()
     {
-        await Task.Delay(BracketMilliseconds * 2).ConfigureAwait(false);
+        await Task.Delay(LeadMilliseconds + TrailMilliseconds).ConfigureAwait(false);
 
         lock (_gate)
         {
