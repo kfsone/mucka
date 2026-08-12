@@ -110,6 +110,27 @@ public class SessionCommandAliasesTests
         Assert.Equal("before look after", wrapped);
     }
 
+    // GameViewModel.HandleCommand's "^N=command" guard relies on TryDefine trimming
+    // whitespace around "=" itself (see issue #137) — lock that behavior down here so a
+    // future change to either side doesn't silently break "^1 = look" / "^1= look" / "^1 =look".
+    [Theory]
+    [InlineData("^1=look")]
+    [InlineData("^1 = look")]
+    [InlineData("^1= look")]
+    [InlineData("^1 =look")]
+    [InlineData("  ^1  =  look  ")]
+    public void ControlAliasDefinitionToleratesWhitespaceAroundEquals(string definition)
+    {
+        var aliases = CreateAliases();
+
+        Assert.True(aliases.TryDefine(definition, out var name, out var command, out var error));
+        Assert.Null(error);
+        Assert.Equal("^1", name);
+        Assert.Equal("look", command);
+        Assert.True(aliases.TryGet("^1", out var stored));
+        Assert.Equal("look", stored);
+    }
+
     private static SessionCommandAliases CreateAliases() => new("0.14.0.98");
 
     private static void Define(SessionCommandAliases aliases, string definition)
