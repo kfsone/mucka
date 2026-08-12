@@ -70,6 +70,10 @@ public partial class GamePage : ContentPage
     private bool _isFkeyEditorOpen;
     private bool _isGuidedLoginOverlayOpen;
     private bool _guidedLoginOverlayRunning;
+    // Set when a guided-login reentry arrives while the f-key/config editor is up; pushing the
+    // overlay on top of it would let the editor's bare PopModalAsync() pop the wrong (topmost)
+    // modal instead of itself. Replayed once the editor closes and OnAppearing fires again.
+    private Mucka.Core.GuidedLogin.GuidedLoginOptions? _pendingGuidedLoginReentry;
     private bool _eventsSubscribed;
     private double _floatTransX;
     private double _floatTransY;
@@ -141,6 +145,14 @@ public partial class GamePage : ContentPage
         _isFkeyEditorOpen = false;
         _isGuidedLoginOverlayOpen = false;
         base.OnAppearing();
+
+        if (_pendingGuidedLoginReentry is { } pendingReentry)
+        {
+            // The f-key editor that deferred this reentry (see OnGuidedLoginReentryRequested) has
+            // now closed and handed us back here -- safe to push the overlay.
+            _pendingGuidedLoginReentry = null;
+            _ = RunGuidedLoginOverlayAsync(pendingReentry);
+        }
 
         try { DeviceDisplay.Current.KeepScreenOn = _vm.KeepScreenOn; }
         catch (Exception ex) { CrashLog.Write("KeepScreenOn", ex); }
@@ -311,6 +323,10 @@ public partial class GamePage : ContentPage
     protected override void OnDisappearing()
     {
         base.OnDisappearing();
+        // Drop any deferred re-entry: it was only ever meant to be replayed once the covering
+        // editor closes and this page's own OnAppearing fires again, not after an unrelated
+        // navigation away and later back (which would resurrect stale GuidedLoginOptions).
+        _pendingGuidedLoginReentry = null;
 #if ANDROID
         _androidFkeyHandler = null;
         _androidCtrlDHandler = null;
@@ -523,7 +539,17 @@ public partial class GamePage : ContentPage
     // Fired when the shell drops us back to the Option menu (quit, permadeath, or a game reset):
     // re-run the persona dance rather than stranding the player at a bare menu prompt.
     private void OnGuidedLoginReentryRequested(Mucka.Core.GuidedLogin.GuidedLoginOptions options)
-        => _ = RunGuidedLoginOverlayAsync(options);
+    {
+        if (_isFkeyEditorOpen)
+        {
+            // The config/f-key editor is up -- pushing the guided-login overlay on top of it
+            // would let the editor's bare PopModalAsync() pop the wrong (topmost) modal instead
+            // of itself. Defer until the editor closes and OnAppearing fires again.
+            _pendingGuidedLoginReentry = options;
+            return;
+        }
+        _ = RunGuidedLoginOverlayAsync(options);
+    }
 
     private async Task RunGuidedLoginOverlayAsync(Mucka.Core.GuidedLogin.GuidedLoginOptions options)
     {
@@ -542,6 +568,7 @@ public partial class GamePage : ContentPage
         var controller = _vm.CreateGuidedLoginController(options);
         var loginVm = new GuidedLoginViewModel(controller);
         GuidedLoginPage? page = null;
+        var endConnection = false;
         try
         {
             _isGuidedLoginOverlayOpen = true;
@@ -560,6 +587,13 @@ public partial class GamePage : ContentPage
                     $"{result.FailureReason}\n\nYou can stay at the Option menu and continue manually.",
                     "OK");
             }
+
+            // Cancelled (Esc, or the action sheet's own Cancel) is a deliberate "I don't want to
+            // log in" -- unlike the explicit "[Drop to menu]" affordance (ManualAtOptionMenu),
+            // it must not leave the shell sitting at the Option menu with the connection still
+            // open. End the connection and back out of the game page, same as a real disconnect
+            // but without the "server closed the connection" alert (this is player-initiated).
+            endConnection = result.Outcome == Mucka.Core.GuidedLogin.GuidedLoginOutcome.Cancelled;
         }
         finally
         {
@@ -571,6 +605,12 @@ public partial class GamePage : ContentPage
             _guidedLoginOverlayRunning = false;
             if (!Terminal.IsHistoryMode)
                 FocusInput();
+        }
+
+        if (endConnection)
+        {
+            await _vm.DisconnectAsync();
+            await Navigation.PopAsync();
         }
     }
 
