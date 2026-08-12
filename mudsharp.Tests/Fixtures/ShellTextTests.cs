@@ -170,6 +170,54 @@ public class ShellTextTests
     }
 
     [Fact]
+    public void OptionUnavailableAfterOurPWakesTheLandmarkAndTriggersAnImmediateResend()
+    {
+        // Simulates our "p" getting eaten by stale input already sitting in the shell's buffer
+        // (an in-flight FES probe splice): the shell answers "Option unavailable." instead of
+        // showing the persona-name prompt, and no persona list ever arrives. Guided login's
+        // SendPlayAndGetSlotsAsync landmark predicate must wake on this -- previously it wasn't
+        // included, so this rode the full outer deadline instead of being recognised and retried.
+        var n = ShellText.NormalizeWhitespace(
+            "Option (H for help): p\r\nOption unavailable.\r\nOption (H for help): ");
+
+        // The combined landmark predicate SendPlayAndGetSlotsAsync waits on wakes for this text.
+        var wakesLandmark = ShellText.IsPersonaNamePrompt(n)
+            || ShellText.IsDatabaseStillInitialisingLine(n)
+            || ShellText.IsDatabaseStartedInitialisingLine(n)
+            || ShellText.IsDatabaseFinishedInitialisingLine(n)
+            || ShellText.IsOptionUnavailableLine(n);
+        Assert.True(wakesLandmark);
+
+        // ...and it is the immediate-resend branch that fires (not the DB-init pacing branch,
+        // which must still own any text that also carries a DB-initialising phrase).
+        var isImmediateResendCase = ShellText.IsOptionUnavailableLine(n)
+            && !ShellText.IsDatabaseStillInitialisingLine(n)
+            && !ShellText.IsDatabaseStartedInitialisingLine(n);
+        Assert.True(isImmediateResendCase);
+        Assert.False(ShellText.IsPersonaNamePrompt(n));
+    }
+
+    [Fact]
+    public void OptionUnavailableDuringDatabaseInitialising_DoesNotFightTheDbInitBranch()
+    {
+        // The reset-time "p" reply also says "Option unavailable." is never actually shown here --
+        // it is "The database is still initialising." -- but if a server variant ever paired the
+        // two, the DB-init branch (which paces retries rather than resending immediately) must
+        // still win: IsOptionUnavailableLine must not be treated as the immediate-resend case
+        // when a DB-initialising phrase is also present.
+        var n = ShellText.NormalizeWhitespace(
+            "Option unavailable.\r\nThe database is still initialising.\r\nOption (H for help): ");
+
+        Assert.True(ShellText.IsOptionUnavailableLine(n));
+        Assert.True(ShellText.IsDatabaseStillInitialisingLine(n));
+
+        var isImmediateResendCase = ShellText.IsOptionUnavailableLine(n)
+            && !ShellText.IsDatabaseStillInitialisingLine(n)
+            && !ShellText.IsDatabaseStartedInitialisingLine(n);
+        Assert.False(isImmediateResendCase);
+    }
+
+    [Fact]
     public void ParsesPersonaSlots_ThroughInterleavedOptionUnavailableNoise()
     {
         // The whole re-entry exchange as the player saw it: an in-flight FES probe drawing an
