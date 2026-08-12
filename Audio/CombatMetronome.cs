@@ -1,13 +1,19 @@
 namespace Mucka.Audio;
 
 /// <summary>
-/// Clicks once per MUD2 combat tick, alternating a high and a low percussion stick, so the fight's
-/// rhythm can be heard instead of watched.
+/// Brackets each MUD2 combat tick with two percussion clicks - a high one shortly BEFORE the
+/// boundary and a low one shortly AFTER - so the fight's rhythm can be heard instead of watched.
 ///
-/// <para>This is the point of it: the tick bar tells you when the next swing lands, but reading it
-/// costs a glance away from the terminal text, which is the one thing the rail exists to avoid.
-/// Hearing the beat costs nothing at all - and MUD2's tick is exactly 2.000 s and phase-locked, so a
-/// metronome started with the fight stays true to it for the fight's duration.</para>
+/// <para><b>Why a bracket rather than a beat.</b> MUD2 is not a reaction game. Nothing is gained by
+/// cueing the player to press something at the instant of the tick; every decision has to be typed
+/// and TRANSMITTED before the boundary, so by the time a single on-the-beat click sounds it is
+/// already too late to act on. What the tick actually delivers is a status update - the swing lines,
+/// the health descriptor, the stamina change. The two clicks therefore bracket the interval in which
+/// that information lands: the high click says "it is about to arrive", the low click says "it has,
+/// and this is your turn now". Attention, not action.</para>
+///
+/// <para>The tick bar answers the same question visually, but reading it costs a glance away from the
+/// terminal text, which is the one thing the rail exists to avoid. Hearing it costs nothing.</para>
 ///
 /// <para><b>Not a UI-thread timer.</b> Invariant #1 forbids repeating UI-thread timers, and this is
 /// exactly the kind of thing that would tempt one. It uses a thread-pool <see cref="Timer"/> and never
@@ -24,6 +30,11 @@ internal sealed class CombatMetronome : IDisposable
     /// see <c>Mucka.Rendering.TickSweep</c>. If these two ever disagree, the click and the bar will
     /// visibly separate within a dozen ticks.</summary>
     private const int TickMilliseconds = 2000;
+
+    /// <summary>How far either side of the boundary the two clicks sit. Small enough that the pair
+    /// reads as one bracketed moment rather than two separate beats, and large enough to be heard as
+    /// two. The high click leads by this much, the low click trails by it.</summary>
+    private const int BracketMilliseconds = 100;
 
     private const string HighClick = "sounds/Perc_Stick_hi.wav";
     private const string LowClick = "sounds/Perc_Stick_lo.wav";
@@ -69,23 +80,26 @@ internal sealed class CombatMetronome : IDisposable
                 return;
 
             _anchorUtc = tickAnchorUtc;
-            _timer = new Timer(_ => Click(), null, DelayToNextBeat(tickAnchorUtc), TickMilliseconds);
+            // The periodic timer runs on the HIGH click, one bracket-width ahead of each boundary;
+            // the low click is scheduled from it.
+            _timer = new Timer(_ => Click(), null, DelayToNextLead(tickAnchorUtc), TickMilliseconds);
         }
     }
 
-    /// <summary>Milliseconds until the next tick boundary after <paramref name="anchorUtc"/>. Fires
-    /// straight away when we are already within a hair of a boundary, so arming a moment after a
-    /// swing does not sit out the whole tick that just started.</summary>
-    private static int DelayToNextBeat(DateTime anchorUtc)
+    /// <summary>Milliseconds until the next high click - one bracket-width before the next tick
+    /// boundary measured from <paramref name="anchorUtc"/>.</summary>
+    private static int DelayToNextLead(DateTime anchorUtc)
     {
-        const double atBoundaryToleranceMs = 60.0;
-
         var elapsed = (DateTime.UtcNow - anchorUtc).TotalMilliseconds;
-        var intoTick = elapsed % TickMilliseconds;
-        if (intoTick < 0)
-            intoTick += TickMilliseconds;
+        // Shift the phase forward by the bracket so the arithmetic below is about the LEAD instant
+        // rather than the boundary, which keeps the modulo from having to handle a negative target.
+        var intoCycle = (elapsed + BracketMilliseconds) % TickMilliseconds;
+        if (intoCycle < 0)
+            intoCycle += TickMilliseconds;
 
-        return intoTick <= atBoundaryToleranceMs ? 0 : (int)Math.Round(TickMilliseconds - intoTick);
+        var remaining = TickMilliseconds - intoCycle;
+        // Never schedule a click so close to now that it lands after the moment it is announcing.
+        return remaining < 20 ? (int)Math.Round(remaining + TickMilliseconds) : (int)Math.Round(remaining);
     }
 
     public void Stop()
@@ -100,28 +114,44 @@ internal sealed class CombatMetronome : IDisposable
         _timer = null;
     }
 
+    /// <summary>Fires one bracket-width BEFORE a tick boundary: sounds the high click, then schedules
+    /// the low one for a bracket-width after the boundary.</summary>
     private void Click()
     {
-        // Read the asset under the lock but PLAY outside it - Play is fire-and-forget, but holding a
-        // lock across any call into audio is how a click ends up able to block a Stop().
-        string asset;
         lock (_gate)
         {
             if (_disposed || _timer is null)
                 return;
-
-            // High/low derived from the fight's own tick COUNT rather than a flip-flop field, so the
-            // pattern is a property of the fight and not of when the switch happened to be pressed.
-            // Toggling off and on mid-fight rejoins the same alternation instead of inverting it.
-            var elapsed = (DateTime.UtcNow - _anchorUtc).TotalMilliseconds;
-            var tickIndex = (long)Math.Round(elapsed / TickMilliseconds);
-            asset = tickIndex % 2 == 0 ? HighClick : LowClick;
         }
 
-        // Master mute wins over the toggle, matching how every other client-initiated sound in the
-        // app behaves (see MappingSession's own guard). Not gated on the per-sound catalogue though:
-        // this is a client instrument the player armed deliberately, not a server-triggered effect,
-        // so the switch beside the tick bar is its own enablement.
+        Play(HighClick);
+        _ = PlayTrailingClickAsync();
+    }
+
+    /// <summary>The low click, two bracket-widths after the high one. Deliberately a delayed
+    /// continuation rather than a second timer: it is a one-shot follow-up to a click that has already
+    /// happened, and giving it its own Timer would mean a second disposable object per tick and a
+    /// second thing that can outlive Stop(). Re-checks state on waking, so a fight that ends inside
+    /// the bracket does not get a trailing click after the silence has started.</summary>
+    private async Task PlayTrailingClickAsync()
+    {
+        await Task.Delay(BracketMilliseconds * 2).ConfigureAwait(false);
+
+        lock (_gate)
+        {
+            if (_disposed || _timer is null)
+                return;
+        }
+
+        Play(LowClick);
+    }
+
+    /// <summary>Master mute wins over the toggle, matching how every other client-initiated sound in
+    /// the app behaves (see MappingSession's own guard). Not gated on the per-sound catalogue though:
+    /// this is a client instrument the player armed deliberately, not a server-triggered effect, so
+    /// the switch beside the tick bar is its own enablement.</summary>
+    private static void Play(string asset)
+    {
         if (SoundService.MasterEnabled)
             SoundService.Play(asset);
     }

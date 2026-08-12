@@ -108,10 +108,14 @@ public partial class GamePage : ContentPage
     // metronome mid-fight joins the existing beat rather than starting a new one from the button
     // press. MUD2's tick is exactly 2.000s and phase-locked, which is what makes a single anchor
     // hold good for the length of a fight.
-    private DateTime _tickPhaseAnchorUtc;
+    private DateTime? _tickPhaseAnchorUtc;
     // Whether the audible tick is currently running. Tracked separately from the visual sweep because
     // the two have different run conditions - see UpdateCombatMetronome.
     private bool _metronomeRunning;
+    // The anchor the click is currently aligned to. Held separately so a LATER, better anchor (the
+    // encounter's first swing, replacing "no idea yet") re-aligns the bracket instead of being
+    // ignored because the run state itself did not change.
+    private DateTime? _metronomeAnchorUtc;
     // Same reasoning for the sweep's colour: set only when the band actually changes, since assigning
     // BoxView.Color rebuilds a native brush.
     private bool _tickSweepAlarmed;
@@ -1299,12 +1303,15 @@ public partial class GamePage : ContentPage
             UpdateCombatMetronome();
         }
         else if (e.PropertyName is nameof(SidePanelViewModel.IsCombatPanelVisible)
-                                or nameof(SidePanelViewModel.IsCombatGracePeriod))
+                                or nameof(SidePanelViewModel.IsCombatGracePeriod)
+                                or nameof(SidePanelViewModel.TickPhaseUtc))
         {
             // Hiding the rail silences the click, and the post-kill grace window is not a fight.
-            // Neither of these raises the Live property, so without watching them directly the
-            // metronome carried on through both.
-            UpdateCombatMetronome();
+            // Neither of those raises the Live property, so without watching them directly the
+            // metronome carried on through both. TickPhaseUtc joins them because it arrives LATER
+            // than combat start - the encounter's first swing is what finally reveals the phase -
+            // and both the bar and the click have to re-align to it when it does.
+            UpdateCombatTickSweep(_vm.SidePanel.Live);
         }
     }
 
@@ -1327,23 +1334,19 @@ public partial class GamePage : ContentPage
         if (_combatTickSweep is not null)
         {
             var shouldSweep = TickIsMeaningful();
-            if (shouldSweep != _tickSweepRunning)
+            // The anchor is the encounter's first SWING, not the moment combat started - see
+            // SidePanelViewModel.TickPhaseUtc for why that is worth ~1 s of accuracy. A change of
+            // anchor restarts the sweep even if it was already running, because the first swing is
+            // usually the moment we learn the phase was wrong.
+            var anchor = _vm.SidePanel.TickPhaseUtc;
+            if (shouldSweep != _tickSweepRunning || (shouldSweep && anchor != _tickPhaseAnchorUtc))
             {
                 _tickSweepRunning = shouldSweep;
+                _tickPhaseAnchorUtc = anchor;
                 if (shouldSweep)
-                {
-                    // Re-anchored on every resumption, not just at the start of an encounter. A
-                    // resumption means something has actually started swinging at us again, and that
-                    // moment is itself close to a tick boundary - which is the only reason a fresh
-                    // anchor is honest. Restart() begins at keyframe zero, so resuming WITHOUT
-                    // re-anchoring would put the bar out of phase, not merely make it jump.
-                    _tickPhaseAnchorUtc = DateTime.UtcNow;
                     _combatTickSweep.Restart();
-                }
                 else
-                {
                     _combatTickSweep.Stop();
-                }
             }
 
             UpdateTickSweepColour(live);
@@ -1382,16 +1385,22 @@ public partial class GamePage : ContentPage
     /// </summary>
     private void UpdateCombatMetronome()
     {
-        var shouldRun = _vm.SidePanel.IsCombatMetronomeEnabled && TickIsMeaningful();
+        // No anchor means the encounter's first swing has not landed, so the tick's phase is unknown.
+        // Silence is the only honest option: the bracket's whole meaning is "either side of the
+        // boundary", and clicking either side of a boundary we have guessed at would be theatre.
+        var anchor = _vm.SidePanel.TickPhaseUtc;
+        var shouldRun = _vm.SidePanel.IsCombatMetronomeEnabled && anchor is not null && TickIsMeaningful();
 
-        if (shouldRun == _metronomeRunning)
+        if (shouldRun == _metronomeRunning && anchor == _metronomeAnchorUtc)
             return;
 
         _metronomeRunning = shouldRun;
+        _metronomeAnchorUtc = anchor;
+        // Stop first even when starting: Start() is idempotent by design, so a running metronome
+        // would otherwise ignore a better anchor arriving.
+        _combatMetronome.Stop();
         if (shouldRun)
-            _combatMetronome.Start(_tickPhaseAnchorUtc);
-        else
-            _combatMetronome.Stop();
+            _combatMetronome.Start(anchor!.Value);
     }
 
     private void UpdateTickSweepColour(Mucka.ViewModels.CombatLiveView live)

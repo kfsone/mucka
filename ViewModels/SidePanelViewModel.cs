@@ -351,6 +351,9 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             {
                 _combatStats.BeginEncounter(DateTime.UtcNow);
                 _hasCombatData = true;
+                // Phase is unknown until this encounter's first swing arrives - see TickPhaseUtc.
+                _tickPhaseUtc = null;
+                OnPropertyChanged(nameof(TickPhaseUtc));
                 // Fresh encounter: both bracket hysteresis latches re-arm (4.2) - a crossing from a
                 // PREVIOUS fight must never suppress this fight's own first crossing.
                 _tierResolver.Reset();
@@ -387,9 +390,38 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             OnPropertiesChanged(nameof(IsCombatGracePeriod), nameof(CombatIconOpacity), nameof(CombatTip));
         });
 
+    /// <summary>
+    /// When the current encounter's FIRST swing landed - the tick lattice's phase, and the anchor the
+    /// tick bar and metronome align to.
+    ///
+    /// <para>Not the moment combat started. The line that flips InCombat is the reply to the player's
+    /// own <c>kill</c> command, so its phase is the keystroke's rather than the server's: measured
+    /// across 16 encounters, anchoring there put the indicator a median of ~1.0 s away from the real
+    /// boundary, effectively at random, which is why the lag felt intermittent. A swing line is
+    /// emitted BY the tick, so anchoring on the first one measures a median error of ~22 ms.</para>
+    ///
+    /// <para>Set once per encounter and then left alone. Re-anchoring on every swing would be more
+    /// accurate still, but would yank the bar and the click around several times a fight; a phase
+    /// this stable (one lattice fits a whole session to ~4 ppm) does not need chasing.</para>
+    ///
+    /// <para>The timestamp is the tracker's own, stamped on the feed thread when the line completed -
+    /// never <c>DateTime.UtcNow</c> here, which would add this dispatch hop to the measurement.</para>
+    /// </summary>
+    public DateTime? TickPhaseUtc => _tickPhaseUtc;
+    private DateTime? _tickPhaseUtc;
+
+    private static bool IsSwing(CombatEventKind kind) => kind
+        is CombatEventKind.Hit or CombatEventKind.Miss
+        or CombatEventKind.HitByNpc or CombatEventKind.MissByNpc;
+
     public void OnCombatEvent(CombatEvent combatEvent)
         => MainThread.BeginInvokeOnMainThread(() =>
         {
+            if (_tickPhaseUtc is null && IsSwing(combatEvent.Kind))
+            {
+                _tickPhaseUtc = combatEvent.TimestampUtc;
+                OnPropertyChanged(nameof(TickPhaseUtc));
+            }
             _combatClearGeneration++;
             _combatStats.Observe(combatEvent);
             if (_combatStats.HasEncounter)

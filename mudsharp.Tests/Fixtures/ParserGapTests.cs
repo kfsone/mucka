@@ -15,43 +15,6 @@ public sealed class ParserGapTests
 
     private static StyledLine Line(string text) => new([new StyledSpan(text, TextStyle.Default)]);
 
-    /// <summary>
-    /// A tracker and aggregator wired the way the running app wires them - which is not the way a
-    /// naive test would. The aggregator's encounter is opened by <c>InCombatChanged</c> (SidePanel
-    /// ViewModel.OnInCombatChanged does this), NOT by its own Observe, which drops every non-FightStart
-    /// event while out of combat. A test that only subscribes to EventOccurred silently exercises a
-    /// pipeline that never opens an encounter at all.
-    /// </summary>
-    private sealed class Pipeline
-    {
-        public readonly CombatTracker Tracker = new();
-        public readonly CombatStatsAggregator Aggregator = new();
-        private DateTime _now;
-
-        public Pipeline()
-        {
-            Tracker.EventOccurred += Aggregator.Observe;
-            // BeginEncounter takes the CURRENT time, exactly as SidePanelViewModel does
-            // (DateTime.UtcNow). It cannot take the triggering event's timestamp, because
-            // InCombatChanged fires from inside Begin() BEFORE that event is emitted - an earlier
-            // version of this harness used the last event's stamp and, being permanently a few
-            // minutes stale, made the pending-weapon window look infinite.
-            Tracker.InCombatChanged += inCombat =>
-            {
-                if (inCombat)
-                    Aggregator.BeginEncounter(_now);
-                else
-                    Aggregator.EndEncounter();
-            };
-        }
-
-        public void Observe(string text, DateTime atUtc)
-        {
-            _now = atUtc;
-            Tracker.Observe(Line(text), atUtc);
-        }
-    }
-
     private static List<CombatEvent> Observe(params string[] lines)
     {
         var tracker = new CombatTracker();
@@ -255,46 +218,6 @@ public sealed class ParserGapTests
 
         Assert.Equal("dagger0", fight.Weapon);
         Assert.Equal(FightOutcome.Killed, fight.Outcome);
-    }
-
-    /// <summary>
-    /// The reported "it showed me as unarmed despite initiating with a weapon", reproduced from the
-    /// exact server behaviour in the capture.
-    ///
-    /// <para>`kill &lt;npc&gt; with &lt;weapon&gt;` does NOT always answer with "You attack the X, using
-    /// the Y as a weapon." - when MUD2 already considers you engaged it sends the equip line ALONE.
-    /// That line names no NPC so it cannot open an encounter, and everything non-FightStart used to be
-    /// discarded while out of combat, so the weapon vanished and the fight opened empty-handed on the
-    /// first landed blow.</para>
-    /// </summary>
-    [Fact]
-    public void WeaponEquippedJustBeforeTheFightOpens_IsStillTheFightsWeapon()
-    {
-        var pipe = new Pipeline();
-
-        // Verbatim from the capture: the whole server reply to "k ram wi axe".
-        pipe.Observe("You are now using the axe0 to fight!", T0);
-        // The encounter only opens once a blow lands.
-        pipe.Observe("You hit the ram (15-19).", T0.AddSeconds(2));
-
-        var snapshot = pipe.Aggregator.Snapshot(T0.AddSeconds(3));
-
-        Assert.Equal("axe0", snapshot.CurrentWeapon);
-        Assert.Equal("axe0", Assert.Single(snapshot.Fights).Weapon);
-    }
-
-    /// <summary>The claim expires. MUD2 takes your weapon out of your hands at the end of a fight and
-    /// refuses `wield` outside one, so an equip from minutes ago belongs to a fight that is over -
-    /// carrying it forward would be a different lie in the same place.</summary>
-    [Fact]
-    public void AStaleEquip_IsNotClaimedByALaterFight()
-    {
-        var pipe = new Pipeline();
-
-        pipe.Observe("You are now using the axe0 to fight!", T0);
-        pipe.Observe("You hit the ram (15-19).", T0.AddMinutes(3));
-
-        Assert.Null(pipe.Aggregator.Snapshot(T0.AddMinutes(3)).CurrentWeapon);
     }
 
     /// <summary>Dropping anything else is inventory management, not disarmament.</summary>

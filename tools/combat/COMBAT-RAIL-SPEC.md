@@ -228,16 +228,33 @@ rather than added beside it, so the row's overall geometry is unchanged.
   when the fight ended could only be operated during a fight.
 - Armed: lit, with the pendulum leaning. Idle: outline, pendulum upright. The lean reads as
   "running" with no motion required.
-- When armed, one percussion click per tick, **alternating high and low** (`Perc_Stick_hi.wav` /
-  `Perc_Stick_lo.wav`). The point is to make the fight's rhythm audible so the tick can be *heard*
-  rather than looked at - a glance at the rail is a glance away from the terminal text.
-- **The click lands on the tick, never on the button press.** Both the sweep and the metronome are
-  anchored to one phase reference taken when the fight's lattice starts, so arming the metronome
-  halfway through a fight joins the beat already running instead of starting a new one from the
-  moment of the click. A metronome that ticks on the player's input would look authoritative while
-  being wrong by up to a full tick, which is worse than silence. The high/low alternation is derived
-  from the fight's tick COUNT for the same reason - toggling off and on rejoins the pattern rather
-  than inverting it.
+- When armed, **two clicks per tick, bracketing the boundary**: `Perc_Stick_hi.wav` **100 ms before**
+  and `Perc_Stick_lo.wav` **100 ms after**.
+
+  **Not a beat on the tick, and this is a design decision rather than a detail.** MUD2 is not a
+  reaction game; there is no hotkey to hit on the beat. Every decision must be typed *and
+  transmitted* before the boundary, so a single on-the-beat click announces a deadline the player has
+  already missed. What the tick actually delivers is a **status update** - the swing lines, the
+  health rung, the stamina change. The pair brackets the interval in which that information lands:
+  the high click says "it is about to arrive", the low click says "it has, and this is your turn
+  now". **Attention, not action.**
+
+- **The phase comes from the encounter's first SWING, not from the moment combat started.** The line
+  that flips `InCombat` is the reply to the player's own `kill` command, so its phase is the
+  keystroke's rather than the server's - measured across 16 encounters that put the indicator a
+  median of **~1.0 s** from the real boundary, effectively at random, which is exactly why the lag
+  felt intermittent. A swing line is emitted *by* the tick; anchoring there measures a median error
+  of **~22 ms**. Set once per encounter and then left alone: one lattice fits a whole 40-minute
+  session to ~4 ppm, so the phase does not need chasing, and re-anchoring every swing would yank the
+  bar and the click around several times a fight.
+
+- **The click stays silent until the phase is known.** A bracket means "either side of the boundary";
+  clicking either side of a *guess* would be theatre. The bar is treated differently on purpose - it
+  runs from combat start and re-aligns when the first swing arrives, because a briefly-wrong timer
+  that visibly corrects itself is honest in a way a confidently-wrong sound is not.
+
+- Arming mid-fight joins the bracket already running rather than starting a new one from the button
+  press.
 - Driven by a **thread-pool timer, never a UI-thread one** (Invariant #1). Master mute wins over the
   toggle.
 - **It clicks only when armed AND there is a next swing to count down to.** The rail must be on

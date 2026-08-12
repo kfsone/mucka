@@ -105,28 +105,11 @@ public sealed class CombatStatsAggregator
     public bool InCombat { get; private set; }
     public bool HasEncounter => _encounterStartUtc is not null;
 
-    /// <summary>How long a just-equipped weapon stays claimable by an encounter that has not opened
-    /// yet. One combat tick plus slack: the equip line and the fight it belongs to arrive within a
-    /// tick of each other, and anything older than this is a weapon from a previous fight, which
-    /// MUD2 would have taken out of your hands at that fight's end anyway.</summary>
-    private static readonly TimeSpan PendingWeaponWindow = TimeSpan.FromSeconds(5);
-
-    private string? _pendingWeapon;
-    private DateTime _pendingWeaponUtc;
-
     public void BeginEncounter(DateTime startedUtc)
     {
         InCombat = true;
         _encounterStartUtc = startedUtc;
-        // Normally null - wield is per-fight, so a new encounter starts empty-handed until stated.
-        // The exception is a weapon equipped in the moments just before this encounter opened, which
-        // was equipped FOR it: see the remarks in Observe.
-        _currentWeapon = _pendingWeapon is not null
-            && startedUtc - _pendingWeaponUtc <= PendingWeaponWindow
-            && startedUtc >= _pendingWeaponUtc
-                ? _pendingWeapon
-                : null;
-        _pendingWeapon = null;
+        _currentWeapon = null;
         _youHits = 0;
         _youMisses = 0;
         _theyHits = 0;
@@ -147,7 +130,6 @@ public sealed class CombatStatsAggregator
         InCombat = false;
         _encounterStartUtc = null;
         _currentWeapon = null;
-        _pendingWeapon = null;
         _youHits = 0;
         _youMisses = 0;
         _theyHits = 0;
@@ -173,25 +155,6 @@ public sealed class CombatStatsAggregator
     {
         if (!InCombat)
         {
-            // A weapon equipped moments before the encounter opens still belongs to it.
-            //
-            // "kill <npc> with <weapon>" does NOT always produce "You attack the X, using the Y as a
-            // weapon." - when MUD2 already considers you engaged it answers with the equip line
-            // ALONE. That line names no NPC, so it cannot open an encounter (see CombatTracker), and
-            // dropping it here left the fight to open on the first "You hit ..." with empty hands.
-            // Result: a short fight, plainly started with an axe, displayed as UNARMED start to
-            // finish - and recorded that way in the weapon history too.
-            //
-            // Held rather than applied, because BeginEncounter clears the current weapon on purpose:
-            // MUD2's wield is per-fight, not persistent, so carrying a weapon across encounters would
-            // be a different lie.
-            if (combatEvent.Kind == CombatEventKind.WeaponEquip
-                && !string.IsNullOrWhiteSpace(combatEvent.Weapon))
-            {
-                _pendingWeapon = combatEvent.Weapon;
-                _pendingWeaponUtc = combatEvent.TimestampUtc;
-            }
-
             if (combatEvent.Kind != CombatEventKind.FightStart)
                 return;
             BeginEncounter(combatEvent.TimestampUtc);
