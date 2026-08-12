@@ -899,10 +899,15 @@ internal sealed class Mud2C1Decoder
                         Hint(hint);
                 }
                 // C13: persona not updated (wiped) — zero the persona stats locally;
-                // no probe will bring them back.
+                // no probe will bring them back. Also fire the dedicated PersonaWiped event so
+                // consumers can react to the unambiguous protocol signal instead of pattern-matching
+                // the rendered "Not updating persona." text (which any player chat line could contain).
                 if (count == 1 && b0 == 0xA8)
+                {
                     _parser.EmitStatsUpdate(new GameStatsSnapshot(
                         Stamina: 0, Score: 0, Strength: 0, Dexterity: 0, CurrentMagic: 0));
+                    _parser.EmitPersonaWiped();
+                }
                 // Sound: C01→0801, C03→0803 (Clio sound.c)
                 if (b0 == 0x9C) Sound(8, 1);
                 else if (b0 == 0x9E) Sound(8, 3);

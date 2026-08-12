@@ -706,18 +706,16 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
 
     private void OnLineReady(StyledLine line)
     {
-        // Permadeath: "Not updating persona." is the shell's last word before it drops us to the
-        // Option menu with the persona gone. Cheap word test first so the common line pays nothing
-        // more than an ordinal scan (this runs on the TCP read thread for every line).
-        if (_inGameMode
-            && line.PlainText.Contains("persona", StringComparison.OrdinalIgnoreCase)
-            && ShellText.IsNotUpdatingPersonaLine(ShellText.NormalizeWhitespace(line.PlainText)))
-            _personaInvalidated = true;
-
         _pendingLines.Enqueue(line);
         if (Interlocked.Exchange(ref _flushScheduled, 1) == 0)
             OutputAvailable?.Invoke();
     }
+
+    // Permadeath: the decoder's C08+C13 signal is the shell's last word before it drops us to the
+    // Option menu with the persona gone. Fires on the TCP read thread; _personaInvalidated is a
+    // plain bool with no synchronization, set directly here just like the text-match check it
+    // replaced (ShouldAutoRelogAfterReset only reads it later, after GameModeExited marshals in).
+    private void OnPersonaWiped() => _personaInvalidated = true;
 
     // MudSession owns the FES heartbeat — nothing to do in GameViewModel on mode transitions
     // beyond tracking game mode for anti-idle. Events fire on the TCP thread; marshal to UI.
@@ -1568,6 +1566,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     {
         _conn.LineReady        += OnLineReady;
         _conn.StatsUpdated     += OnStatsUpdated;
+        _conn.PersonaWiped     += OnPersonaWiped;
         _conn.StatusEffectsChanged += SidePanel.OnStatusEffectsChanged;
         _conn.GameModeEntered  += OnGameModeEntered;
         _conn.GameModeExited   += OnGameModeExited;
@@ -1596,6 +1595,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     {
         _conn.LineReady        -= OnLineReady;
         _conn.StatsUpdated     -= OnStatsUpdated;
+        _conn.PersonaWiped     -= OnPersonaWiped;
         _conn.StatusEffectsChanged -= SidePanel.OnStatusEffectsChanged;
         _conn.GameModeEntered  -= OnGameModeEntered;
         _conn.GameModeExited   -= OnGameModeExited;

@@ -95,6 +95,9 @@ public sealed class MudSession : IDisposable
     // ── Public events (forwarded from parser) ─────────────────────────────────
     public event Action<StyledLine>? LineReady;
     public event Action<GameStatsSnapshot>? StatsUpdated;
+    /// <summary>The server's C08+C13 ("Not updating persona.") signal: permadeath wiped the
+    /// current persona. Fires alongside <see cref="StatsUpdated"/>'s zeroed snapshot.</summary>
+    public event Action? PersonaWiped;
     public event Action? GameModeEntered;
     public event Action? GameModeExited;
     public event Action<byte[]>? OutgoingBytes;
@@ -325,6 +328,7 @@ public sealed class MudSession : IDisposable
             LineReady?.Invoke(line);
         };
         _parser.StatsUpdated += MergeStats;
+        _parser.PersonaWiped += () => PersonaWiped?.Invoke();
         _parser.GameModeEntered += OnGameModeEntered;
         _parser.GameModeExited += OnGameModeExited;
         _parser.OutgoingBytes  += bytes => OutgoingBytes?.Invoke(bytes);
