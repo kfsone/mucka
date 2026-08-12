@@ -633,6 +633,17 @@ public class Mud2C1Tests
         Assert.Equal(0, s.CurrentMagic);
     }
 
+    [Fact]
+    public void C08_C13_PersonaWiped_FiresPersonaWipedEvent()
+    {
+        // Same wire sequence as above (C08+C13, "Not updating persona") also fires the
+        // dedicated PersonaWiped event — the unambiguous protocol-level signal consumers should
+        // key off instead of pattern-matching the rendered line text.
+        var h = new ParserHarness();
+        h.Feed(0xA3, 0xA8, 0xFF, 0xFF);
+        Assert.Equal(1, h.PersonaWipedCount);
+    }
+
     // ── C95 Rule A: account block ─────────────────────────────────────────────
 
     [Fact]

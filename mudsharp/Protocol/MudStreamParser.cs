@@ -20,6 +20,14 @@ public sealed class MudStreamParser
     /// <summary>FES stats snapshot has been updated.</summary>
     public event Action<GameStatsSnapshot>? StatsUpdated;
 
+    /// <summary>
+    /// The server sent the C08+C13 ("Not updating persona.") signal: permadeath has wiped the
+    /// current persona and no probe will bring its stats back. Fires alongside <see cref="StatsUpdated"/>
+    /// (which carries the zeroed snapshot) so consumers have an unambiguous protocol-level signal
+    /// instead of pattern-matching the rendered line text, which any player chat could also contain.
+    /// </summary>
+    public event Action? PersonaWiped;
+
     /// <summary>Server signalled game-mode entry (0x9D 0x9C 0xFF 0xFF).</summary>
     public event Action? GameModeEntered;
 
@@ -982,6 +990,7 @@ public sealed class MudStreamParser
     internal void ClearSpans() => _spans.Clear();
 
     internal void EmitStatsUpdate(GameStatsSnapshot stats) => StatsUpdated?.Invoke(stats);
+    internal void EmitPersonaWiped() => PersonaWiped?.Invoke();
     internal void EmitOutgoing(byte[] bytes) => OutgoingBytes?.Invoke(bytes);
     internal void EmitBell() => BellReceived?.Invoke();
     internal void EmitDreamwordChanged(string? word)

@@ -35,6 +35,10 @@ public sealed class MuckaConnection : IAsyncDisposable
     // ── Public events (forwarded from MudSession) ─────────────────────────────
     public event Action<StyledLine>? LineReady;
     public event Action<GameStatsSnapshot>? StatsUpdated;
+    /// <summary>The server's C08+C13 ("Not updating persona.") signal: permadeath wiped the
+    /// current persona. Fires alongside <see cref="StatsUpdated"/>'s zeroed snapshot. Fires on
+    /// the read-loop thread — consumers marshal to their UI thread.</summary>
+    public event Action? PersonaWiped;
     public event Action<StatusEffectState>? StatusEffectsChanged;
     public event Action? BellReceived;
     public event Action? GameModeEntered;
@@ -388,6 +392,7 @@ public sealed class MuckaConnection : IAsyncDisposable
     {
         _session.LineReady          += l => LineReady?.Invoke(l);
         _session.StatsUpdated       += s => StatsUpdated?.Invoke(s);
+        _session.PersonaWiped       += () => PersonaWiped?.Invoke();
         _session.StatusEffectsChanged += s => StatusEffectsChanged?.Invoke(s);
         _session.BellReceived       += () => BellReceived?.Invoke();
         _session.GameModeEntered    += () => GameModeEntered?.Invoke();
