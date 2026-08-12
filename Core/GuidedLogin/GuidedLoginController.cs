@@ -234,6 +234,12 @@ public sealed class GuidedLoginController : IDisposable
         var promptAnswered = false;
         while (true)
         {
+            // Task.Delay(remaining, ct) does NOT throw when ct is already cancelled -- it just
+            // returns an already-Canceled task, so Task.WhenAny below completes inline without
+            // ever throwing. Check explicitly at the top of every iteration so cancellation
+            // unwinds as OperationCanceledException instead of being misread as a timeout.
+            ct.ThrowIfCancellationRequested();
+
             // Grab the signal BEFORE inspecting the buffer: if a line arrives between the
             // snapshot below and the await, it resolves *this* TCS (OnLineReady swaps in a new
             // one and resolves the one we already hold), so the await returns immediately and we
@@ -270,6 +276,7 @@ public sealed class GuidedLoginController : IDisposable
                 return false;
 
             await Task.WhenAny(signal, Task.Delay(remaining, ct)).ConfigureAwait(false);
+            ct.ThrowIfCancellationRequested();
         }
     }
 
@@ -296,19 +303,33 @@ public sealed class GuidedLoginController : IDisposable
         {
             if (_disconnected)
                 return null;
+            // Defense in depth: WaitForLandmarkAsync below now throws on cancellation itself, but
+            // guard the outer loop too so a cancelled ct can never be misread as "keep retrying".
+            ct.ThrowIfCancellationRequested();
 
             if (sendPlay)
             {
-                ResetBuffer();
-                _conn.SendLine("p");
-                sendPlay = false;
+                if (ShellText.IsPersonaNamePrompt(NormalizedBufferSnapshot()))
+                {
+                    // The name prompt already arrived while we were waiting on a DB-initialising
+                    // notice (that notice is asynchronous and can race with the real reply to our
+                    // earlier "p") -- don't splice a second "p" into a live prompt.
+                    sendPlay = false;
+                }
+                else
+                {
+                    ResetBuffer();
+                    _conn.SendLine("p");
+                    sendPlay = false;
+                }
             }
 
             var sawReply = await WaitForLandmarkAsync(
                     normalized => ShellText.IsPersonaNamePrompt(normalized)
                         || ShellText.IsDatabaseStillInitialisingLine(normalized)
                         || ShellText.IsDatabaseStartedInitialisingLine(normalized)
-                        || ShellText.IsDatabaseFinishedInitialisingLine(normalized),
+                        || ShellText.IsDatabaseFinishedInitialisingLine(normalized)
+                        || ShellText.IsOptionUnavailableLine(normalized),
                     DbRetryInterval,
                     ct)
                 .ConfigureAwait(false);
@@ -322,6 +343,16 @@ public sealed class GuidedLoginController : IDisposable
                 if (slots is null)
                     AbandonPersonaPrompt();   // at the name prompt, the one place "q" backs out safely
                 return slots;
+            }
+
+            if (ShellText.IsOptionUnavailableLine(buffer)
+                && !ShellText.IsDatabaseStillInitialisingLine(buffer)
+                && !ShellText.IsDatabaseStartedInitialisingLine(buffer))
+            {
+                // Our "p" was eaten by stale input already sitting in the shell's buffer (an
+                // in-flight FES probe splice) -- resend immediately, no DB-init pacing needed.
+                sendPlay = true;
+                continue;
             }
 
             // A reset is rebuilding the persona database. Ask again the moment it reports itself
@@ -453,6 +484,10 @@ public sealed class GuidedLoginController : IDisposable
             if (result is not null)
                 return result;
         }
+        // Reached only after the shell re-asked for the name every attempt -- it is provably
+        // sitting at a live persona-name prompt, so back out properly instead of leaving the
+        // player one stray keystroke away from typing into it.
+        AbandonPersonaPrompt();
         return Fail(NameRefusedReason(name));
     }
 
@@ -468,6 +503,9 @@ public sealed class GuidedLoginController : IDisposable
                     ct)
                 .ConfigureAwait(false);
             if (!sawPrompt)
+                // No AbandonPersonaPrompt() here: this is a timeout, so the shell's state is
+                // unknown -- AbandonPersonaPrompt must only be sent while the persona-name prompt
+                // is provably up (see its doc comment).
                 return Fail($"Timed out waiting for the new-persona sex prompt after naming \"{name}\".");
 
             if (!ShellText.IsSexPrompt(NormalizedBufferSnapshot()))
@@ -476,9 +514,15 @@ public sealed class GuidedLoginController : IDisposable
             ResetBuffer();
             _conn.SendLine(sex.ToString());
             // A name refusal cannot follow the sex answer, so a null here is unreachable; treat it
-            // as a refusal anyway rather than dereferencing it.
+            // as a refusal anyway rather than dereferencing it. No AbandonPersonaPrompt() here
+            // either: WaitForGameModeAsync returning null this late is not the confirmed
+            // name-rejection case, so the shell's state is unknown -- see its doc comment.
             return await WaitForGameModeAsync(ct).ConfigureAwait(false) ?? Fail(NameRefusedReason(name));
         }
+        // Reached only after the shell refused the name every attempt -- it is provably sitting
+        // at a live persona-name prompt, so back out properly instead of leaving the player one
+        // stray keystroke away from typing into it.
+        AbandonPersonaPrompt();
         return Fail(NameRefusedReason(name));
     }
 
@@ -494,6 +538,12 @@ public sealed class GuidedLoginController : IDisposable
         var deadline = Task.Delay(LandmarkTimeout, ct);
         while (!_gameModeEntered)
         {
+            // Task.Delay(LandmarkTimeout, ct) does NOT throw when ct is already cancelled -- it
+            // just returns an already-Canceled task, so Task.WhenAny below completes inline
+            // without ever throwing. Check explicitly so cancellation unwinds as
+            // OperationCanceledException instead of being misread as a genuine timeout.
+            ct.ThrowIfCancellationRequested();
+
             // Grab the signal BEFORE re-checking _gameModeEntered -- see the comment in
             // NegotiateBannerAsync for why the order matters (missed-wakeup race).
             var signal = TakeSignalTask();
@@ -506,6 +556,7 @@ public sealed class GuidedLoginController : IDisposable
                 return null;
 
             var completed = await Task.WhenAny(signal, deadline).ConfigureAwait(false);
+            ct.ThrowIfCancellationRequested();
             if (completed == deadline)
                 return Fail("Timed out waiting to enter the game after selecting the persona.");
         }
@@ -570,6 +621,13 @@ public sealed class GuidedLoginController : IDisposable
         var deadline = DateTime.UtcNow + timeout;
         while (true)
         {
+            // Task.Delay(remaining, ct) does NOT throw when ct is already cancelled -- it just
+            // returns an already-Canceled task, so Task.WhenAny below completes inline without
+            // ever throwing. Check explicitly at the top of every iteration so cancellation
+            // unwinds as OperationCanceledException instead of being misread as "predicate not
+            // met yet" and busy-looping until the timeout.
+            ct.ThrowIfCancellationRequested();
+
             // Grab the signal BEFORE evaluating the predicate -- see the comment in
             // NegotiateBannerAsync for why the order matters (missed-wakeup race).
             var signal = TakeSignalTask();
@@ -584,6 +642,7 @@ public sealed class GuidedLoginController : IDisposable
                 return false;
 
             var completed = await Task.WhenAny(signal, Task.Delay(remaining, ct)).ConfigureAwait(false);
+            ct.ThrowIfCancellationRequested();
             if (completed != signal)
                 return predicate(NormalizedBufferSnapshot());
         }
