@@ -31,4 +31,13 @@ public sealed class MudSessionOptions
 
     /// <summary>Tunables for the reset-time projection / staged precision burst (see ResetClock).</summary>
     public ResetClockOptions ResetClock { get; init; } = new();
+
+    /// <summary>
+    /// How long to wait after a room description arrives (<c>RoomEntered</c>) for an accompanying
+    /// FEX list before assuming none is coming and sending an explicit probe. Ordinary movement's
+    /// auto-fex list normally arrives in the same transmission, well within this window; a
+    /// spell-driven relocation (resite, supersite, and any future same-shaped mechanic) fires no
+    /// auto commands at all, so nothing arrives and the probe fires instead. Default: 1750ms.
+    /// </summary>
+    public TimeSpan RoomEntryFexProbeDelay { get; init; } = TimeSpan.FromMilliseconds(1750);
 }

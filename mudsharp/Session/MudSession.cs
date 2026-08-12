@@ -61,6 +61,16 @@ public sealed class MudSession : IDisposable
     private string? _pendingSniff;
     private volatile string? _sniffInFlight;
 
+    // ── Resite/supersite recovery probe ─────────────────────────────────────────
+    // Ordinary movement's room description is always followed by an auto-fex FEEXITS block in
+    // the same transmission. A spell-driven relocation (resite, supersite, and any future
+    // mechanic shaped the same way) fires no auto commands at all, so RoomEntered arrives with
+    // no FEX to follow. One-shot timer armed on RoomEntered, cancelled by FexListStarting (the
+    // earliest signal a FEX is genuinely on the way); if it elapses unanswered, fire the same
+    // explicit FEX probe used at game-mode entry. Guarded by _fesLock like the other one-shot
+    // timers in this file.
+    private Timer? _roomFexProbeTimer;
+
     // ── Post-character-select setup swallow state ───────────────────────────────
     // On game-mode entry we inject a setup batch ("auto fex\r\nscore\r\n") and hide its echo +
     // replies from the terminal (TrySwallowSetupLine). Each reply arrives as its own server
@@ -276,6 +286,7 @@ public sealed class MudSession : IDisposable
         lock (_fesLock)
         {
             StopStaleProbeLocked();
+            StopRoomFexProbeLocked();
             // Drop mapping focus so the next game-mode entry includes FEI again. The session is
             // reused across reconnects/relogs, so stale focus would starve inventory updates.
             _mappingFocus = false;
@@ -298,6 +309,9 @@ public sealed class MudSession : IDisposable
             StopStaleProbeLocked();
             _staleTimer?.Dispose();
             _staleTimer = null;
+            StopRoomFexProbeLocked();
+            _roomFexProbeTimer?.Dispose();
+            _roomFexProbeTimer = null;
         }
         _resetClock.Dispose();
     }
@@ -359,7 +373,7 @@ public sealed class MudSession : IDisposable
             if (pendingSniff != null)
                 ResolveSniff(pendingSniff, SniffOutcome.Invisible);
         };
-        _parser.RoomEntered      += () => RoomEntered?.Invoke();
+        _parser.RoomEntered      += () => { ArmRoomFexProbe(); RoomEntered?.Invoke(); };
         _parser.RoomShortReady   += name => RoomShortReady?.Invoke(name);
         _parser.FeiItemReady     += item => FeiItemReady?.Invoke(item);
         _parser.FeiListStarting  += () => FeiListStarting?.Invoke();
@@ -370,7 +384,7 @@ public sealed class MudSession : IDisposable
             FeiListComplete?.Invoke();
         };
         _parser.FexItemReady     += item => FexItemReady?.Invoke(item);
-        _parser.FexListStarting  += () => FexListStarting?.Invoke();
+        _parser.FexListStarting  += () => { CancelRoomFexProbe(); FexListStarting?.Invoke(); };
         _parser.FexListComplete  += () => FexListComplete?.Invoke();
         _parser.ExitLineReady    += (dir, dest) => ExitLineReady?.Invoke(dir, dest);
         _parser.TerminalWidthConfirmed += w => TerminalWidthConfirmed?.Invoke(w);
@@ -495,6 +509,7 @@ public sealed class MudSession : IDisposable
         lock (_fesLock)
         {
             StopStaleProbeLocked();
+            StopRoomFexProbeLocked();
             // Drop mapping focus so the next game-mode entry includes FEI again. The session is
             // reused across reconnects/relogs, so stale focus would starve inventory updates.
             _mappingFocus = false;
@@ -748,6 +763,55 @@ public sealed class MudSession : IDisposable
             return;
         _currentCharName = name;
         CharacterIdentified?.Invoke(name);
+    }
+
+    // ── Resite/supersite recovery probe ─────────────────────────────────────────
+
+    /// <summary>
+    /// A room description just arrived (RoomEntered). Arm a short one-shot timer: if
+    /// FexListStarting fires first, this was ordinary auto-fex-covered movement and
+    /// CancelRoomFexProbe stops it before it does anything. If the timer elapses with no FEX
+    /// having started, the relocation was spell-driven (resite/supersite or similar) and no
+    /// auto commands ever fired, so send the explicit probe ourselves. Skipped during the
+    /// post-select setup window, which already sends its own explicit entry-time probe.
+    /// </summary>
+    private void ArmRoomFexProbe()
+    {
+        if (_setupWindowActive) return;
+        lock (_fesLock)
+        {
+            _roomFexProbeTimer ??= new Timer(_ => OnRoomFexProbeDeadline(), null, Timeout.Infinite, Timeout.Infinite);
+            _roomFexProbeTimer.Change(_options.RoomEntryFexProbeDelay, Timeout.InfiniteTimeSpan);
+        }
+    }
+
+    /// <summary>A FEX list has started arriving — the pending recovery probe (if any) is moot.</summary>
+    private void CancelRoomFexProbe()
+    {
+        lock (_fesLock)
+            _roomFexProbeTimer?.Change(Timeout.Infinite, Timeout.Infinite);
+    }
+
+    /// <summary>
+    /// The recovery window elapsed with no FEX list ever starting. Re-send the same explicit
+    /// FEX probe used at game-mode entry so the exit list/compass/map recover without waiting
+    /// for the player's next real move.
+    /// </summary>
+    private void OnRoomFexProbeDeadline()
+    {
+        // Locked like every other timer callback in this file (SendFesSubscription,
+        // OnStaleDeadline): without it, a concurrent OnGameModeExited/Dispose could tear the
+        // session down between the InGameMode check and Send, sending bytes into a dead session.
+        lock (_fesLock)
+        {
+            if (!InGameMode) return;   // disconnected / logged out since the room description arrived
+            Send(System.Text.Encoding.Latin1.GetBytes("\x1b-[FEX\x1b-]"));
+        }
+    }
+
+    private void StopRoomFexProbeLocked()
+    {
+        _roomFexProbeTimer?.Change(Timeout.Infinite, Timeout.Infinite);
     }
 
     /// <summary>
