@@ -109,7 +109,15 @@ public sealed class CombatStatsAggregator
     {
         InCombat = true;
         _encounterStartUtc = startedUtc;
-        _currentWeapon = null;
+        // Adopt a weapon equipped just before the client noticed the fight - see PendingWeaponWindow.
+        // Still null in the ordinary case, which is correct: MUD2 starts every engagement empty-handed
+        // until a line says otherwise.
+        _currentWeapon = _pendingWeapon is not null
+            && startedUtc - _pendingWeaponUtc <= PendingWeaponWindow
+            && startedUtc >= _pendingWeaponUtc
+                ? _pendingWeapon
+                : null;
+        _pendingWeapon = null;
         _youHits = 0;
         _youMisses = 0;
         _theyHits = 0;
@@ -151,10 +159,38 @@ public sealed class CombatStatsAggregator
         _lastKnownStamina = currentStamina.Value;
     }
 
+    /// <summary>
+    /// A weapon equip seen while the client believed no fight was open, held briefly in case one
+    /// opens moments later.
+    ///
+    /// <para>Needed because of an ordering MUD2 forces on us. "You are now using the axe0 to fight!"
+    /// names no NPC, so it cannot open an encounter - and when you type <c>k zombie wi axe</c> against
+    /// something that is ALREADY engaging you, that line is the ONLY output: there is no "You attack
+    /// the zombie" to carry the weapon. If the encounter then opens on a swing line, which carries no
+    /// weapon either, the fight has no weapon for its entire duration and the panel reads UNARMED.
+    /// Confirmed in the clog corpus: 4 equips stranded outside an encounter, and 14 encounters opened
+    /// by a swing line with no weapon anywhere.</para>
+    ///
+    /// <para>The window is deliberately SHORT. MUD2's wielded weapon is per-fight, not persistent -
+    /// it is dropped at fight end and <c>wield</c> is refused outside a fight - so an equip that is
+    /// more than a few seconds old says nothing about the fight starting now, and carrying it forward
+    /// would be inventing an armed fight out of a stale line.</para>
+    /// </summary>
+    private static readonly TimeSpan PendingWeaponWindow = TimeSpan.FromSeconds(5);
+    private string? _pendingWeapon;
+    private DateTime _pendingWeaponUtc;
+
     public void Observe(CombatEvent combatEvent)
     {
         if (!InCombat)
         {
+            if (combatEvent.Kind == CombatEventKind.WeaponEquip
+                && !string.IsNullOrWhiteSpace(combatEvent.Weapon))
+            {
+                _pendingWeapon = combatEvent.Weapon;
+                _pendingWeaponUtc = combatEvent.TimestampUtc;
+                return;
+            }
             if (combatEvent.Kind != CombatEventKind.FightStart)
                 return;
             BeginEncounter(combatEvent.TimestampUtc);

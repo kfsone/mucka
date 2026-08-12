@@ -220,6 +220,76 @@ public sealed class ParserGapTests
         Assert.Equal(FightOutcome.Killed, fight.Outcome);
     }
 
+    // ---- A weapon equipped just before the client notices the fight ------------------------
+
+    /// <summary>
+    /// The reported "it showed me unarmed despite attacking with a weapon" bug.
+    ///
+    /// <para>When you type <c>k zombie wi axe</c> against something ALREADY engaging you, MUD2's only
+    /// output is the equip line - there is no "You attack the zombie" to carry the weapon. That line
+    /// names no NPC so it cannot open an encounter, and if the encounter then opens on a swing line
+    /// (which carries no weapon either) the fight is weaponless for its whole duration.</para>
+    /// </summary>
+    /// <summary>
+    /// Wires an aggregator to a tracker the way SidePanelViewModel does in production: the encounter
+    /// is opened by the tracker's InCombatChanged, NOT by the aggregator seeing a FightStart. That
+    /// distinction is the whole point of these tests - a fight opened by a swing line never produces a
+    /// FightStart at all, which is exactly how the weapon went missing.
+    /// </summary>
+    private static (CombatTracker Tracker, CombatStatsAggregator Aggregator, Action<string, DateTime> Feed) Wire()
+    {
+        var tracker = new CombatTracker();
+        var aggregator = new CombatStatsAggregator();
+        var at = T0;
+        tracker.InCombatChanged += inCombat =>
+        {
+            if (inCombat)
+                aggregator.BeginEncounter(at);
+        };
+        tracker.EventOccurred += aggregator.Observe;
+        return (tracker, aggregator, (text, when) => { at = when; tracker.Observe(Line(text), when); });
+    }
+
+    [Fact]
+    public void WeaponEquippedBeforeTheEncounterOpens_IsAdoptedByTheFight()
+    {
+        var (_, aggregator, feed) = Wire();
+
+        // No attack line: the equip is all the game says, and the fight opens on a swing.
+        feed("You are now using the axe0 to fight!", T0);
+        feed("The zombie6 misses you.", T0.AddSeconds(1));
+
+        Assert.Equal("axe0", aggregator.Snapshot(T0.AddSeconds(2)).CurrentWeapon);
+    }
+
+    /// <summary>The window is short on purpose: MUD2's weapon is per-fight, dropped at fight end, and
+    /// <c>wield</c> is refused outside a fight - so an old equip says nothing about the fight starting
+    /// now, and adopting it would invent an armed fight from a stale line.</summary>
+    [Fact]
+    public void AStaleWeaponEquip_IsNotAdoptedByALaterFight()
+    {
+        var (_, aggregator, feed) = Wire();
+
+        feed("You are now using the axe0 to fight!", T0);
+        feed("The zombie6 misses you.", T0.AddMinutes(3));
+
+        Assert.Null(aggregator.Snapshot(T0.AddMinutes(3)).CurrentWeapon);
+    }
+
+    /// <summary>An ordinary armed opening must be unaffected - the fight's own attack line still wins,
+    /// and a bare-handed opening still reads as bare-handed.</summary>
+    [Fact]
+    public void AnOrdinaryOpening_StillReportsItsOwnWeapon()
+    {
+        var (_, armed, feedArmed) = Wire();
+        feedArmed("You attack the zombie6, using the falchion as a weapon.", T0);
+        Assert.Equal("falchion", armed.Snapshot(T0).CurrentWeapon);
+
+        var (_, bare, feedBare) = Wire();
+        feedBare("You attack the raven.", T0);
+        Assert.Null(bare.Snapshot(T0).CurrentWeapon);
+    }
+
     /// <summary>Dropping anything else is inventory management, not disarmament.</summary>
     [Fact]
     public void DroppingSomethingElse_LeavesTheWeaponAlone()

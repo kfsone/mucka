@@ -32,6 +32,10 @@ public sealed class FightHistoryRecorder : IDisposable
     private readonly List<FightAccumulator> _fightOrder = [];
 
     private string? _currentWeapon;
+    // When _currentWeapon was last confirmed, so an equip seen just before the client noticed the
+    // fight can be carried into it while a stale one is discarded. See the use in OnInCombatChanged.
+    private DateTime _currentWeaponUtc;
+    private static readonly TimeSpan PendingWeaponWindow = TimeSpan.FromSeconds(5);
     private int? _lastKnownStamina;
     private int? _pendingPreUpdateStamina;
     // Last score observed via the FES heartbeat. Unlike _lastKnownStamina this needs no
@@ -121,7 +125,15 @@ public sealed class FightHistoryRecorder : IDisposable
                 _encounterStartedAtMs = new DateTimeOffset(DateTime.UtcNow, TimeSpan.Zero).ToUnixTimeMilliseconds();
                 _fights.Clear();
                 _fightOrder.Clear();
-                _currentWeapon = null;
+                // Adopt a weapon equipped moments before the client noticed the fight. Same problem
+                // CombatStatsAggregator.PendingWeaponWindow documents, reached by a different route:
+                // this class does process events while out of combat, but clearing here threw the
+                // weapon away again, so history recorded UNARMED for fights fought with a broadsword.
+                // Display and history have to agree, and both have to be right.
+                var now = DateTime.UtcNow;
+                _currentWeapon = _currentWeapon is not null && now - _currentWeaponUtc <= PendingWeaponWindow
+                    ? _currentWeapon
+                    : null;
                 return;
             }
 
@@ -137,13 +149,19 @@ public sealed class FightHistoryRecorder : IDisposable
             {
                 case CombatEventKind.FightStart:
                     if (!string.IsNullOrWhiteSpace(combatEvent.Weapon))
+                    {
                         _currentWeapon = combatEvent.Weapon;
+                        _currentWeaponUtc = combatEvent.TimestampUtc;
+                    }
                     FightForLocked(combatEvent)?.NoteWeapon(_currentWeapon);
                     break;
 
                 case CombatEventKind.WeaponEquip:
                     if (!string.IsNullOrWhiteSpace(combatEvent.Weapon))
+                    {
                         _currentWeapon = combatEvent.Weapon;
+                        _currentWeaponUtc = combatEvent.TimestampUtc;
+                    }
                     foreach (var fight in _fightOrder)
                     {
                         if (!fight.IsResolved)

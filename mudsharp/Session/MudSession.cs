@@ -399,9 +399,25 @@ public sealed class MudSession : IDisposable
         _parser.ProbeHintReceived += OnProbeHint;
         _parser.AutoResetInitiated += () =>
         {
+            // Timing only. This fires on the WARNING - "Auto reset initiated, you have 120 seconds to
+            // finish up" - not on the reset itself, so the fight in progress is still very much in
+            // progress and the player has two minutes of play left.
+            //
+            // This used to also call _combat.ForceEnd here, on the reasoning that "a reset wipes game
+            // state, no fight-end line ever arrives". True of the reset; false of the warning. The
+            // effect was that the client declared combat over up to two minutes early and then
+            // discarded every subsequent non-FightStart combat event (CombatStatsAggregator.Observe
+            // returns early while !InCombat) - which silently ate weapon equips and left fights
+            // reading as UNARMED for their whole duration. Confirmed in the clog corpus: an encounter
+            // that reopened on "The eagle misses you." ran 41 events across 4 participants with no
+            // weapon, having swallowed "You are now using the broadsword to fight!" in the pre-roll.
+            //
+            // The real transition is already covered - GameModeExited force-ends the encounter when
+            // the reset actually lands - so this call was premature AND redundant.
             _resetClock.NoteAutoResetInitiated(_resetClock.NowMono);
+            // Still forwarded: consumers use it to tell a reset-driven drop from a deliberate quit.
+            // It is only the combat force-end that was wrong here.
             AutoResetInitiated?.Invoke();
-            _combat.ForceEnd(CombatClock());   // a reset wipes game state — no fight-end line ever arrives
         };
         _parser.PresenceNameSeen  += OnPresenceName;
         _parser.StatusEffectChanged += _effects.Apply;
