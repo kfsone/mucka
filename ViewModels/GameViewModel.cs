@@ -107,8 +107,12 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     // callback lands on the UI thread, so _reset alone cannot tell us whether the drop we are
     // handling was a reset. This survives the wipe; cleared on the next game-mode entry.
     private DateTime? _lastResetTargetUtc;
-    private static readonly TimeSpan ResetRelogLeadWindow = TimeSpan.FromMinutes(3);
-    private static readonly TimeSpan ResetRelogLagWindow = TimeSpan.FromMinutes(5);
+    // See the reasoning comment on ShouldAutoRelogAfterReset: these are a heuristic mitigation for
+    // GitHub #143, sized against ResetClock's own sub-second lock precision (SuccessTargetSec /
+    // NoteAutoResetInitiated both pin the target to well under a second), not against how long a
+    // player might plausibly be typing near a reset.
+    private static readonly TimeSpan ResetRelogLeadWindow = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan ResetRelogLagWindow = TimeSpan.FromSeconds(90);
     private static readonly TimeSpan ResetRelogRetryWindow = TimeSpan.FromMinutes(2);
 
     // Lines from the TCP thread are enqueued here; the UI thread drains them in batches.
@@ -944,6 +948,24 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     // True when the drop to the Option menu we are handling looks like a game reset rather than a
     // deliberate quit or a permadeath: the last projected reset instant is close to now, and the
     // persona we were playing was still being saved. Only then do we relog straight back in.
+    //
+    // HEURISTIC, NOT A REAL FIX (GitHub #143): the only signal here is proximity to the projected
+    // reset instant. We cannot ask "did the player actually type QUIT?" because the client has no
+    // MUD-aware input parser at all — SendNow forwards whatever was typed as an opaque string after
+    // alias expansion, with no comma-separated-command splitting, no speech/quote handling, and no
+    // verb parsing. So "flee,qq", `"flee,qq` (literal speech), and "jump.\"up\",qq" are indistinguishable
+    // today; a real fix needs a verb/separator/speech-aware parser to see the trailing qq, which is
+    // out of scope here. #143 tracks that parser.
+    //
+    // Until then, the mitigation is to shrink the blast radius of the timing coincidence: the window
+    // used to be 3 minutes of lead and 5 of lag (8 minutes total), wide enough that a player who just
+    // happened to quit anywhere in that span near a scheduled reset would get silently auto-relogged.
+    // ResetClock's own projection is far tighter than that once it locks — SuccessTargetSec (0.5s) and
+    // the exact C06 C04 finish-up anchor in NoteAutoResetInitiated both pin the target to well under a
+    // second — so a reset-driven drop needs no multi-minute margin to be caught reliably. The windows
+    // below (30s lead / 90s lag) leave generous room for 1 Hz poll cadence, network RTT, and detection
+    // lag between the server's drop and the client noticing it, while cutting the false-positive span
+    // from 8 minutes to 2.
     private bool ShouldAutoRelogAfterReset(string? exitedPersona)
     {
         if (_personaInvalidated || string.IsNullOrWhiteSpace(exitedPersona))
