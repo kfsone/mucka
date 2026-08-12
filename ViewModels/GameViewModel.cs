@@ -1034,24 +1034,33 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private bool HandleCommand(string text)
     {
 #if WINDOWS
-        // ^1=command / ^2=command / .../^5=command (or bare ^1..^5) — bind/send the five
-        // Ctrl-1..Ctrl-5 control-macro slots. No "$" prefix: this is the one command family
-        // that is typed with a bare "^" lead, matching the physical Ctrl+<digit> shortcut.
-        if (text.Length >= 2 && text[0] == '^' && text[1] is >= '1' and <= '5'
-            && (text.Length == 2 || text[2] == '='))
+        // ^1=command / ^2=command / .../^5=command (or bare ^1..^5, with optional
+        // whitespace around "=") — bind/send the five Ctrl-1..Ctrl-5 control-macro slots.
+        // No "$" prefix: this is the one command family typed with a bare "^" lead,
+        // matching the physical Ctrl+<digit> shortcut.
+        // "^" is a client-local sigil, same as "$": ANY "^"-prefixed input is owned by
+        // this block and must never fall through to the MUD, even when it fails to parse
+        // (e.g. "^6=foo", "^=foo", bare "^") — report a local error instead.
+        if (text.Length > 0 && text[0] == '^')
         {
-            if (_sessionAliases.TryDefine(text, out var ctrlAliasName, out var ctrlAliasCommand, out var ctrlError))
+            if (text.Length >= 2 && text[1] is >= '1' and <= '5' && IsCtrlMacroShape(text))
             {
-                if (ctrlError != null)
-                    AddSystemLine($"[command] cannot define {ctrlAliasName}: {ctrlError}", 9);
-                else
-                    AddSystemLine($"[command] {ctrlAliasName} = {ctrlAliasCommand}", 14);
+                if (_sessionAliases.TryDefine(text, out var ctrlAliasName, out var ctrlAliasCommand, out var ctrlError))
+                {
+                    if (ctrlError != null)
+                        AddSystemLine($"[command] cannot define {ctrlAliasName}: {ctrlError}", 9);
+                    else
+                        AddSystemLine($"[command] {ctrlAliasName} = {ctrlAliasCommand}", 14);
+                }
+                else if (_sessionAliases.TryGet(text, out var ctrlCommand))
+                {
+                    _conn.SendLine(ExpandOutgoingCommand(ctrlCommand));
+                    _lastSentUtc = DateTime.UtcNow;
+                }
             }
-            else if (_sessionAliases.TryGet(text, out var ctrlCommand))
-            {
-                _conn.SendLine(ExpandOutgoingCommand(ctrlCommand));
-                _lastSentUtc = DateTime.UtcNow;
-            }
+            else
+                AddSystemLine($"[command] unrecognized \"^\" command: {text}", 9);
+
             return true;
         }
 
@@ -1106,6 +1115,20 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     }
 
 #if WINDOWS
+    // "^N" (bare, length 2 — caller already checked) or "^N" followed by optional
+    // whitespace then "=" (the rest, including whitespace after "=", is trimmed by
+    // SessionCommandAliases.TryDefine itself). Anything else ("^Nfoo" with no "=",
+    // a second digit, ...) is not a recognized control-macro shape.
+    private static bool IsCtrlMacroShape(string text)
+    {
+        if (text.Length == 2)
+            return true;
+
+        var i = 2;
+        while (i < text.Length && char.IsWhiteSpace(text[i])) i++;
+        return i < text.Length && text[i] == '=';
+    }
+
     private string ExpandOutgoingCommand(string command)
         => _watchwords.ExpandSlots(_sessionAliases.Expand(command));
 
