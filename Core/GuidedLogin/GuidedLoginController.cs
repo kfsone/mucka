@@ -541,6 +541,14 @@ public sealed class GuidedLoginController : IDisposable
     {
         _disconnected = true;
         _disconnectError = error;
+        // RunAsync may be parked awaiting the persona/sex picker UI (_personaDecision/_sexDecision)
+        // rather than a line -- pulsing _lineSignal alone would never wake it, leaving RunAsync
+        // (and the overlay's finally block that clears _isGuidedLoginOverlayOpen) stuck forever.
+        // Resolve both with null so the ResolvePersonaPromptAsync "choice/sex is null" branches run
+        // and unwind through AbandonPersonaPrompt()/Cancel() -- AbandonPersonaPrompt() itself is a
+        // no-op once _disconnected is set, so this is safe even though nothing is listening anymore.
+        _personaDecision?.TrySetResult(null);
+        _sexDecision?.TrySetResult(null);
         Interlocked.Exchange(ref _lineSignal, new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously))
             ?.TrySetResult();
     }

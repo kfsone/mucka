@@ -958,6 +958,12 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public GuidedLoginController CreateGuidedLoginController(GuidedLoginOptions options)
         => new(_conn, options);
 
+    /// <summary>Client-initiated clean disconnect. Unlike a server-side drop, this does NOT raise
+    /// <see cref="Disconnected"/> (that event only fires from the read loop's own unexpected-EOF/
+    /// exception handling) -- callers that need to leave the game page afterwards must navigate
+    /// away themselves.</summary>
+    public Task DisconnectAsync() => _conn.DisconnectAsync();
+
     // Called from the TCP read thread — fire-and-forget, never block.
     // PlayServerSound applies the Sounds-tab gating (master/group/sound + fallback).
     private static void OnSoundRequested(string assetName) => SoundService.PlayServerSound(assetName);
