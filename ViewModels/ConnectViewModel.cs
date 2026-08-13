@@ -200,7 +200,12 @@ public sealed class ConnectViewModel : BaseViewModel
                 LogResetDiagnostics = saved?.LogResetDiagnostics ?? false,
                 SettingsPerProfile = saved?.SettingsPerProfile ?? false,
                 FkeysPerProfile = saved?.FkeysPerProfile ?? false,
-                Fkeys = saved?.Fkeys ?? new string[36]
+                Fkeys = saved?.Fkeys ?? new string[36],
+                // Carried like the rest: omitting this handed the session an empty SoundSettings,
+                // so every per-sound/per-group volume override read from the ini was dropped on
+                // connect -- and the connect-time ini sync below then wrote that empty blob back,
+                // erasing the stored keys for good.
+                Sounds = saved?.Sounds ?? new SoundSettings()
             };
             if (saved is null)
             {
@@ -479,6 +484,7 @@ public sealed class ConnectViewModel : BaseViewModel
             existing.SettingsPerProfile  = settings.SettingsPerProfile;
             existing.FkeysPerProfile     = settings.FkeysPerProfile;
             existing.Fkeys               = fkeys;
+            existing.Sounds              = settings.Sounds;
             if (string.Equals(existing.Name, ProfileName, StringComparison.OrdinalIgnoreCase))
                 MaxColumns = settings.MaxColumns;
         }
@@ -538,6 +544,8 @@ public sealed class ConnectViewModel : BaseViewModel
             Sounds              = incoming.Sounds,
         };
         // fkeys: null — hotkeys are not editable on this page, so never rewrite their sections.
-        await SettingsStore.SaveProfileAsync(incoming.Name, settings, fkeys: null);
+        // writeSounds: false — nor are sounds, and rewriting them from a profile blob assembled
+        // here is exactly how the stored volume overrides got erased on every connect.
+        await SettingsStore.SaveProfileAsync(incoming.Name, settings, fkeys: null, writeSounds: false);
     }
 }

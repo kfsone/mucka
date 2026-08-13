@@ -202,7 +202,13 @@ public static class SettingsStore
     /// is deliberately unresolved). Pass null <paramref name="fkeys"/> to leave all fkey
     /// sections untouched — used by the connect page, which cannot edit hotkeys.
     /// </summary>
-    public static async Task SaveProfileAsync(string profileName, ClientSettings settings, string[]? fkeys)
+    /// <param name="writeSounds">False leaves every sound key in the section untouched. Pass false
+    /// from callers that cannot edit sounds (the connect page): <see cref="WriteSoundSettings"/>
+    /// purges the whole <c>sound*</c> family before rewriting it, so passing a
+    /// <see cref="ClientSettings"/> whose <see cref="ClientSettings.Sounds"/> was not deliberately
+    /// populated silently erases the player's volume overrides. Mirrors <c>fkeys: null</c>.</param>
+    public static async Task SaveProfileAsync(string profileName, ClientSettings settings, string[]? fkeys,
+        bool writeSounds = true)
     {
         await s_gate.WaitAsync().ConfigureAwait(false);
         try
@@ -217,7 +223,8 @@ public static class SettingsStore
             ini.Set(settingsSection, "statupdate", settings.StatUpdateFrequency.ToString());
             ini.Set(settingsSection, "mutebeep",   settings.MuteBeepPermanently ? "yes" : "no");
             ini.Set(settingsSection, "logttr",     settings.LogResetDiagnostics ? "yes" : "no");
-            WriteSoundSettings(ini, settingsSection, settings.Sounds);
+            if (writeSounds)
+                WriteSoundSettings(ini, settingsSection, settings.Sounds);
 
             // Display tab settings always go to the global [settings] section.
             ini.Set("settings", "defaultfontsize",    settings.DefaultFontSize.ToString());
