@@ -256,6 +256,18 @@ public sealed class CombatRailView : SKCanvasView
             return;
         }
 
+        // What THIS creature is fighting with, on its own row, right-aligned opposite its name.
+        // It used to be drawn as "they: club" in the middle of the player's own weapon column, which
+        // put a fact about the enemy inside the block describing you - and in a pack fight could only
+        // ever name one of them. A per-participant fact belongs on the participant.
+        if (row.NpcWeapon is { Length: > 0 } npcWeapon)
+        {
+            _text.Color = Hostile;
+            canvas.DrawText(
+                Ellipsize(CombatComposition.DisplayName(npcWeapon), Content * 0.4f, _smallFont),
+                Pad + Content - 8f, y + 17f, SKTextAlign.Right, _smallFont, _text);
+        }
+
         DrawHealthLadder(canvas, Pad + 11f, y + 30f, row);
     }
 
@@ -447,12 +459,6 @@ public sealed class CombatRailView : SKCanvasView
                     SKTextAlign.Left, _weaponFont, _text);
             }
 
-            if (live.CurrentTargetNpcWeapon is { Length: > 0 } npcWeapon)
-            {
-                _text.Color = Hostile;
-                canvas.DrawText(Ellipsize("they: " + npcWeapon, width, _smallFont), x, midY + 10f,
-                    SKTextAlign.Left, _smallFont, _text);
-            }
         }
 
         // Alternate weapon: hotkey chip left, name right-aligned. Ctrl+W, consistent with the

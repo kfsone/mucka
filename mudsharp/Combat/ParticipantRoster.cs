@@ -17,6 +17,9 @@ namespace MudSharp.Combat;
 /// <param name="DamageTakenFrom">Damage this participant has dealt the player this encounter. Orders
 /// the overflow row: with more opponents than slots, "who is actually hurting me" is the only question
 /// a names-only row can usefully answer.</param>
+/// <param name="NpcWeapon">The weapon THIS creature is fighting with, once it has announced one. Belongs
+/// to the participant, not to the encounter: in a pack fight each one arms itself independently, and a
+/// single "current target's weapon" cannot say which of them picked up the axe.</param>
 public readonly record struct ParticipantFact(
     string Name,
     bool IsResolved,
@@ -24,7 +27,8 @@ public readonly record struct ParticipantFact(
     int? HealthRung = null,
     string? HealthPhrase = null,
     double? HealthAgeSeconds = null,
-    double DamageTakenFrom = 0);
+    double DamageTakenFrom = 0,
+    string? NpcWeapon = null);
 
 /// <summary>
 /// One row of the opposition list as actually drawn. <see cref="IsCurrentTarget"/> marks the ONE live
@@ -40,7 +44,8 @@ public readonly record struct RosterRow(
     int? HealthRung = null,
     string? HealthPhrase = null,
     double? HealthAgeSeconds = null,
-    double DamageTakenFrom = 0)
+    double DamageTakenFrom = 0,
+    string? NpcWeapon = null)
 {
     /// <summary>Age past which a reading is drawn as faded rather than current: three combat ticks.
     /// One missed tick is ordinary (68% of gaps in the corpus are a single tick), so fading any sooner
@@ -138,7 +143,8 @@ public static class ParticipantRoster
             var fact = ordered[i];
             rows.Add(new RosterRow(
                 fact.Name, !fact.IsResolved, IsCurrentTarget: i == 0 && !fact.IsResolved, fact.Outcome,
-                fact.HealthRung, fact.HealthPhrase, fact.HealthAgeSeconds, fact.DamageTakenFrom));
+                fact.HealthRung, fact.HealthPhrase, fact.HealthAgeSeconds, fact.DamageTakenFrom,
+                fact.NpcWeapon));
         }
 
         var hiddenCount = ordered.Count - shownCount;

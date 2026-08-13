@@ -657,10 +657,25 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
 
         var staminaTier = CombatTierResolver.StaminaTier(
             deficits.StaminaCurrent, deficits.StaminaMax, hitsLeft, outlook.SecondsToDie, outlook.SecondsToKill);
-        // Escalate-only against the out-of-combat floor: a fight can raise the tier but must never
-        // report calmer than the same stamina would out of combat.
         var fightTier = CombatTierResolver.ResolvePulseTier(staminaTier, CombatTier.None);
-        _pulseTier = fightTier == CombatTier.T3 || vulnerable == CombatTier.T3 ? CombatTier.T3 : fightTier;
+
+        // The whole-panel glow is the loudest thing this client owns, so it answers to ONE stamina
+        // threshold - the same 25 that governs it out of combat - rather than to the survival
+        // projection on its own.
+        //
+        // The projection promotes to T3 at "under 15 seconds to die", which against an ordinary
+        // zombie is arithmetically true from about 30 stamina. That is a correct reading and still
+        // too eager for a full-panel flash: it fires while the player is comfortably above the
+        // threshold they actually act on, and an alarm that cries wolf at 30 is an alarm that gets
+        // ignored at 20. The projection still drives everything quieter.
+        //
+        // One override survives, because it is not a projection but a count: two hits left or fewer.
+        // That is imminent whatever the absolute stamina says - it is how a dragon kills someone at
+        // full health.
+        var imminent = fightTier == CombatTier.T3 && hitsLeft is int left && left <= 2;
+        _pulseTier = imminent || vulnerable == CombatTier.T3
+            ? CombatTier.T3
+            : fightTier == CombatTier.T3 ? CombatTier.T2 : fightTier;
 
         // No flee-cost figure is computed or published here, deliberately. The owner's instruction is
         // explicit: "We don't need to be telling/showing the player the flee statistics - that's
@@ -751,7 +766,8 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
                 : null;
             facts[i] = new ParticipantFact(
                 fight.NpcName, fight.IsResolved, fight.Outcome,
-                fight.HealthRung, fight.HealthPhrase, healthAge, fight.ApproxDamageTaken);
+                fight.HealthRung, fight.HealthPhrase, healthAge, fight.ApproxDamageTaken,
+                fight.NpcWeapon);
         }
         return facts;
     }

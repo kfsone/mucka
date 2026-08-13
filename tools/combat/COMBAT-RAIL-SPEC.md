@@ -136,6 +136,11 @@ both of those are confident claims.
 The same sentence appears in **room descriptions**, so a health reading is accepted only for
 a creature already engaged. A phantom opponent on the panel is worse than a missing one.
 
+**The creature's own weapon** is drawn right-aligned on its name line, in the hostile colour. It is a
+fact about that participant, so it lives on that participant's row - it used to be printed as
+`they: club` inside the player's own weapon column, which put an enemy fact in the block describing
+you and, in a pack fight, could only ever name one of them.
+
 Current target: marked by emphasis **within its own slot** (border, brightness) - never by
 size.
 
@@ -343,8 +348,13 @@ incoming hit, so per-attacker damage is known precisely.
 
 ## 8. Signalling that lives outside the rail
 
-**The rail's glow runs at low stamina whether or not a fight is on** - stamina <= 25, in combat or
-out. The danger does not stop when the fight does: at that stamina a wandering NPC that would ignore
+**The rail's glow answers to ONE stamina threshold, 25, in combat and out.** It is the loudest thing
+the client owns and it is deliberately not driven by the survival projection alone: the projection
+promotes at "under 15 seconds to die", which against an ordinary zombie is true from about 30 stamina,
+and a full-panel flash at 30 is an alarm that gets ignored at 20. The projection still drives
+everything quieter. One override survives, because it is a count rather than a forecast - **two hits
+left or fewer**, which is imminent whatever the absolute stamina says, and is how a dragon kills
+someone at full health. The danger does not stop when the fight does: at that stamina a wandering NPC that would ignore
 a healthy player will attack you (`RATE` crossing its threshold, computed against the stats the 40
 and 30 knees have already degraded), one blow from most creatures can kill, and fleeing still costs
 real points. Walking away from a fight at 22 stamina and forgetting about it is a way to lose a
