@@ -39,6 +39,10 @@ public sealed class MuckaConnection : IAsyncDisposable
     /// current persona. Fires alongside <see cref="StatsUpdated"/>'s zeroed snapshot. Fires on
     /// the read-loop thread — consumers marshal to their UI thread.</summary>
     public event Action? PersonaWiped;
+    /// <summary>The server's C06 C04 auto-reset announcement ("you have 120 seconds to finish up"):
+    /// an exact statement that a reset is under way, used to classify the drop to the Option menu
+    /// that follows. Fires on the read-loop thread — consumers marshal to their UI thread.</summary>
+    public event Action? AutoResetInitiated;
     public event Action<StatusEffectState>? StatusEffectsChanged;
     public event Action? BellReceived;
     public event Action? GameModeEntered;
@@ -393,6 +397,7 @@ public sealed class MuckaConnection : IAsyncDisposable
         _session.LineReady          += l => LineReady?.Invoke(l);
         _session.StatsUpdated       += s => StatsUpdated?.Invoke(s);
         _session.PersonaWiped       += () => PersonaWiped?.Invoke();
+        _session.AutoResetInitiated += () => AutoResetInitiated?.Invoke();
         _session.StatusEffectsChanged += s => StatusEffectsChanged?.Invoke(s);
         _session.BellReceived       += () => BellReceived?.Invoke();
         _session.GameModeEntered    += () => GameModeEntered?.Invoke();

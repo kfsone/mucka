@@ -1,4 +1,5 @@
 using System.Windows.Input;
+using Microsoft.Maui.Graphics;
 using Mucka.Core.GuidedLogin;
 using MudSharp.Models;
 
@@ -16,11 +17,36 @@ namespace Mucka.ViewModels;
 public sealed class GuidedLoginViewModel : BaseViewModel
 {
     private readonly GuidedLoginController _controller;
+    private readonly SessionDropContext? _drop;
     private string _status = "Connecting…";
     private bool _hasSplash;
 
     public string Status { get => _status; set => Set(ref _status, value); }
     public bool HasSplash { get => _hasSplash; private set => Set(ref _hasSplash, value); }
+
+    // ── Why the player is looking at this overlay ──────────────────────────────────────────────
+    // Fixed for the whole life of the page: set once from the drop that opened it (null on the
+    // initial connect, where there is no drop to explain) and never touched again, so it survives
+    // every phase change, the picker sheet, a failure dialog, and the page's own teardown.
+
+    public bool HasDropContext => _drop is not null;
+    public string DropHeadline => _drop?.Headline ?? string.Empty;
+
+    /// <summary>Amber for a reset (routine, you'll be straight back), red for an unexplained drop,
+    /// bone-white for a death.</summary>
+    public Color DropHeadlineColor => _drop?.Reason switch
+    {
+        SessionDropReason.Reset => Color.FromArgb("#d29922"),
+        SessionDropReason.Permadeath => Color.FromArgb("#c9d1d9"),
+        _ => Color.FromArgb("#f85149"),
+    };
+
+    public bool HasDropTail => _drop?.ShowsTailLines == true;
+
+    /// <summary>The server's own last words before the drop, for the page to feed into its
+    /// <c>TerminalView</c> — empty when the headline says it all (a reset).</summary>
+    public IReadOnlyList<StyledLine> DropTailLines
+        => _drop?.ShowsTailLines == true ? _drop.TailLines : Array.Empty<StyledLine>();
 
     /// <summary>Fired once the real login splash/banner has been captured, for the page to render
     /// via <c>Terminal.AppendLines(...)</c>.</summary>
@@ -41,9 +67,10 @@ public sealed class GuidedLoginViewModel : BaseViewModel
 
     public event Action? CancelRequested;
 
-    public GuidedLoginViewModel(GuidedLoginController controller)
+    public GuidedLoginViewModel(GuidedLoginController controller, SessionDropContext? drop = null)
     {
         _controller = controller;
+        _drop = drop;
         CancelCommand = new Command(() => CancelRequested?.Invoke());
 
         _controller.PhaseChanged += OnPhaseChanged;

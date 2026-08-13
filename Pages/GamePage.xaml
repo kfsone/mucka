@@ -177,6 +177,7 @@
                     <!-- Rec capture indicator — Border+tap avoids WinUI's minimum button height.
                          Hollow chip when idle; red dot + lit text while capturing. -->
                     <Border Grid.Column="12"
+                            x:Name="RecChip"
                             IsVisible="{Binding IsRecordingButtonVisible}"
                             BackgroundColor="Transparent"
                             Stroke="#2d333b" StrokeThickness="1"

@@ -8,8 +8,30 @@
              Title="Persona Login"
              BackgroundColor="#0C0C0C"
              SafeAreaEdges="All">
-    <Grid RowDefinitions="*,Auto" Padding="24">
-        <Grid Grid.Row="0">
+    <Grid RowDefinitions="Auto,Auto,*,Auto" Padding="24">
+        <!-- Why the player is here. Set once from the drop that opened this overlay and left alone
+             for its whole life, so it is still on screen whichever way the overlay ends. -->
+        <Label Grid.Row="0"
+               Text="{Binding DropHeadline}"
+               TextColor="{Binding DropHeadlineColor}"
+               IsVisible="{Binding HasDropContext}"
+               FontSize="28"
+               FontAttributes="Bold"
+               HorizontalOptions="Center"
+               Margin="0,0,0,12"/>
+
+        <!-- The server's own last words, rendered through the same TerminalView the game screen
+             uses so the ANSI colours survive. Hidden for a reset, which needs no explaining. -->
+        <render:TerminalView Grid.Row="1"
+                             x:Name="DropTail"
+                             IsVisible="{Binding HasDropTail}"
+                             InputTransparent="True"
+                             BackgroundColor="#0C0C0C"
+                             HorizontalOptions="Fill"
+                             HeightRequest="250"
+                             Margin="0,0,0,12"/>
+
+        <Grid Grid.Row="2">
             <!-- Splash/banner rendered via the same TerminalView the game screen uses (real ANSI
                  colours, same font/wrap), as a large backdrop behind the status text and any
                  persona-choice action sheet shown on top of this page. -->
@@ -30,7 +52,7 @@
             </VerticalStackLayout>
         </Grid>
 
-        <Button Grid.Row="1"
+        <Button Grid.Row="3"
                 Text="Cancel"
                 Command="{Binding CancelCommand}"
                 BackgroundColor="#2d333b"
