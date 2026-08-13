@@ -47,8 +47,27 @@ public partial class FkeyEditorPage : ContentPage
 #endif
     }
 
+    private bool _closed;
+
+    /// <summary>
+    /// Closes this page, at most once, and only while it is genuinely the top modal. Both guards
+    /// matter because GamePage can close this page out from under the player (being dropped from
+    /// the game outranks editing settings) — a bare <c>PopModalAsync()</c> racing that would pop
+    /// whatever is on top instead, which is by then the persona-login overlay.
+    /// </summary>
+    public async Task CloseAsync()
+    {
+        if (_closed)
+            return;
+        _closed = true;
+
+        var stack = Navigation.ModalStack;
+        if (stack.Count > 0 && ReferenceEquals(stack[^1], this))
+            await Navigation.PopModalAsync();
+    }
+
     private void OnCloseRequested() =>
-        MainThread.BeginInvokeOnMainThread(async () => await Navigation.PopModalAsync());
+        MainThread.BeginInvokeOnMainThread(async () => await CloseAsync());
 
     // Save failures used to be swallowed silently (the page just sat there) — surface them.
     private void OnSaveFailed(string message) =>

@@ -162,6 +162,11 @@ public sealed class MudSession : IDisposable
     /// <summary>A notable reset-projection incident (unanswered sample, lock contradiction, auto-reset
     /// anchor) — for the capture log. Fires off the UI thread.</summary>
     public event Action<string>? ResetDiagnostic;
+    /// <summary>The server announced the auto-reset (C06 C04, "you have 120 seconds to finish up").
+    /// Unlike the projection, this is an exact, unambiguous "a reset is happening now" statement —
+    /// consumers use it to tell a reset-driven drop to the Option menu from a deliberate quit.
+    /// Fires on the read-loop thread.</summary>
+    public event Action? AutoResetInitiated;
 
     // ── Public state ───────────────────────────────────────────────────────────
     public GameStatsSnapshot CurrentStats => _currentStats;
@@ -351,7 +356,11 @@ public sealed class MudSession : IDisposable
         _parser.ClientModeReceived += data => ClientModeReceived?.Invoke(data);
         _parser.SoundRequested += s => SoundRequested?.Invoke(s);
         _parser.ProbeHintReceived += OnProbeHint;
-        _parser.AutoResetInitiated += () => _resetClock.NoteAutoResetInitiated(_resetClock.NowMono);
+        _parser.AutoResetInitiated += () =>
+        {
+            _resetClock.NoteAutoResetInitiated(_resetClock.NowMono);
+            AutoResetInitiated?.Invoke();
+        };
         _parser.PresenceNameSeen  += OnPresenceName;
         _parser.StatusEffectChanged += _effects.Apply;
         _effects.Changed += state => StatusEffectsChanged?.Invoke(state);

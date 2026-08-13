@@ -107,13 +107,38 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     // callback lands on the UI thread, so _reset alone cannot tell us whether the drop we are
     // handling was a reset. This survives the wipe; cleared on the next game-mode entry.
     private DateTime? _lastResetTargetUtc;
-    // See the reasoning comment on ShouldAutoRelogAfterReset: these are a heuristic mitigation for
-    // GitHub #143, sized against ResetClock's own sub-second lock precision (SuccessTargetSec /
-    // NoteAutoResetInitiated both pin the target to well under a second), not against how long a
-    // player might plausibly be typing near a reset.
+    // When the server announced C06 C04 ("auto reset initiated, you have 120 seconds to finish up").
+    // Written on the read-loop thread, read on the UI thread at game-mode exit; a DateTime write is
+    // not atomic on 32-bit, so it goes through Interlocked as ticks. Cleared on game-mode entry.
+    private long _autoResetInitiatedTicks;
+    // See the reasoning comment on ClassifyDrop: sized against ResetClock's own sub-second lock
+    // precision (SuccessTargetSec / NoteAutoResetInitiated both pin the target to well under a
+    // second), not against how long a player might plausibly be typing near a reset.
     private static readonly TimeSpan ResetRelogLeadWindow = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan ResetRelogLagWindow = TimeSpan.FromSeconds(90);
     private static readonly TimeSpan ResetRelogRetryWindow = TimeSpan.FromMinutes(2);
+    // With the C06 C04 anchor in hand the target is exact to a fraction of a second, so a
+    // reset-driven drop lands on it -- only detection/marshalling lag needs covering, and the
+    // lead side collapses to almost nothing.
+    private static readonly TimeSpan AnchoredResetLeadWindow = TimeSpan.FromSeconds(5);
+    // How long after the announcement the anchor stays meaningful: the 120 s finish-up plus room
+    // for the drop and our own detection of it.
+    private static readonly TimeSpan AutoResetAnchorLifetime = TimeSpan.FromMinutes(4);
+
+    // Last few server lines, kept so the guided-login overlay can show the player what happened
+    // right before the drop (see SessionDropContext). Appended on the TCP read thread and read on
+    // the UI thread at game-mode exit, so it is guarded -- a fixed-size list, no allocation per
+    // line beyond the timestamp pair, well clear of the typing path (Invariant #1).
+    private readonly List<(DateTime AtUtc, StyledLine Line)> _recentLines = new();
+    private readonly object _recentLinesLock = new();
+    private const int RecentLinesCap = 40;
+    // Sized to hold a whole death/quit FRAME, not just its last line or two. A swamp death is
+    // seven lines before the Option prompt ("The volatile marsh gases ignite..." through
+    // "Overall, you lost N points this game."), and the first cut at five lines chopped the one
+    // line that actually said what killed the player. The window is generous for the same reason:
+    // the frame is written in one server burst, but the drop that ends it can trail it.
+    private const int DropTailLineCount = 14;
+    private static readonly TimeSpan DropTailWindow = TimeSpan.FromSeconds(10);
 
     // Lines from the TCP thread are enqueued here; the UI thread drains them in batches.
     // Draining is event-driven (see OnLineReady/OutputAvailable) — no polling timer.
@@ -505,7 +530,10 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public event Action? RequestFocus;
     public event Action? ConfigRequested;
     public event Action? ClearScreenRequested;
-    public event Action<GuidedLoginOptions>? GuidedLoginReentryRequested;
+    /// <summary>The shell dropped us back to the Option menu: re-run the persona dance. The
+    /// <see cref="SessionDropContext"/> is what the overlay tells the player about why they are
+    /// there, captured at the instant the terminal went behind it.</summary>
+    public event Action<GuidedLoginOptions, SessionDropContext>? GuidedLoginReentryRequested;
     /// <summary>Raised after <see cref="ChatMode"/> flips — GamePage clears and repaints the terminal
     /// from the matching buffer (chat-only when on, full history when off).</summary>
     public event Action? ChatModeChanged;
@@ -711,14 +739,59 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private void OnLineReady(StyledLine line)
     {
         _pendingLines.Enqueue(line);
+        RememberRecentLine(line);
         if (Interlocked.Exchange(ref _flushScheduled, 1) == 0)
             OutputAvailable?.Invoke();
     }
 
+    // TCP read thread. Deliberately trivial: one timestamp, one add, one bounded remove.
+    private void RememberRecentLine(StyledLine line)
+    {
+        lock (_recentLinesLock)
+        {
+            _recentLines.Add((DateTime.UtcNow, line));
+            if (_recentLines.Count > RecentLinesCap)
+                _recentLines.RemoveRange(0, _recentLines.Count - RecentLinesCap);
+        }
+    }
+
+    /// <summary>The last few lines the server sent before it dropped us: up to
+    /// <see cref="DropTailLineCount"/> lines from the last <see cref="DropTailWindow"/>, blanks
+    /// trimmed off both ends. Falls back to the most recent lines regardless of age when that
+    /// window is empty, so a slow death message still gets shown.</summary>
+    private IReadOnlyList<StyledLine> SnapshotDropTail()
+    {
+        List<(DateTime AtUtc, StyledLine Line)> recent;
+        lock (_recentLinesLock)
+            recent = new List<(DateTime, StyledLine)>(_recentLines);
+
+        var cutoff = DateTime.UtcNow - DropTailWindow;
+        var fresh = recent.Where(e => e.AtUtc >= cutoff).ToList();
+        if (fresh.Count == 0)
+            fresh = recent;
+
+        var lines = fresh.TakeLast(DropTailLineCount).Select(e => e.Line).ToList();
+        while (lines.Count > 0 && string.IsNullOrWhiteSpace(lines[0].PlainText))
+            lines.RemoveAt(0);
+        // Trim the shell's own Option prompt off the end: it arrives in the same burst as the
+        // frame, but it is the consequence of the drop, not part of the explanation of it.
+        while (lines.Count > 0 && IsDropTailNoise(lines[^1]))
+            lines.RemoveAt(lines.Count - 1);
+        return lines;
+    }
+
+    private static bool IsDropTailNoise(StyledLine line)
+        => string.IsNullOrWhiteSpace(line.PlainText)
+           || ShellText.IsShellOptionPrompt(ShellText.NormalizeWhitespace(line.PlainText));
+
+    // Read-loop thread: the server announced the auto-reset. See _autoResetInitiatedTicks.
+    private void OnAutoResetInitiated()
+        => Interlocked.Exchange(ref _autoResetInitiatedTicks, DateTime.UtcNow.Ticks);
+
     // Permadeath: the decoder's C08+C13 signal is the shell's last word before it drops us to the
     // Option menu with the persona gone. Fires on the TCP read thread; _personaInvalidated is a
     // plain bool with no synchronization, set directly here just like the text-match check it
-    // replaced (ShouldAutoRelogAfterReset only reads it later, after GameModeExited marshals in).
+    // replaced (ClassifyDrop only reads it later, after GameModeExited marshals in).
     private void OnPersonaWiped() => _personaInvalidated = true;
 
     // MudSession owns the FES heartbeat — nothing to do in GameViewModel on mode transitions
@@ -729,15 +802,29 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             _inGameMode = true;
             _personaInvalidated = false;
             _lastResetTargetUtc = null;   // new session: the new cycle's target gets observed afresh
+            Interlocked.Exchange(ref _autoResetInitiatedTicks, 0);
+            ClearRecentLines();
             _lastSentUtc = DateTime.UtcNow;
             OnPropertiesChanged(nameof(IsInGameMode), nameof(IsRecordingButtonVisible));
         });
 
     private void OnGameModeExited()
-        => MainThread.BeginInvokeOnMainThread(() =>
+    {
+        // Snapshot the tail HERE, on the read-loop thread, rather than inside the marshalled body:
+        // the shell starts printing the Option menu the instant we leave game mode, and those
+        // banner lines would have pushed the actual reason off the ring by the time the UI thread
+        // gets a turn.
+        var tail = SnapshotDropTail();
+        MainThread.BeginInvokeOnMainThread(() =>
         {
             var exitedPersona = _currentChar;
-            var autoRelogAfterReset = ShouldAutoRelogAfterReset(exitedPersona);
+            // Classify BEFORE anything below clears the state it reads -- this is the moment the
+            // terminal disappears behind the overlay.
+            var drop = ClassifyDrop(exitedPersona, tail);
+            // A reset with no identified persona has nothing to relog AS, so it still goes to the
+            // picker -- the headline is unaffected either way.
+            var autoRelogAfterReset = drop.Reason == SessionDropReason.Reset
+                && !string.IsNullOrWhiteSpace(exitedPersona);
             _inGameMode = false;
 #if WINDOWS
             _sessionAliases.Clear();
@@ -758,16 +845,67 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             // shell dance down a dead socket just times out into a spurious failure dialog.
             if (_guidedLoginEnabled && _conn.IsConnected)
             {
+                // Auto-persona (skip the picker and go straight back in as who we were) is allowed
+                // in exactly two situations: opening a connection, which ConnectPage owns, and a
+                // reset, which is this branch. Every other drop -- quit, permadeath, idle boot,
+                // anything unclassified -- goes to the picker, so the player sees the headline and
+                // chooses deliberately.
                 GuidedLoginReentryRequested?.Invoke(new GuidedLoginOptions(
                     PreferredPersonaName: autoRelogAfterReset ? exitedPersona : null,
                     StartAtOptionMenu: true,
                     ForcePersonaChoice: !autoRelogAfterReset,
                     AllowCreatePreferredPersona: false,
-                    PlayRetryWindow: autoRelogAfterReset ? ResetRelogRetryWindow : null));
+                    PlayRetryWindow: autoRelogAfterReset ? ResetRelogRetryWindow : null),
+                    drop);
             }
 
             _personaInvalidated = false;
         });
+    }
+
+    /// <summary>
+    /// Names the drop that just put us back at the Option menu, for the overlay's headline and for
+    /// the auto-persona decision. Permadeath first: the C08+C13 wipe is unambiguous and outranks
+    /// any timing coincidence.
+    ///
+    /// <para>The reset test prefers the server's own C06 C04 announcement ("auto reset initiated,
+    /// you have 120 seconds to finish up"), which is an exact statement of fact rather than a
+    /// guess. It still cannot, on its own, tell a reset-driven drop from a player who typed QUIT
+    /// during the finish-up period -- that needs the verb/separator/speech-aware input parser
+    /// GitHub #143 tracks. What it does buy is precision: the announcement anchors the reset
+    /// instant to a fraction of a second (see ResetClock.NoteAutoResetInitiated), so we can require
+    /// the drop to land ON that instant rather than anywhere in a multi-minute neighbourhood, which
+    /// is what shrinks the false-positive span. Without the announcement (we connected mid-finish-up,
+    /// say) we fall back to the looser projection-proximity windows.</para>
+    /// </summary>
+    private SessionDropContext ClassifyDrop(string? exitedPersona, IReadOnlyList<StyledLine> tail)
+    {
+        if (_personaInvalidated)
+            return new SessionDropContext(SessionDropReason.Permadeath, exitedPersona, tail);
+        if (IsResetDrop())
+            return new SessionDropContext(SessionDropReason.Reset, exitedPersona, tail);
+        return new SessionDropContext(SessionDropReason.Unknown, exitedPersona, tail);
+    }
+
+    private bool IsResetDrop()
+    {
+        if (_lastResetTargetUtc is not DateTime target)
+            return false;
+
+        var announcedTicks = Interlocked.Read(ref _autoResetInitiatedTicks);
+        var announced = announcedTicks != 0
+            && DateTime.UtcNow - new DateTime(announcedTicks, DateTimeKind.Utc) <= AutoResetAnchorLifetime;
+
+        var delta = target - DateTime.UtcNow;
+        var lead = announced ? AnchoredResetLeadWindow : ResetRelogLeadWindow;
+        return delta <= lead && delta >= -ResetRelogLagWindow;
+    }
+
+    private void ClearRecentLines()
+    {
+        lock (_recentLinesLock)
+            _recentLines.Clear();
+    }
 
     // The character was identified from the setup `score` reply (fires on the Feed thread).
     // The score StatsUpdated for that same line is queued just ahead of this on the UI thread,
@@ -902,7 +1040,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private void ClearResetProjection() => _reset = default;
 
     // Poll the session-layer projection into the local snapshot, remembering the last real target
-    // for ShouldAutoRelogAfterReset (see _lastResetTargetUtc).
+    // for IsResetDrop (see _lastResetTargetUtc).
     private void PollResetEstimate()
     {
         _reset = _conn.ResetEstimate;
@@ -940,43 +1078,18 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
                 nameof(TtrText), nameof(TtrVisible), nameof(TtrTooltip), nameof(AnyRightStatVisible));
             _personaInvalidated = false;
             _lastResetTargetUtc = null;
+            Interlocked.Exchange(ref _autoResetInitiatedTicks, 0);
             Disconnected?.Invoke();
         });
 
-    // True when the drop to the Option menu we are handling looks like a game reset rather than a
-    // deliberate quit or a permadeath: the last projected reset instant is close to now, and the
-    // persona we were playing was still being saved. Only then do we relog straight back in.
-    //
-    // HEURISTIC, NOT A REAL FIX (GitHub #143): the only signal here is proximity to the projected
-    // reset instant. We cannot ask "did the player actually type QUIT?" because the client has no
-    // MUD-aware input parser at all — SendNow forwards whatever was typed as an opaque string after
-    // alias expansion, with no comma-separated-command splitting, no speech/quote handling, and no
-    // verb parsing. So "flee,qq", `"flee,qq` (literal speech), and "jump.\"up\",qq" are indistinguishable
-    // today; a real fix needs a verb/separator/speech-aware parser to see the trailing qq, which is
-    // out of scope here. #143 tracks that parser.
-    //
-    // Until then, the mitigation is to shrink the blast radius of the timing coincidence: the window
-    // used to be 3 minutes of lead and 5 of lag (8 minutes total), wide enough that a player who just
-    // happened to quit anywhere in that span near a scheduled reset would get silently auto-relogged.
-    // ResetClock's own projection is far tighter than that once it locks — SuccessTargetSec (0.5s) and
-    // the exact C06 C04 finish-up anchor in NoteAutoResetInitiated both pin the target to well under a
-    // second — so a reset-driven drop needs no multi-minute margin to be caught reliably. The windows
-    // below (30s lead / 90s lag) leave generous room for 1 Hz poll cadence, network RTT, and detection
-    // lag between the server's drop and the client noticing it, while cutting the false-positive span
-    // from 8 minutes to 2.
-    private bool ShouldAutoRelogAfterReset(string? exitedPersona)
-    {
-        if (_personaInvalidated || string.IsNullOrWhiteSpace(exitedPersona))
-            return false;
-        if (_lastResetTargetUtc is not DateTime target)
-            return false;
-
-        var delta = target - DateTime.UtcNow;
-        return delta <= ResetRelogLeadWindow && delta >= -ResetRelogLagWindow;
-    }
-
     public GuidedLoginController CreateGuidedLoginController(GuidedLoginOptions options)
         => new(_conn, options);
+
+    /// <summary>Tell the player, in the terminal, that guided login has bowed out and left them
+    /// driving the shell by hand — otherwise the overlay just disappears and they are looking at a
+    /// prompt with no idea why.</summary>
+    public void NoteLeftAtOptionMenu()
+        => AddSystemLine("[persona] Persona login stopped — you are at the MUD Shell's Option menu. Type P to choose a persona.", 14);
 
     /// <summary>Client-initiated clean disconnect. Unlike a server-side drop, this does NOT raise
     /// <see cref="Disconnected"/> (that event only fires from the read loop's own unexpected-EOF/
@@ -1618,6 +1731,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _conn.LineReady        += OnLineReady;
         _conn.StatsUpdated     += OnStatsUpdated;
         _conn.PersonaWiped     += OnPersonaWiped;
+        _conn.AutoResetInitiated += OnAutoResetInitiated;
         _conn.StatusEffectsChanged += SidePanel.OnStatusEffectsChanged;
         _conn.GameModeEntered  += OnGameModeEntered;
         _conn.GameModeExited   += OnGameModeExited;
@@ -1647,6 +1761,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _conn.LineReady        -= OnLineReady;
         _conn.StatsUpdated     -= OnStatsUpdated;
         _conn.PersonaWiped     -= OnPersonaWiped;
+        _conn.AutoResetInitiated -= OnAutoResetInitiated;
         _conn.StatusEffectsChanged -= SidePanel.OnStatusEffectsChanged;
         _conn.GameModeEntered  -= OnGameModeEntered;
         _conn.GameModeExited   -= OnGameModeExited;

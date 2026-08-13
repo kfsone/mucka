@@ -70,10 +70,10 @@ public partial class GamePage : ContentPage
     private bool _isFkeyEditorOpen;
     private bool _isGuidedLoginOverlayOpen;
     private bool _guidedLoginOverlayRunning;
-    // Set when a guided-login reentry arrives while the f-key/config editor is up; pushing the
-    // overlay on top of it would let the editor's bare PopModalAsync() pop the wrong (topmost)
-    // modal instead of itself. Replayed once the editor closes and OnAppearing fires again.
-    private Mucka.Core.GuidedLogin.GuidedLoginOptions? _pendingGuidedLoginReentry;
+    // The config/f-key editor while it is up, so a guided-login reentry can close it. Being
+    // dropped from the game outranks whatever the player was configuring: leaving the editor
+    // sitting there hides the fact that they are no longer in the game at all.
+    private FkeyEditorPage? _fkeyEditorPage;
     private bool _eventsSubscribed;
     private double _floatTransX;
     private double _floatTransY;
@@ -142,17 +142,11 @@ public partial class GamePage : ContentPage
 
     protected override void OnAppearing()
     {
+        // Whatever modal we pushed has handed control back, so neither is up any more.
         _isFkeyEditorOpen = false;
+        _fkeyEditorPage = null;
         _isGuidedLoginOverlayOpen = false;
         base.OnAppearing();
-
-        if (_pendingGuidedLoginReentry is { } pendingReentry)
-        {
-            // The f-key editor that deferred this reentry (see OnGuidedLoginReentryRequested) has
-            // now closed and handed us back here -- safe to push the overlay.
-            _pendingGuidedLoginReentry = null;
-            _ = RunGuidedLoginOverlayAsync(pendingReentry);
-        }
 
         try { DeviceDisplay.Current.KeepScreenOn = _vm.KeepScreenOn; }
         catch (Exception ex) { CrashLog.Write("KeepScreenOn", ex); }
@@ -232,7 +226,12 @@ public partial class GamePage : ContentPage
                 // commands/gestures, but keyboard focus stays wherever it was (the input box).
                 // AllowFocusOnInteraction propagates to children, covering the chips, icons,
                 // and fkey buttons. The input row's Entry is deliberately NOT covered.
-                DisableFocusOnInteraction(StatusBar, SidePanelBorder, FkeyBar, FnButton, SendButton, ScrollbackBar, FloatingOnlinePanel);
+                // RecChip is listed explicitly even though it lives inside StatusBar: a Border's
+                // platform view is its own WinUI panel, and AllowFocusOnInteraction is a
+                // per-element property -- setting it on the StatusBar panel does not reach it.
+                // Clicking "rec" was taking keyboard focus off the input box and keeping it
+                // (Invariant #0).
+                DisableFocusOnInteraction(StatusBar, RecChip, SidePanelBorder, FkeyBar, FnButton, SendButton, ScrollbackBar, FloatingOnlinePanel);
 #if FOCUS_DIAG
                 Microsoft.UI.Xaml.Input.FocusManager.GettingFocus += OnFmGettingFocus;
                 Microsoft.UI.Xaml.Input.FocusManager.LosingFocus += OnFmLosingFocus;
@@ -323,10 +322,6 @@ public partial class GamePage : ContentPage
     protected override void OnDisappearing()
     {
         base.OnDisappearing();
-        // Drop any deferred re-entry: it was only ever meant to be replayed once the covering
-        // editor closes and this page's own OnAppearing fires again, not after an unrelated
-        // navigation away and later back (which would resurrect stale GuidedLoginOptions).
-        _pendingGuidedLoginReentry = null;
 #if ANDROID
         _androidFkeyHandler = null;
         _androidCtrlDHandler = null;
@@ -530,7 +525,8 @@ public partial class GamePage : ContentPage
             ActiveTab = initialTab
         };
         _isFkeyEditorOpen = true;
-        return Navigation.PushModalAsync(new FkeyEditorPage(editorVm));
+        _fkeyEditorPage = new FkeyEditorPage(editorVm);
+        return Navigation.PushModalAsync(_fkeyEditorPage);
     }
 
     private async void OnConfigRequested() => await OpenConfigAsync(initialTab: 0);
@@ -538,37 +534,45 @@ public partial class GamePage : ContentPage
 
     // Fired when the shell drops us back to the Option menu (quit, permadeath, or a game reset):
     // re-run the persona dance rather than stranding the player at a bare menu prompt.
-    private void OnGuidedLoginReentryRequested(Mucka.Core.GuidedLogin.GuidedLoginOptions options)
-    {
-        if (_isFkeyEditorOpen)
-        {
-            // The config/f-key editor is up -- pushing the guided-login overlay on top of it
-            // would let the editor's bare PopModalAsync() pop the wrong (topmost) modal instead
-            // of itself. Defer until the editor closes and OnAppearing fires again.
-            _pendingGuidedLoginReentry = options;
-            return;
-        }
-        _ = RunGuidedLoginOverlayAsync(options);
-    }
+    private void OnGuidedLoginReentryRequested(
+        Mucka.Core.GuidedLogin.GuidedLoginOptions options,
+        Mucka.Core.GuidedLogin.SessionDropContext drop)
+        => _ = RunGuidedLoginOverlayAsync(options, drop);
 
-    private async Task RunGuidedLoginOverlayAsync(Mucka.Core.GuidedLogin.GuidedLoginOptions options)
+    private async Task RunGuidedLoginOverlayAsync(
+        Mucka.Core.GuidedLogin.GuidedLoginOptions options,
+        Mucka.Core.GuidedLogin.SessionDropContext drop)
     {
         // Fire-and-forget from the VM event, so nothing above us observes a faulted task.
-        try { await RunGuidedLoginOverlayCoreAsync(options); }
+        try { await RunGuidedLoginOverlayCoreAsync(options, drop); }
         catch (Exception ex) { CrashLog.Write("GuidedLoginReentry", ex); }
     }
 
-    private async Task RunGuidedLoginOverlayCoreAsync(Mucka.Core.GuidedLogin.GuidedLoginOptions options)
+    private async Task RunGuidedLoginOverlayCoreAsync(
+        Mucka.Core.GuidedLogin.GuidedLoginOptions options,
+        Mucka.Core.GuidedLogin.SessionDropContext drop)
     {
         // Both guards run on the UI thread with no await in between, so this is a real latch.
         if (_guidedLoginOverlayRunning)
             return;
         _guidedLoginOverlayRunning = true;
 
+        // The player is out of the game -- that beats whatever they were configuring. Close the
+        // editor before pushing the overlay: stacking on top of it would leave them staring at a
+        // settings page with no sign they had been dropped, and the editor's own close would then
+        // pop the overlay instead of itself. Unsaved edits are discarded, which is the lesser
+        // annoyance -- they were being made while at risk in the game.
+        if (_fkeyEditorPage is { } editor)
+        {
+            await editor.CloseAsync();
+            _fkeyEditorPage = null;
+            _isFkeyEditorOpen = false;
+        }
+
         var controller = _vm.CreateGuidedLoginController(options);
-        var loginVm = new GuidedLoginViewModel(controller);
+        var loginVm = new GuidedLoginViewModel(controller, drop);
         GuidedLoginPage? page = null;
-        var endConnection = false;
+        var leftAtOptionMenu = false;
         try
         {
             _isGuidedLoginOverlayOpen = true;
@@ -588,12 +592,16 @@ public partial class GamePage : ContentPage
                     "OK");
             }
 
-            // Cancelled (Esc, or the action sheet's own Cancel) is a deliberate "I don't want to
-            // log in" -- unlike the explicit "[Drop to menu]" affordance (ManualAtOptionMenu),
-            // it must not leave the shell sitting at the Option menu with the connection still
-            // open. End the connection and back out of the game page, same as a real disconnect
-            // but without the "server closed the connection" alert (this is player-initiated).
-            endConnection = result.Outcome == Mucka.Core.GuidedLogin.GuidedLoginOutcome.Cancelled;
+            // Cancelling a RE-ENTRY leaves the player connected at the Option menu -- it must never
+            // end the session. They are already in; the drop to the menu was not their idea, and
+            // the picker can be dismissed by a stray click outside the action sheet just as easily
+            // as by a deliberate Cancel. Killing a live connection over that is not a recoverable
+            // mistake. (The initial-connect overlay in ConnectPage is the opposite case: there,
+            // cancelling means "I don't want to connect at all", and it still ends the attempt.)
+            // The controller has already sent "q" to back the shell out of the persona-name prompt,
+            // so the terminal underneath is sitting on a live Option prompt.
+            leftAtOptionMenu = result.Outcome is Mucka.Core.GuidedLogin.GuidedLoginOutcome.Cancelled
+                or Mucka.Core.GuidedLogin.GuidedLoginOutcome.ManualAtOptionMenu;
         }
         finally
         {
@@ -607,11 +615,10 @@ public partial class GamePage : ContentPage
                 FocusInput();
         }
 
-        if (endConnection)
-        {
-            await _vm.DisconnectAsync();
-            await Navigation.PopAsync();
-        }
+        // Say so in the terminal: the overlay vanishing with no explanation is exactly the
+        // "no obvious indication of what happened" problem the headline was added to solve.
+        if (leftAtOptionMenu && _vm.IsConnected)
+            _vm.NoteLeftAtOptionMenu();
     }
 
     // Dragging is only allowed while the windlet is unlocked (the lock icon toggles it).

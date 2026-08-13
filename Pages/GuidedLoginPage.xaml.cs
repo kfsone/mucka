@@ -25,6 +25,11 @@ public partial class GuidedLoginPage : ContentPage
         _vm.PersonaChoiceRequested = ShowPersonaChoiceAsync;
         _vm.CreateConfirmationRequested = ShowCreateConfirmationAsync;
         _vm.SplashLinesReady += OnSplashLinesReady;
+
+        // Fixed content, known before the page is ever shown -- paint it once here rather than
+        // waiting on an event, so the player never sees the overlay without its explanation.
+        if (_vm.DropTailLines.Count > 0)
+            DropTail.AppendLines(_vm.DropTailLines);
     }
 
     private void OnCancelRequested() => _cts.Cancel();

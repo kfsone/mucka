@@ -56,6 +56,14 @@
 		<DefineConstants>$(DefineConstants);INPUT_DIAG</DefineConstants>
 	</PropertyGroup>
 
+	<!-- Focus diagnostics: build with `dotnet build -p:FocusDiag=true` (Windows) to log every
+	     focus transition (app-wide FocusManager events plus our own veto/redirect decisions) to
+	     %TEMP%\mucka-focus.txt. Use it when something steals keyboard focus from the command box
+	     (Invariant #0). Off by default → compiled out entirely. -->
+	<PropertyGroup Condition="'$(FocusDiag)' == 'true'">
+		<DefineConstants>$(DefineConstants);FOCUS_DIAG</DefineConstants>
+	</PropertyGroup>
+
 	<PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android' and '$(Configuration)' == 'Release'">
 		<!-- arm64-v8a covers every Android phone since ~2015; omitting 32-bit/x86 slashes APK size significantly -->
 		<RuntimeIdentifiers>android-arm64</RuntimeIdentifiers>
