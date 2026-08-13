@@ -61,6 +61,15 @@ internal sealed class CombatMetronome : IDisposable
 
     public void SetEnabled(bool enabled)
     {
+        if (enabled)
+        {
+            // Open both clips before they are ever needed. The first PlayPrepared for an asset pays
+            // the WinRT media-open cost, and paying it on the first click of a fight is exactly the
+            // click that most needs to be on time.
+            SoundService.PrepareSound(HighClick);
+            SoundService.PrepareSound(LowClick);
+        }
+
         lock (_gate)
         {
             if (Enabled == enabled)
@@ -91,9 +100,13 @@ internal sealed class CombatMetronome : IDisposable
                 return;
 
             _anchorUtc = tickAnchorUtc;
-            // The periodic timer runs on the HIGH click, one lead-width ahead of each boundary;
-            // the low click is scheduled from it.
-            _timer = new Timer(_ => Click(), null, DelayToNextLead(tickAnchorUtc), TickMilliseconds);
+            // ONE-SHOT, re-armed from the anchor after every click - deliberately not a periodic
+            // timer. A System.Threading.Timer with a 2000 ms period schedules each firing relative to
+            // the last, so Windows timer slop (~15 ms granularity) ACCUMULATES: over a sixty-tick
+            // fight the click walks away from the boundary entirely, which is what "they don't seem
+            // synced at all" looks like from the outside. Recomputing the delay against the absolute
+            // anchor every time makes each click self-correcting, so error can never build up.
+            _timer = new Timer(_ => Click(), null, DelayToNextLead(tickAnchorUtc), Timeout.Infinite);
         }
     }
 
@@ -133,6 +146,9 @@ internal sealed class CombatMetronome : IDisposable
         {
             if (_disposed || _timer is null)
                 return;
+            // Re-arm first, so the next beat's schedule is not affected by however long this one
+            // takes, and is measured from the anchor rather than from now.
+            _timer.Change(DelayToNextLead(_anchorUtc), Timeout.Infinite);
         }
 
         Play(HighClick);
@@ -164,7 +180,7 @@ internal sealed class CombatMetronome : IDisposable
     private static void Play(string asset)
     {
         if (SoundService.MasterEnabled)
-            SoundService.Play(asset);
+            SoundService.PlayPrepared(asset);
     }
 
     public void Dispose()

@@ -237,6 +237,10 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     // type: the canvas owns colour, and the view model owns wording.
     private string? _whyText;
     private CombatTier _pulseTier = CombatTier.None;
+
+    /// <summary>Stamina at or below which the rail's glow keeps running even with no fight on -
+    /// see the use in RefreshCombatSignals.</summary>
+    private const int OutOfCombatVulnerableStamina = 25;
     private CombatTier _encumbranceTier = CombatTier.None;
     // The Combat Rail's LIVE hero section - threat indicator, opposition roster, survival numbers -
     // composed fresh each refresh (see RefreshCombatSignals). CombatLiveView.Idle until an encounter
@@ -555,10 +559,23 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         // already on hand.
         _encumbranceTier = CombatTierResolver.StrengthTier(deficits.StrengthEffective, deficits.StrengthMax);
 
+        // The panel's glow keeps running at low stamina whether or not a fight is happening, because
+        // the danger does not stop when the fight does. At this stamina a wandering NPC that would
+        // ignore a healthy player will attack (that is RATE crossing its threshold, computed against
+        // the stats the 40 and 30 knees have already degraded), one blow from most creatures can kill,
+        // and fleeing still costs real points. Walking away from a fight at 22 stamina and forgetting
+        // about it is a way to lose a character between fights.
+        //
+        // 25 rather than the documented 20: the owner's chosen margin, close enough to the survival
+        // threshold to matter with a little room before it.
+        var vulnerable = deficits.StaminaCurrent is int sta && sta <= OutOfCombatVulnerableStamina
+            ? CombatTier.T3
+            : CombatTier.None;
+
         if (!snapshot.HasEncounter)
         {
             _whyText = null;
-            _pulseTier = CombatTier.None;
+            _pulseTier = vulnerable;
             _live = CombatLiveView.Idle;
             return;
         }
@@ -602,7 +619,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             // projecting a finished fight's death clock would be a lie. The roster and weapon/duration
             // context stay, exactly as the old formatter's headline/participant rows did.
             _whyText = null;
-            _pulseTier = CombatTier.None;
+            _pulseTier = vulnerable;
             _live = new CombatLiveView(
                 InCombat: false, HasEncounter: true, WeaponText: weaponText, IsUnarmed: !hasWeapon,
                 EncounterDuration: snapshot.Duration, Threat: ThreatReading.Idle, Roster: roster,
@@ -640,7 +657,10 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
 
         var staminaTier = CombatTierResolver.StaminaTier(
             deficits.StaminaCurrent, deficits.StaminaMax, hitsLeft, outlook.SecondsToDie, outlook.SecondsToKill);
-        _pulseTier = CombatTierResolver.ResolvePulseTier(staminaTier, CombatTier.None);
+        // Escalate-only against the out-of-combat floor: a fight can raise the tier but must never
+        // report calmer than the same stamina would out of combat.
+        var fightTier = CombatTierResolver.ResolvePulseTier(staminaTier, CombatTier.None);
+        _pulseTier = fightTier == CombatTier.T3 || vulnerable == CombatTier.T3 ? CombatTier.T3 : fightTier;
 
         // No flee-cost figure is computed or published here, deliberately. The owner's instruction is
         // explicit: "We don't need to be telling/showing the player the flee statistics - that's

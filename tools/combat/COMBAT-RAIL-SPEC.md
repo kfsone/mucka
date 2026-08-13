@@ -343,6 +343,14 @@ incoming hit, so per-attacker damage is known precisely.
 
 ## 8. Signalling that lives outside the rail
 
+**The rail's glow runs at low stamina whether or not a fight is on** - stamina <= 25, in combat or
+out. The danger does not stop when the fight does: at that stamina a wandering NPC that would ignore
+a healthy player will attack you (`RATE` crossing its threshold, computed against the stats the 40
+and 30 knees have already degraded), one blow from most creatures can kill, and fleeing still costs
+real points. Walking away from a fight at 22 stamina and forgetting about it is a way to lose a
+character *between* fights. In combat the tier may escalate above this but never read calmer than the
+same stamina would out of combat.
+
 Being **in combat at all** is signalled by the **application window border** turning red and
 pulsing slowly, and optionally a red outline on the input box - never by a large coloured
 block inside the rail. A giant glow just because a fight started is a distraction.
