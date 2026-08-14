@@ -49,3 +49,9 @@ __pycache__/
 tools/combat/*.db
 tools/mapping/*.db
 
+# Files whose names begin with "--": always a mistyped command-line flag that a tool then treated
+# as an output path. One such (`tools/combat/--db`, 217 KB of SQLite from a misplaced `--db`) was
+# committed and had to be purged from history. The pattern is never a real filename here.
+tools/**/--*
+--*
+
