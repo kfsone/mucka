@@ -463,11 +463,8 @@ public sealed class MuckaConnection : IAsyncDisposable
 
     private void WireSessionEvents()
     {
-        _session.LineReady          += l => LineReady?.Invoke(l);
-        _session.StatsUpdated       += s => StatsUpdated?.Invoke(s);
         _session.PersonaWiped       += () => PersonaWiped?.Invoke();
         _session.AutoResetInitiated += () => AutoResetInitiated?.Invoke();
-        _session.StatusEffectsChanged += s => StatusEffectsChanged?.Invoke(s);
         _session.LineReady          += l => { _clog.OnLineReady(l); LineReady?.Invoke(l); };
         _session.StatsUpdated       += s => { _clog.OnStatsUpdated(s); _fightRecorder.OnStatsUpdated(s); _swingLedger.OnStatsUpdated(s); StatsUpdated?.Invoke(s); };
         _session.StatusEffectsChanged += s => { _clog.OnStatusEffectsChanged(s); _fightRecorder.OnStatusEffectsChanged(s); StatusEffectsChanged?.Invoke(s); };
