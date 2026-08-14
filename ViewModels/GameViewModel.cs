@@ -105,11 +105,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private bool _settingsPerProfile;
     private bool _fkeysPerProfile;
     private bool _personaInvalidated;
-    // Set when the server's "Cheerio!" farewell says this exit was the player's own doing (qq).
-    // Written on the TCP read thread, read on the UI thread inside OnGameModeExited's marshalled
-    // body -- safe because the parser emits that line before it fires the exit, and the dispatcher
-    // queue orders the read after the write. Cleared on every mode transition, both directions.
-    private bool _deliberateQuit;
     // Last non-null reset target seen this game session. ResetClock wipes its own projection the
     // instant game mode exits, and the 1 Hz tick can poll that cleared snapshot before the exit
     // callback lands on the UI thread, so _reset alone cannot tell us whether the drop we are
@@ -759,24 +754,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
 
     private void OnLineReady(StyledLine line)
     {
-<<<<<<< HEAD
-=======
-        // Permadeath: "Not updating persona." is the shell's last word before it drops us to the
-        // Option menu with the persona gone. Cheap word test first so the common line pays nothing
-        // more than an ordinal scan (this runs on the TCP read thread for every line).
-        if (_inGameMode
-            && line.PlainText.Contains("persona", StringComparison.OrdinalIgnoreCase)
-            && ShellText.IsNotUpdatingPersonaLine(ShellText.NormalizeWhitespace(line.PlainText)))
-            _personaInvalidated = true;
-
-        // Same cheap-word-first shape: "Cheerio!" marks a deliberate qq, which must not trigger
-        // guided-login re-entry (see OnGameModeExited).
-        if (_inGameMode
-            && line.PlainText.Contains("Cheerio", StringComparison.OrdinalIgnoreCase)
-            && ShellText.IsQuitFarewellLine(ShellText.NormalizeWhitespace(line.PlainText)))
-            _deliberateQuit = true;
-
->>>>>>> 79dba10 (Checkpoint: combat WIP before the Combat Insights redesign)
         _pendingLines.Enqueue(line);
         RememberRecentLine(line);
         if (Interlocked.Exchange(ref _flushScheduled, 1) == 0)
@@ -840,7 +817,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         {
             _inGameMode = true;
             _personaInvalidated = false;
-            _deliberateQuit = false;
             _lastResetTargetUtc = null;   // new session: the new cycle's target gets observed afresh
             Interlocked.Exchange(ref _autoResetInitiatedTicks, 0);
             ClearRecentLines();
@@ -858,7 +834,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         MainThread.BeginInvokeOnMainThread(() =>
         {
             var exitedPersona = _currentChar;
-<<<<<<< HEAD
             // Classify BEFORE anything below clears the state it reads -- this is the moment the
             // terminal disappears behind the overlay.
             var drop = ClassifyDrop(exitedPersona, tail);
@@ -866,10 +841,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             // picker -- the headline is unaffected either way.
             var autoRelogAfterReset = drop.Reason == SessionDropReason.Reset
                 && !string.IsNullOrWhiteSpace(exitedPersona);
-=======
-            var deliberateQuit = _deliberateQuit;
-            var autoRelogAfterReset = ShouldAutoRelogAfterReset(exitedPersona);
->>>>>>> 79dba10 (Checkpoint: combat WIP before the Combat Insights redesign)
             _inGameMode = false;
 #if WINDOWS
             _sessionAliases.Clear();
@@ -888,43 +859,23 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             // _conn.IsConnected, not the VM's flag: on a dropped link the parser fires its
             // game-mode exit before our Disconnected handler flips IsConnected, and re-running the
             // shell dance down a dead socket just times out into a spurious failure dialog.
-            //
             if (_guidedLoginEnabled && _conn.IsConnected)
             {
-<<<<<<< HEAD
                 // Auto-persona (skip the picker and go straight back in as who we were) is allowed
                 // in exactly two situations: opening a connection, which ConnectPage owns, and a
                 // reset, which is this branch. Every other drop -- quit, permadeath, idle boot,
                 // anything unclassified -- goes to the picker, so the player sees the headline and
                 // chooses deliberately.
-=======
-                // A deliberate qq still re-enters guided login -- being dropped at a bare Option
-                // menu is the nuisance re-entry exists to spare -- but it must stop at the persona
-                // PICKER and never pick for you. Choosing to leave a character is not a request to
-                // be put straight back into it, and silently relogging the same persona undid the
-                // one thing the player had just asked for.
-                //
-                // So a quit suppresses the auto-relog branch specifically, rather than the whole
-                // re-entry. That also makes it irrelevant whether the quit happened to land inside
-                // ShouldAutoRelogAfterReset's window around a reset: an explicit quit outranks the
-                // inferred reason every time.
-                var autoRelog = autoRelogAfterReset && !deliberateQuit;
->>>>>>> 79dba10 (Checkpoint: combat WIP before the Combat Insights redesign)
                 GuidedLoginReentryRequested?.Invoke(new GuidedLoginOptions(
-                    PreferredPersonaName: autoRelog ? exitedPersona : null,
+                    PreferredPersonaName: autoRelogAfterReset ? exitedPersona : null,
                     StartAtOptionMenu: true,
-                    ForcePersonaChoice: !autoRelog,
+                    ForcePersonaChoice: !autoRelogAfterReset,
                     AllowCreatePreferredPersona: false,
-<<<<<<< HEAD
                     PlayRetryWindow: autoRelogAfterReset ? ResetRelogRetryWindow : null),
                     drop);
-=======
-                    PlayRetryWindow: autoRelog ? ResetRelogRetryWindow : null));
->>>>>>> 79dba10 (Checkpoint: combat WIP before the Combat Insights redesign)
             }
 
             _personaInvalidated = false;
-            _deliberateQuit = false;
         });
     }
 
