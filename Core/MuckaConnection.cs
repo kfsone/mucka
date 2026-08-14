@@ -37,6 +37,11 @@ public sealed class MuckaConnection : IAsyncDisposable
         Path.Combine(ClogWriter.GetClogDirectory(), FightHistoryStore.DefaultFileName),
         CrashLog.Write);
     private readonly FightHistoryRecorder _fightRecorder;
+    // Always on, like the fight history and unlike clogging - see SwingLedger's remarks. Sits beside
+    // fights.jsonl in the same directory and drains on the same background-writer discipline.
+    private readonly SwingLedger _swingLedger = new(
+        Path.Combine(ClogWriter.GetClogDirectory(), SwingLedger.DefaultFileName),
+        CrashLog.Write);
 
     // ── Public events (forwarded from MudSession) ─────────────────────────────
     public event Action<StyledLine>? LineReady;
@@ -382,6 +387,10 @@ public sealed class MuckaConnection : IAsyncDisposable
         _session.Dispose();
         _fightRecorder.Dispose();
         _fightHistory.Dispose();
+        // After _session.Dispose() for the same reason: the ledger enqueues a row per swing as the
+        // event arrives (nothing is held back to flush at fight end), so the only rows still at risk
+        // here are the ones already in its queue - which is exactly what this drains.
+        _swingLedger.Dispose();
         _capture.Dispose();
         _clog.Dispose();
     }
@@ -460,15 +469,15 @@ public sealed class MuckaConnection : IAsyncDisposable
         _session.AutoResetInitiated += () => AutoResetInitiated?.Invoke();
         _session.StatusEffectsChanged += s => StatusEffectsChanged?.Invoke(s);
         _session.LineReady          += l => { _clog.OnLineReady(l); LineReady?.Invoke(l); };
-        _session.StatsUpdated       += s => { _clog.OnStatsUpdated(s); _fightRecorder.OnStatsUpdated(s); StatsUpdated?.Invoke(s); };
+        _session.StatsUpdated       += s => { _clog.OnStatsUpdated(s); _fightRecorder.OnStatsUpdated(s); _swingLedger.OnStatsUpdated(s); StatsUpdated?.Invoke(s); };
         _session.StatusEffectsChanged += s => { _clog.OnStatusEffectsChanged(s); _fightRecorder.OnStatusEffectsChanged(s); StatusEffectsChanged?.Invoke(s); };
-        _session.InCombatChanged     += v => { _clog.OnInCombatChanged(v); _fightRecorder.OnInCombatChanged(v); InCombatChanged?.Invoke(v); };
+        _session.InCombatChanged     += v => { _clog.OnInCombatChanged(v); _fightRecorder.OnInCombatChanged(v); _swingLedger.OnInCombatChanged(v); InCombatChanged?.Invoke(v); };
         _session.CombatGracePeriodChanged += v => CombatGracePeriodChanged?.Invoke(v);
-        _session.CombatEventOccurred += e => { _clog.OnCombatEvent(e); _fightRecorder.OnCombatEvent(e); CombatEventOccurred?.Invoke(e); };
+        _session.CombatEventOccurred += e => { _clog.OnCombatEvent(e); _fightRecorder.OnCombatEvent(e); _swingLedger.OnCombatEvent(e); CombatEventOccurred?.Invoke(e); };
         _session.BellReceived       += () => BellReceived?.Invoke();
         _session.GameModeEntered    += () => GameModeEntered?.Invoke();
         _session.GameModeExited     += () => GameModeExited?.Invoke();
-        _session.CharacterIdentified += n => { _fightRecorder.OnCharacterIdentified(n); CharacterIdentified?.Invoke(n); };
+        _session.CharacterIdentified += n => { _fightRecorder.OnCharacterIdentified(n); _swingLedger.OnCharacterIdentified(n); CharacterIdentified?.Invoke(n); };
         _session.DreamwordChanged   += w =>
         {
             if (w != null)

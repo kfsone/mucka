@@ -181,6 +181,25 @@ public sealed class FightHistoryRecorder : IDisposable
                     }
                     break;
 
+                case CombatEventKind.ItemDropped:
+                    // Fleeing auto-drops the weapon, in the same tick and just before the flee line.
+                    // CombatStatsAggregator has handled this since the drop was first parsed; this
+                    // class did not, so the display and the history disagreed about whether the
+                    // player was still armed - and a second fight opening later in the same encounter
+                    // would inherit a weapon lying on the floor. Unlike the break/refusal cases above
+                    // this one names an item, so it only counts when the item IS the weapon in use.
+                    if (!string.IsNullOrWhiteSpace(combatEvent.Weapon)
+                        && string.Equals(combatEvent.Weapon, _currentWeapon, StringComparison.OrdinalIgnoreCase))
+                    {
+                        _currentWeapon = null;
+                        foreach (var fight in _fightOrder)
+                        {
+                            if (!fight.IsResolved)
+                                fight.NoteDisarmed();
+                        }
+                    }
+                    break;
+
                 case CombatEventKind.Hit:
                     FightForLocked(combatEvent)?.AddYouHit(combatEvent.RangeLow, combatEvent.RangeHigh);
                     break;
