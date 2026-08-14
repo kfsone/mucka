@@ -38,14 +38,27 @@ internal sealed class GameLineAnalyzer
         @"^dexterity:\s*(\d+)(?:.*?effective dexterity:\s*(\d+))?",
         RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
-    // "weight carried: 750g    max: 100kg"
-    private static readonly Regex WeightCarriedRegex = new(
-        @"^weight carried:\s*(?<carried>\d+)(?<cunit>g|kg)\s+max:\s*(?<max>\d+)(?<munit>g|kg)",
+    // "sex:            male"  — score sheet only; there is no FES field for it.
+    private static readonly Regex SexRegex = new(
+        @"^sex:\s*([A-Za-z]+)",
         RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
-    // "objects carried:        1       max:    12"
+    // "magic:          110"  — the score sheet reports current magic with no max (FES carries both).
+    private static readonly Regex MagicRegex = new(
+        @"^magic:\s*(\d+)(?:\s+max:\s*(\d+))?",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    // "weight carried: 750g    max: 100kg"  /  "weight carried: nothing max:    100kg"
+    // "nothing" is the server's word for an empty pack: a measurement of ZERO, not a missing
+    // reading, and it is what most sheets say. The "max:" clause is optional so a server-wrapped
+    // line still yields the carried figure (see tools/combat/TEXT-WRAPPING-REVIEW.md).
+    private static readonly Regex WeightCarriedRegex = new(
+        @"^weight carried:\s*(?:(?<nothing>nothing)|(?<carried>\d+)(?<cunit>kg|g))(?:\s+max:\s*(?<max>\d+)(?<munit>kg|g))?",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    // "objects carried:        1       max:    12"  ("max:" optional — the line can wrap)
     private static readonly Regex ObjectsCarriedRegex = new(
-        @"^objects carried:\s*(?<n>\d+)\s+max:\s*(?<max>\d+)",
+        @"^objects carried:\s*(?<n>\d+)(?:\s+max:\s*(?<max>\d+))?",
         RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
     // "level:  7       champion"
@@ -58,9 +71,26 @@ internal sealed class GameLineAnalyzer
         @"^games played:\s*(?<n>\d+)",
         RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
-    // "score:  1,785 points    this game: ..."
+    // "score:  51,574 points   this game:      10 points       value:  10,389 points"
+    // Three separate figures on one ~70-column line, so at narrow widths the server wraps it and
+    // the tail arrives on a continuation line ("points        value:  9,534 points"). Each figure
+    // therefore gets its own regex: the score prefix anchors at column 0, while the other two
+    // anchor either at column 0 or immediately after the previous figure's "points" — enough of a
+    // guard to keep player chatter from matching, while surviving the wrap.
     private static readonly Regex ScoreRegex = new(
         @"^score:\s*([\d,]+)",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    // "this game:      10 points" — can be zero, and (points lost this game) can be negative.
+    private static readonly Regex ThisGameRegex = new(
+        @"(?:^|points\s+)this game:\s*(-?[\d,]+)",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    // "value:  10,389 points" — the persona's own value; what an attacker collects when we flee or
+    // die (see tools/combat/MUD2-PUBLISHED-MECHANICS.md, "Where the points go"). The colon is what
+    // keeps this off the `value <name>` sniff reply ("The value of Ollie the warlock is N points.").
+    private static readonly Regex ValueRegex = new(
+        @"(?:^|points\s+)value:\s*(-?[\d,]+)",
         RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
     // "(Persona saved on [+N = ]M,NNN)."  — the last comma-separated number before ').'
@@ -113,7 +143,16 @@ internal sealed class GameLineAnalyzer
             && int.TryParse(m.Groups[2].Value, out var mstaVal))
             return GameStatsSnapshot.Empty with { Stamina = staVal, MaxStamina = mstaVal };
 
-        // "strength: N [effective strength: M]"  — use effective when present, else raw
+        // "sex: male"
+        m = SexRegex.Match(text);
+        if (m.Success)
+            return GameStatsSnapshot.Empty with { Sex = m.Groups[1].Value.ToLowerInvariant() };
+
+        // "strength: N [effective strength: M]"  — use effective when present, else raw.
+        // The effective clause is printed ONLY when it differs from the base, so an absent group
+        // means "equal", not "unknown": fall back to the raw value rather than leaving it null.
+        // Effective may be HIGHER than raw (a buff: "strength: 100  effective strength: 105"), so
+        // nothing here clamps or assumes a penalty.
         m = StrengthRegex.Match(text);
         if (m.Success && int.TryParse(m.Groups[1].Value, out var strRaw))
         {
@@ -129,19 +168,39 @@ internal sealed class GameLineAnalyzer
             return GameStatsSnapshot.Empty with { RawDexterity = dexRaw, Dexterity = effective };
         }
 
-        // "weight carried: 750g max: 100kg"
-        m = WeightCarriedRegex.Match(text);
-        if (m.Success
-            && TryParseWeightGrams(m.Groups["carried"].Value, m.Groups["cunit"].Value, out var carried)
-            && TryParseWeightGrams(m.Groups["max"].Value, m.Groups["munit"].Value, out var max))
-            return GameStatsSnapshot.Empty with { WeightCarriedGrams = carried, MaxWeightGrams = max };
+        // "magic: N" — the score sheet's only magic reading (FES supplies current + max).
+        m = MagicRegex.Match(text);
+        if (m.Success && int.TryParse(m.Groups[1].Value, out var magic))
+        {
+            int? maxMagic = m.Groups[2].Success && int.TryParse(m.Groups[2].Value, out var mmag) ? mmag : null;
+            return GameStatsSnapshot.Empty with { CurrentMagic = magic, MaxMagic = maxMagic };
+        }
 
-        // "objects carried: N max: M"
+        // "weight carried: 750g max: 100kg" / "weight carried: nothing max: 100kg"
+        m = WeightCarriedRegex.Match(text);
+        if (m.Success)
+        {
+            int? carriedGrams = null;
+            if (m.Groups["nothing"].Success)
+                carriedGrams = 0;   // "nothing" is zero, and zero is a measurement
+            else if (TryParseWeightGrams(m.Groups["carried"].Value, m.Groups["cunit"].Value, out var carried))
+                carriedGrams = carried;
+
+            int? maxGrams = m.Groups["max"].Success
+                && TryParseWeightGrams(m.Groups["max"].Value, m.Groups["munit"].Value, out var max)
+                ? max : null;
+
+            if (carriedGrams is not null || maxGrams is not null)
+                return GameStatsSnapshot.Empty with { WeightCarriedGrams = carriedGrams, MaxWeightGrams = maxGrams };
+        }
+
+        // "objects carried: N [max: M]"  — N is legitimately 0 (empty pack)
         m = ObjectsCarriedRegex.Match(text);
-        if (m.Success
-            && int.TryParse(m.Groups["n"].Value, out var objectsCarried)
-            && int.TryParse(m.Groups["max"].Value, out var maxObjectsCarried))
-            return GameStatsSnapshot.Empty with { ObjectsCarried = objectsCarried, MaxObjectsCarried = maxObjectsCarried };
+        if (m.Success && int.TryParse(m.Groups["n"].Value, out var objectsCarried))
+        {
+            int? maxObjects = m.Groups["max"].Success && int.TryParse(m.Groups["max"].Value, out var mo) ? mo : null;
+            return GameStatsSnapshot.Empty with { ObjectsCarried = objectsCarried, MaxObjectsCarried = maxObjects };
+        }
 
         // "level: N ..."
         m = LevelRegex.Match(text);
@@ -153,13 +212,25 @@ internal sealed class GameLineAnalyzer
         if (m.Success && int.TryParse(m.Groups["n"].Value, out var gamesPlayed))
             return GameStatsSnapshot.Empty with { GamesPlayed = gamesPlayed };
 
-        // "score: N,NNN points ..."
+        // "score: N,NNN points   this game: N points   value: N,NNN points" — three figures.
+        // Score keeps its historical "only when > 0" guard (a bare 0 is not worth trusting from a
+        // loose text match); this game / value are taken at face value, zero included.
         m = ScoreRegex.Match(text);
         if (m.Success)
         {
-            var score = StripCommas(m.Groups[1].Value);
-            if (score > 0)
-                return GameStatsSnapshot.Empty with { Score = score };
+            int? score = TryStripCommas(m.Groups[1].Value, out var total) && total > 0 ? total : null;
+            var (thisGame, value) = MatchScoreExtras(text);
+            if (score is not null || thisGame is not null || value is not null)
+                return GameStatsSnapshot.Empty with { Score = score, ScoreThisGame = thisGame, PlayerValue = value };
+        }
+
+        // Wrapped tail of the score line ("points        value:  9,534 points").
+        if (text.Contains("value:", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("this game:", StringComparison.OrdinalIgnoreCase))
+        {
+            var (thisGame, value) = MatchScoreExtras(text);
+            if (thisGame is not null || value is not null)
+                return GameStatsSnapshot.Empty with { ScoreThisGame = thisGame, PlayerValue = value };
         }
 
         // "Your stamina is N."
@@ -200,14 +271,27 @@ internal sealed class GameLineAnalyzer
         return null;
     }
 
-    private static int StripCommas(string s)
+    /// <summary>The "this game" / "value" figures from a score line, either of which may be absent
+    /// (wrapped onto the next line, or simply not printed).</summary>
+    private static (int? ThisGame, int? Value) MatchScoreExtras(string text)
+    {
+        var tg = ThisGameRegex.Match(text);
+        var va = ValueRegex.Match(text);
+        int? thisGame = tg.Success && TryStripCommas(tg.Groups[1].Value, out var g) ? g : null;
+        int? value    = va.Success && TryStripCommas(va.Groups[1].Value, out var v) ? v : null;
+        return (thisGame, value);
+    }
+
+    private static bool TryStripCommas(string s, out int value)
     {
         Span<char> buf = stackalloc char[s.Length];
         int len = 0;
         foreach (var c in s)
             if (c != ',') buf[len++] = c;
-        return int.TryParse(buf[..len], out var val) ? val : 0;
+        return int.TryParse(buf[..len], out value);
     }
+
+    private static int StripCommas(string s) => TryStripCommas(s, out var val) ? val : 0;
 
     private static bool TryParseWeightGrams(string magnitudeText, string unitText, out int grams)
     {

@@ -81,10 +81,21 @@ public sealed class MudSession : IDisposable
     // the whole frame up to the next prompt; the score frame is the last, and its closing prompt
     // shuts the window. All fields are touched only on the Feed thread (game-entry and line
     // processing both run there).
-    private bool _setupWindowActive;      // window open (entry → score frame closed)
+    //
+    // The window is also reopened for each periodic `score` refresh (see TrySendScoreRefresh), which
+    // is the one cross-thread write: the timer thread resets the frame fields and THEN stores the
+    // volatile _setupWindowActive, so the Feed thread cannot observe an open window with stale frame
+    // state. A refresh window carries a deadline as well, so a reply that never comes (asleep) lets
+    // the window lapse instead of leaving it armed to swallow an unrelated frame later.
+    private volatile bool _setupWindowActive;  // window open (entry/refresh → score frame closed)
     private bool _setupSwallowingFrame;   // inside a setup frame we've claimed — swallow its lines
     private bool _setupCloseAfterFrame;   // the score frame is in progress; close when it ends
+    private DateTime _setupDeadlineUtc = DateTime.MaxValue;   // refresh windows lapse; entry's does not
     private string? _currentCharName;
+    // Periodic `score` refresh: the sheet is the only source of carried weight / objects / value / sex.
+    private readonly TimeSpan _scoreInterval;
+    private Timer? _scoreTimer;
+    private DateTime _lastScoreSentUtc = DateTime.MinValue;   // guarded by _fesLock
 
     private GameStatsSnapshot _currentStats = GameStatsSnapshot.Empty;
     private string? _currentDreamword;
@@ -204,6 +215,7 @@ public sealed class MudSession : IDisposable
     {
         _options = options ?? new MudSessionOptions();
         _fesInterval = _options.FesHeartbeatInterval;
+        _scoreInterval = _options.ScoreRefreshInterval;
         _parser = new MudStreamParser();
         _resetClock = new ResetClock(_options.ResetClock, TrySendResetFesProbe, CanResetProbe, SetResetDiscoveryHold);
         _resetClock.ObservationRecorded += o => ResetObservationRecorded?.Invoke(o);
@@ -324,6 +336,7 @@ public sealed class MudSession : IDisposable
         StopFesTimer();
         lock (_fesLock)
         {
+            StopScoreTimerLocked();
             StopStaleProbeLocked();
             StopRoomFexProbeLocked();
             // Drop mapping focus so the next game-mode entry includes FEI again. The session is
@@ -354,6 +367,7 @@ public sealed class MudSession : IDisposable
         StopFesTimer();
         lock (_fesLock)
         {
+            StopScoreTimerLocked();
             StopStaleProbeLocked();
             _staleTimer?.Dispose();
             _staleTimer = null;
@@ -488,7 +502,7 @@ public sealed class MudSession : IDisposable
             if (partial.Strength     is not null || partial.RawStrength is not null || partial.MaxStrength  is not null) refreshed |= StaleStats.Strength;
             if (partial.Dexterity    is not null || partial.RawDexterity is not null || partial.MaxDexterity is not null) refreshed |= StaleStats.Dexterity;
             if (partial.CurrentMagic is not null || partial.MaxMagic     is not null) refreshed |= StaleStats.Magic;
-            if (partial.Score        is not null)                                     refreshed |= StaleStats.Score;
+            if (partial.Score        is not null || partial.ScoreThisGame is not null || partial.PlayerValue is not null) refreshed |= StaleStats.Score;
         }
         ClearStale(refreshed);
 
@@ -533,7 +547,15 @@ public sealed class MudSession : IDisposable
             PersonaSaved: partial.HasFesStats ? partial.PersonaSaved : (partial.PersonaSaved || _currentStats.PersonaSaved),
             AccountId:    partial.AccountId    ?? _currentStats.AccountId,
             Privs:        partial.Privs        ?? _currentStats.Privs,
-            StaminaColor: partial.StaminaColor ?? _currentStats.StaminaColor
+            StaminaColor: partial.StaminaColor ?? _currentStats.StaminaColor,
+            // `score`-sheet-only fields. FES never carries them, so every heartbeat would otherwise
+            // blank them; carrying forward is the same "null = not reported this time" rule the
+            // fields above follow. They stay valid until the next sheet (see the periodic `score`
+            // refresh) — sex never changes at all, and weight/objects/value change only on our own
+            // actions, which is exactly what the refresh cadence is sized for.
+            Sex:           partial.Sex           ?? _currentStats.Sex,
+            ScoreThisGame: partial.ScoreThisGame ?? _currentStats.ScoreThisGame,
+            PlayerValue:   partial.PlayerValue   ?? _currentStats.PlayerValue
         )
         {
             // Carry the freshness bit through the merge so consumers can tell a real FES reply from
@@ -573,9 +595,7 @@ public sealed class MudSession : IDisposable
         // line's stats still reach the UI (the parser's analyzer fires StatsUpdated before
         // LineReady). Future user-defined setup commands slot in before `score`, which stays
         // LAST so its reply frame is the one that closes the swallow window.
-        _setupSwallowingFrame = false;
-        _setupCloseAfterFrame = false;
-        _setupWindowActive    = true;
+        OpenSetupWindow(DateTime.MaxValue);
         // The server echoes each command back on its own line, then executes them on subsequent
         // game turns — the outputs (auto-fex FEEXITS confirmation, then the score sheet) trickle
         // in over the next ~700ms. Both echoes and outputs are hidden (TrySwallowSetupLine).
@@ -583,6 +603,16 @@ public sealed class MudSession : IDisposable
 
         // Request our first front-end exit list now (auto fex only arms it for future moves).
         Send(System.Text.Encoding.Latin1.GetBytes("\x1b-[FEX\x1b-]"));
+
+        // Arm the periodic sheet refresh. The batch above has just asked for one, so the first
+        // refresh is a full interval away.
+        lock (_fesLock)
+        {
+            _lastScoreSentUtc = DateTime.UtcNow;
+            StopScoreTimerLocked();
+            if (_scoreInterval > TimeSpan.Zero)
+                _scoreTimer = new Timer(_ => TrySendScoreRefresh(), null, _scoreInterval, _scoreInterval);
+        }
     }
 
     private void OnGameModeExited()
@@ -590,6 +620,7 @@ public sealed class MudSession : IDisposable
         StopFesTimer();
         lock (_fesLock)
         {
+            StopScoreTimerLocked();
             StopStaleProbeLocked();
             StopRoomFexProbeLocked();
             // Drop mapping focus so the next game-mode entry includes FEI again. The session is
@@ -605,6 +636,7 @@ public sealed class MudSession : IDisposable
         _setupWindowActive    = false;
         _setupSwallowingFrame = false;
         _setupCloseAfterFrame = false;
+        _setupDeadlineUtc     = DateTime.MaxValue;
         _currentCharName      = null;
         _effects.Reset();     // relog/logout clears all effects
         _combat.ForceEnd(CombatClock());   // logout ends any open encounter — no fight-end line will arrive
@@ -779,6 +811,18 @@ public sealed class MudSession : IDisposable
     // only while _setupWindowActive.
     private bool TrySwallowSetupLine(StyledLine line)
     {
+        // A refresh window whose sheet never arrived (the character was asleep, or the reply was
+        // lost) lapses instead of staying armed to swallow an unrelated frame minutes later. Only
+        // refresh windows carry a deadline; the game-entry window keeps its original open-ended
+        // behaviour, and mid-frame we always finish the frame we claimed.
+        if (_setupDeadlineUtc != DateTime.MaxValue && !_setupSwallowingFrame && DateTime.UtcNow > _setupDeadlineUtc)
+        {
+            _setupWindowActive    = false;
+            _setupCloseAfterFrame = false;
+            _setupDeadlineUtc     = DateTime.MaxValue;
+            return false;
+        }
+
         // Frame boundary: the '*' prompt that leads every frame. Let it render as the prompt, but
         // use it to delimit frames — and to close the window once the score frame has ended.
         if (line.IsPartial)
@@ -787,6 +831,7 @@ public sealed class MudSession : IDisposable
             {
                 _setupWindowActive    = false;
                 _setupCloseAfterFrame = false;
+                _setupDeadlineUtc     = DateTime.MaxValue;
             }
             _setupSwallowingFrame = false;   // a new frame begins; re-decide on its first line
             return false;                    // show the prompt (rendered in place, as normal)
@@ -828,6 +873,65 @@ public sealed class MudSession : IDisposable
             _setupSwallowingFrame = true;
             return true;
         }
+    }
+
+    /// <summary>
+    /// Open (or re-open) the swallow window ahead of injecting setup commands. Callable from any
+    /// thread: the frame fields are reset BEFORE the volatile _setupWindowActive store, so the Feed
+    /// thread never observes an open window with a previous window's frame state.
+    /// </summary>
+    private void OpenSetupWindow(DateTime deadlineUtc)
+    {
+        _setupSwallowingFrame = false;
+        _setupCloseAfterFrame = false;
+        _setupDeadlineUtc     = deadlineUtc;
+        _setupWindowActive    = true;   // volatile store — publishes the three writes above
+    }
+
+    /// <summary>
+    /// Inject a `score` and swallow its reply, refreshing the sheet-only stats (carried weight,
+    /// objects carried, persona value, sex, raw vs effective strength/dexterity). Nothing else on
+    /// the wire carries them: the FES heartbeat has no field for any of it, so without this they
+    /// would keep their game-entry values for the length of the session — which is exactly how
+    /// 1429 recorded stat snapshots came to have a null carried weight.
+    ///
+    /// Called from the refresh timer and from inventory staleness hints (picking something up
+    /// changes both figures), and rate-limited to one send per ScoreRefreshInterval either way,
+    /// because a `score` costs a game turn. Skipped in combat and during the post-kill grace
+    /// window for the same reason — a turn spent on housekeeping mid-fight is a free enemy swing.
+    /// May be called from any thread.
+    /// </summary>
+    private void TrySendScoreRefresh()
+    {
+        if (_scoreInterval <= TimeSpan.Zero || !InGameMode)
+            return;
+        if (_combat.InCombat || _combat.IsInGracePeriod)
+            return;
+        lock (_fesLock)
+        {
+            // A mapping capture or a reset-time discovery pass owns the wire; skip this beat.
+            if (_probesHeld || _resetDiscoveryHold)
+                return;
+            var now = DateTime.UtcNow;
+            if (now - _lastScoreSentUtc < _scoreInterval)
+                return;
+            _lastScoreSentUtc = now;
+        }
+        // Same swallow mechanism as the game-entry batch: the sheet's stats still reach the UI
+        // (the analyzer fires StatsUpdated before LineReady) but its lines never hit the terminal.
+        OpenSetupWindow(DateTime.UtcNow + ScoreRefreshWindow);
+        Send(System.Text.Encoding.Latin1.GetBytes("score\r\n"));
+    }
+
+    /// <summary>How long a refresh's swallow window stays armed waiting for the sheet. Generous
+    /// next to the ~700ms a reply actually takes, and short next to the refresh interval.</summary>
+    private static readonly TimeSpan ScoreRefreshWindow = TimeSpan.FromSeconds(30);
+
+    private void StopScoreTimerLocked()
+    {
+        _scoreTimer?.Change(Timeout.Infinite, Timeout.Infinite);
+        _scoreTimer?.Dispose();
+        _scoreTimer = null;
     }
 
     // Strip a leading frame prompt ("*", "(*)", surrounding spaces) that the server glues onto the
@@ -927,6 +1031,12 @@ public sealed class MudSession : IDisposable
     private void OnProbeHint(StaleStats kinds)
     {
         if (kinds == StaleStats.None) return;
+        // Carried weight and object count come only from the score sheet, and an inventory hint is
+        // precisely the moment they changed — so the hint doubles as the refresh cue. Rate-limited
+        // inside TrySendScoreRefresh, so a looting spree still costs at most one turn per interval.
+        // Called before taking _fesLock: TrySendScoreRefresh takes it itself.
+        if ((kinds & StaleStats.Inventory) != 0)
+            TrySendScoreRefresh();
         lock (_fesLock)
         {
             if (_fesInterval <= TimeSpan.Zero || !InGameMode)
