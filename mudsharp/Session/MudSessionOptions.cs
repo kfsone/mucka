@@ -5,15 +5,6 @@ public sealed class MudSessionOptions
     /// <summary>Interval between FES heartbeat subscriptions while in game mode. Default: 10 seconds.</summary>
     public TimeSpan FesHeartbeatInterval { get; init; } = TimeSpan.FromSeconds(10);
 
-    /// <summary>
-    /// Interval between injected `score` refreshes while in game mode. The score sheet is the ONLY
-    /// source for carried weight, objects carried, persona value and sex — the FES heartbeat carries
-    /// none of them — so without this they would hold their game-entry values for the whole session.
-    /// Kept far slower than the FES beat because a `score` costs a game turn. Zero or negative
-    /// disables the refresh (the game-entry setup batch still runs). Default: 5 minutes.
-    /// </summary>
-    public TimeSpan ScoreRefreshInterval { get; init; } = TimeSpan.FromMinutes(5);
-
     /// <summary>Whether to buffer outgoing lines during parser reconnect/reset. Default: true.</summary>
     public bool BufferOnReset { get; init; } = true;
 

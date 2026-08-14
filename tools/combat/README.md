@@ -33,6 +33,11 @@ The reasons, so this does not get "fixed" by someone completing the score-sheet 
 Stale, undetectably so, and insufficient - and worse than nothing, because a number invites
 arithmetic. Anyone who wants it can type `sc` and read it.
 
+And it cannot be fixed by asking more often. There is deliberately no periodic `score` injection: the
+sheet is a dozen-plus lines, MUD2's link is not fat, and pushing housekeeping down it delays the
+combat text and the flee acknowledgement coming back the other way. (The cost is bandwidth, not a
+game turn - MUD2 turns are short server slices that exist to stop action spam, not combat rounds.)
+
 **Objects carried IS kept**: it has a live source in the FEI inventory list, so it can be trusted
 between sheets.
 

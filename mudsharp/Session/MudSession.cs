@@ -82,20 +82,24 @@ public sealed class MudSession : IDisposable
     // shuts the window. All fields are touched only on the Feed thread (game-entry and line
     // processing both run there).
     //
-    // The window is also reopened for each periodic `score` refresh (see TrySendScoreRefresh), which
-    // is the one cross-thread write: the timer thread resets the frame fields and THEN stores the
-    // volatile _setupWindowActive, so the Feed thread cannot observe an open window with stale frame
-    // state. A refresh window carries a deadline as well, so a reply that never comes (asleep) lets
-    // the window lapse instead of leaving it armed to swallow an unrelated frame later.
+    // The window opens ONCE, at game entry, and nothing reopens it. There is deliberately NO periodic
+    // `score` refresh, and this is a hard rule rather than a tuning choice.
+    //
+    // The cost is not the game turn - MUD2 turns are short server slices (~10-50ms) that exist to
+    // stop action spam, and a `score` does not consume a combat round. The cost is BANDWIDTH. The
+    // sheet is a dozen-plus lines, the server's link is not fat, and every byte of it is time spent
+    // dispatching housekeeping down the same pipe the player's combat text and flee acknowledgement
+    // have to come back through. Injecting that on a timer means occasionally delaying exactly the
+    // output a player is waiting on to decide whether to run.
+    //
+    // Gating it on "not in combat" does not rescue it either: that is the CLIENT's view of combat,
+    // which lags the server, so a sheet already in flight when a fight starts still lands in the
+    // middle of it. In a permadeath game no inventory count is worth that.
     private volatile bool _setupWindowActive;  // window open (entry/refresh → score frame closed)
     private bool _setupSwallowingFrame;   // inside a setup frame we've claimed — swallow its lines
     private bool _setupCloseAfterFrame;   // the score frame is in progress; close when it ends
     private DateTime _setupDeadlineUtc = DateTime.MaxValue;   // refresh windows lapse; entry's does not
     private string? _currentCharName;
-    // Periodic `score` refresh: the sheet is the only source of carried weight / objects / value / sex.
-    private readonly TimeSpan _scoreInterval;
-    private Timer? _scoreTimer;
-    private DateTime _lastScoreSentUtc = DateTime.MinValue;   // guarded by _fesLock
 
     private GameStatsSnapshot _currentStats = GameStatsSnapshot.Empty;
     private string? _currentDreamword;
@@ -215,7 +219,6 @@ public sealed class MudSession : IDisposable
     {
         _options = options ?? new MudSessionOptions();
         _fesInterval = _options.FesHeartbeatInterval;
-        _scoreInterval = _options.ScoreRefreshInterval;
         _parser = new MudStreamParser();
         _resetClock = new ResetClock(_options.ResetClock, TrySendResetFesProbe, CanResetProbe, SetResetDiscoveryHold);
         _resetClock.ObservationRecorded += o => ResetObservationRecorded?.Invoke(o);
@@ -336,7 +339,6 @@ public sealed class MudSession : IDisposable
         StopFesTimer();
         lock (_fesLock)
         {
-            StopScoreTimerLocked();
             StopStaleProbeLocked();
             StopRoomFexProbeLocked();
             // Drop mapping focus so the next game-mode entry includes FEI again. The session is
@@ -367,7 +369,6 @@ public sealed class MudSession : IDisposable
         StopFesTimer();
         lock (_fesLock)
         {
-            StopScoreTimerLocked();
             StopStaleProbeLocked();
             _staleTimer?.Dispose();
             _staleTimer = null;
@@ -601,16 +602,6 @@ public sealed class MudSession : IDisposable
 
         // Request our first front-end exit list now (auto fex only arms it for future moves).
         Send(System.Text.Encoding.Latin1.GetBytes("\x1b-[FEX\x1b-]"));
-
-        // Arm the periodic sheet refresh. The batch above has just asked for one, so the first
-        // refresh is a full interval away.
-        lock (_fesLock)
-        {
-            _lastScoreSentUtc = DateTime.UtcNow;
-            StopScoreTimerLocked();
-            if (_scoreInterval > TimeSpan.Zero)
-                _scoreTimer = new Timer(_ => TrySendScoreRefresh(), null, _scoreInterval, _scoreInterval);
-        }
     }
 
     private void OnGameModeExited()
@@ -618,7 +609,6 @@ public sealed class MudSession : IDisposable
         StopFesTimer();
         lock (_fesLock)
         {
-            StopScoreTimerLocked();
             StopStaleProbeLocked();
             StopRoomFexProbeLocked();
             // Drop mapping focus so the next game-mode entry includes FEI again. The session is
@@ -886,52 +876,6 @@ public sealed class MudSession : IDisposable
         _setupWindowActive    = true;   // volatile store — publishes the three writes above
     }
 
-    /// <summary>
-    /// Inject a `score` and swallow its reply, refreshing the sheet-only stats (carried weight,
-    /// objects carried, persona value, sex, raw vs effective strength/dexterity). Nothing else on
-    /// the wire carries them: the FES heartbeat has no field for any of it, so without this they
-    /// would keep their game-entry values for the length of the session — which is exactly how
-    /// 1429 recorded stat snapshots came to have a null carried weight.
-    ///
-    /// Called from the refresh timer and from inventory staleness hints (picking something up
-    /// changes both figures), and rate-limited to one send per ScoreRefreshInterval either way,
-    /// because a `score` costs a game turn. Skipped in combat and during the post-kill grace
-    /// window for the same reason — a turn spent on housekeeping mid-fight is a free enemy swing.
-    /// May be called from any thread.
-    /// </summary>
-    private void TrySendScoreRefresh()
-    {
-        if (_scoreInterval <= TimeSpan.Zero || !InGameMode)
-            return;
-        if (_combat.InCombat || _combat.IsInGracePeriod)
-            return;
-        lock (_fesLock)
-        {
-            // A mapping capture or a reset-time discovery pass owns the wire; skip this beat.
-            if (_probesHeld || _resetDiscoveryHold)
-                return;
-            var now = DateTime.UtcNow;
-            if (now - _lastScoreSentUtc < _scoreInterval)
-                return;
-            _lastScoreSentUtc = now;
-        }
-        // Same swallow mechanism as the game-entry batch: the sheet's stats still reach the UI
-        // (the analyzer fires StatsUpdated before LineReady) but its lines never hit the terminal.
-        OpenSetupWindow(DateTime.UtcNow + ScoreRefreshWindow);
-        Send(System.Text.Encoding.Latin1.GetBytes("score\r\n"));
-    }
-
-    /// <summary>How long a refresh's swallow window stays armed waiting for the sheet. Generous
-    /// next to the ~700ms a reply actually takes, and short next to the refresh interval.</summary>
-    private static readonly TimeSpan ScoreRefreshWindow = TimeSpan.FromSeconds(30);
-
-    private void StopScoreTimerLocked()
-    {
-        _scoreTimer?.Change(Timeout.Infinite, Timeout.Infinite);
-        _scoreTimer?.Dispose();
-        _scoreTimer = null;
-    }
-
     // Strip a leading frame prompt ("*", "(*)", surrounding spaces) that the server glues onto the
     // first reply line of a frame. Conservative: only the prompt punctuation, never letters.
     private static string StripLeadingPrompt(string text)
@@ -1029,12 +973,6 @@ public sealed class MudSession : IDisposable
     private void OnProbeHint(StaleStats kinds)
     {
         if (kinds == StaleStats.None) return;
-        // Carried weight and object count come only from the score sheet, and an inventory hint is
-        // precisely the moment they changed — so the hint doubles as the refresh cue. Rate-limited
-        // inside TrySendScoreRefresh, so a looting spree still costs at most one turn per interval.
-        // Called before taking _fesLock: TrySendScoreRefresh takes it itself.
-        if ((kinds & StaleStats.Inventory) != 0)
-            TrySendScoreRefresh();
         lock (_fesLock)
         {
             if (_fesInterval <= TimeSpan.Zero || !InGameMode)

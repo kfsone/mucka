@@ -85,7 +85,6 @@ public class ScoreSheetTests : IDisposable
         _session = new MudSession(new MudSessionOptions
         {
             FesHeartbeatInterval = TimeSpan.FromSeconds(60),   // keep the heartbeat out of the way
-            ScoreRefreshInterval = TimeSpan.FromSeconds(60),   // and the sheet refresh with it
         });
     }
 
