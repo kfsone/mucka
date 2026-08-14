@@ -14,6 +14,28 @@ and C1 tag decoding, then stores a replayable evidence trail in SQLite:
   weapon-switch / weapon-break / guard-drop events that were not wrapped in
   literal `08.05` / `08.06` tags in the research capture.
 
+## Not tracked: carried weight
+
+**Carried weight is deliberately not captured, stored or displayed anywhere in this project.** The
+`weight_carried_grams` / `max_weight_grams` columns survive in `schema.sql` only because existing
+`combat.db` files have them; nothing populates them, and nothing should start.
+
+The reasons, so this does not get "fixed" by someone completing the score-sheet parser:
+
+- **It is only ever as fresh as the last `score`.** The FES heartbeat does not carry it, so the sole
+  source is the sheet - a figure that is minutes old by construction.
+- **It changes on every pick-up and drop**, and the client cannot see those. So the stored value is
+  not merely stale, it is stale in a way nothing can detect.
+- **It is insufficient for the one thing it would feed.** The published effective-strength formula
+  needs a PER-OBJECT weight breakdown (its third step sums half of each object's weight, rounded down
+  individually), which this line does not give. A total cannot reconstruct it.
+
+Stale, undetectably so, and insufficient - and worse than nothing, because a number invites
+arithmetic. Anyone who wants it can type `sc` and read it.
+
+**Objects carried IS kept**: it has a live source in the FEI inventory list, so it can be trusted
+between sheets.
+
 ## Usage
 
 Initialize the default database:

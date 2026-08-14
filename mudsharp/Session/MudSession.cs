@@ -528,8 +528,6 @@ public sealed class MudSession : IDisposable
             MaxDexterity: partial.MaxDexterity ?? _currentStats.MaxDexterity,
             CurrentMagic: partial.CurrentMagic ?? _currentStats.CurrentMagic,
             MaxMagic:     partial.MaxMagic     ?? _currentStats.MaxMagic,
-            WeightCarriedGrams: partial.WeightCarriedGrams ?? _currentStats.WeightCarriedGrams,
-            MaxWeightGrams:     partial.MaxWeightGrams     ?? _currentStats.MaxWeightGrams,
             ObjectsCarried:     partial.ObjectsCarried     ?? _currentStats.ObjectsCarried,
             MaxObjectsCarried:  partial.MaxObjectsCarried  ?? _currentStats.MaxObjectsCarried,
             Level:              partial.Level              ?? _currentStats.Level,

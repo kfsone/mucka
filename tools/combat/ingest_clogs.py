@@ -271,7 +271,7 @@ def ingest_one(con: sqlite3.Connection, clog_path: Path, force: bool) -> dict[st
                 coerce_int(stats.get("magic")),
                 coerce_int(stats.get("maxMagic")),
                 coerce_int(stats.get("score")),
-                coerce_int(stats.get("weightCarriedGrams")),
+                None,   # weight carried: deliberately not captured - see README
                 coerce_int(stats.get("maxWeightGrams")),
                 coerce_int(stats.get("objectsCarried")),
                 coerce_int(stats.get("maxObjectsCarried")),
@@ -812,7 +812,7 @@ def ingest_fights(con: sqlite3.Connection, fights_path: Path) -> dict[str, Any]:
             coerce_int(row.get("stamina_at_end")),
             coerce_int(row.get("score_at_start")),
             coerce_int(row.get("score_at_end")),
-            coerce_int(row.get("weight_carried_grams")),
+            None,   # weight carried: deliberately not captured - see README
             coerce_int(row.get("objects_carried")),
             coerce_int(row.get("level")),
             1 if row.get("is_blind") else 0,

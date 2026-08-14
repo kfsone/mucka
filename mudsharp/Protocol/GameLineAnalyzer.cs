@@ -48,13 +48,9 @@ internal sealed class GameLineAnalyzer
         @"^magic:\s*(\d+)(?:\s+max:\s*(\d+))?",
         RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
-    // "weight carried: 750g    max: 100kg"  /  "weight carried: nothing max:    100kg"
     // "nothing" is the server's word for an empty pack: a measurement of ZERO, not a missing
     // reading, and it is what most sheets say. The "max:" clause is optional so a server-wrapped
     // line still yields the carried figure (see tools/combat/TEXT-WRAPPING-REVIEW.md).
-    private static readonly Regex WeightCarriedRegex = new(
-        @"^weight carried:\s*(?:(?<nothing>nothing)|(?<carried>\d+)(?<cunit>kg|g))(?:\s+max:\s*(?<max>\d+)(?<munit>kg|g))?",
-        RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
     // "objects carried:        1       max:    12"  ("max:" optional — the line can wrap)
     private static readonly Regex ObjectsCarriedRegex = new(
@@ -176,23 +172,18 @@ internal sealed class GameLineAnalyzer
             return GameStatsSnapshot.Empty with { CurrentMagic = magic, MaxMagic = maxMagic };
         }
 
-        // "weight carried: 750g max: 100kg" / "weight carried: nothing max: 100kg"
-        m = WeightCarriedRegex.Match(text);
-        if (m.Success)
-        {
-            int? carriedGrams = null;
-            if (m.Groups["nothing"].Success)
-                carriedGrams = 0;   // "nothing" is zero, and zero is a measurement
-            else if (TryParseWeightGrams(m.Groups["carried"].Value, m.Groups["cunit"].Value, out var carried))
-                carriedGrams = carried;
-
-            int? maxGrams = m.Groups["max"].Success
-                && TryParseWeightGrams(m.Groups["max"].Value, m.Groups["munit"].Value, out var max)
-                ? max : null;
-
-            if (carriedGrams is not null || maxGrams is not null)
-                return GameStatsSnapshot.Empty with { WeightCarriedGrams = carriedGrams, MaxWeightGrams = maxGrams };
-        }
+        // Carried weight is deliberately NOT parsed, stored, or shown - the owner's decision, and
+        // worth writing down so nobody "completes" the sheet parser by adding it back.
+        //
+        // It is an unwanted variable. The only source is this sheet, so it is never fresher than the
+        // last `score`; it changes on every pick-up and drop, which the client cannot see; and the one
+        // thing it would feed - the weight terms of the published effective-strength formula - needs a
+        // per-object breakdown this line does not give. A figure that is stale, unverifiable AND
+        // insufficient is worse than none, because it invites arithmetic. Anyone who wants it can type
+        // `sc` and read it.
+        //
+        // Objects carried IS kept, just below: it has a live source (the FEI inventory list), so it can
+        // be trusted between sheets.
 
         // "objects carried: N [max: M]"  — N is legitimately 0 (empty pack)
         m = ObjectsCarriedRegex.Match(text);
@@ -292,19 +283,6 @@ internal sealed class GameLineAnalyzer
     }
 
     private static int StripCommas(string s) => TryStripCommas(s, out var val) ? val : 0;
-
-    private static bool TryParseWeightGrams(string magnitudeText, string unitText, out int grams)
-    {
-        grams = 0;
-        if (!int.TryParse(magnitudeText, out var magnitude))
-            return false;
-        var multiplier = unitText.Equals("kg", StringComparison.OrdinalIgnoreCase) ? 1000 : 1;
-        long scaled = (long)magnitude * multiplier;
-        if (scaled > int.MaxValue || scaled < int.MinValue)
-            return false;
-        grams = (int)scaled;
-        return true;
-    }
 
     // Text triggers mirror Clio's sound.c pattern matches (game mode only).
     internal string? CheckSoundTrigger(StyledLine line)

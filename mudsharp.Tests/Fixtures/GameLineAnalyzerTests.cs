@@ -95,24 +95,18 @@ public class GameLineAnalyzerTests
         Assert.Equal(99, h.Stats[0].Dexterity);
     }
 
-    [Fact]
-    public void WeightCarriedLine_ParsesGramsAndKilograms()
+    /// <summary>Carried weight is deliberately not captured at all - see GameLineAnalyzer's
+    /// score-sheet branch. This is here so a future "the sheet parser is incomplete" tidy-up trips a
+    /// red test instead of quietly reintroducing an unwanted variable.</summary>
+    [Theory]
+    [InlineData("weight carried: 750g    max:    100kg\n")]
+    [InlineData("weight carried: 2kg    max:    750g\n")]
+    [InlineData("weight carried: nothing max:    100kg\n")]
+    public void WeightCarriedLine_IsIgnoredEntirely(string line)
     {
         var h = new ParserHarness();
-        h.Feed("weight carried: 750g    max:    100kg\n");
-        Assert.Single(h.Stats);
-        Assert.Equal(750, h.Stats[0].WeightCarriedGrams);
-        Assert.Equal(100000, h.Stats[0].MaxWeightGrams);
-    }
-
-    [Fact]
-    public void WeightCarriedLine_ParsesKilogramsAndGrams()
-    {
-        var h = new ParserHarness();
-        h.Feed("weight carried: 2kg    max:    750g\n");
-        Assert.Single(h.Stats);
-        Assert.Equal(2000, h.Stats[0].WeightCarriedGrams);
-        Assert.Equal(750, h.Stats[0].MaxWeightGrams);
+        h.Feed(line);
+        Assert.Empty(h.Stats);
     }
 
     [Fact]

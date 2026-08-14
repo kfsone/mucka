@@ -323,7 +323,6 @@ public sealed class FightHistoryRecorder : IDisposable
             RawDexterity = _encounterStats.RawDexterity,
             StaminaAtStart = _encounterStats.Stamina,
             MaxStamina = _encounterStats.MaxStamina,
-            WeightCarriedGrams = _encounterStats.WeightCarriedGrams,
             ObjectsCarried = _encounterStats.ObjectsCarried,
             Level = _encounterStats.Level,
             IsBlind = _encounterStats.IsBlind,

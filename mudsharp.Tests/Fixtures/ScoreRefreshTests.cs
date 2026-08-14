@@ -112,7 +112,6 @@ public class ScoreRefreshTests : IDisposable
         Prompt(s); Feed(s, "A raven caws overhead.\r\n");
 
         Assert.Equal(["A raven caws overhead."], Visible());
-        Assert.Equal(750, s.CurrentStats.WeightCarriedGrams);
         Assert.Equal(4,   s.CurrentStats.ObjectsCarried);
         Assert.Equal("male", s.CurrentStats.Sex);
     }

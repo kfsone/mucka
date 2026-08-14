@@ -120,8 +120,6 @@ public class ScoreSheetTests : IDisposable
         Assert.Equal(10,     s.ScoreThisGame);
         Assert.Equal(10_389, s.PlayerValue);
         Assert.Equal(9, s.Level);
-        Assert.Equal(75,      s.WeightCarriedGrams);
-        Assert.Equal(100_000, s.MaxWeightGrams);
         Assert.Equal(2,  s.ObjectsCarried);
         Assert.Equal(12, s.MaxObjectsCarried);
         Assert.Equal(93, s.GamesPlayed);
@@ -147,8 +145,6 @@ public class ScoreSheetTests : IDisposable
         Assert.Equal(10_462, s.PlayerValue);
         Assert.Equal(9, s.Level);
         // "nothing" is the server's word for an empty pack: ZERO, not "not reported".
-        Assert.Equal(0,       s.WeightCarriedGrams);
-        Assert.Equal(100_000, s.MaxWeightGrams);
         Assert.Equal(0,  s.ObjectsCarried);
         Assert.Equal(12, s.MaxObjectsCarried);
         Assert.Equal(93, s.GamesPlayed);
@@ -171,8 +167,6 @@ public class ScoreSheetTests : IDisposable
         Assert.Equal(0,      s.ScoreThisGame);   // zero is a reading, not an absence
         Assert.Equal(10_523, s.PlayerValue);
         Assert.Equal(9, s.Level);
-        Assert.Equal(0,       s.WeightCarriedGrams);
-        Assert.Equal(100_000, s.MaxWeightGrams);
         Assert.Equal(0,  s.ObjectsCarried);
         Assert.Equal(12, s.MaxObjectsCarried);
         Assert.Equal(94, s.GamesPlayed);
@@ -200,7 +194,6 @@ public class ScoreSheetTests : IDisposable
         var s = Parse(Sheet3);
 
         Assert.Equal(70, s.CurrentMagic);
-        Assert.Equal(0,  s.WeightCarriedGrams);
         Assert.Equal(0,  s.ObjectsCarried);
         Assert.Equal(94, s.GamesPlayed);
         Assert.Equal(52_241, s.Score);
@@ -225,7 +218,6 @@ public class ScoreSheetTests : IDisposable
         Assert.Equal("female", s.Sex);
         Assert.Equal(94, s.RawStrength);
         Assert.Equal(47, s.Strength);
-        Assert.Equal(2000, s.WeightCarriedGrams);
         Assert.Equal(3, s.ObjectsCarried);
         Assert.Equal(1785, s.Score);
         Assert.Equal(-40, s.ScoreThisGame);   // a bad game can cost points

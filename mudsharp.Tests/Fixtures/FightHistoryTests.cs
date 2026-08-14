@@ -269,7 +269,6 @@ public sealed class FightHistoryTests
             RawDexterity = 33,
             StaminaAtStart = 90,
             MaxStamina = 100,
-            WeightCarriedGrams = 12_500,
             ObjectsCarried = 7,
             Level = 4,
             IsBlind = true,
@@ -282,7 +281,6 @@ public sealed class FightHistoryTests
         Assert.Equal("A dark cave", restored.Room);
         Assert.Equal("Storm", restored.Weather);
         Assert.Equal(55, restored.RawStrength);
-        Assert.Equal(12_500, restored.WeightCarriedGrams);
         Assert.True(restored.IsBlind);
         Assert.True(restored.IsCrippled);
         Assert.False(restored.IsDeaf);

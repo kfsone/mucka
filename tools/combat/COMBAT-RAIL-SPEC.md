@@ -407,6 +407,11 @@ design until the owner says so.
 - The fled-NPC / chase surface. Nothing can be done about it mid-fight, so showing it then is
   cognitively antagonistic. It belongs to a post-combat view.
 - Anything labelled "Exits" - the word means something else in MUD.
+- **Carried weight, in any form.** Not captured, not stored, not shown - see
+  `tools/combat/README.md` for the full reasoning. It is only as fresh as the last `score`, it
+  changes on pick-ups and drops the client cannot see, and it is insufficient for the one formula it
+  would feed (which needs a per-object breakdown). The player can type `sc`. Objects carried is kept;
+  that one has a live source.
 - Raw always-on stat-deficit bars. STR/DEX encumbrance is **discontinued** pending a decision
   on how to present it usefully.
 - Per-creature special cases (there is no dragon override).

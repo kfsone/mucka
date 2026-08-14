@@ -101,7 +101,6 @@ public sealed record FightRecord
     /// <summary>Player score as of the last reading observed while this fight was still open. Format
     /// v2+ only.</summary>
     [JsonPropertyName("score_at_end")] public int? ScoreAtEnd { get; init; }
-    [JsonPropertyName("weight_carried_grams")] public int? WeightCarriedGrams { get; init; }
     [JsonPropertyName("objects_carried")] public int? ObjectsCarried { get; init; }
     [JsonPropertyName("level")] public int? Level { get; init; }
     [JsonPropertyName("is_blind")] public bool IsBlind { get; init; }

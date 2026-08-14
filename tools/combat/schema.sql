@@ -83,7 +83,7 @@ CREATE TABLE IF NOT EXISTS stats_snapshots (
     current_magic       INTEGER,
     max_magic           INTEGER,
     score               INTEGER,
-    weight_carried_grams INTEGER,
+    weight_carried_grams INTEGER,   -- DEAD. Never populated; see tools/combat/README.md.
     max_weight_grams    INTEGER,
     objects_carried     INTEGER,
     max_objects_carried INTEGER,
@@ -489,7 +489,7 @@ CREATE TABLE IF NOT EXISTS live_fights (
     -- (DESIGN_FINAL.md section 5); dropped entirely before format v2.
     score_at_start        INTEGER,
     score_at_end          INTEGER,
-    weight_carried_grams INTEGER,
+    weight_carried_grams INTEGER,   -- DEAD. Never populated; see tools/combat/README.md.
     objects_carried      INTEGER,
     level                INTEGER,
     is_blind             INTEGER NOT NULL DEFAULT 0,

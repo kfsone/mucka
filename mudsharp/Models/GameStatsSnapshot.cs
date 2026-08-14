@@ -13,8 +13,6 @@ public sealed record GameStatsSnapshot(
     int? MaxDexterity = null,
     int? CurrentMagic = null,
     int? MaxMagic = null,
-    int? WeightCarriedGrams = null,
-    int? MaxWeightGrams = null,
     int? ObjectsCarried = null,
     int? MaxObjectsCarried = null,
     int? Level = null,

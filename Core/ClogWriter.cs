@@ -223,8 +223,6 @@ public sealed class ClogWriter : IDisposable
                         maxDexterity = _lastStats.MaxDexterity,
                         magic = _lastStats.CurrentMagic,
                         maxMagic = _lastStats.MaxMagic,
-                        weightCarriedGrams = _lastStats.WeightCarriedGrams,
-                        maxWeightGrams = _lastStats.MaxWeightGrams,
                         objectsCarried = _lastStats.ObjectsCarried,
                         maxObjectsCarried = _lastStats.MaxObjectsCarried,
                         level = _lastStats.Level,

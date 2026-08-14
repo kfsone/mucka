@@ -17,7 +17,6 @@ public sealed record CombatStatDeficits(
     int? DexterityDelta,
     int? StaminaCurrent,
     int? StaminaMax,
-    int? WeightCarriedGrams,
     int? ObjectsCarried,
     // Effective (not raw) strength/dexterity and their maxima - added for DESIGN_FINAL.md's
     // encumbrance-tier signal (4.3: T1 below 75% of max effective strength, T2 below 50%), which
@@ -42,7 +41,7 @@ public sealed record CombatStatDeficits(
 
     /// <summary>True when the player is carrying anything at all - worth surfacing next to the
     /// penalty, since it is usually the cause and is directly actionable (drop it).</summary>
-    public bool HasLoad => WeightCarriedGrams is > 0 || ObjectsCarried is > 0;
+    public bool HasLoad => ObjectsCarried is > 0;
 }
 
 /// <summary>
@@ -199,7 +198,6 @@ public sealed record CombatLiveView(
     int? StaminaMax,
     int? StrengthDelta,
     int? DexterityDelta,
-    int? WeightCarriedGrams,
     int? ObjectsCarried,
     // The exchange, as bars rather than as a numeric table: your hit rate against theirs, your
     // damage per hit against theirs, each with its historical tick. See CombatMeasure.
@@ -237,6 +235,6 @@ public sealed record CombatLiveView(
         Roster: MudSharp.Combat.RosterPlan.Empty, CurrentTargetNpcWeapon: null,
         OutlookVerdict: MudSharp.Combat.OutlookVerdict.Unknown,
         SecondsToDie: null, SecondsToKill: null, StaminaCurrent: null, StaminaMax: null,
-        StrengthDelta: null, DexterityDelta: null, WeightCarriedGrams: null, ObjectsCarried: null,
+        StrengthDelta: null, DexterityDelta: null, ObjectsCarried: null,
         Measures: [], TargetDamageDone: null, TargetEstimatedPool: null);
 }

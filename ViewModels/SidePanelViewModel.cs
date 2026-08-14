@@ -452,14 +452,10 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
                 DexterityDelta: Delta(stats.Dexterity, stats.RawDexterity),
                 StaminaCurrent: stats.Stamina,
                 StaminaMax: stats.MaxStamina,
-                // Carried weight is deliberately NOT taken from the snapshot: like the object count
-                // it only ever comes from a `score` text parse and then persists unchanged, so it
-                // goes as stale as the count did. Unlike the count there is no live source for it
-                // (FEI lists item names, not weights), so the honest option is to omit it rather
-                // than print an hours-old figure next to live numbers. The strength DELTA above is
-                // unaffected and still carries the real "you are loaded down" signal, because
-                // effective strength rides the FES heartbeat.
-                WeightCarriedGrams: null,
+                // Carried weight is not here, and not anywhere - it is not captured, stored or shown
+                // by this client at all. See GameLineAnalyzer's score-sheet branch for why. The
+                // strength DELTA above still carries the real "you are loaded down" signal, because
+                // effective strength rides the FES heartbeat and already has the load priced in.
                 ObjectsCarried: LiveObjectsCarried,
                 // Absolute effective/max strength+dexterity, for the Combat Rail's encumbrance-tier
                 // signal (DESIGN_FINAL.md 4.3), which needs fraction-of-max rather than the
@@ -627,7 +623,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
                 OutlookVerdict: OutlookVerdict.Unknown, SecondsToDie: null, SecondsToKill: null,
                 StaminaCurrent: deficits.StaminaCurrent, StaminaMax: deficits.StaminaMax,
                 StrengthDelta: deficits.StrengthDelta, DexterityDelta: deficits.DexterityDelta,
-                WeightCarriedGrams: deficits.WeightCarriedGrams, ObjectsCarried: deficits.ObjectsCarried,
+                ObjectsCarried: deficits.ObjectsCarried,
                 // The exchange bars describe what HAPPENED, so unlike the survival projection they
                 // stay up through the post-fight grace window - reviewing the fight you just had is
                 // the whole reason that window exists. Kill progress does not: the target is
@@ -697,7 +693,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             OutlookVerdict: outlook.Verdict, SecondsToDie: outlook.SecondsToDie, SecondsToKill: outlook.SecondsToKill,
             StaminaCurrent: deficits.StaminaCurrent, StaminaMax: deficits.StaminaMax,
             StrengthDelta: deficits.StrengthDelta, DexterityDelta: deficits.DexterityDelta,
-            WeightCarriedGrams: deficits.WeightCarriedGrams, ObjectsCarried: deficits.ObjectsCarried,
+            ObjectsCarried: deficits.ObjectsCarried,
             Measures: BuildMeasures(snapshot, history, primary),
             // Kill progress is shown only against a target still standing, and only once a kill of
             // that kind is on record to estimate the pool from.
