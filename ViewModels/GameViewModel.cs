@@ -105,6 +105,11 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private bool _settingsPerProfile;
     private bool _fkeysPerProfile;
     private bool _personaInvalidated;
+    // Set when the shell's "Cheerio!" farewell says this exit was the player's own doing (qq).
+    // Written on the TCP read thread, read on the UI thread inside OnGameModeExited's marshalled
+    // body - safe because the parser emits that line before it fires the exit, and the dispatcher
+    // queue orders the read after the write. Cleared on every mode transition, both directions.
+    private bool _deliberateQuit;
     // Last non-null reset target seen this game session. ResetClock wipes its own projection the
     // instant game mode exits, and the 1 Hz tick can poll that cleared snapshot before the exit
     // callback lands on the UI thread, so _reset alone cannot tell us whether the drop we are
@@ -756,6 +761,14 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     {
         _pendingLines.Enqueue(line);
         RememberRecentLine(line);
+        // "Cheerio!" is the shell's last word on a deliberate qq, and the ONLY signal that
+        // distinguishes one from a reset-timed drop - ClassifyDrop's own docs admit the timing test
+        // cannot. Cheap word test first so an ordinary line pays nothing more than an ordinal scan;
+        // this runs on the TCP read thread for every line.
+        if (_inGameMode
+            && line.PlainText.Contains("Cheerio", StringComparison.OrdinalIgnoreCase)
+            && ShellText.IsQuitFarewellLine(ShellText.NormalizeWhitespace(line.PlainText)))
+            _deliberateQuit = true;
         if (Interlocked.Exchange(ref _flushScheduled, 1) == 0)
             OutputAvailable?.Invoke();
     }
@@ -817,6 +830,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         {
             _inGameMode = true;
             _personaInvalidated = false;
+            _deliberateQuit = false;
             _lastResetTargetUtc = null;   // new session: the new cycle's target gets observed afresh
             Interlocked.Exchange(ref _autoResetInitiatedTicks, 0);
             ClearRecentLines();
@@ -876,6 +890,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             }
 
             _personaInvalidated = false;
+            _deliberateQuit = false;
         });
     }
 
@@ -898,6 +913,11 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     {
         if (_personaInvalidated)
             return new SessionDropContext(SessionDropReason.Permadeath, exitedPersona, tail);
+        // Before IsResetDrop, deliberately: a qq during the finish-up period lands inside the reset
+        // window, and classifying that as Reset would auto-relog the player straight back into the
+        // persona they had just chosen to leave.
+        if (_deliberateQuit)
+            return new SessionDropContext(SessionDropReason.Quit, exitedPersona, tail);
         if (IsResetDrop())
             return new SessionDropContext(SessionDropReason.Reset, exitedPersona, tail);
         return new SessionDropContext(SessionDropReason.Unknown, exitedPersona, tail);
@@ -1109,6 +1129,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             OnPropertiesChanged(nameof(IsInGameMode), nameof(IsRecordingButtonVisible),
                 nameof(TtrText), nameof(TtrVisible), nameof(TtrTooltip), nameof(AnyRightStatVisible));
             _personaInvalidated = false;
+            _deliberateQuit = false;
             _lastResetTargetUtc = null;
             Interlocked.Exchange(ref _autoResetInitiatedTicks, 0);
             Disconnected?.Invoke();

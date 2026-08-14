@@ -38,6 +38,7 @@ public sealed class GuidedLoginViewModel : BaseViewModel
     {
         SessionDropReason.Reset => Color.FromArgb("#d29922"),
         SessionDropReason.Permadeath => Color.FromArgb("#c9d1d9"),
+        SessionDropReason.Quit => Color.FromArgb("#8b949e"),   // your own doing; nothing to alarm about
         _ => Color.FromArgb("#f85149"),
     };
 
