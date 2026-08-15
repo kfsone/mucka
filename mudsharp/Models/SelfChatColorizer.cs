@@ -75,14 +75,10 @@ public static class SelfChatColorizer
         var text = line.PlainText;
         if (IsOkActEcho(text)) return true;
         if (text.StartsWith("You ", StringComparison.Ordinal)) return true;
-        if (myName is not { Length: > 0 }) return false;
         // Invisible self: the game parenthesises the whole name-with-description, so the line
-        // reads "(Ollie the superheroine) waves." — strip one '(' and match the name against
-        // what follows (')' closes immediately for an untitled name).
-        if (text.StartsWith('(')) text = text[1..];
-        return text.Length > myName.Length
-            && text.StartsWith(myName, StringComparison.Ordinal)
-            && text[myName.Length] is ' ' or ')';
+        // reads "(Ollie the superheroine) waves." — see PlayerNameParts.StartsWithPersona, which
+        // owns that rule for every "is this line about my persona?" check.
+        return PlayerNameParts.StartsWithPersona(text, myName);
     }
 
     /// <summary>

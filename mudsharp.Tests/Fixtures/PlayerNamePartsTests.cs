@@ -60,6 +60,31 @@ public sealed class PlayerNamePartsTests
         Assert.DoesNotContain(')', parts.Name);
     }
 
+    // The "is this line about my persona?" rule, shared by the self-chat colouring and the
+    // spoken-dreamword cancellation. Invisibility parenthesises the whole name-and-description,
+    // which the dreamword check used to miss entirely.
+    [Theory]
+    [InlineData("Ollie says \"x\".", true)]
+    [InlineData("Ollie the necromancer says \"x\".", true)]
+    [InlineData("(Ollie the warlock) says \"x\".", true)]
+    [InlineData("(Ollie) says \"x\".", true)]
+    [InlineData("Ollie waves.", true)]
+    // Boundary: a longer name that merely starts with ours is a different persona, parens or not.
+    [InlineData("Ollier says \"x\".", false)]
+    [InlineData("(Ollier the warlock) says \"x\".", false)]
+    // Someone else entirely, and the degenerate cases.
+    [InlineData("Someone says \"x\".", false)]
+    [InlineData("Ollie", false)]
+    [InlineData("", false)]
+    public void StartsWithPersona_TolerantOfInvisibilityParens(string text, bool expected)
+        => Assert.Equal(expected, PlayerNameParts.StartsWithPersona(text, "Ollie"));
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    public void StartsWithPersona_FalseWithoutAName(string? persona)
+        => Assert.False(PlayerNameParts.StartsWithPersona("Ollie says \"x\".", persona));
+
     [Theory]
     [InlineData("(Ollie the warlock)", "(Ollie)")]
     [InlineData("(Sir Ollie the knight)", "(Ollie)")]
