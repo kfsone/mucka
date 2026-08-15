@@ -50,6 +50,25 @@ public readonly record struct PlayerNameParts(
             IsInvisible ? DescriptionSuffix + ")" : DescriptionSuffix);
     }
 
+    /// <summary>
+    /// True when <paramref name="text"/> opens with <paramref name="personaName"/> as its speaker
+    /// or subject — "Ollie says ...", "Ollie the necromancer waves." — tolerating the parens the
+    /// game wraps around the whole name-and-description while that player is invisible:
+    /// <c>(Ollie the warlock) says "..."</c>.
+    ///
+    /// <para>A boundary is required after the name (a space, or the ')' that closes an untitled
+    /// invisible name) so "Ollie" never matches the different persona "Ollier".</para>
+    /// </summary>
+    public static bool StartsWithPersona(string text, string? personaName)
+    {
+        if (string.IsNullOrEmpty(text) || personaName is not { Length: > 0 })
+            return false;
+        if (text.StartsWith('(')) text = text[1..];
+        return text.Length > personaName.Length
+            && text.StartsWith(personaName, StringComparison.Ordinal)
+            && text[personaName.Length] is ' ' or ')';
+    }
+
     private static int TitlePrefixLength(string name)
     {
         if (name.StartsWith("Sir ", StringComparison.OrdinalIgnoreCase)) return 4;

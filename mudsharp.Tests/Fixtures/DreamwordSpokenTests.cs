@@ -99,6 +99,51 @@ public class DreamwordSpokenTests : IDisposable
     }
 
     [Fact]
+    public void OwnPersonaWhileInvisible_CancelsIt()
+    {
+        // Invisible, the game parenthesises the whole name-and-description:
+        //   (Ollie the warlock) says "oibloirduj".
+        // Matching the raw prefix missed this, so speaking the dreamword while invisible left it
+        // advertised forever -- the one state where you are most likely to be using it.
+        EnterAsOllie();
+        SetDreamword("sword");
+        _dreamwords.Clear();
+
+        SayLine("(Ollie the warlock)", "sword");
+
+        Assert.Equal([null], _dreamwords);
+        Assert.Null(_session.CurrentDreamword);
+    }
+
+    [Fact]
+    public void OwnPersonaWhileInvisibleAndUntitled_CancelsIt()
+    {
+        // No title, so the ')' closes immediately after the name: "(Ollie) says ...".
+        EnterAsOllie();
+        SetDreamword("sword");
+        _dreamwords.Clear();
+
+        SayLine("(Ollie)", "sword");
+
+        Assert.Equal([null], _dreamwords);
+        Assert.Null(_session.CurrentDreamword);
+    }
+
+    [Fact]
+    public void InvisibleNamePrefixCollision_DoesNotCancel()
+    {
+        // The boundary rule has to survive the paren strip: "(Ollier ...)" is someone else.
+        EnterAsOllie();
+        SetDreamword("sword");
+        _dreamwords.Clear();
+
+        SayLine("(Ollier the warlock)", "sword");
+
+        Assert.Empty(_dreamwords);
+        Assert.Equal("sword", _session.CurrentDreamword);
+    }
+
+    [Fact]
     public void OtherPlayerSpeaksDreamword_DoesNotCancel()
     {
         // Another player saying the word is not "us speaking it" — do not cancel on their echo.

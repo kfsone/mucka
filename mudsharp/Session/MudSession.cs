@@ -566,13 +566,12 @@ public sealed class MudSession : IDisposable
             return;
 
         var text = line.PlainText;
-        // Speaker must be our persona. The name is the first whitespace-delimited token
-        // ("Ollie says ..." / "Ollie the necromancer says ..."), so require a word boundary
-        // after it — otherwise "Ollie" would also match another player "Ollier".
-        var name = _currentCharName;
-        if (!text.StartsWith(name, StringComparison.Ordinal))
-            return;
-        if (text.Length != name.Length && text[name.Length] != ' ')
+        // Speaker must be our persona — including while we are invisible, when the game
+        // parenthesises the whole name ("(Ollie the warlock) says ..."). This used to test the
+        // raw prefix itself and so missed every invisible speak; PlayerNameParts.StartsWithPersona
+        // owns the rule (and the "Ollie" must not match "Ollier" boundary) for both this and
+        // SelfChatColorizer.
+        if (!PlayerNameParts.StartsWithPersona(text, _currentCharName))
             return;
 
         // `... says "<word>"` — the quoted content must be exactly the current dreamword.
