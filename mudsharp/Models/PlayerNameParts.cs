@@ -25,6 +25,31 @@ public readonly record struct PlayerNameParts(
             personaAndSuffix[personaLength..]);
     }
 
+    /// <summary>
+    /// The three spans the who-list renders a name as: a small leading span (invisibility paren
+    /// plus any Sir/Lady title), the full-size persona name, and a small trailing span (level
+    /// description plus the closing paren).
+    ///
+    /// <para>The invisibility parens belong to the SMALL spans — they are a status marker, not
+    /// part of the name. Composing them here keeps that decision in one place: the bug this
+    /// replaced had the leading "(" emitted by BOTH the prefix span and the name span whenever
+    /// the player had no title, rendering "((Ollie the warlock)" with the second paren in the
+    /// large name font.</para>
+    ///
+    /// <para>Names-only mode is the exception: there are no small spans to carry the parens, so
+    /// the name span wraps itself.</para>
+    /// </summary>
+    public (string Prefix, string Name, string Suffix) DisplayParts(bool namesOnly)
+    {
+        if (namesOnly)
+            return (string.Empty, IsInvisible ? "(" + PersonaName + ")" : PersonaName, string.Empty);
+
+        return (
+            (IsInvisible ? "(" : string.Empty) + TitlePrefix,
+            PersonaName,
+            IsInvisible ? DescriptionSuffix + ")" : DescriptionSuffix);
+    }
+
     private static int TitlePrefixLength(string name)
     {
         if (name.StartsWith("Sir ", StringComparison.OrdinalIgnoreCase)) return 4;
