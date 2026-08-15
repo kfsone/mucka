@@ -11,8 +11,7 @@ public sealed class WhoEntry : INotifyPropertyChanged
 
     private string _name;
     private Color  _color;
-    private string _titlePrefix = "";
-    private string _descriptionSuffix = "";
+    private PlayerNameParts _parts;
 
     /// <summary>
     /// The persona name without a leading Sir/Lady title, level description, or invisibility
@@ -20,7 +19,7 @@ public sealed class WhoEntry : INotifyPropertyChanged
     /// or an invisibility change (which wraps the whole name in parens) is not treated as a
     /// departure + new arrival.
     /// </summary>
-    public string PersonaName { get; private set; }
+    public string PersonaName => _parts.PersonaName;
 
     // Set by SidePanelViewModel when the NamesOnly display option changes.
     internal static bool NamesOnlyMode;
@@ -30,7 +29,7 @@ public sealed class WhoEntry : INotifyPropertyChanged
     /// the player is invisible but we can still see them (it's us, a team member, or
     /// someone we outrank). A status, not part of the name.
     /// </summary>
-    public bool IsInvisible { get; private set; }
+    public bool IsInvisible => _parts.IsInvisible;
 
     /// <summary>Full display string as received from the server (e.g. "Ollie the Wizard",
     /// "(Ollie the Wizard)" while invisible). Parens are kept for display — they are the
@@ -43,7 +42,7 @@ public sealed class WhoEntry : INotifyPropertyChanged
             if (_name == value) return;
             _name = value;
             var wasInvisible = IsInvisible;
-            SetIdentityFrom(value);
+            _parts = PlayerNameParts.Parse(value);
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Name)));
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(DisplayPrefix)));
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(DisplayName)));
@@ -71,39 +70,18 @@ public sealed class WhoEntry : INotifyPropertyChanged
     /// <c>WhoEntryFadeBehavior</c> — so this is just the wire color.)</summary>
     public Color DisplayColor => _color;
 
-    /// <summary>Leading Sir/Lady title, rendered at the same smaller size as the level suffix.</summary>
-    public string DisplayPrefix
-    {
-        get
-        {
-            if (NamesOnlyMode) return string.Empty;
-            return (IsInvisible ? "(" : string.Empty) + _titlePrefix;
-        }
-    }
+    /// <summary>Invisibility paren plus any leading Sir/Lady title, rendered at the same smaller
+    /// size as the level suffix. See <see cref="PlayerNameParts.DisplayParts"/>.</summary>
+    public string DisplayPrefix => _parts.DisplayParts(NamesOnlyMode).Prefix;
 
     /// <summary>Persona name portion for display. Bound to the full-size span in the who-list
-    /// template; a leading title and trailing description are rendered 2pt smaller.</summary>
-    public string DisplayName
-    {
-        get
-        {
-            if (NamesOnlyMode && IsInvisible) return "(" + PersonaName + ")";
-            if (IsInvisible && _titlePrefix.Length == 0) return "(" + PersonaName;
-            return PersonaName;
-        }
-    }
+    /// template; the leading title and trailing description are rendered 2pt smaller.</summary>
+    public string DisplayName => _parts.DisplayParts(NamesOnlyMode).Name;
 
     /// <summary>Title/level description that follows the persona name (e.g. " the Wizard"),
     /// with a closing ")" appended when the player is invisible. May be empty for untitled
     /// players. Rendered 2pt smaller than <see cref="DisplayName"/>.</summary>
-    public string DisplaySuffix
-    {
-        get
-        {
-            if (NamesOnlyMode) return string.Empty;
-            return IsInvisible ? _descriptionSuffix + ")" : _descriptionSuffix;
-        }
-    }
+    public string DisplaySuffix => _parts.DisplayParts(NamesOnlyMode).Suffix;
 
     /// <summary>Forces display PropertyChanged notifications so NamesOnly mode changes propagate.</summary>
     public void NotifyDisplaySuffixChanged()
@@ -139,17 +117,6 @@ public sealed class WhoEntry : INotifyPropertyChanged
     {
         _name  = name;
         _color = color;
-        PersonaName = "";   // assigned by SetIdentityFrom
-        SetIdentityFrom(name);
-    }
-
-    // Derive identity (PersonaName) and visibility status (IsInvisible) from the wire name.
-    private void SetIdentityFrom(string name)
-    {
-        var parts = PlayerNameParts.Parse(name);
-        IsInvisible = parts.IsInvisible;
-        PersonaName = parts.PersonaName;
-        _titlePrefix = parts.TitlePrefix;
-        _descriptionSuffix = parts.DescriptionSuffix;
+        _parts = PlayerNameParts.Parse(name);
     }
 }

@@ -24,4 +24,54 @@ public sealed class PlayerNamePartsTests
         Assert.Equal(persona, result.PersonaName);
         Assert.Equal(description, result.DescriptionSuffix);
     }
+
+    // The who-list renders these three spans back to back, so concatenating them must reproduce
+    // the server's own text exactly -- no paren gained, lost, or duplicated.
+    [Theory]
+    [InlineData("Ollie the warlock")]
+    [InlineData("(Ollie the warlock)")]
+    [InlineData("Sir Ollie the knight")]
+    [InlineData("(Sir Ollie the knight)")]
+    [InlineData("Ollie")]
+    [InlineData("(Ollie)")]
+    public void DisplayParts_ConcatenateBackToTheWireName(string wire)
+    {
+        var (prefix, name, suffix) = PlayerNameParts.Parse(wire).DisplayParts(namesOnly: false);
+
+        Assert.Equal(wire, prefix + name + suffix);
+    }
+
+    [Theory]
+    [InlineData("(Ollie the warlock)", "(", "Ollie", " the warlock)")]
+    [InlineData("(Sir Ollie the knight)", "(Sir ", "Ollie", " the knight)")]
+    [InlineData("Ollie the warlock", "", "Ollie", " the warlock")]
+    public void DisplayParts_KeepInvisibilityParensOutOfTheNameSpan(
+        string wire, string prefix, string name, string suffix)
+    {
+        // The name span is rendered 2pt larger than its neighbours, so a paren that leaks into it
+        // is visibly wrong -- and an untitled invisible player used to get "((Ollie the warlock)"
+        // because the prefix and name spans both emitted the opening paren.
+        var parts = PlayerNameParts.Parse(wire).DisplayParts(namesOnly: false);
+
+        Assert.Equal(prefix, parts.Prefix);
+        Assert.Equal(name, parts.Name);
+        Assert.Equal(suffix, parts.Suffix);
+        Assert.DoesNotContain('(', parts.Name);
+        Assert.DoesNotContain(')', parts.Name);
+    }
+
+    [Theory]
+    [InlineData("(Ollie the warlock)", "(Ollie)")]
+    [InlineData("(Sir Ollie the knight)", "(Ollie)")]
+    [InlineData("Ollie the warlock", "Ollie")]
+    public void DisplayParts_NamesOnlyPutsEverythingInTheNameSpan(string wire, string expected)
+    {
+        // Names-only mode drops the small spans entirely, so the name span has to carry the
+        // invisibility parens itself -- there is nothing else left to render them.
+        var (prefix, name, suffix) = PlayerNameParts.Parse(wire).DisplayParts(namesOnly: true);
+
+        Assert.Equal(string.Empty, prefix);
+        Assert.Equal(expected, name);
+        Assert.Equal(string.Empty, suffix);
+    }
 }
