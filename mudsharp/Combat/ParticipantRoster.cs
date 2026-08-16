@@ -20,6 +20,14 @@ namespace MudSharp.Combat;
 /// <param name="NpcWeapon">The weapon THIS creature is fighting with, once it has announced one. Belongs
 /// to the participant, not to the encounter: in a pack fight each one arms itself independently, and a
 /// single "current target's weapon" cannot say which of them picked up the axe.</param>
+/// <param name="FightDamage">How hard this creature has hit the player SO FAR THIS FIGHT. Shown from
+/// the very first landed blow with no sample floor, unlike <paramref name="EverDamage"/>: it is a
+/// direct account of what has already happened to you, not a claim about a distribution, and
+/// withholding it until three blows had landed would blank the figure exactly through the opening
+/// ticks when the fight is still a decision.</param>
+/// <param name="EverDamage">What this creature's kind has hit the player for across all recorded
+/// history, EXCLUDING the current encounter - see SwingDamageIndex on why a live fight can never enter
+/// its own baseline. Empty until enough blows are on file to be worth stating.</param>
 public readonly record struct ParticipantFact(
     string Name,
     bool IsResolved,
@@ -28,7 +36,9 @@ public readonly record struct ParticipantFact(
     string? HealthPhrase = null,
     double? HealthAgeSeconds = null,
     double DamageTakenFrom = 0,
-    string? NpcWeapon = null);
+    string? NpcWeapon = null,
+    DamageProfile FightDamage = default,
+    DamageProfile EverDamage = default);
 
 /// <summary>
 /// One row of the opposition list as actually drawn. <see cref="IsCurrentTarget"/> marks the ONE live
@@ -45,7 +55,12 @@ public readonly record struct RosterRow(
     string? HealthPhrase = null,
     double? HealthAgeSeconds = null,
     double DamageTakenFrom = 0,
-    string? NpcWeapon = null)
+    string? NpcWeapon = null,
+    // "Now" and "ever" for how hard this thing hits - the rail draws them stacked in one right-hand
+    // column, this fight above, all recorded history below. See ParticipantFact for what each means
+    // and why only one of them has a sample floor.
+    DamageProfile FightDamage = default,
+    DamageProfile EverDamage = default)
 {
     /// <summary>Age past which a reading is drawn as faded rather than current: three combat ticks.
     /// One missed tick is ordinary (68% of gaps in the corpus are a single tick), so fading any sooner
@@ -144,7 +159,7 @@ public static class ParticipantRoster
             rows.Add(new RosterRow(
                 fact.Name, !fact.IsResolved, IsCurrentTarget: i == 0 && !fact.IsResolved, fact.Outcome,
                 fact.HealthRung, fact.HealthPhrase, fact.HealthAgeSeconds, fact.DamageTakenFrom,
-                fact.NpcWeapon));
+                fact.NpcWeapon, fact.FightDamage, fact.EverDamage));
         }
 
         var hiddenCount = ordered.Count - shownCount;

@@ -553,13 +553,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public event Action? OpenRawConsoleRequested;
     /// <summary>Raised by $map — GamePage opens (or surfaces) the mapping panel window.</summary>
     public event Action? MapPanelRequested;
-    /// <summary>Raised by "$clog on" - GamePage shows the docked Combat Rail panel (and widens the
-    /// window by its width). Event names kept from the old floating-window design for minimal
-    /// churn; there is no window left to open - see GamePage.OnOpenClogWindowRequested.</summary>
-    public event Action? OpenClogWindowRequested;
-    /// <summary>Raised by "$clog off" - GamePage hides the Combat Rail panel and shrinks the window
-    /// back down. See GamePage.OnCloseClogWindowRequested.</summary>
-    public event Action? CloseClogWindowRequested;
     public event Action<byte[]>? RawBytesReceived
     {
         add    => _conn.RawBytesReceived += value;
@@ -623,11 +616,10 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
 
         SidePanel = new SidePanelViewModel();
         SidePanel.AttachFightHistory(_conn.FightHistory);
-        // Fire-and-forget: the index is only needed once a fight starts, and reading it must never
-        // sit on the UI thread (Invariant #1). LoadAsync swallows its own I/O failures. The
-        // continuation only checks for (and prints) a stale-format migration notice - see
-        // FightHistoryStore.MigrationNotice - so an owner-authorised discard is never a silent one.
-        _ = LoadFightHistoryAndReportAsync();
+        SidePanel.AttachSwingDamage(_conn.SwingDamage);
+        // Fire-and-forget: neither is needed until a fight starts, and reading them must never sit on
+        // the UI thread (Invariant #1). Both swallow their own I/O failures.
+        _ = LoadCombatHistoryAsync();
         SidePanel.IsOnlineExpanded    = profile.ShowOnline;
         SidePanel.IsInventoryExpanded = profile.ShowInventory;
         SidePanel.IsItemsHereExpanded = profile.ShowItemsHere;
@@ -996,7 +988,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
 
     // Stats come exclusively from StatsUpdatedEvent — no text-based stat extraction.
     private void OnInCombatChanged(bool inCombat)
-        => SidePanel.OnInCombatChanged(inCombat, _conn.IsClogging);
+        => SidePanel.OnInCombatChanged(inCombat);
 
     private void OnCombatGracePeriodChanged(bool isGrace)
         => SidePanel.OnCombatGracePeriodChanged(isGrace);
@@ -1261,8 +1253,8 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
                 OpenRawConsoleRequested?.Invoke();
             else if (name == "map" || name.StartsWith("map ", StringComparison.OrdinalIgnoreCase))
                 HandleMapCommand(name.Length > 3 ? name[4..].Trim() : string.Empty);
-            else if (name == "clog" || name.StartsWith("clog ", StringComparison.OrdinalIgnoreCase))
-                HandleClogCommand(name.Length > 4 ? name[5..].Trim() : string.Empty);
+            else if (name == "eval" || name.StartsWith("eval ", StringComparison.OrdinalIgnoreCase))
+                _ = RunItemEvalAsync(name.Length > 4 ? name[5..].Trim() : string.Empty);
             else if (name == "fkeys" || name.StartsWith("fkeys ", StringComparison.OrdinalIgnoreCase))
                 PrintFkeys(name.Length > 5 ? name[6..].Trim() : string.Empty);
             // $f<n>: annotate with fkey n's macro (absolute 1-36). Checked after "fkeys" so it
@@ -1370,8 +1362,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         AddSystemLine("  $<                    scan recent output for watchword answers", 14);
         AddSystemLine("  $con                  open the raw protocol console", 14);
         AddSystemLine("  $map [arg]            open the map panel (or probe / dir / ...)", 14);
-        AddSystemLine("  $clog [on|off|status] toggle combat-clogging + the Combat Rail panel", 14);
-        AddSystemLine("  $clog eval <itemid>   weigh/look/drop+get an item to measure its str/dex cost", 14);
+        AddSystemLine("  $eval <itemid>        weigh/look/drop+get an item to measure its str/dex cost", 14);
         AddSystemLine("  $fkeys [shift|ctrl]   list your function-key macros", 14);
         AddSystemLine("  $f<n>                 annotate output with fkey n's text (1-36)", 14);
         AddSystemLine("  $VER                  expands to the current Mucka version", 14);
@@ -1487,75 +1478,18 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         }
     }
 
-    // ── $clog: opt-in combat clogging + item-eval (see ClogWriter/ItemEvalSession) ────────────
-
-    private void HandleClogCommand(string arg)
-    {
-        if (arg.Length == 0 || string.Equals(arg, "status", StringComparison.OrdinalIgnoreCase))
-        {
-            AddSystemLine($"[clog] {_conn.DescribeClogStatus()}", 14);
-            return;
-        }
-        if (string.Equals(arg, "on", StringComparison.OrdinalIgnoreCase))
-        {
-            SetClogEnabled(true);
-            return;
-        }
-        if (string.Equals(arg, "off", StringComparison.OrdinalIgnoreCase))
-        {
-            SetClogEnabled(false);
-            return;
-        }
-        if (arg.StartsWith("eval", StringComparison.OrdinalIgnoreCase)
-            && (arg.Length == 4 || arg[4] == ' '))
-        {
-            var itemId = arg.Length > 4 ? arg[4..].Trim() : string.Empty;
-            _ = RunItemEvalAsync(itemId);
-            return;
-        }
-        AddSystemLine("[clog] usage: $clog [on|off|status|eval <itemid>]", 9);
-    }
-
-    /// <summary>Turn clogging on/off. Also shows/hides the docked Combat Rail panel via
-    /// <see cref="OpenClogWindowRequested"/>/<see cref="CloseClogWindowRequested"/> - except when
-    /// <paramref name="syncWindow"/> is false, which skips that UI side effect entirely. The old
-    /// floating clog window is gone (D1/D2), so nothing calls this with syncWindow:false today; the
-    /// parameter is kept because a future caller (e.g. an app-exit path that wants clogging turned
-    /// off without touching the panel/window) may still need it, and the idempotency guard below is
-    /// cheap insurance regardless of which path calls in.</summary>
-    public void SetClogEnabled(bool enabled, bool syncWindow = true)
-    {
-        // Idempotent: a second call with the same `enabled` value is a no-op rather than re-printing
-        // the status line or re-raising Open/CloseClogWindowRequested.
-        if (enabled == _conn.ClogEnabled)
-            return;
-        _conn.SetClogEnabled(enabled);
-        AddSystemLine(enabled
-            ? "[clog] on - recording combat encounters to ~/.mucka/clogs (see the Combat Rail panel)"
-            : "[clog] off", enabled ? (byte)14 : (byte)9);
-        if (!syncWindow)
-            return;
-        if (enabled)
-            OpenClogWindowRequested?.Invoke();
-        else
-            CloseClogWindowRequested?.Invoke();
-    }
+    // ── $eval: item weigh/look/drop+get measurement (see ItemEvalSession) ────────────────────
 
     private async Task RunItemEvalAsync(string itemId)
     {
         if (string.IsNullOrWhiteSpace(itemId))
         {
-            AddSystemLine("[clog eval] usage: $clog eval <itemid>", 9);
-            return;
-        }
-        if (!_conn.ClogEnabled)
-        {
-            AddSystemLine("[clog eval] clog is off — turn it on first with '$clog on'.", 9);
+            AddSystemLine("[eval] usage: $eval <itemid>", 9);
             return;
         }
         if (_itemEvalRunning)
         {
-            AddSystemLine("[clog eval] an evaluation is already in progress — wait for it to finish.", 9);
+            AddSystemLine("[eval] an evaluation is already in progress — wait for it to finish.", 9);
             return;
         }
         // FEI lines are the item's display name/label, not necessarily the bare id you type
@@ -1566,11 +1500,11 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
                 i.Contains(itemId, StringComparison.OrdinalIgnoreCase) ||
                 itemId.Contains(i, StringComparison.OrdinalIgnoreCase)))
         {
-            AddSystemLine($"[clog eval] '{itemId}' doesn't obviously match the last FEI carried-items snapshot — trying anyway via 'identify'.", 9);
+            AddSystemLine($"[eval] '{itemId}' doesn't obviously match the last FEI carried-items snapshot — trying anyway via 'identify'.", 9);
         }
 
         _itemEvalRunning = true;
-        AddSystemLine($"[clog eval] evaluating '{itemId}' — avoid sending other commands until this finishes.", 14);
+        AddSystemLine($"[eval] evaluating '{itemId}' — avoid sending other commands until this finishes.", 14);
         try
         {
             _itemEval ??= new ItemEvalSession(_conn, msg => AddSystemLine(msg, 14));
@@ -1578,7 +1512,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         }
         catch (Exception ex)
         {
-            AddSystemLine($"[clog eval] failed: {ex.Message}", 9);
+            AddSystemLine($"[eval] failed: {ex.Message}", 9);
         }
         finally
         {
@@ -1909,16 +1843,14 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         OnLineReady(line);
     }
 
-    /// <summary>Awaits the fight-history load off the UI thread, then prints a local system line if
-    /// (and only if) it discarded a stale-format fights.jsonl (see
-    /// FightHistoryStore.MigrationNotice). Split out of the constructor's fire-and-forget call so
-    /// the load itself stays fire-and-forget (Invariant #1) while the rare notice still reaches the
-    /// player instead of only ever landing in the crash log.</summary>
-    private async Task LoadFightHistoryAndReportAsync()
+    /// <summary>Loads the per-fight history and warms the per-swing damage cache, both off the UI
+    /// thread. Sequential rather than concurrent: they read the same database file at the moment the
+    /// app is already busiest, and neither is urgent - the rail's history column is blank until the
+    /// first fight either way.</summary>
+    private async Task LoadCombatHistoryAsync()
     {
         await _conn.LoadFightHistoryAsync().ConfigureAwait(false);
-        if (_conn.FightHistoryMigrationNotice is { } notice)
-            AddSystemLine($"[combat history] {notice}", 9);
+        await _conn.LoadSwingDamageAsync().ConfigureAwait(false);
     }
 
     private void SubscribeConnectionEvents()

@@ -95,7 +95,7 @@ internal static class SoundService
     /// every call, which makes WinRT open and buffer the file each time. The player pool avoids the
     /// engine-init cost but not that per-play open, and its latency is both significant and VARIABLE -
     /// fine for an event sound nobody is timing, useless for the combat metronome, whose entire job is
-    /// to sound 100 ms before a tick boundary. Symptom when it was used: both clicks audibly trailing
+    /// to sound a fixed distance either side of a tick boundary. Symptom when it was used: both clicks audibly trailing
     /// the tick bar, and the offset differing from session to session, so one login sounded right and
     /// the next did not.</para>
     ///

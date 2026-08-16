@@ -61,7 +61,12 @@ public sealed record FightSnapshot(
     // draw the two alike. Null throughout until the first descriptor lands.
     int? HealthRung = null,
     string? HealthPhrase = null,
-    DateTime? HealthReadUtc = null);
+    DateTime? HealthReadUtc = null,
+    // How hard this creature has hit the player SO FAR THIS FIGHT - sample count, worst blow, running
+    // total, in the same shape the historical index reports so the rail's two damage rows cannot
+    // disagree about what a mean is. ApproxDamageTaken above is the same total; this carries the
+    // measured-hit count and the worst single blow that a total alone cannot reconstruct.
+    DamageProfile TheirDamage = default);
 
 public sealed class CombatStatsAggregator
 {
@@ -403,7 +408,9 @@ public sealed class CombatStatsAggregator
                 fight.RecentTheirSwings,
                 fight.HealthRung,
                 fight.HealthPhrase,
-                fight.HealthReadUtc));
+                fight.HealthReadUtc,
+                DamageProfile.ForFight(
+                    fight.TheyHitsMeasured, fight.MaxDamageTaken, fight.ApproxDamageTaken)));
         }
 
         return result;

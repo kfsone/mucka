@@ -210,11 +210,11 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     public string DumbTip            => _dumbTip       ?? "You are dumb";
     public string CrippledTip        => _crippledTip   ?? "You are crippled";
 
-    // -- Combat / clogging indicator --------------------------------------------
-    // Driven by MudSharp.Combat.CombatTracker via MuckaConnection.InCombatChanged. IsClogging
-    // mirrors InCombat in v1 (a clog is recorded for the full duration of every detected
-    // encounter) - kept as a separate property so the UI can later show "in combat but not
-    // recording" if clog writing ever fails independently of detection.
+    // -- Combat indicator ---------------------------------------------------------
+    // Driven by MudSharp.Combat.CombatTracker via MuckaConnection.InCombatChanged. There used to be
+    // a companion IsClogging flag here; it meant something while clogging was opt-in ("in combat,
+    // but not recording"), and nothing at all now that a clog is written for every detected
+    // encounter. A flag that cannot differ from the one beside it is not a second fact.
     private readonly CombatStatsAggregator _combatStats = new();
     // Bounds how often the clog readout actually rebuilds/republishes (see ClogRenderGate). Combat
     // events and the FES heartbeat can fire many times a second in a pack fight; this collapses
@@ -222,11 +222,11 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     // deferred ("dirty") state is still flushed within a second, and combat-ending transitions
     // render directly so a final state is never lost behind the throttle.
     private readonly ClogRenderGate _clogRenderGate = new();
-    private bool _inCombat, _isClogging, _hasCombatData, _isCombatGrace;
+    private bool _inCombat, _hasCombatData, _isCombatGrace;
     private int _combatClearGeneration;
     // -- Combat Rail: the new right-edge panel (DESIGN_FINAL.md D3/2.2, corrected) -----------
-    // Show/hide only - driven by "$clog on"/"$clog off" (GameViewModel.SetClogEnabled) and
-    // GamePage's window-resize handlers. Never true at startup: the panel is additive and must
+    // Show/hide only - driven by ToggleCombatPanelCommand from the overflow menu, with GamePage
+    // resizing the window on the change. Never true at startup: the panel is additive and must
     // never appear without an explicit toggle (D3's "window never resizes itself" rule).
     private bool _isCombatPanelVisible;
     // Hysteresis/tie-break state for the tier table (4.2/4.3/4.4) - one instance per encounter,
@@ -260,21 +260,26 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     // its own MAUI-independent class (CombatHistoryCache) so the self-comparison-exclusion invariant
     // is unit-testable - see that class's remarks for the full reasoning.
     private readonly CombatHistoryCache _historyCache = new();
+
+    // Set once at startup (see AttachSwingDamage). Null in unit/design contexts, in which case the
+    // opponents' "ever" damage row simply is not drawn. Unlike _fightHistory this needs no cache: the
+    // lookup is a dictionary probe under a lock held for exactly that probe, run for a handful of
+    // opponents per refresh, and the index only changes at encounter close - so there is no repeated
+    // work to memoize and no self-comparison hazard to design around (SwingDamageIndex settles that
+    // one at the writing end, by not folding a live encounter in at all).
+    private SwingDamageIndex? _swingDamage;
     // Cached once so the per-carried-item weapon test costs no allocation on the refresh path. Reads
     // _fightHistory through the closure rather than capturing it, so attaching the store later (as
     // startup does) is picked up without rebuilding the delegate.
     private readonly Func<string, bool> _isKnownWeapon;
 
     public bool InCombat   => _inCombat;
-    public bool IsClogging => _isClogging;
     /// <summary>True while the encounter is only lingering on the post-kill grace window (last
     /// tracked NPC already dead/gone) - bind the combat indicator's opacity to this so it dims
     /// instead of looking identical to an actively-ongoing fight.</summary>
     public bool IsCombatGracePeriod => _isCombatGrace;
     public double CombatIconOpacity => _isCombatGrace ? 0.4 : 1.0;
-    public string CombatTip => _isCombatGrace
-        ? "Combat winding down..."
-        : _isClogging ? "In combat - recording a clog" : "In combat";
+    public string CombatTip => _isCombatGrace ? "Combat winding down..." : "In combat";
     public bool HasCombatData => _hasCombatData;
     public bool NoCombatData => !_hasCombatData;
 
@@ -347,7 +352,12 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     /// Call once at startup; the store loads itself off-thread (see MuckaConnection).</summary>
     public void AttachFightHistory(FightHistoryStore store) => _fightHistory = store;
 
-    public void OnInCombatChanged(bool inCombat, bool isClogging)
+    /// <summary>Supplies the accumulated per-creature incoming-damage record behind each opponent's
+    /// "ever" figures. Call once at startup; the index fills itself off-thread (see
+    /// MuckaConnection.LoadSwingDamageAsync) and is safe to read before it has.</summary>
+    public void AttachSwingDamage(SwingDamageIndex index) => _swingDamage = index;
+
+    public void OnInCombatChanged(bool inCombat)
     {
         MainThread.BeginInvokeOnMainThread(() =>
         {
@@ -371,7 +381,6 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             }
 
             _inCombat = inCombat;
-            _isClogging = isClogging;
             _isCombatGrace = false;   // a fresh Begin() always clears the tracker's own grace state
             // Unthrottled and direct: a combat start/end transition must never be swallowed by the
             // render gate, so it bypasses RequestRender and renders straight away, then tells the
@@ -379,7 +388,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             var now = DateTime.UtcNow;
             RefreshCombatDisplay(now);
             _clogRenderGate.MarkRendered(now);
-            OnPropertiesChanged(nameof(InCombat), nameof(IsClogging), nameof(IsCombatGracePeriod),
+            OnPropertiesChanged(nameof(InCombat), nameof(IsCombatGracePeriod),
                 nameof(CombatIconOpacity), nameof(CombatTip), nameof(CanClearCombatSummary));
         });
     }
@@ -747,7 +756,11 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     /// facts <see cref="ParticipantRoster.Build"/> needs - that class lives in mudsharp (no MAUI
     /// dependency, directly unit-testable), so it cannot reference <see cref="FightSnapshot"/>
     /// itself.</summary>
-    private static IReadOnlyList<ParticipantFact> ToParticipantFacts(
+    /// <summary>An instance method rather than static purely so it can reach <see cref="_swingDamage"/>
+    /// - the "ever" figures are a per-participant fact and belong to the participant, exactly as the
+    /// NPC's own weapon does, so this is the one place that can attach them without the roster or the
+    /// renderer having to know a store exists.</summary>
+    private IReadOnlyList<ParticipantFact> ToParticipantFacts(
         IReadOnlyList<FightSnapshot> fights, DateTime nowUtc)
     {
         var facts = new ParticipantFact[fights.Count];
@@ -763,7 +776,13 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             facts[i] = new ParticipantFact(
                 fight.NpcName, fight.IsResolved, fight.Outcome,
                 fight.HealthRung, fight.HealthPhrase, healthAge, fight.ApproxDamageTaken,
-                fight.NpcWeapon);
+                fight.NpcWeapon,
+                fight.TheirDamage,
+                // Empty (which draws as nothing) whenever the cache is absent or has too few blows on
+                // file - never a zero, which would read as "this thing cannot hurt you". Only the
+                // incoming half reaches the rail today; the outgoing brackets are cached alongside it
+                // for the exchange bars and the analysis view, which want both sides.
+                _swingDamage?.Lookup(fight.NpcName).Incoming ?? DamageProfile.Empty);
         }
         return facts;
     }
@@ -1048,10 +1067,11 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     public ICommand ToggleOnlineCommand { get; }
     public ICommand ToggleInventoryCommand { get; }
     public ICommand ToggleItemsHereCommand { get; }
-    /// <summary>Toggles the Combat Rail (the new right-edge panel - DESIGN_FINAL.md D3/2.2). The
-    /// live path is "$clog on"/"$clog off" (GameViewModel.HandleClogCommand), which sets
-    /// <see cref="IsCombatPanelVisible"/> directly and drives the window resize; this command exists
-    /// so the same toggle is independently reachable (and testable) without a live connection.</summary>
+    /// <summary>Toggles the Combat Rail (the right-edge panel - DESIGN_FINAL.md D3/2.2), from the
+    /// overflow menu's "Combat Rail" entry, alongside Side Panel / Onlines / Compass. GamePage
+    /// resizes the window by the rail's width off the resulting
+    /// <see cref="IsCombatPanelVisible"/> change, so every route to that property makes room for
+    /// the panel rather than taking the space out of the terminal.</summary>
     public ICommand ToggleCombatPanelCommand { get; }
     public ICommand ToggleMapCommand { get; }
     public ICommand ToggleOnlinePinnedCommand { get; }

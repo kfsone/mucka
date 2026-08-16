@@ -1,126 +1,32 @@
-using System.Text.Json;
-using System.Text.Json.Serialization;
 using System.Threading.Channels;
+using Microsoft.Data.Sqlite;
 using MudSharp.Combat;
 using MudSharp.Models;
 
 namespace Mucka.Core;
 
 /// <summary>
-/// One swing, either direction, as persisted to ~/.mucka/clogs/swings.jsonl. Field names and order
-/// are the ones pinned in tools/combat/SWING-LEDGER-SPEC.md section 3 - they are the wire format the
-/// offline ingester reads, so renaming one is a schema change, not a refactor.
+/// Records one <see cref="SwingRow"/> per swing, both directions, into the <c>swings</c> table of the
+/// client combat database (see <see cref="CombatDb"/>). This is the per-swing evidence base
+/// tools/combat/SWING-LEDGER-SPEC.md specifies: the fight rollup answers "how did that fight go", and
+/// could never answer "how hard does this thing hit at rung 3 while I am below the stamina knee",
+/// because the individual swings were never kept.
 ///
-/// <para>Nulls are written rather than omitted. Half the damage fields are direction-specific by
-/// construction (a bracket going out, an exact figure coming in - see <see cref="Damage"/>), and a
-/// row that spells out "this side has nothing" is self-describing to anything reading the file
-/// without the spec in hand. Same choice fights.jsonl already makes.</para>
-/// </summary>
-public sealed record SwingRow
-{
-    /// <summary>Schema version of THIS row. There is no in-client reader for swings.jsonl yet (the
-    /// live panel reads the separate aggregate index, spec section 5; the raw stream is for offline
-    /// mining), so nothing migrates on it today - it exists so the first reader that does appear can
-    /// tell rows apart without guessing, the way FightRecord.FormatVersion earned its keep.</summary>
-    [JsonPropertyName("v")] public int Version { get; init; } = CurrentVersion;
-
-    [JsonIgnore] public const int CurrentVersion = 1;
-
-    /// <summary>"out" - the player swinging.</summary>
-    [JsonIgnore] public const string DirectionOut = "out";
-    /// <summary>"in" - the creature swinging at the player.</summary>
-    [JsonIgnore] public const string DirectionIn = "in";
-
-    /// <summary>Unix ms, taken from <see cref="CombatEvent.TimestampUtc"/> - the instant the line
-    /// completed on the Feed thread. Never re-stamped here: a consumer's own clock reading would be
-    /// later than the event by however long the fan-out took, and the whole point of an ordered
-    /// stream is that "what was happening around this swing" survives.</summary>
-    [JsonPropertyName("ts")] public long TimestampMs { get; init; }
-
-    [JsonPropertyName("dir")] public string Direction { get; init; } = DirectionOut;
-
-    /// <summary>The character swinging/being swung at (MudSession.CharacterIdentified). Null only
-    /// for swings landing in the window between game-mode entry and the setup <c>score</c> reply -
-    /// same gap FightRecord.CharacterName documents.</summary>
-    [JsonPropertyName("persona")] public string? Persona { get; init; }
-
-    /// <summary>Always null for now, and deliberately shipped anyway. The client only ever knows a
-    /// character's sex for characters IT created (GuidedLoginController.ConfirmCreateSex); nothing in
-    /// the FES heartbeat or the <c>score</c> reply carries it for an existing persona. Populate it if
-    /// a parse ever turns one up - do not invent a source (SWING-LEDGER-SPEC.md section 3).</summary>
-    [JsonPropertyName("gender")] public string? Gender { get; init; }
-
-    /// <summary>Player stamina from the most recent stats snapshot. For <c>dir=in</c> this is the
-    /// POST-hit reading: MUD2 embeds "(cur/max)" in the hit line itself and the generic stats scan
-    /// consumes it before the combat classifier sees the line, so pre-hit stamina is
-    /// <c>sta + dmg</c>, not <c>sta</c>.</summary>
-    [JsonPropertyName("sta")] public int? Stamina { get; init; }
-
-    /// <summary>EFFECTIVE strength/dexterity, not raw, and that is the point: these are what the
-    /// hit-chance and damage formulas consume, and they move with stamina and carried weight. Raw
-    /// values would throw away the variable under test (SWING-LEDGER-SPEC.md section 3).</summary>
-    [JsonPropertyName("str")] public int? Strength { get; init; }
-    [JsonPropertyName("dex")] public int? Dexterity { get; init; }
-
-    [JsonPropertyName("sta_max")] public int? MaxStamina { get; init; }
-    [JsonPropertyName("blind")] public bool IsBlind { get; init; }
-
-    /// <summary>The instance name exactly as the game gave it ("rat0"), so a single unusually tough
-    /// spawn stays distinguishable from its group.</summary>
-    [JsonPropertyName("npc")] public string? NpcName { get; init; }
-
-    /// <summary><see cref="NpcGroups.Normalize"/>d, which is the same normalisation
-    /// reduce_combat.py applies - live and offline rows must bucket identically or the two halves of
-    /// the pipeline silently disagree about history.</summary>
-    [JsonPropertyName("group")] public string NpcGroup { get; init; } = string.Empty;
-
-    /// <summary><c>dir=out</c>: what the player had in hand at this instant. <c>dir=in</c>: the
-    /// creature's own weapon, which it arms independently and which materially changes its output -
-    /// see FightAccumulator.NpcWeapon. Null on either side means unarmed/never announced.</summary>
-    [JsonPropertyName("weapon")] public string? Weapon { get; init; }
-
-    [JsonPropertyName("hit")] public bool Hit { get; init; }
-
-    /// <summary>The game's own damage bracket, <c>dir=out</c> hits only - MUD2 never gives the player
-    /// an exact figure for their own blows. Stored as both ends rather than a midpoint: averaging in
-    /// the ledger would destroy information the consumer might want (SWING-LEDGER-SPEC.md section 3).
-    /// </summary>
-    [JsonPropertyName("dmg_low")] public int? DamageLow { get; init; }
-    [JsonPropertyName("dmg_high")] public int? DamageHigh { get; init; }
-
-    /// <summary>Exact damage, <c>dir=in</c> hits only, from the stamina delta. Null when no baseline
-    /// was available to diff against - see <see cref="SwingLedger"/>'s stamina relay, which exists
-    /// because the naive delta computes to zero every time.</summary>
-    [JsonPropertyName("dmg")] public int? Damage { get; init; }
-
-    /// <summary>The creature's health rung BEFORE this swing, 1-7 on NpcHealthRungs' scale, with the
-    /// game's own wording. Null until the creature has been described at all. "Before" is not a
-    /// nicety: MUD2 prints the descriptor on the line AFTER a landed blow, so the reading in hand
-    /// when a swing is classified is the state that swing was aimed at - which is exactly what
-    /// "does a wounded creature hit softer" needs (SWING-LEDGER-SPEC.md section 4).</summary>
-    [JsonPropertyName("rung")] public int? HealthRung { get; init; }
-    [JsonPropertyName("rung_phrase")] public string? HealthPhrase { get; init; }
-}
-
-/// <summary>
-/// Appends one <see cref="SwingRow"/> per swing, both directions, to ~/.mucka/clogs/swings.jsonl.
-/// This is the per-swing evidence base tools/combat/SWING-LEDGER-SPEC.md specifies: the fights.jsonl
-/// rollup answers "how did that fight go", and could never answer "how hard does this thing hit at
-/// rung 3 while I am below the stamina knee", because the individual swings were never kept.
+/// <para><b>SQLite rather than the JSONL this used to write.</b> The spec chose a flat file on the
+/// explicit condition of "a writer that only ever appends", and named its own revisit trigger:
+/// querying inside the client. A combat analysis view is that, and the corpus is nowhere near the
+/// scale the flat-file argument feared. Beyond queryability the swap also buys crash safety - WAL
+/// rolls back a torn write, where the text file left truncated final lines that every reader had to
+/// tolerate.</para>
 ///
-/// <para>JSONL rather than the offline SQLite: taking Microsoft.Data.Sqlite plus its native library
-/// into a MAUI app on two platforms, for a writer that only ever appends, buys nothing the offline
-/// ingester does not already provide. FightHistoryStore records the same reasoning for fights.jsonl;
-/// section 1 of the spec settles it for this file.</para>
-///
-/// <para>Always on, unlike ClogWriter's "$clog on" gate and exactly like fights.jsonl: a switch means
-/// missing data precisely when something interesting happened, and everything downstream is built on
-/// this file being continuous.</para>
+/// <para>Always on: a switch means missing data precisely when something interesting happened, and
+/// everything downstream is built on this stream being continuous. ClogWriter, which used to be the
+/// one opt-in recorder here, now follows the same rule.</para>
 ///
 /// <para>Threading: every On* method is called from the session Feed thread (same contract as
-/// ClogWriter and FightHistoryRecorder) and does nothing but cheap in-memory bookkeeping plus a
-/// serialize-and-enqueue. The disk write happens on a single background task
-/// (<see cref="DrainAsync"/>), so the thread parsing incoming combat text never pays for it -
+/// ClogWriter and FightHistoryRecorder) and does nothing but cheap in-memory bookkeeping plus an
+/// enqueue. The database write happens on a single background task (<see cref="DrainAsync"/>) which
+/// owns the only write connection, so the thread parsing incoming combat text never pays for it -
 /// stalling that thread delays the combat text itself, which no UI-side throttle can fix
 /// (DESIGN_FINAL.md section 7.5, Invariant #1).</para>
 ///
@@ -134,22 +40,23 @@ public sealed record SwingRow
 /// </summary>
 public sealed class SwingLedger : IDisposable
 {
-    /// <summary>Standard file name, alongside fights.jsonl and the per-encounter clogs. The directory
-    /// is supplied by the caller (see MuckaConnection) so this type needs no platform/MAUI path lookup
-    /// of its own and can be linked into mudsharp.Tests as-is.</summary>
-    public const string DefaultFileName = "swings.jsonl";
+    /// <summary>How many rows one transaction may cover. A batch bounds how much a crash can lose to
+    /// the work of at most this many swings, while still collapsing a burst (a pack fight can produce
+    /// half a dozen rows from one tick) into a single commit. Never a reason to wait: the drain
+    /// commits whatever is available and loops, so a lone swing is written immediately.</summary>
+    private const int MaxBatch = 256;
 
     private readonly object _lock = new();
-    private readonly string _filePath;
+    private readonly string _dbPath;
     // Injected rather than calling CrashLog directly so this type stays free of MAUI references and
     // can be exercised against a temp directory in mudsharp.Tests.
     private readonly Action<string, Exception>? _onError;
 
     // One dedicated writer for this ledger's whole lifetime. Unbounded: a swing arrives at most once
     // per tick per participant, so there is no realistic burst worth backpressuring, and dropping a
-    // row to save a few bytes of queue would defeat the point of the file.
-    private readonly Channel<string> _writeQueue =
-        Channel.CreateUnbounded<string>(new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });
+    // row to save a few bytes of queue would defeat the point of keeping the stream.
+    private readonly Channel<SwingRow> _writeQueue =
+        Channel.CreateUnbounded<SwingRow>(new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });
     private readonly Task _writerTask;
 
     // Per-NPC memory for the CURRENT encounter, keyed by instance name. Cleared at encounter end so a
@@ -157,7 +64,9 @@ public sealed class SwingLedger : IDisposable
     private readonly Dictionary<string, FightAccumulator> _fights = new(StringComparer.OrdinalIgnoreCase);
 
     private GameStatsSnapshot _lastStats = GameStatsSnapshot.Empty;
+    private StatusEffectState _lastEffects = StatusEffectState.Empty;
     private string? _persona;
+    private long? _encounterStartedAtMs;
 
     private string? _currentWeapon;
     // When _currentWeapon was last confirmed, so an equip seen just before the client noticed the
@@ -176,14 +85,99 @@ public sealed class SwingLedger : IDisposable
     private int? _lastKnownStamina;
     private int? _pendingPreUpdateStamina;
 
-    public SwingLedger(string filePath, Action<string, Exception>? onError = null)
+    // Blows exchanged during the CURRENT encounter, held back from _damage until it closes. This is
+    // what makes a live fight's "ever" figures genuinely mean "before this fight" - see
+    // SwingDamageIndex's class remarks. Cleared by the same merge that consumes them, so an encounter
+    // can never be folded in twice.
+    private readonly List<(string NpcName, double Damage)> _encounterTaken = [];
+    private readonly List<(string NpcName, double Low, double High)> _encounterDealt = [];
+
+    private readonly SwingDamageIndex _damage = new();
+
+    /// <summary>The accumulated "how hard does this thing hit, and how hard do I hit it" cache, for the
+    /// rail's per-opponent damage column. Warmed by <see cref="WarmDamageIndexAsync"/> at startup and
+    /// thereafter updated incrementally, one encounter at a time.</summary>
+    public SwingDamageIndex Damage => _damage;
+
+    public SwingLedger(string dbPath, Action<string, Exception>? onError = null)
     {
-        _filePath = filePath;
+        _dbPath = dbPath;
         _onError = onError;
         _writerTask = Task.Run(DrainAsync);
     }
 
-    public string FilePath => _filePath;
+    public string DatabasePath => _dbPath;
+
+    /// <summary>
+    /// Fills <see cref="Damage"/> from the database's own GROUP BY views. Call once at startup, OFF the
+    /// UI thread; safe before anything has been recorded, and safe to call again (it replaces rather
+    /// than accumulates, so a second warm cannot double-count).
+    ///
+    /// <para>The aggregation happens in SQL, not here, which is the point: the warm-up cost is
+    /// proportional to the number of distinct creatures, not to the number of swings, so the corpus can
+    /// grow indefinitely without startup growing with it. That is the property the spec's proposed
+    /// index file was trying to buy, obtained without a second file that can disagree with the first.</para>
+    /// </summary>
+    public Task WarmDamageIndexAsync(CancellationToken cancellationToken = default)
+        // Task.Run for the same reason FightHistoryStore.LoadAsync uses it: every step below is
+        // synchronous SQLite work, and an async method whose awaits complete synchronously never
+        // leaves the thread that called it - which here is the UI thread (Invariant #1).
+        => Task.Run(WarmCore, cancellationToken);
+
+    private void WarmCore()
+    {
+        try
+        {
+            // CombatDb.Open creates the directory and applies the shared PRAGMAs - see
+            // FightHistoryStore.LoadCore for what skipping it costs.
+            using var connection = CombatDb.Open(_dbPath);
+
+            var incomingByNpc = ReadDamage(connection, "v_incoming_by_npc");
+            var incomingByGroup = ReadDamage(connection, "v_incoming_by_group");
+            var outgoingByNpc = ReadBracket(connection, "v_outgoing_by_npc");
+            var outgoingByGroup = ReadBracket(connection, "v_outgoing_by_group");
+
+            _damage.LoadProfiles(incomingByNpc, incomingByGroup, outgoingByNpc, outgoingByGroup);
+        }
+        catch (Exception ex) when (ex is SqliteException or IOException or UnauthorizedAccessException)
+        {
+            // Best-effort: an unreadable database costs the rail its history column and must not cost
+            // anything else. The live per-fight figures do not come from here.
+            _onError?.Invoke("SwingLedger.WarmDamageIndex", ex);
+        }
+    }
+
+    private static List<(string Name, DamageProfile Profile)> ReadDamage(SqliteConnection connection, string view)
+    {
+        var result = new List<(string, DamageProfile)>();
+        using var command = connection.CreateCommand();
+        command.CommandText = $"SELECT name, samples, max_dmg, sum_dmg FROM {view};";
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            if (reader.IsDBNull(0))
+                continue;
+            result.Add((reader.GetString(0),
+                new DamageProfile(reader.GetInt32(1), reader.GetDouble(2), reader.GetDouble(3))));
+        }
+        return result;
+    }
+
+    private static List<(string Name, BracketProfile Profile)> ReadBracket(SqliteConnection connection, string view)
+    {
+        var result = new List<(string, BracketProfile)>();
+        using var command = connection.CreateCommand();
+        command.CommandText = $"SELECT name, samples, sum_low, sum_high, max_high FROM {view};";
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            if (reader.IsDBNull(0))
+                continue;
+            result.Add((reader.GetString(0),
+                new BracketProfile(reader.GetInt32(1), reader.GetDouble(2), reader.GetDouble(3), reader.GetDouble(4))));
+        }
+        return result;
+    }
 
     public void OnStatsUpdated(GameStatsSnapshot stats)
     {
@@ -192,6 +186,15 @@ public sealed class SwingLedger : IDisposable
             _lastStats = stats;
             ObserveStaminaLocked(stats.Stamina);
         }
+    }
+
+    /// <summary>The player's active buffs/debuffs changed. Recorded per swing because MUD2's own
+    /// damage and hit-chance depend on them, so a baseline that cannot separate "the usual" from "the
+    /// usual, while weakened" is not a baseline at all.</summary>
+    public void OnStatusEffectsChanged(StatusEffectState effects)
+    {
+        lock (_lock)
+            _lastEffects = effects;
     }
 
     /// <summary>The character occupying this session was identified (MudSession.CharacterIdentified,
@@ -204,12 +207,17 @@ public sealed class SwingLedger : IDisposable
             _persona = name;
     }
 
-    public void OnInCombatChanged(bool inCombat)
+    /// <param name="encounterStartedAtMs">The shared encounter id, stamped ONCE by MuckaConnection and
+    /// handed to every consumer. Not computed here: this row's join partner in the fights table
+    /// carries the same value, and two consumers each reading their own clock would produce two ids
+    /// microseconds apart that no join would ever match.</param>
+    public void OnInCombatChanged(bool inCombat, long? encounterStartedAtMs = null)
     {
         lock (_lock)
         {
             if (inCombat)
             {
+                _encounterStartedAtMs = encounterStartedAtMs;
                 // Arm the pending-weapon latch; the first event of the encounter resolves it (see
                 // _encounterJustOpened). "You are now using the axe0 to fight!" names no NPC so it
                 // cannot open an encounter, and against something already engaging you it is the ONLY
@@ -222,6 +230,21 @@ public sealed class SwingLedger : IDisposable
             }
 
             _encounterJustOpened = false;
+
+            // The encounter is over, so its blows can now become history. Done BEFORE the _fights
+            // guard below, and unconditionally: the guard is about whether a WEAPON latch should
+            // survive, which is a different question from whether damage was exchanged. Folding here
+            // rather than per swing is the whole self-comparison guarantee (see SwingDamageIndex) - the
+            // same moment, and the same reasoning, as FightHistoryRecorder.FlushLocked handing its rows
+            // to the fight-level index.
+            if (_encounterTaken.Count > 0 || _encounterDealt.Count > 0)
+            {
+                _damage.FoldAll(_encounterTaken, _encounterDealt);
+                _encounterTaken.Clear();
+                _encounterDealt.Clear();
+            }
+            _encounterStartedAtMs = null;
+
             // Mirrors FightHistoryRecorder.FlushLocked, down to the "only when something was actually
             // tracked" guard: an encounter that closed without naming a single NPC cannot have been a
             // fight, and clearing the weapon on it would throw away a latch the sibling recorder kept.
@@ -290,6 +313,11 @@ public sealed class SwingLedger : IDisposable
 
                 // The four swing kinds - the only ones that produce a row.
                 case CombatEventKind.Hit:
+                    if (combatEvent.RangeLow is int low && combatEvent.RangeHigh is int high
+                        && !string.IsNullOrWhiteSpace(combatEvent.NpcName))
+                    {
+                        _encounterDealt.Add((combatEvent.NpcName, low, high));
+                    }
                     AppendLocked(BuildRowLocked(combatEvent, SwingRow.DirectionOut, hit: true, damage: null));
                     break;
 
@@ -300,8 +328,11 @@ public sealed class SwingLedger : IDisposable
                 case CombatEventKind.HitByNpc:
                     // The delta must be resolved BEFORE the row is built, and exactly once: it advances
                     // the stamina baseline (see ResolveDamageTakenLocked).
-                    var damage = ResolveDamageTakenLocked(combatEvent.RangeLow);
-                    AppendLocked(BuildRowLocked(combatEvent, SwingRow.DirectionIn, hit: true, damage));
+                    var (damage, staminaBefore) = ResolveDamageTakenLocked(combatEvent.RangeLow);
+                    if (damage is int taken && !string.IsNullOrWhiteSpace(combatEvent.NpcName))
+                        _encounterTaken.Add((combatEvent.NpcName, taken));
+                    AppendLocked(BuildRowLocked(
+                        combatEvent, SwingRow.DirectionIn, hit: true, damage, staminaBefore));
                     break;
 
                 case CombatEventKind.MissByNpc:
@@ -316,38 +347,75 @@ public sealed class SwingLedger : IDisposable
     /// timestamp, the direction, the opponent and the outcome, and "we were swinging at a rat before
     /// the first heartbeat landed" is evidence. Dropping it would bias the corpus toward the
     /// well-instrumented middle of a session.</summary>
-    private SwingRow BuildRowLocked(CombatEvent combatEvent, string direction, bool hit, int? damage)
+    private SwingRow BuildRowLocked(
+        CombatEvent combatEvent, string direction, bool hit, int? damage, int? staminaBefore = null)
     {
         var outgoing = direction == SwingRow.DirectionOut;
         var fight = FightForLocked(combatEvent);
+        var timestampMs = new DateTimeOffset(combatEvent.TimestampUtc, TimeSpan.Zero).ToUnixTimeMilliseconds();
 
         return new SwingRow
         {
-            TimestampMs = new DateTimeOffset(combatEvent.TimestampUtc, TimeSpan.Zero).ToUnixTimeMilliseconds(),
+            TimestampMs = timestampMs,
             Direction = direction,
+            EncounterStartedAtMs = _encounterStartedAtMs,
             Persona = _persona,
-            Gender = null,
+            Sex = _lastStats.Sex,
+
             Stamina = _lastStats.Stamina,
-            Strength = _lastStats.Strength,
-            Dexterity = _lastStats.Dexterity,
+            // Incoming hits only; every other swing kind passes null and means it (see StaminaBefore).
+            StaminaBefore = outgoing || !hit ? null : staminaBefore,
             MaxStamina = _lastStats.MaxStamina,
+            Strength = _lastStats.Strength,
+            RawStrength = _lastStats.RawStrength,
+            MaxStrength = _lastStats.MaxStrength,
+            Dexterity = _lastStats.Dexterity,
+            RawDexterity = _lastStats.RawDexterity,
+            MaxDexterity = _lastStats.MaxDexterity,
+            Level = _lastStats.Level,
+            Score = _lastStats.Score,
+            ObjectsCarried = _lastStats.ObjectsCarried,
+            // Space is the parser's "nothing reported"; stored as null rather than as a blank string
+            // so a query can tell "no reading" from a real weather code without knowing that.
+            Weather = _lastStats.Weather == ' ' ? null : _lastStats.Weather.ToString(),
+
             IsBlind = _lastStats.IsBlind,
+            IsDeaf = _lastStats.IsDeaf,
+            IsCrippled = _lastStats.IsCrippled,
+            IsDumb = _lastStats.IsDumb,
+            StrengthBuff = _lastEffects.StrengthBuff,
+            StrengthDebuff = _lastEffects.StrengthDebuff,
+            DexterityBuff = _lastEffects.DexterityBuff,
+            DexterityDebuff = _lastEffects.DexterityDebuff,
+            StaminaBuff = _lastEffects.StaminaBuff,
+            StaminaDebuff = _lastEffects.StaminaDebuff,
+            Glow = _lastEffects.Glow,
+
+            TimeToReset = _lastStats.TimeToReset,
+            // The reset's END instant, constant across every swing of one reset - see
+            // SwingRow.ResetEpochMs. TimeToReset is in seconds as the game reports it.
+            ResetEpochMs = _lastStats.TimeToReset is int ttr ? timestampMs + (ttr * 1000L) : null,
+
             NpcName = combatEvent.NpcName,
             NpcGroup = NpcGroups.Normalize(combatEvent.NpcName),
-            // Outgoing: what is in the player's hands right now, not the fight's rollup weapon - a
-            // per-swing row wants the per-swing answer, and MUD2 extends one wielded weapon across
-            // every fight in the encounter anyway. Incoming: this creature's own, which it arms
-            // independently of the player.
-            Weapon = outgoing ? _currentWeapon : fight?.NpcWeapon,
+            NpcWeapon = fight?.NpcWeapon,
+            HealthRung = fight?.HealthRung,
+            HealthPhrase = fight?.HealthPhrase,
+
+            // What is in the player's hands right now, not the fight's rollup weapon - a per-swing row
+            // wants the per-swing answer, and MUD2 extends one wielded weapon across every fight in the
+            // encounter anyway. Recorded on incoming rows too: what you were holding when something hit
+            // you is exactly as much a condition of that blow as what you were holding when you landed
+            // one (a shield-less arm, a two-handed weapon), and the creature's own weapon has its own
+            // column now rather than sharing this one.
+            Weapon = _currentWeapon,
             Hit = hit,
             // RangeLow/RangeHigh mean different things per direction and must never be crossed over:
             // outgoing they are the damage bracket, incoming they are the player's post-hit
-            // (current/max) stamina, which is where `dmg` comes from instead.
+            // (current/max) stamina, which is where Damage comes from instead.
             DamageLow = outgoing && hit ? combatEvent.RangeLow : null,
             DamageHigh = outgoing && hit ? combatEvent.RangeHigh : null,
             Damage = outgoing ? null : damage,
-            HealthRung = fight?.HealthRung,
-            HealthPhrase = fight?.HealthPhrase,
         };
     }
 
@@ -383,10 +451,14 @@ public sealed class SwingLedger : IDisposable
         _lastKnownStamina = currentStamina.Value;
     }
 
-    private int? ResolveDamageTakenLocked(int? currentStamina)
+    /// <summary>Resolves one incoming blow into a damage figure AND the pre-hit stamina it was
+    /// measured against. Both come out together because they are the two halves of one attribution -
+    /// returning only the delta and letting the caller reconstruct the baseline would reintroduce
+    /// exactly the arithmetic SwingRow.StaminaBefore exists to avoid.</summary>
+    private (int? Damage, int? Before) ResolveDamageTakenLocked(int? currentStamina)
     {
         if (currentStamina is null)
-            return null;
+            return (null, null);
 
         // Trust the relay ONLY when the last stats update was for this exact value, i.e. it really did
         // fire for this same line. A stale relay left over from an unrelated earlier update must not
@@ -410,52 +482,151 @@ public sealed class SwingLedger : IDisposable
 
         _lastKnownStamina = currentStamina.Value;
         _pendingPreUpdateStamina = null;
-        return attributed;
+        // The baseline is reported only when it actually produced a figure. A baseline that yielded a
+        // negative delta (regen outran the blow) is not the pre-hit stamina of anything we are willing
+        // to call damage, and writing it beside a null dmg would invite the subtraction back.
+        return (attributed, attributed is null ? null : baseline);
     }
 
-    /// <summary>Serializes (cheap, in-memory, stays on the Feed thread) and enqueues. TryWrite on an
-    /// unbounded channel never blocks and only fails after Complete(), which only <see cref="Dispose"/>
-    /// calls.</summary>
-    private void AppendLocked(SwingRow row)
+    /// <summary>Enqueues. TryWrite on an unbounded channel never blocks and only fails after
+    /// Complete(), which only <see cref="Dispose"/> calls.</summary>
+    private void AppendLocked(SwingRow row) => _writeQueue.Writer.TryWrite(row);
+
+    private const string InsertSql = """
+        INSERT INTO swings (
+            ts, dir, encounter_started_at_ms, persona, sex,
+            sta, sta_before, sta_max,
+            str, str_raw, str_max, dex, dex_raw, dex_max,
+            level, score, objects_carried, weather,
+            blind, deaf, crippled, dumb,
+            str_buff, str_debuff, dex_buff, dex_debuff, sta_buff, sta_debuff, glow,
+            time_to_reset, reset_epoch_ms,
+            npc, npc_group, npc_weapon, rung, rung_phrase,
+            weapon, hit, dmg_low, dmg_high, dmg
+        ) VALUES (
+            $ts, $dir, $encounter, $persona, $sex,
+            $sta, $sta_before, $sta_max,
+            $str, $str_raw, $str_max, $dex, $dex_raw, $dex_max,
+            $level, $score, $objects, $weather,
+            $blind, $deaf, $crippled, $dumb,
+            $str_buff, $str_debuff, $dex_buff, $dex_debuff, $sta_buff, $sta_debuff, $glow,
+            $ttr, $reset_epoch,
+            $npc, $npc_group, $npc_weapon, $rung, $rung_phrase,
+            $weapon, $hit, $dmg_low, $dmg_high, $dmg
+        );
+        """;
+
+    /// <summary>The single background writer for this ledger's whole lifetime. Owns the only write
+    /// connection and drains in the order rows were enqueued, batching whatever is already waiting into
+    /// one transaction. <c>ReadAllAsync</c> completes normally only once the queue is both closed and
+    /// fully drained, which is the "nothing queued is lost on shutdown" property
+    /// <see cref="Dispose"/> relies on.</summary>
+    private async Task DrainAsync()
     {
-        string line;
+        SqliteConnection? connection = null;
+        var reader = _writeQueue.Reader;
+
         try
         {
-            line = JsonSerializer.Serialize(row);
+            while (await reader.WaitToReadAsync().ConfigureAwait(false))
+            {
+                // Opened lazily, on the first row that actually arrives, so a session with no combat
+                // in it never creates a database file at all.
+                connection ??= CombatDb.Open(_dbPath);
+                WriteBatch(connection, reader);
+            }
         }
         catch (Exception ex)
         {
-            _onError?.Invoke("SwingLedger.Serialize", ex);
-            return;
+            // Best-effort by design: a failed write loses rows, it must not take the app with it. The
+            // loop is abandoned rather than retried - if the database cannot be opened or written at
+            // all, retrying per swing would turn one failure into one per tick, forever.
+            _onError?.Invoke("SwingLedger.Drain", ex);
         }
-
-        _writeQueue.Writer.TryWrite(line);
+        finally
+        {
+            connection?.Dispose();
+        }
     }
 
-    /// <summary>The single background writer for this ledger's whole lifetime. Drains lines in the
-    /// order they were enqueued and appends each to disk. <c>ReadAllAsync</c> completes normally only
-    /// once the queue is both closed and fully drained, which is the "nothing queued is lost on
-    /// shutdown" property <see cref="Dispose"/> relies on.</summary>
-    private async Task DrainAsync()
+    private void WriteBatch(SqliteConnection connection, ChannelReader<SwingRow> reader)
     {
-        await foreach (var line in _writeQueue.Reader.ReadAllAsync().ConfigureAwait(false))
+        using var transaction = connection.BeginTransaction();
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = InsertSql;
+
+        var written = 0;
+        while (written < MaxBatch && reader.TryRead(out var row))
         {
             try
             {
-                var directory = Path.GetDirectoryName(_filePath);
-                if (!string.IsNullOrEmpty(directory))
-                    Directory.CreateDirectory(directory);
-                // No BOM, one object per line - the offline ingester reads these with a plain
-                // json.loads per line, which chokes on a BOM prefixed to the first line.
-                File.AppendAllText(_filePath, line + Environment.NewLine, new System.Text.UTF8Encoding(false));
+                Bind(command, row);
+                command.ExecuteNonQuery();
+                written++;
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            catch (SqliteException ex)
             {
-                // Best-effort by design: a failed write loses a row, never a fight.
-                _onError?.Invoke("SwingLedger.Append", ex);
+                // One malformed row must not abort the batch behind it. Counted as handled and skipped,
+                // the same discipline the JSONL reader used for a truncated line.
+                _onError?.Invoke("SwingLedger.Insert", ex);
             }
         }
+
+        if (written > 0)
+            transaction.Commit();
     }
+
+    private static void Bind(SqliteCommand command, SwingRow row)
+    {
+        command.Parameters.Clear();
+        command.Parameters.AddWithValue("$ts", row.TimestampMs);
+        command.Parameters.AddWithValue("$dir", row.Direction);
+        command.Parameters.AddWithValue("$encounter", Value(row.EncounterStartedAtMs));
+        command.Parameters.AddWithValue("$persona", Value(row.Persona));
+        command.Parameters.AddWithValue("$sex", Value(row.Sex));
+        command.Parameters.AddWithValue("$sta", Value(row.Stamina));
+        command.Parameters.AddWithValue("$sta_before", Value(row.StaminaBefore));
+        command.Parameters.AddWithValue("$sta_max", Value(row.MaxStamina));
+        command.Parameters.AddWithValue("$str", Value(row.Strength));
+        command.Parameters.AddWithValue("$str_raw", Value(row.RawStrength));
+        command.Parameters.AddWithValue("$str_max", Value(row.MaxStrength));
+        command.Parameters.AddWithValue("$dex", Value(row.Dexterity));
+        command.Parameters.AddWithValue("$dex_raw", Value(row.RawDexterity));
+        command.Parameters.AddWithValue("$dex_max", Value(row.MaxDexterity));
+        command.Parameters.AddWithValue("$level", Value(row.Level));
+        command.Parameters.AddWithValue("$score", Value(row.Score));
+        command.Parameters.AddWithValue("$objects", Value(row.ObjectsCarried));
+        command.Parameters.AddWithValue("$weather", Value(row.Weather));
+        command.Parameters.AddWithValue("$blind", row.IsBlind ? 1 : 0);
+        command.Parameters.AddWithValue("$deaf", row.IsDeaf ? 1 : 0);
+        command.Parameters.AddWithValue("$crippled", row.IsCrippled ? 1 : 0);
+        command.Parameters.AddWithValue("$dumb", row.IsDumb ? 1 : 0);
+        command.Parameters.AddWithValue("$str_buff", row.StrengthBuff ? 1 : 0);
+        command.Parameters.AddWithValue("$str_debuff", row.StrengthDebuff ? 1 : 0);
+        command.Parameters.AddWithValue("$dex_buff", row.DexterityBuff ? 1 : 0);
+        command.Parameters.AddWithValue("$dex_debuff", row.DexterityDebuff ? 1 : 0);
+        command.Parameters.AddWithValue("$sta_buff", row.StaminaBuff ? 1 : 0);
+        command.Parameters.AddWithValue("$sta_debuff", row.StaminaDebuff ? 1 : 0);
+        command.Parameters.AddWithValue("$glow", row.Glow ? 1 : 0);
+        command.Parameters.AddWithValue("$ttr", Value(row.TimeToReset));
+        command.Parameters.AddWithValue("$reset_epoch", Value(row.ResetEpochMs));
+        command.Parameters.AddWithValue("$npc", Value(row.NpcName));
+        command.Parameters.AddWithValue("$npc_group", row.NpcGroup);
+        command.Parameters.AddWithValue("$npc_weapon", Value(row.NpcWeapon));
+        command.Parameters.AddWithValue("$rung", Value(row.HealthRung));
+        command.Parameters.AddWithValue("$rung_phrase", Value(row.HealthPhrase));
+        command.Parameters.AddWithValue("$weapon", Value(row.Weapon));
+        command.Parameters.AddWithValue("$hit", row.Hit ? 1 : 0);
+        command.Parameters.AddWithValue("$dmg_low", Value(row.DamageLow));
+        command.Parameters.AddWithValue("$dmg_high", Value(row.DamageHigh));
+        command.Parameters.AddWithValue("$dmg", Value(row.Damage));
+    }
+
+    /// <summary>Null becomes SQL NULL, not a default. Every stat here can genuinely be unknown, and a
+    /// zero standing in for "never reported" is a fabricated measurement that outlives the session that
+    /// invented it.</summary>
+    private static object Value(object? value) => value ?? DBNull.Value;
 
     /// <summary>Blocks briefly - just draining whatever is already queued in memory - so an app exit
     /// mid-fight cannot lose the swings enqueued moments before it. Same shutdown contract as

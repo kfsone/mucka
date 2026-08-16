@@ -13,10 +13,8 @@ namespace Mucka.Core;
 /// threads would need locking on the typing hot path (Invariant #1). They consume the identical
 /// event stream through the same FightAccumulator type, so they cannot disagree about a tally.</para>
 ///
-/// <para>Unlike ClogWriter this is NOT gated on "$clog on". Encounter clogs are bulky raw evidence
-/// worth opting into; a fight row is ~400 bytes and is the accumulating dataset the whole
-/// comparison feature depends on, so it records always. Nothing here is written while the player
-/// is not actually in a fight.</para>
+/// <para>Always records, as everything on this path now does (ClogWriter included). Nothing here is
+/// written while the player is not actually in a fight.</para>
 ///
 /// <para><see cref="Dispose"/> is a belt-and-braces flush for whatever is still open at shutdown -
 /// the primary path is MudSession.Dispose calling CombatTracker.ForceEnd, whose InCombatChanged
@@ -107,7 +105,11 @@ public sealed class FightHistoryRecorder : IDisposable
             _characterName = name;
     }
 
-    public void OnInCombatChanged(bool inCombat)
+    /// <param name="encounterStartedAtMs">The shared encounter id, stamped once by MuckaConnection and
+    /// handed to every consumer - see there. Not computed here any more: the swings table carries the
+    /// same value as its join key, and two consumers each reading their own clock would produce two
+    /// ids microseconds apart that no join would match.</param>
+    public void OnInCombatChanged(bool inCombat, long? encounterStartedAtMs = null)
     {
         lock (_lock)
         {
@@ -117,12 +119,12 @@ public sealed class FightHistoryRecorder : IDisposable
                 _encounterStats = _lastStats;
                 _encounterEffects = _lastEffects;
                 _encounterRoom = _lastRoom;
-                // The encounter's own natural key (see FightRecord.EncounterStartedAtMs's remarks).
-                // DateTime.UtcNow here, not the triggering combat event's own timestamp: this fires
-                // synchronously from the same Feed-thread call that flips CombatTracker.InCombat,
-                // ahead of the FightStart event for the SAME line (Begin() raises InCombatChanged
-                // before Observe() calls Emit()), so the two are effectively the same instant anyway.
-                _encounterStartedAtMs = new DateTimeOffset(DateTime.UtcNow, TimeSpan.Zero).ToUnixTimeMilliseconds();
+                // The encounter's own natural key (see FightRecord.EncounterStartedAtMs's remarks),
+                // supplied by the caller so this row and the swings table agree on it exactly. Falls
+                // back to a local reading only when nobody supplied one, which is the unit-test and
+                // design-time path - a row keyed to itself is still better than an unkeyed one.
+                _encounterStartedAtMs = encounterStartedAtMs
+                    ?? new DateTimeOffset(DateTime.UtcNow, TimeSpan.Zero).ToUnixTimeMilliseconds();
                 _fights.Clear();
                 _fightOrder.Clear();
                 // Adopt a weapon equipped moments before the client noticed the fight. Same problem

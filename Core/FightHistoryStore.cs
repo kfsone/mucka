@@ -1,45 +1,43 @@
-using System.Text.Json;
 using System.Threading.Channels;
+using Microsoft.Data.Sqlite;
 using MudSharp.Combat;
 
 namespace Mucka.Core;
 
 /// <summary>
-/// Owns ~/.mucka/clogs/fights.jsonl: the append-only per-fight history index the live HUD contrasts
-/// the current fight against, and the source of the NPC stamina-pool estimates any future
-/// "are you winning" projection will need (MUD2 never reports NPC stamina over the wire, so prior
-/// kills are the only route to a pool figure the CLIENT can derive - though the figures themselves are
-/// published, see tools/combat/MUD2-PUBLISHED-MECHANICS.md and tools/combat/STATS_DESIGN.md).
+/// Owns the <c>fights</c> table of the client combat database (see <see cref="CombatDb"/>): the
+/// per-fight history the live HUD contrasts the current fight against, and the source of the NPC
+/// stamina-pool estimates any "are you winning" projection needs (MUD2 never reports NPC stamina over
+/// the wire, so prior kills are the only route to a pool figure the CLIENT can derive - though the
+/// figures themselves are published, see tools/combat/MUD2-PUBLISHED-MECHANICS.md and
+/// tools/combat/STATS_DESIGN.md).
 ///
-/// <para>A flat JSONL file rather than SQLite in the client: no new dependency, no MAUI/Android
-/// packaging question, small enough to hold in memory (one compact line per fight), and
-/// tools/combat/ingest_clogs.py can read it directly so live and offline analysis agree by
-/// construction instead of by reimplementation.</para>
+/// <para><b>SQLite rather than the fights.jsonl this used to write.</b> The original reasoning - no
+/// new dependency, no MAUI/Android packaging question, small enough to hold in memory - was sound
+/// while nothing needed to QUERY the data. A combat analysis view does, and splitting the corpus so
+/// that swings lived in SQL and fights in a text file would have meant joining them in app code. The
+/// rows are still small enough to hold in memory, and still are: the in-memory
+/// <see cref="HistoryIndex"/> below is unchanged, it is only its source that moved.</para>
 ///
 /// <para>Threading: <see cref="Append"/> is called from the session Feed thread (same contract as
-/// ClogWriter), <see cref="Snapshot"/> from the UI thread. Both take the same lock, which is only
-/// ever held for a list add or a copy-reference — never across the file write, so a slow disk
-/// cannot stall the UI thread (Invariant #1). The file write itself runs on a single dedicated
-/// background task (<see cref="DrainAsync"/>): <see cref="Append"/> only serializes the record
-/// (cheap, in-memory) and enqueues the line, so the Feed thread that parses incoming combat text
-/// never pays for the actual disk I/O (DESIGN_FINAL.md section 7.5). <see cref="Dispose"/> blocks
-/// briefly to drain whatever is still queued, so an app exit mid-fight cannot lose the row for the
-/// fight that was open at that moment - see its remarks.</para>
+/// ClogWriter), <see cref="Snapshot"/> from the UI thread. Both take the same lock, which is only ever
+/// held for a list add or a copy-reference - never across the database write, so a slow disk cannot
+/// stall the UI thread (Invariant #1). The write itself runs on a single dedicated background task
+/// (<see cref="DrainAsync"/>) which owns the only write connection, so the Feed thread that parses
+/// incoming combat text never pays for the I/O (DESIGN_FINAL.md section 7.5). <see cref="Dispose"/>
+/// blocks briefly to drain whatever is still queued, so an app exit mid-fight cannot lose the row for
+/// the fight that was open at that moment.</para>
 /// </summary>
 public sealed class FightHistoryStore : IDisposable
 {
     private readonly object _lock = new();
-    private readonly string _filePath;
+    private readonly string _dbPath;
     // Injected rather than calling CrashLog directly so this type stays free of MAUI references
     // and can be exercised against a temp directory in mudsharp.Tests.
     private readonly Action<string, Exception>? _onError;
 
-    // One dedicated writer for the whole lifetime of this store (unlike ClogWriter's per-encounter
-    // rotation, there is exactly one fights.jsonl for the whole session) - Append enqueues, DrainAsync
-    // writes. Unbounded: a fight resolves at most a few times a minute even in a pack fight, so
-    // there is no realistic burst this needs to backpressure.
-    private readonly Channel<string> _writeQueue =
-        Channel.CreateUnbounded<string>(new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });
+    private readonly Channel<FightRecord> _writeQueue =
+        Channel.CreateUnbounded<FightRecord>(new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });
     private readonly Task _writerTask;
 
     // Copy-on-write: readers take a reference under the lock and then enumerate freely, so a UI
@@ -52,26 +50,15 @@ public sealed class FightHistoryStore : IDisposable
     // and every read (GetHistoryContext) takes it, so this never needs its own synchronization.
     private readonly HistoryIndex _index = new();
 
-    public FightHistoryStore(string filePath, Action<string, Exception>? onError = null)
+    public FightHistoryStore(string dbPath, Action<string, Exception>? onError = null)
     {
-        _filePath = filePath;
+        _dbPath = dbPath;
         _onError = onError;
         _writerTask = Task.Run(DrainAsync);
     }
 
-    /// <summary>Standard file name, alongside the per-encounter clogs. The directory is supplied by
-    /// the caller (see MuckaConnection) so this type needs no platform/MAUI path lookup of its own
-    /// and can be linked into mudsharp.Tests as-is.</summary>
-    public const string DefaultFileName = "fights.jsonl";
+    public string DatabasePath => _dbPath;
 
-    public string FilePath => _filePath;
-
-    /// <summary>Set by <see cref="LoadAsync"/> when it discarded a stale-format file (see
-    /// <see cref="FightRecord.FormatVersion"/>'s remarks). Null on an ordinary load. This is the
-    /// "log clearly to the user" half of the discard: the owner authorised deleting old-format
-    /// history outright, but never SILENTLY - a caller should surface this (e.g. GameViewModel
-    /// prints it as a local system line once the load completes).</summary>
-    public string? MigrationNotice { get; private set; }
 
     /// <summary>Rows loaded so far. Cheap: returns the current immutable-by-convention list.</summary>
     public IReadOnlyList<FightRecord> Snapshot()
@@ -80,97 +67,64 @@ public sealed class FightHistoryStore : IDisposable
             return _records;
     }
 
-    /// <summary>Reads the whole index into memory. Call once at startup, OFF the UI thread. A
-    /// malformed line is skipped rather than aborting the load: a single truncated row (killed
-    /// mid-write by a crash) must not cost the user their entire accumulated history.
-    ///
-    /// <para>Format check: the first successfully-parsed row's format_version gates the WHOLE file.
-    /// This is an append-only log written by one build at a time, so once one row predates the
-    /// current schema every row before it does too - there is nothing to gain from parsing the rest
-    /// before discarding it (see <see cref="MigrationNotice"/>). The presence check is against the
-    /// RAW JSON, not <see cref="FightRecord.FormatVersion"/> on the deserialized object: that
-    /// property has a C# default of <see cref="FightRecord.CurrentFormatVersion"/> so a freshly
-    /// <c>new</c>'d record is correctly current-by-default, but the SAME default means System.Text.Json
-    /// leaves it at that value for a row whose JSON never mentions "format_version" at all (init
-    /// properties only get overwritten when the JSON actually contains the key) - reading it off the
-    /// materialized object would therefore never detect a truly old row.</para></summary>
+    /// <summary>Reads the whole table into memory. Call once at startup, OFF the UI thread.</summary>
     public async Task LoadAsync(CancellationToken cancellationToken = default)
     {
-        var loaded = new List<FightRecord>();
-        var staleVersion = (int?)null;
-        try
-        {
-            if (File.Exists(_filePath))
-            {
-                await foreach (var line in File.ReadLinesAsync(_filePath, cancellationToken).ConfigureAwait(false))
-                {
-                    if (string.IsNullOrWhiteSpace(line))
-                        continue;
-                    try
-                    {
-                        using var document = JsonDocument.Parse(line);
-                        // Absent entirely = a totally pre-versioning row; map that to "1" for the
-                        // message/filename, matching the design's own ".v1.bak" example rather than
-                        // surfacing an internal "v0". Present-but-old (a future v3+ build reading a
-                        // v2 file) reads the real value straight from the JSON.
-                        var hasVersion = document.RootElement.TryGetProperty("format_version", out var versionElement);
-                        var version = hasVersion ? versionElement.GetInt32() : 1;
-                        if (version < FightRecord.CurrentFormatVersion)
-                        {
-                            staleVersion = version;
-                            break;
-                        }
-
-                        var record = JsonSerializer.Deserialize<FightRecord>(document.RootElement);
-                        if (record is not null)
-                            loaded.Add(record);
-                    }
-                    catch (Exception ex) when (ex is JsonException or FormatException or InvalidOperationException)
-                    {
-                        // Skip and keep going - see method remarks. FormatException/
-                        // InvalidOperationException cover a malformed "format_version" value (e.g.
-                        // not a number) from GetInt32() above; JsonException covers everything else
-                        // a truncated/corrupt line can throw.
-                    }
-                }
-            }
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            // Best-effort feature: an unreadable history file must never block getting into a game.
-            _onError?.Invoke("FightHistoryStore.Load", ex);
+        // Task.Run rather than relying on the awaits inside to yield. This is called fire-and-forget
+        // from GameViewModel's constructor, i.e. ON the UI thread, and every step below (opening the
+        // file, applying the schema, the one-time import, the read) is synchronous SQLite work. An
+        // async method whose awaits all complete synchronously never leaves the thread it started on,
+        // which would put a file open and a whole-table scan directly on the typing path
+        // (Invariant #1).
+        var loaded = await Task.Run(LoadCore, cancellationToken).ConfigureAwait(false);
+        if (loaded is null)
             return;
-        }
-
-        if (staleVersion is int oldVersion)
-        {
-            // Discard every on-disk row (the owner explicitly authorised this rather than carrying
-            // a schema gap forward) - but never silently: MigrationNotice records what happened and
-            // why for the caller to surface, and the file itself is moved aside rather than deleted
-            // outright wherever that is possible (RenameStaleFileAsideLocked falls back to clearing
-            // it in place only if the rename itself cannot succeed).
-            loaded.Clear();
-            MigrationNotice = RenameStaleFileAside(oldVersion);
-        }
 
         lock (_lock)
         {
-            // Build the index from the freshly-read DISK rows now, BEFORE merging in anything that
-            // was appended concurrently while this method was reading (those already inserted
-            // themselves via Append's own _index.Insert call - see there - so inserting them again
-            // here would double-count them). One-time cost, off the UI thread, same as the rest of
-            // this method (DESIGN_FINAL.md 7.3's "startup" bullet).
+            // Build the index from the freshly-read rows now, BEFORE merging in anything that was
+            // appended concurrently while this method was reading (those already inserted themselves
+            // via Append's own _index.Insert call - see there - so inserting them again here would
+            // double-count them). One-time cost, off the UI thread (DESIGN_FINAL.md 7.3's "startup").
             foreach (var record in loaded)
                 _index.Insert(record);
 
             // Anything appended while we were reading would be lost by a blind assignment, so keep
-            // the in-memory rows that the load did not already account for. These are always
-            // current-format (BuildRecord only ever constructs current-format rows), so they are
-            // kept even when the ON-DISK rows just above were discarded as stale.
+            // the in-memory rows the load did not already account for.
             if (_records.Count > 0)
                 loaded.AddRange(_records);
             _records = loaded;
         }
+    }
+
+    /// <summary>The synchronous body of <see cref="LoadAsync"/>. Returns null when the database could
+    /// not be read at all, which the caller treats as "leave the in-memory history alone" rather than
+    /// as an empty history.</summary>
+    private List<FightRecord>? LoadCore()
+    {
+        var loaded = new List<FightRecord>();
+        try
+        {
+            // CombatDb.Open rather than a bare SqliteConnection: it creates the directory (absent on a
+            // fresh install, and SQLite will not create a file inside one that does not exist) and
+            // applies the same PRAGMAs every other connection uses. Skipping it made the whole load
+            // fail silently on first run, taking the one-time legacy import down with it.
+            using var connection = CombatDb.Open(_dbPath);
+
+            using var command = connection.CreateCommand();
+            command.CommandText = SelectSql;
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+                loaded.Add(ReadRecord(reader));
+        }
+        catch (Exception ex) when (ex is SqliteException or IOException or UnauthorizedAccessException)
+        {
+            // Best-effort feature: an unreadable history must never block getting into a game.
+            _onError?.Invoke("FightHistoryStore.Load", ex);
+            return null;
+        }
+
+        return loaded;
     }
 
     /// <summary>The incremental history context for one NPC instance/group, as seen by the index
@@ -202,67 +156,13 @@ public sealed class FightHistoryStore : IDisposable
             return _index.IsKnownWeapon(name);
     }
 
-    /// <summary>Moves the stale-format file aside to "&lt;name&gt;.v{oldVersion}.bak" so a future
-    /// Append starts a clean current-format file at the original path, without destroying the old
-    /// data outright (the owner authorised deletion, but "prefer renaming aside" per the brief).
-    /// Falls back to clearing the file in place if the rename itself cannot succeed (e.g. locked by
-    /// another process) - continuing to append current-format rows onto a stale-format file would
-    /// leave a mixed-schema file behind, which is worse than losing the old rows entirely. Returns
-    /// the human-readable notice for the caller to surface; never throws.</summary>
-    private string? RenameStaleFileAside(int oldVersion)
-    {
-        var fileName = Path.GetFileName(_filePath);
-        var target = $"{_filePath}.v{oldVersion}.bak";
-        try
-        {
-            if (File.Exists(target))
-                // A previous migration already left a backup at the obvious name - stamp this one
-                // with a timestamp instead of silently overwriting an earlier discard.
-                target = $"{_filePath}.v{oldVersion}.{DateTime.UtcNow:yyyyMMddHHmmss}.bak";
-            File.Move(_filePath, target);
-            return $"{fileName} was schema v{oldVersion} (current is v{FightRecord.CurrentFormatVersion}) - " +
-                   $"moved aside to {Path.GetFileName(target)} and started a fresh history. " +
-                   "The old file is still on disk if you want to re-ingest it with tools/combat.";
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            _onError?.Invoke("FightHistoryStore.RenameStaleFileAside", ex);
-            try
-            {
-                // Could not rename it (e.g. the file is locked) - clear it in place instead, so the
-                // next Append at least starts a clean current-format file rather than silently
-                // mixing schemas at the same path.
-                File.WriteAllText(_filePath, string.Empty);
-                return $"{fileName} was schema v{oldVersion} (current is v{FightRecord.CurrentFormatVersion}) - " +
-                       "could not move it aside, so it was cleared in place. A fresh history starts now.";
-            }
-            catch (Exception clearEx) when (clearEx is IOException or UnauthorizedAccessException)
-            {
-                _onError?.Invoke("FightHistoryStore.RenameStaleFileAside.Clear", clearEx);
-                return $"{fileName} is schema v{oldVersion} (current is v{FightRecord.CurrentFormatVersion}) and " +
-                       "could not be moved or cleared - its old rows will keep being ignored on every load.";
-            }
-        }
-    }
-
     /// <summary>Appends one completed fight: updates the in-memory snapshot immediately (so a
     /// same-thread Snapshot() right after this call sees it - Invariant #1 does not apply to the
-    /// Feed thread doing its own cheap bookkeeping) and enqueues the disk write for
+    /// Feed thread doing its own cheap bookkeeping) and enqueues the database write for
     /// <see cref="DrainAsync"/> to perform off-thread. Never throws: losing a history row is
     /// strictly less bad than disrupting play.</summary>
     public void Append(FightRecord record)
     {
-        string line;
-        try
-        {
-            line = JsonSerializer.Serialize(record);
-        }
-        catch (Exception ex)
-        {
-            _onError?.Invoke("FightHistoryStore.Serialize", ex);
-            return;
-        }
-
         lock (_lock)
         {
             var updated = new List<FightRecord>(_records.Count + 1);
@@ -277,43 +177,176 @@ public sealed class FightHistoryStore : IDisposable
             _index.Insert(record);
         }
 
-        // Off the Feed thread from here: DrainAsync owns the actual disk write. TryWrite on an
-        // unbounded channel never blocks and only fails after Complete() (Dispose only - by which
-        // point nothing should still be calling Append, since MuckaConnection disposes this after
-        // the session/recorder that drives it).
-        _writeQueue.Writer.TryWrite(line);
+        _writeQueue.Writer.TryWrite(record);
     }
 
-    /// <summary>The single background writer for this store's whole lifetime. Drains lines in the
-    /// order Append enqueued them and appends each to disk. Runs until <see cref="Dispose"/> closes
-    /// the queue AND every already-queued line has been written - <c>ReadAllAsync</c> completes
-    /// normally (no exception) only once both are true, which is exactly the "prove no data lost on
-    /// shutdown" property this class needs.</summary>
+    internal const string Columns =
+        "character_name, encounter_started_at_ms, started_at_ms, ended_at_ms, duration_ms, " +
+        "npc_name, npc_group, weapon_used, outcome, " +
+        "you_hits, you_misses, they_hits, they_misses, approx_damage_done, approx_damage_taken, " +
+        "narrative_mode, room, weather, strength, raw_strength, dexterity, raw_dexterity, " +
+        "stamina_at_start, max_stamina, min_stamina, stamina_at_end, score_at_start, score_at_end, " +
+        "objects_carried, level, is_blind, is_deaf, is_crippled, is_dumb, effects";
+
+    private const string SelectSql = $"SELECT {Columns} FROM fights ORDER BY started_at_ms;";
+
+    private const string InsertSql = $"""
+        INSERT INTO fights ({Columns}) VALUES (
+            $character_name, $encounter, $started, $ended, $duration,
+            $npc_name, $npc_group, $weapon_used, $outcome,
+            $you_hits, $you_misses, $they_hits, $they_misses, $dmg_done, $dmg_taken,
+            $narrative, $room, $weather, $strength, $raw_strength, $dexterity, $raw_dexterity,
+            $sta_start, $sta_max, $sta_min, $sta_end, $score_start, $score_end,
+            $objects, $level, $blind, $deaf, $crippled, $dumb, $effects
+        );
+        """;
+
+    private static FightRecord ReadRecord(SqliteDataReader reader) => new()
+    {
+        CharacterName = Str(reader, 0),
+        EncounterStartedAtMs = Long(reader, 1),
+        StartedAtMs = reader.GetInt64(2),
+        EndedAtMs = reader.GetInt64(3),
+        DurationMs = reader.GetInt64(4),
+        NpcName = reader.GetString(5),
+        NpcGroup = reader.GetString(6),
+        WeaponUsed = Str(reader, 7),
+        Outcome = reader.GetString(8),
+        YouHits = reader.GetInt32(9),
+        YouMisses = reader.GetInt32(10),
+        TheyHits = reader.GetInt32(11),
+        TheyMisses = reader.GetInt32(12),
+        ApproxDamageDone = reader.GetDouble(13),
+        ApproxDamageTaken = reader.GetDouble(14),
+        NarrativeMode = reader.GetInt64(15) != 0,
+        Room = Str(reader, 16),
+        Weather = Str(reader, 17),
+        Strength = Int(reader, 18),
+        RawStrength = Int(reader, 19),
+        Dexterity = Int(reader, 20),
+        RawDexterity = Int(reader, 21),
+        StaminaAtStart = Int(reader, 22),
+        MaxStamina = Int(reader, 23),
+        MinStamina = Int(reader, 24),
+        StaminaAtEnd = Int(reader, 25),
+        ScoreAtStart = Int(reader, 26),
+        ScoreAtEnd = Int(reader, 27),
+        ObjectsCarried = Int(reader, 28),
+        Level = Int(reader, 29),
+        IsBlind = reader.GetInt64(30) != 0,
+        IsDeaf = reader.GetInt64(31) != 0,
+        IsCrippled = reader.GetInt64(32) != 0,
+        IsDumb = reader.GetInt64(33) != 0,
+        Effects = SplitEffects(reader.IsDBNull(34) ? null : reader.GetString(34)),
+    };
+
+    private static string? Str(SqliteDataReader reader, int i) => reader.IsDBNull(i) ? null : reader.GetString(i);
+    private static int? Int(SqliteDataReader reader, int i) => reader.IsDBNull(i) ? null : reader.GetInt32(i);
+    private static long? Long(SqliteDataReader reader, int i) => reader.IsDBNull(i) ? null : reader.GetInt64(i);
+
+    /// <summary>Effects are stored as one comma-separated string rather than a child table. They are
+    /// only ever read back as a whole set for one fight - nothing groups or joins on an individual
+    /// effect at the FIGHT level, because the per-SWING columns answer that question far better (see
+    /// the swings table's own flags). A join table here would be structure with no query behind it.</summary>
+    private static string JoinEffects(string[] effects) => string.Join(",", effects);
+
+    private static string[] SplitEffects(string? stored)
+        => string.IsNullOrEmpty(stored) ? [] : stored.Split(',', StringSplitOptions.RemoveEmptyEntries);
+
+    /// <summary>Binds one record onto a command using <see cref="InsertSql"/>'s parameter names.</summary>
+    private static void Bind(SqliteCommand command, FightRecord record)
+    {
+        command.Parameters.Clear();
+        command.Parameters.AddWithValue("$character_name", Value(record.CharacterName));
+        command.Parameters.AddWithValue("$encounter", Value(record.EncounterStartedAtMs));
+        command.Parameters.AddWithValue("$started", record.StartedAtMs);
+        command.Parameters.AddWithValue("$ended", record.EndedAtMs);
+        command.Parameters.AddWithValue("$duration", record.DurationMs);
+        command.Parameters.AddWithValue("$npc_name", record.NpcName);
+        command.Parameters.AddWithValue("$npc_group", record.NpcGroup);
+        command.Parameters.AddWithValue("$weapon_used", Value(record.WeaponUsed));
+        command.Parameters.AddWithValue("$outcome", record.Outcome);
+        command.Parameters.AddWithValue("$you_hits", record.YouHits);
+        command.Parameters.AddWithValue("$you_misses", record.YouMisses);
+        command.Parameters.AddWithValue("$they_hits", record.TheyHits);
+        command.Parameters.AddWithValue("$they_misses", record.TheyMisses);
+        command.Parameters.AddWithValue("$dmg_done", record.ApproxDamageDone);
+        command.Parameters.AddWithValue("$dmg_taken", record.ApproxDamageTaken);
+        command.Parameters.AddWithValue("$narrative", record.NarrativeMode ? 1 : 0);
+        command.Parameters.AddWithValue("$room", Value(record.Room));
+        command.Parameters.AddWithValue("$weather", Value(record.Weather));
+        command.Parameters.AddWithValue("$strength", Value(record.Strength));
+        command.Parameters.AddWithValue("$raw_strength", Value(record.RawStrength));
+        command.Parameters.AddWithValue("$dexterity", Value(record.Dexterity));
+        command.Parameters.AddWithValue("$raw_dexterity", Value(record.RawDexterity));
+        command.Parameters.AddWithValue("$sta_start", Value(record.StaminaAtStart));
+        command.Parameters.AddWithValue("$sta_max", Value(record.MaxStamina));
+        command.Parameters.AddWithValue("$sta_min", Value(record.MinStamina));
+        command.Parameters.AddWithValue("$sta_end", Value(record.StaminaAtEnd));
+        command.Parameters.AddWithValue("$score_start", Value(record.ScoreAtStart));
+        command.Parameters.AddWithValue("$score_end", Value(record.ScoreAtEnd));
+        command.Parameters.AddWithValue("$objects", Value(record.ObjectsCarried));
+        command.Parameters.AddWithValue("$level", Value(record.Level));
+        command.Parameters.AddWithValue("$blind", record.IsBlind ? 1 : 0);
+        command.Parameters.AddWithValue("$deaf", record.IsDeaf ? 1 : 0);
+        command.Parameters.AddWithValue("$crippled", record.IsCrippled ? 1 : 0);
+        command.Parameters.AddWithValue("$dumb", record.IsDumb ? 1 : 0);
+        command.Parameters.AddWithValue("$effects", JoinEffects(record.Effects));
+    }
+
+    private static object Value(object? value) => value ?? DBNull.Value;
+
+    /// <summary>The single background writer for this store's whole lifetime.</summary>
     private async Task DrainAsync()
     {
-        await foreach (var line in _writeQueue.Reader.ReadAllAsync().ConfigureAwait(false))
+        SqliteConnection? connection = null;
+        var reader = _writeQueue.Reader;
+
+        try
         {
-            try
+            while (await reader.WaitToReadAsync().ConfigureAwait(false))
             {
-                var directory = Path.GetDirectoryName(_filePath);
-                if (!string.IsNullOrEmpty(directory))
-                    Directory.CreateDirectory(directory);
-                // No BOM, one object per line - ingest_clogs.py reads these with a plain json.loads
-                // per line, which chokes on a BOM prefix.
-                File.AppendAllText(_filePath, line + Environment.NewLine, new System.Text.UTF8Encoding(false));
+                connection ??= CombatDb.Open(_dbPath);
+
+                using var transaction = connection.BeginTransaction();
+                using var command = connection.CreateCommand();
+                command.Transaction = transaction;
+                command.CommandText = InsertSql;
+
+                var written = 0;
+                while (reader.TryRead(out var record))
+                {
+                    try
+                    {
+                        Bind(command, record);
+                        command.ExecuteNonQuery();
+                        written++;
+                    }
+                    catch (SqliteException ex)
+                    {
+                        _onError?.Invoke("FightHistoryStore.Insert", ex);
+                    }
+                }
+
+                if (written > 0)
+                    transaction.Commit();
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                _onError?.Invoke("FightHistoryStore.Append", ex);
-            }
+        }
+        catch (Exception ex)
+        {
+            _onError?.Invoke("FightHistoryStore.Drain", ex);
+        }
+        finally
+        {
+            connection?.Dispose();
         }
     }
 
     /// <summary>Blocks (briefly - just draining whatever is already queued in memory, typically a
-    /// handful of lines at most) until every fight <see cref="Append"/>ed so far has actually been
-    /// written to disk. This is the fix for fight rows being lost when the app exits mid-fight:
-    /// without this wait, an Append() immediately followed by process exit could beat the
-    /// background writer to the punch, since Append only enqueues rather than writing directly.</summary>
+    /// handful of rows at most) until every fight <see cref="Append"/>ed so far has actually been
+    /// written. This is the fix for fight rows being lost when the app exits mid-fight: without this
+    /// wait, an Append() immediately followed by process exit could beat the background writer to the
+    /// punch, since Append only enqueues rather than writing directly.</summary>
     public void Dispose()
     {
         _writeQueue.Writer.TryComplete();

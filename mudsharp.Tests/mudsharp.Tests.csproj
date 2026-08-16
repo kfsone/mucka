@@ -12,6 +12,8 @@
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
     <PackageReference Include="xunit" Version="2.9.2" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+    <!-- Matches Mucka.csproj: the linked Core files below own the combat database. -->
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.11" />
   </ItemGroup>
 
   <ItemGroup>
@@ -41,6 +43,8 @@
     <Compile Include="..\Core\FightHistoryStore.cs" Link="Core\FightHistoryStore.cs" />
     <Compile Include="..\Core\FightHistoryRecorder.cs" Link="Core\FightHistoryRecorder.cs" />
     <Compile Include="..\Core\SwingLedger.cs" Link="Core\SwingLedger.cs" />
+    <Compile Include="..\Core\SwingRow.cs" Link="Core\SwingRow.cs" />
+    <Compile Include="..\Core\CombatDb.cs" Link="Core\CombatDb.cs" />
   </ItemGroup>
 
 </Project>

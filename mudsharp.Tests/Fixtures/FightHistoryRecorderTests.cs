@@ -17,7 +17,7 @@ public sealed class FightHistoryRecorderTests : IDisposable
         Path.Combine(Path.GetTempPath(), "mucka-fighthistoryrecorder-tests", Guid.NewGuid().ToString("N"));
 
     private FightHistoryStore MakeStore()
-        => new(Path.Combine(_directory, FightHistoryStore.DefaultFileName));
+        => new(Path.Combine(_directory, CombatDb.DefaultFileName));
 
     public void Dispose()
     {
@@ -177,18 +177,23 @@ public sealed class FightHistoryRecorderTests : IDisposable
         Assert.Equal(26050, row.ScoreAtEnd);
     }
 
+    /// <summary>The encounter id is taken from the CALLER, not read off a local clock. It is the join
+    /// key between the fights and swings tables, and MuckaConnection stamps one value and hands it to
+    /// both recorders precisely so the two agree - each reading its own UtcNow would produce ids
+    /// microseconds apart, and the join would silently match nothing.</summary>
     [Fact]
-    public void FlushedRecord_IsStampedWithTheCurrentFormatVersion()
+    public void FlushedRecord_UsesTheEncounterIdItWasGiven()
     {
         using var store = MakeStore();
         var recorder = new FightHistoryRecorder(store);
+        const long encounterId = 1_786_800_000_000;
 
-        recorder.OnInCombatChanged(true);
+        recorder.OnInCombatChanged(true, encounterId);
         recorder.OnCombatEvent(Event(CombatEventKind.FightStart, "rat0"));
         recorder.OnCombatEvent(Event(CombatEventKind.Kill, "rat0", atSecond: 1));
         recorder.OnInCombatChanged(false);
 
         var row = Assert.Single(store.Snapshot());
-        Assert.Equal(FightRecord.CurrentFormatVersion, row.FormatVersion);
+        Assert.Equal(encounterId, row.EncounterStartedAtMs);
     }
 }

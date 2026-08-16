@@ -18,7 +18,7 @@ public sealed class CombatHistoryCacheTests : IDisposable
     private readonly string _directory =
         Path.Combine(Path.GetTempPath(), "mucka-historycache-tests", Guid.NewGuid().ToString("N"));
 
-    private string FilePath => Path.Combine(_directory, FightHistoryStore.DefaultFileName);
+    private string FilePath => Path.Combine(_directory, CombatDb.DefaultFileName);
 
     public void Dispose()
     {

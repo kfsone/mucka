@@ -109,6 +109,25 @@ public sealed class FightAccumulator
     public double ApproxDamageDone { get; private set; }
     public double ApproxDamageTaken { get; private set; }
 
+    /// <summary>The worst single blow this creature has landed in THIS fight. Kept alongside the
+    /// running total because they answer different questions: the total says how much trouble you are
+    /// in, the worst blow says how much trouble one more tick could put you in - which is the figure a
+    /// flee decision actually turns on when stamina is low.</summary>
+    public double MaxDamageTaken { get; private set; }
+
+    /// <summary>Landed blows whose magnitude was actually resolved, which is the honest denominator
+    /// for a mean. Distinct from <see cref="TheyHits"/>: a hit with no stamina baseline to diff
+    /// against still counts as a hit (it happened, and the swing rhythm is real evidence) but
+    /// contributes nothing to <see cref="ApproxDamageTaken"/>, so dividing the total by TheyHits would
+    /// quietly understate every average in proportion to how many baselines were missed.</summary>
+    public int TheyHitsMeasured { get; private set; }
+
+    /// <summary>Mean damage per landed blow from this creature this fight, or null when nothing has
+    /// been measured yet. Null rather than zero on purpose - the rail must never draw an unknown as a
+    /// measurement.</summary>
+    public double? AverageDamageTaken
+        => TheyHitsMeasured == 0 ? null : ApproxDamageTaken / TheyHitsMeasured;
+
     /// <summary>Lowest player stamina observed while this fight was open - "how close did I come
     /// to dying" fighting THIS npc specifically. Null only when no reading was ever available (no
     /// FES heartbeat and no inline "(cur/max)" line landed before the fight resolved).</summary>
@@ -256,6 +275,18 @@ public sealed class FightAccumulator
         TheyHits++;
         if (damage is double value && value > 0)
             ApproxDamageTaken += value;
+
+        // Counted for every RESOLVED magnitude including zero (see TheyHitsMeasured): a blow that
+        // landed and took nothing off is a real observation about this creature, and excluding it
+        // would bias the mean upward - the average would then answer "how hard does it hit when it
+        // hurts", which is not the question. Adding a zero to the total above is a no-op, so the
+        // guard there and the counter here deliberately disagree about zero.
+        if (damage is double measured && measured >= 0)
+        {
+            TheyHitsMeasured++;
+            if (measured > MaxDamageTaken)
+                MaxDamageTaken = measured;
+        }
 
         // The ring buffer records the swing whenever a magnitude was resolved at all, even a zero
         // delta (armour soaking a blow is still a landed hit) - only a genuinely unresolvable

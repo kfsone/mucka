@@ -6,7 +6,7 @@ using MudSharp.Models;
 namespace Mucka.Core;
 
 /// <summary>
-/// Drives the "$clog eval &lt;itemid&gt;" sequence (see GameViewModel.HandleClogCommand):
+/// Drives the "$eval &lt;itemid&gt;" sequence (see GameViewModel.RunItemEvalAsync):
 /// looks at and weighs a carried item, then drops and re-gets it to measure its otherwise
 /// unreported effect on effective strength/dexterity. MUD2's FES stats already reflect an
 /// item's weight cost (Strength/Dexterity in GameStatsSnapshot are the *effective*, post-load
@@ -75,12 +75,12 @@ public sealed class ItemEvalSession
         var identified = await SendAndCollectIdentifyAsync(itemId);
         if (identified.Count == 0)
         {
-            _report($"[clog eval] '{itemId}' — 'identify' returned no match (not carried/visible, or unknown id). Aborting.");
+            _report($"[eval] '{itemId}' — 'identify' returned no match (not carried/visible, or unknown id). Aborting.");
             return;
         }
         if (identified.Count > 1)
         {
-            _report($"[clog eval] '{itemId}' matched {identified.Count} items via 'identify' ({string.Join(", ", identified)})"
+            _report($"[eval] '{itemId}' matched {identified.Count} items via 'identify' ({string.Join(", ", identified)})"
                 + " — that looks like a weapon-class keyword, not one specific item. Re-run eval naming one of those directly. Aborting.");
             AppendLog(new
             {
@@ -94,7 +94,7 @@ public sealed class ItemEvalSession
 
         var resolvedName = identified[0];
         if (!string.Equals(resolvedName, itemId, StringComparison.OrdinalIgnoreCase))
-            _report($"[clog eval] '{itemId}' resolved to '{resolvedName}' via 'identify'.");
+            _report($"[eval] '{itemId}' resolved to '{resolvedName}' via 'identify'.");
 
         // Baseline: read the live merged snapshot directly (MudSession.CurrentStats) rather than
         // sending 'qs' — MUD2's 'qs' reply ("eff str 45  eff dex 61  ...") is a different, terser
@@ -124,7 +124,7 @@ public sealed class ItemEvalSession
 
         var (description, weighLine) = textTask.Result;
         if (description == null)
-            _report($"[clog eval] no description line seen for 'look {resolvedName}' (timed out) — continuing anyway.");
+            _report($"[eval] no description line seen for 'look {resolvedName}' (timed out) — continuing anyway.");
 
         double? weightKg = null;
         if (weighLine != null)
@@ -135,12 +135,12 @@ public sealed class ItemEvalSession
         }
         else
         {
-            _report($"[clog eval] no weight line seen for 'weigh {resolvedName}' (timed out).");
+            _report($"[eval] no weight line seen for 'weigh {resolvedName}' (timed out).");
         }
 
         var stats = statsTask.Result;
         if (stats.Count < 2)
-            _report($"[clog eval] only saw {stats.Count}/2 expected 'sc' stats replies (timed out) — some before/after values may be stale.");
+            _report($"[eval] only saw {stats.Count}/2 expected 'sc' stats replies (timed out) — some before/after values may be stale.");
         var afterDrop = stats.Count >= 1 ? stats[0] : before;
         var afterGet = stats.Count >= 2 ? stats[1] : afterDrop;
 
@@ -288,16 +288,16 @@ public sealed class ItemEvalSession
             ? before.Dexterity.Value - afterDrop.Dexterity.Value : null;
         var restored = afterGet.Strength == before.Strength && afterGet.Dexterity == before.Dexterity;
 
-        _report($"[clog eval] {itemId}"
+        _report($"[eval] {itemId}"
             + (description != null ? $" — {description}" : string.Empty));
-        _report($"[clog eval]   weight: {(weightKg.HasValue ? $"{weightKg.Value:0.###}kg" : "unknown")}");
-        _report($"[clog eval]   str: {before.Strength?.ToString() ?? "?"} -> {afterDrop.Strength?.ToString() ?? "?"}"
+        _report($"[eval]   weight: {(weightKg.HasValue ? $"{weightKg.Value:0.###}kg" : "unknown")}");
+        _report($"[eval]   str: {before.Strength?.ToString() ?? "?"} -> {afterDrop.Strength?.ToString() ?? "?"}"
             + (strCost.HasValue ? $"  ({(strCost.Value >= 0 ? "-" : "+")}{Math.Abs(strCost.Value)} while carried)" : string.Empty));
-        _report($"[clog eval]   dex: {before.Dexterity?.ToString() ?? "?"} -> {afterDrop.Dexterity?.ToString() ?? "?"}"
+        _report($"[eval]   dex: {before.Dexterity?.ToString() ?? "?"} -> {afterDrop.Dexterity?.ToString() ?? "?"}"
             + (dexCost.HasValue ? $"  ({(dexCost.Value >= 0 ? "-" : "+")}{Math.Abs(dexCost.Value)} while carried)" : string.Empty));
         _report(restored
-            ? "[clog eval]   restored (str/dex back to baseline after 'get')."
-            : $"[clog eval]   WARNING: stats did not fully restore after 'get' (str {afterGet.Strength}, dex {afterGet.Dexterity} vs baseline {before.Strength}/{before.Dexterity}) — check inventory.");
+            ? "[eval]   restored (str/dex back to baseline after 'get')."
+            : $"[eval]   WARNING: stats did not fully restore after 'get' (str {afterGet.Strength}, dex {afterGet.Dexterity} vs baseline {before.Strength}/{before.Dexterity}) — check inventory.");
 
         AppendLog(new
         {
@@ -321,8 +321,6 @@ public sealed class ItemEvalSession
 
     private void AppendLog(object entry)
     {
-        if (!_conn.ClogEnabled)
-            return; // eval is only reachable via $clog while clog is on, but guard anyway
         try
         {
             var dir = ClogWriter.GetClogDirectory();

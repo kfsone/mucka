@@ -47,6 +47,26 @@ public sealed class CombatRailView : SKCanvasView
     /// of the track rather than laid beside it, so the row's overall geometry is unchanged and the
     /// toggle occupies space that is reserved whether or not it is switched on (spec rule 3).</summary>
     private const float MetronomeReserve = 26f;
+
+    /// <summary>Width reserved at the RIGHT of every opponent slot for the damage column - what this
+    /// creature hits for, this fight on the name row and across all history on the ladder row.
+    ///
+    /// <para>Reserved, not claimed on demand, which is spec rule 3 and the reason the column exists in
+    /// this shape at all: a figure that only appears once the first blow lands would push the NPC's
+    /// weapon leftward mid-fight, and everything on the panel is laid out so that a state change is
+    /// read as a change of state rather than as movement. The space is taken out of the row the two
+    /// existing elements share, so the slot's own geometry is untouched.</para></summary>
+    private const float DamageColumn = 86f;
+
+    /// <summary>Where the average sits within the column: label at its left edge, average here, worst
+    /// blow at the far right. Right-to-left importance, so the eye lands on the worst case first - it
+    /// is the figure a flee decision turns on when stamina is low.</summary>
+    private const float DamageAvgOffset = 46f;
+
+    /// <summary>Damage at or above this draws bold. Roughly a fifth of a healthy stamina pool in one
+    /// blow - the point at which a creature's output stops being attrition and starts being a countdown
+    /// you have to do arithmetic about.</summary>
+    private const double HeavyBlow = 20.0;
     private const float TickTrackWidth = Content - MetronomeReserve;
     private const float SealSize = 92f;
 
@@ -116,6 +136,12 @@ public sealed class CombatRailView : SKCanvasView
     private readonly SKFont _tinyFont = new(SKTypeface.Default, 7.5f);
     private readonly SKFont _weaponFont = new(SKTypeface.Default, 13f);
     private readonly SKFont _smallFont = new(SKTypeface.Default, 10f);
+    // Weight, not colour, marks a heavy blow: the slot's colours already carry meaning (hostile red for
+    // the enemy, dim for spent) and overloading one of them would make the damage column argue with the
+    // row it sits in. Falls back to the regular face if the platform has no bold cut, in which case the
+    // figure is simply not emphasised - never missing.
+    private readonly SKFont _smallBoldFont = new(
+        SKTypeface.FromFamilyName(SKTypeface.Default.FamilyName, SKFontStyle.Bold) ?? SKTypeface.Default, 10f);
 
     private CombatLiveView _live = CombatLiveView.Idle;
 
@@ -260,15 +286,63 @@ public sealed class CombatRailView : SKCanvasView
         // It used to be drawn as "they: club" in the middle of the player's own weapon column, which
         // put a fact about the enemy inside the block describing you - and in a pack fight could only
         // ever name one of them. A per-participant fact belongs on the participant.
+        //
+        // Right-aligned to the damage column's left edge rather than to the slot's, so the two facts
+        // share the row without either being able to run into the other.
+        var damageLeft = Pad + Content - 8f - DamageColumn;
         if (row.NpcWeapon is { Length: > 0 } npcWeapon)
         {
             _text.Color = Hostile;
             canvas.DrawText(
-                Ellipsize(CombatComposition.DisplayName(npcWeapon), Content * 0.4f, _smallFont),
-                Pad + Content - 8f, y + 17f, SKTextAlign.Right, _smallFont, _text);
+                Ellipsize(CombatComposition.DisplayName(npcWeapon), Content * 0.3f, _smallFont),
+                damageLeft - 10f, y + 17f, SKTextAlign.Right, _smallFont, _text);
         }
 
+        // How hard this thing hits: this fight beside the name, all recorded history beside the health
+        // ladder. Stacked in one column so the pair reads as one measure at two timescales - "it has
+        // taken 7 off me a swing so far, and its kind averages 8 with a worst of 14" - rather than as
+        // four unrelated numbers. The lower row is dimmer because it is the reference, not the news.
+        DrawDamagePair(canvas, damageLeft, y + 17f, "now", row.FightDamage, Hostile);
+        DrawDamagePair(canvas, damageLeft, y + 34f, "ever", row.EverDamage, Dim(Hostile, 0.62f));
+
         DrawHealthLadder(canvas, Pad + 11f, y + 30f, row);
+    }
+
+    /// <summary>
+    /// One timescale of the damage column: a dim label, the average, and the worst single blow.
+    ///
+    /// <para><b>Nothing is drawn without samples</b> - spec rule 5, and the single most important rule
+    /// on this panel. A creature nobody has been hit by yet is not a creature that hits for zero, and
+    /// drawing "0 0" beside a live opponent would be the panel making a confident claim about the one
+    /// thing it does not know. Blank is the honest rendering of unknown.</para>
+    ///
+    /// <para>The average carries a decimal and the worst blow does not. That is not decoration: they
+    /// are different kinds of number - one is derived and one is an observation the game actually
+    /// printed - and giving them the same precision would present them as equally exact.</para>
+    /// </summary>
+    private void DrawDamagePair(SKCanvas canvas, float columnLeft, float baseline, string label,
+        DamageProfile profile, SKColor tone)
+    {
+        if (!profile.HasSamples)
+            return;
+
+        _text.Color = Dim(tone, 0.68f);
+        canvas.DrawText(label, columnLeft, baseline, SKTextAlign.Left, _tinyFont, _text);
+
+        DrawDamageFigure(canvas, columnLeft + DamageAvgOffset, baseline, profile.Average, "0.#", tone);
+        DrawDamageFigure(canvas, columnLeft + DamageColumn, baseline, profile.Max, "0", tone);
+    }
+
+    /// <summary>One figure in the damage column, right-aligned, and bold once it reaches
+    /// <see cref="HeavyBlow"/>.</summary>
+    private void DrawDamageFigure(SKCanvas canvas, float right, float baseline, double value,
+        string format, SKColor tone)
+    {
+        _text.Color = tone;
+        canvas.DrawText(
+            value.ToString(format, System.Globalization.CultureInfo.InvariantCulture),
+            right, baseline, SKTextAlign.Right,
+            value >= HeavyBlow ? _smallBoldFont : _smallFont, _text);
     }
 
     /// <summary>

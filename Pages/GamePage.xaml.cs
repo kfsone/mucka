@@ -139,9 +139,10 @@ public partial class GamePage : ContentPage
     private const double SidePanelWidthDp = 228.0;
 
     // - Combat Rail: the new, additional right-edge panel (DESIGN_FINAL.md D3/2.2) -
-    // Own width constant, deliberately separate from SidePanelWidthDp above. Shown/hidden only by
-    // "$clog on"/"$clog off" (OnOpenClogWindowRequested/OnCloseClogWindowRequested below), which
-    // resize the window by exactly this many DIPs via ResizeWindowForCombatPanel - the ONLY place
+    // Own width constant, deliberately separate from SidePanelWidthDp above. Shown/hidden by the
+    // overflow menu's "Combat Rail" entry, which flips SidePanelViewModel.IsCombatPanelVisible; the
+    // resize by exactly this many DIPs rides that property change (see OnSidePanelPropertyChanged
+    // and ResizeWindowForCombatPanel) - the ONLY place
     // this window resizes for combat-panel reasons. It is never included in
     // PreferredWindowWidthDp/UpdateWindowMinimumWidth below: those compute the LEFT panel + terminal
     // minimum only, so the combat panel's own show/hide never feeds back into "what is the smallest
@@ -308,11 +309,6 @@ public partial class GamePage : ContentPage
                 SendButton.Clicked += OnSendButtonClicked;
                 _vm.OpenRawConsoleRequested += OnOpenRawConsoleRequested;
                 _vm.MapPanelRequested += OnMapPanelRequested;
-                // "$clog on"/"$clog off" now show/hide the docked Combat Rail (and resize the
-                // window by CombatPanelWidthDp) instead of opening/closing a floating window  -
-                // see the two handlers' own remarks below.
-                _vm.OpenClogWindowRequested += OnOpenClogWindowRequested;
-                _vm.CloseClogWindowRequested += OnCloseClogWindowRequested;
                 // Enforce minimum window width based on the configured terminal columns, and
                 // (same handler) drive the Combat Rail's shared pulse layer on tier changes.
                 _vm.SidePanel.PropertyChanged += OnSidePanelPropertyChanged;
@@ -472,8 +468,6 @@ public partial class GamePage : ContentPage
         }
         _vm.OpenRawConsoleRequested -= OnOpenRawConsoleRequested;
         _vm.MapPanelRequested -= OnMapPanelRequested;
-        _vm.OpenClogWindowRequested -= OnOpenClogWindowRequested;
-        _vm.CloseClogWindowRequested -= OnCloseClogWindowRequested;
         _vm.SidePanel.PropertyChanged -= OnSidePanelPropertyChanged;
         CombatPanelGlow.HandlerChanged -= OnCombatPanelGlowHandlerChanged;
         CombatTickSweep.HandlerChanged -= OnCombatTickSweepHandlerChanged;
@@ -1003,6 +997,11 @@ public partial class GamePage : ContentPage
         OverflowMenuOverlay.IsVisible = false;
         _vm.SidePanel.ToggleMapPinnedCommand.Execute(null);
     }
+    private void OnOverflowCombatRail(object? sender, EventArgs e)
+    {
+        OverflowMenuOverlay.IsVisible = false;
+        _vm.SidePanel.ToggleCombatPanelCommand.Execute(null);
+    }
     private void OnOverflowSettings(object? sender, EventArgs e)
     {
         OverflowMenuOverlay.IsVisible = false;
@@ -1266,8 +1265,7 @@ public partial class GamePage : ContentPage
     /// Combat Rail's shared pulse layer whenever its tier changes. Deliberately one handler for
     /// both - they are the same class of "a view-model flag changed, react on the UI thread" work,
     /// and the LEFT panel's own resize-then-refocus dance below is unrelated to (and must not be
-    /// duplicated for) the combat panel's own resize, which lives in
-    /// ResizeWindowForCombatPanel/OnOpenClogWindowRequested/OnCloseClogWindowRequested instead.
+    /// duplicated for) the combat panel's own resize, which lives in ResizeWindowForCombatPanel.
     /// </summary>
     private void OnSidePanelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
@@ -1290,10 +1288,12 @@ public partial class GamePage : ContentPage
             // remarks on why lower/event tiers are static colour only in this implementation phase).
             var isCritical = _vm.SidePanel.PulseTier == MudSharp.Combat.CombatTier.T3;
             _combatPanelPulse?.SetTier(isCritical ? PulseTier.T3 : PulseTier.None);
+            UpdateCombatEdges();
         }
         else if (e.PropertyName == nameof(SidePanelViewModel.Live))
         {
             UpdateCombatTickSweep(_vm.SidePanel.Live);
+            UpdateCombatEdges();
         }
         else if (e.PropertyName == nameof(SidePanelViewModel.IsCombatMetronomeEnabled))
         {
@@ -1306,13 +1306,72 @@ public partial class GamePage : ContentPage
                                 or nameof(SidePanelViewModel.IsCombatGracePeriod)
                                 or nameof(SidePanelViewModel.TickPhaseUtc))
         {
+            // The window grows/shrinks by the rail's own width on the PROPERTY, not on whatever
+            // toggled it. It used to hang off the "$clog on"/"$clog off" handlers, so the rail's own
+            // ToggleCombatPanelCommand - which existed but had nothing bound to it - would have shown
+            // the panel without making room, taking 300dp straight out of the terminal. Now every
+            // route to the property resizes, and there is only one place that knows how.
+            if (e.PropertyName == nameof(SidePanelViewModel.IsCombatPanelVisible))
+                ResizeWindowForCombatPanel(_vm.SidePanel.IsCombatPanelVisible);
+
             // Hiding the rail silences the click, and the post-kill grace window is not a fight.
             // Neither of those raises the Live property, so without watching them directly the
             // metronome carried on through both. TickPhaseUtc joins them because it arrives LATER
             // than combat start - the encounter's first swing is what finally reveals the phase -
             // and both the bar and the click have to re-align to it when it does.
             UpdateCombatTickSweep(_vm.SidePanel.Live);
+            UpdateCombatEdges();
         }
+    }
+
+    /// <summary>Amber while a fight is live. Campbell's normal yellow, NOT the bright yellow the
+    /// chat-mode cue on InputFrame uses - the two borders can be lit at once and sit within a couple
+    /// of pixels of each other, so identical colours would read as one thick rule rather than as two
+    /// separate facts.</summary>
+    private static readonly Color CombatEdgeLive = Color.FromArgb("#C19C00");
+
+    /// <summary>The same bright red the tick meter alarms in. A 1px line needs the bright slot to
+    /// register at all; the Rail's glow uses the dark red because it is filling a whole panel.</summary>
+    private static readonly Color CombatEdgeCritical = Color.FromArgb("#E74856");
+
+    /// <summary>Tracks the colour last applied, so the notification storm (Live republishes on every
+    /// combat event, every heartbeat and every 1 Hz tick) does not set the same brush over and over -
+    /// each set is a property change on the typing path's own visual tree (Invariant #1).</summary>
+    private Color? _combatEdgeColor;
+
+    /// <summary>
+    /// Drives the 1px combat rules around the terminal and the input row.
+    ///
+    /// <para><b>Not during the grace period.</b> InCombat stays true for a few seconds after the last
+    /// tracked opponent dies so a pack straggler can rejoin the same encounter. That is useful
+    /// bookkeeping, but nothing is attacking - and an alarm that outlives the danger is how an alarm
+    /// stops being read. Same rule the tick meter and the metronome already obey.</para>
+    ///
+    /// <para><b>Red at exactly the Rail's own threshold.</b> The switch is PulseTier == T3, which is
+    /// the identical condition driving CombatPanelGlow. Deliberately NOT a stamina number of its own:
+    /// two readouts of one state must never disagree about when it changed, and a second threshold
+    /// here would drift from the Rail's the first time either was tuned.</para>
+    ///
+    /// <para><b>No motion, and that is a rule rather than an omission.</b> The design allows at most
+    /// one T3 element pulsing at a time (DESIGN_FINAL.md 4.2) - the Rail's glow already owns it.
+    /// Three things pulsing on their own phases would be noise, not urgency. These are static colour
+    /// only, which is also why they cost the UI thread nothing (Invariant #1).</para>
+    /// </summary>
+    private void UpdateCombatEdges()
+    {
+        var panel = _vm.SidePanel;
+        var live = panel.Live.InCombat && !panel.IsCombatGracePeriod;
+        var color = !live
+            ? Colors.Transparent
+            : panel.PulseTier == MudSharp.Combat.CombatTier.T3 ? CombatEdgeCritical : CombatEdgeLive;
+
+        if (_combatEdgeColor == color)
+            return;
+        _combatEdgeColor = color;
+
+        var brush = new SolidColorBrush(color);
+        CombatEdgeTerminal.Stroke = brush;
+        CombatEdgeInput.Stroke = brush;
     }
 
     /// <summary>
@@ -1323,9 +1382,15 @@ public partial class GamePage : ContentPage
     /// restarting the animation each time would reset the bar to empty several times a second, which
     /// is exactly the "it doesn't animate" symptom seen from the outside.</para>
     ///
-    /// <para>The sweep is started at the first refresh of a fight, which is close enough to the
-    /// fight's first swing to stay in phase with MUD2's exactly-2.000s tick for the rest of it - see
-    /// TickSweep's remarks on why that is honest but not yet a prediction.</para>
+    /// <para><b>The bar waits for the anchor.</b> Until the encounter's first swing lands there is no
+    /// known phase, so the bar stays empty - exactly the condition the click already obeyed. It used
+    /// to sweep anyway from the moment combat started, but the line that flips InCombat is the reply
+    /// to the player's own <c>kill</c>, so that phase is the KEYSTROKE'S: a measured median ~1.0 s
+    /// away from the real boundary, effectively at random. The bar therefore spent the opening tick
+    /// showing a countdown we had invented, then visibly jumped when the real anchor arrived, while
+    /// the click sat silent through the same window - two instruments on one panel disagreeing in
+    /// front of the player. A blank bar for up to one tick is the honest reading, and it is the price
+    /// of the two being one clock rather than two.</para>
     /// </summary>
     private void UpdateCombatTickSweep(Mucka.ViewModels.CombatLiveView live)
     {
@@ -1333,18 +1398,18 @@ public partial class GamePage : ContentPage
         // this guard - the click must not depend on whether a Composition visual happens to exist.
         if (_combatTickSweep is not null)
         {
-            var shouldSweep = TickIsMeaningful();
             // The anchor is the encounter's first SWING, not the moment combat started - see
             // SidePanelViewModel.TickPhaseUtc for why that is worth ~1 s of accuracy. A change of
             // anchor restarts the sweep even if it was already running, because the first swing is
             // usually the moment we learn the phase was wrong.
             var anchor = _vm.SidePanel.TickPhaseUtc;
+            var shouldSweep = anchor is not null && TickIsMeaningful();
             if (shouldSweep != _tickSweepRunning || (shouldSweep && anchor != _tickPhaseAnchorUtc))
             {
                 _tickSweepRunning = shouldSweep;
                 _tickPhaseAnchorUtc = anchor;
                 if (shouldSweep)
-                    _combatTickSweep.Restart();
+                    _combatTickSweep.Restart(anchor!.Value);
                 else
                     _combatTickSweep.Stop();
             }
@@ -1381,7 +1446,7 @@ public partial class GamePage : ContentPage
     /// The audible tick: <see cref="TickIsMeaningful"/> plus the player having armed it. The rail
     /// being on screen is part of that condition because the metronome's only switch is drawn on the
     /// rail - clicking away while the panel is hidden gives the player a noise whose source they
-    /// cannot see and cannot silence without knowing to type <c>$clog on</c> first.
+    /// cannot see and cannot silence without first finding the rail in the overflow menu.
     /// </summary>
     private void UpdateCombatMetronome()
     {
@@ -1444,9 +1509,9 @@ public partial class GamePage : ContentPage
         if (CombatTickSweep.Handler?.PlatformView is Microsoft.UI.Xaml.FrameworkElement fe)
         {
             _combatTickSweep = TickSweep.Attach(fe);
-            // The handler can appear after a fight has already started (the panel is toggled by
-            // "$clog on", which can happen mid-combat), so adopt the current state rather than
-            // waiting for the next transition.
+            // The handler can appear after a fight has already started (the panel can be toggled
+            // on mid-combat), so adopt the current state rather than waiting for the next
+            // transition.
             _tickSweepRunning = false;
             UpdateCombatTickSweep(_vm.SidePanel.Live);
         }
@@ -2077,52 +2142,65 @@ public partial class GamePage : ContentPage
         Application.Current?.OpenWindow(_mapWindow);
     }
 
-    /// <summary>
-    /// "$clog on": shows the docked Combat Rail and widens the window by CombatPanelWidthDp.
-    /// Replaces the old floating-window behaviour entirely (D1/D2) - there is no second window to
-    /// open any more, just a panel that was already sitting in the XAML tree, hidden.
-    /// </summary>
-    private void OnOpenClogWindowRequested()
-    {
-        if (_vm.SidePanel.IsCombatPanelVisible)
-            return;   // already showing - mirrors the old "reuse existing window" idempotency
-        _vm.SidePanel.IsCombatPanelVisible = true;
-        ResizeWindowForCombatPanel(showing: true);
-    }
-
-    /// <summary>"$clog off": hides the Combat Rail and shrinks the window back by the same amount.</summary>
-    private void OnCloseClogWindowRequested()
-    {
-        if (!_vm.SidePanel.IsCombatPanelVisible)
-            return;
-        _vm.SidePanel.IsCombatPanelVisible = false;
-        ResizeWindowForCombatPanel(showing: false);
-    }
+    /// <summary>True exactly while the window is currently carrying the rail's extra width, and the
+    /// width it had before that was added. Together they make <see cref="ResizeWindowForCombatPanel"/>
+    /// idempotent AND exactly reversible.</summary>
+    private bool _railWidthApplied;
+    private int _widthWithoutRailPx;
 
     /// <summary>
-    /// Grows or shrinks the window by exactly CombatPanelWidthDp, converted to physical pixels at
-    /// the window's current DPI. Deliberately a DELTA on the window's CURRENT size rather than a
-    /// recompute from PreferredWindowWidthDp: the terminal's column count and the left panel's
-    /// width must never change as a side effect of this toggle (DESIGN_FINAL.md D3) - only the
-    /// combat panel's own space should appear/disappear. This is the ONLY place the window resizes
-    /// for a combat-panel reason; it never resizes on combat start/end.
+    /// Grows or shrinks the window by exactly CombatPanelWidthDp so the rail's space appears and
+    /// disappears without the terminal's column count or the left panel's width changing as a side
+    /// effect (DESIGN_FINAL.md D3). This is the ONLY place the window resizes for a combat-panel
+    /// reason; it never resizes on combat start/end.
+    ///
+    /// <para><b>Restores a remembered width rather than subtracting.</b> It used to add a delta on
+    /// the way in and subtract one on the way out, which is only reversible if the subtraction is
+    /// never clamped - and it is clamped, by <c>_minWindowWidthPx</c>. A window already at its
+    /// minimum therefore grew by the rail's width on every show and shrank by nothing on every hide,
+    /// so the width ratcheted up once per toggle and never came back down. That was survivable while
+    /// the only way to toggle was typing "$clog on"; it is not survivable now the toggle is a menu
+    /// item next to Onlines and Compass.</para>
+    ///
+    /// <para>Idempotent for the same reason: a duplicate or spurious notification must not be able to
+    /// add the width twice. The guard is on what the WINDOW is currently carrying, not on the
+    /// view-model flag, because those are what can disagree.</para>
     /// </summary>
     private void ResizeWindowForCombatPanel(bool showing)
     {
         if (_hwnd == IntPtr.Zero) return;
+        if (showing == _railWidthApplied) return;
         var nativeWindow = Window?.Handler?.PlatformView as Microsoft.UI.Xaml.Window;
         if (nativeWindow is null) return;
 
         var dpi = GetDpiForWindow(_hwnd);
         var deltaPx = (int)Math.Round(CombatPanelWidthDp * dpi / 96.0);
         var appWindow = nativeWindow.AppWindow;
-        var targetWidth = showing
-            ? appWindow.Size.Width + deltaPx
-            : Math.Max(_minWindowWidthPx, appWindow.Size.Width - deltaPx);
-        appWindow.Resize(new Windows.Graphics.SizeInt32(targetWidth, appWindow.Size.Height));
+
+        int targetWidth;
+        if (showing)
+        {
+            // Remembered on the way in so the way out is an exact restore, whatever the user has
+            // done to the window in between.
+            _widthWithoutRailPx = appWindow.Size.Width;
+            targetWidth = _widthWithoutRailPx + deltaPx;
+        }
+        else
+        {
+            targetWidth = _widthWithoutRailPx > 0
+                ? _widthWithoutRailPx
+                : Math.Max(_minWindowWidthPx, appWindow.Size.Width - deltaPx);
+            _widthWithoutRailPx = 0;
+        }
+        _railWidthApplied = showing;
+
+        if (targetWidth < _minWindowWidthPx)
+            targetWidth = _minWindowWidthPx;
+        if (appWindow.Size.Width != targetWidth)
+            appWindow.Resize(new Windows.Graphics.SizeInt32(targetWidth, appWindow.Size.Height));
 
         // Same race as OnSidePanelPropertyChanged's left-panel resize above: the resize itself can
-        // land keyboard focus elsewhere after $clog's own RequestFocus already fired. Re-assert once
+        // land keyboard focus elsewhere after the toggle command's own RequestFocus already fired. Re-assert once
         // the resize/re-layout has settled (Invariant #0).
         Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(50), () =>
         {

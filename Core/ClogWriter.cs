@@ -22,10 +22,10 @@ namespace Mucka.Core;
 /// needs, per the user's request to keep these lightweight enough to accumulate over many
 /// sessions.</para>
 ///
-/// <para>Opt-in via <see cref="SetEnabled"/> (the "$clog on"/"$clog off" command — see
-/// GameViewModel). Disabled by default: encounters are only recorded, and the item-eval
-/// ("$clog eval") data collection only writes to items.jsonl, while a session has explicitly
-/// turned clogging on.</para>
+/// <para>Always on. It used to be opt-in behind a "$clog on" command, which meant the evidence was
+/// missing precisely when something interesting had just happened and the player had not thought to
+/// arm it beforehand - the same argument the fight history and the swing ledger already settle the
+/// same way. A clog is small and the pre-roll buffer costs a bounded queue per line.</para>
 ///
 /// <para>Threading: all On* methods are called from MudSession's Feed thread (same contract as
 /// EffectTracker/CombatTracker — see MudSession's class doc comment). Does not touch UI types.</para>
@@ -60,49 +60,11 @@ public sealed class ClogWriter : IDisposable
     private StatusEffectState _lastEffects = StatusEffectState.Empty;
     private string? _lastRoom;
 
-    // Off by default: clogging (and the item-eval data collection it enables) is now an
-    // opt-in "$clog on" session, not an always-on background feature — see GameViewModel's
-    // $clog command. Gates Start/Stop and the pre-roll buffer entirely so an idle, un-clogged
-    // session does zero extra work per line.
-    private bool _enabled;
-
-    public bool Enabled => _enabled;
     public bool IsRecording { get; private set; }
     public string? FilePath { get; private set; }
 
-    /// <summary>Turn clogging on/off (the "$clog on"/"$clog off" command). Disabling while an
-    /// encounter is mid-recording closes it immediately (writes encounter_end) so a clog file
-    /// is never left dangling because the user turned clogging off mid-fight.</summary>
-    public void SetEnabled(bool enabled)
-    {
-        if (OperatingSystem.IsAndroid() && enabled)
-            enabled = false; // Android keeps clogging explicitly disabled for now.
-
-        lock (_lock)
-        {
-            if (_enabled == enabled)
-                return;
-            _enabled = enabled;
-            if (!_enabled && IsRecording)
-                Stop();
-        }
-    }
-
-    /// <summary>Human-readable status line for "$clog" / "$clog status".</summary>
-    public string DescribeStatus()
-    {
-        lock (_lock)
-        {
-            if (!_enabled)
-                return "off (use '$clog on' to start recording combat encounters)";
-            return IsRecording
-                ? $"on — recording {FilePath}"
-                : "on — armed, waiting for the next encounter";
-        }
-    }
-
-    /// <summary>~/.mucka/clogs (desktop) — shared by encounter clogs and the "$clog eval"
-    /// item-stats log (items.jsonl), so both live side by side under the same opt-in toggle.</summary>
+    /// <summary>~/.mucka/clogs (desktop) - shared by encounter clogs and the "$eval" item-stats log
+    /// (items.jsonl), so both live side by side.</summary>
     internal static string GetClogDirectory()
     {
         // Desktop: literally ~/.mucka/clogs, matching the offline research tooling's
@@ -110,16 +72,29 @@ public sealed class ClogWriter : IDisposable
         if (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS() || OperatingSystem.IsMacCatalyst())
             return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".mucka", "clogs");
 
-        // Mobile: no home-directory concept — use the platform cache directory instead,
+        // Mobile: no home-directory concept - use the platform cache directory instead,
         // same rationale as SessionCapture.GetCaptureDirectory.
         return Path.Combine(FileSystem.Current.CacheDirectory, "mucka", "clogs");
+    }
+
+    /// <summary>Where the combat database lives - ~/.mucka/combat on desktop, matching the offline
+    /// tooling's own convention (tools/combat writes its reduced combat.db into the same directory),
+    /// and the platform cache directory on mobile for the same reason
+    /// <see cref="GetClogDirectory"/> uses it. Here rather than on CombatDb so that type stays free of
+    /// MAUI references and remains linkable into mudsharp.Tests.</summary>
+    internal static string GetCombatDirectory()
+    {
+        if (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS() || OperatingSystem.IsMacCatalyst())
+            return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".mucka", "combat");
+
+        return Path.Combine(FileSystem.Current.CacheDirectory, "mucka", "combat");
     }
 
     /// <summary>Feed every non-combat line so the pre-roll buffer stays fresh. Cheap: a bounded
     /// queue, no allocation beyond the string already produced by the parser.</summary>
     public void OnLineReady(StyledLine line)
     {
-        if (!_enabled || IsRecording)
+        if (IsRecording)
             return; // combat lines are recorded via OnCombatEvent instead — no double-logging
         var text = line.PlainText;
         if (string.IsNullOrEmpty(text))
@@ -139,8 +114,6 @@ public sealed class ClogWriter : IDisposable
     /// <summary>Wire directly to MudSession/MuckaConnection's InCombatChanged.</summary>
     public void OnInCombatChanged(bool inCombat)
     {
-        if (!_enabled)
-            return;
         if (inCombat)
             Start();
         else

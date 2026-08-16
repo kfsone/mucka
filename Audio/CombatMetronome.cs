@@ -31,21 +31,32 @@ internal sealed class CombatMetronome : IDisposable
     /// visibly separate within a dozen ticks.</summary>
     private const int TickMilliseconds = 2000;
 
-    /// <summary>How far ahead of the boundary the high click sits - "the update is about to
-    /// land".</summary>
-    private const int LeadMilliseconds = 100;
+    /// <summary>
+    /// How far ahead of the boundary the high click sits - "the update is about to land".
+    ///
+    /// <para>Wide on purpose. At the original 100 ms the two clicks sat 300 ms apart with the
+    /// boundary buried between them, and the pair read as one event rather than as a bracket around
+    /// the turn's end. A quarter-second of warning is enough to be heard AS warning - it is about the
+    /// length of a spoken syllable - while still being unmistakably part of the same beat as the
+    /// trailing click rather than a separate one.</para>
+    /// </summary>
+    private const int LeadMilliseconds = 275;
 
     /// <summary>
     /// How far after the boundary the low click sits - "it has landed, this is your turn".
     ///
-    /// <para>Deliberately NOT symmetric with the lead. Swing text arrives on a one-sided late tail:
-    /// 88% within 25 ms of the lattice, but ~9% between 120 and 196 ms late. A trailing click at
-    /// +100 ms would therefore fire BEFORE the text it claims has arrived on roughly one swing-
-    /// carrying tick in sixteen. At +200 it clears the measured worst case, so the claim is true every
-    /// time. A marker that means "it is here" has to be right about that or it is worse than
-    /// nothing.</para>
+    /// <para>Deliberately NOT symmetric with the lead: the pair has to be heard as bracketing the
+    /// boundary, and a close trailing click is what pins the boundary to a definite instant. The wide
+    /// lead announces, the tight trail marks.</para>
+    ///
+    /// <para><b>Known tradeoff.</b> Swing text arrives on a one-sided late tail: 88% within 25 ms of
+    /// the lattice, but ~9% between 120 and 196 ms late. At +100 the low click therefore precedes the
+    /// text it marks on roughly one swing-carrying tick in eleven. The earlier +200 cleared that worst
+    /// case, at the cost of a bracket too wide and too late to read as one. Being right about the
+    /// TICK, and near-always right about the text, was judged the better trade; if the early-marker
+    /// case turns out to be audible in play, this is the number to move back.</para>
     /// </summary>
-    private const int TrailMilliseconds = 200;
+    private const int TrailMilliseconds = 100;
 
     private const string HighClick = "sounds/Perc_Stick_hi.wav";
     private const string LowClick = "sounds/Perc_Stick_lo.wav";

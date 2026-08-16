@@ -51,6 +51,7 @@
                                 <MenuFlyoutItem Text="Side Panel" Clicked="OnOverflowTogglePanel"/>
                                 <MenuFlyoutItem Text="Onlines" Clicked="OnOverflowOnlines"/>
                                 <MenuFlyoutItem Text="Compass" Clicked="OnOverflowCompass"/>
+                                <MenuFlyoutItem Text="Combat Rail" Clicked="OnOverflowCombatRail"/>
                                 <MenuFlyoutItem Text="Settings" Clicked="OnOverflowSettings"/>
                                 <MenuFlyoutItem Text="About" Clicked="OnOverflowAbout"/>
                             </MenuFlyout>
@@ -393,6 +394,21 @@
                                  BackgroundColor="#0C0C0C"
                                  HorizontalOptions="Fill"
                                  VerticalOptions="Fill"/>
+
+            <!-- Combat edge (see GamePage.xaml.cs UpdateCombatEdges). A 1px rule that is invisible
+                 out of combat, amber while a fight is live, and red at the same instant the Combat
+                 Rail's own glow goes red.
+
+                 An OVERLAY in the same cell rather than a Border wrapped around the terminal: a
+                 wrapper would inset the terminal by a pixel the moment it appeared, reflowing the
+                 text grid mid-fight, and the whole panel grammar is that a state change is read as a
+                 change of state, never as movement. Always present, only ever recoloured, so it
+                 costs no layout at all. InputTransparent so it cannot intercept a click destined for
+                 the terminal (Invariant #0). -->
+            <Border x:Name="CombatEdgeTerminal"
+                    Stroke="Transparent" StrokeThickness="1"
+                    BackgroundColor="Transparent"
+                    InputTransparent="True"/>
 
             <!-- Transient confirmation toast (copies, settings saves), overlaid top-right of the terminal view. -->
             <Border Grid.Column="0"
@@ -794,6 +810,24 @@
 
         </Grid>
 
+        <!-- Combat edge for the input row - twin of CombatEdgeTerminal above; the two are driven
+             together by UpdateCombatEdges and always agree.
+
+             A SIBLING of the input row rather than a child of it, so it traces the panel's real
+             outer edge instead of sitting inside that row's 4,2 padding. (As a child it needed a
+             negative margin to reach the edge, which risks being clipped to nothing - an alarm that
+             silently fails to draw is worse than no alarm.)
+
+             On the row, never on InputFrame: that Border's stroke is already spoken for by the
+             chat-mode cue, in Campbell bright yellow. Sharing one stroke would render "in combat"
+             and "in combat, in chat mode" identically, one cue silently overwriting the other
+             exactly when both matter most. Two elements, two facts. -->
+        <Border Grid.Row="2"
+                x:Name="CombatEdgeInput"
+                Stroke="Transparent" StrokeThickness="1"
+                BackgroundColor="Transparent"
+                InputTransparent="True"/>
+
         </Grid>
 
         <!-- ── Side panel — left edge, runs scrollback through input row ── -->
@@ -1105,11 +1139,10 @@
 
         <!-- - Combat panel - NEW, additional panel on the RIGHT edge, off by default -
              DESIGN_FINAL.md D3/2.2 (corrected). This is NOT the left SidePanelBorder above widened;
-             it is a wholly separate panel with its own width, shown/hidden only by "$clog on"/
-             "$clog off" (GameViewModel.SetClogEnabled -> GamePage's OnOpenClogWindowRequested/
-             OnCloseClogWindowRequested, which now toggle this panel and resize the window by
-             CombatPanelWidthDp instead of opening a floating window). The window never resizes for
-             any other reason - not combat start, not combat end. -->
+             it is a wholly separate panel with its own width, shown/hidden by the overflow menu's
+             "Combat Rail" entry (SidePanel.ToggleCombatPanelCommand -> IsCombatPanelVisible, whose
+             change drives GamePage's ResizeWindowForCombatPanel). The window never resizes for any
+             other reason - not combat start, not combat end. -->
         <Border Grid.Column="2"
                 x:Name="CombatPanelBorder"
                 IsVisible="{Binding SidePanel.IsCombatPanelVisible}"
@@ -1418,6 +1451,22 @@
                                    VerticalOptions="Center"
                                    IsVisible="{Binding SidePanel.IsFloatingMapVisible}"/>
                             <Label Grid.Column="1" Text="Compass" TextColor="White" FontSize="14"/>
+                        </Grid>
+                    </Border>
+                    <BoxView Color="#2d333b" HeightRequest="1"/>
+                    <!-- Combat Rail: same live-state toggle as the three above. Replaces "$clog on"/
+                         "$clog off", which used to both arm clogging AND show this panel - two
+                         unrelated things behind one switch. Clogging is now always on, so all that
+                         is left is the panel, and a panel belongs with the other panels. -->
+                    <Border Padding="16,14" BackgroundColor="Transparent">
+                        <Border.GestureRecognizers>
+                            <TapGestureRecognizer Command="{Binding SidePanel.ToggleCombatPanelCommand}"/>
+                        </Border.GestureRecognizers>
+                        <Grid ColumnDefinitions="24,*">
+                            <Label Grid.Column="0" Text="&#x2713;" TextColor="#3fb950" FontSize="14"
+                                   VerticalOptions="Center"
+                                   IsVisible="{Binding SidePanel.IsCombatPanelVisible}"/>
+                            <Label Grid.Column="1" Text="Combat Rail" TextColor="White" FontSize="14"/>
                         </Grid>
                     </Border>
                     <BoxView Color="#2d333b" HeightRequest="1"/>
