@@ -26,10 +26,10 @@ namespace Mucka.Audio;
 /// </summary>
 internal sealed class CombatMetronome : IDisposable
 {
-    /// <summary>One MUD2 combat tick. Deliberately the same measured constant the visual sweep uses -
-    /// see <c>Mucka.Rendering.TickSweep</c>. If these two ever disagree, the click and the bar will
-    /// visibly separate within a dozen ticks.</summary>
-    private const int TickMilliseconds = 2000;
+    /// <summary>One MUD2 combat tick - shared with <c>Mucka.Rendering.TickSweep</c> via
+    /// <see cref="Mucka.Core.CombatTiming.TickMilliseconds"/> so the click and the bar can never
+    /// independently drift apart.</summary>
+    private const int TickMilliseconds = (int)Mucka.Core.CombatTiming.TickMilliseconds;
 
     /// <summary>
     /// How far ahead of the boundary the high click sits - "the update is about to land".
@@ -50,7 +50,8 @@ internal sealed class CombatMetronome : IDisposable
     /// lead announces, the tight trail marks.</para>
     ///
     /// <para><b>Known tradeoff.</b> Swing text arrives on a one-sided late tail: 88% within 25 ms of
-    /// the lattice, but ~9% between 120 and 196 ms late. At +100 the low click therefore precedes the
+    /// the lattice, but ~9% between 120 and 196 ms late (source analysis:
+    /// tools/combat/archive/TICK-PHASE-REVIEW.md). At +100 the low click therefore precedes the
     /// text it marks on roughly one swing-carrying tick in eleven. The earlier +200 cleared that worst
     /// case, at the cost of a bracket too wide and too late to read as one. Being right about the
     /// TICK, and near-always right about the text, was judged the better trade; if the early-marker

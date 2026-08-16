@@ -403,7 +403,10 @@ design until the owner says so.
 
 - Flee cost, flee statistics, points at risk, or a "free to flee" band **in any form**.
   The player knows fleeing hurts; a price tag at the decision moment is cognitive burden.
-  `FleeCostLadder` is retained as documented domain knowledge and drives no UI.
+  `FleeCostLadder` (the class that once computed this) has been deleted outright - not retained,
+  not gated behind a flag. See DESIGN_FINAL.md D15. The two stamina thresholds it used (20, 6.5)
+  survive only as `CombatTierResolver.WarningStaminaThreshold`/`CriticalStaminaThreshold`, which
+  drive risk tiers, not a cost figure.
 - The fled-NPC / chase surface. Nothing can be done about it mid-fight, so showing it then is
   cognitively antagonistic. It belongs to a post-combat view.
 - Anything labelled "Exits" - the word means something else in MUD.

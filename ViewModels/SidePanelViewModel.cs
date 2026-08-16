@@ -468,13 +468,11 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
                 ObjectsCarried: LiveObjectsCarried,
                 // Absolute effective/max strength+dexterity, for the Combat Rail's encumbrance-tier
                 // signal (DESIGN_FINAL.md 4.3), which needs fraction-of-max rather than the
-                // delta-from-raw the fields above already served. Score rides along for the flee-cost
-                // ladder's points column (5.5) - same snapshot, no new capture.
+                // delta-from-raw the fields above already served.
                 StrengthEffective: stats.Strength,
                 StrengthMax: stats.MaxStrength,
                 DexterityEffective: stats.Dexterity,
                 DexterityMax: stats.MaxDexterity,
-                Score: stats.Score,
                 MagicCurrent: stats.CurrentMagic,
                 MagicMax: stats.MaxMagic);
             // Same reasoning as OnCombatEvent above: this fires on every FES heartbeat, which is
@@ -549,9 +547,9 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
 
     /// <summary>
     /// Computes the Combat Rail's genuinely NEW content (DESIGN_FINAL.md, this implementation
-    /// phase): the flee-cost ladder + risk pairing (5.3/5.4), the plain-language "why" line (3.8),
-    /// and the tier driving the shared pulse layer (4.2/4.3/4.4). Kept separate from
-    /// <see cref="CombatHistoryFormatter"/> deliberately - that class's content (survivability,
+    /// phase): the threat indicator (4.7/D14), the plain-language "why" line (3.8), and the tier
+    /// driving the shared pulse layer (4.2/4.3/4.4). Kept separate from the deleted
+    /// <c>CombatHistoryFormatter</c> deliberately - that class's content (survivability,
     /// participants, exchange, history comparison, weapon table, session totals) is salvaged as-is
     /// per the brief; this is the new layer built on top of it.
     /// </summary>
@@ -682,13 +680,14 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             ? CombatTier.T3
             : fightTier == CombatTier.T3 ? CombatTier.T2 : fightTier;
 
-        // No flee-cost figure is computed or published here, deliberately. The owner's instruction is
-        // explicit: "We don't need to be telling/showing the player the flee statistics - that's
-        // stupid cognitive burden." The player already knows fleeing is expensive - one accidental
-        // flee from a zombie at 90/100 stamina cost 1300 of 13,000 points and a level. What the panel
-        // owes them is the zone signal (staminaTier, above) and a valid direction to run, not a price
-        // tag to read while deciding. FleeCostLadder is retained as documented domain knowledge so
-        // nobody re-introduces a "fleeing is cheap here" affordance; it drives no UI.
+        // No flee-cost figure is computed or published here, and never will be (DESIGN_FINAL.md D15):
+        // the owner's instruction is explicit - "We don't need to be telling/showing the player the
+        // flee statistics - that's stupid cognitive burden." The player already knows fleeing is
+        // expensive - one accidental flee from a zombie at 90/100 stamina cost 1300 of 13,000 points
+        // and a level. What the panel owes them is the zone signal (staminaTier, above) and a valid
+        // direction to run, not a price tag to read while deciding, so no code computing a cost
+        // figure is kept "just in case" either - see D15/D16 for the panel's full cognitive-load
+        // design tenets (fixed layout, unambiguous cues, sub-second glance budget).
         _whyText = BuildWhyText(snapshot, deficits, history, primary, nowUtc);
 
         var threat = ThreatIndicator.Resolve(

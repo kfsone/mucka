@@ -288,8 +288,8 @@ opposite of the PvE instinct that fleeing is merely a personal cost.
 This stays out of the UI. `COMBAT-RAIL-SPEC.md` section 10 puts flee cost out of scope
 permanently: the player knows fleeing is expensive, and a price tag at the decision moment is
 cognitive burden at the worst possible instant. This table is documented so nobody
-re-introduces a "fleeing is cheap here" affordance, which is the same reason
-`FleeCostLadder` is retained and drives nothing.
+re-introduces a "fleeing is cheap here" affordance - the same reason `FleeCostLadder`, the class
+that once computed this, was deleted outright rather than kept dormant (DESIGN_FINAL.md D15).
 
 ## 7. Per-creature stats
 

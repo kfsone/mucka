@@ -81,9 +81,10 @@ public sealed record FightRecord
     /// v2+ only.</summary>
     public int? StaminaAtEnd { get; init; }
 
-    /// <summary>Player score at the instant this fight began. Needed for the flee-cost ladder's
-    /// economics work (DESIGN_FINAL.md section 5) - dropped entirely before format v2. Format v2+
-    /// only.</summary>
+    /// <summary>Player score at the instant this fight began. Captured for the combat-log research
+    /// tooling under tools/combat/ - score-at-risk per fight is exactly the kind of variable that
+    /// tooling needs to surface (e.g. a specific weapon/creature pairing costing more than usual).
+    /// Not currently read by any shipped UI. Format v2+ only.</summary>
     public int? ScoreAtStart { get; init; }
 
     /// <summary>Player score as of the last reading observed while this fight was still open. Format

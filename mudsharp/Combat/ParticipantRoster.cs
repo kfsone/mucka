@@ -6,7 +6,7 @@ namespace MudSharp.Combat;
 /// project does not and must not reference (mudsharp is the plain class library mudsharp.Tests links
 /// against via a ProjectReference with zero MAUI dependency). This keeps the decision pure,
 /// primitive-typed, and directly testable, matching <see cref="CombatTierResolver"/>/
-/// <see cref="FleeCostLadder"/>/<see cref="CombatWhyLine"/>'s own pattern in this same folder.
+/// <see cref="CombatWhyLine"/>'s own pattern in this same folder.
 /// </summary>
 /// <param name="HealthRung">How hurt it last looked, 1 (about to die) to 7 (unhurt), or null if the
 /// game has never said. See <see cref="NpcHealthRungs"/>.</param>

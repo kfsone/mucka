@@ -48,10 +48,10 @@ namespace Mucka.Rendering;
 /// </summary>
 internal sealed class TickSweep
 {
-    /// <summary>One MUD2 combat tick. Measured, not chosen: swing gaps across the whole capture
-    /// corpus are exact multiples of this, with 76-94% of a session's swings landing in a single
-    /// 20 ms bin.</summary>
-    private const double TickMilliseconds = 2000.0;
+    /// <summary>One MUD2 combat tick - shared with <see cref="Mucka.Audio.CombatMetronome"/> via
+    /// <see cref="Mucka.Core.CombatTiming.TickMilliseconds"/> so the bar and the click can never
+    /// independently drift apart.</summary>
+    private const double TickMilliseconds = Mucka.Core.CombatTiming.TickMilliseconds;
 
     private readonly FrameworkElement _host;
     private readonly Visual _visual;

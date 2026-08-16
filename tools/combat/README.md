@@ -98,6 +98,18 @@ overwrite a file bigger than the template), since a bigger file almost certainly
 hand-written notes the template does not reproduce. Pass `--force-notes-overwrite` in addition
 only if you are certain you want to discard that content.
 
+Test every claim in `MUD2-PUBLISHED-MECHANICS.md` against the capture corpus and print a
+SUPPORTED/REFUTED/INCONCLUSIVE/INSUFFICIENT DATA verdict per claim, with sample sizes so it is
+obvious when a verdict has earned an upgrade. Meant to be re-run as more sessions accumulate, not
+a one-off:
+
+```bash
+uv run tools/combat/verify_mechanics.py
+uv run tools/combat/verify_mechanics.py --db path/to/combat.db
+uv run tools/combat/verify_mechanics.py --db verify.db --claim knees --claim damage
+uv run tools/combat/verify_mechanics.py --list
+```
+
 ## Current detection rules
 
 - Combat starts on `08` family protocol events, never on room text or NPC presence.

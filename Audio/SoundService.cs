@@ -133,11 +133,16 @@ internal static class SoundService
     }
 
     /// <summary>Opens a sound for <see cref="PlayPrepared"/> ahead of time, so the first click of a
-    /// fight does not pay the open cost. Cheap, idempotent, and a no-op off Windows.</summary>
+    /// fight does not pay the open cost. Idempotent and a no-op off Windows. <c>GetPreparedPlayer</c>
+    /// (Windows-only, so not a resolvable cref from a cross-platform doc comment) does a synchronous
+    /// <c>File.Exists</c> plus WinRT <c>MediaPlayer</c>/<c>MediaSource</c> construction, so it is
+    /// dispatched to the thread pool here rather than run on whatever thread calls this (Invariant
+    /// #1) - callers include page setup on the UI thread, since the metronome is enabled by
+    /// default.</summary>
     public static void PrepareSound(string assetName)
     {
 #if WINDOWS
-        _ = GetPreparedPlayer(assetName);
+        _ = Task.Run(() => GetPreparedPlayer(assetName));
 #endif
     }
 

@@ -19,7 +19,7 @@ public enum CombatTier
 /// <summary>
 /// Resolves per-signal tiers per DESIGN_FINAL.md section 4.3, plus the two rules in 4.2/4.4 that are
 /// stateful or cross-cutting enough to need a home: the bracket-crossing hysteresis latches (4.2's
-/// last bullet) and the flee-cost hard floor (4.4). Everything else here is a pure, stateless
+/// last bullet) and the critical-stamina hard floor (4.4). Everything else here is a pure, stateless
 /// function of primitives - testable directly, and MAUI-independent so mudsharp.Tests can exercise
 /// it via the existing ProjectReference with no test-project wiring.
 ///
@@ -30,16 +30,25 @@ public enum CombatTier
 /// </summary>
 public sealed class CombatTierResolver
 {
+    /// <summary>Stamina at/below which the player is close enough to permadeath that the panel must
+    /// never read calmer than T2, whatever else it would otherwise say (D15/4.4). Not a cost figure -
+    /// this codebase shows no flee economics of any kind, in any form (D15).</summary>
+    public const double CriticalStaminaThreshold = 6.5;
+
+    /// <summary>Stamina below which the fight has entered the zone worth a first look - the boundary
+    /// the E1 bracket-crossing flash fires on (4.3's last row).</summary>
+    public const double WarningStaminaThreshold = 20.0;
+
     private bool _below20Armed = true;
     private bool _below6_5Armed = true;
 
-    /// <summary>UTC time of the most recent downward crossing of the 20-stamina bracket, or null if
-    /// none has happened (or it has since re-armed by rising back above 20). Drives the E1 "flee-cost
-    /// crossing a bracket" flash (4.3's last row) - the caller compares this against
+    /// <summary>UTC time of the most recent downward crossing of <see cref="WarningStaminaThreshold"/>,
+    /// or null if none has happened (or it has since re-armed by rising back above it). Drives the E1
+    /// bracket-crossing flash (4.3's last row) - the caller compares this against
     /// <c>DateTime.UtcNow</c> and decays the flash after ~1.5s (4.2's E1 duration).</summary>
     public DateTime? Below20CrossedUtc { get; private set; }
 
-    /// <summary>Same as <see cref="Below20CrossedUtc"/> for the 6.5 (free-flee) bracket.</summary>
+    /// <summary>Same as <see cref="Below20CrossedUtc"/> for <see cref="CriticalStaminaThreshold"/>.</summary>
     public DateTime? Below6_5CrossedUtc { get; private set; }
 
     public void Reset()
@@ -62,7 +71,7 @@ public sealed class CombatTierResolver
         // Exactly AT a boundary is deliberately neither "below" (no new crossing to fire) nor
         // "strictly above" (no re-arm either) - 4.2 says re-arming needs stamina strictly above the
         // boundary, so sitting exactly on it leaves whichever state the latch was already in alone.
-        if (staminaCurrent < FleeCostLadder.CeilingThreshold)
+        if (staminaCurrent < WarningStaminaThreshold)
         {
             if (_below20Armed)
             {
@@ -70,12 +79,12 @@ public sealed class CombatTierResolver
                 _below20Armed = false;
             }
         }
-        else if (staminaCurrent > FleeCostLadder.CeilingThreshold)
+        else if (staminaCurrent > WarningStaminaThreshold)
         {
             _below20Armed = true;
         }
 
-        if (staminaCurrent < FleeCostLadder.FreeThreshold)
+        if (staminaCurrent < CriticalStaminaThreshold)
         {
             if (_below6_5Armed)
             {
@@ -83,7 +92,7 @@ public sealed class CombatTierResolver
                 _below6_5Armed = false;
             }
         }
-        else if (staminaCurrent > FleeCostLadder.FreeThreshold)
+        else if (staminaCurrent > CriticalStaminaThreshold)
         {
             _below6_5Armed = true;
         }
@@ -146,14 +155,15 @@ public sealed class CombatTierResolver
     }
 
     /// <summary>
-    /// The FLEE COST block's hard floor (4.4): at or below 6.5 stamina it renders at no less than T2
-    /// Pulse-Danger, full stop, regardless of what the stamina tier table would otherwise say from
-    /// hits-left/time-to-die alone. The table can still promote it to T3; nothing is permitted to
-    /// render it below T2 while stamina sits at/under the free-flee threshold.
+    /// The critical-stamina hard floor (4.4): at or below <see cref="CriticalStaminaThreshold"/> the
+    /// panel renders at no less than T2 Pulse-Danger, full stop, regardless of what the stamina tier
+    /// table would otherwise say from hits-left/time-to-die alone - the player is 1-2 hits from
+    /// permadeath here whatever else is true. The table can still promote it to T3; nothing is
+    /// permitted to render it lower.
     /// </summary>
-    public static CombatTier FleeCostBlockTier(CombatTier staminaTier, double staminaCurrent)
+    public static CombatTier CriticalStaminaFloorTier(CombatTier staminaTier, double staminaCurrent)
     {
-        if (staminaCurrent <= FleeCostLadder.FreeThreshold && staminaTier < CombatTier.T2)
+        if (staminaCurrent <= CriticalStaminaThreshold && staminaTier < CombatTier.T2)
             return CombatTier.T2;
         return staminaTier;
     }

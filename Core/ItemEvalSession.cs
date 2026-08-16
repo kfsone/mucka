@@ -319,7 +319,12 @@ public sealed class ItemEvalSession
         });
     }
 
-    private void AppendLog(object entry)
+    // $eval is invoked fire-and-forget from the UI thread and this method's callers never
+    // ConfigureAwait(false) their way off it, so the synchronous file write below is pushed onto
+    // the thread pool explicitly (Invariant #1) rather than relying on the caller's thread. $eval
+    // is a rare manual debug command, not a typing-path hazard, but there is no reason to risk a
+    // hitch for it either.
+    private void AppendLog(object entry) => Task.Run(() =>
     {
         try
         {
@@ -332,5 +337,5 @@ public sealed class ItemEvalSession
         {
             // Best-effort — never disrupt play over eval-log I/O failures.
         }
-    }
+    });
 }

@@ -33,10 +33,9 @@ public sealed class FightHistoryRecorder : IDisposable
     // When _currentWeapon was last confirmed, so an equip seen just before the client noticed the
     // fight can be carried into it while a stale one is discarded. See the use in OnInCombatChanged.
     private DateTime _currentWeaponUtc;
-    private static readonly TimeSpan PendingWeaponWindow = TimeSpan.FromSeconds(5);
-    private int? _lastKnownStamina;
-    private int? _pendingPreUpdateStamina;
-    // Last score observed via the FES heartbeat. Unlike _lastKnownStamina this needs no
+    private static readonly TimeSpan PendingWeaponWindow = CombatTiming.PendingWeaponWindow;
+    private readonly StaminaDeltaRelay _staminaRelay = new();
+    // Last score observed via the FES heartbeat. Unlike the stamina relay this needs no
     // pending-relay dance: score has no "double-parsed on the same line" hazard the way an inline
     // "(cur/max)" stamina delta does, so a plain carried-forward value is honest as-is.
     private int? _lastKnownScore;
@@ -128,7 +127,7 @@ public sealed class FightHistoryRecorder : IDisposable
                 _fights.Clear();
                 _fightOrder.Clear();
                 // Adopt a weapon equipped moments before the client noticed the fight. Same problem
-                // CombatStatsAggregator.PendingWeaponWindow documents, reached by a different route:
+                // Mucka.Core.CombatTiming.PendingWeaponWindow documents, reached by a different route:
                 // this class does process events while out of combat, but clearing here threw the
                 // weapon away again, so history recorded UNARMED for fights fought with a broadsword.
                 // Display and history have to agree, and both have to be right.
@@ -364,44 +363,17 @@ public sealed class FightHistoryRecorder : IDisposable
         // see FightAccumulator's constructor remarks for why (a one-sided fight may never trigger
         // another stats reading before it resolves).
         var fight = new FightAccumulator(
-            npcName, combatEvent.TimestampUtc, _currentWeapon, _lastKnownStamina, _lastKnownScore);
+            npcName, combatEvent.TimestampUtc, _currentWeapon, _staminaRelay.LastKnown, _lastKnownScore);
         _fights[npcName] = fight;
         _fightOrder.Add(fight);
         return fight;
     }
 
-    // Same one-shot relay the view-model aggregator uses: an NPC hit line's embedded "(cur/max)" is
-    // parsed twice for the same line (generic stats scan first, combat event second), so the
-    // pre-line value has to be stashed before it is overwritten or every delta computes to zero.
-    // See CombatStatsAggregator.ObserveDamageTaken for the full explanation.
-    private void ObserveStaminaLocked(int? currentStamina)
-    {
-        if (currentStamina is null)
-            return;
-
-        _pendingPreUpdateStamina = _lastKnownStamina;
-        _lastKnownStamina = currentStamina.Value;
-    }
+    // An NPC hit line's embedded "(cur/max)" is parsed twice for the same line (generic stats scan
+    // first, combat event second), so the pre-line value has to be stashed before it is overwritten
+    // or every delta computes to zero. See MudSharp.Combat.StaminaDeltaRelay's own remarks.
+    private void ObserveStaminaLocked(int? currentStamina) => _staminaRelay.Observe(currentStamina);
 
     private double? ResolveDamageTakenLocked(int? currentStamina)
-    {
-        if (currentStamina is null)
-            return null;
-
-        var baseline = _pendingPreUpdateStamina is not null && _lastKnownStamina == currentStamina
-            ? _pendingPreUpdateStamina
-            : _lastKnownStamina;
-
-        double? attributed = null;
-        if (baseline is not null)
-        {
-            var delta = baseline.Value - currentStamina.Value;
-            if (delta >= 0)
-                attributed = delta;
-        }
-
-        _lastKnownStamina = currentStamina.Value;
-        _pendingPreUpdateStamina = null;
-        return attributed;
-    }
+        => _staminaRelay.ResolveDelta(currentStamina).Delta;
 }

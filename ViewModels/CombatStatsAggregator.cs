@@ -92,20 +92,11 @@ public sealed class CombatStatsAggregator
     // temporary-heal spell, eating a wafer, etc. — anything GameLineAnalyzer recognises. This is
     // the single running source of truth an NPC hit's damage is diffed against, so healing/regen
     // that happens on OTHER lines between hits correctly revises the baseline rather than being
-    // silently absorbed into (or wrongly blamed on) the next hit's delta.
-    private int? _lastKnownStamina;
-    // One-shot relay from ObserveStamina to the very next ObserveDamageTaken call: the value
-    // _lastKnownStamina held immediately BEFORE its most recent update. Needed because an NPC hit
-    // line like "The zombie hits you (95/100)." is parsed TWICE for the SAME line — once
-    // generically by GameLineAnalyzer (fires StatsUpdated -> ObserveStamina(95) FIRST, since
-    // MudStreamParser raises StatsUpdated before LineReady/_combat.Observe for a line) and once by
-    // CombatTracker's HitByNpc regex (RangeLow=95, reaching ObserveDamageTaken(95) SECOND). Without
-    // this relay, _lastKnownStamina would already equal 95 by the time the hit's own delta is
-    // computed, making every hit's delta compute to exactly 0 (confirmed live: damage taken always
-    // showed 0.0, most visible on single-hit fights since NPCs miss often). ObserveDamageTaken
-    // consumes (nulls) it after use so an unrelated later hit falls back to the running
-    // _lastKnownStamina chain instead of a stale relay.
-    private int? _pendingPreUpdateStamina;
+    // silently absorbed into (or wrongly blamed on) the next hit's delta. See
+    // MudSharp.Combat.StaminaDeltaRelay's own remarks for why a one-shot relay is needed at all
+    // (an NPC hit line is parsed twice for the same line, once generically for stats and once by
+    // the combat tracker's own hit regex).
+    private readonly StaminaDeltaRelay _staminaRelay = new();
 
     public bool InCombat { get; private set; }
     public bool HasEncounter => _encounterStartUtc is not null;
@@ -155,14 +146,7 @@ public sealed class CombatStatsAggregator
         _fightOrder.Clear();
     }
 
-    public void ObserveStamina(int? currentStamina)
-    {
-        if (currentStamina is null)
-            return;
-
-        _pendingPreUpdateStamina = _lastKnownStamina;
-        _lastKnownStamina = currentStamina.Value;
-    }
+    public void ObserveStamina(int? currentStamina) => _staminaRelay.Observe(currentStamina);
 
     /// <summary>
     /// A weapon equip seen while the client believed no fight was open, held briefly in case one
@@ -176,12 +160,10 @@ public sealed class CombatStatsAggregator
     /// Confirmed in the clog corpus: 4 equips stranded outside an encounter, and 14 encounters opened
     /// by a swing line with no weapon anywhere.</para>
     ///
-    /// <para>The window is deliberately SHORT. MUD2's wielded weapon is per-fight, not persistent -
-    /// it is dropped at fight end and <c>wield</c> is refused outside a fight - so an equip that is
-    /// more than a few seconds old says nothing about the fight starting now, and carrying it forward
-    /// would be inventing an armed fight out of a stale line.</para>
+    /// <para>The window itself (why SHORT, and why shared with the other two combat recorders) is
+    /// documented on <see cref="Mucka.Core.CombatTiming.PendingWeaponWindow"/>.</para>
     /// </summary>
-    private static readonly TimeSpan PendingWeaponWindow = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan PendingWeaponWindow = Mucka.Core.CombatTiming.PendingWeaponWindow;
     private string? _pendingWeapon;
     private DateTime _pendingWeaponUtc;
 
@@ -451,35 +433,14 @@ public sealed class CombatStatsAggregator
     /// the right per-NPC fight, or null when no baseline was available.</summary>
     private double? ObserveDamageTaken(int? currentStamina)
     {
-        if (currentStamina is null)
-            return null;
-
-        // Trust the one-shot relay ONLY when the most recent ObserveStamina call was for this
-        // exact value — i.e. it really did fire for this SAME line (see _pendingPreUpdateStamina's
-        // field comment). Without this equality guard, a stale relay left over from an earlier,
-        // unrelated update (never consumed because no combat event followed it) could wrongly
-        // outrank a more recent, already-correct _lastKnownStamina. When they don't match — e.g. a
-        // hit that drops the player to exactly 0 stamina, where GameLineAnalyzer's compact-stamina
-        // scan requires sta > 0 and so never fired for this line at all — _lastKnownStamina simply
-        // wasn't touched by this line and already holds the correct pre-hit baseline directly.
-        var baseline = _pendingPreUpdateStamina is not null && _lastKnownStamina == currentStamina
-            ? _pendingPreUpdateStamina
-            : _lastKnownStamina;
-
-        double? attributed = null;
-        if (baseline is not null)
-        {
-            var delta = baseline.Value - currentStamina.Value;
-            if (delta >= 0)
-            {
-                _approxDamageTaken += delta;
-                attributed = delta;
-            }
-        }
-
-        _lastKnownStamina = currentStamina.Value;
-        _pendingPreUpdateStamina = null;
-        return attributed;
+        // The equality/relay guard against a stale one-shot value lives in StaminaDeltaRelay now -
+        // see its own remarks for why a hit that never touched the running baseline (e.g. a hit to
+        // exactly 0 stamina, which the compact-stamina scan does not fire for) must fall back to it
+        // directly rather than trust a stale relay.
+        var (delta, _) = _staminaRelay.ResolveDelta(currentStamina);
+        if (delta is int d)
+            _approxDamageTaken += d;
+        return delta;
     }
 
     private void AddParticipant(string? npcName)

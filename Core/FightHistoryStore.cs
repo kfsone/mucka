@@ -7,10 +7,12 @@ namespace Mucka.Core;
 /// <summary>
 /// Owns the <c>fights</c> table of the client combat database (see <see cref="CombatDb"/>): the
 /// per-fight history the live HUD contrasts the current fight against, and the source of the NPC
-/// stamina-pool estimates any "are you winning" projection needs (MUD2 never reports NPC stamina over
-/// the wire, so prior kills are the only route to a pool figure the CLIENT can derive - though the
-/// figures themselves are published, see tools/combat/MUD2-PUBLISHED-MECHANICS.md and
-/// tools/combat/STATS_DESIGN.md).
+/// stamina-pool estimates any "are you winning" projection needs. MUD2 only reports NPC stamina
+/// on demand, via a `diagnose` probe that needs a stethoscope and a typed command (see
+/// <see cref="MudSharp.Combat.CombatEventKind.NpcStaminaRead"/>) - prior kills are the more
+/// reliable route to a pool figure precisely because the probe is not always available or timely,
+/// not because the game never reports the figure at all. The figures themselves are also published,
+/// see tools/combat/MUD2-PUBLISHED-MECHANICS.md and tools/combat/STATS_DESIGN.md.
 ///
 /// <para><b>SQLite rather than the fights.jsonl this used to write.</b> The original reasoning - no
 /// new dependency, no MAUI/Android packaging question, small enough to hold in memory - was sound

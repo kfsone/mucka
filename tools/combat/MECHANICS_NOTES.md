@@ -109,12 +109,20 @@ correct only by accident whenever *some* unrelated line happened to show up soon
 Fix: `CombatTracker` now exposes `IsInGracePeriod` (true once the last tracked NPC is dead/gone but
 the encounter is still open pending `KillGrace`) and a `GracePeriodChanged` event, plus a public
 `Tick(DateTime nowUtc)` that just re-runs `ExpireKillGrace` — callable independently of any new
-line. `MudSession.TickCombat()` / `MuckaConnection.TickCombat()` plumb this down to the existing
-1 Hz UI tick (`GamePage.OnAntiIdleTick` → `GameViewModel.TickCombatDisplay`), so the grace window
-now expires on real wall-clock time instead of waiting for the next line of *any* kind. The combat
-icon (`SidePanelViewModel.CombatIconOpacity`) also dims to 0.4 opacity while `IsCombatGracePeriod`
-is true, so "actively fighting" and "last kill just landed, winding down" are now visually distinct
-instead of looking identical. See `CombatTrackerTests.Kill_SetsGracePeriodUntilTickExpiresIt_*`.
+line, so the grace window expires on real wall-clock time instead of waiting for the next line of
+*any* kind. The combat icon (`SidePanelViewModel.CombatIconOpacity`) also dims to 0.4 opacity while
+`IsCombatGracePeriod` is true, so "actively fighting" and "last kill just landed, winding down" are
+now visually distinct instead of looking identical. See
+`CombatTrackerTests.Kill_SetsGracePeriodUntilTickExpiresIt_*`.
+
+**2026-08-16:** `Tick` was originally driven by `MudSession.TickCombat()` /
+`MuckaConnection.TickCombat()` plumbed down to the existing 1Hz UI tick (`GamePage.OnAntiIdleTick`
+→ `GameViewModel.TickCombatDisplay`) - that wiring raced the UI thread against `CombatTracker`'s
+Feed-thread `Observe`/`ForceEnd` callers on every encounter (the class had no lock, on the stated
+assumption Tick would never run anywhere but the Feed thread). `Tick` is now driven by a
+session-owned background `Timer` inside `MudSession` instead, and `CombatTracker` gained an
+internal lock guarding all three entry points - see that class's own remarks. Those two `TickCombat`
+methods no longer exist.
 
 ## "Damage taken" always showing 0.0
 
@@ -140,20 +148,29 @@ unhit combatant regenerates ~1 point periodically (NPCs regen too). Any of those
 silently absorbed into the running tally, so a heal mid-fight would understate the NPC's real
 output on every subsequent blow.
 
-Fix (current): keep `_lastKnownStamina` as the single continuously-revised source of truth,
+Fix (current): keep a continuously-revised running stamina value as the single source of truth,
 fed by *every* stat reading (qs/heartbeat, regen ticks, heals, wafers, dreamword), and defeat
-the same-line race with a one-shot relay instead. `ObserveStamina` stashes the value
-`_lastKnownStamina` held immediately before its own update into `_pendingPreUpdateStamina`;
-the `ObserveDamageTaken` that follows on the same line consumes that relay as its baseline, so
-the delta reflects only that hit's own effect while all *other* lines' changes still revise the
-baseline normally. This is the "one event parser relays details to the next parser" pattern.
+the same-line race with a one-shot relay instead. Observing a reading stashes the value the
+running baseline held immediately before its own update into the relay; the damage-resolution
+call that follows on the same line consumes that relay as its baseline, so the delta reflects
+only that hit's own effect while all *other* lines' changes still revise the baseline normally.
+This is the "one event parser relays details to the next parser" pattern.
 
-The relay is trusted only when `_lastKnownStamina == currentStamina` — i.e. `ObserveStamina`
-really did fire for this same line. When it didn't (notably a hit that drops the player to
-exactly 0, which `GameLineAnalyzer`'s compact-stamina scan skips because it requires `sta > 0`),
-`_lastKnownStamina` was never touched by this line and already holds the correct pre-hit value,
-so we diff against it directly. The relay is nulled after use so a stale, never-consumed one
-can't outrank a fresher reading later.
+The relay is trusted only when the running baseline still equals the current reading — i.e. the
+observe call really did fire for this same line. When it didn't (notably a hit that drops the
+player to exactly 0, which `GameLineAnalyzer`'s compact-stamina scan skips because it requires
+`sta > 0`), the running baseline was never touched by this line and already holds the correct
+pre-hit value, so we diff against it directly. The relay is nulled after use so a stale,
+never-consumed one can't outrank a fresher reading later.
+
+**2026-08-16 refactor:** this exact arithmetic was independently hand-copied into three classes
+(`CombatStatsAggregator`, plus `SwingLedger` and `FightHistoryRecorder`, added later) - the same
+guard, the same field pair, three times, with a real bug once needing to be hand-patched in two
+of the three copies at once. It now lives in one place, `MudSharp.Combat.StaminaDeltaRelay`
+(`_lastKnownStamina`/`_pendingPreUpdateStamina` above are that type's private
+`_lastKnown`/`_pendingPreUpdate` fields), which each of the three classes owns a private instance
+of - the fix and the reasoning below are unchanged, only the field names and the fact there is
+now exactly one implementation to read.
 
 Known residual (unfixable — intentional MUD2 fog of war): the automatic regen tick is not
 reported just before an incoming hit, so a round where you gained 1 and lost 5–10 reads as one

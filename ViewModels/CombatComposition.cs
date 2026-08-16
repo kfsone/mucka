@@ -21,9 +21,10 @@ internal static class CombatComposition
     /// <summary>
     /// "Am I going to die before it does" - <see cref="CombatOutlook.Project"/> against the
     /// encounter's primary fight. Extracted so the Combat Rail's tier resolver (DESIGN_FINAL.md 4.3)
-    /// and flee-cost risk pairing (5.4) can reuse the EXACT SAME projection
-    /// <see cref="AppendSurvivability"/> renders, rather than each computing their own and risking
-    /// the outlook line and the tier/ladder disagreeing about "how close is this fight".
+    /// can reuse the EXACT SAME projection <c>AppendSurvivability</c> renders (a method of the
+    /// long-deleted text formatter this class replaced - name kept here as the historical pointer),
+    /// rather than each computing their own and risking the outlook line and the tier disagreeing
+    /// about "how close is this fight".
     /// </summary>
     internal static CombatOutlook ComputeOutlook(
         CombatEncounterSnapshot snapshot, CombatStatDeficits deficits, CombatHistoryContext history,
@@ -154,15 +155,6 @@ internal static class CombatComposition
 
         return first;
     }
-
-    private static double? HitRate(int hits, int misses)
-    {
-        var attempts = hits + misses;
-        return attempts == 0 ? null : hits / (double)attempts;
-    }
-
-    private static string Truncate(string value, int width)
-        => value.Length <= width ? value : value[..width];
 
     /// <summary>
     /// Shortens a long item name for DISPLAY only, never for recording.

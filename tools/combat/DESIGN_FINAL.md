@@ -8,6 +8,12 @@ document, and every glyph an implementer writes into code, is plain ASCII
 application code was changed to produce this document. This is not a menu of options  -  build
 what is written here.
 
+*(2026-08-16: those three source drafts, and the rest of the design-debate cluster this document's
+decision table cites, moved to `tools/combat/archive/` once the design settled and shipped - see
+that directory's own README. Everywhere below that names them by filename (D2, D6, D7, and one
+default-value rationale near the staged plan) is naming historical reasoning, not a live file at
+the top level.)*
+
 **AMENDMENT (2026-08-07)  -  read this before implementing sections 3 and 5.** The first
 implementation pass built the render MECHANISM this document specifies (a real `SKCanvasView`,
 D8) but never actually composed the CONTENT for it - it drew the old text formatter's output
@@ -28,6 +34,18 @@ parts of sections 3 and 5 with:
   failure case).
 Everything else in this document (D1-D13, sections 1-2's surface inventory, section 6's keybindings,
 section 7's performance contract, section 8's staged plan) is unaffected and remains settled.
+
+**AMENDMENT 2 (2026-08-16)  -  read this before implementing section 5 or 3.9.** Amendment 1 demoted
+the ladder to at most one conditional line; in practice it was never wired up at all, and the owner
+has since confirmed that was correct and permanent, not an oversight to fix (D15). The shipped panel
+computes and shows no flee economics whatsoever, in any form, and no such code is kept "just in case"
+either - `FleeCostLadder.cs` (the class that computed section 5's ladder rows and interpolation) has
+been deleted outright. Section 5's content below is retained only as a historical record of the
+math and is not to be implemented; section 3.9's wireframe is retired for the same reason. The two
+real numeric thresholds that survive (20 and 6.5 stamina) live on as risk-tier boundaries in
+`CombatTierResolver` (`WarningStaminaThreshold`/`CriticalStaminaThreshold`), decoupled from any cost
+framing - see D15. D16 records the broader cognitive-load tenets for the whole live panel that this
+episode was really about.
 
 Contents: [1](#1-decisions-and-rationale) | [2](#2-surface-inventory) |
 [3](#3-wireframes) | [4](#4-visual-language) |
@@ -57,6 +75,8 @@ Settled. Do not reopen any row in this table during implementation or review.
 | D12 | ASCII-only iconography (`#`/`.` bars, `~` estimate marker, `[v]`/`[>]` fold state, plain words for outcomes). No unicode glyphs, escaped or literal. | Per `INTERNAL.md`. Note for implementers: `ViewModels/SidePanelViewModel.cs` currently returns the literal code-point escapes `u25bc` and `u25b6` from `CombatFoldGlyph`/`PanelToggleGlyph` (triangle glyphs), plus one literal non-ASCII character in `PanelToggleGlyph`'s other branch - do not copy that pattern into any new code this design adds; fixing the existing instances is Stage 0 (section 8). |
 | D13 | The Combat Lab (analysis) is a separate floating window, normal chrome, resizable  -  explicitly allowed to float because it is never open during combat. | Owner: "A separate large ANALYSIS window may still float, because it is never open during combat." |
 | D14 | **NEW (2026-08-07 amendment).** The panel's organising element is a threat indicator (a bold, colour-and-glow-escalating "DEATH IN &lt;n&gt;S" style headline), not the flee-cost ladder. The ladder is demoted to at most one line, shown only when fleeing is a live decision (losing, or stamina already degraded). The opposition list always states the live/dead split and total count alongside its capped row list. | Owner, after a 14-rat fight where the panel never surfaced how close he was to dying: "rather than a flee decision, we need a threat indicator gauge of some kind -- or a 'DEATH IN &lt;n&gt;S' label or something simple. Bold text. Gently glowing at first getting angrier as it gets likelier." And, on the ladder's prominence: "the bottom half of this page is filled with a list of the cost to flee???? That's a bit like a big shiny poster at a Hematology clinic labelled 'How soon you'll be dead! Get to know your cancers'." Prominence is not permanence. |
+| D15 | **NEW (2026-08-16 amendment) - supersedes D6/D14's partial retention.** The flee-cost ladder is retired completely, not demoted. No flee economics render in any form, ever, and no code computing them is kept "just in case" - `FleeCostLadder.cs` is deleted. The two anchor stamina values (20, 6.5) survive only as `CombatTierResolver.WarningStaminaThreshold`/`CriticalStaminaThreshold`, framed purely as risk-tier boundaries. | Owner: an earlier draft of this document, and the code it produced, turned a passing explanation of why fleeing is expensive into a persisted "FleeCostLadder" feature/class - a model misreading an explanation as a goal. There is no legacy or back-compat concern here: this client is permanently scoped to MUD2 alone, so nothing is ever kept "in case it's needed again." |
+| D16 | **NEW (2026-08-16).** Cognitive-load tenets for the whole live combat panel, not just the retired ladder: (a) the player's attention belongs on the terminal window directly above the input box, not buried in the panel; (b) the panel itself must impose minimal cognitive load - fixed, pre-allocated layout with no reflow (new elements may appear, everything else holds still), unambiguous glanceable cues (no unlabelled icon-like widgets), colours correlated to their meaning elsewhere on screen, and minimal duplication; (c) no single element may require more than about a 0.6-1s glance to register a change, and the fight's overall direction (winning/losing) must register in about a 400ms glance - the player has to look, understand, and type a response to any real change. | Owner, after design iterations kept adding indicator lights and icon chrome that reflowed the layout or needed a label to be legible: "I found the models could not step away from modern gameplay/styling to actually design for MUD2." Per-fight avg/max-hit display (the pared-back result of that iteration) still needs a layout pass to meet this bar - tracked separately, not blocked on this amendment. Future combat-log tooling (tools/combat/) is expected to surface per-object/per-creature hidden properties (e.g. a weapon that doubles damage against one race) as a further live signal once the underlying data exists. |
 
 ---
 
@@ -405,33 +425,13 @@ Only the single highest-priority active condition renders. Silent when nothing q
 formula, coefficient, or number beyond what is already on screen elsewhere  -  this is the "surface
 causes, not coefficients" instruction verbatim.
 
-### 3.9 Combat Lab  -  Flee Economics tab (980x640 window)
+### 3.9 Combat Lab  -  Flee Economics tab (RETIRED, 2026-08-16, D15)
 
-```
-+------------------------------------------------------------------------------------------+
-| COMBAT LAB     Overview   Weapons & Creatures   [ Flee Economics ]   Findings             |
-+------------------------------------------------------------------------------------------+
-|  Known so far (told to the client, not measured):                                        |
-|    sta > 20      costs 10% of score                                                      |
-|    sta = 6.5     costs 2.5% of score                                                     |
-|    sta < 6.5     costs nothing                                                           |
-|                                                                                            |
-|  This is 3 points, not a measured curve. The live ladder interpolates a GUESS between      |
-|  them until real flee events are captured (see section 8, Stage 3).                       |
-|                                                                                            |
-|  RECORDED FLEE EVENTS THIS CAPTURE:  0                                                    |
-|                                                                                            |
-|   cost %                                                                                  |
-|   10 |*                                                                                    |
-|      | `--..                                                                              |
-|    5 |      `--..                                                                          |
-|      |            `-*                                                                     |
-|    0 +-------------------+---------                                                       |
-|      0        10        20   sta at moment of flee                                        |
-|                                          * = the only 2 known points (6.5, >20); the        |
-|                                            rest of the line is a guess, not data            |
-+------------------------------------------------------------------------------------------+
-```
+This tab is retired along with the ladder it visualised (section 5) - it is not to be built. The
+wireframe previously here is removed rather than kept as a template: flee economics do not appear
+anywhere in this client, including an analysis-only, never-open-during-combat window. If the Combat
+Lab (section 2.3) is ever built, it starts at the Findings tab (3.10) and whatever else D16's
+cognitive-load tenets motivate - not this.
 
 ### 3.10 Combat Lab  -  Findings tab
 
@@ -522,30 +522,29 @@ Rules:
 | NPC weapon pickup | E2 | on `NpcWeaponEquip` for the primary target |
 | NPC fled, pursuit available | E2 | on a confirmed flee with no other unresolved fight |
 | NPC fled, pursuit blocked | E1 | on a confirmed flee while another fight is open (informational only) |
-| Flee-cost crossing a bracket | E1 | stamina crosses 20 or 6.5 downward |
+| Risk-tier bracket crossing | E1 | stamina crosses 20 or 6.5 downward |
 
 ### 4.4 The non-negotiable rule: survival overrides cost-framing
 
-Below 6.5 stamina, fleeing is free  -  but the player is also one or two hits from permadeath. **The
-flee-cost line's colour/tier NEVER de-escalates to Good/calm on that basis alone.** ("The FLEE COST
-block" below means the single condensed line D14/section 5 renders live, `FleeSummaryLine` -  this
-rule predates that rendering change and applies to it unaltered.) That line's tone is driven by the
-STAMINA tier table above (4.3), completely independent of what the
-cost-percentage happens to be. A free flee at 4 stamina renders with the SAME Danger/T3 urgency as
-any other reading at 4 stamina  -  the number changes (`FREE` replaces a percentage), the colour and
-motion do not soften. This is the single most important rule in this section: cost information and
-survival information are visually independent channels, and survival always wins the channel that
-controls urgency.
+**RETITLED IN EFFECT BY D15 (2026-08-16): there is no flee-cost line or block to de-escalate - the
+rule below now applies to the threat indicator (4.7), the panel's one surviving headline urgency
+signal.** Below 6.5 stamina, fleeing is free - but the player is also one or two hits from
+permadeath, and the headline's colour/tier must NEVER de-escalate to Safe/calm on that basis alone.
+Its tone is driven by the STAMINA tier table above (4.3). This is the single most important rule in
+this section: proximity-to-death is the only channel that controls urgency here, and nothing about
+fleeing being cheap is permitted to soften it.
 
 **Hard floor, stated explicitly so no other rule in this document can be read to override it:** at
-or below 6.5 stamina, the FLEE COST block renders at **no less than T2 Pulse Danger**, full stop,
+or below 6.5 stamina, the threat indicator renders at **no less than T2/Danger**, full stop,
 regardless of what the stamina-tier table in 4.3 would otherwise compute from hits-left or
-projected time-to-die. 4.3's table can still promote the block to T3 (e.g. hits-left <= 2), but
+projected time-to-die. 4.3's table can still promote it to T3/Critical (e.g. hits-left <= 2), but
 nothing  -  not a healthy-looking damage rate, not an opponent that has not landed a hit yet, not any
-future signal this design has not anticipated  -  is permitted to render the FLEE COST block below
-T2 while stamina sits at or under the free-flee threshold. An implementer who derives a calm/T1
-result from 4.3's table at 6.5 stamina or below has implemented the tier table wrong, not found an
-exception to this rule.
+future signal this design has not anticipated  -  is permitted to render it below T2 while stamina
+sits at or under the free-flee threshold. **Known gap (2026-08-16):** `CombatTierResolver.
+CriticalStaminaFloorTier` implements exactly this floor and is unit-tested, but nothing in
+`SidePanelViewModel` currently calls it before feeding `staminaTier` into `ThreatIndicator.Resolve`
+- the floor is not actually wired into the live threat indicator. Fix by applying it to `staminaTier`
+before it reaches `ThreatIndicator.Resolve` and `ResolvePulseTier` in `RefreshCombatSignals`.
 
 ### 4.5 ASCII iconography
 
@@ -621,7 +620,17 @@ panel is bold - ordinary body/review text stays Regular weight exactly as 4.6 or
 
 ## 5. The flee-cost ladder
 
-**AMENDED (2026-08-07, D14) - read this before implementing 5.3/5.4.** Everything below in 5.1/5.2
+**RETIRED (2026-08-16, D15) - do not implement anything in this section.** The ladder, the
+risk-paired line described below (5.4), and `FleeSummaryLine`/`BuildFleeSummaryLine` were never
+shipped and never will be - the panel shows no flee economics in any form. `MudSharp.Combat.
+FleeCostLadder` (5.1/5.2's cost-fraction/interpolation code) has been deleted from the codebase.
+5.1's three anchor points remain accurate MUD2 mechanics knowledge and the two stamina values (20,
+6.5) still matter - they now live as `CombatTierResolver.WarningStaminaThreshold`/
+`CriticalStaminaThreshold`, used purely to drive the threat indicator's risk tier (4.7), never to
+compute or display a cost. The rest of this section is kept only as a historical record of the
+math; skip straight to 4.7 and D15/D16 for what actually ships.
+
+**AMENDED (2026-08-07, D14) - superseded by the retirement above, kept for history.** Everything below in 5.1/5.2
 (the 3-anchor model, the honest linear-interpolation guess) is UNCHANGED and still exactly how the
 cost figure is computed (`MudSharp.Combat.FleeCostLadder`, untouched by this amendment - still
 directly unit-tested by `FleeCostLadderTests`). What changed is RENDERING ONLY: the live Combat Rail

@@ -17,9 +17,10 @@ public enum OutlookVerdict
 /// "Do the numbers say I die before it does?" — projected from the current fight's observed rates
 /// against the opponent's historical stamina pool.
 ///
-/// <para>This is possible ONLY because of the fight-history index: MUD2 never reports an NPC's
-/// stamina, so the median damage dealt across prior kills is the only available estimate of how much
-/// it takes to put one down. Without that there is no denominator and no projection.</para>
+/// <para>This is possible chiefly because of the fight-history index: MUD2 only reports an NPC's
+/// stamina on demand via a `diagnose` probe, not continuously, so the median damage dealt across
+/// prior kills is the available estimate of how much it takes to put one down whenever no probe
+/// reading is on hand. Without that there is no denominator and no projection.</para>
 ///
 /// <para><b>Deliberate conservatism.</b> Three things make an early projection actively misleading,
 /// so it stays <see cref="OutlookVerdict.Unknown"/> until they are addressed:</para>

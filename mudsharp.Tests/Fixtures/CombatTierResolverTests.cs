@@ -4,7 +4,7 @@ namespace mudsharp.Tests.Fixtures;
 
 /// <summary>
 /// Covers DESIGN_FINAL.md 4.2-4.4's tier table: the stamina/strength/dexterity/unarmed tiers, the
-/// bracket-crossing hysteresis latches, the stamina tie-break, and the flee-cost block's hard floor.
+/// bracket-crossing hysteresis latches, the stamina tie-break, and the critical-stamina hard floor.
 /// </summary>
 public sealed class CombatTierResolverTests
 {
@@ -131,23 +131,23 @@ public sealed class CombatTierResolverTests
     public void ResolvePulseTier_NoT3AnywhereFallsBackToTheHigherStaticTier()
         => Assert.Equal(CombatTier.T2, CombatTierResolver.ResolvePulseTier(CombatTier.T1, CombatTier.T2));
 
-    // ── Flee-cost hard floor (4.4) ───────────────────────────────────────────────
+    // ── Critical-stamina hard floor (4.4) ───────────────────────────────────────
 
     [Fact]
-    public void FleeCostBlockTier_AtOrBelowFreeThreshold_NeverRendersBelowT2()
+    public void CriticalStaminaFloorTier_AtOrBelowThreshold_NeverRendersBelowT2()
     {
         // A calm-looking T1/None reading from the stamina table alone must still be promoted.
-        Assert.Equal(CombatTier.T2, CombatTierResolver.FleeCostBlockTier(CombatTier.None, staminaCurrent: 6.0));
-        Assert.Equal(CombatTier.T2, CombatTierResolver.FleeCostBlockTier(CombatTier.T1, staminaCurrent: 4.0));
+        Assert.Equal(CombatTier.T2, CombatTierResolver.CriticalStaminaFloorTier(CombatTier.None, staminaCurrent: 6.0));
+        Assert.Equal(CombatTier.T2, CombatTierResolver.CriticalStaminaFloorTier(CombatTier.T1, staminaCurrent: 4.0));
     }
 
     [Fact]
-    public void FleeCostBlockTier_HardFloorNeverDemotesAnAlreadyHigherTier()
-        => Assert.Equal(CombatTier.T3, CombatTierResolver.FleeCostBlockTier(CombatTier.T3, staminaCurrent: 4.0));
+    public void CriticalStaminaFloorTier_HardFloorNeverDemotesAnAlreadyHigherTier()
+        => Assert.Equal(CombatTier.T3, CombatTierResolver.CriticalStaminaFloorTier(CombatTier.T3, staminaCurrent: 4.0));
 
     [Fact]
-    public void FleeCostBlockTier_AboveTheFreeThreshold_PassesTheStaminaTierThrough()
-        => Assert.Equal(CombatTier.None, CombatTierResolver.FleeCostBlockTier(CombatTier.None, staminaCurrent: 50));
+    public void CriticalStaminaFloorTier_AboveTheThreshold_PassesTheStaminaTierThrough()
+        => Assert.Equal(CombatTier.None, CombatTierResolver.CriticalStaminaFloorTier(CombatTier.None, staminaCurrent: 50));
 
     // ── Bracket-crossing hysteresis (4.2's last bullet) ─────────────────────────
 

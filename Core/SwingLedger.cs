@@ -72,7 +72,7 @@ public sealed class SwingLedger : IDisposable
     // When _currentWeapon was last confirmed, so an equip seen just before the client noticed the
     // fight can be carried into it while a stale one is discarded - see _encounterJustOpened.
     private DateTime _currentWeaponUtc;
-    private static readonly TimeSpan PendingWeaponWindow = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan PendingWeaponWindow = CombatTiming.PendingWeaponWindow;
     // Set when an encounter opens, consumed by the first combat event in it. The latch is resolved
     // there rather than in OnInCombatChanged because that event carries no timestamp, and the sibling
     // recorders' DateTime.UtcNow fallback compares a wall-clock reading against a stamp taken by the
@@ -82,8 +82,7 @@ public sealed class SwingLedger : IDisposable
     // keeps the whole class on the tracker's own clock.
     private bool _encounterJustOpened;
 
-    private int? _lastKnownStamina;
-    private int? _pendingPreUpdateStamina;
+    private readonly StaminaDeltaRelay _staminaRelay = new();
 
     // Blows exchanged during the CURRENT encounter, held back from _damage until it closes. This is
     // what makes a live fight's "ever" figures genuinely mean "before this fight" - see
@@ -436,56 +435,25 @@ public sealed class SwingLedger : IDisposable
         return fight;
     }
 
-    // Same one-shot relay both other consumers use: an NPC hit line like "The zombie hits you
-    // (95/100)." is parsed TWICE for the SAME line - generically by GameLineAnalyzer (StatsUpdated ->
-    // ObserveStaminaLocked(95) first) and then by CombatTracker's HitByNpc regex (RangeLow=95, reaching
-    // ResolveDamageTakenLocked second). Without stashing the pre-line value, _lastKnownStamina already
-    // equals 95 by the time the delta is computed and EVERY hit records exactly 0 damage - confirmed
-    // live before the fix. See CombatStatsAggregator.ObserveDamageTaken for the full account.
-    private void ObserveStaminaLocked(int? currentStamina)
-    {
-        if (currentStamina is null)
-            return;
-
-        _pendingPreUpdateStamina = _lastKnownStamina;
-        _lastKnownStamina = currentStamina.Value;
-    }
+    // An NPC hit line like "The zombie hits you (95/100)." is parsed TWICE for the SAME line -
+    // generically by GameLineAnalyzer (StatsUpdated -> ObserveStaminaLocked(95) first) and then by
+    // CombatTracker's HitByNpc regex (RangeLow=95, reaching ResolveDamageTakenLocked second). See
+    // MudSharp.Combat.StaminaDeltaRelay's own remarks for why this needs a relay at all - without one,
+    // every hit records exactly 0 damage (confirmed live before the fix).
+    private void ObserveStaminaLocked(int? currentStamina) => _staminaRelay.Observe(currentStamina);
 
     /// <summary>Resolves one incoming blow into a damage figure AND the pre-hit stamina it was
-    /// measured against. Both come out together because they are the two halves of one attribution -
-    /// returning only the delta and letting the caller reconstruct the baseline would reintroduce
-    /// exactly the arithmetic SwingRow.StaminaBefore exists to avoid.</summary>
+    /// measured against, via the shared <see cref="StaminaDeltaRelay"/>. Both come out together
+    /// because they are the two halves of one attribution - returning only the delta and letting the
+    /// caller reconstruct the baseline would reintroduce exactly the arithmetic SwingRow.StaminaBefore
+    /// exists to avoid.</summary>
     private (int? Damage, int? Before) ResolveDamageTakenLocked(int? currentStamina)
     {
-        if (currentStamina is null)
-            return (null, null);
-
-        // Trust the relay ONLY when the last stats update was for this exact value, i.e. it really did
-        // fire for this same line. A stale relay left over from an unrelated earlier update must not
-        // outrank an already-correct _lastKnownStamina; and when they differ (e.g. a blow to exactly 0
-        // stamina, which the compact-stamina scan does not fire for at all) _lastKnownStamina was
-        // never touched by this line and already holds the pre-hit baseline.
-        var baseline = _pendingPreUpdateStamina is not null && _lastKnownStamina == currentStamina
-            ? _pendingPreUpdateStamina
-            : _lastKnownStamina;
-
-        int? attributed = null;
-        if (baseline is not null)
-        {
-            var delta = baseline.Value - currentStamina.Value;
-            // A negative delta means stamina went UP across the blow (regen or a heal landing in the
-            // same tick outran it); there is no honest damage figure to record for that, and a
-            // clamped 0 would read as "armour soaked it" - which is a different fact.
-            if (delta >= 0)
-                attributed = delta;
-        }
-
-        _lastKnownStamina = currentStamina.Value;
-        _pendingPreUpdateStamina = null;
+        var (delta, baseline) = _staminaRelay.ResolveDelta(currentStamina);
         // The baseline is reported only when it actually produced a figure. A baseline that yielded a
         // negative delta (regen outran the blow) is not the pre-hit stamina of anything we are willing
         // to call damage, and writing it beside a null dmg would invite the subtraction back.
-        return (attributed, attributed is null ? null : baseline);
+        return (delta, delta is null ? null : baseline);
     }
 
     /// <summary>Enqueues. TryWrite on an unbounded channel never blocks and only fails after

@@ -23,11 +23,20 @@ namespace MudSharp.Combat;
 /// pass event; a clog's own event timestamps make the real silence visible for later statistical
 /// analysis across many clogs.</para>
 ///
-/// <para>Not internally locked: <see cref="Observe"/> and <see cref="ForceEnd"/> are called from
-/// the parser Feed thread only. Consumers marshal events to their UI thread.</para>
+/// <para><b>Internally locked (2026-08-16).</b> <see cref="Observe"/> and <see cref="ForceEnd"/> are
+/// called from the parser Feed thread (and, for ForceEnd, occasionally a pool thread via
+/// MudSession.Dispose's async path); <see cref="Tick"/> is called from a session-owned background
+/// timer, deliberately NOT the UI thread (see MudSession's own remarks on why - the old UI-thread
+/// wiring raced this class's unsynchronized fields against Observe/ForceEnd on every single
+/// encounter, and could double-fire InCombatChanged(false) into a non-idempotent UI-side counter).
+/// A single <see cref="_gate"/> lock serializes all three entry points; contention is negligible
+/// (Tick runs at ~1Hz, Observe only on real combat lines). Consumers still marshal events to their
+/// own UI thread themselves - this lock only protects this class's own state.</para>
 /// </summary>
 public sealed class CombatTracker
 {
+    private readonly object _gate = new();
+
     // NPC-initiated aggro lines never name a weapon and use one of a handful of verb phrases
     // observed in the research capture. Best-effort: MUD2 may use aggro phrasing not yet seen.
     private static readonly Regex NpcAggroStart = new(
@@ -116,7 +125,7 @@ public sealed class CombatTracker
     /// <summary>
     /// "The water-snake5 has a stamina lying between 90 and 99." - the stethoscope's `diagnose` read.
     ///
-    /// <para><b>MUD2 does report NPC stamina after all.</b> Four separate comments in this codebase
+    /// <para><b>MUD2 does report NPC stamina after all.</b> Five separate comments in this codebase
     /// asserted it never does, and built a whole estimator around that belief (see
     /// FightHistory.EstimatedStaminaPool, which infers a creature's pool from the median damage of
     /// fights that ended in a kill). It is a probe rather than free telemetry - it needs a stethoscope
@@ -180,6 +189,12 @@ public sealed class CombatTracker
     /// negligible next to network I/O — see EffectTracker for the equivalent trade-off).
     /// </summary>
     public void Observe(StyledLine line, DateTime timestampUtc)
+    {
+        lock (_gate)
+            ObserveLocked(line, timestampUtc);
+    }
+
+    private void ObserveLocked(StyledLine line, DateTime timestampUtc)
     {
         ExpireKillGrace(timestampUtc);
 
@@ -397,14 +412,25 @@ public sealed class CombatTracker
     /// runs ExpireKillGrace when a new line actually arrives, so a quiet final kill (no further
     /// server output for a while) leaves InCombat/IsInGracePeriod stale — sitting "fully in
     /// combat" until whatever line happens to show up next (confirmed live: a solo zombie kill
-    /// stayed lit until an unrelated weather line arrived ~2-3s later). Callers should invoke
-    /// this from a UI-side ~1 Hz tick so the grace window (and its dimmed-icon UI state) expires
-    /// on its own even when the server goes quiet.</summary>
-    public void Tick(DateTime nowUtc) => ExpireKillGrace(nowUtc);
+    /// stayed lit until an unrelated weather line arrived ~2-3s later). Callers should invoke this
+    /// from a session-owned ~1 Hz background timer (deliberately not the UI thread - see MudSession)
+    /// so the grace window (and its dimmed-icon UI state) expires on its own even when the server
+    /// goes quiet.</summary>
+    public void Tick(DateTime nowUtc)
+    {
+        lock (_gate)
+            ExpireKillGrace(nowUtc);
+    }
 
     /// <summary>Force-close any open encounter without a matching end line (e.g. an auto-reset
     /// wiping the game state mid-fight, or logout/relog).</summary>
     public void ForceEnd(DateTime timestampUtc)
+    {
+        lock (_gate)
+            ForceEndLocked(timestampUtc);
+    }
+
+    private void ForceEndLocked(DateTime timestampUtc)
     {
         if (!InCombat)
             return;

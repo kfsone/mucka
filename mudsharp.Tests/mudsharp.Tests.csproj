@@ -45,6 +45,7 @@
     <Compile Include="..\Core\SwingLedger.cs" Link="Core\SwingLedger.cs" />
     <Compile Include="..\Core\SwingRow.cs" Link="Core\SwingRow.cs" />
     <Compile Include="..\Core\CombatDb.cs" Link="Core\CombatDb.cs" />
+    <Compile Include="..\Core\CombatTiming.cs" Link="Core\CombatTiming.cs" />
   </ItemGroup>
 
 </Project>

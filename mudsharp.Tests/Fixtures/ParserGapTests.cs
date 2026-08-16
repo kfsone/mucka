@@ -123,7 +123,7 @@ public sealed class ParserGapTests
     // ---- The game does report NPC stamina ---------------------------------------------------
 
     /// <summary>
-    /// Four comments in this codebase asserted MUD2 never reports NPC stamina, and an estimator was
+    /// Five comments in this codebase asserted MUD2 never reports NPC stamina, and an estimator was
     /// built on that belief. The stethoscope's `diagnose` says otherwise, in a bracket.
     /// </summary>
     [Theory]

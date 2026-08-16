@@ -40,12 +40,14 @@ public sealed record FightHistorySummary
     /// (a censored observation), so folding those in biases the estimate low. See STATS_DESIGN.md.
     ///
     /// <para>This used to be described as "the only route" to an NPC's pool, on the grounds that
-    /// MUD2 never reports NPC stamina. True of the protocol, false of the world: every creature's
-    /// stamina is PUBLISHED (tools/combat/bestiary.tsv, 143 rows), and where the two can be compared
-    /// they agree closely - zombies 40-50 published against a 49.0 median here, water-snakes 90
-    /// against 100.5, rams 100 against 98.5. A lookup would be exact and available on a first
-    /// encounter, where this estimate needs a kill first. Replacing it is an open scope decision, not
-    /// an oversight - see MUD2-PUBLISHED-MECHANICS.md section 10.</para></summary>
+    /// MUD2 never reports NPC stamina. False either way: the protocol DOES report it, on demand,
+    /// via a `diagnose` probe (see <see cref="CombatEventKind.NpcStaminaRead"/>) - it just needs a
+    /// stethoscope and a typed command, so it is not always on hand. And every creature's stamina is
+    /// separately PUBLISHED (tools/combat/bestiary.tsv, 143 rows), agreeing closely where the two can
+    /// be compared - zombies 40-50 published against a 49.0 median here, water-snakes 90 against
+    /// 100.5, rams 100 against 98.5. A lookup or a probe reading would be exact and available on a
+    /// first encounter, where this estimate needs a kill first. Replacing it is an open scope
+    /// decision, not an oversight - see MUD2-PUBLISHED-MECHANICS.md section 10.</para></summary>
     public double? EstimatedStaminaPool { get; init; }
 
     /// <summary>Kills as a fraction of all matching fights, or null with no fights at all.</summary>

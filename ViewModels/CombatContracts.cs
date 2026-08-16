@@ -21,14 +21,11 @@ public sealed record CombatStatDeficits(
     // Effective (not raw) strength/dexterity and their maxima - added for DESIGN_FINAL.md's
     // encumbrance-tier signal (4.3: T1 below 75% of max effective strength, T2 below 50%), which
     // needs the ABSOLUTE fraction-of-max, not the delta-from-raw the rest of this record already
-    // carried. Score is carried here too (not a stat, but arrives on the same FES snapshot) purely
-    // as a convenient single hop for the flee-cost ladder's points-cost column (5.5) - no new
-    // capture, just one more field read off a snapshot already flowing through this exact path.
+    // carried.
     int? StrengthEffective = null,
     int? StrengthMax = null,
     int? DexterityEffective = null,
     int? DexterityMax = null,
-    int? Score = null,
     // Magic rides the same FES snapshot. See CombatLiveView.MagicCurrent for why it matters.
     int? MagicCurrent = null,
     int? MagicMax = null)
@@ -207,9 +204,11 @@ public sealed record CombatLiveView(
     // counts fights that ended in a kill). Both null until a kill is on record for the group.
     //
     // The estimate is not the only route to that pool, despite what this comment used to claim:
-    // MUD2 never reports NPC stamina over the wire, but every creature's stamina is published
-    // (tools/combat/bestiary.tsv) and agrees closely with what we measure. Swapping the estimate for
-    // a lookup is an open scope decision - see tools/combat/MUD2-PUBLISHED-MECHANICS.md section 10.
+    // MUD2 does report NPC stamina over the wire, via a `diagnose` probe - just not continuously,
+    // so it is not always on hand. Every creature's stamina is also published (tools/combat/
+    // bestiary.tsv) and agrees closely with what we measure. Swapping the estimate for a lookup or
+    // a probe reading is an open scope decision - see tools/combat/MUD2-PUBLISHED-MECHANICS.md
+    // section 10.
     double? TargetDamageDone,
     double? TargetEstimatedPool,
     // Magic, which the rail draws as a second seal beside stamina. Not a convenience stat:

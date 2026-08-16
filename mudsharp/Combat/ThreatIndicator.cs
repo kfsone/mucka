@@ -5,8 +5,8 @@ namespace MudSharp.Combat;
 /// label the owner asked for after a 14-rat fight where the panel never said how close they were to
 /// dying (stamina at 20, no signal anywhere on screen). Deliberately a SEPARATE enum from
 /// <see cref="CombatTier"/>, not a rename of it: <see cref="CombatTier"/> answers "how urgent is this
-/// STATE signal" for the tier table in general (strength, dexterity, unarmed, flee-cost-block all use
-/// it too); <see cref="ThreatLevel"/> answers the narrower question "what should the one headline
+/// STATE signal" for the tier table in general (strength, dexterity, unarmed, critical-stamina floor
+/// all use it too); <see cref="ThreatLevel"/> answers the narrower question "what should the one headline
 /// label at the top of the panel say and how loud should it be", which folds the stamina tier
 /// together with the win/lose outlook into a single ranked read. <see cref="Critical"/> maps 1:1 onto
 /// <see cref="CombatTier.T3"/> so the panel's one shared glow layer (DESIGN_FINAL.md 4.2: "at most
@@ -37,10 +37,12 @@ public readonly record struct ThreatReading(ThreatLevel Level, string Label)
 }
 
 /// <summary>
-/// Resolves the Combat Rail's headline threat indicator - the element replacing the permanent
-/// flee-cost ladder as the panel's organising element (owner: "a threat indicator gauge of some kind
-/// -- or a 'DEATH IN &lt;n&gt;S' label or something simple. Bold text. Gently glowing at first getting
-/// angrier as it gets likelier.").
+/// Resolves the Combat Rail's headline threat indicator - the panel's organising element (D14; owner:
+/// "a threat indicator gauge of some kind -- or a 'DEATH IN &lt;n&gt;S' label or something simple. Bold
+/// text. Gently glowing at first getting angrier as it gets likelier."). This is the only "how is the
+/// fight going" signal the panel shows: no flee economics or cost figures render anywhere, in any
+/// form (D15) - the player already knows fleeing is expensive, and a price tag at the decision moment
+/// is cognitive burden at the worst possible instant.
 ///
 /// <para><b>Deliberately reuses <see cref="CombatTierResolver.StaminaTier"/> rather than inventing a
 /// second set of numeric thresholds.</b> That table (DESIGN_FINAL.md 4.3) already answers "how close

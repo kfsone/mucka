@@ -120,8 +120,6 @@ public sealed class MuckaConnection : IAsyncDisposable
     public bool InCombat => _session.InCombat;
     /// <summary>See MudSharp.Combat.CombatTracker.IsInGracePeriod.</summary>
     public bool IsInCombatGracePeriod => _session.IsInCombatGracePeriod;
-    /// <summary>UI-side ~1 Hz tick — see <see cref="MudSession.TickCombat"/>.</summary>
-    public void TickCombat() => _session.TickCombat();
 
     /// <summary>The current merged stats snapshot — see <see cref="MudSharp.Session.MudSession.CurrentStats"/>.
     /// Read this for an immediate "whatever we currently know" value; do not subscribe to
