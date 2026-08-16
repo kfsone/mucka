@@ -60,6 +60,7 @@ public class GameLineAnalyzerTests
         var h = new ParserHarness();
         h.Feed("strength:       94\n");
         Assert.Single(h.Stats);
+        Assert.Equal(94, h.Stats[0].RawStrength);
         Assert.Equal(94, h.Stats[0].Strength);
     }
 
@@ -70,7 +71,70 @@ public class GameLineAnalyzerTests
         var h = new ParserHarness();
         h.Feed("dexterity:      95\n");
         Assert.Single(h.Stats);
+        Assert.Equal(95, h.Stats[0].RawDexterity);
         Assert.Equal(95, h.Stats[0].Dexterity);
+    }
+
+    [Fact]
+    public void StrengthLine_WithEffectiveStrength_ExtractsRawAndEffective()
+    {
+        var h = new ParserHarness();
+        h.Feed("strength:       100     effective strength:    88\n");
+        Assert.Single(h.Stats);
+        Assert.Equal(100, h.Stats[0].RawStrength);
+        Assert.Equal(88, h.Stats[0].Strength);
+    }
+
+    [Fact]
+    public void DexterityLine_WithEffectiveDexterity_ExtractsRawAndEffective()
+    {
+        var h = new ParserHarness();
+        h.Feed("dexterity:      100     effective dexterity:    99\n");
+        Assert.Single(h.Stats);
+        Assert.Equal(100, h.Stats[0].RawDexterity);
+        Assert.Equal(99, h.Stats[0].Dexterity);
+    }
+
+    /// <summary>Carried weight is deliberately not captured at all - see GameLineAnalyzer's
+    /// score-sheet branch. This is here so a future "the sheet parser is incomplete" tidy-up trips a
+    /// red test instead of quietly reintroducing an unwanted variable.</summary>
+    [Theory]
+    [InlineData("weight carried: 750g    max:    100kg\n")]
+    [InlineData("weight carried: 2kg    max:    750g\n")]
+    [InlineData("weight carried: nothing max:    100kg\n")]
+    public void WeightCarriedLine_IsIgnoredEntirely(string line)
+    {
+        var h = new ParserHarness();
+        h.Feed(line);
+        Assert.Empty(h.Stats);
+    }
+
+    [Fact]
+    public void ObjectsCarriedLine_ParsesCounts()
+    {
+        var h = new ParserHarness();
+        h.Feed("objects carried:        1       max:    12\n");
+        Assert.Single(h.Stats);
+        Assert.Equal(1, h.Stats[0].ObjectsCarried);
+        Assert.Equal(12, h.Stats[0].MaxObjectsCarried);
+    }
+
+    [Fact]
+    public void LevelLine_ParsesLevel()
+    {
+        var h = new ParserHarness();
+        h.Feed("level:  7       champion\n");
+        Assert.Single(h.Stats);
+        Assert.Equal(7, h.Stats[0].Level);
+    }
+
+    [Fact]
+    public void GamesPlayedLine_ParsesCount()
+    {
+        var h = new ParserHarness();
+        h.Feed("games played:   18\n");
+        Assert.Single(h.Stats);
+        Assert.Equal(18, h.Stats[0].GamesPlayed);
     }
 
     [Fact]

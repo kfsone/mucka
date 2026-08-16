@@ -121,7 +121,7 @@ internal sealed class MappingPage : ContentPage
         // Here = probe/refresh the room you are standing in.
         _hereBtn = new Button
         {
-            FontFamily      = "Cascadia Mono, Consolas, monospace",
+            FontFamily      = "Cascadia Mono",
             FontSize        = 13,
             TextColor       = Color.FromArgb("#F2F2F2"),
             BackgroundColor = Color.FromArgb("#1A2A3A"),
@@ -255,7 +255,7 @@ internal sealed class MappingPage : ContentPage
         _ruleDirPicker = new Picker
         {
             Title      = "dir",
-            FontFamily = "Cascadia Mono, Consolas, monospace",
+            FontFamily = "Cascadia Mono",
             FontSize   = 11,
             TextColor  = Color.FromArgb("#CCCCCC"),
             WidthRequest = 70,
@@ -281,7 +281,7 @@ internal sealed class MappingPage : ContentPage
 
         _guardKindPicker = new Picker
         {
-            Title = "when", FontFamily = "Cascadia Mono, Consolas, monospace", FontSize = 11,
+            Title = "when", FontFamily = "Cascadia Mono", FontSize = 11,
             TextColor = Color.FromArgb("#CCCCCC"), WidthRequest = 110,
             ItemsSource = new List<string> { "carrying", "weather", "else" },
             SelectedIndex = 0,
@@ -306,7 +306,7 @@ internal sealed class MappingPage : ContentPage
 
         _outcomeKindPicker = new Picker
         {
-            Title = "then", FontFamily = "Cascadia Mono, Consolas, monospace", FontSize = 11,
+            Title = "then", FontFamily = "Cascadia Mono", FontSize = 11,
             TextColor = Color.FromArgb("#CCCCCC"), WidthRequest = 110,
             ItemsSource = new List<string> { "arrive", "refuse", "absent" },
             SelectedIndex = 0,
@@ -377,7 +377,7 @@ internal sealed class MappingPage : ContentPage
 
         _detailEditor = new Editor
         {
-            FontFamily      = "Cascadia Mono, Consolas, monospace",
+            FontFamily      = "Cascadia Mono",
             FontSize        = 11,
             TextColor       = Color.FromArgb("#CCCCCC"),
             BackgroundColor = Color.FromArgb("#1A1A1A"),
@@ -423,7 +423,7 @@ internal sealed class MappingPage : ContentPage
     private static Label PanelHeader(string text) => new()
     {
         Text           = text,
-        FontFamily     = "Cascadia Mono, Consolas, monospace",
+        FontFamily     = "Cascadia Mono",
         FontSize       = 10,
         FontAttributes = FontAttributes.Bold,
         TextColor      = Color.FromArgb("#6F6F6F"),
@@ -434,7 +434,7 @@ internal sealed class MappingPage : ContentPage
         var main = new Button
         {
             Text         = text,
-            FontFamily   = "Cascadia Mono, Consolas, monospace",
+            FontFamily   = "Cascadia Mono",
             FontSize     = 13,
             Padding      = new Thickness(0, 8),
             CornerRadius = 4,
@@ -500,7 +500,7 @@ internal sealed class MappingPage : ContentPage
 
     private static Label MonoLabel(string color, double size) => new()
     {
-        FontFamily = "Cascadia Mono, Consolas, monospace",
+        FontFamily = "Cascadia Mono",
         FontSize   = size,
         TextColor  = Color.FromArgb(color),
     };
@@ -1008,7 +1008,7 @@ internal sealed class MappingPage : ContentPage
     private static Entry MakeRuleEntry(string placeholder, double width) => new()
     {
         Placeholder     = placeholder,
-        FontFamily      = "Cascadia Mono, Consolas, monospace",
+        FontFamily      = "Cascadia Mono",
         FontSize        = 11,
         TextColor       = Color.FromArgb("#E6ECF2"),
         BackgroundColor = Color.FromArgb("#1A1A1A"),
@@ -1018,7 +1018,7 @@ internal sealed class MappingPage : ContentPage
     private static Label MakeMini(string text) => new()
     {
         Text            = text,
-        FontFamily      = "Cascadia Mono, Consolas, monospace",
+        FontFamily      = "Cascadia Mono",
         FontSize        = 10,
         TextColor       = Color.FromArgb("#767676"),
         VerticalOptions = LayoutOptions.Center,

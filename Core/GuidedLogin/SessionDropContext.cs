@@ -5,9 +5,17 @@ namespace Mucka.Core.GuidedLogin;
 /// <summary>Why the shell dropped us out of game mode and back to the Option menu.</summary>
 public enum SessionDropReason
 {
-    /// <summary>No classifying signal — a deliberate QUIT, an idle boot, a server-side kick, or
-    /// anything else we cannot name. The player gets the last few lines and decides for themselves.</summary>
+    /// <summary>No classifying signal — an idle boot, a server-side kick, or anything else we
+    /// cannot name. The player gets the last few lines and decides for themselves.</summary>
     Unknown,
+    /// <summary>The player typed QUIT: the shell's "Cheerio!" farewell said so.
+    ///
+    /// <para>This exists because timing alone cannot see it. <c>IsResetDrop</c> is a proximity test,
+    /// so a qq during the finish-up period lands inside the reset window and would classify as
+    /// <see cref="Reset"/> — which auto-relogs the player straight back into the persona they just
+    /// deliberately left, without even showing the picker. An explicit farewell outranks any timing
+    /// inference, so this is tested first.</para></summary>
+    Quit,
     /// <summary>A game reset: the server announced C06 C04 ("auto reset initiated") and dropped us
     /// on the projected reset instant.</summary>
     Reset,
@@ -35,13 +43,16 @@ public sealed record SessionDropContext(
     public string Headline => Reason switch
     {
         SessionDropReason.Reset => "Reset In Progress",
+        SessionDropReason.Quit => "Cheerio!",
         SessionDropReason.Permadeath => string.IsNullOrWhiteSpace(PersonaName)
             ? "Rest In Peace"
             : $"Rest In Peace {PersonaName}",
         _ => "Oops!",
     };
 
-    /// <summary>A reset says all it needs to in the headline; the other two are the player asking
-    /// "what just happened to me?", so they get the server's own last words.</summary>
-    public bool ShowsTailLines => Reason != SessionDropReason.Reset && TailLines.Count > 0;
+    /// <summary>A reset and a quit both say all they need to in the headline — one is routine, the
+    /// other the player's own doing. The rest are someone asking "what just happened to me?", so they
+    /// get the server's own last words.</summary>
+    public bool ShowsTailLines =>
+        Reason is not (SessionDropReason.Reset or SessionDropReason.Quit) && TailLines.Count > 0;
 }

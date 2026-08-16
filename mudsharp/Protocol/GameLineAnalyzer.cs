@@ -38,9 +38,55 @@ internal sealed class GameLineAnalyzer
         @"^dexterity:\s*(\d+)(?:.*?effective dexterity:\s*(\d+))?",
         RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
-    // "score:  1,785 points    this game: ..."
+    // "sex:            male"  — score sheet only; there is no FES field for it.
+    private static readonly Regex SexRegex = new(
+        @"^sex:\s*([A-Za-z]+)",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    // "magic:          110"  — the score sheet reports current magic with no max (FES carries both).
+    private static readonly Regex MagicRegex = new(
+        @"^magic:\s*(\d+)(?:\s+max:\s*(\d+))?",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    // "nothing" is the server's word for an empty pack: a measurement of ZERO, not a missing
+    // reading, and it is what most sheets say. The "max:" clause is optional so a server-wrapped
+    // line still yields the carried figure (see tools/combat/TEXT-WRAPPING-REVIEW.md).
+
+    // "objects carried:        1       max:    12"  ("max:" optional — the line can wrap)
+    private static readonly Regex ObjectsCarriedRegex = new(
+        @"^objects carried:\s*(?<n>\d+)(?:\s+max:\s*(?<max>\d+))?",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    // "level:  7       champion"
+    private static readonly Regex LevelRegex = new(
+        @"^level:\s*(?<n>\d+)",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    // "games played:   18"
+    private static readonly Regex GamesPlayedRegex = new(
+        @"^games played:\s*(?<n>\d+)",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    // "score:  51,574 points   this game:      10 points       value:  10,389 points"
+    // Three separate figures on one ~70-column line, so at narrow widths the server wraps it and
+    // the tail arrives on a continuation line ("points        value:  9,534 points"). Each figure
+    // therefore gets its own regex: the score prefix anchors at column 0, while the other two
+    // anchor either at column 0 or immediately after the previous figure's "points" — enough of a
+    // guard to keep player chatter from matching, while surviving the wrap.
     private static readonly Regex ScoreRegex = new(
         @"^score:\s*([\d,]+)",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    // "this game:      10 points" — can be zero, and (points lost this game) can be negative.
+    private static readonly Regex ThisGameRegex = new(
+        @"(?:^|points\s+)this game:\s*(-?[\d,]+)",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    // "value:  10,389 points" — the persona's own value; what an attacker collects when we flee or
+    // die (see tools/combat/MUD2-PUBLISHED-MECHANICS.md, "Where the points go"). The colon is what
+    // keeps this off the `value <name>` sniff reply ("The value of Ollie the warlock is N points.").
+    private static readonly Regex ValueRegex = new(
+        @"(?:^|points\s+)value:\s*(-?[\d,]+)",
         RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
     // "(Persona saved on [+N = ]M,NNN)."  — the last comma-separated number before ').'
@@ -93,12 +139,21 @@ internal sealed class GameLineAnalyzer
             && int.TryParse(m.Groups[2].Value, out var mstaVal))
             return GameStatsSnapshot.Empty with { Stamina = staVal, MaxStamina = mstaVal };
 
-        // "strength: N [effective strength: M]"  — use effective when present, else raw
+        // "sex: male"
+        m = SexRegex.Match(text);
+        if (m.Success)
+            return GameStatsSnapshot.Empty with { Sex = m.Groups[1].Value.ToLowerInvariant() };
+
+        // "strength: N [effective strength: M]"  — use effective when present, else raw.
+        // The effective clause is printed ONLY when it differs from the base, so an absent group
+        // means "equal", not "unknown": fall back to the raw value rather than leaving it null.
+        // Effective may be HIGHER than raw (a buff: "strength: 100  effective strength: 105"), so
+        // nothing here clamps or assumes a penalty.
         m = StrengthRegex.Match(text);
         if (m.Success && int.TryParse(m.Groups[1].Value, out var strRaw))
         {
             var effective = m.Groups[2].Success && int.TryParse(m.Groups[2].Value, out var strEff) ? strEff : strRaw;
-            return GameStatsSnapshot.Empty with { Strength = effective };
+            return GameStatsSnapshot.Empty with { RawStrength = strRaw, Strength = effective };
         }
 
         // "dexterity: N [effective dexterity: M]"  — use effective when present, else raw
@@ -106,16 +161,67 @@ internal sealed class GameLineAnalyzer
         if (m.Success && int.TryParse(m.Groups[1].Value, out var dexRaw))
         {
             var effective = m.Groups[2].Success && int.TryParse(m.Groups[2].Value, out var dexEff) ? dexEff : dexRaw;
-            return GameStatsSnapshot.Empty with { Dexterity = effective };
+            return GameStatsSnapshot.Empty with { RawDexterity = dexRaw, Dexterity = effective };
         }
 
-        // "score: N,NNN points ..."
+        // "magic: N" — the score sheet's only magic reading (FES supplies current + max).
+        m = MagicRegex.Match(text);
+        if (m.Success && int.TryParse(m.Groups[1].Value, out var magic))
+        {
+            int? maxMagic = m.Groups[2].Success && int.TryParse(m.Groups[2].Value, out var mmag) ? mmag : null;
+            return GameStatsSnapshot.Empty with { CurrentMagic = magic, MaxMagic = maxMagic };
+        }
+
+        // Carried weight is deliberately NOT parsed, stored, or shown - the owner's decision, and
+        // worth writing down so nobody "completes" the sheet parser by adding it back.
+        //
+        // It is an unwanted variable. The only source is this sheet, so it is never fresher than the
+        // last `score`; it changes on every pick-up and drop, which the client cannot see; and the one
+        // thing it would feed - the weight terms of the published effective-strength formula - needs a
+        // per-object breakdown this line does not give. A figure that is stale, unverifiable AND
+        // insufficient is worse than none, because it invites arithmetic. Anyone who wants it can type
+        // `sc` and read it.
+        //
+        // Objects carried IS kept, just below: it has a live source (the FEI inventory list), so it can
+        // be trusted between sheets.
+
+        // "objects carried: N [max: M]"  — N is legitimately 0 (empty pack)
+        m = ObjectsCarriedRegex.Match(text);
+        if (m.Success && int.TryParse(m.Groups["n"].Value, out var objectsCarried))
+        {
+            int? maxObjects = m.Groups["max"].Success && int.TryParse(m.Groups["max"].Value, out var mo) ? mo : null;
+            return GameStatsSnapshot.Empty with { ObjectsCarried = objectsCarried, MaxObjectsCarried = maxObjects };
+        }
+
+        // "level: N ..."
+        m = LevelRegex.Match(text);
+        if (m.Success && int.TryParse(m.Groups["n"].Value, out var level))
+            return GameStatsSnapshot.Empty with { Level = level };
+
+        // "games played: N"
+        m = GamesPlayedRegex.Match(text);
+        if (m.Success && int.TryParse(m.Groups["n"].Value, out var gamesPlayed))
+            return GameStatsSnapshot.Empty with { GamesPlayed = gamesPlayed };
+
+        // "score: N,NNN points   this game: N points   value: N,NNN points" — three figures.
+        // Score keeps its historical "only when > 0" guard (a bare 0 is not worth trusting from a
+        // loose text match); this game / value are taken at face value, zero included.
         m = ScoreRegex.Match(text);
         if (m.Success)
         {
-            var score = StripCommas(m.Groups[1].Value);
-            if (score > 0)
-                return GameStatsSnapshot.Empty with { Score = score };
+            int? score = TryStripCommas(m.Groups[1].Value, out var total) && total > 0 ? total : null;
+            var (thisGame, value) = MatchScoreExtras(text);
+            if (score is not null || thisGame is not null || value is not null)
+                return GameStatsSnapshot.Empty with { Score = score, ScoreThisGame = thisGame, PlayerValue = value };
+        }
+
+        // Wrapped tail of the score line ("points        value:  9,534 points").
+        if (text.Contains("value:", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("this game:", StringComparison.OrdinalIgnoreCase))
+        {
+            var (thisGame, value) = MatchScoreExtras(text);
+            if (thisGame is not null || value is not null)
+                return GameStatsSnapshot.Empty with { ScoreThisGame = thisGame, PlayerValue = value };
         }
 
         // "Your stamina is N."
@@ -156,14 +262,27 @@ internal sealed class GameLineAnalyzer
         return null;
     }
 
-    private static int StripCommas(string s)
+    /// <summary>The "this game" / "value" figures from a score line, either of which may be absent
+    /// (wrapped onto the next line, or simply not printed).</summary>
+    private static (int? ThisGame, int? Value) MatchScoreExtras(string text)
+    {
+        var tg = ThisGameRegex.Match(text);
+        var va = ValueRegex.Match(text);
+        int? thisGame = tg.Success && TryStripCommas(tg.Groups[1].Value, out var g) ? g : null;
+        int? value    = va.Success && TryStripCommas(va.Groups[1].Value, out var v) ? v : null;
+        return (thisGame, value);
+    }
+
+    private static bool TryStripCommas(string s, out int value)
     {
         Span<char> buf = stackalloc char[s.Length];
         int len = 0;
         foreach (var c in s)
             if (c != ',') buf[len++] = c;
-        return int.TryParse(buf[..len], out var val) ? val : 0;
+        return int.TryParse(buf[..len], out value);
     }
+
+    private static int StripCommas(string s) => TryStripCommas(s, out var val) ? val : 0;
 
     // Text triggers mirror Clio's sound.c pattern matches (game mode only).
     internal string? CheckSoundTrigger(StyledLine line)

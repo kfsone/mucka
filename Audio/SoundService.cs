@@ -88,6 +88,59 @@ internal static class SoundService
         return code.Length > 0 ? code : null;
     }
 
+    /// <summary>
+    /// Plays a sound kept permanently open, for cases where WHEN it sounds matters.
+    ///
+    /// <para><see cref="Play"/> builds a fresh <c>MediaSource</c> and assigns <c>player.Source</c> on
+    /// every call, which makes WinRT open and buffer the file each time. The player pool avoids the
+    /// engine-init cost but not that per-play open, and its latency is both significant and VARIABLE -
+    /// fine for an event sound nobody is timing, useless for the combat metronome, whose entire job is
+    /// to sound a fixed distance either side of a tick boundary. Symptom when it was used: both clicks audibly trailing
+    /// the tick bar, and the offset differing from session to session, so one login sounded right and
+    /// the next did not.</para>
+    ///
+    /// <para>Here the source is assigned ONCE per asset and replayed by seeking back to zero, so the
+    /// only remaining latency is the audio path itself - small, and far more consistent. Intended for
+    /// a handful of short, frequently repeated assets; each one holds its own player for the life of
+    /// the process, so do not use it for the general catalogue.</para>
+    ///
+    /// <para>Concurrency: safe to call from any thread. A single asset cannot overlap itself - seeking
+    /// to zero restarts it - which is what you want for a click.</para>
+    /// </summary>
+    public static void PlayPrepared(string assetName, int? volumePercent = null)
+    {
+#if WINDOWS
+        var player = GetPreparedPlayer(assetName);
+        if (player is null)
+            return;
+        player.Volume = Math.Clamp(volumePercent ?? s_volumePercent, 0, 100) / 100.0;
+        try
+        {
+            // Rewind rather than re-source. Position is only settable once the session knows the
+            // duration; if it is not ready yet, Play() from wherever it sits still sounds, and the
+            // next click will be exact.
+            if (player.PlaybackSession.CanSeek)
+                player.PlaybackSession.Position = TimeSpan.Zero;
+            player.Play();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[SoundService] PlayPrepared failed for '{assetName}': {ex.Message}");
+        }
+#else
+        Play(assetName, volumePercent);
+#endif
+    }
+
+    /// <summary>Opens a sound for <see cref="PlayPrepared"/> ahead of time, so the first click of a
+    /// fight does not pay the open cost. Cheap, idempotent, and a no-op off Windows.</summary>
+    public static void PrepareSound(string assetName)
+    {
+#if WINDOWS
+        _ = GetPreparedPlayer(assetName);
+#endif
+    }
+
     /// <summary>Plays a sound at <paramref name="volumePercent"/> (0–100 absolute), or
     /// at the master volume when null (the inherited default).</summary>
     public static void Play(string assetName, int? volumePercent = null)
@@ -205,6 +258,53 @@ internal static class SoundService
     private const int MaxPooledPlayers = 8;
     private static readonly object s_poolLock = new();
     private static readonly Stack<Windows.Media.Playback.MediaPlayer> s_playerPool = new();
+
+    // Dedicated, permanently-sourced players for PlayPrepared - see its remarks. Keyed by asset, never
+    // returned to the pool, deliberately never disposed: there are two of them (the metronome clicks)
+    // and they must stay open for the life of the process, because re-opening is the very cost this
+    // exists to avoid.
+    private static readonly Dictionary<string, Windows.Media.Playback.MediaPlayer?> s_prepared =
+        new(StringComparer.Ordinal);
+
+    private static Windows.Media.Playback.MediaPlayer? GetPreparedPlayer(string assetName)
+    {
+        lock (s_poolLock)
+        {
+            if (s_prepared.TryGetValue(assetName, out var existing))
+                return existing;
+        }
+
+        Windows.Media.Playback.MediaPlayer? created = null;
+        var path = Path.GetFullPath(
+            Path.Combine(AppContext.BaseDirectory, ResolveAssetName(assetName).Replace('/', Path.DirectorySeparatorChar)));
+        if (File.Exists(path))
+        {
+            try
+            {
+                created = new Windows.Media.Playback.MediaPlayer { AutoPlay = false };
+                created.Source = Windows.Media.Core.MediaSource.CreateFromUri(new Uri(path));
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[SoundService] Prepare failed for '{assetName}': {ex.Message}");
+                created = null;
+            }
+        }
+
+        lock (s_poolLock)
+        {
+            // A concurrent caller may have won; keep theirs so only one player per asset ever exists.
+            if (s_prepared.TryGetValue(assetName, out var raced))
+            {
+                created?.Dispose();
+                return raced;
+            }
+            // Cached even when null, so a missing or unopenable file is not retried on every click.
+            s_prepared[assetName] = created;
+            return created;
+        }
+    }
+
 
     private static Windows.Media.Playback.MediaPlayer RentPlayer()
     {

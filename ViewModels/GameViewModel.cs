@@ -6,6 +6,7 @@ using Microsoft.Maui.Graphics;
 using Mucka.Audio;
 using Mucka.Core;
 using Mucka.Core.GuidedLogin;
+using MudSharp.Combat;
 using MudSharp.Models;
 using MudSharp.Session;
 
@@ -24,6 +25,8 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private readonly SessionCommandAliases _sessionAliases;
     private readonly string _profileHost;
     private Mucka.Core.Mapping.MappingSession? _mapSession;
+    private ItemEvalSession? _itemEval;
+    private bool _itemEvalRunning;
 #endif
     private int _historyIndex = -1;
 
@@ -102,6 +105,11 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private bool _settingsPerProfile;
     private bool _fkeysPerProfile;
     private bool _personaInvalidated;
+    // Set when the shell's "Cheerio!" farewell says this exit was the player's own doing (qq).
+    // Written on the TCP read thread, read on the UI thread inside OnGameModeExited's marshalled
+    // body - safe because the parser emits that line before it fires the exit, and the dispatcher
+    // queue orders the read after the write. Cleared on every mode transition, both directions.
+    private bool _deliberateQuit;
     // Last non-null reset target seen this game session. ResetClock wipes its own projection the
     // instant game mode exits, and the 1 Hz tick can poll that cleared snapshot before the exit
     // callback lands on the UI thread, so _reset alone cannot tell us whether the drop we are
@@ -607,6 +615,11 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         SoundService.WarmUp();
 
         SidePanel = new SidePanelViewModel();
+        SidePanel.AttachFightHistory(_conn.FightHistory);
+        SidePanel.AttachSwingDamage(_conn.SwingDamage);
+        // Fire-and-forget: neither is needed until a fight starts, and reading them must never sit on
+        // the UI thread (Invariant #1). Both swallow their own I/O failures.
+        _ = LoadCombatHistoryAsync();
         SidePanel.IsOnlineExpanded    = profile.ShowOnline;
         SidePanel.IsInventoryExpanded = profile.ShowInventory;
         SidePanel.IsItemsHereExpanded = profile.ShowItemsHere;
@@ -740,6 +753,14 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     {
         _pendingLines.Enqueue(line);
         RememberRecentLine(line);
+        // "Cheerio!" is the shell's last word on a deliberate qq, and the ONLY signal that
+        // distinguishes one from a reset-timed drop - ClassifyDrop's own docs admit the timing test
+        // cannot. Cheap word test first so an ordinary line pays nothing more than an ordinal scan;
+        // this runs on the TCP read thread for every line.
+        if (_inGameMode
+            && line.PlainText.Contains("Cheerio", StringComparison.OrdinalIgnoreCase)
+            && ShellText.IsQuitFarewellLine(ShellText.NormalizeWhitespace(line.PlainText)))
+            _deliberateQuit = true;
         if (Interlocked.Exchange(ref _flushScheduled, 1) == 0)
             OutputAvailable?.Invoke();
     }
@@ -801,6 +822,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         {
             _inGameMode = true;
             _personaInvalidated = false;
+            _deliberateQuit = false;
             _lastResetTargetUtc = null;   // new session: the new cycle's target gets observed afresh
             Interlocked.Exchange(ref _autoResetInitiatedTicks, 0);
             ClearRecentLines();
@@ -860,6 +882,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             }
 
             _personaInvalidated = false;
+            _deliberateQuit = false;
         });
     }
 
@@ -882,6 +905,11 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     {
         if (_personaInvalidated)
             return new SessionDropContext(SessionDropReason.Permadeath, exitedPersona, tail);
+        // Before IsResetDrop, deliberately: a qq during the finish-up period lands inside the reset
+        // window, and classifying that as Reset would auto-relog the player straight back into the
+        // persona they had just chosen to leave.
+        if (_deliberateQuit)
+            return new SessionDropContext(SessionDropReason.Quit, exitedPersona, tail);
         if (IsResetDrop())
             return new SessionDropContext(SessionDropReason.Reset, exitedPersona, tail);
         return new SessionDropContext(SessionDropReason.Unknown, exitedPersona, tail);
@@ -959,8 +987,18 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     }
 
     // Stats come exclusively from StatsUpdatedEvent — no text-based stat extraction.
+    private void OnInCombatChanged(bool inCombat)
+        => SidePanel.OnInCombatChanged(inCombat);
+
+    private void OnCombatGracePeriodChanged(bool isGrace)
+        => SidePanel.OnCombatGracePeriodChanged(isGrace);
+
+    private void OnCombatEventOccurred(CombatEvent combatEvent)
+        => SidePanel.OnCombatEvent(combatEvent);
+
     private void OnStatsUpdated(GameStatsSnapshot stats)
     {
+        SidePanel.OnStatsUpdated(stats);
         MainThread.BeginInvokeOnMainThread(() =>
         {
             Core.InputDiag.Log("STATS update");
@@ -1034,6 +1072,12 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         OnPropertiesChanged(nameof(TtrText), nameof(TtrVisible), nameof(TtrTooltip), nameof(AnyRightStatVisible));
     }
 
+    public void TickCombatDisplay()
+    {
+        _conn.TickCombat();
+        SidePanel.TickCombatDisplay();
+    }
+
     // Drop the cached projection (back at the option menu, or disconnected: no live world to count
     // down). The session-layer ResetClock clears its own state on disconnect/exit. Callers fire the
     // TTR notifications.
@@ -1077,6 +1121,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             OnPropertiesChanged(nameof(IsInGameMode), nameof(IsRecordingButtonVisible),
                 nameof(TtrText), nameof(TtrVisible), nameof(TtrTooltip), nameof(AnyRightStatVisible));
             _personaInvalidated = false;
+            _deliberateQuit = false;
             _lastResetTargetUtc = null;
             Interlocked.Exchange(ref _autoResetInitiatedTicks, 0);
             Disconnected?.Invoke();
@@ -1208,6 +1253,8 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
                 OpenRawConsoleRequested?.Invoke();
             else if (name == "map" || name.StartsWith("map ", StringComparison.OrdinalIgnoreCase))
                 HandleMapCommand(name.Length > 3 ? name[4..].Trim() : string.Empty);
+            else if (name == "eval" || name.StartsWith("eval ", StringComparison.OrdinalIgnoreCase))
+                _ = RunItemEvalAsync(name.Length > 4 ? name[5..].Trim() : string.Empty);
             else if (name == "fkeys" || name.StartsWith("fkeys ", StringComparison.OrdinalIgnoreCase))
                 PrintFkeys(name.Length > 5 ? name[6..].Trim() : string.Empty);
             // $f<n>: annotate with fkey n's macro (absolute 1-36). Checked after "fkeys" so it
@@ -1315,6 +1362,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         AddSystemLine("  $<                    scan recent output for watchword answers", 14);
         AddSystemLine("  $con                  open the raw protocol console", 14);
         AddSystemLine("  $map [arg]            open the map panel (or probe / dir / ...)", 14);
+        AddSystemLine("  $eval <itemid>        weigh/look/drop+get an item to measure its str/dex cost", 14);
         AddSystemLine("  $fkeys [shift|ctrl]   list your function-key macros", 14);
         AddSystemLine("  $f<n>                 annotate output with fkey n's text (1-36)", 14);
         AddSystemLine("  $VER                  expands to the current Mucka version", 14);
@@ -1429,6 +1477,48 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
                 break;
         }
     }
+
+    // ── $eval: item weigh/look/drop+get measurement (see ItemEvalSession) ────────────────────
+
+    private async Task RunItemEvalAsync(string itemId)
+    {
+        if (string.IsNullOrWhiteSpace(itemId))
+        {
+            AddSystemLine("[eval] usage: $eval <itemid>", 9);
+            return;
+        }
+        if (_itemEvalRunning)
+        {
+            AddSystemLine("[eval] an evaluation is already in progress — wait for it to finish.", 9);
+            return;
+        }
+        // FEI lines are the item's display name/label, not necessarily the bare id you type
+        // ("croquet mallet" in FEI vs "mallet" as a valid short id for the same object) — so this
+        // is only a cheap local sanity check (substring match either way), not authoritative.
+        // ItemEvalSession resolves the real name via 'identify' before doing anything else.
+        if (!SidePanel.InventoryList.Any(i =>
+                i.Contains(itemId, StringComparison.OrdinalIgnoreCase) ||
+                itemId.Contains(i, StringComparison.OrdinalIgnoreCase)))
+        {
+            AddSystemLine($"[eval] '{itemId}' doesn't obviously match the last FEI carried-items snapshot — trying anyway via 'identify'.", 9);
+        }
+
+        _itemEvalRunning = true;
+        AddSystemLine($"[eval] evaluating '{itemId}' — avoid sending other commands until this finishes.", 14);
+        try
+        {
+            _itemEval ??= new ItemEvalSession(_conn, msg => AddSystemLine(msg, 14));
+            await _itemEval.RunAsync(itemId);
+        }
+        catch (Exception ex)
+        {
+            AddSystemLine($"[eval] failed: {ex.Message}", 9);
+        }
+        finally
+        {
+            _itemEvalRunning = false;
+        }
+    }
 #endif
 
     private void SendFkey(string indexStr)
@@ -1537,6 +1627,33 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     {
         var arg = InputText.Trim();
         _conn.SendLine(arg.Length == 0 ? "flee" : $"flee {arg}");
+        _lastSentUtc = DateTime.UtcNow;
+        RequestFocus?.Invoke();
+    }
+
+    /// <summary>
+    /// Send <c>wield &lt;alternate weapon&gt;</c> (Ctrl+W) - the Combat Rail's alt-weapon chip made
+    /// into one keystroke, because composing this command by hand mid-fight means naming an item
+    /// exactly while under a two-second tick.
+    ///
+    /// <para>A no-op with nothing to switch to, which is also when the rail draws no chip: MUD2 has
+    /// no equipment slots and no default weapon, so the offer only exists during a fight, and firing
+    /// a speculative wield is not free - switching weapons drops your guard and awards the opponent
+    /// a swing. Only the item's final token is sent (see
+    /// <see cref="CombatComposition.CommandNoun"/>); the game does not want the descriptive
+    /// words.</para>
+    /// </summary>
+    public void WieldAlternateWeapon()
+    {
+        var noun = CombatComposition.CommandNoun(SidePanel.Live.AltWeapon);
+        if (noun.Length == 0)
+        {
+            RequestFocus?.Invoke();
+            return;
+        }
+
+        _conn.Annotate($"alt weapon: wield {noun}");
+        _conn.SendLine($"wield {noun}");
         _lastSentUtc = DateTime.UtcNow;
         RequestFocus?.Invoke();
     }
@@ -1726,6 +1843,16 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         OnLineReady(line);
     }
 
+    /// <summary>Loads the per-fight history and warms the per-swing damage cache, both off the UI
+    /// thread. Sequential rather than concurrent: they read the same database file at the moment the
+    /// app is already busiest, and neither is urgent - the rail's history column is blank until the
+    /// first fight either way.</summary>
+    private async Task LoadCombatHistoryAsync()
+    {
+        await _conn.LoadFightHistoryAsync().ConfigureAwait(false);
+        await _conn.LoadSwingDamageAsync().ConfigureAwait(false);
+    }
+
     private void SubscribeConnectionEvents()
     {
         _conn.LineReady        += OnLineReady;
@@ -1733,6 +1860,9 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _conn.PersonaWiped     += OnPersonaWiped;
         _conn.AutoResetInitiated += OnAutoResetInitiated;
         _conn.StatusEffectsChanged += SidePanel.OnStatusEffectsChanged;
+        _conn.InCombatChanged  += OnInCombatChanged;
+        _conn.CombatGracePeriodChanged += OnCombatGracePeriodChanged;
+        _conn.CombatEventOccurred += OnCombatEventOccurred;
         _conn.GameModeEntered  += OnGameModeEntered;
         _conn.GameModeExited   += OnGameModeExited;
         _conn.GameModeExited   += SidePanel.OnGameModeExited;
@@ -1763,6 +1893,9 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _conn.PersonaWiped     -= OnPersonaWiped;
         _conn.AutoResetInitiated -= OnAutoResetInitiated;
         _conn.StatusEffectsChanged -= SidePanel.OnStatusEffectsChanged;
+        _conn.InCombatChanged  -= OnInCombatChanged;
+        _conn.CombatGracePeriodChanged -= OnCombatGracePeriodChanged;
+        _conn.CombatEventOccurred -= OnCombatEventOccurred;
         _conn.GameModeEntered  -= OnGameModeEntered;
         _conn.GameModeExited   -= OnGameModeExited;
         _conn.GameModeExited   -= SidePanel.OnGameModeExited;

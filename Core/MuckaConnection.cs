@@ -1,3 +1,4 @@
+using MudSharp.Combat;
 using MudSharp.Models;
 using MudSharp.Session;
 using System.Net.Sockets;
@@ -31,6 +32,17 @@ public sealed class MuckaConnection : IAsyncDisposable
     private string _host = string.Empty;
 
     private readonly SessionCapture _capture = new();
+    private readonly ClogWriter _clog = new();
+    // Both write into the SAME database file (see CombatDb), each owning its own table and its own
+    // background write connection. One file, so the analysis view can join a swing to the fight it
+    // belonged to; separate connections, so neither writer can ever be blocked by the other.
+    private static readonly string CombatDbPath =
+        Path.Combine(ClogWriter.GetCombatDirectory(), CombatDb.DefaultFileName);
+
+    private readonly FightHistoryStore _fightHistory = new(CombatDbPath, CrashLog.Write);
+    private readonly FightHistoryRecorder _fightRecorder;
+    // Always on, like the fight history and unlike clogging - see SwingLedger's remarks.
+    private readonly SwingLedger _swingLedger = new(CombatDbPath, CrashLog.Write);
 
     // ── Public events (forwarded from MudSession) ─────────────────────────────
     public event Action<StyledLine>? LineReady;
@@ -44,6 +56,13 @@ public sealed class MuckaConnection : IAsyncDisposable
     /// that follows. Fires on the read-loop thread — consumers marshal to their UI thread.</summary>
     public event Action? AutoResetInitiated;
     public event Action<StatusEffectState>? StatusEffectsChanged;
+    /// <summary>Fires whenever combat is entered/left (see MudSharp.Combat.CombatTracker).</summary>
+    public event Action<bool>? InCombatChanged;
+    /// <summary>Fires whenever <see cref="IsInCombatGracePeriod"/> flips (see
+    /// MudSharp.Combat.CombatTracker.GracePeriodChanged).</summary>
+    public event Action<bool>? CombatGracePeriodChanged;
+    /// <summary>Fires for every classified combat line while (or just as) InCombat.</summary>
+    public event Action<CombatEvent>? CombatEventOccurred;
     public event Action? BellReceived;
     public event Action? GameModeEntered;
     public event Action? GameModeExited;
@@ -98,11 +117,46 @@ public sealed class MuckaConnection : IAsyncDisposable
     /// <summary>Write a free-text annotation into the active capture log.</summary>
     public void Annotate(string message) => _capture.Annotate(message);
 
+    public bool InCombat => _session.InCombat;
+    /// <summary>See MudSharp.Combat.CombatTracker.IsInGracePeriod.</summary>
+    public bool IsInCombatGracePeriod => _session.IsInCombatGracePeriod;
+    /// <summary>UI-side ~1 Hz tick — see <see cref="MudSession.TickCombat"/>.</summary>
+    public void TickCombat() => _session.TickCombat();
+
+    /// <summary>The current merged stats snapshot — see <see cref="MudSharp.Session.MudSession.CurrentStats"/>.
+    /// Read this for an immediate "whatever we currently know" value; do not subscribe to
+    /// <see cref="StatsUpdated"/> and wait for the next event when a synchronous read will do, since
+    /// that races the FES heartbeat's own cadence.</summary>
+    public GameStatsSnapshot CurrentStats => _session.CurrentStats;
+    public string? ClogFilePath => _clog.FilePath;
+
+    /// <summary>The accumulated per-fight history index, for contrasting the current fight against
+    /// prior ones. Unlike clogging this always records — see FightHistoryRecorder's remarks.</summary>
+    public FightHistoryStore FightHistory => _fightHistory;
+
+    /// <summary>Loads the fight-history index. Fire-and-forget from startup; must not be awaited on
+    /// the UI thread (Invariant #1). Safe to call before any fight has been recorded.</summary>
+    public Task LoadFightHistoryAsync(CancellationToken cancellationToken = default)
+        => _fightHistory.LoadAsync(cancellationToken);
+
+    /// <summary>The accumulated per-creature incoming-damage record, for the rail's "how hard does
+    /// this thing hit" column. Fed by the swing ledger, which sees every blow already.</summary>
+    public MudSharp.Combat.SwingDamageIndex SwingDamage => _swingLedger.Damage;
+
+    /// <summary>Warms the damage cache from the database's own aggregate views. Fire-and-forget from
+    /// startup, alongside <see cref="LoadFightHistoryAsync"/> and under the same rule: never awaited
+    /// on the UI thread (Invariant #1). Must run AFTER the fight-history load, which is what performs
+    /// the one-time legacy import - warming first would aggregate a table the old swings had not been
+    /// moved into yet.</summary>
+    public Task LoadSwingDamageAsync(CancellationToken cancellationToken = default)
+        => _swingLedger.WarmDamageIndexAsync(cancellationToken);
+
     private int _windowCols;
 
     public MuckaConnection(string? accountId = null, string? password = null, int maxCols = 80, string loginName = "mud")
     {
         _windowCols = Math.Clamp(maxCols, 20, 160);
+        _fightRecorder = new FightHistoryRecorder(_fightHistory);
         _session = new MudSession();
         _session.SetWindowSize(_windowCols, 21);
         _session.SetLoginUser(loginName);
@@ -322,8 +376,23 @@ public sealed class MuckaConnection : IAsyncDisposable
     {
         await DisconnectAsync().ConfigureAwait(false);
         _loginHandler?.Detach();
+        // Order matters: _session.Dispose() force-closes any open encounter (MudSession.Dispose ->
+        // CombatTracker.ForceEnd), and that cascades through the events wired in WireSessionEvents
+        // to _fightRecorder.OnCombatEvent/OnInCombatChanged, which calls _store.Append(...) for every
+        // fight that was still open. _fightRecorder.Dispose() right after is a belt-and-braces flush
+        // (idempotent, see its remarks) in case that cascade is ever bypassed. Only once both have
+        // had the chance to enqueue their rows does _fightHistory.Dispose() drain the store's
+        // background writer to disk - disposing it any earlier could lose exactly the rows this
+        // whole ordering exists to save.
         _session.Dispose();
+        _fightRecorder.Dispose();
+        _fightHistory.Dispose();
+        // After _session.Dispose() for the same reason: the ledger enqueues a row per swing as the
+        // event arrives (nothing is held back to flush at fight end), so the only rows still at risk
+        // here are the ones already in its queue - which is exactly what this drains.
+        _swingLedger.Dispose();
         _capture.Dispose();
+        _clog.Dispose();
     }
 
     // ── Private ────────────────────────────────────────────────────────────────
@@ -392,17 +461,50 @@ public sealed class MuckaConnection : IAsyncDisposable
         _ = writer.TryWrite(bytes.ToArray());
     }
 
+    /// <summary>
+    /// The encounter currently open, as a unix-ms id, or null between encounters.
+    ///
+    /// <para>Stamped HERE and handed to every consumer, rather than each computing its own. It is the
+    /// join key between the fights and swings tables, and two consumers each calling UtcNow would
+    /// produce two values microseconds apart - a join that silently matched nothing, in a way no test
+    /// of either side alone would catch. One clock reading, one id.</para>
+    /// </summary>
+    private long? _encounterId;
+
+    private void OnSessionInCombatChanged(bool inCombat)
+    {
+        // UtcNow rather than a combat event's own stamp: this fires synchronously from the same
+        // Feed-thread call that flips CombatTracker.InCombat, ahead of the FightStart event for the
+        // SAME line (Begin() raises InCombatChanged before Observe() calls Emit()), so the two are
+        // effectively the same instant anyway.
+        _encounterId = inCombat ? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() : _encounterId;
+
+        _clog.OnInCombatChanged(inCombat);
+        _fightRecorder.OnInCombatChanged(inCombat, _encounterId);
+        _swingLedger.OnInCombatChanged(inCombat, _encounterId);
+        InCombatChanged?.Invoke(inCombat);
+
+        // Cleared only AFTER both recorders have flushed - each stamps its final rows for the
+        // encounter that just closed, and clearing first would strip the id off exactly the rows that
+        // most need it.
+        if (!inCombat)
+            _encounterId = null;
+    }
+
     private void WireSessionEvents()
     {
-        _session.LineReady          += l => LineReady?.Invoke(l);
-        _session.StatsUpdated       += s => StatsUpdated?.Invoke(s);
         _session.PersonaWiped       += () => PersonaWiped?.Invoke();
         _session.AutoResetInitiated += () => AutoResetInitiated?.Invoke();
-        _session.StatusEffectsChanged += s => StatusEffectsChanged?.Invoke(s);
+        _session.LineReady          += l => { _clog.OnLineReady(l); LineReady?.Invoke(l); };
+        _session.StatsUpdated       += s => { _clog.OnStatsUpdated(s); _fightRecorder.OnStatsUpdated(s); _swingLedger.OnStatsUpdated(s); StatsUpdated?.Invoke(s); };
+        _session.StatusEffectsChanged += s => { _clog.OnStatusEffectsChanged(s); _fightRecorder.OnStatusEffectsChanged(s); _swingLedger.OnStatusEffectsChanged(s); StatusEffectsChanged?.Invoke(s); };
+        _session.InCombatChanged     += OnSessionInCombatChanged;
+        _session.CombatGracePeriodChanged += v => CombatGracePeriodChanged?.Invoke(v);
+        _session.CombatEventOccurred += e => { _clog.OnCombatEvent(e); _fightRecorder.OnCombatEvent(e); _swingLedger.OnCombatEvent(e); CombatEventOccurred?.Invoke(e); };
         _session.BellReceived       += () => BellReceived?.Invoke();
         _session.GameModeEntered    += () => GameModeEntered?.Invoke();
         _session.GameModeExited     += () => GameModeExited?.Invoke();
-        _session.CharacterIdentified += n => CharacterIdentified?.Invoke(n);
+        _session.CharacterIdentified += n => { _fightRecorder.OnCharacterIdentified(n); _swingLedger.OnCharacterIdentified(n); CharacterIdentified?.Invoke(n); };
         _session.DreamwordChanged   += w =>
         {
             if (w != null)
@@ -416,7 +518,7 @@ public sealed class MuckaConnection : IAsyncDisposable
         _session.FewListStarting    += () => FewListStarting?.Invoke();
         _session.FewListComplete    += () => FewListComplete?.Invoke();
         _session.RoomEntered        += () => RoomEntered?.Invoke();
-        _session.RoomShortReady     += name => RoomShortReady?.Invoke(name);
+        _session.RoomShortReady     += name => { _clog.OnRoomShortReady(name); _fightRecorder.OnRoomShortReady(name); RoomShortReady?.Invoke(name); };
         _session.FeiListStarting    += () => FeiListStarting?.Invoke();
         _session.FeiItemReady       += item => FeiItemReady?.Invoke(item);
         _session.FeiListComplete    += () => FeiListComplete?.Invoke();

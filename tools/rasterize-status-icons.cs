@@ -50,7 +50,7 @@ foreach (var svgPath in Directory.EnumerateFiles(svgDir, "*.svg").OrderBy(p => p
         // Debuff variant: monochrome + bruised tint, so a lone negative icon can't be mistaken
         // for its positive twin. Only the ±stats have a debuff form — glow/invis and the full-colour
         // afflictions (deaf/blind/dumb/crippled) are single-state and ship as-is.
-        if (name is not ("glow" or "invis" or "deaf" or "blind" or "dumb" or "crippled"))
+        if (name is not ("glow" or "invis" or "deaf" or "blind" or "dumb" or "crippled" or "combat"))
             Emit(picture, src, size, name, colorFilter: SicklyFilter(), suffix: "_neg");
     }
 }

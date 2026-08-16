@@ -114,6 +114,10 @@
 		<PackageReference Include="Microsoft.Maui.Controls" Version="$(MauiVersion)" />
 		<PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="10.0.0" />
 		<PackageReference Include="SkiaSharp.Views.Maui.Controls" Version="3.119.4" />
+		<!-- The client combat database (see Core/CombatDb.cs). Pulls SQLitePCLRaw.bundle_e_sqlite3
+		     for the native engine; on Android that is one libe_sqlite3.so, since the Release config
+		     above restricts RuntimeIdentifiers to android-arm64. Trim-safe, so PublishTrimmed stays. -->
+		<PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.11" />
 	</ItemGroup>
 
 	<ItemGroup>

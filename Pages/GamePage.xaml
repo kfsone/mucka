@@ -51,6 +51,7 @@
                                 <MenuFlyoutItem Text="Side Panel" Clicked="OnOverflowTogglePanel"/>
                                 <MenuFlyoutItem Text="Onlines" Clicked="OnOverflowOnlines"/>
                                 <MenuFlyoutItem Text="Compass" Clicked="OnOverflowCompass"/>
+                                <MenuFlyoutItem Text="Combat Rail" Clicked="OnOverflowCombatRail"/>
                                 <MenuFlyoutItem Text="Settings" Clicked="OnOverflowSettings"/>
                                 <MenuFlyoutItem Text="About" Clicked="OnOverflowAbout"/>
                             </MenuFlyout>
@@ -147,7 +148,7 @@
                          icons behave like indicator lights lit in place, not an icon queue that packs.
                          Tooltips = the detected line (hardcoded fallback). -->
                     <Grid Grid.Column="7" VerticalOptions="Center" HeightRequest="28"
-                          ColumnDefinitions="36,36,36,Auto,30,Auto,30,30,30,30">
+                          ColumnDefinitions="36,36,36,Auto,30,30,Auto,30,30,30,30">
                         <!-- Stamina: buff behind (offset), debuff in front -->
                         <Image Grid.Column="0" Source="stamina.png"      Margin="5,0,0,0" TranslationY="{Binding SidePanel.StaminaBuffDy}"   IsVisible="{Binding SidePanel.StaminaBuff}"   ToolTipProperties.Text="{Binding SidePanel.StaminaBuffTip}"   WidthRequest="26" HeightRequest="26" VerticalOptions="Center" HorizontalOptions="Start"/>
                         <Image Grid.Column="0" Source="stamina_neg.png"                   TranslationY="{Binding SidePanel.StaminaDebuffDy}" IsVisible="{Binding SidePanel.StaminaDebuff}" ToolTipProperties.Text="{Binding SidePanel.StaminaDebuffTip}" WidthRequest="26" HeightRequest="26" VerticalOptions="Center" HorizontalOptions="Start"/>
@@ -162,13 +163,16 @@
                         <BoxView Grid.Column="3" WidthRequest="1" HeightRequest="12" Color="#3a3f45" VerticalOptions="Center" Margin="4,0"/>
                         <!-- Glow -->
                         <Image Grid.Column="4" Source="glow.png" IsVisible="{Binding SidePanel.Glow}" ToolTipProperties.Text="{Binding SidePanel.GlowTip}" WidthRequest="26" HeightRequest="26" VerticalOptions="Center" HorizontalOptions="Center"/>
+                        <!-- Combat / clogging indicator (crossed swords) — lit while CombatTracker
+                             believes we're in a fight; tooltip distinguishes "recording" vs not. -->
+                        <Image Grid.Column="5" Source="combat.png" IsVisible="{Binding SidePanel.InCombat}" Opacity="{Binding SidePanel.CombatIconOpacity}" ToolTipProperties.Text="{Binding SidePanel.CombatTip}" WidthRequest="26" HeightRequest="26" VerticalOptions="Center" HorizontalOptions="Center"/>
                         <!-- | separator before ailments -->
-                        <BoxView Grid.Column="5" WidthRequest="1" HeightRequest="12" Color="#3a3f45" VerticalOptions="Center" Margin="4,0"/>
+                        <BoxView Grid.Column="6" WidthRequest="1" HeightRequest="12" Color="#3a3f45" VerticalOptions="Center" Margin="4,0"/>
                         <!-- Ailments — full-colour emoji-style icons (26px) centred in fixed 30px slots. -->
-                        <Image Grid.Column="6" Source="deaf.png"     IsVisible="{Binding Deaf}"     ToolTipProperties.Text="{Binding SidePanel.DeafTip}"     WidthRequest="26" HeightRequest="26" VerticalOptions="Center" HorizontalOptions="Center"/>
-                        <Image Grid.Column="7" Source="blind.png"    IsVisible="{Binding Blind}"    ToolTipProperties.Text="{Binding SidePanel.BlindTip}"    WidthRequest="26" HeightRequest="26" VerticalOptions="Center" HorizontalOptions="Center"/>
-                        <Image Grid.Column="8" Source="dumb.png"     IsVisible="{Binding Dumb}"     ToolTipProperties.Text="{Binding SidePanel.DumbTip}"     WidthRequest="26" HeightRequest="26" VerticalOptions="Center" HorizontalOptions="Center"/>
-                        <Image Grid.Column="9" Source="crippled.png" IsVisible="{Binding Crippled}" ToolTipProperties.Text="{Binding SidePanel.CrippledTip}" WidthRequest="26" HeightRequest="26" VerticalOptions="Center" HorizontalOptions="Center"/>
+                        <Image Grid.Column="7" Source="deaf.png"     IsVisible="{Binding Deaf}"     ToolTipProperties.Text="{Binding SidePanel.DeafTip}"     WidthRequest="26" HeightRequest="26" VerticalOptions="Center" HorizontalOptions="Center"/>
+                        <Image Grid.Column="8" Source="blind.png"    IsVisible="{Binding Blind}"    ToolTipProperties.Text="{Binding SidePanel.BlindTip}"    WidthRequest="26" HeightRequest="26" VerticalOptions="Center" HorizontalOptions="Center"/>
+                        <Image Grid.Column="9" Source="dumb.png"     IsVisible="{Binding Dumb}"     ToolTipProperties.Text="{Binding SidePanel.DumbTip}"     WidthRequest="26" HeightRequest="26" VerticalOptions="Center" HorizontalOptions="Center"/>
+                        <Image Grid.Column="10" Source="crippled.png" IsVisible="{Binding Crippled}" ToolTipProperties.Text="{Binding SidePanel.CrippledTip}" WidthRequest="26" HeightRequest="26" VerticalOptions="Center" HorizontalOptions="Center"/>
                     </Grid>
 
                     <!-- Spacer -->
@@ -375,7 +379,10 @@
 
         <!-- ── Body: side panel on the left; scrollback, toolbar and input stacked
              on the right so the panel indents all three ── -->
-        <Grid Grid.Row="2" ColumnDefinitions="Auto,*">
+        <!-- Third column (Auto) added for the new Combat Rail panel on the right edge - see the
+             Border named CombatPanelBorder below. DESIGN_FINAL.md D3/2.2 (corrected): additive,
+             separate from the left SidePanelBorder, shown/hidden via IsCombatPanelVisible only. -->
+        <Grid Grid.Row="2" ColumnDefinitions="Auto,*,Auto">
 
         <!-- Right-hand stack -->
         <Grid Grid.Column="1" RowDefinitions="*,Auto,Auto">
@@ -387,6 +394,21 @@
                                  BackgroundColor="#0C0C0C"
                                  HorizontalOptions="Fill"
                                  VerticalOptions="Fill"/>
+
+            <!-- Combat edge (see GamePage.xaml.cs UpdateCombatEdges). A 1px rule that is invisible
+                 out of combat, amber while a fight is live, and red at the same instant the Combat
+                 Rail's own glow goes red.
+
+                 An OVERLAY in the same cell rather than a Border wrapped around the terminal: a
+                 wrapper would inset the terminal by a pixel the moment it appeared, reflowing the
+                 text grid mid-fight, and the whole panel grammar is that a state change is read as a
+                 change of state, never as movement. Always present, only ever recoloured, so it
+                 costs no layout at all. InputTransparent so it cannot intercept a click destined for
+                 the terminal (Invariant #0). -->
+            <Border x:Name="CombatEdgeTerminal"
+                    Stroke="Transparent" StrokeThickness="1"
+                    BackgroundColor="Transparent"
+                    InputTransparent="True"/>
 
             <!-- Transient confirmation toast (copies, settings saves), overlaid top-right of the terminal view. -->
             <Border Grid.Column="0"
@@ -788,13 +810,31 @@
 
         </Grid>
 
+        <!-- Combat edge for the input row - twin of CombatEdgeTerminal above; the two are driven
+             together by UpdateCombatEdges and always agree.
+
+             A SIBLING of the input row rather than a child of it, so it traces the panel's real
+             outer edge instead of sitting inside that row's 4,2 padding. (As a child it needed a
+             negative margin to reach the edge, which risks being clipped to nothing - an alarm that
+             silently fails to draw is worse than no alarm.)
+
+             On the row, never on InputFrame: that Border's stroke is already spoken for by the
+             chat-mode cue, in Campbell bright yellow. Sharing one stroke would render "in combat"
+             and "in combat, in chat mode" identically, one cue silently overwriting the other
+             exactly when both matter most. Two elements, two facts. -->
+        <Border Grid.Row="2"
+                x:Name="CombatEdgeInput"
+                Stroke="Transparent" StrokeThickness="1"
+                BackgroundColor="Transparent"
+                InputTransparent="True"/>
+
         </Grid>
 
         <!-- ── Side panel — left edge, runs scrollback through input row ── -->
         <Border Grid.Column="0"
                 x:Name="SidePanelBorder"
                 IsVisible="{Binding SidePanel.IsPanelExpanded}"
-                WidthRequest="212"
+                WidthRequest="228"
                 BackgroundColor="#101618"
                 Stroke="#2d333b" StrokeThickness="1"
                 Padding="0">
@@ -951,9 +991,11 @@
                                  Docked to the bottom of the free space, growing upward toward the online list. -->
                             <ScrollView Grid.Row="1" Padding="8,4" VerticalOptions="End">
                                 <VerticalStackLayout Spacing="4">
-                                    <VerticalStackLayout.Behaviors>
-                                        <beh:StaleDimBehavior Source="Fei"/>
-                                    </VerticalStackLayout.Behaviors>
+
+                                    <VerticalStackLayout Spacing="4">
+                                        <VerticalStackLayout.Behaviors>
+                                            <beh:StaleDimBehavior Source="Fei"/>
+                                        </VerticalStackLayout.Behaviors>
 
                                         <!-- Carrying heading + fold toggle -->
                                         <Grid ColumnDefinitions="*,Auto">
@@ -1014,6 +1056,7 @@
                                                 </BindableLayout.ItemTemplate>
                                             </VerticalStackLayout>
                                         </VerticalStackLayout>
+                                    </VerticalStackLayout>
 
                                 </VerticalStackLayout>
                             </ScrollView>
@@ -1092,6 +1135,69 @@
                             </VerticalStackLayout>
 
                 </Grid>
+        </Border>
+
+        <!-- - Combat panel - NEW, additional panel on the RIGHT edge, off by default -
+             DESIGN_FINAL.md D3/2.2 (corrected). This is NOT the left SidePanelBorder above widened;
+             it is a wholly separate panel with its own width, shown/hidden by the overflow menu's
+             "Combat Rail" entry (SidePanel.ToggleCombatPanelCommand -> IsCombatPanelVisible, whose
+             change drives GamePage's ResizeWindowForCombatPanel). The window never resizes for any
+             other reason - not combat start, not combat end. -->
+        <Border Grid.Column="2"
+                x:Name="CombatPanelBorder"
+                IsVisible="{Binding SidePanel.IsCombatPanelVisible}"
+                WidthRequest="300"
+                BackgroundColor="#101618"
+                Stroke="#2d333b" StrokeThickness="1"
+                Padding="0">
+            <Grid>
+                <!-- Glow layer BEHIND the canvas (D9): opacity animated ONLY via WinUI Composition
+                     (PulseLayer, GamePage.xaml.cs), never via a UI-thread timer and never by
+                     recolouring the canvas's own drawn text. Rests at Opacity 0 (invisible) whenever
+                     no tier is pulsing. -->
+                <BoxView x:Name="CombatPanelGlow"
+                         Color="#C50F1F"
+                         Opacity="0"
+                         InputTransparent="True"/>
+                <!-- The tick meter's moving fill, also behind the canvas and also driven purely by
+                     Composition (TickSweep, GamePage.xaml.cs) - the canvas draws the empty track and
+                     the opponent count over it, but never the motion: SKXamlCanvas paints on the UI
+                     thread, and a 2-second progress bar repainted there competes with typing
+                     (Invariant #1). Its bounds are set in code from CombatRailView.TickTrackDp so
+                     the fill and the track it sits in can never drift apart. Rests scaled to zero
+                     width; only ever visible mid-fight. -->
+                <BoxView x:Name="CombatTickSweep"
+                         Color="#FFFFFF"
+                         Opacity="0.20"
+                         HorizontalOptions="Fill"
+                         VerticalOptions="End"
+                         InputTransparent="True"/>
+                <!-- The render surface itself: a single SkiaSharp canvas, never a Label/
+                     FormattedString (D8) - see CombatPanelCanvasView's own remarks. Read-only: no
+                     gesture recognizers, cannot take keyboard focus (Invariant #0). -->
+                <render:CombatRailView x:Name="CombatPanelCanvas"
+                                       SidePanel="{Binding SidePanel}"
+                                       MetronomeEnabled="{Binding SidePanel.IsCombatMetronomeEnabled}"
+                                       InGracePeriod="{Binding SidePanel.IsCombatGracePeriod}"
+                                       BackgroundColor="Transparent"
+                                       HorizontalOptions="Fill"
+                                       VerticalOptions="Fill"
+                                       InputTransparent="True"/>
+                <!-- The metronome toggle's HIT TARGET only - the switch itself is drawn by the
+                     canvas. An invisible button rather than a gesture recognizer on the canvas, so
+                     the canvas stays InputTransparent with zero gestures and Invariant #0 holds by
+                     construction. Its own click hands focus straight back to the command box (see
+                     SidePanelViewModel.ToggleCombatMetronome), and OnCombatMetronomeHandlerChanged
+                     clears IsTabStop so Tab can never land on it. Bounds are set in code from the
+                     same geometry the canvas draws with. -->
+                <Button x:Name="CombatMetronomeHit"
+                        Command="{Binding SidePanel.ToggleCombatMetronomeCommand}"
+                        BackgroundColor="Transparent"
+                        BorderWidth="0"
+                        Padding="0"
+                        HorizontalOptions="End"
+                        VerticalOptions="End"/>
+            </Grid>
         </Border>
 
         </Grid>
@@ -1345,6 +1451,22 @@
                                    VerticalOptions="Center"
                                    IsVisible="{Binding SidePanel.IsFloatingMapVisible}"/>
                             <Label Grid.Column="1" Text="Compass" TextColor="White" FontSize="14"/>
+                        </Grid>
+                    </Border>
+                    <BoxView Color="#2d333b" HeightRequest="1"/>
+                    <!-- Combat Rail: same live-state toggle as the three above. Replaces "$clog on"/
+                         "$clog off", which used to both arm clogging AND show this panel - two
+                         unrelated things behind one switch. Clogging is now always on, so all that
+                         is left is the panel, and a panel belongs with the other panels. -->
+                    <Border Padding="16,14" BackgroundColor="Transparent">
+                        <Border.GestureRecognizers>
+                            <TapGestureRecognizer Command="{Binding SidePanel.ToggleCombatPanelCommand}"/>
+                        </Border.GestureRecognizers>
+                        <Grid ColumnDefinitions="24,*">
+                            <Label Grid.Column="0" Text="&#x2713;" TextColor="#3fb950" FontSize="14"
+                                   VerticalOptions="Center"
+                                   IsVisible="{Binding SidePanel.IsCombatPanelVisible}"/>
+                            <Label Grid.Column="1" Text="Combat Rail" TextColor="White" FontSize="14"/>
                         </Grid>
                     </Border>
                     <BoxView Color="#2d333b" HeightRequest="1"/>

@@ -421,4 +421,22 @@ public class ShellTextTests
 
         Assert.Null(ShellText.ExtractSplash(lines));
     }
+
+    [Fact]
+    public void DetectsQuitFarewellLine()
+    {
+        // Wrap padding exactly as GameModeExitTests' captured qq byte sequence carries it.
+        Assert.True(ShellText.IsQuitFarewellLine(ShellText.NormalizeWhitespace("Cheerio!\r\0\r\n")));
+    }
+
+    [Theory]
+    [InlineData("Ollie says \"Cheerio!\"")]
+    [InlineData("Ollie the superheroine waves. Cheerio!")]
+    [InlineData("Cheerio! is what she said")]
+    public void QuitFarewell_DoesNotMatchPlayerSpeech(string spoken)
+    {
+        // Whole-line equality, not a phrase scan: a player saying it in game must never read as a
+        // deliberate quit, or GameViewModel would suppress guided-login re-entry for a real death.
+        Assert.False(ShellText.IsQuitFarewellLine(ShellText.NormalizeWhitespace(spoken)));
+    }
 }

@@ -1,3 +1,4 @@
+using MudSharp.Combat;
 using MudSharp.Models;
 using MudSharp.Protocol;
 
@@ -80,9 +81,24 @@ public sealed class MudSession : IDisposable
     // the whole frame up to the next prompt; the score frame is the last, and its closing prompt
     // shuts the window. All fields are touched only on the Feed thread (game-entry and line
     // processing both run there).
-    private bool _setupWindowActive;      // window open (entry → score frame closed)
+    //
+    // The window opens ONCE, at game entry, and nothing reopens it. There is deliberately NO periodic
+    // `score` refresh, and this is a hard rule rather than a tuning choice.
+    //
+    // The cost is not the game turn - MUD2 turns are short server slices (~10-50ms) that exist to
+    // stop action spam, and a `score` does not consume a combat round. The cost is BANDWIDTH. The
+    // sheet is a dozen-plus lines, the server's link is not fat, and every byte of it is time spent
+    // dispatching housekeeping down the same pipe the player's combat text and flee acknowledgement
+    // have to come back through. Injecting that on a timer means occasionally delaying exactly the
+    // output a player is waiting on to decide whether to run.
+    //
+    // Gating it on "not in combat" does not rescue it either: that is the CLIENT's view of combat,
+    // which lags the server, so a sheet already in flight when a fight starts still lands in the
+    // middle of it. In a permadeath game no inventory count is worth that.
+    private volatile bool _setupWindowActive;  // window open (entry/refresh → score frame closed)
     private bool _setupSwallowingFrame;   // inside a setup frame we've claimed — swallow its lines
     private bool _setupCloseAfterFrame;   // the score frame is in progress; close when it ends
+    private DateTime _setupDeadlineUtc = DateTime.MaxValue;   // refresh windows lapse; entry's does not
     private string? _currentCharName;
 
     private GameStatsSnapshot _currentStats = GameStatsSnapshot.Empty;
@@ -96,6 +112,16 @@ public sealed class MudSession : IDisposable
     // online list remains reliable and an arriving PKer is visible.
     private bool _mappingFocus;
     private readonly EffectTracker _effects = new();
+    private readonly CombatTracker _combat = new();
+
+    // Testability seam only: production code never overrides this, so combat timestamps are
+    // always the real wall clock (the correct behaviour for the live grace-period logic in
+    // CombatTracker). CombatCaptureReplayTests overrides it to replay the research capture's own
+    // original timestamps, since a fast in-memory replay's real elapsed time bears no relation to
+    // the many-hour session it captures and would otherwise never trip (or would spuriously trip)
+    // CombatTracker's 5-second post-kill grace window.
+    internal Func<DateTime> CombatClock { get; set; } = () => DateTime.UtcNow;
+
     // Reset-time projection: folds the minute-granular FES reset value into an absolute target and,
     // once per session near the start, runs a staged burst (~1 s then ~250 ms probes) to pin it to
     // sub-second. Owned here (not the VM) so all sub-second probe timing stays off the UI thread and
@@ -130,6 +156,12 @@ public sealed class MudSession : IDisposable
     public event Action<string, string>? ExitLineReady;
     /// <summary>The local player's active temporary-effect set changed (buffs/debuffs/glow).</summary>
     public event Action<StatusEffectState>? StatusEffectsChanged;
+    /// <summary>Fires whenever combat is entered/left (see <see cref="CombatTracker"/>).</summary>
+    public event Action<bool>? InCombatChanged;
+    /// <summary>Fires whenever <see cref="IsInCombatGracePeriod"/> flips.</summary>
+    public event Action<bool>? CombatGracePeriodChanged;
+    /// <summary>Fires for every classified combat line while (or just as) InCombat.</summary>
+    public event Action<CombatEvent>? CombatEventOccurred;
     /// <summary>
     /// Server confirmed the terminal width (ESC-<n>W response or "[New terminal width is N]" annotation).
     /// Payload is the confirmed column count.
@@ -169,9 +201,17 @@ public sealed class MudSession : IDisposable
     public event Action? AutoResetInitiated;
 
     // ── Public state ───────────────────────────────────────────────────────────
+    /// <summary>The current merged stats snapshot (see <c>MergeStats</c>) — always up to date
+    /// thanks to the periodic FES heartbeat, so callers that just need "whatever we currently
+    /// know" (e.g. a baseline read before an item-eval drop/get pair) should read this directly
+    /// rather than subscribing to <see cref="StatsUpdated"/> and waiting for the next event, which
+    /// races the heartbeat's own cadence and can read as empty right after subscribing.</summary>
     public GameStatsSnapshot CurrentStats => _currentStats;
     public string? CurrentDreamword => _currentDreamword;
     public bool InGameMode => _parser.InGameMode;
+    public bool InCombat => _combat.InCombat;
+    /// <summary>See <see cref="CombatTracker.IsInGracePeriod"/>.</summary>
+    public bool IsInCombatGracePeriod => _combat.IsInGracePeriod;
     /// <summary>Latest reset-time projection snapshot (target instant + uncertainty + phase).</summary>
     public ResetEstimate ResetEstimate => _resetClock.Snapshot();
 
@@ -227,6 +267,12 @@ public sealed class MudSession : IDisposable
     /// <summary>Mapping window focus gained (true) / lost (false). While focused the
     /// periodic heartbeat omits FEI but retains FES+FEW so the online list refreshes reliably.
     /// May be called from any thread.</summary>
+    /// <summary>UI-side ~1 Hz tick so the post-kill grace window (see
+    /// <see cref="CombatTracker.Tick"/>) can expire on its own even when the server goes quiet
+    /// after the last kill — otherwise InCombat/IsInCombatGracePeriod only re-evaluate whenever
+    /// the next unrelated line happens to arrive.</summary>
+    public void TickCombat() => _combat.Tick(CombatClock());
+
     public void SetMappingFocus(bool focused)
     {
         lock (_fesLock)
@@ -311,6 +357,15 @@ public sealed class MudSession : IDisposable
 
     public void Dispose()
     {
+        // Force-close any open encounter BEFORE tearing anything else down: unlike Reset() (used for
+        // an ordinary disconnect/relog, where the server-side reset/logout already ends combat on its
+        // own), app exit gives no such signal, so without this an encounter that was live at shutdown
+        // never resolves and its fight rows are lost entirely (they only ever get written from
+        // CombatTracker.InCombatChanged -> false). ForceEnd is idempotent (no-op if not InCombat) and
+        // raises the same InCombatChanged(false)/EventOccurred events a normal fight-end would, which
+        // MuckaConnection has already wired to FightHistoryRecorder for the lifetime of this session -
+        // so this one call is what makes "no fight rows lost on app exit mid-fight" true.
+        _combat.ForceEnd(CombatClock());
         StopFesTimer();
         lock (_fesLock)
         {
@@ -344,6 +399,7 @@ public sealed class MudSession : IDisposable
             // only runs while a dreamword is active. See TryCancelSpokenDreamword.
             if (_currentDreamword is not null)
                 TryCancelSpokenDreamword(line);
+            _combat.Observe(line, CombatClock());
             LineReady?.Invoke(line);
         };
         _parser.StatsUpdated += MergeStats;
@@ -358,12 +414,32 @@ public sealed class MudSession : IDisposable
         _parser.ProbeHintReceived += OnProbeHint;
         _parser.AutoResetInitiated += () =>
         {
+            // Timing only. This fires on the WARNING - "Auto reset initiated, you have 120 seconds to
+            // finish up" - not on the reset itself, so the fight in progress is still very much in
+            // progress and the player has two minutes of play left.
+            //
+            // This used to also call _combat.ForceEnd here, on the reasoning that "a reset wipes game
+            // state, no fight-end line ever arrives". True of the reset; false of the warning. The
+            // effect was that the client declared combat over up to two minutes early and then
+            // discarded every subsequent non-FightStart combat event (CombatStatsAggregator.Observe
+            // returns early while !InCombat) - which silently ate weapon equips and left fights
+            // reading as UNARMED for their whole duration. Confirmed in the clog corpus: an encounter
+            // that reopened on "The eagle misses you." ran 41 events across 4 participants with no
+            // weapon, having swallowed "You are now using the broadsword to fight!" in the pre-roll.
+            //
+            // The real transition is already covered - GameModeExited force-ends the encounter when
+            // the reset actually lands - so this call was premature AND redundant.
             _resetClock.NoteAutoResetInitiated(_resetClock.NowMono);
+            // Still forwarded: consumers use it to tell a reset-driven drop from a deliberate quit.
+            // It is only the combat force-end that was wrong here.
             AutoResetInitiated?.Invoke();
         };
         _parser.PresenceNameSeen  += OnPresenceName;
         _parser.StatusEffectChanged += _effects.Apply;
         _effects.Changed += state => StatusEffectsChanged?.Invoke(state);
+        _combat.InCombatChanged += v => InCombatChanged?.Invoke(v);
+        _combat.GracePeriodChanged += v => CombatGracePeriodChanged?.Invoke(v);
+        _combat.EventOccurred += e => CombatEventOccurred?.Invoke(e);
         _parser.FewPlayerReady += (name, color) =>
         {
             _pendingOnlineNames.Add(PlayerNameParts.Parse(name).PersonaName);
@@ -424,10 +500,10 @@ public sealed class MudSession : IDisposable
         else
         {
             if (partial.Stamina      is not null || partial.MaxStamina   is not null) refreshed |= StaleStats.Stamina;
-            if (partial.Strength     is not null || partial.MaxStrength  is not null) refreshed |= StaleStats.Strength;
-            if (partial.Dexterity    is not null || partial.MaxDexterity is not null) refreshed |= StaleStats.Dexterity;
+            if (partial.Strength     is not null || partial.RawStrength is not null || partial.MaxStrength  is not null) refreshed |= StaleStats.Strength;
+            if (partial.Dexterity    is not null || partial.RawDexterity is not null || partial.MaxDexterity is not null) refreshed |= StaleStats.Dexterity;
             if (partial.CurrentMagic is not null || partial.MaxMagic     is not null) refreshed |= StaleStats.Magic;
-            if (partial.Score        is not null)                                     refreshed |= StaleStats.Score;
+            if (partial.Score        is not null || partial.ScoreThisGame is not null || partial.PlayerValue is not null) refreshed |= StaleStats.Score;
         }
         ClearStale(refreshed);
 
@@ -446,11 +522,17 @@ public sealed class MudSession : IDisposable
             MaxStamina:   partial.MaxStamina   ?? _currentStats.MaxStamina,
             Score:        partial.Score        ?? _currentStats.Score,
             Strength:     partial.Strength     ?? _currentStats.Strength,
+            RawStrength:  partial.RawStrength  ?? _currentStats.RawStrength,
             MaxStrength:  partial.MaxStrength  ?? _currentStats.MaxStrength,
             Dexterity:    partial.Dexterity    ?? _currentStats.Dexterity,
+            RawDexterity: partial.RawDexterity ?? _currentStats.RawDexterity,
             MaxDexterity: partial.MaxDexterity ?? _currentStats.MaxDexterity,
             CurrentMagic: partial.CurrentMagic ?? _currentStats.CurrentMagic,
             MaxMagic:     partial.MaxMagic     ?? _currentStats.MaxMagic,
+            ObjectsCarried:     partial.ObjectsCarried     ?? _currentStats.ObjectsCarried,
+            MaxObjectsCarried:  partial.MaxObjectsCarried  ?? _currentStats.MaxObjectsCarried,
+            Level:              partial.Level              ?? _currentStats.Level,
+            GamesPlayed:        partial.GamesPlayed        ?? _currentStats.GamesPlayed,
             // Boolean flags from FES are authoritative (replace); from text-analysis they OR-accumulate.
             // This lets FES N-snapshots clear IsBlind/IsDeaf/IsCrippled/IsDumb/PersonaSaved when
             // the condition is gone, while text-analysis mentions (rare pre-game path) still set them.
@@ -464,7 +546,15 @@ public sealed class MudSession : IDisposable
             PersonaSaved: partial.HasFesStats ? partial.PersonaSaved : (partial.PersonaSaved || _currentStats.PersonaSaved),
             AccountId:    partial.AccountId    ?? _currentStats.AccountId,
             Privs:        partial.Privs        ?? _currentStats.Privs,
-            StaminaColor: partial.StaminaColor ?? _currentStats.StaminaColor
+            StaminaColor: partial.StaminaColor ?? _currentStats.StaminaColor,
+            // `score`-sheet-only fields. FES never carries them, so every heartbeat would otherwise
+            // blank them; carrying forward is the same "null = not reported this time" rule the
+            // fields above follow. They stay valid until the next sheet (see the periodic `score`
+            // refresh) — sex never changes at all, and weight/objects/value change only on our own
+            // actions, which is exactly what the refresh cadence is sized for.
+            Sex:           partial.Sex           ?? _currentStats.Sex,
+            ScoreThisGame: partial.ScoreThisGame ?? _currentStats.ScoreThisGame,
+            PlayerValue:   partial.PlayerValue   ?? _currentStats.PlayerValue
         )
         {
             // Carry the freshness bit through the merge so consumers can tell a real FES reply from
@@ -504,9 +594,7 @@ public sealed class MudSession : IDisposable
         // line's stats still reach the UI (the parser's analyzer fires StatsUpdated before
         // LineReady). Future user-defined setup commands slot in before `score`, which stays
         // LAST so its reply frame is the one that closes the swallow window.
-        _setupSwallowingFrame = false;
-        _setupCloseAfterFrame = false;
-        _setupWindowActive    = true;
+        OpenSetupWindow(DateTime.MaxValue);
         // The server echoes each command back on its own line, then executes them on subsequent
         // game turns — the outputs (auto-fex FEEXITS confirmation, then the score sheet) trickle
         // in over the next ~700ms. Both echoes and outputs are hidden (TrySwallowSetupLine).
@@ -536,8 +624,10 @@ public sealed class MudSession : IDisposable
         _setupWindowActive    = false;
         _setupSwallowingFrame = false;
         _setupCloseAfterFrame = false;
+        _setupDeadlineUtc     = DateTime.MaxValue;
         _currentCharName      = null;
         _effects.Reset();     // relog/logout clears all effects
+        _combat.ForceEnd(CombatClock());   // logout ends any open encounter — no fight-end line will arrive
         _resetClock.OnGameModeExited();   // drop the projection incl. the once-per-session token
         GameModeExited?.Invoke();
     }
@@ -708,6 +798,18 @@ public sealed class MudSession : IDisposable
     // only while _setupWindowActive.
     private bool TrySwallowSetupLine(StyledLine line)
     {
+        // A refresh window whose sheet never arrived (the character was asleep, or the reply was
+        // lost) lapses instead of staying armed to swallow an unrelated frame minutes later. Only
+        // refresh windows carry a deadline; the game-entry window keeps its original open-ended
+        // behaviour, and mid-frame we always finish the frame we claimed.
+        if (_setupDeadlineUtc != DateTime.MaxValue && !_setupSwallowingFrame && DateTime.UtcNow > _setupDeadlineUtc)
+        {
+            _setupWindowActive    = false;
+            _setupCloseAfterFrame = false;
+            _setupDeadlineUtc     = DateTime.MaxValue;
+            return false;
+        }
+
         // Frame boundary: the '*' prompt that leads every frame. Let it render as the prompt, but
         // use it to delimit frames — and to close the window once the score frame has ended.
         if (line.IsPartial)
@@ -716,6 +818,7 @@ public sealed class MudSession : IDisposable
             {
                 _setupWindowActive    = false;
                 _setupCloseAfterFrame = false;
+                _setupDeadlineUtc     = DateTime.MaxValue;
             }
             _setupSwallowingFrame = false;   // a new frame begins; re-decide on its first line
             return false;                    // show the prompt (rendered in place, as normal)
@@ -757,6 +860,19 @@ public sealed class MudSession : IDisposable
             _setupSwallowingFrame = true;
             return true;
         }
+    }
+
+    /// <summary>
+    /// Open (or re-open) the swallow window ahead of injecting setup commands. Callable from any
+    /// thread: the frame fields are reset BEFORE the volatile _setupWindowActive store, so the Feed
+    /// thread never observes an open window with a previous window's frame state.
+    /// </summary>
+    private void OpenSetupWindow(DateTime deadlineUtc)
+    {
+        _setupSwallowingFrame = false;
+        _setupCloseAfterFrame = false;
+        _setupDeadlineUtc     = deadlineUtc;
+        _setupWindowActive    = true;   // volatile store — publishes the three writes above
     }
 
     // Strip a leading frame prompt ("*", "(*)", surrounding spaces) that the server glues onto the
