@@ -25,13 +25,11 @@ namespace MudSharp.Combat;
 ///
 /// <para><b>Internally locked (2026-08-16).</b> <see cref="Observe"/> and <see cref="ForceEnd"/> are
 /// called from the parser Feed thread (and, for ForceEnd, occasionally a pool thread via
-/// MudSession.Dispose's async path); <see cref="Tick"/> is called from a session-owned background
-/// timer, deliberately NOT the UI thread (see MudSession's own remarks on why - the old UI-thread
-/// wiring raced this class's unsynchronized fields against Observe/ForceEnd on every single
-/// encounter, and could double-fire InCombatChanged(false) into a non-idempotent UI-side counter).
-/// A single <see cref="_gate"/> lock serializes all three entry points; contention is negligible
-/// (Tick runs at ~1Hz, Observe only on real combat lines). Consumers still marshal events to their
-/// own UI thread themselves - this lock only protects this class's own state.</para>
+/// MudSession.Dispose's async path) - a session teardown racing an in-flight Feed() could otherwise
+/// run both concurrently against this class's unsynchronized fields. A single <see cref="_gate"/>
+/// lock serializes the two entry points; contention is negligible (ForceEnd fires once per session
+/// at most, Observe only on real combat lines). Consumers still marshal events to their own UI
+/// thread themselves - this lock only protects this class's own state.</para>
 /// </summary>
 public sealed class CombatTracker
 {
@@ -149,36 +147,26 @@ public sealed class CombatTracker
     private static readonly Regex GuardConfusion = new(
         @"^Your guard drops momentarily in your confusion\.$", RegexOptions.Compiled);
 
-    // NPC instance names currently engaged (case-insensitive) — non-empty implies InCombat,
-    // but InCombat can also stay true with an empty _active during a post-kill grace window
-    // (see _pendingKillGraceUntil below).
+    // NPC instance names currently engaged (case-insensitive) — non-empty implies InCombat.
     private readonly HashSet<string> _active = new(StringComparer.OrdinalIgnoreCase);
 
-    // A kill that empties _active doesn't necessarily end the encounter: pack fights routinely
-    // have NPCs that haven't traded a blow yet (still approaching/aggroing) when the currently-
-    // tracked participant dies. The offline ground truth (tools/combat/reduce_combat.py,
-    // KILL_GRACE_MS=5000) confirmed this against the full research capture: a 5-second grace
-    // window after a kill-caused close, during which a new participant joining continues the
-    // SAME encounter rather than opening a new one. Flee/withdraw closes get no such grace —
-    // those are decisive endings and close immediately (matches reduce_combat.py's "explicit"
-    // vs "kill" pending-end modes).
-    private static readonly TimeSpan KillGrace = TimeSpan.FromMilliseconds(5000);
-    private DateTime? _pendingKillGraceSince;
+    // The encounter closes the instant _active empties, whether that was a kill, a flee, or a
+    // withdrawal — see End(). There used to be a 5-second "grace" window here that kept the
+    // encounter open after a kill in case a pack straggler joined, on the theory that a pack
+    // fight otherwise fragments into several encounters. It doesn't need one: Begin() already
+    // keeps the SAME encounter open for as long as _active is non-empty, so a genuine pack fight
+    // (new participants joining while others are still engaged) was never affected by this at
+    // all — only a NEW mob attacking after the encounter had already fully ended was, and per
+    // the owner that IS a new encounter. Any residual need to keep capturing trailing prose
+    // (score, "has just passed on", dropped items) after the close is a LOGGING concern, not a
+    // combat-state one — see ClogWriter's own tail-capture, which runs until the next prompt
+    // regardless of whether a new encounter starts in the meantime.
     private bool _encounterOpen;
 
     public bool InCombat => _encounterOpen;
 
-    /// <summary>True while the encounter is only being kept open by the post-kill grace window
-    /// (see <see cref="KillGrace"/>) — every tracked NPC is dead/gone but the window hasn't
-    /// lapsed yet. Distinct from <see cref="InCombat"/> so a UI can dim its combat indicator
-    /// instead of showing full "actively fighting" during this tail period.</summary>
-    public bool IsInGracePeriod => _pendingKillGraceSince != null;
-
     /// <summary>Fires whenever <see cref="InCombat"/> flips (true = encounter started).</summary>
     public event Action<bool>? InCombatChanged;
-
-    /// <summary>Fires whenever <see cref="IsInGracePeriod"/> flips.</summary>
-    public event Action<bool>? GracePeriodChanged;
 
     /// <summary>Fires for every classified combat line, in order, while (or just as) InCombat.</summary>
     public event Action<CombatEvent>? EventOccurred;
@@ -196,8 +184,6 @@ public sealed class CombatTracker
 
     private void ObserveLocked(StyledLine line, DateTime timestampUtc)
     {
-        ExpireKillGrace(timestampUtc);
-
         var text = line.PlainText;
         if (string.IsNullOrEmpty(text))
             return;
@@ -259,18 +245,18 @@ public sealed class CombatTracker
             // (e.g. a ClogWriter listening to InCombatChanged) — the closing line itself must
             // still land inside that encounter's record, not be dropped after it's already shut.
             Emit(timestampUtc, CombatEventKind.Kill, CombatActor.Player, m.Groups["npc"].Value, null, null, null, text);
-            End(m.Groups["npc"].Value, timestampUtc, isKill: true);
+            End(m.Groups["npc"].Value);
         }
         else if ((m = NpcKilledYou.Match(text)).Success)
         {
             Emit(timestampUtc, CombatEventKind.KilledByNpc, CombatActor.Npc, m.Groups["npc"].Value, null, null, null, text);
-            // Player death ends the WHOLE encounter unconditionally, unlike an NPC kill (which
-            // uses a grace window in case other pack participants are still engaged) — a dead
-            // player cannot keep fighting anyone else in the same room. Using the ordinary
-            // kill-grace End() here was a latent bug: death is routinely followed immediately by
-            // a disconnect/quit with no further lines to expire the grace window, so the
-            // encounter would linger open until ForceEnd's generic "reset/disconnect" close
-            // instead of a clean, correctly-attributed KilledByNpc close.
+            // Player death ends the WHOLE encounter unconditionally — a dead player cannot keep
+            // fighting anyone else in the same room, regardless of how many other NPCs are still
+            // engaged. Using the ordinary single-NPC End() here would leave the rest of _active
+            // dangling open (a latent bug: death is routinely followed immediately by a
+            // disconnect/quit with no further lines to ever empty it), so the encounter would
+            // linger open until ForceEnd's generic "reset/disconnect" close instead of a clean,
+            // correctly-attributed KilledByNpc close.
             EndAll();
         }
         else if ((m = NpcKilledYouNarrative.Match(text)).Success)
@@ -297,7 +283,7 @@ public sealed class CombatTracker
         else if ((m = MutualWithdraw.Match(text)).Success)
         {
             Emit(timestampUtc, CombatEventKind.Withdrawn, CombatActor.Npc, m.Groups["npc"].Value, null, null, null, text);
-            End(m.Groups["npc"].Value, timestampUtc, isKill: false);
+            End(m.Groups["npc"].Value);
         }
         else if ((m = NpcFleeFailed.Match(text)).Success)
         {
@@ -316,7 +302,7 @@ public sealed class CombatTracker
         else if ((m = NpcFled.Match(text)).Success)
         {
             Emit(timestampUtc, CombatEventKind.NpcFled, CombatActor.Npc, m.Groups["npc"].Value, null, null, null, text);
-            End(m.Groups["npc"].Value, timestampUtc, isKill: false);
+            End(m.Groups["npc"].Value);
         }
         else if (YouFled.IsMatch(text))
         {
@@ -408,20 +394,6 @@ public sealed class CombatTracker
         }
     }
 
-    /// <summary>Periodic time-only check for the post-kill grace window expiring. Observe() only
-    /// runs ExpireKillGrace when a new line actually arrives, so a quiet final kill (no further
-    /// server output for a while) leaves InCombat/IsInGracePeriod stale — sitting "fully in
-    /// combat" until whatever line happens to show up next (confirmed live: a solo zombie kill
-    /// stayed lit until an unrelated weather line arrived ~2-3s later). Callers should invoke this
-    /// from a session-owned ~1 Hz background timer (deliberately not the UI thread - see MudSession)
-    /// so the grace window (and its dimmed-icon UI state) expires on its own even when the server
-    /// goes quiet.</summary>
-    public void Tick(DateTime nowUtc)
-    {
-        lock (_gate)
-            ExpireKillGrace(nowUtc);
-    }
-
     /// <summary>Force-close any open encounter without a matching end line (e.g. an auto-reset
     /// wiping the game state mid-fight, or logout/relog).</summary>
     public void ForceEnd(DateTime timestampUtc)
@@ -439,20 +411,8 @@ public sealed class CombatTracker
         CloseEncounter();
     }
 
-    /// <summary>Closes the encounter if a post-kill grace window (see <see cref="KillGrace"/>)
-    /// has elapsed with no new participant joining. Called on every observed line, mirroring
-    /// reduce_combat.py's per-record <c>_expire_pending_session</c> check.</summary>
-    private void ExpireKillGrace(DateTime timestampUtc)
-    {
-        if (_pendingKillGraceSince is { } since && _active.Count == 0 && timestampUtc - since > KillGrace)
-            CloseEncounter();
-    }
-
     private void Begin(string npc)
     {
-        // A new participant engaging cancels any pending post-kill grace close — the encounter
-        // continues even though a moment ago _active briefly held no one.
-        ClearGrace();
         _active.Add(npc);
         if (!_encounterOpen)
         {
@@ -461,24 +421,11 @@ public sealed class CombatTracker
         }
     }
 
-    private void End(string npc, DateTime timestampUtc, bool isKill)
+    private void End(string npc)
     {
         _active.Remove(npc);
-        if (_active.Count != 0)
-            return;
-
-        if (isKill)
-        {
-            // Grace period: pack fights routinely have unengaged NPCs still aggroing when the
-            // currently-tracked participant dies. Don't close the encounter yet — a new Begin()
-            // within KillGrace continues it; ExpireKillGrace closes it once the window lapses.
-            EnterGrace(timestampUtc);
-        }
-        else
-        {
-            // Flee/withdraw are decisive endings — no grace period.
+        if (_active.Count == 0)
             CloseEncounter();
-        }
     }
 
     private void EndAll()
@@ -489,27 +436,10 @@ public sealed class CombatTracker
 
     private void CloseEncounter()
     {
-        ClearGrace();
         if (!_encounterOpen)
             return;
         _encounterOpen = false;
         InCombatChanged?.Invoke(false);
-    }
-
-    private void EnterGrace(DateTime timestampUtc)
-    {
-        var wasGrace = _pendingKillGraceSince != null;
-        _pendingKillGraceSince = timestampUtc;
-        if (!wasGrace)
-            GracePeriodChanged?.Invoke(true);
-    }
-
-    private void ClearGrace()
-    {
-        var wasGrace = _pendingKillGraceSince != null;
-        _pendingKillGraceSince = null;
-        if (wasGrace)
-            GracePeriodChanged?.Invoke(false);
     }
 
     private void Emit(DateTime ts, CombatEventKind kind, CombatActor? actor, string? npc, string? weapon,

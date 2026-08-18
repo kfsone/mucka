@@ -38,12 +38,12 @@ public sealed class MuckaConnection : IAsyncDisposable
     private volatile bool _deliberateDisconnect;
 
     private readonly SessionCapture _capture = new();
-    private readonly ClogWriter _clog = new();
+    private readonly ClogWriter _clog = new(ClogPaths.GetClogDirectory());
     // Both write into the SAME database file (see CombatDb), each owning its own table and its own
     // background write connection. One file, so the analysis view can join a swing to the fight it
     // belonged to; separate connections, so neither writer can ever be blocked by the other.
     private static readonly string CombatDbPath =
-        Path.Combine(ClogWriter.GetCombatDirectory(), CombatDb.DefaultFileName);
+        Path.Combine(ClogPaths.GetCombatDirectory(), CombatDb.DefaultFileName);
 
     private readonly FightHistoryStore _fightHistory = new(CombatDbPath, CrashLog.Write);
     private readonly FightHistoryRecorder _fightRecorder;
@@ -65,7 +65,7 @@ public sealed class MuckaConnection : IAsyncDisposable
     /// <summary>Fires whenever combat is entered/left (see MudSharp.Combat.CombatTracker).</summary>
     public event Action<bool>? InCombatChanged;
     /// <summary>Fires whenever <see cref="IsInCombatGracePeriod"/> flips (see
-    /// MudSharp.Combat.CombatTracker.GracePeriodChanged).</summary>
+    /// <see cref="ClogWriter.TailOnlyChanged"/>).</summary>
     public event Action<bool>? CombatGracePeriodChanged;
     /// <summary>Fires for every classified combat line while (or just as) InCombat.</summary>
     public event Action<CombatEvent>? CombatEventOccurred;
@@ -132,8 +132,10 @@ public sealed class MuckaConnection : IAsyncDisposable
     public void Annotate(string message) => _capture.Annotate(message);
 
     public bool InCombat => _session.InCombat;
-    /// <summary>See MudSharp.Combat.CombatTracker.IsInGracePeriod.</summary>
-    public bool IsInCombatGracePeriod => _session.IsInCombatGracePeriod;
+    /// <summary>See <see cref="ClogWriter.IsTailOnly"/> — a clog is still draining its tail
+    /// (trailing prose captured up to the next prompt) even though no encounter is actively
+    /// live any more.</summary>
+    public bool IsInCombatGracePeriod => _clog.IsTailOnly;
 
     /// <summary>The current merged stats snapshot — see <see cref="MudSharp.Session.MudSession.CurrentStats"/>.
     /// Read this for an immediate "whatever we currently know" value; do not subscribe to
@@ -517,7 +519,7 @@ public sealed class MuckaConnection : IAsyncDisposable
         _session.StatsUpdated       += s => { _clog.OnStatsUpdated(s); _fightRecorder.OnStatsUpdated(s); _swingLedger.OnStatsUpdated(s); StatsUpdated?.Invoke(s); };
         _session.StatusEffectsChanged += s => { _clog.OnStatusEffectsChanged(s); _fightRecorder.OnStatusEffectsChanged(s); _swingLedger.OnStatusEffectsChanged(s); StatusEffectsChanged?.Invoke(s); };
         _session.InCombatChanged     += OnSessionInCombatChanged;
-        _session.CombatGracePeriodChanged += v => CombatGracePeriodChanged?.Invoke(v);
+        _clog.TailOnlyChanged        += v => CombatGracePeriodChanged?.Invoke(v);
         _session.CombatEventOccurred += e => { _clog.OnCombatEvent(e); _fightRecorder.OnCombatEvent(e); _swingLedger.OnCombatEvent(e); CombatEventOccurred?.Invoke(e); };
         _session.BellReceived       += () => BellReceived?.Invoke();
         _session.GameModeEntered    += () => GameModeEntered?.Invoke();

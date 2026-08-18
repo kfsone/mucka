@@ -123,19 +123,6 @@ public sealed class SwingLedgerTests : IDisposable
             return Enumerable.Range(0, reader.FieldCount).Select(reader.GetName).ToList();
         }
 
-        /// <summary>Runs the clock past the tracker's post-kill grace window, so an encounter that
-        /// ended with a kill actually CLOSES. A kill does not end an encounter on its own - MUD2 pack
-        /// fights routinely have another participant engage within a few seconds, so the tracker holds
-        /// the encounter open for 5s (CombatTracker.KillGrace) rather than opening a second one. In
-        /// play that window expires on the next line or on the UI's 1 Hz Tick; here nothing else is
-        /// arriving, so the tick has to be delivered by hand.</summary>
-        public Session ExpireGrace()
-        {
-            _second += 10;
-            _tracker.Tick(T0.AddSeconds(_second));
-            return this;
-        }
-
         /// <summary>The ledger itself, for the tests that assert on the damage index rather than on
         /// the file. Reading it does NOT drain the writer, unlike <see cref="Rows"/>.</summary>
         public SwingLedger Ledger => _ledger;
@@ -365,8 +352,9 @@ public sealed class SwingLedgerTests : IDisposable
 
         Assert.False(session.Ledger.Damage.Lookup("zombie2").Incoming.HasSamples);
 
-        // ...and lands the moment the encounter closes.
-        session.Say("You have killed the zombie2.").ExpireGrace();
+        // ...and lands the moment the encounter closes — CombatTracker closes it immediately,
+        // right on this same Say() call, once the kill line empties its combatant count.
+        session.Say("You have killed the zombie2.");
 
         var profile = session.Ledger.Damage.Lookup("zombie2").Incoming;
         Assert.Equal(3, profile.Samples);
@@ -387,8 +375,7 @@ public sealed class SwingLedgerTests : IDisposable
                     "You hit the zombie2 (15-19).",
                     "You hit the zombie2 (5-9).",
                     "You hit the zombie2 (10-14).",
-                    "You have killed the zombie2.")
-               .ExpireGrace();
+                    "You have killed the zombie2.");
 
         var outgoing = session.Ledger.Damage.Lookup("zombie2").Outgoing;
         Assert.Equal(3, outgoing.Samples);
@@ -411,8 +398,7 @@ public sealed class SwingLedgerTests : IDisposable
                     "You hit the zombie2 (15-19).")
                .Stats(new GameStatsSnapshot(Stamina: 93, MaxStamina: 100))
                .Say("The zombie2 hits you (93/100).")
-               .Say("You have killed the zombie2.")
-               .ExpireGrace();
+               .Say("You have killed the zombie2.");
 
         var damage = session.Ledger.Damage.Lookup("zombie2");
         // One blow each way. Below MinimumSamples, so Lookup reports nothing rather than dressing a
@@ -435,8 +421,7 @@ public sealed class SwingLedgerTests : IDisposable
                .Say("The zombie2 hits you (89/100).")
                .Stats(new GameStatsSnapshot(Stamina: 80, MaxStamina: 100))
                .Say("The zombie2 hits you (80/100).")
-               .Say("You have killed the zombie2.")
-               .ExpireGrace();
+               .Say("You have killed the zombie2.");
 
         var live = session.Ledger.Damage.Lookup("zombie2").Incoming;
         // Asserted up front so the comparison below cannot pass by both sides being empty - three

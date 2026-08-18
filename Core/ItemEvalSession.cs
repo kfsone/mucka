@@ -328,7 +328,7 @@ public sealed class ItemEvalSession
     {
         try
         {
-            var dir = ClogWriter.GetClogDirectory();
+            var dir = ClogPaths.GetClogDirectory();
             Directory.CreateDirectory(dir);
             var path = Path.Combine(dir, "items.jsonl");
             File.AppendAllText(path, JsonSerializer.Serialize(entry) + Environment.NewLine, new System.Text.UTF8Encoding(false));

@@ -113,20 +113,11 @@ public sealed class MudSession : IDisposable
     private readonly EffectTracker _effects = new();
     private readonly CombatTracker _combat = new();
 
-    // Drives CombatTracker.Tick (the post-kill grace window's time-only expiry check) at a fixed
-    // ~1Hz, independent of any UI. This used to be driven by GamePage's own anti-idle UI-thread
-    // tick via a TickCombat() call chain - moved onto its own pool timer (2026-08-16) because that
-    // wiring raced the UI thread against CombatTracker's Observe/ForceEnd (Feed thread) on every
-    // single encounter. See CombatTracker's own remarks on the lock this now pairs with.
-    private static readonly TimeSpan CombatTickInterval = TimeSpan.FromSeconds(1);
-    private readonly Timer _combatTickTimer;
-
     // Testability seam only: production code never overrides this, so combat timestamps are
-    // always the real wall clock (the correct behaviour for the live grace-period logic in
-    // CombatTracker). CombatCaptureReplayTests overrides it to replay the research capture's own
-    // original timestamps, since a fast in-memory replay's real elapsed time bears no relation to
-    // the many-hour session it captures and would otherwise never trip (or would spuriously trip)
-    // CombatTracker's 5-second post-kill grace window.
+    // always the real wall clock. CombatCaptureReplayTests overrides it to replay the research
+    // capture's own original timestamps, since a fast in-memory replay's real elapsed time bears
+    // no relation to the many-hour session it captures and would otherwise stamp every event with
+    // whatever instant the test happened to run at.
     internal Func<DateTime> CombatClock { get; set; } = () => DateTime.UtcNow;
 
     // Reset-time projection: folds the minute-granular FES reset value into an absolute target and,
@@ -166,8 +157,6 @@ public sealed class MudSession : IDisposable
     public event Action<StatusEffectState>? StatusEffectsChanged;
     /// <summary>Fires whenever combat is entered/left (see <see cref="CombatTracker"/>).</summary>
     public event Action<bool>? InCombatChanged;
-    /// <summary>Fires whenever <see cref="IsInCombatGracePeriod"/> flips.</summary>
-    public event Action<bool>? CombatGracePeriodChanged;
     /// <summary>Fires for every classified combat line while (or just as) InCombat.</summary>
     public event Action<CombatEvent>? CombatEventOccurred;
     /// <summary>
@@ -218,8 +207,6 @@ public sealed class MudSession : IDisposable
     public string? CurrentDreamword => _currentDreamword;
     public bool InGameMode => _parser.InGameMode;
     public bool InCombat => _combat.InCombat;
-    /// <summary>See <see cref="CombatTracker.IsInGracePeriod"/>.</summary>
-    public bool IsInCombatGracePeriod => _combat.IsInGracePeriod;
     /// <summary>Latest reset-time projection snapshot (target instant + uncertainty + phase).</summary>
     public ResetEstimate ResetEstimate => _resetClock.Snapshot();
 
@@ -233,7 +220,6 @@ public sealed class MudSession : IDisposable
         _resetClock.EstimateChanged     += () => ResetEstimateChanged?.Invoke();
         _resetClock.DiagnosticNote      += n => ResetDiagnostic?.Invoke(n);
         WireParserEvents();
-        _combatTickTimer = new Timer(_ => _combat.Tick(CombatClock()), null, CombatTickInterval, CombatTickInterval);
     }
 
     /// <summary>
@@ -360,10 +346,6 @@ public sealed class MudSession : IDisposable
 
     public void Dispose()
     {
-        // Stop the combat tick timer before anything else, so ForceEnd below is the last thing that
-        // can ever touch _combat during teardown.
-        _combatTickTimer.Dispose();
-
         // Force-close any open encounter BEFORE tearing anything else down: unlike Reset() (used for
         // an ordinary disconnect/relog, where the server-side reset/logout already ends combat on its
         // own), app exit gives no such signal, so without this an encounter that was live at shutdown
@@ -446,7 +428,6 @@ public sealed class MudSession : IDisposable
         _parser.StatusEffectChanged += _effects.Apply;
         _effects.Changed += state => StatusEffectsChanged?.Invoke(state);
         _combat.InCombatChanged += v => InCombatChanged?.Invoke(v);
-        _combat.GracePeriodChanged += v => CombatGracePeriodChanged?.Invoke(v);
         _combat.EventOccurred += e => CombatEventOccurred?.Invoke(e);
         _parser.FewPlayerReady += (name, color) =>
         {

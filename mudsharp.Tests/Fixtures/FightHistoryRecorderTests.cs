@@ -78,9 +78,10 @@ public sealed class FightHistoryRecorderTests : IDisposable
         recorder.OnInCombatChanged(false);
 
         // OnInCombatChanged(true) stamps the encounter id from DateTime.UtcNow (see its remarks) -
-        // real play always has a kill-grace window (>= 5s, CombatTracker.KillGrace) and at least one
-        // network round trip between two distinct encounters, so give this synchronous test loop the
-        // same real separation rather than asserting two encounters opened in the same millisecond.
+        // real play always has at least one network round trip between two distinct encounters
+        // (CombatTracker closes the first instantly, but the SERVER still has to print the second
+        // fight's own opening line), so give this synchronous test loop the same real separation
+        // rather than asserting two encounters opened in the same millisecond.
         Thread.Sleep(5);
 
         recorder.OnInCombatChanged(true);
@@ -91,6 +92,37 @@ public sealed class FightHistoryRecorderTests : IDisposable
         var rows = store.Snapshot();
         Assert.Equal(2, rows.Count);
         Assert.NotEqual(rows[0].EncounterStartedAtMs, rows[1].EncounterStartedAtMs);
+    }
+
+    [Fact]
+    public void FlushedRecord_DoesNotCarryTheWeaponIntoAnEncounterThatOpensImmediatelyAfter()
+    {
+        // The owner's exact worked scenario: a solo rat is killed with a dagger equipped, and a
+        // completely unrelated rat starts attacking moments later - well within the old 5-second
+        // "pack straggler" window PendingWeaponWindow also uses. CombatTracker now closes the
+        // first encounter (and this class's OnInCombatChanged(false) flushes it) the instant the
+        // first rat dies, BEFORE the second rat's own encounter opens, so the second fight's
+        // WeaponUsed must come up empty rather than inheriting the first fight's dagger.
+        using var store = MakeStore();
+        var recorder = new FightHistoryRecorder(store);
+
+        recorder.OnInCombatChanged(true);
+        recorder.OnCombatEvent(Event(CombatEventKind.FightStart, "rat17", weapon: "dagger0"));
+        recorder.OnCombatEvent(Event(CombatEventKind.Kill, "rat17", atSecond: 1));
+        recorder.OnInCombatChanged(false);   // flushes rat17's fight and clears _currentWeapon
+
+        // No Thread.Sleep: the point is that this can follow within the same instant.
+        recorder.OnInCombatChanged(true);
+        recorder.OnCombatEvent(Event(CombatEventKind.FightStart, "rat21"));   // no weapon named
+        recorder.OnCombatEvent(Event(CombatEventKind.Kill, "rat21", atSecond: 2));
+        recorder.OnInCombatChanged(false);
+
+        var rows = store.Snapshot();
+        Assert.Equal(2, rows.Count);
+        var rat17 = Assert.Single(rows, r => r.NpcName == "rat17");
+        var rat21 = Assert.Single(rows, r => r.NpcName == "rat21");
+        Assert.Equal("dagger0", rat17.WeaponUsed);
+        Assert.Null(rat21.WeaponUsed);
     }
 
     [Fact]

@@ -162,10 +162,6 @@ public class CombatTrackerTests
         // Withdrawn/etc. line would land after the writer already closed and be silently
         // dropped from the clog — exactly what was observed in a live clog missing its final
         // "You have killed the X." line. Assert Emit fires strictly before the false transition.
-        //
-        // A kill only closes the encounter once the post-kill grace window (see
-        // CombatTracker.KillGrace) elapses with no new participant joining — simulate that by
-        // observing a later, unrelated (non-matching) line well past the grace window.
         var t = new CombatTracker();
         var order = new List<string>();
         t.EventOccurred += e => order.Add($"event:{e.Kind}");
@@ -174,7 +170,6 @@ public class CombatTrackerTests
 
         t.Observe(Line("You attack the rat0, using the dagger0 as a weapon."), t0);
         t.Observe(Line("You have killed the rat0."), t0);
-        t.Observe(Line("[PROMPT]"), t0 + TimeSpan.FromSeconds(6));
 
         Assert.Equal(
             ["incombat:True", "event:FightStart", "event:Kill", "incombat:False"],
@@ -182,90 +177,64 @@ public class CombatTrackerTests
     }
 
     [Fact]
-    public void Kill_EndsCombat()
+    public void Kill_EndsCombatImmediately()
     {
         var (t, inCombat, events) = NewTracker();
         var t0 = DateTime.UtcNow;
         t.Observe(Line("You attack the rat0, using the dagger0 as a weapon."), t0);
         t.Observe(Line("You have killed the rat0."), t0);
 
-        Assert.True(t.InCombat);   // still open: within the post-kill grace window
-        t.Observe(Line("[PROMPT]"), t0 + TimeSpan.FromSeconds(6));
-
-        Assert.False(t.InCombat);
+        Assert.False(t.InCombat);   // closed the instant the last active NPC died — no window
         Assert.Equal([true, false], inCombat);
         Assert.Equal(CombatEventKind.Kill, events.Last().Kind);
     }
 
     [Fact]
-    public void Kill_WithinGraceWindow_NewParticipantContinuesSameEncounter()
+    public void Kill_ThenUnrelatedNpcEngagesMomentsLater_StartsANewEncounter()
     {
-        // The bug this grace window fixes: a pack fight where several NPCs never got an
-        // explicit aggro/start line (only e.g. "bares its razor-sharp incisors at you", which
-        // CombatTracker doesn't classify as a start) still trade blows once the one NPC that DID
-        // start explicitly is killed. Confirmed against the real capture (tools/combat,
-        // KILL_GRACE_MS=5000): a new participant engaging within 5s of a kill-caused close must
-        // continue the SAME encounter, not open a new one.
-        var (t, inCombat, _) = NewTracker();
-        var t0 = DateTime.UtcNow;
-        t.Observe(Line("You attack the rat0, using the dagger0 as a weapon."), t0);
-        t.Observe(Line("You have killed the rat0."), t0 + TimeSpan.FromSeconds(1));
-
-        Assert.True(t.InCombat);   // pending grace, not yet closed
-
-        t.Observe(Line("The rat6 is looking at you furiously."), t0 + TimeSpan.FromSeconds(3));
-
-        Assert.True(t.InCombat);
-        Assert.Equal([true], inCombat);   // never actually flipped false — same encounter
-    }
-
-
-    [Fact]
-    public void Kill_SetsGracePeriodUntilTickExpiresIt_WithNoFurtherLineRequired()
-    {
-        // Regression: a solo kill followed by total server silence (no more lines of any kind)
-        // used to leave InCombat/IsInGracePeriod stale forever, since ExpireKillGrace previously
-        // only ran from inside Observe(). Confirmed live: a solo zombie kill stayed "fully in
-        // combat" for ~2-3s until an unrelated weather line happened to arrive. Tick() lets a
-        // UI-side ~1 Hz poll expire the grace window on its own, with no server line needed.
-        var (t, inCombat, _) = NewTracker();
-        var grace = new List<bool>();
-        t.GracePeriodChanged += grace.Add;
+        // The owner's exact worked scenario: a solo rat dies, and a completely different rat
+        // starts attacking a fraction of a second later — well within what used to be a
+        // 5-second "pack straggler" grace window. It is NOT the same pack fight (rat21 never
+        // engaged while rat17 was still alive), and per the owner, once the combatant count
+        // reaches 0 the fight is over, full stop: whatever attacks next opens a genuinely new
+        // encounter. Any need to keep capturing trailing prose after the close belongs to
+        // logging (ClogWriter's tail capture — see ClogWriterTests), never to this class.
+        var (t, inCombat, events) = NewTracker();
         var t0 = DateTime.UtcNow;
 
-        t.Observe(Line("You attack the zombie0, using the falchion as a weapon."), t0);
-        t.Observe(Line("You have killed the zombie0."), t0 + TimeSpan.FromSeconds(1));
+        t.Observe(Line("You hit the rat17 (15-19)."), t0);
+        t.Observe(Line("You have killed the rat17."), t0 + TimeSpan.FromMilliseconds(50));
 
-        Assert.True(t.InCombat);
-        Assert.True(t.IsInGracePeriod);
-        Assert.Equal([true], grace);
+        Assert.False(t.InCombat);   // rat17's encounter is already fully closed
 
-        t.Tick(t0 + TimeSpan.FromSeconds(3));   // still within the 5s grace window
-        Assert.True(t.InCombat);
-        Assert.True(t.IsInGracePeriod);
+        // Pure trailing prose CombatTracker never classifies (score/death confirmation) — must
+        // not reopen or otherwise affect the now-closed encounter.
+        t.Observe(Line("(Persona saved on +22 = 101,389)."), t0 + TimeSpan.FromMilliseconds(60));
+        t.Observe(Line("The rat17 has just passed on."), t0 + TimeSpan.FromMilliseconds(70));
 
-        t.Tick(t0 + TimeSpan.FromSeconds(7));   // grace window lapsed — no new line required
-        Assert.False(t.InCombat);
-        Assert.False(t.IsInGracePeriod);
-        Assert.Equal([true, false], inCombat);
-        Assert.Equal([true, false], grace);
+        t.Observe(Line("The rat21 is approaching you fiercely."), t0 + TimeSpan.FromMilliseconds(80));
+
+        Assert.True(t.InCombat);   // a genuinely new encounter, opened immediately
+        Assert.Equal([true, false, true], inCombat);
+        Assert.Equal(
+            [CombatEventKind.Hit, CombatEventKind.Kill, CombatEventKind.FightStart],
+            events.Select(e => e.Kind));
+        Assert.Equal("rat21", events.Last().NpcName);
     }
 
     [Fact]
-    public void NpcKillsYou_ClosesEncounterImmediatelyWithNoGraceWindow()
+    public void NpcKillsYou_ClosesTheWholeEncounterEvenWithOtherActiveParticipants()
     {
-        // Regression: player death must close the WHOLE encounter unconditionally, unlike an
-        // NPC kill (which grants a grace window in case other pack NPCs are still engaged) —
-        // a dead player cannot keep fighting. Before this fix, NpcKilledYou reused the ordinary
-        // kill-grace End(), so a death immediately followed by a disconnect (the common real
-        // case — the player quits from the death menu) never expired the grace window and the
-        // encounter lingered open until a generic ForceEnd "reset/disconnect" close instead of a
-        // clean, correctly-attributed KilledByNpc close.
+        // Regression: player death must close the WHOLE encounter unconditionally — a dead
+        // player cannot keep fighting anyone else in the same room, even if other NPCs (besides
+        // the killer) are still active. Using the ordinary single-NPC End() here would leave the
+        // ram dangling in _active with nothing left to ever remove it.
         var (t, inCombat, events) = NewTracker();
         t.Observe(Line("The vampire is looking at you hatefully."), DateTime.UtcNow);
+        t.Observe(Line("The ram is glaring at you madly."), DateTime.UtcNow);
         t.Observe(Line("The vampire has killed you."), DateTime.UtcNow);
 
-        Assert.False(t.InCombat);   // closed immediately, no grace window
+        Assert.False(t.InCombat);   // closed immediately, ram included
         Assert.Equal([true, false], inCombat);
         Assert.Equal(CombatEventKind.KilledByNpc, events.Last().Kind);
         Assert.Equal("vampire", events.Last().NpcName);
@@ -406,18 +375,16 @@ public class CombatTrackerTests
         Assert.True(t.InCombat);   // ram still active — goat fleeing must NOT end combat
 
         t.Observe(Line("You have killed the ram."), t0);
-        Assert.True(t.InCombat);   // still open: within the post-kill grace window
+        Assert.False(t.InCombat);   // ram was the last one active — encounter 1 closes immediately
 
-        // Re-engaging the fled goat well past the grace window opens a genuinely new encounter —
-        // this is the same behaviour a real "follow the fled goat, then re-attack" delay produces.
+        // Re-engaging the fled goat — any time later, even moments after — opens a genuinely new
+        // encounter, the same behaviour a real "follow the fled goat, then re-attack" produces.
         var t1 = t0 + TimeSpan.FromSeconds(10);
         t.Observe(Line("You attack the billy goat, using the falchion as a weapon."), t1);
         Assert.True(t.InCombat);   // encounter 2 (re-engaging the fled goat)
 
         t.Observe(Line("You have killed the billy goat."), t1);
-        Assert.True(t.InCombat);   // still open: within the post-kill grace window
-        t.Observe(Line("[PROMPT]"), t1 + TimeSpan.FromSeconds(6));
-        Assert.False(t.InCombat);
+        Assert.False(t.InCombat);   // closes immediately, same as encounter 1
         Assert.Equal([true, false, true, false], inCombat);
     }
 

@@ -1073,9 +1073,9 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         OnPropertiesChanged(nameof(TtrText), nameof(TtrVisible), nameof(TtrTooltip), nameof(AnyRightStatVisible));
     }
 
-    // The combat tracker's own ~1Hz tick is no longer driven from here - it runs on a session-owned
-    // background timer (see MudSession) so it can never race the UI thread against CombatTracker's
-    // Feed-thread callers. This just pumps the panel's render refresh at the same UI-tick rate.
+    // CombatTracker no longer has a time-only tick to drive (it closes an encounter synchronously
+    // the instant the last NPC is gone - see CombatTracker's own remarks). This just pumps the
+    // panel's render refresh at the UI's own 1 Hz tick rate.
     public void TickCombatDisplay() => SidePanel.TickCombatDisplay();
 
     // Drop the cached projection (back at the option menu, or disconnected: no live world to count
