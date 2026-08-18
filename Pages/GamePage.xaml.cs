@@ -1342,10 +1342,13 @@ public partial class GamePage : ContentPage
     /// <summary>
     /// Drives the 1px combat rules around the terminal and the input row.
     ///
-    /// <para><b>Not during the grace period.</b> InCombat stays true for a few seconds after the last
-    /// tracked opponent dies so a pack straggler can rejoin the same encounter. That is useful
-    /// bookkeeping, but nothing is attacking - and an alarm that outlives the danger is how an alarm
-    /// stops being read. Same rule the tick meter and the metronome already obey.</para>
+    /// <para><b>Not during the grace period.</b> InCombat itself already flips false the instant the
+    /// last tracked opponent dies or flees, so `Live.InCombat` alone should already exclude the
+    /// grace window - the explicit `!IsCombatGracePeriod` here is belt-and-braces against the UI
+    /// thread observing that flip a tick behind ClogWriter's own tail-only signal. Either way,
+    /// nothing is attacking during grace (the clog is just draining its tail) - and an alarm that
+    /// outlives the danger is how an alarm stops being read. Same rule the tick meter and the
+    /// metronome already obey.</para>
     ///
     /// <para><b>Red at exactly the Rail's own threshold.</b> The switch is PulseTier == T3, which is
     /// the identical condition driving CombatPanelGlow. Deliberately NOT a stamina number of its own:
@@ -1424,12 +1427,12 @@ public partial class GamePage : ContentPage
     /// Whether there is a next swing to count down to - the single condition both renderings of the
     /// tick obey.
     ///
-    /// <para>`InCombat` alone is not that condition. CombatTracker keeps it true for a 5-second
-    /// post-kill grace window so that a pack fight's not-yet-engaged stragglers rejoin the same
-    /// encounter instead of opening a new one - a real and necessary heuristic, but bookkeeping about
-    /// what the CLIENT knows, not a statement that anything is still attacking. Kill the one zombie
-    /// you were fighting and nothing whatever is running; the encounter stays open only because we are
-    /// waiting to find out whether a straggler exists.</para>
+    /// <para>`InCombat` alone should already be that condition - CombatTracker closes the encounter
+    /// the instant the last tracked NPC dies or flees, so nothing is left running the moment
+    /// `InCombat` flips false. `!IsCombatGracePeriod` is checked anyway as belt-and-braces: the
+    /// grace flag now tracks ClogWriter's tail-only state (the clog still draining trailing prose
+    /// up to the next prompt), which is purely a logging concern and must never imply anything is
+    /// still attacking, even if some future change ever let it outlive InCombat's own flip.</para>
     ///
     /// <para>So during grace there is nothing to time, and a bar counting down to a swing that will
     /// never come is a lie told by an instrument. Same for the click. An earlier version of this ran

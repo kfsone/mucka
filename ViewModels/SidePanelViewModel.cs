@@ -274,9 +274,10 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     private readonly Func<string, bool> _isKnownWeapon;
 
     public bool InCombat   => _inCombat;
-    /// <summary>True while the encounter is only lingering on the post-kill grace window (last
-    /// tracked NPC already dead/gone) - bind the combat indicator's opacity to this so it dims
-    /// instead of looking identical to an actively-ongoing fight.</summary>
+    /// <summary>True while a just-ended encounter's clog is still draining its tail (trailing
+    /// prose captured up to the next prompt — see ClogWriter.IsTailOnly) with no new encounter
+    /// yet live - bind the combat indicator's opacity to this so it dims instead of looking
+    /// identical to an actively-ongoing fight.</summary>
     public bool IsCombatGracePeriod => _isCombatGrace;
     public double CombatIconOpacity => _isCombatGrace ? 0.4 : 1.0;
     public string CombatTip => _isCombatGrace ? "Combat winding down..." : "In combat";
@@ -381,7 +382,12 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             }
 
             _inCombat = inCombat;
-            _isCombatGrace = false;   // a fresh Begin() always clears the tracker's own grace state
+            // A fresh InCombatChanged always clears grace: on true, ClogWriter's own
+            // TailOnlyChanged(false) should already have fired (a new active entry ends any
+            // tail-only state), and on false there is no tail yet - it only begins draining after
+            // this Stop() returns. Redundant with that event most of the time; cheap insurance
+            // against it lagging behind this transition on the UI thread.
+            _isCombatGrace = false;
             // Unthrottled and direct: a combat start/end transition must never be swallowed by the
             // render gate, so it bypasses RequestRender and renders straight away, then tells the
             // gate a render just happened so its throttle window measures from THIS moment onward.
@@ -393,9 +399,9 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         });
     }
 
-    /// <summary>See <see cref="MudSharp.Combat.CombatTracker.GracePeriodChanged"/> - flips true
-    /// once the last tracked NPC is dead/gone but the encounter is still open pending the
-    /// post-kill grace window, so the indicator can dim rather than look fully "in combat".</summary>
+    /// <summary>See <see cref="Mucka.Core.ClogWriter.TailOnlyChanged"/> - flips true once the
+    /// encounter has already closed (InCombat is already false) but its clog is still draining
+    /// its tail, so the indicator can dim rather than snap straight back to idle.</summary>
     public void OnCombatGracePeriodChanged(bool isGrace)
         => MainThread.BeginInvokeOnMainThread(() =>
         {

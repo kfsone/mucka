@@ -12,9 +12,23 @@ namespace MudSharp.Tests.Fixtures;
 /// style [ts,"rx"|"tx"|"an",data] wire log — same format SessionCapture writes) through the
 /// PRODUCTION MudSession (real MudStreamParser + real CombatTracker wiring, not a hand-built
 /// harness), and cross-checks the live detector's counts against the offline ground truth
-/// independently established in tools/combat/reduce_combat.py + NOTES.md/SUMMARY.md (58
-/// encounters: 24 you-killed-them / 33 npc-fled / 1 withdrawn; 77 fights: 42 killed / 30
-/// npc-fled / 4 your-fled / 1 withdrawn / 0 passes).
+/// independently established in tools/combat/reduce_combat.py + NOTES.md/SUMMARY.md for the
+/// FIGHT-level (per-NPC) totals: 77 fights, 42 killed / 30 npc-fled / 4 your-fled / 1 withdrawn /
+/// 0 passes. Fight-level detection (Begin/End per NPC) is unaffected by ENCOUNTER grouping, so
+/// these stay exact.
+///
+/// <para>The ENCOUNTER count (59, not the offline reducer's 58) is deliberately NOT the offline
+/// ground truth any more. reduce_combat.py's KILL_GRACE_MS=5000 and the live CombatTracker used to
+/// share the same heuristic: after a kill emptied the active roster, wait 5 seconds before
+/// deciding the encounter was really over, so a pack straggler joining in that window continued
+/// the SAME encounter instead of opening a new one. Per the owner that heuristic was wrong for
+/// combat-state purposes - "when the final concurrent npc flees or dies, the fight is over," full
+/// stop, and any "grace" belongs to LOGGING (ClogWriter's tail capture until the next prompt), not
+/// to whether a later attacker's fight is the same encounter. CombatTracker now closes the instant
+/// the roster empties (see its own remarks), which is correct - it is the offline reducer, still
+/// running the old grace heuristic, that is one encounter short here. Re-running reduce_combat.py
+/// with the grace heuristic removed would be expected to also land on 59; nothing here suggests
+/// the live detector regressed.</para>
 ///
 /// This is what actually caught the "closing event silently dropped" bug (see
 /// CombatTrackerTests.Kill_EmitsBeforeInCombatFlipsFalse for the isolated regression) — replaying
@@ -92,9 +106,10 @@ public sealed class CombatCaptureReplayTests(ITestOutputHelper output)
         // Every open encounter must close — no stuck "in combat" state by end of capture.
         Assert.Equal(encounterStarts, encounterEnds);
 
-        // Ground truth from tools/combat (independently derived via reduce_combat.py against
-        // the same capture): 58 encounters total.
-        Assert.Equal(58, encounterStarts);
+        // 59, not the offline reducer's 58 - see the class remarks on why the two are expected to
+        // differ now that CombatTracker no longer runs a post-kill grace window. Pinned here as a
+        // regression guard on the real capture, not as agreement with reduce_combat.py.
+        Assert.Equal(59, encounterStarts);
 
         // Fight-level outcome counts (tools/combat/SUMMARY.md v_summary_total).
         Assert.Equal(42, eventCounts.GetValueOrDefault(CombatEventKind.Kill));

@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Text.Json;
 using System.Threading.Channels;
 using MudSharp.Combat;
@@ -15,7 +16,27 @@ namespace Mucka.Core;
 /// lines plus a snapshot of stats/status-effects/room at the moment combat began — everything
 /// a later analysis pass needs to answer "was the player invisible / what was the weather / what
 /// were their stats" without replaying the whole session), one line per classified CombatEvent
-/// (type "event"), and one footer line (type "encounter_end").</para>
+/// (type "event"), zero or more trailing plain lines (type "line" — see the tail-capture remarks
+/// below), and one footer line (type "encounter_end").</para>
+///
+/// <para><b>Tail capture.</b> CombatTracker closes an encounter the instant its last active NPC
+/// dies/flees — a decisive combat-state fact. But the server's own cleanup for that (score,
+/// "The X has just passed on.", dropped items, level-up) routinely PRINTS after the death line
+/// that closed it, and always before the next prompt. Rather than end the clog exactly on
+/// InCombatChanged(false), <see cref="Stop"/> only marks the encounter's entry "closing": every
+/// subsequent plain line is still appended to it (type "line") until the next <c>IsPartial</c>
+/// prompt line arrives (the frame boundary — see MudSession's setup-swallow remarks for the same
+/// signal used the same way), at which point <see cref="OnLineReady"/> writes the real
+/// "encounter_end" footer and finalizes the file. This is a LOGGING concern only — MUD2 has no
+/// such mechanic, and it never delays InCombatChanged/IsInCombatGracePeriod's UI-visible flip.</para>
+///
+/// <para><b>Overlapping clogs.</b> A new encounter can legitimately start (Start()) while the
+/// previous one is still draining its tail — e.g. one rat dies and a second, unrelated rat
+/// attacks before the next prompt (this is a NEW encounter, not a continuation — see
+/// CombatTracker's remarks). Both are kept open simultaneously in <see cref="_open"/>, each with
+/// its own file, queue, and drain task; classified CombatEvents route to whichever entry is still
+/// actively live (there is at most one), while a plain line during the overlap is appended to
+/// every entry still draining its tail.</para>
 ///
 /// <para>Deliberately partial: this is not a full raw capture (SessionCapture already covers
 /// that, opt-in, for debugging). A clog is intentionally reduced to what tools/combat's analysis
@@ -36,71 +57,115 @@ namespace Mucka.Core;
 /// write. Before this, every clog line paid a synchronous open/flush on the SAME thread that parses
 /// incoming combat text - stalling that thread delays the combat text itself, which no UI-side
 /// throttle can fix (DESIGN_FINAL.md section 7.5). <see cref="Dispose"/> waits (briefly - just
-/// draining whatever is already queued in memory) for the most recent encounter's drain to finish,
-/// so an app exit mid-fight cannot lose the encounter_end line or anything queued just before it.
-/// </para>
+/// draining whatever is already queued in memory) for every still-open encounter's drain to finish,
+/// so an app exit mid-fight (or mid-tail) cannot lose the encounter_end line or anything queued just
+/// before it.</para>
 /// </summary>
 public sealed class ClogWriter : IDisposable
 {
     private const int PreBufferLines = 30;
 
+    /// <summary>One still-open clog. "Closing" means the encounter itself has ended (Stop() was
+    /// called) but the file is not finalized yet — it is still draining its tail, waiting for the
+    /// next prompt (see the class remarks). Owns its StreamWriter's lifetime via WriterTask, the
+    /// same handoff the single-encounter version used to do with a bare Task field.</summary>
+    private sealed class OpenEncounter
+    {
+        public required string FilePath;
+        public required Channel<string> Queue;
+        public required Task WriterTask;
+        public bool Closing;
+        public DateTime EndedUtc;
+    }
+
+    // Directory supplied by the caller (see ClogPaths.GetClogDirectory, which owns the platform
+    // lookup) so this class stays free of MAUI references and can be linked into mudsharp.Tests
+    // against a temp path - the same split CombatDb/FightHistoryStore/SwingLedger already use for
+    // their own files.
+    private readonly string _directory;
+
     private readonly object _lock = new();
     private readonly Queue<string> _recentLines = new();
-    // Non-null exactly while an encounter is being recorded - this encounter's own queue, drained
-    // by its own DrainAsync task. Stop() completes it and hands the underlying StreamWriter's
-    // lifetime entirely to that task (see Stop()'s remarks); a NEW Start() gets a fresh queue/task,
-    // never reusing a completed one.
-    private Channel<string>? _writeQueue;
-    // The most recently started encounter's drain task. Dispose() waits on THIS, not on every task
-    // ever created - by the time Dispose runs, at most one can still be draining (Stop() always
-    // finishes the previous one's queue before Start() can begin a new one, both under _lock).
-    private Task? _writerTask;
+
+    // Normally 0 or 1 entries; briefly 2 while a new encounter is live and the previous one is
+    // still draining its tail (see the class remarks on overlapping clogs).
+    private readonly List<OpenEncounter> _open = [];
+    // Purely to keep filenames unique: two encounters can now legitimately start within the same
+    // millisecond (a new fight opening the instant the previous one's last NPC dies is routine
+    // under the current CombatTracker, not a rare race).
+    private int _startSequence;
 
     private GameStatsSnapshot _lastStats = GameStatsSnapshot.Empty;
     private StatusEffectState _lastEffects = StatusEffectState.Empty;
     private string? _lastRoom;
 
+    /// <summary>True while an encounter is being actively recorded (CombatEvents still arriving).
+    /// False during tail-only draining — see <see cref="IsTailOnly"/> for that state.</summary>
     public bool IsRecording { get; private set; }
+    /// <summary>The actively-recording encounter's file, or null when none is live (even if a
+    /// previous encounter's tail is still draining — see <see cref="IsTailOnly"/>).</summary>
     public string? FilePath { get; private set; }
 
-    /// <summary>~/.mucka/clogs (desktop) - shared by encounter clogs and the "$eval" item-stats log
-    /// (items.jsonl), so both live side by side.</summary>
-    internal static string GetClogDirectory()
-    {
-        // Desktop: literally ~/.mucka/clogs, matching the offline research tooling's
-        // ~/.mucka/mapping and ~/.mucka/combat convention (tools/mapping, tools/combat).
-        if (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS() || OperatingSystem.IsMacCatalyst())
-            return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".mucka", "clogs");
+    /// <summary>True while at least one encounter's tail is still draining (waiting for the next
+    /// prompt to finalize) and no encounter is actively live. Drives the UI's "winding down"
+    /// cosmetic (see MuckaConnection.IsInCombatGracePeriod) — the fight really is over
+    /// (InCombat is already false), but the clog for it has not been finalized yet.</summary>
+    public bool IsTailOnly { get; private set; }
+    /// <summary>Fires whenever <see cref="IsTailOnly"/> flips.</summary>
+    public event Action<bool>? TailOnlyChanged;
 
-        // Mobile: no home-directory concept - use the platform cache directory instead,
-        // same rationale as SessionCapture.GetCaptureDirectory.
-        return Path.Combine(FileSystem.Current.CacheDirectory, "mucka", "clogs");
+    public ClogWriter(string directory) => _directory = directory;
+
+    // Testability seam only: every writer task ever started, so a test can deterministically wait
+    // for a FINALIZED encounter's background drain to actually reach disk before reading the file
+    // back. Production never needs this - Dispose() only waits on entries still in _open, which is
+    // correct there (once OnLineReady's prompt branch finalizes and removes an entry, nothing else
+    // in the app is waiting on its file).
+    private readonly List<Task> _writerTasksForTests = [];
+
+    internal void WaitForDrainsToSettle_TestOnly(TimeSpan timeout)
+    {
+        Task[] tasks;
+        lock (_lock)
+            tasks = _writerTasksForTests.ToArray();
+        Task.WaitAll(tasks, timeout);
     }
 
-    /// <summary>Where the combat database lives - ~/.mucka/combat on desktop, matching the offline
-    /// tooling's own convention (tools/combat writes its reduced combat.db into the same directory),
-    /// and the platform cache directory on mobile for the same reason
-    /// <see cref="GetClogDirectory"/> uses it. Here rather than on CombatDb so that type stays free of
-    /// MAUI references and remains linkable into mudsharp.Tests.</summary>
-    internal static string GetCombatDirectory()
-    {
-        if (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS() || OperatingSystem.IsMacCatalyst())
-            return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".mucka", "combat");
-
-        return Path.Combine(FileSystem.Current.CacheDirectory, "mucka", "combat");
-    }
-
-    /// <summary>Feed every non-combat line so the pre-roll buffer stays fresh. Cheap: a bounded
-    /// queue, no allocation beyond the string already produced by the parser.</summary>
+    /// <summary>Feed every line — prompts included — so the pre-roll buffer stays fresh and any
+    /// encounter still draining its tail gets its trailing prose captured (see the class
+    /// remarks).</summary>
     public void OnLineReady(StyledLine line)
     {
-        if (IsRecording)
-            return; // combat lines are recorded via OnCombatEvent instead — no double-logging
-        var text = line.PlainText;
-        if (string.IsNullOrEmpty(text))
-            return;
         lock (_lock)
         {
+            if (line.IsPartial)
+            {
+                // The frame's closing prompt: nothing printed after it can belong to a fight that
+                // already ended before it, so every encounter still draining its tail is done.
+                foreach (var entry in _open.Where(e => e.Closing).ToList())
+                    FinalizeLocked(entry);
+                return;
+            }
+
+            var text = line.PlainText;
+            if (string.IsNullOrEmpty(text))
+                return;
+
+            foreach (var entry in _open)
+            {
+                if (!entry.Closing)
+                    continue;   // combat lines from an active fight are recorded via OnCombatEvent
+                WriteEntryLocked(entry, new
+                {
+                    type = "line",
+                    ts = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                    text,
+                });
+            }
+
+            if (_open.Any(e => !e.Closing))
+                return;   // an actively-recording encounter already covers its own text via events
+
             _recentLines.Enqueue(text);
             while (_recentLines.Count > PreBufferLines)
                 _recentLines.Dequeue();
@@ -125,9 +190,12 @@ public sealed class ClogWriter : IDisposable
     {
         lock (_lock)
         {
-            if (_writeQueue is null)
+            // At most one entry is ever actively recording — a closing (tail-only) entry gets no
+            // more CombatEvents, since its own NPC(s) are already resolved by the time it closes.
+            var active = _open.FirstOrDefault(entry => !entry.Closing);
+            if (active is null)
                 return;
-            WriteEntryLocked(new
+            WriteEntryLocked(active, new
             {
                 type = "event",
                 ts = new DateTimeOffset(e.TimestampUtc).ToUnixTimeMilliseconds(),
@@ -152,32 +220,42 @@ public sealed class ClogWriter : IDisposable
     {
         lock (_lock)
         {
-            if (IsRecording)
+            // Defensive: CombatTracker only fires InCombatChanged(true) on a false→true
+            // transition, so a second Start() while one is already active should never happen.
+            if (_open.Any(e => !e.Closing))
                 return;
             StreamWriter? writer = null;
             try
             {
-                var dir = GetClogDirectory();
+                var dir = _directory;
                 Directory.CreateDirectory(dir);
-                var timestamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
-                FilePath = Path.Combine(dir, $"clog.{timestamp}.jsonl");
+                var timestamp = DateTime.Now.ToString("yyyyMMdd-HHmmssfff");
+                var path = Path.Combine(dir, $"clog.{timestamp}-{_startSequence++}.jsonl");
                 // No BOM: these files are meant to be read line-by-line by plain JSON parsers
                 // (json.loads chokes on a BOM prefixed to the first line without utf-8-sig).
                 // AutoFlush is deliberately OFF: DrainAsync below owns flushing, off this thread.
-                writer = new StreamWriter(FilePath, append: false, new System.Text.UTF8Encoding(false)) { AutoFlush = false };
+                writer = new StreamWriter(path, append: false, new System.Text.UTF8Encoding(false)) { AutoFlush = false };
                 var queue = Channel.CreateUnbounded<string>(new UnboundedChannelOptions
                 {
                     SingleReader = true,
                     SingleWriter = false,
                 });
-                _writeQueue = queue;
+                var entry = new OpenEncounter
+                {
+                    FilePath = path,
+                    Queue = queue,
+                    // One background task per encounter, owning `writer` for its whole lifetime -
+                    // FinalizeLocked hands it off entirely (never touches `writer` or this queue
+                    // again once this is running) rather than sharing mutable state across threads.
+                    WriterTask = Task.Run(() => DrainAsync(queue, writer)),
+                };
+                _open.Add(entry);
+                _writerTasksForTests.Add(entry.WriterTask);
                 IsRecording = true;
-                // One background task per encounter, owning `writer` for its whole lifetime -
-                // Stop() below hands it off entirely (never touches `writer` or `_writeQueue` again
-                // once this is running) rather than sharing mutable state across threads.
-                _writerTask = Task.Run(() => DrainAsync(queue, writer));
+                FilePath = path;
+                UpdateTailOnlyLocked();
 
-                WriteEntryLocked(new
+                WriteEntryLocked(entry, new
                 {
                     type = "encounter_start",
                     ts = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
@@ -210,13 +288,13 @@ public sealed class ClogWriter : IDisposable
             }
             catch
             {
-                // _writerTask is deliberately NOT started at this point in any failure path (it is
+                // WriterTask is deliberately NOT started at this point in any failure path (it is
                 // the last statement before WriteEntryLocked, itself after everything that can
                 // throw), so there is nothing running to cancel - just clean up what did get created.
                 writer?.Dispose();
-                _writeQueue = null;
                 IsRecording = false;
                 FilePath = null;
+                UpdateTailOnlyLocked();
                 // Best-effort feature: a clogging failure must never disrupt play.
             }
         }
@@ -226,30 +304,56 @@ public sealed class ClogWriter : IDisposable
     {
         lock (_lock)
         {
-            if (!IsRecording)
+            var active = _open.FirstOrDefault(e => !e.Closing);
+            if (active is null)
                 return;
-            WriteEntryLocked(new { type = "encounter_end", ts = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() });
+            active.Closing = true;
+            active.EndedUtc = DateTime.UtcNow;
             IsRecording = false;
-            // Signals DrainAsync that no more lines are coming for THIS encounter; it drains
-            // whatever is already queued (including the encounter_end line just above) and then
-            // flushes+disposes the writer itself, off this thread. _writerTask is left running -
-            // Dispose() is what actually waits for it (see its remarks) - and _writeQueue/_writer
-            // ownership both pass to that task now, so this class touches neither again for this
-            // encounter.
-            _writeQueue?.Writer.TryComplete();
-            _writeQueue = null;
-            // The pre-roll buffer only ever holds non-combat lines (OnLineReady's guard), so it
-            // is already empty of this encounter's own combat text — safe to keep accumulating
-            // fresh context for the next encounter without an explicit clear.
+            FilePath = null;
+            UpdateTailOnlyLocked();
+            // Deliberately does NOT write "encounter_end" or complete the queue yet: the server's
+            // own cleanup for this close (score, "has just passed on", dropped items) routinely
+            // prints AFTER the line that triggered this Stop() and BEFORE the next prompt, and it
+            // still belongs in this encounter's clog even if a brand new encounter starts in the
+            // meantime (see the class remarks on tail capture / overlapping clogs). OnLineReady's
+            // IsPartial branch is what actually finalizes this entry, once that prompt arrives.
         }
+    }
+
+    /// <summary>Writes the real "encounter_end" footer and hands this entry's queue/writer off to
+    /// its drain task for good. Called once per entry, either from the next prompt after Stop()
+    /// (the normal path) or from Dispose (best-effort, for whatever is still open at shutdown).</summary>
+    private void FinalizeLocked(OpenEncounter entry)
+    {
+        WriteEntryLocked(entry, new
+        {
+            type = "encounter_end",
+            ts = new DateTimeOffset(entry.EndedUtc, TimeSpan.Zero).ToUnixTimeMilliseconds(),
+        });
+        // Signals DrainAsync that no more lines are coming for THIS encounter; it drains whatever
+        // is already queued (including the encounter_end line just above) and then flushes+
+        // disposes the writer itself, off this thread.
+        entry.Queue.Writer.TryComplete();
+        _open.Remove(entry);
+        UpdateTailOnlyLocked();
+    }
+
+    private void UpdateTailOnlyLocked()
+    {
+        var tailOnly = _open.Count > 0 && _open.All(e => e.Closing);
+        if (tailOnly == IsTailOnly)
+            return;
+        IsTailOnly = tailOnly;
+        TailOnlyChanged?.Invoke(tailOnly);
     }
 
     /// <summary>Drains one encounter's queued lines to disk and closes its writer. Runs entirely
     /// off the Feed thread (Task.Run from Start()) - this is the actual fix for AutoFlush-per-line
     /// blocking the thread that parses incoming combat text (DESIGN_FINAL.md section 7.5).
-    /// ReadAllAsync completes normally (no exception) once the channel is both completed (Stop's
-    /// TryComplete) AND fully drained, so every queued line - including encounter_end - is written
-    /// before the writer is flushed and disposed.</summary>
+    /// ReadAllAsync completes normally (no exception) once the channel is both completed
+    /// (FinalizeLocked's TryComplete) AND fully drained, so every queued line - including
+    /// encounter_end - is written before the writer is flushed and disposed.</summary>
     private static async Task DrainAsync(Channel<string> queue, StreamWriter writer)
     {
         try
@@ -269,38 +373,46 @@ public sealed class ClogWriter : IDisposable
         }
     }
 
-    private void WriteEntryLocked(object entry)
-    {
-        if (_writeQueue is null)
-            return;
-        // Cheap, in-memory, stays on the Feed thread; the actual disk write happens in DrainAsync.
-        // TryWrite on an unbounded channel never blocks and only fails after Complete() - which
-        // Stop() only calls after setting _writeQueue to null, so this branch is never reachable
-        // with an already-completed queue.
-        _writeQueue.Writer.TryWrite(JsonSerializer.Serialize(entry));
-    }
+    /// <summary>Enqueues onto one specific entry's queue. Cheap, in-memory, stays on the Feed
+    /// thread; the actual disk write happens in that entry's DrainAsync. TryWrite on an unbounded
+    /// channel never blocks and only fails after Complete() - which only FinalizeLocked calls, on
+    /// an entry already removed from <see cref="_open"/> and never written to again.</summary>
+    private static void WriteEntryLocked(OpenEncounter entry, object payload)
+        => entry.Queue.Writer.TryWrite(JsonSerializer.Serialize(payload));
 
-    /// <summary>Stops any open encounter, then blocks (briefly - just draining whatever is already
-    /// queued in memory, typically a handful of lines) until its background writer has actually
-    /// flushed to disk. This is the fix for fight/clog rows being lost when the app exits mid-fight:
-    /// without this wait, Stop()'s TryComplete only SIGNALS the drain to finish - it does not wait
-    /// for it - so a process exit immediately after could beat DrainAsync to the punch.</summary>
+    /// <summary>Finalizes whatever is still open — active or mid-tail — then blocks (briefly -
+    /// just draining whatever is already queued in memory, typically a handful of lines) until
+    /// every background writer has actually flushed to disk. This is the fix for fight/clog rows
+    /// being lost when the app exits mid-fight or mid-tail: without this wait, FinalizeLocked's
+    /// TryComplete only SIGNALS the drain to finish - it does not wait for it - so a process exit
+    /// immediately after could beat DrainAsync to the punch.</summary>
     public void Dispose()
     {
-        Task? pending;
+        List<Task> pending;
         lock (_lock)
         {
-            Stop();
-            pending = _writerTask;
+            pending = _open.Select(e => e.WriterTask).ToList();
+            var now = DateTime.UtcNow;
+            foreach (var entry in _open.ToList())
+            {
+                if (!entry.Closing)
+                    entry.EndedUtc = now;
+                FinalizeLocked(entry);
+            }
+            IsRecording = false;
+            FilePath = null;
         }
-        try
+        foreach (var task in pending)
         {
-            pending?.Wait(TimeSpan.FromSeconds(5));
-        }
-        catch
-        {
-            // Best-effort: Dispose must never throw during shutdown. Whatever did not get written
-            // in time is lost, same as any other best-effort I/O failure in this class.
+            try
+            {
+                task.Wait(TimeSpan.FromSeconds(5));
+            }
+            catch
+            {
+                // Best-effort: Dispose must never throw during shutdown. Whatever did not get
+                // written in time is lost, same as any other best-effort I/O failure in this class.
+            }
         }
     }
 }

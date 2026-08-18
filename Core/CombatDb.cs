@@ -39,7 +39,7 @@ public static class CombatDb
 {
 
     /// <summary>Standard file name. The DIRECTORY is supplied by the caller (see
-    /// ClogWriter.GetCombatDirectory, which owns the platform lookup) so this type stays free of MAUI
+    /// ClogPaths.GetCombatDirectory, which owns the platform lookup) so this type stays free of MAUI
     /// references and can be linked into mudsharp.Tests against a temp path - the same split
     /// FightHistoryStore and SwingLedger already use for their own file names.</summary>
     public const string DefaultFileName = "mucka.db";

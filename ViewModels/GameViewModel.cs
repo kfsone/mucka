@@ -1074,7 +1074,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
 
     public void TickCombatDisplay()
     {
-        _conn.TickCombat();
         SidePanel.TickCombatDisplay();
     }
 
