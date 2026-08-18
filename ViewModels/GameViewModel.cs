@@ -824,6 +824,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             _personaInvalidated = false;
             _deliberateQuit = false;
             _lastResetTargetUtc = null;   // new session: the new cycle's target gets observed afresh
+            LastTellSender = null;        // a tell sender from the previous persona shouldn't carry over
             Interlocked.Exchange(ref _autoResetInitiatedTicks, 0);
             ClearRecentLines();
             _lastSentUtc = DateTime.UtcNow;
@@ -1108,23 +1109,49 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private void OnDreamwordChanged(string? word)
         => MainThread.BeginInvokeOnMainThread(() => Dreamword = word ?? string.Empty);
 
+    /// <summary>Screen name of the last person to send us a tell (never "Someone"/"Someone
+    /// powerful" — those never carry a named sender). Backs the ctrl-r reply hotkey: the game's
+    /// 're' command re-resolves its target at send time, so a second tell arriving between
+    /// keypress and the server receiving it can silently redirect a reply — tracking the name
+    /// client-side and inserting it literally avoids that race (issue #147).</summary>
+    public string? LastTellSender { get; private set; }
+
+    private void OnTellReceived(string senderName)
+        => MainThread.BeginInvokeOnMainThread(() => LastTellSender = senderName);
+
+    /// <summary>Tell the player, in the terminal, that ctrl-r had nobody to reply to — otherwise
+    /// the hotkey just does nothing with no indication why.</summary>
+    public void NoteNoTellToReplyTo()
+        => AddSystemLine("[reply] Nobody has sent you a tell yet.", 14);
+
     private void OnDisconnected(Exception? error)
         => MainThread.BeginInvokeOnMainThread(() =>
         {
-            _inGameMode = false;
-#if WINDOWS
-            _sessionAliases.Clear();
-#endif
-            IsConnected = false;
-            ClearResetProjection();   // stop the countdown; a stale target would keep ticking down
-            OnPropertiesChanged(nameof(IsInGameMode), nameof(IsRecordingButtonVisible),
-                nameof(TtrText), nameof(TtrVisible), nameof(TtrTooltip), nameof(AnyRightStatVisible));
-            _personaInvalidated = false;
-            _deliberateQuit = false;
-            _lastResetTargetUtc = null;
-            Interlocked.Exchange(ref _autoResetInitiatedTicks, 0);
+            ResetSessionState();
             Disconnected?.Invoke();
         });
+
+    /// <summary>Local view-model state that any disconnect invalidates, whether the server dropped
+    /// us or we closed the link ourselves via <see cref="DisconnectAsync"/>. Factored out of
+    /// <see cref="OnDisconnected"/> so a deliberate close -- which deliberately skips the
+    /// <see cref="Disconnected"/> event/alert -- still leaves IsConnected/LastTellSender/the reset
+    /// countdown/etc. reset instead of stranding their last live values on this view model.</summary>
+    private void ResetSessionState()
+    {
+        _inGameMode = false;
+#if WINDOWS
+        _sessionAliases.Clear();
+#endif
+        IsConnected = false;
+        ClearResetProjection();   // stop the countdown; a stale target would keep ticking down
+        OnPropertiesChanged(nameof(IsInGameMode), nameof(IsRecordingButtonVisible),
+            nameof(TtrText), nameof(TtrVisible), nameof(TtrTooltip), nameof(AnyRightStatVisible));
+        _personaInvalidated = false;
+        _deliberateQuit = false;
+        _lastResetTargetUtc = null;
+        LastTellSender = null;
+        Interlocked.Exchange(ref _autoResetInitiatedTicks, 0);
+    }
 
     public GuidedLoginController CreateGuidedLoginController(GuidedLoginOptions options)
         => new(_conn, options);
@@ -1138,8 +1165,14 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     /// <summary>Client-initiated clean disconnect. Unlike a server-side drop, this does NOT raise
     /// <see cref="Disconnected"/> (that event only fires from the read loop's own unexpected-EOF/
     /// exception handling) -- callers that need to leave the game page afterwards must navigate
-    /// away themselves.</summary>
-    public Task DisconnectAsync() => _conn.DisconnectAsync();
+    /// away themselves. It still runs <see cref="ResetSessionState"/> directly, so IsConnected and
+    /// friends don't strand their last live values just because the event was skipped. Callers must
+    /// be on the UI thread (ResetSessionState touches bindable properties without marshalling).</summary>
+    public async Task DisconnectAsync()
+    {
+        await _conn.DisconnectAsync();
+        ResetSessionState();
+    }
 
     // Called from the TCP read thread — fire-and-forget, never block.
     // PlayServerSound applies the Sounds-tab gating (master/group/sound + fallback).
@@ -1867,6 +1900,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _conn.GameModeExited   += SidePanel.OnGameModeExited;
         _conn.CharacterIdentified += OnCharacterIdentified;
         _conn.DreamwordChanged += OnDreamwordChanged;
+        _conn.TellReceived     += OnTellReceived;
         _conn.Disconnected     += OnDisconnected;
         _conn.ResetEstimateChanged += OnResetEstimateChanged;
         _conn.SoundRequested   += OnSoundRequested;
@@ -1900,6 +1934,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _conn.GameModeExited   -= SidePanel.OnGameModeExited;
         _conn.CharacterIdentified -= OnCharacterIdentified;
         _conn.DreamwordChanged -= OnDreamwordChanged;
+        _conn.TellReceived     -= OnTellReceived;
         _conn.Disconnected     -= OnDisconnected;
         _conn.ResetEstimateChanged -= OnResetEstimateChanged;
         _conn.SoundRequested   -= OnSoundRequested;

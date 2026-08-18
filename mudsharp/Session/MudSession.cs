@@ -148,6 +148,7 @@ public sealed class MudSession : IDisposable
     public event Action<string?>? DreamwordChanged;
     public event Action<string>? ClientModeReceived;
     public event Action<string>? SoundRequested;
+    public event Action<string>? TellReceived;
     public event Action<string, AnsiColor>? FewPlayerReady;
     public event Action? FewListStarting;
     public event Action? FewListComplete;
@@ -417,6 +418,7 @@ public sealed class MudSession : IDisposable
         _parser.DreamwordChanged += OnDreamwordChanged;
         _parser.ClientModeReceived += data => ClientModeReceived?.Invoke(data);
         _parser.SoundRequested += s => SoundRequested?.Invoke(s);
+        _parser.TellReceived += name => TellReceived?.Invoke(name);
         _parser.ProbeHintReceived += OnProbeHint;
         _parser.AutoResetInitiated += () =>
         {

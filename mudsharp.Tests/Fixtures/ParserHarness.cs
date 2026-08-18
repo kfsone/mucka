@@ -20,6 +20,7 @@ internal sealed class ParserHarness
     public List<string?> Dreamwords { get; } = new();
     public List<string> ClientModeData { get; } = new();
     public List<string> Sounds { get; } = new();
+    public List<string> TellSenders { get; } = new();
     public List<string> FewPlayers { get; } = new();
     public List<StaleStats> ProbeHints { get; } = new();
     public List<string> PresenceNames { get; } = new();
@@ -49,6 +50,7 @@ internal sealed class ParserHarness
         Parser.DreamwordChanged   += w => Dreamwords.Add(w);
         Parser.ClientModeReceived += d => ClientModeData.Add(d);
         Parser.SoundRequested     += s => Sounds.Add(s);
+        Parser.TellReceived       += n => TellSenders.Add(n);
         Parser.FewPlayerReady     += (n, _) => FewPlayers.Add(n);
         Parser.ProbeHintReceived  += k => ProbeHints.Add(k);
         Parser.PresenceNameSeen   += n => PresenceNames.Add(n);
@@ -85,6 +87,7 @@ internal sealed class ParserHarness
         Dreamwords.Clear();
         ClientModeData.Clear();
         Sounds.Clear();
+        TellSenders.Clear();
         FewPlayers.Clear();
         ProbeHints.Clear();
         PresenceNames.Clear();

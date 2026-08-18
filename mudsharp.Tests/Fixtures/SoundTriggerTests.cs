@@ -203,6 +203,46 @@ public class SoundTriggerTests
     }
 
     [Fact]
+    public void C09_C03Tell_NamedSender_FiresTellReceived()
+    {
+        // Backs the ctrl-r reply hotkey (issue #147): a named sender must be reported so the
+        // client can track "last person to tell me something" independent of the game's own
+        // 're' command, which re-resolves its target at send time.
+        var h = InGameMode();
+        h.Feed(0xA4, 0x9E, 0xFF, 0xFF);
+        h.Feed("Ollie tells you \"hello\".\n");
+        Assert.Equal(["Ollie"], h.TellSenders);
+    }
+
+    [Fact]
+    public void C09_C03Tell_Someone_DoesNotFireTellReceived()
+    {
+        var h = InGameMode();
+        h.Feed(0xA4, 0x9E, 0xFF, 0xFF);
+        h.Feed("Someone tells you \"hello\".\n");
+        Assert.Empty(h.TellSenders);
+    }
+
+    [Fact]
+    public void C09_C03Tell_SomeonePowerful_DoesNotFireTellReceived()
+    {
+        var h = InGameMode();
+        h.Feed(0xA4, 0x9E, 0xFF, 0xFF);
+        h.Feed("Someone powerful tells you \"hello\".\n");
+        Assert.Empty(h.TellSenders);
+    }
+
+    [Fact]
+    public void C09_C03Tell_OwnListenersSend_DoesNotFireTellReceived()
+    {
+        // Your own "send" to your listeners must never look like an incoming tell.
+        var h = InGameMode();
+        h.Feed(0xA4, 0x9E, 0xFF, 0xFF);
+        h.Feed("You tell your listeners \"hello everyone\".\n");
+        Assert.Empty(h.TellSenders);
+    }
+
+    [Fact]
     public void C09_C03Tell_OwnListenersSend_EmitsNoSound()
     {
         // Your own "send" to your listeners rides the tell channel but is your own output —

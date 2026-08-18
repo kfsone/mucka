@@ -30,6 +30,12 @@ public sealed class MuckaConnection : IAsyncDisposable
     private CancellationTokenSource? _cts;
     private Channel<byte[]>? _sendChannel;
     private string _host = string.Empty;
+    // Set by DisconnectAsync() before it cancels the read loop, so ReadLoopAsync's finally can
+    // tell "we asked for this" apart from the server actually dropping us, and skip firing
+    // Disconnected (which drives the "server closed the connection" alert) for the former.
+    // Cleared at the start of ConnectAsync() so a later, genuine drop on the new connection still
+    // fires normally.
+    private volatile bool _deliberateDisconnect;
 
     private readonly SessionCapture _capture = new();
     private readonly ClogWriter _clog = new();
@@ -71,6 +77,9 @@ public sealed class MuckaConnection : IAsyncDisposable
     public event Action<string>? CharacterIdentified;
     public event Action<string?>? DreamwordChanged;
     public event Action<string>? SoundRequested;
+    /// <summary>A tell arrived from a named sender. Payload is the sender's screen name; drives the
+    /// ctrl-r reply hotkey.</summary>
+    public event Action<string>? TellReceived;
     public event Action<string, AnsiColor>? FewPlayerReady;
     /// <summary>Fired when a FEW-response context opens (C12+C08+C05). Start accumulating names.</summary>
     public event Action? FewListStarting;
@@ -100,7 +109,12 @@ public sealed class MuckaConnection : IAsyncDisposable
     /// <summary>Fired when a queued "sniff" value-probe resolves. Payload: probed name + outcome.
     /// Fires on the read-loop thread — consumers marshal to their UI thread.</summary>
     public event Action<string, SniffOutcome>? SniffResult;
-    /// <summary>Fired when the connection is lost (read loop ended). Null = clean disconnect.</summary>
+    /// <summary>Fired when the connection is lost UNEXPECTEDLY (read loop ended on server EOF or an
+    /// exception). Null = the loop ended without an exception (still unexpected -- the server
+    /// closed its end). Never fires for a locally-initiated <see cref="DisconnectAsync"/> (cancelling
+    /// the persona picker, tearing down the page, etc.) -- see <see cref="_deliberateDisconnect"/>.
+    /// Consumers use this to show "the server closed the connection" style UI, so a deliberate,
+    /// player/UI-driven close must not trip it.</summary>
     public event Action<Exception?>? Disconnected;
 #if WINDOWS
     /// <summary>Fires on the read-loop thread with each raw chunk received from the server.</summary>
@@ -167,6 +181,7 @@ public sealed class MuckaConnection : IAsyncDisposable
     public async Task ConnectAsync(string host, int port, CancellationToken cancellationToken = default)
     {
         await DisconnectAsync().ConfigureAwait(false);
+        _deliberateDisconnect = false;   // fresh connection: a later drop is unexpected again
 
         _host = host;
         var client = new TcpClient();
@@ -204,9 +219,13 @@ public sealed class MuckaConnection : IAsyncDisposable
         }
     }
 
-    /// <summary>Disconnect cleanly.</summary>
+    /// <summary>Disconnect cleanly. This is always a deliberate, locally-initiated close (the
+    /// player quitting, the UI tearing down, a reconnect cleaning up the previous attempt) -- it
+    /// never fires <see cref="Disconnected"/>, so callers that want the player told the connection
+    /// ended must say so themselves (see the guided-login re-entry cancel path in GamePage).</summary>
     public async Task DisconnectAsync()
     {
+        _deliberateDisconnect = true;
         _session.OutgoingBytes -= EnqueueBytes;
 
         var writerTask = _writerTask;
@@ -422,7 +441,8 @@ public sealed class MuckaConnection : IAsyncDisposable
         catch (Exception ex) { error = ex; }
         finally
         {
-            Disconnected?.Invoke(error);
+            if (!_deliberateDisconnect)
+                Disconnected?.Invoke(error);
         }
     }
 
@@ -512,6 +532,7 @@ public sealed class MuckaConnection : IAsyncDisposable
             DreamwordChanged?.Invoke(w);
         };
         _session.SoundRequested     += s => SoundRequested?.Invoke(s);
+        _session.TellReceived       += name => TellReceived?.Invoke(name);
         _session.FewPlayerReady     += (n, c) => FewPlayerReady?.Invoke(n, c);
         _session.FewListStarting    += () => FewListStarting?.Invoke();
         _session.FewListComplete    += () => FewListComplete?.Invoke();

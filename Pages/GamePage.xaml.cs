@@ -642,6 +642,7 @@ public partial class GamePage : ContentPage
         var loginVm = new GuidedLoginViewModel(controller, drop);
         GuidedLoginPage? page = null;
         var leftAtOptionMenu = false;
+        var endConnection = false;
         try
         {
             _isGuidedLoginOverlayOpen = true;
@@ -661,16 +662,16 @@ public partial class GamePage : ContentPage
                     "OK");
             }
 
-            // Cancelling a RE-ENTRY leaves the player connected at the Option menu -- it must never
-            // end the session. They are already in; the drop to the menu was not their idea, and
-            // the picker can be dismissed by a stray click outside the action sheet just as easily
-            // as by a deliberate Cancel. Killing a live connection over that is not a recoverable
-            // mistake. (The initial-connect overlay in ConnectPage is the opposite case: there,
-            // cancelling means "I don't want to connect at all", and it still ends the attempt.)
-            // The controller has already sent "q" to back the shell out of the persona-name prompt,
-            // so the terminal underneath is sitting on a live Option prompt.
-            leftAtOptionMenu = result.Outcome is Mucka.Core.GuidedLogin.GuidedLoginOutcome.Cancelled
-                or Mucka.Core.GuidedLogin.GuidedLoginOutcome.ManualAtOptionMenu;
+            // The MUD Shell must stay behind the curtain of our guided-login UI: the only door
+            // back to it is the picker's explicit "[Drop to menu]" option (ManualAtOptionMenu).
+            // Every other way of leaving the picker -- Escape, its own Cancel button, a stray
+            // click outside it -- is Cancelled, and Cancelled always ends the connection, exactly
+            // like cancelling the initial-connect picker in ConnectPage. Do not special-case
+            // Cancelled here to "stay at the shell" again: that was tried (to dodge one bad
+            // stray-click-after-death recording) and it defeats the entire point of having a
+            // dedicated, explicit "drop to shell" affordance.
+            leftAtOptionMenu = result.Outcome == Mucka.Core.GuidedLogin.GuidedLoginOutcome.ManualAtOptionMenu;
+            endConnection = result.Outcome == Mucka.Core.GuidedLogin.GuidedLoginOutcome.Cancelled;
         }
         finally
         {
@@ -688,6 +689,12 @@ public partial class GamePage : ContentPage
         // "no obvious indication of what happened" problem the headline was added to solve.
         if (leftAtOptionMenu && _vm.IsConnected)
             _vm.NoteLeftAtOptionMenu();
+
+        if (endConnection && _vm.IsConnected)
+        {
+            await _vm.DisconnectAsync();
+            await Navigation.PopAsync();
+        }
     }
 
     // Dragging is only allowed while the windlet is unlocked (the lock icon toggles it).
@@ -1069,19 +1076,49 @@ public partial class GamePage : ContentPage
             // there is no active selection.
             if (_inputTextBox.SelectionStart != 0 || _inputTextBox.SelectionLength != 0)
                 return;
-            _inputTextBox.Text = insertText + _inputTextBox.Text;
-            _inputTextBox.SelectionStart = insertText.Length;
-            _vm.InputText = _inputTextBox.Text;
+            SetInputText(insertText + _inputTextBox.Text, insertText.Length);
             return;
         }
 #endif
         if (InputEntry.CursorPosition != 0 || InputEntry.SelectionLength != 0)
             return;
-        var text = InputEntry.Text ?? string.Empty;
-        InputEntry.Text = insertText + text;
-        InputEntry.CursorPosition = insertText.Length;
+        SetInputText(insertText + (InputEntry.Text ?? string.Empty), insertText.Length);
+    }
+
+    // Ctrl+R (issue #147): unconditionally replaces the input with "<sender> "" and puts the
+    // caret after the quote, ready for the reply text. Unlike OnTerminalSpanInsertTextRequested's
+    // prepend, this clears whatever was typed — ctrl-r is a deliberate "start a reply now" action.
+    private void ReplyToLastTell()
+    {
+        var sender = _vm.LastTellSender;
+        if (string.IsNullOrEmpty(sender))
+        {
+            _vm.NoteNoTellToReplyTo();
+            FocusInput();
+            return;
+        }
+        var text = sender + " \"";
+        SetInputText(text, text.Length);
+        FocusInput();
+    }
+
+    // Sets the command box's text and caret position on whichever platform control is live, and
+    // keeps _vm.InputText in sync. Shared tail for the click-to-insert-name and Ctrl+R reply paths.
+    private void SetInputText(string text, int caretPos)
+    {
+#if WINDOWS
+        if (_inputTextBox is not null)
+        {
+            _inputTextBox.Text = text;
+            _inputTextBox.SelectionStart = caretPos;
+            _vm.InputText = text;
+            return;
+        }
+#endif
+        InputEntry.Text = text;
+        InputEntry.CursorPosition = caretPos;
         InputEntry.SelectionLength = 0;
-        _vm.InputText = InputEntry.Text;
+        _vm.InputText = text;
     }
 
     private void ShowCopiedToast() => ShowToast("* Copied to clipboard");
@@ -1717,6 +1754,11 @@ public partial class GamePage : ContentPage
             () => { if (Terminal.IsHistoryMode) Terminal.ScrollToBottom(); _vm.SendControlAlias(5); });
         Add(Windows.System.VirtualKey.L, Windows.System.VirtualKeyModifiers.Control, () => _vm.ClearScreen());
         Add((Windows.System.VirtualKey)0xC0, Windows.System.VirtualKeyModifiers.Control, () => _ = TakeSelfieAsync());
+        // Ctrl+R replies to the last person who sent us a tell (issue #147). Prefills the input
+        // rather than sending the game's 're' command, since 're' re-resolves its target
+        // server-side at send time — a second tell arriving mid-keystroke can redirect it.
+        Add(Windows.System.VirtualKey.R, Windows.System.VirtualKeyModifiers.Control,
+            () => { if (Terminal.IsHistoryMode) Terminal.ScrollToBottom(); ReplyToLastTell(); });
 
         // PageUp/PageDown scroll history; PageUp from live enters scrollback. These stay live in
         // both modes (the scrollback handler, when attached, handles them before accelerators).

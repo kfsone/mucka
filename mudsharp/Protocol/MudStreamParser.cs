@@ -70,6 +70,10 @@ public sealed class MudStreamParser
     /// <summary>A sound effect should be played. Payload is the app-package-relative asset path, e.g. "sounds/clio.1311.wav".</summary>
     public event Action<string>? SoundRequested;
 
+    /// <summary>A tell arrived from a named sender (not "Someone"/"Someone powerful"). Payload is
+    /// the sender's screen name, ready to drive a reply hotkey (ctrl-r).</summary>
+    public event Action<string>? TellReceived;
+
     /// <summary>A player name decoded from the WHO-list (FEW response) is ready.</summary>
     public event Action<string, AnsiColor>? FewPlayerReady;
 
@@ -649,7 +653,17 @@ public sealed class MudStreamParser
             bool ownListenersSend = _inGameMode && tellAlertRequested
                                     && IsOwnListenersSend(line.PlainText);
             if (_inGameMode && tellAlertRequested)
-                line = ownListenersSend ? ItalicisePhrase(line, ListenersPhrase) : DecorateTellLine(line);
+            {
+                if (ownListenersSend)
+                {
+                    line = ItalicisePhrase(line, ListenersPhrase);
+                }
+                else
+                {
+                    line = DecorateTellLine(line, out var tellSender);
+                    if (tellSender is not null) TellReceived?.Invoke(tellSender);
+                }
+            }
             var stats = LineAnalyzer.Analyze(line, _inGameMode);
             if (stats != null) StatsUpdated?.Invoke(stats);
             if (_inGameMode) { var sf = LineAnalyzer.CheckSoundTrigger(line); if (sf != null) EmitSound(sf); }
@@ -910,8 +924,9 @@ public sealed class MudStreamParser
         return "sounds/tell.wav";
     }
 
-    private static StyledLine DecorateTellLine(StyledLine line)
+    private static StyledLine DecorateTellLine(StyledLine line, out string? senderName)
     {
+        senderName = null;
         const string tellsYou = "tells you";
         var text = line.PlainText;
         if (text.Length == 0) return line;
@@ -929,6 +944,7 @@ public sealed class MudStreamParser
         var senderToken = text[..firstSpace];
         var hasNamedSender = !senderToken.Equals("Someone", StringComparison.OrdinalIgnoreCase);
         var clickInsert = hasNamedSender ? senderToken + " " : null;
+        if (hasNamedSender) senderName = senderToken;
 
         var rewritten = new List<StyledSpan>(line.Spans.Count + 4);
         int absolute = 0;
