@@ -51,7 +51,8 @@
                                 <MenuFlyoutItem Text="Side Panel" Clicked="OnOverflowTogglePanel"/>
                                 <MenuFlyoutItem Text="Onlines" Clicked="OnOverflowOnlines"/>
                                 <MenuFlyoutItem Text="Compass" Clicked="OnOverflowCompass"/>
-                                <MenuFlyoutItem Text="Combat Rail" Clicked="OnOverflowCombatRail"/>
+                                <MenuFlyoutItem Text="Combat Rail" Clicked="OnOverflowCombatRail"
+                                                IsEnabled="{OnPlatform Default=true, Android=false}"/>
                                 <MenuFlyoutItem Text="Settings" Clicked="OnOverflowSettings"/>
                                 <MenuFlyoutItem Text="About" Clicked="OnOverflowAbout"/>
                             </MenuFlyout>
@@ -1453,14 +1454,19 @@
                             <Label Grid.Column="1" Text="Compass" TextColor="White" FontSize="14"/>
                         </Grid>
                     </Border>
-                    <BoxView Color="#2d333b" HeightRequest="1"/>
-                    <!-- Combat Rail: same live-state toggle as the three above. Replaces "$clog on"/
-                         "$clog off", which used to both arm clogging AND show this panel - two
-                         unrelated things behind one switch. Clogging is now always on, so all that
-                         is left is the panel, and a panel belongs with the other panels. -->
-                    <Border Padding="16,14" BackgroundColor="Transparent">
+                    <BoxView Color="#2d333b" HeightRequest="1"
+                             IsVisible="{Binding SidePanel.IsCombatRailSupported}"/>
+                    <!-- Combat Rail: Windows only (SidePanelViewModel.IsCombatRailSupported) - the
+                         panel's supporting logic (window resize, tick sweep, metronome, pulse
+                         wiring) is desktop-only, so the row itself is hidden on Android rather than
+                         offering a toggle that can never show anything. Unlike Side Panel/Onlines/
+                         Compass above, this is a one-shot toggle, not something watched live while
+                         the menu stays open, so it routes through OnOverflowCombatRail (Tapped) to
+                         close the menu - see that handler's own remarks. -->
+                    <Border Padding="16,14" BackgroundColor="Transparent"
+                            IsVisible="{Binding SidePanel.IsCombatRailSupported}">
                         <Border.GestureRecognizers>
-                            <TapGestureRecognizer Command="{Binding SidePanel.ToggleCombatPanelCommand}"/>
+                            <TapGestureRecognizer Tapped="OnOverflowCombatRail"/>
                         </Border.GestureRecognizers>
                         <Grid ColumnDefinitions="24,*">
                             <Label Grid.Column="0" Text="&#x2713;" TextColor="#3fb950" FontSize="14"

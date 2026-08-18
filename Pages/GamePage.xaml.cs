@@ -986,9 +986,11 @@ public partial class GamePage : ContentPage
         => OverflowMenuOverlay.IsVisible = true;
     private void OnOverflowMenuDismiss(object? sender, TappedEventArgs e)
         => OverflowMenuOverlay.IsVisible = false;
-    // These three back the long-press/right-click MenuFlyout only (which auto-dismisses natively).
-    // The tap-driven overlay rows bind straight to the toggle commands so they stay open and let
-    // the ✓ update live. All three flip live visibility only — saved settings are untouched.
+    // Side Panel / Onlines / Compass are checkable toggles a player might flip back and forth
+    // while the menu is open, so their tap-driven overlay rows bind straight to the toggle
+    // commands and deliberately stay open (the ✓ updates live) - these three OnOverflow* methods
+    // only back the long-press/right-click MenuFlyout, which auto-dismisses natively regardless.
+    // All three flip live visibility only — saved settings are untouched.
     private void OnOverflowTogglePanel(object? sender, EventArgs e)
     {
         OverflowMenuOverlay.IsVisible = false;
@@ -1004,6 +1006,9 @@ public partial class GamePage : ContentPage
         OverflowMenuOverlay.IsVisible = false;
         _vm.SidePanel.ToggleMapPinnedCommand.Execute(null);
     }
+    // Unlike the three above, Combat Rail is a one-shot panel toggle a player isn't watching
+    // live while the menu stays open (more like Settings/About below) - so its overlay row also
+    // routes through here (a Tapped handler, not a raw Command binding) to close the menu.
     private void OnOverflowCombatRail(object? sender, EventArgs e)
     {
         OverflowMenuOverlay.IsVisible = false;

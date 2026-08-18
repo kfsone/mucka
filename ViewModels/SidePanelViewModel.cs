@@ -284,14 +284,29 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     public bool HasCombatData => _hasCombatData;
     public bool NoCombatData => !_hasCombatData;
 
-    /// <summary>Whether the Combat Rail (the new right-edge panel) is shown. Toggled by "$clog
-    /// on"/"$clog off" and, when it changes, by GamePage resizing the window by the panel's own
-    /// width (DESIGN_FINAL.md D3/2.2) - never by anything else; this property does not change on
-    /// combat start/end, only on an explicit toggle.</summary>
+    /// <summary>Whether the Combat Rail is available on this platform at all. Windows only: the
+    /// panel's supporting logic (window resize, tick sweep, metronome, pulse wiring - all in
+    /// GamePage.xaml.cs's #if WINDOWS block) was built for a desktop window that can grow to make
+    /// room for it, not a phone-sized screen. Drives both the overflow-menu entry's visibility and
+    /// <see cref="IsCombatPanelVisible"/>'s own setter, so there is one place that decides this
+    /// rather than the menu and the panel disagreeing.</summary>
+    public bool IsCombatRailSupported =>
+#if ANDROID
+        false;
+#else
+        true;
+#endif
+
+    /// <summary>Whether the Combat Rail (the new right-edge panel) is shown. Toggled from the
+    /// overflow menu's "Combat Rail" entry and, when it changes, by GamePage resizing the window
+    /// by the panel's own width (DESIGN_FINAL.md D3/2.2) - never by anything else; this property
+    /// does not change on combat start/end, only on an explicit toggle. Refuses to become true at
+    /// all when <see cref="IsCombatRailSupported"/> is false, so no future caller can light up an
+    /// unmanaged panel on a platform its supporting logic was never built for.</summary>
     public bool IsCombatPanelVisible
     {
         get => _isCombatPanelVisible;
-        set => Set(ref _isCombatPanelVisible, value);
+        set => Set(ref _isCombatPanelVisible, value && IsCombatRailSupported);
     }
 
     /// <summary>The plain-language "why is this going badly" line, or null when nothing in the
