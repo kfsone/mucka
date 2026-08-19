@@ -18,11 +18,30 @@ public enum CombatEventKind
 {
     /// <summary>An NPC joined the fight (player "You attack the X..." or NPC aggro "The X is ...").</summary>
     FightStart,
-    /// <summary>"You hit the X (A-B)." — approximate damage range against an NPC.</summary>
+    /// <summary>
+    /// "You hit the X (A-B)." - approximate damage range against an NPC.
+    ///
+    /// <para>Two forms, both carried here. With <c>identify</c> off MUD2 brackets the blow
+    /// ("You hit the rat (5-9).") and RangeLow/RangeHigh are the bracket. With <c>identify</c> ON it
+    /// reports the EXACT figure ("You hit the banshee (6).", verbatim from
+    /// session-rec.mud2.co.uk.20260819-001118) and both fields carry that one number - an exact
+    /// reading is simply a range of width zero, so every consumer averaging the two still lands on
+    /// the right value with no special case. The exact form went unparsed until 2026-08-19, which
+    /// meant turning identify on silently blinded the client to its own hits.</para>
+    /// </summary>
     Hit,
     /// <summary>"You miss the X."</summary>
     Miss,
-    /// <summary>"The X hits you (C/M)." — C/M is your current/max stamina, not a delta.</summary>
+    /// <summary>
+    /// "The X hits you (C/M)." - C/M is your current/max stamina, not a delta.
+    ///
+    /// <para>The parenthetical is not guaranteed. The KILLING blow prints bare - "The rat18 hits
+    /// you." - because there is no surviving stamina to report; verbatim from
+    /// session-rec.mud2.co.uk.20260819-001608's death frame. That form went unparsed until
+    /// 2026-08-19, so the single most consequential hit of a session was the one the client never
+    /// counted. RangeLow/RangeHigh are null for it, and the stamina relay must (and does) tolerate
+    /// a null reading rather than treat it as zero.</para>
+    /// </summary>
     HitByNpc,
     /// <summary>"The X misses you."</summary>
     MissByNpc,
@@ -35,15 +54,48 @@ public enum CombatEventKind
     /// put them to sleep first; "someone" appears instead of the NPC name whenever the player is
     /// blind at the moment of death — see CombatTracker's NpcKilledYouNarrative handling).</summary>
     KilledByNpc,
-    /// <summary>"The X withdraws from your fight, and so do you." — mutual withdraw accepted.</summary>
+    /// <summary>"The X withdraws from your fight, and so do you." - mutual withdraw accepted. Ends
+    /// ONLY the fight it names: the player agreed to it, but the agreement is with one creature, so
+    /// anything else in a pack fight is still engaged (owner, 2026-08-19). Contrast
+    /// <see cref="YouFled"/>/<see cref="YouFleeFailed"/>/<see cref="KilledByNpc"/>, which change the
+    /// player's own state and therefore end everything.</summary>
     Withdrawn,
     /// <summary>"The X has fled by going &lt;dir&gt;."</summary>
     NpcFled,
     /// <summary>"You have fled by going &lt;dir&gt;." Ends EVERY currently-active fight in the encounter.</summary>
     YouFled,
-    /// <summary>"You can fight it no longer." — a fight-end with no reason detail (08 12).</summary>
+    /// <summary>"You have fled by trying to go &lt;dir&gt;." - the PLAYER's flee failed. They are
+    /// still in the room, but MUD2 has zeroed the fight count all the same, so this ends every
+    /// currently-active fight exactly as <see cref="YouFled"/> does. Unparsed until 2026-08-19; see
+    /// <see cref="FightOutcome.UFledFail"/> for the verbatim frame and for the price a failed flee
+    /// still charges.</summary>
+    YouFleeFailed,
+    /// <summary>"You can fight it no longer." - a fight-end with no reason detail (08 12). Always a
+    /// TRAILING acknowledgment of an end already stated by name on an earlier line of the same frame
+    /// (a real flee, or - the case that fooled this client for months - a FAILED one, see
+    /// <see cref="NpcFleeFailed"/>). Informational only: it names no creature, so it can never
+    /// safely close a fight by itself in a multi-creature encounter.</summary>
     FightEndOther,
-    /// <summary>"You are now using the X to fight!" — new/confirmed weapon in use.</summary>
+    /// <summary>
+    /// A weapon is now the player's active weapon. Two wordings, both landing here:
+    /// "You are now using the X to fight!" (a change) and "You're using the X anyway..." (MUD2
+    /// telling you it was already that weapon).
+    ///
+    /// <para>The second arrives when a redundant <c>k X with Y</c> / <c>use Y</c> / <c>wield Y</c> is
+    /// issued mid-fight, and it matters for two reasons. It is often the ONLY line in that frame
+    /// naming the weapon actually in hand - note that MUD2 answered <c>k rat with stick</c> with
+    /// "You're using the unlit brand anyway..." (verbatim, session-rec.mud2.co.uk.20260819-001608),
+    /// i.e. NOT the weapon asked for. And a redundant re-issue is charged as a weapon change, so it
+    /// can drop the player's guard: that same capture shows four of these paired with two
+    /// "Your guard drops momentarily in your confusion." lines. The guard drop arrives as its own
+    /// <see cref="DroppedGuard"/> line, so nothing needs inferring here.</para>
+    ///
+    /// <para>MUD2 has no equipment slots (per the owner): a weapon is ordinary inventory burden, and
+    /// each creature - the player included - selects one that then applies to every creature it
+    /// swings at for the rest of that ENCOUNTER, until it is dropped, breaks, or is changed. That is
+    /// why the weapon never carries across encounters, and why both the aggregator and the recorder
+    /// re-derive it at encounter start rather than keeping the last one seen.</para>
+    /// </summary>
     WeaponEquip,
     /// <summary>"The X has started to use the Y to fight!" — an NPC equips/switches to a weapon
     /// mid-fight (confirmed live: a zombie switching to a fork). The per-tick "The X hits you
@@ -56,9 +108,15 @@ public enum CombatEventKind
     /// <summary>"Your guard drops..." (weapon switch or post-break confusion) — no C1 wrapper observed.</summary>
     DroppedGuard,
     /// <summary>"The X has fled by trying to go &lt;dir&gt;." - a flee that FAILED. The creature is
-    /// still in the room and still has to be fought. Never confuse this with <see cref="NpcFled"/>:
-    /// chasing something standing in front of you is nonsense, and counting it as an escape corrupts
-    /// the per-class flee rates. Does not end the fight - see CombatTracker's own remarks.</summary>
+    /// still in the room and still hostile, but the FIGHT IS OVER (see
+    /// <see cref="FightOutcome.CFledFail"/>): MUD2 breaks the sequence and the player has to attack
+    /// again to re-engage. Never confuse this with <see cref="NpcFled"/> - chasing something standing
+    /// in front of you is nonsense, and counting it as an escape corrupts the per-class flee rates.
+    ///
+    /// <para>This used NOT to end the fight, on the theory that keeping it open stopped one snake
+    /// fight fragmenting into eight encounters. That was the wrong trade: eight re-engagements really
+    /// are eight encounters, and refusing to close meant a fight the player simply walked away from
+    /// stayed "in combat" until logout.</para></summary>
     NpcFleeFailed,
     /// <summary>"The X has a stamina lying between 90 and 99." - the stethoscope's `diagnose` read,
     /// carried in the RangeLow/RangeHigh fields. A probe, not free telemetry, but a DIRECT reading of
@@ -77,6 +135,12 @@ public enum CombatEventKind
     /// room descriptions, so a wounded creature standing across the room would otherwise register as
     /// an opponent.</para></summary>
     NpcHealth,
+    /// <summary>"You feel your life concluding..." - the narrative death precursor, from the frame
+    /// where the player was killed. Informational ONLY, and deliberately not treated as an end: it
+    /// lands in the SAME frame as the "has killed you" line that follows it, so it buys no warning
+    /// time and there is nothing to act on. Parsed purely so the line is accounted for rather than
+    /// silently unrecognised.</summary>
+    LifeConcluding,
     /// <summary>"You cannot use the X to fight now!" - the wield refusal. Fires both when the weapon
     /// has just broken and when MUD2 refuses the wield outright because effective strength (itself
     /// reduced by carried weight, and per the owner by low stamina) is below the hidden threshold

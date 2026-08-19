@@ -262,6 +262,17 @@ Checked every combat-adjacent line captured against the regexes in `G:\Source\mu
 
 1. **`The <npc> has fled by trying to go <direction>.`** — 7 occurrences (all `water-snake5`, Session B, `+00:09:36`–`+00:09:49`: directions `over`, `up` (×2), `south`, `in`, `swampward`, `northwest`). `NpcFled` only matches `"has fled by going \w+\."` — the word **"trying to"** makes this a completely different phrase that never matches. Consequence: `Begin()`/`End()` bookkeeping never removes this NPC from `_active` the way a real `NpcFled` would, yet the very next line every time is `You can fight it no longer.` (`FightEndOther`), which the tracker's own code comment documents as "informational only... never authoritative for combat state on its own" specifically *because* it's supposed to always trail an already-processed `NpcFled`. That assumption is false for this line — see item (i) above for the full mechanical picture (8 micro-fights against one snake). **This is the single highest-value fix**: either extend `NpcFled` to accept `"has fled by trying to go \w+"` too, or treat `FightEndOther` as authoritative when no matching `NpcFled`/kill/withdraw preceded it within the same tick.
 
+    > **SUPERSEDED 2026-08-19 -- see `FIGHT-ENDS.md`.** The gap was real and is now fixed, but this
+    > item's reading of it was wrong in one important way, and the wrong reading is what shipped.
+    > The line was given its own event kind (`NpcFleeFailed`) that deliberately did **not** end the
+    > fight, on the reasoning recorded in item (i): eight micro-fights against one snake looked like
+    > fragmentation to be avoided. Per the owner, a failed flee **does** end the fight -- MUD2 breaks
+    > the sequence and the player must attack again -- so those eight really are eight encounters,
+    > each its own frame, command and weapon selection. Because nothing else in the frame can close a
+    > fight, refusing to close here left any fight the player walked away from stuck "in combat" until
+    > reset or logout. Read `FIGHT-ENDS.md` before touching fight-end detection; it lists all seven
+    > ends with a verbatim capture each.
+
 2. **`The <npc> looks covered in wounds, and is holding the following:`** — `+00:22:48.053 [seq3619]`, the ram. `NpcHealthRungs.Line` is anchored `^The (?<npc>.+?) looks (?<desc>[a-z][a-z ]*)\.$` — it requires the line to *end* right after the descriptor and full stop. This line continues past the rung phrase into an inventory-list intro, so the whole health update (a legitimate "covered in wounds" reading) is silently dropped rather than rung-4-scored.
 
 3. **`The <npc> has eaten a wafer<N>.`** — `+00:10:15.422 [seq2016]`, zombie7. No pattern anywhere in `CombatTracker.cs` covers NPC self-healing via item consumption; combined with item (c) above (a confirmed, mechanically-real heal — "seriously damaged" → "superficially damaged" in one tick with zero player action), a HUD that only watches hit/miss/health-rung lines would see the NPC's health improve with no attributable cause.

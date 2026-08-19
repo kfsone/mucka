@@ -246,10 +246,18 @@ public sealed class CombatStatsAggregator
                 break;
 
             case CombatEventKind.NpcFleeFailed:
-                // The creature is still here; nothing about the fight has ended. Counted because a
-                // creature trying to run is worth knowing about - it is about to escape a kill the
-                // player has already paid for.
+                // The creature is still standing in the room, but the FIGHT is over: MUD2 broke the
+                // sequence and the player has to attack again. So this resolves the fight (CFledFail)
+                // and drops the creature from the live roster - it is no longer an opponent until
+                // re-engaged, and leaving it listed is what kept the panel claiming "in combat" after
+                // a fight the player simply walked away from.
+                //
+                // NoteFleeAttempt still fires: the attempt itself is worth counting separately from
+                // the outcome, because attempt frequency is what makes a creature tedious to kill even
+                // when it never actually escapes.
                 FightFor(combatEvent)?.NoteFleeAttempt();
+                ResolveFight(combatEvent, FightOutcome.CFledFail);
+                RemoveParticipant(combatEvent.NpcName);
                 break;
 
             case CombatEventKind.NpcHealth:
@@ -297,31 +305,51 @@ public sealed class CombatStatsAggregator
                 break;
 
             case CombatEventKind.KilledByNpc:
-                // The player died, which ends the WHOLE encounter — CombatTracker emits this once
+                // The player died, which ends the WHOLE encounter - CombatTracker emits this once
                 // naming only the killer and then calls EndAll(), so no other fight gets its own
                 // close event. Resolve them all: "this fight ended with me dead" is true of every
                 // one of them, and leaving the others Unresolved would understate how badly a
                 // pile-on went.
                 foreach (var fight in _fightOrder)
-                    fight.Resolve(FightOutcome.KilledByNpc, combatEvent.TimestampUtc);
+                    fight.Resolve(FightOutcome.Died, combatEvent.TimestampUtc);
                 RemoveParticipant(combatEvent.NpcName);
                 break;
 
             case CombatEventKind.YouFled:
                 // Fleeing ends EVERY active fight, and none of them name themselves on this line.
                 foreach (var fight in _fightOrder)
-                    fight.Resolve(FightOutcome.YouFled, combatEvent.TimestampUtc);
+                    fight.Resolve(FightOutcome.UFled, combatEvent.TimestampUtc);
+                _activeNpcSet.Clear();
+                _activeNpcOrder.Clear();
+                _npcWeapons.Clear();
+                break;
+
+            case CombatEventKind.YouFleeFailed:
+                // A FAILED flee ends every fight just the same - the player never left the room, but
+                // MUD2 returned their fight count to 0 regardless, so every opponent has to be
+                // re-engaged from scratch. Treated identically to YouFled here apart from the outcome
+                // label, which must stay distinct: the fights ended, the player did not get away, and
+                // conflating the two would make the escape statistics claim escapes that never
+                // happened. (The attempt was not free either - see FightOutcome.UFledFail.)
+                foreach (var fight in _fightOrder)
+                    fight.Resolve(FightOutcome.UFledFail, combatEvent.TimestampUtc);
                 _activeNpcSet.Clear();
                 _activeNpcOrder.Clear();
                 _npcWeapons.Clear();
                 break;
 
             // FightEndOther ("You can fight it no longer.") is deliberately NOT treated as a
-            // close here, mirroring CombatTracker's own fix: it is a trailing acknowledgment
-            // (typically following an already-processed NpcFled, or — confirmed against real
-            // aquatic-NPC clogs — a dive/submerge re-engagement cycle) and must never clear
-            // OTHER still-active participants in a multi-NPC fight. No-op by design.
+            // close here, mirroring CombatTracker: it is a trailing acknowledgment of an end already
+            // stated by name earlier in the same frame - a kill, a real flee, or (the case that used
+            // to be mishandled) a FAILED flee, all of which have resolved their own fight before this
+            // line is reached. It names no creature, so it must never clear OTHER still-active
+            // participants in a multi-NPC fight. No-op by design.
             case CombatEventKind.FightEndOther:
+                break;
+
+            // Informational only, and in the same frame as the death that follows it, so there is
+            // nothing to record and nothing to warn about - see CombatEventKind.LifeConcluding.
+            case CombatEventKind.LifeConcluding:
                 break;
         }
     }
@@ -421,11 +449,13 @@ public sealed class CombatStatsAggregator
 
     private static FightOutcome OutcomeFor(CombatEventKind kind) => kind switch
     {
-        CombatEventKind.Kill => FightOutcome.Killed,
-        CombatEventKind.KilledByNpc => FightOutcome.KilledByNpc,
-        CombatEventKind.Withdrawn => FightOutcome.Withdrawn,
-        CombatEventKind.NpcFled => FightOutcome.NpcFled,
-        CombatEventKind.YouFled => FightOutcome.YouFled,
+        CombatEventKind.Kill => FightOutcome.Kill,
+        CombatEventKind.KilledByNpc => FightOutcome.Died,
+        CombatEventKind.Withdrawn => FightOutcome.Withdraw,
+        CombatEventKind.NpcFled => FightOutcome.CFled,
+        CombatEventKind.NpcFleeFailed => FightOutcome.CFledFail,
+        CombatEventKind.YouFled => FightOutcome.UFled,
+        CombatEventKind.YouFleeFailed => FightOutcome.UFledFail,
         _ => FightOutcome.Unresolved,
     };
 

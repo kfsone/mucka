@@ -155,7 +155,8 @@ public sealed class HistoryIndex
 /// </summary>
 internal sealed class IncrementalFightBucket
 {
-    private int _kills, _deaths, _npcFled, _youFled, _withdrawn, _unresolved, _fightCount;
+    private int _kills, _deaths, _cFled, _cFledFail, _uFled, _uFledFail, _withdraw, _unresolved,
+        _fightCount;
 
     private readonly List<double> _damageDone = [];
     private readonly List<double> _damageTaken = [];
@@ -170,11 +171,13 @@ internal sealed class IncrementalFightBucket
         _fightCount++;
         switch (record.Outcome)
         {
-            case nameof(FightOutcome.Killed): _kills++; break;
-            case nameof(FightOutcome.KilledByNpc): _deaths++; break;
-            case nameof(FightOutcome.NpcFled): _npcFled++; break;
-            case nameof(FightOutcome.YouFled): _youFled++; break;
-            case nameof(FightOutcome.Withdrawn): _withdrawn++; break;
+            case nameof(FightOutcome.Kill): _kills++; break;
+            case nameof(FightOutcome.Died): _deaths++; break;
+            case nameof(FightOutcome.CFled): _cFled++; break;
+            case nameof(FightOutcome.CFledFail): _cFledFail++; break;
+            case nameof(FightOutcome.UFled): _uFled++; break;
+            case nameof(FightOutcome.UFledFail): _uFledFail++; break;
+            case nameof(FightOutcome.Withdraw): _withdraw++; break;
             default: _unresolved++; break;
         }
 
@@ -209,9 +212,11 @@ internal sealed class IncrementalFightBucket
         FightCount = _fightCount,
         Kills = _kills,
         Deaths = _deaths,
-        NpcFled = _npcFled,
-        YouFled = _youFled,
-        Withdrawn = _withdrawn,
+        CFled = _cFled,
+        CFledFail = _cFledFail,
+        UFled = _uFled,
+        UFledFail = _uFledFail,
+        Withdraw = _withdraw,
         Unresolved = _unresolved,
         MedianDamageDone = MedianOfSorted(_damageDone),
         MedianDamageTaken = MedianOfSorted(_damageTaken),

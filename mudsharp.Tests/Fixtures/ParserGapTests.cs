@@ -25,12 +25,18 @@ public sealed class ParserGapTests
         return seen;
     }
 
-    // ---- A failed flee is not a flee -------------------------------------------------------
+    // ---- A failed flee is not a flee, but it IS an end of fight -----------------------------
 
     /// <summary>
     /// The highest-value gap in the session review. A water-snake attempted this 7 times in 13 seconds
-    /// and never left the room, yet the game prints "You can fight it no longer." after each one - so
-    /// one continuous fight was being recorded as eight separate encounters.
+    /// and never left the room, and the game prints "You can fight it no longer." after each one.
+    ///
+    /// <para>Note what this test does NOT assert any more. It used to also pin "the fight stays open",
+    /// on the reasoning that 7 attempts inside one 13-second fight must be one encounter rather than
+    /// eight. The owner corrected that on 2026-08-19: a failed flee really does end the fight, so those
+    /// are eight encounters - eight frames, eight attack commands, eight weapon selections - and the
+    /// price of the old reading was a fight the player never re-opened staying "in combat" forever.
+    /// See <see cref="FailedFlee_EndsTheFight_CreatureStaysInTheRoom"/>.</para>
     /// </summary>
     [Fact]
     public void FailedFlee_IsReportedAsAnAttempt_NotAnEscape()
@@ -46,17 +52,67 @@ public sealed class ParserGapTests
         Assert.DoesNotContain(events, e => e.Kind == CombatEventKind.NpcFled);
     }
 
-    /// <summary>The creature is still in the room, so it must still be an opponent - and the trailing
-    /// "You can fight it no longer." must not quietly close it either.</summary>
+    /// <summary>
+    /// The fight ENDS: MUD2 breaks the sequence even though the creature never left the room, and the
+    /// player has to attack again to re-engage.
+    ///
+    /// <para>This is the exact frame the owner reported (water-snake3, 2026-08-19). It inverts the
+    /// previous expectation, which was that the fight stayed open - and that is why the bug existed at
+    /// all: nothing else in this frame can close a fight, so a player who walked away instead of
+    /// re-attacking left the panel claiming combat until reset or logout.</para>
+    /// </summary>
     [Fact]
-    public void FailedFlee_LeavesTheFightOpen()
+    public void FailedFlee_EndsTheFight_CreatureStaysInTheRoom()
     {
         var tracker = new CombatTracker();
-        tracker.Observe(Line("You attack the water-snake5, using the falchion as a weapon."), T0);
-        tracker.Observe(Line("The water-snake5 has fled by trying to go swampward."), T0.AddSeconds(2));
+        tracker.Observe(Line("You attack the water-snake3, using the falchion as a weapon."), T0);
+        Assert.True(tracker.InCombat);
+
+        tracker.Observe(Line("The water-snake3 looks close to death."), T0.AddSeconds(1));
+        tracker.Observe(Line("The water-snake3 hits you (82/115)."), T0.AddSeconds(2));
+        tracker.Observe(Line("The water-snake3 has fled by trying to go up."), T0.AddSeconds(2));
+
+        // Closed by the flee-fail itself, BEFORE the trailing acknowledgment - which is what makes the
+        // acknowledgment redundant rather than load-bearing.
+        Assert.False(tracker.InCombat);
+
         tracker.Observe(Line("You can fight it no longer."), T0.AddSeconds(2));
+        Assert.False(tracker.InCombat);
+    }
+
+    /// <summary>Re-attacking the creature that is still standing there opens a NEW encounter - it is a
+    /// new frame, a new command and a new weapon selection, and the owner's model says that is exactly
+    /// what it is.</summary>
+    [Fact]
+    public void FailedFlee_ThenReattack_OpensAFreshEncounter()
+    {
+        var tracker = new CombatTracker();
+        var flips = new List<bool>();
+        tracker.InCombatChanged += flips.Add;
+
+        tracker.Observe(Line("You attack the water-snake3, using the falchion as a weapon."), T0);
+        tracker.Observe(Line("The water-snake3 has fled by trying to go up."), T0.AddSeconds(2));
+        tracker.Observe(Line("You can fight it no longer."), T0.AddSeconds(2));
+        tracker.Observe(Line("You attack the water-snake3, using the falchion as a weapon."), T0.AddSeconds(4));
 
         Assert.True(tracker.InCombat);
+        Assert.Equal([true, false, true], flips);
+    }
+
+    /// <summary>A pack member breaking off must not take the rest of the pack with it: cases 1-3 and 6
+    /// are per-creature.</summary>
+    [Fact]
+    public void FailedFlee_ClosesOnlyItsOwnFight()
+    {
+        var tracker = new CombatTracker();
+        tracker.Observe(Line("You attack the water-snake3, using the falchion as a weapon."), T0);
+        tracker.Observe(Line("You attack the water-snake5, using the falchion as a weapon."), T0.AddSeconds(1));
+        tracker.Observe(Line("The water-snake3 has fled by trying to go up."), T0.AddSeconds(2));
+
+        Assert.True(tracker.InCombat);   // snake5 is still engaged
+
+        tracker.Observe(Line("The water-snake5 has fled by trying to go up."), T0.AddSeconds(3));
+        Assert.False(tracker.InCombat);
     }
 
     /// <summary>Real escapes must keep working exactly as before - the two lines differ by one word.</summary>
@@ -71,8 +127,11 @@ public sealed class ParserGapTests
         Assert.DoesNotContain(events, e => e.Kind == CombatEventKind.NpcFleeFailed);
     }
 
+    /// <summary>The attempt is counted AND the fight is resolved - as CFledFail, never as an escape.
+    /// Both halves matter: the count is what tells the player this creature is tedious rather than
+    /// dangerous, and the outcome is what keeps it out of the escape statistics.</summary>
     [Fact]
-    public void FailedFlees_AreCountedOnTheFightWithoutResolvingIt()
+    public void FailedFlees_AreCountedAndResolveTheFightAsCFledFail()
     {
         var aggregator = new CombatStatsAggregator();
         var tracker = new CombatTracker();
@@ -82,16 +141,18 @@ public sealed class ParserGapTests
         [
             "You attack the water-snake5, using the falchion as a weapon.",
             "The water-snake5 has fled by trying to go over.",
-            "The water-snake5 has fled by trying to go up.",
-            "The water-snake5 has fled by trying to go south.",
         ];
         for (var i = 0; i < lines.Length; i++)
             tracker.Observe(Line(lines[i]), T0.AddSeconds(i));
 
         var snapshot = aggregator.Snapshot(T0.AddSeconds(10));
         var fight = Assert.Single(snapshot.Fights);
-        Assert.False(fight.IsResolved);
-        Assert.Equal(FightOutcome.Unresolved, fight.Outcome);
+        Assert.True(fight.IsResolved);
+        Assert.Equal(FightOutcome.CFledFail, fight.Outcome);
+        // FleeAttempts lives on the accumulator, not on the rendered snapshot row - the count has no
+        // consumer yet (nothing reads it, and it is not persisted on FightRecord), so it is asserted
+        // at its source rather than through a surface that does not carry it.
+        Assert.Equal(1, Assert.Single(aggregator.Fights).FleeAttempts);
     }
 
     // ---- Health readings folded into a longer sentence --------------------------------------
@@ -196,7 +257,7 @@ public sealed class ParserGapTests
         var fight = Assert.Single(snapshot.Fights);
 
         Assert.Equal("axe0", fight.Weapon);
-        Assert.Equal(FightOutcome.YouFled, fight.Outcome);
+        Assert.Equal(FightOutcome.UFled, fight.Outcome);
         // The live hands are empty; the fight's record is not.
         Assert.Null(snapshot.CurrentWeapon);
     }
@@ -217,7 +278,7 @@ public sealed class ParserGapTests
         var fight = Assert.Single(aggregator.Snapshot(T0.AddSeconds(5)).Fights);
 
         Assert.Equal("dagger0", fight.Weapon);
-        Assert.Equal(FightOutcome.Killed, fight.Outcome);
+        Assert.Equal(FightOutcome.Kill, fight.Outcome);
     }
 
     // ---- A weapon equipped just before the client notices the fight ------------------------
@@ -303,4 +364,218 @@ public sealed class ParserGapTests
 
         Assert.Equal("axe0", aggregator.Snapshot(T0.AddSeconds(1)).CurrentWeapon);
     }
+
+    // ---- The seven ends (owner, 2026-08-19) --------------------------------------------------
+
+    /// <summary>
+    /// Cases 4 and 5, the player's own flee, successful and failed. Both zero the fight count, so both
+    /// close every open fight - the failed one despite the player never leaving the room.
+    ///
+    /// <para>Case 5 is quoted from session-rec.mud2.co.uk.20260819-000137, where the whole exchange
+    /// arrived in ONE frame: <c>flee n / You cannot go north from here. / You have changed experience
+    /// level from protector to novice. / (Persona saved on -102 = 98). / You have fled by trying to go
+    /// north.</c> Nothing in this client matched that last line until 2026-08-19.</para>
+    /// </summary>
+    [Theory]
+    [InlineData("You have fled by going out.", CombatEventKind.YouFled)]
+    [InlineData("You have fled by trying to go north.", CombatEventKind.YouFleeFailed)]
+    public void PlayerFlee_SucceededOrNot_EndsEveryFight(string fleeLine, CombatEventKind expected)
+    {
+        var tracker = new CombatTracker();
+        var seen = new List<CombatEvent>();
+        tracker.EventOccurred += seen.Add;
+
+        tracker.Observe(Line("You attack the rat21, using the falchion as a weapon."), T0);
+        tracker.Observe(Line("You attack the rat17, using the falchion as a weapon."), T0.AddSeconds(1));
+        Assert.True(tracker.InCombat);
+
+        tracker.Observe(Line(fleeLine), T0.AddSeconds(2));
+
+        Assert.False(tracker.InCombat);
+        Assert.Contains(seen, e => e.Kind == expected);
+        // The two readings of the sentence must never be confused - one word apart, opposite meanings.
+        var wrong = expected == CombatEventKind.YouFled
+            ? CombatEventKind.YouFleeFailed
+            : CombatEventKind.YouFled;
+        Assert.DoesNotContain(seen, e => e.Kind == wrong);
+    }
+
+    /// <summary>A failed player flee reaches every fight in the record, each labelled UFledFail rather
+    /// than UFled: the fights ended, but the player did not get away, and the escape statistics must not
+    /// claim otherwise.</summary>
+    [Fact]
+    public void PlayerFleeFailed_ResolvesEveryFightAsUFledFail()
+    {
+        var aggregator = new CombatStatsAggregator();
+        var tracker = new CombatTracker();
+        tracker.EventOccurred += aggregator.Observe;
+
+        tracker.Observe(Line("You attack the rat21, using the falchion as a weapon."), T0);
+        tracker.Observe(Line("You attack the rat17, using the falchion as a weapon."), T0.AddSeconds(1));
+        tracker.Observe(Line("You have fled by trying to go north."), T0.AddSeconds(2));
+
+        var snapshot = aggregator.Snapshot(T0.AddSeconds(5));
+        Assert.Equal(2, snapshot.Fights.Count);
+        Assert.All(snapshot.Fights, f => Assert.Equal(FightOutcome.UFledFail, f.Outcome));
+    }
+
+    /// <summary>Case 6. A withdraw is an agreement with ONE creature, so it closes that fight only -
+    /// the rest of a pack is still swinging. Verbatim from session-rec.mud2.co.uk.20260819-001118,
+    /// including the offer that precedes it by two minutes and must not itself end anything.</summary>
+    [Fact]
+    public void Withdraw_ClosesOnlyTheNamedFight()
+    {
+        var tracker = new CombatTracker();
+        var seen = new List<CombatEvent>();
+        tracker.EventOccurred += seen.Add;
+
+        tracker.Observe(Line("You attack the banshee, using the unlit brand as a weapon."), T0);
+        tracker.Observe(Line("You attack the rat21, using the unlit brand as a weapon."), T0.AddSeconds(1));
+
+        tracker.Observe(Line("You offer to withdraw from your fight with the banshee."), T0.AddSeconds(2));
+        Assert.True(tracker.InCombat);   // an offer, not an end
+        Assert.Contains(seen, e => e.Kind == CombatEventKind.WithdrawOffer);
+
+        tracker.Observe(Line("The banshee withdraws from your fight, and so do you."), T0.AddSeconds(3));
+        Assert.True(tracker.InCombat);   // rat21 never agreed to anything
+
+        tracker.Observe(Line("You have killed the rat21."), T0.AddSeconds(4));
+        Assert.False(tracker.InCombat);
+    }
+
+    /// <summary>Case 7, the death frame, verbatim from session-rec.mud2.co.uk.20260819-001608. Three of
+    /// its five lines were unparsed before 2026-08-19: the fatal blow (no stamina parenthetical), the
+    /// narrative precursor, and - not asserted here, it is not a combat line - "Not updating
+    /// persona."</summary>
+    [Fact]
+    public void DeathFrame_CountsTheFatalBlow_AndEndsEverything()
+    {
+        var tracker = new CombatTracker();
+        var seen = new List<CombatEvent>();
+        tracker.EventOccurred += seen.Add;
+
+        tracker.Observe(Line("You attack the rat18, using the unlit brand as a weapon."), T0);
+        tracker.Observe(Line("The rat18 hits you."), T0.AddSeconds(1));
+        tracker.Observe(Line("You feel your life concluding..."), T0.AddSeconds(1));
+        tracker.Observe(Line("The rat18 has killed you."), T0.AddSeconds(1));
+
+        Assert.False(tracker.InCombat);
+
+        // The fatal blow is a real landed hit and must be counted as one, with NO stamina reading
+        // invented for it - there is no surviving stamina to report, and a fabricated 0 would look
+        // like a measurement.
+        var fatal = Assert.Single(seen, e => e.Kind == CombatEventKind.HitByNpc);
+        Assert.Equal("rat18", fatal.NpcName);
+        Assert.Null(fatal.RangeLow);
+        Assert.Null(fatal.RangeHigh);
+
+        Assert.Contains(seen, e => e.Kind == CombatEventKind.LifeConcluding);
+        Assert.Contains(seen, e => e.Kind == CombatEventKind.KilledByNpc);
+    }
+
+    /// <summary>The ordinary hit-by-NPC line still carries its stamina reading - widening the pattern to
+    /// accept the bare form must not have cost the parenthetical one its numbers.</summary>
+    [Fact]
+    public void NpcHit_WithStamina_StillReportsIt()
+    {
+        var events = Observe(
+            "You attack the water-snake3, using the falchion as a weapon.",
+            "The water-snake3 hits you (82/115).");
+
+        var hit = Assert.Single(events, e => e.Kind == CombatEventKind.HitByNpc);
+        Assert.Equal(82, hit.RangeLow);
+        Assert.Equal(115, hit.RangeHigh);
+    }
+
+    // ---- identify on: exact damage instead of a bracket ---------------------------------------
+
+    /// <summary>
+    /// "You hit the banshee (6)." - verbatim from session-rec.mud2.co.uk.20260819-001118, the exact
+    /// figure `identify` reports in place of a range. Reported as a zero-width range so consumers that
+    /// average the pair need no special case.
+    ///
+    /// <para>This mattered more than its size suggests: turning identify ON - which exists to give the
+    /// client better information - used to stop every one of the player's own hits being counted.</para>
+    /// </summary>
+    [Fact]
+    public void ExactDamage_IsReportedAsAZeroWidthRange()
+    {
+        var events = Observe(
+            "You attack the banshee, using the unlit brand as a weapon.",
+            "You hit the banshee (6).");
+
+        var hit = Assert.Single(events, e => e.Kind == CombatEventKind.Hit);
+        Assert.Equal("banshee", hit.NpcName);
+        Assert.Equal(6, hit.RangeLow);
+        Assert.Equal(6, hit.RangeHigh);
+    }
+
+    /// <summary>The bracketed form is unaffected.</summary>
+    [Fact]
+    public void RangedDamage_StillParsesAsARange()
+    {
+        var events = Observe(
+            "You attack the rat, using the unlit brand as a weapon.",
+            "You hit the rat (5-9).");
+
+        var hit = Assert.Single(events, e => e.Kind == CombatEventKind.Hit);
+        Assert.Equal(5, hit.RangeLow);
+        Assert.Equal(9, hit.RangeHigh);
+    }
+
+    // ---- weapons are not slots ---------------------------------------------------------------
+
+    /// <summary>
+    /// "You're using the unlit brand anyway..." - MUD2's reply to a redundant weapon selection, and in
+    /// that frame the ONLY line naming the weapon actually in hand.
+    ///
+    /// <para>Verbatim from session-rec.mud2.co.uk.20260819-001608, where the owner sent
+    /// <c>k rat with stick</c> and got this four times over (once per rat) paired with two guard drops.
+    /// Note the weapon named is NOT the one the command asked for: taking the command at its word would
+    /// have recorded the fight under "stick".</para>
+    /// </summary>
+    [Fact]
+    public void RedundantWeaponSelection_ReportsTheWeaponActuallyInUse()
+    {
+        var events = Observe(
+            "You attack the rat, using the unlit brand as a weapon.",
+            "You're using the unlit brand anyway...",
+            "Your guard drops momentarily in your confusion.");
+
+        var equip = Assert.Single(events, e => e.Kind == CombatEventKind.WeaponEquip);
+        Assert.Equal("unlit brand", equip.Weapon);
+        // The guard drop is its own line and is already classified - nothing is inferred from the
+        // weapon line about it.
+        Assert.Contains(events, e => e.Kind == CombatEventKind.DroppedGuard);
+    }
+
+    /// <summary>A weapon does not survive into the next encounter. MUD2 has no equipment slots: the
+    /// selection applies for the duration of ONE encounter, and a fresh encounter starts with the weapon
+    /// unknown until a line says otherwise.</summary>
+    [Fact]
+    public void Weapon_DoesNotCarryIntoTheNextEncounter()
+    {
+        var aggregator = new CombatStatsAggregator();
+        var tracker = new CombatTracker();
+        tracker.InCombatChanged += inCombat =>
+        {
+            if (inCombat)
+                aggregator.BeginEncounter(T0);
+            else
+                aggregator.EndEncounter();
+        };
+        tracker.EventOccurred += aggregator.Observe;
+
+        tracker.Observe(Line("You attack the rat21, using the falchion as a weapon."), T0);
+        tracker.Observe(Line("You have killed the rat21."), T0.AddSeconds(2));
+        Assert.False(tracker.InCombat);
+
+        // A brand-new encounter, opened by the creature rather than the player, so no line names a
+        // weapon at all. It must not inherit the falchion.
+        tracker.Observe(Line("The rat17 is staring at you aggressively."), T0.AddSeconds(30));
+        var fight = Assert.Single(aggregator.Fights);
+        Assert.Equal("rat17", fight.NpcName);
+        Assert.Null(fight.WeaponUsed);
+    }
+
 }

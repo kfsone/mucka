@@ -15,7 +15,7 @@ public sealed class HistoryIndexTests
     private static FightRecord Fight(
         string npcName = "rat0",
         string? weapon = "dagger0",
-        FightOutcome outcome = FightOutcome.Killed,
+        FightOutcome outcome = FightOutcome.Kill,
         int youHits = 3,
         int youMisses = 1,
         int theyHits = 1,
@@ -210,10 +210,10 @@ public sealed class HistoryIndexTests
     public void Insert_EstimatesStaminaPoolFromKillsOnly()
     {
         var index = new HistoryIndex();
-        index.Insert(Fight(outcome: FightOutcome.Killed, damageDone: 30));
-        index.Insert(Fight(outcome: FightOutcome.Killed, damageDone: 36));
-        index.Insert(Fight(outcome: FightOutcome.Withdrawn, damageDone: 5));
-        index.Insert(Fight(outcome: FightOutcome.YouFled, damageDone: 2));
+        index.Insert(Fight(outcome: FightOutcome.Kill, damageDone: 30));
+        index.Insert(Fight(outcome: FightOutcome.Kill, damageDone: 36));
+        index.Insert(Fight(outcome: FightOutcome.Withdraw, damageDone: 5));
+        index.Insert(Fight(outcome: FightOutcome.UFled, damageDone: 2));
 
         var summary = index.GetGroupSummary("rats");
 

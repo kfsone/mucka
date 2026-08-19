@@ -139,6 +139,10 @@ Practical consequence: a blind player's real hit chance against a rat drops from
 Seven times in one fight, `The water-snake5 has fled by trying to go <dir>. / You can fight it no
 longer.` was followed by a score increase of exactly **+4**. Nothing in the document mentions it.
 
+> Note on the phrasing "in one fight" (2026-08-19): the scoring finding below is unaffected, but that
+> was seven *fights*, not one. A failed enemy flee ends the fight -- see `FIGHT-ENDS.md` -- so the
+> player re-engaged seven times. Read "per failed escape" below as "per fight so ended".
+
 The interaction is the interesting part. That same snake's kill award came in at **79** instead of
 the standard 86 - short by exactly one point per failed escape. So the flee bonus is not bolted on
 top; it looks like it comes out of the same budget, with the player netting 79 + 28 = 107 against

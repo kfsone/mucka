@@ -12,7 +12,7 @@ namespace mudsharp.Tests.Fixtures;
 public sealed class ParticipantRosterTests
 {
     private static ParticipantFact Live(string name) => new(name, IsResolved: false, FightOutcome.Unresolved);
-    private static ParticipantFact Dead(string name, FightOutcome outcome = FightOutcome.Killed)
+    private static ParticipantFact Dead(string name, FightOutcome outcome = FightOutcome.Kill)
         => new(name, IsResolved: true, outcome);
 
     [Fact]
@@ -121,9 +121,9 @@ public sealed class ParticipantRosterTests
     [Fact]
     public void Build_RowsCarryTheirOwnOutcomeForTheDescriptiveWordBelow()
     {
-        var plan = ParticipantRoster.Build([Dead("rat0", FightOutcome.NpcFled), Dead("rat1", FightOutcome.Killed)]);
+        var plan = ParticipantRoster.Build([Dead("rat0", FightOutcome.CFled), Dead("rat1", FightOutcome.Kill)]);
 
-        Assert.Equal(FightOutcome.NpcFled, plan.Rows.Single(r => r.Name == "rat0").Outcome);
-        Assert.Equal(FightOutcome.Killed, plan.Rows.Single(r => r.Name == "rat1").Outcome);
+        Assert.Equal(FightOutcome.CFled, plan.Rows.Single(r => r.Name == "rat0").Outcome);
+        Assert.Equal(FightOutcome.Kill, plan.Rows.Single(r => r.Name == "rat1").Outcome);
     }
 }

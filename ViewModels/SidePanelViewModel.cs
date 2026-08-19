@@ -298,7 +298,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
 #endif
 
     /// <summary>Whether the Combat Rail (the new right-edge panel) is shown. Toggled from the
-    /// overflow menu's "Combat Rail" entry and, when it changes, by GamePage resizing the window
+    /// overflow menu's "Combat" entry and, when it changes, by GamePage resizing the window
     /// by the panel's own width (DESIGN_FINAL.md D3/2.2) - never by anything else; this property
     /// does not change on combat start/end, only on an explicit toggle. Refuses to become true at
     /// all when <see cref="IsCombatRailSupported"/> is false, so no future caller can light up an
@@ -1088,7 +1088,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     public ICommand ToggleInventoryCommand { get; }
     public ICommand ToggleItemsHereCommand { get; }
     /// <summary>Toggles the Combat Rail (the right-edge panel - DESIGN_FINAL.md D3/2.2), from the
-    /// overflow menu's "Combat Rail" entry, alongside Side Panel / Onlines / Compass. GamePage
+    /// overflow menu's "Combat" entry, alongside Side Panel / Onlines / Compass. GamePage
     /// resizes the window by the rail's width off the resulting
     /// <see cref="IsCombatPanelVisible"/> change, so every route to that property makes room for
     /// the panel rather than taking the space out of the terminal.</summary>

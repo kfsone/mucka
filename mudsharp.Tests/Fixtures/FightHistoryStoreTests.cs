@@ -33,7 +33,7 @@ public sealed class FightHistoryStoreTests : IDisposable
             NpcName = npcName,
             NpcGroup = NpcGroups.Normalize(npcName),
             WeaponUsed = "axe0",
-            Outcome = nameof(FightOutcome.Killed),
+            Outcome = nameof(FightOutcome.Kill),
             YouHits = 3,
             ApproxDamageDone = damageDone,
             DurationMs = 30_000,

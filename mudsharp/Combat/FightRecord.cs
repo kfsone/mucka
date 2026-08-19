@@ -104,7 +104,7 @@ public sealed record FightRecord
     /// <summary>Whether the fight ended with the NPC dead. Only these fights bound an NPC's
     /// stamina pool from ABOVE — a survivor only tells us its pool exceeds what we dealt, so
     /// including non-kills in a pool estimate biases it downward (see STATS_DESIGN.md).</summary>
-    public bool IsKill => Outcome == nameof(FightOutcome.Killed);
+    public bool IsKill => Outcome == nameof(FightOutcome.Kill);
 
     /// <summary>Whether this row carries usable per-swing detail. False for narrative-mode rows
     /// and for fights that resolved without a single parsed swing either way.</summary>

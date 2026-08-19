@@ -577,8 +577,28 @@ public sealed class MudSession : IDisposable
         }
 
         // Post-character-select setup. One batched write so the server processes it in order:
-        //   auto fex  — enable the per-move front-end exit list
-        //   score     — pull the character sheet (for the character name + a score baseline)
+        //   identify   - name creatures individually ("rat21", not "the rat")
+        //   fightbrief - report combat in the terse form the parsers are written against
+        //   auto fex   - enable the per-move front-end exit list
+        //   score      - pull the character sheet (for the character name + a score baseline)
+        //
+        // identify and fightbrief are not conveniences; without them the client is close to blind in
+        // a fight, which is why they are FIRST in the batch. Two real sessions
+        // (session-rec.mud2.co.uk.20260819-000137 / -001608) were captured with both off:
+        //   * fightbrief off replaces every swing line with narrative prose - "Your limp, frontal
+        //     attack is indifferently killed by the rat.", "You are only just hurt by a weighty nip
+        //     from the rat.", "Damage range: 5-9." - and NONE of it is parsed, so an entire fight can
+        //     pass with the client counting no swings at all.
+        //   * identify off names every creature "the rat" in prose while the FEW panel lists
+        //     rat21/rat19/rat16/rat17, so four separate fights collapse onto one participant and the
+        //     per-creature history is attributed to a name that does not identify anything.
+        //
+        // Both are SETs, not toggles (owner, 2026-08-19) - sending them to a persona that already has
+        // them on is a no-op, so this batch is safe to fire unconditionally on every game-mode entry
+        // and needs no "is it already on?" probe first.
+        //
+        // Each replies in its OWN frame, in one of two wordings depending on whether the setting was
+        // already on - see the matcher in TrySwallowSetupLine for all four verbatim strings.
         // The echo + replies are hidden from the terminal (TrySwallowSetupLine), but the score
         // line's stats still reach the UI (the parser's analyzer fires StatsUpdated before
         // LineReady). Future user-defined setup commands slot in before `score`, which stays
@@ -766,7 +786,7 @@ public sealed class MudSession : IDisposable
     // BEFORE `score`. (A trailing CTRL-T "done" sentinel was tried and removed — the server
     // answers CTRL-T on receipt, ~500ms ahead of the queued command outputs, so it cannot mark
     // completion; verified from a live session recording 2026-07-09.)
-    private static readonly string[] SetupCommands = { "auto fex", "score" };
+    private static readonly string[] SetupCommands = { "identify", "fightbrief", "auto fex", "score" };
 
     // First line of the `score` sheet: "name:           Ollie". A leading frame prompt ("*name:")
     // is stripped before matching. Character names are single tokens, so the "name:" line never
@@ -813,9 +833,28 @@ public sealed class MudSession : IDisposable
             if (body.Equals(cmd, StringComparison.OrdinalIgnoreCase))
                 return ClaimFrame();
 
-        // `auto fex` confirmation frame — opens "You will now get an automatic FEEXITS ...".
+        // `auto fex` confirmation frame - opens "You will now get an automatic FEEXITS ...".
         if (body.Contains("FEEXITS", StringComparison.OrdinalIgnoreCase) ||
             body.StartsWith("You will now get an automatic", StringComparison.OrdinalIgnoreCase))
+            return ClaimFrame();
+
+        // `identify` / `fightbrief` confirmation frames - one frame each, and TWO wordings apiece,
+        // because MUD2 answers differently when the setting was already on. All four verbatim
+        // (session-rec.mud2.co.uk.20260819-134737 for the first pair, owner's paste for the second):
+        //   You'll now get object identification numbers where applicable.
+        //   You're already getting object identification numbers where applicable.
+        //   You'll now get brief descriptions of fights.
+        //   You're already getting brief descriptions of fights.
+        // Both "already" forms are the ordinary case from the second login onward: the commands are
+        // SETs rather than toggles, so the batch re-sends them every entry and MUD2 says so.
+        //
+        // Matched as lead-in AND subject rather than on the whole sentence, so a wrap at a narrow
+        // terminal width cannot hide the frame's first line from us the way an exact match would -
+        // the same reason the auto-fex matcher above keys on "FEEXITS" rather than its full sentence.
+        if ((body.StartsWith("You'll now get ", StringComparison.OrdinalIgnoreCase) ||
+             body.StartsWith("You're already getting ", StringComparison.OrdinalIgnoreCase)) &&
+            (body.Contains("identification numbers", StringComparison.OrdinalIgnoreCase) ||
+             body.Contains("descriptions of fights", StringComparison.OrdinalIgnoreCase)))
             return ClaimFrame();
 
         // `score` sheet frame — opens on the "name:" line, which yields the character name and is

@@ -140,7 +140,7 @@ public partial class GamePage : ContentPage
 
     // - Combat Rail: the new, additional right-edge panel (DESIGN_FINAL.md D3/2.2) -
     // Own width constant, deliberately separate from SidePanelWidthDp above. Shown/hidden by the
-    // overflow menu's "Combat Rail" entry, which flips SidePanelViewModel.IsCombatPanelVisible; the
+    // overflow menu's "Combat" entry, which flips SidePanelViewModel.IsCombatPanelVisible; the
     // resize by exactly this many DIPs rides that property change (see OnSidePanelPropertyChanged
     // and ResizeWindowForCombatPanel) - the ONLY place
     // this window resizes for combat-panel reasons. It is never included in

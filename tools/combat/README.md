@@ -128,3 +128,12 @@ uv run tools/combat/verify_mechanics.py --list
 See `tools/combat/NOTES.md` for the observed behavior of the provided
 `mud2-multi-combat.jsonl` research capture, and `tools/combat/SUMMARY.md`
 for roll-up totals by weapon and NPC.
+
+## Fight-end detection
+
+`FIGHT-ENDS.md` is required reading before touching anything that decides when a fight or an
+encounter is over. It lists the seven ways MUD2 ends a fight, with a verbatim captured frame for each,
+the per-creature vs all-fights split, and the frame guarantee that makes timers unnecessary. It also
+records the one conclusion in `SESSION-NOTES-20260810.md` that turned out to be inverted, and why --
+that mistake lived in shipped code for months, so the correction is worth reading before re-deriving
+the same wrong answer from the same capture.

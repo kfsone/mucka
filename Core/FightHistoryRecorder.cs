@@ -222,27 +222,43 @@ public sealed class FightHistoryRecorder : IDisposable
                     break;
 
                 case CombatEventKind.Kill:
-                    FightForLocked(combatEvent)?.Resolve(FightOutcome.Killed, combatEvent.TimestampUtc);
+                    FightForLocked(combatEvent)?.Resolve(FightOutcome.Kill, combatEvent.TimestampUtc);
                     break;
 
                 case CombatEventKind.Withdrawn:
-                    FightForLocked(combatEvent)?.Resolve(FightOutcome.Withdrawn, combatEvent.TimestampUtc);
+                    FightForLocked(combatEvent)?.Resolve(FightOutcome.Withdraw, combatEvent.TimestampUtc);
                     break;
 
                 case CombatEventKind.NpcFled:
-                    FightForLocked(combatEvent)?.Resolve(FightOutcome.NpcFled, combatEvent.TimestampUtc);
+                    FightForLocked(combatEvent)?.Resolve(FightOutcome.CFled, combatEvent.TimestampUtc);
+                    break;
+
+                case CombatEventKind.NpcFleeFailed:
+                    // The creature stayed in the room but the fight ended - see FightOutcome.CFledFail.
+                    // Nothing resolved this before 2026-08-19, so every failed flee was persisted as an
+                    // Unresolved row: the history could not distinguish "the client lost track of this
+                    // fight" from "this creature broke off", which are very different evidence.
+                    FightForLocked(combatEvent)?.Resolve(FightOutcome.CFledFail, combatEvent.TimestampUtc);
                     break;
 
                 case CombatEventKind.KilledByNpc:
                     // Player death ends the whole encounter; CombatTracker names only the killer and
                     // then closes the rest silently, so resolve every open fight here.
                     foreach (var fight in _fightOrder)
-                        fight.Resolve(FightOutcome.KilledByNpc, combatEvent.TimestampUtc);
+                        fight.Resolve(FightOutcome.Died, combatEvent.TimestampUtc);
                     break;
 
                 case CombatEventKind.YouFled:
                     foreach (var fight in _fightOrder)
-                        fight.Resolve(FightOutcome.YouFled, combatEvent.TimestampUtc);
+                        fight.Resolve(FightOutcome.UFled, combatEvent.TimestampUtc);
+                    break;
+
+                case CombatEventKind.YouFleeFailed:
+                    // Same reach as YouFled - MUD2 zeroes the fight count whether the flee worked or
+                    // not - but recorded under its own outcome so the corpus never counts a failed
+                    // attempt as an escape.
+                    foreach (var fight in _fightOrder)
+                        fight.Resolve(FightOutcome.UFledFail, combatEvent.TimestampUtc);
                     break;
             }
         }

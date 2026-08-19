@@ -51,7 +51,7 @@ public sealed record SessionCombatTotals(
     int Fights,
     int Kills,
     int Deaths,
-    int NpcFled,
+    int CFled,
     double DamageDealt,
     double DamageTaken,
     TimeSpan TimeInCombat)
@@ -70,9 +70,12 @@ public sealed record SessionCombatTotals(
         {
             switch (fight.Outcome)
             {
-                case MudSharp.Combat.FightOutcome.Killed: kills++; break;
-                case MudSharp.Combat.FightOutcome.KilledByNpc: deaths++; break;
-                case MudSharp.Combat.FightOutcome.NpcFled: fled++; break;
+                case MudSharp.Combat.FightOutcome.Kill: kills++; break;
+                case MudSharp.Combat.FightOutcome.Died: deaths++; break;
+                // Escapes only. A failed attempt (CFledFail) ended the fight too, but the creature is
+                // still in the room, and a session line reading "3 got away" must not count things
+                // that are standing right there.
+                case MudSharp.Combat.FightOutcome.CFled: fled++; break;
             }
         }
 
@@ -81,7 +84,7 @@ public sealed record SessionCombatTotals(
             Fights + snapshot.Fights.Count,
             Kills + kills,
             Deaths + deaths,
-            NpcFled + fled,
+            CFled + fled,
             DamageDealt + snapshot.ApproxDamageDone,
             DamageTaken + snapshot.ApproxDamageTaken,
             TimeInCombat + snapshot.Duration);

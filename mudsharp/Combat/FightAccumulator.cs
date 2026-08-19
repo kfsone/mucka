@@ -1,16 +1,80 @@
 namespace MudSharp.Combat;
 
-/// <summary>How a single per-NPC fight ended. Mirrors combat_fights.outcome in
-/// tools/combat/schema.sql so live and offline rows are directly comparable.</summary>
+/// <summary>
+/// How a single per-NPC fight ended. Mirrors combat_fights.outcome in tools/combat/schema.sql so
+/// live and offline rows are directly comparable - and since 2026-08-19 the two use the IDENTICAL
+/// spellings, where they previously disagreed in case and separator ("Killed" live vs "killed"
+/// offline) for no reason but drift.
+///
+/// <para><b>The seven ends, per the owner (2026-08-19).</b> MUD2 ends a fight in exactly seven ways,
+/// and every one of them prints inside a single frame (one prompt to the next) - always. That
+/// guarantee is why nothing here needs a timer or a "lull" window to decide a fight is over: the
+/// evidence is never split across frames, so the terminator line is the whole answer.</para>
+///
+/// <para>Four are per-creature and leave any other fights running (<see cref="Kill"/>,
+/// <see cref="CFled"/>, <see cref="CFledFail"/>, <see cref="Withdraw"/>); three are changes to the
+/// PLAYER's own combat state and therefore zero the fight count, ending every open fight at once
+/// (<see cref="UFled"/>, <see cref="UFledFail"/>, <see cref="Died"/>). "U" is the player, "C" the
+/// creature - the player is itself a creature in MUD2's model, so the pairing is deliberate rather
+/// than cosmetic.</para>
+/// </summary>
 public enum FightOutcome
 {
     /// <summary>Still going (or the encounter ended without ever resolving this one).</summary>
     Unresolved,
-    Killed,
-    KilledByNpc,
-    NpcFled,
-    YouFled,
-    Withdrawn,
+
+    /// <summary>Per-creature. "You have killed the X." (+ "The X has just passed on."). Verbatim,
+    /// one frame: <c>You hit the banshee (6). / You have killed the banshee. / (Persona saved on
+    /// +143 = 343). / The banshee has just passed on.</c></summary>
+    Kill,
+
+    /// <summary>All fights. "You have fled by going &lt;dir&gt;." Costs points.</summary>
+    UFled,
+
+    /// <summary>
+    /// All fights. "You have fled by trying to go &lt;dir&gt;." - the player's flee FAILED, so they
+    /// are still in the room, but MUD2 has still zeroed the fight count.
+    ///
+    /// <para>Nothing parsed this line until 2026-08-19; it was invisible to the client. Verbatim from
+    /// session-rec.mud2.co.uk.20260819-000137, all one frame:
+    /// <c>flee n / You cannot go north from here. / You have changed experience level from protector
+    /// to novice. / (Persona saved on -102 = 98). / You have fled by trying to go north.</c></para>
+    ///
+    /// <para>Note what that capture proves: a FAILED flee is not free. It charged 102 points and
+    /// demoted the persona a whole experience level, for no escape at all.</para>
+    /// </summary>
+    UFledFail,
+
+    /// <summary>Per-creature. "The X has fled by going &lt;dir&gt;." It really left the room, so a
+    /// chase is meaningful.</summary>
+    CFled,
+
+    /// <summary>
+    /// Per-creature. "The X has fled by trying to go &lt;dir&gt;." The creature's flee FAILED: it is
+    /// still standing in the room, still hostile - but the fight IS over and the player must attack
+    /// again to re-engage. The owner's description: snakes "often try to flee but almost never
+    /// succeed, it just breaks the fight sequence".
+    ///
+    /// <para>The distinction from <see cref="CFled"/> is one word ("trying to") and it must never
+    /// blur: chasing a creature standing in front of you is nonsense, and counting a failed attempt
+    /// as an escape corrupts the per-class flee rates.</para>
+    ///
+    /// <para>This outcome is also the direct fix for a real bug: the tracker used to treat the line
+    /// as not-an-ending at all, so a fight the player never re-opened stayed "in combat" until
+    /// logout. See CombatTracker's NpcFleeFailed handling.</para>
+    /// </summary>
+    CFledFail,
+
+    /// <summary>Per-creature. "The X withdraws from your fight, and so do you." - the accepted mutual
+    /// withdraw (the earlier "You offer to withdraw..." is an offer, not an end). Only the named
+    /// creature's fight ends: the agreement is with that one creature, not a reset of the player's
+    /// own combat state.</summary>
+    Withdraw,
+
+    /// <summary>All fights. The player died - permadeath, "Not updating persona." Verbatim, one frame:
+    /// <c>The rat18 hits you. / You feel your life concluding... / The rat18 has killed you. / Unlit
+    /// brand40 dropped. / Not updating persona.</c></summary>
+    Died,
 }
 
 /// <summary>

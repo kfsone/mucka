@@ -16,6 +16,42 @@ namespace MudSharp.Combat;
 /// live, "are we in combat right now" and "what combat line just happened", so a ClogWriter can
 /// record the raw stream faithfully for later offline analysis (same rules, same tool).</para>
 ///
+/// <para><b>The seven ends (owner, 2026-08-19).</b> MUD2 ends a fight in exactly seven ways, and
+/// every one of them is printed inside a SINGLE frame - one prompt to the next - always. That
+/// guarantee is load-bearing here: it is the reason this class needs no timer, no idle window and no
+/// "lull" state to decide a fight is over. The terminator line is never separated from its fight by a
+/// frame boundary, so whatever the frame says is the whole answer, and a fight that has not been
+/// ended by a line in the frame really is still running.
+///
+/// <list type="table">
+/// <item><term>1. Kill</term><description>"You have killed the X." - per-creature.</description></item>
+/// <item><term>2. Creature fled</term><description>"The X has fled by going &lt;dir&gt;." - per-creature; it left the room.</description></item>
+/// <item><term>3. Creature flee failed</term><description>"The X has fled by trying to go &lt;dir&gt;." - per-creature; it did NOT leave, but the fight is over.</description></item>
+/// <item><term>4. Player fled</term><description>"You have fled by going &lt;dir&gt;." - zeroes the fight count.</description></item>
+/// <item><term>5. Player flee failed</term><description>"You have fled by trying to go &lt;dir&gt;." - zeroes the fight count anyway.</description></item>
+/// <item><term>6. Withdraw</term><description>"The X withdraws from your fight, and so do you." - per-creature; an agreement with ONE creature.</description></item>
+/// <item><term>7. Player died</term><description>"The X has killed you." / "You have been killed by ..." - zeroes the fight count. Permadeath.</description></item>
+/// </list>
+///
+/// <para>1-3 and 6 close only the creature they name. 4, 5 and 7 are the player's own state changing
+/// rather than one opponent's, so they return the fight count to 0 and close every open fight at once.
+/// Cases 3 and 5 were BOTH invisible to this class until 2026-08-19 - case 3 matched but deliberately
+/// closed nothing, case 5 had no pattern at all - which is why an encounter the player walked away from
+/// could stay "in combat" until reset or logout.</para>
+///
+/// <para><b>A new encounter can begin in the same frame.</b> Nothing here waits for a frame to end
+/// before opening the next encounter, and it must not: MUD2 will happily kill the last creature of one
+/// encounter and have the next thing turn on the player in the same output. <see cref="Begin"/> keeps
+/// one encounter open for as long as any fight is active and <see cref="End"/> closes it the moment the
+/// last one ends, so consecutive engagements are consecutive encounters - which is what they are,
+/// each with its own attack command and its own weapon selection.</para>
+///
+/// <para><b>Weapons are not slots.</b> A weapon is ordinary inventory burden. Each creature - the
+/// player included - selects one that applies to every creature it swings at for the rest of that
+/// encounter, until it is dropped, breaks, or is changed. Selection is not free mid-fight: a redundant
+/// re-issue is still charged as a change and can drop the player's guard (see
+/// <see cref="WeaponAlreadyInUse"/>). Nothing about a weapon survives into the next encounter.</para>
+///
 /// <para><b>The "pass" tick:</b> MUD2 gives no textual signal at all for a combat tick where a
 /// participant chose not to attack (confirmed against RESEARCH/mud2-multi-combat.jsonl — solo
 /// combat can go silent for 90+ seconds with no hit/miss/pass message of any kind, until another
@@ -57,9 +93,32 @@ public sealed class CombatTracker
         @"^You attack the (?<npc>.+?)\.$", RegexOptions.Compiled);
     private static readonly Regex YouHit = new(
         @"^You hit the (?<npc>.+?) \((?<lo>\d+)-(?<hi>\d+)\)\.$", RegexOptions.Compiled);
+
+    /// <summary>
+    /// "You hit the banshee (6)." - the same blow with `identify` ON, reporting the EXACT damage
+    /// instead of a bracket. Verbatim from session-rec.mud2.co.uk.20260819-001118.
+    ///
+    /// <para>Nothing matched this before 2026-08-19, so turning identify on - which is meant to give
+    /// the client BETTER information - silently stopped every one of the player's own hits being
+    /// counted. Emitted with RangeLow == RangeHigh: an exact reading is a range of width zero, so the
+    /// consumers that average the pair need no special case for it.</para>
+    /// </summary>
+    private static readonly Regex YouHitExact = new(
+        @"^You hit the (?<npc>.+?) \((?<dmg>\d+)\)\.$", RegexOptions.Compiled);
     private static readonly Regex YouMiss = new(@"^You miss the (?<npc>.+?)\.$", RegexOptions.Compiled);
     private static readonly Regex NpcHitsYou = new(
         @"^The (?<npc>.+?) hits you \((?<cur>\d+)/(?<max>\d+)\)\.$", RegexOptions.Compiled);
+    /// <summary>
+    /// "The rat18 hits you." - a landed blow with NO stamina parenthetical. This is the KILLING blow:
+    /// there is no surviving stamina to report, so MUD2 omits the "(cur/max)" that
+    /// <see cref="NpcHitsYou"/> requires. Verbatim from session-rec.mud2.co.uk.20260819-001608's death
+    /// frame: <c>The rat18 hits you. / You feel your life concluding... / The rat18 has killed you.</c>
+    ///
+    /// <para>Unparsed until 2026-08-19, which meant the one hit in a session that actually mattered -
+    /// the fatal one - was the only hit never counted, understating both the swing count and the
+    /// damage taken on exactly the fights that ended worst.</para>
+    /// </summary>
+    private static readonly Regex NpcHitsYouBare = new(@"^The (?<npc>.+?) hits you\.$", RegexOptions.Compiled);
     private static readonly Regex NpcMissesYou = new(@"^The (?<npc>.+?) misses you\.$", RegexOptions.Compiled);
     private static readonly Regex WithdrawOffer = new(
         @"^You offer to withdraw from your fight with the (?<npc>.+?)\.$", RegexOptions.Compiled);
@@ -96,9 +155,45 @@ public sealed class CombatTracker
     private static readonly Regex NpcFleeFailed = new(
         @"^The (?<npc>.+?) has fled by trying to go \w+\.$", RegexOptions.Compiled);
     private static readonly Regex YouFled = new(@"^You have fled by going \w+\.$", RegexOptions.Compiled);
+
+    /// <summary>
+    /// "You have fled by trying to go north." - the PLAYER's flee FAILED. Same "trying to" infix that
+    /// separates <see cref="NpcFleeFailed"/> from <see cref="NpcFled"/>, and the same inversion of
+    /// meaning: the player never left the room.
+    ///
+    /// <para>It ends every fight regardless, because MUD2 returns the fight count to 0 either way.
+    /// Verbatim, one frame, from session-rec.mud2.co.uk.20260819-000137:
+    /// <c>flee n / You cannot go north from here. / You have changed experience level from protector
+    /// to novice. / (Persona saved on -102 = 98). / You have fled by trying to go north.</c></para>
+    ///
+    /// <para>That frame is also the evidence that a failed flee is charged for: 102 points and a whole
+    /// experience level, for no escape. Nothing in this client parsed the line at all until
+    /// 2026-08-19, so every one of those was recorded as a fight that simply never ended.</para>
+    /// </summary>
+    private static readonly Regex YouFleeFailed = new(
+        @"^You have fled by trying to go \w+\.$", RegexOptions.Compiled);
     private static readonly Regex FightEndOther = new(@"^You can fight it no longer\.$", RegexOptions.Compiled);
     private static readonly Regex WeaponEquip = new(
         @"^You are now using the (?<weapon>.+?) to fight!$", RegexOptions.Compiled);
+
+    /// <summary>
+    /// "You're using the unlit brand anyway..." - MUD2's answer to a redundant weapon selection
+    /// (`k X with Y`, `use Y`, `wield Y`) naming a weapon already in hand. Reported as
+    /// <see cref="CombatEventKind.WeaponEquip"/>, because that is exactly what it states.
+    ///
+    /// <para>Worth parsing for a reason the wording hides: it names the weapon ACTUALLY in use, which
+    /// need not be the one asked for. In session-rec.mud2.co.uk.20260819-001608 the owner sent
+    /// <c>k rat with stick</c> and MUD2 answered "You're using the unlit brand anyway..." - so the
+    /// only truthful statement about the weapon in that whole frame was this line, and taking the
+    /// command at its word would have recorded the fight under the wrong weapon.</para>
+    ///
+    /// <para>A redundant re-issue is also charged as a weapon CHANGE and can therefore drop the
+    /// player's guard - the same capture pairs four of these with two "Your guard drops momentarily in
+    /// your confusion." lines. No inference is done here: that drop arrives as its own line and is
+    /// already matched by <see cref="GuardConfusion"/>.</para>
+    /// </summary>
+    private static readonly Regex WeaponAlreadyInUse = new(
+        @"^You're using the (?<weapon>.+?) anyway\.\.\.$", RegexOptions.Compiled);
     private static readonly Regex NpcWeaponEquip = new(
         @"^The (?<npc>.+?) has started to use the (?<weapon>.+?) to fight!$", RegexOptions.Compiled);
     private static readonly Regex WeaponSwitch = new(
@@ -146,6 +241,13 @@ public sealed class CombatTracker
 
     private static readonly Regex GuardConfusion = new(
         @"^Your guard drops momentarily in your confusion\.$", RegexOptions.Compiled);
+
+    /// <summary>"You feel your life concluding..." - the narrative precursor to the player's death.
+    /// Informational only; it shares its frame with the "has killed you" line that follows, so it is
+    /// no earlier a warning than the death itself. Matched purely so it stops being an unexplained
+    /// line in the one frame nobody wants to be guessing about.</summary>
+    private static readonly Regex LifeConcluding = new(
+        @"^You feel your life concluding\.\.\.$", RegexOptions.Compiled);
 
     // NPC instance names currently engaged (case-insensitive) — non-empty implies InCombat.
     private readonly HashSet<string> _active = new(StringComparer.OrdinalIgnoreCase);
@@ -218,6 +320,17 @@ public sealed class CombatTracker
             Emit(timestampUtc, CombatEventKind.Hit, CombatActor.Player, m.Groups["npc"].Value, null,
                 int.Parse(m.Groups["lo"].Value), int.Parse(m.Groups["hi"].Value), text);
         }
+        else if ((m = YouHitExact.Match(text)).Success)
+        {
+            // `identify` on: one exact figure instead of a bracket. Reported as a zero-width range so
+            // that every consumer averaging RangeLow/RangeHigh lands on the exact value unchanged -
+            // see YouHitExact. Matched AFTER YouHit only for readability; the two cannot collide,
+            // since "(5-9)" cannot satisfy a pattern demanding digits-then-close-paren.
+            Begin(m.Groups["npc"].Value);
+            var exact = int.Parse(m.Groups["dmg"].Value);
+            Emit(timestampUtc, CombatEventKind.Hit, CombatActor.Player, m.Groups["npc"].Value, null,
+                exact, exact, text);
+        }
         else if ((m = YouMiss.Match(text)).Success)
         {
             Begin(m.Groups["npc"].Value);
@@ -228,6 +341,16 @@ public sealed class CombatTracker
             Begin(m.Groups["npc"].Value);
             Emit(timestampUtc, CombatEventKind.HitByNpc, CombatActor.Npc, m.Groups["npc"].Value, null,
                 int.Parse(m.Groups["cur"].Value), int.Parse(m.Groups["max"].Value), text);
+        }
+        else if ((m = NpcHitsYouBare.Match(text)).Success)
+        {
+            // The fatal blow, which carries no "(cur/max)" because no stamina survives it. Null
+            // ranges: the consumers treat a missing stamina reading as "no reading", which is the
+            // truth here - inventing 0 would look like a measurement and would poison the running
+            // stamina baseline the damage-taken deltas are derived from.
+            Begin(m.Groups["npc"].Value);
+            Emit(timestampUtc, CombatEventKind.HitByNpc, CombatActor.Npc, m.Groups["npc"].Value, null,
+                null, null, text);
         }
         else if ((m = NpcMissesYou.Match(text)).Success)
         {
@@ -282,6 +405,9 @@ public sealed class CombatTracker
         }
         else if ((m = MutualWithdraw.Match(text)).Success)
         {
+            // Per-creature: a withdraw zeroes only the fight it names (owner, 2026-08-19). It reads
+            // like a player-side terminator - the player agreed to it - but it is an agreement with
+            // ONE creature, and anything else in a pack goes on swinging.
             Emit(timestampUtc, CombatEventKind.Withdrawn, CombatActor.Npc, m.Groups["npc"].Value, null, null, null, text);
             End(m.Groups["npc"].Value);
         }
@@ -290,19 +416,40 @@ public sealed class CombatTracker
             // Matched BEFORE NpcFled, because "has fled by trying to go" also contains "has fled by"
             // and the two must never be confused - see NpcFleeFailed's own remarks.
             //
-            // Deliberately does NOT End() the fight, even though the game prints "You can fight it no
-            // longer." right afterwards and makes the player re-issue their attack. The creature never
-            // left: it is still in the room and the player is still fighting it, so closing the fight
-            // here is what fragmented one 15-second snake fight into eight separate encounters in the
-            // capture - eight rows in the history, none of them describing the fight that happened.
-            // Keeping it open costs at most a two-second window where the panel says "in combat"
-            // during the player's own re-attack, and buys a roster that matches the room.
+            // This DOES end the fight (owner, 2026-08-19). The creature is still in the room and still
+            // hostile, but MUD2 has broken the fight sequence - "You can fight it no longer." trails
+            // it in the same frame saying so - and the player has to attack again to re-engage.
+            //
+            // It used to deliberately NOT end here, to stop one 15-second snake fight being recorded
+            // as eight encounters. That reasoning was inverted: eight re-engagements ARE eight
+            // encounters (each is its own frame, its own attack command, and its own weapon
+            // selection), and the price of pretending otherwise was a fight the player simply walked
+            // away from - exactly the water-snake3 frame the owner reported - staying "in combat" with
+            // no line left that could ever close it, until reset or logout forced it.
+            //
+            // Per-creature, not EndAll: only this creature's fight ended, and anything else in a pack
+            // is still swinging.
             Emit(timestampUtc, CombatEventKind.NpcFleeFailed, CombatActor.Npc, m.Groups["npc"].Value, null, null, null, text);
+            End(m.Groups["npc"].Value);
         }
         else if ((m = NpcFled.Match(text)).Success)
         {
             Emit(timestampUtc, CombatEventKind.NpcFled, CombatActor.Npc, m.Groups["npc"].Value, null, null, null, text);
             End(m.Groups["npc"].Value);
+        }
+        else if (YouFleeFailed.IsMatch(text))
+        {
+            // Matched BEFORE YouFled for the same reason NpcFleeFailed precedes NpcFled: keep the
+            // failed form's own reading of the sentence, never the successful one's. (The two patterns
+            // cannot actually collide - "by trying to go" does not satisfy "by going" - but the
+            // ordering states the intent rather than relying on that.)
+            //
+            // EndAll despite the player never leaving the room: the flee FAILED, yet MUD2 still zeroed
+            // the fight count. Every open fight is over and the player must re-attack from scratch.
+            // Unlike a withdraw (which is an agreement with one creature), this is the player's own
+            // combat state being reset, so it cannot be scoped to a single opponent.
+            Emit(timestampUtc, CombatEventKind.YouFleeFailed, CombatActor.Player, null, null, null, null, text);
+            EndAll();
         }
         else if (YouFled.IsMatch(text))
         {
@@ -313,12 +460,18 @@ public sealed class CombatTracker
         }
         else if (FightEndOther.IsMatch(text))
         {
-            // Verified against the full research capture: every single occurrence of this line
-            // (27/27) is a trailing acknowledgment that immediately follows "The X has fled by
-            // going <dir>." for that SAME npc — NpcFled has already ended that fight. It carries
-            // no NPC name, so treating it as its own independent terminator would risk closing
-            // OTHER still-active fights in a multi-NPC encounter. Recorded as informational only
-            // (no Begin/End/EndAll) — never authoritative for combat state on its own.
+            // Always a trailing acknowledgment of an end already stated, by name, on an earlier line
+            // of the SAME frame - so the fight it refers to is closed before this line is reached, by
+            // NpcFleeFailed or NpcFled (or a kill). Verified 27/27 against the research capture for
+            // the "has fled by going <dir>." case; the failed-flee case that also trails it was for a
+            // long time the one this reasoning got wrong, because NpcFleeFailed did not close
+            // anything, leaving this line as the only end-of-fight evidence in the frame and
+            // deliberately ignoring it.
+            //
+            // Still informational only (no Begin/End/EndAll), and that has not changed: it names no
+            // creature, so promoting it to an independent terminator would close OTHER still-active
+            // fights in a pack. It is now redundant rather than load-bearing, which is the right
+            // place for a line that cannot say who it means.
             Emit(timestampUtc, CombatEventKind.FightEndOther, CombatActor.Player, null, null, null, null, text);
         }
         else if ((m = WeaponSwitch.Match(text)).Success)
@@ -338,6 +491,19 @@ public sealed class CombatTracker
             // Matched BEFORE WeaponEquip below purely for readability; the two patterns cannot
             // collide ("cannot use ... to fight now!" vs "are now using ... to fight!").
             Emit(timestampUtc, CombatEventKind.WeaponUnusable, CombatActor.Player, null, m.Groups["weapon"].Value, null, null, text);
+        }
+        else if ((m = WeaponAlreadyInUse.Match(text)).Success)
+        {
+            // Reported as WeaponEquip: the line states which weapon is in use, which is precisely what
+            // that kind means. No Begin(), for WeaponEquip's own reason below - the line names no
+            // creature, so there is nothing to open an encounter against.
+            Emit(timestampUtc, CombatEventKind.WeaponEquip, CombatActor.Player, null, m.Groups["weapon"].Value, null, null, text);
+        }
+        else if (LifeConcluding.IsMatch(text))
+        {
+            // Informational only - no Begin/End. The death line it precedes is in the same frame and
+            // does all the actual work; see CombatEventKind.LifeConcluding.
+            Emit(timestampUtc, CombatEventKind.LifeConcluding, CombatActor.Player, null, null, null, null, text);
         }
         else if ((m = WeaponEquip.Match(text)).Success)
         {

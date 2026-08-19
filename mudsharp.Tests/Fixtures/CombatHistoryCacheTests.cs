@@ -31,7 +31,7 @@ public sealed class CombatHistoryCacheTests : IDisposable
             NpcName = npcName,
             NpcGroup = NpcGroups.Normalize(npcName),
             WeaponUsed = "dagger0",
-            Outcome = nameof(FightOutcome.Killed),
+            Outcome = nameof(FightOutcome.Kill),
             YouHits = 3,
             ApproxDamageDone = damageDone,
             DurationMs = 30_000,
@@ -96,7 +96,7 @@ public sealed class CombatHistoryCacheTests : IDisposable
         store.Append(new FightRecord
         {
             NpcName = "rat9", NpcGroup = "rats", WeaponUsed = "axe0",
-            Outcome = nameof(FightOutcome.Killed), YouHits = 4, ApproxDamageDone = 40, DurationMs = 1000,
+            Outcome = nameof(FightOutcome.Kill), YouHits = 4, ApproxDamageDone = 40, DurationMs = 1000,
         });
 
         var cache = new CombatHistoryCache();

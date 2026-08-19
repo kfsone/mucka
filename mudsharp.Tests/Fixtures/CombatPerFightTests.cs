@@ -157,7 +157,7 @@ public sealed class CombatPerFightTests
         var snapshot = aggregator.Snapshot(Start.AddSeconds(3));
 
         Assert.Equal(2, snapshot.Fights.Count);
-        Assert.Equal(FightOutcome.Killed, snapshot.Fights[0].Outcome);
+        Assert.Equal(FightOutcome.Kill, snapshot.Fights[0].Outcome);
         Assert.True(snapshot.Fights[0].IsResolved);
         Assert.Equal(FightOutcome.Unresolved, snapshot.Fights[1].Outcome);
         Assert.False(snapshot.Fights[1].IsResolved);
@@ -181,7 +181,7 @@ public sealed class CombatPerFightTests
         var snapshot = aggregator.Snapshot(Start.AddSeconds(3));
 
         Assert.Equal(2, snapshot.Fights.Count);
-        Assert.All(snapshot.Fights, fight => Assert.Equal(FightOutcome.KilledByNpc, fight.Outcome));
+        Assert.All(snapshot.Fights, fight => Assert.Equal(FightOutcome.Died, fight.Outcome));
     }
 
     [Fact]
@@ -196,7 +196,7 @@ public sealed class CombatPerFightTests
 
         var snapshot = aggregator.Snapshot(Start.AddSeconds(3));
 
-        Assert.All(snapshot.Fights, fight => Assert.Equal(FightOutcome.YouFled, fight.Outcome));
+        Assert.All(snapshot.Fights, fight => Assert.Equal(FightOutcome.UFled, fight.Outcome));
         Assert.Empty(snapshot.ActiveNpcs);
     }
 
@@ -213,7 +213,7 @@ public sealed class CombatPerFightTests
 
         var snapshot = aggregator.Snapshot(Start.AddSeconds(3));
 
-        Assert.Equal(FightOutcome.Killed, snapshot.Fights[0].Outcome);
+        Assert.Equal(FightOutcome.Kill, snapshot.Fights[0].Outcome);
     }
 
     [Fact]

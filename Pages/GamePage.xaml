@@ -51,7 +51,7 @@
                                 <MenuFlyoutItem Text="Side Panel" Clicked="OnOverflowTogglePanel"/>
                                 <MenuFlyoutItem Text="Onlines" Clicked="OnOverflowOnlines"/>
                                 <MenuFlyoutItem Text="Compass" Clicked="OnOverflowCompass"/>
-                                <MenuFlyoutItem Text="Combat Rail" Clicked="OnOverflowCombatRail"
+                                <MenuFlyoutItem Text="Combat" Clicked="OnOverflowCombatRail"
                                                 IsEnabled="{OnPlatform Default=true, Android=false}"/>
                                 <MenuFlyoutItem Text="Settings" Clicked="OnOverflowSettings"/>
                                 <MenuFlyoutItem Text="About" Clicked="OnOverflowAbout"/>
@@ -1141,7 +1141,7 @@
         <!-- - Combat panel - NEW, additional panel on the RIGHT edge, off by default -
              DESIGN_FINAL.md D3/2.2 (corrected). This is NOT the left SidePanelBorder above widened;
              it is a wholly separate panel with its own width, shown/hidden by the overflow menu's
-             "Combat Rail" entry (SidePanel.ToggleCombatPanelCommand -> IsCombatPanelVisible, whose
+             "Combat" entry (SidePanel.ToggleCombatPanelCommand -> IsCombatPanelVisible, whose
              change drives GamePage's ResizeWindowForCombatPanel). The window never resizes for any
              other reason - not combat start, not combat end. -->
         <Border Grid.Column="2"
@@ -1456,7 +1456,8 @@
                     </Border>
                     <BoxView Color="#2d333b" HeightRequest="1"
                              IsVisible="{Binding SidePanel.IsCombatRailSupported}"/>
-                    <!-- Combat Rail: Windows only (SidePanelViewModel.IsCombatRailSupported) - the
+                    <!-- "Combat" (the Combat Rail panel): Windows only
+                         (SidePanelViewModel.IsCombatRailSupported) - the
                          panel's supporting logic (window resize, tick sweep, metronome, pulse
                          wiring) is desktop-only, so the row itself is hidden on Android rather than
                          offering a toggle that can never show anything. Unlike Side Panel/Onlines/
@@ -1472,7 +1473,7 @@
                             <Label Grid.Column="0" Text="&#x2713;" TextColor="#3fb950" FontSize="14"
                                    VerticalOptions="Center"
                                    IsVisible="{Binding SidePanel.IsCombatPanelVisible}"/>
-                            <Label Grid.Column="1" Text="Combat Rail" TextColor="White" FontSize="14"/>
+                            <Label Grid.Column="1" Text="Combat" TextColor="White" FontSize="14"/>
                         </Grid>
                     </Border>
                     <BoxView Color="#2d333b" HeightRequest="1"/>

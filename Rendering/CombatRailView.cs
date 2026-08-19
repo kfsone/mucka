@@ -771,11 +771,17 @@ public sealed class CombatRailView : SKCanvasView
 
     private static string OutcomeWord(FightOutcome outcome) => outcome switch
     {
-        FightOutcome.Killed => "killed",
-        FightOutcome.KilledByNpc => "KILLED YOU",
-        FightOutcome.NpcFled => "fled",
-        FightOutcome.YouFled => "you fled",
-        FightOutcome.Withdrawn => "withdrew",
+        FightOutcome.Kill => "killed",
+        FightOutcome.Died => "KILLED YOU",
+        FightOutcome.CFled => "fled",
+        // "broke off", not "fled": the creature is still standing in the room. Calling this a flee on
+        // the roster row would have the player chase something that never left - see
+        // FightOutcome.CFledFail.
+        FightOutcome.CFledFail => "broke off",
+        FightOutcome.UFled => "you fled",
+        // The player is also still in the room, and still has to deal with this thing.
+        FightOutcome.UFledFail => "flee failed",
+        FightOutcome.Withdraw => "withdrew",
         _ => string.Empty,
     };
 

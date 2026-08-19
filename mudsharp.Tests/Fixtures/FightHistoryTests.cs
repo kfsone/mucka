@@ -7,7 +7,7 @@ public sealed class FightHistoryTests
     private static FightRecord Fight(
         string npcName = "rat0",
         string? weapon = "dagger0",
-        FightOutcome outcome = FightOutcome.Killed,
+        FightOutcome outcome = FightOutcome.Kill,
         int youHits = 3,
         int youMisses = 1,
         int theyHits = 1,
@@ -61,10 +61,10 @@ public sealed class FightHistoryTests
         // (a censored observation), so folding in a 5-damage withdrawal would bias the estimate down.
         var records = new[]
         {
-            Fight(outcome: FightOutcome.Killed, damageDone: 30),
-            Fight(outcome: FightOutcome.Killed, damageDone: 36),
-            Fight(outcome: FightOutcome.Withdrawn, damageDone: 5),
-            Fight(outcome: FightOutcome.YouFled, damageDone: 2),
+            Fight(outcome: FightOutcome.Kill, damageDone: 30),
+            Fight(outcome: FightOutcome.Kill, damageDone: 36),
+            Fight(outcome: FightOutcome.Withdraw, damageDone: 5),
+            Fight(outcome: FightOutcome.UFled, damageDone: 2),
         };
 
         var summary = FightHistory.Summarize(records, "rats");
@@ -79,7 +79,7 @@ public sealed class FightHistoryTests
     {
         // Null, not 0: "never killed one" and "killed one that had no stamina" must not render the
         // same, or the projection built on this later would happily divide by a fabricated pool.
-        var records = new[] { Fight(outcome: FightOutcome.YouFled), Fight(outcome: FightOutcome.Withdrawn) };
+        var records = new[] { Fight(outcome: FightOutcome.UFled), Fight(outcome: FightOutcome.Withdraw) };
 
         var summary = FightHistory.Summarize(records, "rats");
 

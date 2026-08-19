@@ -70,6 +70,12 @@ YOU_KILLED_RE = re.compile(r"You have killed the (?P<npc>.*?)\.")
 THEY_KILLED_RE = re.compile(r"The (?P<npc>.*?) has killed you\.")
 NPC_FLED_RE = re.compile(r"The (?P<npc>.*?) has fled by going (?P<dir>.*?)\.")
 YOU_FLED_RE = re.compile(r"You have fled by going (?P<dir>.*?)\.")
+# The FAILED forms of the same two lines: one word ("trying to") and the opposite meaning - the
+# creature (or the player) never left the room, but the fight ended anyway. Both must be tested
+# BEFORE their successful counterparts, and both must keep their own outcome: counting an attempt
+# as an escape is what recorded water snakes at 0 flees from 6 fights.
+NPC_FLEE_FAILED_RE = re.compile(r"The (?P<npc>.*?) has fled by trying to go (?P<dir>.*?)\.")
+YOU_FLEE_FAILED_RE = re.compile(r"You have fled by trying to go (?P<dir>.*?)\.")
 WITHDRAW_END_RE = re.compile(r"The (?P<npc>.*?) withdraws from your fight, and so do you\.")
 WEAPON_SWITCH_RE = re.compile(r"You drop your guard as you switch from using the (?P<old>.*?) to the (?P<new>.*?)\.")
 WEAPON_EQUIP_RE = re.compile(r"You are now using the (?P<weapon>.*?) to fight!")
@@ -397,7 +403,7 @@ class Reducer:
                     None,
                     "ambiguous-login",
                     "login prompt appeared mid-session",
-                    fight_outcome="pass/unresolved",
+                    fight_outcome="Unresolved",
                 )
 
             weapon_hint = WEAPON_IN_USE_RE.search(decoded)
@@ -498,7 +504,7 @@ class Reducer:
         )
         self._insert_raw_event(event)
         if CAPTURE_STARTED_RE.search(data):
-            self._force_close_session(timestamp_ms, event.id, "ambiguous-capture-restart", data, "pass/unresolved")
+            self._force_close_session(timestamp_ms, event.id, "ambiguous-capture-restart", data, "Unresolved")
 
     def _extract_ordered_events(self, decoded: str) -> list[ParsedEvent]:
         events: list[ParsedEvent] = []
@@ -623,11 +629,12 @@ class Reducer:
             if ended:
                 npc_name = ended.group("npc")
         elif tag_code == "08.11":
-            if YOU_FLED_RE.search(text):
+            if YOU_FLEE_FAILED_RE.search(text) or YOU_FLED_RE.search(text):
                 actor = "you"
             else:
                 actor = "them"
-                fled = NPC_FLED_RE.search(text)
+                # Failed form first: "has fled by trying to go" also contains "has fled by".
+                fled = NPC_FLEE_FAILED_RE.search(text) or NPC_FLED_RE.search(text)
                 if fled:
                     npc_name = fled.group("npc")
         elif tag_code == "08.12":
@@ -764,7 +771,7 @@ class Reducer:
             self._handle_status_effect_event(raw_event)
             return
         if parsed.event_type == "reset":
-            self._force_close_session(raw_event.timestamp_ms, raw_event.id, "reset", raw_event.decoded_text, "pass/unresolved")
+            self._force_close_session(raw_event.timestamp_ms, raw_event.id, "reset", raw_event.decoded_text, "Unresolved")
             return
         if parsed.tag_code and parsed.tag_code.startswith("08"):
             self._handle_combat_event(raw_event, parsed, room_snapshot_id)
@@ -975,23 +982,22 @@ class Reducer:
         elif parsed.event_type == "you-killed":
             assert fight is not None
             session.kills_by_you += 1
-            self._close_fight(session, fight.npc_name, raw_event, "killed", raw_event.decoded_text)
+            self._close_fight(session, fight.npc_name, raw_event, "Kill", raw_event.decoded_text)
             if not session.open_fights:
                 self._set_pending_end(session, "you-killed-them", raw_event)
         elif parsed.event_type == "they-killed":
             assert fight is not None
             session.kills_by_them += 1
-            self._resolve_all_open_fights(session, raw_event, "pass/unresolved", "player died before individual resolutions were observed")
+            self._resolve_all_open_fights(session, raw_event, "Died", "player died; MUD2 zeroes the fight count, so every open fight ended here")
             self._set_pending_end(session, "they-killed-you", raw_event)
         elif parsed.event_type == "fight-end-flee":
             self._handle_flee_event(session, raw_event, parsed)
         elif parsed.event_type == "fight-end-withdraw":
             named = parsed.npc_name
             if named:
-                self._close_fight(session, named, raw_event, "withdrawn", raw_event.decoded_text)
-            for npc_name in list(session.open_fights):
-                self._close_fight(session, npc_name, raw_event, "withdrawn", f"Encounter ended on withdraw event naming {named or 'another foe'}.")
-            self._set_pending_end(session, "withdraw", raw_event)
+                self._close_fight(session, named, raw_event, "Withdraw", raw_event.decoded_text)
+            if not session.open_fights:
+                self._set_pending_end(session, "withdraw", raw_event)
         elif parsed.event_type == "fight-end-other":
             if not session.open_fights:
                 self._set_pending_end(session, session.end_reason or "other", raw_event)
@@ -1143,13 +1149,28 @@ class Reducer:
         return fight
 
     def _handle_flee_event(self, session: SessionState, raw_event: RawEvent, parsed: ParsedEvent) -> None:
-        if YOU_FLED_RE.search(raw_event.decoded_text):
-            self._resolve_all_open_fights(session, raw_event, "you-fled", raw_event.decoded_text)
+        """Four of MUD2's seven fight ends land here: the player's flee and the creature's, each
+        successful or failed.
+
+        The failed forms are tested first in both pairs, because "has fled by trying to go" contains
+        "has fled by". A failed flee still ENDS the fight (MUD2 breaks the sequence and prints "You can
+        fight it no longer."), it just does not move anyone - so it resolves like a flee but under its
+        own outcome. The player's flee, successful or not, zeroes the fight count and so resolves every
+        open fight; the creature's touches only its own.
+        """
+        text = raw_event.decoded_text
+        if YOU_FLEE_FAILED_RE.search(text):
+            self._resolve_all_open_fights(session, raw_event, "UFledFail", text)
+            self._set_pending_end(session, "flee", raw_event)
+            return
+        if YOU_FLED_RE.search(text):
+            self._resolve_all_open_fights(session, raw_event, "UFled", text)
             self._set_pending_end(session, "flee", raw_event)
             return
         npc_name = parsed.npc_name
         if npc_name:
-            self._close_fight(session, npc_name, raw_event, "npc-fled", raw_event.decoded_text)
+            outcome = "CFledFail" if NPC_FLEE_FAILED_RE.search(text) else "CFled"
+            self._close_fight(session, npc_name, raw_event, outcome, text)
         if not session.open_fights:
             self._set_pending_end(session, "flee", raw_event)
 
@@ -1290,7 +1311,7 @@ class Reducer:
             # here, which is why this survived every corpus file that ended cleanly and then broke on
             # the first session recorded through a disconnect.
             self._insert_raw_event(placeholder)
-            self._resolve_all_open_fights(session, placeholder, "pass/unresolved", placeholder.decoded_text)
+            self._resolve_all_open_fights(session, placeholder, "Unresolved", placeholder.decoded_text)
             session.end_event_id = session.end_event_id or placeholder.id
             session.end_reason = session.end_reason or "ambiguous-capture-stop"
             session.end_detail = session.end_detail or placeholder.decoded_text
@@ -1366,7 +1387,7 @@ class Reducer:
         fight_ids: dict[str, int] = {}
         for fight in session.fights.values():
             if fight.outcome is None:
-                fight.outcome = "pass/unresolved"
+                fight.outcome = "Unresolved"
                 fight.resolution_text = fight.resolution_text or f"Encounter ended as {session.end_reason or 'unknown'} before this fight resolved."
                 fight.end_event_id = fight.end_event_id or session.end_event_id
                 fight.end_timestamp_ms = fight.end_timestamp_ms or session.end_timestamp_ms

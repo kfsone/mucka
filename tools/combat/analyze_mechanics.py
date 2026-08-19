@@ -132,13 +132,13 @@ def build_matrix(con: sqlite3.Connection) -> list[MatrixRow]:
         bucket = grouped[key]
         bucket["fight_ids"].add(row["id"])
         bucket["duration_ms"] += row["duration_ms"] or 0
-        if row["outcome"] == "killed":
+        if row["outcome"] == "Kill":
             bucket["kills"] += 1
-        elif row["outcome"] == "npc-fled":
+        elif row["outcome"] == "CFled":
             bucket["npc_flees"] += 1
-        elif row["outcome"] == "you-fled":
+        elif row["outcome"] == "UFled":
             bucket["your_flees"] += 1
-        elif row["outcome"] == "withdrawn":
+        elif row["outcome"] == "Withdraw":
             bucket["withdrawn"] += 1
 
     for row in hit_rows:

@@ -19,9 +19,25 @@ public sealed record FightHistorySummary
 
     public int Kills { get; init; }
     public int Deaths { get; init; }
-    public int NpcFled { get; init; }
-    public int YouFled { get; init; }
-    public int Withdrawn { get; init; }
+
+    /// <summary>Fights the creature ESCAPED from ("has fled by going &lt;dir&gt;").</summary>
+    public int CFled { get; init; }
+
+    /// <summary>Fights the creature tried to escape from and FAILED ("has fled by trying to go
+    /// &lt;dir&gt;") - it stayed in the room, but the fight ended anyway and had to be re-opened.
+    /// Counted separately from <see cref="CFled"/> on purpose: folding the two together is what made
+    /// the corpus record water snakes at 0 flees from 6 fights, when in truth they attempt it
+    /// constantly and rarely succeed.</summary>
+    public int CFledFail { get; init; }
+
+    /// <summary>Fights the player fled from successfully.</summary>
+    public int UFled { get; init; }
+
+    /// <summary>Fights the player TRIED to flee from and failed - still charged points, still ended
+    /// every fight, still left the player in the room.</summary>
+    public int UFledFail { get; init; }
+
+    public int Withdraw { get; init; }
     public int Unresolved { get; init; }
 
     public double? MedianDamageDone { get; init; }
@@ -53,11 +69,22 @@ public sealed record FightHistorySummary
     /// <summary>Kills as a fraction of all matching fights, or null with no fights at all.</summary>
     public double? KillRate => FightCount == 0 ? null : Kills / (double)FightCount;
 
-    /// <summary>How often this opponent has run away, as a fraction of all recorded fights. Some
-    /// MUD2 NPCs are strongly flight-prone (per the user, water snakes almost always flee), which
+    /// <summary>How often this opponent has ACTUALLY got away, as a fraction of all recorded fights.
+    /// Some MUD2 NPCs are strongly flight-prone (per the user, water snakes almost always try), which
     /// matters BEFORE committing: a fleeing target has to be chased through rooms or the kill is
-    /// lost. Null with no fights on record.</summary>
-    public double? FleeRate => FightCount == 0 ? null : NpcFled / (double)FightCount;
+    /// lost. Null with no fights on record.
+    ///
+    /// <para>Deliberately escapes only - failed attempts are excluded, because the decision this
+    /// figure informs is "will I have to chase it", and a creature that never left the room does not
+    /// need chasing. See <see cref="FleeAttemptRate"/> for the other question.</para></summary>
+    public double? FleeRate => FightCount == 0 ? null : CFled / (double)FightCount;
+
+    /// <summary>How often this opponent BREAKS OFF the fight, successfully or not, as a fraction of
+    /// all recorded fights. A different question from <see cref="FleeRate"/> and worth its own figure:
+    /// a failed attempt still ends the fight and still costs the player a re-attack, so a creature
+    /// with a high attempt rate is tedious to kill even when it never escapes at all.</summary>
+    public double? FleeAttemptRate
+        => FightCount == 0 ? null : (CFled + CFledFail) / (double)FightCount;
 
     public static readonly FightHistorySummary Empty = new();
 }
@@ -219,9 +246,11 @@ public static class FightHistory
 
         var kills = 0;
         var deaths = 0;
-        var npcFled = 0;
-        var youFled = 0;
-        var withdrawn = 0;
+        var cFled = 0;
+        var cFledFail = 0;
+        var uFled = 0;
+        var uFledFail = 0;
+        var withdraw = 0;
         var unresolved = 0;
 
         var damageDone = new List<double>();
@@ -236,11 +265,13 @@ public static class FightHistory
         {
             switch (record.Outcome)
             {
-                case nameof(FightOutcome.Killed): kills++; break;
-                case nameof(FightOutcome.KilledByNpc): deaths++; break;
-                case nameof(FightOutcome.NpcFled): npcFled++; break;
-                case nameof(FightOutcome.YouFled): youFled++; break;
-                case nameof(FightOutcome.Withdrawn): withdrawn++; break;
+                case nameof(FightOutcome.Kill): kills++; break;
+                case nameof(FightOutcome.Died): deaths++; break;
+                case nameof(FightOutcome.CFled): cFled++; break;
+                case nameof(FightOutcome.CFledFail): cFledFail++; break;
+                case nameof(FightOutcome.UFled): uFled++; break;
+                case nameof(FightOutcome.UFledFail): uFledFail++; break;
+                case nameof(FightOutcome.Withdraw): withdraw++; break;
                 default: unresolved++; break;
             }
 
@@ -276,9 +307,11 @@ public static class FightHistory
             FightCount = matching.Count,
             Kills = kills,
             Deaths = deaths,
-            NpcFled = npcFled,
-            YouFled = youFled,
-            Withdrawn = withdrawn,
+            CFled = cFled,
+            CFledFail = cFledFail,
+            UFled = uFled,
+            UFledFail = uFledFail,
+            Withdraw = withdraw,
             Unresolved = unresolved,
             MedianDamageDone = Median(damageDone),
             MedianDamageTaken = Median(damageTaken),

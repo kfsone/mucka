@@ -61,7 +61,17 @@ public class PostSelectSetupTests : IDisposable
     }
 
     // The server echoes the batch back immediately, on its own lines (one frame).
-    private const string Echoes = "auto fex\r\nscore\r\n";
+    private const string Echoes = "identify\r\nfightbrief\r\nauto fex\r\nscore\r\n";
+
+    // The `identify` / `fightbrief` confirmations, each its own frame. Two wordings apiece: MUD2 says
+    // "You'll now get ..." the first time and "You're already getting ..." when the setting was already
+    // on. Both verbatim - the first pair from session-rec.mud2.co.uk.20260819-134737, the second from
+    // the owner's 2026-08-19 paste. The "already" pair is the ORDINARY case from the second login
+    // onward, since the commands are sets and the batch re-sends them every entry.
+    private const string IdentifyReplyFirst = "You'll now get object identification numbers where applicable.\r\n";
+    private const string IdentifyReplyAgain = "You're already getting object identification numbers where applicable.\r\n";
+    private const string FightBriefReplyFirst = "You'll now get brief descriptions of fights.\r\n";
+    private const string FightBriefReplyAgain = "You're already getting brief descriptions of fights.\r\n";
 
     // The `auto fex` confirmation output (its own frame).
     private const string AutoFexReply =
@@ -88,7 +98,11 @@ public class PostSelectSetupTests : IDisposable
     public void GameEntry_SendsSetupBatch()
     {
         _session.Feed(GameModeEntry);
-        Assert.Contains("auto fex\r\nscore\r\n", _outgoing);
+        // identify and fightbrief lead the batch, and their presence is the point of this assertion,
+        // not incidental: with either off the combat parsers are close to blind (narrative swing prose
+        // that nothing matches, and every creature in a pack sharing the name "the rat"). See
+        // MudSession's setup-batch comment for the two captures that established that.
+        Assert.Contains("identify\r\nfightbrief\r\nauto fex\r\nscore\r\n", _outgoing);
         Assert.Contains("\x1b-[FEX\x1b-]", _outgoing);   // first exit list still requested
     }
 
@@ -235,6 +249,60 @@ public class PostSelectSetupTests : IDisposable
         _visible.Clear();
 
         _session.Feed(GameModeEntry);
-        Assert.Contains("auto fex\r\nscore\r\n", _outgoing);
+        Assert.Contains("identify\r\nfightbrief\r\nauto fex\r\nscore\r\n", _outgoing);
     }
+
+    /// <summary>
+    /// The identify/fightbrief confirmations are swallowed in BOTH wordings. The "already getting"
+    /// pair matters more than the first-time pair in practice: the commands are sets, not toggles, so
+    /// the batch re-sends them on every game-mode entry and from the second login onward that is the
+    /// reply the player would otherwise see twice, every time.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void IdentifyAndFightBriefReplies_AreSwallowed(bool alreadySet)
+    {
+        Enter();
+        Prompt(); Feed(Echoes);
+        Prompt(); Feed(alreadySet ? IdentifyReplyAgain : IdentifyReplyFirst);
+        Prompt(); Feed(alreadySet ? FightBriefReplyAgain : FightBriefReplyFirst);
+        Prompt(); Feed(AutoFexReply);
+        Prompt(); Feed(ScoreSheet);
+        Prompt(); Feed("You warm your hands by the fire.\r\n");
+
+        Assert.Equal(["You warm your hands by the fire."], _visible);
+        Assert.Equal(["Ollie"], _identified);
+    }
+
+    /// <summary>The matcher keys on lead-in plus subject rather than the whole sentence, so a wrap at a
+    /// narrow terminal width still gets claimed from the frame's first line. Same guarantee the auto-fex
+    /// matcher has.</summary>
+    [Fact]
+    public void IdentifyReply_IsSwallowedEvenWhenItWraps()
+    {
+        Enter();
+        Prompt(); Feed(Echoes);
+        Prompt(); Feed("You'll now get object identification numbers\r\nwhere applicable.\r\n");
+        Prompt(); Feed(ScoreSheet);
+        Prompt(); Feed("A rat scurries past.\r\n");
+
+        Assert.Equal(["A rat scurries past."], _visible);
+    }
+
+    /// <summary>Widening the matcher must not have made it greedy: ordinary game prose that happens to
+    /// start the same way is NOT part of the setup batch and must still render.</summary>
+    [Theory]
+    [InlineData("You'll now get a chance to rest.")]
+    [InlineData("You're already getting tired.")]
+    [InlineData("You'll now get brief respite from the rain.")]
+    public void SetupMatcher_DoesNotSwallowUnrelatedProse(string line)
+    {
+        Enter();
+        Prompt(); Feed(Echoes);
+        Prompt(); Feed(line + "\r\n");
+
+        Assert.Equal([line], _visible);
+    }
+
 }

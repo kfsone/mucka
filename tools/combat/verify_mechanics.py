@@ -1159,7 +1159,7 @@ def claim_stamina_pools(corpus: Corpus) -> Claim:
         key = (fight["capture_id"], fight["npc_name"])
         prior_fights = 1 if carried[key] else 0
         carried[key].extend(band_by_fight.get(fight["id"], []))
-        if fight["outcome"] != "killed":
+        if fight["outcome"] != "Kill":
             continue
         bands = sorted(carried[key])
         if not bands:
@@ -1240,7 +1240,7 @@ def claim_stamina_pools(corpus: Corpus) -> Claim:
 
     by_group: dict[str, list[float]] = collections.defaultdict(list)
     for fight in corpus.fights:
-        if fight["outcome"] != "killed":
+        if fight["outcome"] != "Kill":
             continue
         bands = band_by_fight.get(fight["id"], [])
         if bands:
@@ -2097,7 +2097,7 @@ def coverage(con: sqlite3.Connection, corpus: Corpus) -> list[str]:
         for ev in corpus.events
         if ev["event_type"] in ("you-hit", "you-miss", "they-hit", "they-miss")
     )
-    kills = sum(1 for f in corpus.fights if f["outcome"] == "killed")
+    kills = sum(1 for f in corpus.fights if f["outcome"] == "Kill")
     return [
         f"captures: {captures} spanning about {minutes:.0f} wall-clock minutes",
         f"FES snapshots: {len(corpus.stats)}  (stamina range "
