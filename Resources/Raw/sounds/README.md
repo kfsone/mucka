@@ -1,10 +1,29 @@
-# Clio Sound Effects
+# Sound Effects
 
-These sound files are taken from the **Clio MUD2 Client** by **Ian Peattie**.
+Files prefixed **`clio.`** are taken from the **Clio MUD2 Client** by **Ian Peattie**. See
+[LICENSE](LICENSE) for the licence terms (MIT-style). The prefix exists to identify their origin, so
+anything WITHOUT it is not Clio's and is not covered by that licence - see "Mucka's own sounds" below.
 
-All files are prefixed with `clio.` to identify their origin.
+## Mucka's own sounds
 
-See [LICENSE](LICENSE) for the licence terms (MIT-style).
+| File | Origin | Used for |
+|------|--------|----------|
+| `Perc_Stick_hi.wav` | percussion sample | Combat metronome, pre-tick click |
+| `Perc_Stick_lo.wav` | percussion sample | Combat metronome, after-tick click |
+| `flee-failed.wav` | **generated** - `tools/sounds/make_flee_failed.py` | Your flee failed |
+
+`flee-failed.wav` is synthesized rather than sourced, and the script is its provenance: re-run it and
+you get the identical file, with the parameters in it serving as the sound's actual definition rather
+than a description of an opaque binary. The brief was an electronic "NRK"/"UNGH" - a game-show
+wrong-answer buzzer, not a recorded human grunt - and a buzzer lifted from a TV show would have
+neither Clio's licence nor any other.
+
+It fires on `You have fled by trying to go <dir>.`, the worst-value outcome MUD2 offers: the points
+are charged, the persona can lose an experience level, the weapon drops out of your hands, every fight
+you were in ends, and you are still standing in front of whatever you were running from. It is
+catalogued under **Client alerts**, so it has a volume slider and an off switch like every other sound,
+and unlike the metronome it is NOT gated on the combat rail being visible - hiding a panel is not a
+request to stop being warned.
 
 ## Standard Sound Effects
 

@@ -43,6 +43,15 @@ public static class SoundCatalog
             new("tell-invis", "Tell (invisible)", "sounds/tell-invis.wav"),
             new("tell-wiz",   "Tell (wizard)",    "sounds/tell-wiz.wav"),
         }, HasFallback: false),
+        // Client-detected alerts: sounds WE decide to play from parsed text, rather than ones the
+        // server asks for with an FE code. Catalogued all the same, so they get a settings row and a
+        // volume slider like everything else - an alert the player cannot turn down is a misfeature.
+        // HasFallback: false, as for the tells - there is no numeric code family behind these, so
+        // there is nothing a fallback could stand in for.
+        new("alert", "Client alerts", new SoundDef[]
+        {
+            new("alert-flee-failed", "Your flee failed", "sounds/flee-failed.wav"),
+        }, HasFallback: false),
         new("07", "Combat hits", new SoundDef[]
         {
             new("070000", "Hit (generic)"),

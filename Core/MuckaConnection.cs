@@ -491,6 +491,40 @@ public sealed class MuckaConnection : IAsyncDisposable
     /// </summary>
     private long? _encounterId;
 
+    /// <summary>
+    /// Client-detected combat alerts: sounds we choose to play from a parsed line, as opposed to the
+    /// ones the server requests by FE code.
+    ///
+    /// <para>Only one so far, and it earns its place. A FAILED flee
+    /// (<see cref="CombatEventKind.YouFleeFailed"/>) is the worst-value outcome in the game: MUD2
+    /// charges the points, can demote the persona a whole experience level, drops the weapon out of
+    /// the player's hands, ends every fight they were in - and leaves them standing exactly where they
+    /// were, in front of whatever they were running from. Owner, on the frame that prompted this:
+    /// "If I'd waited a heartbeat longer to qq, i'd have died."</para>
+    ///
+    /// <para>The text alone is a poor carrier for it. "You have fled by trying to go out." differs from
+    /// the success line by two words, arrives in a frame alongside the drop and the persona-save
+    /// lines, and lands at exactly the moment the player is reading fast and about to act on the
+    /// belief that they got away. A buzzer is unambiguous without being read.</para>
+    ///
+    /// <para><b>Deliberately not gated on the combat rail being visible</b>, unlike the metronome. The
+    /// metronome's only switch is drawn on the rail, so clicking away while the rail is hidden would
+    /// give the player a noise they cannot find or silence; this is an alert about something that just
+    /// happened TO them, and hiding a panel is not a request to stop being warned. It is gated on
+    /// master mute and on its own catalogue entry ("Client alerts"), which is where it can be turned
+    /// down or off.</para>
+    ///
+    /// <para>Runs on the Feed thread. <c>SoundService.PlayServerSound</c> is fire-and-forget and
+    /// explicitly safe from a background thread (it is already called from the TCP thread), so no hop
+    /// is taken - and none is wanted, since a warning delayed by a UI-thread queue is a warning that
+    /// arrives after the keystroke it was meant to stop.</para>
+    /// </summary>
+    private static void OnCombatEventSound(CombatEvent combatEvent)
+    {
+        if (combatEvent.Kind == CombatEventKind.YouFleeFailed)
+            Mucka.Audio.SoundService.PlayServerSound("sounds/flee-failed.wav");
+    }
+
     private void OnSessionInCombatChanged(bool inCombat)
     {
         // UtcNow rather than a combat event's own stamp: this fires synchronously from the same
@@ -520,7 +554,12 @@ public sealed class MuckaConnection : IAsyncDisposable
         _session.StatusEffectsChanged += s => { _clog.OnStatusEffectsChanged(s); _fightRecorder.OnStatusEffectsChanged(s); _swingLedger.OnStatusEffectsChanged(s); StatusEffectsChanged?.Invoke(s); };
         _session.InCombatChanged     += OnSessionInCombatChanged;
         _clog.TailOnlyChanged        += v => CombatGracePeriodChanged?.Invoke(v);
-        _session.CombatEventOccurred += e => { _clog.OnCombatEvent(e); _fightRecorder.OnCombatEvent(e); _swingLedger.OnCombatEvent(e); CombatEventOccurred?.Invoke(e); };
+        _session.CombatEventOccurred += e =>
+        {
+            _clog.OnCombatEvent(e); _fightRecorder.OnCombatEvent(e); _swingLedger.OnCombatEvent(e);
+            OnCombatEventSound(e);
+            CombatEventOccurred?.Invoke(e);
+        };
         _session.BellReceived       += () => BellReceived?.Invoke();
         _session.GameModeEntered    += () => GameModeEntered?.Invoke();
         _session.GameModeExited     += () => GameModeExited?.Invoke();

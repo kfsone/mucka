@@ -97,6 +97,35 @@ You have fled by trying to go north.
 session cost 83 (`(Persona saved on -83 = 15).`). Whatever the cost function is, failure is not a
 discount -- worth remembering before any UI ever describes fleeing as cheap.
 
+**It costs the weapon too**, and there are at least two distinct reasons a flee fails. A second frame
+(owner, 2026-08-19):
+
+```
+The giant1 looks covered in wounds.
+*flee o
+Your way is blocked by the giant1.
+Two-handed sword dropped.
+You have fled by trying to go out.
+*qq
+```
+
+So the full price of a failed flee is: points, possibly an experience level, the weapon out of your
+hands, every fight you were in ended -- and you are still standing in front of whatever you were
+running from, now unarmed. The owner quit one heartbeat ahead of dying to exactly this. That is what
+`flee-failed.wav` (see `Resources/Raw/sounds/README.md`) exists to announce: the text differs from the
+success line by two words and arrives while the player is reading fast and about to act on the belief
+that they got away.
+
+Two failure reasons are on record, and they are worth telling apart if anything ever acts on them:
+
+| Line | Meaning |
+|------|---------|
+| `You cannot go <dir> from here.` | No such exit -- the player asked for a direction that does not exist |
+| `Your way is blocked by the X.` | The exit exists but a creature is standing in it |
+
+The weapon drop already reaches the client as an ordinary `ItemDropped` event, so the "you are now
+unarmed" half is handled. **Neither reason line is parsed**, and nothing yet distinguishes them.
+
 ## Outcome vocabulary
 
 The live client (`mucka.db.fights.outcome`) and the offline reducer
