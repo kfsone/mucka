@@ -1382,8 +1382,8 @@
                     <Label FontSize="11" IsVisible="{OnPlatform WinUI=true, Default=false}">
                         <Label.FormattedText>
                             <FormattedString>
-                                <Span Text="^1 / ^2 / ^3 / ^4 / ^5" TextColor="#58a6ff"/>
-                                <Span Text="  Bind commands to Ctrl-1..Ctrl-5" TextColor="#888888"/>
+                                <Span Text="^1 / ^2 / ^3" TextColor="#58a6ff"/>
+                                <Span Text="  Bind commands to Ctrl-1..Ctrl-3" TextColor="#888888"/>
                             </FormattedString>
                         </Label.FormattedText>
                     </Label>

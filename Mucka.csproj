@@ -56,6 +56,14 @@
 		<DefineConstants>$(DefineConstants);INPUT_DIAG</DefineConstants>
 	</PropertyGroup>
 
+	<!-- Combat-tick phase diagnostics: build with `dotnet build -p:TickDiag=true` (Windows) to log
+	     what the click and the tick bar were each told to do versus when they actually did it.
+	     Writes to %TEMP%\mucka-tick.txt. Off by default -> zero cost (the instrumented paths include a
+	     thread-pool timer whose entire job is punctuality). See Core/TickDiag.cs. -->
+	<PropertyGroup Condition="'$(TickDiag)' == 'true'">
+		<DefineConstants>$(DefineConstants);TICK_DIAG</DefineConstants>
+	</PropertyGroup>
+
 	<!-- Focus diagnostics: build with `dotnet build -p:FocusDiag=true` (Windows) to log every
 	     focus transition (app-wide FocusManager events plus our own veto/redirect decisions) to
 	     %TEMP%\mucka-focus.txt. Use it when something steals keyboard focus from the command box
@@ -127,21 +135,29 @@
 		<Compile Remove="mudsharp.Demo\**" />
 		<Compile Remove="Mucka.Terminal\**" />
 		<Compile Remove="Mucka.Terminal.Tests\**" />
+		<!-- Mucka.Input is referenced as an ASSEMBLY, never compiled in: the assembly boundary IS the
+		     enforcement (see Mucka.Input/README.md). Globbing its sources into the app would silently
+		     put the framework and the app in one compilation unit again and hand every file back the
+		     ability to reach the native control. -->
+		<Compile Remove="Mucka.Input\**" />
 		<EmbeddedResource Remove="mudsharp\**" />
 		<EmbeddedResource Remove="mudsharp.Tests\**" />
 		<EmbeddedResource Remove="mudsharp.Demo\**" />
 		<EmbeddedResource Remove="Mucka.Terminal\**" />
 		<EmbeddedResource Remove="Mucka.Terminal.Tests\**" />
+		<EmbeddedResource Remove="Mucka.Input\**" />
 		<None Remove="mudsharp\**" />
 		<None Remove="mudsharp.Tests\**" />
 		<None Remove="mudsharp.Demo\**" />
 		<None Remove="Mucka.Terminal\**" />
 		<None Remove="Mucka.Terminal.Tests\**" />
+		<None Remove="Mucka.Input\**" />
 	</ItemGroup>
 
 	<ItemGroup>
 		<ProjectReference Include="mudsharp\mudsharp.csproj" />
 		<ProjectReference Include="Mucka.Terminal\Mucka.Terminal.csproj" />
+		<ProjectReference Include="Mucka.Input\Mucka.Input.csproj" />
 	</ItemGroup>
 
 	<!-- Strip .pdb symbol files from the publish output. SkiaSharp's native assets ship ~220 MB

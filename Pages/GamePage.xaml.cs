@@ -87,6 +87,24 @@ public partial class GamePage : ContentPage
     // caret-follow breaks after focus leaves to another app window, so the UpdateLayout
     // workaround in OnInputSelectionChanged is only needed from that point on.
     private bool _auxiliaryWindowOpened;
+    // One pending caret-pin callback at most - see OnInputSelectionChanged.
+    private bool _inputPinPending;
+
+    /// <summary>
+    /// The command box's behaviour, owned by Mucka.Input. Built once, on the first handler attach.
+    ///
+    /// <para>Everything about typing goes through this: the key handler asks it, the accept path is
+    /// its method, and the bindings are declared into it. The native control is reachable ONLY via
+    /// <see cref="CommandInputSurface"/> - see Mucka.Input/README.md for why that boundary is an
+    /// assembly and not a convention.</para>
+    /// </summary>
+    private Mucka.Input.CommandInput? _commandInput;
+    // When the last line was sent, for the late-text detector in OnInputTextChanged.
+    private DateTime _sentAtUtc = DateTime.MinValue;
+    // How many times a character has been seen landing AFTER the Enter that should have carried it.
+    // Non-zero means the input path reordered keystrokes and the line the player typed is not the
+    // line that reached the MUD - see OnInputTextChanged.
+    private int _lateTextAfterSendCount;
     private Window? _rawConsoleWindow;
     private Window? _mapWindow;
     // The old floating clog window (ClogPage) is gone - DESIGN_FINAL.md D1/D2: the live readout now
@@ -447,6 +465,7 @@ public partial class GamePage : ContentPage
         {
             _inputTextBox.PreviewKeyDown -= OnInputPreviewKeyDown;
             _inputTextBox.SelectionChanged -= OnInputSelectionChanged;
+            _inputTextBox.TextChanged -= OnInputTextChanged;
             _inputTextBox = null;
             _inputScroller = null;
         }
@@ -483,6 +502,9 @@ public partial class GamePage : ContentPage
         _combatPanelPulse = null;
         _combatTickSweep?.Stop();
         _combatTickSweep = null;
+        // Both tick instruments have just been torn down, so whatever they logged is complete - write
+        // it out here rather than leaving the tail of a fight buffered in memory at exit.
+        Mucka.Core.TickDiag.Flush();
         TeardownWindowMinimumSize();
 #if INPUT_DIAG
         StopUiThreadProbe();
@@ -913,14 +935,15 @@ public partial class GamePage : ContentPage
         else if (e.PropertyName == nameof(GameViewModel.InputText))
         {
             // Windows drives the native TextBox manually (the Text binding is removed in
-            // OnInputHandlerChanged — see the rationale there). Push deliberate VM changes
-            // (clear-on-send, history nav, Escape) into the box and park the cursor at the end.
-            // The != guard makes the Enter-path's "read native into VM" set a harmless no-op.
-            if (_inputTextBox is not null && _inputTextBox.Text != _vm.InputText)
-            {
-                _inputTextBox.Text = _vm.InputText;
-                _inputTextBox.SelectionStart = _inputTextBox.Text.Length;
-            }
+            // OnInputHandlerChanged - see the rationale there), so a DELIBERATE view-model change -
+            // history recall, Escape, a programmatic prefill - has to be pushed into the box.
+            //
+            // Routed through the framework rather than written here: the request queues behind
+            // anything the player has already typed, so it cannot land text in the box between a
+            // keystroke and its Enter. Typing itself never reaches the view model on Windows, so this
+            // fires only on those deliberate changes and never per character.
+            if (_commandInput is not null && _inputTextBox?.Text != _vm.InputText)
+                _commandInput.RequestSetText(_vm.InputText);
         }
 #endif
     }
@@ -1112,10 +1135,13 @@ public partial class GamePage : ContentPage
     private void SetInputText(string text, int caretPos)
     {
 #if WINDOWS
-        if (_inputTextBox is not null)
+        if (_commandInput is not null)
         {
-            _inputTextBox.Text = text;
-            _inputTextBox.SelectionStart = caretPos;
+            // Through the framework, not by hand: this was the last place in the app that wrote text
+            // into the native control directly, and closing it is what makes the boundary a wall
+            // rather than a convention. The request also queues behind anything already typed, so a
+            // clicked name cannot land in the middle of a command in progress.
+            _commandInput.RequestSetText(text, caretPos);
             _vm.InputText = text;
             return;
         }
@@ -1510,7 +1536,10 @@ public partial class GamePage : ContentPage
         // would otherwise ignore a better anchor arriving.
         _combatMetronome.Stop();
         if (shouldRun)
-            _combatMetronome.Start(anchor!.Value);
+            // TickIsMeaningful is re-asked at every beat, not just here: the beat runs on a thread-pool
+            // timer while this driver only learns a fight ended after a UI-thread hop, so between those
+            // two instants the predicate is the only thing that knows to stay quiet.
+            _combatMetronome.Start(anchor!.Value, TickIsMeaningful);
     }
 
     private void UpdateTickSweepColour(Mucka.ViewModels.CombatLiveView live)
@@ -1756,10 +1785,6 @@ public partial class GamePage : ContentPage
             () => { if (Terminal.IsHistoryMode) Terminal.ScrollToBottom(); _vm.SendControlAlias(2); });
         Add(Windows.System.VirtualKey.Number3, Windows.System.VirtualKeyModifiers.Control,
             () => { if (Terminal.IsHistoryMode) Terminal.ScrollToBottom(); _vm.SendControlAlias(3); });
-        Add(Windows.System.VirtualKey.Number4, Windows.System.VirtualKeyModifiers.Control,
-            () => { if (Terminal.IsHistoryMode) Terminal.ScrollToBottom(); _vm.SendControlAlias(4); });
-        Add(Windows.System.VirtualKey.Number5, Windows.System.VirtualKeyModifiers.Control,
-            () => { if (Terminal.IsHistoryMode) Terminal.ScrollToBottom(); _vm.SendControlAlias(5); });
         Add(Windows.System.VirtualKey.L, Windows.System.VirtualKeyModifiers.Control, () => _vm.ClearScreen());
         Add((Windows.System.VirtualKey)0xC0, Windows.System.VirtualKeyModifiers.Control, () => _ = TakeSelfieAsync());
         // Ctrl+R replies to the last person who sent us a tell (issue #147). Prefills the input
@@ -1794,9 +1819,7 @@ public partial class GamePage : ContentPage
 
         if (ctrl && key is Windows.System.VirtualKey.Number1
             or Windows.System.VirtualKey.Number2
-            or Windows.System.VirtualKey.Number3
-            or Windows.System.VirtualKey.Number4
-            or Windows.System.VirtualKey.Number5)
+            or Windows.System.VirtualKey.Number3)
         {
             Terminal.ScrollToBottom();
             TrySendControlAlias(key);
@@ -1835,12 +1858,42 @@ public partial class GamePage : ContentPage
         e.Handled = true;   // swallow all other keys — input box is hidden in scrollback
     }
 
-    private void OnSendButtonClicked(object? sender, EventArgs e)
+    private void OnSendButtonClicked(object? sender, EventArgs e) => AcceptInputLine();
+
+    /// <summary>
+    /// Windows' one input-accept path, shared by Enter and the send button. Three steps, in this
+    /// order, and nothing else: take the text, empty the box, hand the line off.
+    ///
+    /// <para><b>Accepting a line and acting on it are separate concerns</b> (owner, 2026-08-20). The
+    /// box's only job is to capture and enqueue what was typed, smoothly; command interpretation,
+    /// alias expansion and the socket write all happen on the view model's drain, off this path. See
+    /// <see cref="GameViewModel.EnqueueInput"/>. Nothing may be added here that does work - if a
+    /// future feature needs to inspect or rewrite outgoing lines, it belongs in the drain.</para>
+    ///
+    /// <para><b>The box is emptied directly, not via the view model.</b> The clear used to be a side
+    /// effect of <c>InputText = ""</c> raising PropertyChanged, which <c>OnVmPropertyChanged</c>
+    /// turned into a write to the box - and that chain has a hole: <c>Set</c> raises nothing when the
+    /// value is UNCHANGED, so whenever the text read from the box already equalled the view model's
+    /// (an empty box being the common case) nothing cleared the box at all. Text that arrived after
+    /// the read then sat there and was prepended to the NEXT command. Emptying the box here makes
+    /// "after Enter the box is empty" true by construction rather than inferred from a notification
+    /// chain, and it happens BEFORE the hand-off so the box is never waiting on anything.</para>
+    ///
+    /// <para>An EMPTY line is deliberately still accepted. A bare Enter is a real MUD2 action, so
+    /// this must not "helpfully" swallow blank sends - and if a blank line ever goes out when the
+    /// player typed something, the fault is upstream in the read, where silently discarding it would
+    /// hide precisely the thing worth seeing.</para>
+    /// </summary>
+    /// <summary>The send button, mirroring the Enter key exactly by going through the same accept
+    /// path - so the two cannot drift apart, which is how the button once came to send a blank line
+    /// while the typed text stayed in the box.</summary>
+    private void AcceptInputLine()
     {
-        // Mirror the Enter path: the native TextBox owns the text while typing.
-        if (_inputTextBox is not null)
-            _vm.InputText = _inputTextBox.Text;
-        _vm.SendCommand.Execute(null);
+        if (_commandInput is not null)
+            _commandInput.HandleKey((int)Windows.System.VirtualKey.Enter,
+                Mucka.Input.InputModifiers.None, isAcceptKey: true);
+        else
+            _vm.SendCommand.Execute(null);   // defensive: no native box attached
     }
 
     private void OnInputHandlerChanged(object? sender, EventArgs e)
@@ -1849,6 +1902,7 @@ public partial class GamePage : ContentPage
         {
             _inputTextBox.PreviewKeyDown -= OnInputPreviewKeyDown;
             _inputTextBox.SelectionChanged -= OnInputSelectionChanged;
+            _inputTextBox.TextChanged -= OnInputTextChanged;
             _inputTextBox = null;
             _inputScroller = null;
         }
@@ -1857,6 +1911,7 @@ public partial class GamePage : ContentPage
             _inputTextBox = tb;
             tb.PreviewKeyDown += OnInputPreviewKeyDown;
             tb.SelectionChanged += OnInputSelectionChanged;
+            tb.TextChanged += OnInputTextChanged;
             // Shadow the ReturnCommand with a local null so MAUI's KeyDown handler
             // (registered with handledEventsToo:true) sees null and skips execution.
             // Do NOT use RemoveBinding — that fires PropertyChanged which causes MAUI's
@@ -1876,6 +1931,25 @@ public partial class GamePage : ContentPage
             // OnVmPropertyChanged — all synchronous on the UI thread, so there is no loop to race.
             InputEntry.RemoveBinding(Entry.TextProperty);
             tb.Text = _vm.InputText;   // seed the initial value (e.g. a prefilled account id)
+
+            // Built once and kept across handler recreations: the surface reaches the control through
+            // a callback (see CommandInputSurface), so a new platform view needs no rebuild here - and
+            // rebuilding would drop the declared bindings and the budget's running counts.
+            if (_commandInput is null)
+            {
+                var surface = new CommandInputSurface(() => _inputTextBox, FocusInput);
+                // The view model's gate, not a second one: typed lines and the view model's own direct
+                // sends must share a single order. See GameViewModel.InputGate.
+                // Lambda rather than a method group: InputDiag.Log is [Conditional], so it cannot be
+                // used as a delegate. The wrapper means the MESSAGE compiles away in a normal build
+                // while the budget's measurement and its OverrunCount/WorstMilliseconds counters stay -
+                // which is the intended split (see InputPathBudget).
+                _commandInput = new Mucka.Input.CommandInput(
+                    surface, _vm.InputGate,
+                    new Mucka.Input.InputPathBudget(msg => InputDiag.Log(msg)));
+                RegisterCommandInputBindings(_commandInput);
+                InputDiag.Log($"CommandInput built; {_commandInput.Hotkeys.Count} bindings declared");
+            }
             InputDiag.Log($"OnInputHandlerChanged: Text binding removed; driving TextBox manually; seed=\"{tb.Text}\"; ReturnCommand null={InputEntry.ReturnCommand is null}");
 #if INPUT_DIAG
             tb.TextChanged += OnInputDiagTextChanged;
@@ -1890,21 +1964,115 @@ public partial class GamePage : ContentPage
     // caret sits at the end of the text (the typing case), pin the inner ScrollViewer
     // to its right edge. A no-op while the native behaviour works, and it doesn't
     // disturb selections or mid-text caret moves.
+    /// <summary>
+    /// Caret-follow workaround, armed only after an auxiliary window has been opened. Fires on every
+    /// caret move, which means EVERY KEYSTROKE - so what it is allowed to do is tightly constrained.
+    ///
+    /// <para><b>This used to call <c>tb.UpdateLayout()</c> here, and that was a serious defect
+    /// (Invariant #1, and #0 by consequence).</b> SelectionChanged is raised from inside the
+    /// TextBox's own text processing, so a forced synchronous layout pass ran INSIDE the handling of
+    /// each typed character, on the UI thread, in the one path this project holds above all others.
+    /// Two distinct harms came out of that:</para>
+    ///
+    /// <list type="number">
+    /// <item><description>Cost per keystroke, unbounded by anything - a measure/arrange of the
+    /// TextBox subtree plus a ScrollViewer <c>ChangeView</c>, ten-plus times a second at the owner's
+    /// typing speed.</description></item>
+    /// <item><description>Worse, and the reason this was more than slowness: <c>UpdateLayout</c>
+    /// re-enters the layout system synchronously and can flush pending work mid-input, which reorders
+    /// when a typed character actually lands in <c>TextBox.Text</c> relative to the NEXT key event.
+    /// The Enter path reads <c>TextBox.Text</c> directly, so a character reordered past an Enter is
+    /// sent on the wrong line: type <c>n</c>&lt;enter&gt;<c>ne</c>&lt;enter&gt; and the wire sees
+    /// &lt;enter&gt; then <c>nne</c>&lt;enter&gt;. Reported from live play, twice.</description></item>
+    /// </list>
+    ///
+    /// <para><b>Why it was intermittent, and why only in this app.</b> The whole handler is gated on
+    /// <see cref="_auxiliaryWindowOpened"/>, which latches true for the rest of the session the first
+    /// time <c>$con</c> or <c>$map</c> is opened - so the fault appeared only after the player had
+    /// used one of those windows, and then never went away. And no other editor does this to the
+    /// owner because no other editor forces a layout pass inside its own text input, nor reads the
+    /// control's text from a key handler.</para>
+    ///
+    /// <para>Now: no synchronous layout, and nothing at all on the input path beyond three field
+    /// reads. The pin is coalesced onto a LOW-priority dispatcher callback, which by definition runs
+    /// after pending input and layout work - so the measurement <c>UpdateLayout</c> was forcing is
+    /// simply already current by the time it is read, and the keystroke that scheduled it has long
+    /// since been applied.</para>
+    /// </summary>
     private void OnInputSelectionChanged(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
     {
-        // UpdateLayout() is only needed after WinUI's native caret-follow has been broken
-        // by activating an auxiliary window. Skip entirely until that has happened.
+        // Only needed after WinUI's native caret-follow has been broken by activating an auxiliary
+        // window. Skip entirely until that has happened - which for most sessions is never.
         if (!_auxiliaryWindowOpened) return;
+        // Already one queued: coalesce. Typing a word must not queue one callback per letter.
+        if (_inputPinPending) return;
+        var tb = _inputTextBox;
+        // Caret not at the end (a selection, or a mid-text edit) is not the typing case this fixes.
+        if (tb is null || tb.SelectionLength != 0 || tb.SelectionStart < tb.Text.Length)
+            return;
+
+        _inputPinPending = true;
+        // Low, not Normal: the point is to land BEHIND whatever input and layout work is already
+        // pending, which is exactly what this handler must stop competing with.
+        if (!tb.DispatcherQueue.TryEnqueue(
+                Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, PinInputCaretToEnd))
+            _inputPinPending = false;   // never queued, so nothing will clear the flag
+    }
+
+    /// <summary>
+    /// Watches for the one thing that must never happen: text appearing in the input box in the
+    /// moments immediately after a send, with no keystroke to account for it.
+    ///
+    /// <para>That is the signature of a character being applied to the box AFTER the Enter that should
+    /// have carried it - the reordering that puts <c>&lt;enter&gt;</c> then <c>nne</c> on the wire when
+    /// the player typed <c>n</c>&lt;enter&gt;<c>ne</c>&lt;enter&gt;. The stranded character becomes part
+    /// of the NEXT command, so this is a correctness fault on the wire, not a display glitch.</para>
+    ///
+    /// <para><b>Compiled into every build, not only INPUT_DIAG ones.</b> This fault is intermittent, it
+    /// latches on only after an auxiliary window has been opened, and it shows up solely in live play at
+    /// speed - so "reproduce it under a diagnostic build" is exactly the bar that let it survive two
+    /// rounds of being reported and fixed. It costs one <c>DateTime</c> subtraction per TextChanged.
+    /// <see cref="InputDiag.Log"/> is <c>[Conditional]</c> so the message compiles away in a normal
+    /// build; <see cref="_lateTextAfterSendCount"/> does not, so a later investigation can read the
+    /// count without the player having happened to run the right binary.</para>
+    ///
+    /// <para>It reports and never corrects. Correcting would mean guessing which line the character
+    /// belonged to, and guessing in this path is what produced the bug.</para>
+    /// </summary>
+    private void OnInputTextChanged(object sender, Microsoft.UI.Xaml.Controls.TextChangedEventArgs e)
+    {
+        var tb = (Microsoft.UI.Xaml.Controls.TextBox)sender;
+        if (tb.Text.Length == 0)
+            return;
+        // 50 ms: longer than any same-turn echo of the post-send clear, and far shorter than the
+        // ~100 ms between keystrokes even at 120+ wpm, so a genuine next-command keystroke cannot
+        // trip it.
+        var sinceSend = (DateTime.UtcNow - _sentAtUtc).TotalMilliseconds;
+        if (sinceSend >= 0.0 && sinceSend < 50.0)
+        {
+            _lateTextAfterSendCount++;
+            InputDiag.Log($"INPUT REORDER #{_lateTextAfterSendCount}: \"{tb.Text}\" appeared "
+                          + $"{sinceSend:F1}ms after a send - a keystroke was applied after its Enter");
+        }
+    }
+
+    /// <summary>Pins the input box's inner scroller to its right edge, off the keystroke path. Every
+    /// guard is re-checked on arrival: this runs a turn later, by which time the caret may have moved,
+    /// the box may have been cleared by a send, or the handler may have been torn down.</summary>
+    private void PinInputCaretToEnd()
+    {
+        _inputPinPending = false;
         var tb = _inputTextBox;
         if (tb is null || tb.SelectionLength != 0 || tb.SelectionStart < tb.Text.Length)
             return;
         _inputScroller ??= FindChildScrollViewer(tb);
         if (_inputScroller is null) return;
-        // The text change that moved the caret may not be measured yet; settle layout
-        // so ScrollableWidth includes the new character before pinning to the edge.
-        tb.UpdateLayout();
-        if (_inputScroller.ScrollableWidth > 0)
-            _inputScroller.ChangeView(_inputScroller.ScrollableWidth, null, null, disableAnimation: true);
+        var target = _inputScroller.ScrollableWidth;
+        // Already there: skip the ChangeView entirely rather than re-asserting the same offset on
+        // every keystroke of a long line.
+        if (target <= 0 || Math.Abs(_inputScroller.HorizontalOffset - target) < 0.5)
+            return;
+        _inputScroller.ChangeView(target, null, null, disableAnimation: true);
     }
 
     private static Microsoft.UI.Xaml.Controls.ScrollViewer? FindChildScrollViewer(Microsoft.UI.Xaml.DependencyObject root)
@@ -2034,60 +2202,110 @@ public partial class GamePage : ContentPage
         Terminal.ScrollByRows(notches * 3);   // positive (wheel up) = toward older output
     }
 
+    /// <summary>
+    /// The command box's key handler, and the whole of it. Every branch that used to live here is now
+    /// either a declared binding (see <see cref="RegisterCommandInputBindings"/>) or the accept path,
+    /// both owned by Mucka.Input.
+    ///
+    /// <para><b>What this used to be, and why it isn't any more.</b> A chain of <c>if</c>s that ran
+    /// consumer logic ON the keystroke: history recall, an Escape branch that reached into the native
+    /// control twice, and a <c>GetKeyState</c> P/Invoke executed for EVERY character typed purely to
+    /// discover that Ctrl was not held. All of it in the path CLAUDE.md puts above every other
+    /// consideration, and all of it growing whenever a key was added. Now the cost of a plain letter
+    /// is one hash-set probe (<c>IsBoundKey</c>) and a return.</para>
+    ///
+    /// <para>Modifier state is read only for keys that could possibly match a binding, which is what
+    /// removes the per-character P/Invoke: a letter is not a bound key code, so nothing asks about
+    /// Ctrl.</para>
+    /// </summary>
     private void OnInputPreviewKeyDown(object sender, Microsoft.UI.Xaml.Input.KeyRoutedEventArgs e)
     {
         InputDiag.Log($"KeyDown {e.Key}");
         // Mark the keyboard as recently active so a stray touchpad tap in the next 300 ms does
-        // not trip scrollback. (This is the box's own handler — the only managed key code in the
-        // live typing path — so a plain letter falls straight through after this one cheap set.)
+        // not trip scrollback. One field store; kept here because it is about the keyboard being
+        // used at all, which is precisely a per-keystroke fact.
         if (!IsModifierKey(e.Key))
             Terminal.NotifyKeyPressed();
-        if ((GetKeyState((int)Windows.System.VirtualKey.Control) & 0x8000) != 0
-            && TrySendControlAlias(e.Key))
-        {
-            e.Handled = true;
+
+        if (_commandInput is null)
             return;
-        }
-        if (e.Key == Windows.System.VirtualKey.Up)
-        {
-            _vm.HistoryUpCommand.Execute(null);
-            // WinUI resets the cursor to position 0 when TextBox.Text is set programmatically;
-            // move it back to the end so the user can edit the recalled command immediately.
-            if (_inputTextBox is not null)
-                _inputTextBox.SelectionStart = _inputTextBox.Text.Length;
+
+        var isAccept = e.Key == Windows.System.VirtualKey.Enter;
+        var keyCode = (int)e.Key;
+        // Cheap pre-filter: ordinary characters are bound to nothing, so they never reach the
+        // modifier read below. This is the line that keeps typing free.
+        if (!isAccept && !_commandInput.Hotkeys.IsBoundKey(keyCode))
+            return;
+
+        if (_commandInput.HandleKey(keyCode, ReadModifiers(), isAccept))
             e.Handled = true;
-        }
-        else if (e.Key == Windows.System.VirtualKey.Down)
-        {
-            _vm.HistoryDownCommand.Execute(null);
-            if (_inputTextBox is not null)
-                _inputTextBox.SelectionStart = _inputTextBox.Text.Length;
-            e.Handled = true;
-        }
-        else if (e.Key == Windows.System.VirtualKey.Escape)
-        {
-            // Close the About overlay if it is open; otherwise clear the input box.
-            // Clear the NATIVE TextBox directly: typing no longer flows into the VM (binding
-            // removed), so _vm.InputText is usually already "" while the box holds text — setting
-            // it to "" would be a no-op that never reaches the box. Clear the box, sync the VM.
-            if (!TryCloseAbout() && _inputTextBox is not null)
+    }
+
+    /// <summary>Current modifier state, read only for a key that might be bound - see
+    /// <see cref="OnInputPreviewKeyDown"/>. Three P/Invokes, on a keypress that is about to do
+    /// something anyway, rather than one on every character typed.</summary>
+    private static Mucka.Input.InputModifiers ReadModifiers()
+    {
+        var mods = Mucka.Input.InputModifiers.None;
+        if ((GetKeyState((int)Windows.System.VirtualKey.Control) & 0x8000) != 0)
+            mods |= Mucka.Input.InputModifiers.Control;
+        if ((GetKeyState((int)Windows.System.VirtualKey.Shift) & 0x8000) != 0)
+            mods |= Mucka.Input.InputModifiers.Shift;
+        if ((GetKeyState((int)Windows.System.VirtualKey.Menu) & 0x8000) != 0)
+            mods |= Mucka.Input.InputModifiers.Alt;
+        return mods;
+    }
+
+    /// <summary>
+    /// Declares the command box's own keys. Registered once, dispatched by
+    /// <see cref="Mucka.Input.HotkeyRouter"/>, and every action runs OFF the keystroke - so adding a
+    /// key here is no longer a decision about the input path.
+    ///
+    /// <para>These are the keys the box itself owns, as distinct from the app-wide hotkeys in
+    /// <see cref="RegisterHotkeyAccelerators"/>: the framework's router only sees keys while the box
+    /// has focus, which is exactly right for history recall and Escape.</para>
+    /// </summary>
+    private void RegisterCommandInputBindings(Mucka.Input.CommandInput input)
+    {
+        // History recall. The caret lands at the end of the recalled command via the surface's
+        // SetText, so there is no separate caret fix-up to forget any more.
+        // No explicit push: the commands set InputText, and OnVmPropertyChanged routes that into the
+        // box through the surface. One mechanism for "view-model text changed", not two.
+        input.Hotkeys.Bind((int)Windows.System.VirtualKey.Up, Mucka.Input.InputModifiers.None,
+            "history-up", () => _vm.HistoryUpCommand.Execute(null));
+        input.Hotkeys.Bind((int)Windows.System.VirtualKey.Down, Mucka.Input.InputModifiers.None,
+            "history-down", () => _vm.HistoryDownCommand.Execute(null));
+
+        // Escape closes the About overlay if it is open, else empties the box.
+        input.Hotkeys.Bind((int)Windows.System.VirtualKey.Escape, Mucka.Input.InputModifiers.None,
+            "escape", () =>
             {
-                _inputTextBox.Text = string.Empty;
+                if (TryCloseAbout())
+                    return;
+                // RequestClear rather than relying on the InputText push: after an accept the
+                // view-model copy is often already empty, and Set() raises nothing for an unchanged
+                // value - the exact hole that used to leave typed text in the box. Ask the box
+                // directly, and keep the view model in step for Android's binding.
                 _vm.InputText = string.Empty;
-            }
-            e.Handled = true;
-        }
-        else if (e.Key == Windows.System.VirtualKey.Enter)
+                input.RequestClear();
+            });
+
+        // Ctrl+1..3 control macros. Three, not five (owner, 2026-08-21): reaching Ctrl+4/5 without
+        // looking is a stretch mid-fight, and a macro you have to look down for is a macro that gets
+        // you killed. The scrollback bounce is part of the action, so it too is off the keystroke.
+        for (var slot = 1; slot <= 3; slot++)
         {
-            // No Text binding on Windows — the native TextBox owns its text while typing.
-            // Read the authoritative value directly, then send (SendNow clears via the VM,
-            // which pushes the empty string back into the box through OnVmPropertyChanged).
-            if (_inputTextBox is not null)
-                _vm.InputText = _inputTextBox.Text;
-            _vm.SendCommand.Execute(null);
-            e.Handled = true;
+            var n = slot;
+            input.Hotkeys.Bind((int)Windows.System.VirtualKey.Number0 + n, Mucka.Input.InputModifiers.Control,
+                $"ctrl-macro-{n}", () =>
+                {
+                    if (Terminal.IsHistoryMode) Terminal.ScrollToBottom();
+                    _vm.SendControlAlias(n);
+                });
         }
     }
+
+
 
     private bool TrySendControlAlias(Windows.System.VirtualKey key)
     {
@@ -2096,8 +2314,6 @@ public partial class GamePage : ContentPage
             Windows.System.VirtualKey.Number1 => 1,
             Windows.System.VirtualKey.Number2 => 2,
             Windows.System.VirtualKey.Number3 => 3,
-            Windows.System.VirtualKey.Number4 => 4,
-            Windows.System.VirtualKey.Number5 => 5,
             _ => 0,
         };
         if (slot == 0)

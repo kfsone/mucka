@@ -1,5 +1,6 @@
 <Solution>
   <Project Path="Mucka.csproj" />
+  <Project Path="Mucka.Input/Mucka.Input.csproj" />
   <Project Path="mudsharp.Demo/mudsharp.Demo.csproj" />
   <Project Path="mudsharp.Tests/mudsharp.Tests.csproj" />
   <Project Path="mudsharp/mudsharp.csproj" />

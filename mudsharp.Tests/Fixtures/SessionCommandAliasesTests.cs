@@ -96,8 +96,6 @@ public class SessionCommandAliasesTests
     [InlineData("^1")]
     [InlineData("^2")]
     [InlineData("^3")]
-    [InlineData("^4")]
-    [InlineData("^5")]
     public void ControlAliasCanBeDefinedAndExpanded(string name)
     {
         var aliases = CreateAliases();

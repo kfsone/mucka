@@ -233,8 +233,9 @@ rather than added beside it, so the row's overall geometry is unchanged.
   when the fight ended could only be operated during a fight.
 - Armed: lit, with the pendulum leaning. Idle: outline, pendulum upright. The lean reads as
   "running" with no motion required.
-- When armed, **two clicks per tick, bracketing the boundary**: `Perc_Stick_hi.wav` **100 ms before**
-  and `Perc_Stick_lo.wav` **100 ms after**.
+- When armed, **two clicks per tick, bracketing the boundary**: `Perc_Stick_hi.wav` **N ms before**
+  and `Perc_Stick_lo.wav` **N ms after**, where N is one number for both sides. **N = 200 ms**
+  (`CombatMetronome.OffsetMilliseconds`).
 
   **Not a beat on the tick, and this is a design decision rather than a detail.** MUD2 is not a
   reaction game; there is no hotkey to hit on the beat. Every decision must be typed *and
@@ -243,6 +244,34 @@ rather than added beside it, so the row's overall geometry is unchanged.
   health rung, the stamina change. The pair brackets the interval in which that information lands:
   the high click says "it is about to arrive", the low click says "it has, and this is your turn
   now". **Attention, not action.**
+
+  **Amendment, 2026-08-19 (owner).** N raised from 100 to 200, the symmetry restated as binding, and
+  the scheduling mechanism specified - the implementation had drifted to an asymmetric 275 ms lead
+  with a 100 ms trail, which this spec never described.
+
+  - **The purpose is to bookmark the ROLLOVER**, nothing more. Owner: *"this isn't an mmo or an fps
+    game where you have to press a button at an exact time, we're trying to give the player a sense of
+    timing for watching the combat text over in the terminal, especially since many ticks can pass
+    without swings, leaving the player blind."* That last clause is the case that justifies the
+    feature at all: when no swing text arrives, the click is the ONLY evidence the fight is still
+    running to schedule.
+  - **Symmetric, because a bookmark brackets evenly.** The wide-lead shape was built to be heard as a
+    *warning* - the design a reaction game needs, which this is not.
+  - **N = 200 puts the trailing click after the swing text.** Text lands within 25 ms of the lattice
+    88% of the time but tails to ~196 ms late on about one swing-carrying tick in eleven
+    (`archive/TICK-PHASE-REVIEW.md`); a 100 ms trail sat inside that tail and so preceded the very
+    text it was marking. 400 ms between the two also still reads as a pair rather than as one
+    doubled hit. N is the single knob if the bracket reads wrong in play.
+  - **Scheduling is one alternating chain**, not two independent schedules: each beat's own job is to
+    schedule the next (after-tick -> pre-tick -> after-tick), armed from the same anchor and in the
+    same synchronous block as the tick bar, and both locate the boundary through the one shared
+    `CombatTiming.MillisecondsToNextBoundary`. A fixed-period timer is forbidden here - it schedules
+    each firing relative to the last, so timer slop accumulates and the click walks off the boundary
+    over a long fight.
+  - **Every beat re-checks that the fight is still on**, and stays silent if not. The driver's own
+    stop arrives through a UI-thread hop, so between a fight ending and that hop landing the beat
+    itself is the only thing that knows. The chain keeps running through a lull - staying on the
+    lattice, making no sound - rather than tearing down and having to re-derive the phase.
 
 - **The phase comes from the encounter's first SWING, not from the moment combat started.** The line
   that flips `InCombat` is the reply to the player's own `kill` command, so its phase is the

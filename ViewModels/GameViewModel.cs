@@ -645,6 +645,16 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
 
         SubscribeConnectionEvents();
 
+        // The gate is constructed before anything can enqueue into it. MainThread.BeginInvokeOnMainThread
+        // is the "post" on every platform; on Windows the page feeds the same gate from the native
+        // command box, so both routes share one order.
+        InputGate = new Mucka.Input.InputGate(work => MainThread.BeginInvokeOnMainThread(work));
+        InputGate.LineReady += ProcessInput;
+        // A consumer that throws must not strand the lines queued behind it - the player typed them
+        // and is owed them. Surfaced in the terminal rather than swallowed, because a client command
+        // failing silently is how a bug goes unreported for months.
+        InputGate.Faulted += ex => AddSystemLine($"[input] command failed: {ex.Message}", 12);
+
         SendCommand           = new Command(SendNow);
         FkeyCommand           = new Command<string>(SendFkey);
         MoveCommand           = new Command<string>(SendMove);
@@ -1191,6 +1201,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     // is the same word the FEX exit list carries (e.g. "northeast", "swampward").
     private void SendMove(string? dir)
     {
+        FlushPendingInput();   // keep the socket in the order the player caused
         if (!string.IsNullOrWhiteSpace(dir))
         {
             _conn.SendLine(dir);
@@ -1201,10 +1212,74 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         RequestFocus?.Invoke();
     }
 
+    /// <summary>
+    /// The one queue every player-initiated action passes through - typed lines and hotkeys alike.
+    ///
+    /// <para>Owned here rather than by the page because the ordering guarantee has to cover BOTH: the
+    /// page accepts typed lines into it, and this class posts its own direct sends through it, so a
+    /// hotkey can never overtake a command typed a moment earlier. See Mucka.Input/README.md for the
+    /// rules the gate enforces and why they are enforced by an assembly boundary rather than by
+    /// comments.</para>
+    /// </summary>
+    public Mucka.Input.InputGate InputGate { get; }
+
+    /// <summary>
+    /// Accepts one line from the input box. This is ALL the input path does with it.
+    ///
+    /// <para><b>Pressing Enter and talking to the network are two different things</b> (owner,
+    /// 2026-08-20). The command box has exactly one job - capture and enqueue what was typed,
+    /// correctly and smoothly - and nothing about interpreting a line belongs anywhere near the
+    /// keystroke that finished it. That is not a style preference: what used to run inline on the
+    /// Enter keypress was the whole of <see cref="HandleCommand"/> (every <c>$</c> and <c>^</c>
+    /// client command, some of which touch settings and the filesystem), alias plus watchword
+    /// expansion, the socket write, and the history list mutation. All of it on the UI thread, in
+    /// the one path CLAUDE.md puts above every other consideration, and all of it growing every
+    /// time a new client command is added.</para>
+    ///
+    /// <para>So: enqueue and return. The queue is drained on a posted callback, which yields the
+    /// thread back to the input system first. Order is preserved absolutely - a single UI-thread
+    /// FIFO, drained in one pass - so two Enters in quick succession reach the MUD in the order they
+    /// were typed, which is the one guarantee a command queue cannot ever get wrong.</para>
+    ///
+    /// <para>Posted rather than run at idle priority on purpose: a MUD command is time-critical
+    /// (combat ticks are 2 s and the player is racing them), so the drain must yield to input but
+    /// must not sit behind rendering. One dispatcher turn is the whole added latency, and it buys an
+    /// input box that cannot be stalled by anything a command does.</para>
+    /// </summary>
+    public void EnqueueInput(string line) => InputGate.AcceptLine(line);
+
+    /// <summary>
+    /// Sends any queued typed line NOW, before the caller writes its own line to the socket.
+    ///
+    /// <para>Every other way the player sends something - an F-key, a compass click, a Ctrl macro,
+    /// Ctrl+F to flee - writes to the connection immediately, while a typed line waits one dispatcher
+    /// turn in <see cref="_pendingInput"/>. Without this, an F-key pressed in that window would
+    /// overtake the command the player typed first, and the MUD would act on them in the wrong
+    /// order. In a permadeath game where one of those hotkeys is FLEE, that ordering is not a
+    /// detail.</para>
+    ///
+    /// <para>A no-op whenever nothing is queued, which is very nearly always - the window is a single
+    /// dispatcher turn wide. It exists for the case that window is stretched by a stalled UI thread,
+    /// which is exactly when the player is most likely to be pressing things in a hurry.</para>
+    /// </summary>
+    private void FlushPendingInput() => InputGate.Flush();
+
+    /// <summary>
+    /// Captures the input box's current text and enqueues it - the platform-agnostic send, used by
+    /// Android's ReturnCommand and by any programmatic sender. Windows reads its native TextBox
+    /// directly instead (see GamePage.AcceptInputLine) because there is no Text binding there.
+    /// </summary>
     private void SendNow()
     {
-        var text = InputText;           // capture before any await
-        InputText = string.Empty;       // clear synchronously
+        var text = InputText;
+        InputText = string.Empty;   // clear immediately; the box must never wait on processing
+        EnqueueInput(text);
+    }
+
+    /// <summary>Interprets one accepted line: client command, or expand and send to the MUD. Runs
+    /// off the input path - see <see cref="EnqueueInput"/> for why that matters.</summary>
+    private void ProcessInput(string text)
+    {
         RequestFocus?.Invoke();
 
         var trimmed = text.Trim();
@@ -1230,8 +1305,10 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private bool HandleCommand(string text)
     {
 #if WINDOWS
-        // ^1=command / ^2=command / .../^5=command (or bare ^1..^5, with optional
-        // whitespace around "=") — bind/send the five Ctrl-1..Ctrl-5 control-macro slots.
+        // ^1=command / ^2=command / ^3=command (or bare ^1..^3, with optional
+        // whitespace around "=") — bind/send the three Ctrl-1..Ctrl-3 control-macro slots.
+        // Three, not five (owner, 2026-08-21): reaching Ctrl-4/Ctrl-5 without looking is a
+        // stretch mid-fight, and a macro you have to look down for is a macro that gets you killed.
         // No "$" prefix: this is the one command family typed with a bare "^" lead,
         // matching the physical Ctrl+<digit> shortcut.
         // "^" is a client-local sigil, same as "$": ANY "^"-prefixed input is owned by
@@ -1239,7 +1316,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         // (e.g. "^6=foo", "^=foo", bare "^") — report a local error instead.
         if (text.Length > 0 && text[0] == '^')
         {
-            if (text.Length >= 2 && text[1] is >= '1' and <= '5' && IsCtrlMacroShape(text))
+            if (text.Length >= 2 && text[1] is >= '1' and <= '3' && IsCtrlMacroShape(text))
             {
                 if (_sessionAliases.TryDefine(text, out var ctrlAliasName, out var ctrlAliasCommand, out var ctrlError))
                 {
@@ -1330,9 +1407,10 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private string ExpandOutgoingCommand(string command)
         => _watchwords.ExpandSlots(_sessionAliases.Expand(command));
 
-    /// <summary>Send the control-macro bound to Ctrl+&lt;slot&gt; (slot 1-5, see "^1".."^5" definitions).</summary>
+    /// <summary>Send the control-macro bound to Ctrl+&lt;slot&gt; (slot 1-3, see "^1".."^3" definitions).</summary>
     public void SendControlAlias(int slot)
     {
+        FlushPendingInput();   // keep the socket in the order the player caused
         if (_sessionAliases.TryGet($"^{slot}", out var command))
         {
             _conn.SendLine(ExpandOutgoingCommand(command));
@@ -1371,6 +1449,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
 
     private void SpeakWatchword(string slotName)
     {
+        FlushPendingInput();   // keep the socket in the order the player caused
         var answer = _watchwords.Speak(slotName);
         if (answer != null)
         {
@@ -1400,7 +1479,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         AddSystemLine("  $VER                  expands to the current Mucka version", 14);
         AddSystemLine("  $name=command         define a command until you exit the gameworld", 14);
         AddSystemLine("  $name                 run a command defined above", 14);
-        AddSystemLine("  ^1/^2/^3/^4/^5=command  bind Ctrl-1..Ctrl-5", 14);
+        AddSystemLine("  ^1/^2/^3=command  bind Ctrl-1..Ctrl-3", 14);
     }
 
     // $fkeys [shift|ctrl] — list the 12 macros on the requested layer, echoing each line into the
@@ -1584,6 +1663,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
 
     private void SendMacro(string? cmd)
     {
+        FlushPendingInput();   // keep the socket in the order the player caused
         if (!string.IsNullOrWhiteSpace(cmd))
         {
             cmd = cmd.TrimEnd('\r', '\n');
@@ -1604,6 +1684,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
 
     public void SpeakDreamword()
     {
+        FlushPendingInput();   // keep the socket in the order the player caused
         if (!string.IsNullOrEmpty(_dreamword))
         {
             _conn.Annotate($"dreamword spoken: {_dreamword}");
@@ -1621,6 +1702,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     /// misfire here. The input box is left untouched.</summary>
     public void SpeakDreamwordThen()
     {
+        FlushPendingInput();   // keep the socket in the order the player caused
         if (string.IsNullOrEmpty(_dreamword))
         {
             RequestFocus?.Invoke();
@@ -1648,6 +1730,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     /// <summary>Send <c>flee\r\n</c> (Ctrl+F).</summary>
     public void Flee()
     {
+        FlushPendingInput();   // keep the socket in the order the player caused
         _conn.SendLine("flee");
         _lastSentUtc = DateTime.UtcNow;
         RequestFocus?.Invoke();
@@ -1657,6 +1740,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     /// (Ctrl+Shift+F); a bare <c>flee</c> when the input box is empty. Input is left untouched.</summary>
     public void FleeThen()
     {
+        FlushPendingInput();   // keep the socket in the order the player caused
         var arg = InputText.Trim();
         _conn.SendLine(arg.Length == 0 ? "flee" : $"flee {arg}");
         _lastSentUtc = DateTime.UtcNow;
@@ -1677,6 +1761,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     /// </summary>
     public void WieldAlternateWeapon()
     {
+        FlushPendingInput();   // keep the socket in the order the player caused
         var noun = CombatComposition.CommandNoun(SidePanel.Live.AltWeapon);
         if (noun.Length == 0)
         {
@@ -1717,6 +1802,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
 
     public void AntiIdleTick()
     {
+        FlushPendingInput();   // keep the socket in the order the player caused
         if (_antiIdleSeconds <= 0 || !_inGameMode || !_conn.IsConnected)
             return;
         if ((DateTime.UtcNow - _lastSentUtc).TotalSeconds < _antiIdleSeconds)

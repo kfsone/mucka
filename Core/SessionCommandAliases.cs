@@ -6,7 +6,7 @@ namespace Mucka.Core;
 internal sealed class SessionCommandAliases
 {
     private static readonly Regex AliasRefRegex = new(
-        @"\$(\^[1-5]|[A-Za-z][A-Za-z0-9_]*|[?<])|(\^[1-5])",
+        @"\$(\^[1-3]|[A-Za-z][A-Za-z0-9_]*|[?<])|(\^[1-3])",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
     private readonly string _versionExpansion;
@@ -113,7 +113,7 @@ internal sealed class SessionCommandAliases
     {
         if (name.Length == 2
             && name[0] == '^'
-            && name[1] is >= '1' and <= '5')
+            && name[1] is >= '1' and <= '3')
             return true;
 
         if (name.Length == 0 || !IsAsciiLetter(name[0]))

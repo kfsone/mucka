@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The command-input pipeline's policy and mechanism, deliberately in its own assembly.
+
+       This project exists to make CLAUDE.md's Invariant #0/#1 STRUCTURAL rather than advisory. The
+       command box has been broken three times by three different well-meant additions (a TwoWay
+       binding round-trip, a clear that depended on a notification chain, a forced layout pass inside
+       SelectionChanged), each added by someone who did not realise they were standing in the typing
+       path. Comments did not prevent that. A compiler boundary can.
+
+       No MAUI, no WinUI, no platform types at all - so every rule here is testable off-device, and
+       so a platform control CANNOT be reached from this side of the wall even by accident. The app
+       supplies a thin adapter implementing IInputSurface; that interface is the entire vocabulary
+       available for touching the real control, and it is four methods long on purpose.
+
+       Same pattern, same reason as mudsharp (pure protocol, no MAUI) and Mucka.Terminal
+       (presentation logic, no MAUI). -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Mucka.Input</RootNamespace>
+  </PropertyGroup>
+
+</Project>

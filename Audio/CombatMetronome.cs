@@ -1,19 +1,38 @@
 namespace Mucka.Audio;
 
 /// <summary>
-/// Brackets each MUD2 combat tick with two percussion clicks - a high one shortly BEFORE the
-/// boundary and a low one shortly AFTER - so the fight's rhythm can be heard instead of watched.
+/// Bookmarks each MUD2 combat tick rollover with two percussion clicks - one shortly BEFORE the
+/// boundary and one shortly AFTER - so the player can feel where a turn ends without watching the bar.
 ///
-/// <para><b>Why a bracket rather than a beat.</b> MUD2 is not a reaction game. Nothing is gained by
-/// cueing the player to press something at the instant of the tick; every decision has to be typed
-/// and TRANSMITTED before the boundary, so by the time a single on-the-beat click sounds it is
-/// already too late to act on. What the tick actually delivers is a status update - the swing lines,
-/// the health descriptor, the stamina change. The two clicks therefore bracket the interval in which
-/// that information lands: the high click says "it is about to arrive", the low click says "it has,
-/// and this is your turn now". Attention, not action.</para>
+/// <para><b>What this is for (owner, 2026-08-19).</b> Marking the ROLLOVER, nothing more. MUD2 is not
+/// an MMO or an FPS: there is no button to press on the beat, and every decision has to be typed and
+/// transmitted well before the boundary anyway. What the click buys is a sense of timing for reading
+/// the combat TEXT over in the terminal - and it earns that most in the case the text itself cannot
+/// cover, where many ticks pass with no swing at all and the player is otherwise blind to whether the
+/// fight is still running to schedule.</para>
 ///
-/// <para>The tick bar answers the same question visually, but reading it costs a glance away from the
-/// terminal text, which is the one thing the rail exists to avoid. Hearing it costs nothing.</para>
+/// <para>That is why the two offsets are SYMMETRIC about the boundary
+/// (<see cref="OffsetMilliseconds"/>) rather than the earlier wide-lead/tight-trail pair. The old
+/// shape was built to be heard AS a warning - a quarter-second announcement, then a marker - which is
+/// what a reaction game needs. Bracketing the rollover evenly is what a bookmark needs, and it also
+/// lets the trailing click sit far enough past the boundary to follow the swing text rather than
+/// precede it: text arrives within 25 ms of the lattice 88% of the time but tails out to ~196 ms late
+/// on roughly one swing-carrying tick in eleven (tools/combat/archive/TICK-PHASE-REVIEW.md), which the
+/// previous 100 ms trail sat inside.</para>
+///
+/// <para><b>One alternating chain, not two independent schedules.</b> Each beat's own job is to
+/// schedule the next - after-tick, then pre-tick, then after-tick - and every delay is recomputed from
+/// the anchor rather than from "now". A <c>System.Threading.Timer</c> with a fixed 2000 ms period
+/// schedules each firing relative to the last, so Windows timer slop (~15 ms granularity) would
+/// ACCUMULATE and the click would walk off the boundary over a long fight, which is what "they don't
+/// seem synced at all" looks like from the outside. Deriving every delay from the absolute anchor makes
+/// each beat self-correcting.</para>
+///
+/// <para><b>Every beat re-checks that the fight is still on.</b> Silence is the correct output for a
+/// finished fight, and the driver's own <see cref="Stop"/> cannot be relied on to have arrived yet: it
+/// comes through a UI-thread hop, so there is a real window in which this timer is the only thing that
+/// knows. The chain keeps running through that - staying on the lattice, just making no sound - and is
+/// torn down by <see cref="Stop"/> when the driver does catch up.</para>
 ///
 /// <para><b>Not a UI-thread timer.</b> Invariant #1 forbids repeating UI-thread timers, and this is
 /// exactly the kind of thing that would tempt one. It uses a thread-pool <see cref="Timer"/> and never
@@ -21,8 +40,9 @@ namespace Mucka.Audio;
 /// call from a background thread (it is already called from the TCP thread). Nothing here draws,
 /// measures, or invalidates anything.</para>
 ///
-/// <para>Started and stopped from the same place as the visual tick sweep, so the sound and the bar
-/// are two renderings of one clock rather than two clocks that will drift apart on screen.</para>
+/// <para>Armed from the same anchor, in the same synchronous block, as the visual tick sweep, and both
+/// locate the boundary through <see cref="Mucka.Core.CombatTiming.MillisecondsToNextBoundary"/> - one
+/// implementation, so the sound and the bar cannot disagree about where the rollover is.</para>
 /// </summary>
 internal sealed class CombatMetronome : IDisposable
 {
@@ -32,40 +52,47 @@ internal sealed class CombatMetronome : IDisposable
     private const int TickMilliseconds = (int)Mucka.Core.CombatTiming.TickMilliseconds;
 
     /// <summary>
-    /// How far ahead of the boundary the high click sits - "the update is about to land".
+    /// How far either side of the rollover the two clicks sit - the pre-tick at <c>boundary - N</c>,
+    /// the after-tick at <c>boundary + N</c>.
     ///
-    /// <para>Wide on purpose. At the original 100 ms the two clicks sat 300 ms apart with the
-    /// boundary buried between them, and the pair read as one event rather than as a bracket around
-    /// the turn's end. A quarter-second of warning is enough to be heard AS warning - it is about the
-    /// length of a spoken syllable - while still being unmistakably part of the same beat as the
-    /// trailing click rather than a separate one.</para>
+    /// <para>200 ms, so the pair spans 400 ms: far enough apart to be heard as two events bracketing
+    /// something rather than as one doubled hit, and far enough past the boundary on the trailing side
+    /// to land after the swing text even on its late tail (see the class remarks). This is the knob
+    /// worth turning if the bracket reads wrong in play - widen it and the boundary is easier to place
+    /// but the pair stops reading as a pair; narrow it and the reverse.</para>
     /// </summary>
-    private const int LeadMilliseconds = 275;
+    private const int OffsetMilliseconds = 200;
 
-    /// <summary>
-    /// How far after the boundary the low click sits - "it has landed, this is your turn".
-    ///
-    /// <para>Deliberately NOT symmetric with the lead: the pair has to be heard as bracketing the
-    /// boundary, and a close trailing click is what pins the boundary to a definite instant. The wide
-    /// lead announces, the tight trail marks.</para>
-    ///
-    /// <para><b>Known tradeoff.</b> Swing text arrives on a one-sided late tail: 88% within 25 ms of
-    /// the lattice, but ~9% between 120 and 196 ms late (source analysis:
-    /// tools/combat/archive/TICK-PHASE-REVIEW.md). At +100 the low click therefore precedes the
-    /// text it marks on roughly one swing-carrying tick in eleven. The earlier +200 cleared that worst
-    /// case, at the cost of a bracket too wide and too late to read as one. Being right about the
-    /// TICK, and near-always right about the text, was judged the better trade; if the early-marker
-    /// case turns out to be audible in play, this is the number to move back.</para>
-    /// </summary>
-    private const int TrailMilliseconds = 100;
+    /// <summary>Pre-tick: "the rollover is about to happen".</summary>
+    private const string PreTickClick = "sounds/Perc_Stick_hi.wav";
 
-    private const string HighClick = "sounds/Perc_Stick_hi.wav";
-    private const string LowClick = "sounds/Perc_Stick_lo.wav";
+    /// <summary>After-tick: "it has happened - whatever this turn did is on screen now".</summary>
+    private const string AfterTickClick = "sounds/Perc_Stick_lo.wav";
 
     private readonly object _gate = new();
     private Timer? _timer;
     private DateTime _anchorUtc;
     private bool _disposed;
+
+    /// <summary>Asked at every beat: is there still a fight to bookmark? Supplied by the driver, which
+    /// owns that judgement (panel visible, in combat, not in the post-fight grace window); this class
+    /// deliberately does not try to infer it.</summary>
+    private Func<bool>? _stillInCombat;
+
+    /// <summary>Bumped by every <see cref="Start"/> and every <see cref="StopLocked"/>, and captured by
+    /// each scheduled beat.
+    ///
+    /// <para>Needed because "a timer exists" is the wrong question for a beat that was scheduled a
+    /// while ago: the driver re-anchors by calling <c>Stop()</c> then <c>Start()</c>, so a beat waking
+    /// later may well find a timer - a NEW one, on a DIFFERENT lattice - and would sound against a
+    /// phase it was never scheduled for, off by whatever the gap between the two anchors happened to
+    /// be.</para>
+    ///
+    /// <para>Not hypothetical: the driver re-anchors once per fight, at the moment the encounter's
+    /// first swing reveals the phase, so a stray beat lands at the START of every fight - exactly where
+    /// a listener is calibrating their sense of the beat. Mirrors the generation guard
+    /// <c>TickSweep</c> already carries for the identical reason on the visual side.</para></summary>
+    private int _generation;
 
     /// <summary>Whether the player has asked for the click at all. Independent of whether a fight is
     /// happening: the metronome only runs when BOTH this is set and combat is live.</summary>
@@ -78,8 +105,8 @@ internal sealed class CombatMetronome : IDisposable
             // Open both clips before they are ever needed. The first PlayPrepared for an asset pays
             // the WinRT media-open cost, and paying it on the first click of a fight is exactly the
             // click that most needs to be on time.
-            SoundService.PrepareSound(HighClick);
-            SoundService.PrepareSound(LowClick);
+            SoundService.PrepareSound(PreTickClick);
+            SoundService.PrepareSound(AfterTickClick);
         }
 
         lock (_gate)
@@ -93,18 +120,19 @@ internal sealed class CombatMetronome : IDisposable
     }
 
     /// <summary>
-    /// Starts clicking on the beat, if the player has it switched on. Idempotent - calling it while
-    /// already running does nothing, so it can be driven from the same combat-state handler as the
-    /// visual sweep without restarting the beat several times a second.
+    /// Arms the chain, if the player has the click switched on. Idempotent - calling it while already
+    /// running does nothing, so it can be driven from the same combat-state handler as the visual sweep
+    /// without restarting the beat several times a second.
     /// </summary>
     /// <param name="tickAnchorUtc">A known tick boundary - the same instant the visual sweep was
-    /// started from. The first click is delayed to the next boundary measured from here, NOT fired
-    /// immediately, which is the whole point: arming the metronome halfway through a fight must not
-    /// re-anchor the beat to the moment the switch was flipped. A metronome that clicks on the
-    /// player's button press instead of on the game's tick is worse than silence - it would look
-    /// authoritative while being wrong by up to a full tick, and the entire value of this thing is
-    /// that the click coincides with the swing.</param>
-    public void Start(DateTime tickAnchorUtc)
+    /// started from. Nothing sounds immediately: the first beat is the AFTER-tick click for the
+    /// rollover the sweep is currently counting down to. That matters because arming the metronome
+    /// halfway through a fight must not re-anchor the beat to the moment the switch was flipped - a
+    /// metronome that clicks on the player's button press rather than on the game's tick is worse than
+    /// silence, since it would sound authoritative while being wrong by up to a full tick.</param>
+    /// <param name="stillInCombat">Re-asked at every beat; false means stay silent. See
+    /// <see cref="_stillInCombat"/>.</param>
+    public void Start(DateTime tickAnchorUtc, Func<bool> stillInCombat)
     {
         lock (_gate)
         {
@@ -112,30 +140,21 @@ internal sealed class CombatMetronome : IDisposable
                 return;
 
             _anchorUtc = tickAnchorUtc;
-            // ONE-SHOT, re-armed from the anchor after every click - deliberately not a periodic
-            // timer. A System.Threading.Timer with a 2000 ms period schedules each firing relative to
-            // the last, so Windows timer slop (~15 ms granularity) ACCUMULATES: over a sixty-tick
-            // fight the click walks away from the boundary entirely, which is what "they don't seem
-            // synced at all" looks like from the outside. Recomputing the delay against the absolute
-            // anchor every time makes each click self-correcting, so error can never build up.
-            _timer = new Timer(_ => Click(), null, DelayToNextLead(tickAnchorUtc), Timeout.Infinite);
+            _stillInCombat = stillInCombat;
+            var generation = ++_generation;
+
+            // The after-tick click for the boundary the bar is counting down to right now: the same
+            // "remaining" the sweep was just given, plus the offset that puts this click past the
+            // rollover rather than on it.
+            var remaining = Mucka.Core.CombatTiming.MillisecondsToNextBoundary(tickAnchorUtc, DateTime.UtcNow);
+            var delay = (int)Math.Round(remaining) + OffsetMilliseconds;
+
+            Mucka.Core.TickDiag.Log(
+                $"anchor   metronome armed on {tickAnchorUtc:HH:mm:ss.fff} (gen {generation}); "
+                + $"boundary in {remaining:F0} ms, after-tick in {delay} ms, N={OffsetMilliseconds}");
+
+            _timer = new Timer(_ => Beat(generation, afterTick: true), null, delay, Timeout.Infinite);
         }
-    }
-
-    /// <summary>Milliseconds until the next high click - one lead-width before the next tick
-    /// boundary measured from <paramref name="anchorUtc"/>.</summary>
-    private static int DelayToNextLead(DateTime anchorUtc)
-    {
-        var elapsed = (DateTime.UtcNow - anchorUtc).TotalMilliseconds;
-        // Shift the phase forward by the lead so the arithmetic below is about the LEAD instant
-        // rather than the boundary, which keeps the modulo from having to handle a negative target.
-        var intoCycle = (elapsed + LeadMilliseconds) % TickMilliseconds;
-        if (intoCycle < 0)
-            intoCycle += TickMilliseconds;
-
-        var remaining = TickMilliseconds - intoCycle;
-        // Never schedule a click so close to now that it lands after the moment it is announcing.
-        return remaining < 20 ? (int)Math.Round(remaining + TickMilliseconds) : (int)Math.Round(remaining);
     }
 
     public void Stop()
@@ -146,43 +165,77 @@ internal sealed class CombatMetronome : IDisposable
 
     private void StopLocked()
     {
+        // Bump before disposing, so a beat already scheduled finds itself stale rather than sounding
+        // into a silence the driver has just asked for.
+        _generation++;
         _timer?.Dispose();
         _timer = null;
+        _stillInCombat = null;
     }
 
-    /// <summary>Fires one lead-width BEFORE a tick boundary: sounds the high click, then schedules
-    /// the low one for a trail-width after the boundary.</summary>
-    private void Click()
+    /// <summary>
+    /// One beat of the chain: schedule the next, then sound this one if the fight is still on.
+    /// </summary>
+    /// <param name="afterTick">True for the click that follows a rollover, false for the one that
+    /// precedes the next. The two alternate, and the gaps between them are what encode the phase:
+    /// after-tick to pre-tick is a whole tick less both offsets, pre-tick to after-tick is just the two
+    /// offsets.</param>
+    private void Beat(int generation, bool afterTick)
     {
+        Func<bool>? stillInCombat;
         lock (_gate)
         {
-            if (_disposed || _timer is null)
+            if (_disposed || _timer is null || generation != _generation)
                 return;
-            // Re-arm first, so the next beat's schedule is not affected by however long this one
-            // takes, and is measured from the anchor rather than from now.
-            _timer.Change(DelayToNextLead(_anchorUtc), Timeout.Infinite);
+
+            stillInCombat = _stillInCombat;
+
+            // Re-arm FIRST, so however long the sound takes cannot push the next beat late. Both legs
+            // are constants rather than "time until the next boundary" on purpose: the alternation
+            // itself carries the phase, and the drift figure below is what reveals if that has slipped.
+            var next = afterTick ? TickMilliseconds - (2 * OffsetMilliseconds) : 2 * OffsetMilliseconds;
+            Mucka.Core.TickDiag.Log(
+                $"beat {(afterTick ? "after" : "pre  ")}  drift={DriftMilliseconds(_anchorUtc, afterTick),6:F1} ms   "
+                + $"next {(afterTick ? "pre" : "after")}-tick in {next,4} ms");
+            _timer.Change(next, Timeout.Infinite);
         }
 
-        Play(HighClick);
-        _ = PlayTrailingClickAsync();
+        // Checked after re-arming, deliberately: a lull must leave the chain ON the lattice rather than
+        // tear it down, so that it is still correct for the ticks the player cannot see any text for -
+        // which is the whole reason this instrument exists. Silence, not desynchronisation.
+        if (stillInCombat is null || !stillInCombat())
+            return;
+
+        PlayTimed(afterTick ? AfterTickClick : PreTickClick, afterTick ? "after" : "pre");
     }
 
-    /// <summary>The low click. Deliberately a delayed
-    /// continuation rather than a second timer: it is a one-shot follow-up to a click that has already
-    /// happened, and giving it its own Timer would mean a second disposable object per tick and a
-    /// second thing that can outlive Stop(). Re-checks state on waking, so a fight that ends inside
-    /// the bracket does not get a trailing click after the silence has started.</summary>
-    private async Task PlayTrailingClickAsync()
+    /// <summary>How far this beat ran from the instant it was scheduled for - positive is late.
+    /// Diagnostics only: nothing corrects on it. A value that stays small confirms the chain is holding
+    /// the lattice; one that grows across a fight means the anchor is being replaced underneath it,
+    /// which is a driver problem rather than a timer one.</summary>
+    private static double DriftMilliseconds(DateTime anchorUtc, bool afterTick)
     {
-        await Task.Delay(LeadMilliseconds + TrailMilliseconds).ConfigureAwait(false);
+        var toNext = Mucka.Core.CombatTiming.MillisecondsToNextBoundary(anchorUtc, DateTime.UtcNow);
+        // The after-tick beat should sit OffsetMilliseconds past the previous boundary; the pre-tick
+        // beat should sit OffsetMilliseconds before the next one.
+        return afterTick ? (TickMilliseconds - toNext) - OffsetMilliseconds : OffsetMilliseconds - toNext;
+    }
 
-        lock (_gate)
-        {
-            if (_disposed || _timer is null)
-                return;
-        }
-
-        Play(LowClick);
+    /// <summary>Plays a click and, under TICK_DIAG, records how long the audio call took to return.
+    ///
+    /// <para>Worth measuring rather than assuming: the offsets are only 200 ms, so a play path costing
+    /// a comparable amount collapses the bracket onto the boundary and erases the very distinction the
+    /// player is listening for. A quick return is not proof the sound was audible on time, but a slow
+    /// return IS proof it was not.</para></summary>
+    private static void PlayTimed(string asset, string label)
+    {
+#if TICK_DIAG
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        Play(asset);
+        Mucka.Core.TickDiag.Log($"beat audio   {label,-5} play call returned in {sw.Elapsed.TotalMilliseconds,6:F1} ms");
+#else
+        Play(asset);
+#endif
     }
 
     /// <summary>Master mute wins over the toggle, matching how every other client-initiated sound in

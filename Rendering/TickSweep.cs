@@ -93,16 +93,23 @@ internal sealed class TickSweep
         _visual.CenterPoint = Vector3.Zero;
         var generation = ++_generation;
 
-        var intoCycle = (DateTime.UtcNow - anchorUtc).TotalMilliseconds % TickMilliseconds;
-        if (intoCycle < 0)
-            intoCycle += TickMilliseconds;
-        var remaining = TickMilliseconds - intoCycle;
+        // Shared with the metronome - see CombatTiming.MillisecondsToNextBoundary for why this is not
+        // computed here any more.
+        var remaining = Mucka.Core.CombatTiming.MillisecondsToNextBoundary(anchorUtc, DateTime.UtcNow);
+
+        // The number to compare against the metronome's own "boundary at +N ms" line: if the two
+        // instruments disagree on where the boundary is, they disagree HERE, and the log says so
+        // directly instead of leaving it to be judged by ear against a moving bar.
+        Mucka.Core.TickDiag.Log(
+            $"bar restart  from {remaining / TickMilliseconds * 100,5:F1}% ({remaining,6:F0} ms left)  "
+            + $"anchor {anchorUtc:HH:mm:ss.fff}  gen {generation}");
 
         // Less than a couple of frames of this tick left. Animating it would be a flicker at the far
         // left edge and the handoff would land late; wait it out empty and begin cleanly on the
         // boundary instead.
         if (remaining < 40.0)
         {
+            Mucka.Core.TickDiag.Log($"bar restart  too little left ({remaining:F0} ms) - waiting out empty");
             Rest();
             StartLoopAfter(remaining, generation);
             return;
@@ -151,7 +158,16 @@ internal sealed class TickSweep
         // See _generation: this handoff was scheduled a partial tick ago and cannot be cancelled, so
         // it has to check on arrival that it is still the current one.
         if (generation != _generation)
+        {
+            Mucka.Core.TickDiag.Log($"bar loop     handoff gen {generation} is stale (now {_generation}) - dropped");
             return;
+        }
+
+        // Worth logging because this is the one moment the bar's phase stops being derived from the
+        // anchor and starts being whatever the compositor's batch-completed callback happened to run
+        // at: the endless loop below is never resynced, so any lateness here becomes the bar's
+        // permanent offset for the rest of the fight.
+        Mucka.Core.TickDiag.Log($"bar loop     endless sweep begins (gen {generation})");
 
         var compositor = _visual.Compositor;
         var linear = compositor.CreateLinearEasingFunction();
