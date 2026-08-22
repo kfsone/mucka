@@ -112,7 +112,7 @@ You have fled by trying to go out.
 So the full price of a failed flee is: points, possibly an experience level, the weapon out of your
 hands, every fight you were in ended -- and you are still standing in front of whatever you were
 running from, now unarmed. The owner quit one heartbeat ahead of dying to exactly this. That is what
-`flee-failed.wav` (see `Resources/Raw/sounds/README.md`) exists to announce: the text differs from the
+`mucka.flee_failed.wav` (see `Resources/Raw/sounds/README.md`) exists to announce: the text differs from the
 success line by two words and arrives while the player is reading fast and about to act on the belief
 that they got away.
 

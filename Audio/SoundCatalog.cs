@@ -50,7 +50,7 @@ public static class SoundCatalog
         // there is nothing a fallback could stand in for.
         new("alert", "Client alerts", new SoundDef[]
         {
-            new("alert-flee-failed", "Your flee failed", "sounds/flee-failed.wav"),
+            new("alert-flee-failed", "Your flee failed", "sounds/mucka.flee_failed.wav"),
         }, HasFallback: false),
         new("07", "Combat hits", new SoundDef[]
         {

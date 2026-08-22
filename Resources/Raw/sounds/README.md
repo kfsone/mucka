@@ -10,13 +10,19 @@ anything WITHOUT it is not Clio's and is not covered by that licence - see "Muck
 |------|--------|----------|
 | `Perc_Stick_hi.wav` | percussion sample | Combat metronome, pre-tick click |
 | `Perc_Stick_lo.wav` | percussion sample | Combat metronome, after-tick click |
-| `flee-failed.wav` | **generated** - `tools/sounds/make_flee_failed.py` | Your flee failed |
+| `mucka.flee_failed.wav` | **generated** - `tools/sounds/make_flee_failed.py` | Your flee failed |
 
-`flee-failed.wav` is synthesized rather than sourced, and the script is its provenance: re-run it and
-you get the identical file, with the parameters in it serving as the sound's actual definition rather
-than a description of an opaque binary. The brief was an electronic "NRK"/"UNGH" - a game-show
-wrong-answer buzzer, not a recorded human grunt - and a buzzer lifted from a TV show would have
-neither Clio's licence nor any other.
+`mucka.flee_failed.wav` is synthesized rather than sourced, and the script is its provenance: re-run
+it and you get the identical file, with the parameters in it serving as the sound's actual definition
+rather than a description of an opaque binary. A buzzer lifted from a TV show would have neither
+Clio's licence nor any other.
+
+The brief was a **single note**, buzzer-like - "NRRRK" / "UNNNK" / "BZZT" - and explicitly not an
+electrical zap. So it is one oscillator at one pitch in one burst: 150 Hz, 280 ms, odd harmonics
+stopped at the 13th. That ceiling is what keeps it a buzz; a raw square runs to Nyquist and the
+broadband hiss up there is exactly the zap character to avoid. An earlier version had a pitch bend, a
+detuned second voice and a two-burst gate, and was rejected as too complex - a buzzer is not a
+composition.
 
 It fires on `You have fled by trying to go <dir>.`, the worst-value outcome MUD2 offers: the points
 are charged, the persona can lose an experience level, the weapon drops out of your hands, every fight

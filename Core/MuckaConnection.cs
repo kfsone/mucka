@@ -522,7 +522,7 @@ public sealed class MuckaConnection : IAsyncDisposable
     private static void OnCombatEventSound(CombatEvent combatEvent)
     {
         if (combatEvent.Kind == CombatEventKind.YouFleeFailed)
-            Mucka.Audio.SoundService.PlayServerSound("sounds/flee-failed.wav");
+            Mucka.Audio.SoundService.PlayServerSound("sounds/mucka.flee_failed.wav");
     }
 
     private void OnSessionInCombatChanged(bool inCombat)

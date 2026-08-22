@@ -2,40 +2,28 @@
 # /// script
 # requires-python = ">=3.11"
 # ///
-"""Synthesize sounds/flee-failed.wav - the buzzer for a failed flee.
+"""Synthesize sounds/mucka.flee_failed.wav - the buzzer for a failed flee.
 
-Owner's brief (2026-08-19): an "NRK"/"UNGH" - the ELECTRONIC game-show wrong-answer buzzer, not a
-recorded human grunt. Occasion: `You have fled by trying to go <dir>.` The player tried to run and
-did not move, which in MUD2 still costs points, an experience level and the weapon in their hand,
-and leaves them standing in front of whatever they were running from. The owner's own report of the
-frame this was requested from: "If I'd waited a heartbeat longer to qq, i'd have died."
+Owner's brief: an "NRRRK" / "UNNNK" / "BZZT". A SINGLE NOTE, buzzer-like. Not an electrical zap.
 
-So it has to read as REJECTION, immediately and without being looked at, from across a glance at the
-terminal - the same job a quiz-show buzzer does.
+Occasion: `You have fled by trying to go <dir>.` The player tried to run and did not move, which in
+MUD2 still costs points, an experience level and the weapon in their hand, and leaves them standing
+in front of whatever they were running from. It has to read as rejection instantly, without being
+looked at.
 
-Generated rather than sourced, deliberately: every other non-clio sound in this project either ships
-with the Clio licence or is a plain tone, and a buzzer lifted from a TV show would be neither. This
-script IS the provenance - re-run it and you get the identical file, and the parameters below are the
-sound's actual definition rather than a description of something binary and opaque.
+One oscillator, one pitch, one burst. An earlier version of this file had a pitch bend, a detuned
+second voice and a two-burst gate, and the owner's verdict was that it was too complex - a buzzer is
+not a composition. Everything below is deliberately the smallest set of parameters that still
+produces a buzz rather than a musical note.
 
-Design, and why each part is there:
-
-  * Two square waves a minor second apart (~14 Hz beating). Square, not sine, for the harsh odd
-    harmonics that read as "electronic"; the near-unison pair is what makes it a BUZZ rather than a
-    note. A single square wave sounds like a chiptune bass, which reads as game, not as refusal.
-  * A downward pitch bend across the whole sound, 175 Hz -> 128 Hz. This is the "UNGH": falling pitch
-    is heard as negative, deflating, an answer being rejected. Rising would read as a question or a
-    prompt.
-  * A hard 4 ms attack. Anything softer reads as a swell and loses the "NRK" bite.
-  * Two burst gate. The classic quiz-show buzzer is not one continuous tone - it is a short
-    double-hit, and the gap is most of what makes it recognisable AS a buzzer.
-  * Deliberately 0.42 s in total. Long enough to be unmistakable, short enough not to mask the
-    swing text arriving on the next tick.
+What makes it a buzz and not a zap: the harmonics stop at the 13th (about 1.9 kHz here). A raw
+square wave, or one summed to Nyquist, puts energy right up the spectrum and that broadband hiss is
+exactly the "electrical zap" character to avoid. Low fundamental plus a hard edge plus a bounded
+harmonic series is a buzzer.
 
 Usage:
-  uv run tools/sounds/make_flee_failed.py                 # writes Resources/Raw/sounds/flee-failed.wav
-  uv run tools/sounds/make_flee_failed.py --out other.wav
-  uv run tools/sounds/make_flee_failed.py --preview       # also play it, if a player is available
+  uv run tools/sounds/make_flee_failed.py
+  uv run tools/sounds/make_flee_failed.py --preview     # play it after writing
 """
 
 import argparse
@@ -46,80 +34,53 @@ import sys
 import wave
 from pathlib import Path
 
-# 48 kHz 16-bit stereo, matching Perc_Stick_hi/lo.wav so every client-generated sound in the app
-# shares one format and the WinRT player never has to switch rates mid-fight.
+# 48 kHz 16-bit stereo, matching Perc_Stick_hi/lo.wav so every client-generated sound shares a format.
 RATE = 48_000
 CHANNELS = 2
 SAMPLE_WIDTH = 2
 
-DURATION = 0.42          # whole sound, seconds
-PITCH_START = 175.0      # Hz, the "UN"
-PITCH_END = 128.0        # Hz, the "GH" - falling reads as rejection
-DETUNE = 14.0            # Hz above the fundamental; the beat rate that makes it buzz rather than hum
-ATTACK = 0.004           # 4 ms - hard enough to bite
-RELEASE = 0.060          # gentle enough not to click on the way out
-AMPLITUDE = 0.34         # headroom for the two summed voices plus the harmonic content
-
-# The two-burst gate: (start, end) in seconds. The GAP is the recognisable part - a single 0.42 s
-# tone is a klaxon, two bursts is a buzzer.
-BURSTS = [(0.000, 0.150), (0.190, 0.420)]
+FREQUENCY = 150.0    # Hz. Low enough to land as "UNNNK" rather than a beep, high enough to carry.
+DURATION = 0.28      # s. Long enough to be unmistakable, short enough not to mask the next tick.
+HARMONICS = 7        # odd partials (1,3,..,13). More would sizzle; fewer would sound like a flute.
+ATTACK = 0.003       # s. Hard, so it reads as "NRK" and not as a swell.
+RELEASE = 0.030      # s. Just enough to avoid a click on the way out.
+AMPLITUDE = 0.40
 
 
 def square(phase: float) -> float:
-    """A square wave, band-limited crudely by summing odd harmonics.
-
-    Six harmonics rather than a hard sign() flip: a raw square at 48 kHz aliases audibly on the
-    downward bend, which adds a gritty shimmer that sounds like a bad encode rather than like a
-    buzzer. Six is enough for the character and stays clear of Nyquist for the fundamentals here.
-    """
+    """Band-limited square: odd harmonics only, stopped well below Nyquist."""
     total = 0.0
-    for h in (1, 3, 5, 7, 9, 11):
+    for k in range(HARMONICS):
+        h = 2 * k + 1
         total += math.sin(phase * h) / h
-    return total * (4.0 / math.pi) / 1.18   # /1.18 normalises the partial sum back to about +-1
+    return total * (4.0 / math.pi) / 1.18   # normalise the partial sum back to about +-1
 
 
 def envelope(t: float) -> float:
-    """Burst gate x attack/release shaping, evaluated per sample."""
-    gate = 0.0
-    for start, end in BURSTS:
-        if start <= t < end:
-            since = t - start
-            until = end - t
-            attack = min(1.0, since / ATTACK) if ATTACK > 0 else 1.0
-            release = min(1.0, until / RELEASE) if RELEASE > 0 else 1.0
-            gate = max(gate, attack * release)
-    return gate
+    """Flat, with a hard attack and a short release. No gate, no shaping in between."""
+    attack = min(1.0, t / ATTACK) if ATTACK > 0 else 1.0
+    remaining = DURATION - t
+    release = min(1.0, remaining / RELEASE) if RELEASE > 0 else 1.0
+    return max(0.0, attack * release)
 
 
 def render() -> bytes:
-    total_samples = int(RATE * DURATION)
     frames = bytearray()
-    phase_a = 0.0
-    phase_b = 0.0
-
-    for n in range(total_samples):
+    phase_step = 2.0 * math.pi * FREQUENCY / RATE
+    for n in range(int(RATE * DURATION)):
         t = n / RATE
-        # Linear bend over the WHOLE sound, so the second burst starts lower than the first ended -
-        # the two bursts together read as one falling gesture rather than as two separate hits.
-        freq = PITCH_START + (PITCH_END - PITCH_START) * (t / DURATION)
-
-        phase_a += 2.0 * math.pi * freq / RATE
-        phase_b += 2.0 * math.pi * (freq + DETUNE) / RATE
-
-        sample = (square(phase_a) + square(phase_b)) * 0.5 * AMPLITUDE * envelope(t)
-        clipped = max(-1.0, min(1.0, sample))
-        value = int(clipped * 32767)
-        # Mono content written to both channels: this is an alert, and a buzzer that favoured one ear
-        # would read as positional information it does not have.
+        sample = square(n * phase_step) * AMPLITUDE * envelope(t)
+        value = int(max(-1.0, min(1.0, sample)) * 32767)
+        # Mono content on both channels: an alert must not imply a direction it does not have.
         frames += struct.pack('<hh', value, value)
-
     return bytes(frames)
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    default_out = Path(__file__).resolve().parents[2] / 'Resources' / 'Raw' / 'sounds' / 'flee-failed.wav'
+    default_out = (Path(__file__).resolve().parents[2]
+                   / 'Resources' / 'Raw' / 'sounds' / 'mucka.flee_failed.wav')
     ap.add_argument('--out', type=Path, default=default_out)
     ap.add_argument('--preview', action='store_true', help='play the result after writing it')
     args = ap.parse_args()
@@ -131,9 +92,8 @@ def main() -> int:
         w.setframerate(RATE)
         w.writeframes(render())
 
-    size = args.out.stat().st_size
-    print(f"wrote {args.out}  ({size} bytes, {DURATION * 1000:.0f} ms, "
-          f"{RATE} Hz {CHANNELS}ch {SAMPLE_WIDTH * 8}bit)")
+    print(f"wrote {args.out}  ({args.out.stat().st_size} bytes, {DURATION * 1000:.0f} ms, "
+          f"{FREQUENCY:.0f} Hz, {HARMONICS} odd harmonics)")
 
     if args.preview:
         try:
