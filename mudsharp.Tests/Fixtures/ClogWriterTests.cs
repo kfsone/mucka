@@ -153,6 +153,35 @@ public sealed class ClogWriterTests : IDisposable
     }
 
     [Fact]
+    public void ManyEncounters_DoNotGrowTheTestOnlyWriterTaskTrackingListWithoutBound()
+    {
+        // Regression test for the field being appended to unconditionally on every encounter with
+        // nothing ever removing entries (see ClogWriter's _writerTasksForTests remarks). Runs far
+        // more encounters than any single fight would need and asserts the tracking list stays
+        // bounded by "currently draining", not by "total encounters this session has ever had".
+        using var writer = NewWriter();
+
+        const int encounterCount = 200;
+        for (var i = 0; i < encounterCount; i++)
+        {
+            writer.OnInCombatChanged(true);
+            writer.OnCombatEvent(Event(CombatEventKind.FightStart, $"rat{i}"));
+            writer.OnCombatEvent(Event(CombatEventKind.Kill, $"rat{i}"));
+            writer.OnInCombatChanged(false);
+            writer.OnLineReady(Line("*", isPartial: true));   // finalizes this encounter's tail
+
+            // Let this encounter's drain actually finish before starting the next one, so the
+            // pruning in Start() has something completed to remove - without this, the assertion
+            // below would only be testing timing luck rather than the pruning itself.
+            writer.WaitForDrainsToSettle_TestOnly(TimeSpan.FromSeconds(5));
+
+            // Never proportional to i: a leak would show this climbing toward encounterCount.
+            Assert.True(writer.WriterTaskTrackingCount_TestOnly <= 2,
+                $"tracking list grew to {writer.WriterTaskTrackingCount_TestOnly} after {i + 1} encounters");
+        }
+    }
+
+    [Fact]
     public void Dispose_FinalizesWhateverIsStillOpen_IncludingATailThatNeverSawAPrompt()
     {
         var writer = NewWriter();

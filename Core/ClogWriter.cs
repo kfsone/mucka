@@ -116,11 +116,18 @@ public sealed class ClogWriter : IDisposable
 
     public ClogWriter(string directory) => _directory = directory;
 
-    // Testability seam only: every writer task ever started, so a test can deterministically wait
-    // for a FINALIZED encounter's background drain to actually reach disk before reading the file
-    // back. Production never needs this - Dispose() only waits on entries still in _open, which is
-    // correct there (once OnLineReady's prompt branch finalizes and removes an entry, nothing else
-    // in the app is waiting on its file).
+    // Testability seam only: every writer task that MIGHT still be draining, so a test can
+    // deterministically wait for a FINALIZED encounter's background drain to actually reach disk
+    // before reading the file back. Production never needs this - Dispose() only waits on entries
+    // still in _open, which is correct there (once OnLineReady's prompt branch finalizes and
+    // removes an entry, nothing else in the app is waiting on its file).
+    //
+    // Pruned of already-completed tasks on every Start() (see there) rather than left to grow for
+    // the process's whole lifetime: a completed Task has nothing left to wait on, so dropping it
+    // costs the test seam nothing, and it is what keeps this list bounded by "how many encounters
+    // are concurrently draining right now" (normally 0-2, per the class remarks on overlapping
+    // clogs) instead of by "how many encounters this session has ever had" - the second was an
+    // unbounded per-encounter growth for a field only tests ever read.
     private readonly List<Task> _writerTasksForTests = [];
 
     internal void WaitForDrainsToSettle_TestOnly(TimeSpan timeout)
@@ -129,6 +136,18 @@ public sealed class ClogWriter : IDisposable
         lock (_lock)
             tasks = _writerTasksForTests.ToArray();
         Task.WaitAll(tasks, timeout);
+    }
+
+    /// <summary>How many writer tasks are currently tracked for <see cref="WaitForDrainsToSettle_TestOnly"/>.
+    /// Test-only: exists so a test can assert the pruning in <see cref="Start"/> actually bounds this,
+    /// rather than trusting it by inspection.</summary>
+    internal int WriterTaskTrackingCount_TestOnly
+    {
+        get
+        {
+            lock (_lock)
+                return _writerTasksForTests.Count;
+        }
     }
 
     /// <summary>Feed every line — prompts included — so the pre-roll buffer stays fresh and any
@@ -250,6 +269,10 @@ public sealed class ClogWriter : IDisposable
                     WriterTask = Task.Run(() => DrainAsync(queue, writer)),
                 };
                 _open.Add(entry);
+                // Prune before adding, not after: this is the only place that ever grows the list,
+                // so pruning here is enough to keep it bounded regardless of how many encounters the
+                // process has seen (see the field's remarks).
+                _writerTasksForTests.RemoveAll(t => t.IsCompleted);
                 _writerTasksForTests.Add(entry.WriterTask);
                 IsRecording = true;
                 FilePath = path;
