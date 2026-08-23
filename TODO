@@ -2,3 +2,18 @@
 - Make the 'compass' a compass,
 - Chat panel?
 - Right-click context menu with "Copy" or "Dictionary" for individual words?
+- ResetClock: re-derive the FES-suppression model from the wire. The engine assumes
+  a ~500ms server rate limit, but the corpus contradicts a time-based cause: 547
+  stats-container pairs land <500ms apart, 58 under 250ms, and two probes sent in the
+  same millisecond were both answered. Clio's FES.md says the score packet is sent
+  when a stat CHANGES. If suppression is change-driven, every sample the engine
+  discards as a "collision" is the server stating the value did not change - the most
+  informative signal available to something whose whole job is finding the change
+  instant. Also: LogResetDiagnostics defaults to false, so the theory currently cannot
+  be falsified in normal use.
+- Combat: the FE protocol tags fight ends explicitly (fecodes.txt 08 10 withdraw,
+  08 11 flee, 08 12 other) but CombatTracker matches English prose instead - it only
+  ever sees StyledLine.PlainText, and the decoder uses the 08 family solely for
+  stamina-probe hints. Worth checking against captures whether a FAILED flee carries
+  08 12 while a real one carries 08 11; if so the fragile one-word text distinction
+  ("has fled by going" vs "has fled by trying to go") has an unambiguous coded source.
