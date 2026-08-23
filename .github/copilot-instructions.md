@@ -1,6 +1,9 @@
 # Mucka — Copilot Instructions
 
-Mucka is a .NET MAUI MUD2 telnet client targeting **Android** and **Windows** (iOS/macOS later).
+Mucka is a .NET MAUI MUD2 telnet client targeting **Windows** (primary) and **Android**
+(secondary). There is no iOS or macOS target and none is planned - that build configuration was
+deliberately removed. MUD2 is out of maintenance and will never change, so do not add
+future-proofing, abstraction for other servers, or support for platforms not listed here.
 It is inspired by Clio, a C/flex/bison MUD2 client whose source is our authoritative reference for
 the MUD2 wire protocol.
 
@@ -17,7 +20,7 @@ Build for Android (requires `maui-android` workload, run on Linux/Mac or with `E
 dotnet build -f net10.0-android -c Release -p:EnableWindowsTargeting=true
 ```
 
-Run tests (mudsharp unit suite, 165+ tests):
+Run tests (mudsharp + Mucka.Terminal unit suites, ~900 tests):
 ```
 dotnet test Mucka.slnx -c Debug
 ```
@@ -37,7 +40,7 @@ untested, unchecked, and will be tech-debt-on-arrival.
 
 ```
 TCP bytes
-  → TcpMudConnection.ReadLoopAsync       (background Task)
+  → MuckaConnection's read loop          (background Task; also owns the send channel)
   → MudSession.Feed()                    (→ MudStreamParser, synchronous byte-stream state machine)
   → MudSession / MudStreamParser events:
       LineReady(StyledLine)              → GameViewModel enqueues to ConcurrentQueue
@@ -58,7 +61,6 @@ TCP bytes
   - `Session/MudSessionOptions` — configures heartbeat interval (default 10 s)
   - `Models/GameStatsSnapshot` — immutable `record` snapshot of FES game stats; `HasFesStats=true` means boolean flags are authoritative (replace); `false` means OR-merge
   - `Models/StyledLine` / `StyledSpan` — styled text model
-  - `Transport/TcpMudConnection` — TCP socket + read loop; owns a `MudSession`
 
 - **`Mucka.Terminal/`** — `net10.0` display library (`Mucka.Terminal` namespace); depends only on `MudSharp.Models`, **no MAUI**; tested by `Mucka.Terminal.Tests/`
   - `TerminalBuffer` — committed-line ring (cap 120) + one live partial line
@@ -67,9 +69,13 @@ TCP bytes
   - `TerminalSelection` — plain-text extraction for clipboard copy
 
 - **`Core/`** — MAUI app glue (no protocol logic)
-  - `MuckaConnection` — wires `TcpMudConnection` to the ViewModel
+  - `MuckaConnection` — owns the socket, read loop, and send channel; wraps a `MudSession` and
+    forwards its events (LineReady, StatsUpdated, etc.) to the ViewModel
   - `MudLoginHandler` — pre-game login state machine
-  - `Profile` / `SettingsStore` — connection profiles persisted in `mucka.ini` (`[profiles]` MRU order + `[profile:Name]` sections); `ProfileStore` keeps passwords in SecureStorage and reads the legacy `profiles.json` for one-time migration
+  - `SettingsStore` — settings, fkeys, and connection profiles all persisted in `mucka.ini`
+    (`[settings]`/`[fkeys]` globals, `[settings:Name]`/`[fkeys:Name]` per-profile overrides,
+    `[profiles]` MRU order, `[profile:Name]` connection identity); `Profile` is the connection
+    identity record; `ProfileStore` keeps passwords in SecureStorage
   - `SessionCapture` — optional JSONL session transcript logging
 
 - **`ViewModels/`** — standard MVVM; no DI container (objects manually wired)
@@ -86,7 +92,34 @@ TCP bytes
   - `TerminalFont` — loads the embedded Cascadia Mono typeface; fixed cell metrics
   - `TerminalTheme` — the Campbell colour palette
 
+- **`Mucka.Input/`** — `net10.0` library (`Mucka.Input` namespace); no MAUI dependencies; referenced
+  as an assembly, never compiled into `Mucka.csproj` — see "Command input sandbox" below
+  - `CommandInput` — the command box's own logic; captures and enqueues, does not interpret
+  - `InputGate` — single FIFO for typed lines and hotkey actions; the only path to the game
+  - `IInputSurface` — the only vocabulary for touching the real native text control
+  - `HotkeyRouter` — declarative `Bind`/`BindImmediate` dispatch; a keystroke costs one dictionary probe
+
 ## Key conventions
+
+### Command input sandbox (Mucka.Input) — READ THIS FIRST
+The command input box is CLAUDE.md Invariant #0 (always has focus) and Invariant #1 (never
+stalls on a keystroke). Both outrank every other concern in this codebase. The command box has
+been broken by well-meant AI changes that didn't realise they were standing in the typing path
+(four documented incidents) — see `Mucka.Input/README.md` for the incident list. That file is **required reading
+before touching anything input-related**; do not skip it because a change looks small.
+
+- `Mucka.Input` is compiled as a separate assembly and referenced only as a DLL (`Mucka.csproj`
+  explicitly `<Compile Remove="Mucka.Input\**" />`s its sources). This is deliberate: the native
+  `TextBox` is **unreachable from app code by design** — there is no `using` that gets you to it
+  from outside `Mucka.Input`. `IInputSurface` (four members) is the entire vocabulary for touching
+  it.
+- Hotkeys are **declared, not intercepted**: register a binding with `HotkeyRouter.Bind` up front;
+  do not add `if` branches inside the box's own key handler. The action runs through `InputGate`,
+  never synchronously on the keystroke.
+- Typed lines and hotkey actions share one FIFO (`InputGate`) so player-initiated actions never
+  reorder relative to each other.
+- If a change seems to need a fifth `IInputSurface` method, that is a signal to question whether
+  it belongs in the input path at all — so far the answer has always been no.
 
 ### MUD2 prompt detection
 The MUD2 game prompt is **not** the `*` character. The prompt is signalled by the slot1 escape markup in the binary protocol. Do not infer prompt state from text content.
