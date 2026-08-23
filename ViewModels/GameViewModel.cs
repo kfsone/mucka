@@ -364,15 +364,16 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             item.Width = btnWidth;
     }
 
-    // Campbell-palette cs matching Clio's terminal c constants.
-    private static readonly Color CampbellRed          = Color.FromArgb("#C50F1F");
-    private static readonly Color CampbellGreen         = Color.FromArgb("#13A10E");
-    private static readonly Color CampbellYellow        = Color.FromArgb("#C19C00");
-    private static readonly Color CampbellWhite         = Color.FromArgb("#CCCCCC");
-    private static readonly Color CampbellBrightBlack   = Color.FromArgb("#767676");
-    private static readonly Color CampbellBrightRed     = Color.FromArgb("#E74856");
-    private static readonly Color CampbellBrightGreen   = Color.FromArgb("#16C60C");
-    private static readonly Color CampbellBrightYellow  = Color.FromArgb("#F9F1A5");
+    // Campbell-palette colors matching Clio's terminal c constants, read from the single
+    // shared table (AnsiPalette) rather than a byte-identical private copy.
+    private static readonly Color CampbellRed          = AnsiPalette.GetFg(1);
+    private static readonly Color CampbellGreen         = AnsiPalette.GetFg(2);
+    private static readonly Color CampbellYellow        = AnsiPalette.GetFg(3);
+    private static readonly Color CampbellWhite         = AnsiPalette.GetFg(7);
+    private static readonly Color CampbellBrightBlack   = AnsiPalette.GetFg(8);
+    private static readonly Color CampbellBrightRed     = AnsiPalette.GetFg(9);
+    private static readonly Color CampbellBrightGreen   = AnsiPalette.GetFg(10);
+    private static readonly Color CampbellBrightYellow  = AnsiPalette.GetFg(11);
 
     /// <summary>Maps a Clio ANSI color index (from the C99 0xFE stamina hint byte) to a display color.</summary>
     private static Color AnsiToColor(byte ansi) => ansi switch
@@ -1253,7 +1254,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     ///
     /// <para>Every other way the player sends something - an F-key, a compass click, a Ctrl macro,
     /// Ctrl+F to flee - writes to the connection immediately, while a typed line waits one dispatcher
-    /// turn in <see cref="_pendingInput"/>. Without this, an F-key pressed in that window would
+    /// turn in <see cref="InputGate"/>. Without this, an F-key pressed in that window would
     /// overtake the command the player typed first, and the MUD would act on them in the wrong
     /// order. In a permadeath game where one of those hotkeys is FLEE, that ordering is not a
     /// detail.</para>

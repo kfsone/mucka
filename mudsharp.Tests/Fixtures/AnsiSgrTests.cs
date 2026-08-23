@@ -91,28 +91,6 @@ public class AnsiSgrTests
     }
 
     [Fact]
-    public void CampbellHex_AllSixteenColorsPresent()
-    {
-        // Every standard AnsiColor (0–15) must appear in the Campbell palette dictionary.
-        var map = AnsiSgrState.CampbellHex;
-        Assert.Equal(16, map.Count);
-
-        var standardColors = new[]
-        {
-            AnsiColor.Black,        AnsiColor.Red,          AnsiColor.Green,        AnsiColor.Yellow,
-            AnsiColor.Blue,         AnsiColor.Magenta,      AnsiColor.Cyan,         AnsiColor.White,
-            AnsiColor.BrightBlack,  AnsiColor.BrightRed,    AnsiColor.BrightGreen,  AnsiColor.BrightYellow,
-            AnsiColor.BrightBlue,   AnsiColor.BrightMagenta,AnsiColor.BrightCyan,   AnsiColor.BrightWhite,
-        };
-
-        foreach (var color in standardColors)
-        {
-            Assert.True(map.ContainsKey(color), $"CampbellHex missing entry for {color}");
-            Assert.Matches(@"^#[0-9A-Fa-f]{6}$", map[color]);
-        }
-    }
-
-    [Fact]
     public void TerminalWidth_EscDashNW_FiresConfirmedEvent()
     {
         // ESC-80W = server confirming terminal width 80.

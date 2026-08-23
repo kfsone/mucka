@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using System.Text;
 using MudSharp.Models;
 
@@ -13,28 +12,6 @@ internal sealed class AnsiSgrState
     /// Payload is the confirmed width value.
     /// </summary>
     internal Action<int>? WidthConfirmed;
-
-    // Campbell color palette hex values for HTML/UI consumers.
-    public static readonly IReadOnlyDictionary<AnsiColor, string> CampbellHex =
-        new Dictionary<AnsiColor, string>
-        {
-            [AnsiColor.Black]         = "#0C0C0C",
-            [AnsiColor.Red]           = "#C50F1F",
-            [AnsiColor.Green]         = "#13A10E",
-            [AnsiColor.Yellow]        = "#C19C00",
-            [AnsiColor.Blue]          = "#0037DA",
-            [AnsiColor.Magenta]       = "#881798",
-            [AnsiColor.Cyan]          = "#3A96DD",
-            [AnsiColor.White]         = "#CCCCCC",
-            [AnsiColor.BrightBlack]   = "#767676",
-            [AnsiColor.BrightRed]     = "#E74856",
-            [AnsiColor.BrightGreen]   = "#16C60C",
-            [AnsiColor.BrightYellow]  = "#F9F1A5",
-            [AnsiColor.BrightBlue]    = "#3B78FF",
-            [AnsiColor.BrightMagenta] = "#B4009E",
-            [AnsiColor.BrightCyan]    = "#61D6D6",
-            [AnsiColor.BrightWhite]   = "#F2F2F2",
-        };
 
     private readonly StringBuilder _paramBuf = new(32);
 
