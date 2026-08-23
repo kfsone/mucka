@@ -141,12 +141,6 @@ public sealed class FightAccumulator
     /// NPCs fight with fists/claws/bite and never announce a weapon at all.</summary>
     public string? NpcWeapon { get; private set; }
 
-    /// <summary>UTC time the NPC's own weapon was last confirmed via <see cref="NoteNpcWeapon"/>  -
-    /// i.e. when the "The X has started to use the Y to fight!" line landed. Drives the "why" line's
-    /// priority-5 rule and the panel's E2 weapon-pickup alert (DESIGN_FINAL.md 3.8/4.3): both need
-    /// "how long ago did this NPC arm itself", not just "is it armed".</summary>
-    public DateTime? NpcWeaponEquippedUtc { get; private set; }
-
     /// <summary>The NPC's health rung as last reported by the game, 1 (about to die) to 7 (unhurt), or
     /// null while nothing has been reported yet. See <see cref="NpcHealthRungs"/>.
     ///
@@ -185,12 +179,6 @@ public sealed class FightAccumulator
     /// contributes nothing to <see cref="ApproxDamageTaken"/>, so dividing the total by TheyHits would
     /// quietly understate every average in proportion to how many baselines were missed.</summary>
     public int TheyHitsMeasured { get; private set; }
-
-    /// <summary>Mean damage per landed blow from this creature this fight, or null when nothing has
-    /// been measured yet. Null rather than zero on purpose - the rail must never draw an unknown as a
-    /// measurement.</summary>
-    public double? AverageDamageTaken
-        => TheyHitsMeasured == 0 ? null : ApproxDamageTaken / TheyHitsMeasured;
 
     /// <summary>Lowest player stamina observed while this fight was open - "how close did I come
     /// to dying" fighting THIS npc specifically. Null only when no reading was ever available (no
@@ -258,14 +246,6 @@ public sealed class FightAccumulator
 
     public void NoteDisarmed() => WasDisarmed = true;
 
-    /// <summary>Failed flee attempts by this creature - it tried to run and could not. Distinct from
-    /// the fight ending in a flee, which is an outcome; this is a creature that is still standing in
-    /// front of you. Water snakes attempt this repeatedly (7 times in 13 seconds in one captured
-    /// fight) and almost never get away.</summary>
-    public int FleeAttempts { get; private set; }
-
-    public void NoteFleeAttempt() => FleeAttempts++;
-
     /// <summary>Records a health-descriptor reading for this NPC. Always overwrites - see
     /// <see cref="HealthRung"/> on why the latest reading wins over the worst.</summary>
     public void NoteHealth(int rung, string? phrase, DateTime timestampUtc)
@@ -302,13 +282,10 @@ public sealed class FightAccumulator
     /// line confirms one. Never cleared by <see cref="NoteDisarmed"/> - that line is about the
     /// PLAYER'S weapon breaking, and MUD2 gives no equivalent "NPC weapon broke" line to react to,
     /// so the last-known NPC weapon is the honest thing to keep showing.</summary>
-    public void NoteNpcWeapon(string? weapon, DateTime timestampUtc)
+    public void NoteNpcWeapon(string? weapon)
     {
         if (!string.IsNullOrWhiteSpace(weapon))
-        {
             NpcWeapon = weapon;
-            NpcWeaponEquippedUtc = timestampUtc;
-        }
     }
 
     public void AddYouHit(int? rangeLow, int? rangeHigh)

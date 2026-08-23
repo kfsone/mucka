@@ -229,13 +229,6 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     // resizing the window on the change. Never true at startup: the panel is additive and must
     // never appear without an explicit toggle (D3's "window never resizes itself" rule).
     private bool _isCombatPanelVisible;
-    // Hysteresis/tie-break state for the tier table (4.2/4.3/4.4) - one instance per encounter,
-    // reset in OnInCombatChanged(inCombat: true) so a fresh fight always starts both bracket
-    // latches armed.
-    private readonly CombatTierResolver _tierResolver = new();
-    // The plain-language "why is this going badly" line, as text. Deliberately NOT a styled-span
-    // type: the canvas owns colour, and the view model owns wording.
-    private string? _whyText;
     private CombatTier _pulseTier = CombatTier.None;
 
     /// <summary>Stamina at or below which the rail's glow keeps running even with no fight on -
@@ -309,10 +302,6 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         set => Set(ref _isCombatPanelVisible, value && IsCombatRailSupported);
     }
 
-    /// <summary>The plain-language "why is this going badly" line, or null when nothing in the
-    /// priority table currently applies. Text only - the canvas decides how it looks.</summary>
-    public string? WhyText => _whyText;
-
     /// <summary>
     /// The Combat Rail's whole frame state: threat, opposition roster, and the survival numbers
     /// behind both. The render surface composes its own layout from this and inherits layout from
@@ -384,9 +373,6 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
                 // Phase is unknown until this encounter's first swing arrives - see TickPhaseUtc.
                 _tickPhaseUtc = null;
                 OnPropertyChanged(nameof(TickPhaseUtc));
-                // Fresh encounter: both bracket hysteresis latches re-arm (4.2) - a crossing from a
-                // PREVIOUS fight must never suppress this fight's own first crossing.
-                _tierResolver.Reset();
             }
             else
             {
@@ -562,7 +548,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         RefreshCombatSignals(snapshot, _combatDeficits, history, nowUtc);
 
         OnPropertiesChanged(nameof(HasCombatData), nameof(NoCombatData),
-            nameof(WhyText), nameof(PulseTier),
+            nameof(PulseTier),
             nameof(EncumbranceTier), nameof(Live));
     }
 
@@ -598,7 +584,6 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
 
         if (!snapshot.HasEncounter)
         {
-            _whyText = null;
             _pulseTier = vulnerable;
             _live = CombatLiveView.Idle;
             return;
@@ -639,10 +624,9 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
 
         if (!snapshot.InCombat)
         {
-            // Post-combat / grace window: only the survival PROJECTION (threat/flee/why) goes quiet -
+            // Post-combat / grace window: only the survival PROJECTION (threat/flee) goes quiet -
             // projecting a finished fight's death clock would be a lie. The roster and weapon/duration
             // context stay, exactly as the old formatter's headline/participant rows did.
-            _whyText = null;
             _pulseTier = vulnerable;
             _live = new CombatLiveView(
                 InCombat: false, HasEncounter: true, WeaponText: weaponText, IsUnarmed: !hasWeapon,
@@ -676,9 +660,6 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             ? (int)Math.Ceiling(sta1 / rate)
             : null;
 
-        if (deficits.StaminaCurrent is int currentSta)
-            _tierResolver.ObserveStaminaForCrossings(currentSta, nowUtc);
-
         var staminaTier = CombatTierResolver.StaminaTier(
             deficits.StaminaCurrent, deficits.StaminaMax, hitsLeft, outlook.SecondsToDie, outlook.SecondsToKill);
         var fightTier = CombatTierResolver.ResolvePulseTier(staminaTier, CombatTier.None);
@@ -709,7 +690,6 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         // direction to run, not a price tag to read while deciding, so no code computing a cost
         // figure is kept "just in case" either - see D15/D16 for the panel's full cognitive-load
         // design tenets (fixed layout, unambiguous cues, sub-second glance budget).
-        _whyText = BuildWhyText(snapshot, deficits, history, primary, nowUtc);
 
         var threat = ThreatIndicator.Resolve(
             inCombat: true, staminaTier, outlook.Verdict, outlook.SecondsToDie, hitsLeft,
@@ -805,48 +785,6 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
                 _swingDamage?.Lookup(fight.NpcName).Incoming ?? DamageProfile.Empty);
         }
         return facts;
-    }
-
-    /// <summary>The plain-language "why" line - surfaces causes, never coefficients, and yields at
-    /// most one sentence (the single highest-priority active condition). Returns text; the canvas
-    /// owns how it is drawn.</summary>
-    private string? BuildWhyText(
-        CombatEncounterSnapshot snapshot, CombatStatDeficits deficits, CombatHistoryContext history,
-        FightSnapshot? primary, DateTime nowUtc)
-    {
-        var hasWeapon = !string.IsNullOrWhiteSpace(snapshot.CurrentWeapon);
-        var livePerHit = CombatComposition.LivePerHit(snapshot, history);
-
-        var weaponEntry = history.ByWeapon.FirstOrDefault(e =>
-            hasWeapon && string.Equals(e.Weapon, snapshot.CurrentWeapon, StringComparison.OrdinalIgnoreCase));
-        var weaponDisplayName = hasWeapon ? CombatComposition.DisplayName(snapshot.CurrentWeapon) : null;
-
-        var attempts = (primary?.YouHits ?? 0) + (primary?.YouMisses ?? 0);
-        double? liveHitRate = attempts == 0 ? null : primary!.YouHits / (double)attempts;
-
-        double? secondsSinceEquip = primary?.NpcWeaponEquippedUtc is DateTime equippedUtc
-            ? (nowUtc - equippedUtc).TotalSeconds
-            : null;
-        var npcWeaponDisplayName = primary?.NpcWeapon is string npcWeapon
-            ? CombatComposition.DisplayName(npcWeapon)
-            : null;
-
-        var result = CombatWhyLine.Resolve(
-            hasWeapon,
-            deficits.StrengthDelta,
-            deficits.ObjectsCarried,
-            livePerHit,
-            weaponEntry?.Summary.MedianDamagePerHit,
-            weaponEntry?.Summary.FightCount ?? 0,
-            weaponDisplayName,
-            deficits.DexterityDelta,
-            liveHitRate,
-            history.Primary.MedianYouHitRate,
-            secondsSinceEquip,
-            primary?.NpcName,
-            npcWeaponDisplayName);
-
-        return result?.Text;
     }
 
     /// <summary>Stand-in for "no encounter", so the formatter's session-totals path can run without a

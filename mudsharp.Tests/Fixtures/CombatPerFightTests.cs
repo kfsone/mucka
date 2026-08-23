@@ -56,9 +56,6 @@ public sealed class CombatPerFightTests
     [Fact]
     public void Fights_RecordsWhenTheNpcsOwnWeaponWasConfirmed()
     {
-        // DESIGN_FINAL.md 3.8's "why" line (priority 5) and the Combat Rail's E2 weapon-pickup
-        // alert both need "how long ago did this NPC arm itself", not just "is it armed" - see
-        // FightAccumulator.NpcWeaponEquippedUtc.
         var aggregator = new CombatStatsAggregator();
         aggregator.BeginEncounter(Start);
 
@@ -67,7 +64,6 @@ public sealed class CombatPerFightTests
 
         var fight = aggregator.Snapshot(Start.AddSeconds(20)).Fights[0];
         Assert.Equal("fork", fight.NpcWeapon);
-        Assert.Equal(Start.AddSeconds(12), fight.NpcWeaponEquippedUtc);
     }
 
     [Fact]

@@ -13,19 +13,8 @@ public enum PulseTier
 {
     /// <summary>No glow.</summary>
     None,
-    /// <summary>Bright colour, no motion - the caller paints this directly on the canvas; the glow
-    /// layer itself has nothing to do, so this and <see cref="None"/> both map to <see cref="PulseLayer.Stop"/>.</summary>
-    StaticBright,
     /// <summary>Act now - continuous glow pulse, 1.2s period, forever until the tier changes.</summary>
     T3,
-    /// <summary>One-off "something changed, worth a look" pulse - a single 2.5s cycle, then settles.
-    /// Wired but not currently requested by this implementation phase: with one shared glow layer
-    /// behind the whole panel, a persistent T3 (survival) signal always wins the layer over a
-    /// transient E2 event (see SidePanelViewModel.RefreshCombatSignals's remarks) - E2 events
-    /// (NPC weapon pickup) are rendered today as a time-decayed static bright flash instead, with no
-    /// motion. This tier is kept faithful to the design's own sketch for whichever later stage picks
-    /// pursuit's "NPC fled, available" E2 back up and needs a real one-shot pulse.</summary>
-    E2,
 }
 
 /// <summary>
@@ -58,12 +47,11 @@ internal sealed class PulseLayer
 
     public static PulseLayer Attach(FrameworkElement host) => new(host);
 
-    /// <summary>Starts (or restarts, if the tier differs) the glow. <see cref="PulseTier.None"/> and
-    /// <see cref="PulseTier.StaticBright"/> both just stop - this method is only for the tiers that
-    /// actually pulse.</summary>
+    /// <summary>Starts (or restarts) the glow for <see cref="PulseTier.T3"/>. <see cref="PulseTier.None"/>
+    /// just stops.</summary>
     public void SetTier(PulseTier tier)
     {
-        if (tier is PulseTier.None or PulseTier.StaticBright)
+        if (tier is not PulseTier.T3)
         {
             Stop();
             return;
@@ -73,14 +61,10 @@ internal sealed class PulseLayer
         var compositor = _visual.Compositor;
         var anim = compositor.CreateScalarKeyFrameAnimation();
         anim.InsertKeyFrame(0.0f, 1.0f);
-        anim.InsertKeyFrame(0.5f, tier == PulseTier.T3 ? 0.25f : 0.45f);
+        anim.InsertKeyFrame(0.5f, 0.25f);
         anim.InsertKeyFrame(1.0f, 1.0f);
-        anim.Duration = TimeSpan.FromMilliseconds(tier == PulseTier.T3 ? 1200 : 2500);
-        anim.IterationBehavior = tier == PulseTier.T3
-            ? AnimationIterationBehavior.Forever
-            : AnimationIterationBehavior.Count;   // E2: "one pulse only" per 4.2's tier table
-        if (tier != PulseTier.T3)
-            anim.IterationCount = 1;
+        anim.Duration = TimeSpan.FromMilliseconds(1200);
+        anim.IterationBehavior = AnimationIterationBehavior.Forever;
         _anim = anim;
         _visual.StartAnimation("Opacity", anim);
     }

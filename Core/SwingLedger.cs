@@ -298,7 +298,7 @@ public sealed class SwingLedger : IDisposable
                     break;
 
                 case CombatEventKind.NpcWeaponEquip:
-                    FightForLocked(combatEvent)?.NoteNpcWeapon(combatEvent.Weapon, combatEvent.TimestampUtc);
+                    FightForLocked(combatEvent)?.NoteNpcWeapon(combatEvent.Weapon);
                     break;
 
                 case CombatEventKind.NpcHealth:

@@ -4,8 +4,8 @@ namespace MudSharp.Combat;
 /// The one-shot stamina-baseline relay shared (as a pattern, not a shared instance) by
 /// <c>Core.SwingLedger</c>, <c>Core.FightHistoryRecorder</c>, and
 /// <c>ViewModels.CombatStatsAggregator</c>. Each owns its own private instance - this is a small,
-/// pure, MAUI-independent helper (matching <see cref="CombatTierResolver"/>/<see cref="CombatWhyLine"/>'s
-/// own pattern in this folder), not a piece of shared mutable state, since two of those three
+/// pure, MAUI-independent helper (matching <see cref="CombatTierResolver"/>'s own pattern in this
+/// folder), not a piece of shared mutable state, since two of those three
 /// consumers run on the Feed thread and one runs on the UI thread.
 ///
 /// <para><b>The problem this solves.</b> An NPC hit line like "The zombie hits you (95/100)." is

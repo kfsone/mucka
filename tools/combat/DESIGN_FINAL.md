@@ -107,9 +107,9 @@ surface from existing at all.
 
 Owns: the threat indicator (D14/4.7), the opposition roster (live/dead split + count, capped row
 list), race/outlook, at most one condensed flee line (D14/5, shown only when fleeing is a live
-decision), the plain-language "why" line, unarmed and NPC-weapon alerts, the pursuit/chase block
-(candidates + exact pending command), recent-swing strip, weapon-vs-history table, and (out of
-combat) last-fight + session totals.
+decision), unarmed and NPC-weapon alerts, the pursuit/chase block (candidates + exact pending
+command), recent-swing strip, weapon-vs-history table, and (out of combat) last-fight + session
+totals.
 
 **Concrete sizing and toggle.** The new panel has its own width constant, **300dp** (~10 more
 monospace columns than the left rail, at the panel's own 12px Cascadia Mono), defined next to
@@ -262,7 +262,7 @@ while a fight is live (content swap, not a resize  -  nothing reflows):
 |  rat11                      live      |   <- live sorts first; with 9 live > the 5-row cap,
 |  and 9 more (4 still up)              |      ALL 5 shown rows are live - none of the 5 dead
 |                                        |      NPCs get a row at all here (they are entirely
-| low dmg: fighting bare handed         |   <- why-line     inside the 9-more hidden tail).
+|                                        |      inside the 9-more hidden tail).
 |                                        |
 | flee now  ~9%  -1845 pts              |   <- single line, only because losing/low sta
 +--------------------------------------+
@@ -284,7 +284,6 @@ the capped list, showing the dim/struck-through treatment directly).
 - `and 9 more (4 still up)` - the roster's hidden-tail line ALWAYS distinguishes "more, still
   fighting" from "more, already down" (`ParticipantRoster.HiddenLiveCount`/`HiddenResolvedCount`) -
   the exact information the reported "5 dead rats and 9 more" case could not convey.
-- `low dmg: fighting bare handed` uses the rule table in 3.8.
 
 ### 3.4a Combat Rail  -  pack fight, mixed (14 NPCs, 4 live - a dead row now earns a slot)
 
@@ -336,7 +335,6 @@ than only in the header counts:
 | 1 enemy   1 live   0 down             |
 |  zombie4                    live      |
 |                                        |
-| low dmg: fighting bare handed         |   <- why-line (priority 1 - no weapon)
 | load str -11  200g 7obj               |   <- encumbrance, always-visible per owner's list
 |                                        |
 | flee now  FREE                        |   <- FREE, but tone stays no calmer than the tier above
@@ -407,23 +405,9 @@ than only in the header counts:
 
 - Result banner persists until the next fight starts or the player dismisses it (no auto-erase  - 
   this was a real complaint about the old window's 8-second self-clear).
-- No threat indicator, outlook detail, why-line, or flee line post-combat - all four are survival
+- No threat indicator, outlook detail, or flee line post-combat - all three are survival
   PROJECTIONS, which go silent once `InCombat` is false (D14). The roster and stamina gauge stay,
   since they describe fact rather than projecting one.
-
-### 3.8 "Why" line rule table (deterministic, priority-ordered, one line max)
-
-| Priority | Condition | Sentence |
-| --- | --- | --- |
-| 1 | current weapon is null | `low dmg: fighting bare handed` |
-| 2 | strength delta <= -10 | `... and N items cost you M str right now` |
-| 3 | live per-hit < 70% of this weapon's own historical median for this npc_group (n >= 3) | `WEAPON is hitting for less than usual (X vs your usual Y)` |
-| 4 | dexterity delta <= -15 and live hit-rate < historical hit-rate for this weapon | `carrying N items is costing you dex, and it shows in your hit rate` |
-| 5 | an `NpcWeaponEquip` fired in the last 20s for the primary target | `they're hitting harder: TARGET picked up a WEAPON partway through this` |
-
-Only the single highest-priority active condition renders. Silent when nothing qualifies. No
-formula, coefficient, or number beyond what is already on screen elsewhere  -  this is the "surface
-causes, not coefficients" instruction verbatim.
 
 ### 3.9 Combat Lab  -  Flee Economics tab (RETIRED, 2026-08-16, D15)
 
@@ -477,15 +461,22 @@ overlap), `CONFIRMED` (30+, holds across two conditions). Every card ends in an 
 No new hex value appears anywhere in this design. Outcomes (`KILLED`, `FLED`, `DIED`) render in
 Ink as facts, not judgements; only `KilledByNpc` (player death) gets Danger-bright.
 
-### 4.2 EVENT vs STATE  -  two kinds of emphasis, five tiers
+### 4.2 STATE tiers
 
-| Tier | Applies to | Colour move | Motion | Duration | Meaning |
-| --- | --- | --- | --- | --- | --- |
-| T1 | STATE | normal hue | none | while true | worth noticing on your own time |
-| T2 | STATE | bright hue | none | while true | worth noticing soon |
-| T3 | STATE | bright hue | glow pulse, 1.2s period | while true | act now |
-| E1 | EVENT | bright flash | none | ~1.5s then decays to T1/none | something changed, low stakes |
-| E2 | EVENT | bright flash + one glow pulse | one pulse only | ~2.5s then settles | something changed, worth a look now (NPC armed, NPC fled) |
+**No EVENT tiers are implemented.** An earlier version of this section specced two additional
+EVENT tiers (E1/E2 - one-off flashes on a state CHANGE such as an NPC picking up a weapon, or a
+stamina bracket crossing) on top of the three STATE tiers below. Neither ever shipped: the panel
+has no code path that renders a decaying flash of any kind, and the bracket-crossing hysteresis
+latch that would have driven it (`_below20Armed`/`_below6_5Armed`) was pulled as dead weight - it
+updated two timestamp properties every stats refresh and nothing ever read them. If event-style
+alerting (NPC weapon pickup, NPC fled/pursuit) is wanted later, it needs designing and building
+fresh; nothing here is "already half done".
+
+| Tier | Colour move | Motion | Duration | Meaning |
+| --- | --- | --- | --- | --- |
+| T1 | normal hue | none | while true | worth noticing on your own time |
+| T2 | bright hue | none | while true | worth noticing soon |
+| T3 | bright hue | glow pulse, 1.2s period | while true | act now |
 
 Rules:
 - **At most one T3 element at a time**, enforced in code. If two conditions qualify, the most
@@ -499,14 +490,6 @@ Rules:
 - Motion is ALWAYS a glow/opacity layer behind or around text via WinUI Composition, never the
   text's own colour (D9). `Label.TextColor`/canvas-text-colour animation is a UI-thread dependent
   property change and is not permitted.
-- **Bracket-crossing signals (the last row of 4.3) have hysteresis, not a bare threshold compare.**
-  Each of the two brackets (20 sta, 6.5 sta) fires its E1 crossing event AT MOST ONCE per downward
-  crossing, and re-arms only once stamina rises back strictly ABOVE that same boundary. Implement
-  as one latched boolean per boundary (`_below20Armed`, `_below6_5Armed`), checked and cleared on
-  the downward crossing, re-set only when stamina is observed above the boundary again. Without
-  this, stamina oscillating across 6.5 from repeated small hits and small regen ticks would fire the
-  E1 flash on every single tick that straddles the line - the opposite of the "worth a look, once"
-  meaning E1 is supposed to carry.
 
 ### 4.3 What triggers what
 
@@ -519,10 +502,6 @@ Rules:
 | Strength delta chip | T1 | effective strength < 75% of max (the brief's own threshold) |
 | Dexterity delta chip | T1 | any nonzero penalty, in combat |
 | Unarmed | T2 | always, whenever current weapon is null and a fight is live |
-| NPC weapon pickup | E2 | on `NpcWeaponEquip` for the primary target |
-| NPC fled, pursuit available | E2 | on a confirmed flee with no other unresolved fight |
-| NPC fled, pursuit blocked | E1 | on a confirmed flee while another fight is open (informational only) |
-| Risk-tier bracket crossing | E1 | stamina crosses 20 or 6.5 downward |
 
 ### 4.4 The non-negotiable rule: survival overrides cost-framing
 
@@ -643,8 +622,8 @@ The live Combat Rail now renders **at most one line** (`SidePanelViewModel.FleeS
 `BuildFleeSummaryLine`), and only when fleeing is actually a live decision - losing on the outlook
 projection, OR stamina already sits at CombatTierResolver.StaminaTier T1 or above (i.e. anything the
 threat indicator, 4.7, would already be flagging as at least Caution). Silent otherwise - a flee
-line on a healthy, winning fight would be exactly the "always-present row nobody reads" 3.8's own
-framing rule already warns against. The single line still shows the "now" figure with D6's honest
+line on a healthy, winning fight would be exactly the always-present-row-nobody-reads pattern this
+design avoids elsewhere. The single line still shows the "now" figure with D6's honest
 `~` prefix when interpolated, and D7/4.4's hard floor still applies: the line's COLOUR never reads
 calmer than Warn once stamina sits at or under the free-flee threshold, however cheap or FREE the
 number itself has become.
@@ -708,7 +687,7 @@ function HitsToNextBand(currentStamina, incomingDamagePerHit, opponentLandedHits
     # rate. Reuses the same minimum CombatOutlook already gates its own projection on
     # (CombatOutlook.MinimumOwnHits = 2), rather than inventing a second threshold.
     if opponentLandedHitsThisFight < 2 or incomingDamagePerHit <= 0:
-        return SUPPRESSED     # render nothing - no guess stands in for a real rate (3.8's own rule)
+        return SUPPRESSED     # render nothing - no guess stands in for a real rate
 
     if currentStamina < 6.5:
         return SUPPRESSED     # already free; no cheaper band exists - see 4.4/D7, never show a
@@ -927,7 +906,7 @@ stall: one native `Run` per styled span, full teardown-plus-remeasure on every r
 `CollectionView` (poor virtualization at scale on WinUI), and not a second window. All text, bars,
 and gauges are Skia draw calls against a FIXED layout: a capped number of rows (the threat headline;
 the stamina gauge; the opposition roster's 5 participant rows + a hidden-count footer, D14; the
-condensed flee line, at most 1 row after D14; 1 why-line; 1 pursuit block) whose draw-call count
+condensed flee line, at most 1 row after D14; 1 pursuit block) whose draw-call count
 depends only on that fixed cap, never on total participant count or total historical fight count.
 On WinUI, `SKXamlCanvas` paints ON the UI thread  -  acceptable here specifically because the
 draw-call count is bounded and the canvas is only invalidated on genuine state change (7.2), never
@@ -970,23 +949,20 @@ internal sealed class PulseLayer
 
     public static PulseLayer Attach(FrameworkElement host) => new(host);
 
-    /// <summary>Starts (or restarts, if the period differs) the glow for the given tier. T1/E1-none
-    /// callers should call Stop() instead - this method is only for T3/E2's actual pulsing tiers.</summary>
+    /// <summary>Starts (or restarts) the glow for T3. None just calls Stop() - this method has only
+    /// ever had one pulsing tier to drive, since no shipped signal in this design reaches E1/E2.</summary>
     public void SetTier(PulseTier tier)
     {
-        if (tier is PulseTier.None or PulseTier.StaticBright) { Stop(); return; }
+        if (tier is not PulseTier.T3) { Stop(); return; }
 
         _visual ??= ElementCompositionPreview.GetElementVisual(_host);
         var compositor = _visual.Compositor;
         _anim = compositor.CreateScalarKeyFrameAnimation();
         _anim.InsertKeyFrame(0.0f, 1.0f);
-        _anim.InsertKeyFrame(0.5f, tier == PulseTier.T3 ? 0.25f : 0.45f);
+        _anim.InsertKeyFrame(0.5f, 0.25f);
         _anim.InsertKeyFrame(1.0f, 1.0f);
-        _anim.Duration = TimeSpan.FromMilliseconds(tier == PulseTier.T3 ? 1200 : 2500);
-        _anim.IterationBehavior = tier == PulseTier.T3
-            ? AnimationIterationBehavior.Forever
-            : AnimationIterationBehavior.Count;   // E2: "one pulse only" per 4.2's tier table
-        if (tier != PulseTier.T3) _anim.IterationCount = 1;
+        _anim.Duration = TimeSpan.FromMilliseconds(1200);
+        _anim.IterationBehavior = AnimationIterationBehavior.Forever;
         _visual.StartAnimation("Opacity", _anim);
     }
 
@@ -1082,7 +1058,7 @@ Stage 6  (Combat Lab: Overview + Weapons&Creatures)/
 Stage 1 ------------------------------+
                                         \
 Stage 5 (recommended, not a hard block) -+--> Stage 4a (Combat Rail: core - targets, race,
-                                        /       flee ladder, why-line)
+                                        /       flee ladder)
 Stage 0 (creates the new panel + toggle) --+
 
 Stage 2 (HARD BLOCK - cannot be skipped) --+
@@ -1117,8 +1093,8 @@ Reading it plainly:
   `flee_event` rows have accumulated from actual play  -  the earlier Stage 3 starts capturing, the
   sooner Stage 7 has anything beyond the guess to show.
 - **Recommended-but-not-required ordering**: Stage 5 (incremental history index) should land
-  before or alongside Stage 4a, because Stage 4a's "why" line (rule 3 in 3.8) and weapon table both
-  read history, and shipping the new Combat Rail on top of the OLD full-corpus-rescan behaviour
+  before or alongside Stage 4a, because Stage 4a's weapon table reads history, and shipping the
+  new Combat Rail on top of the OLD full-corpus-rescan behaviour
   would reintroduce the exact perf bug this design exists to fix, even though nothing in Stage 4a's
   own code requires Stage 5 to compile or run.
 - **`PulseLayer` (built in Stage 1) is reused, not reimplemented, by Stage 4a and Stage 4b's tier
@@ -1188,7 +1164,7 @@ Stage 5 (see 8.1's "recommended-but-not-required" note  -  ships correctly witho
 the old perf bug in its history-dependent rows until Stage 5 lands).
 
 - Build out the new Combat Rail panel's content against the show/hide state from Stage 0.
-- Targets, race bars, the "why" line (3.8), the threat indicator and opposition roster (4.7, D14),
+- Targets, race bars, the threat indicator and opposition roster (4.7, D14),
   and the condensed flee line (5, D14 - superseded from the originally-planned full ladder).
 
 Delivers: the flee-decision aid nothing today provides, and the targets/race view, without the

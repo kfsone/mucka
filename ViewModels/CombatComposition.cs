@@ -4,8 +4,8 @@ namespace Mucka.ViewModels;
 
 /// <summary>
 /// Pure, MAUI-independent helpers shared by the combat composition path: which fight the panel is
-/// currently about, the survivability projection behind it, the live damage-per-hit figure, and
-/// name shortening for a fixed-width surface.
+/// currently about, the survivability projection behind it, and name shortening for a fixed-width
+/// surface.
 ///
 /// <para>Extracted from the deleted text formatter, which mixed these value computations in with
 /// line composition. Everything here computes a number or a name; nothing here decides layout,
@@ -44,21 +44,6 @@ internal static class CombatComposition
                 primary.TheyHits,
                 deficits.StaminaCurrent,
                 history.Primary.EstimatedStaminaPool);
-    }
-
-
-    /// <summary>Damage per landed blow so far in the current fight, which is what the historical
-    /// per-hit figures are comparable against. Taken from the primary fight rather than the whole
-    /// encounter so a second target of a different species cannot pollute it.</summary>
-    internal static double? LivePerHit(CombatEncounterSnapshot snapshot, CombatHistoryContext history)
-    {
-        var primary = PrimaryFight(snapshot);
-        if (primary is null || primary.YouHits == 0 || primary.ApproxDamageDone <= 0)
-            return null;
-        if (history.GroupName.Length > 0
-            && !string.Equals(primary.NpcGroup, history.GroupName, StringComparison.OrdinalIgnoreCase))
-            return null;
-        return primary.ApproxDamageDone / primary.YouHits;
     }
 
     private static bool IsCurrentWeapon(string weapon, string? current)

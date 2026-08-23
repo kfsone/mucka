@@ -4,7 +4,7 @@ namespace mudsharp.Tests.Fixtures;
 
 /// <summary>
 /// Covers DESIGN_FINAL.md 4.2-4.4's tier table: the stamina/strength/dexterity/unarmed tiers, the
-/// bracket-crossing hysteresis latches, the stamina tie-break, and the critical-stamina hard floor.
+/// stamina tie-break, and the critical-stamina hard floor.
 /// </summary>
 public sealed class CombatTierResolverTests
 {
@@ -148,69 +148,4 @@ public sealed class CombatTierResolverTests
     [Fact]
     public void CriticalStaminaFloorTier_AboveTheThreshold_PassesTheStaminaTierThrough()
         => Assert.Equal(CombatTier.None, CombatTierResolver.CriticalStaminaFloorTier(CombatTier.None, staminaCurrent: 50));
-
-    // ── Bracket-crossing hysteresis (4.2's last bullet) ─────────────────────────
-
-    [Fact]
-    public void ObserveStaminaForCrossings_FiresOnceOnTheFirstDownwardCrossing()
-    {
-        var resolver = new CombatTierResolver();
-        var t0 = DateTime.UtcNow;
-
-        resolver.ObserveStaminaForCrossings(10.0, t0);   // above 6.5 — no crossing yet
-        Assert.Null(resolver.Below6_5CrossedUtc);
-
-        resolver.ObserveStaminaForCrossings(5.0, t0.AddSeconds(1));   // crosses below 6.5
-        Assert.Equal(t0.AddSeconds(1), resolver.Below6_5CrossedUtc);
-    }
-
-    [Fact]
-    public void ObserveStaminaForCrossings_DoesNotRefireWhileOscillatingBelowTheLine()
-    {
-        // The exact failure mode 4.2 calls out: small hits/regen ticks straddling 6.5 must not
-        // re-flash on every tick — only the FIRST downward crossing counts until it re-arms.
-        var resolver = new CombatTierResolver();
-        var t0 = DateTime.UtcNow;
-
-        resolver.ObserveStaminaForCrossings(5.0, t0);
-        var firstCrossing = resolver.Below6_5CrossedUtc;
-        Assert.NotNull(firstCrossing);
-
-        resolver.ObserveStaminaForCrossings(6.4, t0.AddSeconds(1));   // still below 6.5
-        resolver.ObserveStaminaForCrossings(5.9, t0.AddSeconds(2));   // still below 6.5
-        Assert.Equal(firstCrossing, resolver.Below6_5CrossedUtc);   // unchanged — no re-fire
-    }
-
-    [Fact]
-    public void ObserveStaminaForCrossings_RearmsOnlyAfterRisingStrictlyAboveTheBoundary()
-    {
-        var resolver = new CombatTierResolver();
-        var t0 = DateTime.UtcNow;
-
-        resolver.ObserveStaminaForCrossings(5.0, t0);              // first crossing
-        resolver.ObserveStaminaForCrossings(6.5, t0.AddSeconds(1)); // AT the boundary — not "above"
-        resolver.ObserveStaminaForCrossings(4.0, t0.AddSeconds(2)); // still below — should NOT re-fire
-        Assert.Equal(t0, resolver.Below6_5CrossedUtc);
-
-        resolver.ObserveStaminaForCrossings(7.0, t0.AddSeconds(3));  // strictly above — re-arms
-        resolver.ObserveStaminaForCrossings(3.0, t0.AddSeconds(4));  // crosses again — fires again
-        Assert.Equal(t0.AddSeconds(4), resolver.Below6_5CrossedUtc);
-    }
-
-    [Fact]
-    public void Reset_ClearsBothLatchesAndTimestamps()
-    {
-        var resolver = new CombatTierResolver();
-        var t0 = DateTime.UtcNow;
-        resolver.ObserveStaminaForCrossings(3.0, t0);
-        Assert.NotNull(resolver.Below6_5CrossedUtc);
-
-        resolver.Reset();
-        Assert.Null(resolver.Below6_5CrossedUtc);
-        Assert.Null(resolver.Below20CrossedUtc);
-
-        // And the latch is re-armed: a fresh downward crossing fires again immediately.
-        resolver.ObserveStaminaForCrossings(3.0, t0.AddSeconds(5));
-        Assert.Equal(t0.AddSeconds(5), resolver.Below6_5CrossedUtc);
-    }
 }

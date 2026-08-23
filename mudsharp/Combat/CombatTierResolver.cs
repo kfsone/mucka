@@ -2,9 +2,7 @@ namespace MudSharp.Combat;
 
 /// <summary>Visual urgency tier for a STATE signal (DESIGN_FINAL.md section 4.2). Only <see cref="T3"/>
 /// carries motion (a Composition glow pulse); <see cref="T1"/>/<see cref="T2"/> are static colour
-/// moves. EVENT tiers (E1/E2 - one-off flashes on a state CHANGE, e.g. an NPC picking up a weapon)
-/// are deliberately not modelled here: they are timestamp-driven decay windows the caller compares
-/// against <c>DateTime.UtcNow</c> at paint time, not a persistent state this resolver tracks.</summary>
+/// moves.</summary>
 public enum CombatTier
 {
     None,
@@ -17,86 +15,17 @@ public enum CombatTier
 }
 
 /// <summary>
-/// Resolves per-signal tiers per DESIGN_FINAL.md section 4.3, plus the two rules in 4.2/4.4 that are
-/// stateful or cross-cutting enough to need a home: the bracket-crossing hysteresis latches (4.2's
-/// last bullet) and the critical-stamina hard floor (4.4). Everything else here is a pure, stateless
-/// function of primitives - testable directly, and MAUI-independent so mudsharp.Tests can exercise
-/// it via the existing ProjectReference with no test-project wiring.
-///
-/// <para>One instance lives for the duration of an encounter; call <see cref="Reset"/> on
-/// <c>BeginEncounter</c> so a fresh fight starts both latches armed (4.2: latches "re-arm only once
-/// stamina rises back strictly ABOVE that same boundary" - a brand new encounter has no prior
-/// crossing to remember).</para>
+/// Resolves per-signal tiers per DESIGN_FINAL.md section 4.3, plus the critical-stamina hard floor
+/// (4.4). Everything here is a pure, stateless function of primitives - testable directly, and
+/// MAUI-independent so mudsharp.Tests can exercise it via the existing ProjectReference with no
+/// test-project wiring.
 /// </summary>
-public sealed class CombatTierResolver
+public static class CombatTierResolver
 {
     /// <summary>Stamina at/below which the player is close enough to permadeath that the panel must
     /// never read calmer than T2, whatever else it would otherwise say (D15/4.4). Not a cost figure -
     /// this codebase shows no flee economics of any kind, in any form (D15).</summary>
     public const double CriticalStaminaThreshold = 6.5;
-
-    /// <summary>Stamina below which the fight has entered the zone worth a first look - the boundary
-    /// the E1 bracket-crossing flash fires on (4.3's last row).</summary>
-    public const double WarningStaminaThreshold = 20.0;
-
-    private bool _below20Armed = true;
-    private bool _below6_5Armed = true;
-
-    /// <summary>UTC time of the most recent downward crossing of <see cref="WarningStaminaThreshold"/>,
-    /// or null if none has happened (or it has since re-armed by rising back above it). Drives the E1
-    /// bracket-crossing flash (4.3's last row) - the caller compares this against
-    /// <c>DateTime.UtcNow</c> and decays the flash after ~1.5s (4.2's E1 duration).</summary>
-    public DateTime? Below20CrossedUtc { get; private set; }
-
-    /// <summary>Same as <see cref="Below20CrossedUtc"/> for <see cref="CriticalStaminaThreshold"/>.</summary>
-    public DateTime? Below6_5CrossedUtc { get; private set; }
-
-    public void Reset()
-    {
-        _below20Armed = true;
-        _below6_5Armed = true;
-        Below20CrossedUtc = null;
-        Below6_5CrossedUtc = null;
-    }
-
-    /// <summary>
-    /// Updates the two hysteresis latches for the current stamina reading. Each boundary fires its
-    /// crossing timestamp AT MOST ONCE per downward crossing, and only re-arms once stamina is
-    /// observed strictly above that boundary again (4.2) - without this, stamina oscillating across
-    /// 6.5 from small hits and small regen ticks would re-flash on every tick that straddles the
-    /// line, which is the opposite of "worth a look, once".
-    /// </summary>
-    public void ObserveStaminaForCrossings(double staminaCurrent, DateTime nowUtc)
-    {
-        // Exactly AT a boundary is deliberately neither "below" (no new crossing to fire) nor
-        // "strictly above" (no re-arm either) - 4.2 says re-arming needs stamina strictly above the
-        // boundary, so sitting exactly on it leaves whichever state the latch was already in alone.
-        if (staminaCurrent < WarningStaminaThreshold)
-        {
-            if (_below20Armed)
-            {
-                Below20CrossedUtc = nowUtc;
-                _below20Armed = false;
-            }
-        }
-        else if (staminaCurrent > WarningStaminaThreshold)
-        {
-            _below20Armed = true;
-        }
-
-        if (staminaCurrent < CriticalStaminaThreshold)
-        {
-            if (_below6_5Armed)
-            {
-                Below6_5CrossedUtc = nowUtc;
-                _below6_5Armed = false;
-            }
-        }
-        else if (staminaCurrent > CriticalStaminaThreshold)
-        {
-            _below6_5Armed = true;
-        }
-    }
 
     /// <summary>Stamina / hits-left tier (4.3's first three rows). All inputs optional/nullable -
     /// an unknown value simply cannot promote the tier past what the known ones justify.</summary>

@@ -149,10 +149,6 @@ public sealed class ParserGapTests
         var fight = Assert.Single(snapshot.Fights);
         Assert.True(fight.IsResolved);
         Assert.Equal(FightOutcome.CFledFail, fight.Outcome);
-        // FleeAttempts lives on the accumulator, not on the rendered snapshot row - the count has no
-        // consumer yet (nothing reads it, and it is not persisted on FightRecord), so it is asserted
-        // at its source rather than through a surface that does not carry it.
-        Assert.Equal(1, Assert.Single(aggregator.Fights).FleeAttempts);
     }
 
     // ---- Health readings folded into a longer sentence --------------------------------------

@@ -38,9 +38,6 @@ public sealed record FightSnapshot(
     // overwritten one side's weapon with the other's the first time they differed.
     string? Weapon,
     string? NpcWeapon,
-    // When the NPC's own weapon was last confirmed - see FightAccumulator.NpcWeaponEquippedUtc.
-    // Null whenever NpcWeapon is null (never armed) or, in idle/design-time snapshots, always.
-    DateTime? NpcWeaponEquippedUtc,
     int YouHits,
     int YouMisses,
     int TheyHits,
@@ -212,7 +209,7 @@ public sealed class CombatStatsAggregator
                 AddParticipant(combatEvent.NpcName);
                 if (!string.IsNullOrWhiteSpace(combatEvent.NpcName) && !string.IsNullOrWhiteSpace(combatEvent.Weapon))
                     _npcWeapons[combatEvent.NpcName] = combatEvent.Weapon;
-                FightFor(combatEvent)?.NoteNpcWeapon(combatEvent.Weapon, combatEvent.TimestampUtc);
+                FightFor(combatEvent)?.NoteNpcWeapon(combatEvent.Weapon);
                 break;
 
             // WeaponUnusable shares this: "You cannot use the X to fight now!" means the weapon is
@@ -251,11 +248,6 @@ public sealed class CombatStatsAggregator
                 // and drops the creature from the live roster - it is no longer an opponent until
                 // re-engaged, and leaving it listed is what kept the panel claiming "in combat" after
                 // a fight the player simply walked away from.
-                //
-                // NoteFleeAttempt still fires: the attempt itself is worth counting separately from
-                // the outcome, because attempt frequency is what makes a creature tedious to kill even
-                // when it never actually escapes.
-                FightFor(combatEvent)?.NoteFleeAttempt();
                 ResolveFight(combatEvent, FightOutcome.CFledFail);
                 RemoveParticipant(combatEvent.NpcName);
                 break;
@@ -404,7 +396,6 @@ public sealed class CombatStatsAggregator
                 fight.NpcGroup,
                 fight.WeaponUsed,
                 fight.NpcWeapon,
-                fight.NpcWeaponEquippedUtc,
                 fight.YouHits,
                 fight.YouMisses,
                 fight.TheyHits,

@@ -69,23 +69,6 @@ public sealed record FightHistorySummary
     /// <summary>Kills as a fraction of all matching fights, or null with no fights at all.</summary>
     public double? KillRate => FightCount == 0 ? null : Kills / (double)FightCount;
 
-    /// <summary>How often this opponent has ACTUALLY got away, as a fraction of all recorded fights.
-    /// Some MUD2 NPCs are strongly flight-prone (per the user, water snakes almost always try), which
-    /// matters BEFORE committing: a fleeing target has to be chased through rooms or the kill is
-    /// lost. Null with no fights on record.
-    ///
-    /// <para>Deliberately escapes only - failed attempts are excluded, because the decision this
-    /// figure informs is "will I have to chase it", and a creature that never left the room does not
-    /// need chasing. See <see cref="FleeAttemptRate"/> for the other question.</para></summary>
-    public double? FleeRate => FightCount == 0 ? null : CFled / (double)FightCount;
-
-    /// <summary>How often this opponent BREAKS OFF the fight, successfully or not, as a fraction of
-    /// all recorded fights. A different question from <see cref="FleeRate"/> and worth its own figure:
-    /// a failed attempt still ends the fight and still costs the player a re-attack, so a creature
-    /// with a high attempt rate is tedious to kill even when it never escapes at all.</summary>
-    public double? FleeAttemptRate
-        => FightCount == 0 ? null : (CFled + CFledFail) / (double)FightCount;
-
     public static readonly FightHistorySummary Empty = new();
 }
 
