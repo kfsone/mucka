@@ -43,53 +43,36 @@ public class Profile
     /// recording. Only takes effect in Debug builds while recording; persisted per profile.</summary>
     public bool LogResetDiagnostics { get; set; }
     /// <summary>Per-sound enablement and group fallbacks. Defaults to everything on.</summary>
-    [System.Text.Json.Serialization.JsonIgnore]
     public SoundSettings Sounds { get; set; } = new();
     public string[] Fkeys { get => _fkeys; set => _fkeys = NormalizeFkeys(value); }
 
     /// <summary>True when the settings came from a per-profile [settings:Name] ini section
     /// rather than the global [settings]. Derived from mucka.ini at load; not persisted here.</summary>
-    [System.Text.Json.Serialization.JsonIgnore]
     public bool SettingsPerProfile { get; set; }
     /// <summary>True when the fkeys came from a per-profile [fkeys:Name] ini section
     /// rather than the global [fkeys]. Derived from mucka.ini at load; not persisted here.</summary>
-    [System.Text.Json.Serialization.JsonIgnore]
     public bool FkeysPerProfile { get; set; }
 
     // ── Display tab settings (global, loaded from [settings] section at connect time) ──
-    [System.Text.Json.Serialization.JsonIgnore]
     public int DefaultFontSize { get; set; }
-    [System.Text.Json.Serialization.JsonIgnore]
     public int DefaultMaxColumns { get; set; }
-    [System.Text.Json.Serialization.JsonIgnore]
     public int DreamwordSizeOffset { get; set; }
     /// <summary>Hex color (6 digits, no '#') for the label portion of your own chat lines. Default blue.</summary>
-    [System.Text.Json.Serialization.JsonIgnore]
     public string MeNameColor { get; set; } = MudSharp.Models.SelfChatColorizer.DefaultNameHex;
     /// <summary>Hex color (6 digits, no '#') for the quoted-speech portion of your own chat lines. Default lighter blue.</summary>
-    [System.Text.Json.Serialization.JsonIgnore]
     public string MeSpeechColor { get; set; } = MudSharp.Models.SelfChatColorizer.DefaultSpeechHex;
-    [System.Text.Json.Serialization.JsonIgnore]
     public bool ShowOnline { get; set; } = true;
-    [System.Text.Json.Serialization.JsonIgnore]
     public bool ShowInventory { get; set; } = true;
-    [System.Text.Json.Serialization.JsonIgnore]
     public bool ShowItemsHere { get; set; } = true;
-    [System.Text.Json.Serialization.JsonIgnore]
     public bool ShowMapCompass { get; set; } = true;
-    [System.Text.Json.Serialization.JsonIgnore]
     public int MaxOnlineDisplay { get; set; }
-    [System.Text.Json.Serialization.JsonIgnore]
     public bool OnlineNamesOnly { get; set; }
     /// <summary>Minutes a player lingers in the "Recent" list after fading off Online before
     /// being forgotten. 0 = disabled (forget immediately). Range 0–10, default 5.</summary>
-    [System.Text.Json.Serialization.JsonIgnore]
     public int OnlineForgetWindow { get; set; } = 5;
     /// <summary>Global default for floating (unpinning) the Online list. False = pinned in the side panel.</summary>
-    [System.Text.Json.Serialization.JsonIgnore]
     public bool FloatOnline { get; set; }
     /// <summary>Global default for floating (unpinning) the compass. False = pinned in the side panel.</summary>
-    [System.Text.Json.Serialization.JsonIgnore]
     public bool FloatCompass { get; set; }
 
     private static readonly Dictionary<int, string> s_defaultFkeys = new()

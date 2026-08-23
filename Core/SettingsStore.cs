@@ -268,8 +268,7 @@ public static class SettingsStore
     /// <summary>
     /// Loads the connection profiles from mucka.ini: [profiles] gives the MRU order,
     /// one [profile:Name] section each holds the identity fields. When the ini defines
-    /// no profiles, falls back to a one-time migration from the legacy profiles.json
-    /// (retired to *.unused afterwards), and failing that to the built-in defaults.
+    /// no profiles, falls back to the built-in defaults.
     /// </summary>
     public static async Task<List<Profile>> LoadProfilesAsync()
     {
@@ -279,22 +278,7 @@ public static class SettingsStore
             var path = ResolvePath();
             var ini  = IniFile.Load(path);
             var profiles = ReadProfiles(ini);
-            if (profiles.Count > 0)
-                return profiles;
-
-            // No profiles in the ini yet: import the legacy profiles.json once. Any
-            // read failure is treated as "no legacy file" (TryLoadLegacyAsync).
-            var legacy = await ProfileStore.TryLoadLegacyAsync().ConfigureAwait(false);
-            if (legacy is { Count: > 0 })
-            {
-                WriteProfiles(ini, legacy);
-                MigrateLegacySettings(ini, legacy[0]);
-                await ini.SaveAsync(path).ConfigureAwait(false);
-                ProfileStore.RetireLegacyFile();
-                return legacy;
-            }
-
-            return DefaultProfiles();
+            return profiles.Count > 0 ? profiles : DefaultProfiles();
         }
         finally
         {
@@ -408,32 +392,6 @@ public static class SettingsStore
             ini.Set(section, "defaulthotkeys",   p.DefaultHotkeys     ? "yes" : "no");
             ini.Set(section, "guidedlogin",       p.GuidedLogin        ? "yes" : "no");
             ini.Set(section, "guidedloginpersona", p.GuidedLoginPersona);
-        }
-    }
-
-    /// <summary>
-    /// Pre-ini installs kept settings and fkeys only in profiles.json; carry the MRU
-    /// profile's copies into the ini (global scope) when the ini has neither, so the
-    /// upgrade doesn't reset them. Installs that already saved to the ini are left alone.
-    /// </summary>
-    private static void MigrateLegacySettings(IniFile ini, Profile first)
-    {
-        if (!ini.HasSection("settings") && !ini.HasSection($"settings:{first.Name}"))
-        {
-            ini.Set("settings", "fontsize",   first.FontSize.ToString());
-            ini.Set("settings", "columns",    first.MaxColumns.ToString());
-            ini.Set("settings", "volume",     first.Volume.ToString());
-            ini.Set("settings", "statupdate", first.StatUpdateFrequency.ToString());
-            ini.Set("settings", "mutebeep",   first.MuteBeepPermanently ? "yes" : "no");
-            ini.Set("settings", "logttr",     first.LogResetDiagnostics ? "yes" : "no");
-        }
-        if (!ini.HasSection("fkeys") && !ini.HasSection($"fkeys:{first.Name}") &&
-            first.Fkeys.Any(f => !string.IsNullOrEmpty(f)))
-        {
-            ini.EnsureSection("fkeys");
-            for (var i = 0; i < first.Fkeys.Length && i < FkeyCount; i++)
-                if (!string.IsNullOrEmpty(first.Fkeys[i]))
-                    ini.Set("fkeys", $"F{i + 1}", first.Fkeys[i]);
         }
     }
 
