@@ -3,15 +3,13 @@
 	<PropertyGroup>
 		<!-- Each runner builds only its own target:
 		     Windows runner  → net10.0-windows
-		     macOS runner    → net10.0-maccatalyst
 		     Linux runner    → net10.0-android  -->
 		<TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('windows'))">net10.0-windows10.0.19041.0</TargetFrameworks>
 		<!-- Local Android build/deploy from a Windows dev box (opt-in so plain builds and CI
 		     don't require the android workload):
 		       dotnet build -f net10.0-android -p:LocalAndroid=true -t:Run   (deploys to adb device) -->
 		<TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('windows')) and '$(LocalAndroid)' == 'true'">net10.0-windows10.0.19041.0;net10.0-android</TargetFrameworks>
-		<TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('osx'))">net10.0-maccatalyst</TargetFrameworks>
-		<TargetFrameworks Condition="!$([MSBuild]::IsOSPlatform('windows')) and !$([MSBuild]::IsOSPlatform('osx'))">net10.0-android</TargetFrameworks>
+		<TargetFrameworks Condition="!$([MSBuild]::IsOSPlatform('windows'))">net10.0-android</TargetFrameworks>
 
 		<OutputType>Exe</OutputType>
 		<RootNamespace>Mucka</RootNamespace>
@@ -35,15 +33,13 @@
 		<ApplicationId>org.kfs.mucka</ApplicationId>
 
 		<!-- Versions — ApplicationDisplayVersion is set from $(Version) via Directory.Build.props
-		     (MinVer reads the nearest git tag, e.g. v0.1.0).
+		     (ComputeCustomVersion target, driven by scripts/Get-Version.ps1 and version.json).
 		     ApplicationVersion is the Android versionCode integer; override in CI with the run number. -->
 		<ApplicationVersion>1</ApplicationVersion>
 
 		<!-- To develop, package, and publish an app to the Microsoft Store, see: https://aka.ms/MauiTemplateUnpackaged -->
 		<WindowsPackageType>None</WindowsPackageType>
 
-		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'">15.0</SupportedOSPlatformVersion>
-		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">15.0</SupportedOSPlatformVersion>
 		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">21.0</SupportedOSPlatformVersion>
 		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</SupportedOSPlatformVersion>
 		<TargetPlatformMinVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</TargetPlatformMinVersion>
@@ -81,15 +77,6 @@
 		<RunAOTCompilation>false</RunAOTCompilation>
 	</PropertyGroup>
 
-	<PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows' and '$(CreateWindowsInstaller)' == 'true'">
-		<WindowsPackageType>MSIX</WindowsPackageType>
-		<AppxPackageSigningEnabled>False</AppxPackageSigningEnabled>
-		<AppxSymbolPackageEnabled>False</AppxSymbolPackageEnabled>
-		<GenerateTestArtifacts>True</GenerateTestArtifacts>
-		<GenerateTemporaryStoreCertificate>True</GenerateTemporaryStoreCertificate>
-		<HoursBetweenUpdateChecks>0</HoursBetweenUpdateChecks>
-	</PropertyGroup>
-
 	<ItemGroup>
 		<!-- App Icon -->
 		<MauiIcon Include="Resources\AppIcon\mucka_icon.png" Color="#512BD4" />
@@ -112,6 +99,11 @@
 
 		<!-- Raw Assets (also remove the "Resources\Raw" prefix) -->
 		<MauiAsset Include="Resources\Raw\**" LogicalName="%(RecursiveDir)%(Filename)%(Extension)" />
+		<!-- status/*.svg are rasterizer source art (see tools\rasterize-status-icons.cs), not
+		     runtime assets — the generated PNGs ship via the MauiImage group above instead. -->
+		<MauiAsset Remove="Resources\Raw\status\**" />
+		<!-- sounds/README.md documents the sound set for editors; it has no runtime use. -->
+		<MauiAsset Remove="Resources\Raw\sounds\README.md" />
 	</ItemGroup>
 
 	<ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">
@@ -132,7 +124,6 @@
 		<Compile Remove="tools\**" />
 		<Compile Remove="mudsharp\**" />
 		<Compile Remove="mudsharp.Tests\**" />
-		<Compile Remove="mudsharp.Demo\**" />
 		<Compile Remove="Mucka.Terminal\**" />
 		<Compile Remove="Mucka.Terminal.Tests\**" />
 		<!-- Mucka.Input is referenced as an ASSEMBLY, never compiled in: the assembly boundary IS the
@@ -142,13 +133,11 @@
 		<Compile Remove="Mucka.Input\**" />
 		<EmbeddedResource Remove="mudsharp\**" />
 		<EmbeddedResource Remove="mudsharp.Tests\**" />
-		<EmbeddedResource Remove="mudsharp.Demo\**" />
 		<EmbeddedResource Remove="Mucka.Terminal\**" />
 		<EmbeddedResource Remove="Mucka.Terminal.Tests\**" />
 		<EmbeddedResource Remove="Mucka.Input\**" />
 		<None Remove="mudsharp\**" />
 		<None Remove="mudsharp.Tests\**" />
-		<None Remove="mudsharp.Demo\**" />
 		<None Remove="Mucka.Terminal\**" />
 		<None Remove="Mucka.Terminal.Tests\**" />
 		<None Remove="Mucka.Input\**" />

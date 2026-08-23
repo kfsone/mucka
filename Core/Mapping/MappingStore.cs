@@ -31,7 +31,7 @@ public static class MappingStore
         if (!string.IsNullOrWhiteSpace(configured))
             return ExpandHome(configured.Trim());
 
-        if (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS() || OperatingSystem.IsMacCatalyst())
+        if (OperatingSystem.IsWindows())
             return Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".mucka", "mapping");
         return Path.Combine(FileSystem.AppDataDirectory, "mapping");

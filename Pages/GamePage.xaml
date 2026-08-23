@@ -17,7 +17,7 @@
             <Setter Property="TextColor" Value="White"/>
             <Setter Property="FontSize" Value="{OnPlatform WinUI=14, Default=13}"/>
             <Setter Property="VerticalOptions" Value="Center"/>
-            <Setter Property="FontFamily" Value="{OnPlatform Android='monospace', WinUI='Cascadia Mono', MacCatalyst='Menlo-Regular'}"/>
+            <Setter Property="FontFamily" Value="{OnPlatform Android='monospace', WinUI='Cascadia Mono'}"/>
         </Style>
         <converters:InvertBoolConverter x:Key="InvertBoolConverter"/>
     </ContentPage.Resources>
@@ -46,17 +46,6 @@
                             Padding="{OnPlatform Android='10,6', Default='6,2'}"
                             SemanticProperties.Description="Menu">
                         <Border.StrokeShape><RoundRectangle CornerRadius="4"/></Border.StrokeShape>
-                        <FlyoutBase.ContextFlyout>
-                            <MenuFlyout>
-                                <MenuFlyoutItem Text="Side Panel" Clicked="OnOverflowTogglePanel"/>
-                                <MenuFlyoutItem Text="Onlines" Clicked="OnOverflowOnlines"/>
-                                <MenuFlyoutItem Text="Compass" Clicked="OnOverflowCompass"/>
-                                <MenuFlyoutItem Text="Combat" Clicked="OnOverflowCombatRail"
-                                                IsEnabled="{OnPlatform Default=true, Android=false}"/>
-                                <MenuFlyoutItem Text="Settings" Clicked="OnOverflowSettings"/>
-                                <MenuFlyoutItem Text="About" Clicked="OnOverflowAbout"/>
-                            </MenuFlyout>
-                        </FlyoutBase.ContextFlyout>
                         <Border.GestureRecognizers>
                             <TapGestureRecognizer Tapped="OnOverflowMenuTapped"/>
                         </Border.GestureRecognizers>
@@ -737,7 +726,6 @@
                     <Entry.FontFamily>
                         <OnPlatform x:TypeArguments="x:String">
                             <On Platform="Android"      Value="monospace"/>
-                            <On Platform="MacCatalyst"  Value="Menlo-Regular"/>
                             <On Platform="WinUI"        Value="Cascadia Mono"/>
                         </OnPlatform>
                     </Entry.FontFamily>

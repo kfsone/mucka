@@ -15,7 +15,7 @@ internal static class ClogPaths
     {
         // Desktop: literally ~/.mucka/clogs, matching the offline research tooling's
         // ~/.mucka/mapping and ~/.mucka/combat convention (tools/mapping, tools/combat).
-        if (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS() || OperatingSystem.IsMacCatalyst())
+        if (OperatingSystem.IsWindows())
             return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".mucka", "clogs");
 
         // Mobile: no home-directory concept - use the platform cache directory instead,
@@ -29,7 +29,7 @@ internal static class ClogPaths
     /// <see cref="GetClogDirectory"/> uses it.</summary>
     internal static string GetCombatDirectory()
     {
-        if (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS() || OperatingSystem.IsMacCatalyst())
+        if (OperatingSystem.IsWindows())
             return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".mucka", "combat");
 
         return Path.Combine(FileSystem.Current.CacheDirectory, "mucka", "combat");
