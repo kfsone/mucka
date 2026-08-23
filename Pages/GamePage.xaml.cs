@@ -1005,33 +1005,18 @@ public partial class GamePage : ContentPage
     private void OnScrollbackBarTapped(object? sender, TappedEventArgs e) => Terminal.ScrollToBottom();
 
     // Compact-mode overflow menu: shows a dark-themed popup in the body area.
-    // Long-press (Android) / right-click (Windows) triggers the attached MenuFlyout bonus.
     private void OnOverflowMenuTapped(object? sender, TappedEventArgs e)
         => OverflowMenuOverlay.IsVisible = true;
     private void OnOverflowMenuDismiss(object? sender, TappedEventArgs e)
         => OverflowMenuOverlay.IsVisible = false;
     // Side Panel / Onlines / Compass are checkable toggles a player might flip back and forth
     // while the menu is open, so their tap-driven overlay rows bind straight to the toggle
-    // commands and deliberately stay open (the ✓ updates live) - these three OnOverflow* methods
-    // only back the long-press/right-click MenuFlyout, which auto-dismisses natively regardless.
-    // All three flip live visibility only — saved settings are untouched.
-    private void OnOverflowTogglePanel(object? sender, EventArgs e)
-    {
-        OverflowMenuOverlay.IsVisible = false;
-        _vm.SidePanel.TogglePanelCommand.Execute(null);
-    }
-    private void OnOverflowOnlines(object? sender, EventArgs e)
-    {
-        OverflowMenuOverlay.IsVisible = false;
-        _vm.SidePanel.ToggleOnlinePinnedCommand.Execute(null);
-    }
-    private void OnOverflowCompass(object? sender, EventArgs e)
-    {
-        OverflowMenuOverlay.IsVisible = false;
-        _vm.SidePanel.ToggleMapPinnedCommand.Execute(null);
-    }
-    // Unlike the three above, Combat Rail is a one-shot panel toggle a player isn't watching
-    // live while the menu stays open (more like Settings/About below) - so its overlay row also
+    // commands (SidePanel.TogglePanelCommand / ToggleOnlinePinnedCommand / ToggleMapPinnedCommand)
+    // and deliberately stay open (the ✓ updates live) rather than routing through a Tapped
+    // handler here. All three flip live visibility only — saved settings are untouched.
+    //
+    // Unlike those three, Combat Rail is a one-shot panel toggle a player isn't watching
+    // live while the menu stays open (more like Settings/About below) - so its overlay row
     // routes through here (a Tapped handler, not a raw Command binding) to close the menu.
     private void OnOverflowCombatRail(object? sender, EventArgs e)
     {
