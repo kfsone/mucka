@@ -932,19 +932,20 @@ public partial class GamePage : ContentPage
 #endif
         }
 #if WINDOWS
-        else if (e.PropertyName == nameof(GameViewModel.InputText))
-        {
-            // Windows drives the native TextBox manually (the Text binding is removed in
-            // OnInputHandlerChanged - see the rationale there), so a DELIBERATE view-model change -
-            // history recall, Escape, a programmatic prefill - has to be pushed into the box.
-            //
-            // Routed through the framework rather than written here: the request queues behind
-            // anything the player has already typed, so it cannot land text in the box between a
-            // keystroke and its Enter. Typing itself never reaches the view model on Windows, so this
-            // fires only on those deliberate changes and never per character.
-            if (_commandInput is not null && _inputTextBox?.Text != _vm.InputText)
-                _commandInput.RequestSetText(_vm.InputText);
-        }
+        // NOTE: there is deliberately NO branch here for GameViewModel.InputText.
+        //
+        // There was one, and it was a bug of exactly the kind this whole boundary exists to prevent.
+        // It pushed the view model's text into the box whenever PropertyChanged fired for it - but
+        // BaseViewModel.Set raises nothing when the value is UNCHANGED, and since the accept path no
+        // longer touches the view model's copy, that copy holds the last recalled value. So recalling
+        // a history entry equal to it produced no notification, no push, and no visible change - while
+        // HistoryUp had already moved its index. Pressing Up appeared to do nothing, pressing it again
+        // landed on the entry BEFORE the one wanted, and Down then walked forward through them.
+        // Reported from live play as "cursor up doesn't always recover the last line typed".
+        //
+        // The rule, which is the same one the accept path learned: what the box shows is asserted by an
+        // explicit request, never inferred from whether a value changed. Every writer now calls
+        // RequestSetText/RequestClear directly - see RegisterCommandInputBindings and SetInputText.
 #endif
     }
 
@@ -2269,12 +2270,23 @@ public partial class GamePage : ContentPage
     {
         // History recall. The caret lands at the end of the recalled command via the surface's
         // SetText, so there is no separate caret fix-up to forget any more.
-        // No explicit push: the commands set InputText, and OnVmPropertyChanged routes that into the
-        // box through the surface. One mechanism for "view-model text changed", not two.
+        // Push explicitly after running the command. NOT via PropertyChanged: recalling an entry that
+        // happens to equal the view model's current copy raises no notification (Set suppresses
+        // unchanged values), which silently left the box showing the wrong thing while the history
+        // index moved anyway. "The box must now show this text" is not conditional on what it held
+        // before.
         input.Hotkeys.Bind((int)Windows.System.VirtualKey.Up, Mucka.Input.InputModifiers.None,
-            "history-up", () => _vm.HistoryUpCommand.Execute(null));
+            "history-up", () =>
+            {
+                _vm.HistoryUpCommand.Execute(null);
+                input.RequestSetText(_vm.InputText);
+            });
         input.Hotkeys.Bind((int)Windows.System.VirtualKey.Down, Mucka.Input.InputModifiers.None,
-            "history-down", () => _vm.HistoryDownCommand.Execute(null));
+            "history-down", () =>
+            {
+                _vm.HistoryDownCommand.Execute(null);
+                input.RequestSetText(_vm.InputText);
+            });
 
         // Escape closes the About overlay if it is open, else empties the box.
         input.Hotkeys.Bind((int)Windows.System.VirtualKey.Escape, Mucka.Input.InputModifiers.None,

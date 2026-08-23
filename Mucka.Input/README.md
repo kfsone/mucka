@@ -9,9 +9,17 @@ well-meant changes, each made by someone who did not realise they were standing 
 3. a `tb.UpdateLayout()` inside `SelectionChanged`, i.e. a forced synchronous layout pass on every
    keystroke, which reordered when a character landed in `TextBox.Text` relative to the next key
    event and put `nne` on the wire when the owner typed `n`⏎`ne`⏎.
+4. history recall driven off `PropertyChanged`, which `Set` does not raise for an unchanged value — so
+   recalling an entry equal to the view model's copy moved the history index but never reached the
+   box, and Up appeared to skip a line.
 
 Each was individually reasonable-looking. Comments did not prevent any of them. So the rules are now
 **mechanical**.
+
+Note that (2) and (4) are the *same* mistake a year apart in different clothes: treating "has this
+value changed?" as a proxy for "does the box need updating?". They are not the same question. The
+framework therefore never compares — `RequestSetText` and `RequestClear` deliver unconditionally, and
+`CommandInputTests` pins that.
 
 ## The wall
 
@@ -38,6 +46,7 @@ architecture.
 | Writes into the box cannot interleave with typing | `RequestSetText`/`RequestClear`/`RequestFocus` queue behind pending input |
 | Work on the keystroke is measured, not assumed | `InputPathBudget`, always compiled in, 1 ms budget |
 | Two features cannot silently fight over one key | duplicate `Bind` throws at startup |
+| What the box shows is **asserted**, never inferred from a value having changed | `RequestSetText`/`RequestClear` compare nothing and always deliver |
 | One bad consumer cannot strand the queue | per-item try/catch in the drain, `Faulted` event |
 
 ## What does *not* belong here

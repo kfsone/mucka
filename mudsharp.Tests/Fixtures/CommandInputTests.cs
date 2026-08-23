@@ -304,6 +304,68 @@ public class CommandInputTests
         Assert.Equal(expected, surface.Caret);
     }
 
+    /// <summary>
+    /// A set-text request must reach the surface even when the text is IDENTICAL to what is already
+    /// there. Unconditional delivery is the whole contract, and its absence has now caused two live
+    /// bugs of the same shape.
+    ///
+    /// <para>Both came from inferring a UI update from a value CHANGING rather than asserting it:
+    /// BaseViewModel.Set raises no PropertyChanged for an unchanged value, so a clear-on-send whose
+    /// value was already empty cleared nothing (leaving typed text to corrupt the next command), and a
+    /// history recall of an entry equal to the view model's copy showed nothing while the history index
+    /// moved anyway ("cursor up doesn't always recover the last line typed"). This framework must never
+    /// acquire that behaviour: it does not compare, it delivers.</para>
+    /// </summary>
+    [Fact]
+    public void RequestSetText_DeliversEvenWhenTheTextIsUnchanged()
+    {
+        var (input, surface, pump, _, _) = Build();
+
+        input.RequestSetText("north");
+        pump.RunAll();
+        surface.Log.Clear();
+
+        // Same string again. A comparison anywhere in the path would swallow this.
+        input.RequestSetText("north");
+        pump.RunAll();
+
+        Assert.Equal(["SetText:north@5"], surface.Log);
+    }
+
+    /// <summary>Same guarantee for the clear: emptying an already-empty box must still be a real call,
+    /// because "empty" is a state to assert after an accept, not a condition to test for.</summary>
+    [Fact]
+    public void RequestClear_DeliversEvenWhenTheBoxIsAlreadyEmpty()
+    {
+        var (input, surface, pump, _, _) = Build();
+        Assert.Equal(string.Empty, surface.Text);
+        surface.Log.Clear();
+
+        input.RequestClear();
+        pump.RunAll();
+
+        Assert.Equal(["Clear"], surface.Log);
+    }
+
+    /// <summary>
+    /// Walking history must show a DIFFERENT entry on each press even when consecutive entries are
+    /// identical - the case that produced the report. Three sends of "n" then three presses of Up must
+    /// deliver three set-text calls, not one.
+    /// </summary>
+    [Fact]
+    public void RepeatedIdenticalRecalls_EachReachTheBox()
+    {
+        var (input, surface, pump, _, _) = Build();
+        var recalled = new[] { "n", "n", "n" };
+        surface.Log.Clear();
+
+        foreach (var entry in recalled)
+            input.RequestSetText(entry);
+        pump.RunAll();
+
+        Assert.Equal(3, surface.Log.Count);
+    }
+
     /// <summary>One misbehaving consumer must not take the queue down with it - the player typed three
     /// commands and is owed all three, whatever bug the middle one hits.</summary>
     [Fact]

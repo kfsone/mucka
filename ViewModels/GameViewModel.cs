@@ -1280,6 +1280,13 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     /// off the input path - see <see cref="EnqueueInput"/> for why that matters.</summary>
     private void ProcessInput(string text)
     {
+        // The line has been accepted and the box emptied, so this copy must say so too. On Windows
+        // typing never reaches the view model, which means a stale value here lingers indefinitely -
+        // and while nothing draws the box from it any more (see GamePage's note on the removed
+        // InputText branch), FleeThen and SpeakDreamwordThen still READ it for "the currently typed
+        // direction". Empty is at least honestly empty rather than a direction the player typed
+        // several commands ago.
+        InputText = string.Empty;
         RequestFocus?.Invoke();
 
         var trimmed = text.Trim();
