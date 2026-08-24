@@ -27,6 +27,7 @@ mucka is Copyright (C) Oliver 'kfsone' Smith, 2026. https://github.com/kfsone/mu
 
 ## Screenshots
 
+![Screenshot 6](Screenshots/mucka6.png)
 ![Screenshot 1](Screenshots/mucka1.png)
 ![Screenshot 2](Screenshots/mucka2.png)
 ![Screenshot 3](Screenshots/mucka3.png)
