@@ -13,6 +13,12 @@ public class CombatTrackerTests
 {
     private static StyledLine Line(string text) => new([new StyledSpan(text, TextStyle.Default)]);
 
+    /// <summary>A line the server tagged as a fight end (C1 08.10/08.11/08.12) - see
+    /// LineKind.FightEnd. The tracker treats that tag as authoritative about the FACT of an end
+    /// regardless of the wording, which is the only defence against a phrasing nobody has seen.</summary>
+    private static StyledLine FightEndLine(string text) =>
+        new([new StyledSpan(text, TextStyle.Default)], kind: LineKind.FightEnd);
+
     private static (CombatTracker tracker, List<bool> inCombat, List<CombatEvent> events) NewTracker()
     {
         var t = new CombatTracker();
@@ -457,6 +463,259 @@ public class CombatTrackerTests
 
         t.Observe(Line("You attack the rat0, using the dagger0 as a weapon."), DateTime.UtcNow);
         t.ForceEnd(DateTime.UtcNow);
+        Assert.False(t.InCombat);
+        Assert.Equal([true, false], inCombat);
+    }
+
+    /// <summary>
+    /// The wyvern frame as the OWNER PASTED IT (2026-08-26) — his own report of an earlier fight at
+    /// 5,201 points, with a pitchfork that broke; no capture holds it. The separate captured
+    /// occurrence, which used a dagger, is replayed from its real bytes in
+    /// <c>WyvernPoisonDeathReplayTests</c>. Two different fights, same three closing lines, and worth
+    /// keeping straight: the first write-up of this fix merged them into one "verbatim" transcript.
+    ///
+    /// <para>Either way MUD2 printed no "You have killed the X." at all, and the client matched none
+    /// of the three lines that announce the end, so it claimed combat for the rest of the session.</para>
+    /// </summary>
+    [Fact]
+    public void PoisonDeath_ClosesTheFight_EvenWithNoKillLine()
+    {
+        var (t, inCombat, events) = NewTracker();
+        var t0 = DateTime.UtcNow;
+
+        t.Observe(Line("The wyvern hits you (41/99)."), t0);
+        t.Observe(Line("You hit the wyvern (10-14)."), t0.AddMilliseconds(10));
+        t.Observe(Line("The pitchfork breaks to bits."), t0.AddMilliseconds(20));
+        t.Observe(Line("You cannot use the pitchfork to fight now!"), t0.AddMilliseconds(30));
+        t.Observe(Line("The wyvern looks covered in wounds."), t0.AddMilliseconds(40));
+        Assert.True(t.InCombat);
+
+        t.Observe(Line("The wyvern drops dead, poisoned..."), t0.AddMilliseconds(50));
+        Assert.False(t.InCombat);   // the bug: this used to leave the encounter open forever
+
+        var died = Assert.Single(events, e => e.Kind == CombatEventKind.NpcDied);
+        Assert.Equal("wyvern", died.NpcName);
+        Assert.Equal(CombatActor.Npc, died.Actor);   // whatever finished it, it was not our swing
+        Assert.DoesNotContain(events, e => e.Kind == CombatEventKind.Kill);
+
+        // The rest of the frame must not reopen anything, and must not re-report the death: the
+        // fight is already closed, so "has just passed on." is back to being trailing prose.
+        t.Observe(Line("The wyvern has just passed on."), t0.AddMilliseconds(60));
+        t.Observe(Line("You can fight the wyvern no longer."), t0.AddMilliseconds(70));
+        t.Observe(Line("(Persona saved on +26 = 5,201)."), t0.AddMilliseconds(80));
+
+        Assert.False(t.InCombat);
+        Assert.Equal([true, false], inCombat);
+        Assert.Single(events, e => e.Kind == CombatEventKind.NpcDied);
+    }
+
+    /// <summary>A poison death names its creature, so in a pack it closes that fight only.</summary>
+    [Fact]
+    public void PoisonDeath_ClosesOnlyTheCreatureItNames()
+    {
+        var (t, _, events) = NewTracker();
+        var t0 = DateTime.UtcNow;
+
+        t.Observe(Line("The wyvern is snarling at you angrily."), t0);
+        t.Observe(Line("The ram is glaring at you madly."), t0.AddMilliseconds(10));
+        t.Observe(Line("The wyvern drops dead, poisoned..."), t0.AddMilliseconds(20));
+
+        Assert.True(t.InCombat);   // the ram is still swinging
+        Assert.Equal("wyvern", Assert.Single(events, e => e.Kind == CombatEventKind.NpcDied).NpcName);
+    }
+
+    /// <summary>
+    /// Something else in the room dying of poison is not this fight's business. Mirrors the
+    /// NpcHealth rule: a line about a creature the player never engaged must not open a fight
+    /// against it — a phantom opponent on the panel is worse than a missing one in a permadeath game.
+    /// </summary>
+    [Fact]
+    public void PoisonDeath_OfAnUnengagedCreature_IsIgnored()
+    {
+        var (t, inCombat, events) = NewTracker();
+        t.Observe(Line("The rat3 drops dead, poisoned..."), DateTime.UtcNow);
+
+        Assert.False(t.InCombat);
+        Assert.Empty(inCombat);
+        Assert.Empty(events);
+    }
+
+    /// <summary>
+    /// "The X has just passed on." is MUD2's last word on any death however caused. It stays
+    /// trailing prose after a matched end (asserted in
+    /// <see cref="Kill_ThenUnrelatedNpcEngagesMomentsLater_StartsANewEncounter"/>), but if the fight
+    /// is somehow still open when it arrives, we missed the real terminator and this closes it.
+    /// </summary>
+    [Fact]
+    public void PassedOn_ClosesAFightThatIsSomehowStillOpen()
+    {
+        var (t, inCombat, events) = NewTracker();
+        var t0 = DateTime.UtcNow;
+
+        t.Observe(Line("You attack the wyvern, using the pitchfork as a weapon."), t0);
+        t.Observe(Line("The wyvern has just passed on."), t0.AddMilliseconds(10));
+
+        Assert.False(t.InCombat);
+        Assert.Equal([true, false], inCombat);
+        Assert.Equal("wyvern", Assert.Single(events, e => e.Kind == CombatEventKind.NpcDied).NpcName);
+    }
+
+    /// <summary>
+    /// The named form of the case-3 trailing line carries a creature name, so it can close that one
+    /// fight — and only that one.
+    /// </summary>
+    [Fact]
+    public void FightEndOther_NamedForm_ClosesTheFightItNames()
+    {
+        var (t, inCombat, events) = NewTracker();
+        var t0 = DateTime.UtcNow;
+
+        t.Observe(Line("You attack the wyvern, using the pitchfork as a weapon."), t0);
+        t.Observe(Line("The ram is glaring at you madly."), t0.AddMilliseconds(10));
+        t.Observe(Line("You can fight the wyvern no longer."), t0.AddMilliseconds(20));
+
+        Assert.True(t.InCombat);   // the ram is untouched by a line that named the wyvern
+        var ended = Assert.Single(events, e => e.Kind == CombatEventKind.FightEndOther);
+        Assert.Equal("wyvern", ended.NpcName);
+
+        t.Observe(Line("You can fight the ram no longer."), t0.AddMilliseconds(30));
+        Assert.False(t.InCombat);
+        Assert.Equal([true, false], inCombat);
+    }
+
+    /// <summary>
+    /// A named fight-end for a creature we are not fighting reports no name. Per the owner: we ignore
+    /// it if we are not fighting that npc - simple.
+    ///
+    /// <para>The case is a frame stacking several end messages where this one lands after another has
+    /// already closed the fight - the captured wyvern frame exactly, where the poison death closes it
+    /// two lines earlier. Downstream it matters because both consumers get-or-CREATE a fight bucket
+    /// from a name on this event, and FightHistoryRecorder has no in-combat guard, so an unverified
+    /// name becomes a persisted zero-swing row: a second fight against that creature that never
+    /// happened. See
+    /// FightHistoryRecorderTests.TrailingFightEndAfterTheEncounterClosed_WritesNoSecondRow.</para>
+    ///
+    /// <para>The line itself still reaches consumers with its full text, so the observation survives
+    /// even when the name it could not vouch for is dropped.</para>
+    /// </summary>
+    [Fact]
+    public void FightEndOther_NamingACreatureWeAreNotFighting_ReportsNoName()
+    {
+        var (t, _, events) = NewTracker();
+        var t0 = DateTime.UtcNow;
+
+        t.Observe(Line("You attack the wyvern, using the pitchfork as a weapon."), t0);
+        t.Observe(Line("You can fight the goat no longer."), t0.AddSeconds(1));
+
+        Assert.True(t.InCombat);   // the wyvern's fight is untouched
+        var ended = Assert.Single(events, e => e.Kind == CombatEventKind.FightEndOther);
+        Assert.Null(ended.NpcName);
+        Assert.Equal("You can fight the goat no longer.", ended.RawText);   // the observation survives
+    }
+
+    /// <summary>
+    /// The gendered pronoun forms appear in the captures (him 4, her 1) and only "it" was matched,
+    /// so they were unrecognised lines. They name nobody, so they stay informational exactly as "it"
+    /// does — but they must at least be classified.
+    /// </summary>
+    [Theory]
+    [InlineData("You can fight it no longer.")]
+    [InlineData("You can fight him no longer.")]
+    [InlineData("You can fight her no longer.")]
+    public void FightEndOther_PronounForms_AreClassifiedAndCloseNothing(string line)
+    {
+        var (t, _, events) = NewTracker();
+        var t0 = DateTime.UtcNow;
+
+        t.Observe(Line("You attack the wyvern, using the pitchfork as a weapon."), t0);
+        t.Observe(Line(line), t0.AddMilliseconds(10));
+
+        Assert.True(t.InCombat);
+        var ended = Assert.Single(events, e => e.Kind == CombatEventKind.FightEndOther);
+        Assert.Null(ended.NpcName);
+    }
+
+    /// <summary>
+    /// The backstop for every fight-end phrasing nobody has found yet: in MUD2 you cannot walk out
+    /// of a fight (owner), so a room change proves the fight is over. It announces itself in the
+    /// event's raw text, because each time it fires there is an unmatched line to go and find.
+    /// </summary>
+    [Fact]
+    public void NoteRoomChanged_ClosesAnOpenEncounter_AndSaysThatIsWhatHappened()
+    {
+        var (t, inCombat, events) = NewTracker();
+        var t0 = DateTime.UtcNow;
+
+        // Not in combat: a silent no-op, since the player walks between rooms all day.
+        t.NoteRoomChanged(t0);
+        Assert.Empty(inCombat);
+        Assert.Empty(events);
+
+        t.Observe(Line("You attack the wyvern, using the pitchfork as a weapon."), t0.AddSeconds(1));
+        t.NoteRoomChanged(t0.AddSeconds(2));
+
+        Assert.False(t.InCombat);
+        Assert.Equal([true, false], inCombat);
+        // Distinct from the reset/disconnect wording, so a clog says which backstop fired.
+        Assert.Equal("(forced end: room changed)", events.Last().RawText);
+    }
+
+    /// <summary>
+    /// The wording we have never seen. Verified on the wire (session-rec...20260826-134435) that the
+    /// server codes its fight ends 08.12 even when the sentence is one no regex here knows, so with
+    /// one creature engaged there is no ambiguity about which fight just ended.
+    /// </summary>
+    [Fact]
+    public void CodedFightEnd_WithAnUnknownWording_ClosesTheSoleActiveFight()
+    {
+        var (t, inCombat, events) = NewTracker();
+        var t0 = DateTime.UtcNow;
+
+        t.Observe(Line("You attack the wyvern, using the pitchfork as a weapon."), t0);
+        t.Observe(FightEndLine("The wyvern shrugs you off and stalks away, unimpressed."), t0.AddSeconds(1));
+
+        Assert.False(t.InCombat);
+        Assert.Equal([true, false], inCombat);
+        var ended = Assert.Single(events, e => e.Kind == CombatEventKind.FightEndOther);
+        Assert.Equal("wyvern", ended.NpcName);
+        // The unrecognised sentence reaches the clog verbatim - which is how the next one gets found.
+        Assert.Equal("The wyvern shrugs you off and stalks away, unimpressed.", ended.RawText);
+    }
+
+    /// <summary>
+    /// Two creatures engaged and a fight-end line that names neither: the code says A fight ended,
+    /// not WHICH, and guessing would file a pack fight's ending under the wrong creature. A wrong row
+    /// is evidence; an open fight is only a bug.
+    /// </summary>
+    [Fact]
+    public void CodedFightEnd_WithTwoActiveFights_ClosesNothing()
+    {
+        var (t, _, events) = NewTracker();
+        var t0 = DateTime.UtcNow;
+
+        t.Observe(Line("The billy goat is glaring at you madly."), t0);
+        t.Observe(Line("The ram is glaring at you madly."), t0.AddSeconds(1));
+        t.Observe(FightEndLine("You can fight it no longer."), t0.AddSeconds(2));
+
+        Assert.True(t.InCombat);
+        Assert.Null(Assert.Single(events, e => e.Kind == CombatEventKind.FightEndOther).NpcName);
+    }
+
+    /// <summary>
+    /// The pronoun forms carry the same 08.12 code as the named one, so in a solo fight they close it
+    /// after all - the code supplies the authority the sentence withholds. Plain text alone still must
+    /// not: <see cref="FightEndOther_PronounForms_AreClassifiedAndCloseNothing"/> is the same line
+    /// without the tag, and it closes nothing.
+    /// </summary>
+    [Fact]
+    public void CodedPronounFightEnd_ClosesASoloFight()
+    {
+        var (t, inCombat, _) = NewTracker();
+        var t0 = DateTime.UtcNow;
+
+        t.Observe(Line("You attack the wyvern, using the pitchfork as a weapon."), t0);
+        t.Observe(FightEndLine("You can fight him no longer."), t0.AddSeconds(1));
+
         Assert.False(t.InCombat);
         Assert.Equal([true, false], inCombat);
     }

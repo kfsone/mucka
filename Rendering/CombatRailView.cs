@@ -782,6 +782,14 @@ public sealed class CombatRailView : SKCanvasView
         // The player is also still in the room, and still has to deal with this thing.
         FightOutcome.UFledFail => "flee failed",
         FightOutcome.Withdraw => "withdrew",
+        // The outcome's own word rather than the observed cause: NoMore is an open family (poison so
+        // far, the owner expects others) and the label has to cover the ones not yet seen. Not
+        // "killed" - nothing in these frames says the player's blow finished it - and not "died",
+        // which on a roster row beside "KILLED YOU" invites exactly the wrong reading.
+        FightOutcome.NoMore => "no more",
+        // The game closed it and gave no reason; saying more than that on the roster row would be
+        // inventing one. Distinct from a blank label, which means we never saw it end at all.
+        FightOutcome.EndOther => "ended",
         _ => string.Empty,
     };
 

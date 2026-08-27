@@ -6,17 +6,21 @@ namespace MudSharp.Combat;
 /// spellings, where they previously disagreed in case and separator ("Killed" live vs "killed"
 /// offline) for no reason but drift.
 ///
-/// <para><b>The seven ends, per the owner (2026-08-19).</b> MUD2 ends a fight in exactly seven ways,
-/// and every one of them prints inside a single frame (one prompt to the next) - always. That
-/// guarantee is why nothing here needs a timer or a "lull" window to decide a fight is over: the
-/// evidence is never split across frames, so the terminator line is the whole answer.</para>
+/// <para><b>The ends, per the owner (2026-08-19), plus one found since.</b> Every end prints inside a
+/// single frame (one prompt to the next) - always. That guarantee is why nothing here needs a timer or
+/// a "lull" window to decide a fight is over: the evidence is never split across frames, so the
+/// terminator line is the whole answer.</para>
 ///
-/// <para>Four are per-creature and leave any other fights running (<see cref="Kill"/>,
-/// <see cref="CFled"/>, <see cref="CFledFail"/>, <see cref="Withdraw"/>); three are changes to the
-/// PLAYER's own combat state and therefore zero the fight count, ending every open fight at once
-/// (<see cref="UFled"/>, <see cref="UFledFail"/>, <see cref="Died"/>). "U" is the player, "C" the
-/// creature - the player is itself a creature in MUD2's model, so the pairing is deliberate rather
-/// than cosmetic.</para>
+/// <para>Five are per-creature and leave any other fights running (<see cref="Kill"/>,
+/// <see cref="CFled"/>, <see cref="CFledFail"/>, <see cref="Withdraw"/>, <see cref="NoMore"/>); three
+/// are changes to the PLAYER's own combat state and therefore zero the fight count, ending every open
+/// fight at once (<see cref="UFled"/>, <see cref="UFledFail"/>, <see cref="Died"/>). "U" is the
+/// player, "C" the creature - the player is itself a creature in MUD2's model, so the pairing is
+/// deliberate rather than cosmetic.</para>
+///
+/// <para><see cref="NoMore"/> is the eighth, added 2026-08-26 after a wyvern died of poison and the
+/// client, having no line for it, stayed "in combat" for the rest of the session. Take "exactly
+/// seven" as "the seven observed by then", not as a closed set - see tools/combat/FIGHT-ENDS.md.</para>
 /// </summary>
 public enum FightOutcome
 {
@@ -75,6 +79,65 @@ public enum FightOutcome
     /// <c>The rat18 hits you. / You feel your life concluding... / The rat18 has killed you. / Unlit
     /// brand40 dropped. / Not updating persona.</c></summary>
     Died,
+
+    /// <summary>
+    /// Per-creature. <b>You lost the creature.</b> It stopped being available to fight and to kill,
+    /// and not by your hand - so MUD2 printed no "You have killed the X." and, on the evidence so
+    /// far, credited nothing.
+    ///
+    /// <para><b>The name is the owner's</b> (2026-08-26), and the reason for it is worth keeping:
+    /// this is not losing a fight. "Died" would be too narrow for the family and would collide with
+    /// <see cref="Died"/>, which is the PLAYER dying; "Lost" alone reads as having lost the fight,
+    /// which is the opposite of what happened. The creature is no more, and neither is your claim on
+    /// it. Not to be confused with <see cref="EndOther"/>, which comes from the same "no longer"
+    /// sentence but means only that MUD2 stopped a fight without saying why - there, the creature may
+    /// be standing right in front of you.</para>
+    ///
+    /// <para><b>An open family, one member observed.</b> The observed member is poison: captured
+    /// 2026-08-26 in session-rec.mud2.co.uk.20260826-134435.jsonl as <c>The wyvern drops dead,
+    /// poisoned... / The wyvern has just passed on. / {c08.12}You can fight the wyvern no
+    /// longer.</c>, the first two lines carrying no C1 code at all. The owner expects others - his
+    /// example is poisoning the ogre with alcohol, "a lot of juggling and luck" to reproduce - and
+    /// they are likely to be worded differently. That is why this outcome is named for what the
+    /// player lost rather than for how it happened, and why the pattern behind it
+    /// (<c>The X drops dead, &lt;cause&gt;...</c>) matches any cause rather than the word "poisoned".
+    /// A new wording is a new <see cref="CombatEventKind"/> at most; it maps to this same outcome.</para>
+    ///
+    /// <para><b>Event kind vs outcome, deliberately not one thing.</b>
+    /// <see cref="CombatEventKind.NpcDied"/> describes an observed LINE - a creature died. This
+    /// describes what the fight was worth. Keeping them separate is what lets an unfamiliar death
+    /// line be added later without either renaming an outcome or pretending the new line is the old
+    /// one.</para>
+    ///
+    /// <para>Kept apart from <see cref="Kill"/> on purpose, and not merely for bookkeeping: the line
+    /// states a cause but never an agent, so a kill claim would be inference. It also protects the
+    /// corpus - FightHistory.EstimatedStaminaPool reads the damage dealt across fights that ended in
+    /// a Kill to infer a creature's pool, and the damage that finished one of these was never on the
+    /// wire, so counting it as a kill would drag every estimate for that creature down.</para>
+    ///
+    /// <para>This is the EIGHTH end. The seven the rest of this file documents came from the owner in
+    /// 2026-08-19 and were complete as far as anything then observed; this one arrived as a stuck
+    /// "in combat" readout a week later. See tools/combat/FIGHT-ENDS.md.</para>
+    /// </summary>
+    NoMore,
+
+    /// <summary>
+    /// Per-creature. MUD2 said this fight ended and did not say why: a C08.12 "fight ends - other"
+    /// line that identified its creature - "You can fight the wyvern no longer." - reached the tracker
+    /// with the fight still open, so nothing else had resolved it.
+    ///
+    /// <para>Exists to keep <see cref="Unresolved"/> meaning ONE thing. Unresolved is "we lost track
+    /// of this fight" - the encounter ended without any terminator we could attribute, which is a bug
+    /// report, and the rows to go hunting through when looking for the next unmatched wording. This is
+    /// "the game closed it and offered no reason", which is not a bug and must not sit in the same
+    /// bucket diluting it. The distinction is the same one <see cref="NoMore"/> exists for.</para>
+    ///
+    /// <para>Expected to be RARE, and if it is not, that is itself the finding: in every frame observed
+    /// so far the 08.12 line trails a real terminator (a kill, a flee, a failed flee, a poison death)
+    /// which resolved the fight first, and a resolved fight keeps its first outcome. A run of these
+    /// means a terminator upstream is going unmatched - see tools/combat/FIGHT-ENDS.md.</para>
+    /// </summary>
+    EndOther,
 }
 
 /// <summary>

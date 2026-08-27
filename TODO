@@ -11,9 +11,14 @@
   informative signal available to something whose whole job is finding the change
   instant. Also: LogResetDiagnostics defaults to false, so the theory currently cannot
   be falsified in normal use.
-- Combat: the FE protocol tags fight ends explicitly (fecodes.txt 08 10 withdraw,
-  08 11 flee, 08 12 other) but CombatTracker matches English prose instead - it only
-  ever sees StyledLine.PlainText, and the decoder uses the 08 family solely for
-  stamina-probe hints. Worth checking against captures whether a FAILED flee carries
-  08 12 while a real one carries 08 11; if so the fragile one-word text distinction
-  ("has fled by going" vs "has fled by trying to go") has an unambiguous coded source.
+- Combat: DONE for the fight-end codes (2026-08-26). CombatTracker now reads 08 10/11/12
+  as LineKind.FightEnd and treats it as authoritative that a fight ended even when no regex
+  matches the wording. The question this item asked has an answer, and it is no: a FAILED
+  flee carries the same 08 11 as a real one (19 occurrences, no exceptions), because 08 11
+  is "fight ends - flee" - a REASON the fight ended, not a report of whether anyone got
+  away. The one-word text distinction has no coded source and cannot be replaced. Measured
+  table and the resulting rule ("the code carries the reason, the prose carries the
+  particulars") in tools/combat/FIGHT-ENDS.md.
+  Still open, same area: the 07 "isolated hit" family (bites/stings/kicks/throws) is
+  unparsed, so a wyvern's venomous tail sting - real damage, its own code, its own
+  "Stamina=N/M." line - is invisible to per-fight stats. See MECHANICS_NOTES.md.

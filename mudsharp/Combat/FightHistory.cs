@@ -38,6 +38,22 @@ public sealed record FightHistorySummary
     public int UFledFail { get; init; }
 
     public int Withdraw { get; init; }
+
+    /// <summary>Fights the creature DIED in without the player's blow finishing it ("The X drops
+    /// dead, poisoned..."). Counted apart from <see cref="Kills"/> because that is what the evidence
+    /// supports - the line states the cause, not the agent - and apart from
+    /// <see cref="Unresolved"/> because the fight most certainly did resolve. See
+    /// <see cref="FightOutcome.NoMore"/>.</summary>
+    public int NoMore { get; init; }
+
+    /// <summary>Fights MUD2 closed with a coded "you can fight X no longer" and no stated reason, with
+    /// nothing else having resolved them first. Expected to be near-zero; a real count here means a
+    /// terminator upstream is going unmatched. See <see cref="FightOutcome.EndOther"/>.</summary>
+    public int EndOther { get; init; }
+
+    /// <summary>Fights that never resolved: the encounter ended without any terminator this client
+    /// could attribute to them. A BUG COUNT, kept clean of the two outcomes above precisely so it can
+    /// be read as one.</summary>
     public int Unresolved { get; init; }
 
     public double? MedianDamageDone { get; init; }
@@ -234,6 +250,8 @@ public static class FightHistory
         var uFled = 0;
         var uFledFail = 0;
         var withdraw = 0;
+        var noMore = 0;
+        var endOther = 0;
         var unresolved = 0;
 
         var damageDone = new List<double>();
@@ -255,6 +273,8 @@ public static class FightHistory
                 case nameof(FightOutcome.UFled): uFled++; break;
                 case nameof(FightOutcome.UFledFail): uFledFail++; break;
                 case nameof(FightOutcome.Withdraw): withdraw++; break;
+                case nameof(FightOutcome.NoMore): noMore++; break;
+                case nameof(FightOutcome.EndOther): endOther++; break;
                 default: unresolved++; break;
             }
 
@@ -295,6 +315,8 @@ public static class FightHistory
             UFled = uFled,
             UFledFail = uFledFail,
             Withdraw = withdraw,
+            NoMore = noMore,
+            EndOther = endOther,
             Unresolved = unresolved,
             MedianDamageDone = Median(damageDone),
             MedianDamageTaken = Median(damageTaken),

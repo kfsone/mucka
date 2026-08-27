@@ -30,6 +30,10 @@
          Python implementation the offline pipeline uses. See NpcGroupsTests. -->
     <None Include="..\tools\combat\npc_group_fixture.txt" Link="Fixtures\Data\npc_group_fixture.txt"
           CopyToOutputDirectory="PreserveNewest" />
+    <!-- The poisoned-wyvern fight, verbatim wire bytes from the owner 2026-08-26 session. See
+         WyvernPoisonDeathReplayTests for what in this frame needs real bytes to test. -->
+    <None Include="Fixtures\Data\wyvern-poison-death.jsonl" Link="Fixtures\Data\wyvern-poison-death.jsonl"
+          CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

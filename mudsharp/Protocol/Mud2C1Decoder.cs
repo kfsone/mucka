@@ -882,6 +882,15 @@ internal sealed class Mud2C1Decoder
                     case 0xA8:                 Apply(BLACK,   RED);   break;  // C13
                     default:                   Apply(RED,     BLACK); break;
                 }
+                // C10/C11/C12 are the three fight ENDS (withdraw / flee / other). Tag the line, so
+                // CombatTracker learns that a fight ended from the protocol rather than from the
+                // sentence: every unmatched-wording bug in that file - a creature's failed flee, the
+                // player's failed flee, "You can fight the wyvern no longer." naming a creature where
+                // every capture had a pronoun - arrived correctly coded and was missed anyway. The
+                // code cannot say WHICH creature, which is why the prose still matters; see
+                // LineKind.FightEnd.
+                if (count == 1 && b0 is 0xA5 or 0xA6 or 0xA7)
+                    _parser.SetPendingKind(LineKind.FightEnd);
                 // Stamina hints: bare C08 (fight starts), C03 (they hit you — usually
                 // followed by an inline "(sta/max)" that cancels the probe), C05 (weapon
                 // change), C08 (you killed them), C10/C11/C12 (fight ends).

@@ -225,6 +225,24 @@ public sealed class FightHistoryRecorder : IDisposable
                     FightForLocked(combatEvent)?.Resolve(FightOutcome.Kill, combatEvent.TimestampUtc);
                     break;
 
+                case CombatEventKind.NpcDied:
+                    // The creature died without our blow finishing it (poison, so far). Recorded as
+                    // NoMore, never Kill: the damage that killed it never crossed the wire, so a Kill
+                    // row here would feed the stamina-pool estimator a fight whose damage total is
+                    // missing its largest term. See FightOutcome.NoMore.
+                    FightForLocked(combatEvent)?.Resolve(FightOutcome.NoMore, combatEvent.TimestampUtc);
+                    break;
+
+                case CombatEventKind.FightEndOther:
+                    // Only the forms that NAME their creature reach a fight here - FightForLocked
+                    // returns null for the pronoun forms and for the synthetic force-end events, whose
+                    // NpcName is null, so those still persist as Unresolved. That is the intended
+                    // split: "the game closed it without a reason" (EndOther) must not be filed
+                    // alongside "we never saw this fight end" (Unresolved), which is the bucket to
+                    // search when hunting the next unmatched wording. See FightOutcome.EndOther.
+                    FightForLocked(combatEvent)?.Resolve(FightOutcome.EndOther, combatEvent.TimestampUtc);
+                    break;
+
                 case CombatEventKind.Withdrawn:
                     FightForLocked(combatEvent)?.Resolve(FightOutcome.Withdraw, combatEvent.TimestampUtc);
                     break;
@@ -374,6 +392,22 @@ public sealed class FightHistoryRecorder : IDisposable
 
         if (_fights.TryGetValue(npcName, out var existing))
             return existing;
+
+        // A fight may only be BORN inside an open encounter. _encounterStartedAtMs is set when the
+        // encounter opens and nulled when it flushes, so this reads "no encounter is open" - and a
+        // named event arriving then is a trailing acknowledgment of something already recorded (MUD2
+        // stacks several end messages, and one can land after another has closed the fight). Creating
+        // a bucket for it resurrects the fight after its own flush, and the NEXT flush writes it out
+        // as a second, zero-swing row against a creature already recorded properly.
+        //
+        // Safe against the real event ordering: CombatTracker fires InCombatChanged(true) from Begin()
+        // BEFORE emitting the event that opened the fight, and Emits a closing event BEFORE End()
+        // closes the encounter - so every event belonging to a fight arrives while its encounter is
+        // open. Nothing legitimate is dropped here, and the weapon-tracking fields above are
+        // deliberately outside this guard (a weapon equipped moments before the client noticed the
+        // fight still has to be carried in - see OnInCombatChanged).
+        if (_encounterStartedAtMs is null)
+            return null;
 
         // Seed the min/end trackers from whatever we already know at the instant this NPC joins -
         // see FightAccumulator's constructor remarks for why (a one-sided fight may never trigger

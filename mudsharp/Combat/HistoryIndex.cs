@@ -155,8 +155,8 @@ public sealed class HistoryIndex
 /// </summary>
 internal sealed class IncrementalFightBucket
 {
-    private int _kills, _deaths, _cFled, _cFledFail, _uFled, _uFledFail, _withdraw, _unresolved,
-        _fightCount;
+    private int _kills, _deaths, _cFled, _cFledFail, _uFled, _uFledFail, _withdraw, _noMore,
+        _endOther, _unresolved, _fightCount;
 
     private readonly List<double> _damageDone = [];
     private readonly List<double> _damageTaken = [];
@@ -178,6 +178,10 @@ internal sealed class IncrementalFightBucket
             case nameof(FightOutcome.UFled): _uFled++; break;
             case nameof(FightOutcome.UFledFail): _uFledFail++; break;
             case nameof(FightOutcome.Withdraw): _withdraw++; break;
+            // Kept out of the default bucket on purpose: "the creature died of poison" and "we lost
+            // track of this fight" are very different evidence - see FightOutcome.NoMore.
+            case nameof(FightOutcome.NoMore): _noMore++; break;
+            case nameof(FightOutcome.EndOther): _endOther++; break;
             default: _unresolved++; break;
         }
 
@@ -217,6 +221,8 @@ internal sealed class IncrementalFightBucket
         UFled = _uFled,
         UFledFail = _uFledFail,
         Withdraw = _withdraw,
+        NoMore = _noMore,
+        EndOther = _endOther,
         Unresolved = _unresolved,
         MedianDamageDone = MedianOfSorted(_damageDone),
         MedianDamageTaken = MedianOfSorted(_damageTaken),

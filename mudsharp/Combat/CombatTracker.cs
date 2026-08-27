@@ -4,11 +4,18 @@ using MudSharp.Models;
 namespace MudSharp.Combat;
 
 /// <summary>
-/// Detects the start/end of combat encounters and classifies individual combat lines,
-/// from plain rendered text only (<see cref="StyledLine.PlainText"/>) — no C1 tag inspection
-/// is required at this layer because every event kind we care about is fully identifiable
-/// from its prose, and three of them (WeaponEquip/WeaponBroke/DroppedGuard) carry no C1
-/// wrapper at all in real captures (see RESEARCH-derived NOTES.md in tools/combat).
+/// Detects the start/end of combat encounters and classifies individual combat lines, mostly from
+/// plain rendered text (<see cref="StyledLine.PlainText"/>) — it has to be mostly, because several of
+/// the lines that matter carry no C1 wrapper at all in real captures: WeaponEquip, WeaponBroke and
+/// DroppedGuard (see RESEARCH-derived NOTES.md in tools/combat), and — verified 2026-08-26 — the
+/// death lines "The X drops dead, poisoned..." and "The X has just passed on.", which arrive as bare
+/// untagged text at base scope.
+///
+/// <para>The prose is what identifies WHICH creature, and there is no substitute for it. But the one
+/// tag this class does read, <see cref="LineKind.FightEnd"/> (C08.10/11/12), is what says a fight
+/// ended AT ALL, and it has been right every time the prose was not: three separate wordings have
+/// slipped past the regexes below over the project's life, each leaving a fight open until logout,
+/// and all three were correctly coded on the wire. Authority from the code, identity from the text.</para>
 ///
 /// <para><b>What this class deliberately does NOT do:</b> it does not attempt to reconstruct
 /// per-fight damage/DPS/duration aggregates — that analysis already exists offline in
@@ -16,12 +23,12 @@ namespace MudSharp.Combat;
 /// live, "are we in combat right now" and "what combat line just happened", so a ClogWriter can
 /// record the raw stream faithfully for later offline analysis (same rules, same tool).</para>
 ///
-/// <para><b>The seven ends (owner, 2026-08-19).</b> MUD2 ends a fight in exactly seven ways, and
-/// every one of them is printed inside a SINGLE frame - one prompt to the next - always. That
-/// guarantee is load-bearing here: it is the reason this class needs no timer, no idle window and no
-/// "lull" state to decide a fight is over. The terminator line is never separated from its fight by a
-/// frame boundary, so whatever the frame says is the whole answer, and a fight that has not been
-/// ended by a line in the frame really is still running.
+/// <para><b>The ends (owner, 2026-08-19; an eighth found 2026-08-26).</b> Every end is printed inside
+/// a SINGLE frame - one prompt to the next - always. That guarantee is load-bearing here: it is the
+/// reason this class needs no timer, no idle window and no "lull" state to decide a fight is over.
+/// The terminator line is never separated from its fight by a frame boundary, so whatever the frame
+/// says is the whole answer, and a fight that has not been ended by a line in the frame really is
+/// still running.
 ///
 /// <list type="table">
 /// <item><term>1. Kill</term><description>"You have killed the X." - per-creature.</description></item>
@@ -31,13 +38,20 @@ namespace MudSharp.Combat;
 /// <item><term>5. Player flee failed</term><description>"You have fled by trying to go &lt;dir&gt;." - zeroes the fight count anyway.</description></item>
 /// <item><term>6. Withdraw</term><description>"The X withdraws from your fight, and so do you." - per-creature; an agreement with ONE creature.</description></item>
 /// <item><term>7. Player died</term><description>"The X has killed you." / "You have been killed by ..." - zeroes the fight count. Permadeath.</description></item>
+/// <item><term>8. You lose the creature</term><description>"The X drops dead, poisoned..." - per-creature; it died without the player landing the last blow, so no kill line is printed at all. An OPEN family (see <see cref="FightOutcome.NoMore"/>): poison is the member observed, other causes are expected to be worded differently.</description></item>
 /// </list>
 ///
-/// <para>1-3 and 6 close only the creature they name. 4, 5 and 7 are the player's own state changing
+/// <para>1-3, 6 and 8 close only the creature they name. 4, 5 and 7 are the player's own state changing
 /// rather than one opponent's, so they return the fight count to 0 and close every open fight at once.
 /// Cases 3 and 5 were BOTH invisible to this class until 2026-08-19 - case 3 matched but deliberately
 /// closed nothing, case 5 had no pattern at all - which is why an encounter the player walked away from
-/// could stay "in combat" until reset or logout.</para>
+/// could stay "in combat" until reset or logout. Case 8 was invisible until 2026-08-26 and cost the same
+/// thing: a wyvern died of poison, no line in the frame matched, and combat never closed.</para>
+///
+/// <para><b>Do not read the list as closed.</b> Three of the eight were found by a player noticing the
+/// readout was wrong, months apart, each time in a frame that a careful reading of the existing list
+/// said could not happen. <see cref="NoteRoomChanged"/> is the backstop for the next one, and it is
+/// deliberately loud when it fires.</para>
 ///
 /// <para><b>A new encounter can begin in the same frame.</b> Nothing here waits for a frame to end
 /// before opening the next encounter, and it must not: MUD2 will happily kill the last creature of one
@@ -172,7 +186,56 @@ public sealed class CombatTracker
     /// </summary>
     private static readonly Regex YouFleeFailed = new(
         @"^You have fled by trying to go \w+\.$", RegexOptions.Compiled);
-    private static readonly Regex FightEndOther = new(@"^You can fight it no longer\.$", RegexOptions.Compiled);
+    /// <summary>
+    /// "You can fight it no longer." and its object variants - "him", "her", and the form that names
+    /// the creature outright: "You can fight the wyvern no longer." (owner, 2026-08-26).
+    ///
+    /// <para>The pronoun forms are all over the captures (it 14, him 4, her 1) and only "it" was
+    /// matched, so the gendered ones went unrecognised. They trail every kind of end indifferently -
+    /// 11 a real flee, 8 a FAILED one, 1 a death - which is the point: the sentence is a generic
+    /// acknowledgment and its object slot tells us nothing about what happened. The named form is the
+    /// one that matters: it carries a creature name, so unlike the pronouns it CAN close a fight on
+    /// its own - see the handler.</para>
+    /// </summary>
+    private static readonly Regex FightEndOther = new(
+        @"^You can fight (?:it|him|her|them|the (?<npc>.+?)) no longer\.$", RegexOptions.Compiled);
+
+    /// <summary>
+    /// "The wyvern drops dead, poisoned..." - the creature died, and NOT from the player's blow
+    /// landing last, so no "You have killed the X." is printed anywhere in the frame. Verbatim
+    /// (owner, 2026-08-26); the full frame is in <see cref="CombatEventKind.NpcDied"/>.
+    ///
+    /// <para>Nothing in the client matched this, and nothing matched the "has just passed on." that
+    /// followed it either, so the frame contained no terminator this class could see and the fight
+    /// stayed open for the rest of the session - the bug that produced this pattern.</para>
+    ///
+    /// <para>Matched on the cause-bearing shape rather than on the word "poisoned": the sentence
+    /// template is "The X drops dead, &lt;cause&gt;...", and poison is the only cause observed so
+    /// far. A cause we have never seen still closes the fight, and the cause itself travels in
+    /// <see cref="CombatEvent.RawText"/> for whoever comes to catalogue them. What is NOT inferred
+    /// is who did it: the line does not say, so this is not reported as a kill.</para>
+    ///
+    /// <para>Reported only for a creature already engaged, exactly as <see cref="NpcHealthRungs"/>
+    /// lines are: something else in the room dying of poison is not this fight's business, and
+    /// letting it through would open a fight bucket against a creature the player never touched.</para>
+    /// </summary>
+    private static readonly Regex NpcDroppedDead = new(
+        @"^The (?<npc>.+?) drops dead, (?:.+?)\.\.\.$", RegexOptions.Compiled);
+
+    /// <summary>
+    /// "The wyvern has just passed on." - the corpse line, printed for every death however caused
+    /// (it trails an ordinary kill too: <c>You have killed the banshee. / (Persona saved on +143 =
+    /// 343). / The banshee has just passed on.</c>).
+    ///
+    /// <para>Acted on ONLY for a creature this class still believes is engaged, which after a kill or
+    /// any other matched terminator it is not - so in the ordinary case this stays the trailing prose
+    /// it has always been. Reaching it with the fight still open means the real terminator was missed,
+    /// and then this is the last thing MUD2 will ever say about that creature, so it is the backstop:
+    /// dead is dead, close the fight. Requiring the leading "The " keeps players out of it - a player
+    /// death is not "The Fred ...".</para>
+    /// </summary>
+    private static readonly Regex NpcPassedOn = new(
+        @"^The (?<npc>.+?) has just passed on\.$", RegexOptions.Compiled);
     private static readonly Regex WeaponEquip = new(
         @"^You are now using the (?<weapon>.+?) to fight!$", RegexOptions.Compiled);
 
@@ -370,6 +433,33 @@ public sealed class CombatTracker
             Emit(timestampUtc, CombatEventKind.Kill, CombatActor.Player, m.Groups["npc"].Value, null, null, null, text);
             End(m.Groups["npc"].Value);
         }
+        else if ((m = NpcDroppedDead.Match(text)).Success)
+        {
+            // The eighth end - you lost the creature (FightOutcome.NoMore). It died without the
+            // player landing the last blow, so no "You have killed the X." arrives to close it. Actor is the NPC, not the player -
+            // whatever finished it, it was not our swing, and the line does not say whose poison it
+            // was. Emitted before End for the same reason the kill above is: End can flip InCombat
+            // false, and a listener that closes its record on that must still receive this line.
+            var deadNpc = m.Groups["npc"].Value;
+            if (_active.Contains(deadNpc))
+            {
+                Emit(timestampUtc, CombatEventKind.NpcDied, CombatActor.Npc, deadNpc, null, null, null, text);
+                End(deadNpc);
+            }
+        }
+        else if ((m = NpcPassedOn.Match(text)).Success)
+        {
+            // Backstop, not a terminator: after any matched end this creature is already gone from
+            // _active and this line is the trailing prose it has always been. Still here means we
+            // missed the real end, and this is MUD2's last word on the creature - so close it, and
+            // let the event stand in the clog as the evidence that a line went unmatched.
+            var goneNpc = m.Groups["npc"].Value;
+            if (_active.Contains(goneNpc))
+            {
+                Emit(timestampUtc, CombatEventKind.NpcDied, CombatActor.Npc, goneNpc, null, null, null, text);
+                End(goneNpc);
+            }
+        }
         else if ((m = NpcKilledYou.Match(text)).Success)
         {
             Emit(timestampUtc, CombatEventKind.KilledByNpc, CombatActor.Npc, m.Groups["npc"].Value, null, null, null, text);
@@ -458,21 +548,45 @@ public sealed class CombatTracker
             Emit(timestampUtc, CombatEventKind.YouFled, CombatActor.Player, null, null, null, null, text);
             EndAll();
         }
-        else if (FightEndOther.IsMatch(text))
+        else if ((m = FightEndOther.Match(text)).Success)
         {
-            // Always a trailing acknowledgment of an end already stated, by name, on an earlier line
-            // of the SAME frame - so the fight it refers to is closed before this line is reached, by
-            // NpcFleeFailed or NpcFled (or a kill). Verified 27/27 against the research capture for
-            // the "has fled by going <dir>." case; the failed-flee case that also trails it was for a
-            // long time the one this reasoning got wrong, because NpcFleeFailed did not close
-            // anything, leaving this line as the only end-of-fight evidence in the frame and
-            // deliberately ignoring it.
+            // Always a trailing acknowledgment of an end already stated on an earlier line of the
+            // SAME frame - so the fight it refers to is normally closed before this line is reached,
+            // by NpcFleeFailed or NpcFled (or a kill, or the poison death above). Verified 27/27
+            // against the research capture for the "has fled by going <dir>." case; the failed-flee
+            // case that also trails it was for a long time the one this reasoning got wrong, because
+            // NpcFleeFailed did not close anything, leaving this line as the only end-of-fight
+            // evidence in the frame and deliberately ignoring it.
             //
-            // Still informational only (no Begin/End/EndAll), and that has not changed: it names no
-            // creature, so promoting it to an independent terminator would close OTHER still-active
-            // fights in a pack. It is now redundant rather than load-bearing, which is the right
-            // place for a line that cannot say who it means.
-            Emit(timestampUtc, CombatEventKind.FightEndOther, CombatActor.Player, null, null, null, null, text);
+            // The pronoun forms ("it", "him", "her") stay informational, and for the original reason:
+            // they name no creature, so promoting one to an independent terminator would close OTHER
+            // still-active fights in a pack.
+            //
+            // The NAMED form ("You can fight the wyvern no longer.") is different - it says who, so
+            // it closes that one fight and nothing else. In every frame observed it arrives after the
+            // end it acknowledges and closes nothing; the point is the frames we have not observed,
+            // where it is the only line that both states an end and identifies its creature.
+            //
+            // Named or not, it is ignored for a creature we are not fighting (owner, 2026-08-26).
+            // MUD2 stacks several end messages in a frame and this one can land AFTER the fight was
+            // already closed by another of them - which is exactly the captured wyvern frame, where
+            // the poison death closes the fight two lines earlier. So a name that is not on the roster
+            // is a trailing acknowledgment of something already dealt with, and the right response is
+            // nothing at all.
+            //
+            // Not merely tidy, since FightEndOther began resolving fights: FightHistoryRecorder has no
+            // in-combat guard, so a named event is enough to get-or-CREATE a bucket, and one created
+            // after the encounter's flush is written out by the next flush as a zero-swing row - a
+            // second fight against the same creature that never happened. The recorder now refuses to
+            // create a fight outside an open encounter as well, so the two layers guard it
+            // independently; this side is pinned by
+            // CombatTrackerTests.FightEndOther_NamingACreatureWeAreNotFighting_ReportsNoName.
+            var endedNpc = m.Groups["npc"].Success && _active.Contains(m.Groups["npc"].Value)
+                ? m.Groups["npc"].Value
+                : SoleActiveOnFightEnd(line);
+            Emit(timestampUtc, CombatEventKind.FightEndOther, CombatActor.Player, endedNpc, null, null, null, text);
+            if (endedNpc is not null)
+                End(endedNpc);
         }
         else if ((m = WeaponSwitch.Match(text)).Success)
         {
@@ -558,21 +672,78 @@ public sealed class CombatTracker
                     text, rung, phrase));
             }
         }
+        else if (line.Kind == LineKind.FightEnd)
+        {
+            // Reached only when NOTHING above matched the wording, and the server nonetheless tagged
+            // this line C08.10/11/12 - a fight end. The code is the evidence; the prose was only ever
+            // how we identify WHICH creature, so an unknown phrasing costs us the name and no more.
+            //
+            // This branch is the whole reason for LineKind.FightEnd. Every wording bug this file has
+            // had was a correctly-coded line that no regex here recognised, and each one cost a fight
+            // that never closed - so the untranslated line is now caught rather than ignored, and lands
+            // in the clog verbatim, which is how the next unknown wording gets found.
+            var endedNpc = SoleActiveOnFightEnd(line);
+            Emit(timestampUtc, CombatEventKind.FightEndOther, CombatActor.Player, endedNpc, null, null, null, text);
+            if (endedNpc is not null)
+                End(endedNpc);
+        }
     }
+
+    /// <summary>
+    /// The one creature that a nameless but server-confirmed fight end can only be about, or null
+    /// when that is a guess.
+    ///
+    /// <para>Requires the C1 code (<see cref="LineKind.FightEnd"/>): the prose alone has never been
+    /// trusted to close a fight it does not name, and should not start being. With the code present
+    /// and exactly ONE creature engaged there is no other fight the line could mean. With two or
+    /// more there is, and picking one would file a pack fight's ending under the wrong creature -
+    /// worse than leaving it open, because a wrong row is evidence and an open fight is only a bug.</para>
+    ///
+    /// <para>Best-effort by nature, and only ever acts when we failed to parse the real terminator:
+    /// when we did parse it, the fight is already closed and <see cref="_active"/> no longer holds
+    /// it. Same caution as NpcKilledYouNarrative's "sole active participant" - our roster is what we
+    /// managed to observe, not necessarily what is in the room.</para>
+    /// </summary>
+    private string? SoleActiveOnFightEnd(StyledLine line)
+        => line.Kind == LineKind.FightEnd && _active.Count == 1 ? _active.First() : null;
 
     /// <summary>Force-close any open encounter without a matching end line (e.g. an auto-reset
-    /// wiping the game state mid-fight, or logout/relog).</summary>
-    public void ForceEnd(DateTime timestampUtc)
+    /// wiping the game state mid-fight, or logout/relog). <paramref name="reason"/> is recorded
+    /// verbatim as the synthetic event's raw text, so a clog says which backstop fired.</summary>
+    public void ForceEnd(DateTime timestampUtc, string reason = "reset/disconnect")
     {
         lock (_gate)
-            ForceEndLocked(timestampUtc);
+            ForceEndLocked(timestampUtc, reason);
     }
 
-    private void ForceEndLocked(DateTime timestampUtc)
+    /// <summary>
+    /// The player is in a different room than they were. Closes any open encounter.
+    ///
+    /// <para><b>You cannot walk out of a fight in MUD2</b> (owner): movement is refused while
+    /// fighting, and leaving costs a flee - which prints its own line and is already handled. So a
+    /// room change is proof the fight is over, whatever we think, and it is the one such proof that
+    /// does not depend on having matched any particular sentence. That makes it the right backstop
+    /// for the whole class of bug this file keeps hitting: an end phrased in a way nothing here
+    /// matches, leaving combat stuck until logout (a poisoned wyvern, 2026-08-26; a water-snake's
+    /// failed flee before that; and, before that, a bare-handed fight that never opened).</para>
+    ///
+    /// <para>Deliberately NOT silent: it force-ends with its own reason string, so an encounter
+    /// closed this way is visibly closed by the backstop rather than by evidence, and the clog says
+    /// so. Every time this fires there is an unmatched line to go and find. It cannot fix a fight
+    /// the player is still standing in - only leaving does that - so it is a floor on how long a
+    /// phantom fight can persist, not a substitute for parsing the end.</para>
+    /// </summary>
+    public void NoteRoomChanged(DateTime timestampUtc)
+    {
+        lock (_gate)
+            ForceEndLocked(timestampUtc, "room changed");
+    }
+
+    private void ForceEndLocked(DateTime timestampUtc, string reason)
     {
         if (!InCombat)
             return;
-        Emit(timestampUtc, CombatEventKind.FightEndOther, null, null, null, null, null, "(forced end: reset/disconnect)");
+        Emit(timestampUtc, CombatEventKind.FightEndOther, null, null, null, null, null, $"(forced end: {reason})");
         _active.Clear();
         CloseEncounter();
     }

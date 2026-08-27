@@ -361,7 +361,7 @@ public sealed class ParserGapTests
         Assert.Equal("axe0", aggregator.Snapshot(T0.AddSeconds(1)).CurrentWeapon);
     }
 
-    // ---- The seven ends (owner, 2026-08-19) --------------------------------------------------
+    // ---- The ends of a fight (seven from the owner, 2026-08-19; an eighth found 2026-08-26) ---
 
     /// <summary>
     /// Cases 4 and 5, the player's own flee, successful and failed. Both zero the fight count, so both

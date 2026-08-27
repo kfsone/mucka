@@ -343,6 +343,65 @@ public sealed class CombatPerFightTests
     }
 
     [Fact]
+    public void Fights_PoisonDeathResolvesAsNoMoreNotKill()
+    {
+        // The wyvern frame (owner, 2026-08-26): the creature died of poison, so no kill line was ever
+        // printed. Recorded as NoMore deliberately - the damage that finished it never crossed the
+        // wire, and FightHistory.EstimatedStaminaPool reads Kill rows' damage totals to infer a
+        // creature's pool. See FightOutcome.NoMore.
+        var aggregator = new CombatStatsAggregator();
+        aggregator.BeginEncounter(Start);
+
+        aggregator.Observe(Event(CombatEventKind.FightStart, "wyvern", weapon: "pitchfork"));
+        aggregator.Observe(Event(CombatEventKind.Hit, "wyvern", rangeLow: 10, rangeHigh: 14, atSecond: 1));
+        aggregator.Observe(Event(CombatEventKind.NpcDied, "wyvern", atSecond: 2));
+
+        var snapshot = aggregator.Snapshot(Start.AddSeconds(3));
+
+        Assert.Equal(FightOutcome.NoMore, snapshot.Fights[0].Outcome);
+        Assert.Empty(snapshot.ActiveNpcs);   // a corpse is not a target
+    }
+
+    [Fact]
+    public void Fights_NamedFightEndOtherDropsOnlyThatParticipant()
+    {
+        // "You can fight the wyvern no longer." names its creature, so CombatTracker has just closed
+        // that fight and the panel must stop listing it - without touching the ram, which is still
+        // swinging. Recorded as EndOther, NOT left Unresolved: the game closed this fight and simply
+        // gave no reason, which is a different fact from "we never saw it end" - the bucket that is
+        // worth querying for the next unmatched wording. See FightOutcome.EndOther.
+        var aggregator = new CombatStatsAggregator();
+        aggregator.BeginEncounter(Start);
+
+        aggregator.Observe(Event(CombatEventKind.FightStart, "wyvern", weapon: "pitchfork"));
+        aggregator.Observe(Event(CombatEventKind.FightStart, "ram1", atSecond: 1));
+        aggregator.Observe(Event(CombatEventKind.FightEndOther, "wyvern", atSecond: 2));
+
+        var snapshot = aggregator.Snapshot(Start.AddSeconds(3));
+
+        Assert.Equal(["ram1"], snapshot.ActiveNpcs);
+        Assert.Equal(FightOutcome.EndOther, snapshot.Fights[0].Outcome);
+        Assert.Equal(FightOutcome.Unresolved, snapshot.Fights[1].Outcome);   // the ram is still fighting
+    }
+
+    [Fact]
+    public void Fights_NamedFightEndOtherCannotOverwriteAnEarlierKill()
+    {
+        // First resolution wins, pinned for THIS event kind rather than inferred from the NpcFled
+        // version of the rule: the named "You can fight the X no longer." routinely trails a real
+        // terminator, and downgrading a Kill to EndOther would quietly corrupt both the kill count
+        // and the stamina-pool estimate that reads it.
+        var aggregator = new CombatStatsAggregator();
+        aggregator.BeginEncounter(Start);
+
+        aggregator.Observe(Event(CombatEventKind.FightStart, "wyvern", weapon: "pitchfork"));
+        aggregator.Observe(Event(CombatEventKind.Kill, "wyvern", atSecond: 1));
+        aggregator.Observe(Event(CombatEventKind.FightEndOther, "wyvern", atSecond: 2));
+
+        Assert.Equal(FightOutcome.Kill, aggregator.Snapshot(Start.AddSeconds(3)).Fights[0].Outcome);
+    }
+
+    [Fact]
     public void BeginEncounter_ClearsThePreviousEncountersFights()
     {
         var aggregator = new CombatStatsAggregator();

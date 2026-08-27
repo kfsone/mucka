@@ -132,8 +132,15 @@ for roll-up totals by weapon and NPC.
 ## Fight-end detection
 
 `FIGHT-ENDS.md` is required reading before touching anything that decides when a fight or an
-encounter is over. It lists the seven ways MUD2 ends a fight, with a verbatim captured frame for each,
-the per-creature vs all-fights split, and the frame guarantee that makes timers unnecessary. It also
-records the one conclusion in `SESSION-NOTES-20260810.md` that turned out to be inverted, and why --
-that mistake lived in shipped code for months, so the correction is worth reading before re-deriving
-the same wrong answer from the same capture.
+encounter is over. It lists the eight known ways MUD2 ends a fight, with a verbatim captured frame for
+each, the per-creature vs all-fights split, and the frame guarantee that makes timers unnecessary. It
+also records the one conclusion in `SESSION-NOTES-20260810.md` that turned out to be inverted, and
+why -- that mistake lived in shipped code for months, so the correction is worth reading before
+re-deriving the same wrong answer from the same capture.
+
+Three of the eight ends were found by the owner noticing the readout was wrong, not by reading a
+capture, and each time the then-current list said the frame he was looking at could not happen. Read
+the list as open. `CombatTracker.NoteRoomChanged` is the backstop for the next one: a room change
+proves a fight is over (you cannot walk out of one), and it force-ends with the reason string
+`(forced end: room changed)` -- **grep clogs for that string before believing fight-end detection is
+complete.**

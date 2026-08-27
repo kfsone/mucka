@@ -629,8 +629,11 @@ public sealed class MudStreamParser
             // was emitted inside the C09 scope (_chatTextOnLine — covers the message's LAST
             // wrapped row, whose closing pop precedes its newline), OR the scope is still open at
             // the newline (a blank wrapped row). See C1Scope.Chat.
+            // Chat outranks every other kind (it drives a filter the player sees); otherwise
+            // whatever the line's introducing code claimed stands — e.g. LineKind.FightEnd from
+            // C08.10/11/12, which CombatTracker treats as authoritative regardless of wording.
             var lineKind = (_pendingKind == LineKind.Chat || _chatTextOnLine || InChatContext)
-                ? LineKind.Chat : LineKind.Normal;
+                ? LineKind.Chat : _pendingKind;
             var line = new StyledLine(_spans.ToArray(), isPartial: false, kind: lineKind,
                 continuesChat: lineKind == LineKind.Chat && chatOpenAtLineStart);
             var tellAlertRequested = _pendingTellSound;

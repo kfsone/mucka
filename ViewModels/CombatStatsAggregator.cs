@@ -292,6 +292,11 @@ public sealed class CombatStatsAggregator
             case CombatEventKind.Kill:
             case CombatEventKind.Withdrawn:
             case CombatEventKind.NpcFled:
+            // NpcDied rides here too: the creature is dead and off the roster exactly as a kill
+            // leaves it. It resolves as NoMore rather than Kill because nothing in that line says the
+            // player did it - see FightOutcome.NoMore. CombatTracker only emits it for a creature
+            // already engaged, so it cannot open a bucket against something the player never fought.
+            case CombatEventKind.NpcDied:
                 ResolveFight(combatEvent, OutcomeFor(combatEvent.Kind));
                 RemoveParticipant(combatEvent.NpcName);
                 break;
@@ -330,13 +335,34 @@ public sealed class CombatStatsAggregator
                 _npcWeapons.Clear();
                 break;
 
-            // FightEndOther ("You can fight it no longer.") is deliberately NOT treated as a
-            // close here, mirroring CombatTracker: it is a trailing acknowledgment of an end already
-            // stated by name earlier in the same frame - a kill, a real flee, or (the case that used
-            // to be mishandled) a FAILED flee, all of which have resolved their own fight before this
-            // line is reached. It names no creature, so it must never clear OTHER still-active
-            // participants in a multi-NPC fight. No-op by design.
+            // FightEndOther ("You can fight it no longer.") does not RESOLVE a fight here, mirroring
+            // CombatTracker: it is a trailing acknowledgment of an end already stated earlier in the
+            // same frame - a kill, a poison death, a real flee, or (the case that used to be
+            // mishandled) a FAILED flee, all of which have resolved their own fight before this line
+            // is reached.
+            //
+            // The named variant ("You can fight the wyvern no longer.") drops that creature from the
+            // live roster, because CombatTracker has just closed its fight and the panel must not go
+            // on listing it as an opponent. Its fight keeps whatever outcome it already had, and if it
+            // had none it stays Unresolved - which is the honest reading, since this line states that
+            // a fight ended and declines to say why. The pronoun forms name nobody and stay a no-op:
+            // acting on them would clear OTHER still-active participants in a pack.
             case CombatEventKind.FightEndOther:
+                if (combatEvent.NpcName is not null)
+                {
+                    // Resolve as EndOther, not left Unresolved: the game positively closed this fight,
+                    // and Unresolved has to keep meaning "we lost track of it" or the rows nobody can
+                    // explain stop being findable. First resolution still wins (FightAccumulator.Resolve
+                    // returns early once IsResolved), so the usual case - this line trailing a kill or a
+                    // flee that already resolved the fight - is untouched; pinned for THIS event kind by
+                    // Fights_NamedFightEndOtherCannotOverwriteAnEarlierKill.
+                    //
+                    // FightFor get-or-CREATES, so this relies on CombatTracker naming only creatures
+                    // it believes are engaged: a trailing end for an already-closed fight arrives
+                    // unnamed and lands in the no-op above, rather than minting a zero-swing bucket.
+                    ResolveFight(combatEvent, FightOutcome.EndOther);
+                    RemoveParticipant(combatEvent.NpcName);
+                }
                 break;
 
             // Informational only, and in the same frame as the death that follows it, so there is
@@ -445,6 +471,7 @@ public sealed class CombatStatsAggregator
         CombatEventKind.Withdrawn => FightOutcome.Withdraw,
         CombatEventKind.NpcFled => FightOutcome.CFled,
         CombatEventKind.NpcFleeFailed => FightOutcome.CFledFail,
+        CombatEventKind.NpcDied => FightOutcome.NoMore,
         CombatEventKind.YouFled => FightOutcome.UFled,
         CombatEventKind.YouFleeFailed => FightOutcome.UFledFail,
         _ => FightOutcome.Unresolved,

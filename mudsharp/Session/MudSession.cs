@@ -113,6 +113,10 @@ public sealed class MudSession : IDisposable
     private readonly EffectTracker _effects = new();
     private readonly CombatTracker _combat = new();
 
+    // Last room short description seen at column 0. Feed thread only, like every other field here.
+    // Read by NoteRoomShort to tell a real move from a `look` at the room already occupied.
+    private string? _lastRoomShort;
+
     // Testability seam only: production code never overrides this, so combat timestamps are
     // always the real wall clock. CombatCaptureReplayTests overrides it to replay the research
     // capture's own original timestamps, since a fast in-memory replay's real elapsed time bears
@@ -452,7 +456,7 @@ public sealed class MudSession : IDisposable
                 ResolveSniff(pendingSniff, SniffOutcome.Invisible);
         };
         _parser.RoomEntered      += () => { ArmRoomFexProbe(); RoomEntered?.Invoke(); };
-        _parser.RoomShortReady   += name => RoomShortReady?.Invoke(name);
+        _parser.RoomShortReady   += name => { NoteRoomShort(name); RoomShortReady?.Invoke(name); };
         _parser.FeiItemReady     += item => FeiItemReady?.Invoke(item);
         _parser.FeiListStarting  += () => FeiListStarting?.Invoke();
         _parser.FeiListComplete  += () =>
@@ -635,6 +639,11 @@ public sealed class MudSession : IDisposable
         _setupCloseAfterFrame = false;
         _currentCharName      = null;
         _effects.Reset();     // relog/logout clears all effects
+        // Forget where we were. Harmless today - the ForceEnd below leaves nothing for a spurious
+        // room change to close, and NoteRoomChanged is a no-op while out of combat - but a stale room
+        // name from the PREVIOUS login is not a fact about this one, and leaving it set makes the
+        // backstop's correctness depend on the order of the next two lines.
+        _lastRoomShort = null;
         _combat.ForceEnd(CombatClock());   // logout ends any open encounter — no fight-end line will arrive
         _resetClock.OnGameModeExited();   // drop the projection incl. the once-per-session token
         GameModeExited?.Invoke();
@@ -925,6 +934,46 @@ public sealed class MudSession : IDisposable
             _roomFexProbeTimer ??= new Timer(_ => OnRoomFexProbeDeadline(), null, Timeout.Infinite, Timeout.Infinite);
             _roomFexProbeTimer.Change(_options.RoomEntryFexProbeDelay, Timeout.InfiniteTimeSpan);
         }
+    }
+
+    /// <summary>
+    /// A room short description arrived at column 0. When it differs from the last one, the player is
+    /// somewhere else than they were, and in MUD2 you cannot walk out of a fight (owner) — so any
+    /// encounter still open is over, and <see cref="CombatTracker.NoteRoomChanged"/> closes it. See
+    /// there for why this backstop exists and why it announces itself.
+    ///
+    /// <para>Gated on the name CHANGING, because RoomShortReady fires for a plain `look` at the room
+    /// the player is already standing in — measured, not assumed: of the 399 column-0 room shorts in
+    /// session-rec.mud2.co.uk.20260826-134435, five follow a bare `l` and one a probe reply, and
+    /// looking around mid-fight is free and constant. Closing a fight on every `look` would be far
+    /// worse than a backstop that sometimes abstains.</para>
+    ///
+    /// <para>What it costs: a move between two rooms whose shorts read identically does not fire. Not
+    /// hypothetical — eleven column-0 room shorts in that capture read "You are lost in a misty
+    /// graveyard.", ten of them on entry to a room, so those rooms are indistinguishable by name. The
+    /// backstop is silent in there and the primary parsing carries the fight, which is the intended
+    /// failure direction.</para>
+    ///
+    /// <para><b>Open question, deliberately not designed around.</b> In that capture a room short
+    /// arriving on MOVEMENT is preceded by an ambient-sound code (C20.xx) and one arriving from `look`
+    /// is not — 393 of 399 carried one. If that holds it is a true move/look discriminator and would
+    /// also work in the maze. It rests on one session, and reading it wrong closes fights on `look`,
+    /// so it stays an observation in tools/combat/MECHANICS_NOTES.md until a second capture agrees.
+    /// As for a snoop putting somebody else's room short in our stream: it cannot, and not merely
+    /// because snooping is wiz-only. Bartle's own description of the codes settles it - 94 "brackets
+    /// the name of the person being snooped" and 97 is "snooped material FROM the player using
+    /// internal FE nn", i.e. both describe content relayed into the SNOOPER's stream. Those bytes
+    /// only reach this client if this player is snooping someone, never because someone is snooping
+    /// him.</para>
+    /// </summary>
+    private void NoteRoomShort(string room)
+    {
+        if (string.IsNullOrWhiteSpace(room))
+            return;
+        var moved = _lastRoomShort is not null && !string.Equals(_lastRoomShort, room, StringComparison.Ordinal);
+        _lastRoomShort = room;
+        if (moved)
+            _combat.NoteRoomChanged(CombatClock());
     }
 
     /// <summary>A FEX list has started arriving — the pending recovery probe (if any) is moot.</summary>

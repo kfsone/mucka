@@ -254,10 +254,31 @@ CREATE TABLE IF NOT EXISTS combat_fights (
     duration_ms         INTEGER,
     start_weapon        TEXT,
     weapon_used         TEXT,
-    outcome             TEXT    NOT NULL,   -- Kill | CFled | CFledFail | UFled | UFledFail | Withdraw | Died | Unresolved
+    outcome             TEXT    NOT NULL,   -- Kill | CFled | CFledFail | UFled | UFledFail | Withdraw | Died | NoMore | EndOther | Unresolved
                                             -- (identical spellings to live_fights.outcome and to
                                             -- MudSharp.Combat.FightOutcome; the two used to differ in
                                             -- case and separator for no reason but drift)
+                                            -- NoMore is "you lost the creature": it died and not by
+                                            -- your hand, so no kill and (so far) no points. An OPEN
+                                            -- family named for what the player lost, not for how -
+                                            -- poison is the one member observed, others expected with
+                                            -- other wordings. LIVE-ONLY, and
+                                            -- structurally so: reduce_combat.py keys every event off
+                                            -- its C1 code, and that line carries NO code at all -
+                                            -- verified against session-rec...20260826-134435, where
+                                            -- both death lines arrive as bare text at base scope. The
+                                            -- only coded thing in the frame is the 08.12 that trails
+                                            -- them, which says a fight ended but not which creature.
+                                            -- Teaching the reducer this needs a plain-text pass beside
+                                            -- the code table, not a new code mapping. Until then
+                                            -- offline reduction records those fights Unresolved.
+                                            -- See FIGHT-ENDS.md, case 8.
+                                            -- EndOther is also live-only: a coded, NAMED 08.12 that
+                                            -- reached the client with the fight still open. It exists
+                                            -- to keep Unresolved meaning exactly "no terminator was
+                                            -- ever attributed to this fight" - i.e. a bug count worth
+                                            -- querying - rather than a mix of that and "the game
+                                            -- closed it and gave no reason".
     resolution_text     TEXT,
     you_hits            INTEGER NOT NULL DEFAULT 0,
     you_misses          INTEGER NOT NULL DEFAULT 0,

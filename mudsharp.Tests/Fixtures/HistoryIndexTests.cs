@@ -64,6 +64,40 @@ public sealed class HistoryIndexTests
     }
 
     [Fact]
+    public void NoMoreAndEndOther_AreTalliedInTheirOwnBucketsByBothPaths()
+    {
+        // "The X drops dead, poisoned..." resolved the fight, so it must not land in the Unresolved
+        // bucket ("we lost track of it"), and the player did not land the killing blow, so it must
+        // not land in Kills either - which is also what keeps EstimatedStaminaPool honest, since the
+        // damage that ended it was never on the wire. See FightOutcome.NoMore.
+        var records = new[]
+        {
+            Fight(outcome: FightOutcome.Kill, damageDone: 30),
+            Fight(outcome: FightOutcome.NoMore, damageDone: 12),
+            Fight(outcome: FightOutcome.EndOther, damageDone: 4),
+        };
+
+        var index = new HistoryIndex();
+        foreach (var record in records)
+            index.Insert(record);
+
+        var incremental = index.GetGroupSummary("rats");
+        var scanned = FightHistory.Summarize(records, "rats");
+
+        foreach (var summary in new[] { incremental, scanned })
+        {
+            Assert.Equal(3, summary.FightCount);
+            Assert.Equal(1, summary.NoMore);
+            Assert.Equal(1, summary.EndOther);
+            Assert.Equal(1, summary.Kills);
+            // The point of both buckets: Unresolved stays a clean count of fights whose end we never
+            // saw, so it can be read as a bug count rather than a mixture.
+            Assert.Equal(0, summary.Unresolved);
+            Assert.Equal(30, summary.EstimatedStaminaPool);
+        }
+    }
+
+    [Fact]
     public void Insert_OrderIndependent_MedianMatchesRegardlessOfInsertOrder()
     {
         // Binary-search insertion must keep the list sorted no matter what order fights arrive in -

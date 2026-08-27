@@ -71,10 +71,23 @@ public enum CombatEventKind
     /// still charges.</summary>
     YouFleeFailed,
     /// <summary>"You can fight it no longer." - a fight-end with no reason detail (08 12). Always a
-    /// TRAILING acknowledgment of an end already stated by name on an earlier line of the same frame
-    /// (a real flee, or - the case that fooled this client for months - a FAILED one, see
-    /// <see cref="NpcFleeFailed"/>). Informational only: it names no creature, so it can never
-    /// safely close a fight by itself in a multi-creature encounter.</summary>
+    /// TRAILING acknowledgment of an end already stated on an earlier line of the same frame (a real
+    /// flee, or - the case that fooled this client for months - a FAILED one, see
+    /// <see cref="NpcFleeFailed"/>).
+    ///
+    /// <para><b>The object slot varies, and one of its forms names the creature.</b> Counted across
+    /// every capture on disk: "it" 14, "him" 4, "her" 1, and one "the wyvern". What they trail is
+    /// mixed - 11 follow a creature that really left ("has fled by going &lt;dir&gt;."), 8 follow one
+    /// whose flee FAILED and never moved, and 1 follows a death. "it" appears after both flee kinds
+    /// (8 failed, 6 real); the gendered forms happen to have followed only real flees, but n=5 and
+    /// the likelier explanation is simply the creature's own gender. Nothing here selects the slot as
+    /// far as this evidence goes - an earlier version of this comment claimed the pronoun forms
+    /// always meant a creature that had left the room, which the captures flatly contradict.</para>
+    ///
+    /// <para>So <see cref="CombatEvent.NpcName"/> is set when the line named a creature, and null for
+    /// the pronoun forms. Named, it can safely close that one fight; unnamed it stays informational,
+    /// because a line that cannot say who it means must never close a fight in a pack.</para>
+    /// </summary>
     FightEndOther,
     /// <summary>
     /// A weapon is now the player's active weapon. Two wordings, both landing here:
@@ -147,6 +160,49 @@ public enum CombatEventKind
     /// for that weapon. The second case is the ONLY direct evidence of that gate the game emits,
     /// and nothing parsed this line before, so no observation of it has ever been recorded.</summary>
     WeaponUnusable,
+
+    /// <summary>
+    /// The named creature DIED, by something other than the player's own blow landing last.
+    /// Observed wording (2026-08-26): "The wyvern drops dead, poisoned..." - and then, as with any
+    /// death, "The wyvern has just passed on." Both forms report here.
+    ///
+    /// <para>This is a fight end MUD2 has, and neither <see cref="Kill"/> nor anything else covered
+    /// it: there is no "You have killed the X." line anywhere in the frame, because the player did
+    /// not deliver the killing damage - the poison did. Nothing in the client matched either line, so
+    /// the encounter had no terminator at all and the panel went on claiming combat until logout.</para>
+    ///
+    /// <para><b>Two occurrences, deliberately labelled apart</b> (they were conflated into one
+    /// "verbatim" frame in this comment's first draft, and a review caught it). The one that is
+    /// BYTES is session-rec.mud2.co.uk.20260826-134435.jsonl, records 2905-3034, extracted to
+    /// mudsharp.Tests/Fixtures/Data/wyvern-poison-death.jsonl - dagger0 in hand, no weapon break,
+    /// stamina 57/99, score a flat 6,209 with no persona save in the death frame:</para>
+    /// <code>
+    /// The wyvern drops dead, poisoned...        &lt;- no C1 code at all
+    /// The wyvern has just passed on.            &lt;- no C1 code at all
+    /// {c08.12}You can fight the wyvern no longer.{/c08.12}
+    /// </code>
+    ///
+    /// <para>The other is the owner's own paste from his screen, an earlier fight at 5,201 points
+    /// that no capture holds - a pitchfork that broke mid-fight, "(Persona saved on +26 = 5,201)"
+    /// trailing the death. A recollection, not evidence, and treated as one; see
+    /// tools/combat/FIGHT-ENDS.md case 8, which sets both out side by side.</para>
+    ///
+    /// <para><b>Attribution is deliberately not asserted.</b> The line says the creature is dead and
+    /// says what killed it; it does not say who applied the poison, and the client has no way to
+    /// know from one line. So this is NOT reported as a kill (<see cref="FightOutcome.NoMore"/>, not
+    /// <see cref="FightOutcome.Kill"/>) even though that frame's persona save credited points. That
+    /// separation is also what keeps FightHistory's stamina-pool estimator honest - it infers a
+    /// creature's pool from the damage dealt in fights that ended in a kill, and poison damage is
+    /// damage the client never saw, so counting these would understate every pool.</para>
+    ///
+    /// <para><b>"has just passed on." is reported only for a creature still believed engaged.</b>
+    /// It trails every ordinary kill too (see <see cref="FightOutcome.Kill"/>'s verbatim frame),
+    /// where the fight is already resolved and re-reporting it would be noise. Reaching it with the
+    /// fight still open means our terminator was missed - which is exactly what happened here - so
+    /// in that case it is the rescue, and its presence in a clog is the signal to go and find the
+    /// line we failed to match.</para>
+    /// </summary>
+    NpcDied,
 }
 
 /// <summary>

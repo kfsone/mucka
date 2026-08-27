@@ -447,3 +447,104 @@ in/out). Do NOT assume first-letter truncation - "south" -> "s" but "southeast" 
 - Because it SENDS a command on the player's behalf, it must be explicit-activation only. No
   auto-pursuit: a mis-parsed direction would walk the player into an unknown room mid-fight.
 - Keyboard-reachable, and must return focus to the command box immediately (Invariant #0).
+
+## Poison kills: no points observed at the moment of death (2026-08-26)
+
+Observation, single occurrence, conditions stated. Source capture:
+`session-rec.mud2.co.uk.20260826-134435.jsonl` (records 2905-3034); the fight is extracted verbatim
+as `mudsharp.Tests/Fixtures/Data/wyvern-poison-death.jsonl`.
+
+What happened: the player sent `up,feed herb to wyvern,d`, the wyvern turned on him
+(`The wyvern is staring at you ferociously.`, C08.00), they traded blows for about 85 seconds, and
+then the wyvern died of the poison rather than of a blow:
+
+```
+The wyvern drops dead, poisoned...
+The wyvern has just passed on.
+You can fight the wyvern no longer.
+```
+
+Conditions at the death: player stamina 57/99, strength 100/100, dexterity 98/99, no afflictions,
+15 minutes to reset, dagger0 in hand, phial0 and urn in the room, score 6209. The player had asked
+`value wyvern` eight seconds earlier: **239 points.**
+
+What the numbers did: the FES `points` field read **6209 immediately before the death frame and 6209
+immediately after it**, across four consecutive heartbeats. No `(Persona saved on ...)` line appears
+anywhere in the death frame, and the next one in the capture is `+10 = 6,219` roughly 20 minutes of
+log later, in unrelated circumstances. So **no part of the wyvern's 239 points was credited at the
+moment it died**, at least not visibly to FES.
+
+An earlier occurrence the owner reported by hand (a different wyvern, score 5,201) showed
+`(Persona saved on +26 = 5,201)` in the death frame - a save of +26 against a creature worth 239,
+which is also not the kill award.
+
+What this does NOT establish: whether poison kills award nothing at all, award on a delay, award at
+reset, award to whoever applied the poison rather than whoever is present, or whether feeding a
+poisoned item counts as a kill by anyone. Two observations of "not 239 at death" is not a mechanism.
+It is, however, enough to stop treating a poison death as a kill in the corpus - which is why the
+live client records `FightOutcome.NoMore` and not `Kill` (see FIGHT-ENDS.md case 8).
+
+Cheap next measurement, if the owner wants it settled: poison something of known value with an FES
+heartbeat running, note `points` before and after, then `score` again after the next reset.
+
+## The 07 "isolated hit" family is unparsed - a wyvern's sting is invisible to combat stats
+
+Same capture. Twice during that fight:
+
+```
+{c07.02.00}The wyvern stings you with its venomous tail.
+Stamina=84/99.
+```
+
+C07.02.00 is the "stings by objects of class STINGER" family (`fecodes.txt`), NOT a fight hit
+(C08.03), and it reports stamina as `Stamina=N/M.` rather than the `(cur/max)` parenthetical the
+fight-hit lines use. The two stings cost 15 and 20 stamina, out of roughly 42 total lost in the
+fight.
+
+Consequence, pinned in `WyvernPoisonDeathReplayTests`: the encounter-level damage-taken total does
+see it (the C89 stamina reading moves the baseline), but no `HitByNpc` event is attributed to the
+wyvern, so `TheyHits`, the per-fight damage-taken bucket and every hit-rate figure derived from them
+understate this creature. Any bestiary entry for wyverns built from current data is missing its
+nastiest attack.
+
+The whole 07 family is affected. Bartle's fuller code list (`Bartle.MUD2-C1-Codes.txt`, which has
+codes the repo's `fecodes.txt` reduction lacks) gives it as: 07.00.01 eros hits, 07.00.02 hits against
+inanimate objects, 07.01 bites by class BITER (07.01.01 rats), 07.02 stings by class STINGER (07.02.01
+bees, 07.02.02 the jellyfish -- **and 07.02.02 again for the electric eel**, a duplicate in his own
+document, so that sub-code cannot tell those two apart), 07.03 kicks, 07.04 throws, 07.05 being
+captured by class CAPTURER, 07.06 hits by the ghost.
+
+Closing this is its own change - it needs a new event kind (an isolated hit is not a fight swing and
+must not be averaged into swing statistics as one) and a `Stamina=N/M.` reader.
+
+## Room shorts: `look` vs movement, and a possible discriminator (2026-08-26)
+
+Same capture (`session-rec.mud2.co.uk.20260826-134435.jsonl`), decoded with
+`tools/mapping/decode_probe.py`. The query, as run:
+
+```
+# room shorts printed at column 0 (leading non-text C1 codes allowed)
+grep -cE "^(\{c[0-9.]+\})*\{c02\.01\}" wyvern.txt          -> 399
+grep -cE "^\{c20"                     ... of those             -> 393 with a leading ambient code
+                                                                    6 without
+```
+
+The 6 without a leading `{c20.xx}`: five immediately follow a bare `l`, one follows a
+`FES,FEI` probe reply. Every one of the 393 with an ambient code follows a movement command or a probe.
+
+Two things follow, and only the first is safe to build on:
+
+1. **`look` really does reprint a column-0 room short**, so anything keying off `RoomShortReady`
+   cannot treat it as "the player moved". `CombatTracker`'s room-change backstop therefore triggers on
+   the room short *changing*, not arriving (`MudSession.NoteRoomShort`).
+2. **The ambient-sound code may be a move/look discriminator** - present on entry, absent on `look`.
+   If that holds it is strictly better than comparing names, because it also fires inside a maze where
+   every room's short is identical -- eleven of this capture's column-0 room shorts read "You are lost
+   in a misty graveyard.", ten on entry and one from a `look`, so no name comparison can tell those
+   rooms apart. **Not implemented**: it rests on one session, and if it is wrong in the
+   optimistic direction the client closes fights every time the player looks around. A second capture
+   agreeing would be enough to switch.
+
+Not established either way: whether a room with no ambient sound prints no C20 on entry (which would
+make the discriminator fail silently, in the safe direction), and whether snooped material (wiz-only)
+can reach the same column-0 path and so report somebody else's movement as the player's.

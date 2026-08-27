@@ -47,6 +47,84 @@ public sealed class FightHistoryRecorderTests : IDisposable
         Assert.Equal("Ollie", row.CharacterName);
     }
 
+    /// <summary>
+    /// The recorder half of FightOutcome.EndOther/NoMore. The aggregator's copy of this logic has its
+    /// own tests (CombatPerFightTests); this is the persisted side, and the two must not drift - the
+    /// display can be re-derived at any time, a written row cannot.
+    ///
+    /// <para>Both outcomes exist to keep Unresolved meaning exactly one thing - "no terminator was
+    /// ever attributed to this fight", i.e. the rows to search when hunting the next unmatched
+    /// wording. A poison death and a coded named end both resolved; filing either as Unresolved would
+    /// dilute the only bug signal the corpus has.</para>
+    /// </summary>
+    [Theory]
+    [InlineData(CombatEventKind.NpcDied, FightOutcome.NoMore)]
+    [InlineData(CombatEventKind.FightEndOther, FightOutcome.EndOther)]
+    public void FlushedRecord_PersistsTheNewFightEnds(CombatEventKind kind, FightOutcome expected)
+    {
+        using var store = MakeStore();
+        var recorder = new FightHistoryRecorder(store);
+
+        recorder.OnInCombatChanged(true);
+        recorder.OnCombatEvent(Event(CombatEventKind.FightStart, "wyvern", weapon: "dagger0"));
+        recorder.OnCombatEvent(Event(kind, "wyvern", atSecond: 5));
+        recorder.OnInCombatChanged(false);
+
+        var row = Assert.Single(store.Snapshot());
+        Assert.Equal(expected.ToString(), row.Outcome);
+        Assert.False(row.IsKill);   // neither is a kill: the player did not land the finishing blow
+    }
+
+    /// <summary>The pronoun forms and the synthetic force-ends carry no NPC name, so they must persist
+    /// as Unresolved - "we never saw this fight end" is exactly what happened.</summary>
+    [Fact]
+    public void FlushedRecord_UnnamedFightEndStaysUnresolved()
+    {
+        using var store = MakeStore();
+        var recorder = new FightHistoryRecorder(store);
+
+        recorder.OnInCombatChanged(true);
+        recorder.OnCombatEvent(Event(CombatEventKind.FightStart, "wyvern", weapon: "dagger0"));
+        recorder.OnCombatEvent(Event(CombatEventKind.FightEndOther, npc: null, atSecond: 5));
+        recorder.OnInCombatChanged(false);
+
+        var row = Assert.Single(store.Snapshot());
+        Assert.Equal(nameof(FightOutcome.Unresolved), row.Outcome);
+    }
+
+    /// <summary>
+    /// The wyvern frame's real order: the death closes the encounter, and the trailing
+    /// "You can fight the wyvern no longer." arrives AFTER it. That trailing line must not produce a
+    /// second, zero-swing row.
+    ///
+    /// <para>The owner's point, and it is not hypothetical - it is the shape of the captured frame.
+    /// MUD2 stacks several end messages, and one of them can land after the fight was already closed
+    /// by something else (a death here; a flee or a kill just as easily). This recorder has no
+    /// in-combat guard, so an event naming a creature is enough to get-or-CREATE a bucket, and a
+    /// bucket created after the flush survives until the next encounter begins - or gets written by
+    /// Dispose's belt-and-braces flush, which is what this test forces.</para>
+    /// </summary>
+    [Fact]
+    public void TrailingFightEndAfterTheEncounterClosed_WritesNoSecondRow()
+    {
+        using var store = MakeStore();
+        var recorder = new FightHistoryRecorder(store);
+
+        recorder.OnInCombatChanged(true);
+        recorder.OnCombatEvent(Event(CombatEventKind.FightStart, "wyvern", weapon: "dagger0"));
+        recorder.OnCombatEvent(Event(CombatEventKind.Hit, "wyvern", rangeLow: 10, rangeHigh: 14, atSecond: 1));
+        recorder.OnCombatEvent(Event(CombatEventKind.NpcDied, "wyvern", atSecond: 2));
+        recorder.OnInCombatChanged(false);   // the death emptied the roster: encounter over, row flushed
+
+        // ...and only now does the trailing acknowledgment arrive.
+        recorder.OnCombatEvent(Event(CombatEventKind.FightEndOther, "wyvern", atSecond: 2));
+        recorder.Dispose();
+
+        var row = Assert.Single(store.Snapshot());
+        Assert.Equal(nameof(FightOutcome.NoMore), row.Outcome);
+        Assert.Equal(1, row.YouHits);
+    }
+
     [Fact]
     public void FlushedRecords_InAPackFight_ShareTheSameEncounterId()
     {
