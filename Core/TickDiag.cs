@@ -12,8 +12,9 @@ namespace Mucka.Core;
 ///
 /// <para><b>What this exists to settle.</b> The click and the bar derive their phase from the same
 /// anchor (<c>SidePanelViewModel.TickPhaseUtc</c>, the encounter's first swing) with arithmetic that
-/// has been checked to agree exactly: the bar empties at <c>anchor + k*2000</c>, the high click fires
-/// at <c>anchor + k*2000 - 275</c>. The anchor itself has been measured against real captures and
+/// has been checked to agree exactly: the bar empties at <c>anchor + k*2000</c>, and the clicks
+/// bracket that boundary symmetrically at <c>+/- CombatMetronome.OffsetMilliseconds</c> (200 ms) - the
+/// high click before it, the low one after. The anchor itself has been measured against real captures and
 /// sits within 3% of a tick of the fitted lattice. So when the two are heard/seen to disagree, the
 /// discrepancy is NOT in the derivation - it is in how long each takes to actually happen, which no
 /// amount of reading the source can reveal. Hence measurement.</para>
@@ -27,7 +28,7 @@ namespace Mucka.Core;
 /// and must NOT accumulate (the schedule is recomputed from the anchor every beat, so a growing value
 /// here means the anchor is being replaced, not that the timer is drifting).</description></item>
 /// <item><description><c>click audio</c> - how long the WinRT play call itself took to return. This is the
-/// number the phase argument turns on: the lead is only 275 ms, so an audio path that costs a
+/// number the phase argument turns on: the lead is only 200 ms, so an audio path that costs a
 /// comparable amount moves the "pre-tick" click onto the boundary and erases the bracket the player is
 /// listening for.</description></item>
 /// <item><description><c>bar restart</c> - the fraction of a tick the bar was told to resume from, and the

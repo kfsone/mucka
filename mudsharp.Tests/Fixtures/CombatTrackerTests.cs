@@ -13,6 +13,12 @@ public class CombatTrackerTests
 {
     private static StyledLine Line(string text) => new([new StyledSpan(text, TextStyle.Default)]);
 
+    /// <summary>The frame prompt as the parser delivers it: a PARTIAL line. In game mode it is the
+    /// only partial line there is, which is what lets CombatTracker see frame boundaries at all - see
+    /// its _endedThisFrame remarks.</summary>
+    private static StyledLine PromptLine() =>
+        new([new StyledSpan("*", TextStyle.Default)], isPartial: true);
+
     /// <summary>A line the server tagged as a fight end (C1 08.10/08.11/08.12) - see
     /// LineKind.FightEnd. The tracker treats that tag as authoritative about the FACT of an end
     /// regardless of the wording, which is the only defence against a phrasing nobody has seen.</summary>
@@ -730,4 +736,87 @@ public class CombatTrackerTests
         Assert.Empty(inCombat);
         Assert.Empty(events);
     }
+
+    /// <summary>
+    /// Regression, reported in play: the combat metronome fell silent for most of a fight, because a
+    /// pack fight's encounter was being closed and reopened on every kill.
+    ///
+    /// <para>MUD2 prints the trailing "You can fight it no longer." for the fight that just ended, in
+    /// the same frame. SoleActiveOnFightEnd read "exactly one creature still active" as "so this line
+    /// must mean that one" - but the other had been removed moments earlier by the kill, so the line
+    /// was about the corpse and the survivor got closed while it was still swinging. The encounter
+    /// then reopened on its next blow, and since the tick phase is only known from an encounter's
+    /// first swing, the metronome restarted each time and clicked a handful of times in two minutes.</para>
+    /// </summary>
+    [Fact]
+    public void PackKill_ThenTrailingPronounEnd_LeavesTheSurvivorFighting()
+    {
+        var (t, inCombat, _) = NewTracker();
+        var t0 = DateTime.UtcNow;
+
+        t.Observe(Line("The goat0 is glaring at you madly."), t0);
+        t.Observe(Line("The ram1 is glaring at you madly."), t0.AddSeconds(1));
+        t.Observe(Line("You have killed the goat0."), t0.AddSeconds(2));
+        t.Observe(FightEndLine("You can fight it no longer."), t0.AddSeconds(2));
+
+        Assert.True(t.InCombat);
+        Assert.Equal([true], inCombat);   // one encounter, never closed and reopened
+
+        // And the survivor's own end still closes it.
+        t.Observe(Line("You have killed the ram1."), t0.AddSeconds(3));
+        Assert.False(t.InCombat);
+        Assert.Equal([true, false], inCombat);
+    }
+
+    /// <summary>
+    /// The suppression lasts one FRAME, not the whole encounter. A review traced the over-broad
+    /// version: a pack where one creature died early meant the last survivor's genuinely unmatched
+    /// end - frames later, with nothing else nearby - went unrescued for the rest of the encounter,
+    /// which is exactly the case SoleActiveOnFightEnd exists for.
+    ///
+    /// <para>The prompt is the boundary that lapses it, and MUD2's guarantee that every end prints
+    /// inside a single frame is what makes that the right scope: an echo cannot be separated from the
+    /// end it echoes by a prompt.</para>
+    /// </summary>
+    [Fact]
+    public void CodedFightEnd_InALaterFrame_StillRescuesTheSurvivor()
+    {
+        var (t, inCombat, _) = NewTracker();
+        var t0 = DateTime.UtcNow;
+
+        t.Observe(Line("The goat0 is glaring at you madly."), t0);
+        t.Observe(Line("The ram1 is glaring at you madly."), t0.AddSeconds(1));
+        t.Observe(Line("You have killed the goat0."), t0.AddSeconds(2));
+        t.Observe(FightEndLine("You can fight it no longer."), t0.AddSeconds(2));
+        Assert.True(t.InCombat);   // the echo of goat0's end closes nothing
+
+        // A later frame. The ram goes on fighting across it...
+        t.Observe(PromptLine(), t0.AddSeconds(3));
+        t.Observe(Line("You hit the ram1 (5-9)."), t0.AddSeconds(4));
+        t.Observe(PromptLine(), t0.AddSeconds(5));
+
+        // ...and then its fight ends in a wording nothing here matches, which only the C1 code
+        // reveals. Nothing has ended in THIS frame, so the rescue is available again.
+        t.Observe(FightEndLine("The ram1 loses interest and wanders off."), t0.AddSeconds(6));
+
+        Assert.False(t.InCombat);
+        Assert.Equal([true, false], inCombat);
+    }
+
+    /// <summary>The same trailing line for a creature that fled rather than died - the frame from
+    /// FIGHT-ENDS.md's water-snake case, with a second creature present.</summary>
+    [Fact]
+    public void PackFleeFailed_ThenTrailingPronounEnd_LeavesTheSurvivorFighting()
+    {
+        var (t, _, _) = NewTracker();
+        var t0 = DateTime.UtcNow;
+
+        t.Observe(Line("The water-snake5 is snarling at you angrily."), t0);
+        t.Observe(Line("The water-snake1 is snarling at you angrily."), t0.AddSeconds(1));
+        t.Observe(Line("The water-snake5 has fled by trying to go up."), t0.AddSeconds(2));
+        t.Observe(FightEndLine("You can fight it no longer."), t0.AddSeconds(2));
+
+        Assert.True(t.InCombat);
+    }
+
 }

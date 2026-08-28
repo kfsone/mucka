@@ -1513,19 +1513,29 @@ public partial class GamePage : ContentPage
         var anchor = _vm.SidePanel.TickPhaseUtc;
         var shouldRun = _vm.SidePanel.IsCombatMetronomeEnabled && anchor is not null && TickIsMeaningful();
 
+        // Two copies of "the player armed the click" exist - the view model's property and the
+        // metronome's own Enabled - and only one path used to reconcile them: the rail's
+        // HandlerChanged, which fires when the rail's hit-target view is first realised. Until that
+        // happened the metronome refused to arm while this driver believed it had, so the click stayed
+        // silent through fights that looked, from here, exactly like fights it was clicking through.
+        // Reconciling here instead makes the order of those two events stop mattering.
+        _combatMetronome.SetEnabled(_vm.SidePanel.IsCombatMetronomeEnabled);
+
         if (shouldRun == _metronomeRunning && anchor == _metronomeAnchorUtc)
             return;
 
-        _metronomeRunning = shouldRun;
         _metronomeAnchorUtc = anchor;
         // Stop first even when starting: Start() is idempotent by design, so a running metronome
         // would otherwise ignore a better anchor arriving.
         _combatMetronome.Stop();
-        if (shouldRun)
-            // TickIsMeaningful is re-asked at every beat, not just here: the beat runs on a thread-pool
-            // timer while this driver only learns a fight ended after a UI-thread hop, so between those
-            // two instants the predicate is the only thing that knows to stay quiet.
-            _combatMetronome.Start(anchor!.Value, TickIsMeaningful);
+        // Cache what ARMED, not what was wanted. A declined Start left _metronomeRunning true with no
+        // chain behind it, and every later call then matched the cache and returned early - one lost
+        // arming became silence for the rest of the fight.
+        //
+        // TickIsMeaningful is re-asked at every beat, not just here: the beat runs on a thread-pool
+        // timer while this driver only learns a fight ended after a UI-thread hop, so between those
+        // two instants the predicate is the only thing that knows to stay quiet.
+        _metronomeRunning = shouldRun && _combatMetronome.Start(anchor!.Value, TickIsMeaningful);
     }
 
     private void UpdateTickSweepColour(Mucka.ViewModels.CombatLiveView live)

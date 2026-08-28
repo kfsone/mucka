@@ -74,6 +74,29 @@ internal sealed class CombatMetronome : IDisposable
     private DateTime _anchorUtc;
     private bool _disposed;
 
+    /// <summary>
+    /// Which click the NEXT beat is, flipped by every beat. Held as state rather than passed to the
+    /// callback because <see cref="Timer.Change(int, int)"/> reschedules a timer but CANNOT replace
+    /// its callback: the chain was armed with <c>_ => Beat(generation, afterTick: true)</c> and
+    /// re-armed with Change, so every beat ran as an after-tick for as long as the chain lived.
+    ///
+    /// <para>What that cost: the pre-tick click never sounded at all, and the interval was permanently
+    /// the after-to-pre leg (<c>tick - 2N</c> = 1600 ms) instead of alternating 1600/400. A 1600 ms
+    /// beat against a 2000 ms tick walks 400 ms earlier each time and repeats every five beats, at
+    /// offsets of +200, -200, -600, ±1000 and +600 ms from the boundary - so two beats in five landed
+    /// where a click belongs and the other three were up to half a tick out, one of them as far from
+    /// the rollover as it is possible to be.</para>
+    ///
+    /// <para><b>What it did NOT explain on its own.</b> Two in five clicks landing correctly is not the
+    /// "two or three ticks in a two-minute fight" that was reported - an earlier version of this
+    /// comment asserted that figure as though it followed from this arithmetic, and it does not. The
+    /// silence was much more likely GamePage's caching of a declined arming (see
+    /// UpdateCombatMetronome), fixed in the same batch; this bug governed where the surviving clicks
+    /// fell, not how many there were. Both were live for the same period, and the owner's
+    /// confirmation came after both were fixed, so the split between them is not established.</para>
+    /// </summary>
+    private bool _nextIsAfterTick;
+
     /// <summary>Asked at every beat: is there still a fight to bookmark? Supplied by the driver, which
     /// owns that judgement (panel visible, in combat, not in the post-fight grace window); this class
     /// deliberately does not try to infer it.</summary>
@@ -98,24 +121,35 @@ internal sealed class CombatMetronome : IDisposable
     /// happening: the metronome only runs when BOTH this is set and combat is live.</summary>
     public bool Enabled { get; private set; }
 
+    /// <summary>
+    /// Idempotent, and cheap when nothing changes - the driver calls this on every combat state
+    /// refresh (which is every combat event, every heartbeat and every 1 Hz tick) to keep this flag
+    /// and the view model's own from drifting apart. So the media-open work happens on the
+    /// TRANSITION only: it used to run ahead of the early-return, which on that call frequency would
+    /// have been repeated file work on the UI thread, i.e. Invariant #1.
+    /// </summary>
     public void SetEnabled(bool enabled)
     {
-        if (enabled)
-        {
-            // Open both clips before they are ever needed. The first PlayPrepared for an asset pays
-            // the WinRT media-open cost, and paying it on the first click of a fight is exactly the
-            // click that most needs to be on time.
-            SoundService.PrepareSound(PreTickClick);
-            SoundService.PrepareSound(AfterTickClick);
-        }
-
+        bool becameEnabled;
         lock (_gate)
         {
             if (Enabled == enabled)
                 return;
             Enabled = enabled;
+            becameEnabled = enabled;
             if (!enabled)
                 StopLocked();
+        }
+
+        if (becameEnabled)
+        {
+            // Open both clips before they are ever needed. The first PlayPrepared for an asset pays
+            // the WinRT media-open cost, and paying it on the first click of a fight is exactly the
+            // click that most needs to be on time. (PrepareSound hands the open to the thread pool
+            // itself, so this is outside the lock for tidiness rather than to avoid blocking a beat -
+            // what actually keeps this cheap on the driver's hot path is the transition check above.)
+            SoundService.PrepareSound(PreTickClick);
+            SoundService.PrepareSound(AfterTickClick);
         }
     }
 
@@ -132,16 +166,28 @@ internal sealed class CombatMetronome : IDisposable
     /// silence, since it would sound authoritative while being wrong by up to a full tick.</param>
     /// <param name="stillInCombat">Re-asked at every beat; false means stay silent. See
     /// <see cref="_stillInCombat"/>.</param>
-    public void Start(DateTime tickAnchorUtc, Func<bool> stillInCombat)
+    /// <returns>
+    /// True when a chain is armed and will click. False when this call declined - disposed, not
+    /// <see cref="Enabled"/>, or already running.
+    ///
+    /// <para>Returned rather than void because the driver caches "the metronome is running" to avoid
+    /// re-arming on every combat event, and a decline used to leave that cache asserting a chain that
+    /// does not exist: silence for the rest of the fight, since the cache then matched on every
+    /// subsequent call and never retried. Reported live as a metronome that clicked once or twice in a
+    /// two-minute fight.</para>
+    /// </returns>
+    public bool Start(DateTime tickAnchorUtc, Func<bool> stillInCombat)
     {
         lock (_gate)
         {
             if (_disposed || !Enabled || _timer is not null)
-                return;
+                return false;
 
             _anchorUtc = tickAnchorUtc;
             _stillInCombat = stillInCombat;
             var generation = ++_generation;
+            // The first beat is the after-tick for the boundary the bar is counting down to.
+            _nextIsAfterTick = true;
 
             // The after-tick click for the boundary the bar is counting down to right now: the same
             // "remaining" the sweep was just given, plus the offset that puts this click past the
@@ -153,7 +199,8 @@ internal sealed class CombatMetronome : IDisposable
                 $"anchor   metronome armed on {tickAnchorUtc:HH:mm:ss.fff} (gen {generation}); "
                 + $"boundary in {remaining:F0} ms, after-tick in {delay} ms, N={OffsetMilliseconds}");
 
-            _timer = new Timer(_ => Beat(generation, afterTick: true), null, delay, Timeout.Infinite);
+            _timer = new Timer(_ => Beat(generation), null, delay, Timeout.Infinite);
+            return true;
         }
     }
 
@@ -176,19 +223,22 @@ internal sealed class CombatMetronome : IDisposable
     /// <summary>
     /// One beat of the chain: schedule the next, then sound this one if the fight is still on.
     /// </summary>
-    /// <param name="afterTick">True for the click that follows a rollover, false for the one that
-    /// precedes the next. The two alternate, and the gaps between them are what encode the phase:
-    /// after-tick to pre-tick is a whole tick less both offsets, pre-tick to after-tick is just the two
-    /// offsets.</param>
-    private void Beat(int generation, bool afterTick)
+    /// <remarks>Which click this is comes from <see cref="_nextIsAfterTick"/>, not from a parameter -
+    /// see that field for why a parameter could not work. The two alternate, and the gaps between them
+    /// are what encode the phase: after-tick to pre-tick is a whole tick less both offsets, pre-tick to
+    /// after-tick is just the two offsets.</remarks>
+    private void Beat(int generation)
     {
         Func<bool>? stillInCombat;
+        bool afterTick;
         lock (_gate)
         {
             if (_disposed || _timer is null || generation != _generation)
                 return;
 
             stillInCombat = _stillInCombat;
+            afterTick = _nextIsAfterTick;
+            _nextIsAfterTick = !afterTick;
 
             // Re-arm FIRST, so however long the sound takes cannot push the next beat late. Both legs
             // are constants rather than "time until the next boundary" on purpose: the alternation

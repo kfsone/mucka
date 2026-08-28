@@ -328,6 +328,31 @@ public sealed class CombatTracker
     // regardless of whether a new encounter starts in the meantime.
     private bool _encounterOpen;
 
+    /// <summary>
+    /// Has a fight already ended in the frame currently arriving? Set by every End/EndAll, cleared at
+    /// the frame boundary and when an encounter opens. Read only by
+    /// <see cref="SoleActiveOnFightEnd"/> - see there for the pack fight it exists to stop wrecking.
+    ///
+    /// <para><b>The frame boundary is the prompt</b>, which reaches this class as a partial line.
+    /// Three things produce one: ClosePromptContext (the prompt itself, gated on PromptAllowed),
+    /// MuckaConnection's EmitPartial (gated on <c>!InGameMode</c> - pre-game text like "Account ID:"
+    /// with no newline, so never during a fight), and ShowPrompt, called unconditionally on every C98.
+    /// That third one is the reason to check this rather than assume it.</para>
+    ///
+    /// <para>Checked, over 33 captures: of the 20 frames where a fight end is followed by its trailing
+    /// 08.12 echo, NONE has a C98 between the two - so nothing lapses the suppression in the gap it
+    /// has to cover. C98 itself lands either at a line start (50 of 70) or after nothing but a
+    /// sentence's closing "." (20 of 70), which is the line tail being flushed immediately ahead of
+    /// that frame's prompt. Both are frame boundaries, which is what the code assumes and what the
+    /// project's own C98 note ("always precedes the C01 prompt preamble") already said.</para>
+    ///
+    /// <para>A frame whose prompt is DISCARDED - the FES heartbeat's, which produces no visible output
+    /// - leaves the flag set for longer than one frame. That errs toward not rescuing, which is the
+    /// safe direction: the cost is a fight left open for the room-change backstop to close, against
+    /// the alternative of closing a creature that is still swinging.</para>
+    /// </summary>
+    private bool _endedThisFrame;
+
     public bool InCombat => _encounterOpen;
 
     /// <summary>Fires whenever <see cref="InCombat"/> flips (true = encounter started).</summary>
@@ -349,6 +374,12 @@ public sealed class CombatTracker
 
     private void ObserveLocked(StyledLine line, DateTime timestampUtc)
     {
+        // The prompt closes a frame, and in game mode it is the only partial line there is (see
+        // _endedThisFrame). Whatever ended in the frame just gone cannot be echoed by a line in the
+        // next one, so the suppression lapses here rather than lasting the whole encounter.
+        if (line.IsPartial)
+            _endedThisFrame = false;
+
         var text = line.PlainText;
         if (string.IsNullOrEmpty(text))
             return;
@@ -694,18 +725,40 @@ public sealed class CombatTracker
     /// when that is a guess.
     ///
     /// <para>Requires the C1 code (<see cref="LineKind.FightEnd"/>): the prose alone has never been
-    /// trusted to close a fight it does not name, and should not start being. With the code present
-    /// and exactly ONE creature engaged there is no other fight the line could mean. With two or
-    /// more there is, and picking one would file a pack fight's ending under the wrong creature -
-    /// worse than leaving it open, because a wrong row is evidence and an open fight is only a bug.</para>
+    /// trusted to close a fight it does not name, and should not start being.</para>
     ///
-    /// <para>Best-effort by nature, and only ever acts when we failed to parse the real terminator:
-    /// when we did parse it, the fight is already closed and <see cref="_active"/> no longer holds
-    /// it. Same caution as NpcKilledYouNarrative's "sole active participant" - our roster is what we
-    /// managed to observe, not necessarily what is in the room.</para>
+    /// <para><b>And requires that nothing has ended in this frame yet</b>, which is the condition the
+    /// first version of this method was missing - a regression the owner caught in play (a pack fight's
+    /// encounter closing and reopening on every kill). In a pack, MUD2 kills one creature and then
+    /// prints the trailing "You can fight it no longer." for THAT fight, in the same frame:
+    /// <code>
+    /// The goat0 is glaring at you madly.
+    /// The ram1 is glaring at you madly.
+    /// You have killed the goat0.        &lt;- closes goat0, leaving ram1 the only one active
+    /// You can fight it no longer.      &lt;- refers to goat0, but "exactly one active" now means ram1
+    /// </code>
+    /// so the survivor's fight was closed while it was still swinging. The encounter then reopened on
+    /// ram1's next blow, which is why the symptom was a metronome that kept restarting: the tick phase
+    /// is only known from an encounter's first swing.</para>
+    ///
+    /// <para>So once anything has ended in the frame being read, an unnamed end is assumed to be
+    /// acknowledging that one and closes nothing. Frame scope is what the evidence supports and no
+    /// more: the class's load-bearing guarantee is that every end prints inside a single frame, so an
+    /// echo cannot be separated from its own end by a prompt. An earlier version of this fix scoped
+    /// the suppression to the whole ENCOUNTER, which was over-broad - a review traced a pack where the
+    /// last survivor's genuinely unmatched end, frames later, went unrescued because an unrelated
+    /// creature had died earlier in the same encounter.</para>
+    ///
+    /// <para>Where it does abstain, the fight stays open exactly as it did before this method existed,
+    /// with <see cref="NoteRoomChanged"/> as the floor.</para>
+    ///
+    /// <para>Best-effort by nature. Same caution as NpcKilledYouNarrative's "sole active participant":
+    /// our roster is what we managed to observe, not necessarily what is in the room.</para>
     /// </summary>
     private string? SoleActiveOnFightEnd(StyledLine line)
-        => line.Kind == LineKind.FightEnd && _active.Count == 1 ? _active.First() : null;
+        => line.Kind == LineKind.FightEnd && !_endedThisFrame && _active.Count == 1
+            ? _active.First()
+            : null;
 
     /// <summary>Force-close any open encounter without a matching end line (e.g. an auto-reset
     /// wiping the game state mid-fight, or logout/relog). <paramref name="reason"/> is recorded
@@ -754,6 +807,11 @@ public sealed class CombatTracker
         if (!_encounterOpen)
         {
             _encounterOpen = true;
+            // Load-bearing, not redundant with the frame boundary: MUD2 will close one encounter and
+            // open the next in the SAME frame (see this class's remarks), and with no prompt between
+            // them this is the only thing that clears a true left by the previous encounter's last
+            // kill. Without it the new encounter's first unnamed end could not be rescued.
+            _endedThisFrame = false;
             InCombatChanged?.Invoke(true);
         }
     }
@@ -761,6 +819,7 @@ public sealed class CombatTracker
     private void End(string npc)
     {
         _active.Remove(npc);
+        _endedThisFrame = true;
         if (_active.Count == 0)
             CloseEncounter();
     }
@@ -768,6 +827,7 @@ public sealed class CombatTracker
     private void EndAll()
     {
         _active.Clear();
+        _endedThisFrame = true;
         CloseEncounter();
     }
 
