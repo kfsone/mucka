@@ -35,6 +35,7 @@ AppPackages/
 .DS_Store
 
 # Misc
+Bartle.MUD2-C1-Codes.txt
 MUD-ClientProto.md
 screen.png
 android-screen.png
@@ -55,3 +56,5 @@ tools/mapping/*.db
 tools/**/--*
 --*
 
+# Allow displacement of the mucka.exe for testing, don't commit it.
+mucka.exe
