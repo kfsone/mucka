@@ -192,6 +192,18 @@ public sealed class ClogWriter : IDisposable
     }
 
     public void OnStatsUpdated(GameStatsSnapshot stats) => _lastStats = stats;
+
+    /// <summary>
+    /// Supplies the current reset's identity, for the header's <c>reset</c> block. Set by
+    /// MuckaConnection at wire-up; null-safe, since a clog written before the clock has locked on is
+    /// still worth having.
+    ///
+    /// <para><b>Why a delegate rather than a pushed value.</b> The estimate is polled, not evented at
+    /// the granularity a clog needs - it refines continuously as ResetClock narrows its lock - and a
+    /// value pushed on stats updates would be whatever the last FES heartbeat happened to see. Asking at
+    /// the moment an encounter opens gets the best answer available then.</para>
+    /// </summary>
+    public Func<MudSharp.Session.ResetEstimate>? ResetEstimateProvider { get; set; }
     public void OnStatusEffectsChanged(StatusEffectState effects) => _lastEffects = effects;
     public void OnRoomShortReady(string room) => _lastRoom = room;
 
@@ -278,10 +290,12 @@ public sealed class ClogWriter : IDisposable
                 FilePath = path;
                 UpdateTailOnlyLocked();
 
+                var startedMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
                 WriteEntryLocked(entry, new
                 {
                     type = "encounter_start",
-                    ts = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                    ts = startedMs,
+                    reset = ResetBlock(startedMs),
                     preroll = _recentLines.ToArray(),
                     room = _lastRoom,
                     weather = _lastStats.Weather.ToString(),
@@ -321,6 +335,49 @@ public sealed class ClogWriter : IDisposable
                 // Best-effort feature: a clogging failure must never disrupt play.
             }
         }
+    }
+
+    /// <summary>
+    /// Which reset this encounter happened in - the header's <c>reset</c> block.
+    ///
+    /// <para><b>Why this is here.</b> MUD2 creatures earn points and level up WITHIN a reset, so the
+    /// same name is a different opponent at different points in the cycle; the <c>swings</c> table has
+    /// carried <c>reset_epoch_ms</c> as its grouping key for exactly that reason (CombatDb), but the
+    /// clogs - the corpus every offline query actually runs against - carried no reset context at all.
+    /// Added 2026-08-28 at the owner's request, prompted by a measurement that could not be finished
+    /// without it: 2.4% of encounters have a tick phase more than half a second off the session's
+    /// best-fit lattice, and the leading explanation is a session that SPANS a reset, where the server's
+    /// lattice genuinely moves and one estimate cannot describe both halves. Untestable while nothing
+    /// records which side of a reset an encounter sat on.</para>
+    ///
+    /// <para><b>Two fields, because they are different in kind and the better one can be absent.</b></para>
+    /// <list type="bullet">
+    /// <item><c>targetUtcMs</c> - ResetClock's locked estimate of the reset instant. This is the one to
+    /// group on: it is a single converged figure, so it stays put across every encounter in a reset.
+    /// Carries <c>uncertaintySec</c> and <c>phase</c> so a consumer can tell a locked reading from a
+    /// guess, and is null before the clock has locked.</item>
+    /// <item><c>timeToReset</c> - the raw FES seconds-remaining reading, always available, and the only
+    /// thing present in an early clog. <b>Do not group on <c>ts + timeToReset * 1000</c> without
+    /// bucketing it first.</b> That expression is what <c>swings.reset_epoch_ms</c> holds, and
+    /// CombatDb's comment calling it "constant across every swing of one reset" is wrong as written: the
+    /// reading is whole seconds, so the derived instant jitters by up to a second between observations
+    /// and grouping on it raw splits one reset into many.</item>
+    /// </list>
+    private object ResetBlock(long startedMs)
+    {
+        var estimate = ResetEstimateProvider?.Invoke();
+        return new
+        {
+            targetUtcMs = estimate?.TargetUtc is DateTime t
+                ? new DateTimeOffset(t, TimeSpan.Zero).ToUnixTimeMilliseconds()
+                : (long?)null,
+            uncertaintySec = estimate?.UncertaintySec,
+            phase = estimate?.Phase.ToString(),
+            timeToReset = _lastStats.TimeToReset,
+            // The raw derivation, recorded so an early clog with no lock is still groupable, and
+            // deliberately NOT presented as an identity - see the remarks above on its quantisation.
+            derivedEpochMs = _lastStats.TimeToReset is int ttr ? startedMs + (ttr * 1000L) : (long?)null,
+        };
     }
 
     private void Stop()

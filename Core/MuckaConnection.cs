@@ -589,6 +589,9 @@ public sealed class MuckaConnection : IAsyncDisposable
         _session.ProbeSent          += () => FesProbeSent?.Invoke();
         _session.SniffResult        += (name, outcome) => SniffResult?.Invoke(name, outcome);
         _session.TerminalWidthConfirmed += OnTerminalWidthConfirmed;
+        // The clog header records which reset each encounter sat in; asked for at encounter start
+        // rather than pushed, so it gets the clock's best current lock. See ClogWriter.ResetBlock.
+        _clog.ResetEstimateProvider = () => _session.ResetEstimate;
         _session.ResetEstimateChanged   += () => ResetEstimateChanged?.Invoke();
         _session.ResetObservationRecorded += OnResetObservation;
         _session.ResetDiagnostic        += OnResetDiagnostic;
