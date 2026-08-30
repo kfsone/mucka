@@ -35,6 +35,13 @@ public enum PulseTier
 /// </summary>
 internal sealed class PulseLayer
 {
+    /// <summary>The client's one pulse period. Shared with <see cref="FleePulse"/> so the panel glow and
+    /// the flee pill beat together rather than at two rates - DESIGN_FINAL.md 4.2 allows one pulsing
+    /// element at a time precisely because several on their own phases read as noise rather than as
+    /// urgency, and two that share a period and are armed in the same synchronous block are the nearest
+    /// thing to one heartbeat that two visuals can be.</summary>
+    internal const double PeriodMilliseconds = 1200.0;
+
     private CompositionAnimation? _anim;
     private Visual? _visual;
     private readonly FrameworkElement _host;
@@ -59,11 +66,21 @@ internal sealed class PulseLayer
 
         _visual ??= ElementCompositionPreview.GetElementVisual(_host);
         var compositor = _visual.Compositor;
+        // Halved, 2026-08-28 (owner). It ran 1.0 -> 0.25 -> 1.0, and in play that flash dominated the
+        // panel so completely that the flee pill - the one element with something actionable on it -
+        // did not draw the eye at all, in the exact fight it was built for (23 stamina against a
+        // banshee). Both ends are halved rather than just the trough raised: raising the trough would
+        // shrink the SWING while leaving the panel brighter on average, which is the opposite of what
+        // is wanted. This way the colour change is half what it was and the glow is dimmer throughout,
+        // so the pill has somewhere to stand out from.
+        //
+        // The glow is still the loudest thing the client owns; it is just no longer the ONLY thing
+        // visible while it runs.
         var anim = compositor.CreateScalarKeyFrameAnimation();
-        anim.InsertKeyFrame(0.0f, 1.0f);
-        anim.InsertKeyFrame(0.5f, 0.25f);
-        anim.InsertKeyFrame(1.0f, 1.0f);
-        anim.Duration = TimeSpan.FromMilliseconds(1200);
+        anim.InsertKeyFrame(0.0f, 0.5f);
+        anim.InsertKeyFrame(0.5f, 0.125f);
+        anim.InsertKeyFrame(1.0f, 0.5f);
+        anim.Duration = TimeSpan.FromMilliseconds(PeriodMilliseconds);
         anim.IterationBehavior = AnimationIterationBehavior.Forever;
         _anim = anim;
         _visual.StartAnimation("Opacity", anim);
@@ -75,13 +92,31 @@ internal sealed class PulseLayer
     /// above.</summary>
     public void Stop()
     {
-        _visual?.StopAnimation("Opacity");
         _anim = null;
-        // StopAnimation freezes the property at whatever value the animation last produced, not at
-        // a defined rest state - without explicitly zeroing it here, a glow stopped mid-dip could
-        // stick at partial opacity instead of going fully invisible.
-        if (_visual is not null)
+        if (_visual is null)
+            return;
+
+        // Guarded for the reason FleePulse.Stop sets out at length: this is called from the host's
+        // HandlerChanged, which fires while the native peer is being replaced or destroyed, so the
+        // compositor behind this cached Visual may already be closed and touching it throws the
+        // RO_E_CLOSED family. Unhandled, that would skip the caller's re-attach and leave the glow dead
+        // for the session.
+        try
+        {
+            _visual.StopAnimation("Opacity");
+            // StopAnimation freezes the property at whatever value the animation last produced, not at
+            // a defined rest state - without explicitly zeroing it here, a glow stopped mid-dip could
+            // stick at partial opacity instead of going fully invisible.
             _visual.Opacity = 0f;
+        }
+        catch (Exception ex)
+        {
+            Mucka.Core.CrashLog.Write("PulseLayer.Stop", ex);
+        }
+        finally
+        {
+            _visual = null;
+        }
     }
 }
 #endif

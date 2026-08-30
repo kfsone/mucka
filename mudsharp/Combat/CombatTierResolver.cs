@@ -24,8 +24,23 @@ public static class CombatTierResolver
 {
     /// <summary>Stamina at/below which the player is close enough to permadeath that the panel must
     /// never read calmer than T2, whatever else it would otherwise say (D15/4.4). Not a cost figure -
-    /// this codebase shows no flee economics of any kind, in any form (D15).</summary>
+    /// no flee cost, points-at-risk or flee-statistic figure is computed anywhere in this codebase
+    /// (D15), and this constant is the danger reading of the band, not its price.</summary>
     public const double CriticalStaminaThreshold = 6.5;
+
+    /// <summary>
+    /// The survival threshold: <c>COMBAT-RAIL-SPEC.md</c> section 6a's third stamina number, and the
+    /// only one of the three that ALARMS rather than explains.
+    ///
+    /// <para>Deliberately not a formula, unlike the 40 and 30 stat knees. It is where the consequences
+    /// converge - most NPCs cap out at 15-20 damage so one blow can now kill, several creatures flip
+    /// from peaceful to hostile against a player this wounded, a newly-arrived NPC's surprise blow lands
+    /// 5-15 regardless of what the current opponent can do, and MUD2 prints its own "consider fleeing"
+    /// near here. Against the owner's tally - outside rats, of 5 occasions at exactly 20 stamina, 3 cost
+    /// the character - a formula that fits the instrument better is still answering the wrong
+    /// question.</para>
+    /// </summary>
+    public const double SurvivalStaminaThreshold = 20.0;
 
     /// <summary>Stamina / hits-left tier (4.3's first three rows). All inputs optional/nullable -
     /// an unknown value simply cannot promote the tier past what the known ones justify.</summary>

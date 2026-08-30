@@ -70,10 +70,61 @@ public sealed class CombatRailView : SKCanvasView
     private const float TickTrackWidth = Content - MetronomeReserve;
     private const float SealSize = 92f;
 
-    /// <summary>Upper bound on opponent slots. The measured maximum simultaneously-engaged
-    /// opponents across the whole capture corpus is 4 - kills clear slots as fast as new
-    /// creatures join, so even a 16-rat brawl never exceeded 4 at once. This cap exists for
-    /// the pathological case, not the normal one.</summary>
+    /// <summary>The bottom row's middle column - weapon, alternate weapon, and the flee pill - between
+    /// the two seals. Named rather than restated at each use so a sibling positioned in real dp
+    /// (<see cref="FleePillDp"/>) cannot drift off the column the canvas draws.</summary>
+    private const float ColumnLeft = Pad + SealSize + 8f;
+    private const float ColumnWidth = Content - (SealSize * 2f) - 16f;
+
+    /// <summary>The flee pill, at the TOP of the middle column - the band above the weapon line, level
+    /// with the upper arc of both seal rings, so the pill sits visually between the two stamina-shaped
+    /// readouts the flee decision is actually about. Reserved whether or not the pill is drawn (rule 3);
+    /// nothing else in the column moves when it lights up.</summary>
+    private const float PillHeight = 24f;
+    private const float PillTopInset = 3f;
+
+    /// <summary>The pill is WIDER than the middle column the weapon lines use, and centred on the panel
+    /// rather than on that column. It has to be: the chip now carries stamina and a price as well as the
+    /// word and the key, and 116dp could not hold them.
+    ///
+    /// <para>The extra width is taken over the seals' bounding BOXES without touching their drawn rings.
+    /// A seal is a circle of radius 39 centred 46dp down its 92dp box, so at the pill's vertical centre
+    /// (~15dp from the row's top) the ring has narrowed to cx +/- 23.7 - the left ring reaches x=83 at
+    /// most, the right no further left than x=253. 92..244 clears both by roughly 9dp. Do not widen
+    /// further without redoing that arithmetic; the rings bulge fast further down.</para></summary>
+    private const float PillLeft = 92f;
+    private const float PillWidth = 152f;
+
+    /// <summary>The pill is the floating dreamword chip's treatment in reds - a FILLED chip with a
+    /// bright 2dp border and white bold text, not the thin dim outline the rest of this panel favours.
+    /// Owner's call, 2026-08-28. Geometry matched to that chip: corner radius 10, 2dp stroke, the same
+    /// roughly-10dp horizontal breathing room its Padding gives.
+    ///
+    /// <para>Note these are the panel's only colours NOT derived from <c>TerminalTheme.Palette</c>
+    /// (section 11) - <c>#FF0000</c> is a pure red the Campbell palette does not contain (its bright red
+    /// is <c>#E74856</c>), and the owner named it directly. Recorded as an explicit override rather than
+    /// left looking like drift.</para></summary>
+    private static readonly SKColor PillFill = new(0x3E, 0x18, 0x1C);
+    private static readonly SKColor PillEdge = new(0xFF, 0x00, 0x00);
+    private static readonly SKColor PillText = new(0xFF, 0xFF, 0xFF);
+    private const float PillStroke = 2f;
+    private const float PillRadius = 10f;
+
+    /// <summary>How far the whole chip is knocked back in the quiet state. Rule 3 lists intensity as a
+    /// legitimate way for an indicator to change state in place, which is what lets the chip keep one
+    /// shape across all three visible states: the escalation is brightness and motion, never geometry.
+    /// Without it a full-strength red chip would be shouting from the moment it appears, and an alarm
+    /// that is loudest before anything has happened is the one the spec warns gets ignored later.</summary>
+    private const float PillQuietWash = 0.55f;
+
+    /// <summary>Upper bound on opponent slots. The measured maximum simultaneously-engaged opponents
+    /// is 7 (2026-08-27, seven rats; re-measured across the 984-encounter live clog corpus by
+    /// tools/combat/concurrency.py, and 12 encounters have peaked at 5 or more).
+    ///
+    /// <para>This comment used to say 4 and call the cap a guard for "the pathological case, not the
+    /// normal one" - both wrong, and inherited from the offline research capture rather than from play.
+    /// At 7 there is ONE creature of margin before live opponents alone fill the cap, so the overflow
+    /// row is ordinary machinery now, not a theoretical branch.</para></summary>
     private const int MaxSlots = 8;
 
     // ---- Health pips: atlas's exact geometry. Do not scale these. -------------------------
@@ -136,6 +187,13 @@ public sealed class CombatRailView : SKCanvasView
     private readonly SKFont _tinyFont = new(SKTypeface.Default, 7.5f);
     private readonly SKFont _weaponFont = new(SKTypeface.Default, 13f);
     private readonly SKFont _smallFont = new(SKTypeface.Default, 10f);
+    /// <summary>The flee pill's text. Bold like the dreamword chip's word, and 12f rather than the
+    /// weapon line's 13f because the chip carries four things now - word, stamina, price, key - and the
+    /// worst realistic string ("Flee 105 (-2.1k)" plus "^F") has to fit 152dp with padding. Falls back
+    /// to the regular cut where the platform has no bold face, in which case the text is simply not
+    /// emphasised rather than missing.</summary>
+    private readonly SKFont _pillFont = new(
+        SKTypeface.FromFamilyName(SKTypeface.Default.FamilyName, SKFontStyle.Bold) ?? SKTypeface.Default, 12f);
     // Weight, not colour, marks a heavy blow: the slot's colours already carry meaning (hostile red for
     // the enemy, dim for spent) and overloading one of them would make the damage column argue with the
     // row it sits in. Falls back to the regular face if the platform has no bold cut, in which case the
@@ -462,7 +520,118 @@ public sealed class CombatRailView : SKCanvasView
         DrawSeal(canvas, Pad + Content - SealSize, y, "MAG", live.MagicCurrent, live.MagicMax,
             magColor, magInert);
 
-        DrawWeapon(canvas, Pad + SealSize + 8f, y, Content - (SealSize * 2f) - 16f, live);
+        DrawWeapon(canvas, ColumnLeft, y, ColumnWidth, live);
+
+        // Grace counts as not fighting, exactly as it does for the tick meter: nothing is attacking, so
+        // an instrument telling the player to run is telling them to pay for an escape from a fight that
+        // is already over. Read from the bindable rather than the frame state because it changes without
+        // the frame being rebuilt.
+        DrawFleePill(canvas, y, InGracePeriod ? FleePillStatus.Hidden : live.FleePill, live);
+    }
+
+    /// <summary>
+    /// The flee pill: <c>FLEE</c> and the key that sends it, at the top of the middle column.
+    ///
+    /// <para><b>Not a button.</b> The metronome toggle next door has a real (invisible) hit target over
+    /// it, and this deliberately does not. An accidental flee is one of the most expensive single
+    /// misclicks in the game - MUD2 charges a share of total score to leave, and it charges for a FAILED
+    /// attempt too (a captured frame shows 102 points and a whole experience level for one that never
+    /// moved the player) - and there is no room for a confirmation step inside a two-second tick. So the
+    /// pill advertises Ctrl+F; it does not offer a second, softer way to fire it. Same reason the rail
+    /// stays InputTransparent everywhere else (Invariant #0), with an actual cost attached.</para>
+    ///
+    /// <para><b>The motion is not drawn here.</b> Both alarm states pulse, and this canvas never
+    /// animates (Invariant #1) - the pulsing border and background come from a Composition sibling laid
+    /// OVER this canvas, sized from <see cref="FleePillDp"/> and driven by
+    /// <c>GamePage.UpdateCombatFleePill</c>. What this method draws is the still chip: fill, text, and
+    /// the border in the quiet state only.</para>
+    ///
+    /// <para><b>Why the border is conditional.</b> At Caution and EscapeNow the ring is the thing that
+    /// pulses, and a static full-strength ring of the same colour underneath a pulsing one would swallow
+    /// the pulse whole - <c>#FF0000</c> composited over <c>#FF0000</c> does not dim, so the border would
+    /// appear to brighten from full to full and read as motionless. The fill and the text stay drawn
+    /// here at every visible state, because neither of those is what moves.</para>
+    /// </summary>
+    private void DrawFleePill(SKCanvas canvas, float rowTop, FleePillStatus status, CombatLiveView live)
+    {
+        if (status == FleePillStatus.Hidden)
+            return;
+
+        var top = rowTop + PillTopInset;
+        var wash = status == FleePillStatus.Visible ? PillQuietWash : 1f;
+
+        _fill.Color = Dim(PillFill, wash);
+        canvas.DrawRoundRect(PillLeft, top, PillWidth, PillHeight, PillRadius, PillRadius, _fill);
+
+        if (status == FleePillStatus.Visible)
+        {
+            // Inset by half the stroke width so the ring sits inside the chip's bounds rather than
+            // straddling them - the pulsing sibling is laid on the same rectangle, and a ring drawn half
+            // outside it would be a pixel wider than the one that replaces it.
+            _stroke.Color = Dim(PillEdge, wash);
+            _stroke.StrokeWidth = PillStroke;
+            canvas.DrawRoundRect(
+                PillLeft + (PillStroke / 2f), top + (PillStroke / 2f),
+                PillWidth - PillStroke, PillHeight - PillStroke,
+                PillRadius, PillRadius, _stroke);
+            _stroke.StrokeWidth = 1f;
+        }
+
+        // "Flee 23 (-2.1k)" left, "^F" right. Bold at every state, like the dreamword chip's own word:
+        // the escalation is the chip's brightness and the pulse, never the letterforms changing under
+        // the eye.
+        //
+        // The STAMINA is on the pill rather than left to the seal beside it because this is the number
+        // the decision is actually about, and at the moment of deciding the eye is on the chip. The
+        // PRICE is a parenthetical and is absent when there is none - see FleeCostEstimate for how
+        // rough it is, and for why "no parenthetical" means free or unpriceable rather than zero.
+        var baseline = top + (PillHeight / 2f) + 4.5f;
+        var label = "Flee";
+        if (live.StaminaCurrent is int sta)
+            label += " " + sta.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        if (live.FleeCostPoints is int cost && cost > 0)
+            label += " (-" + FleeCostEstimate.Format(cost) + ")";
+
+        // Ellipsized against the room actually left by "^F" and the two paddings. The worst realistic
+        // string fits 152dp at 12f with ~19dp to spare, so this should never fire - but font metrics are
+        // a platform's to choose, and a price running into the hotkey would make both unreadable at the
+        // one moment they matter. Costs nothing until it truncates.
+        const float keyReserve = 26f;
+        _text.Color = Dim(PillText, wash);
+        canvas.DrawText(Ellipsize(label, PillWidth - 22f - keyReserve, _pillFont),
+            PillLeft + 11f, baseline, SKTextAlign.Left, _pillFont, _text);
+
+        // "^F", not "Ctrl+F". The owner's shorthand, and its whole job is to remind a player whose hand
+        // is already on the keyboard that they do not have to reach for the mouse - so it is drawn even
+        // though the chip is also clickable. Terse enough to leave the room the price needs.
+        _text.Color = Dim(PillText, wash * 0.75f);
+        canvas.DrawText("^F", PillLeft + PillWidth - 11f, baseline, SKTextAlign.Right, _smallFont, _text);
+    }
+
+    /// <summary>
+    /// Where the flee pill sits, in device-independent units, for a rail rendered at
+    /// <paramref name="panelWidthDp"/> wide - the geometry the Composition border/background behind this
+    /// canvas has to match exactly. Same contract and same reason as <see cref="TickTrackDp"/>: the rail
+    /// lays itself out in a fixed 336-unit space and scales it, so a sibling in real dp needs the same
+    /// factor, and two copies of the arithmetic would silently disagree the first time this row's height
+    /// or padding changed.
+    /// </summary>
+    /// <para>The corner radius travels with the bounds rather than being re-derived from the height at
+    /// the call site: the chip is not fully rounded (radius 10 on a 24dp chip, matching the dreamword
+    /// chip it copies), so <c>height / 2</c> would be a visibly different curve on the ring than on the
+    /// fill it is supposed to trace.</para>
+    public static (double Left, double Right, double Bottom, double Height, double Radius) FleePillDp(
+        double panelWidthDp)
+    {
+        var k = panelWidthDp / RailWidth;
+        return (
+            PillLeft * k,
+            (RailWidth - PillLeft - PillWidth) * k,
+            // Measured up from the panel's bottom edge, mirroring OnPaintSurface's own bottom-up chain:
+            // tick row, then the bottom row, then down to the pill's lower edge inside it.
+            (Pad + TickRowHeight + BottomRowHeight - PillTopInset - PillHeight) * k,
+            PillHeight * k,
+            PillRadius * k);
     }
 
     /// <summary>A seal: ring, value, and its own dim name INSIDE the ring. Never a label

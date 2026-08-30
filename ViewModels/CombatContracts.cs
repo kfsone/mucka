@@ -28,7 +28,12 @@ public sealed record CombatStatDeficits(
     int? DexterityMax = null,
     // Magic rides the same FES snapshot. See CombatLiveView.MagicCurrent for why it matters.
     int? MagicCurrent = null,
-    int? MagicMax = null)
+    int? MagicMax = null,
+    // Total score, from the same FES heartbeat. Carried only so the flee pill can price a flee
+    // (MudSharp.Combat.FleeCostEstimate) - MUD2 charges a FRACTION of total score to leave, so the
+    // figure is meaningless without it. Not shown anywhere as a score readout; the top status strip
+    // already owns that.
+    int? Score = null)
 {
     public static readonly CombatStatDeficits None = new(null, null, null, null, null, null);
 
@@ -229,7 +234,17 @@ public sealed record CombatLiveView(
     // shortens it for display; GameViewModel.WieldAlternateWeapon reduces it to a typeable noun).
     // Null whenever nothing in the pack qualifies - which is also what hides the Ctrl+W chip, so
     // the key is never advertised when it would do nothing. See CombatComposition.ChooseAltWeapon.
-    string? AltWeapon = null)
+    string? AltWeapon = null,
+    // Estimated points a flee would cost right now, or null when it is free or unpriceable. The pill
+    // prints it as a parenthetical; null draws nothing there. See MudSharp.Combat.FleeCostEstimate for
+    // how rough this is - four anchors, one of them measured - and why null rather than 0.
+    int? FleeCostPoints = null,
+    // How loudly the flee pill is drawn, between the two seals. See MudSharp.Combat.FleePillResolver
+    // for the thresholds and for what the spec's section-10 ban does and does not cover.
+    //
+    // The pill's two alarm states pulse, and this canvas never animates (Invariant #1) - so this value
+    // also drives the Composition sibling behind the canvas, via GamePage.UpdateCombatFleePill.
+    MudSharp.Combat.FleePillStatus FleePill = MudSharp.Combat.FleePillStatus.Hidden)
 {
     public static readonly CombatLiveView Idle = new(
         InCombat: false, HasEncounter: false, WeaponText: string.Empty, IsUnarmed: false,

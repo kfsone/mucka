@@ -39,10 +39,14 @@ public readonly record struct ThreatReading(ThreatLevel Level, string Label)
 /// <summary>
 /// Resolves the Combat Rail's headline threat indicator - the panel's organising element (D14; owner:
 /// "a threat indicator gauge of some kind -- or a 'DEATH IN &lt;n&gt;S' label or something simple. Bold
-/// text. Gently glowing at first getting angrier as it gets likelier."). This is the only "how is the
-/// fight going" signal the panel shows: no flee economics or cost figures render anywhere, in any
-/// form (D15) - the player already knows fleeing is expensive, and a price tag at the decision moment
-/// is cognitive burden at the worst possible instant.
+/// text. Gently glowing at first getting angrier as it gets likelier."). No flee cost figure, points-at-
+/// risk figure or flee statistic renders anywhere (D15) - the player already knows fleeing is expensive,
+/// and a price tag at the decision moment is cognitive burden at the worst possible instant.
+///
+/// <para>This used to claim to be the ONLY "how is the fight going" signal on the panel. It is not, as
+/// of 2026-08-28: <see cref="FleePillResolver"/> answers the adjacent and different question "is leaving
+/// now the move", and shares this class's <paramref name="hitsLeft"/> input for the one case that is a
+/// count rather than a forecast, precisely so the two cannot disagree about it.</para>
 ///
 /// <para><b>Deliberately reuses <see cref="CombatTierResolver.StaminaTier"/> rather than inventing a
 /// second set of numeric thresholds.</b> That table (DESIGN_FINAL.md 4.3) already answers "how close

@@ -285,7 +285,11 @@ gives up a couple of thousand - 60-90 minutes of ordinary play. Any future PvP-f
 be designed knowing that *making the other player flee* is itself the win condition, which is the
 opposite of the PvE instinct that fleeing is merely a personal cost.
 
-This stays out of the UI. `COMBAT-RAIL-SPEC.md` section 10 puts flee cost out of scope
+**This table** stays out of the UI - the numbers, not the subject. `COMBAT-RAIL-SPEC.md` section 10's
+2026-08-28 amendment draws that line: cost figures and any surface framing the cheap band as a goal are
+banned; the flee pill added the same day is the opposite reading of the same band and is in.
+
+`COMBAT-RAIL-SPEC.md` section 10 puts flee cost out of scope
 permanently: the player knows fleeing is expensive, and a price tag at the decision moment is
 cognitive burden at the worst possible instant. This table is documented so nobody
 re-introduces a "fleeing is cheap here" affordance - the same reason `FleeCostLadder`, the class
