@@ -363,6 +363,7 @@ public sealed class ClogWriter : IDisposable
     /// reading is whole seconds, so the derived instant jitters by up to a second between observations
     /// and grouping on it raw splits one reset into many.</item>
     /// </list>
+    /// </summary>
     private object ResetBlock(long startedMs)
     {
         var estimate = ResetEstimateProvider?.Invoke();
