@@ -51,6 +51,8 @@
     <Compile Include="..\Core\SwingRow.cs" Link="Core\SwingRow.cs" />
     <Compile Include="..\Core\CombatDb.cs" Link="Core\CombatDb.cs" />
     <Compile Include="..\Core\CombatTiming.cs" Link="Core\CombatTiming.cs" />
+    <Compile Include="..\Core\TickPhase.cs" Link="Core\TickPhase.cs" />
+    <Compile Include="..\Core\WavProbe.cs" Link="Core\WavProbe.cs" />
     <Compile Include="..\Audio\SoundCatalog.cs" Link="Audio\SoundCatalog.cs" />
     <Compile Include="..\Core\ClogWriter.cs" Link="Core\ClogWriter.cs" />
   </ItemGroup>

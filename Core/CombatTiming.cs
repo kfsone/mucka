@@ -41,6 +41,72 @@ internal static class CombatTiming
     }
 
     /// <summary>
+    /// The next metronome beat on the bracketed lattice: beats sit at <c>boundary - offset</c> and
+    /// <c>boundary + offset</c> for every boundary defined by <paramref name="anchorUtc"/>.
+    ///
+    /// <para><b>This exists so the click's schedule is derived from the ANCHOR every beat, which is the
+    /// whole correctness property.</b> The chain used to re-arm with two constant legs
+    /// (<c>tick - 2N</c> and <c>2N</c>) measured from the moment the previous callback actually ran.
+    /// <c>System.Threading.Timer</c> lateness is one-sided - a timer never fires early - so that
+    /// lateness accumulated monotonically with nothing to correct it, and the whole budget before a
+    /// beat crossed to the wrong side of its boundary was N milliseconds for an entire fight. At
+    /// Windows' default ~15.6 ms granularity the pre-boundary beat ran out of margin in about thirteen
+    /// rollovers, roughly 26 seconds, while the after-boundary beat had nine times as long - which is
+    /// exactly the reported fault, the pre-click "only occasionally" playing. COMBAT-RAIL-SPEC.md
+    /// section 6 forbids a fixed-period timer here by name, and the implementation had become one with
+    /// an alternating period. Deriving each delay from the anchor makes every beat self-correcting: one
+    /// beat's lateness is absorbed by the next delay instead of being added to every delay after
+    /// it.</para>
+    ///
+    /// <para><b>A beat that is already too late is SKIPPED, not fired late.</b> If this callback ran so
+    /// far behind that the next lattice position has passed, the result is the one after it. A click in
+    /// the wrong place is worse than a missing click: the player is using it to feel where the boundary
+    /// is, and a late one moves the boundary.</para>
+    ///
+    /// <para>Returns the alternation as well as the delay, because that is a property of WHERE the next
+    /// beat falls rather than of what the last beat was - a toggled flag would go on alternating even
+    /// after a skip and would then have every subsequent click on the wrong sample.</para>
+    /// </summary>
+    /// <param name="afterOffsetMs">How far PAST a boundary the after-tick beat sounds.</param>
+    /// <param name="preLeadMs">How far BEFORE a boundary the pre-tick beat is STARTED. Deliberately
+    /// independent of <paramref name="afterOffsetMs"/> rather than its mirror: the pre-click is started
+    /// early by its own clip length so that it FINISHES at the bracket's edge instead of starting there,
+    /// which is what leaves the boundary as silence between the two sounds rather than having a 170 ms
+    /// sample still ringing when its partner begins. See CombatMetronome.PreTickLeadMilliseconds.</param>
+    /// <param name="minDelayMs">A beat closer than this is treated as already gone. Guards against
+    /// scheduling a timer for ~0 ms, which would fire immediately and merge audibly with the beat
+    /// currently sounding.</param>
+    public static (double Delay, bool AfterTick) NextBeat(
+        DateTime anchorUtc, DateTime nowUtc, double afterOffsetMs, double preLeadMs, double minDelayMs = 2.0)
+    {
+        if (afterOffsetMs <= 0)
+            throw new ArgumentOutOfRangeException(nameof(afterOffsetMs), afterOffsetMs,
+                "The after-tick beat must sound after the boundary.");
+        if (preLeadMs <= 0)
+            throw new ArgumentOutOfRangeException(nameof(preLeadMs), preLeadMs,
+                "The pre-tick beat must start before the boundary.");
+        if (afterOffsetMs + preLeadMs >= TickMilliseconds)
+            throw new ArgumentOutOfRangeException(nameof(preLeadMs), preLeadMs,
+                "The two beats cross: a cycle cannot hold an after-tick and the next pre-tick.");
+
+        // Position within the current cycle. Same normalisation as MillisecondsToNextBoundary, and for
+        // the same reason: now can precede the anchor by a few ms at the moment a fight's phase arrives.
+        var intoCycle = (nowUtc - anchorUtc).TotalMilliseconds % TickMilliseconds;
+        if (intoCycle < 0)
+            intoCycle += TickMilliseconds;
+
+        // Two beats per cycle, in order: the after-tick of the boundary just gone, then the pre-tick of
+        // the boundary coming up.
+        if (intoCycle + minDelayMs <= afterOffsetMs)
+            return (afterOffsetMs - intoCycle, true);
+        if (intoCycle + minDelayMs <= TickMilliseconds - preLeadMs)
+            return (TickMilliseconds - preLeadMs - intoCycle, false);
+
+        // Past both: the after-tick of the next boundary.
+        return (TickMilliseconds + afterOffsetMs - intoCycle, true);
+    }
+
+    /// <summary>
     /// How long a weapon-equip line seen just before the client noticed a new fight may still be
     /// carried into it, shared by <c>SwingLedger</c>, <c>FightHistoryRecorder</c>, and
     /// <c>CombatStatsAggregator</c>. Deliberately SHORT: MUD2's wielded weapon is per-fight, not

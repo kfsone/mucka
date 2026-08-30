@@ -370,9 +370,13 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             {
                 _combatStats.BeginEncounter(DateTime.UtcNow);
                 _hasCombatData = true;
-                // Phase is unknown until this encounter's first swing arrives - see TickPhaseUtc.
-                _tickPhaseUtc = null;
-                OnPropertyChanged(nameof(TickPhaseUtc));
+                // The tick phase is deliberately NOT cleared here. It used to be, on the reasoning that
+                // a new fight had to re-learn the phase from its own first swing - which threw away
+                // everything the session had already established and re-derived the lattice from one
+                // noisy sample, off by more than 150 ms in 19% of encounters and by up to 963 ms at
+                // worst. MUD2's tick is a server-side lattice that outlives any one fight; see
+                // Mucka.Core.TickPhase for the measurements and for why the spec's own premise argued
+                // for keeping it.
             }
             else
             {
@@ -427,8 +431,24 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     /// <para>The timestamp is the tracker's own, stamped on the feed thread when the line completed -
     /// never <c>DateTime.UtcNow</c> here, which would add this dispatch hop to the measurement.</para>
     /// </summary>
-    public DateTime? TickPhaseUtc => _tickPhaseUtc;
-    private DateTime? _tickPhaseUtc;
+    /// <summary>The tick boundary both instruments align to - the bar's zero crossing and the click's
+    /// bracket - or null until the estimate has enough swings to be worth publishing.
+    ///
+    /// <para>Now an ESTIMATE over the session's accumulated swings rather than the timestamp of the
+    /// current encounter's first one. See <see cref="Mucka.Core.TickPhase"/>: the single-sample anchor
+    /// was off by over 150 ms in 19% of encounters and by up to 963 ms - half a tick - which is what
+    /// "the ticker didn't seem to coincide with the server's combat tick" was.</para></summary>
+    public DateTime? TickPhaseUtc => _tickPhase.Anchor;
+
+    /// <summary>Whether the phase estimate is trusted enough to make a SOUND. The bar takes
+    /// <see cref="TickPhaseUtc"/> as soon as it exists and accepts a visible correction; the click waits
+    /// for this. See Mucka.Core.TickPhase.SettledSamples - a briefly-wrong bar explains itself, a
+    /// confidently-wrong click does not.</summary>
+    public bool IsTickPhaseSettled => _tickPhase.IsSettled;
+
+    /// <summary>Session-scoped, on purpose - it is not reset per encounter. Reset only belongs to a
+    /// genuinely different lattice (another server), not to another fight.</summary>
+    private readonly Mucka.Core.TickPhase _tickPhase = new();
 
     private static bool IsSwing(CombatEventKind kind) => kind
         is CombatEventKind.Hit or CombatEventKind.Miss
@@ -437,11 +457,11 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     public void OnCombatEvent(CombatEvent combatEvent)
         => MainThread.BeginInvokeOnMainThread(() =>
         {
-            if (_tickPhaseUtc is null && IsSwing(combatEvent.Kind))
-            {
-                _tickPhaseUtc = combatEvent.TimestampUtc;
+            // EVERY swing refines the phase, not just the first one of an encounter. The estimator
+            // decides when the anchor has actually moved enough to be worth republishing - each
+            // republish restarts the bar's animation, so it must not happen per swing.
+            if (IsSwing(combatEvent.Kind) && _tickPhase.Observe(combatEvent.TimestampUtc))
                 OnPropertyChanged(nameof(TickPhaseUtc));
-            }
             _combatClearGeneration++;
             _combatStats.Observe(combatEvent);
             if (_combatStats.HasEncounter)
@@ -481,7 +501,9 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
                 DexterityEffective: stats.Dexterity,
                 DexterityMax: stats.MaxDexterity,
                 MagicCurrent: stats.CurrentMagic,
-                MagicMax: stats.MaxMagic);
+                MagicMax: stats.MaxMagic,
+                // For the flee pill's price only - MUD2 charges a fraction of total score to leave.
+                Score: stats.Score);
             // Same reasoning as OnCombatEvent above: this fires on every FES heartbeat, which is
             // independent of (and can be faster than) the combat tick, so it goes through the same
             // render gate rather than forcing a rebuild every time.
@@ -682,7 +704,10 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             ? CombatTier.T3
             : fightTier == CombatTier.T3 ? CombatTier.T2 : fightTier;
 
-        // No flee-cost figure is computed or published here, and never will be (DESIGN_FINAL.md D15):
+        // No flee-COST figure is computed or published here, and never will be (DESIGN_FINAL.md D15).
+        // The flee pill published below is not that: it computes no price, and its loudest state is an
+        // alarm about the cheap band rather than a report of it - see COMBAT-RAIL-SPEC.md section 10's
+        // 2026-08-28 amendment, which records what the owner's objection actually was.
         // the owner's instruction is explicit - "We don't need to be telling/showing the player the
         // flee statistics - that's stupid cognitive burden." The player already knows fleeing is
         // expensive - one accidental flee from a zombie at 90/100 stamina cost 1300 of 13,000 points
@@ -709,7 +734,18 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             TargetDamageDone: primary is { IsResolved: false } ? primary.ApproxDamageDone : null,
             TargetEstimatedPool: primary is { IsResolved: false } ? history.Primary.EstimatedStaminaPool : null,
             MagicCurrent: deficits.MagicCurrent, MagicMax: deficits.MagicMax,
-            AltWeapon: altWeapon);
+            AltWeapon: altWeapon,
+            // The flee pill. Fed hitsLeft rather than the resolved tier, so it agrees with the count
+            // that already overrides the whole-panel glow instead of re-deriving a second opinion from
+            // the same inputs - the mistake ThreatIndicator's own remarks warn about.
+            //
+            // Not gated on the grace window here: the grace flag changes without the frame state being
+            // rebuilt, so folding it in would leave it stale exactly when it matters. The renderer and
+            // the pulse layer both apply that gate themselves, as the tick meter already does.
+            FleePill: FleePillResolver.Resolve(
+                inCombat: true, deficits.StaminaCurrent,
+                FleePillResolver.WorstCaseTickDamage(roster), hitsLeft),
+            FleeCostPoints: FleeCostEstimate.Points(deficits.StaminaCurrent, deficits.Score));
     }
 
     /// <summary>

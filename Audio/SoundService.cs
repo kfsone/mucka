@@ -132,6 +132,21 @@ internal static class SoundService
 #endif
     }
 
+    /// <summary>
+    /// Where an asset's audible content sits inside it - see <see cref="Mucka.Core.ClipSpan"/>. Null if
+    /// the file is missing or is not a PCM WAV.
+    ///
+    /// <para>The parsing lives in <see cref="Mucka.Core.WavProbe"/> rather than here: this class is
+    /// Windows-only and full of WinRT, and the metronome's bracket timing now depends on that
+    /// arithmetic, so it belongs somewhere the test project can link and exercise it. All this method
+    /// adds is asset-name resolution, which is this class's business.</para>
+    ///
+    /// <para>File I/O - call it once, off the UI thread. See CombatMetronome.SetEnabled.</para>
+    /// </summary>
+    public static Mucka.Core.ClipSpan? WavClipSpan(string assetName)
+        => Mucka.Core.WavProbe.Read(Path.GetFullPath(Path.Combine(
+            AppContext.BaseDirectory, ResolveAssetName(assetName).Replace('/', Path.DirectorySeparatorChar))));
+
     /// <summary>Opens a sound for <see cref="PlayPrepared"/> ahead of time, so the first click of a
     /// fight does not pay the open cost. Idempotent and a no-op off Windows. <c>GetPreparedPlayer</c>
     /// (Windows-only, so not a resolvable cref from a cross-platform doc comment) does a synchronous

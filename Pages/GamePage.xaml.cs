@@ -112,6 +112,13 @@ public partial class GamePage : ContentPage
     // nothing here to hold a Window/Page reference for any more.
     private PulseLayer? _combatPanelPulse;
     private TickSweep? _combatTickSweep;
+    private FleePulse? _combatFleePulse;
+    /// <summary>Pill state the flee layer was last configured for, so the notification storm (Live
+    /// republishes on every combat event, every heartbeat and every 1 Hz tick) does not re-set brushes
+    /// and re-arm the animation several times a second - each of those is work on the typing path's own
+    /// visual tree (Invariant #1). Null means "not yet configured", which is also how a freshly created
+    /// handler adopts the current state.</summary>
+    private MudSharp.Combat.FleePillStatus? _combatFleePillStatus;
     // Audible half of the same tick clock. Owned here rather than by the view model so it starts,
     // stops and is disposed on exactly the same transitions as the visual sweep - two renderings of
     // one clock, never two clocks.
@@ -296,7 +303,15 @@ public partial class GamePage : ContentPage
                 // per-element property -- setting it on the StatusBar panel does not reach it.
                 // Clicking "rec" was taking keyboard focus off the input box and keeping it
                 // (Invariant #0).
-                DisableFocusOnInteraction(StatusBar, RecChip, SidePanelBorder, FkeyBar, FnButton, SendButton, ScrollbackBar, FloatingOnlinePanel);
+                // CombatPanelBorder and the two elements inside it that CAN take pointer input are listed
+                // explicitly. The panel was never in this list at all - harmless while it held only an
+                // InputTransparent canvas, and a real Invariant #0 hole the moment the flee pill added a
+                // clickable element (a click on the pill took keyboard focus off the command box in play).
+                // Listing children individually is required, not belt-and-braces: AllowFocusOnInteraction is
+                // per-element and a Border's platform view is its own WinUI panel, which is the same reason
+                // RecChip is named here despite living inside StatusBar.
+                DisableFocusOnInteraction(StatusBar, RecChip, SidePanelBorder, FkeyBar, FnButton, SendButton, ScrollbackBar, FloatingOnlinePanel,
+                    CombatPanelBorder, CombatFleePill, CombatFleePillHit, CombatMetronomeHit);
 #if FOCUS_DIAG
                 Microsoft.UI.Xaml.Input.FocusManager.GettingFocus += OnFmGettingFocus;
                 Microsoft.UI.Xaml.Input.FocusManager.LosingFocus += OnFmLosingFocus;
@@ -334,6 +349,10 @@ public partial class GamePage : ContentPage
                 OnCombatPanelGlowHandlerChanged(CombatPanelGlow, EventArgs.Empty);
                 CombatTickSweep.HandlerChanged += OnCombatTickSweepHandlerChanged;
                 OnCombatTickSweepHandlerChanged(CombatTickSweep, EventArgs.Empty);
+                CombatFleePill.HandlerChanged += OnCombatFleePillHandlerChanged;
+                OnCombatFleePillHandlerChanged(CombatFleePill, EventArgs.Empty);
+                CombatFleePillHit.HandlerChanged += OnCombatFleePillHitHandlerChanged;
+                OnCombatFleePillHitHandlerChanged(CombatFleePillHit, EventArgs.Empty);
                 CombatMetronomeHit.HandlerChanged += OnCombatMetronomeHandlerChanged;
                 OnCombatMetronomeHandlerChanged(CombatMetronomeHit, EventArgs.Empty);
                 SetupWindowMinimumSize();
@@ -490,6 +509,9 @@ public partial class GamePage : ContentPage
         _vm.SidePanel.PropertyChanged -= OnSidePanelPropertyChanged;
         CombatPanelGlow.HandlerChanged -= OnCombatPanelGlowHandlerChanged;
         CombatTickSweep.HandlerChanged -= OnCombatTickSweepHandlerChanged;
+        CombatFleePill.HandlerChanged -= OnCombatFleePillHandlerChanged;
+        CombatFleePillHit.HandlerChanged -= OnCombatFleePillHitHandlerChanged;
+        CombatFleePillHit.Clicked -= OnCombatFleePillClicked;
         CombatMetronomeHit.HandlerChanged -= OnCombatMetronomeHandlerChanged;
         // A thread-pool timer outlives its page unless stopped; a metronome still clicking after the
         // window closed is the audible version of the RO_E_CLOSED crash class below.
@@ -502,6 +524,8 @@ public partial class GamePage : ContentPage
         _combatPanelPulse = null;
         _combatTickSweep?.Stop();
         _combatTickSweep = null;
+        _combatFleePulse?.Stop();
+        _combatFleePulse = null;
         // Both tick instruments have just been torn down, so whatever they logged is complete - write
         // it out here rather than leaving the tail of a fight buffered in memory at exit.
         Mucka.Core.TickDiag.Flush();
@@ -1348,6 +1372,7 @@ public partial class GamePage : ContentPage
         {
             UpdateCombatTickSweep(_vm.SidePanel.Live);
             UpdateCombatEdges();
+            UpdateCombatFleePill();
         }
         else if (e.PropertyName == nameof(SidePanelViewModel.IsCombatMetronomeEnabled))
         {
@@ -1375,6 +1400,10 @@ public partial class GamePage : ContentPage
             // and both the bar and the click have to re-align to it when it does.
             UpdateCombatTickSweep(_vm.SidePanel.Live);
             UpdateCombatEdges();
+            // The pill obeys the grace flag too, and that flag does not raise Live - so without
+            // watching it here a pill left alarming at the end of a fight would keep pulsing into the
+            // grace window.
+            UpdateCombatFleePill();
         }
     }
 
@@ -1507,11 +1536,18 @@ public partial class GamePage : ContentPage
     /// </summary>
     private void UpdateCombatMetronome()
     {
-        // No anchor means the encounter's first swing has not landed, so the tick's phase is unknown.
-        // Silence is the only honest option: the bracket's whole meaning is "either side of the
-        // boundary", and clicking either side of a boundary we have guessed at would be theatre.
+        // No anchor means the phase is unknown, and silence is the only honest option: the bracket's
+        // whole meaning is "either side of the boundary", and clicking either side of a boundary we have
+        // guessed at would be theatre.
+        //
+        // The click additionally waits for the estimate to have SETTLED, which the bar does not. That
+        // asymmetry is the spec's own: a briefly-wrong timer that visibly corrects itself is honest in a
+        // way a confidently-wrong sound is not. It also stops the two gates being tuned against each
+        // other - raising the bar's threshold to protect the click once left the ticker dark for the
+        // opening of a fight, which reads as a broken client.
         var anchor = _vm.SidePanel.TickPhaseUtc;
-        var shouldRun = _vm.SidePanel.IsCombatMetronomeEnabled && anchor is not null && TickIsMeaningful();
+        var shouldRun = _vm.SidePanel.IsCombatMetronomeEnabled && anchor is not null
+            && _vm.SidePanel.IsTickPhaseSettled && TickIsMeaningful();
 
         // Two copies of "the player armed the click" exist - the view model's property and the
         // metronome's own Enabled - and only one path used to reconcile them: the rail's
@@ -1557,11 +1593,30 @@ public partial class GamePage : ContentPage
     /// above. Creates the PulseLayer bound to that native FrameworkElement; DESIGN_FINAL.md 7.1's
     /// PulseLayer sketch needs a real WinUI element to attach a Composition visual to, which a MAUI
     /// BoxView only exposes once its handler has produced one.
+    ///
+    /// <para>Releases the previous animator first. A platform view can be recreated without the page
+    /// ever unloading, and PulseLayer only self-stops on Unloaded - so overwriting the field would leave
+    /// a running Composition animation attached to a visual whose native object is on its way out, the
+    /// RO_E_CLOSED crash this codebase has already taken once. Unconditional, so the handler-going-null
+    /// case is covered by the same line.</para>
     /// </summary>
     private void OnCombatPanelGlowHandlerChanged(object? sender, EventArgs e)
     {
+        // Nulled BEFORE the stop, so even a Stop() that somehow threw could not leave the field
+        // addressing a visual that is going away. Stop() guards itself too; this is the cheaper half.
+        var previousGlow = _combatPanelPulse;
+        _combatPanelPulse = null;
+        previousGlow?.Stop();
+
         if (CombatPanelGlow.Handler?.PlatformView is Microsoft.UI.Xaml.FrameworkElement fe)
+        {
             _combatPanelPulse = PulseLayer.Attach(fe);
+            // A fresh layer rests at no glow, so re-assert whatever the current tier actually is rather
+            // than waiting for the next PulseTier change - the panel can be toggled on mid-fight, and a
+            // T3 state that had already been published would otherwise never reach the new visual.
+            if (_vm.SidePanel.PulseTier == MudSharp.Combat.CombatTier.T3)
+                _combatPanelPulse.SetTier(PulseTier.T3);
+        }
     }
 
     /// <summary>
@@ -1572,6 +1627,16 @@ public partial class GamePage : ContentPage
     /// </summary>
     private void OnCombatTickSweepHandlerChanged(object? sender, EventArgs e)
     {
+        // Released before the field is overwritten, and unconditionally so the handler-going-null case
+        // uses the same line: TickSweep only self-stops on Unloaded, and a platform view can be
+        // recreated without the page unloading, which would strand a running Scale animation on a
+        // visual whose native object is going away (the RO_E_CLOSED class this class's own remarks
+        // describe). Stop() also bumps its generation counter, so a partial-tick handoff already queued
+        // for the old visual finds itself stale instead of firing into it.
+        var previousSweep = _combatTickSweep;
+        _combatTickSweep = null;
+        previousSweep?.Stop();
+
         var (left, right, bottom, height) = CombatRailView.TickTrackDp(CombatPanelWidthDp);
         CombatTickSweep.Margin = new Thickness(left, 0, right, bottom);
         CombatTickSweep.HeightRequest = height;
@@ -1585,6 +1650,167 @@ public partial class GamePage : ContentPage
             _tickSweepRunning = false;
             UpdateCombatTickSweep(_vm.SidePanel.Live);
         }
+    }
+
+    /// <summary>
+    /// Fires once the flee pill's pulsing layer has a native view. Sizes it onto the exact rectangle
+    /// the canvas draws the pill in (<see cref="CombatRailView.FleePillDp"/> owns that arithmetic, for
+    /// the same reason the tick track does), rounds it to match, then attaches the Composition animator.
+    /// </summary>
+    private void OnCombatFleePillHandlerChanged(object? sender, EventArgs e)
+    {
+        // Release the previous animator FIRST, whichever way the handler is changing. A platform view
+        // can be recreated without the page ever unloading, and PulseLayer/FleePulse only self-stop on
+        // Unloaded - so replacing the field without stopping it would leave a running Composition
+        // animation attached to a visual whose native object is on its way out, which is precisely the
+        // RO_E_CLOSED crash this codebase has already taken once. Cheap, and unconditional so the
+        // handler-going-null case is covered by the same line.
+        var previousPulse = _combatFleePulse;
+        _combatFleePulse = null;
+        _combatFleePillStatus = null;
+        previousPulse?.Stop();
+
+        var (left, right, bottom, height, radius) = CombatRailView.FleePillDp(CombatPanelWidthDp);
+        CombatFleePill.Margin = new Thickness(left, 0, right, bottom);
+        CombatFleePill.HeightRequest = height;
+
+        // Decoration only - CombatFleePillHit owns every click in this rectangle. InputTransparent on a
+        // MAUI Border did NOT keep this out of the pointer path in play (a click on the pill took
+        // keyboard focus off the command box, breaking Invariant #0), so the platform view is taken out
+        // of hit-testing directly rather than trusted to the cross-platform property.
+        if (CombatFleePill.Handler?.PlatformView is Microsoft.UI.Xaml.FrameworkElement pill)
+        {
+            pill.IsHitTestVisible = false;
+            pill.AllowFocusOnInteraction = false;
+        }
+        // The radius comes from the canvas's own constant (see FleePillDp): the alarm ring has to trace
+        // the fill the canvas draws underneath it, and a ring on a different curve would read as two
+        // controls stacked in one slot rather than as one chip.
+        CombatFleePill.StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle
+        {
+            CornerRadius = new CornerRadius(radius),
+        };
+
+        if (CombatFleePill.Handler?.PlatformView is Microsoft.UI.Xaml.FrameworkElement fe)
+        {
+            _combatFleePulse = FleePulse.Attach(fe);
+            // The handler can appear after a fight has already started (the panel can be toggled on
+            // mid-combat), so adopt the current state rather than waiting for the next transition. The
+            // gate was cleared above, so this is a real configure rather than an early return.
+            UpdateCombatFleePill();
+        }
+    }
+
+    /// <summary>The chip's border, at both alarm states - the owner's <c>#FF0000</c>, matching the ring
+    /// the canvas draws for itself in the quiet state, so escalating from Visible to Caution changes the
+    /// ring's behaviour and not its colour.</summary>
+    private static readonly Color FleePillStroke = Color.FromArgb("#FF0000");
+
+    /// <summary>The EscapeNow background breath, over the chip's own dark-red fill. Low alpha on
+    /// purpose: it shares the border's single opacity animation, so keeping it faint is what makes the
+    /// background's pulse the slight one and the border's the pronounced one - and it has to sit over
+    /// white text without competing with it, since this element is laid in front of the canvas.</summary>
+    private static readonly Color FleePillCriticalFill = Color.FromArgb("#33FF0000");
+
+    /// <summary>
+    /// Configures the flee pill's pulsing layer for the current state.
+    ///
+    /// <para><b>Grace counts as not fighting</b>, matching the tick meter, the metronome and the combat
+    /// edges: <c>InCombat</c> stays true for a few seconds after the last tracked opponent dies so a
+    /// pack straggler can rejoin the same encounter, but nothing is attacking in that window - and an
+    /// instrument saying RUN when there is nothing to run from is asking the player to pay a real price
+    /// for an escape from a finished fight. The canvas applies the same gate to the drawn half.</para>
+    ///
+    /// <para>The two quiet states stop the layer outright rather than resting it at some readable
+    /// opacity, because the canvas draws them in full on its own; anything left lit here would be an
+    /// alarm border around a pill that is not alarming.</para>
+    /// </summary>
+    private void UpdateCombatFleePill()
+    {
+        var panel = _vm.SidePanel;
+        var status = panel.IsCombatGracePeriod
+            ? MudSharp.Combat.FleePillStatus.Hidden
+            : panel.Live.FleePill;
+
+        if (_combatFleePillStatus == status)
+            return;
+        _combatFleePillStatus = status;
+
+        // The hit target exists only while the pill does. A live button over an invisible pill would
+        // turn a stray click on empty panel space into a flee, and a flee is charged a share of total
+        // score - including when it fails.
+        var shown = status != MudSharp.Combat.FleePillStatus.Hidden;
+        if (CombatFleePillHit.IsVisible != shown)
+            CombatFleePillHit.IsVisible = shown;
+
+        switch (status)
+        {
+            case MudSharp.Combat.FleePillStatus.Caution:
+                CombatFleePill.Stroke = new SolidColorBrush(FleePillStroke);
+                CombatFleePill.BackgroundColor = Colors.Transparent;
+                _combatFleePulse?.Pulse(0.40);
+                break;
+
+            case MudSharp.Combat.FleePillStatus.EscapeNow:
+                CombatFleePill.Stroke = new SolidColorBrush(FleePillStroke);
+                CombatFleePill.BackgroundColor = FleePillCriticalFill;
+                _combatFleePulse?.Pulse(0.55);
+                break;
+
+            default:
+                _combatFleePulse?.Stop();
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Positions the flee pill's invisible hit target over the chip the canvas draws, wires its click,
+    /// and takes it out of the tab order. Its own handler-changed hook rather than being configured
+    /// from the Border's, because the two platform views appear independently and the tab-stop removal
+    /// must not depend on which happened to exist first.
+    /// </summary>
+    private void OnCombatFleePillHitHandlerChanged(object? sender, EventArgs e)
+    {
+        var (left, right, bottom, height, _) = CombatRailView.FleePillDp(CombatPanelWidthDp);
+        // Width stated explicitly rather than taken from Fill + a right margin, because this one is
+        // HorizontalOptions="Start": a Fill button would stretch the full panel width and make a flee
+        // reachable from anywhere along the row.
+        CombatFleePillHit.Margin = new Thickness(left, 0, 0, bottom);
+        CombatFleePillHit.WidthRequest = CombatPanelWidthDp - left - right;
+        CombatFleePillHit.HeightRequest = height;
+        CombatFleePillHit.Clicked -= OnCombatFleePillClicked;
+        CombatFleePillHit.Clicked += OnCombatFleePillClicked;
+
+        if (CombatFleePillHit.Handler?.PlatformView is Microsoft.UI.Xaml.Controls.Control hit)
+        {
+            // Invariant #0's half of this control: the click hands focus back on its own, but a
+            // focusable button inside the panel would also be reachable by Tab from the command box,
+            // which would strand the keyboard somewhere the player never asked to go.
+            hit.IsTabStop = false;
+            hit.UseSystemFocusVisuals = false;
+        }
+    }
+
+    /// <summary>
+    /// The flee pill, clicked. Sends exactly what Ctrl+F sends - a bare <c>flee</c> - down the same
+    /// path, so the two routes to the same action cannot behave differently.
+    ///
+    /// <para>The pill was deliberately non-interactive at first, on the grounds that an accidental flee
+    /// is among the most expensive misclicks in the game. The owner overruled that in play, and was
+    /// right to: a control that looks like a button and does nothing is worse than either a button or a
+    /// label. The misclick risk is answered instead by the hit target existing only while the pill is
+    /// actually drawn (see UpdateCombatFleePill) rather than by refusing the click.</para>
+    ///
+    /// <para><c>GameViewModel.Flee</c> flushes pending input first, so a flee cannot overtake a command
+    /// the player already typed, and raises RequestFocus itself - <see cref="FocusInput"/> is called
+    /// here as well because this click arrives through the WinUI button rather than through the input
+    /// path, and Invariant #0 is not a thing to leave to one mechanism.</para>
+    /// </summary>
+    private void OnCombatFleePillClicked(object? sender, EventArgs e)
+    {
+        if (Terminal.IsHistoryMode) Terminal.ScrollToBottom();
+        _vm.Flee();
+        FocusInput();
     }
 
     /// <summary>

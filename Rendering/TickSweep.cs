@@ -64,6 +64,12 @@ internal sealed class TickSweep
     /// bar back out of phase with the click, which is the one thing this class must not do.</summary>
     private int _generation;
 
+    /// <summary>Set once a Composition call against <see cref="_visual"/> has thrown - which means the
+    /// compositor behind it is gone and every later call would throw the same way. The Visual is a
+    /// readonly field (acquired eagerly so the rest state can be applied before the element is ever
+    /// shown), so this flag is how the class stops addressing a dead one. See <see cref="Stop"/>.</summary>
+    private bool _detached;
+
     private TickSweep(FrameworkElement host)
     {
         _host = host;
@@ -88,6 +94,11 @@ internal sealed class TickSweep
     /// a whole tick out and the click would be heard landing in the middle of the sweep.</param>
     public void Restart(DateTime anchorUtc)
     {
+        // Nothing to drive. Reachable only after Stop() found the compositor already gone; the host
+        // replaces this instance on re-attach, so refusing here is correct rather than degraded.
+        if (_detached)
+            return;
+
         // Scale about the left edge, so the bar's LEFT end stays pinned and its right end is what
         // moves - the bar drains leftward rather than growing or shrinking about its middle.
         _visual.CenterPoint = Vector3.Zero;
@@ -185,14 +196,31 @@ internal sealed class TickSweep
     /// read as a fight that never ended.</summary>
     public void Stop()
     {
-        // Bump BEFORE stopping, so a handoff already queued for this fight's partial tick finds
-        // itself stale rather than restarting the sweep a frame after the bar was emptied.
+        // Bump BEFORE stopping, and outside the guard below, so a handoff already queued for this
+        // fight's partial tick finds itself stale rather than restarting the sweep a frame after the bar
+        // was emptied. That has to happen even if the Composition calls fail.
         _generation++;
-        _visual.StopAnimation("Scale");
-        // StopAnimation freezes the property wherever the animation last left it, so the rest state
-        // has to be asserted explicitly - otherwise the bar sticks at whatever fraction it had
-        // reached when the fight ended.
-        Rest();
+        if (_detached)
+            return;
+
+        // Guarded for the reason FleePulse.Stop sets out at length: this is called from the host's
+        // HandlerChanged, which fires while the native peer is being replaced or destroyed, so the
+        // compositor behind this cached Visual may already be closed and touching it throws the
+        // RO_E_CLOSED family. Unhandled, that would propagate out of the handler and skip the re-attach
+        // below it, leaving the tick bar dead for the rest of the session.
+        try
+        {
+            _visual.StopAnimation("Scale");
+            // StopAnimation freezes the property wherever the animation last left it, so the rest state
+            // has to be asserted explicitly - otherwise the bar sticks at whatever fraction it had
+            // reached when the fight ended.
+            Rest();
+        }
+        catch (Exception ex)
+        {
+            _detached = true;
+            Mucka.Core.CrashLog.Write("TickSweep.Stop", ex);
+        }
     }
 
     /// <summary>Empty and still. The rest state is zero width rather than full: out of combat there is

@@ -17,11 +17,15 @@ public class TickPhaseTests
     private const double Tick = CombatTiming.TickMilliseconds;
 
     /// <summary>N, mirrored from CombatMetronome.OffsetMilliseconds - which is private, deliberately:
-    /// nothing outside that class should be choosing where the clicks sit. Kept here as a plain
-    /// constant so the chain arithmetic below is checkable without widening that access; if the two
-    /// ever diverge, the chain assertions stop meaning what they claim, which
-    /// <see cref="Chain_LegsSumToExactlyOneTick"/> is the guard against.</summary>
-    private const int Offset = 200;
+    /// nothing outside that class should be choosing where the clicks sit. Kept here as a plain constant
+    /// so the chain arithmetic below is checkable without widening that access.
+    ///
+    /// <para>The value does not have to match the shipping one for these tests to mean something - they
+    /// assert properties of the lattice that hold for ANY offset under half a tick, and each one passes
+    /// its own offset to <c>NextBeat</c>. That is deliberate: the previous version of this file mirrored
+    /// the constant and then built its assertions out of the same arithmetic the code used, so the tests
+    /// could only ever agree with themselves.</para></summary>
+    private const int Offset = 50;
 
     private static readonly DateTime Anchor = new(2026, 8, 19, 12, 0, 0, DateTimeKind.Utc);
 
@@ -72,43 +76,142 @@ public class TickPhaseTests
     // ---- The alternating chain ------------------------------------------------------------------
 
     /// <summary>
-    /// The click schedules itself as a chain rather than on a periodic timer: after-tick, then
-    /// pre-tick, then after-tick. The two legs must sum to exactly one tick, or the beat walks off the
-    /// boundary a little more every rollover - which is precisely the "decoupled from the bar" symptom,
-    /// arrived at by drift rather than by a bad anchor.
+    /// Beats sit at <c>boundary +/- N</c>, and the pair brackets the rollover: the pre-tick before it,
+    /// the after-tick past it, and nothing exactly on it.
     /// </summary>
     [Fact]
-    public void Chain_LegsSumToExactlyOneTick()
+    public void NextBeat_PlacesThePairEitherSideOfTheBoundary()
     {
-        var afterToPre = Tick - (2 * Offset);   // +N past a boundary -> -N before the next
-        var preToAfter = 2 * Offset;            // -N before a boundary -> +N past it
-        Assert.Equal(Tick, afterToPre + preToAfter);
+        // Just after a boundary: the after-tick of the boundary just gone is next.
+        var (delay, afterTick) = CombatTiming.NextBeat(Anchor, Anchor.AddMilliseconds(1), Offset, Offset);
+        Assert.True(afterTick);
+        Assert.Equal(Offset - 1, delay, 6);
+
+        // Between the two: the pre-tick of the boundary coming up is next.
+        (delay, afterTick) = CombatTiming.NextBeat(Anchor, Anchor.AddMilliseconds(1000), Offset, Offset);
+        Assert.False(afterTick);
+        Assert.Equal(Tick - Offset - 1000, delay, 6);
+
+        // Past the pre-tick: the after-tick of the NEXT boundary.
+        (delay, afterTick) = CombatTiming.NextBeat(Anchor, Anchor.AddMilliseconds(Tick - Offset + 1), Offset, Offset);
+        Assert.True(afterTick);
+        Assert.Equal((2 * Offset) - 1, delay, 6);
     }
 
-    /// <summary>Walking the chain for a hundred rollovers must land every beat exactly on N either side
-    /// of a boundary, with no accumulated error - the property a fixed-period timer would not have.</summary>
-    [Fact]
-    public void Chain_HoldsTheLatticeOverAHundredRollovers()
+    /// <summary>
+    /// THE test this file exists for, and the one its predecessor could not perform.
+    ///
+    /// <para>A <c>System.Threading.Timer</c> is never early and is routinely late - Windows' default
+    /// granularity is ~15.6 ms. The old chain re-armed with two constant legs measured from the previous
+    /// callback's own execution instant, so that lateness accumulated with nothing to correct it: the
+    /// entire budget before a beat crossed to the wrong side of its boundary was N ms for a whole fight,
+    /// and at N=200 the pre-boundary beat exhausted it in roughly thirteen rollovers. That was the
+    /// shipped bug behind "the pre-cycle sound only occasionally plays".</para>
+    ///
+    /// <para>The two tests replaced here claimed to prove the opposite property. One asserted
+    /// <c>1600 + 400 == 2000</c>. The other walked two hundred beats advancing a simulated clock by
+    /// EXACTLY the legs its assertions were derived from - an ideal zero-slop clock, so it could not
+    /// observe timer lateness, which was the entire defect. This one injects the lateness.</para>
+    /// </summary>
+    [Theory]
+    [InlineData(15.6)]    // Windows default timer granularity
+    [InlineData(1.0)]     // a process that has raised timer resolution
+    [InlineData(40.0)]    // a loaded machine
+    public void Chain_AbsorbsTimerLatenessRatherThanAccumulatingIt(double latenessPerBeat)
     {
-        // First beat: the after-tick for the rollover the bar is counting down to when we arm.
-        var armedAt = Anchor.AddMilliseconds(137);   // arbitrary point inside a tick
-        var t = CombatTiming.MillisecondsToNextBoundary(Anchor, armedAt) + Offset
-                + (armedAt - Anchor).TotalMilliseconds;
+        var now = Anchor.AddMilliseconds(137);   // arbitrary point inside a tick
+        var (delay, afterTick) = CombatTiming.NextBeat(Anchor, now, Offset, Offset);
 
-        var afterTick = true;
-        for (var beat = 0; beat < 200; beat++)
+        var worst = 0.0;
+        for (var beat = 0; beat < 600; beat++)   // ~5 minutes of fighting at 2 beats a tick
         {
-            var toNext = CombatTiming.MillisecondsToNextBoundary(Anchor, Anchor.AddMilliseconds(t));
-            if (afterTick)
-                // Sits Offset PAST the boundary just gone, so the next one is a tick less that.
-                Assert.Equal(Tick - Offset, toNext, 6);
-            else
-                // Sits Offset BEFORE the next boundary.
-                Assert.Equal(Offset, toNext, 6);
+            // The beat fires late, as a thread-pool timer does. Never early.
+            now = now.AddMilliseconds(delay + latenessPerBeat);
 
-            t += afterTick ? Tick - (2 * Offset) : 2 * Offset;
-            afterTick = !afterTick;
+            var toNext = CombatTiming.MillisecondsToNextBoundary(Anchor, now);
+            // Where this beat actually landed, relative to where its kind belongs.
+            var error = afterTick
+                ? Math.Abs((Tick - toNext) - Offset)
+                : Math.Abs(Offset - toNext);
+            worst = Math.Max(worst, error);
+
+            (delay, afterTick) = CombatTiming.NextBeat(Anchor, now, Offset, Offset);
         }
+
+        // Bounded by ONE beat's lateness for the whole fight, not 600 of them accumulated. The old
+        // fixed-leg chain would reach 600 * lateness here.
+        Assert.True(worst <= latenessPerBeat + 0.001,
+            $"worst error {worst:F1} ms against a per-beat lateness of {latenessPerBeat} ms - lateness is accumulating");
+    }
+
+    /// <summary>
+    /// A beat that is already too late is SKIPPED, not fired late. A click in the wrong place is worse
+    /// than a missing one: the player is using the pair to feel where the boundary is, so a late click
+    /// moves the boundary rather than marking it.
+    /// </summary>
+    [Fact]
+    public void NextBeat_SkipsABeatThatHasAlreadyPassedRatherThanSchedulingItLate()
+    {
+        // Woken 10 ms after the pre-tick's position - that beat is gone.
+        var late = Anchor.AddMilliseconds(Tick - Offset + 10);
+        var (delay, afterTick) = CombatTiming.NextBeat(Anchor, late, Offset, Offset);
+
+        Assert.True(delay > 0, "a beat must never be scheduled in the past");
+        Assert.True(afterTick, "the missed pre-tick must be skipped, not fired late");
+    }
+
+    /// <summary>Never schedules a beat so close that it would fire on top of the one just sounded -
+    /// which at a 100 ms gap would collapse the tik-tok into a single doubled hit.</summary>
+    [Fact]
+    public void NextBeat_NeverReturnsANearZeroDelay()
+    {
+        for (var ms = -4000.0; ms <= 4000.0; ms += 0.37)
+        {
+            var (delay, _) = CombatTiming.NextBeat(Anchor, Anchor.AddMilliseconds(ms), Offset, Offset);
+            Assert.InRange(delay, 2.0, Tick + Offset);
+        }
+    }
+
+    /// <summary>The offset has to stay under half a tick or the pre- and after-tick positions cross and
+    /// the lattice stops being a bracket at all. Rejected loudly rather than silently producing a
+    /// nonsense schedule.</summary>
+    [Theory]
+    [InlineData(1000.0, 1000.0)]   // sum to exactly one tick: the two beats coincide
+    [InlineData(1400.0, 700.0)]    // sum past a tick: they cross
+    [InlineData(0.0, 50.0)]        // an after-tick that is not after
+    [InlineData(-50.0, 50.0)]
+    [InlineData(50.0, 0.0)]        // a pre-tick that is not before
+    [InlineData(50.0, -50.0)]
+    public void NextBeat_RejectsOffsetsThatWouldNotBracket(double afterOffset, double preLead)
+        => Assert.Throws<ArgumentOutOfRangeException>(
+            () => CombatTiming.NextBeat(Anchor, Anchor, afterOffset, preLead));
+
+    /// <summary>
+    /// The asymmetric case the shipping code actually uses: the pre-click is started early by its own
+    /// clip length so it FINISHES at -N rather than starting there, leaving the boundary as 2N of
+    /// silence between the two sounds. The after-tick is unaffected.
+    /// </summary>
+    [Fact]
+    public void NextBeat_HonoursAPreLeadLongerThanTheAfterOffset()
+    {
+        const double clip = 170.0;                 // the real Perc_Stick_hi length
+        const double preLead = Offset + clip;      // start early enough to end at -Offset
+
+        // Mid-cycle, before either beat: the pre-tick is next, and it is preLead before the boundary.
+        var (delay, afterTick) = CombatTiming.NextBeat(
+            Anchor, Anchor.AddMilliseconds(1000), Offset, preLead);
+        Assert.False(afterTick);
+        Assert.Equal(Tick - preLead - 1000, delay, 6);
+
+        // The clip therefore ends exactly Offset before the boundary...
+        var startsAt = 1000 + delay;
+        Assert.Equal(Tick - Offset, startsAt + clip, 6);
+
+        // ...and the after-tick beat sits Offset past it, so the silence spanning the boundary is 2N.
+        (delay, afterTick) = CombatTiming.NextBeat(
+            Anchor, Anchor.AddMilliseconds(Tick - Offset), Offset, preLead);
+        Assert.True(afterTick);
+        Assert.Equal(2 * Offset, delay, 6);
     }
 
     /// <summary>The bar and the click, armed from one anchor, must agree on where the rollover is. This
@@ -123,13 +226,36 @@ public class TickPhaseTests
     {
         var armedAt = Anchor.AddMilliseconds(armedAtMs);
 
-        // What the bar is given: the time it has left to drain.
+        // Where the BAR says the rollover is: the instant it finishes draining.
         var barRemaining = CombatTiming.MillisecondsToNextBoundary(Anchor, armedAt);
-        // What the click is given: the same, plus the offset that puts it past the rollover.
-        var clickDelay = barRemaining + Offset;
+        var barBoundary = armedAt.AddMilliseconds(barRemaining);
 
-        Assert.Equal(Offset, clickDelay - barRemaining);
-        // Both describe the same absolute instant for the boundary itself.
-        Assert.Equal(armedAt.AddMilliseconds(barRemaining), armedAt.AddMilliseconds(clickDelay - Offset));
+        // Where the CLICK puts its next beat, and therefore which boundary that beat is bracketing.
+        var (delay, afterTick) = CombatTiming.NextBeat(Anchor, armedAt, Offset, Offset);
+        var beatAt = armedAt.AddMilliseconds(delay);
+        // A pre-tick brackets the boundary ahead of it; an after-tick brackets the one behind it.
+        var clickBoundary = beatAt.AddMilliseconds(afterTick ? -Offset : Offset);
+
+        // Both must name a point on the ANCHOR'S LATTICE. That is the invariant the shared helper
+        // exists to make unbreakable, and it is the strongest one that is actually true - see below
+        // for why it is not equality.
+        foreach (var boundary in new[] { barBoundary, clickBoundary })
+        {
+            var offLattice = (boundary - Anchor).TotalMilliseconds % Tick;
+            Assert.Equal(0.0, Math.Min(offLattice, Tick - offLattice), 6);
+        }
+
+        // And they must name the same boundary or adjacent ones - never further apart than that.
+        var apart = Math.Abs((barBoundary - clickBoundary).TotalMilliseconds);
+        Assert.InRange(apart, 0.0, Tick);
+
+        // Why not equality: at an instant EXACTLY on a lattice point the two deliberately disagree by
+        // one tick, and both are right for their own instrument. MillisecondsToNextBoundary returns a
+        // full tick rather than zero, because a bar handed "0 ms left" would restart from empty. The
+        // beat lattice treats that same instant as a boundary just PASSED and schedules its after-tick
+        // 50 ms later - which is correct, because the anchor is a swing timestamp and a swing is
+        // emitted BY a tick, so the anchor itself is a real boundary that deserves its after-click.
+        // An earlier version of this test asserted equality here and failed on exactly that case; the
+        // premise was wrong, not the code.
     }
 }
