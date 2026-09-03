@@ -498,4 +498,76 @@ public class CreatureValueProbeTests : IDisposable
 
         Assert.Equal(1419, plan.Rows.Single().Value);
     }
+
+    // ── The probe must never type at the shell ────────────────────────────────────────────────
+    //
+    // The player dies. MUD2's death signal is C08 C13 ("Not updating persona.", Bartle 08 13)
+    // alongside "The <npc> has killed you." and a drop to the login shell - but the parser only
+    // LEAVES game mode when it matches the "Option:" prompt later in the stream, so `InGameMode`
+    // (the probe's only guard before this fix) is still true across that window while the far end
+    // is already a shell. With a name still queued and the debounce timer still armed, the probe
+    // sends `value <name>` into it. Permadeath game; an injected command at the shell is not
+    // cosmetic. Both tests below use their own session with a debounce long enough to make the
+    // queue-then-die ordering deterministic rather than a race.
+
+    private MudSession NewSlowDebounceSession(List<string> outgoing, object gate)
+    {
+        var s = new MudSession(new MudSessionOptions
+        {
+            FesHeartbeatInterval   = TimeSpan.FromSeconds(60),
+            StaleProbeDelay        = TimeSpan.FromSeconds(30),
+            MinProbeSpacing        = TimeSpan.FromMilliseconds(50),
+            InventoryProbeDebounce = TimeSpan.FromMilliseconds(400),
+        });
+        s.OutgoingBytes += b => { lock (gate) outgoing.Add(Encoding.Latin1.GetString(b)); };
+        return s;
+    }
+
+    [Fact]
+    public void PlayerKilled_WithANameStillQueued_SendsNoValueCommand_EvenThoughGameModeHasNotExitedYet()
+    {
+        var outgoing = new List<string>();
+        var gate = new object();
+        using var s = NewSlowDebounceSession(outgoing, gate);
+
+        s.Feed(GameModeEntry);
+        s.Feed(Encoding.Latin1.GetBytes("You attack the thief, using the axe0 as a weapon.\r\n"));
+        Assert.True(s.InCombat);
+        lock (gate) outgoing.Clear();
+
+        // Killed, well inside the 400 ms debounce - the probe for "thief" is queued, not yet sent.
+        s.Feed(Encoding.Latin1.GetBytes("The thief has killed you.\r\n"));
+        Assert.False(s.InCombat);
+        // The exact window that made this reachable: combat is over, the shell is next, and the
+        // parser still believes it is in game mode.
+        Assert.True(s.InGameMode);
+
+        // Well past the debounce. Nothing may go out.
+        Assert.False(WaitFor(
+            () => { lock (gate) return outgoing.Any(o => o.Contains("value", StringComparison.Ordinal)); },
+            timeoutMs: 1200));
+    }
+
+    [Fact]
+    public void AfterAnEncounterEnds_ALateParticipantJoinCannotReArmTheProbe()
+    {
+        var outgoing = new List<string>();
+        var gate = new object();
+        using var s = NewSlowDebounceSession(outgoing, gate);
+
+        s.Feed(GameModeEntry);
+        s.Feed(Encoding.Latin1.GetBytes("You attack the thief, using the axe0 as a weapon.\r\n"));
+        s.Feed(Encoding.Latin1.GetBytes("You have killed the thief.\r\n"));
+        Assert.False(s.InCombat);
+        lock (gate) outgoing.Clear();
+
+        // A stray line that names a creature but opens no encounter must not put anything on the
+        // wire: with the queue cleared at encounter end AND the InCombat gate in
+        // TakeCreatureValueProbeLocked, there is nothing left to re-arm.
+        s.Feed(Encoding.Latin1.GetBytes("The thief walks away, wearily.\r\n"));
+        Assert.False(s.InCombat);
+        Assert.False(WaitFor(
+            () => { lock (gate) return outgoing.Any(o => o.Contains("value", StringComparison.Ordinal)); },
+            timeoutMs: 1000));
+    }
 }

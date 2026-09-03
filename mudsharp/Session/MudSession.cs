@@ -606,17 +606,45 @@ public sealed class MudSession : IDisposable
             // that reopened on "The eagle misses you." ran 41 events across 4 participants with no
             // weapon, having swallowed "You are now using the broadsword to fight!" in the pre-roll.
             //
-            // The real transition is already covered - GameModeExited force-ends the encounter when
-            // the reset actually lands - so this call was premature AND redundant.
+            // What the real transition looks like, established from the three complete reset
+            // captures in the corpus (RESEARCH/mud2-multi-combat.jsonl, RESEARCH/game-reset.jsonl,
+            // session-rec.mud2.co.uk.20260825-020825.jsonl) rather than assumed. All three agree:
+            //   T+0      this warning (C06 C04). The server means "no further warnings" literally -
+            //            zero further broadcasts across all three full countdowns.
+            //   T+120s   C06 C06 "Something magical is happening." + "(Persona saved on N)." That
+            //            is the reset, to within 5 ms of the promised 120 in both timed captures,
+            //            and the last in-world line.
+            //   T+120.2s "Option (H for help): ". The TCP connection is NEVER dropped; the socket
+            //            just starts carrying the outer MUD-Shell menu.
+            // So the old claim that "GameModeExited already covers it" was RIGHT, not a guess: the
+            // parser's option-menu matcher fires on that last step and OnGameModeExited force-ends
+            // the encounter. WorldResetEndsCombatTests replays those exact bytes and pins it, which
+            // it was not before - the behaviour rested entirely on an incidental string match in
+            // another subsystem, with nothing naming a reset anywhere in the chain.
+            // What that left open is the ~200 ms between the reset landing and the shell prompt, in
+            // which the client is still feeding a live encounter from a world that no longer
+            // exists. C06 C06 closes it - see OnWorldResetLanded.
             _resetClock.NoteAutoResetInitiated(_resetClock.NowMono);
             // Still forwarded: consumers use it to tell a reset-driven drop from a deliberate quit.
             // It is only the combat force-end that was wrong here.
             AutoResetInitiated?.Invoke();
         };
+        _parser.WorldResetLanded  += OnWorldResetLanded;
         _parser.PresenceNameSeen  += OnPresenceName;
         _parser.StatusEffectChanged += _effects.Apply;
         _effects.Changed += state => StatusEffectsChanged?.Invoke(state);
-        _combat.InCombatChanged += v => InCombatChanged?.Invoke(v);
+        _combat.InCombatChanged += v =>
+        {
+            // Every encounter end, however it ended - clean fight-end line, room change, ForceEnd
+            // from logout/reset/app-exit. The creature-value probe's queue is scoped to one fight
+            // and has no other owner that runs on all of those paths.
+            if (!v)
+            {
+                lock (_fesLock)
+                    DropPendingCreatureValueProbeLocked();
+            }
+            InCombatChanged?.Invoke(v);
+        };
         _combat.EventOccurred += e => CombatEventOccurred?.Invoke(e);
         _combat.ParticipantJoined += OnParticipantJoined;
         _parser.FewPlayerReady += (name, color) =>
@@ -838,6 +866,38 @@ public sealed class MudSession : IDisposable
         GameModeExited?.Invoke();
     }
 
+    /// <summary>
+    /// C06 C06, "Something magical is happening." (Bartle 06 06) — the reset landing. Ends any open
+    /// encounter about 200 ms before the shell prompt would, so no combat line from a world that has
+    /// already been rebuilt is folded into a fight from the world that is gone.
+    ///
+    /// <para><b>Corroborated, not trusted.</b> Bartle's own gloss for this code is generic, and the
+    /// corpus has exactly two occurrences of the line — both at a reset, no counter-example, but
+    /// n=2. Acting on it unconditionally would risk re-creating the premature-end bug that removing
+    /// ForceEnd from the C06 C04 WARNING handler fixed: once an encounter is closed early,
+    /// CombatStatsAggregator.Observe drops every subsequent non-FightStart event, which is how a
+    /// whole fight came to read as UNARMED. So this only fires when the reset countdown independently
+    /// says the reset is due right now. That countdown is the solid half of the evidence: it is
+    /// anchored either by the C06 C04 warning (exact, +120 s) or by the FES "minutes to next reset"
+    /// field, which is Bartle's own documented FES output.</para>
+    ///
+    /// <para>If the projection has nothing to say — not in game, no reading yet — this does nothing
+    /// and the shell prompt closes the encounter as it always has. Degrading to the previous
+    /// behaviour is the correct failure mode for a signal this thinly observed.</para>
+    /// </summary>
+    private void OnWorldResetLanded()
+    {
+        var estimate = _resetClock.Snapshot();
+        if (estimate.TargetUtc is not DateTime target)
+            return;
+        // The tolerance is the projection's own stated uncertainty, floored at 2 s so a hard lock
+        // (±0.3 s) still absorbs ordinary jitter between the anchor and this line's arrival.
+        var tolerance = Math.Max(2.0, estimate.UncertaintySec);
+        if (Math.Abs((DateTime.UtcNow - target).TotalSeconds) > tolerance)
+            return;
+        _combat.ForceEnd(CombatClock(), "world reset");
+    }
+
     private void OnDreamwordChanged(string? word)
     {
         _currentDreamword = word;
@@ -954,32 +1014,91 @@ public sealed class MudSession : IDisposable
         // Echo of the command we injected — swallow but keep waiting for the reply.
         if (text.Equals("value " + name, StringComparison.OrdinalIgnoreCase))
             return true;
-        // Outcome 1 — present & visible: "The value of {name} the {title} is {n} points."
-        // (fixture: "The value of Polly the witch is 4,120 points."). This shape is
-        // STRUCTURALLY different from a creature-value probe's reply - "The value of the
-        // {name} is {n} points." (TryConsumeCreatureValueLine's CreatureValueReply) - which has
-        // "the " sitting between "of " and the name where a player reply has the name itself.
-        // Anchoring on that exact position (never a bare Contains(name) over the whole line) is
-        // what keeps a live creature's reply from being misread as proof a same-named PLAYER is
-        // online - found by review: a `ram2` creature reply satisfied a queued sniff for
-        // persona "Ram" under the old substring check, swallowing the creature's value AND
-        // asserting a false player sighting, 2026-09-02.
+        // Outcome 1 — present & visible.
+        //
+        // WIRE GRAMMAR (raw session recordings under %LOCALAPPDATA%\Temp\mucka plus the clog
+        // corpus; 458 "The value of …" lines, 246 distinct, re-verified 2026-09-03). Exactly three
+        // shapes exist:
+        //   PLAYER   "The value of Crispybob the necromancer is 5,965 points."   (2 captures, each
+        //            with its own `val <name>` echo on the preceding tx frame; the other is
+        //            "The value of Drizzle the wobbly mage is 26,105 points.")
+        //   CREATURE "The value of the wyvern is 239 points."                    (241 distinct)
+        //   OBJECT   "The value of Columbus is 10 points."                        (proper-noun
+        //            objects; 7 occurrences, 3 distinct, no "the " and no trailing description.
+        //            Counts only the objects: the 2 PLAYER lines above also lack the "the ", so a
+        //            no-"the" query returns 9 and this used to quote that.)
+        // The number may be comma-grouped ("5,965"), zero, or NEGATIVE (36 occurrences, all
+        // objects), and the noun is SINGULAR at one point ("The value of the penny is 1 point." —
+        // 6 occurrences), which is why the tail below accepts both.
+        //
+        // The literal "the " after "of " is the discriminator between the player and creature
+        // forms, and it is the whole reason a `ram2` creature reply must not resolve a queued sniff
+        // for persona "Ram" (review, 2026-09-02). It is kept.
+        //
+        // What is NOT kept is anchoring the persona name at exactly offset 13. The corpus shows the
+        // rank rendered as a SUFFIX ("Kram the hero") and never the other way round - 9,879 matches
+        // for "<Name> the <rank>" against 0 for the reverse order, over 31 distinct rank forms
+        // (same corpus as the sibling figure above, re-measured 2026-09-03; the query is the
+        // PersonaRanks title vocabulary as one alternation, matched as
+        // /\b[A-Z][A-Za-z'\-]+ the ((?:[a-z][a-z'\-]*[ ])*?(?:<titles>))\b/ and then with the two
+        // halves swapped).
+        //
+        // But MUD2's own `levels` table — captured verbatim on the wire — makes "Sir" and "Lady" the
+        // level-10 NORMAL titles, and this codebase's one name grammar (PlayerNameParts) models
+        // those two as PREFIXES. A "Lady Polly …" reply to a sniff for persona "Polly" therefore
+        // fails a fixed offset and reads as "no reply", which the FEW-completion backstop then
+        // promotes to Invisible — a fabricated invisibility claim, the mirror of the fabricated
+        // sighting. Deferring to PlayerNameParts.Parse means there is still exactly ONE place that
+        // knows what a MUD2 name looks like, whichever end the honorific sits at.
+        //
+        // Honest limit: NO capture of a "Sir <Name>"/"Lady <Name>" player exists in the corpus at
+        // all — the prefix model is inferred from the levels table, not observed. (Every line in that
+        // corpus containing the bare word "Sir" or "Lady" is a row of the levels table itself, e.g.
+        // "Sir          mage        102400 10  20555"; re-checked 2026-09-03.) Handling both
+        // orders costs nothing and neither order can be ruled out; asserting which one MUD2 emits
+        // would be inventing grammar.
         const string presencePrefix = "The value of ";
+        const string creatureLead   = "the ";     // "The value of the wyvern is …" — never a player
         if (text.StartsWith(presencePrefix, StringComparison.Ordinal) &&
-            text.EndsWith(" points.", StringComparison.Ordinal) &&
-            text.Length > presencePrefix.Length + name.Length &&
-            string.Compare(text, presencePrefix.Length, name, 0, name.Length, StringComparison.OrdinalIgnoreCase) == 0 &&
-            text[presencePrefix.Length + name.Length] == ' ')
+            (text.EndsWith(" points.", StringComparison.Ordinal) ||
+             text.EndsWith(" point.", StringComparison.Ordinal)))
         {
-            ResolveSniff(name, SniffOutcome.Present);
-            return true;
+            var rest = text[presencePrefix.Length..];
+            if (!rest.StartsWith(creatureLead, StringComparison.Ordinal) &&
+                string.Equals(PlayerNameParts.Parse(rest).PersonaName, name, StringComparison.OrdinalIgnoreCase))
+            {
+                ResolveSniff(name, SniffOutcome.Present);
+                return true;
+            }
         }
-        // Outcome 2 — logged out: "I don't know the word \"{name}\"."
-        if (text.StartsWith("I don't know the word \"", StringComparison.Ordinal) &&
-            text.Contains(name, StringComparison.OrdinalIgnoreCase))
+        // Outcome 2 — logged out: I don't know the word "{name}".
+        //
+        // The quoted word is compared for EQUALITY, never Contains. Same class of bug as the
+        // sighting above and the same severity in the other direction: this line is the game's
+        // generic "that token is not in my vocabulary" and the corpus is full of them from the
+        // player's own typing — 48 occurrences, 35 distinct words over the same corpus as the wire
+        // grammar above (re-measured 2026-09-03; query: count of /I don't know the word "([^"]*)"\./
+        // matches, distinct on the captured group as written), e.g. "dro", "clsoe", "krat11",
+        // "atomcibob". Under a substring test any of those containing the sniffed persona as a
+        // substring ("krat11" for a persona "Rat", "atomcibob" for a persona "Bob") resolved the
+        // sniff to Offline, swallowed the line, and asserted the player had logged out when
+        // nothing of the kind had happened. The shape is fixed and fully delimited — ASCII quotes,
+        // trailing full stop, no variants observed — so the word can simply be lifted out.
+        //
+        // OrdinalIgnoreCase is required, not defensive: the server canonicalises case in the
+        // matching Present reply (tx "val crispybob" → rx "The value of Crispybob …").
+        const string unknownWordPrefix = "I don't know the word \"";
+        const string unknownWordSuffix = "\".";
+        if (text.Length > unknownWordPrefix.Length + unknownWordSuffix.Length &&
+            text.StartsWith(unknownWordPrefix, StringComparison.Ordinal) &&
+            text.EndsWith(unknownWordSuffix, StringComparison.Ordinal))
         {
-            ResolveSniff(name, SniffOutcome.Offline);
-            return true;
+            var word = text[unknownWordPrefix.Length..^unknownWordSuffix.Length];
+            if (string.Equals(word, name, StringComparison.OrdinalIgnoreCase))
+            {
+                ResolveSniff(name, SniffOutcome.Offline);
+                return true;
+            }
         }
         return false;
     }
@@ -1059,6 +1178,19 @@ public sealed class MudSession : IDisposable
         if (_pendingCreatureNames.Count == 0)
             return null;
         if (!InGameMode)
+        {
+            _pendingCreatureNames.Clear();
+            return null;
+        }
+        // Hard gate: this probe only exists to price the creatures in the CURRENT fight, so it must
+        // never leave the wire outside one. InGameMode alone is not that gate. Death is the case
+        // that matters: the protocol's own death signal is C08 C13 ("Not updating persona.",
+        // Bartle 08 13) and the drop to the shell that follows, but the parser only leaves game
+        // mode when it matches the "Option:" prompt further down the stream - so between the kill
+        // and that prompt InGameMode is still true while the far end is already a login shell.
+        // A batch left pending across that window would type `value goblin1` at the shell. In a
+        // permadeath game that is not a cosmetic bug.
+        if (!_combat.InCombat)
         {
             _pendingCreatureNames.Clear();
             return null;
@@ -1239,6 +1371,25 @@ public sealed class MudSession : IDisposable
         _creatureValueProbeTimer?.Change(Timeout.Infinite, Timeout.Infinite);
         _creatureProbeTimeoutTimer?.Change(Timeout.Infinite, Timeout.Infinite);
         _creatureValueKnown.Clear();
+    }
+
+    /// <summary>
+    /// The encounter just closed: drop everything still QUEUED and disarm the debounce timer, so no
+    /// `value` command can go out for a fight that is over (see the InCombat gate in
+    /// <see cref="TakeCreatureValueProbeLocked"/> for what that costs when it is missing).
+    /// <para>Deliberately NOT <see cref="StopCreatureValueProbeLocked"/>: a batch already on the wire
+    /// keeps its in-flight window, because that window is the only thing swallowing the echo and the
+    /// replies still enroute. Tearing it down here would spill "The value of the goblin is 120
+    /// points." into the terminal for every fight that ends within the probe's round trip. The window
+    /// closes itself at its frame boundary, or the timeout backstop closes it; the stale
+    /// <see cref="_creatureValueKnown"/> readings it may add on the way out are cleared by the next
+    /// encounter's first participant (OnParticipantJoined).</para>
+    /// Caller holds <see cref="_fesLock"/>.
+    /// </summary>
+    private void DropPendingCreatureValueProbeLocked()
+    {
+        _pendingCreatureNames.Clear();
+        _creatureValueProbeTimer?.Change(Timeout.Infinite, Timeout.Infinite);
     }
 
     // ── Post-character-select setup swallow ─────────────────────────────────────
