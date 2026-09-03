@@ -570,6 +570,80 @@ public sealed class CombatRailView : SKCanvasView
     private readonly SKFont _pillFont = new(
         SKTypeface.FromFamilyName(SKTypeface.Default.FamilyName, SKFontStyle.Bold) ?? SKTypeface.Default, 12f);
 
+    // ---- Dash effects, built on first use and reused. Invariant #1. -----------------------
+    //
+    // Every one of these used to be an SKPathEffect.CreateDash() INSIDE the paint handler, run on
+    // every paint and never disposed - five sites, two of them inside the per-opponent loop, so a
+    // busy pack fight allocated (and leaked the native handle of) well over a dozen per frame. A
+    // dash effect is a native Skia object behind a finalizable wrapper; churning them on the render
+    // path is exactly the allocation storm Invariant #1 forbids, and dropping the reference without
+    // Dispose leaves the native side to the finalizer queue.
+    //
+    // Built lazily rather than in the field initialiser, and nulled rather than merely disposed in
+    // ReleaseDashEffects, so a view whose handler is torn down and later rebuilt simply recreates
+    // them. A readonly field disposed at teardown would be a use-after-free on the next paint -
+    // this file already carries a live crash precedent of that exact shape (see OnHandlerChanged).
+    //
+    // Assigning one to SKPaint.PathEffect does not transfer ownership: the paint takes its own
+    // reference and setting the property back to null releases only that. These wrappers stay valid
+    // across any number of paints, which is the whole point.
+    private SKPathEffect? _dashResetRule;   // 1 on, 3 off - the dead strip's reset separator
+    private SKPathEffect? _dashUnmetSeal;   // 4 on, 3 off - a seal for a creature never yet struck
+    private SKPathEffect? _dashOverflow;    // 3 on, 3 off - the overflow row's frame
+
+    private SKPathEffect DashResetRule => _dashResetRule ??= SKPathEffect.CreateDash([1f, 3f], 0f);
+    private SKPathEffect DashUnmetSeal => _dashUnmetSeal ??= SKPathEffect.CreateDash([4f, 3f], 0f);
+    private SKPathEffect DashOverflow  => _dashOverflow  ??= SKPathEffect.CreateDash([3f, 3f], 0f);
+
+    /// <summary>Cap on the tempo-dash cache before it is emptied wholesale. The two tempo sites take
+    /// their dash lengths from a continuous function of an observed hit rate
+    /// (<c>DamagePrediction.Tempo</c>), so unlike the three fixed patterns above they cannot be
+    /// hoisted into named fields - the set of distinct patterns is small at any instant (at most one
+    /// per opponent slot, and the rail draws at most 8) but changes as a fight progresses. A plain
+    /// dictionary would therefore grow without bound over a long session.</summary>
+    private const int MaxTempoDashes = 32;
+
+    private readonly Dictionary<(float Dot, float Gap), SKPathEffect> _tempoDashes = new();
+
+    /// <summary>The dash for one swing tempo, reused whenever that exact pattern comes round again.
+    /// On overflow the whole cache is disposed and dropped rather than evicting one entry - the
+    /// patterns in play move together as a fight progresses, so the old set is stale as a set, and
+    /// this keeps the paint path free of eviction bookkeeping.</summary>
+    private SKPathEffect TempoDash(float dot, float gap)
+    {
+        var key = (dot, gap);
+        if (_tempoDashes.TryGetValue(key, out var cached))
+            return cached;
+        if (_tempoDashes.Count >= MaxTempoDashes)
+        {
+            foreach (var stale in _tempoDashes.Values)
+                stale.Dispose();
+            _tempoDashes.Clear();
+        }
+        var effect = SKPathEffect.CreateDash([dot, gap], 0f);
+        _tempoDashes[key] = effect;
+        return effect;
+    }
+
+    /// <summary>Hand every cached dash back to Skia and forget it. Called from
+    /// <see cref="OnHandlerChanged"/> when the handler goes away - the one teardown hook this view
+    /// has. Safe to call more than once, and safe to call on a view that later paints again: the
+    /// accessors above rebuild on demand.</summary>
+    private void ReleaseDashEffects()
+    {
+        // Detach first: the paint may still be holding a reference to one of these.
+        _stroke.PathEffect = null;
+        _dashResetRule?.Dispose();
+        _dashResetRule = null;
+        _dashUnmetSeal?.Dispose();
+        _dashUnmetSeal = null;
+        _dashOverflow?.Dispose();
+        _dashOverflow = null;
+        foreach (var effect in _tempoDashes.Values)
+            effect.Dispose();
+        _tempoDashes.Clear();
+    }
+
     private CombatLiveView _live = CombatLiveView.Idle;
 
     public CombatRailView()
@@ -586,12 +660,25 @@ public sealed class CombatRailView : SKCanvasView
     /// <see cref="CombatLiveView"/> on every refresh (a <c>with</c>-expression in the idle branch,
     /// <c>new</c> in the two in-combat branches), including the 1 Hz anti-idle tick that runs
     /// whether or not anything actually changed - so a reference check alone forced a repaint every
-    /// second for as long as the summary stayed on screen, contradicting Invariant #1. Both
-    /// <see cref="CombatLiveView"/> (a sealed record) and <c>RosterPlan</c> (a record struct)
-    /// already have member-wise equality, so comparing by value costs nothing extra to add and
-    /// fixes the bug; <c>ReferenceEquals</c> is kept ahead of it purely as a fast path, since the
+    /// second for as long as the summary stayed on screen, contradicting Invariant #1.
+    /// <c>ReferenceEquals</c> is kept ahead of the value compare purely as a fast path, since the
     /// idle branch's <c>with</c>-expression reuses the same instance often enough for that to pay
     /// for itself.</para>
+    ///
+    /// <para><b>Member-wise equality is NOT automatically structural, and adding this compare was
+    /// once mistaken for the whole fix (2026-09-02).</b> <see cref="CombatLiveView"/> is a record
+    /// and <c>RosterPlan</c> a record struct, so both get synthesized member-wise equality - but
+    /// <c>RosterPlan.Rows</c> is an <c>IReadOnlyList&lt;RosterRow&gt;</c>, and the synthesized
+    /// compare for a reference-typed member of that shape is REFERENCE equality.
+    /// <c>ParticipantRoster.Build</c> allocates a fresh list every refresh, so on the in-combat
+    /// branch - the only branch reached while a fight is open - the compare below decided
+    /// "different" every time and the rail still repainted at 1 Hz. <c>RosterPlan</c> now declares
+    /// its own element-wise <c>Equals</c>, which is what actually makes this setter's check bite;
+    /// see that method's remarks. If a collection-typed member is ever added to
+    /// <see cref="CombatLiveView"/> itself, it needs the same treatment or it will silently
+    /// reintroduce this - the record's synthesized equality will not tell you.
+    /// (<c>DeadStripHistory</c> is safe today only because the view model publishes a CACHED
+    /// instance and reallocates it only when the archive actually grows.)</para>
     /// </summary>
     public CombatLiveView Live
     {
@@ -639,8 +726,15 @@ public sealed class CombatRailView : SKCanvasView
         // Mandatory: this codebase has a live crash precedent (RO_E_CLOSED) from a surface that
         // stayed subscribed after its host was destroyed, so the next combat line drew into
         // already-torn-down objects.
-        if (Handler is null && SidePanel is { } vm)
-            vm.PropertyChanged -= OnSidePanelPropertyChanged;
+        if (Handler is null)
+        {
+            if (SidePanel is { } vm)
+                vm.PropertyChanged -= OnSidePanelPropertyChanged;
+            // The native dashes go back with it. See ReleaseDashEffects for why they are nulled
+            // rather than treated as readonly-for-the-lifetime fields like the paints and fonts
+            // above: a handler can come back, and the accessors rebuild on demand.
+            ReleaseDashEffects();
+        }
     }
 
     protected override void OnPaintSurface(SKPaintSurfaceEventArgs e)
@@ -852,7 +946,7 @@ public sealed class CombatRailView : SKCanvasView
         _stroke.Color = TerminalTheme.Palette[3];
         _stroke.StrokeWidth = 1f;
         _stroke.StrokeCap = SKStrokeCap.Round;
-        _stroke.PathEffect = SKPathEffect.CreateDash([1f, 3f], 0f);
+        _stroke.PathEffect = DashResetRule;
         canvas.DrawLine(Pad, lineY, Pad + Content, lineY, _stroke);
         _stroke.PathEffect = null;
         _stroke.StrokeCap = SKStrokeCap.Butt;
@@ -882,7 +976,9 @@ public sealed class CombatRailView : SKCanvasView
     /// kill either; <see cref="FightOutcome.NoMore"/> is explicitly NOT a kill by its own doc comment -
     /// "MUD2 printed no 'You have killed the X.' and... credited nothing" - which is exactly "lost to
     /// something that was not your blow"; <see cref="FightOutcome.EndOther"/> is the game closing a
-    /// fight without saying why, which is not a kill claim either. None of these belongs anywhere near
+    /// fight without saying why, which is not a kill claim either; <see cref="FightOutcome.Interrupted"/>
+    /// is the client ending the encounter because the world went away (reset/logout/room change/exit),
+    /// where the creature is not merely un-killed but was never finished with. None of these belongs anywhere near
     /// <see cref="FightOutcome.Kill"/>'s own doc comment, which is unambiguous about what a genuine kill
     /// looks like on the wire.</para>
     ///
@@ -900,7 +996,7 @@ public sealed class CombatRailView : SKCanvasView
     private static SKColor OutcomeTint(SKColor baseColor, FightOutcome outcome) => outcome switch
     {
         FightOutcome.CFled or FightOutcome.CFledFail or FightOutcome.Withdraw
-            or FightOutcome.NoMore or FightOutcome.EndOther
+            or FightOutcome.NoMore or FightOutcome.EndOther or FightOutcome.Interrupted
             => HueOnly(baseColor, TerminalTheme.Palette[3], OutcomeTintMix),
         FightOutcome.UFled or FightOutcome.UFledFail
             => HueOnly(baseColor, TerminalTheme.Palette[9], OutcomeTintMix),
@@ -1132,7 +1228,7 @@ public sealed class CombatRailView : SKCanvasView
         if (plan.Shape == SealShape.Unmet)
         {
             _stroke.Color = SealUnknown;
-            _stroke.PathEffect = SKPathEffect.CreateDash([4f, 3f], 0f);
+            _stroke.PathEffect = DashUnmetSeal;
             canvas.DrawCircle(cx, cy, SlotSealRadius, _stroke);
             _stroke.PathEffect = null;
             _stroke.StrokeWidth = 1f;
@@ -1218,7 +1314,7 @@ public sealed class CombatRailView : SKCanvasView
         if (tempo.Reading != DamagePrediction.TempoReading.NoEvidence)
         {
             if (tempo.Reading == DamagePrediction.TempoReading.Landing)
-                _stroke.PathEffect = SKPathEffect.CreateDash([tempo.Dot, tempo.Gap], 0f);
+                _stroke.PathEffect = TempoDash(tempo.Dot, tempo.Gap);
 
             DrawRingArc(canvas, cx, cy, outer, arc);
             DrawRingArc(canvas, cx, cy, inner, arc);
@@ -1297,7 +1393,7 @@ public sealed class CombatRailView : SKCanvasView
         }
 
         if (tempoStroke.Reading == DamagePrediction.TempoReading.Landing)
-            _stroke.PathEffect = SKPathEffect.CreateDash([tempoStroke.Dot, tempoStroke.Gap], 0f);
+            _stroke.PathEffect = TempoDash(tempoStroke.Dot, tempoStroke.Gap);
 
         canvas.DrawRoundRect(
             x + inset, y + inset, width - FrameStroke, height - FrameStroke, 5f, 5f, _stroke);
@@ -1439,7 +1535,7 @@ public sealed class CombatRailView : SKCanvasView
     private void DrawOverflowRow(SKCanvas canvas, float y, IReadOnlyList<RosterRow> rows, int shown, RosterPlan plan)
     {
         _stroke.Color = Rule;
-        _stroke.PathEffect = SKPathEffect.CreateDash([3f, 3f], 0f);
+        _stroke.PathEffect = DashOverflow;
         canvas.DrawRoundRect(Pad, y, Content, OverflowRowHeight, 5f, 5f, _stroke);
         _stroke.PathEffect = null;
 
@@ -2068,6 +2164,11 @@ public sealed class CombatRailView : SKCanvasView
         // The game closed it and gave no reason; saying more than that on the roster row would be
         // inventing one. Distinct from a blank label, which means we never saw it end at all.
         FightOutcome.EndOther => "ended",
+        // The client stopped it, not the game - a reset, a logout, a room change, app exit. "cut
+        // short" rather than "interrupted" only because the word is drawn unclipped in a 62f column
+        // ahead of the name (see DeadOutcomeColumn); which of the four reasons it was is in the
+        // clog's EncounterForceEnded event, not on a roster row.
+        FightOutcome.Interrupted => "cut short",
         _ => string.Empty,
     };
 
