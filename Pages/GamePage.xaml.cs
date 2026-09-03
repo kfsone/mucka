@@ -174,7 +174,10 @@ public partial class GamePage : ContentPage
     private Microsoft.UI.Xaml.Controls.ScrollViewer? _inputScroller;   // _inputTextBox's inner ScrollViewer
     private Microsoft.UI.Xaml.UIElement? _terminalElement;   // SKXamlCanvas, for wheel scrollback
     private Microsoft.UI.Xaml.UIElement? _fnButtonElement;   // Fn button, for right-tap → settings
-    private Microsoft.UI.Xaml.Input.PointerEventHandler? _rootPointerHandler;
+    // Invariant #0's enforcement, entire. Built on appear, disposed on disappear; see
+    // Behaviors/FocusGuard.cs — and do NOT start a second list of "elements that must not steal
+    // focus" anywhere in this file. That list is what FocusGuard replaced.
+    private Mucka.Behaviors.FocusGuard? _focusGuard;
     // Window root element — holds the keyboard accelerators (hotkeys) and, only while in
     // scrollback, the temporary key handler. Kept so both can be torn down on disappear.
     private Microsoft.UI.Xaml.UIElement? _rootElement;
@@ -304,32 +307,27 @@ public partial class GamePage : ContentPage
                     // activation timestamp is always set before PointerPress can run.
                     fwin.Activated += OnWinUIWindowActivated;
                     RegisterHotkeyAccelerators(froot);
-                    froot.GettingFocus += OnRootGettingFocus;
-                    froot.LosingFocus += OnRootLosingFocus;
-                    // Catch-all: ANY click on the game page hands focus back to the input box
-                    // (handledEventsToo so gesture-handled taps — chips, toggles — still count).
-                    // Skipped in scrollback / while the config editor is open.
-                    _rootPointerHandler = new Microsoft.UI.Xaml.Input.PointerEventHandler(OnRootPointerReleased);
-                    froot.AddHandler(Microsoft.UI.Xaml.UIElement.PointerReleasedEvent, _rootPointerHandler, handledEventsToo: true);
+                    // Invariant #0, whole and automatic: FocusGuard keeps the keyboard on the
+                    // command box for EVERY element under this page, by tree position rather than
+                    // by name — so a widget added later is covered without anyone remembering to
+                    // register it. It owns the focus veto, the refocus backstop, and the
+                    // non-focusable marking that used to be a hand-written list of x:Names here.
+                    // Nothing to wire up per control; see Behaviors/FocusGuard.cs.
+                    _focusGuard = new Mucka.Behaviors.FocusGuard(
+                        froot,
+                        () => Handler?.PlatformView as Microsoft.UI.Xaml.FrameworkElement,
+                        () => _inputTextBox,
+                        () => _isFkeyEditorOpen || _isGuidedLoginOverlayOpen || Terminal.IsHistoryMode,
+                        FocusInput);
                 }
-                // Chrome never takes pointer focus: clicks on these still fire their
-                // commands/gestures, but keyboard focus stays wherever it was (the input box).
-                // AllowFocusOnInteraction propagates to children, covering the chips, icons,
-                // and fkey buttons. The input row's Entry is deliberately NOT covered.
-                // RecChip is listed explicitly even though it lives inside StatusBar: a Border's
-                // platform view is its own WinUI panel, and AllowFocusOnInteraction is a
-                // per-element property -- setting it on the StatusBar panel does not reach it.
-                // Clicking "rec" was taking keyboard focus off the input box and keeping it
-                // (Invariant #0).
-                // CombatPanelBorder and the two elements inside it that CAN take pointer input are listed
-                // explicitly. The panel was never in this list at all - harmless while it held only an
-                // InputTransparent canvas, and a real Invariant #0 hole the moment the flee pill added a
-                // clickable element (a click on the pill took keyboard focus off the command box in play).
-                // Listing children individually is required, not belt-and-braces: AllowFocusOnInteraction is
-                // per-element and a Border's platform view is its own WinUI panel, which is the same reason
-                // RecChip is named here despite living inside StatusBar.
-                DisableFocusOnInteraction(StatusBar, RecChip, SidePanelBorder, FkeyBar, FnButton, SendButton, ScrollbackBar, FloatingOnlinePanel,
-                    CombatPanelBorder, CombatFleePill, CombatFleePillHit, CombatMetronomeHit);
+                else
+                {
+                    // No window root means Invariant #0 has NO enforcement this session. That is
+                    // the failure mode worth the most noise: it looks exactly like normal until
+                    // the player clicks something, and then nothing works and nothing says why.
+                    CrashLog.Write("FocusGuard", new InvalidOperationException(
+                        "Window root unavailable — Invariant #0 is unenforced for this session."));
+                }
 #if FOCUS_DIAG
                 Microsoft.UI.Xaml.Input.FocusManager.GettingFocus += OnFmGettingFocus;
                 Microsoft.UI.Xaml.Input.FocusManager.LosingFocus += OnFmLosingFocus;
@@ -502,14 +500,9 @@ public partial class GamePage : ContentPage
             fwin.Activated -= OnWinUIWindowActivated;
             UnregisterHotkeyAccelerators();
             froot.PreviewKeyDown -= OnScrollbackKeyDown;   // no-op if not in scrollback
-            froot.GettingFocus -= OnRootGettingFocus;
-            froot.LosingFocus -= OnRootLosingFocus;
-            if (_rootPointerHandler is not null)
-            {
-                froot.RemoveHandler(Microsoft.UI.Xaml.UIElement.PointerReleasedEvent, _rootPointerHandler);
-                _rootPointerHandler = null;
-            }
         }
+        _focusGuard?.Dispose();
+        _focusGuard = null;
 #if FOCUS_DIAG
         Microsoft.UI.Xaml.Input.FocusManager.GettingFocus -= OnFmGettingFocus;
         Microsoft.UI.Xaml.Input.FocusManager.LosingFocus -= OnFmLosingFocus;
@@ -875,13 +868,25 @@ public partial class GamePage : ContentPage
     private void FocusInput() => Dispatcher.Dispatch(() =>
     {
 #if WINDOWS
-        FocusDiag($"FocusInput dispatch: IsFocused={InputEntry.IsFocused}");
-        // The deferred dispatch fires after WinUI has fully settled focus, so IsFocused is
-        // authoritative here. Skip if the input already has focus — Focus(Programmatic) on
-        // an already-focused WinUI TextBox resets the cursor to position 0, which causes a
-        // "|o" symptom on rapid Enter+type sequences (character appears after the cursor).
-        if (!InputEntry.IsFocused)
-            _inputTextBox?.Focus(Microsoft.UI.Xaml.FocusState.Programmatic);
+        var tb = _inputTextBox;
+        if (tb is null) return;
+        // Skip if the box already holds focus — Focus(Programmatic) on an already-focused WinUI
+        // TextBox resets the cursor to position 0, which causes a "|o" symptom on rapid
+        // Enter+type sequences (character appears after the cursor).
+        //
+        // Ask WinUI's FocusManager, NOT MAUI's InputEntry.IsFocused, which is a cached mirror
+        // maintained from the platform view's Got/LostFocus events. If that mirror is ever stale
+        // in the true direction, "skip, it already has focus" is wrong and this — the backstop the
+        // whole invariant rests on — silently does nothing, for the rest of the session. The
+        // authoritative answer costs one call and cannot go stale.
+        // XamlRoot is null on an element that is no longer in a live tree (teardown races), and
+        // GetFocusedElement(null) throws — inside a dispatcher callback, that is a crash.
+        var xamlRoot = tb.XamlRoot;
+        bool hasFocus = xamlRoot is not null && ReferenceEquals(
+            Microsoft.UI.Xaml.Input.FocusManager.GetFocusedElement(xamlRoot), tb);
+        FocusDiag($"FocusInput dispatch: focused={hasFocus} (maui.IsFocused={InputEntry.IsFocused})");
+        if (!hasFocus)
+            tb.Focus(Microsoft.UI.Xaml.FocusState.Programmatic);
 #else
         if (!InputEntry.IsFocused) InputEntry.Focus();
 #endif
@@ -1452,8 +1457,8 @@ public partial class GamePage : ContentPage
             // and re-layout have settled (a plain dispatch still races it; a short delay wins).
             Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(50), () =>
             {
-                if (!_isFkeyEditorOpen && !Terminal.IsHistoryMode && !InputEntry.IsFocused)
-                    _inputTextBox?.Focus(Microsoft.UI.Xaml.FocusState.Programmatic);
+                if (!_isFkeyEditorOpen && !_isGuidedLoginOverlayOpen && !Terminal.IsHistoryMode)
+                    FocusInput();
             });
         }
         else if (e.PropertyName == nameof(SidePanelViewModel.PulseTier))
@@ -2373,74 +2378,6 @@ public partial class GamePage : ContentPage
         FocusDiag($"FM.LostFocus     old={FocusDesc(e.OldFocusedElement)}");
 #endif
 
-    /// <summary>
-    /// Marks chrome elements so pointer interaction never moves keyboard focus to them
-    /// (commands and gestures still fire). Applied via the platform view; re-applied on
-    /// handler changes since platform views can be recreated.
-    /// </summary>
-    private static void DisableFocusOnInteraction(params VisualElement[] elements)
-    {
-        foreach (var el in elements)
-        {
-            ApplyNoFocusOnInteraction(el);
-            el.HandlerChanged += (s, _) => ApplyNoFocusOnInteraction((VisualElement)s!);
-        }
-    }
-
-    private static void ApplyNoFocusOnInteraction(VisualElement el)
-    {
-        if (el.Handler?.PlatformView is Microsoft.UI.Xaml.FrameworkElement fe)
-            fe.AllowFocusOnInteraction = false;
-    }
-
-    // Any stray click on the game page lands focus back on the input box. Registered with
-    // handledEventsToo so taps consumed by gesture recognizers (chips, toggles) still count.
-    // Scrollback clicks are exempt (the terminal owns interaction there), as is the config
-    // editor (modal page over the same window root).
-    private void OnRootPointerReleased(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
-    {
-        if (_isFkeyEditorOpen || Terminal.IsHistoryMode) return;
-        FocusDiag("root.PointerReleased → FocusInput");
-        FocusInput();
-    }
-
-    // Keyboard belongs to the input box on the game page. If focus heads anywhere else — a panel
-    // toggle, the gear, the rec/dreamword chips — keep it on the input box so typing is never
-    // stranded. Skipped while reviewing scrollback (input is hidden) or while the config editor
-    // is open. While the input box holds focus, veto the move outright (TryCancel) so a click
-    // never steals focus even for a frame; otherwise redirect the incoming focus to the input.
-    private void OnRootGettingFocus(Microsoft.UI.Xaml.UIElement sender, Microsoft.UI.Xaml.Input.GettingFocusEventArgs args)
-    {
-        if (_isFkeyEditorOpen || Terminal.IsHistoryMode || _inputTextBox is null)
-        {
-            FocusDiag($"root.GettingFocus SKIP (editor={_isFkeyEditorOpen} history={Terminal.IsHistoryMode} tb={_inputTextBox is not null})");
-            return;
-        }
-        if (ReferenceEquals(args.NewFocusedElement, _inputTextBox)) return;
-        if (ReferenceEquals(args.OldFocusedElement, _inputTextBox))
-        {
-            bool cancelled = args.TryCancel();
-            FocusDiag($"root.GettingFocus VETO old=INPUT new={FocusDesc(args.NewFocusedElement)} cancelled={cancelled}");
-            if (cancelled) return;
-        }
-        bool redirected = args.TrySetNewFocusedElement(_inputTextBox);
-        FocusDiag($"root.GettingFocus REDIRECT old={FocusDesc(args.OldFocusedElement)} new={FocusDesc(args.NewFocusedElement)} redirected={redirected}");
-    }
-
-    // Companion to the GettingFocus veto: catches focus leaving the input box for a target the
-    // GettingFocus bounce never sees (e.g. a non-XAML element or "nothing"), which is what a
-    // click on the rec/dreamword chips produces.
-    private void OnRootLosingFocus(Microsoft.UI.Xaml.UIElement sender, Microsoft.UI.Xaml.Input.LosingFocusEventArgs args)
-    {
-        if (_isFkeyEditorOpen || Terminal.IsHistoryMode || _inputTextBox is null) return;
-        if (!ReferenceEquals(args.OldFocusedElement, _inputTextBox)) return;
-        if (args.NewFocusedElement is null)
-        {
-            bool cancelled = args.TryCancel();
-            FocusDiag($"root.LosingFocus VETO new=(null) cancelled={cancelled}");
-        }
-    }
-
     // ── Hotkeys as KeyboardAccelerators (NOT a per-keystroke handler) ────────
     // The framework matches these natively and invokes our callback only on a hit, so plain
     // typing never runs any of this. Every callback is gated on _isFkeyEditorOpen (the game
@@ -2658,6 +2595,9 @@ public partial class GamePage : ContentPage
                 InputDiag.Log($"CommandInput built; {_commandInput.Hotkeys.Count} bindings declared");
             }
             InputDiag.Log($"OnInputHandlerChanged: Text binding removed; driving TextBox manually; seed=\"{tb.Text}\"; ReturnCommand null={InputEntry.ReturnCommand is null}");
+            // The command box now exists (or is a new platform view). Invariant #0's guard marks
+            // nothing until it knows which control must keep the keyboard, so this is what arms it.
+            _focusGuard?.Refresh();
 #if INPUT_DIAG
             tb.TextChanged += OnInputDiagTextChanged;
 #endif
@@ -3186,8 +3126,8 @@ public partial class GamePage : ContentPage
         // the resize/re-layout has settled (Invariant #0).
         Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(50), () =>
         {
-            if (!_isFkeyEditorOpen && !Terminal.IsHistoryMode && !InputEntry.IsFocused)
-                _inputTextBox?.Focus(Microsoft.UI.Xaml.FocusState.Programmatic);
+            if (!_isFkeyEditorOpen && !_isGuidedLoginOverlayOpen && !Terminal.IsHistoryMode)
+                FocusInput();
         });
     }
 

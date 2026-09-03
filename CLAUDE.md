@@ -19,18 +19,32 @@ Concretely:
   own field. Those own focus while open; on close, focus returns to the command box.
 - Reviewing scrollback (terminal history mode) is exempt while active — the input is hidden then.
 
-How this is enforced today (keep these paths intact when adding UI):
-- `GamePage.FocusInput()` — deferred one dispatcher tick so it wins WinUI's post-click focus
-  settle; skips re-focus if the input already holds it (avoids cursor-reset glitches).
-- `GameViewModel.RequestFocus` / `SidePanelViewModel.RequestFocus` events → wired to `FocusInput`.
-  Fire one of these after any command/interaction that could move focus.
-- Root `PointerReleased` handler (`handledEventsToo: true`) as a safety net for stray clicks.
-- New SkiaSharp canvases (e.g. `RadarCompassView`) grab focus in ways the root net can miss, so
-  they refocus **explicitly**: every click routes through a command that calls `RequestFocus`,
-  even on an empty/miss hit.
+**When you add an interactive element, you wire up nothing.** That is the design.
+`Behaviors/FocusGuard.cs` enforces this invariant for every element under the game page by tree
+position, not by name, so a control that did not exist when it was written is covered the moment
+it appears. One owner, one file. Read its header comment before changing anything about focus.
 
-When you add any interactive element, ask: "after the user touches this, can they immediately
-type a command?" If not, wire it to `RequestFocus`.
+The one thing you must NOT do: **start a new list of "elements that must not steal focus".**
+Enforcement used to be exactly that — a dozen `x:Name`s passed to
+`GamePage.DisableFocusOnInteraction(...)` — against ~50 interactive elements in `GamePage.xaml`.
+The hamburger menu and its rows, the floating map panel, the Chat button and the data-templated
+fkey buttons were all missing, and lazily created rows could not be added to it at all. A list
+that has to be remembered is a list that rots. It rotted. It is gone; do not rebuild it.
+
+Supporting paths (keep intact):
+- `GamePage.FocusInput()` — the single refocus path. Deferred one dispatcher tick so it wins
+  WinUI's post-click focus settle; skips re-focus when the box already holds it (avoids
+  cursor-reset glitches), asking WinUI's `FocusManager` rather than MAUI's cached
+  `Entry.IsFocused` — a stale mirror there would silently disable the whole backstop.
+- `GameViewModel.RequestFocus` / `SidePanelViewModel.RequestFocus` events → wired to `FocusInput`.
+  Still the right thing to fire after a command that moves focus deliberately; no longer the thing
+  the invariant depends on.
+- `Behaviors/NoFocusStealBehavior` — for an element that is interactive in the first instants of
+  its life, before the guard's hover pre-emption or next sweep reaches it. Rarely needed now.
+
+When you add any interactive element, still ask: "after the user touches this, can they
+immediately type a command?" If the answer is no, the guard has a hole — fix the guard, in the
+guard, rather than patching the one control that revealed it.
 
 ## Invariant #1 — thou shalt not block the input widgets
 

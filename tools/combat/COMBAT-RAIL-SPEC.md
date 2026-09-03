@@ -378,10 +378,11 @@ drift.
 
 - **Invariant #0 note, learned the hard way.** `InputTransparent` on the pulsing MAUI `Border` did NOT
   keep it out of the pointer path: clicking the pill took keyboard focus off the command box. Its
-  platform view is now `IsHitTestVisible = false` directly. Separately, **`CombatPanelBorder` was never
-  in `DisableFocusOnInteraction`'s list at all** - harmless while the panel held only an
-  `InputTransparent` canvas, and a real hole the moment anything clickable arrived. It and its
-  interactive children are listed now.
+  platform view is now `IsHitTestVisible = false` directly. Separately, **the rail was never in the
+  page's hand-written list of elements-that-must-not-steal-focus at all** - harmless while the panel
+  held only an `InputTransparent` canvas, and a real hole the moment anything clickable arrived.
+  That list is gone: `Behaviors/FocusGuard.cs` now covers every element under the page by tree
+  position, so nothing here needs registering (and the rail's hole was one of the reasons it went).
 
 - **In-combat only, and grace counts as out.** Same gate as the tick meter: nothing is attacking
   during the post-kill grace window, and an instrument saying RUN then is asking the player to pay a
