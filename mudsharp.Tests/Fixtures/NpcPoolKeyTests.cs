@@ -33,8 +33,10 @@ public sealed class NpcPoolKeyTests
     [Fact]
     public void InstancesOfOneSpeciesDoShareABucket()
     {
-        // rat3 and rat7 are statistically indistinguishable (17 instances, p=0.80), so the number is
-        // what buys the sample size and dropping it is the point.
+        // MUD2 numbers instances of one spawn class and the bestiary assigns stamina per class, so
+        // the instance number is what buys the sample size and dropping it is the point. (This used
+        // to cite "17 instances, p=0.80"; that figure is untraceable and has been withdrawn - see
+        // NpcPoolKey's remarks for what it did and did not show.)
         Assert.Equal(NpcPoolKey.For("rat3"), NpcPoolKey.For("rat7"));
     }
 

@@ -87,9 +87,38 @@ public readonly record struct DamageBand(double Low, double High)
 public static class DamagePrediction
 {
     /// <summary>
-    /// The hit rate at which the border draws solid - "swinging like a pro". The player's measured rate
-    /// across the corpus, 63.1% of 9,734 swings. Above it there is nothing further to show: this is a
-    /// cue for whether the fight is progressing, not a score.
+    /// The hit rate at which the border draws solid - "swinging like a pro". Above it there is nothing
+    /// further to show: this is a cue for whether the fight is progressing, not a score.
+    ///
+    /// <para><b>Where 0.631 comes from, and under what conditions.</b> It is a ratio of sums over the
+    /// player's own recorded swings, reproducible from the fight ledger:
+    /// <code>
+    /// -- ~/.mucka/combat/mucka.db.20260901-170208.bak
+    /// SELECT SUM(you_hits), SUM(you_hits + you_misses),
+    ///        CAST(SUM(you_hits) AS REAL) / SUM(you_hits + you_misses) FROM fights;
+    /// -- 6523 | 10337 | 0.63104
+    /// </code>
+    /// Conditions, because a bare rate is not usable without them (CLAUDE.md): 1,730 fights spanning
+    /// 2026-08-07 to 2026-09-01, 5 personae, 23 weapons, 44+ species; afflicted swings are INCLUDED
+    /// but number only 23 in total, so removing them moves the figure by &lt;0.0001.</para>
+    ///
+    /// <para><b>Two honest caveats.</b> (1) An earlier version of this comment said "63.1% of 9,734
+    /// swings". The RATE reproduces exactly; the count 9,734 does not correspond to any stored result
+    /// or any database state - it is untraced, and is not the denominator above. Re-run on the live DB
+    /// today the same query gives 0.6275 of 11,369, so the constant is a snapshot, not a fixed
+    /// property. (2) The pooled figure hides a large spread by opponent - rats 0.5915 (n=3,121),
+    /// zombies 0.7277 (n=1,924), foxes 0.4070 (n=86) - which is expected if the published hit model
+    /// <c>Dy/(Dy+Do)</c> is anywhere near right, since it is opponent-dependent. So this threshold is a
+    /// property of the player's OPPONENT MIX as much as of the player. That is tolerable for what it
+    /// drives - a dash density saying "is this fight going normally for me" - and would not be
+    /// tolerable for anything predictive.</para>
+    ///
+    /// <para><b>Not the 0.57 quoted elsewhere.</b> Several comments and COMBAT-RAIL-SPEC.md cite "the
+    /// player's hit rate is 0.57". That is a DIFFERENT QUANTITY: it is <c>100/175</c>, the published
+    /// guide's formula <c>Dy/(Dy+Do)</c> evaluated for a player at dexterity 100 against a rat at the
+    /// bestiary's dexterity 75 (MECHANICS-VERIFICATION.md:134). A formula prediction for one species
+    /// from a source the repo itself labels hypothesis - not a corpus measurement, and not a rival
+    /// figure for this constant.</para>
     /// </summary>
     public const double FluentHitRate = 0.631;
 

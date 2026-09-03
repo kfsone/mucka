@@ -184,24 +184,80 @@ public sealed record StaminaPoolEstimate(
 /// blow.
 ///
 /// <para><b>What this replaced, and why.</b> The previous estimator took the MEDIAN TOTAL DAMAGE of
-/// fights that ended in a kill. That figure includes the killing blow's overkill in every sample, and
-/// it is biased high by 21% - measured across 48 instances against an independently published figure.
-/// A censored-interval estimator over the same corpus scores median 0.0% error and 4.3% mean absolute
-/// error, with the published value inside the reported interval for 39 of 41 non-zombie instances.
-/// The old figure is not a worse version of this one; it is a different quantity (how much damage a
-/// kill costs) wearing this one's name.</para>
+/// fights that ended in a kill. Every such sample includes the killing blow's overkill, so it reads
+/// high. That much is a matter of arithmetic and is not in doubt; the old figure is not a worse
+/// version of this one, it is a different quantity (how much damage a kill costs) wearing this one's
+/// name.</para>
+///
+/// <para><b>What the validation is actually worth - read this before quoting it (audit,
+/// 2026-09-03).</b> An earlier version of this comment said the old estimator was "biased high by
+/// 21% - measured across 48 instances against an independently published figure", and that this one
+/// "scores median 0.0% error and 4.3% mean absolute error, with the published value inside the
+/// reported interval for 39 of 41 non-zombie instances". Two problems, both material.</para>
+///
+/// <para>First, the "independently published figure" is <c>tools/combat/bestiary.tsv</c> - the mobile
+/// table transcribed from TheMudWiz's MUD2 Strategy Guide v0.42 on GameFAQs, which
+/// <c>verify_mechanics.py</c> loads as its ground truth. <c>MUD2-PUBLISHED-MECHANICS.md:5</c>, the
+/// header of the document that data belongs to, says of it: "These are HYPOTHESES, not ground truth.
+/// The guide is player-derived and years old." Calling it "independently published" made a
+/// player-derived FAQ sound like an authority. It is a second guess, and agreeing with it is
+/// corroboration between two estimates, not accuracy against a measurement. There is no measurement
+/// to be accurate against: MUD2 never prints a creature's stamina (see the rung item below).</para>
+///
+/// <para>Second, none of the four numbers is traceable. 21%, 48 instances, median 0.0%, 4.3% MAE and
+/// 39-of-41 appear in no script, no document, and no stored result anywhere in the repo - only in
+/// this comment and in the ones that cite it. The only stored run of this method is
+/// <c>MECHANICS-VERIFICATION.md</c>, whose corpus was "two captures, about 69 wall-clock minutes …
+/// 25 fights, 23 kills", which returned INCONCLUSIVE with "22 of 23 kills put the published STA
+/// inside that bracket" - a different unit, a different n, and a corpus far too small to contain 48
+/// instances. The live corpus today has 106 killed instances (94 non-zombie), which is not 48 or 41
+/// either. The one stored figure that does corroborate the DIRECTION is in the same file: group
+/// medians "are systematically high for small creatures - rats read 31.2 against a published 25",
+/// i.e. 25% high by the overkill mechanism described above.</para>
+///
+/// <para>So: the mechanism is sound and the replacement is the right shape. The error figures are
+/// not evidence and must not be requoted. Recovering them means writing the comparison as a script
+/// under <c>tools/combat/</c> and storing its output beside it - the standing rule for findings in
+/// this project, and precisely the rule whose absence is why they cannot be checked now.</para>
 ///
 /// <para><b>The two constraint families.</b></para>
 /// <list type="number">
 /// <item><b>Kill.</b> Alive after blow n-1 and dead after blow n means the pool is more than the sum
 /// of the first n-1 blows' LOW ends and at most the sum of all n blows' HIGH ends.</item>
 /// <item><b>Rung.</b> Still reading rung k after cumulative damage D means the pool exceeds
-/// <c>D x 7 / (8 - k)</c>. This follows from the rungs being equal sevenths of maximum stamina, which
-/// was tested against the alternatives on 1,978 readings: equal sevenths is contradicted by 6.6% of
-/// them, against 9.6% for a wide-top-and-bottom scale, 17.7% for a geometric one and 25.9% for
-/// treating rung 7 as strictly undamaged. D is the LOW end of the cumulative bracket and the reading
-/// must be the one printed AFTER the blow. Violated in 3 of 199 rung-7 readings, all of them
-/// pre-damaged unnumbered mobs.</item>
+/// <c>D x 7 / (8 - k)</c>. D is the LOW end of the cumulative bracket and the reading must be the one
+/// printed AFTER the blow.
+/// <para><b>Equal sevenths is an ASSUMPTION, not a measurement, and this whole bound rests on it
+/// (audit, 2026-09-03).</b> There is no observation anywhere in the corpus mapping a rung to a
+/// stamina number or a fraction, and there cannot be one from what MUD2 prints: a rung reading is a
+/// bare adjectival phrase with no digit in it ("The zombie9 looks to have minor damage."). Counted:
+/// 3,130 distinct rung readings across all 7 rungs in the swing ledger, 4,373 raw descriptor lines in
+/// the clogs, and not one of them carries a number. The ONLY numeric NPC-stamina data MUD2 gives is
+/// the stethoscope <c>diagnose</c> bracket ("The viper has a stamina lying between 18 and 27."), of
+/// which the entire corpus holds FOUR - all pre-combat probes on undamaged creatures, none of them
+/// beside a wound descriptor - and <c>npc_stamina_reads</c>, the table that would hold them, has 0
+/// rows. The published guide is no help either: <c>MUD2-PUBLISHED-MECHANICS.md:359</c> records that
+/// the wound descriptors are absent from it entirely, with "no ordering or percentage mapping between
+/// them".</para>
+/// <para>What IS measured is the rungs' ORDER - 1,980 transitions to a worse rung against 47 to a
+/// better one - which fixes the ladder's sequence and says nothing about its spacing. Equal spacing
+/// is the simplest choice consistent with that order, and it is chosen for that reason, not because
+/// anything observed it.</para>
+/// <para>An earlier version of this comment claimed the assumption "was tested against the
+/// alternatives on 1,978 readings: equal sevenths is contradicted by 6.6% … against 9.6% … 17.7% …
+/// 25.9%", and "violated in 3 of 199 rung-7 readings". Those figures are untraceable - no script,
+/// document or stored result in the repo produces them. And even taken at face value they would not
+/// be what they sound like: a "contradiction" here means the rung bound demands a pool larger than
+/// the fight's own KILL BRACKET permits, so the test is a relative consistency ranking of four
+/// candidate spacings against another estimate, never against a stamina value. It also inherits that
+/// estimate's assumptions - that every printed damage band is right, that fight boundaries are
+/// segmented correctly, and that the creature started undamaged - and the last of those is the same
+/// confound the old comment used to explain the violations away ("all of them pre-damaged unnumbered
+/// mobs"), which makes that part unfalsifiable as stated.</para>
+/// <para>The practical consequence is already handled and should stay handled: where the rung bound
+/// and the kill bracket disagree, the KILL BRACKET WINS and the rung bounds are dropped (see the
+/// Contradicted path below). That ordering is right precisely because the kill bracket has no model
+/// in it and this bound has one.</para></item>
 /// </list>
 ///
 /// <para><b>The rung's implied UPPER bound is deliberately not used.</b> Rung k also says the

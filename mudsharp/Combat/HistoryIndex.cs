@@ -54,9 +54,11 @@ public sealed class HistoryIndex
     //   - npc_group pluralizes the last token, so "large rat0" and "rat0" share "rats". Those are
     //     two different creatures (pool ~100 vs ~25), and "you have killed a rat" must not clear the
     //     mark on the first large rat you meet.
-    //   - npc_name is per instance, and rat3/rat7 are measured to be indistinguishable (17 instances,
-    //     p=0.80). Keying there would mark every unmet instance number of a species you have killed
-    //     twenty of as brand new, which is a claim the evidence does not support.
+    //   - npc_name is per instance. Keying there would mark every unmet instance number of a species
+    //     you have killed twenty of as brand new, which is a claim the evidence does not support.
+    //     (This used to cite "rat3/rat7 measured indistinguishable, 17 instances, p=0.80". That
+    //     figure is untraceable and has been withdrawn - see NpcPoolKey's remarks. The argument
+    //     above never needed it.)
     // NpcPoolKey is exactly "species plus whatever adjectives the game printed", which is the level
     // the bestiary knowledge is actually held at. See NpcPoolKey's own remarks.
     //
