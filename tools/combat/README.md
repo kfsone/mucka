@@ -168,11 +168,21 @@ uv run tools/combat/tickdamage.py
 Both tolerate a half-written tail line, so they can be run while the game is open - the newest clog
 belongs to a live session.
 
-**Result as of 2026-08-28** (984 encounters): 85% are 1v1, but the maximum is **7** (2026-08-27), and
-12 encounters have peaked at 5 or more since 2026-08-04. Mean damage per landed blow across the 38
-encounters at 4+ concurrent is **3.2**, worst single observed tick **29**, biggest single blow **29**.
-The pill's predicted worst-case tick runs roughly 1.5-2x the worst tick actually observed, which is the
-intended pessimism - it assumes every live opponent lands, and rats miss about two swings in three.
+**`concurrency.py` result as of 2026-09-02** (whole clog corpus, 1275 encounters): 84.6% are 1v1
+(1079/1275); the maximum observed is **13**, one encounter, 2026-08-29; five or fewer live opponents
+covers **99.45% of encounters (1268/1275)**; 22 encounters have peaked at 5 or more. Supersedes the
+984-encounter/max-7 figures this line used to cite (2026-08-28) - the corpus grew and the peak moved,
+which is exactly why `COMBAT-RAIL-SPEC.md` and this project's other citations of this number must
+re-run the script rather than restate an old figure (see `CombatRailView.SlotHeight`'s own remarks and
+`RailSlotGeometryTests.FiveLiveSlotsStillFitTheShortestRealisticRail`). The five-slot design sizing is
+unaffected - 1268/1275 still overwhelmingly justifies sizing for five, the two 11-13 outliers remain
+the overflow row's business, not the common case's.
+
+**`tickdamage.py` result as of 2026-08-28** (984 encounters, not re-run for the above): mean damage per
+landed blow across the 38 encounters at 4+ concurrent is **3.2**, worst single observed tick **29**,
+biggest single blow **29**. The pill's predicted worst-case tick runs roughly 1.5-2x the worst tick
+actually observed, which is the intended pessimism - it assumes every live opponent lands, and rats
+miss about two swings in three.
 
 ## Tick phase: is the anchor any good?
 
@@ -259,18 +269,22 @@ Clog headers now carry a `reset` block, so an encounter can be attributed to the
 
 ```json
 "reset": { "targetUtcMs": 1787950812000, "uncertaintySec": 0.4, "phase": "Locked",
-           "timeToReset": 1180, "derivedEpochMs": 1787950812345 }
+           "timeToReset": 73, "derivedEpochMs": 1787950812345 }
 ```
 
 **Group on `targetUtcMs`.** It is `ResetClock`'s single converged estimate of the reset instant, so it
 stays put across every encounter in a reset. `null` before the clock has locked; `phase` and
 `uncertaintySec` say how much to trust it.
 
-**Do not group on `derivedEpochMs` without bucketing.** That is `ts + timeToReset * 1000`, the same
-expression `swings.reset_epoch_ms` holds - and `CombatDb`'s comment calling it "constant across every
-swing of one reset" is wrong as written. The FES reading is whole seconds, so the derived instant jitters
-by up to a second between observations and grouping on it raw splits one reset into many. It is recorded
-only because it is the sole reset context available in a clog written before the lock.
+**Do not group on `derivedEpochMs` without bucketing.** That is `ts + timeToReset * 60000`, the same
+expression `swings.reset_epoch_ms` holds - and calling it "constant across every swing of one reset" is
+wrong as written. `timeToReset` is FES field [13], which is **minutes**, so the derived instant jitters
+by up to a MINUTE between observations and grouping on it raw splits one reset into many. Bucket to
++/-30s (`ResetClock.MinuteUncertaintySec`). It is recorded only because it is the sole reset context
+available in a clog written before the lock.
+
+Both the clog field and `swings.reset_epoch_ms` were written with a `* 1000` (seconds) multiplier until
+2026-09-01; the column has been backfilled from `time_to_reset`, clogs have not.
 
 **What this was added for.** `validate_tickphase.py` leaves 2.4% of encounters with a tick phase more
 than half a second off their session's best-fit lattice, and the leading explanation is a session that
