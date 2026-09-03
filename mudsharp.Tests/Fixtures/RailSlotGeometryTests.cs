@@ -72,7 +72,9 @@ public sealed class RailSlotGeometryTests
     [Fact]
     public void OneSlotIsSurrenderedToTheOverflowRow_AsSoonAsTheRosterOutgrowsTheCapacity()
     {
-        // 142 of chrome plus 10 of top pad leaves 248 for slots at 400dp tall: floor(248/81) = 3.
+        // 142 of chrome plus 10 of top pad leaves 248 for slots at 400dp tall. N slots cost
+        // N*SlotHeight + (N-1)*SlotGap: 3*76 + 2*5 = 238 fits within 248, but 4*76 + 3*5 = 319 does
+        // not, so capacity is 3.
         var height = 400.0;
         Assert.Equal(3, RailSlotGeometry.Capacity(M, height));
 
@@ -104,6 +106,76 @@ public sealed class RailSlotGeometryTests
         Assert.Equal(8, RailSlotGeometry.ShownSlots(M, 800.0, liveCount: 8));
         Assert.Equal(7, RailSlotGeometry.ShownSlots(M, 800.0, liveCount: 14));
         Assert.Null(RailSlotGeometry.OpponentSlotDp(M, W, 800.0, rosterIndex: 7, liveCount: 14));
+    }
+
+    [Fact]
+    public void Capacity_OffByOneBoundary_AtTwoSlots()
+    {
+        // The exact boundary the current formula's own comment calls out: at height 309, available
+        // is 157 - precisely 2*(SlotHeight+SlotGap) - SlotGap (2*81-5). The retired
+        // available/(SlotHeight+SlotGap) formula charges a trailing gap the top slot never draws and
+        // floors this to 1; the current (available+SlotGap)/(SlotHeight+SlotGap) formula correctly
+        // reports 2. One dp lower, at height 308 (available 156), neither formula is at a boundary
+        // and both agree on 1 - included so the pair pins the boundary at exactly 309, not 308.
+        Assert.Equal(2, RailSlotGeometry.Capacity(M, 309.0));
+        Assert.Equal(1, RailSlotGeometry.Capacity(M, 308.0));
+    }
+
+    [Fact]
+    public void Capacity_OffByOneBoundary_AtFiveSlots()
+    {
+        // available=400 at height 552 is exactly 5*81-5 - the same boundary shape as the two-slot
+        // case above, one slot-height further out.
+        Assert.Equal(5, RailSlotGeometry.Capacity(M, 552.0));
+    }
+
+    [Fact]
+    public void Capacity_OffByOneBoundary_AtEightSlots_StillClampedToMax()
+    {
+        // available=643 at height 795 is exactly 8*81-5, MaxSlots' own boundary - the retired formula
+        // undercounts to 7 here too, not just 8 clamped down from something higher.
+        Assert.Equal(8, RailSlotGeometry.Capacity(M, 795.0));
+    }
+
+    [Fact]
+    public void Capacity_TheTopmostSlotItClaimsFits_AcrossASweepOfHeights()
+    {
+        // The general invariant behind the three boundary tests above: whatever Capacity claims,
+        // SlotTop for the topmost of that many slots must land at or below the top pad - never above
+        // it (an overcount) and, since Capacity is monotonic non-decreasing in height, never leaving
+        // room for one more (an undercount, which the boundary tests above pin directly). Swept
+        // rather than spot-checked so a future change to the constants can't reintroduce an off-by-one
+        // at a boundary nobody thought to spot-check.
+        //
+        // Starts at 228, not 160: below 228 the single slot Capacity's own documented floor-of-1
+        // clamp ("at least one, even in a window too short for it, matching the canvas") reports
+        // does not itself fit above the pad - confirmed by running this sweep from 160 first, which
+        // fails at h=160 (SlotTop -58) all the way up to h=227 (SlotTop 9) for exactly that reason.
+        // That is intended degradation, the same kind Item 1's ShownSlots reasoning documents, not
+        // the under/over-count bug this invariant hunts for; 228 is the exact height at which the
+        // lone slot's top first reaches the pad (SlotTop == Pad == 10) and the invariant becomes
+        // meaningful.
+        for (var h = 228.0; h <= 1200.0; h += 1.0)
+        {
+            var capacity = RailSlotGeometry.Capacity(M, h);
+            var topmostTop = RailSlotGeometry.SlotTop(M, h, capacity - 1);
+            Assert.True(topmostTop >= M.Pad - 1e-9,
+                $"height={h}: Capacity claims {capacity}, but slot {capacity - 1}'s top ({topmostTop}) is above the pad ({M.Pad}).");
+        }
+    }
+
+    [Fact]
+    public void ShownSlots_AtCapacityOne_TheOverflowRowCarriesTheWholeLiveTail()
+    {
+        // Capacity is 1 at both these heights (150: available goes negative and clamps to the
+        // floor of 1; 300: available=148, one slot short of the two-slot boundary). Surrendering
+        // that single slot to the overflow row when the roster outgrows it - ShownSlots dropping to
+        // 0 - is ShownSlots' own documented contract working as intended, not a bug: the overflow
+        // row still carries the whole tail, it just does so with no opponent slot drawn above it.
+        Assert.Equal(1, RailSlotGeometry.Capacity(M, 150.0));
+        Assert.Equal(0, RailSlotGeometry.ShownSlots(M, 150.0, liveCount: 2));
+        Assert.Equal(1, RailSlotGeometry.Capacity(M, 300.0));
+        Assert.Equal(0, RailSlotGeometry.ShownSlots(M, 300.0, liveCount: 4));
     }
 
     [Fact]
@@ -166,9 +238,10 @@ public sealed class RailSlotGeometryTests
         // What the badge size was bought against. Live concurrency in the clog corpus peaks at 5 or
         // fewer in 1268 of 1275 encounters (99.45%; tools/combat/concurrency.py against the whole clog
         // corpus, 2026-09-02 - see tools/combat/README.md's own stored result), so five slots is the
-        // case worth sizing for - and a 76-unit slot is the largest that still fits five at a 560-unit
-        // rail (408 available, 5 x 81 = 405). The one encounter that reached thirteen is the overflow
-        // row's business.
+        // case worth sizing for - and a 76-unit slot comfortably fits five at a 560-unit rail (408
+        // available; N slots cost N*SlotHeight + (N-1)*SlotGap, so five cost 5*76 + 4*5 = 400 - the
+        // true minimum rail height for five is 552, not 560). The one encounter that reached thirteen
+        // is the overflow row's business.
         Assert.Equal(5, RailSlotGeometry.Capacity(M, 560.0));
         Assert.Equal(5, RailSlotGeometry.ShownSlots(M, 560.0, liveCount: 5));
         Assert.Equal(8, RailSlotGeometry.Capacity(M, 800.0));

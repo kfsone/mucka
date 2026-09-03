@@ -112,7 +112,12 @@ public static class RailSlotGeometry
     public static int Capacity(in RailSlotMetrics m, double logicalHeight)
     {
         var available = SlotsBottom(m, logicalHeight) - m.Pad;
-        return Math.Clamp((int)Math.Floor(available / (m.SlotHeight + m.SlotGap)), 1, m.MaxSlots);
+        // N slots cost N*SlotHeight + (N-1)*SlotGap - there is no trailing gap below the topmost
+        // slot, since nothing is drawn above it. Solving that inequality for N gives
+        // (available + SlotGap) / (SlotHeight + SlotGap), not available / (SlotHeight + SlotGap) -
+        // the latter charges a gap the top slot never draws and undercounts by one right at each
+        // slot-height boundary.
+        return Math.Clamp((int)Math.Floor((available + m.SlotGap) / (m.SlotHeight + m.SlotGap)), 1, m.MaxSlots);
     }
 
     /// <summary>
