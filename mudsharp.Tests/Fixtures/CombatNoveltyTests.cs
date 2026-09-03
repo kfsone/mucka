@@ -128,6 +128,11 @@ public sealed class CombatNoveltyTests
     [InlineData(FightOutcome.Withdraw)]
     [InlineData(FightOutcome.EndOther)]
     [InlineData(FightOutcome.Unresolved)]
+    // Interrupted is the client's own force-end (reset/logout/room change/app exit) and the creature
+    // is certainly still alive. Pinned here for completeness rather than because it can happen: the
+    // history persists force-ended fights as Unresolved, so this outcome never reaches an index row.
+    // See FightOutcome.Interrupted.
+    [InlineData(FightOutcome.Interrupted)]
     public void Novelty_OutcomesThatLeaveItStanding_AreUndefeated(FightOutcome outcome)
     {
         var index = new HistoryIndex();
@@ -162,6 +167,7 @@ public sealed class CombatNoveltyTests
             FightOutcome.Kill, FightOutcome.NoMore,
             FightOutcome.Died, FightOutcome.CFled, FightOutcome.CFledFail, FightOutcome.UFled,
             FightOutcome.UFledFail, FightOutcome.Withdraw, FightOutcome.EndOther, FightOutcome.Unresolved,
+            FightOutcome.Interrupted,
         };
         Assert.Equal(Enum.GetValues<FightOutcome>().ToHashSet(), classified);
     }

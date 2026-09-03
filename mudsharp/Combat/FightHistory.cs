@@ -67,10 +67,15 @@ public sealed record FightHistorySummary
     public double? MedianDamagePerHit { get; init; }
 
     /// <summary><b>Deleted, not moved:</b> this record used to carry an <c>EstimatedStaminaPool</c> -
-    /// the median total damage of fights that ended in a kill. It is biased high by 21%, measured
-    /// across 48 instances against an independently published figure, because every sample includes
-    /// the killing blow's overkill. It was also keyed wrong: an NPC group pools "large rat0" (about 100
-    /// stamina) with "rat0" (about 25), so the figure it produced was a median over two different
+    /// the median total damage of fights that ended in a kill. It reads high because every sample
+    /// includes the killing blow's overkill - the one stored measurement of the size is in
+    /// MECHANICS-VERIFICATION.md, where rat group medians "read 31.2 against a published 25", about
+    /// 25% high. (An earlier version of this comment said "biased high by 21%, measured across 48
+    /// instances against an independently published figure"; both the 21% and the 48 are untraceable
+    /// and the "published figure" is the GameFAQs bestiary, which the repo labels hypothesis - see
+    /// StaminaPoolEstimator's remarks.) It was also keyed wrong: an NPC group pools "large rat0"
+    /// (about 100 stamina) with "rat0" (about 25), so the figure it produced was a median over two
+    /// different
     /// creatures. Its replacement is a censored-interval estimator keyed on
     /// <see cref="NpcPoolKey"/> - see <see cref="StaminaPoolEstimator"/>, which needs per-swing
     /// brackets and so cannot live on a fight rollup at all.</summary>

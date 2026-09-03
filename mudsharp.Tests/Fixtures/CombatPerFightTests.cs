@@ -630,4 +630,109 @@ public sealed class CombatPerFightTests
         Assert.Equal(150, snapshot.Fights.Single(f => f.NpcName == "gargoyle0").Value);
         Assert.Equal(300, snapshot.Fights.Single(f => f.NpcName == "gargoyle1").Value);
     }
+
+    // -- the client's own force-end vs MUD2's unnamed fight-end ---------------------
+    //
+    // These two events arrive with a null NpcName and used to arrive with the SAME event kind, which
+    // is the whole bug: the pronoun form ("You can fight it no longer.") must close nothing, so the
+    // force-end - which means the entire encounter is over - was swallowed by the same no-op and a
+    // reset left every fight live and drawn on the rail. See CombatEventKind.EncounterForceEnded.
+
+    /// <summary>The roster as SidePanelViewModel builds it, reduced to the two fields this bug is
+    /// about. Asserting through ParticipantRoster rather than on the outcome alone is the point: the
+    /// symptom the owner saw was rows still being drawn as opponents, and IsLive is derived from the
+    /// outcome, so a fix that resolved the fights but left them live would still pass a bare
+    /// outcome assertion.</summary>
+    private static RosterPlan RosterOf(CombatEncounterSnapshot snapshot)
+        => ParticipantRoster.Build(
+            [.. snapshot.Fights.Select(f => new ParticipantFact(f.NpcName, f.IsResolved, f.Outcome))]);
+
+    [Fact]
+    public void ForceEnd_ResolvesEveryOpenFightAndClearsTheRoster()
+    {
+        var aggregator = new CombatStatsAggregator();
+        aggregator.BeginEncounter(Start);
+
+        aggregator.Observe(Event(CombatEventKind.FightStart, "rat0", weapon: "dagger0"));
+        aggregator.Observe(Event(CombatEventKind.FightStart, "rat1", atSecond: 1));
+        aggregator.Observe(Event(CombatEventKind.FightStart, "rat2", atSecond: 2));
+
+        aggregator.Observe(Event(CombatEventKind.EncounterForceEnded, atSecond: 3));
+
+        var snapshot = aggregator.Snapshot(Start.AddSeconds(4));
+        // Interrupted, not Unresolved: the fights were cut short, not lost track of, and Unresolved
+        // renders as "still swinging". Not a win or a loss either - see FightOutcome.Interrupted.
+        Assert.All(snapshot.Fights, f => Assert.Equal(FightOutcome.Interrupted, f.Outcome));
+        Assert.All(snapshot.Fights, f => Assert.Equal(Start.AddSeconds(3), f.EndedUtc));
+        Assert.Empty(snapshot.ActiveNpcs);
+
+        var roster = RosterOf(snapshot);
+        Assert.Equal(0, roster.LiveCount);
+        Assert.Equal(3, roster.ResolvedCount);
+        Assert.All(roster.Rows, r => Assert.False(r.IsLive));
+        Assert.DoesNotContain(roster.Rows, r => r.IsCurrentTarget);
+    }
+
+    [Fact]
+    public void ForceEnd_LeavesAnAlreadyResolvedFightAlone()
+    {
+        // First resolution wins. A reset landing after a kill must not downgrade the kill to
+        // Interrupted - that would cost the kill count and the stamina-pool estimate that reads it.
+        var aggregator = new CombatStatsAggregator();
+        aggregator.BeginEncounter(Start);
+
+        aggregator.Observe(Event(CombatEventKind.FightStart, "goat0", weapon: "axe0"));
+        aggregator.Observe(Event(CombatEventKind.FightStart, "ram1", atSecond: 1));
+        aggregator.Observe(Event(CombatEventKind.Kill, "goat0", atSecond: 2));
+        aggregator.Observe(Event(CombatEventKind.EncounterForceEnded, atSecond: 3));
+
+        var snapshot = aggregator.Snapshot(Start.AddSeconds(4));
+        Assert.Equal(FightOutcome.Kill, snapshot.Fights[0].Outcome);
+        Assert.Equal(FightOutcome.Interrupted, snapshot.Fights[1].Outcome);
+    }
+
+    [Fact]
+    public void UnnamedFightEndOther_TheGamesPronounForm_StillClosesNothing()
+    {
+        // "You can fight it no longer." names nobody. It is a trailing acknowledgment of an end
+        // already stated earlier in the same frame, so acting on it would close a pack's other
+        // still-swinging participants. This is the behaviour the force-end fix had to preserve, and
+        // the reason the two cannot share an event kind.
+        var aggregator = new CombatStatsAggregator();
+        aggregator.BeginEncounter(Start);
+
+        aggregator.Observe(Event(CombatEventKind.FightStart, "goat0", weapon: "axe0"));
+        aggregator.Observe(Event(CombatEventKind.FightStart, "ram1", atSecond: 1));
+        aggregator.Observe(Event(CombatEventKind.FightEndOther, npc: null, atSecond: 2));
+
+        var snapshot = aggregator.Snapshot(Start.AddSeconds(3));
+        Assert.All(snapshot.Fights, f => Assert.Equal(FightOutcome.Unresolved, f.Outcome));
+        Assert.Equal(["goat0", "ram1"], snapshot.ActiveNpcs);
+
+        var roster = RosterOf(snapshot);
+        Assert.Equal(2, roster.LiveCount);
+        Assert.All(roster.Rows, r => Assert.True(r.IsLive));
+    }
+
+    [Fact]
+    public void PackOfThree_OneNamedFightEndOther_LeavesTheOtherTwoLive()
+    {
+        var aggregator = new CombatStatsAggregator();
+        aggregator.BeginEncounter(Start);
+
+        aggregator.Observe(Event(CombatEventKind.FightStart, "rat0", weapon: "dagger0"));
+        aggregator.Observe(Event(CombatEventKind.FightStart, "rat1", atSecond: 1));
+        aggregator.Observe(Event(CombatEventKind.FightStart, "rat2", atSecond: 2));
+        aggregator.Observe(Event(CombatEventKind.FightEndOther, "rat1", atSecond: 3));
+
+        var snapshot = aggregator.Snapshot(Start.AddSeconds(4));
+        Assert.Equal(FightOutcome.Unresolved, snapshot.Fights[0].Outcome);
+        Assert.Equal(FightOutcome.EndOther, snapshot.Fights[1].Outcome);
+        Assert.Equal(FightOutcome.Unresolved, snapshot.Fights[2].Outcome);
+        Assert.Equal(["rat0", "rat2"], snapshot.ActiveNpcs);
+
+        var roster = RosterOf(snapshot);
+        Assert.Equal(2, roster.LiveCount);
+        Assert.Equal(1, roster.ResolvedCount);
+    }
 }

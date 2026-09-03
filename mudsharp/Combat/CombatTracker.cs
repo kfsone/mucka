@@ -826,11 +826,20 @@ public sealed class CombatTracker
             ForceEndLocked(timestampUtc, "room changed");
     }
 
+    /// <summary>
+    /// <see cref="CombatEventKind.EncounterForceEnded"/>, NOT <see cref="CombatEventKind.FightEndOther"/>:
+    /// this event means "every open fight is over", where the unnamed FightEndOther it used to be
+    /// emitted as means "some fight already stated as ended is being acknowledged, and I will not say
+    /// which". Consumers could not tell those apart, so the aggregator - correctly refusing to close a
+    /// pack's other participants on an unnamed line - ignored this too, and a reset left every fight
+    /// live on the rail. Emitted before the state teardown below so a consumer that acts on
+    /// InCombatChanged(false) sees the fights already resolved.
+    /// </summary>
     private void ForceEndLocked(DateTime timestampUtc, string reason)
     {
         if (!InCombat)
             return;
-        Emit(timestampUtc, CombatEventKind.FightEndOther, null, null, null, null, null, $"(forced end: {reason})");
+        Emit(timestampUtc, CombatEventKind.EncounterForceEnded, null, null, null, null, null, $"(forced end: {reason})");
         _active.Clear();
         CloseEncounter();
     }

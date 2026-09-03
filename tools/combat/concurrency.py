@@ -26,7 +26,11 @@ import sys
 CLOGS = os.path.expanduser("~/.mucka/clogs")
 
 PER_CREATURE_END = {"Kill", "NpcFled", "NpcFleeFailed"}
-ALL_END = {"YouFled", "YouFleeFailed", "KilledByNpc", "Withdrawn"}
+# EncounterForceEnded is the client's own force-end (reset/logout/room change/app exit) and means
+# every open fight at once. Clogs written before 2026-09-03 carry it as a FightEndOther with no npc,
+# which falls through the npc-is-None guard below and clears nothing - so a pre-2026-09-03 clog can
+# still overstate the live roster after a reset.
+ALL_END = {"YouFled", "YouFleeFailed", "KilledByNpc", "Withdrawn", "EncounterForceEnded"}
 ENGAGES = {"FightStart", "Hit", "Miss", "HitByNpc", "MissByNpc", "NpcHealth", "NpcWeaponEquip"}
 
 

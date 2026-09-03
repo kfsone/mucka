@@ -56,8 +56,10 @@ public sealed class FightHistoryTests
     public void Summarize_CountsKillsWithoutInferringAPoolFromThem()
     {
         // This record used to carry an EstimatedStaminaPool: the median total damage of fights that
-        // ended in a kill. It is biased high by 21% because every sample includes the killing blow's
-        // overkill, and it was keyed on the NPC GROUP, which pools "large rat0" (about 100 stamina)
+        // ended in a kill. It reads high because every sample includes the killing blow's overkill
+        // (stored measurement: rat medians 31.2 against a published 25 - the "21%" this comment used
+        // to quote is untraced, see StaminaPoolEstimator), and it was keyed on the NPC GROUP, which
+        // pools "large rat0" (about 100 stamina)
         // with "rat0" (about 25). It is gone; StaminaPoolEstimator replaces it, keyed on NpcPoolKey and
         // fed per-swing brackets a rollup like this one has already summed away. What remains here is
         // the outcome tally, which was always sound.

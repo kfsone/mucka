@@ -11,9 +11,13 @@ namespace MudSharp.Combat;
 /// <param name="HealthRung">How hurt it last looked, 1 (about to die) to 7 (unhurt), or null if the
 /// game has never said. See <see cref="NpcHealthRungs"/>.</param>
 /// <param name="HealthPhrase">The game's own wording for that reading, for echoing verbatim.</param>
-/// <param name="HealthAgeSeconds">How old the reading is. MUD2 only reports health on a landed blow
-/// and the player lands 57% of swings, so a reading with no age attached cannot be told apart from a
-/// current one - and the panel is required never to draw an unknown as a measurement.</param>
+/// <param name="HealthAgeSeconds">How old the reading is. MUD2 only reports health on a landed blow,
+/// and the player misses roughly a third of swings (measured 0.6275 hit rate, 5,118 of 8,156 player
+/// swings in the ledger, 2026-08-14 to 2026-09-03; 0.41-0.74 by species), so a reading with no age
+/// attached cannot be told apart from a current one - and the panel is required never to draw an
+/// unknown as a measurement. (Previously cited as "57%", which is not a measurement at all: it is
+/// <c>100/175</c> from the published guide's hit formula against a rat. See
+/// DamagePrediction.FluentHitRate.)</param>
 /// <param name="DamageTakenFrom">Damage this participant has dealt the player this encounter. Orders
 /// the overflow row: with more opponents than slots, "who is actually hurting me" is the only question
 /// a names-only row can usefully answer.</param>
@@ -177,6 +181,52 @@ public readonly record struct RosterPlan(
     public int TotalCount => LiveCount + ResolvedCount;
 
     public bool HasHidden => HiddenCount > 0;
+
+    /// <summary>
+    /// Element-wise on <see cref="Rows"/>, replacing the synthesized member-wise equality.
+    ///
+    /// <para><b>This is load-bearing for Invariant #1 and was silently absent.</b> The rail's render
+    /// surface skips a repaint when the frame it is handed equals the one it already drew
+    /// (<c>CombatRailView.Live</c>'s setter). <see cref="CombatLiveView"/> is a record, so that
+    /// comparison recurses into this struct - but the synthesized <c>Equals</c> compares
+    /// <see cref="Rows"/> with <c>EqualityComparer&lt;IReadOnlyList&lt;RosterRow&gt;&gt;.Default</c>,
+    /// which for a list or array is REFERENCE equality. <see cref="ParticipantRoster.Build"/>
+    /// allocates a fresh list on every refresh, so the two references never matched and the
+    /// comparison decided "different" on every single 1 Hz tick - i.e. it was a no-op on the only
+    /// branch that is reached while a fight is open, which is the branch that matters. The
+    /// commit that added the comparison to the setter fixed nothing here; the fix has to be at this
+    /// level, because this is where the reference lives.</para>
+    ///
+    /// <para><see cref="RosterRow"/> is a readonly record struct of primitives and other readonly
+    /// record structs, so its own equality is already by value and the loop below is a real content
+    /// comparison. Bounded by <see cref="ParticipantRoster.MaxRows"/> (8), so this is at most eight
+    /// struct compares - cheaper by orders of magnitude than the repaint it avoids.</para>
+    /// </summary>
+    public bool Equals(RosterPlan other)
+    {
+        if (LiveCount != other.LiveCount || ResolvedCount != other.ResolvedCount
+            || HiddenCount != other.HiddenCount || HiddenLiveCount != other.HiddenLiveCount)
+            return false;
+        var a = Rows;
+        var b = other.Rows;
+        if (ReferenceEquals(a, b))
+            return true;
+        if (a is null || b is null || a.Count != b.Count)
+            return false;
+        for (var i = 0; i < a.Count; i++)
+        {
+            if (!a[i].Equals(b[i]))
+                return false;
+        }
+        return true;
+    }
+
+    /// <summary>Consistent with <see cref="Equals(RosterPlan)"/>: the row COUNT only, deliberately.
+    /// Hashing eight rows' worth of content on a type that is compared far more often than it is
+    /// keyed would cost more than it saves, and a coarse-but-correct hash is legal - equal plans
+    /// still hash equal.</summary>
+    public override int GetHashCode()
+        => HashCode.Combine(LiveCount, ResolvedCount, HiddenCount, HiddenLiveCount, Rows?.Count ?? 0);
 }
 
 /// <summary>

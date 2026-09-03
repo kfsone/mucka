@@ -393,6 +393,13 @@ public sealed class CombatStatsAggregator
             // had none it stays Unresolved - which is the honest reading, since this line states that
             // a fight ended and declines to say why. The pronoun forms name nobody and stay a no-op:
             // acting on them would clear OTHER still-active participants in a pack.
+            //
+            // That no-op is right for MUD2's line and wrong for the client's own force-end, which
+            // also arrives unnamed - and until 2026-09-03 both were the same event kind, so this
+            // branch swallowed the force-end too and a reset left every fight in the encounter live
+            // (owner: "a reset doesn't cancel open fights"). The force-end is now its own kind and is
+            // handled below; nothing here keys off the "(forced end: ...)" raw text, which would put
+            // the distinction back at the mercy of a reason string.
             case CombatEventKind.FightEndOther:
                 if (combatEvent.NpcName is not null)
                 {
@@ -409,6 +416,29 @@ public sealed class CombatStatsAggregator
                     ResolveFight(combatEvent, FightOutcome.EndOther);
                     RemoveParticipant(combatEvent.NpcName);
                 }
+                break;
+
+            // The client's own force-end: the encounter is over because the world it was in is gone
+            // (reset, logout/relog, room change, app exit). Unlike every neighbouring case this one
+            // describes no line and names no creature - it means ALL of them - so it resolves every
+            // fight still open, exactly as the KilledByNpc and YouFled cases above do for their own
+            // whole-encounter ends.
+            //
+            // Interrupted, not Unresolved: IsResolved (and through it the roster's IsLive) is derived
+            // from the outcome, so leaving these Unresolved is indistinguishable from "still
+            // swinging" - which is precisely the bug. Not EndOther either; that means MUD2 closed the
+            // fight without a reason and a run of them is a signal to hunt an unmatched terminator.
+            // See FightOutcome.Interrupted for the full argument, including why the HISTORY still
+            // records these as Unresolved.
+            //
+            // The roster is cleared alongside, as the flee cases do: after this, nothing in this
+            // encounter is an opponent.
+            case CombatEventKind.EncounterForceEnded:
+                foreach (var fight in _fightOrder)
+                    fight.Resolve(FightOutcome.Interrupted, combatEvent.TimestampUtc);
+                _activeNpcSet.Clear();
+                _activeNpcOrder.Clear();
+                _npcWeapons.Clear();
                 break;
 
             // Informational only, and in the same frame as the death that follows it, so there is

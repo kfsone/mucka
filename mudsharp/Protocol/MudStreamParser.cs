@@ -124,6 +124,13 @@ public sealed class MudStreamParser
     /// thread.</summary>
     public event Action? AutoResetInitiated;
 
+    /// <summary>The world reset has LANDED (C1 code C06 C06, "Something magical is happening." —
+    /// Bartle 06 06). Distinct from <see cref="AutoResetInitiated"/>, which is the warning two
+    /// minutes earlier. Fires on the Feed thread. See Mud2C1Decoder's C06 case for the capture
+    /// evidence, and MudSession.OnWorldResetLanded for why the consumer corroborates it against the
+    /// reset countdown instead of acting on it unconditionally.</summary>
+    public event Action? WorldResetLanded;
+
     /// <summary>
     /// A player name bracketed by a C05 presence code (here/arriving/departing/
     /// visible/invisible/fleeing) was seen outside a FEW response. The named player
@@ -1078,6 +1085,7 @@ public sealed class MudStreamParser
     internal void EmitFewPlayer(string name, AnsiColor color) => FewPlayerReady?.Invoke(name, color);
     internal void EmitProbeHint(StaleStats kinds) => ProbeHintReceived?.Invoke(kinds);
     internal void EmitAutoResetInitiated() => AutoResetInitiated?.Invoke();
+    internal void EmitWorldResetLanded() => WorldResetLanded?.Invoke();
     internal void EmitPresenceName(string name) => PresenceNameSeen?.Invoke(name);
     internal void EmitStatusEffect(StatusEffectChange change) => StatusEffectChanged?.Invoke(change);
     internal void EmitRoomEntered() => RoomEntered?.Invoke();    internal void SetAccountInfo(string? accountId, int privs)

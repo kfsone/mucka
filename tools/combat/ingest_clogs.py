@@ -310,6 +310,11 @@ def ingest_one(con: sqlite3.Connection, clog_path: Path, force: bool) -> dict[st
         "NpcFled": ("08.11", "fight-end-flee"),
         "YouFled": ("08.11", "fight-end-flee"),
         "FightEndOther": ("08.12", "fight-end-other"),
+        # Not a wire line: the client force-ending the encounter (world reset, logout, room change,
+        # app exit). Emitted as an unnamed FightEndOther until 2026-09-03, so clogs older than that
+        # carry these as 08.12 rows whose `raw` is "(forced end: <reason>)" - the reason is in `raw`
+        # on both sides of the change.
+        "EncounterForceEnded": ("plain.force-end", "fight-end-forced"),
         "WeaponEquip": ("plain.weapon-equip", "weapon-change"),
         "WeaponBroke": ("plain.weapon-broke", "weapon-broke"),
         "DroppedGuard": ("plain.guard-drop", "dropped-guard"),
@@ -524,6 +529,12 @@ def ingest_one(con: sqlite3.Connection, clog_path: Path, force: bool) -> dict[st
             if all(open_fight.outcome is not None for open_fight in fights.values()):
                 end_reason = "other"
                 end_detail = row.get("raw") or kind
+        elif event_type == "fight-end-forced":
+            # Unconditional, unlike the branch above: the client says the encounter is over, so any
+            # fight still open at this point ended here whether or not it named itself. `raw` carries
+            # which backstop fired.
+            end_reason = "forced"
+            end_detail = row.get("raw") or kind
         elif event_type == "weapon-change":
             current_weapon = weapon or current_weapon
             for fight in fights.values():

@@ -21,6 +21,11 @@ namespace MudSharp.Combat;
 /// <para><see cref="NoMore"/> is the eighth, added 2026-08-26 after a wyvern died of poison and the
 /// client, having no line for it, stayed "in combat" for the rest of the session. Take "exactly
 /// seven" as "the seven observed by then", not as a closed set - see tools/combat/FIGHT-ENDS.md.</para>
+///
+/// <para><see cref="Interrupted"/> is not one of the game's ends at all - it is the client saying the
+/// world the fight was in has gone (reset, logout, room change, app exit). Kept in this enum because
+/// the display has to give every fight it stops drawing SOME outcome, and giving it one of the game's
+/// would be a claim about a frame that was never printed.</para>
 /// </summary>
 public enum FightOutcome
 {
@@ -143,6 +148,40 @@ public enum FightOutcome
     /// means a terminator upstream is going unmatched - see tools/combat/FIGHT-ENDS.md.</para>
     /// </summary>
     EndOther,
+
+    /// <summary>
+    /// All fights. <b>Not an ending MUD2 stated - the client ended it.</b> The world the fight was
+    /// happening in stopped existing or stopped being reachable: a world reset, a logout/relog, the
+    /// player standing in a different room, or the app exiting. Comes from
+    /// <see cref="CombatEventKind.EncounterForceEnded"/>, which names no creature because it means
+    /// all of them.
+    ///
+    /// <para><b>Why not <see cref="Unresolved"/>, which is what these fights honestly are.</b>
+    /// <see cref="FightAccumulator.IsResolved"/> is derived from this enum, and the roster's
+    /// <c>IsLive</c> from that, so leaving a force-ended fight Unresolved is the same statement as
+    /// "still swinging" - which is the bug: after a reset the rail went on drawing the whole pack as
+    /// live opponents in a world that had already been rebuilt. Something has to say the fight is
+    /// over.</para>
+    ///
+    /// <para><b>Why not <see cref="EndOther"/>, the nearest existing fit.</b> EndOther is
+    /// specifically "MUD2 closed this fight and gave no reason", and its value is diagnostic - a run
+    /// of them means a terminator upstream is going unmatched and should be hunted down. A reset is
+    /// not an unmatched terminator, and filing resets there would fill that bucket with false
+    /// alarms.</para>
+    ///
+    /// <para><b>Not won, not lost, and it must not read as either.</b> The player was interrupted;
+    /// nothing here says who was ahead. So it is not <see cref="Kill"/>, and it is not any of the
+    /// flee outcomes, whose whole point is that a flee was attempted and cost something.</para>
+    ///
+    /// <para><b>Display-side only, deliberately.</b> The live aggregator resolves to this so the
+    /// panel stops drawing the fight; FightHistoryRecorder still persists the same fights as
+    /// <see cref="Unresolved"/>, because for the RECORD "we never saw this fight end" is exactly
+    /// true and the history's Unresolved bucket is what the corpus is searched on. The two are
+    /// separate <see cref="FightAccumulator"/> instances fed by the same events and answering
+    /// different questions - see FightHistoryRecorder's EncounterForceEnded case. Consequently this
+    /// never appears in combat_fights and needs no schema.sql entry.</para>
+    /// </summary>
+    Interrupted,
 }
 
 /// <summary>
@@ -222,10 +261,15 @@ public sealed class FightAccumulator
     /// player's own scroll rather than paraphrase it. Null until first reported.</summary>
     public string? HealthPhrase { get; private set; }
 
-    /// <summary>When the health reading landed. The ladder only updates on a landed blow and the
-    /// player's hit rate is 0.57, so age is what separates "this is current" from "this is what it
-    /// looked like four swings ago" - and an unknown reading must never be drawn as a measured
-    /// one.</summary>
+    /// <summary>When the health reading landed. The ladder only updates on a landed blow, and the
+    /// player misses often enough that age is what separates "this is current" from "this is what it
+    /// looked like four swings ago" - an unknown reading must never be drawn as a measured one.
+    /// <para>This used to say "the player's hit rate is 0.57". Corrected 2026-09-03: 0.57 is not a
+    /// measured player hit rate, it is <c>100/175</c> - the published guide's <c>Dy/(Dy+Do)</c> for a
+    /// player at dexterity 100 against the bestiary's rat. The measured rate over the swing ledger is
+    /// 0.6275 (5,118 of 8,156 player swings, 2026-08-14 to 2026-09-03), and it varies from 0.41 to
+    /// 0.74 by species. No exact figure is quoted here now because the argument does not need one:
+    /// roughly a third of swings miss whatever the opponent, so gaps are ordinary.</para></summary>
     public DateTime? HealthReadUtc { get; private set; }
 
     public int YouHits { get; private set; }

@@ -530,6 +530,30 @@ public class CombatTrackerTests
     }
 
     /// <summary>
+    /// Every force-end reason emits <see cref="CombatEventKind.EncounterForceEnded"/>, never
+    /// <see cref="CombatEventKind.FightEndOther"/>. It used to emit the latter with a null name, which
+    /// is byte-identical to MUD2's own pronoun form ("You can fight it no longer.") - and that form has
+    /// to stay a no-op at every consumer, so the client's own "the whole encounter is over" was ignored
+    /// with it and a reset left the rail drawing the pack (owner: "a reset doesn't cancel open
+    /// fights"). The reason string is carried in the raw text for the clog and nothing branches on it.
+    /// </summary>
+    [Theory]
+    [InlineData("world reset")]       // MudSession.OnWorldResetLanded
+    [InlineData("reset/disconnect")]  // the default: logout (OnGameModeExited) and app exit (Dispose)
+    public void ForceEnd_EmitsItsOwnEventKindWithTheReasonInTheRawText(string reason)
+    {
+        var (t, _, events) = NewTracker();
+        t.Observe(Line("You attack the rat0, using the dagger0 as a weapon."), DateTime.UtcNow);
+
+        t.ForceEnd(DateTime.UtcNow, reason);
+
+        var end = events.Last();
+        Assert.Equal(CombatEventKind.EncounterForceEnded, end.Kind);
+        Assert.Null(end.NpcName);
+        Assert.Equal($"(forced end: {reason})", end.RawText);
+    }
+
+    /// <summary>
     /// The wyvern frame as the OWNER PASTED IT (2026-08-26) — his own report of an earlier fight at
     /// 5,201 points, with a pitchfork that broke; no capture holds it. The separate captured
     /// occurrence, which used a dagger, is replayed from its real bytes in
@@ -720,6 +744,10 @@ public class CombatTrackerTests
         Assert.Equal([true, false], inCombat);
         // Distinct from the reset/disconnect wording, so a clog says which backstop fired.
         Assert.Equal("(forced end: room changed)", events.Last().RawText);
+        // The fourth force-end path, and the one that fires in ordinary play rather than at a session
+        // boundary - so it is the most likely to expose a consumer still expecting a FightEndOther
+        // here. See ForceEnd_EmitsItsOwnEventKindWithTheReasonInTheRawText.
+        Assert.Equal(CombatEventKind.EncounterForceEnded, events.Last().Kind);
     }
 
     /// <summary>

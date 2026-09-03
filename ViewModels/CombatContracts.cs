@@ -218,13 +218,21 @@ public sealed record CombatHistoryContext(
 /// implementation drew a text formatter's pre-composed lines verbatim onto a canvas, so the signal
 /// that mattered most was never actually composed for the canvas at all.</para>
 ///
-/// <para>Being a record of value-typed members, equality is structural rather than reference -
-/// which is what lets <see cref="Mucka.Rendering.CombatRailView.Live"/> skip invalidating the
-/// canvas when a freshly-allocated frame is not actually different from the last one (Invariant #1
-/// - the canvas is invalidated only on genuine state change, never per frame). This record is
-/// reallocated on every refresh, including the 1 Hz anti-idle tick, so that setter's own equality
-/// check has to do the real work here; see its remarks for why a plain <c>ReferenceEquals</c> used
-/// to defeat this and repaint every second regardless.</para>
+/// <para>Equality is structural, which is what lets <see cref="Mucka.Rendering.CombatRailView.Live"/>
+/// skip invalidating the canvas when a freshly-allocated frame is not actually different from the
+/// last one (Invariant #1 - the canvas is invalidated only on genuine state change, never per
+/// frame). This record is reallocated on every refresh, including the 1 Hz anti-idle tick, so that
+/// setter's own equality check has to do the real work here.</para>
+///
+/// <para><b>That only holds because every member compares by value, and the synthesized equality
+/// does not guarantee it.</b> A reference-typed member gets reference equality unless its own type
+/// overrides <c>Equals</c>. Two members are of that shape: <c>Roster</c> - whose <c>Rows</c> list is
+/// reallocated on every refresh, and which therefore had to grow a hand-written element-wise
+/// <c>Equals</c> before this comparison did anything at all on the in-combat branch (see
+/// <c>RosterPlan.Equals</c>) - and <c>DeadStripHistory</c>, which is safe only because
+/// <c>SidePanelViewModel</c> publishes a CACHED instance and reallocates it just when the archive
+/// grows. Any new collection-typed member here needs one of those two properties, deliberately
+/// chosen; the compiler will not warn you and the symptom is a silent 1 Hz repaint.</para>
 /// </summary>
 public sealed record CombatLiveView(
     bool InCombat,

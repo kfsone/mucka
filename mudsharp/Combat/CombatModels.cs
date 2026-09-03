@@ -90,8 +90,33 @@ public enum CombatEventKind
     /// <para>So <see cref="CombatEvent.NpcName"/> is set when the line named a creature, and null for
     /// the pronoun forms. Named, it can safely close that one fight; unnamed it stays informational,
     /// because a line that cannot say who it means must never close a fight in a pack.</para>
+    ///
+    /// <para>Never used for the client's OWN force-end - that is
+    /// <see cref="EncounterForceEnded"/>, and the two were indistinguishable until 2026-09-03; see
+    /// there for what that cost.</para>
     /// </summary>
     FightEndOther,
+    /// <summary>
+    /// <b>Not a line.</b> The client itself declaring the whole encounter over, because the world it
+    /// was happening in stopped existing: a world reset, a logout/relog, the player standing in a
+    /// different room, or the app exiting. <see cref="CombatEvent.RawText"/> carries
+    /// <c>(forced end: &lt;reason&gt;)</c> so a clog says which backstop fired. Emitted only by
+    /// <c>CombatTracker.ForceEnd</c>/<c>NoteRoomChanged</c>, and always with a null
+    /// <see cref="CombatEvent.NpcName"/> - it means EVERY open fight, never one of them.
+    ///
+    /// <para><b>Why it is its own kind.</b> It used to be emitted as <see cref="FightEndOther"/> with
+    /// a null name, which made it byte-identical at every consumer to MUD2's pronoun form ("You can
+    /// fight it no longer."). That form must stay a no-op - it names nobody and acting on it would
+    /// close a pack's other still-swinging participants - so the aggregator ignored the force-end
+    /// too, and every fight in a reset encounter stayed live and went on being drawn as an opponent
+    /// after the world had been rebuilt (owner: "a reset doesn't cancel open fights"). Nothing but
+    /// the raw-text string separated them, and keying behaviour off a reason string that any caller
+    /// can change is not a distinction. This is.</para>
+    ///
+    /// <para>Every other kind in this enum classifies an observed line, so a consumer that treats
+    /// kinds as wire evidence must exclude this one.</para>
+    /// </summary>
+    EncounterForceEnded,
     /// <summary>
     /// A weapon is now the player's active weapon. Two wordings, both landing here:
     /// "You are now using the X to fight!" (a change) and "You're using the X anyway..." (MUD2

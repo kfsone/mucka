@@ -235,12 +235,30 @@ public sealed class FightHistoryRecorder : IDisposable
 
                 case CombatEventKind.FightEndOther:
                     // Only the forms that NAME their creature reach a fight here - FightForLocked
-                    // returns null for the pronoun forms and for the synthetic force-end events, whose
-                    // NpcName is null, so those still persist as Unresolved. That is the intended
-                    // split: "the game closed it without a reason" (EndOther) must not be filed
-                    // alongside "we never saw this fight end" (Unresolved), which is the bucket to
-                    // search when hunting the next unmatched wording. See FightOutcome.EndOther.
+                    // returns null for the pronoun forms, whose NpcName is null, so those still
+                    // persist as Unresolved. That is the intended split: "the game closed it without
+                    // a reason" (EndOther) must not be filed alongside "we never saw this fight end"
+                    // (Unresolved), which is the bucket to search when hunting the next unmatched
+                    // wording. See FightOutcome.EndOther.
                     FightForLocked(combatEvent)?.Resolve(FightOutcome.EndOther, combatEvent.TimestampUtc);
+                    break;
+
+                case CombatEventKind.EncounterForceEnded:
+                    // Deliberately nothing. The client force-ended the encounter (reset, logout, room
+                    // change, app exit) and these fights are written as Unresolved, because for the
+                    // RECORD that is exactly true: no terminator for them was ever observed, and
+                    // Unresolved is the bucket this corpus is searched on when hunting a wording the
+                    // parser is missing. The reason IS recoverable - the encounter's clog carries the
+                    // EncounterForceEnded event with its "(forced end: <reason>)" raw text.
+                    //
+                    // The LIVE side diverges here on purpose: CombatStatsAggregator resolves the same
+                    // fights to FightOutcome.Interrupted, because its outcome drives whether the rail
+                    // keeps drawing a creature as an opponent, and "we never saw it end" renders as
+                    // "still swinging". Two accumulators, two questions. See FightOutcome.Interrupted.
+                    //
+                    // This case exists to say that rather than to do it: falling through to the
+                    // default was the same no-op, and was how the force-end went unnoticed for as long
+                    // as it did.
                     break;
 
                 case CombatEventKind.Withdrawn:

@@ -24,7 +24,9 @@ CLOGS = os.path.expanduser("~/.mucka/clogs")
 TICK_MS = 2000
 
 PER_CREATURE_END = {"Kill", "NpcFled", "NpcFleeFailed"}
-ALL_END = {"YouFled", "YouFleeFailed", "KilledByNpc", "Withdrawn"}
+# EncounterForceEnded: the client's own force-end (reset/logout/room change/app exit), which means
+# every open fight at once - see concurrency.py for the pre-2026-09-03 clog caveat.
+ALL_END = {"YouFled", "YouFleeFailed", "KilledByNpc", "Withdrawn", "EncounterForceEnded"}
 ENGAGES = {"FightStart", "Hit", "Miss", "HitByNpc", "MissByNpc", "NpcHealth", "NpcWeaponEquip"}
 
 

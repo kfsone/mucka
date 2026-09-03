@@ -855,6 +855,18 @@ internal sealed class Mud2C1Decoder
                 // The reset is now precisely timed from this instant — signal the reset projection.
                 if (count == 1 && b0 == 0x9F)
                     _parser.EmitAutoResetInitiated();
+                // C06 C06 = "Something magical is happening." (Bartle: 06 06). On the wire this is
+                // the reset LANDING, not another warning: in both timed captures it arrives at
+                // warning + 119.995 s / + 119.997 s — i.e. exactly the 120 s the C06 C04 message
+                // promised — as the last in-world line, immediately followed by "(Persona saved on
+                // N)." and then, ~200 ms later, the "Option (H for help): " shell prompt. Two
+                // observations; there is no third and no counter-example in the corpus, and Bartle's
+                // own wording for the code is generic, so the consumer corroborates it against the
+                // reset countdown rather than trusting it alone (see MudSession.OnWorldResetLanded).
+                // Clio's own special-casing of this one C06 variant — the only one it does NOT
+                // txfes — agrees that there is nothing left to ask the server about here.
+                if (count == 1 && b0 == 0xA1)
+                    _parser.EmitWorldResetLanded();
                 Sound(6);
                 return ParserState.Normal;
 
