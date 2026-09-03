@@ -28,6 +28,34 @@ namespace MudSharp.Combat;
 /// <param name="EverDamage">What this creature's kind has hit the player for across all recorded
 /// history, EXCLUDING the current encounter - see SwingDamageIndex on why a live fight can never enter
 /// its own baseline. Empty until enough blows are on file to be worth stating.</param>
+/// <param name="Vitality">How much of this creature is left, as a FRACTION of its own full, in a
+/// band - what its seal fills to. Null when MUD2 has said nothing that supports one, which the seal
+/// draws as a full unknown ring and never as an empty one. The absolute stamina estimate stays under
+/// the hood: it narrows this band and is never itself shown. See <see cref="NpcVitality"/>.</param>
+/// <param name="NextBlow">Where the player's next landed blow is predicted to put this creature's
+/// boundary, as an interval on its own ladder. Null when nothing supports a prediction. See
+/// <see cref="DamagePrediction"/>.</param>
+/// <param name="BlowAfter">And the blow after that.</param>
+/// <param name="YourTempo">The player's swings against THIS creature this fight. Drives the dash
+/// density of its slot frame and of its prediction bands - the owner's "how soon" cue.</param>
+/// <param name="Reach">How far this creature has been SEEN to reach with one blow. A floor that may
+/// only rise, never a cap - see <see cref="ReachMark"/>. Default is "no evidence", which must never be
+/// drawn as "harmless".</param>
+/// <param name="StaminaRead">The latest <c>diagnose</c> probe against this creature, exactly as MUD2
+/// printed it, or null if none has been taken. Surfaced verbatim and kept for the rest of the fight: it
+/// is the game's own words and the only direct measurement it offers, so it falls under the same
+/// never-blank rule as the wound phrase.</param>
+/// <param name="Novelty">Whether this creature's KIND has ever been fought, and ever killed - see
+/// <see cref="NoveltyMark"/>. Keyed on the pool key, so it is a statement about "large rats" and not
+/// about this one numbered instance.</param>
+/// <param name="WeaponNovelty">The same question narrowed to the weapon currently in hand. Carried
+/// per participant because the weapon's own mark is a rollup over everything engaged, and a rollup
+/// needs each contribution separately.</param>
+/// <param name="Value">The points a `value &lt;name&gt;` probe reported this creature is worth
+/// killing (operator, 2026-09-02), or null if it has never been asked/answered. Deliberately
+/// nullable rather than defaulting to zero: 0 is itself a legal answer (the ox), so the two must
+/// stay distinguishable all the way to the row - an absent probe must never render as a measured
+/// zero.</param>
 public readonly record struct ParticipantFact(
     string Name,
     bool IsResolved,
@@ -38,7 +66,16 @@ public readonly record struct ParticipantFact(
     double DamageTakenFrom = 0,
     string? NpcWeapon = null,
     DamageProfile FightDamage = default,
-    DamageProfile EverDamage = default);
+    DamageProfile EverDamage = default,
+    VitalityBand? Vitality = null,
+    DamageBand? NextBlow = null,
+    DamageBand? BlowAfter = null,
+    SwingTempo YourTempo = default,
+    ReachMark Reach = default,
+    NoveltyMark Novelty = NoveltyMark.None,
+    NoveltyMark WeaponNovelty = NoveltyMark.None,
+    NpcStaminaReading? StaminaRead = null,
+    int? Value = null);
 
 /// <summary>
 /// One row of the opposition list as actually drawn. <see cref="IsCurrentTarget"/> marks the ONE live
@@ -60,29 +97,60 @@ public readonly record struct RosterRow(
     // column, this fight above, all recorded history below. See ParticipantFact for what each means
     // and why only one of them has a sample floor.
     DamageProfile FightDamage = default,
-    DamageProfile EverDamage = default)
+    DamageProfile EverDamage = default,
+    // The seal's fill, its two prediction bands, this fight's swing tempo against it, and the reach
+    // mark - all carried straight through from ParticipantFact.
+    VitalityBand? Vitality = null,
+    DamageBand? NextBlow = null,
+    DamageBand? BlowAfter = null,
+    SwingTempo YourTempo = default,
+    ReachMark Reach = default,
+    // Whether this creature's KIND is new to the player, or known-and-never-finished. Drawn as the
+    // name's colour; see NoveltyMark for why red outranks orange here.
+    NoveltyMark Novelty = NoveltyMark.None,
+    // The game's own diagnose reading, kept for the fight - see ParticipantFact.
+    NpcStaminaReading? StaminaRead = null,
+    // The `value <name>` points, or null if never learned - see ParticipantFact.Value. Not yet
+    // drawn anywhere (a separate pass adds the readout once a species-baseline table exists); this
+    // is the plumbing that gets it as far as the row.
+    int? Value = null)
 {
-    /// <summary>Age past which a reading is drawn as faded rather than current: three combat ticks.
-    /// One missed tick is ordinary (68% of gaps in the corpus are a single tick), so fading any sooner
-    /// would have the ladder flickering through every normal fight.</summary>
+    /// <summary>
+    /// Age past which a reading is drawn as faded rather than current: three combat ticks. One missed
+    /// tick is ordinary, so fading any sooner would have the readout flickering through every normal
+    /// fight.
+    ///
+    /// <para><b>This is the only staleness threshold, and it changes TONE only.</b> There used to be a
+    /// second - <c>UnknownAfterSeconds</c>, ten seconds - after which the reading was discarded and the
+    /// row drew as though nothing were known. That is deleted, on the owner's instruction ("also don't
+    /// stop displaying the health read on npcs") and because the evidence turned out to point the other
+    /// way.</para>
+    ///
+    /// <para><b>Why an old reading here is not degraded information.</b> MUD2 prints a wound descriptor
+    /// after every landed blow that does not kill - 3,559 descriptors against 3,561 such hits across
+    /// 1,197 fights, instrumented window from 2026-08-11, with none of the 988 fights that landed one
+    /// producing no descriptor. So a GAP between descriptors is not a missing observation: it is
+    /// positive evidence that no blow of the player's landed, which means the player has taken nothing
+    /// off this creature since, which means the last reading is very probably still true. Discarding it
+    /// threw away a reading that the silence itself corroborates.</para>
+    ///
+    /// <para><b>Likely, not certain - which is what the fade is for.</b> A creature can change without
+    /// the player touching it: NPC-versus-NPC combat is confirmed in the corpus (the viper, the thief
+    /// and the lion all attack other creatures) and zombies regenerate. Tone carries that honestly - a
+    /// dimmed but present phrase says "this is what it last said" without either hiding it or
+    /// overclaiming it. Deliberately no timestamp, no duration and no words about age: the reading is
+    /// the game's own, and annotating it would be the panel talking over the game.</para>
+    ///
+    /// <para><b>Never reported at all is a different state and must stay distinguishable.</b> A
+    /// creature the player has not yet landed a blow on has no phrase and no ring fill - see
+    /// <c>SealShape.Unmet</c>. Do not let a fading rule grow back into a blanking one.</para>
+    /// </summary>
     public const double StaleAfterSeconds = 6.0;
 
-    /// <summary>Age past which a reading is discarded and the ladder reads "unknown": five ticks. By
-    /// then 98% of real miss-streaks have ended, so silence this long means the reading is no longer
-    /// evidence about anything.</summary>
-    public const double UnknownAfterSeconds = 10.0;
-
-    /// <summary>The rung to draw, or null for "no idea" - either never reported or too old to still
-    /// mean anything. Kept here rather than in the renderer so the whole staleness policy is one
-    /// testable rule instead of two thresholds buried in a paint method.</summary>
-    public int? UsableHealthRung
-        => HealthRung is int rung && !(HealthAgeSeconds is double age && age >= UnknownAfterSeconds)
-            ? rung
-            : null;
-
-    /// <summary>True when there IS a usable reading but it is old enough to show as faded.</summary>
+    /// <summary>True when there IS a reading and it is old enough to show as faded. Never a reason to
+    /// stop drawing one - see <see cref="StaleAfterSeconds"/>.</summary>
     public bool IsHealthStale
-        => UsableHealthRung is not null && HealthAgeSeconds is double age && age >= StaleAfterSeconds;
+        => HealthRung is not null && HealthAgeSeconds is double age && age >= StaleAfterSeconds;
 }
 
 /// <summary>
@@ -107,10 +175,6 @@ public readonly record struct RosterPlan(
     public static readonly RosterPlan Empty = new([], 0, 0, 0, 0);
 
     public int TotalCount => LiveCount + ResolvedCount;
-
-    /// <summary>Hidden participants that have already resolved (killed/fled/withdrawn) - the common
-    /// case once the row cap is exceeded, since live targets sort first.</summary>
-    public int HiddenResolvedCount => HiddenCount - HiddenLiveCount;
 
     public bool HasHidden => HiddenCount > 0;
 }
@@ -159,7 +223,9 @@ public static class ParticipantRoster
             rows.Add(new RosterRow(
                 fact.Name, !fact.IsResolved, IsCurrentTarget: i == 0 && !fact.IsResolved, fact.Outcome,
                 fact.HealthRung, fact.HealthPhrase, fact.HealthAgeSeconds, fact.DamageTakenFrom,
-                fact.NpcWeapon, fact.FightDamage, fact.EverDamage));
+                fact.NpcWeapon, fact.FightDamage, fact.EverDamage,
+                fact.Vitality, fact.NextBlow, fact.BlowAfter, fact.YourTempo, fact.Reach,
+                fact.Novelty, fact.StaminaRead, fact.Value));
         }
 
         var hiddenCount = ordered.Count - shownCount;

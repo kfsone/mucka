@@ -53,12 +53,14 @@ public sealed class FightHistoryTests
     }
 
     [Fact]
-    public void Summarize_EstimatesStaminaPoolFromKillsOnly()
+    public void Summarize_CountsKillsWithoutInferringAPoolFromThem()
     {
-        // The pool estimate is the only route to an NPC's stamina the client can DERIVE (the real
-        // figures are published - see tools/combat/bestiary.tsv - but nothing reports them over the
-        // wire), and it must ignore non-kills. A survivor only proves its pool EXCEEDS what we dealt
-        // (a censored observation), so folding in a 5-damage withdrawal would bias the estimate down.
+        // This record used to carry an EstimatedStaminaPool: the median total damage of fights that
+        // ended in a kill. It is biased high by 21% because every sample includes the killing blow's
+        // overkill, and it was keyed on the NPC GROUP, which pools "large rat0" (about 100 stamina)
+        // with "rat0" (about 25). It is gone; StaminaPoolEstimator replaces it, keyed on NpcPoolKey and
+        // fed per-swing brackets a rollup like this one has already summed away. What remains here is
+        // the outcome tally, which was always sound.
         var records = new[]
         {
             Fight(outcome: FightOutcome.Kill, damageDone: 30),
@@ -69,22 +71,23 @@ public sealed class FightHistoryTests
 
         var summary = FightHistory.Summarize(records, "rats");
 
-        Assert.Equal(33.0, summary.EstimatedStaminaPool!.Value, 3);   // (30 + 36) / 2, not touched by 5 or 2
         Assert.Equal(2, summary.Kills);
         Assert.Equal(4, summary.FightCount);
+        Assert.Equal(1, summary.Withdraw);
+        Assert.Equal(1, summary.UFled);
+        // Damage totals are still reported - they are just not a pool.
+        Assert.Equal(17.5, summary.MedianDamageDone!.Value, 3);       // (5 + 30) / 2 over the four rows
     }
 
     [Fact]
-    public void Summarize_ReturnsNullPoolWhenNothingWasEverKilled()
+    public void Summarize_ReportsNoKillsWhenNothingWasEverKilled()
     {
-        // Null, not 0: "never killed one" and "killed one that had no stamina" must not render the
-        // same, or the projection built on this later would happily divide by a fabricated pool.
         var records = new[] { Fight(outcome: FightOutcome.UFled), Fight(outcome: FightOutcome.Withdraw) };
 
         var summary = FightHistory.Summarize(records, "rats");
 
-        Assert.Null(summary.EstimatedStaminaPool);
         Assert.Equal(0, summary.Kills);
+        Assert.Equal(2, summary.FightCount);
     }
 
     [Fact]
@@ -106,7 +109,6 @@ public sealed class FightHistoryTests
         Assert.Equal(2, summary.FightCount);      // both count as fights
         Assert.Equal(2, summary.Kills);           // and both count as kills
         Assert.Equal(30.0, summary.MedianDamageDone!.Value, 3);
-        Assert.Equal(30.0, summary.EstimatedStaminaPool!.Value, 3);   // narrative kill excluded
     }
 
     [Fact]

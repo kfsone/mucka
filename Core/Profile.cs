@@ -44,6 +44,20 @@ public class Profile
     public bool LogResetDiagnostics { get; set; }
     /// <summary>Per-sound enablement and group fallbacks. Defaults to everything on.</summary>
     public SoundSettings Sounds { get; set; } = new();
+    /// <summary>Whether the Combat Rail (right-edge combat panel) is shown. Declared here, beside
+    /// <see cref="Sounds"/> rather than in the Display-tab-settings group below, because it is
+    /// persisted to the per-profile-CAPABLE <c>settingsSection</c> (honours
+    /// <see cref="SettingsPerProfile"/>) exactly like FontSize/Volume/Sounds above - see
+    /// <see cref="ClientSettings.ShowCombatRail"/>'s own remarks for what that scoping actually gives
+    /// you: with <see cref="SettingsPerProfile"/> off (the default), it is a shared global default
+    /// across every persona, same as FontSize/Volume already are; true per-persona isolation needs
+    /// that profile's "Save to profile only" checkbox turned on. NOT one of the always-global Display
+    /// tab fields below - those cannot be isolated per persona at all, even with that checkbox.
+    /// Restored on connect and re-saved immediately whenever the player toggles it - see
+    /// GameViewModel.PersistCombatRailVisibilityAsync - rather than only through the settings
+    /// dialog's Save button, since a menu toggle should not require a separate save step to
+    /// survive a relog.</summary>
+    public bool ShowCombatRail { get; set; }
     public string[] Fkeys { get => _fkeys; set => _fkeys = NormalizeFkeys(value); }
 
     /// <summary>True when the settings came from a per-profile [settings:Name] ini section

@@ -195,4 +195,39 @@ public sealed class FightHistoryStoreTests : IDisposable
         Assert.Equal(2, group.FightCount);
         Assert.Contains(byWeapon, w => w.Weapon == "axe0");
     }
+
+    [Fact]
+    public void NoveltyFor_ReflectsFightsAppendedSoFar()
+    {
+        var store = new FightHistoryStore(DbPath);
+
+        // Nothing on file: new creature, and a weapon that has never met it.
+        Assert.Equal((NoveltyMark.Unfought, NoveltyMark.Unfought), store.NoveltyFor("rat0", "axe0"));
+
+        store.Append(Fight("rat0"));   // a Kill with axe0
+
+        Assert.Equal((NoveltyMark.None, NoveltyMark.None), store.NoveltyFor("rat0", "axe0"));
+        // Same kind, different weapon: the creature is solved, this weapon is not.
+        Assert.Equal((NoveltyMark.None, NoveltyMark.Unfought), store.NoveltyFor("rat7", "dagger0"));
+        // A different creature entirely - the pool key keeps "large rat" apart from "rat".
+        Assert.Equal((NoveltyMark.Unfought, NoveltyMark.Unfought), store.NoveltyFor("large rat0", "axe0"));
+
+        store.Dispose();
+    }
+
+    [Fact]
+    public async Task NoveltyFor_SurvivesAReloadFromTheDatabase()
+    {
+        // The novelty buckets are built by HistoryIndex.Insert, which LoadAsync drives for every row
+        // it reads - so a mark earned last session has to still be there on the next launch.
+        var writer = new FightHistoryStore(DbPath);
+        writer.Append(Fight("rat0") with { Outcome = nameof(FightOutcome.UFled) });
+        writer.Dispose();
+
+        var reader = new FightHistoryStore(DbPath);
+        await reader.LoadAsync();
+
+        Assert.Equal((NoveltyMark.Undefeated, NoveltyMark.Undefeated), reader.NoveltyFor("rat0", "axe0"));
+        reader.Dispose();
+    }
 }

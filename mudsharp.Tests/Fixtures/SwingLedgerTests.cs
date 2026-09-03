@@ -189,16 +189,16 @@ public sealed class SwingLedgerTests : IDisposable
     {
         using var session = new Session(_directory);
         session.Effects(new StatusEffectState(StrengthDebuff: true, DexterityBuff: true))
-               .Stats(new GameStatsSnapshot(Stamina: 81, Level: 4, Score: 1200, TimeToReset: 600))
+               .Stats(new GameStatsSnapshot(Stamina: 81, Level: 4, Score: 1200, TimeToReset: 47))
                .Say("You attack the rat0, using the axe0 as a weapon.",
                     "You hit the rat0 (15-19).");
 
         var row = Assert.Single(session.Rows());
-        Assert.Equal(600, Int(row, "time_to_reset"));
-        // The reset's END instant: constant across every swing of one reset, which is what makes it
-        // the key to group by. ts is T0+1s here, and the countdown is in seconds.
+        Assert.Equal(47, Int(row, "time_to_reset"));
+        // The reset's END instant, to within the reading's granularity. ts is T0+1s here, and the
+        // countdown is in MINUTES (FES field [13]) - 47 minutes, so 47 * 60_000 ms, NOT 47_000.
         Assert.Equal(
-            new DateTimeOffset(T0.AddSeconds(1), TimeSpan.Zero).ToUnixTimeMilliseconds() + 600_000,
+            new DateTimeOffset(T0.AddSeconds(1), TimeSpan.Zero).ToUnixTimeMilliseconds() + 47 * 60_000L,
             Convert.ToInt64(row["reset_epoch_ms"]));
         Assert.Equal(4, Int(row, "level"));
         Assert.Equal(1200, Int(row, "score"));

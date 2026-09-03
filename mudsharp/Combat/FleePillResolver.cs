@@ -51,8 +51,8 @@ public enum FleePillStatus
 /// the opposite reading of the same band - it is loudest exactly there, and says go, not well done.
 /// Nothing here computes or publishes a price.</para>
 ///
-/// <para>Pure and primitive-typed, like <see cref="CombatTierResolver"/> and
-/// <see cref="ThreatIndicator"/> beside it, so mudsharp.Tests exercises it directly.</para>
+/// <para>Pure and primitive-typed, like <see cref="CombatTierResolver"/> beside it, so mudsharp.Tests
+/// exercises it directly.</para>
 /// </summary>
 public static class FleePillResolver
 {

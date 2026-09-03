@@ -55,8 +55,8 @@ public sealed class SwingLedger : IDisposable
     // One dedicated writer for this ledger's whole lifetime. Unbounded: a swing arrives at most once
     // per tick per participant, so there is no realistic burst worth backpressuring, and dropping a
     // row to save a few bytes of queue would defeat the point of keeping the stream.
-    private readonly Channel<SwingRow> _writeQueue =
-        Channel.CreateUnbounded<SwingRow>(new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });
+    private readonly Channel<ICombatLedgerRow> _writeQueue =
+        Channel.CreateUnbounded<ICombatLedgerRow>(new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });
     private readonly Task _writerTask;
 
     // Per-NPC memory for the CURRENT encounter, keyed by instance name. Cleared at encounter end so a
@@ -92,11 +92,32 @@ public sealed class SwingLedger : IDisposable
     private readonly List<(string NpcName, double Low, double High)> _encounterDealt = [];
 
     private readonly SwingDamageIndex _damage = new();
+    private readonly ReachMarkIndex _reach = new();
+    private readonly StaminaPoolIndex _pool = new();
 
     /// <summary>The accumulated "how hard does this thing hit, and how hard do I hit it" cache, for the
     /// rail's per-opponent damage column. Warmed by <see cref="WarmDamageIndexAsync"/> at startup and
     /// thereafter updated incrementally, one encounter at a time.</summary>
     public SwingDamageIndex Damage => _damage;
+
+    /// <summary>How far each species has been SEEN to reach with one blow - a floor under its true
+    /// maximum, never the maximum. See <see cref="ReachMarkIndex"/>.</summary>
+    public ReachMarkIndex Reach => _reach;
+
+    /// <summary>
+    /// Per-species stamina pool bands, from the censored-interval estimator (see
+    /// <see cref="StaminaPoolEstimator"/>).
+    ///
+    /// <para><b>Filled at warm-up only, and therefore a session behind.</b> Unlike
+    /// <see cref="Damage"/> and <see cref="Reach"/>, which fold an encounter's own blows in as it
+    /// closes, an estimate is a function of a species' WHOLE observation set - so refreshing it means
+    /// re-reading the swings joined to the fight rollup, and the rollup for the encounter just closed
+    /// is written by a different background task on its own schedule. Folding at encounter close would
+    /// race that write and produce an estimate that silently omitted the fight that triggered it. The
+    /// consequence to know about: a species first met during this session shows no band until the next
+    /// start-up, and a band already on file does not tighten mid-session.</para>
+    /// </summary>
+    public StaminaPoolIndex Pool => _pool;
 
     public SwingLedger(string dbPath, Action<string, Exception>? onError = null)
     {
@@ -137,6 +158,13 @@ public sealed class SwingLedger : IDisposable
             var outgoingByGroup = ReadBracket(connection, "v_outgoing_by_group");
 
             _damage.LoadProfiles(incomingByNpc, incomingByGroup, outgoingByNpc, outgoingByGroup);
+
+            // Reach marks come off the same per-instance rows the damage index already read, folded
+            // up to the pool key: "large rat0" and "large rat7" are one creature as far as how hard it
+            // can hit goes, and neither is a plain rat.
+            _reach.Load(incomingByNpc.Select(row => (row.Name, row.Profile.Max, row.Profile.Samples)));
+
+            _pool.Load(PoolObservationBuilder.BuildAll(ReadPoolFights(connection), ReadPoolSwings(connection)));
         }
         catch (Exception ex) when (ex is SqliteException or IOException or UnauthorizedAccessException)
         {
@@ -174,6 +202,62 @@ public sealed class SwingLedger : IDisposable
                 continue;
             result.Add((reader.GetString(0),
                 new BracketProfile(reader.GetInt32(1), reader.GetDouble(2), reader.GetDouble(3), reader.GetDouble(4))));
+        }
+        return result;
+    }
+
+    /// <summary>Every closed fight, reduced to what the pool estimator needs. Only outcomes the
+    /// PLAYER'S blow produced count as a kill: a creature that dropped dead of poison bounds nothing,
+    /// because the damage that finished it was never on the wire.</summary>
+    private static List<PoolFightRow> ReadPoolFights(SqliteConnection connection)
+    {
+        var result = new List<PoolFightRow>();
+        using var command = connection.CreateCommand();
+        command.CommandText =
+            "SELECT npc_name, started_at_ms, ended_at_ms, outcome, encounter_started_at_ms "
+            + "FROM fights WHERE npc_name IS NOT NULL;";
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            result.Add(new PoolFightRow(
+                reader.GetString(0),
+                reader.GetInt64(1),
+                reader.GetInt64(2),
+                // Exact ordinal match on "Kill" and nothing else. A NoMore row - poison, or anything
+                // that finished the creature without the player's blow - must NOT read as a kill: the
+                // damage that ended it never crossed the wire, so the row can floor the pool and must
+                // never ceiling it. Pinned by SwingLedgerOutcomeTests.
+                string.Equals(reader.GetString(3), nameof(FightOutcome.Kill), StringComparison.Ordinal),
+                reader.IsDBNull(4) ? null : reader.GetInt64(4)));
+        }
+        return result;
+    }
+
+    /// <summary>Every swing that could constrain a pool: the player's brackets and the creature's rung
+    /// readings. Both directions are read, because the rung is stamped on incoming rows too and a
+    /// reading that arrived between two of the player's blows is still a reading.</summary>
+    private static List<PoolSwingRow> ReadPoolSwings(SqliteConnection connection)
+    {
+        var result = new List<PoolSwingRow>();
+        using var command = connection.CreateCommand();
+        command.CommandText =
+            "SELECT npc, ts, dir, hit, dmg_low, dmg_high, rung, sta, sta_max, weapon "
+            + "FROM swings WHERE npc IS NOT NULL ORDER BY ts, id;";
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            result.Add(new PoolSwingRow(
+                reader.GetString(0),
+                reader.GetInt64(1),
+                string.Equals(reader.GetString(2), SwingRow.DirectionOut, StringComparison.Ordinal),
+                reader.GetInt64(3) != 0,
+                reader.IsDBNull(4) ? null : reader.GetDouble(4),
+                reader.IsDBNull(5) ? null : reader.GetDouble(5),
+                reader.IsDBNull(6) ? null : reader.GetInt32(6),
+                // Player state, for the chase-linkage test - see MudSharp.Combat.ChaseLinkPolicy.
+                reader.IsDBNull(7) ? null : reader.GetInt32(7),
+                reader.IsDBNull(8) ? null : reader.GetInt32(8),
+                reader.IsDBNull(9) ? null : reader.GetString(9)));
         }
         return result;
     }
@@ -239,6 +323,11 @@ public sealed class SwingLedger : IDisposable
             if (_encounterTaken.Count > 0 || _encounterDealt.Count > 0)
             {
                 _damage.FoldAll(_encounterTaken, _encounterDealt);
+                // Reach marks fold at the same instant and for the same reason. Unlike the damage
+                // index this one only ever rises, so folding it late costs nothing but a session's
+                // worth of latency on a number that changes a handful of times a month.
+                foreach (var (npcName, damage) in _encounterTaken)
+                    _reach.Observe(npcName, damage);
                 _encounterTaken.Clear();
                 _encounterDealt.Clear();
             }
@@ -299,6 +388,31 @@ public sealed class SwingLedger : IDisposable
 
                 case CombatEventKind.NpcWeaponEquip:
                     FightForLocked(combatEvent)?.NoteNpcWeapon(combatEvent.Weapon);
+                    break;
+
+                case CombatEventKind.NpcStaminaRead:
+                    // The only direct measurement of NPC stamina MUD2 gives, and until now it was
+                    // parsed and dropped - four observations exist in the whole corpus and not one of
+                    // them was written down. Recorded whether or not the creature is engaged, exactly
+                    // as the tracker reports it: diagnosing something BEFORE picking a fight with it is
+                    // the point of carrying a stethoscope, and an encounter id of null says so.
+                    if (combatEvent.RangeLow is int staLow && combatEvent.RangeHigh is int staHigh
+                        && !string.IsNullOrWhiteSpace(combatEvent.NpcName))
+                    {
+                        AppendLocked(new NpcStaminaReadRow
+                        {
+                            TimestampMs = new DateTimeOffset(combatEvent.TimestampUtc, TimeSpan.Zero)
+                                .ToUnixTimeMilliseconds(),
+                            EncounterStartedAtMs = _encounterStartedAtMs,
+                            Persona = _persona,
+                            NpcName = combatEvent.NpcName,
+                            NpcGroup = NpcGroups.Normalize(combatEvent.NpcName),
+                            PoolKey = NpcPoolKey.For(combatEvent.NpcName),
+                            PrintedLow = staLow,
+                            PrintedHigh = staHigh,
+                            RawText = combatEvent.RawText,
+                        });
+                    }
                     break;
 
                 case CombatEventKind.NpcHealth:
@@ -391,9 +505,11 @@ public sealed class SwingLedger : IDisposable
             Glow = _lastEffects.Glow,
 
             TimeToReset = _lastStats.TimeToReset,
-            // The reset's END instant, constant across every swing of one reset - see
-            // SwingRow.ResetEpochMs. TimeToReset is in seconds as the game reports it.
-            ResetEpochMs = _lastStats.TimeToReset is int ttr ? timestampMs + (ttr * 1000L) : null,
+            // The reset's END instant - see SwingRow.ResetEpochMs. TimeToReset is MINUTES, as FES
+            // field [13] reports it (Mud2C1Decoder.ParseAndEmitFes), so the multiplier is 60_000.
+            // The reading is whole minutes, so this lands inside a 60s bucket, not on an identity:
+            // bucket it before grouping (ResetClock's MinuteUncertaintySec is the same +/-30s).
+            ResetEpochMs = _lastStats.TimeToReset is int ttr ? timestampMs + (ttr * 60_000L) : null,
 
             NpcName = combatEvent.NpcName,
             NpcGroup = NpcGroups.Normalize(combatEvent.NpcName),
@@ -458,7 +574,7 @@ public sealed class SwingLedger : IDisposable
 
     /// <summary>Enqueues. TryWrite on an unbounded channel never blocks and only fails after
     /// Complete(), which only <see cref="Dispose"/> calls.</summary>
-    private void AppendLocked(SwingRow row) => _writeQueue.Writer.TryWrite(row);
+    private void AppendLocked(ICombatLedgerRow row) => _writeQueue.Writer.TryWrite(row);
 
     private const string InsertSql = """
         INSERT INTO swings (
@@ -517,20 +633,48 @@ public sealed class SwingLedger : IDisposable
         }
     }
 
-    private void WriteBatch(SqliteConnection connection, ChannelReader<SwingRow> reader)
+    private const string InsertStaminaReadSql = """
+        INSERT INTO npc_stamina_reads (
+            ts, encounter_started_at_ms, persona, npc, npc_group, pool_key,
+            printed_low, printed_high, raw_text
+        ) VALUES (
+            $ts, $encounter, $persona, $npc, $npc_group, $pool_key,
+            $printed_low, $printed_high, $raw_text
+        );
+        """;
+
+    /// <summary>Drains up to <see cref="MaxBatch"/> rows into one transaction, dispatching each to the
+    /// statement for its own table. Two prepared commands rather than two channels: the ordering
+    /// between a swing and a diagnose reading taken in the same breath is real evidence, and two
+    /// queues would lose it.</summary>
+    private void WriteBatch(SqliteConnection connection, ChannelReader<ICombatLedgerRow> reader)
     {
         using var transaction = connection.BeginTransaction();
-        using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText = InsertSql;
+        using var swingCommand = connection.CreateCommand();
+        swingCommand.Transaction = transaction;
+        swingCommand.CommandText = InsertSql;
+        using var staminaCommand = connection.CreateCommand();
+        staminaCommand.Transaction = transaction;
+        staminaCommand.CommandText = InsertStaminaReadSql;
 
         var written = 0;
         while (written < MaxBatch && reader.TryRead(out var row))
         {
             try
             {
-                Bind(command, row);
-                command.ExecuteNonQuery();
+                switch (row)
+                {
+                    case SwingRow swing:
+                        Bind(swingCommand, swing);
+                        swingCommand.ExecuteNonQuery();
+                        break;
+                    case NpcStaminaReadRow read:
+                        Bind(staminaCommand, read);
+                        staminaCommand.ExecuteNonQuery();
+                        break;
+                    default:
+                        continue;
+                }
                 written++;
             }
             catch (SqliteException ex)
@@ -543,6 +687,20 @@ public sealed class SwingLedger : IDisposable
 
         if (written > 0)
             transaction.Commit();
+    }
+
+    private static void Bind(SqliteCommand command, NpcStaminaReadRow row)
+    {
+        command.Parameters.Clear();
+        command.Parameters.AddWithValue("$ts", row.TimestampMs);
+        command.Parameters.AddWithValue("$encounter", Value(row.EncounterStartedAtMs));
+        command.Parameters.AddWithValue("$persona", Value(row.Persona));
+        command.Parameters.AddWithValue("$npc", row.NpcName);
+        command.Parameters.AddWithValue("$npc_group", row.NpcGroup);
+        command.Parameters.AddWithValue("$pool_key", row.PoolKey);
+        command.Parameters.AddWithValue("$printed_low", row.PrintedLow);
+        command.Parameters.AddWithValue("$printed_high", row.PrintedHigh);
+        command.Parameters.AddWithValue("$raw_text", Value(row.RawText));
     }
 
     private static void Bind(SqliteCommand command, SwingRow row)

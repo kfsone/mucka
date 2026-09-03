@@ -1,4 +1,4 @@
-using MudSharp.Models;
+﻿using MudSharp.Models;
 using MudSharp.Protocol;
 
 namespace MudSharp.Tests.Fixtures;
@@ -35,6 +35,9 @@ internal sealed class ParserHarness
     public List<string> FexItems { get; } = new();
     public int FexListStartingCount { get; private set; }
     public int FexListCompleteCount { get; private set; }
+    /// <summary>Creature-presence sentences captured from the C04 scope - see
+    /// MudStreamParser.CreatureTextReady.</summary>
+    public List<string> CreatureTexts { get; } = new();
     public List<string> LongDescLines { get; } = new();
     public List<(string Dir, string Dest)> ExitLines { get; } = new();
     public List<int> ConfirmedWidths { get; } = new();
@@ -65,6 +68,7 @@ internal sealed class ParserHarness
         Parser.FexItemReady       += item => FexItems.Add(item);
         Parser.FexListStarting    += () => FexListStartingCount++;
         Parser.FexListComplete    += () => FexListCompleteCount++;
+        Parser.CreatureTextReady  += text => CreatureTexts.Add(text);
         Parser.LongDescLineReady  += text => LongDescLines.Add(text);
         Parser.ExitLineReady      += (dir, dest) => ExitLines.Add((dir, dest));
         Parser.TerminalWidthConfirmed += w => ConfirmedWidths.Add(w);
@@ -101,6 +105,7 @@ internal sealed class ParserHarness
         FexItems.Clear();
         FexListStartingCount = 0;
         FexListCompleteCount = 0;
+        CreatureTexts.Clear();
         LongDescLines.Clear();
         ExitLines.Clear();
         ConfirmedWidths.Clear();

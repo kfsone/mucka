@@ -1,7 +1,9 @@
-using System.Runtime.InteropServices;
+﻿using System.Runtime.InteropServices;
 using Mucka.Core;
 using Mucka.Rendering;
+using Mucka.Terminal;
 using Mucka.ViewModels;
+using static Mucka.Terminal.CombatRailResize;
 using MudSharp.Models;   // StyledLine/StyledSpan/TextStyle — used by the chat placeholder (all targets) and the $f<n> annotation handler (Windows)
 
 namespace Mucka.Pages;
@@ -119,6 +121,30 @@ public partial class GamePage : ContentPage
     /// visual tree (Invariant #1). Null means "not yet configured", which is also how a freshly created
     /// handler adopts the current state.</summary>
     private MudSharp.Combat.FleePillStatus? _combatFleePillStatus;
+    // - Damage floats -
+    // A fixed pool, one element per float the motion budget will ever have in the air at once, all
+    // created at load and reused for the rest of the session: a float is a per-swing event, and
+    // allocating a MAUI view (plus its native peer, plus a layout pass to insert it) several times
+    // per two-second tick is exactly the churn Invariant #1 forbids near the typing path.
+    private readonly Label[] _combatFloatLabels = new Label[RailFloatBudget.MaxInFlight];
+    // Each pool element's NATIVE TextBlock, cached when its handler is realised. Spawning writes
+    // text and colour straight to this rather than through Label.Text/TextColor - see
+    // OnCombatFloatRaised for the measure-invalidation reason, which is the whole point of holding
+    // the handle at all.
+    private readonly Microsoft.UI.Xaml.Controls.TextBlock?[] _combatFloatText =
+        new Microsoft.UI.Xaml.Controls.TextBlock?[RailFloatBudget.MaxInFlight];
+    private readonly RailFloatLayer?[] _combatFloatLayers = new RailFloatLayer?[RailFloatBudget.MaxInFlight];
+    private readonly RailFloatBudget _combatFloatBudget = new();
+    private bool _combatFloatsBuilt;
+    // The rail's content box in dp, cached from the canvas's own SizeChanged rather than read from a
+    // layout property at spawn time. Reading Width/Height at spawn would be a UI-thread question
+    // asked once per combat line; caching makes it once per resize.
+    private double _railContentWidthDp;
+    private double _railContentHeightDp;
+    // Roster shape the in-flight floats were placed against. Slot N is a different creature once the
+    // roster reorders (something died, something joined), so a number still rising over it would be
+    // attributing a blow to the wrong thing - see OnSidePanelPropertyChanged's Live branch.
+    private (int Rows, int Live) _combatFloatRosterShape = (-1, -1);
     // Audible half of the same tick clock. Owned here rather than by the view model so it starts,
     // stops and is disposed on exactly the same transitions as the visual sweep - two renderings of
     // one clock, never two clocks.
@@ -155,42 +181,34 @@ public partial class GamePage : ContentPage
     private readonly List<Microsoft.UI.Xaml.Input.KeyboardAccelerator> _accelerators = new();
     private int _wheelAccum;   // accumulates wheel delta so touchpad drift doesn't trip scrollback
     // ── Window minimum-size enforcement ─────────────────────────────────────
-    // Must match the WidthRequest of SidePanelBorder (the LEFT panel: Online/Items/Map) in
-    // GamePage.xaml. Deliberately unchanged and untouched by the Combat Rail work below: that panel
-    // keeps the width the player already plays with. Disturbing a working layout in a PvP,
-    // permadeath game is its own hazard - see DESIGN_FINAL.md D3, which corrects an earlier draft
-    // that said to widen THIS constant to 300 and dock combat content in it. That was wrong; the
-    // Combat Rail is a wholly separate, additional panel (see CombatPanelWidthDp below).
-    private const double SidePanelWidthDp = 228.0;
+    // SidePanelWidthDp - the LEFT panel's (Online/Items/Map) own width, unrelated to the combat rail
+    // and deliberately unchanged/untouched by the Combat Rail work below - now lives in
+    // Mucka.Terminal.CombatRailResize alongside the rest of this file's window-sizing constants (see
+    // the remarks where PreferredWindowWidthDp used to sit, below). Must match SidePanelBorder's
+    // WidthRequest in GamePage.xaml; that panel keeps the width the player already plays with.
+    // Disturbing a working layout in a PvP, permadeath game is its own hazard - see DESIGN_FINAL.md
+    // D3, which corrects an earlier draft that said to widen THIS constant to 300 and dock combat
+    // content in it. That was wrong; the Combat Rail is a wholly separate, additional panel.
 
     // - Combat Rail: the new, additional right-edge panel (DESIGN_FINAL.md D3/2.2) -
-    // Own width constant, deliberately separate from SidePanelWidthDp above. Shown/hidden by the
+    // Own width constants, deliberately separate from SidePanelWidthDp above. Shown/hidden by the
     // overflow menu's "Combat" entry, which flips SidePanelViewModel.IsCombatPanelVisible; the
-    // resize by exactly this many DIPs rides that property change (see OnSidePanelPropertyChanged
-    // and ResizeWindowForCombatPanel) - the ONLY place
-    // this window resizes for combat-panel reasons. It is never included in
-    // PreferredWindowWidthDp/UpdateWindowMinimumWidth below: those compute the LEFT panel + terminal
-    // minimum only, so the combat panel's own show/hide never feeds back into "what is the smallest
-    // this window may be" - it simply occupies whatever space the toggle already made for it.
-    private const double CombatPanelWidthDp = 300.0;
-    // Default terminal-view width (in characters) used to size the window on first appearance.
-    // Two columns wider than the 80-column wrap so the rightmost text isn't flush against the panel.
-    private const double DefaultViewColumns = 82.0;
-    // Left gutter the terminal renderer pads text with — must match TerminalView.LeftPadDip.
-    private const double TerminalGutterDp = 4.0;
-    // Horizontal window chrome (resize borders) not part of the client area; small fudge so the
-    // client area still fits DefaultViewColumns after WinUI subtracts the frame.
-    private const double WindowChromeDp = 16.0;
-
-    /// <summary>
-    /// Window width (in DIPs) that fits <paramref name="viewColumns"/> terminal columns plus the
-    /// renderer's left gutter, the side panel when expanded, and the window frame. Shared by the
-    /// app-launch default (<see cref="App.CreateWindow"/>) and the first-appearance resize here.
-    /// </summary>
-    internal static double PreferredWindowWidthDp(
-        double charWidthDp, bool panelExpanded, double viewColumns = DefaultViewColumns)
-        => viewColumns * charWidthDp + TerminalGutterDp
-         + (panelExpanded ? SidePanelWidthDp : 0.0) + WindowChromeDp;
+    // resize rides that property change (see OnSidePanelPropertyChanged and
+    // ResizeWindowForCombatPanel) - the ONLY place this window resizes for combat-panel reasons
+    // (T3/T4 aside: that resize is no longer always the panel's full width - see
+    // ResizeWindowForCombatPanel's own remarks). Never included in PreferredWindowWidthDp/
+    // UpdateWindowMinimumWidth's own floor: those compute the LEFT panel + terminal minimum only,
+    // so the combat panel's own show/hide never feeds back into "what is the smallest this window
+    // may be" - UpdateWindowMinimumWidth/ResizeWindowToFitColumns each reserve the rail's width
+    // separately, on top of that floor, only when it is currently shown.
+    //
+    // These constants, PreferredWindowWidthDp itself, and the T3/T4 delta arithmetic all live in
+    // Mucka.Terminal.CombatRailResize now, not here - that project is plain net10.0 (no WinUI/Win32),
+    // referenced by both this project and its own test project, so the arithmetic is unit-testable
+    // without a live window. This file's own resize methods are thin callers of that class plus the
+    // actual appWindow.Resize(...) side effect. Brought into unqualified scope below so none of the
+    // many existing bare `PreferredWindowWidthDp(...)`/`CombatPanelWidthDp` call sites in this file
+    // needed to change.
     private int              _minWindowWidthPx;
     private IntPtr           _hwnd = IntPtr.Zero;
     private WndProcDelegate? _wndProcDelegate;
@@ -355,10 +373,28 @@ public partial class GamePage : ContentPage
                 OnCombatFleePillHitHandlerChanged(CombatFleePillHit, EventArgs.Empty);
                 CombatMetronomeHit.HandlerChanged += OnCombatMetronomeHandlerChanged;
                 OnCombatMetronomeHandlerChanged(CombatMetronomeHit, EventArgs.Empty);
+                SetupCombatFloats();
                 SetupWindowMinimumSize();
                 // Size the window once so the terminal view fits ~82 columns + the side panel,
                 // rather than inheriting WinUI's oversized default window width.
                 SetPreferredInitialWindowSize();
+                // A persisted "show combat rail" preference (SidePanelViewModel.IsCombatPanelVisible,
+                // restored from the connecting profile in GameViewModel's constructor - see T2's
+                // ClientSettings.ShowCombatRail) can already be true here, before this page ever sets
+                // it - so nothing will raise the PropertyChanged that normally drives this resize.
+                // Apply the current state once, directly, so the very first frame already has room
+                // for the rail if it starts shown. This is the one exception to "the window never
+                // resizes itself" - the FIRST layout still has to account for a state that started
+                // true; every resize after this point remains driven by an explicit toggle.
+                //
+                // The EffCols-staleness shortfall once noted here has evaporated, not just gone
+                // unfixed: ResizeWindowForCombatPanel's T3 baseline no longer consults EffCols at all
+                // (the user's own ruling - auto columns have no slack to measure, and fixed columns
+                // measure against the configured MaxColumns+2, not the negotiated column count). Both
+                // MaxColumns and SidePanel.IsPanelExpanded are set synchronously in GameViewModel's
+                // constructor, with no dependency on a layout pass having run yet, so this seed-at-
+                // startup call computes the same delta here as it would once OnSizeAllocated has fired.
+                ResizeWindowForCombatPanel(_vm.SidePanel.IsCombatPanelVisible);
 #if INPUT_DIAG
                 StartUiThreadProbe();
 #endif
@@ -513,6 +549,7 @@ public partial class GamePage : ContentPage
         CombatFleePillHit.HandlerChanged -= OnCombatFleePillHitHandlerChanged;
         CombatFleePillHit.Clicked -= OnCombatFleePillClicked;
         CombatMetronomeHit.HandlerChanged -= OnCombatMetronomeHandlerChanged;
+        TeardownCombatFloats();
         // A thread-pool timer outlives its page unless stopped; a metronome still clicking after the
         // window closed is the audible version of the RO_E_CLOSED crash class below.
         _combatMetronome.Dispose();
@@ -1214,6 +1251,21 @@ public partial class GamePage : ContentPage
     // ── Window minimum-size methods ──────────────────────────────────────────
 
     /// <summary>
+    /// Window width (in DIPs) that fits <paramref name="viewColumns"/> terminal columns plus the
+    /// renderer's left gutter, the side panel when expanded, and the window frame. Shared by the
+    /// app-launch default (<see cref="App.CreateWindow"/>) and the first-appearance resize here.
+    ///
+    /// <para>Thin forwarder to <see cref="Mucka.Terminal.CombatRailResize.PreferredWindowWidthDp"/> -
+    /// kept on GamePage itself (rather than relying on this file's own `using static` import of that
+    /// class) because <c>App.xaml.cs</c> calls it as <c>Pages.GamePage.PreferredWindowWidthDp(...)</c>,
+    /// which needs an actual member on this type; a `using static` only affects unqualified lookup
+    /// inside the file that declares it.</para>
+    /// </summary>
+    internal static double PreferredWindowWidthDp(
+        double charWidthDp, bool panelExpanded, double viewColumns = CombatRailResize.DefaultViewColumns)
+        => CombatRailResize.PreferredWindowWidthDp(charWidthDp, panelExpanded, viewColumns);
+
+    /// <summary>
     /// Attaches a Win32 window subclass on first call so that WM_GETMINMAXINFO can be
     /// intercepted to enforce the minimum window width, then applies the initial constraint.
     /// Safe to call multiple times — the subclass is only registered once.
@@ -1249,12 +1301,35 @@ public partial class GamePage : ContentPage
         var panelExpanded = _vm.SidePanel.IsPanelExpanded;
         var minDp  = PreferredWindowWidthDp(CharWidthDp, panelExpanded, _vm.MaxColumns);
         var dpi    = GetDpiForWindow(_hwnd);
+        // _minWindowWidthPx itself stays the pure terminal+left-panel floor - it is read elsewhere
+        // (WM_GETMINMAXINFO, ResizeWindowForCombatPanel's own floorPx) as exactly that, deliberately
+        // excluding the rail, and it has no "rail shown" flavour to switch to since it is a single
+        // shared field. The rail reservation below is applied only to this method's own local
+        // force-grow decision.
         _minWindowWidthPx = (int)Math.Ceiling(minDp * dpi / 96.0);
 
-        // Resize now if the window is already narrower than the new minimum.
+        // Resize now if the window is already narrower than the new minimum. If the rail is
+        // currently shown, its 338dp must be reserved on top of that floor here too - otherwise this
+        // force-grow (e.g. reached when the left panel expands, per OnSidePanelPropertyChanged) would
+        // grow the window to only just fit the terminal, eating the rail's space exactly like
+        // ResizeWindowToFitColumns did before its own fix below.
         var appWindow = nativeWindow.AppWindow;
-        if (appWindow.Size.Width < _minWindowWidthPx)
-            appWindow.Resize(new Windows.Graphics.SizeInt32(_minWindowWidthPx, appWindow.Size.Height));
+        var floorPx = _minWindowWidthPx;
+        var resyncedDeltaDp = _railDeltaAppliedDp;
+        if (_railWidthApplied)
+        {
+            var reserved = CombatRailResize.ReserveRailWidth(floorPx, dpi);
+            floorPx = reserved.TargetWidthPx;
+            resyncedDeltaDp = reserved.AppliedDeltaDp;
+        }
+        if (appWindow.Size.Width < floorPx)
+        {
+            appWindow.Resize(new Windows.Graphics.SizeInt32(floorPx, appWindow.Size.Height));
+            // The rail reservation (if any) above already computed the resynced delta; only apply it
+            // once the resize this method decided on has actually happened.
+            if (_railWidthApplied)
+                _railDeltaAppliedDp = resyncedDeltaDp;
+        }
     }
 
     /// <summary>
@@ -1286,7 +1361,9 @@ public partial class GamePage : ContentPage
     /// Snaps the window width to fit the configured column count (+2 breathing columns, the
     /// same margin as the launch default) after a settings change to columns or font size —
     /// without this the view stays clamped to whatever the old window width could display.
-    /// Height is left untouched.
+    /// Height is left untouched. Reserves and resyncs the Combat Rail's width if it is currently
+    /// shown - see the reservation comment inside for why a plain column-count snap would otherwise
+    /// eat the rail's space out of the terminal.
     /// </summary>
     private void ResizeWindowToFitColumns()
     {
@@ -1299,6 +1376,25 @@ public partial class GamePage : ContentPage
         var dpi       = GetDpiForWindow(_hwnd);
         var targetPx  = (int)Math.Ceiling(contentDp * dpi / 96.0);
         if (targetPx < _minWindowWidthPx) targetPx = _minWindowWidthPx;
+
+        // PreferredWindowWidthDp deliberately never includes the rail (see its own remarks), so this
+        // settings-driven snap needs its own explicit reservation - otherwise a column-count change
+        // made while the rail happens to be shown overrides the window straight down to the
+        // terminal+left-panel size, taking the rail's 338dp out of the terminal instead of out of
+        // nothing. Added AFTER the floor clamp above so the final width is always
+        // max(natural, floor) + rail, never floor alone with the rail squeezed inside it. This is a
+        // snap, not the slack-aware resize ResizeWindowForCombatPanel does on its own toggle - once
+        // it runs, the rail's currently-applied width really is exactly its full reservation with
+        // zero slack (the snap does not consider or preserve any prior slack, by design - see this
+        // method's own summary), so ReserveRailWidth's resynced delta replaces whatever partial
+        // amount a PRIOR toggle's slack absorption computed; leaving it stale would make a later hide
+        // subtract the wrong quantity and leave orphaned or missing width behind.
+        if (_railWidthApplied)
+        {
+            var reserved = CombatRailResize.ReserveRailWidth(targetPx, dpi);
+            targetPx = reserved.TargetWidthPx;
+            _railDeltaAppliedDp = reserved.AppliedDeltaDp;
+        }
 
         var appWindow = nativeWindow.AppWindow;
         if (appWindow.Size.Width != targetPx)
@@ -1373,6 +1469,14 @@ public partial class GamePage : ContentPage
             UpdateCombatTickSweep(_vm.SidePanel.Live);
             UpdateCombatEdges();
             UpdateCombatFleePill();
+            SyncCombatFloatRoster();
+        }
+        else if (e.PropertyName == nameof(SidePanelViewModel.IsCombatFloatsEnabled))
+        {
+            // Switching them off has to take the ones already in the air with it, or the last
+            // second and a half of motion outlives the decision to stop it.
+            if (!_vm.SidePanel.IsCombatFloatsEnabled)
+                CancelCombatFloats();
         }
         else if (e.PropertyName == nameof(SidePanelViewModel.IsCombatMetronomeEnabled))
         {
@@ -1391,7 +1495,19 @@ public partial class GamePage : ContentPage
             // the panel without making room, taking 300dp straight out of the terminal. Now every
             // route to the property resizes, and there is only one place that knows how.
             if (e.PropertyName == nameof(SidePanelViewModel.IsCombatPanelVisible))
+            {
+                // Hiding the panel collapses the elements the floats ride on; showing it again
+                // re-arranges them. Either way a float already in flight was placed against
+                // geometry that no longer applies, so the pool is reset rather than left to finish
+                // rising over a panel that has moved out from under it.
+                CancelCombatFloats();
                 ResizeWindowForCombatPanel(_vm.SidePanel.IsCombatPanelVisible);
+                // T2: remembered per persona so it comes back on relog - see ClientSettings.ShowCombatRail
+                // and GameViewModel.PersistCombatRailVisibilityAsync. Fire-and-forget, like the other
+                // startup-time I/O in this file (e.g. LoadCombatHistoryAsync in GameViewModel's own
+                // constructor); the method swallows and logs its own failures.
+                _ = _vm.PersistCombatRailVisibilityAsync();
+            }
 
             // Hiding the rail silences the click, and the post-kill grace window is not a fight.
             // Neither of those raises the Live property, so without watching them directly the
@@ -1587,6 +1703,375 @@ public partial class GamePage : ContentPage
         }
     }
 
+    // ── Damage floats ───────────────────────────────────────────────────────────────────────
+    // The rail's one deliberate piece of motion: a small "5-9" / "-7" / "Miss" / "+14" that appears
+    // over the pane an event belongs to, drifts upward and is gone in about a second and a half.
+    //
+    // Three rules shape everything below, and each of them has a file behind it:
+    //   * The canvas never animates (Invariant #1, CombatRailView's own remarks). So a float is not
+    //     drawn by the rail at all - it is a pooled MAUI Label laid over it, moved and faded purely
+    //     by WinUI Composition, exactly as the tick fill and the flee pulse already are.
+    //   * The typing path takes no MAUI layout hits (Invariant #1 again, and this codebase's three
+    //     documented keystroke-reordering causes). CombatPanelBorder and the terminal+InputEntry
+    //     stack are SIBLING columns of one Grid (GamePage.xaml's Grid.Row="2"), so anything that
+    //     invalidates a MAUI measure here reaches an ancestor that also lays out the input box. Two
+    //     things keep that from happening at all, rather than being argued about:
+    //       - Position is a Composition Translation, never a Margin. The pool is created once and
+    //         every element is arranged ONCE, at the panel's top-left, at a fixed size. A combat
+    //         event never moves a MAUI element.
+    //       - Text and colour are written to the NATIVE TextBlock, not through Label.Text /
+    //         Label.TextColor, so no MAUI BindableProperty is set and no MAUI invalidation exists to
+    //         propagate. See OnCombatFloatRaised, which carries the decompiled evidence.
+    //     What remains is WinUI's own measure invalidation on a TextBlock whose text changed. That
+    //     is unavoidable for any text anywhere in the app (the status bar does it once a second),
+    //     and it is bounded here by the budget below. It is also the one part of this that has NOT
+    //     been measured in the owner's hands - see the note in OnCombatFloatRaised.
+    //   * Motion is budgeted (RailFloatBudget). The rail is a glance instrument; unbounded floats at
+    //     a 2 s tick with a pack of opponents are ambient motion, which defeats the whole panel.
+
+    /// <summary>
+    /// The four float colours, as native brushes built once on the UI thread and then only ever
+    /// assigned by reference.
+    ///
+    /// <para>Native rather than <c>Label.TextColor</c> for the reason the section remarks give, and
+    /// pre-built because MAUI's own TextColor mapper constructs a fresh <c>SolidColorBrush</c> - a
+    /// DependencyObject with thread affinity - on every set. Four allocations per tick is not a
+    /// crisis, but it is native churn on the combat path for no gain, and holding the brushes is
+    /// free once the handle is already in hand.</para>
+    ///
+    /// <para>Campbell by slot, matching the rail's own rule that panel colours come from the
+    /// terminal palette: bright white for the player's own blow (the neutral "you did this" tone,
+    /// deliberately NOT the hostile red the incoming figures use - the two directions carry
+    /// different KINDS of number, a bracket the game printed versus an exact stamina delta, and
+    /// colouring them alike would invite reading them as one measurement); bright red for a blow
+    /// taken, the same slot the hostile rail elements and the critical combat edge use; bright black
+    /// for either side's miss, the quietest thing on the panel, which is what a miss is worth; and
+    /// bright green for a deduced stamina gain.</para>
+    /// </summary>
+    private Microsoft.UI.Xaml.Media.SolidColorBrush? _floatBrushOutgoing;   // #F2F2F2
+    private Microsoft.UI.Xaml.Media.SolidColorBrush? _floatBrushIncoming;   // #E74856
+    private Microsoft.UI.Xaml.Media.SolidColorBrush? _floatBrushMiss;       // #767676
+    private Microsoft.UI.Xaml.Media.SolidColorBrush? _floatBrushGain;       // #16C60C
+
+    private static Microsoft.UI.Xaml.Media.SolidColorBrush FloatBrush(byte r, byte g, byte b)
+        => new(Microsoft.UI.ColorHelper.FromArgb(0xFF, r, g, b));
+
+    /// <summary>Each pooled element's fixed box, in dp. Fixed so the element is ARRANGED once and
+    /// never again: a float's whole position is a Composition Translation off that one arranged
+    /// rectangle, which is what keeps a combat event out of MAUI layout entirely. The widest string
+    /// any float can carry is a five-character bracket, and 92 is the stamina seal's own width, so a
+    /// float centred on the seal cannot overhang the panel either.</summary>
+    private const double CombatFloatWidthDp = 92.0;
+    private const double CombatFloatHeightDp = 18.0;
+
+    /// <summary>How far a second float at the SAME anchor is lifted, so two blows in one tick do not
+    /// print on top of each other. One line's worth.</summary>
+    private const double CombatFloatLaneStepDp = 15.0;
+
+    /// <summary>A float's whole life. The owner's figure; also RailFloatBudget's expiry, which is
+    /// read from there rather than restated so the animation and the budget cannot disagree about
+    /// when a slot is free again.</summary>
+    private static readonly TimeSpan CombatFloatDuration = RailFloatBudget.Lifetime;
+
+    /// <summary>
+    /// Builds the float pool and hooks the event that feeds it.
+    ///
+    /// <para>The Labels are created here rather than in XAML because the pool size IS
+    /// <see cref="RailFloatBudget.MaxInFlight"/>, and hand-copied markup would be a second copy of
+    /// that number. Each is added to the combat panel's Grid as its topmost child (a float must be
+    /// legible over the canvas, unlike the tick fill which sits behind it), taken out of hit-testing
+    /// outright, and left at Opacity 0 until Composition raises it.</para>
+    /// </summary>
+    private void SetupCombatFloats()
+    {
+        // Built on the UI thread, before anything can want one. A WinUI Brush has thread affinity,
+        // so this cannot be a static field initialiser whose timing is whoever touches the class
+        // first.
+        _floatBrushOutgoing ??= FloatBrush(0xF2, 0xF2, 0xF2);
+        _floatBrushIncoming ??= FloatBrush(0xE7, 0x48, 0x56);
+        _floatBrushMiss ??= FloatBrush(0x76, 0x76, 0x76);
+        _floatBrushGain ??= FloatBrush(0x16, 0xC6, 0x0C);
+
+        // OnAppearing's Windows block runs on every appearance (it is deliberately outside the
+        // _eventsSubscribed guard, so its handler hookups pair with OnDisappearing's teardown), but
+        // the pool itself must be built exactly once - a second pass would add four more Labels to
+        // the panel every time the page came back. The elements outlive teardown; only their
+        // Composition animators are released and re-attached below.
+        for (var i = 0; i < _combatFloatLabels.Length && !_combatFloatsBuilt; i++)
+        {
+            var label = new Label
+            {
+                Text = string.Empty,
+                FontSize = 12,
+                FontAttributes = FontAttributes.Bold,
+                // No TextColor: the native Foreground is the single owner of this element's colour
+                // (see the brushes above). Setting it here too would leave two writers for one
+                // property, and MAUI's would win on any handler rebuild.
+                //
+                // Font, alignment and box size DO stay on the MAUI side - they are set once at
+                // construction and never touched again, so they cost nothing per event and MAUI's
+                // font resolution is worth having for them.
+                //
+                // Fixed box, arranged once at the panel's top-left. Everything after this is
+                // Composition Translation - see the section remarks on why layout is off limits.
+                WidthRequest = CombatFloatWidthDp,
+                HeightRequest = CombatFloatHeightDp,
+                HorizontalOptions = LayoutOptions.Start,
+                VerticalOptions = LayoutOptions.Start,
+                HorizontalTextAlignment = TextAlignment.Center,
+                VerticalTextAlignment = TextAlignment.Center,
+                LineBreakMode = LineBreakMode.NoWrap,
+                InputTransparent = true,
+                // Invisible until Composition raises it, asserted on the MAUI element as well as on
+                // the visual (RailFloatLayer.Rest) for the same belt-and-braces reason
+                // CombatFleePill carries Opacity="0" in XAML: the element exists from load, and an
+                // untouched visual sits at full opacity - which would print the previous float's
+                // text permanently over the rail if the animation's rest state were ever missed.
+                Opacity = 0,
+            };
+            _combatFloatLabels[i] = label;
+            var slot = i;
+            label.HandlerChanged += (_, _) => OnCombatFloatHandlerChanged(slot);
+            // Topmost child of the panel: a float has to be legible OVER the canvas, unlike the tick
+            // fill and the glow, which sit behind it. Safe above the two real hit targets because
+            // OnCombatFloatHandlerChanged takes each element out of hit-testing outright.
+            CombatPanelLayers.Children.Add(label);
+        }
+        _combatFloatsBuilt = true;
+
+        // Re-attached on every appearance, not just the first: teardown releases the Composition
+        // animators (RO_E_CLOSED), and the elements' own HandlerChanged will not fire again for a
+        // platform view that was never destroyed.
+        for (var i = 0; i < _combatFloatLabels.Length; i++)
+            OnCombatFloatHandlerChanged(i);
+
+        // The canvas fills the panel's content box exactly, so its arranged size IS the box the
+        // rail's geometry is expressed in - no Border stroke inset to re-derive here.
+        CombatPanelCanvas.SizeChanged += OnCombatRailSizeChanged;
+        OnCombatRailSizeChanged(CombatPanelCanvas, EventArgs.Empty);
+
+        _vm.SidePanel.CombatFloatRaised += OnCombatFloatRaised;
+    }
+
+    private void TeardownCombatFloats()
+    {
+        _vm.SidePanel.CombatFloatRaised -= OnCombatFloatRaised;
+        CombatPanelCanvas.SizeChanged -= OnCombatRailSizeChanged;
+        _combatFloatBudget.Clear();
+        for (var i = 0; i < _combatFloatLayers.Length; i++)
+        {
+            // Same RO_E_CLOSED class as the tick sweep and the pulse layers: a live Composition
+            // animation must never outlive the visual it is attached to.
+            _combatFloatLayers[i]?.Stop();
+            _combatFloatLayers[i] = null;
+            _combatFloatText[i] = null;
+        }
+    }
+
+    /// <summary>
+    /// Attaches (or re-attaches) one pool element's Composition animator once its native view
+    /// exists. Mirrors OnCombatTickSweepHandlerChanged: release the previous animator first and
+    /// unconditionally, because a platform view can be recreated without the page unloading and a
+    /// running animation on the outgoing visual is the RO_E_CLOSED crash this codebase has taken.
+    /// </summary>
+    private void OnCombatFloatHandlerChanged(int slot)
+    {
+        var previous = _combatFloatLayers[slot];
+        _combatFloatLayers[slot] = null;
+        _combatFloatText[slot] = null;
+        previous?.Stop();
+
+        if (_combatFloatLabels[slot].Handler?.PlatformView is not Microsoft.UI.Xaml.FrameworkElement fe)
+            return;
+
+        // Decoration only, and over a panel that already owns two real hit targets. InputTransparent
+        // on a MAUI element was NOT enough to keep the flee pill out of the pointer path in play (a
+        // click on it took keyboard focus off the command box - Invariant #0), so the platform view
+        // is taken out of hit-testing and focus directly rather than trusted to the cross-platform
+        // property. A float sits ABOVE the metronome and flee hit targets in z-order; without this
+        // it would swallow their clicks for a second and a half at a time.
+        fe.IsHitTestVisible = false;
+        fe.AllowFocusOnInteraction = false;
+
+        // The handle spawning writes through. MAUI's LabelHandler creates a plain TextBlock
+        // (decompiled: LabelHandler.CreatePlatformView, and MapText/MapTextColor go straight to
+        // TextBlockExtensions.UpdateTextPlainText / UpdateProperty(ForegroundProperty)) - so writing
+        // Text and Foreground here is byte-for-byte what MAUI would have done, minus the
+        // BindableProperty round trip. A rebuilt handler re-runs MAUI's own mappers and blanks the
+        // text, which is why this is re-cached and why the layer is Rest() as well: whatever was in
+        // the air is cancelled, and the next spawn writes afresh.
+        _combatFloatText[slot] = fe as Microsoft.UI.Xaml.Controls.TextBlock;
+        if (_combatFloatText[slot] is { } textBlock)
+            textBlock.Foreground = _floatBrushMiss;
+
+        _combatFloatLayers[slot] = RailFloatLayer.Attach(fe);
+    }
+
+    /// <summary>
+    /// Caches the rail's content box and clears the air. Both halves matter: the float geometry is
+    /// derived from the panel's height (the rail lays out bottom-up), so every in-flight float was
+    /// placed against a box that no longer exists.
+    /// </summary>
+    private void OnCombatRailSizeChanged(object? sender, EventArgs e)
+    {
+        var width = CombatPanelCanvas.Width;
+        var height = CombatPanelCanvas.Height;
+        if (width == _railContentWidthDp && height == _railContentHeightDp)
+            return;
+
+        _railContentWidthDp = width;
+        _railContentHeightDp = height;
+        CancelCombatFloats();
+    }
+
+    /// <summary>
+    /// Drops every float in the air. Used wherever the geometry underneath them stops applying -
+    /// the panel resized, was hidden, or the feature was switched off.
+    /// </summary>
+    private void CancelCombatFloats()
+    {
+        _combatFloatBudget.Clear();
+        _combatFloatRosterShape = (-1, -1);
+        foreach (var layer in _combatFloatLayers)
+            layer?.Rest();
+    }
+
+    /// <summary>
+    /// Drops opponent-anchored floats when the roster's shape changes.
+    ///
+    /// <para>A float is pinned to a SLOT, not to a creature - the slot is what the eye attributes it
+    /// to. When something dies or joins, the roster reorders (live rows sort ahead of resolved ones)
+    /// and slot 2 becomes a different creature, so a number still rising over it is now crediting
+    /// the wrong thing. Shape, not identity, because the shape is the only part that can reorder the
+    /// rows: row count plus the live/resolved split. The player's own floats are untouched - the
+    /// stamina seal has not moved and its numbers are still true.</para>
+    ///
+    /// <para>Cheap enough to run on every Live republish (which is every combat event, every
+    /// heartbeat and every 1 Hz tick): two int comparisons, and the clear only happens on a real
+    /// change.</para>
+    /// </summary>
+    private void SyncCombatFloatRoster()
+    {
+        var roster = _vm.SidePanel.Live.Roster;
+        var shape = (roster.Rows.Count, roster.LiveCount);
+        if (shape == _combatFloatRosterShape)
+            return;
+
+        _combatFloatRosterShape = shape;
+        // Exactly the slots the budget freed, and no others. Resting a player-anchored float that
+        // survived this pass would not just cancel it on screen - cancelling makes its completion
+        // callback stale, so its slot would stay held until the lifetime expiry.
+        var freed = _combatFloatBudget.ClearOpponentAnchored();
+        for (var i = 0; freed != 0 && i < _combatFloatLayers.Length; i++)
+            if ((freed & (1 << i)) != 0)
+                _combatFloatLayers[i]?.Rest();
+    }
+
+    /// <summary>
+    /// Places and runs one float. Called on the UI thread, once per qualifying combat line.
+    ///
+    /// <para>Every early return here is a deliberate drop rather than a fallback. A float that
+    /// cannot be placed truthfully is not worth placing at all: the panel has no room to be
+    /// approximately right about which creature was hit.</para>
+    /// </summary>
+    private void OnCombatFloatRaised(RailFloat floatEvent)
+    {
+        if (!_vm.SidePanel.IsCombatPanelVisible || !_vm.SidePanel.IsCombatFloatsEnabled)
+            return;
+        // Never measured (the panel has been hidden all session), so there is no geometry to place
+        // against - not an error, just nothing to draw on.
+        if (_railContentWidthDp <= 0 || _railContentHeightDp <= 0)
+            return;
+
+        RailRect anchor;
+        if (floatEvent.IsPlayerAnchored)
+        {
+            anchor = CombatRailView.StaminaSealDp(_railContentWidthDp, _railContentHeightDp);
+        }
+        else
+        {
+            // Null means the row is in the overflow tail - drawn as a name in a shared line, with no
+            // pane of its own. Nothing to float over.
+            var slotRect = CombatRailView.OpponentSlotDp(
+                _railContentWidthDp, _railContentHeightDp,
+                floatEvent.RosterIndex, floatEvent.LiveCount);
+            if (slotRect is null)
+                return;
+            anchor = slotRect.Value;
+        }
+
+        if (_combatFloatBudget.Admit(floatEvent.Kind, floatEvent.RosterIndex, floatEvent.AtUtc)
+            is not RailFloatGrant grant)
+            return;   // over budget: see RailFloatBudget for the shed policy and the rule behind it
+
+        var layer = _combatFloatLayers[grant.PoolSlot];
+        if (layer is null || _combatFloatText[grant.PoolSlot] is not { } textBlock)
+        {
+            // No native view yet. Give the slot straight back rather than leave it held for a
+            // completion callback that can never arrive.
+            _combatFloatBudget.Retire(grant.PoolSlot, grant.Token);
+            return;
+        }
+
+        // Written to the NATIVE TextBlock, not through Label.Text / Label.TextColor. Both routes end
+        // at the same two native property sets (LabelHandler.MapText -> UpdateTextPlainText, and
+        // MapTextColor -> UpdateProperty(ForegroundProperty) - decompiled, not assumed), so this
+        // changes nothing about what is drawn. What it removes is the MAUI half of the round trip:
+        // BindableProperty.SetValue, the property-changed fan-out, the handler mapper dispatch, and
+        // - the part that matters - Label.OnTextPropertyChanged's call to InvalidateMeasureInternal.
+        //
+        // Why that call matters HERE specifically: CombatPanelBorder and the terminal+InputEntry
+        // stack are sibling columns of one Grid (GamePage.xaml, Grid.Row="2"). A MAUI measure
+        // invalidation walks UP the MAUI element tree, so it would reach that shared Grid and make
+        // its LayoutPanel re-run CrossPlatformMeasure over all three columns - managed layout work
+        // on the same ancestor that lays out the input box, up to four times per two-second tick.
+        // This project has three separate documented keystroke-reordering bugs whose cause was
+        // layout thrash near the input path, and a house rule that such changes are measured rather
+        // than reasoned about.
+        //
+        // The honest state of that: as of MAUI 10.0.20 the invalidation would ALREADY be skipped,
+        // because Label.TextChangedShouldInvalidateMeasure short-circuits on IsLabelSizeable, which
+        // is false once both WidthRequest and HeightRequest are set (VisualElement.OnRequestChanged
+        // sets SelfConstraint = HorizontallyFixed | VerticallyFixed) - which they are, above. But
+        // that is an undocumented internal of one MAUI version standing between a combat event and
+        // the typing path, and it was an accident that it held rather than a decision. Writing
+        // natively means the question does not arise at any MAUI version.
+        //
+        // What is NOT removed, and cannot be: WinUI's own measure invalidation when a TextBlock's
+        // text changes. That is true of every piece of text in the app, and the budget below is what
+        // bounds it. It is also the one claim here that has not been checked in the owner's hands -
+        // tools/type-test.ps1 needs the live app to say anything.
+        //
+        // Guarded, because a burst of identical events is common in a pack fight ("Miss", "Miss")
+        // and a same-value write still invalidates.
+        if (!string.Equals(textBlock.Text, floatEvent.Text, StringComparison.Ordinal))
+            textBlock.Text = floatEvent.Text;
+        // Reference assignment from the pre-built set - no allocation, and setting Foreground does
+        // not invalidate measure at all, only render.
+        var tone = BrushFor(floatEvent.Kind);
+        if (!ReferenceEquals(textBlock.Foreground, tone))
+            textBlock.Foreground = tone;
+
+        var x = anchor.CenterX - (CombatFloatWidthDp / 2.0);
+        var y = anchor.CenterY - (CombatFloatHeightDp / 2.0) - (grant.Lane * CombatFloatLaneStepDp);
+
+        if (!layer.Play(x, y, CombatFloatDuration,
+                () => _combatFloatBudget.Retire(grant.PoolSlot, grant.Token)))
+        {
+            // The compositor behind that element is gone. The slot is useless until its handler is
+            // rebuilt, so hand it back now instead of stranding it for the budget's expiry.
+            _combatFloatBudget.Retire(grant.PoolSlot, grant.Token);
+        }
+    }
+
+    private Microsoft.UI.Xaml.Media.SolidColorBrush? BrushFor(RailFloatKind kind) => kind switch
+    {
+        RailFloatKind.OutgoingHit => _floatBrushOutgoing,
+        RailFloatKind.IncomingHit => _floatBrushIncoming,
+        RailFloatKind.StaminaGain => _floatBrushGain,
+        _ => _floatBrushMiss,
+    };
+
     /// <summary>
     /// Fires once when the Combat Rail's glow layer's native platform view first exists (and again
     /// if the handler is ever recreated) - mirrors OnTerminalHandlerChanged/OnFnButtonHandlerChanged
@@ -1637,7 +2122,7 @@ public partial class GamePage : ContentPage
         _combatTickSweep = null;
         previousSweep?.Stop();
 
-        var (left, right, bottom, height) = CombatRailView.TickTrackDp(CombatPanelWidthDp);
+        var (left, right, bottom, height) = CombatRailView.TickTrackDp(CombatPanelContentWidthDp);
         CombatTickSweep.Margin = new Thickness(left, 0, right, bottom);
         CombatTickSweep.HeightRequest = height;
 
@@ -1670,7 +2155,7 @@ public partial class GamePage : ContentPage
         _combatFleePillStatus = null;
         previousPulse?.Stop();
 
-        var (left, right, bottom, height, radius) = CombatRailView.FleePillDp(CombatPanelWidthDp);
+        var (left, right, bottom, height, radius) = CombatRailView.FleePillDp(CombatPanelContentWidthDp);
         CombatFleePill.Margin = new Thickness(left, 0, right, bottom);
         CombatFleePill.HeightRequest = height;
 
@@ -1771,12 +2256,12 @@ public partial class GamePage : ContentPage
     /// </summary>
     private void OnCombatFleePillHitHandlerChanged(object? sender, EventArgs e)
     {
-        var (left, right, bottom, height, _) = CombatRailView.FleePillDp(CombatPanelWidthDp);
+        var (left, right, bottom, height, _) = CombatRailView.FleePillDp(CombatPanelContentWidthDp);
         // Width stated explicitly rather than taken from Fill + a right margin, because this one is
         // HorizontalOptions="Start": a Fill button would stretch the full panel width and make a flee
         // reachable from anywhere along the row.
         CombatFleePillHit.Margin = new Thickness(left, 0, 0, bottom);
-        CombatFleePillHit.WidthRequest = CombatPanelWidthDp - left - right;
+        CombatFleePillHit.WidthRequest = CombatPanelContentWidthDp - left - right;
         CombatFleePillHit.HeightRequest = height;
         CombatFleePillHit.Clicked -= OnCombatFleePillClicked;
         CombatFleePillHit.Clicked += OnCombatFleePillClicked;
@@ -1825,7 +2310,7 @@ public partial class GamePage : ContentPage
     private void OnCombatMetronomeHandlerChanged(object? sender, EventArgs e)
     {
         // Same reserved block the canvas draws the switch in, so the target cannot drift off it.
-        var (_, _, bottom, _) = CombatRailView.TickTrackDp(CombatPanelWidthDp);
+        var (_, _, bottom, _) = CombatRailView.TickTrackDp(CombatPanelContentWidthDp);
         const double sizeDp = 24.0;
         CombatMetronomeHit.WidthRequest = sizeDp;
         CombatMetronomeHit.HeightRequest = sizeDp;
@@ -2641,29 +3126,33 @@ public partial class GamePage : ContentPage
         Application.Current?.OpenWindow(_mapWindow);
     }
 
-    /// <summary>True exactly while the window is currently carrying the rail's extra width, and the
-    /// width it had before that was added. Together they make <see cref="ResizeWindowForCombatPanel"/>
-    /// idempotent AND exactly reversible.</summary>
+    /// <summary>True exactly while the window is currently carrying the rail's extra width.</summary>
     private bool _railWidthApplied;
-    private int _widthWithoutRailPx;
+    /// <summary>How much of the window's current width was actually ADDED by the last "show" (as
+    /// opposed to slack the window already had before it, which needed no adding) - in DP, not px.
+    /// Reconverted to px at whatever DPI is current only at the point of use (see the method's own
+    /// remarks on finding 5): a DPI change while the rail is shown rescales the window's physical
+    /// pixel width (WinUI rescales the whole window's client area when it crosses a monitor
+    /// boundary), so a px amount captured at the show-time DPI would be the wrong amount to remove at
+    /// a different DPI on hide.</summary>
+    private double _railDeltaAppliedDp;
 
     /// <summary>
-    /// Grows or shrinks the window by exactly CombatPanelWidthDp so the rail's space appears and
-    /// disappears without the terminal's column count or the left panel's width changing as a side
-    /// effect (DESIGN_FINAL.md D3). This is the ONLY place the window resizes for a combat-panel
-    /// reason; it never resizes on combat start/end.
+    /// Grows or shrinks the window for the rail's own space, without the terminal's column count or
+    /// the left panel's width changing as a side effect (DESIGN_FINAL.md D3). This is the ONLY place
+    /// the window resizes for a combat-panel reason; it never resizes on combat start/end.
     ///
-    /// <para><b>Restores a remembered width rather than subtracting.</b> It used to add a delta on
-    /// the way in and subtract one on the way out, which is only reversible if the subtraction is
-    /// never clamped - and it is clamped, by <c>_minWindowWidthPx</c>. A window already at its
-    /// minimum therefore grew by the rail's width on every show and shrank by nothing on every hide,
-    /// so the width ratcheted up once per toggle and never came back down. That was survivable while
-    /// the only way to toggle was typing "$clog on"; it is not survivable now the toggle is a menu
-    /// item next to Onlines and Compass.</para>
+    /// <para>The T3 (auto-vs-fixed-columns slack) and T4 (a manual resize survives the toggle)
+    /// reasoning, the floor clamp, and the DPI-safe dp-stored delta all live in
+    /// <see cref="CombatRailResize.ComputeToggle"/> now (<c>Mucka.Terminal</c>, unit-tested against
+    /// the user's own acceptance examples in <c>CombatRailResizeTests</c>) - this method is a thin
+    /// caller: gather the live window/DPI/column-count state, hand it to that pure function, apply
+    /// the one real side effect (<c>appWindow.Resize</c>), and remember the returned delta.</para>
     ///
-    /// <para>Idempotent for the same reason: a duplicate or spurious notification must not be able to
-    /// add the width twice. The guard is on what the WINDOW is currently carrying, not on the
-    /// view-model flag, because those are what can disagree.</para>
+    /// <para>Idempotent: a duplicate or spurious notification must not be able to add or subtract the
+    /// width twice. The guard is on what the WINDOW is currently carrying
+    /// (<see cref="_railWidthApplied"/>), not on the view-model flag, because those are what can
+    /// disagree.</para>
     /// </summary>
     private void ResizeWindowForCombatPanel(bool showing)
     {
@@ -2673,28 +3162,22 @@ public partial class GamePage : ContentPage
         if (nativeWindow is null) return;
 
         var dpi = GetDpiForWindow(_hwnd);
-        var deltaPx = (int)Math.Round(CombatPanelWidthDp * dpi / 96.0);
         var appWindow = nativeWindow.AppWindow;
+        var panelExpanded = _vm.SidePanel.IsPanelExpanded;
 
-        int targetWidth;
-        if (showing)
-        {
-            // Remembered on the way in so the way out is an exact restore, whatever the user has
-            // done to the window in between.
-            _widthWithoutRailPx = appWindow.Size.Width;
-            targetWidth = _widthWithoutRailPx + deltaPx;
-        }
-        else
-        {
-            targetWidth = _widthWithoutRailPx > 0
-                ? _widthWithoutRailPx
-                : Math.Max(_minWindowWidthPx, appWindow.Size.Width - deltaPx);
-            _widthWithoutRailPx = 0;
-        }
+        // All the arithmetic - the T3 auto/fixed regimes, the T4 delta-preservation on hide, and the
+        // floor clamp (which deliberately forgets whatever width it could not remove, e.g. hiding on
+        // an already-maximised or otherwise floor-pinned window, rather than trying to claw it back
+        // on a later resize) - lives in CombatRailResize.ComputeToggle, unit-tested against the
+        // user's own acceptance examples. This method is the thin caller: gather the live inputs,
+        // apply the one real side effect (Resize), remember the new delta.
+        var result = CombatRailResize.ComputeToggle(
+            showing, appWindow.Size.Width, dpi, _vm.MaxColumns, CharWidthDp, panelExpanded,
+            _railDeltaAppliedDp);
+        var targetWidth = result.TargetWidthPx;
+        _railDeltaAppliedDp = result.NewAppliedDeltaDp;
         _railWidthApplied = showing;
 
-        if (targetWidth < _minWindowWidthPx)
-            targetWidth = _minWindowWidthPx;
         if (appWindow.Size.Width != targetWidth)
             appWindow.Resize(new Windows.Graphics.SizeInt32(targetWidth, appWindow.Size.Height));
 

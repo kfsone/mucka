@@ -22,7 +22,45 @@ namespace Mucka.Core;
 /// standing in for "not reported" would be a fabricated measurement that outlives the session that
 /// invented it.</para>
 /// </summary>
-public sealed record SwingRow
+/// <summary>
+/// A row this ledger can write. Two shapes go down the one queue - the per-swing stream and the rare
+/// <c>diagnose</c> reading - and one ordered channel is what keeps them on a single writer thread and
+/// a single connection. See <see cref="SwingLedger"/>.
+/// </summary>
+public interface ICombatLedgerRow;
+
+/// <summary>
+/// One <c>diagnose</c> reading, as stored in the <c>npc_stamina_reads</c> table: "The water-snake5 has
+/// a stamina lying between 90 and 99."
+///
+/// <para>The two numbers are stored EXACTLY as printed. Whether MUD2's bracket is aligned to tens, to
+/// a tenth of the pool, or to something else is unresolved at four observations, and snapping them to
+/// an assumed grid would turn those four into a rule.</para>
+/// </summary>
+public sealed record NpcStaminaReadRow : ICombatLedgerRow
+{
+    public long TimestampMs { get; init; }
+    public long? EncounterStartedAtMs { get; init; }
+    public string? Persona { get; init; }
+
+    /// <summary>Instance name as the game gave it ("water-snake5").</summary>
+    public string NpcName { get; init; } = string.Empty;
+
+    /// <summary>NpcGroups.Normalize, matching every other table's grouping.</summary>
+    public string NpcGroup { get; init; } = string.Empty;
+
+    /// <summary>NpcPoolKey.For - species AND size adjective, which the group name drops.</summary>
+    public string PoolKey { get; init; } = string.Empty;
+
+    public int PrintedLow { get; init; }
+    public int PrintedHigh { get; init; }
+
+    /// <summary>The line verbatim, so a later pass can re-read the wording instead of trusting this
+    /// row's parse.</summary>
+    public string? RawText { get; init; }
+}
+
+public sealed record SwingRow : ICombatLedgerRow
 {
     /// <summary>"out" - the player swinging.</summary>
     public const string DirectionOut = "out";
@@ -105,12 +143,16 @@ public sealed record SwingRow
     public bool StaminaDebuff { get; init; }
     public bool Glow { get; init; }
 
-    /// <summary>The game's own countdown to the next reset, as reported on the FES heartbeat.</summary>
+    /// <summary>The game's own countdown to the next reset, in MINUTES, as reported on the FES
+    /// heartbeat (field [13] - see Mud2C1Decoder.ParseAndEmitFes).</summary>
     public int? TimeToReset { get; init; }
 
-    /// <summary>When the reset this swing happened in will END - <see cref="TimestampMs"/> plus the
-    /// countdown. Derived rather than raw because the countdown changes on every swing while THIS is
-    /// constant across a whole reset, which makes it the key to group by.
+    /// <summary>An ESTIMATE of when the reset this swing happened in will END - <see
+    /// cref="TimestampMs"/> plus the countdown in minutes (<c>ttr * 60_000</c>). Derived rather than
+    /// raw because the countdown changes on every swing while this stays put - but only to within a
+    /// minute: the reading is whole minutes, so successive swings in one reset scatter across a 60s
+    /// bucket. <b>Bucket before grouping</b> (ResetClock's MinuteUncertaintySec is the same +/-30s);
+    /// raw equality is not an identity and splits one reset into many.
     ///
     /// <para>It matters because MUD2's creatures are not constants: within a reset they earn points
     /// and level up, hitting harder and surviving longer. A lifetime average for "zombies" silently

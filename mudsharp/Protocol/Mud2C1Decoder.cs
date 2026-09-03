@@ -784,9 +784,12 @@ internal sealed class Mud2C1Decoder
             // {C03}{C01..C03}{C255} → CYAN/BLACK
             // {C03}{C02..C03+variants}{C255} → LT_CYAN/BLACK
             case 0x9E:
-                if (b0 == 0x9B)                         Apply(GREEN,    BLACK);
-                else if (b0 == 0x9C)                    Apply(CYAN,     BLACK);
-                else                                    Apply(LT_CYAN,  BLACK);
+                // C1Scope.ListedObject on every C03 variant: its only job is to mask an object's name
+                // out of an enclosing creature sentence (see C1Scope.ListedObject), and an object is an
+                // object whichever of the four classes it is in.
+                if (b0 == 0x9B)                         Apply(GREEN,    BLACK, opens: C1Scope.ListedObject);
+                else if (b0 == 0x9C)                    Apply(CYAN,     BLACK, opens: C1Scope.ListedObject);
+                else                                    Apply(LT_CYAN,  BLACK, opens: C1Scope.ListedObject);
                 // Items arriving (03 0x 02) or departing (03 0x 03) change the room
                 // contents of the FEI inventory list.
                 if (count == 2 && b0 is >= 0x9B and <= 0x9E && b1 is 0x9D or 0x9E)
@@ -799,7 +802,14 @@ internal sealed class Mud2C1Decoder
             // {C04}{C01}{C255} or {C04}{C01}..{C255} → LT_MAGENTA/BLACK
             // everything else → MAGENTA/BLACK
             case 0x9F:
-                Apply(b0 == 0x9C ? LT_MAGENTA : MAGENTA, BLACK);
+                // The presence variants (04 0x 01..05: here, arriving, departing, becoming visible,
+                // becoming invisible) bracket a sentence about a creature IN THE ROOM. Captured so the
+                // Here list can tell a creature from an object - see C1Scope.CreatureText. The WHO-list
+                // variants (06..08) are excluded: they name creatures in a list, not in this room.
+                Apply(b0 == 0x9C ? LT_MAGENTA : MAGENTA, BLACK,
+                    opens: count == 2 && b0 is 0x9B or 0x9C && b1 is >= 0x9C and <= 0xA0
+                        ? C1Scope.CreatureText
+                        : C1Scope.None);
                 // Creatures arriving/departing/(in)visible (04 0x 02..08) change the
                 // room contents of the FEI inventory list.
                 if (count == 2 && b0 is 0x9B or 0x9C && b1 is >= 0x9D and <= 0xA3)

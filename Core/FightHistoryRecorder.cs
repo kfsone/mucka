@@ -154,7 +154,7 @@ public sealed class FightHistoryRecorder : IDisposable
                         _currentWeapon = combatEvent.Weapon;
                         _currentWeaponUtc = combatEvent.TimestampUtc;
                     }
-                    FightForLocked(combatEvent)?.NoteWeapon(_currentWeapon);
+                    EngagedFightForLocked(combatEvent)?.NoteWeapon(_currentWeapon);
                     break;
 
                 case CombatEventKind.WeaponEquip:
@@ -202,19 +202,19 @@ public sealed class FightHistoryRecorder : IDisposable
                     break;
 
                 case CombatEventKind.Hit:
-                    FightForLocked(combatEvent)?.AddYouHit(combatEvent.RangeLow, combatEvent.RangeHigh);
+                    EngagedFightForLocked(combatEvent)?.AddYouHit(combatEvent.RangeLow, combatEvent.RangeHigh);
                     break;
 
                 case CombatEventKind.Miss:
-                    FightForLocked(combatEvent)?.AddYouMiss();
+                    EngagedFightForLocked(combatEvent)?.AddYouMiss();
                     break;
 
                 case CombatEventKind.HitByNpc:
-                    FightForLocked(combatEvent)?.AddTheyHit(ResolveDamageTakenLocked(combatEvent.RangeLow));
+                    EngagedFightForLocked(combatEvent)?.AddTheyHit(ResolveDamageTakenLocked(combatEvent.RangeLow));
                     break;
 
                 case CombatEventKind.MissByNpc:
-                    FightForLocked(combatEvent)?.AddTheyMiss();
+                    EngagedFightForLocked(combatEvent)?.AddTheyMiss();
                     break;
 
                 case CombatEventKind.NpcWeaponEquip:
@@ -384,6 +384,64 @@ public sealed class FightHistoryRecorder : IDisposable
         return active.ToArray();
     }
 
+    /// <summary>
+    /// The LIVE fight bucket for an event's NPC: the open one if this name has an open one, otherwise a
+    /// fresh engagement.
+    ///
+    /// <para>For anything meaning "a fight is happening right now". A name outlives its fight.</para>
+    ///
+    /// <para><b>The mechanic, from the owner (2026-09-01): "fleeing ends combat with all creatures
+    /// attacking you. so if a zombie flees, even if it fails, it is no-longer in combat with you."</b>
+    /// A creature that attempts to flee leaves combat whether or not it gets away. It may still be
+    /// standing in the room, but it is not fighting the player, and the player must attack again to
+    /// re-engage. Corroborated in the clog corpus: across 128 NpcFleeFailed events in 1,195 clogs, the
+    /// next event naming that creature was a fresh FightStart 100 times and nothing at all 28 times -
+    /// never a swing in either direction.</para>
+    ///
+    /// <para>So a swing arriving after "the rat17 attempts to flee, but fails" belongs to a NEW
+    /// engagement - the first one really is over. Feeding it to the closed bucket corrupted a persisted
+    /// row's damage totals and, because <c>FightAccumulator.Resolve</c> keeps the first outcome, lost
+    /// the second engagement's ending: a creature that broke off and was then killed was written to
+    /// history as "broke off" with the kill's blows folded into it.</para>
+    ///
+    /// <para><b>This side is the one that matters most.</b> The aggregator's copy of this drives the
+    /// live panel; these rows ARE the corpus, so a merged bucket here corrupts every constraint the
+    /// stamina-pool estimator later derives. It also defeated the estimator's own defence:
+    /// <c>ChaseLinker</c> joins consecutive engagements against one name into a single observation
+    /// against one pool - which is what lets a terminal kill bound that pool from above - and it can
+    /// only do that if the two engagements are two ROWS. Merged into one by this class, they were a
+    /// single row it could never take apart.</para>
+    ///
+    /// <para>Note what the fix does and does not buy. It does not add a clean kill observation: the
+    /// filter will correctly drop the second engagement, because that creature was pre-damaged by the
+    /// first. What it buys is that the FIRST row is no longer polluted with the second's blows, and the
+    /// contaminated one is now visible as contaminated instead of hiding inside it.</para>
+    ///
+    /// <para>The client cannot tell a creature you chased from a fresh <c>rat17</c> after a reset - MUD2
+    /// reuses instance names and says nothing about identity. That ambiguity is about which CREATURE
+    /// the second engagement is against, not about whether there was one, and the exclusion filter
+    /// above is what answers it.</para>
+    /// </summary>
+    private FightAccumulator? EngagedFightForLocked(CombatEvent combatEvent)
+    {
+        var npcName = combatEvent.NpcName;
+        if (string.IsNullOrWhiteSpace(npcName))
+            return null;
+
+        if (_fights.TryGetValue(npcName, out var live) && !live.IsResolved)
+            return live;
+
+        return StartFightLocked(npcName, combatEvent);
+    }
+
+    /// <summary>
+    /// The fight bucket for an event's NPC whatever state it is in, creating one only if this name has
+    /// never been seen this encounter.
+    ///
+    /// <para>For CLOSING a fight. Deliberately NOT re-minting on a resolved bucket the way
+    /// <see cref="EngagedFightForLocked"/> does: a trailing end line for an already-closed fight would
+    /// otherwise persist a second, zero-swing row against a creature already recorded properly.</para>
+    /// </summary>
     private FightAccumulator? FightForLocked(CombatEvent combatEvent)
     {
         var npcName = combatEvent.NpcName;
@@ -393,6 +451,11 @@ public sealed class FightHistoryRecorder : IDisposable
         if (_fights.TryGetValue(npcName, out var existing))
             return existing;
 
+        return StartFightLocked(npcName, combatEvent);
+    }
+
+    private FightAccumulator? StartFightLocked(string npcName, CombatEvent combatEvent)
+    {
         // A fight may only be BORN inside an open encounter. _encounterStartedAtMs is set when the
         // encounter opens and nulled when it flushes, so this reads "no encounter is open" - and a
         // named event arriving then is a trailing acknowledgment of something already recorded (MUD2
@@ -403,8 +466,8 @@ public sealed class FightHistoryRecorder : IDisposable
         // Safe against the real event ordering: CombatTracker fires InCombatChanged(true) from Begin()
         // BEFORE emitting the event that opened the fight, and Emits a closing event BEFORE End()
         // closes the encounter - so every event belonging to a fight arrives while its encounter is
-        // open. Nothing legitimate is dropped here, and the weapon-tracking fields above are
-        // deliberately outside this guard (a weapon equipped moments before the client noticed the
+        // open. Nothing legitimate is dropped here, and the weapon-tracking fields in the FightStart
+        // case are deliberately outside this guard (a weapon equipped moments before the client noticed the
         // fight still has to be carried in - see OnInCombatChanged).
         if (_encounterStartedAtMs is null)
             return null;

@@ -43,7 +43,9 @@ internal static class CombatComposition
                 primary.YouHits,
                 primary.TheyHits,
                 deficits.StaminaCurrent,
-                history.Primary.EstimatedStaminaPool);
+                // The TOP of the species band, not its middle - see StaminaPoolEstimate.PessimisticPool
+                // for why a survivability projection takes the pessimistic end.
+                history.Pool.PessimisticPool);
     }
 
     private static bool IsCurrentWeapon(string weapon, string? current)

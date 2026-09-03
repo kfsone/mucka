@@ -44,13 +44,24 @@
     <Compile Include="..\ViewModels\CombatContracts.cs" Link="ViewModels\CombatContracts.cs" />
     <Compile Include="..\ViewModels\CombatComposition.cs" Link="ViewModels\CombatComposition.cs" />
     <Compile Include="..\ViewModels\ClogRenderGate.cs" Link="ViewModels\ClogRenderGate.cs" />
+    <!-- The Combat Rail's damage floats: the slot/seal geometry the overlay places against, and
+         the motion budget that decides how many may be in the air. Both are deliberately MAUI-free
+         so they can be linked here - the elements and the Composition animations they drive are
+         GamePage's and are not testable without a window. -->
+    <Compile Include="..\ViewModels\RailSlotGeometry.cs" Link="ViewModels\RailSlotGeometry.cs" />
+    <Compile Include="..\ViewModels\RailFloats.cs" Link="ViewModels\RailFloats.cs" />
     <Compile Include="..\ViewModels\CombatHistoryCache.cs" Link="ViewModels\CombatHistoryCache.cs" />
+    <!-- The Here list's "which of these are we fighting" set. MAUI-free for the same reason
+         CombatHistoryCache is: its unchanged-refresh property is load-bearing for Invariant #1 and
+         cannot be checked from inside a view model. -->
+    <Compile Include="..\ViewModels\EngagedNpcSet.cs" Link="ViewModels\EngagedNpcSet.cs" />
     <Compile Include="..\Core\FightHistoryStore.cs" Link="Core\FightHistoryStore.cs" />
     <Compile Include="..\Core\FightHistoryRecorder.cs" Link="Core\FightHistoryRecorder.cs" />
     <Compile Include="..\Core\SwingLedger.cs" Link="Core\SwingLedger.cs" />
     <Compile Include="..\Core\SwingRow.cs" Link="Core\SwingRow.cs" />
     <Compile Include="..\Core\CombatDb.cs" Link="Core\CombatDb.cs" />
     <Compile Include="..\Core\CombatTiming.cs" Link="Core\CombatTiming.cs" />
+    <Compile Include="..\Core\TickStaminaLoss.cs" Link="Core\TickStaminaLoss.cs" />
     <Compile Include="..\Core\TickPhase.cs" Link="Core\TickPhase.cs" />
     <Compile Include="..\Core\WavProbe.cs" Link="Core\WavProbe.cs" />
     <Compile Include="..\Audio\SoundCatalog.cs" Link="Audio\SoundCatalog.cs" />

@@ -172,8 +172,11 @@ public static class CombatDb
 
             -- Reset context. MUD2 creatures earn points and level up WITHIN a reset, so the same name
             -- is a different opponent at different points in the cycle. time_to_reset is the reading
-            -- as the game gave it; reset_epoch_ms is ts + that, i.e. the instant this reset ends -
-            -- constant across every swing of one reset, which makes it the natural grouping key.
+            -- as the game gave it, in MINUTES (FES field [13]); reset_epoch_ms is ts + ttr*60000, an
+            -- ESTIMATE of the instant this reset ends. It is NOT constant across a reset: the reading
+            -- is whole minutes, so successive swings land anywhere in a 60s-wide bucket around the
+            -- true instant. Group on it BUCKETED (+/-30s, ResetClock's MinuteUncertaintySec) - raw
+            -- equality splits one reset into many.
             time_to_reset       INTEGER,
             reset_epoch_ms      INTEGER,
 
@@ -248,6 +251,36 @@ public static class CombatDb
         CREATE INDEX IF NOT EXISTS ix_fights_group     ON fights(npc_group);
         CREATE INDEX IF NOT EXISTS ix_fights_weapon    ON fights(weapon_used);
         CREATE INDEX IF NOT EXISTS ix_fights_encounter ON fights(encounter_started_at_ms);
+
+        -- Every `diagnose` reading the stethoscope has ever produced: "The water-snake5 has a stamina
+        -- lying between 90 and 99."
+        --
+        -- This is the ONLY direct measurement of NPC stamina MUD2 gives, and until now the client
+        -- parsed it and threw it away - four observations exist in the whole corpus and none of them
+        -- was written down. It is the strongest constraint the remaining-stamina model has (see
+        -- MudSharp.Combat.NpcRemainingStamina), and it is also the only way to CHECK a published
+        -- creature stamina against the live game.
+        --
+        -- printed_low/printed_high are EXACTLY the two numbers in the sentence. Whether the bracket is
+        -- aligned to tens, to a tenth of the pool, or to something else is unresolved at n=4, so
+        -- nothing rounds or snaps them; the raw line rides along so a later pass can re-read the
+        -- wording rather than trust this table's parse.
+        CREATE TABLE IF NOT EXISTS npc_stamina_reads (
+            id                  INTEGER PRIMARY KEY,
+            ts                  INTEGER NOT NULL,   -- unix ms, the tracker's own feed-thread stamp
+            encounter_started_at_ms INTEGER,        -- null: diagnosing something before fighting it is the point
+            persona             TEXT,
+            npc                 TEXT NOT NULL,      -- instance name as the game gave it
+            npc_group           TEXT NOT NULL,      -- NpcGroups.Normalize, matching the other tables
+            pool_key            TEXT NOT NULL,      -- NpcPoolKey.For - species AND size, which npc_group drops
+            printed_low         INTEGER NOT NULL,
+            printed_high        INTEGER NOT NULL,
+            raw_text            TEXT
+        );
+
+        CREATE INDEX IF NOT EXISTS ix_stamina_reads_npc  ON npc_stamina_reads(npc);
+        CREATE INDEX IF NOT EXISTS ix_stamina_reads_pool ON npc_stamina_reads(pool_key);
+        CREATE INDEX IF NOT EXISTS ix_stamina_reads_ts   ON npc_stamina_reads(ts);
 
         -- How hard each creature hits, which is what the rail's per-opponent column reads (warmed into
         -- memory once per encounter - never queried per frame or per swing). Incoming only: dmg is

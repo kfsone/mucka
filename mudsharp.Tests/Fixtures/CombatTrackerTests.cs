@@ -35,6 +35,62 @@ public class CombatTrackerTests
         return (t, inCombat, events);
     }
 
+    /// <summary>
+    /// The four loadout lines, each its own kind. Verbatim wordings from the capture corpus.
+    ///
+    /// <para>They are four rather than one because they are four different facts. A drop and a take
+    /// move both the item count and the weight; a container move changes the count while leaving the
+    /// weight where it is - IF the container is itself carried, which the line does not say, which is
+    /// why the container is named rather than discarded. Collapsing the pair into "dropped" would
+    /// assert a weight change that may not have happened, and would lose the single cleanest
+    /// observation separating the dexterity burden from the strength one.</para>
+    /// </summary>
+    [Fact]
+    public void TheFourLoadoutLines_EmitFourDistinctKinds_AndNameTheContainer()
+    {
+        var (t, _, events) = NewTracker();
+        var now = DateTime.UtcNow;
+        t.Observe(Line("You attack the rat17, using the axe0 as a weapon."), now);
+        t.Observe(Line("Cache of farthings dropped."), now.AddSeconds(1));
+        t.Observe(Line("Well-maintained pick2 taken."), now.AddSeconds(2));
+        t.Observe(Line("Baton inserted in glass bottle6."), now.AddSeconds(3));
+        t.Observe(Line("Starfish removed from lobster pot0."), now.AddSeconds(4));
+
+        var moves = events.Skip(1).ToList();
+        Assert.Equal(
+            [CombatEventKind.ItemDropped, CombatEventKind.ItemTaken,
+             CombatEventKind.ItemStowed, CombatEventKind.ItemRetrieved],
+            moves.Select(e => e.Kind));
+        Assert.Equal(
+            ["Cache of farthings", "Well-maintained pick2", "Baton", "Starfish"],
+            moves.Select(e => e.Weapon));
+        Assert.Null(moves[0].Container);
+        Assert.Null(moves[1].Container);
+        Assert.Equal("glass bottle6", moves[2].Container);
+        Assert.Equal("lobster pot0", moves[3].Container);
+        // None of them touches the encounter: moving your pack about is not a combat state change.
+        Assert.True(t.InCombat);
+    }
+
+    /// <summary>
+    /// The refusal is not a drop. "The starfish is embroiled in combat and can't be dropped." is the
+    /// one line in this family that means NOTHING moved, and the unbounded name pattern this replaced
+    /// matched it as a drop of an object called "The starfish is embroiled in combat and can't be" -
+    /// a phantom event in the clog, and one that would have forced a pointless probe once MudSession
+    /// started keying off the same wordings.
+    /// </summary>
+    [Fact]
+    public void ARefusedDrop_EmitsNothing()
+    {
+        var (t, _, events) = NewTracker();
+        var now = DateTime.UtcNow;
+        t.Observe(Line("You attack the rat17, using the axe0 as a weapon."), now);
+        t.Observe(Line("The starfish is embroiled in combat and can't be dropped."), now.AddSeconds(1));
+
+        Assert.DoesNotContain(events, e => e.Kind is CombatEventKind.ItemDropped or CombatEventKind.ItemTaken
+                                                  or CombatEventKind.ItemStowed or CombatEventKind.ItemRetrieved);
+    }
+
     /// <summary>Reported live: a weapon broke mid-fight and the readout kept showing it equipped.
     /// "You cannot use the X to fight now!" was parsed nowhere - the only reference in the project
     /// was a dead regex in tools/combat/reduce_combat.py. It is also the wield-refusal line, the
@@ -819,4 +875,74 @@ public class CombatTrackerTests
         Assert.True(t.InCombat);
     }
 
+    /// <summary>
+    /// ParticipantJoined exists for consumers that need "every name that has ever actually fought"
+    /// (the creature-value probe) without duplicating this class's own idea of what counts as new -
+    /// see the event's own remarks. It must fire exactly once for a genuinely new name and NOT again
+    /// for every defensive re-Begin() the same still-active name draws from later lines (YouHit,
+    /// NpcHitsYou, NpcWeaponEquip all call Begin() unconditionally for a participant that may already
+    /// be engaged).
+    /// </summary>
+    [Fact]
+    public void ParticipantJoined_FiresOnceForAGenuinelyNewName_NotOnEveryDefensiveReBegin()
+    {
+        var t = new CombatTracker();
+        var joined = new List<string>();
+        t.ParticipantJoined += joined.Add;
+        var now = DateTime.UtcNow;
+
+        // Opens the fight - genuinely new.
+        t.Observe(Line("You attack the rat17, using the axe0 as a weapon."), now);
+        // Defensive Begin()s for the SAME name, from three different lines that all call it
+        // unconditionally regardless of whether the name is already active.
+        t.Observe(Line("You hit the rat17 (5-9)."), now.AddSeconds(1));
+        t.Observe(Line("The rat17 hits you (84/90)."), now.AddSeconds(2));
+        t.Observe(Line("The rat17 has started to use the fork to fight!"), now.AddSeconds(3));
+
+        Assert.Equal(["rat17"], joined);
+    }
+
+    /// <summary>A pack member that never speaks an explicit aggro line still counts as newly
+    /// joined the moment ANY line proves it is an active participant - the same gap YouHit's own
+    /// remarks describe (a creature that "bares its razor-sharp incisors" is never matched as a
+    /// fight-start, yet still trades blows once another named participant is killed).</summary>
+    [Fact]
+    public void ParticipantJoined_FiresForAPackMemberFirstSeenOnlyViaAHitLine()
+    {
+        var t = new CombatTracker();
+        var joined = new List<string>();
+        t.ParticipantJoined += joined.Add;
+        var now = DateTime.UtcNow;
+
+        t.Observe(Line("You attack the rat17, using the axe0 as a weapon."), now);
+        // rat18 never announced itself - the first line naming it at all is a landed blow.
+        t.Observe(Line("You hit the rat18 (5-9)."), now.AddSeconds(1));
+
+        Assert.Equal(["rat17", "rat18"], joined);
+    }
+
+    /// <summary>A name that genuinely left (its fight ended) and later re-engages is a fresh
+    /// participation, not a continuation - see EngagedFightFor's own remarks on why a re-engagement
+    /// after e.g. a failed flee is a second, separate fight against the same name. ParticipantJoined
+    /// fires again for it, so a consumer keyed off "has this session already learned a value for
+    /// this literal name" (rather than off this event alone) is what prevents a redundant probe -
+    /// this event's own job is only to say when the name is newly active.</summary>
+    [Fact]
+    public void ParticipantJoined_FiresAgainAfterAGenuineLeaveAndRejoin()
+    {
+        var t = new CombatTracker();
+        var joined = new List<string>();
+        t.ParticipantJoined += joined.Add;
+        var now = DateTime.UtcNow;
+
+        t.Observe(Line("The water-snake5 is snarling at you angrily."), now);
+        t.Observe(Line("The water-snake5 has fled by trying to go up."), now.AddSeconds(1));
+        t.Observe(FightEndLine("You can fight it no longer."), now.AddSeconds(1));
+        Assert.False(t.InCombat);
+
+        // Re-engages after the failed flee - a fresh participation of the same name.
+        t.Observe(Line("You attack the water-snake5, using the axe0 as a weapon."), now.AddSeconds(2));
+
+        Assert.Equal(["water-snake5", "water-snake5"], joined);
+    }
 }

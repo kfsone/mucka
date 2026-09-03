@@ -43,4 +43,27 @@ internal enum C1Scope
 
     /// <summary>C01 prompt container — the whole prompt is captured and shown/discarded atomically.</summary>
     Prompt = 1 << 5,
+
+    /// <summary>
+    /// C04.0x.01–05 — a creature's presence sentence (here / arriving / departing / becoming
+    /// (in)visible). The text inside is prose, not a name ("An evil, black rat (rat17) bares its
+    /// razor-sharp incisors at you."), and it is captured so the Here list can tell a creature from an
+    /// object: FEI returns both as bare names in one undifferentiated list, and this code is the only
+    /// place the game itself says which is which.
+    ///
+    /// <para>Not the WHO-list variants (04.0x.06–08), which name a creature in a list rather than
+    /// place one in the room, and are already routed to <see cref="Models.LineKind"/>-neutral
+    /// FewPlayerData capture.</para>
+    /// </summary>
+    CreatureText = 1 << 6,
+
+    /// <summary>
+    /// C03.xx — an object appearing in a list. Opened purely so <see cref="CreatureText"/> can
+    /// EXCLUDE it: MUD2 nests the item code inside the creature's sentence when the creature is
+    /// carrying something ("There is a shifty-looking thief lurking here. The thief is carrying
+    /// {C03.03}the tin4{/}."), and the scope flags are ORed over the whole colour stack, so without
+    /// this the carried item's name would be captured as part of the creature's description and could
+    /// mark an identically-named object on the floor as a creature.
+    /// </summary>
+    ListedObject = 1 << 7,
 }

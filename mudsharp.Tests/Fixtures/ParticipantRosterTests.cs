@@ -88,7 +88,6 @@ public sealed class ParticipantRosterTests
         // Critically: some of the hidden ones are STILL LIVE, not already dead - the exact distinction
         // the old "and 9 more" line could never make.
         Assert.Equal(live - ParticipantRoster.MaxRows, plan.HiddenLiveCount);
-        Assert.Equal(dead, plan.HiddenResolvedCount);
     }
 
     [Fact]
@@ -104,7 +103,6 @@ public sealed class ParticipantRosterTests
         Assert.Equal(total - ParticipantRoster.MaxRows, plan.HiddenCount);
         // The one live participant sorts first, so it is always shown - the whole hidden tail is dead.
         Assert.Equal(0, plan.HiddenLiveCount);
-        Assert.Equal(total - ParticipantRoster.MaxRows, plan.HiddenResolvedCount);
     }
 
     [Fact]
@@ -125,5 +123,20 @@ public sealed class ParticipantRosterTests
 
         Assert.Equal(FightOutcome.CFled, plan.Rows.Single(r => r.Name == "rat0").Outcome);
         Assert.Equal(FightOutcome.Kill, plan.Rows.Single(r => r.Name == "rat1").Outcome);
+    }
+
+    /// <summary>The `value` probe's point figure rides through to the row - and 0 (the ox) must
+    /// stay distinguishable from "never asked" the whole way, exactly as the rail's rule 5 (an
+    /// unknown must never render as a measured state) requires of every other figure here.</summary>
+    [Fact]
+    public void Build_CarriesValueThrough_AndKeepsAbsentDistinctFromZero()
+    {
+        var known = Live("rat0") with { Value = 0 };          // the ox case - a real, legal zero
+        var unknown = Live("rat1");                            // never probed - Value defaults to null
+
+        var plan = ParticipantRoster.Build([known, unknown]);
+
+        Assert.Equal(0, plan.Rows.Single(r => r.Name == "rat0").Value);
+        Assert.Null(plan.Rows.Single(r => r.Name == "rat1").Value);
     }
 }

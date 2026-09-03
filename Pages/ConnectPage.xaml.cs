@@ -222,6 +222,11 @@ public partial class ConnectPage : ContentPage
                 Func<ClientSettings, string[], Task>? saveSettings = _vm.IsDirectConnectMode
                     ? null
                     : (settings, fkeys) => vm.SaveProfileSettingsAsync(profile.Name, settings, fkeys);
+                // Separate, narrower delegate for the Combat Rail's own live-toggle persistence -
+                // see GameViewModel's own remarks on why this cannot reuse saveSettings above.
+                Func<bool, Task>? persistCombatRailVisibility = _vm.IsDirectConnectMode
+                    ? null
+                    : showCombatRail => vm.PersistCombatRailVisibilityAsync(profile.Name, showCombatRail);
 
                 // GameViewModel subscribes to conn.LineReady/etc immediately, BEFORE GamePage is
                 // pushed, so nothing is lost while guided login runs -- pushing GamePage now (or
@@ -229,7 +234,7 @@ public partial class ConnectPage : ContentPage
                 // OnDisappearing, which disposes the connection (see GamePage.OnDisappearing ->
                 // GameViewModel.DisposeAsync -> conn.DisposeAsync). GamePage is only pushed once
                 // guided login has actually finished (or immediately, for non-guided profiles).
-                var gameVm = new GameViewModel(conn, profile, saveSettings);
+                var gameVm = new GameViewModel(conn, profile, saveSettings, persistCombatRailVisibility);
 
                 if (profile.GuidedLogin)
                 {

@@ -109,13 +109,22 @@ public sealed class CombatTracker
         @"^You hit the (?<npc>.+?) \((?<lo>\d+)-(?<hi>\d+)\)\.$", RegexOptions.Compiled);
 
     /// <summary>
-    /// "You hit the banshee (6)." - the same blow with `identify` ON, reporting the EXACT damage
-    /// instead of a bracket. Verbatim from session-rec.mud2.co.uk.20260819-001118.
+    /// "You hit the banshee (6)." - the EXACT damage of a blow, instead of the bracket
+    /// <see cref="YouHit"/> matches. Verbatim from session-rec.mud2.co.uk.20260819-001118.
     ///
-    /// <para>Nothing matched this before 2026-08-19, so turning identify on - which is meant to give
-    /// the client BETTER information - silently stopped every one of the player's own hits being
-    /// counted. Emitted with RangeLow == RangeHigh: an exact reading is a range of width zero, so the
-    /// consumers that average the pair need no special case for it.</para>
+    /// <para><b>What makes MUD2 print this instead of a bracket is NOT KNOWN.</b> This comment used to
+    /// say it was the `identify` setting, and that is wrong - checked against every capture on disk
+    /// (2026-09-01). The one session with exact figures never sends `identify` at all, while the
+    /// sessions that DO send it print brackets throughout; the single exact line in the clog corpus
+    /// ("You hit the giant0 (10).") names a numbered creature, which means identify was on there and
+    /// the figure was exact anyway. The same banshee appears in RESEARCH/mud2-multi-combat.jsonl with
+    /// bracketed hits. Whatever the switch is - a persona property, an experience level, an
+    /// undiscovered setting - nothing observed distinguishes the two cases, so no cause is claimed
+    /// here. The corpus is 6 exact lines against roughly 820 bracketed ones.</para>
+    ///
+    /// <para>Nothing matched this before 2026-08-19, so every one of those exact hits went uncounted.
+    /// Emitted with RangeLow == RangeHigh: an exact reading is a range of width zero, so the consumers
+    /// that average the pair need no special case for it.</para>
     /// </summary>
     private static readonly Regex YouHitExact = new(
         @"^You hit the (?<npc>.+?) \((?<dmg>\d+)\)\.$", RegexOptions.Compiled);
@@ -154,7 +163,9 @@ public sealed class CombatTracker
     /// <summary>
     /// "The water-snake5 has fled by trying to go over." - a flee ATTEMPT that failed. One word of
     /// difference from <see cref="NpcFled"/> ("trying to") and the opposite meaning: the creature is
-    /// still in the room, still hostile, and still has to be killed.
+    /// still in the room and still has to be killed. It is NOT still fighting, though - a flee attempt
+    /// ends combat whether or not it succeeds (owner, 2026-09-01) - so killing it means attacking it
+    /// again first.
     ///
     /// <para>Observed 7 times in 13 seconds against a single water-snake, each in a different and
     /// apparently random direction. The owner's report - snakes "often try to flee but almost never
@@ -282,11 +293,11 @@ public sealed class CombatTracker
     /// "The water-snake5 has a stamina lying between 90 and 99." - the stethoscope's `diagnose` read.
     ///
     /// <para><b>MUD2 does report NPC stamina after all.</b> Five separate comments in this codebase
-    /// asserted it never does, and built a whole estimator around that belief (see
-    /// FightHistory.EstimatedStaminaPool, which infers a creature's pool from the median damage of
-    /// fights that ended in a kill). It is a probe rather than free telemetry - it needs a stethoscope
-    /// and a typed command - but it is a direct, bracketed reading of the number everything else was
-    /// approximating.</para>
+    /// asserted it never does, and a whole estimator was built around that belief. It is a probe
+    /// rather than free telemetry - it needs a stethoscope and a typed command - but it is a direct,
+    /// bracketed reading of the number everything else was approximating, and it is now recorded
+    /// (Core.CombatDb's <c>npc_stamina_reads</c>) and consumed as the strongest constraint the
+    /// remaining-stamina model has (see MudSharp.Combat.NpcRemainingStamina).</para>
     ///
     /// <para>Worth parsing chiefly as an instrument: it is the only way to CHECK a published creature
     /// stamina against the live game, and the owner's standing rule is that the published figures are
@@ -296,11 +307,6 @@ public sealed class CombatTracker
     private static readonly Regex NpcStaminaRead = new(
         @"^The (?<npc>.+?) has a stamina lying between (?<lo>\d+) and (?<hi>\d+)\.$", RegexOptions.Compiled);
 
-    /// <summary>"Axe0 dropped." - fires on a deliberate drop AND automatically when fleeing carries
-    /// your weapon out of your hands. Either way the weapon is gone, and without this the panel goes
-    /// on reporting a weapon the player is no longer holding.</summary>
-    private static readonly Regex ItemDropped = new(
-        @"^(?<item>[A-Za-z][A-Za-z0-9' -]*?) dropped\.$", RegexOptions.Compiled);
 
     private static readonly Regex GuardConfusion = new(
         @"^Your guard drops momentarily in your confusion\.$", RegexOptions.Compiled);
@@ -362,6 +368,20 @@ public sealed class CombatTracker
     public event Action<CombatEvent>? EventOccurred;
 
     /// <summary>
+    /// Fires exactly when a name becomes newly active - i.e. <see cref="Begin"/> adds it to a
+    /// roster it was not already part of. NOT the same as an explicit fight-start line: several
+    /// kinds call <see cref="Begin"/> defensively for a participant that spoke no aggro line of its
+    /// own (a pack member first seen only via a landed blow, or an NPC's own weapon-equip line -
+    /// see YouHit/NpcHitsYou/NpcWeaponEquip's own remarks), and this is what catches those too. A
+    /// re-engagement after a genuine drop from the roster (e.g. a failed flee that later resumes as
+    /// a fresh <see cref="CombatEventKind.FightStart"/>) also fires again, because the name really
+    /// did leave and come back. Exists so a consumer that has to learn something about "every
+    /// creature that has ever actually fought" (e.g. the value probe) does not have to duplicate
+    /// this class's own idea of what counts as new.
+    /// </summary>
+    public event Action<string>? ParticipantJoined;
+
+    /// <summary>
     /// Classify one completed line. Cheap no-op for the overwhelming majority of lines
     /// (a plain-text prefix check would help further, but regex-per-candidate is already
     /// negligible next to network I/O — see EffectTracker for the equivalent trade-off).
@@ -416,7 +436,8 @@ public sealed class CombatTracker
         }
         else if ((m = YouHitExact.Match(text)).Success)
         {
-            // `identify` on: one exact figure instead of a bracket. Reported as a zero-width range so
+            // One exact figure instead of a bracket - cause unknown, see YouHitExact. Reported as a
+            // zero-width range so
             // that every consumer averaging RangeLow/RangeHigh lands on the exact value unchanged -
             // see YouHitExact. Matched AFTER YouHit only for readability; the two cannot collide,
             // since "(5-9)" cannot satisfy a pattern demanding digits-then-close-paren.
@@ -537,9 +558,14 @@ public sealed class CombatTracker
             // Matched BEFORE NpcFled, because "has fled by trying to go" also contains "has fled by"
             // and the two must never be confused - see NpcFleeFailed's own remarks.
             //
-            // This DOES end the fight (owner, 2026-08-19). The creature is still in the room and still
-            // hostile, but MUD2 has broken the fight sequence - "You can fight it no longer." trails
-            // it in the same frame saying so - and the player has to attack again to re-engage.
+            // This DOES end the fight (owner, 2026-08-19), and it ends it for real rather than merely
+            // interrupting it. Per the owner again (2026-09-01): "fleeing ends combat with all creatures
+            // attacking you. so if a zombie flees, even if it fails, it is no-longer in combat with
+            // you." The creature is still in the room but it is NOT still fighting - "You can fight it
+            // no longer." trails this in the same frame saying so - and the player must attack again to
+            // re-engage. Not "still hostile", which an earlier version of this comment claimed: across
+            // 128 NpcFleeFailed events in the clog corpus, not one is followed by a swing from that
+            // creature before a fresh FightStart.
             //
             // It used to deliberately NOT end here, to stop one 15-second snake fight being recorded
             // as eight encounters. That reasoning was inverted: eight re-engagements ARE eight
@@ -680,12 +706,20 @@ public sealed class CombatTracker
                 int.Parse(m.Groups["lo"].Value, System.Globalization.CultureInfo.InvariantCulture),
                 int.Parse(m.Groups["hi"].Value, System.Globalization.CultureInfo.InvariantCulture), text);
         }
-        else if ((m = ItemDropped.Match(text)).Success)
+        else if (InventoryChangeLines.TryParse(text, out var moveKind, out var movedItem, out var movedInto))
         {
-            // Only interesting when what hit the floor is what we were fighting with. Fleeing drops
-            // your weapon automatically, so this arrives in the same tick as a flee with no
-            // WeaponBroke to explain it, and the panel would otherwise keep the weapon on screen.
-            Emit(timestampUtc, CombatEventKind.ItemDropped, CombatActor.Player, null, m.Groups["item"].Value, null, null, text);
+            // The four loadout lines, from the one place that owns their wordings (see
+            // InventoryChangeLines - MudSession fires the in-combat FES,FEI probe off the same
+            // patterns, and they must not drift apart).
+            //
+            // A drop is only interesting to the PANEL when what hit the floor is what we were
+            // fighting with: fleeing drops your weapon automatically, so it arrives in the same tick
+            // as a flee with no WeaponBroke to explain it, and the panel would otherwise keep the
+            // weapon on screen. All four are interesting to the CLOG, where each one paired with the
+            // stat readings either side of it is one object's dexterity and strength cost.
+            EventOccurred?.Invoke(new CombatEvent(
+                timestampUtc, KindOf(moveKind), CombatActor.Player, null, movedItem, null, null, text,
+                Container: movedInto));
         }
         else if (NpcHealthRungs.TryParse(text, out var hurtNpc, out var rung, out var phrase))
         {
@@ -803,7 +837,8 @@ public sealed class CombatTracker
 
     private void Begin(string npc)
     {
-        _active.Add(npc);
+        if (_active.Add(npc))
+            ParticipantJoined?.Invoke(npc);
         if (!_encounterOpen)
         {
             _encounterOpen = true;
@@ -842,4 +877,15 @@ public sealed class CombatTracker
     private void Emit(DateTime ts, CombatEventKind kind, CombatActor? actor, string? npc, string? weapon,
         int? lo, int? hi, string raw)
         => EventOccurred?.Invoke(new CombatEvent(ts, kind, actor, npc, weapon, lo, hi, raw));
+
+    /// <summary>Which event kind reports one parsed loadout line. Four kinds rather than one because
+    /// the four are different facts - see CombatEventKind.ItemStowed for why a container move must not
+    /// be collapsed into a drop.</summary>
+    private static CombatEventKind KindOf(InventoryChangeKind kind) => kind switch
+    {
+        InventoryChangeKind.Dropped   => CombatEventKind.ItemDropped,
+        InventoryChangeKind.Taken     => CombatEventKind.ItemTaken,
+        InventoryChangeKind.Stowed    => CombatEventKind.ItemStowed,
+        _                             => CombatEventKind.ItemRetrieved,
+    };
 }

@@ -77,7 +77,8 @@ public static class SettingsStore
         bool? FloatCompass      = null,
         bool? LogResetDiagnostics = null,
         string? MeNameColor     = null,
-        string? MeSpeechColor   = null)
+        string? MeSpeechColor   = null,
+        bool? ShowCombatRail    = null)
     {
         /// <summary>Overlays the stored (ini) values onto a profile — ini wins when present.</summary>
         public void ApplyTo(Profile profile)
@@ -107,6 +108,7 @@ public static class SettingsStore
             if (FloatCompass     is bool fc)  profile.FloatCompass     = fc;
             if (MeNameColor   is { Length: > 0 } mnc) profile.MeNameColor   = mnc;
             if (MeSpeechColor is { Length: > 0 } msc) profile.MeSpeechColor = msc;
+            if (ShowCombatRail is bool scr) profile.ShowCombatRail = scr;
         }
     }
 
@@ -168,6 +170,10 @@ public static class SettingsStore
                 MuteBeepPermanently: settingsSection is null ? null : GetBool(ini, settingsSection, "mutebeep"),
                 LogResetDiagnostics: settingsSection is null ? null : GetBool(ini, settingsSection, "logttr"),
                 Sounds:              settingsSection is null ? null : ReadSoundSettings(ini, settingsSection),
+                // Per-profile like fontsize/columns/volume above (via settingsSection, which honours
+                // SettingsPerProfile) - NOT a Display tab global. The rail's shown/hidden state is a
+                // per-persona preference, not a shared default across every profile.
+                ShowCombatRail:      settingsSection is null ? null : GetBool(ini, settingsSection, "showcombatrail"),
                 Fkeys:               fkeys,
                 SettingsPerProfile:  settingsPerProfile,
                 FkeysPerProfile:     fkeysPerProfile,
@@ -207,8 +213,16 @@ public static class SettingsStore
     /// purges the whole <c>sound*</c> family before rewriting it, so passing a
     /// <see cref="ClientSettings"/> whose <see cref="ClientSettings.Sounds"/> was not deliberately
     /// populated silently erases the player's volume overrides. Mirrors <c>fkeys: null</c>.</param>
+    /// <param name="writeDisplayGlobals">False leaves the whole "Display tab globals" block (default
+    /// font/columns, dreamword offset, the Show* section toggles, online display options, the float
+    /// defaults, the "me" chat colours) untouched. Pass false from callers that cannot edit any of
+    /// those fields (the connect page): unlike <paramref name="writeSounds"/>'s block, this one has
+    /// no per-key purge-then-rewrite, but a <see cref="ClientSettings"/> assembled without deliberately
+    /// populating this block still carries C# defaults for every field in it, and writing those
+    /// unconditionally silently resets a player's saved globals back to their defaults on every call.
+    /// Mirrors <c>writeSounds: false</c> / <c>fkeys: null</c>.</param>
     public static async Task SaveProfileAsync(string profileName, ClientSettings settings, string[]? fkeys,
-        bool writeSounds = true)
+        bool writeSounds = true, bool writeDisplayGlobals = true)
     {
         await s_gate.WaitAsync().ConfigureAwait(false);
         try
@@ -223,24 +237,33 @@ public static class SettingsStore
             ini.Set(settingsSection, "statupdate", settings.StatUpdateFrequency.ToString());
             ini.Set(settingsSection, "mutebeep",   settings.MuteBeepPermanently ? "yes" : "no");
             ini.Set(settingsSection, "logttr",     settings.LogResetDiagnostics ? "yes" : "no");
+            // Per-profile like fontsize/columns/volume above, NOT a Display tab global - see the
+            // matching remark in LoadProfileAsync. Always written (no writeDisplayGlobals gate),
+            // exactly like fontsize/columns/volume above: the connect page's partial ClientSettings
+            // (ConnectViewModel.SaveCurrentProfileAsync) already has to carry this field forward
+            // deliberately, the same way it already does for FontSize/Volume/Sounds.
+            ini.Set(settingsSection, "showcombatrail", settings.ShowCombatRail ? "yes" : "no");
             if (writeSounds)
                 WriteSoundSettings(ini, settingsSection, settings.Sounds);
 
-            // Display tab settings always go to the global [settings] section.
-            ini.Set("settings", "defaultfontsize",    settings.DefaultFontSize.ToString());
-            ini.Set("settings", "defaultcolumns",     settings.DefaultMaxColumns.ToString());
-            ini.Set("settings", "dreamwordsizeoffset", settings.DreamwordSizeOffset.ToString());
-            ini.Set("settings", "showonline",         settings.ShowOnline    ? "yes" : "no");
-            ini.Set("settings", "showinventory",      settings.ShowInventory ? "yes" : "no");
-            ini.Set("settings", "showitemshere",      settings.ShowItemsHere ? "yes" : "no");
-            ini.Set("settings", "showmapcompass",     settings.ShowMapCompass ? "yes" : "no");
-            ini.Set("settings", "maxonlinedisplay",   settings.MaxOnlineDisplay.ToString());
-            ini.Set("settings", "onlinenamesonly",    settings.OnlineNamesOnly ? "yes" : "no");
-            ini.Set("settings", "onlineforgetwindow", settings.OnlineForgetWindow.ToString());
-            ini.Set("settings", "floatonline",        settings.FloatOnline     ? "yes" : "no");
-            ini.Set("settings", "floatcompass",       settings.FloatCompass    ? "yes" : "no");
-            ini.Set("settings", "menamecolor",        settings.MeNameColor);
-            ini.Set("settings", "mespeechcolor",      settings.MeSpeechColor);
+            if (writeDisplayGlobals)
+            {
+                // Display tab settings always go to the global [settings] section.
+                ini.Set("settings", "defaultfontsize",    settings.DefaultFontSize.ToString());
+                ini.Set("settings", "defaultcolumns",     settings.DefaultMaxColumns.ToString());
+                ini.Set("settings", "dreamwordsizeoffset", settings.DreamwordSizeOffset.ToString());
+                ini.Set("settings", "showonline",         settings.ShowOnline    ? "yes" : "no");
+                ini.Set("settings", "showinventory",      settings.ShowInventory ? "yes" : "no");
+                ini.Set("settings", "showitemshere",      settings.ShowItemsHere ? "yes" : "no");
+                ini.Set("settings", "showmapcompass",     settings.ShowMapCompass ? "yes" : "no");
+                ini.Set("settings", "maxonlinedisplay",   settings.MaxOnlineDisplay.ToString());
+                ini.Set("settings", "onlinenamesonly",    settings.OnlineNamesOnly ? "yes" : "no");
+                ini.Set("settings", "onlineforgetwindow", settings.OnlineForgetWindow.ToString());
+                ini.Set("settings", "floatonline",        settings.FloatOnline     ? "yes" : "no");
+                ini.Set("settings", "floatcompass",       settings.FloatCompass    ? "yes" : "no");
+                ini.Set("settings", "menamecolor",        settings.MeNameColor);
+                ini.Set("settings", "mespeechcolor",      settings.MeSpeechColor);
+            }
 
             if (fkeys is not null)
             {

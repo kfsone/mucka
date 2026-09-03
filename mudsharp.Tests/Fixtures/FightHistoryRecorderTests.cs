@@ -306,4 +306,88 @@ public sealed class FightHistoryRecorderTests : IDisposable
         var row = Assert.Single(store.Snapshot());
         Assert.Equal(encounterId, row.EncounterStartedAtMs);
     }
+
+    // -- re-engagement against a name whose fight already closed ------------------
+
+    /// <summary>
+    /// The persisted half of the same fix CombatPerFightTests covers for the aggregator, and the half
+    /// that matters more: these rows ARE the corpus the stamina-pool estimator reads.
+    ///
+    /// <para>A flee attempt ends combat whether or not it succeeds (owner, 2026-09-01), so "the rat17
+    /// attempts to flee, but fails" really does end the fight - the creature is still in the room but no
+    /// longer fighting, and the player must attack again. Every swing after that used to land in the
+    /// closed bucket, so one row was written carrying both engagements' blows - and because
+    /// FightAccumulator.Resolve keeps the first outcome, a creature that broke off and was then killed
+    /// was persisted as "broke off" with the kill's damage folded in and the kill itself never
+    /// recorded.</para>
+    /// </summary>
+    [Fact]
+    public void ReEngagingAClosedFight_PersistsTwoRows_NotOneCorruptedOne()
+    {
+        using var store = MakeStore();
+        var recorder = new FightHistoryRecorder(store);
+
+        recorder.OnInCombatChanged(true);
+        recorder.OnCombatEvent(Event(CombatEventKind.FightStart, "rat17"));
+        recorder.OnCombatEvent(Event(CombatEventKind.Hit, "rat17", rangeLow: 4, rangeHigh: 8, atSecond: 1));
+        recorder.OnCombatEvent(Event(CombatEventKind.NpcFleeFailed, "rat17", atSecond: 2));
+        // The player attacks again - the observed sequence, 100 of 128 failed flees in the corpus.
+        recorder.OnCombatEvent(Event(CombatEventKind.FightStart, "rat17", atSecond: 3));
+        recorder.OnCombatEvent(Event(CombatEventKind.Hit, "rat17", rangeLow: 5, rangeHigh: 9, atSecond: 3));
+        recorder.OnCombatEvent(Event(CombatEventKind.Kill, "rat17", atSecond: 4));
+        recorder.OnInCombatChanged(false);
+
+        var rows = store.Snapshot().OrderBy(r => r.StartedAtMs).ToList();
+        Assert.Equal(2, rows.Count);
+
+        Assert.Equal(nameof(FightOutcome.CFledFail), rows[0].Outcome);
+        Assert.Equal(1, rows[0].YouHits);
+
+        // The kill is recorded, and its blows are its own rather than both engagements summed.
+        Assert.Equal(nameof(FightOutcome.Kill), rows[1].Outcome);
+        Assert.Equal(1, rows[1].YouHits);
+
+        // Two rows a few seconds apart is exactly what ChaseLinker is built to join back into one
+        // observation. Merged into one row here, they were a single fight it could never take apart.
+        Assert.True(rows[1].StartedAtMs > rows[0].StartedAtMs);
+    }
+
+    [Fact]
+    public void AnOngoingFight_StillPersistsAsOneRow()
+    {
+        // The guard keys on the bucket being CLOSED, not on the event kind, so nothing about an ordinary
+        // fight is split.
+        using var store = MakeStore();
+        var recorder = new FightHistoryRecorder(store);
+
+        recorder.OnInCombatChanged(true);
+        recorder.OnCombatEvent(Event(CombatEventKind.FightStart, "rat17"));
+        for (var i = 1; i <= 5; i++)
+            recorder.OnCombatEvent(Event(CombatEventKind.Hit, "rat17", rangeLow: 1, rangeHigh: 2, atSecond: i));
+        recorder.OnCombatEvent(Event(CombatEventKind.Kill, "rat17", atSecond: 6));
+        recorder.OnInCombatChanged(false);
+
+        var row = Assert.Single(store.Snapshot());
+        Assert.Equal(5, row.YouHits);
+        Assert.Equal(nameof(FightOutcome.Kill), row.Outcome);
+    }
+
+    [Fact]
+    public void ATrailingEndForAClosedFight_StillDoesNotPersistAZeroSwingRow()
+    {
+        // ResolveFight keeps the whatever-state lookup for exactly this reason. MUD2 stacks several end
+        // messages and one can land after another has closed the fight.
+        using var store = MakeStore();
+        var recorder = new FightHistoryRecorder(store);
+
+        recorder.OnInCombatChanged(true);
+        recorder.OnCombatEvent(Event(CombatEventKind.FightStart, "rat17"));
+        recorder.OnCombatEvent(Event(CombatEventKind.Hit, "rat17", rangeLow: 4, rangeHigh: 8, atSecond: 1));
+        recorder.OnCombatEvent(Event(CombatEventKind.Kill, "rat17", atSecond: 2));
+        recorder.OnCombatEvent(Event(CombatEventKind.FightEndOther, "rat17", atSecond: 2));
+        recorder.OnInCombatChanged(false);
+
+        var row = Assert.Single(store.Snapshot());
+        Assert.Equal(nameof(FightOutcome.Kill), row.Outcome);
+    }
 }

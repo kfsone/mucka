@@ -1,4 +1,4 @@
-using MudSharp.Combat;
+﻿using MudSharp.Combat;
 using MudSharp.Models;
 using MudSharp.Session;
 using System.Net.Sockets;
@@ -95,6 +95,9 @@ public sealed class MuckaConnection : IAsyncDisposable
     public event Action<string>? FeiItemReady;
     /// <summary>Fired when the FEI-response context closes — all items delivered.</summary>
     public event Action? FeiListComplete;
+    /// <summary>One creature-presence sentence (C04) from the room, verbatim. The Here list's only
+    /// evidence that a name FEI reported is alive - see MudSharp.Models.RoomCreatures.</summary>
+    public event Action<string>? CreatureTextReady;
     /// <summary>Fired when a FEX-response context opens. Start accumulating exit keywords.</summary>
     public event Action? FexListStarting;
     /// <summary>Fired for each exit keyword in the FEX response.</summary>
@@ -109,6 +112,10 @@ public sealed class MuckaConnection : IAsyncDisposable
     /// <summary>Fired when a queued "sniff" value-probe resolves. Payload: probed name + outcome.
     /// Fires on the read-loop thread — consumers marshal to their UI thread.</summary>
     public event Action<string, SniffOutcome>? SniffResult;
+    /// <summary>Fired when an in-combat `value &lt;name&gt;` probe answers for a creature - the points
+    /// awarded for killing it (operator, 2026-09-02). Payload: creature name + points. Fires on the
+    /// read-loop thread — consumers marshal to their UI thread. See MudSession.CreatureValueResolved.</summary>
+    public event Action<string, int>? CreatureValueResolved;
     /// <summary>Fired when the connection is lost UNEXPECTEDLY (read loop ended on server EOF or an
     /// exception). Null = the loop ended without an exception (still unexpected -- the server
     /// closed its end). Never fires for a locally-initiated <see cref="DisconnectAsync"/> (cancelling
@@ -156,6 +163,14 @@ public sealed class MuckaConnection : IAsyncDisposable
     /// <summary>The accumulated per-creature incoming-damage record, for the rail's "how hard does
     /// this thing hit" column. Fed by the swing ledger, which sees every blow already.</summary>
     public MudSharp.Combat.SwingDamageIndex SwingDamage => _swingLedger.Damage;
+
+    /// <summary>Per-species stamina-pool bands from the censored-interval estimator, keyed on
+    /// MudSharp.Combat.NpcPoolKey. Warmed by the same call that warms <see cref="SwingDamage"/>.</summary>
+    public MudSharp.Combat.StaminaPoolIndex StaminaPool => _swingLedger.Pool;
+
+    /// <summary>Per-species reach marks - how far each creature has been SEEN to hit, which is a floor
+    /// under its true maximum and never the maximum. Warmed with the rest.</summary>
+    public MudSharp.Combat.ReachMarkIndex ReachMarks => _swingLedger.Reach;
 
     /// <summary>Warms the damage cache from the database's own aggregate views. Fire-and-forget from
     /// startup, alongside <see cref="LoadFightHistoryAsync"/> and under the same rule: never awaited
@@ -273,6 +288,21 @@ public sealed class MuckaConnection : IAsyncDisposable
 
     /// <summary>Send raw bytes to the server (no transformation applied).</summary>
     public void SendBytes(byte[] bytes) => _session.Send(bytes);
+
+    /// <summary>
+    /// The combat-tick phase, for the in-combat inventory probe's tick guard. Set to the estimate's
+    /// owner (<see cref="Mucka.Core.TickPhase"/>, reached through SidePanelViewModel.TickPhaseUtc);
+    /// leave unset and the probe simply loses its guard and uses its plain delay. Resolved through
+    /// <see cref="CombatTiming.MillisecondsToNextBoundary"/> here so callers do not each repeat the
+    /// modulo — the one thing that class exists to prevent.
+    /// </summary>
+    public Func<DateTime?>? CombatTickAnchorProvider
+    {
+        set => _session.MillisecondsToNextCombatTick = value is null ? null : () =>
+            value() is DateTime anchor
+                ? CombatTiming.MillisecondsToNextBoundary(anchor, DateTime.UtcNow)
+                : null;
+    }
 
     /// <summary>
     /// Sends the terminal-width MUD shell command: ESC-[ /T{cols} ESC-]
@@ -577,17 +607,25 @@ public sealed class MuckaConnection : IAsyncDisposable
         _session.FewPlayerReady     += (n, c) => FewPlayerReady?.Invoke(n, c);
         _session.FewListStarting    += () => FewListStarting?.Invoke();
         _session.FewListComplete    += () => FewListComplete?.Invoke();
-        _session.RoomEntered        += () => RoomEntered?.Invoke();
+        _session.RoomEntered        += () => { _clog.OnRoomEntered(); RoomEntered?.Invoke(); };
         _session.RoomShortReady     += name => { _clog.OnRoomShortReady(name); _fightRecorder.OnRoomShortReady(name); RoomShortReady?.Invoke(name); };
-        _session.FeiListStarting    += () => FeiListStarting?.Invoke();
-        _session.FeiItemReady       += item => FeiItemReady?.Invoke(item);
-        _session.FeiListComplete    += () => FeiListComplete?.Invoke();
+        // The clog keeps its own copy of the FEI split and its own creature index rather than
+        // reading the side panel's: it runs on the Feed thread and must not touch a view model.
+        _session.FeiListStarting    += () => { _clog.OnFeiListStarting(); FeiListStarting?.Invoke(); };
+        _session.FeiItemReady       += item => { _clog.OnFeiItemReady(item); FeiItemReady?.Invoke(item); };
+        _session.FeiListComplete    += () => { _clog.OnFeiListComplete(); FeiListComplete?.Invoke(); };
+        _session.CreatureTextReady  += text => { _clog.OnCreatureTextReady(text); CreatureTextReady?.Invoke(text); };
         _session.FexListStarting    += () => FexListStarting?.Invoke();
         _session.FexItemReady       += item => FexItemReady?.Invoke(item);
         _session.FexListComplete    += () => FexListComplete?.Invoke();
         _session.ExitLineReady      += (dir, dest) => ExitLineReady?.Invoke(dir, dest);
         _session.ProbeSent          += () => FesProbeSent?.Invoke();
         _session.SniffResult        += (name, outcome) => SniffResult?.Invoke(name, outcome);
+        _session.CreatureValueResolved += (name, value) =>
+        {
+            _clog.OnCreatureValueResolved(name, value);
+            CreatureValueResolved?.Invoke(name, value);
+        };
         _session.TerminalWidthConfirmed += OnTerminalWidthConfirmed;
         // The clog header records which reset each encounter sat in; asked for at encounter start
         // rather than pushed, so it gets the clock's best current lock. See ClogWriter.ResetBlock.

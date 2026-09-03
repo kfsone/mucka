@@ -21,13 +21,16 @@ public enum CombatEventKind
     /// <summary>
     /// "You hit the X (A-B)." - approximate damage range against an NPC.
     ///
-    /// <para>Two forms, both carried here. With <c>identify</c> off MUD2 brackets the blow
-    /// ("You hit the rat (5-9).") and RangeLow/RangeHigh are the bracket. With <c>identify</c> ON it
-    /// reports the EXACT figure ("You hit the banshee (6).", verbatim from
-    /// session-rec.mud2.co.uk.20260819-001118) and both fields carry that one number - an exact
-    /// reading is simply a range of width zero, so every consumer averaging the two still lands on
-    /// the right value with no special case. The exact form went unparsed until 2026-08-19, which
-    /// meant turning identify on silently blinded the client to its own hits.</para>
+    /// <para>Two forms, both carried here. Usually MUD2 brackets the blow ("You hit the rat (5-9).")
+    /// and RangeLow/RangeHigh are the bracket; rarely it reports the EXACT figure ("You hit the banshee
+    /// (6).", verbatim from session-rec.mud2.co.uk.20260819-001118) and both fields carry that one
+    /// number - an exact reading is simply a range of width zero, so every consumer averaging the two
+    /// still lands on the right value with no special case. The exact form went unparsed until
+    /// 2026-08-19, so those hits went uncounted.</para>
+    ///
+    /// <para><b>What selects between the two forms is unknown.</b> This comment used to attribute it to
+    /// the <c>identify</c> setting; a sweep of every capture on disk (2026-09-01) contradicts that in
+    /// both directions - see CombatTracker.YouHitExact for the evidence.</para>
     /// </summary>
     Hit,
     /// <summary>"You miss the X."</summary>
@@ -121,9 +124,10 @@ public enum CombatEventKind
     /// <summary>"Your guard drops..." (weapon switch or post-break confusion) — no C1 wrapper observed.</summary>
     DroppedGuard,
     /// <summary>"The X has fled by trying to go &lt;dir&gt;." - a flee that FAILED. The creature is
-    /// still in the room and still hostile, but the FIGHT IS OVER (see
-    /// <see cref="FightOutcome.CFledFail"/>): MUD2 breaks the sequence and the player has to attack
-    /// again to re-engage. Never confuse this with <see cref="NpcFled"/> - chasing something standing
+    /// still in the room but it has LEFT COMBAT, and the FIGHT IS OVER (see
+    /// <see cref="FightOutcome.CFledFail"/>): a flee attempt ends combat whether or not it succeeds
+    /// (owner, 2026-09-01), so the player has to attack again to re-engage. Not "still hostile", which
+    /// an earlier version of this claimed - it is standing there, not swinging. Never confuse this with <see cref="NpcFled"/> - chasing something standing
     /// in front of you is nonsense, and counting it as an escape corrupts the per-class flee rates.
     ///
     /// <para>This used NOT to end the fight, on the theory that keeping it open stopped one snake
@@ -139,6 +143,34 @@ public enum CombatEventKind
     /// <summary>"Axe0 dropped." - an item hit the floor, including automatically when fleeing strips
     /// the weapon from your hands. Only acted on when it names the weapon in use.</summary>
     ItemDropped,
+    /// <summary>
+    /// "Staff taken." - an item came off the floor and into the pack.
+    ///
+    /// <para>The counterpart to <see cref="ItemDropped"/>, and it exists for the measurement rather
+    /// than for the panel: an object's dexterity cost (keyed on item COUNT) and its strength cost
+    /// (keyed on WEIGHT) come from a fresh stat reading either side of the SAME object moving, so a
+    /// drop that could not be paired with the take that undid it left half of every observation
+    /// anonymous - the carry list said something had arrived, but nothing said what.</para>
+    /// </summary>
+    ItemTaken,
+    /// <summary>
+    /// "Baton inserted in glass bottle6." - an item went from the pack into a container.
+    /// <see cref="CombatEvent.Container"/> names the container.
+    ///
+    /// <para>Deliberately NOT folded into <see cref="ItemDropped"/>. Per the owner a container
+    /// decouples the two burdens - contents levy no dexterity cost but their weight still counts -
+    /// so this changes the item count while leaving the weight alone, which is the cleanest
+    /// single-variable separation of the two the game offers. Calling it a drop would assert the
+    /// weight left the player, which is true only when the container is on the floor, and this line
+    /// does not say where the container is. Recording the container's NAME is what makes that
+    /// resolvable afterwards: the clog's own "contents" rows carry the carry list at that
+    /// instant.</para>
+    /// </summary>
+    ItemStowed,
+    /// <summary>"Starfish removed from lobster pot0." - an item came out of a container and into the
+    /// pack. <see cref="ItemStowed"/> in reverse, with the same reason for being its own kind, and
+    /// <see cref="CombatEvent.Container"/> names the container.</summary>
+    ItemRetrieved,
     /// <summary>"The X looks seriously injured." - how hurt a creature is, in the game's own words
     /// and the only report of it MUD2 ever gives. Printed on the line after a landed blow, so it goes
     /// stale between hits (see NpcHealthRungs, which owns the words-to-rung mapping and the reasons
@@ -223,4 +255,9 @@ public sealed record CombatEvent(
     // (unhurt), plus the descriptor as the game worded it so the panel can echo the player's own
     // scroll back at them rather than paraphrasing it.
     int? HealthRung = null,
-    string? HealthPhrase = null);
+    string? HealthPhrase = null,
+    // Only set on ItemStowed/ItemRetrieved: the container the object moved into or out of, as the
+    // game named it ("glass bottle6"). Kept because the weight consequence of a container move
+    // depends on whether that container is itself being carried, which the line does not say and
+    // the clog's "contents" rows do - see InventoryChangeLines.
+    string? Container = null);

@@ -47,6 +47,11 @@ public sealed record FightSnapshot(
     TimeSpan Duration,
     FightOutcome Outcome,
     bool IsResolved,
+    // When this fight ended, straight from FightAccumulator.EndedUtc - null until IsResolved. Feeds
+    // the dead strip's recency window (bold for the last four ticks) and doubles as the session-scoped
+    // ending archive's timestamp; see SidePanelViewModel.BuildDeadStripHistory. Never fabricated when
+    // absent (CLAUDE.md: record what was observed, do not invent a mechanism).
+    DateTime? EndedUtc,
     // Recent-hits strip data (clog window, primary fight only - see CombatHistoryFormatter). Every
     // fight carries its own bounded ring regardless, since the cost is a handful of structs and
     // BuildFightSnapshots already allocates one FightSnapshot per active NPC on every refresh.
@@ -63,7 +68,24 @@ public sealed record FightSnapshot(
     // total, in the same shape the historical index reports so the rail's two damage rows cannot
     // disagree about what a mean is. ApproxDamageTaken above is the same total; this carries the
     // measured-hit count and the worst single blow that a total alone cannot reconstruct.
-    DamageProfile TheirDamage = default);
+    DamageProfile TheirDamage = default,
+    // The player's own damage this fight as a BRACKET, alongside the midpoint total in
+    // ApproxDamageDone. Two figures for one exchange because they answer different questions: the
+    // midpoint drives "how fast am I killing this", the bracket is the only thing a remaining-stamina
+    // band can be subtracted from without inventing precision MUD2 never gave.
+    DamageBracket YourDamage = default,
+    // The latest health descriptor and the latest `diagnose` reading, each carrying the damage dealt
+    // since it was taken so it can be aged forward instead of going quietly stale. Null until one
+    // lands. See MudSharp.Combat.NpcRemainingStamina.
+    NpcRungAnchor? RungAnchor = null,
+    NpcStaminaReading? StaminaReading = null,
+    // The latest rung boundary this creature was driven across, and the blow that did it. Worth far
+    // more than the descriptor alone: the crossing blow's bracket says how tightly the boundary is
+    // pinned. See MudSharp.Combat.NpcRungCrossing.
+    NpcRungCrossing? RungCrossing = null,
+    // The `value <name>` points this creature is worth killing, or null until a probe has answered
+    // for it - see FightAccumulator.Value for why null and zero must stay distinguishable.
+    int? Value = null);
 
 public sealed class CombatStatsAggregator
 {
@@ -190,7 +212,7 @@ public sealed class CombatStatsAggregator
                 AddParticipant(combatEvent.NpcName);
                 if (!string.IsNullOrWhiteSpace(combatEvent.Weapon))
                     _currentWeapon = combatEvent.Weapon;
-                FightFor(combatEvent)?.NoteWeapon(_currentWeapon);
+                EngagedFightFor(combatEvent)?.NoteWeapon(_currentWeapon);
                 break;
 
             case CombatEventKind.WeaponEquip:
@@ -209,7 +231,12 @@ public sealed class CombatStatsAggregator
                 AddParticipant(combatEvent.NpcName);
                 if (!string.IsNullOrWhiteSpace(combatEvent.NpcName) && !string.IsNullOrWhiteSpace(combatEvent.Weapon))
                     _npcWeapons[combatEvent.NpcName] = combatEvent.Weapon;
-                FightFor(combatEvent)?.NoteNpcWeapon(combatEvent.Weapon);
+                // Guarded like NpcHealth below, and NOT routed through EngagedFightFor: a weapon line
+                // is not by itself proof that a new fight has begun, so it attaches to a live bucket if
+                // there is one and is otherwise dropped. Minting one here would put a phantom opponent
+                // on the panel - the hazard NpcStaminaRead's own remarks describe.
+                if (FightFor(combatEvent) is { IsResolved: false } arming)
+                    arming.NoteNpcWeapon(combatEvent.Weapon);
                 break;
 
             // WeaponUnusable shares this: "You cannot use the X to fight now!" means the weapon is
@@ -243,13 +270,32 @@ public sealed class CombatStatsAggregator
                 break;
 
             case CombatEventKind.NpcFleeFailed:
-                // The creature is still standing in the room, but the FIGHT is over: MUD2 broke the
-                // sequence and the player has to attack again. So this resolves the fight (CFledFail)
+                // The creature is still standing in the room, but it has LEFT COMBAT: a flee attempt
+                // ends combat whether or not it succeeds (owner, 2026-09-01), so the player has to
+                // attack again to re-engage. This resolves the fight (CFledFail)
                 // and drops the creature from the live roster - it is no longer an opponent until
                 // re-engaged, and leaving it listed is what kept the panel claiming "in combat" after
                 // a fight the player simply walked away from.
                 ResolveFight(combatEvent, FightOutcome.CFledFail);
                 RemoveParticipant(combatEvent.NpcName);
+                break;
+
+            case CombatEventKind.NpcStaminaRead:
+                // The stethoscope's `diagnose` read - the ONLY direct measurement of NPC stamina MUD2
+                // gives, and the strongest constraint the remaining-stamina band has.
+                //
+                // Looked up rather than created, unlike every other case here: the tracker reports this
+                // whether or not the creature is engaged, because diagnosing something before picking a
+                // fight with it is the point of carrying a stethoscope. Routing it through FightFor
+                // would open a fight bucket against a creature the player has never touched, which in a
+                // permadeath game puts a phantom opponent on the panel.
+                if (combatEvent.RangeLow is int staLow && combatEvent.RangeHigh is int staHigh
+                    && !string.IsNullOrWhiteSpace(combatEvent.NpcName)
+                    && _fights.TryGetValue(combatEvent.NpcName, out var diagnosed)
+                    && !diagnosed.IsResolved)
+                {
+                    diagnosed.NoteStaminaRead(staLow, staHigh);
+                }
                 break;
 
             case CombatEventKind.NpcHealth:
@@ -265,13 +311,13 @@ public sealed class CombatStatsAggregator
                 AddParticipant(combatEvent.NpcName);
                 if (combatEvent.RangeLow is int low && combatEvent.RangeHigh is int high)
                     _approxDamageDone += (low + high) / 2.0;
-                FightFor(combatEvent)?.AddYouHit(combatEvent.RangeLow, combatEvent.RangeHigh);
+                EngagedFightFor(combatEvent)?.AddYouHit(combatEvent.RangeLow, combatEvent.RangeHigh);
                 break;
 
             case CombatEventKind.Miss:
                 _youMisses++;
                 AddParticipant(combatEvent.NpcName);
-                FightFor(combatEvent)?.AddYouMiss();
+                EngagedFightFor(combatEvent)?.AddYouMiss();
                 break;
 
             case CombatEventKind.HitByNpc:
@@ -280,13 +326,13 @@ public sealed class CombatStatsAggregator
                 // The encounter-level baseline chain owns the delta; the fight bucket receives the
                 // already-resolved figure so both agree and the baseline is only advanced once.
                 var damageTaken = ObserveDamageTaken(combatEvent.RangeLow);
-                FightFor(combatEvent)?.AddTheyHit(damageTaken);
+                EngagedFightFor(combatEvent)?.AddTheyHit(damageTaken);
                 break;
 
             case CombatEventKind.MissByNpc:
                 _theyMisses++;
                 AddParticipant(combatEvent.NpcName);
-                FightFor(combatEvent)?.AddTheyMiss();
+                EngagedFightFor(combatEvent)?.AddTheyMiss();
                 break;
 
             case CombatEventKind.Kill:
@@ -431,30 +477,109 @@ public sealed class CombatStatsAggregator
                 fight.DurationAt(nowUtc),
                 fight.Outcome,
                 fight.IsResolved,
+                fight.EndedUtc,
                 fight.RecentYourSwings,
                 fight.RecentTheirSwings,
                 fight.HealthRung,
                 fight.HealthPhrase,
                 fight.HealthReadUtc,
                 DamageProfile.ForFight(
-                    fight.TheyHitsMeasured, fight.MaxDamageTaken, fight.ApproxDamageTaken)));
+                    fight.TheyHitsMeasured, fight.MaxDamageTaken, fight.ApproxDamageTaken),
+                fight.DamageDealt,
+                fight.RungAnchor,
+                fight.StaminaReading,
+                fight.RungCrossing,
+                fight.Value));
         }
 
         return result;
     }
 
-    /// <summary>Gets (or lazily creates) the fight bucket for an event's NPC. Creation seeds the
-    /// weapon from the encounter's current one, because a fight that JOINS mid-encounter never gets
-    /// its own equip line — MUD2 silently extends your wielded weapon to the new attacker.</summary>
+    /// <summary>
+    /// Records a `value &lt;name&gt;` probe reply against whichever fight bucket this encounter
+    /// already has for that name - see MudSession's creature-value probe for how these arrive. A
+    /// name with no bucket (the reply outlived the fight, or named something never actually
+    /// engaged) is silently dropped: there is nothing here for it to attach to, and minting one would
+    /// invent a fight that never happened, exactly the failure <see cref="FightFor"/>'s own remarks
+    /// warn against for a trailing FightEndOther.
+    /// </summary>
+    public void ObserveCreatureValue(string name, int value)
+    {
+        if (!string.IsNullOrWhiteSpace(name) && _fights.TryGetValue(name, out var fight))
+            fight.NoteValue(value);
+    }
+
+    /// <summary>
+    /// The fight bucket for an event's NPC, whatever state it is in - creating one only if this name
+    /// has never been seen this encounter.
+    ///
+    /// <para>For CLOSING a fight and for metadata about one. Anything that means "a fight is happening
+    /// right now" must use <see cref="EngagedFightFor"/> instead, or a re-engagement lands in the
+    /// closed record.</para>
+    /// </summary>
     private FightAccumulator? FightFor(CombatEvent combatEvent)
     {
         var npcName = combatEvent.NpcName;
         if (string.IsNullOrWhiteSpace(npcName))
             return null;
 
-        if (_fights.TryGetValue(npcName, out var existing))
-            return existing;
+        return _fights.TryGetValue(npcName, out var existing) ? existing : StartFight(npcName, combatEvent);
+    }
 
+    /// <summary>
+    /// The LIVE fight bucket for an event's NPC: the open one if this name has an open one, otherwise a
+    /// fresh engagement.
+    ///
+    /// <para><b>Why a resolved bucket is never reused.</b> Fights are keyed by the game's instance name
+    /// and a name outlives its fight.</para>
+    ///
+    /// <para><b>The mechanic, from the owner (2026-09-01): "fleeing ends combat with all creatures
+    /// attacking you. so if a zombie flees, even if it fails, it is no-longer in combat with you."</b>
+    /// A creature that attempts to flee leaves combat whether or not it gets away. It may still be
+    /// standing in the room, but it is not fighting the player, and the player must attack again to
+    /// re-engage. Corroborated in the clog corpus: across 128 NpcFleeFailed events in 1,195 clogs, the
+    /// next event naming that creature was a fresh FightStart 100 times and nothing at all 28 times -
+    /// never a swing in either direction.</para>
+    ///
+    /// <para>So a swing landing after "the rat17 attempts to flee, but fails" is not the same fight
+    /// continuing - it is a SECOND engagement, because the first genuinely ended. Reusing the closed
+    /// bucket merged the two: it corrupted the damage totals of a fight that had already ended and,
+    /// because <c>FightAccumulator.Resolve</c> keeps the first outcome, swallowed the second
+    /// engagement's ending entirely. A creature that broke off and was then killed stayed labelled
+    /// "broke off" with the kill's blows folded in and the kill never recorded.</para>
+    ///
+    /// <para>The client cannot tell a creature you chased from a fresh <c>rat17</c> after a reset - MUD2
+    /// reuses instance names and says nothing about identity - but that ambiguity is about which
+    /// CREATURE this is, not about whether a new engagement started. The new engagement is certain;
+    /// only its subject is not, and <c>ChaseLinker</c> is what handles that.</para>
+    ///
+    /// <para><b>It also restores a safeguard that was being defeated.</b> <c>ChaseLinker</c> exists
+    /// precisely for this ambiguity: it joins consecutive engagements against one name back into a
+    /// single observation against one pool, which is what makes the terminal kill usable as a ceiling.
+    /// It can only do that if the two engagements are two observations. Merged into one bucket here
+    /// they were a single fight it could never take apart, so the corruption went into the corpus
+    /// unflagged.</para>
+    ///
+    /// <para>Consequence worth knowing: one creature can occupy more than one roster row in an
+    /// encounter, the earlier ones resolved. That is the honest record of what happened, and
+    /// <c>ParticipantRoster.Build</c> sorts the live one above them.</para>
+    /// </summary>
+    private FightAccumulator? EngagedFightFor(CombatEvent combatEvent)
+    {
+        var npcName = combatEvent.NpcName;
+        if (string.IsNullOrWhiteSpace(npcName))
+            return null;
+
+        return _fights.TryGetValue(npcName, out var existing) && !existing.IsResolved
+            ? existing
+            : StartFight(npcName, combatEvent);
+    }
+
+    /// <summary>Opens a bucket and files it. Seeds the weapon from the encounter's current one, because
+    /// a fight that JOINS mid-encounter never gets its own equip line - MUD2 silently extends your
+    /// wielded weapon to the new attacker.</summary>
+    private FightAccumulator StartFight(string npcName, CombatEvent combatEvent)
+    {
         var fight = new FightAccumulator(npcName, combatEvent.TimestampUtc, _currentWeapon);
         _fights[npcName] = fight;
         _fightOrder.Add(fight);

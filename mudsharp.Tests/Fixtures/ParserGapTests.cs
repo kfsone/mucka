@@ -483,15 +483,17 @@ public sealed class ParserGapTests
         Assert.Equal(115, hit.RangeHigh);
     }
 
-    // ---- identify on: exact damage instead of a bracket ---------------------------------------
+    // ---- exact damage instead of a bracket ----------------------------------------------------
 
     /// <summary>
-    /// "You hit the banshee (6)." - verbatim from session-rec.mud2.co.uk.20260819-001118, the exact
-    /// figure `identify` reports in place of a range. Reported as a zero-width range so consumers that
-    /// average the pair need no special case.
+    /// "You hit the banshee (6)." - verbatim from session-rec.mud2.co.uk.20260819-001118: the exact
+    /// figure MUD2 sometimes prints in place of a range. Reported as a zero-width range so consumers
+    /// that average the pair need no special case.
     ///
-    /// <para>This mattered more than its size suggests: turning identify ON - which exists to give the
-    /// client better information - used to stop every one of the player's own hits being counted.</para>
+    /// <para>This heading used to read "identify on", and that attribution is wrong - the recording it
+    /// quotes never sends `identify`, and the sessions that do send it print brackets. See
+    /// CombatTracker.YouHitExact. What is under test here is the parse, which is correct either
+    /// way.</para>
     /// </summary>
     [Fact]
     public void ExactDamage_IsReportedAsAZeroWidthRange()

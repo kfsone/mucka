@@ -42,12 +42,17 @@ public sealed class CombatHistoryCache
     /// <summary>Returns the cached context when (instance, weapon, encounter start) all match the
     /// last call; otherwise queries <paramref name="store"/> once (O(bucket-size), never a corpus
     /// scan) and caches the fresh result under the new key.</summary>
+    /// <param name="pool">The species stamina-pool index, or null where none is attached (tests and
+    /// design-time). Read under the same cache key as everything else: it is recomputed only when the
+    /// swing ledger closes an encounter, which is the same boundary the fight index moves on, so a
+    /// mid-encounter re-read could see this encounter's own rows exactly as the summaries could.</param>
     public CombatHistoryContext Resolve(
         FightHistoryStore store,
         string instanceName,
         string groupName,
         string? currentWeapon,
-        DateTime? encounterStartUtc)
+        DateTime? encounterStartUtc,
+        MudSharp.Combat.StaminaPoolIndex? pool = null)
     {
         if (string.Equals(_cachedInstance, instanceName, StringComparison.OrdinalIgnoreCase)
             && _cachedEncounterStart == encounterStartUtc
@@ -62,7 +67,9 @@ public sealed class CombatHistoryCache
         _cachedInstance = instanceName;
         _cachedEncounterStart = encounterStartUtc;
         _cachedWeapon = currentWeapon;
-        _cached = new CombatHistoryContext(instanceName, groupName, instance, group, byWeapon, weaponGlobal);
+        _cached = new CombatHistoryContext(
+            instanceName, groupName, instance, group, byWeapon, weaponGlobal,
+            pool?.Lookup(instanceName) ?? MudSharp.Combat.StaminaPoolEstimate.None);
         return _cached;
     }
 }

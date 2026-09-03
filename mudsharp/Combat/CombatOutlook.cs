@@ -17,10 +17,10 @@ public enum OutlookVerdict
 /// "Do the numbers say I die before it does?" — projected from the current fight's observed rates
 /// against the opponent's historical stamina pool.
 ///
-/// <para>This is possible chiefly because of the fight-history index: MUD2 only reports an NPC's
-/// stamina on demand via a `diagnose` probe, not continuously, so the median damage dealt across
-/// prior kills is the available estimate of how much it takes to put one down whenever no probe
-/// reading is on hand. Without that there is no denominator and no projection.</para>
+/// <para>This is possible chiefly because of the swing ledger: MUD2 only reports an NPC's stamina on
+/// demand via a `diagnose` probe, not continuously, so a censored-interval estimate over prior fights
+/// (see <see cref="StaminaPoolEstimator"/>) is what stands in whenever no probe reading is on hand.
+/// Without that there is no denominator and no projection.</para>
 ///
 /// <para><b>Deliberate conservatism.</b> Three things make an early projection actively misleading,
 /// so it stays <see cref="OutlookVerdict.Unknown"/> until they are addressed:</para>
@@ -31,8 +31,9 @@ public enum OutlookVerdict
 /// reads as a certain win.</item>
 /// <item>Both sides regenerate stamina, and NPC regen is entirely unobservable, so a grindy fight can
 /// be unwinnable while the raw rates look fine.</item>
-/// <item>The pool figure is a median over a handful of past kills, not a measurement of the
-/// individual in front of you.</item>
+/// <item>The pool figure is a species BAND over a handful of past fights, not a measurement of the
+/// individual in front of you - and what is passed here is that band's pessimistic end, so the
+/// projection deliberately errs toward "this is taking longer than you think".</item>
 /// </list>
 /// <para>Consequently the output is a three-state verdict plus the two projected times, never a
 /// percentage — a number here would imply precision that does not exist.</para>
@@ -67,7 +68,11 @@ public sealed record CombatOutlook(
     /// <param name="ownHits">Blows the player has landed this fight.</param>
     /// <param name="opponentHits">Blows the opponent has landed this fight.</param>
     /// <param name="playerStamina">The player's current stamina.</param>
-    /// <param name="estimatedPool">Historical median damage needed to kill this opponent.</param>
+    /// <param name="estimatedPool">How much stamina this kind of opponent is estimated to have, as a
+    /// single number. Callers pass StaminaPoolEstimate.PessimisticPool - the TOP of the species band,
+    /// never its midpoint - so an unknown pool makes the fight read as slower to win rather than
+    /// faster. Null when no kill of this kind is on record, which suppresses the projection
+    /// entirely.</param>
     public static CombatOutlook Project(
         double elapsedSeconds,
         double damageDealt,

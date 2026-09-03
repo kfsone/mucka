@@ -49,6 +49,24 @@ public sealed class HistoryIndex
     private readonly Dictionary<string, IncrementalFightBucket> _byWeaponGlobal =
         new(StringComparer.OrdinalIgnoreCase);
 
+    // Novelty, keyed on NpcPoolKey rather than on npc_group or npc_name. None of the four buckets
+    // above is the right key for it:
+    //   - npc_group pluralizes the last token, so "large rat0" and "rat0" share "rats". Those are
+    //     two different creatures (pool ~100 vs ~25), and "you have killed a rat" must not clear the
+    //     mark on the first large rat you meet.
+    //   - npc_name is per instance, and rat3/rat7 are measured to be indistinguishable (17 instances,
+    //     p=0.80). Keying there would mark every unmet instance number of a species you have killed
+    //     twenty of as brand new, which is a claim the evidence does not support.
+    // NpcPoolKey is exactly "species plus whatever adjectives the game printed", which is the level
+    // the bestiary knowledge is actually held at. See NpcPoolKey's own remarks.
+    //
+    // Two flags per bucket, not a summary: this answers a yes/no question and an IncrementalFightBucket
+    // would carry six sorted median lists nothing here reads.
+    private readonly Dictionary<string, NoveltyTally> _byPool = new(StringComparer.OrdinalIgnoreCase);
+    // Keyed "poolKey|weaponKey", weaponKey using FightHistory.NoWeaponKey for unarmed - the same
+    // spelling _byGroupWeapon uses, so the two never disagree about what "no weapon" is called.
+    private readonly Dictionary<string, NoveltyTally> _byPoolWeapon = new(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>Folds one completed fight into every bucket it belongs to. O(log n) per bucket,
     /// where n is that bucket's own sample count (small and roughly constant across a session), not
     /// the size of the whole corpus. Call exactly once per fight, only once it has been fully
@@ -69,6 +87,77 @@ public sealed class HistoryIndex
 
         var globalKey = string.IsNullOrWhiteSpace(record.WeaponUsed) ? string.Empty : record.WeaponUsed;
         GetOrAdd(_byWeaponGlobal, globalKey).Insert(record);
+
+        var poolKey = NpcPoolKey.For(record.NpcName);
+        if (poolKey.Length > 0)
+        {
+            // CombatNovelty.CountsAsDefeated, NOT record.IsKill - read that method before changing
+            // this line. The two answer different questions about the same row and are meant to
+            // disagree on FightOutcome.NoMore.
+            var defeated = CombatNovelty.CountsAsDefeated(record.Outcome);
+            Tally(_byPool, poolKey).Fold(defeated);
+            Tally(_byPoolWeapon, poolKey + KeySeparator + WeaponKeyOf(record.WeaponUsed)).Fold(defeated);
+        }
+    }
+
+    private static string WeaponKeyOf(string? weapon)
+        => string.IsNullOrWhiteSpace(weapon) ? FightHistory.NoWeaponKey : weapon;
+
+    /// <summary>
+    /// What the corpus says about this creature's KIND, regardless of weapon - the mark its name
+    /// carries on the rail. One dictionary probe.
+    ///
+    /// <para>A blank or all-digits name has no pool key and therefore no evidence either way; it
+    /// reports <see cref="NoveltyMark.None"/> rather than <see cref="NoveltyMark.Unfought"/>, because
+    /// "we could not form a key" is not the same claim as "you have never fought this".</para>
+    /// </summary>
+    public NoveltyMark GetNovelty(string? npcName)
+    {
+        var poolKey = NpcPoolKey.For(npcName);
+        if (poolKey.Length == 0)
+            return NoveltyMark.None;
+        return _byPool.TryGetValue(poolKey, out var tally)
+            ? CombatNovelty.Classify(tally.Fought, tally.Defeated)
+            : NoveltyMark.Unfought;
+    }
+
+    /// <summary>
+    /// The same question narrowed to one weapon: has this weapon ever been swung at this creature's
+    /// kind, and has it ever finished one? Feeds the rollup behind the weapon name's own mark.
+    ///
+    /// <para>Unarmed is a real answer, not a missing one - MUD2 lets you fight bare-handed - so a
+    /// null/blank weapon buckets under <see cref="FightHistory.NoWeaponKey"/> exactly as the
+    /// per-weapon summaries do.</para>
+    /// </summary>
+    public NoveltyMark GetWeaponNovelty(string? npcName, string? weapon)
+    {
+        var poolKey = NpcPoolKey.For(npcName);
+        if (poolKey.Length == 0)
+            return NoveltyMark.None;
+        return _byPoolWeapon.TryGetValue(poolKey + KeySeparator + WeaponKeyOf(weapon), out var tally)
+            ? CombatNovelty.Classify(tally.Fought, tally.Defeated)
+            : NoveltyMark.Unfought;
+    }
+
+    private static NoveltyTally Tally(Dictionary<string, NoveltyTally> map, string key)
+    {
+        if (!map.TryGetValue(key, out var tally))
+            map[key] = tally = new NoveltyTally();
+        return tally;
+    }
+
+    /// <summary>Two latching flags. A class rather than a struct so <see cref="Tally"/> can hand back
+    /// the stored instance to fold into, instead of a copy the dictionary would never see.</summary>
+    private sealed class NoveltyTally
+    {
+        public bool Fought { get; private set; }
+        public bool Defeated { get; private set; }
+
+        public void Fold(bool isKill)
+        {
+            Fought = true;
+            Defeated |= isKill;
+        }
     }
 
     /// <summary>Aggregates for one specific NPC instance (e.g. "rat0"). Empty (not null) when
@@ -164,7 +253,6 @@ internal sealed class IncrementalFightBucket
     private readonly List<double> _youRates = [];
     private readonly List<double> _theyRates = [];
     private readonly List<double> _damagePerHit = [];
-    private readonly List<double> _killDamage = [];
 
     public void Insert(FightRecord record)
     {
@@ -184,11 +272,6 @@ internal sealed class IncrementalFightBucket
             case nameof(FightOutcome.EndOther): _endOther++; break;
             default: _unresolved++; break;
         }
-
-        // Pool estimate requires swing detail as well as a kill - see FightHistory.Summarize's
-        // identical guard for why (a narrative kill has no per-hit ranges to sum).
-        if (record.IsKill && record.HasSwingDetail && record.ApproxDamageDone > 0)
-            InsertSorted(_killDamage, record.ApproxDamageDone);
 
         if (!record.HasSwingDetail)
             return;
@@ -230,7 +313,6 @@ internal sealed class IncrementalFightBucket
         MedianYouHitRate = MedianOfSorted(_youRates),
         MedianTheyHitRate = MedianOfSorted(_theyRates),
         MedianDamagePerHit = MedianOfSorted(_damagePerHit),
-        EstimatedStaminaPool = MedianOfSorted(_killDamage),
     };
 
     /// <summary>Binary-search insertion into an already-sorted list - O(log n) search, O(n) worst

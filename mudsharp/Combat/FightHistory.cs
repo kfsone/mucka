@@ -66,21 +66,14 @@ public sealed record FightHistorySummary
     /// up on, and more comparable across fights than a total (which just tracks fight length).</summary>
     public double? MedianDamagePerHit { get; init; }
 
-    /// <summary>Median total damage dealt across fights that ENDED IN A KILL — an empirical
-    /// estimate of this NPC group's stamina pool. Null until at least one kill is on record.
-    /// Non-kills are deliberately excluded: a survivor only proves its pool exceeds what we dealt
-    /// (a censored observation), so folding those in biases the estimate low. See STATS_DESIGN.md.
-    ///
-    /// <para>This used to be described as "the only route" to an NPC's pool, on the grounds that
-    /// MUD2 never reports NPC stamina. False either way: the protocol DOES report it, on demand,
-    /// via a `diagnose` probe (see <see cref="CombatEventKind.NpcStaminaRead"/>) - it just needs a
-    /// stethoscope and a typed command, so it is not always on hand. And every creature's stamina is
-    /// separately PUBLISHED (tools/combat/bestiary.tsv, 143 rows), agreeing closely where the two can
-    /// be compared - zombies 40-50 published against a 49.0 median here, water-snakes 90 against
-    /// 100.5, rams 100 against 98.5. A lookup or a probe reading would be exact and available on a
-    /// first encounter, where this estimate needs a kill first. Replacing it is an open scope
-    /// decision, not an oversight - see MUD2-PUBLISHED-MECHANICS.md section 10.</para></summary>
-    public double? EstimatedStaminaPool { get; init; }
+    /// <summary><b>Deleted, not moved:</b> this record used to carry an <c>EstimatedStaminaPool</c> -
+    /// the median total damage of fights that ended in a kill. It is biased high by 21%, measured
+    /// across 48 instances against an independently published figure, because every sample includes
+    /// the killing blow's overkill. It was also keyed wrong: an NPC group pools "large rat0" (about 100
+    /// stamina) with "rat0" (about 25), so the figure it produced was a median over two different
+    /// creatures. Its replacement is a censored-interval estimator keyed on
+    /// <see cref="NpcPoolKey"/> - see <see cref="StaminaPoolEstimator"/>, which needs per-swing
+    /// brackets and so cannot live on a fight rollup at all.</summary>
 
     /// <summary>Kills as a fraction of all matching fights, or null with no fights at all.</summary>
     public double? KillRate => FightCount == 0 ? null : Kills / (double)FightCount;
@@ -260,7 +253,6 @@ public static class FightHistory
         var youRates = new List<double>();
         var theyRates = new List<double>();
         var damagePerHit = new List<double>();
-        var killDamage = new List<double>();
 
         foreach (var record in matching)
         {
@@ -277,12 +269,6 @@ public static class FightHistory
                 case nameof(FightOutcome.EndOther): endOther++; break;
                 default: unresolved++; break;
             }
-
-            // Pool estimate requires swing detail as well as a kill: the cumulative damage figure
-            // comes from the reported per-hit ranges, and narrative mode reports none at all, so a
-            // narrative kill would contribute a spurious near-zero pool estimate.
-            if (record.IsKill && record.HasSwingDetail && record.ApproxDamageDone > 0)
-                killDamage.Add(record.ApproxDamageDone);
 
             if (!record.HasSwingDetail)
                 continue;
@@ -324,7 +310,6 @@ public static class FightHistory
             MedianYouHitRate = Median(youRates),
             MedianTheyHitRate = Median(theyRates),
             MedianDamagePerHit = Median(damagePerHit),
-            EstimatedStaminaPool = Median(killDamage),
         };
     }
 

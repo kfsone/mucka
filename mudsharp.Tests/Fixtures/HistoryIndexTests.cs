@@ -68,7 +68,7 @@ public sealed class HistoryIndexTests
     {
         // "The X drops dead, poisoned..." resolved the fight, so it must not land in the Unresolved
         // bucket ("we lost track of it"), and the player did not land the killing blow, so it must
-        // not land in Kills either - which is also what keeps EstimatedStaminaPool honest, since the
+        // not land in Kills either - which is also what keeps the pool estimator honest, since the
         // damage that ended it was never on the wire. See FightOutcome.NoMore.
         var records = new[]
         {
@@ -93,7 +93,6 @@ public sealed class HistoryIndexTests
             // The point of both buckets: Unresolved stays a clean count of fights whose end we never
             // saw, so it can be read as a bug count rather than a mixture.
             Assert.Equal(0, summary.Unresolved);
-            Assert.Equal(30, summary.EstimatedStaminaPool);
         }
     }
 
@@ -241,8 +240,11 @@ public sealed class HistoryIndexTests
     }
 
     [Fact]
-    public void Insert_EstimatesStaminaPoolFromKillsOnly()
+    public void Insert_TalliesOutcomesWithoutInferringAPool()
     {
+        // The pool estimate this index used to carry (median kill damage) is deleted - biased high by
+        // 21% and keyed on a group that pools creatures of very different sizes. See
+        // StaminaPoolEstimator. The outcome tallies are what the index still owes its callers.
         var index = new HistoryIndex();
         index.Insert(Fight(outcome: FightOutcome.Kill, damageDone: 30));
         index.Insert(Fight(outcome: FightOutcome.Kill, damageDone: 36));
@@ -251,8 +253,9 @@ public sealed class HistoryIndexTests
 
         var summary = index.GetGroupSummary("rats");
 
-        Assert.Equal(33.0, summary.EstimatedStaminaPool!.Value, 3);
         Assert.Equal(2, summary.Kills);
+        Assert.Equal(1, summary.Withdraw);
+        Assert.Equal(1, summary.UFled);
         Assert.Equal(4, summary.FightCount);
     }
 

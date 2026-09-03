@@ -347,7 +347,7 @@ public sealed class CombatPerFightTests
     {
         // The wyvern frame (owner, 2026-08-26): the creature died of poison, so no kill line was ever
         // printed. Recorded as NoMore deliberately - the damage that finished it never crossed the
-        // wire, and FightHistory.EstimatedStaminaPool reads Kill rows' damage totals to infer a
+        // wire, and StaminaPoolEstimator reads Kill rows' damage brackets to infer a
         // creature's pool. See FightOutcome.NoMore.
         var aggregator = new CombatStatsAggregator();
         aggregator.BeginEncounter(Start);
@@ -411,5 +411,223 @@ public sealed class CombatPerFightTests
         aggregator.BeginEncounter(Start.AddMinutes(5));
 
         Assert.Empty(aggregator.Snapshot(Start.AddMinutes(5)).Fights);
+    }
+
+    // -- re-engagement against a name whose fight already closed ------------------
+
+    /// <summary>
+    /// A flee attempt ends combat whether or not it succeeds (owner, 2026-09-01), so "the rat17 attempts
+    /// to flee, but fails" really does end the fight - the creature is still in the room but no longer
+    /// fighting. Anything the player lands after that is a NEW engagement, and reusing the closed bucket
+    /// folded its damage into a finished fight's totals.
+    /// </summary>
+    [Fact]
+    public void ReEngagingAClosedFight_OpensAFreshOne_RatherThanFeedingTheClosedRecord()
+    {
+        var aggregator = new CombatStatsAggregator();
+        aggregator.BeginEncounter(Start);
+
+        aggregator.Observe(Event(CombatEventKind.FightStart, "rat17"));
+        aggregator.Observe(Event(CombatEventKind.Hit, "rat17", rangeLow: 4, rangeHigh: 8, atSecond: 1));
+        aggregator.Observe(Event(CombatEventKind.NpcFleeFailed, "rat17", atSecond: 2));
+
+        // The player attacks again. The creature left combat at the failed flee, so this is a second
+        // engagement rather than the first one continuing.
+        aggregator.Observe(Event(CombatEventKind.FightStart, "rat17", atSecond: 3));
+        aggregator.Observe(Event(CombatEventKind.Hit, "rat17", rangeLow: 5, rangeHigh: 9, atSecond: 3));
+        aggregator.Observe(Event(CombatEventKind.Hit, "rat17", rangeLow: 6, rangeHigh: 10, atSecond: 4));
+
+        var fights = aggregator.Fights;
+        Assert.Equal(2, fights.Count);
+
+        var closed = fights[0];
+        Assert.Equal(FightOutcome.CFledFail, closed.Outcome);
+        Assert.Equal(1, closed.YouHits);
+        Assert.Equal(4, closed.DamageDealt.Low);
+        Assert.Equal(8, closed.DamageDealt.High);
+
+        var live = fights[1];
+        Assert.False(live.IsResolved);
+        Assert.Equal(2, live.YouHits);
+        Assert.Equal(11, live.DamageDealt.Low);
+        Assert.Equal(19, live.DamageDealt.High);
+    }
+
+    /// <summary>
+    /// The consequence that made this worth fixing rather than noting. FightAccumulator.Resolve keeps
+    /// the FIRST outcome, so with one shared bucket a creature that broke off and was then killed stayed
+    /// labelled "broke off" for ever and the kill was never recorded at all.
+    ///
+    /// <para>The sequence is the observed one: a failed flee then a fresh attack. In the clog corpus 100
+    /// of 128 failed flees are followed by exactly this, at a median 1.8 seconds.</para>
+    /// </summary>
+    [Fact]
+    public void AKillAfterAReEngagement_IsRecordedAsAKill()
+    {
+        var aggregator = new CombatStatsAggregator();
+        aggregator.BeginEncounter(Start);
+
+        aggregator.Observe(Event(CombatEventKind.FightStart, "rat17"));
+        aggregator.Observe(Event(CombatEventKind.Hit, "rat17", rangeLow: 4, rangeHigh: 8, atSecond: 1));
+        aggregator.Observe(Event(CombatEventKind.NpcFleeFailed, "rat17", atSecond: 2));
+        aggregator.Observe(Event(CombatEventKind.FightStart, "rat17", atSecond: 3));
+        aggregator.Observe(Event(CombatEventKind.Hit, "rat17", rangeLow: 5, rangeHigh: 9, atSecond: 3));
+        aggregator.Observe(Event(CombatEventKind.Kill, "rat17", atSecond: 4));
+
+        var fights = aggregator.Fights;
+        Assert.Equal(2, fights.Count);
+        Assert.Equal(FightOutcome.CFledFail, fights[0].Outcome);
+        Assert.Equal(FightOutcome.Kill, fights[1].Outcome);
+
+        // And the kill bracket - the estimator's only two-sided pool constraint - is the second
+        // engagement's blows alone, not both engagements summed.
+        Assert.Equal(5, fights[1].DamageDealt.Low);
+        Assert.Equal(9, fights[1].DamageDealt.High);
+    }
+
+    /// <summary>
+    /// A defensive guard, and honestly labelled as one: this ordering is NOT observed. A creature that
+    /// attempted to flee has left combat, and across 128 NpcFleeFailed events in the clog corpus the
+    /// next event naming it is a fresh FightStart (100) or nothing (28) - never a swing. The swing-level
+    /// guard exists so that an unobserved ordering degrades into a fresh engagement rather than into a
+    /// corrupted closed record; FightStart is what opens the bucket in every case actually seen.
+    /// </summary>
+    [Fact]
+    public void AnNpcSwingingAfterItsFightClosed_WouldAlsoOpenTheFreshOne()
+    {
+        var aggregator = new CombatStatsAggregator();
+        aggregator.BeginEncounter(Start);
+
+        aggregator.Observe(Event(CombatEventKind.FightStart, "rat17"));
+        aggregator.Observe(Event(CombatEventKind.NpcFleeFailed, "rat17", atSecond: 1));
+        aggregator.Observe(Event(CombatEventKind.MissByNpc, "rat17", atSecond: 2));
+
+        Assert.Equal(2, aggregator.Fights.Count);
+        Assert.False(aggregator.Fights[1].IsResolved);
+        Assert.Equal(1, aggregator.Fights[1].TheyMisses);
+    }
+
+    [Fact]
+    public void AnOngoingFight_IsNeverSplit()
+    {
+        // The guard keys on the bucket being CLOSED, not on the event kind, so an ordinary fight with a
+        // flurry of events stays exactly one fight.
+        var aggregator = new CombatStatsAggregator();
+        aggregator.BeginEncounter(Start);
+
+        aggregator.Observe(Event(CombatEventKind.FightStart, "rat17"));
+        for (var i = 1; i <= 6; i++)
+        {
+            aggregator.Observe(Event(CombatEventKind.Hit, "rat17", rangeLow: 1, rangeHigh: 2, atSecond: i));
+            aggregator.Observe(Event(CombatEventKind.HitByNpc, "rat17", rangeLow: 40, atSecond: i));
+        }
+
+        Assert.Single(aggregator.Fights);
+        Assert.Equal(6, aggregator.Fights[0].YouHits);
+    }
+
+    [Fact]
+    public void ATrailingCloseForAnAlreadyClosedFight_DoesNotMintAnEmptyBucket()
+    {
+        // ResolveFight deliberately still uses the whatever-state lookup. If it re-minted the way the
+        // engagement path does, every trailing end line would leave a zero-swing phantom on the roster.
+        var aggregator = new CombatStatsAggregator();
+        aggregator.BeginEncounter(Start);
+
+        aggregator.Observe(Event(CombatEventKind.FightStart, "rat17"));
+        aggregator.Observe(Event(CombatEventKind.Hit, "rat17", rangeLow: 4, rangeHigh: 8, atSecond: 1));
+        aggregator.Observe(Event(CombatEventKind.Kill, "rat17", atSecond: 2));
+        aggregator.Observe(Event(CombatEventKind.FightEndOther, "rat17", atSecond: 2));
+
+        Assert.Single(aggregator.Fights);
+        Assert.Equal(FightOutcome.Kill, aggregator.Fights[0].Outcome);
+    }
+
+    [Fact]
+    public void AWeaponLineForAClosedFight_NeitherWritesToItNorOpensANewOne()
+    {
+        // A weapon line is not proof a fight has restarted, so it must not mint a bucket - that is the
+        // phantom-opponent hazard - and it must not write into a finished record either.
+        var aggregator = new CombatStatsAggregator();
+        aggregator.BeginEncounter(Start);
+
+        aggregator.Observe(Event(CombatEventKind.FightStart, "rat17"));
+        aggregator.Observe(Event(CombatEventKind.Kill, "rat17", atSecond: 1));
+        aggregator.Observe(Event(CombatEventKind.NpcWeaponEquip, "rat17", weapon: "club", atSecond: 2));
+
+        Assert.Single(aggregator.Fights);
+        Assert.Null(aggregator.Fights[0].NpcWeapon);
+    }
+
+    // ── Creature-value probe: unnumbered-name collisions ──────────────────────────
+    // Unnumbered mobs (thief, banshee, coot, fox - see NpcPoolKey's own remarks) have no instance
+    // number and can share a live name, so ONE `value <name>` probe can legitimately draw a reply
+    // from more than one live creature. Both replies land on the SAME name-keyed bucket here - see
+    // MudSession.TryConsumeCreatureValueLine's own remarks on why the session layer does not (and
+    // cannot) suppress the second reply itself.
+
+    [Fact]
+    public void ObserveCreatureValue_OneReply_IsAConfidentReading()
+    {
+        var aggregator = new CombatStatsAggregator();
+        aggregator.BeginEncounter(Start);
+        aggregator.Observe(Event(CombatEventKind.FightStart, "thief"));
+
+        aggregator.ObserveCreatureValue("thief", 1419);
+
+        var fight = aggregator.Snapshot(Start.AddSeconds(1)).Fights.Single(f => f.NpcName == "thief");
+        Assert.Equal(1419, fight.Value);
+    }
+
+    [Fact]
+    public void ObserveCreatureValue_TwoRepliesForTheSameNameThisEncounter_IsUnattributableNotLastWriterWins()
+    {
+        // Reviewer's executed reproduction: `value thief` drew two replies (two live thieves
+        // sharing the name), and the roster ended up holding whichever value arrived LAST - a
+        // coin-flip presented as a measurement. FightAccumulator.NoteValue now retracts the first
+        // reading the instant a second one arrives for the same bucket, rather than overwriting it,
+        // because there is no way to tell which live creature either value actually belongs to.
+        var aggregator = new CombatStatsAggregator();
+        aggregator.BeginEncounter(Start);
+        aggregator.Observe(Event(CombatEventKind.FightStart, "thief"));
+
+        aggregator.ObserveCreatureValue("thief", 1419);
+        aggregator.ObserveCreatureValue("thief", 87);
+
+        var fight = aggregator.Snapshot(Start.AddSeconds(1)).Fights.Single(f => f.NpcName == "thief");
+        Assert.Null(fight.Value);   // honest absence, not 1419, not 87, and not their average
+    }
+
+    [Fact]
+    public void ObserveCreatureValue_AThirdReplyAfterAmbiguity_StaysUnattributable()
+    {
+        var aggregator = new CombatStatsAggregator();
+        aggregator.BeginEncounter(Start);
+        aggregator.Observe(Event(CombatEventKind.FightStart, "banshee"));
+
+        aggregator.ObserveCreatureValue("banshee", 102);
+        aggregator.ObserveCreatureValue("banshee", 143);
+        aggregator.ObserveCreatureValue("banshee", 129);   // does not un-flag it or pick a "real" one
+
+        var fight = aggregator.Snapshot(Start.AddSeconds(1)).Fights.Single(f => f.NpcName == "banshee");
+        Assert.Null(fight.Value);
+    }
+
+    [Fact]
+    public void ObserveCreatureValue_TwoDifferentNumberedInstances_BothResolveConfidently()
+    {
+        // The ambiguity is specific to a SHARED name - two different numbered instances (which the
+        // game itself keeps distinct, per NpcPoolKey) must not interfere with each other at all.
+        var aggregator = new CombatStatsAggregator();
+        aggregator.BeginEncounter(Start);
+        aggregator.Observe(Event(CombatEventKind.FightStart, "gargoyle0"));
+        aggregator.Observe(Event(CombatEventKind.FightStart, "gargoyle1"));
+
+        aggregator.ObserveCreatureValue("gargoyle1", 300);
+        aggregator.ObserveCreatureValue("gargoyle0", 150);
+
+        var snapshot = aggregator.Snapshot(Start.AddSeconds(1));
+        Assert.Equal(150, snapshot.Fights.Single(f => f.NpcName == "gargoyle0").Value);
+        Assert.Equal(300, snapshot.Fights.Single(f => f.NpcName == "gargoyle1").Value);
     }
 }

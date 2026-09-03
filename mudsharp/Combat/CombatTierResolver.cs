@@ -22,10 +22,27 @@ public enum CombatTier
 /// </summary>
 public static class CombatTierResolver
 {
-    /// <summary>Stamina at/below which the player is close enough to permadeath that the panel must
-    /// never read calmer than T2, whatever else it would otherwise say (D15/4.4). Not a cost figure -
-    /// no flee cost, points-at-risk or flee-statistic figure is computed anywhere in this codebase
-    /// (D15), and this constant is the danger reading of the band, not its price.</summary>
+    /// <summary>
+    /// Stamina at/below which the player is close enough to permadeath that the panel must never read
+    /// calmer than T2, whatever else it would otherwise say (D15/4.4).
+    ///
+    /// <para><b>Its value has no danger measurement behind it, and this comment used to imply
+    /// otherwise.</b> 6.5 entered this codebase as the FLEE-FREE boundary - the stamina below which
+    /// MUD2 stops charging to leave - and was then re-used as a danger threshold because it was the
+    /// only number available. It is now identifiable as a fraction wearing an absolute's clothes: the
+    /// free-flee band is about 6% of MAXIMUM stamina (40 measured flee events), and 6.5 is 6.2% of the
+    /// 105-maximum persona it was observed on. <see cref="FleeCostEstimate"/> has been rebuilt on the
+    /// fraction and no longer references this constant; the two quantities are severed and must stay
+    /// severed.</para>
+    ///
+    /// <para><b>It stays ABSOLUTE all the same, and that is not an oversight.</b> MUD2 damage does not
+    /// consult the player's ceiling - a rat hits for what a rat hits for - so a danger threshold
+    /// graded as a fraction of maximum would be loudest for the strongest persona, which is the
+    /// contemporary-difficulty-curve assumption this project has already shipped once and had to pull.
+    /// Flee COST is fractional; danger is not. What is missing is any measurement of where the
+    /// absolute danger line actually falls, and until there is one, this is a number of the right kind
+    /// with an unearned value.</para>
+    /// </summary>
     public const double CriticalStaminaThreshold = 6.5;
 
     /// <summary>
@@ -100,11 +117,27 @@ public static class CombatTierResolver
 
     /// <summary>
     /// The critical-stamina hard floor (4.4): at or below <see cref="CriticalStaminaThreshold"/> the
-    /// panel renders at no less than T2 Pulse-Danger, full stop, regardless of what the stamina tier
-    /// table would otherwise say from hits-left/time-to-die alone - the player is 1-2 hits from
-    /// permadeath here whatever else is true. The table can still promote it to T3; nothing is
+    /// panel renders at no less than T2 Pulse-Danger, regardless of what the stamina tier table would
+    /// otherwise say from hits-left/time-to-die alone. The table can still promote it to T3; nothing is
     /// permitted to render it lower.
     /// </summary>
+    ///
+    /// <remarks>
+    /// <para><b>The justification this used to carry - "the player is 1-2 hits from permadeath here
+    /// whatever else is true" - is withdrawn.</b> It was never measured. It was inferred from the
+    /// number, and the number came from somewhere else entirely: 6.5 is the FLEE-FREE boundary, which
+    /// is now identifiable as roughly 6% of maximum stamina as it lands on the one 105-maximum persona
+    /// it was observed on. A price was read as a danger reading because it was the only number
+    /// available. See <see cref="CriticalStaminaThreshold"/>, which sets out the same correction, and
+    /// do not restate the permadeath claim here or anywhere else without a measurement behind it.</para>
+    ///
+    /// <para><b>The floor is kept anyway, deliberately.</b> Removing it would quietly lower the
+    /// loudest reading this panel has on the evidence that its threshold is unearned, which is the
+    /// wrong direction to be wrong in when death is character deletion. An absolute stamina IS the
+    /// right KIND of threshold - MUD2 damage does not consult the player's ceiling - so what is wrong
+    /// with this constant is its value, not its shape. It stands as a deliberately conservative
+    /// placeholder until somebody measures where the line actually falls.</para>
+    /// </remarks>
     public static CombatTier CriticalStaminaFloorTier(CombatTier staminaTier, double staminaCurrent)
     {
         if (staminaCurrent <= CriticalStaminaThreshold && staminaTier < CombatTier.T2)

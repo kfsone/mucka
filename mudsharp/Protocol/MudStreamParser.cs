@@ -99,6 +99,19 @@ public sealed class MudStreamParser
     public event Action? FeiListComplete;
 
     /// <summary>
+    /// One creature-presence sentence, as the game worded it, with internal line wrapping collapsed to
+    /// single spaces and any nested object name removed ("An evil, black rat (rat17) bares its
+    /// razor-sharp incisors at you."). Fires on the Feed thread when the C04 presence scope unwinds.
+    ///
+    /// <para>Prose, not a name — MUD2 never prints a creature's bare name here. It exists because FEI
+    /// returns creatures and objects in one undifferentiated list of names (verified against every
+    /// capture on disk: rats, a raven, a coot and a parrot appear in the same room list as keys,
+    /// brands and vials, in no separating order), so this is the only evidence the game gives about
+    /// which of those names is alive.</para>
+    /// </summary>
+    public event Action<string>? CreatureTextReady;
+
+    /// <summary>
     /// A C1 code hinted that parts of the player state may have changed (combat hits,
     /// spells, items/creatures arriving, etc.). The payload says which categories.
     /// Policy (debounce, probe scheduling) is the consumer's responsibility — the
@@ -352,6 +365,38 @@ public sealed class MudStreamParser
         FexItemReady?.Invoke(itemText);
     }
 
+    // ── Creature-presence capture ─────────────────────────────────────────────
+    // The C04.0x.01..05 scope. Unlike FEI/FEX this does NOT bypass the normal path: the sentence is
+    // ordinary game text the player must still see, so it is copied out alongside being displayed.
+    // Nested C03 (an object the creature is carrying) is masked out - see C1Scope.ListedObject.
+    private readonly StringBuilder _creatureText = new();
+
+    internal bool InCreatureTextContext
+        => C1.HasScope(C1Scope.CreatureText) && !C1.HasScope(C1Scope.ListedObject);
+
+    /// <summary>Copies one displayed character into the creature-sentence capture. Whitespace runs
+    /// collapse to a single space so a sentence wrapped mid-name ("...is an\r\n incensed dragonfly!")
+    /// still yields one searchable string.</summary>
+    private void CaptureCreatureChar(char ch)
+    {
+        if (char.IsWhiteSpace(ch))
+        {
+            if (_creatureText.Length > 0 && _creatureText[^1] != ' ')
+                _creatureText.Append(' ');
+            return;
+        }
+        _creatureText.Append(ch);
+    }
+
+    private void FlushCreatureText()
+    {
+        if (_creatureText.Length == 0) return;
+        var text = _creatureText.ToString().Trim();
+        _creatureText.Clear();
+        if (text.Length > 0)
+            CreatureTextReady?.Invoke(text);
+    }
+
     /// <summary>
     /// End-of-scope actions, invoked by the decoder when colour-stack frames that opened
     /// semantic scopes unwind (a bare FF FF pop, a C90 colour throw, or the C00 init reset).
@@ -376,6 +421,8 @@ public sealed class MudStreamParser
             FlushFexItem();
             FexListComplete?.Invoke();
         }
+        if ((closed & C1Scope.CreatureText) != 0)
+            FlushCreatureText();
         // The prompt container: show the whole captured prompt — '*', '(*)' when invisible,
         // snoop/rank indicators — as a partial line (PromptAllowed) or discard it (FES
         // heartbeat). Skipped when a mid-container newline already aborted the capture.
@@ -540,6 +587,7 @@ public sealed class MudStreamParser
         _fewName.Clear();
         _feiLine.Clear();
         _fexLine.Clear();
+        _creatureText.Clear();
         _atLineStart = true;
         _pendingRoomShort = false;
         _chatOpenAtLineStart = false;
@@ -571,6 +619,10 @@ public sealed class MudStreamParser
             // A newline must never occur inside the prompt container; if one does
             // (lost pop, line noise) abandon the capture and render its text normally.
             if (_inPromptContext) AbortPromptContext();
+            // The server wraps a creature's presence sentence at the terminal width, mid-name in at
+            // least one observed case ("...is an\r\nincensed dragonfly!"), so the wrap has to become a
+            // space or the capture would read "anincensed".
+            if (InCreatureTextContext) CaptureCreatureChar(' ');
             // Newlines inside the FEX/FEI/FEW probe contexts produce no visible output,
             // so they must NOT set PromptAllowed: on narrow terminals the server line-wraps
             // even these escaped responses, and ticking the flag here made the NEXT
@@ -752,6 +804,10 @@ public sealed class MudStreamParser
             else if (_inGameMode && !char.IsWhiteSpace(ch) && !C1.HasOpenColourFrame)
                 _plainTextOnLine = true;
             _text.Append(ch);
+            // A copy, not a redirect: the sentence is displayed exactly as before, and is also
+            // captured so the Here list can tell this creature from an object. One bit test per
+            // printable character on a path that already does several.
+            if (InCreatureTextContext) CaptureCreatureChar(ch);
             MatchOptionMenu(ch, wasLineStart);
         }
     }

@@ -31,6 +31,24 @@ public sealed record ClientSettings
     /// <summary>Per-sound enablement and group fallbacks (the Sounds tab's tree).
     /// Treated as frozen once snapshotted — see <see cref="SoundSettings"/>.</summary>
     public SoundSettings Sounds { get; init; } = new();
+    /// <summary>Whether the Combat Rail (the right-edge combat panel) is shown. Declared here, next
+    /// to <see cref="Sounds"/> rather than in the Display-tab-globals group below, because it is
+    /// written to <c>settingsSection</c> in <see cref="SettingsStore.SaveProfileAsync"/> - i.e. it
+    /// follows <see cref="SettingsPerProfile"/> ("Save to profile only") exactly like FontSize/
+    /// Volume/Sounds above, NOT the always-global block below.
+    ///
+    /// <para>What that actually means: with <see cref="SettingsPerProfile"/> OFF (the default for
+    /// every profile until the player checks "Save to profile only"), <c>settingsSection</c> resolves
+    /// to the same global <c>[settings]</c> section for every profile, so toggling the rail for one
+    /// persona changes the shared default every other persona reads too - same as FontSize/Volume/
+    /// Sounds already do. Isolation per persona only happens once that checkbox is turned on for the
+    /// profiles that should not share it. This is the existing, defensible compromise the rest of
+    /// this group already lives with, not a stronger per-persona guarantee unique to this field.</para>
+    ///
+    /// <para>False (hidden) is the historical default - the panel is additive and does not appear for
+    /// a profile that has never touched the toggle.</para>
+    /// </summary>
+    public bool ShowCombatRail { get; init; }
 
     // ── Display tab settings (always global, never per-profile) ──────────────
     /// <summary>Global default terminal font size in pixels; 0 = use built-in default.</summary>

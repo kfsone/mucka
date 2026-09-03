@@ -205,7 +205,13 @@ public sealed class ConnectViewModel : BaseViewModel
                 // so every per-sound/per-group volume override read from the ini was dropped on
                 // connect -- and the connect-time ini sync below then wrote that empty blob back,
                 // erasing the stored keys for good.
-                Sounds = saved?.Sounds ?? new SoundSettings()
+                Sounds = saved?.Sounds ?? new SoundSettings(),
+                // Same class of bug as Sounds above: `saved` is already hydrated from mucka.ini by
+                // LoadProfilesAsync's ApplyTo overlay, but this fresh Profile does not inherit from it
+                // automatically - every settings field has to be carried across explicitly. Omitting
+                // this one would hand GameViewModel a `false` regardless of what was actually saved,
+                // and SaveCurrentProfileAsync below would then write that false straight back to disk.
+                ShowCombatRail = saved?.ShowCombatRail ?? false,
             };
             if (saved is null)
             {
@@ -485,10 +491,60 @@ public sealed class ConnectViewModel : BaseViewModel
             existing.FkeysPerProfile     = settings.FkeysPerProfile;
             existing.Fkeys               = fkeys;
             existing.Sounds              = settings.Sounds;
+            // Same reasoning as Sounds above (and the settingsSection carve-out this field gets in
+            // SettingsStore): ConnectPage builds GamePage once and never re-reads SavedProfiles from
+            // disk for the life of the run (App.xaml.cs's single ConnectPage root, GamePage returning
+            // via PopAsync), so if this in-memory mirror does not pick up a live toggle, the NEXT
+            // SaveCurrentProfileAsync on reconnect writes the stale in-memory value straight back over
+            // the ini's freshly-toggled one.
+            existing.ShowCombatRail      = settings.ShowCombatRail;
             if (string.Equals(existing.Name, ProfileName, StringComparison.OrdinalIgnoreCase))
                 MaxColumns = settings.MaxColumns;
         }
         await SettingsStore.SaveProfileAsync(profileName, settings, fkeys);
+    }
+
+    /// <summary>
+    /// Persists ONLY the Combat Rail's shown/hidden state, immediately, from a live overflow-menu
+    /// toggle - used by <c>GameViewModel.PersistCombatRailVisibilityAsync</c> instead of
+    /// <see cref="SaveProfileSettingsAsync"/> on purpose.
+    ///
+    /// <para><see cref="SaveProfileSettingsAsync"/> always writes the whole "Display tab globals"
+    /// block, and the <c>ClientSettings</c> snapshot it is called with (<c>GameViewModel.CurrentSettings</c>)
+    /// sources that block's Show* fields from LIVE <c>SidePanel</c> fold/pin state - correct when the
+    /// player explicitly hit Save in the settings dialog, wrong for a one-click rail toggle, which must
+    /// not promote whatever the Onlines section happens to be folded to this session into every
+    /// profile's shared global default. So this method writes <c>writeDisplayGlobals: false</c> and
+    /// <c>writeSounds: false</c>, and sources every OTHER settingsSection field (FontSize, Volume, ...)
+    /// from the in-memory profile's own already-correct values rather than from GameViewModel's live
+    /// state, so nothing outside ShowCombatRail can drift through this path. <c>fkeys: null</c> for the
+    /// same reason <see cref="SaveCurrentProfileAsync"/> uses it - a rail toggle does not edit hotkeys,
+    /// so their section is left untouched rather than rewritten from a value not being changed here.
+    /// </para>
+    /// </summary>
+    public async Task PersistCombatRailVisibilityAsync(string profileName, bool showCombatRail)
+    {
+        var existing = SavedProfiles.FirstOrDefault(p =>
+            string.Equals(p.Name, profileName, StringComparison.OrdinalIgnoreCase));
+        if (existing is null)
+            return;
+
+        existing.ShowCombatRail = showCombatRail;
+
+        var settings = new ClientSettings
+        {
+            FontSize            = existing.FontSize,
+            MaxColumns          = existing.MaxColumns,
+            Volume              = existing.Volume,
+            StatUpdateFrequency = existing.StatUpdateFrequency,
+            MuteBeepPermanently = existing.MuteBeepPermanently,
+            LogResetDiagnostics = existing.LogResetDiagnostics,
+            SettingsPerProfile  = existing.SettingsPerProfile,
+            FkeysPerProfile     = existing.FkeysPerProfile,
+            ShowCombatRail      = showCombatRail,
+        };
+        await SettingsStore.SaveProfileAsync(profileName, settings, fkeys: null,
+            writeSounds: false, writeDisplayGlobals: false);
     }
 
     private async Task SaveCurrentProfileAsync(Profile incoming, string? password)
@@ -542,10 +598,24 @@ public sealed class ConnectViewModel : BaseViewModel
             SettingsPerProfile  = incoming.SettingsPerProfile,
             FkeysPerProfile     = incoming.FkeysPerProfile,
             Sounds              = incoming.Sounds,
+            // ShowCombatRail is a settingsSection field (per-profile like FontSize/Volume above via
+            // SettingsPerProfile), NOT part of the "Display tab globals" block writeDisplayGlobals:
+            // false below skips - so it is always written here regardless of that flag, and has to be
+            // carried through explicitly for the same reason FontSize/Volume/Sounds already are:
+            // omitting it would hand SaveProfileAsync the C# default (false/hidden), silently wiping a
+            // player's saved "shown" preference on literally the next connect.
+            ShowCombatRail      = incoming.ShowCombatRail,
         };
         // fkeys: null — hotkeys are not editable on this page, so never rewrite their sections.
         // writeSounds: false — nor are sounds, and rewriting them from a profile blob assembled
         // here is exactly how the stored volume overrides got erased on every connect.
-        await SettingsStore.SaveProfileAsync(incoming.Name, settings, fkeys: null, writeSounds: false);
+        // writeDisplayGlobals: false — nor is anything in that block (default font/columns,
+        // dreamword offset, the Show* toggles, online display options, float defaults, "me" chat
+        // colours): this partial ClientSettings leaves every one of them at its C# default, and
+        // writing those unconditionally on every connect was silently resetting a player's saved
+        // globals back to default (DefaultFontSize -> 0, OnlineForgetWindow -> 0 killing the Recent
+        // list, MeNameColor/MeSpeechColor -> the built-in colours, etc.) every time this ran.
+        await SettingsStore.SaveProfileAsync(incoming.Name, settings, fkeys: null,
+            writeSounds: false, writeDisplayGlobals: false);
     }
 }

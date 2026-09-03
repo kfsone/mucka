@@ -1,4 +1,4 @@
-using Microsoft.Maui.Graphics;
+﻿using Microsoft.Maui.Graphics;
 using Mucka.Core;
 using MudSharp.Combat;
 using MudSharp.Models;
@@ -226,8 +226,11 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     private int _combatClearGeneration;
     // -- Combat Rail: the new right-edge panel (DESIGN_FINAL.md D3/2.2, corrected) -----------
     // Show/hide only - driven by ToggleCombatPanelCommand from the overflow menu, with GamePage
-    // resizing the window on the change. Never true at startup: the panel is additive and must
-    // never appear without an explicit toggle (D3's "window never resizes itself" rule).
+    // resizing the window on the change. GameViewModel's constructor is the one exception to "an
+    // explicit toggle is the only way this becomes true": it seeds this from the connecting profile's
+    // persisted ClientSettings.ShowCombatRail (T2), so the panel restores to whatever a given persona
+    // last left it at on relog. D3's "the window never resizes itself" rule still holds for every
+    // change AFTER that seed - see GamePage.OnAppearing's own remarks on applying that first state.
     private bool _isCombatPanelVisible;
     private CombatTier _pulseTier = CombatTier.None;
 
@@ -241,6 +244,52 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     private CombatLiveView _live = CombatLiveView.Idle;
     // Running session tally, so the window reports something between fights instead of blanking.
     private SessionCombatTotals _session = SessionCombatTotals.Empty;
+    // The dead strip's session-scoped history of every PRIOR encounter's endings, chronological by
+    // EndedUtc (see CombatEndingOrder.Sorted). Grown in once per encounter close (OnInCombatChanged's
+    // else branch, alongside _session's own fold) and never reset per encounter - same lifetime as
+    // _tickPhase below, for the same reason: a fight closing is not a reason to forget what the
+    // session has already shown the player.
+    //
+    // WORKING storage only - never published. CombatLiveView.DeadStripHistory is documented as never
+    // mutated after publish (see CombatContracts.cs), and this list keeps growing via Add() for the
+    // rest of the session, so handing IT out would alias a "final" frame to storage a later encounter
+    // close then mutates. _archiveSnapshot below is the immutable copy that actually gets published;
+    // see BuildDeadStripHistory.
+    // The dead strip's two grouping counters (2026-09-02, owner: "put a 1px yellow dotted separator
+    // between encounters... put a 2px white solid line between resets"). Both are simple monotonic
+    // session-scoped ordinals - see CombatEnding's own remarks for why not a timestamp/epoch.
+    // Neither is ever decremented or reset mid-session: a fresh CombatEnding always gets the CURRENT
+    // value of both, so two endings compare equal on one iff they were recorded in the same
+    // encounter/reset cycle, whatever else about the session has happened since.
+    //
+    // Starts at 0 rather than 1 so the first encounter/reset cycle's endings still compare equal to
+    // each other (0 == 0) without a separate "has anything happened yet" flag - the value only has to
+    // be a stable key, never a human-facing count.
+    private int _encounterOrdinal;
+    private int _resetOrdinal;
+    private readonly List<CombatEnding> _endingArchive = new();
+    // The published, immutable form of _endingArchive - a fresh array taken only when the archive
+    // actually grows (at an encounter close), so every frame published before that close keeps
+    // aliasing a snapshot nothing will ever mutate again. Safe to hand straight to CombatLiveView
+    // and to reuse across any number of refreshes between closes at zero additional cost.
+    private IReadOnlyList<CombatEnding> _archiveSnapshot = Array.Empty<CombatEnding>();
+    // True from the moment the CURRENT _combatStats encounter's endings are folded into
+    // _endingArchive (the same close) until the NEXT encounter begins clears it. While true,
+    // BuildDeadStripHistory must not also read _combatStats.Fights for "this encounter's own
+    // endings" - the aggregator is not reset until BeginEncounter runs, so its Fights list would
+    // still answer with exactly what was just archived, and reading both would double every row.
+    private bool _currentEncounterArchived;
+    // The dead strip's published-history cache for the LIVE tail (archive + this encounter's own
+    // resolved endings so far), and the resolved-fight count it was built from. Merging and
+    // re-sorting the tail is the one non-trivial cost BuildDeadStripHistory has, and it runs on
+    // every combat event/FES heartbeat/1 Hz tick while any fight in the encounter has resolved
+    // (Invariant #1) - mirroring _historyCache below, which exists for exactly this reason. The
+    // resolved COUNT is a valid dirty check because a fight's (Name, Outcome, EndedUtc) never changes
+    // once resolved (FightAccumulator.Resolve is first-resolution-wins) and never un-resolves, so
+    // "the count is the same as last time" means "the resolved set is byte-for-byte the same as last
+    // time" - nothing to rebuild, and the previously published list is still exactly correct.
+    private IReadOnlyList<CombatEnding> _deadStripHistoryCache = Array.Empty<CombatEnding>();
+    private int _deadStripHistoryCachedResolvedCount = -1;
     // Latest stats, kept so a refresh triggered by a combat event (not a stats event) can still
     // report the current load penalty.
     private CombatStatDeficits _combatDeficits = CombatStatDeficits.None;
@@ -254,6 +303,11 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     // is unit-testable - see that class's remarks for the full reasoning.
     private readonly CombatHistoryCache _historyCache = new();
 
+    /// <summary>Stamina lost on the most recent combat tick, for the STA ring'''s tinted slice. Fed by
+    /// every stats reading (see OnStatsUpdated) rather than only combat events, because a stamina GAIN
+    /// is what clears a stale slice and gains arrive on the heartbeat.</summary>
+    private readonly Mucka.Core.TickStaminaLoss _tickLoss = new();
+
     // Set once at startup (see AttachSwingDamage). Null in unit/design contexts, in which case the
     // opponents' "ever" damage row simply is not drawn. Unlike _fightHistory this needs no cache: the
     // lookup is a dictionary probe under a lock held for exactly that probe, run for a handful of
@@ -261,6 +315,20 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     // work to memoize and no self-comparison hazard to design around (SwingDamageIndex settles that
     // one at the writing end, by not folding a live encounter in at all).
     private SwingDamageIndex? _swingDamage;
+
+    // Same lifetime and the same null contract as _swingDamage: attached once at startup, absent in
+    // unit/design contexts, in which case the target's remaining-stamina band simply is not computed.
+    private StaminaPoolIndex? _staminaPool;
+
+    // Same lifetime and the same null contract again. Feeds ReachAggregate.GreatestThreat, which picks
+    // the ONE live opponent the player's own incoming-damage prediction bands are projected from (see
+    // IncomingPerBlowOf) - the reason this index is read per roster row rather than once for the
+    // primary target is that the selection is a question about the whole opposition, not one target.
+    // (2026-09-02: this used to also feed the player seal's reach chevron, deleted at the owner's
+    // request - "We also have the residual arrow on the players' stamina seal from before we added
+    // the same guide ring around the outside. thats an indicator too many". This is the surviving
+    // consumer.)
+    private ReachMarkIndex? _reachMarks;
     // Cached once so the per-carried-item weapon test costs no allocation on the refresh path. Reads
     // _fightHistory through the closure rather than capturing it, so attaching the store later (as
     // startup does) is picked up without rebuilding the delegate.
@@ -332,6 +400,45 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         RequestFocus?.Invoke();
     }
 
+    /// <summary>
+    /// Whether the rail prints damage floats - the small "5-9" / "-7" / "Miss" that rises off an
+    /// opponent's slot or the stamina seal and fades. **On by default**, like the metronome and for
+    /// the same reason.
+    ///
+    /// <para>Session-scoped, matching every other rail option: the metronome is not persisted
+    /// either, and the overflow menu's Side Panel/Onlines/Compass rows are explicit that they flip
+    /// live visibility only. See <see cref="CombatFloatRaised"/> for what is being suppressed - the
+    /// event simply is not raised, so with floats off the whole feature costs a bool test per combat
+    /// line.</para>
+    /// </summary>
+    public bool IsCombatFloatsEnabled
+    {
+        get => _isCombatFloatsEnabled;
+        set => Set(ref _isCombatFloatsEnabled, value);
+    }
+    private bool _isCombatFloatsEnabled = true;
+
+    /// <summary>Toggles the floats and hands focus straight back to the command box (Invariant #0),
+    /// exactly as <see cref="ToggleCombatMetronome"/> does.</summary>
+    public void ToggleCombatFloats()
+    {
+        IsCombatFloatsEnabled = !IsCombatFloatsEnabled;
+        RequestFocus?.Invoke();
+    }
+
+    /// <summary>
+    /// Raised once per combat event that earns a damage float, already resolved to the pane it
+    /// belongs over. The host (GamePage) owns the pooled elements, the motion budget and the
+    /// animation; this side owns only "what happened, and to whom".
+    ///
+    /// <para>An event rather than a property because a float is an OCCURRENCE, not a state. Every
+    /// other thing on this rail is a readout that can be recomputed from
+    /// <see cref="Live"/> at any moment; a float cannot - it is gone in a second and a half, and
+    /// putting it in the frame state would have the 1 Hz refresh re-raise blows that already
+    /// landed.</para>
+    /// </summary>
+    public event Action<RailFloat>? CombatFloatRaised;
+
     /// <summary>The tier driving the Combat Rail's single shared Composition glow layer (4.2: "at
     /// most one T3 element at a time"). Only <see cref="CombatTier.T3"/> ever requests motion - the
     /// glow helper (PulseLayer) treats every other value as "stop".</summary>
@@ -362,6 +469,19 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     /// MuckaConnection.LoadSwingDamageAsync) and is safe to read before it has.</summary>
     public void AttachSwingDamage(SwingDamageIndex index) => _swingDamage = index;
 
+    /// <summary>Attaches the per-species stamina-pool index (see MudSharp.Combat.StaminaPoolIndex).
+    /// Separate from <see cref="AttachSwingDamage"/> only because the two are read at different points
+    /// - the damage index per roster row, this one once per encounter through the history cache.</summary>
+    public void AttachStaminaPool(StaminaPoolIndex index) => _staminaPool = index;
+
+    /// <summary>Attaches the per-species reach marks (see MudSharp.Combat.ReachMarkIndex) behind the
+    /// live-opponent selection <see cref="IncomingPerBlowOf"/> projects the player's own prediction
+    /// bands from (MudSharp.Combat.ReachAggregate.GreatestThreat). Unlike the swing-damage index this
+    /// one folds the LIVE encounter's own blows in as they land and has no sample floor, which is
+    /// exactly what a "largest blow seen so far" floor needs - the blow that just landed is part of
+    /// the answer.</summary>
+    public void AttachReachMarks(ReachMarkIndex index) => _reachMarks = index;
+
     public void OnInCombatChanged(bool inCombat)
     {
         MainThread.BeginInvokeOnMainThread(() =>
@@ -370,6 +490,24 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             {
                 _combatStats.BeginEncounter(DateTime.UtcNow);
                 _hasCombatData = true;
+                // A fresh encounter is about to start filling _combatStats.Fights again, so its
+                // endings are no longer represented anywhere until THIS encounter closes and folds
+                // them in turn - see BuildDeadStripHistory.
+                _currentEncounterArchived = false;
+                // The dead strip's encounter-grouping ordinal (CombatEnding.EncounterOrdinal):
+                // incremented once per encounter OPEN, never on close, so every ending this encounter
+                // produces - whether recorded live in BuildDeadStripHistory's tail or later folded in
+                // below - shares the one value assigned here.
+                _encounterOrdinal++;
+                // Discard any still-fading just-lost slice from the PREVIOUS encounter. CombatTracker.
+                // Begin documents that MUD2 can close one encounter and open the next in the very same
+                // frame, with no prompt between them - so without this, the last blow of a fight that
+                // just ended could still be drawn tinted over the new encounter's first frames, marking
+                // a loss that happened to a different fight against a ring that has already reset to
+                // the new one's own stamina. (2026-09-02: TickStaminaLoss.Reset existed but nothing
+                // called it - wired in here rather than deleted, since this frame-sharing behaviour is
+                // exactly the boundary its own doc comment already named.)
+                _tickLoss.Reset();
                 // The tick phase is deliberately NOT cleared here. It used to be, on the reasoning that
                 // a new fight had to re-learn the phase from its own first swing - which threw away
                 // everything the session had already established and re-derived the lattice from one
@@ -382,8 +520,42 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             {
                 _combatStats.EndEncounter();
                 // Fold the finished encounter into the session tally BEFORE anything can clear it, so
-                // dismissing the summary never costs the session totals.
-                _session = _session.Accumulate(_combatStats.Snapshot(DateTime.UtcNow));
+                // dismissing the summary never costs the session totals. Snapshotted once and reused
+                // for both folds below, so the tally and the archive describe the identical instant.
+                var closingSnapshot = _combatStats.Snapshot(DateTime.UtcNow);
+                _session = _session.Accumulate(closingSnapshot);
+                // Freeze this encounter's own endings into the session-scoped dead-strip archive too.
+                // Every fight here should already be resolved (the encounter just closed), but the
+                // IsResolved guard matters the one time it is not - CombatEventKind.KilledByNpc force-
+                // resolves every open fight before this fires, but a genuinely unmatched line could in
+                // principle leave one Unresolved, and Unresolved is not an ending to record.
+                //
+                // Sorted by EndedUtc before appending (CombatEndingOrder.Sorted, 2026-09-02 fix) -
+                // closingSnapshot.Fights is in FIRST-ENGAGED order, not resolution order, and appending
+                // it unsorted drew a creature engaged first above one engaged second but killed first,
+                // moving the second creature's row when the first one died. This is the ONLY place a
+                // batch is appended to the archive, so sorting here (rather than the whole archive on
+                // every read) is enough to keep it globally ordered - every fight in THIS batch ended
+                // during this encounter, which by wall-clock necessity is entirely before every fight in
+                // any FUTURE batch, so appending one internally-sorted batch after another can never
+                // require re-sorting what came before it.
+                var newEndings = new List<CombatEnding>();
+                foreach (var fight in closingSnapshot.Fights)
+                {
+                    if (fight.IsResolved)
+                        newEndings.Add(new CombatEnding(
+                            fight.NpcName, fight.Outcome, fight.EndedUtc, _encounterOrdinal, _resetOrdinal));
+                }
+                _endingArchive.AddRange(CombatEndingOrder.Sorted(newEndings));
+                // A fresh immutable copy - see _archiveSnapshot's own remarks on why this is the ONLY
+                // moment it may be rebuilt, and why nothing may ever publish _endingArchive itself.
+                _archiveSnapshot = _endingArchive.ToArray();
+                // The live-tail cache below describes a tail that no longer exists as of this fold (the
+                // aggregator that produced it is about to be superseded), and it was built against the
+                // OLD _archiveSnapshot - so it must not survive to be compared against a resolved count
+                // from a future encounter that happens to match by coincidence. See its own remarks.
+                _deadStripHistoryCachedResolvedCount = -1;
+                _currentEncounterArchived = true;
             }
 
             _inCombat = inCombat;
@@ -474,32 +646,33 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             var now = DateTime.UtcNow;
             if (_clogRenderGate.RequestRender(now))
                 RefreshCombatDisplay(now);
+            // AFTER the refresh, not before: a float is placed by roster INDEX, and the roster the
+            // index means is the one the canvas last drew. The first blow on a creature that just
+            // joined arrives in the same frame as its own FightStart, and that start is what opened
+            // the render window this refresh used - so by here the newcomer already has a slot.
+            RaiseCombatFloat(combatEvent);
         });
 
     public void OnStatsUpdated(GameStatsSnapshot stats)
         => MainThread.BeginInvokeOnMainThread(() =>
         {
+            ObserveFloatStamina(stats.Stamina);
+            // Every stamina reading, not just the ones inside a fight: the tracker's own gain rule is
+            // what clears a stale slice, and it only sees a gain if it sees the reading.
+            _tickLoss.Observe(stats.Stamina, DateTime.UtcNow);
             _combatStats.ObserveStamina(stats.Stamina);
-            // Deltas, not absolutes: effective-minus-raw is what the player's current load and
-            // afflictions are costing them right now, which is actionable (drop the load) where a
-            // bare "83/100 raw 94" was not.
             _combatDeficits = new CombatStatDeficits(
-                StrengthDelta: Delta(stats.Strength, stats.RawStrength),
-                DexterityDelta: Delta(stats.Dexterity, stats.RawDexterity),
                 StaminaCurrent: stats.Stamina,
                 StaminaMax: stats.MaxStamina,
                 // Carried weight is not here, and not anywhere - it is not captured, stored or shown
-                // by this client at all. See GameLineAnalyzer's score-sheet branch for why. The
-                // strength DELTA above still carries the real "you are loaded down" signal, because
-                // effective strength rides the FES heartbeat and already has the load priced in.
+                // by this client at all. See GameLineAnalyzer's score-sheet branch for why. Effective
+                // strength below still carries the real "you are loaded down" signal, because it rides
+                // the FES heartbeat and already has the load priced in.
                 ObjectsCarried: LiveObjectsCarried,
-                // Absolute effective/max strength+dexterity, for the Combat Rail's encumbrance-tier
-                // signal (DESIGN_FINAL.md 4.3), which needs fraction-of-max rather than the
-                // delta-from-raw the fields above already served.
+                // Absolute effective/max strength, for the Combat Rail's encumbrance tier, which needs
+                // fraction-of-max. The dexterity pair beside it went with the deltas: nothing read it.
                 StrengthEffective: stats.Strength,
                 StrengthMax: stats.MaxStrength,
-                DexterityEffective: stats.Dexterity,
-                DexterityMax: stats.MaxDexterity,
                 MagicCurrent: stats.CurrentMagic,
                 MagicMax: stats.MaxMagic,
                 // For the flee pill's price only - MUD2 charges a fraction of total score to leave.
@@ -511,6 +684,143 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             if (_clogRenderGate.RequestRender(now))
                 RefreshCombatDisplay(now);
         });
+
+    // -- Damage floats -----------------------------------------------------------------------
+    // The rail's one deliberate piece of motion: a small figure that rises off the pane an event
+    // belongs to and is gone in about a second and a half. Everything about WHAT it may say is
+    // decided here; everything about how it moves is GamePage's (RailFloatLayer) and everything
+    // about how many may move at once is RailFloatBudget's.
+
+    /// <summary>
+    /// This feature's own stamina baseline, used for two things the frame state cannot answer:
+    /// exactly how much a blow took, and whether stamina has gone UP since the last reading.
+    ///
+    /// <para>A private instance, which is <see cref="StaminaDeltaRelay"/>'s documented pattern
+    /// rather than a shortcut - SwingLedger, FightHistoryRecorder and CombatStatsAggregator each
+    /// hold their own for the same reason. The relay exists because MUD2's "The zombie hits you
+    /// (95/100)." line is parsed twice: the generic stats scan fires first and moves the baseline,
+    /// then the combat tracker's own regex arrives with the same 95, so without stashing the value
+    /// held immediately before the first parse every delta computes to zero. Feeding it from the
+    /// same two methods that feed the aggregator's, in the same order, is what keeps the two
+    /// baselines identical.</para>
+    /// </summary>
+    private readonly StaminaDeltaRelay _floatStamina = new();
+
+    /// <summary>
+    /// One stamina reading, and the deduced GAIN if it went up.
+    ///
+    /// <para><b>Heals are deduced, not announced.</b> MUD2 prints no "+3 health" line anywhere; the
+    /// only way to learn stamina is for a reading to print. So a "+14" here is the sum of everything
+    /// that happened since the previous reading - natural regen, food, a spell, in unknown
+    /// proportions - reported at the moment it was observed. It is deliberately NOT tick-aligned and
+    /// deliberately not split into per-tick increments: nothing on the wire says when in the gap it
+    /// happened, and manufacturing a schedule for it would be the panel inventing a mechanism.</para>
+    ///
+    /// <para>In combat only. Out of combat stamina regenerates continuously and every heartbeat
+    /// would raise one, which is precisely the ambient motion the budget exists to prevent - and a
+    /// number drifting up the panel in the tea room is not news.</para>
+    /// </summary>
+    private void ObserveFloatStamina(int? stamina)
+    {
+        if (stamina is null)
+            return;
+
+        var previous = _floatStamina.LastKnown;
+        _floatStamina.Observe(stamina);
+
+        if (previous is not int was || stamina.Value <= was)
+            return;
+        if (!_live.InCombat)
+            return;
+
+        RaisePlayerFloat(RailFloatKind.StaminaGain, RailFloatText.Gain(stamina.Value - was), DateTime.UtcNow);
+    }
+
+    /// <summary>
+    /// Turns one classified combat line into a float, or into nothing.
+    ///
+    /// <para>Only the four swing kinds qualify. Everything else the rail reports - health phrases,
+    /// weapon changes, fight ends - is a state the canvas already draws in place, and a rising copy
+    /// of it would be the second telling of the same fact.</para>
+    ///
+    /// <para><b>NPC heals are not rendered at all.</b> Creatures demonstrably regenerate, but MUD2
+    /// emits no signal for it, so there is nothing to report and no honest number to report it
+    /// with.</para>
+    /// </summary>
+    private void RaiseCombatFloat(CombatEvent combatEvent)
+    {
+        switch (combatEvent.Kind)
+        {
+            case CombatEventKind.Hit:
+                // The BRACKET the game printed, never a midpoint - see RailFloatText for why the
+                // outgoing and incoming sides are formatted differently on purpose.
+                RaiseOpponentFloat(combatEvent, RailFloatKind.OutgoingHit,
+                    RailFloatText.Outgoing(combatEvent.RangeLow, combatEvent.RangeHigh));
+                break;
+
+            case CombatEventKind.Miss:
+                RaiseOpponentFloat(combatEvent, RailFloatKind.OutgoingMiss, RailFloatText.Miss);
+                break;
+
+            case CombatEventKind.HitByNpc:
+            {
+                // Resolved unconditionally, even with floats switched off: ResolveDelta consumes the
+                // relay's one-shot stash, and skipping it would leave a stale pre-update value to be
+                // paired with an unrelated later reading.
+                var (delta, _) = _floatStamina.ResolveDelta(combatEvent.RangeLow);
+                // Null on the killing blow, which prints bare because no stamina survives it. No
+                // number is the honest rendering of no reading; a "-0" would be a measurement.
+                if (delta is int taken && taken > 0)
+                    RaisePlayerFloat(RailFloatKind.IncomingHit, RailFloatText.Incoming(taken),
+                        combatEvent.TimestampUtc);
+                break;
+            }
+
+            case CombatEventKind.MissByNpc:
+                RaisePlayerFloat(RailFloatKind.IncomingMiss, RailFloatText.Miss, combatEvent.TimestampUtc);
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Raises a float pinned to the creature the line named, resolving it to its row in the roster
+    /// the rail is currently drawing.
+    ///
+    /// <para>Dropped silently when the name is not on that roster. That is the honest outcome:
+    /// without a row there is no pane, and defaulting to a nearby slot would attribute the blow to
+    /// whatever creature happens to be sitting there.</para>
+    /// </summary>
+    private void RaiseOpponentFloat(CombatEvent combatEvent, RailFloatKind kind, string? text)
+    {
+        if (text is null || !_isCombatFloatsEnabled || CombatFloatRaised is null)
+            return;
+        if (combatEvent.NpcName is not { Length: > 0 } name)
+            return;
+
+        var rows = _live.Roster.Rows;
+        for (var i = 0; i < rows.Count; i++)
+        {
+            // OrdinalIgnoreCase, matching CombatStatsAggregator's own fight dictionary - the roster
+            // row's Name IS the tracker's NpcName, so this is an exact lookup and not a fuzzy one.
+            if (!string.Equals(rows[i].Name, name, StringComparison.OrdinalIgnoreCase))
+                continue;
+            // LiveCount, not rows.Count and not TotalCount: only LIVE opponents get a vertical slot
+            // now - the resolved ones are in the top-anchored dead strip and have no pane to float
+            // over - and the overflow row is surrendered on that same count, which can exceed the
+            // roster's own row cap. A float placed against either other number would land on a slot
+            // the canvas gave to something else.
+            CombatFloatRaised.Invoke(new RailFloat(
+                kind, text, i, _live.Roster.LiveCount, combatEvent.TimestampUtc));
+            return;
+        }
+    }
+
+    private void RaisePlayerFloat(RailFloatKind kind, string text, DateTime atUtc)
+    {
+        if (!_isCombatFloatsEnabled || CombatFloatRaised is null)
+            return;
+        CombatFloatRaised.Invoke(new RailFloat(kind, text, RailFloat.PlayerAnchor, 0, atUtc));
+    }
 
     public void TickCombatDisplay()
     {
@@ -560,6 +870,11 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         // heartbeat), and every 1 Hz tick, so a per-call allocation here is UI-thread churn that
         // adds up (Invariant #1).
         var snapshot = _hasCombatData ? _combatStats.Snapshot(nowUtc) : IdleSnapshot;
+        // The Here list's second signal: which of the names on the floor are currently being fought.
+        // Done here rather than off the FEI beat because a fight opens and closes on its own clock,
+        // and the icon has to follow the fight, not the heartbeat.
+        if (_engagedNpcs.Update(snapshot.Fights))
+            ReclassifyRoomEntries();
         var history = _hasCombatData ? ResolveHistory(snapshot) : CombatHistoryContext.Empty;
         // Compose the live frame state. The previous implementation built a list of styled text
         // lines here and diffed it before publishing, because publishing rebuilt a native
@@ -607,14 +922,24 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         if (!snapshot.HasEncounter)
         {
             _pulseTier = vulnerable;
-            _live = CombatLiveView.Idle;
+            // The dead strip is session-scoped (task 1) and must survive dismissing the encounter
+            // summary - ClearCombatSummaryCommand's own comment says it leaves "the session totals",
+            // and the strip is part of that, not part of the per-encounter readout being wiped.
+            // CombatLiveView.Idle alone blanks it (DeadStripHistory defaults to empty), so HasEncounter
+            // is set true here whenever there IS session history to show. CombatRailView.DrawOpponents
+            // gates the WHOLE opponent-slot/dead-strip region on that one flag, and with an empty
+            // Roster (RosterPlan.Empty, from CombatLiveView.Idle) the live-slot loop draws nothing
+            // regardless of it - so this only ever re-enables the dead strip, never the live stack.
+            // (2026-09-02 fix: this used to publish CombatLiveView.Idle unconditionally, which blanked
+            // the whole session strip on every dismiss/idle transition even though _archiveSnapshot was
+            // untouched in memory - a transient display bug, not data loss, but one that contradicted
+            // the strip's own "session-scoped" contract.)
+            _live = _archiveSnapshot.Count == 0
+                ? CombatLiveView.Idle
+                : CombatLiveView.Idle with { HasEncounter = true, DeadStripHistory = _archiveSnapshot };
             return;
         }
 
-        // Roster/weapon/duration context is worth showing whenever an encounter exists at all, live
-        // or just-finished - mirrors CombatComposition.Build's own AppendHeadline/AppendParticipants,
-        // which never gated on InCombat either (2.4/3.7's post-combat wireframe still names the target).
-        var roster = ParticipantRoster.Build(ToParticipantFacts(snapshot.Fights, nowUtc));
         // Live while fighting, historical once the fight is over. MUD2 auto-drops your weapon when
         // you flee - printing the drop in the same tick, just BEFORE the flee line - so the live
         // "what is in my hands" answer is correctly empty the instant an encounter ends that way. It
@@ -626,10 +951,18 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             : CombatComposition.PrimaryFight(snapshot)?.Weapon;
         var hasWeapon = !string.IsNullOrWhiteSpace(liveWeapon);
         var weaponText = hasWeapon ? CombatComposition.DisplayName(liveWeapon) : "UNARMED";
-        // The current target's own weapon (owner's standing "NPC weapon use highlighted"
-        // requirement) - null once nobody is still live, matching "no current target" everywhere
-        // else in this method.
-        var currentTargetNpcWeapon = snapshot.Fights.FirstOrDefault(f => !f.IsResolved)?.NpcWeapon;
+        // Roster/weapon/duration context is worth showing whenever an encounter exists at all, live
+        // or just-finished - mirrors CombatComposition.Build's own AppendHeadline/AppendParticipants,
+        // which never gated on InCombat either (2.4/3.7's post-combat wireframe still names the target).
+        //
+        // Built AFTER the weapon is known, because each participant's novelty is asked twice - once
+        // bare, once against what is actually in hand - and the second question has no answer until
+        // the line above has run.
+        var facts = ToParticipantFacts(snapshot.Fights, nowUtc, liveWeapon);
+        var roster = ParticipantRoster.Build(facts);
+        // The weapon's own mark: the worst thing the corpus says about this weapon against anything
+        // still engaged. Over the FACTS, not the roster rows, so a pack past the row cap still counts.
+        var weaponNovelty = CombatNovelty.WeaponRollup(facts);
         // The Ctrl+W offer, in combat only. MUD2 has no equipment slots and no default weapon: a
         // weapon is chosen while fighting, or as part of starting a fight ("kill x with y"). There is
         // nothing a wield could mean between fights, so the offer - and with it the chip advertising
@@ -643,6 +976,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             ? CombatComposition.ChooseAltWeapon(
                 InventoryList, snapshot.CurrentWeapon, history.ByWeapon, _isKnownWeapon)
             : null;
+        var deadStripHistory = BuildDeadStripHistory(snapshot);
 
         if (!snapshot.InCombat)
         {
@@ -652,20 +986,16 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             _pulseTier = vulnerable;
             _live = new CombatLiveView(
                 InCombat: false, HasEncounter: true, WeaponText: weaponText, IsUnarmed: !hasWeapon,
-                EncounterDuration: snapshot.Duration, Threat: ThreatReading.Idle, Roster: roster,
-                CurrentTargetNpcWeapon: currentTargetNpcWeapon,
-                OutlookVerdict: OutlookVerdict.Unknown, SecondsToDie: null, SecondsToKill: null,
+                Roster: roster,
                 StaminaCurrent: deficits.StaminaCurrent, StaminaMax: deficits.StaminaMax,
-                StrengthDelta: deficits.StrengthDelta, DexterityDelta: deficits.DexterityDelta,
                 ObjectsCarried: deficits.ObjectsCarried,
-                // The exchange bars describe what HAPPENED, so unlike the survival projection they
-                // stay up through the post-fight grace window - reviewing the fight you just had is
-                // the whole reason that window exists. Kill progress does not: the target is
-                // resolved, so a partial "how close was it" bar would be answering nothing.
-                Measures: BuildMeasures(snapshot, history, CombatComposition.PrimaryFight(snapshot)),
-                TargetDamageDone: null, TargetEstimatedPool: null,
+                DeadStripHistory: deadStripHistory,
                 MagicCurrent: deficits.MagicCurrent, MagicMax: deficits.MagicMax,
-                AltWeapon: altWeapon);
+                AltWeapon: altWeapon,
+                // Rolls up to None on its own here - WeaponRollup skips resolved fights, and outside
+                // combat every fight in the encounter is resolved. Passed rather than omitted so the
+                // two construction sites stay readable as the same record.
+                WeaponNovelty: weaponNovelty);
             return;
         }
 
@@ -716,28 +1046,19 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         // figure is kept "just in case" either - see D15/D16 for the panel's full cognitive-load
         // design tenets (fixed layout, unambiguous cues, sub-second glance budget).
 
-        var threat = ThreatIndicator.Resolve(
-            inCombat: true, staminaTier, outlook.Verdict, outlook.SecondsToDie, hitsLeft,
-            deficits.StaminaCurrent, deficits.StaminaMax);
+        var incomingPerBlow = IncomingPerBlowOf(roster);
 
         _live = new CombatLiveView(
             InCombat: true, HasEncounter: true, WeaponText: weaponText, IsUnarmed: !hasWeapon,
-            EncounterDuration: snapshot.Duration, Threat: threat, Roster: roster,
-            CurrentTargetNpcWeapon: currentTargetNpcWeapon,
-            OutlookVerdict: outlook.Verdict, SecondsToDie: outlook.SecondsToDie, SecondsToKill: outlook.SecondsToKill,
+            Roster: roster,
             StaminaCurrent: deficits.StaminaCurrent, StaminaMax: deficits.StaminaMax,
-            StrengthDelta: deficits.StrengthDelta, DexterityDelta: deficits.DexterityDelta,
             ObjectsCarried: deficits.ObjectsCarried,
-            Measures: BuildMeasures(snapshot, history, primary),
-            // Kill progress is shown only against a target still standing, and only once a kill of
-            // that kind is on record to estimate the pool from.
-            TargetDamageDone: primary is { IsResolved: false } ? primary.ApproxDamageDone : null,
-            TargetEstimatedPool: primary is { IsResolved: false } ? history.Primary.EstimatedStaminaPool : null,
+            DeadStripHistory: deadStripHistory,
             MagicCurrent: deficits.MagicCurrent, MagicMax: deficits.MagicMax,
             AltWeapon: altWeapon,
             // The flee pill. Fed hitsLeft rather than the resolved tier, so it agrees with the count
-            // that already overrides the whole-panel glow instead of re-deriving a second opinion from
-            // the same inputs - the mistake ThreatIndicator's own remarks warn about.
+            // that already overrides the whole-panel glow instead of deriving a second opinion from the
+            // same inputs.
             //
             // Not gated on the grace window here: the grace flag changes without the frame state being
             // rebuilt, so folding it in would leave it stale exactly when it matters. The renderer and
@@ -745,47 +1066,164 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             FleePill: FleePillResolver.Resolve(
                 inCombat: true, deficits.StaminaCurrent,
                 FleePillResolver.WorstCaseTickDamage(roster), hitsLeft),
-            FleeCostPoints: FleeCostEstimate.Points(deficits.StaminaCurrent, deficits.Score));
+            // The charge is a fraction of SCORE banded by stamina as a fraction of MAXIMUM, so the
+            // maximum is a required input rather than a nicety - a model that can be asked without one
+            // is the absolute-threshold bug this replaced.
+            FleeCostPoints: FleeCostEstimate.Points(
+                deficits.StaminaCurrent, deficits.StaminaMax, deficits.Score),
+            // The bracket MUD2 printed, never a midpoint. See CombatLiveView.TargetDealtBracket.
+            TargetDealtBracket: primary is { IsResolved: false } ? primary.YourDamage : null,
+            // The incoming half of the border language, pooled over everything still swinging at the
+            // player. See CombatLiveView.IncomingTempo for why it is a ratio of sums.
+            IncomingTempo: IncomingTempoOf(snapshot),
+            WeaponNovelty: weaponNovelty,
+            // The player's own prediction bands, off the ONE creature ReachAggregate.GreatestThreat
+            // names (see IncomingPerBlowOf) - never a pack summed together. See
+            // DamagePrediction.IncomingPerBlow.
+            YourNextBlow: DamagePrediction.PlayerAfterBlows(
+                1, deficits.StaminaCurrent, deficits.StaminaMax, incomingPerBlow),
+            YourBlowAfter: DamagePrediction.PlayerAfterBlows(
+                2, deficits.StaminaCurrent, deficits.StaminaMax, incomingPerBlow),
+            StaminaLostLastTick: _tickLoss.LostThisTick,
+            // Only meaningful alongside a nonzero LostThisTick - see CombatLiveView.StaminaLossUtc.
+            StaminaLossUtc: _tickLoss.LostThisTick > 0 ? _tickLoss.LastLossUtc : null);
     }
 
     /// <summary>
-    /// Builds the exchange as drawable bars (see <see cref="CombatMeasure"/>) instead of the numeric
-    /// "now"/"usual" matrix the panel used to print.
+    /// The Combat Rail dead strip's whole session history, chronological by EndedUtc (see
+    /// <see cref="CombatEndingOrder.Sorted"/>): every prior encounter's endings, already frozen into
+    /// <see cref="_endingArchive"/>/<see cref="_archiveSnapshot"/> at the encounter close in
+    /// <see cref="OnInCombatChanged"/>, plus the CURRENT encounter's own endings as they land.
     ///
-    /// <para>Hit rates share a natural 0..1 scale. Damage per hit does not, so both sides take ONE
-    /// shared full-scale derived from the largest value in play - without that the two bars would be
-    /// individually normalised and "you hit for 9.5, they hit for 4.0" would draw as two identical
-    /// full bars, which is worse than no chart at all.</para>
+    /// <para><b>Read straight off <paramref name="snapshot"/>'s fights, not off the roster.</b>
+    /// <c>ParticipantRoster.Build</c> caps its row list at <c>ParticipantRoster.MaxRows</c> for the
+    /// live slot stack's sake - a limit that exists to bound the vertical badges the canvas draws at
+    /// once, and has nothing to do with how many endings a pack fight produced. <c>snapshot.Fights</c>
+    /// (via <c>CombatStatsAggregator.Fights</c>) is unbounded, so a fourteen-rat pack records all
+    /// fourteen endings here even though only eight of them ever had a roster row - the OLD strip did
+    /// not lose the other six either (they were summarised via the roster's own hidden-count), but it
+    /// could only ever say how many, never which. This can say which.</para>
+    ///
+    /// <para><b>Why this cannot just always read <c>snapshot.Fights</c> and skip the archive.</b>
+    /// <c>_combatStats</c> is not cleared at encounter close - only at the NEXT
+    /// <c>BeginEncounter</c> - so between the fold and the next fight starting, <c>snapshot.Fights</c>
+    /// still answers with exactly the endings that were just archived. <see cref="_currentEncounterArchived"/>
+    /// is the flag that says which side of that fold the caller is on, so an ending is counted
+    /// exactly once.</para>
+    ///
+    /// <para><b>Cached against the resolved-fight count (2026-09-02).</b> This runs on every combat
+    /// event, every FES heartbeat and every 1 Hz tick once anything in the encounter has resolved
+    /// (Invariant #1) - mirroring <see cref="_historyCache"/> below. The resolved count is a valid
+    /// dirty check (see <see cref="_deadStripHistoryCache"/>'s own remarks), so the steady state - no
+    /// new resolution since the last call - returns the SAME cached list rather than re-sorting and
+    /// re-copying the whole thing, and the returned list is never the live <c>_endingArchive</c>/tail
+    /// working storage, so it stays safe to publish into a record documented as immutable after
+    /// publish.</para>
     /// </summary>
-    private static IReadOnlyList<CombatMeasure> BuildMeasures(
-        CombatEncounterSnapshot snapshot, CombatHistoryContext history, FightSnapshot? primary)
+    private IReadOnlyList<CombatEnding> BuildDeadStripHistory(CombatEncounterSnapshot snapshot)
     {
-        var youAttempts = (primary?.YouHits ?? 0) + (primary?.YouMisses ?? 0);
-        var theyAttempts = (primary?.TheyHits ?? 0) + (primary?.TheyMisses ?? 0);
-        double? youRate = youAttempts == 0 ? null : primary!.YouHits / (double)youAttempts;
-        double? theyRate = theyAttempts == 0 ? null : primary!.TheyHits / (double)theyAttempts;
+        if (_currentEncounterArchived)
+            return _archiveSnapshot;
 
-        double? youPerHit = primary is { YouHits: > 0 } pd ? pd.ApproxDamageDone / pd.YouHits : null;
-        double? theyPerHit = primary is { TheyHits: > 0 } pt ? pt.ApproxDamageTaken / pt.TheyHits : null;
-        var usualPerHit = history.Primary.MedianDamagePerHit;
+        var resolvedThisEncounter = 0;
+        foreach (var fight in snapshot.Fights)
+        {
+            if (fight.IsResolved)
+                resolvedThisEncounter++;
+        }
+        if (resolvedThisEncounter == 0)
+            return _archiveSnapshot;
 
-        // One shared ceiling for both damage bars, with headroom so a current best does not sit
-        // pinned at full width with nowhere to grow.
-        var damageScale = Math.Max(
-            Math.Max(youPerHit ?? 0, theyPerHit ?? 0),
-            usualPerHit ?? 0) * 1.25;
-        if (damageScale <= 0) damageScale = 1;
+        if (resolvedThisEncounter == _deadStripHistoryCachedResolvedCount)
+            return _deadStripHistoryCache;
 
-        var n = history.Primary.SampleSize;
-        return
-        [
-            new CombatMeasure("you", youRate, history.Primary.MedianYouHitRate, 1.0, n, true, true),
-            new CombatMeasure("them", theyRate, history.Primary.MedianTheyHitRate, 1.0, n, false, true),
-            // Only the player's side carries a historical tick: FightHistorySummary records the
-            // player's damage per landed blow, and has no equivalent per-hit figure for the NPC.
-            new CombatMeasure("you", youPerHit, usualPerHit, damageScale, n, true, false),
-            new CombatMeasure("them", theyPerHit, null, damageScale, 0, false, false),
-        ];
+        var tail = new List<CombatEnding>(resolvedThisEncounter);
+        foreach (var fight in snapshot.Fights)
+        {
+            if (fight.IsResolved)
+                tail.Add(new CombatEnding(
+                    fight.NpcName, fight.Outcome, fight.EndedUtc, _encounterOrdinal, _resetOrdinal));
+        }
+
+        var combined = new List<CombatEnding>(_archiveSnapshot.Count + tail.Count);
+        combined.AddRange(_archiveSnapshot);
+        // Sorted (CombatEndingOrder.Sorted, 2026-09-02 fix): snapshot.Fights is in first-engaged
+        // order, not resolution order, and appending it unsorted is the ordering bug this method used
+        // to have - see CombatEndingOrder's own remarks. _archiveSnapshot above needs no re-sort: it
+        // is already chronological, and every one of its timestamps precedes every timestamp in THIS
+        // still-open encounter by wall-clock necessity.
+        combined.AddRange(CombatEndingOrder.Sorted(tail));
+
+        _deadStripHistoryCache = combined;
+        _deadStripHistoryCachedResolvedCount = resolvedThisEncounter;
+        return _deadStripHistoryCache;
+    }
+
+    /// <summary>
+    /// What one incoming blow takes, from the creature <see cref="ReachAggregate.GreatestThreat"/>
+    /// names - the greatest measured single-blow reach among the live rows, tie-broken on damage
+    /// actually taken.
+    ///
+    /// <para>One creature, never the pack summed. Falls back to the first live row when nothing has a
+    /// reach mark yet, so the bands appear as soon as anything has swung rather than waiting for the
+    /// threat ranking to have evidence.</para>
+    /// </summary>
+    private static DamageBracket? IncomingPerBlowOf(RosterPlan roster)
+    {
+        var index = ReachAggregate.GreatestThreat(roster);
+        if (index < 0)
+        {
+            for (var i = 0; i < roster.Rows.Count; i++)
+            {
+                if (roster.Rows[i].IsLive)
+                {
+                    index = i;
+                    break;
+                }
+            }
+        }
+
+        if (index < 0)
+            return null;
+
+        var row = roster.Rows[index];
+        return DamagePrediction.IncomingPerBlow(row.FightDamage, row.EverDamage);
+    }
+
+    /// <summary>
+    /// Every live opponent's swings at the player this encounter, pooled into one tempo.
+    ///
+    /// <para>Hits and misses are ADDED, so the resulting rate is a ratio of sums. An average of the
+    /// per-creature rates would weight a rat that has swung twice the same as an ogre that has swung
+    /// forty times, which is the shape of aggregate error this panel has been bitten by before.</para>
+    ///
+    /// <para>Live participants only: a creature that is already dead is not part of what is coming at
+    /// the player, and leaving its swings in would keep the border reading busy after a pack was
+    /// cleared.</para>
+    /// </summary>
+    private static SwingTempo IncomingTempoOf(CombatEncounterSnapshot snapshot)
+    {
+        var tempo = SwingTempo.None;
+        foreach (var fight in snapshot.Fights)
+        {
+            if (!fight.IsResolved)
+                tempo = tempo.Plus(new SwingTempo(fight.TheyHits, fight.TheyMisses));
+        }
+        return tempo;
+    }
+
+    /// <summary>One creature's remaining-stamina band: the species estimate, less this fight's damage
+    /// brackets, narrowed by the live health rung and by any `diagnose` reading. Null when nothing at
+    /// all supports one - a band with no evidence is not a band.
+    ///
+    /// <para>Absolute, and it never leaves this file. Its only consumer is NpcVitality.Estimate, which
+    /// divides it by the pool to place the seal's fill inside the rung the game printed; no figure it
+    /// produces is ever drawn.</para></summary>
+    private static NpcStaminaBand? RemainingFor(StaminaPoolEstimate pool, FightSnapshot fight)
+    {
+        var band = NpcRemainingStamina.Compute(
+            pool, fight.YourDamage, fight.RungAnchor, fight.StaminaReading);
+        return band.HasEvidence ? band : null;
     }
 
     /// <summary>Maps the app-side <see cref="FightSnapshot"/> list down to the plain, MAUI-independent
@@ -797,7 +1235,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     /// NPC's own weapon does, so this is the one place that can attach them without the roster or the
     /// renderer having to know a store exists.</summary>
     private IReadOnlyList<ParticipantFact> ToParticipantFacts(
-        IReadOnlyList<FightSnapshot> fights, DateTime nowUtc)
+        IReadOnlyList<FightSnapshot> fights, DateTime nowUtc, string? currentWeapon)
     {
         var facts = new ParticipantFact[fights.Count];
         for (var i = 0; i < fights.Count; i++)
@@ -809,6 +1247,35 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             double? healthAge = fight.HealthReadUtc is DateTime read
                 ? Math.Max(0.0, (nowUtc - read).TotalSeconds)
                 : null;
+            // Null (not StaminaPoolEstimate.None) with no index attached, so the narrowing step can
+            // tell "no pool index in this context" from "an index with nothing on file for this
+            // creature" - the second is a real answer about a species and the first is not an answer
+            // at all. Either way the rung's own seventh still stands on its own.
+            var pool = _staminaPool?.Lookup(fight.NpcName);
+            // The seal's fill, per participant rather than for the primary target alone - the whole
+            // point of a seal per slot is that a pack can be read row against row, which a figure only
+            // the current target carries cannot support.
+            //
+            // A FRACTION, not a stamina figure. The rung is the source (it is what MUD2 actually
+            // printed and what the player themselves read); the pool estimate and this fight's damage
+            // brackets only narrow the position inside that seventh, and no absolute number they
+            // produce reaches the screen. Both probes are dictionary lookups under a lock held for
+            // exactly that probe (StaminaPoolIndex's own remarks), run for at most MaxRows opponents
+            // per refresh.
+            var vitality = NpcVitality.Estimate(
+                fight.HealthRung, pool, pool is null ? null : RemainingFor(pool, fight),
+                // The crossing is the sharpest constraint of the three on a large creature, and it needs
+                // this fight's cumulative bracket because on a first encounter that is the only floor
+                // under the pool there is.
+                fight.RungCrossing, fight.YourDamage);
+            var perBlow = DamagePrediction.PerBlow(
+                fight.YourDamage, fight.YouHits,
+                _swingDamage?.Lookup(fight.NpcName).Outgoing ?? BracketProfile.Empty);
+            // (None, None) with no store attached (unit/design contexts): no corpus means no evidence
+            // either way, and "unfought" is a claim about the corpus rather than the absence of one.
+            var novelty = _fightHistory?.NoveltyFor(fight.NpcName, currentWeapon)
+                ?? (NoveltyMark.None, NoveltyMark.None);
+
             facts[i] = new ParticipantFact(
                 fight.NpcName, fight.IsResolved, fight.Outcome,
                 fight.HealthRung, fight.HealthPhrase, healthAge, fight.ApproxDamageTaken,
@@ -818,7 +1285,32 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
                 // file - never a zero, which would read as "this thing cannot hurt you". Only the
                 // incoming half reaches the rail today; the outgoing brackets are cached alongside it
                 // for the exchange bars and the analysis view, which want both sides.
-                _swingDamage?.Lookup(fight.NpcName).Incoming ?? DamageProfile.Empty);
+                _swingDamage?.Lookup(fight.NpcName).Incoming ?? DamageProfile.Empty,
+                vitality,
+                // rDPT: where the next two landed blows put this creature's boundary, as intervals off
+                // the player's own damage brackets. This fight's bracket is preferred over history so a
+                // weapon swap, a dropped load or a magic buff moves the bands on the very next blow -
+                // nothing here latches. See MudSharp.Combat.DamagePrediction for what each evidence
+                // state buys and why this replaced a time-based forecast.
+                DamagePrediction.AfterBlows(1, vitality, pool, perBlow, fight.YourDamage, fight.RungCrossing),
+                DamagePrediction.AfterBlows(2, vitality, pool, perBlow, fight.YourDamage, fight.RungCrossing),
+                new SwingTempo(fight.YouHits, fight.YouMisses),
+                // The reach mark is per SPECIES and includes this encounter's own blows, so it is the
+                // only figure on this row that can already know about the hit that landed a second ago.
+                _reachMarks?.Lookup(fight.NpcName) ?? ReachMark.None,
+                // Novelty: has this creature's KIND ever been fought, and ever killed - once bare, once
+                // narrowed to the weapon in hand. Two dictionary probes under one lock, per row.
+                //
+                // The index holds only CLOSED, flushed fights (HistoryIndex's own remarks), so the
+                // encounter on screen cannot enter its own answer. That is the property that makes the
+                // marks hold still: a creature met for the first time stays orange for the whole of the
+                // fight that is teaching you about it, and only stops being new on the NEXT one.
+                novelty.Name, novelty.Weapon,
+                // The diagnose probe, carried verbatim so the slot can show what the game actually
+                // printed. Kept for the rest of the fight rather than expiring - see
+                // RosterRow.StaleAfterSeconds for why silence corroborates a reading here.
+                fight.StaminaReading,
+                fight.Value);
         }
         return facts;
     }
@@ -842,11 +1334,10 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             return CombatHistoryContext.Empty;
 
         return _historyCache.Resolve(
-            _fightHistory, primary.NpcName, primary.NpcGroup, snapshot.CurrentWeapon, snapshot.StartedUtc);
+            _fightHistory, primary.NpcName, primary.NpcGroup, snapshot.CurrentWeapon, snapshot.StartedUtc,
+            _staminaPool);
     }
 
-    private static int? Delta(int? effective, int? raw)
-        => effective is null || raw is null ? null : effective.Value - raw.Value;
 
 
     /// <summary>Apply a new status-effect snapshot from the session (fires on the read-loop thread).</summary>
@@ -1032,7 +1523,20 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
 
     // ── Inventory / room items ────────────────────────────────────────────────
     public ObservableCollection<string> InventoryList { get; } = new();
-    public ObservableCollection<string> RoomItemsList { get; } = new();
+
+    /// <summary>The "Here" list. Rows rather than bare strings, because a name on the floor may be a
+    /// creature and the panel draws those differently - see <see cref="RoomEntry"/> and
+    /// <see cref="MudSharp.Models.RoomCreatures"/>.</summary>
+    public ObservableCollection<RoomEntry> RoomItemsList { get; } = new();
+
+    /// <summary>The game's own creature-presence sentences for the room the player is standing in.
+    /// The only thing that can tell a rat from a vial in an FEI list.</summary>
+    private readonly MudSharp.Models.RoomCreatures _roomCreatures = new();
+
+    /// <summary>Every NPC in an OPEN fight right now, refreshed from each combat snapshot. Second,
+    /// independent source of "this is a creature" - and the only source of "and you are fighting it".
+    /// See <see cref="EngagedNpcSet"/> for the unchanged-refresh property the Here list depends on.</summary>
+    private readonly EngagedNpcSet _engagedNpcs = new();
     private readonly List<string> _pendingInventory = new();
     private readonly List<string> _pendingRoomItems = new();
     private bool _feiPastSeparator;
@@ -1081,6 +1585,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     public ICommand ToggleFloatingMapLockCommand { get; }
     public ICommand ProbeRecentCommand { get; }
     public ICommand ToggleCombatMetronomeCommand { get; }
+    public ICommand ToggleCombatFloatsCommand { get; }
 
     /// <summary>Raised when an interaction should hand keyboard focus back to the input box.
     /// Opening the About dialog deliberately does not raise it — focus belongs to the dialog.</summary>
@@ -1102,6 +1607,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         ToggleItemsHereCommand = new Command(() => IsItemsHereExpanded = !IsItemsHereExpanded);
         ToggleCombatPanelCommand = new Command(() => { IsCombatPanelVisible = !IsCombatPanelVisible; RequestFocus?.Invoke(); });
         ToggleCombatMetronomeCommand = new Command(ToggleCombatMetronome);
+        ToggleCombatFloatsCommand = new Command(ToggleCombatFloats);
         ToggleMapCommand       = new Command(() => IsMapExpanded       = !IsMapExpanded);
         ToggleOnlinePinnedCommand = new Command(() => { IsOnlinePinned = !IsOnlinePinned; RequestFocus?.Invoke(); });
         ToggleFloatingFoldCommand = new Command(() => IsFloatingOnlineFolded = !IsFloatingOnlineFolded);
@@ -1182,8 +1688,28 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     public void OnRoomEntered()
         => MainThread.BeginInvokeOnMainThread(() =>
         {
+            // The creature sentences describe THIS room's occupants and nothing else, so they go with
+            // the contents. Keeping them would let a rat described one room ago mark an identically
+            // named object in the next one as alive.
+            _roomCreatures.Clear();
             RoomItemsList.Clear();
             OnPropertiesChanged(nameof(HasRoomItems), nameof(NoRoomItems));
+        });
+
+    /// <summary>
+    /// One creature-presence sentence, straight from the C04 scope (Feed thread). Marshalled onto the
+    /// UI thread so it shares a thread with <see cref="OnFeiListComplete"/>'s read of the same index -
+    /// the two arrive on different clocks and must not race.
+    /// </summary>
+    public void OnCreatureText(string sentence)
+        => MainThread.BeginInvokeOnMainThread(() =>
+        {
+            _roomCreatures.Observe(sentence);
+            // A creature can arrive after the room's own FEI list was built (C04.00.02, "arriving"),
+            // and the arrival hints an Inventory refresh anyway - but that refresh may report the same
+            // names and be skipped by the diff below, leaving the newcomer drawn as an object. Reclass
+            // in place instead: no list rebuild, no re-templating.
+            ReclassifyRoomEntries();
         });
 
     /// <summary>
@@ -1214,6 +1740,24 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             CurrentRoom = "Option Menu.";
             SetAllExitsPresent(false);
         });
+
+    /// <summary>
+    /// Advances the dead strip's reset-grouping ordinal (<see cref="CombatEnding.ResetOrdinal"/>).
+    /// Wired to <c>MuckaConnection.AutoResetInitiated</c> in <c>GameViewModel.SubscribeConnectionEvents</c>,
+    /// the same direct connection-event-to-SidePanel wiring style as
+    /// <see cref="OnStatusEffectsChanged"/>/<see cref="OnGameModeExited"/> - the one authoritative
+    /// signal for a reset (the server's own C06 C04 "auto reset initiated"), never inferred from
+    /// <c>ResetEpochMs</c> or from prose (see CombatEnding's own remarks on why).
+    ///
+    /// <para><b>Fires on the WARNING, not the reset instant.</b> <c>MudSession</c>'s own comment on
+    /// this event is explicit that it announces "you have 120 seconds to finish up", not the reset
+    /// landing - so an ending recorded in that finish-up window is grouped with the NEXT reset cycle
+    /// a little early, by at most that window. This is the signal the task named as authoritative,
+    /// and the alternative (waiting for the drop itself) has no event of its own to hang from - the
+    /// session simply disconnects.</para>
+    /// </summary>
+    public void OnAutoResetInitiated()
+        => MainThread.BeginInvokeOnMainThread(() => _resetOrdinal++);
 
     // ── WHO list (FEW) ────────────────────────────────────────────────────────
 
@@ -1447,6 +1991,22 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             }
         });
 
+    /// <summary>
+    /// A creature's `value &lt;name&gt;` reply resolved (see MudSession's creature-value probe).
+    /// UI-marshalled, like every other session callback here. Routes straight into the aggregator's
+    /// own bucket for that name and asks for the usual throttled refresh - the same shape as
+    /// OnCombatEvent/OnStatsUpdated - because the value is not read anywhere on its own timer, only
+    /// as part of the roster row the next refresh builds.
+    /// </summary>
+    public void OnCreatureValueResolved(string name, int value)
+        => MainThread.BeginInvokeOnMainThread(() =>
+        {
+            _combatStats.ObserveCreatureValue(name, value);
+            var now = DateTime.UtcNow;
+            if (_clogRenderGate.RequestRender(now))
+                RefreshCombatDisplay(now);
+        });
+
     // Move a Recent entry (or a bare name, if the entry already expired) back onto the live
     // Online list. Invisible promotions wrap the name in parens as the last-known-invisible marker.
     private void PromoteToOnline(WhoEntry? recent, string name, bool invisible)
@@ -1501,20 +2061,43 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             // FEI arrives every heartbeat and is usually unchanged; Clear+Add re-templates
             // every native label in both lists (UI-thread work competing with typing), so
             // skip the rebuild when nothing changed. The stale-dim restart still fires.
-            if (!snapRoom.SequenceEqual(RoomItemsList) || !snapInv.SequenceEqual(InventoryList))
+            var roomChanged = snapRoom.Count != RoomItemsList.Count;
+            if (!roomChanged)
+            {
+                for (var i = 0; i < snapRoom.Count; i++)
+                {
+                    if (!string.Equals(snapRoom[i], RoomItemsList[i].Name, StringComparison.Ordinal))
+                    {
+                        roomChanged = true;
+                        break;
+                    }
+                }
+            }
+
+            if (roomChanged)
             {
                 RoomItemsList.Clear();
                 foreach (var item in snapRoom)
-                    RoomItemsList.Add(item);
+                    RoomItemsList.Add(new RoomEntry(item, IsCreatureName(item), _engagedNpcs.Contains(item)));
+            }
+            else
+            {
+                // Same names as last beat, so no rebuild - but a creature sentence or a fight may have
+                // landed since, and both change how an unchanged row is drawn. Two bindable properties
+                // at most per row, only where they actually changed: no re-templating.
+                ReclassifyRoomEntries();
+            }
 
+            if (!snapInv.SequenceEqual(InventoryList))
+            {
                 InventoryList.Clear();
                 foreach (var item in snapInv)
                     InventoryList.Add(item);
-
-                OnPropertiesChanged(
-                    nameof(HasRoomItems), nameof(NoRoomItems),
-                    nameof(HasInventory), nameof(NoInventory));
+                OnPropertiesChanged(nameof(HasInventory), nameof(NoInventory));
             }
+
+            if (roomChanged)
+                OnPropertiesChanged(nameof(HasRoomItems), nameof(NoRoomItems));
 
             // Latched, never cleared: it distinguishes "FEI says you carry nothing" from "FEI has
             // never reported". Without it an empty InventoryList reads as a confirmed zero, and the
@@ -1523,6 +2106,36 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
 
             FeiRefreshed?.Invoke();   // restart the section's compositor stale-dim
         });
+    }
+
+    /// <summary>
+    /// Whether an FEI room entry names a living thing. Two independent sources, unioned:
+    ///
+    /// <para>The game's own C1 taxonomy (code 04 = creature), captured per room - see
+    /// <see cref="MudSharp.Models.RoomCreatures"/> for why that is the only classification available
+    /// and what it costs.</para>
+    ///
+    /// <para>And the fight tracker: whatever is currently being swung at is a creature, whether or not
+    /// a description was ever seen for it. This is what covers the case the first source cannot - a
+    /// client attached mid-room, with no room description behind it.</para>
+    /// </summary>
+    private bool IsCreatureName(string name)
+        => _engagedNpcs.Contains(name) || _roomCreatures.IsCreature(name);
+
+    /// <summary>Re-applies both flags to the rows already on screen. Touches only the two bindable
+    /// properties, and only when they actually change, so an unchanged beat costs a handful of string
+    /// comparisons and no native re-templating (Invariant #1).</summary>
+    private void ReclassifyRoomEntries()
+    {
+        foreach (var entry in RoomItemsList)
+        {
+            var engaged = _engagedNpcs.Contains(entry.Name);
+            entry.IsEngaged = engaged;
+            // Never demoted: a creature that stops being fought is still a creature, and the room's
+            // description does not get re-sent when a fight ends.
+            if (!entry.IsCreature && (engaged || _roomCreatures.IsCreature(entry.Name)))
+                entry.IsCreature = true;
+        }
     }
 
     /// <summary>

@@ -158,6 +158,23 @@ public sealed class FightHistoryStore : IDisposable
             return _index.IsKnownWeapon(name);
     }
 
+    /// <summary>
+    /// The novelty marks for one live opponent: what the corpus says about its KIND, and what it says
+    /// about its kind against the weapon currently in hand. Two dictionary probes under the lock -
+    /// the same shape and cost as <see cref="IsKnownWeapon"/>, called once per roster row on the
+    /// combat refresh path.
+    ///
+    /// <para>Returned as a pair from ONE lock acquisition rather than as two calls, so the name mark
+    /// and the weapon mark can never straddle an <see cref="Append"/> and describe two different
+    /// states of the corpus.</para>
+    /// </summary>
+    public (MudSharp.Combat.NoveltyMark Name, MudSharp.Combat.NoveltyMark Weapon) NoveltyFor(
+        string? npcName, string? currentWeapon)
+    {
+        lock (_lock)
+            return (_index.GetNovelty(npcName), _index.GetWeaponNovelty(npcName, currentWeapon));
+    }
+
     /// <summary>Appends one completed fight: updates the in-memory snapshot immediately (so a
     /// same-thread Snapshot() right after this call sees it - Invariant #1 does not apply to the
     /// Feed thread doing its own cheap bookkeeping) and enqueues the database write for

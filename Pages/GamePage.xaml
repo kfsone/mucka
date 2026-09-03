@@ -1037,10 +1037,31 @@
                                             <VerticalStackLayout Spacing="1" IsVisible="{Binding SidePanel.HasRoomItems}"
                                                                  BindableLayout.ItemsSource="{Binding SidePanel.RoomItemsList}">
                                                 <BindableLayout.ItemTemplate>
-                                                    <DataTemplate x:DataType="x:String">
-                                                        <Label Text="{Binding .}" TextColor="#cccccc" FontSize="11"
-                                                               HorizontalOptions="Fill" HorizontalTextAlignment="End"
-                                                               FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
+                                                    <!-- Name, then a fixed 16dp icon cell. The cell is reserved on EVERY row,
+                                                         creature or not, so the names all end at the same x and nothing shifts
+                                                         when a creature walks in or is killed. That fixed cell is also the
+                                                         future click-to-attack target: adding a TapGestureRecognizer to the
+                                                         Grid (or to the Path) needs no layout change, only a command that
+                                                         sends the attack AND fires SidePanel.RequestFocus, per Invariant #0. -->
+                                                    <DataTemplate x:DataType="vm:RoomEntry">
+                                                        <Grid ColumnDefinitions="*,16">
+                                                            <Label Grid.Column="0" Text="{Binding Name}"
+                                                                   TextColor="{Binding TextColor}" FontSize="11"
+                                                                   VerticalOptions="Center"
+                                                                   HorizontalOptions="Fill" HorizontalTextAlignment="End"
+                                                                   FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
+                                                            <!-- Crossed swords, as vector path data rather than a bitmap: the
+                                                                 glyph has to be recoloured per row (grey = not fighting it,
+                                                                 red = fighting it) and a MauiImage cannot be tinted, so a
+                                                                 pair of PNGs would be two assets encoding one state. Geometry
+                                                                 follows Resources/Raw/status/combat.svg's own crossed blades. -->
+                                                            <Path Grid.Column="1" IsVisible="{Binding ShowSwords}"
+                                                                  Data="M1.8,10.2 L9.8,2.2 M1.9,7.9 L4.1,10.1 M10.2,10.2 L2.2,2.2 M7.9,10.1 L10.1,7.9"
+                                                                  Stroke="{Binding SwordsColor}" StrokeThickness="1.4"
+                                                                  StrokeLineCap="Round" StrokeLineJoin="Round"
+                                                                  WidthRequest="12" HeightRequest="12"
+                                                                  HorizontalOptions="End" VerticalOptions="Center"/>
+                                                        </Grid>
                                                     </DataTemplate>
                                                 </BindableLayout.ItemTemplate>
                                             </VerticalStackLayout>
@@ -1130,16 +1151,32 @@
              DESIGN_FINAL.md D3/2.2 (corrected). This is NOT the left SidePanelBorder above widened;
              it is a wholly separate panel with its own width, shown/hidden by the overflow menu's
              "Combat" entry (SidePanel.ToggleCombatPanelCommand -> IsCombatPanelVisible, whose
-             change drives GamePage's ResizeWindowForCombatPanel). The window never resizes for any
-             other reason - not combat start, not combat end. -->
+             change drives GamePage's ResizeWindowForCombatPanel). The window never resizes itself for
+             any other reason - not combat start, not combat end.
+
+             WidthRequest=338, not 336: this Border's own StrokeThickness=1 insets its content by 1dp
+             per side (MAUI's Border.CrossPlatformMeasure subtracts Padding+StrokeThickness on each
+             side, confirmed by decompiling Microsoft.Maui.Controls.dll - not assumed), so the canvas/
+             Composition-sibling content area inside is 336dp - exactly CombatRailView.RailWidth. That
+             makes the rail's 336-unit design space map 1:1 onto this dp content area at every DPI (see
+             GamePage.xaml.cs's CombatPanelContentWidthDp/CombatPanelWidthDp, which this must keep
+             matching); OnPaintSurface's `scale` itself still carries the DPI factor on top of that,
+             because SKCanvasView reports its surface in physical pixels, not dp (IgnorePixelScaling is
+             not set anywhere in this repo). Was 300 - the rail rendered at ~0.887x its designed size,
+             at every DPI, until this line and GamePage.xaml.cs's constant changed together. -->
         <Border Grid.Column="2"
                 x:Name="CombatPanelBorder"
                 IsVisible="{Binding SidePanel.IsCombatPanelVisible}"
-                WidthRequest="300"
+                WidthRequest="338"
                 BackgroundColor="#101618"
                 Stroke="#2d333b" StrokeThickness="1"
                 Padding="0">
-            <Grid>
+            <!-- Named so GamePage can add the pooled damage-float Labels to it at load (see
+                 SetupCombatFloats). They are created in code rather than declared here because how
+                 many there are IS the motion budget - RailFloatBudget.MaxInFlight - and four
+                 hand-copied Labels would be a second copy of that number, free to disagree with the
+                 policy that actually hands out the slots. -->
+            <Grid x:Name="CombatPanelLayers">
                 <!-- Glow layer BEHIND the canvas (D9): opacity animated ONLY via WinUI Composition
                      (PulseLayer, GamePage.xaml.cs), never via a UI-thread timer and never by
                      recolouring the canvas's own drawn text. Rests at Opacity 0 (invisible) whenever
@@ -1503,6 +1540,26 @@
                                    VerticalOptions="Center"
                                    IsVisible="{Binding SidePanel.IsCombatPanelVisible}"/>
                             <Label Grid.Column="1" Text="Combat" TextColor="White" FontSize="14"/>
+                        </Grid>
+                    </Border>
+                    <!-- "Damage floats": the rail's rising "5-9"/"-7"/"Miss". A checkable toggle the
+                         player may well flip back and forth while watching the panel, so - unlike
+                         the Combat row above and like Side Panel/Onlines/Compass - it binds straight
+                         to the command and leaves the menu open so the ✓ updates live. Session-only,
+                         matching the metronome and the other three: saved settings are untouched.
+                         Hidden wherever the rail itself is (Windows only). -->
+                    <BoxView Color="#2d333b" HeightRequest="1"
+                             IsVisible="{Binding SidePanel.IsCombatRailSupported}"/>
+                    <Border Padding="16,14" BackgroundColor="Transparent"
+                            IsVisible="{Binding SidePanel.IsCombatRailSupported}">
+                        <Border.GestureRecognizers>
+                            <TapGestureRecognizer Command="{Binding SidePanel.ToggleCombatFloatsCommand}"/>
+                        </Border.GestureRecognizers>
+                        <Grid ColumnDefinitions="24,*">
+                            <Label Grid.Column="0" Text="&#x2713;" TextColor="#3fb950" FontSize="14"
+                                   VerticalOptions="Center"
+                                   IsVisible="{Binding SidePanel.IsCombatFloatsEnabled}"/>
+                            <Label Grid.Column="1" Text="Damage floats" TextColor="White" FontSize="14"/>
                         </Grid>
                     </Border>
                     <BoxView Color="#2d333b" HeightRequest="1"/>

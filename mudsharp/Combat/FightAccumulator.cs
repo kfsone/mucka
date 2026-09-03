@@ -55,9 +55,14 @@ public enum FightOutcome
 
     /// <summary>
     /// Per-creature. "The X has fled by trying to go &lt;dir&gt;." The creature's flee FAILED: it is
-    /// still standing in the room, still hostile - but the fight IS over and the player must attack
-    /// again to re-engage. The owner's description: snakes "often try to flee but almost never
-    /// succeed, it just breaks the fight sequence".
+    /// still standing in the room - but it is NOT still fighting, and the player must attack again to
+    /// re-engage. The owner's description: snakes "often try to flee but almost never succeed, it just
+    /// breaks the fight sequence"; and the rule behind it (2026-09-01), "fleeing ends combat with all
+    /// creatures attacking you. so if a zombie flees, even if it fails, it is no-longer in combat with
+    /// you." An earlier version of this comment said "still hostile", which is wrong in the way that
+    /// matters: the creature has left combat, so anything that lands on it afterwards is a new
+    /// engagement rather than a continuation. 128 NpcFleeFailed events in the clog corpus, not one
+    /// followed by a swing from that creature before a fresh FightStart.
     ///
     /// <para>The distinction from <see cref="CFled"/> is one word ("trying to") and it must never
     /// blur: chasing a creature standing in front of you is nonsense, and counting a failed attempt
@@ -111,9 +116,9 @@ public enum FightOutcome
     ///
     /// <para>Kept apart from <see cref="Kill"/> on purpose, and not merely for bookkeeping: the line
     /// states a cause but never an agent, so a kill claim would be inference. It also protects the
-    /// corpus - FightHistory.EstimatedStaminaPool reads the damage dealt across fights that ended in
-    /// a Kill to infer a creature's pool, and the damage that finished one of these was never on the
-    /// wire, so counting it as a kill would drag every estimate for that creature down.</para>
+    /// corpus - StaminaPoolEstimator reads the damage brackets of fights that ended in a Kill to
+    /// bracket a creature's pool from above, and the damage that finished one of these was never on
+    /// the wire, so counting it as a kill would drag every estimate for that creature down.</para>
     ///
     /// <para>This is the EIGHTH end. The seven the rest of this file documents came from the owner in
     /// 2026-08-19 and were complete as far as anything then observed; this one arrived as a stuck
@@ -309,14 +314,113 @@ public sealed class FightAccumulator
 
     public void NoteDisarmed() => WasDisarmed = true;
 
-    /// <summary>Records a health-descriptor reading for this NPC. Always overwrites - see
-    /// <see cref="HealthRung"/> on why the latest reading wins over the worst.</summary>
+    /// <summary>
+    /// Records a health-descriptor reading for this NPC. Always overwrites - see
+    /// <see cref="HealthRung"/> on why the latest reading wins over the worst.
+    ///
+    /// <para><b>A reading that is LOWER than the last one is a boundary crossing</b>, and a crossing is
+    /// worth far more than the reading itself. The damage behind it localises where the boundary sat:
+    /// carry the creature over a rung line with 1-4 and it is now within 4 stamina of that line; carry
+    /// it over with 20-29 and almost nothing has been learned. See <see cref="NpcRungCrossing"/>, which
+    /// is what turns "many small blows" into a sharper ladder reading than "few large ones" at equal
+    /// total damage.</para>
+    ///
+    /// <para><b>The damage recorded is everything since the PREVIOUS reading, not the last blow.</b>
+    /// Attributing a drop to one blow is only correct if no landed blow between the two readings went
+    /// unreported, and while MUD2 prints a descriptor after every non-killing landed hit (3,559 against
+    /// 3,561 such hits across 1,197 fights, instrumented window from 2026-08-11), rare is not never: a
+    /// killing blow prints no descriptor, a narrative-mode blow carries no bracket for this class to
+    /// add, and a parser miss stays possible. Understating the damage behind a drop makes the pool
+    /// ceiling it implies too TIGHT, which is the unsafe direction - it would make a creature read as
+    /// smaller, and the fight as easier to win, than the evidence supports. The span form degrades
+    /// safely instead: an unseen reading simply leaves more damage inside the span.
+    /// <c>StaminaPoolEstimator.MultiRungCeiling</c> takes the same form over the corpus, and the two
+    /// must not diverge.</para>
+    ///
+    /// <para>Only a strict DROP counts. Repeats at the same rung say nothing new about the boundary -
+    /// though they still re-anchor the span, which TIGHTENS the next crossing - and improvements happen,
+    /// since creatures regenerate and the corpus has a zombie oscillating four times in one fight, so a
+    /// rise is not a crossing of anything.</para>
+    /// </summary>
     public void NoteHealth(int rung, string? phrase, DateTime timestampUtc)
     {
+        if (HealthRung is int previous && rung < previous && !_bracketGapSinceHealthRead)
+        {
+            // Everything dealt since the previous descriptor. _dealtAtHealthRead is still the PREVIOUS
+            // reading's snapshot at this point - it is advanced at the bottom of this method.
+            var since = Since(_dealtAtHealthRead);
+            if (since.High > 0)
+            {
+                _crossingRung = rung;
+                _crossingDamage = since;
+                _crossingRungsDropped = previous - rung;
+                _dealtAtCrossing = DamageDealt;
+            }
+        }
+
         HealthRung = rung;
         HealthPhrase = phrase;
         HealthReadUtc = timestampUtc;
+        _dealtAtHealthRead = DamageDealt;
+        _bracketGapSinceHealthRead = false;
     }
+
+    /// <summary>
+    /// Records a <c>diagnose</c> reading against this creature, exactly as MUD2 printed it.
+    ///
+    /// <para>Nothing is rounded or snapped to a grid: whether the game's bracket aligns to tens, to a
+    /// tenth of the pool, or to something else is unresolved at four observations in the whole corpus.
+    /// The damage dealt so far is snapshotted with it, so the reading can be aged forward as the fight
+    /// continues rather than going quietly stale.</para>
+    /// </summary>
+    public void NoteStaminaRead(int printedLow, int printedHigh)
+    {
+        _staminaReadLow = printedLow;
+        _staminaReadHigh = printedHigh;
+        _dealtAtStaminaRead = DamageDealt;
+    }
+
+    /// <summary>The player's cumulative damage this fight as a BRACKET - the sum of the lows and the
+    /// sum of the highs of every landed blow, never a midpoint.</summary>
+    public DamageBracket DamageDealt { get; private set; } = DamageBracket.Zero;
+
+    private DamageBracket _dealtAtHealthRead = DamageBracket.Zero;
+    private DamageBracket _dealtAtStaminaRead = DamageBracket.Zero;
+
+    /// <summary>Set when a blow landed since the last descriptor whose bracket never reached
+    /// <see cref="DamageDealt"/> - narrative mode. The span since that reading then understates the
+    /// damage behind any drop, which would make the implied pool ceiling too tight, so the crossing is
+    /// suppressed until the next clean reading rather than recorded from a short measurement.</summary>
+    private bool _bracketGapSinceHealthRead;
+
+    private int? _crossingRung;
+    private DamageBracket _crossingDamage;
+    private int _crossingRungsDropped = 1;
+    private DamageBracket _dealtAtCrossing = DamageBracket.Zero;
+    private int? _staminaReadLow;
+    private int? _staminaReadHigh;
+
+    /// <summary>The latest health descriptor with the damage dealt since it was printed, ready for
+    /// <see cref="NpcRemainingStamina.Compute"/>. Null until one has landed.</summary>
+    public NpcRungAnchor? RungAnchor => HealthRung is int rung
+        ? new NpcRungAnchor(rung, Since(_dealtAtHealthRead))
+        : null;
+
+    /// <summary>The latest rung boundary this creature was driven across, with the blow that did it and
+    /// the damage dealt since. Null until a descriptor has actually dropped. See
+    /// <see cref="NpcRungCrossing"/>.</summary>
+    public NpcRungCrossing? RungCrossing => _crossingRung is int rung
+        ? new NpcRungCrossing(rung, _crossingDamage, Since(_dealtAtCrossing), _crossingRungsDropped)
+        : null;
+
+    /// <summary>The latest <c>diagnose</c> reading with the damage dealt since it, ready for
+    /// <see cref="NpcRemainingStamina.Compute"/>. Null until one has landed.</summary>
+    public NpcStaminaReading? StaminaReading => _staminaReadLow is int low && _staminaReadHigh is int high
+        ? new NpcStaminaReading(low, high, Since(_dealtAtStaminaRead))
+        : null;
+
+    private DamageBracket Since(DamageBracket anchor)
+        => new(DamageDealt.Low - anchor.Low, DamageDealt.High - anchor.High);
 
     /// <summary>Folds in one more player-stamina reading. Callers broadcast this to every
     /// UNRESOLVED fight on every stats update (mirroring the existing WeaponEquip broadcast) -
@@ -351,6 +455,40 @@ public sealed class FightAccumulator
             NpcWeapon = weapon;
     }
 
+    /// <summary>The points a `value &lt;name&gt;` probe reported for killing this creature (operator,
+    /// 2026-09-02). Null means "never asked/answered" OR "unattributable" (see
+    /// <see cref="ValueIsAmbiguous"/>) - not zero, which is itself a legal value (the ox). See
+    /// MudSession's creature-value probe for how this is learned.</summary>
+    public int? Value { get; private set; }
+
+    // Whether NoteValue has already recorded a reading THIS encounter. Unnumbered mobs (thief,
+    // banshee, coot, fox - see NpcPoolKey's own remarks) have no instance number, so two distinct
+    // live creatures sharing a name can both answer the SAME `value <name>` probe with different
+    // points, and this bucket has no way to tell whose is whose (see MudSession's per-batch
+    // resolution - both replies are attributed to this same NpcName-keyed bucket).
+    private bool _valueNoted;
+
+    /// <summary>True once a second (or later) reading has arrived for this bucket this encounter -
+    /// the unnumbered-mob name collision above. A coin-flip last-writer-wins value is worse than an
+    /// honest unknown, so once ambiguous, <see cref="Value"/> is nulled and stays null.</summary>
+    public bool ValueIsAmbiguous { get; private set; }
+
+    public void NoteValue(int value)
+    {
+        if (ValueIsAmbiguous)
+            return;   // already given up on this bucket; a further reading changes nothing
+        if (_valueNoted)
+        {
+            // Two readings for one name this encounter - cannot tell which live creature either
+            // belongs to. Retract the first reading rather than keep whichever arrived last.
+            ValueIsAmbiguous = true;
+            Value = null;
+            return;
+        }
+        _valueNoted = true;
+        Value = value;
+    }
+
     public void AddYouHit(int? rangeLow, int? rangeHigh)
     {
         YouHits++;
@@ -358,10 +496,22 @@ public sealed class FightAccumulator
         {
             var midpoint = (low + high) / 2.0;
             ApproxDamageDone += midpoint;
+            // Kept alongside the midpoint total rather than instead of it: ApproxDamageDone answers
+            // "how much have I done" for the outlook and the history rows, and a bracket sum answers
+            // "what could the creature have left", which is a different question and the only one a
+            // remaining-stamina band can be built from. Collapsing to the midpoint here is the one-way
+            // door CombatDb's own remarks warn about.
+            DamageDealt = DamageDealt.Plus(new DamageBracket(low, high));
             RecordSwing(_yourRecent, ref _yourRecentHead, ref _yourRecentCount, SwingOutcome.Hit(midpoint));
         }
-        // No range means no parsed swing detail (narrative mode) - nothing to put in the ring
-        // buffer either, since there is no magnitude to show and a placeholder would be a guess.
+        else
+        {
+            // No range means no parsed swing detail (narrative mode). The blow landed and did damage,
+            // but none of it reached DamageDealt - so the span since the last descriptor now understates
+            // what the creature absorbed, and any crossing measured across it would imply a pool ceiling
+            // that is too tight. Flagged rather than ignored; see NoteHealth.
+            _bracketGapSinceHealthRead = true;
+        }
     }
 
     public void AddYouMiss()

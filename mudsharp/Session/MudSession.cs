@@ -1,4 +1,4 @@
-using MudSharp.Combat;
+﻿using MudSharp.Combat;
 using MudSharp.Models;
 using MudSharp.Protocol;
 
@@ -72,6 +72,118 @@ public sealed class MudSession : IDisposable
     // timers in this file.
     private Timer? _roomFexProbeTimer;
 
+    // ── In-combat inventory probe ───────────────────────────────────────────────
+    // A drop or a take during a fight changes the two numbers a fight is decided by - dexterity is
+    // burdened by item COUNT and strength by WEIGHT (owner) - and until this existed nothing asked
+    // the server about it on purpose. The generic plain-line hint happened to cover most drops
+    // (measured across 36 captures: median 209ms from "X dropped." to the next FES-carrying probe,
+    // 85% within 500ms), but only because a drop prints an un-coded line, and not at all when the
+    // side panel's item sections are collapsed - OnStaleDeadline's `fei` term is gated on
+    // _includeFei, and with no FEW pending either it returns having sent nothing.
+    //
+    // Trailing debounce, deliberately: the timer is RESTARTED by each change line, so a burst is
+    // one probe. FES and FEI each cost the player a tick (owner) and ticks are short, but three
+    // items must not cost six.
+    private static readonly byte[] InventoryProbe = System.Text.Encoding.Latin1.GetBytes("\x1b-[FES,FEI\x1b-]");
+    private Timer? _inventoryProbeTimer;
+    // Volatile so SendLine can reject the overwhelmingly common case with one field read and no
+    // lock. Set on the Feed thread; cleared by whichever of the two paths - the timer or a player
+    // dispatch riding it out - claims it first.
+    private volatile bool _inventoryProbePending;
+    // When the change that armed the pending probe was seen. Any FES-carrying probe sent AFTER this
+    // instant has already asked the server about the new loadout, so the pending one is redundant
+    // and is abandoned rather than spending a second tick on the same question - see
+    // TakeInventoryProbeLocked. This is not rare: combat prints un-coded lines constantly, so the
+    // generic stale timer is often already part-way through its own delay when a drop lands.
+    private DateTime _inventoryChangeSeenUtc;
+
+    // ── In-combat creature value probe ──────────────────────────────────────────
+    // `val`/`value <name>` reports the points awarded for killing that creature (operator,
+    // 2026-09-02); multiple targets in one command ("value x and y and z") cost ONE server tick, so
+    // one probe covers the whole live roster rather than one per creature.
+    //
+    // Fired off CombatTracker.ParticipantJoined, not off FightStart alone: several combat lines
+    // Begin() a participant defensively for a pack member that spoke no aggro line of its own
+    // (YouHit/NpcHitsYou/NpcWeaponEquip's own remarks), and ParticipantJoined is what catches those
+    // too - it fires exactly when a name becomes newly active, regardless of which line did it. A
+    // creature that joins mid-fight re-arms the same trailing debounce as the one already pending,
+    // so a pack that arrives over several seconds still costs one probe per quiet period rather than
+    // one per arrival - the same batching InventoryProbeDebounce gives the loadout probe below.
+    //
+    // Two things this probe does NOT share with the routine FES/FEW/FEI heartbeat, deliberately:
+    //   1. It never rides the heartbeat's FEW gate the player "sniff" probe uses (_pendingSniff /
+    //      _sniffInFlight) - that gate exists only because FEW-completion is what times out an
+    //      INVISIBLE PLAYER (no reply ever arrives), which has no meaning for a creature reply.
+    //   2. It is sent as its own line, not composed into ComposeBeatLocked's escape - `value` is an
+    //      ordinary typed command, not an FES/FEW/FEI subscription component.
+    // So it needs its own in-flight slot, discriminated by target from the player sniff's, rather
+    // than sharing (and colliding with) that one.
+    //
+    // That discrimination is necessary but was not, on its own, sufficient: both probes' replies
+    // share the exact prose shape "The value of ... points.", so until TryConsumeSniffLine anchored
+    // its match on where the sniffed NAME sits in the line (see that method), a live creature reply
+    // ("The value of the ram2 is 313 points.") could satisfy the sniff's old bare Contains(name)
+    // check and get misread as proof a same-named PLAYER was present - a false positive in the
+    // PK-awareness path of a permadeath game (found by review, fixed 2026-09-02). The two slots
+    // only stay independent because BOTH sides now discriminate: this one by target name, the
+    // sniff by the name's anchored position in the reply text.
+    //
+    // Debounced with the SAME trailing-quiet-period + tick-guard shape as the inventory probe below
+    // (ScheduleInventoryProbeLocked), including its options - InventoryProbeDebounce/TickGuard/
+    // TickClearance - rather than inventing a second scheduler for what is the same problem (don't
+    // fire on every arrival; don't fire onto a tick boundary the player's own command wanted).
+    private static readonly System.Text.RegularExpressions.Regex CreatureValueReply = new(
+        @"^The value of the (?<name>.+?) is (?<value>[\d,]+) points\.$",
+        System.Text.RegularExpressions.RegexOptions.Compiled);
+    // "I don't know to what \"vase1\" you're referring." - the bad-target rejection. Different
+    // wording from the player sniff's "I don't know the word" (that one means the PERSONA name is
+    // unknown at all; this one means the OBJECT reference did not resolve), so it gets its own
+    // pattern rather than being folded into TryConsumeSniffLine's.
+    private static readonly System.Text.RegularExpressions.Regex CreatureValueBadTarget = new(
+        @"^I don't know to what ""(?<name>.+?)"" you're referring\.$",
+        System.Text.RegularExpressions.RegexOptions.Compiled);
+    // Names already answered THIS ENCOUNTER - cleared at the start of every new one (see
+    // OnParticipantJoined). Deliberately NOT session-lifetime: a creature's value is not a fixed
+    // per-species constant, it is CUMULATIVE and climbs with whatever that individual has scored
+    // since it was created - swamping items day to day, and in big jumps off a player's death or a
+    // failed flee (owner's brief). Corpus evidence for the same creature NAME across separate
+    // fights: ram 106 -> 129 -> 313, dwarf 12 -> 78 -> 102, billy goat 74 -> 118 -> 146, banshee
+    // 102 -> 143. A session-lifetime cache would answer a later fight against the same name from a
+    // stale pre-climb (or, across a reset, pre-reset - resets pull the value back toward base,
+    // owner: a thief "usually only gets 1-2 levels in a reset") reading and never notice the climb
+    // this feature exists to surface. Per-fight is exactly the operator's own spec ("only needs
+    // doing once per fight"), read literally. Guarded by _fesLock; the Feed thread takes the lock
+    // to write it, exactly as ClearStale already does from that thread for _staleFlags.
+    private readonly HashSet<string> _creatureValueKnown = new(StringComparer.OrdinalIgnoreCase);
+    // Names seen but not yet sent - guarded by _fesLock, like _pendingSniff.
+    private readonly List<string> _pendingCreatureNames = new();
+    private Timer? _creatureValueProbeTimer;
+    // The batch actually sent, and its exact echo text, so the Feed-thread line filter can swallow
+    // the echo and attribute replies without positional pairing (one request can draw more or fewer
+    // reply lines than names sent - e.g. a prefix like "gg" answering both gargoyle0 and gargoyle1 -
+    // so a reply is matched by NAME against this set, never by position). Set once, under _fesLock,
+    // when the probe is composed; the Feed thread only reads the reference (volatile, mirroring
+    // _sniffInFlight) and never mutates its contents, and clears it back to null itself once every
+    // requested name has been accounted for AND the frame boundary following that point has arrived
+    // (see TryConsumeCreatureValueLine/_creatureProbeUnresolved) - or once the timeout backstop gives
+    // up on a name that never gets accounted for at all (_creatureProbeTimeoutTimer).
+    private volatile IReadOnlyList<string>? _creatureProbeInFlight;
+    private volatile string? _creatureProbeEcho;
+    // Requested names not yet accounted for (a reply or bad-target rejection seen) THIS batch -
+    // composed fresh under _fesLock alongside the two fields above; the Feed thread removes names
+    // from it as it resolves them (see NoteCreatureProbeNameAccountedFor). Once empty, the window
+    // is armed to close but does not close outright until the NEXT frame boundary (see
+    // TryConsumeCreatureValueLine) - see _creatureProbeReadyToClose.
+    private volatile HashSet<string>? _creatureProbeUnresolved;
+    // Set once every requested name has been accounted for; read/written on the Feed thread only
+    // except for the benign race with the timeout backstop's force-close (a torn read costs at most
+    // one missed close-on-next-frame, never a correctness issue - see CloseCreatureValueProbeWindow).
+    private volatile bool _creatureProbeReadyToClose;
+    // Backstop that force-closes the window if it is never fully accounted for (see
+    // MudSessionOptions.CreatureValueProbeTimeout) - guards against a name that can legitimately
+    // never draw a reply wedging the window open past its usefulness.
+    private Timer? _creatureProbeTimeoutTimer;
+
     // ── Post-character-select setup swallow state ───────────────────────────────
     // On game-mode entry we inject a setup batch ("auto fex\r\nscore\r\n") and hide its echo +
     // replies from the terminal (TrySwallowSetupLine). Each reply arrives as its own server
@@ -124,6 +236,23 @@ public sealed class MudSession : IDisposable
     // whatever instant the test happened to run at.
     internal Func<DateTime> CombatClock { get; set; } = () => DateTime.UtcNow;
 
+    /// <summary>
+    /// Milliseconds from now to the next MUD2 combat-tick boundary, or null while the phase is
+    /// unknown. Supplied by the layer that owns the estimate (Mucka.Core.TickPhase, published as
+    /// SidePanelViewModel.TickPhaseUtc and resolved through CombatTiming.MillisecondsToNextBoundary)
+    /// rather than re-derived here, so there is exactly one lattice in the client.
+    ///
+    /// <para>A delegate rather than a pushed value for the same reason ClogWriter's reset estimate
+    /// is one: the answer is only meaningful at the instant it is asked, and it refines continuously
+    /// as the estimate converges.</para>
+    ///
+    /// <para>Called from the probe timer's thread while the estimate is updated on the UI thread, so
+    /// the read is unsynchronised. Deliberately: the resolver normalises any input to a value in
+    /// (0, tick], so the worst a stale or torn read can do is place one probe on the wrong side of
+    /// one boundary — and the probe is, in the owner's words, not critical but very useful.</para>
+    /// </summary>
+    public Func<double?>? MillisecondsToNextCombatTick { get; set; }
+
     // Reset-time projection: folds the minute-granular FES reset value into an absolute target and,
     // once per session near the start, runs a staged burst (~1 s then ~250 ms probes) to pin it to
     // sub-second. Owned here (not the VM) so all sub-second probe timing stays off the UI thread and
@@ -152,6 +281,10 @@ public sealed class MudSession : IDisposable
     public event Action<string>? FeiItemReady;
     public event Action? FeiListStarting;
     public event Action? FeiListComplete;
+    /// <summary>One creature-presence sentence from a room description or an arrive/depart line, as
+    /// the game worded it. The only evidence MUD2 gives about which names in the FEI "here" list are
+    /// alive - see MudStreamParser.CreatureTextReady.</summary>
+    public event Action<string>? CreatureTextReady;
     public event Action<string>? FexItemReady;
     public event Action? FexListStarting;
     public event Action? FexListComplete;
@@ -179,6 +312,12 @@ public sealed class MudSession : IDisposable
     /// outcome (present / offline / invisible). Fires on the Feed thread — consumers marshal.
     /// </summary>
     public event Action<string, SniffOutcome>? SniffResult;
+    /// <summary>
+    /// An in-combat creature-value probe answered for one name. Payload is the creature name
+    /// exactly as engaged (a numbered instance echoes its own number) and the points a `value`
+    /// probe reported for killing it. Fires on the Feed thread — consumers marshal.
+    /// </summary>
+    public event Action<string, int>? CreatureValueResolved;
     /// <summary>
     /// The character occupying this session has been identified from the post-character-select
     /// setup <c>score</c> reply. Payload is the character name (e.g. "Ollie"). Fires once per
@@ -244,6 +383,7 @@ public sealed class MudSession : IDisposable
             else
             {
                 StopStaleProbeLocked();
+                StopInventoryProbeLocked();
             }
         }
     }
@@ -310,10 +450,33 @@ public sealed class MudSession : IDisposable
     /// </summary>
     public void EmitPartial() => _parser.EmitPartialLine();
 
-    /// <summary>Send a line of text to the server (appends \r\n).</summary>
+    /// <summary>
+    /// Send a line of text to the server (appends \r\n).
+    ///
+    /// <para>Also the piggyback seam for the in-combat inventory probe: if one is pending, its
+    /// escape rides out in front of this command in a single write, so the server queues the probe
+    /// and the command together instead of the two racing. This is the point at which a command is
+    /// already fully assembled - once per Enter/F-key/click, never per keystroke - so it is not the
+    /// typing path, and the fast path costs one volatile read.</para>
+    /// </summary>
     public void SendLine(string line)
     {
         var bytes = System.Text.Encoding.Latin1.GetBytes(line + "\r\n");
+        if (_inventoryProbePending && CanCarryInventoryProbe(line))
+        {
+            byte[]? probe;
+            lock (_fesLock)
+                probe = TakeInventoryProbeLocked(DateTime.UtcNow);
+            if (probe is not null)
+            {
+                var combined = new byte[probe.Length + bytes.Length];
+                probe.CopyTo(combined, 0);
+                bytes.CopyTo(combined, probe.Length);
+                OutgoingBytes?.Invoke(combined);
+                ProbeSent?.Invoke();
+                return;
+            }
+        }
         OutgoingBytes?.Invoke(bytes);
     }
 
@@ -334,6 +497,8 @@ public sealed class MudSession : IDisposable
         {
             StopStaleProbeLocked();
             StopRoomFexProbeLocked();
+            StopInventoryProbeLocked();
+            StopCreatureValueProbeLocked();
             // Drop mapping focus so the next game-mode entry includes FEI again. The session is
             // reused across reconnects/relogs, so stale focus would starve inventory updates.
             _mappingFocus = false;
@@ -368,6 +533,14 @@ public sealed class MudSession : IDisposable
             StopRoomFexProbeLocked();
             _roomFexProbeTimer?.Dispose();
             _roomFexProbeTimer = null;
+            StopInventoryProbeLocked();
+            _inventoryProbeTimer?.Dispose();
+            _inventoryProbeTimer = null;
+            StopCreatureValueProbeLocked();
+            _creatureValueProbeTimer?.Dispose();
+            _creatureValueProbeTimer = null;
+            _creatureProbeTimeoutTimer?.Dispose();
+            _creatureProbeTimeoutTimer = null;
         }
         _resetClock.Dispose();
     }
@@ -386,6 +559,16 @@ public sealed class MudSession : IDisposable
             // reaches the terminal. Fast volatile check keeps normal lines free of cost.
             if (_sniffInFlight != null && TryConsumeSniffLine(line))
                 return;
+            // Swallow the echo + reply/replies of an injected in-combat creature-value probe -
+            // its own in-flight slot, discriminated by target from the player sniff's above. An
+            // outstanding player sniff and an outstanding creature probe only avoid eating each
+            // other's lines because BOTH sides discriminate - this slot by target name, the sniff
+            // above by the reply's anchored name position (see the "In-combat creature value
+            // probe" field remarks and TryConsumeSniffLine) - discriminating by target alone was
+            // found NOT sufficient (review, 2026-09-02): a creature reply satisfied the sniff's old
+            // bare substring match.
+            if (_creatureProbeInFlight != null && TryConsumeCreatureValueLine(line))
+                return;
             // Cancel the dreamword when we see our own persona speak it: speaking uses it,
             // whether it recovered stamina (scenario: server also sends a C1 clear) or was a
             // no-op (full stamina / already consumed — no C1 clear ever arrives). Cheap guard:
@@ -393,6 +576,8 @@ public sealed class MudSession : IDisposable
             if (_currentDreamword is not null)
                 TryCancelSpokenDreamword(line);
             _combat.Observe(line, CombatClock());
+            // After _combat.Observe, so InCombat already reflects any fight this very line opened.
+            NoteInventoryChangeLine(line);
             LineReady?.Invoke(line);
         };
         _parser.StatsUpdated += MergeStats;
@@ -433,6 +618,7 @@ public sealed class MudSession : IDisposable
         _effects.Changed += state => StatusEffectsChanged?.Invoke(state);
         _combat.InCombatChanged += v => InCombatChanged?.Invoke(v);
         _combat.EventOccurred += e => CombatEventOccurred?.Invoke(e);
+        _combat.ParticipantJoined += OnParticipantJoined;
         _parser.FewPlayerReady += (name, color) =>
         {
             _pendingOnlineNames.Add(PlayerNameParts.Parse(name).PersonaName);
@@ -465,6 +651,7 @@ public sealed class MudSession : IDisposable
             ClearStale(StaleStats.Inventory);
             FeiListComplete?.Invoke();
         };
+        _parser.CreatureTextReady += text => CreatureTextReady?.Invoke(text);
         _parser.FexItemReady     += item => FexItemReady?.Invoke(item);
         _parser.FexListStarting  += () => { CancelRoomFexProbe(); FexListStarting?.Invoke(); };
         _parser.FexListComplete  += () => FexListComplete?.Invoke();
@@ -624,6 +811,8 @@ public sealed class MudSession : IDisposable
         {
             StopStaleProbeLocked();
             StopRoomFexProbeLocked();
+            StopInventoryProbeLocked();
+            StopCreatureValueProbeLocked();
             // Drop mapping focus so the next game-mode entry includes FEI again. The session is
             // reused across reconnects/relogs, so stale focus would starve inventory updates.
             _mappingFocus = false;
@@ -766,9 +955,21 @@ public sealed class MudSession : IDisposable
         if (text.Equals("value " + name, StringComparison.OrdinalIgnoreCase))
             return true;
         // Outcome 1 — present & visible: "The value of {name} the {title} is {n} points."
-        if (text.StartsWith("The value of ", StringComparison.Ordinal) &&
-            text.EndsWith("points.", StringComparison.Ordinal) &&
-            text.Contains(name, StringComparison.OrdinalIgnoreCase))
+        // (fixture: "The value of Polly the witch is 4,120 points."). This shape is
+        // STRUCTURALLY different from a creature-value probe's reply - "The value of the
+        // {name} is {n} points." (TryConsumeCreatureValueLine's CreatureValueReply) - which has
+        // "the " sitting between "of " and the name where a player reply has the name itself.
+        // Anchoring on that exact position (never a bare Contains(name) over the whole line) is
+        // what keeps a live creature's reply from being misread as proof a same-named PLAYER is
+        // online - found by review: a `ram2` creature reply satisfied a queued sniff for
+        // persona "Ram" under the old substring check, swallowing the creature's value AND
+        // asserting a false player sighting, 2026-09-02.
+        const string presencePrefix = "The value of ";
+        if (text.StartsWith(presencePrefix, StringComparison.Ordinal) &&
+            text.EndsWith(" points.", StringComparison.Ordinal) &&
+            text.Length > presencePrefix.Length + name.Length &&
+            string.Compare(text, presencePrefix.Length, name, 0, name.Length, StringComparison.OrdinalIgnoreCase) == 0 &&
+            text[presencePrefix.Length + name.Length] == ' ')
         {
             ResolveSniff(name, SniffOutcome.Present);
             return true;
@@ -787,6 +988,257 @@ public sealed class MudSession : IDisposable
     {
         _sniffInFlight = null;
         SniffResult?.Invoke(name, outcome);
+    }
+
+    // ── In-combat creature value probe ──────────────────────────────────────────
+
+    /// <summary>
+    /// A name just became newly active in the current encounter (CombatTracker.ParticipantJoined).
+    /// Queue it for the next value probe unless it is already known, already queued, or already
+    /// riding an outstanding batch.
+    /// </summary>
+    private void OnParticipantJoined(string npc)
+    {
+        if (string.IsNullOrWhiteSpace(npc))
+            return;
+        lock (_fesLock)
+        {
+            // A new encounter's first participant: forget every reading AND every pending/in-flight
+            // batch from the previous one (see _creatureValueKnown's own remarks on why value
+            // cannot be cached past a fight - and StopCreatureValueProbeLocked's on why a stale
+            // in-flight batch must go too, not just the known set, or a lingering entry from the
+            // last encounter's probe can wrongly suppress this one's). Keyed off "the encounter was
+            // not yet open when Begin() called us", rather than a separate InCombatChanged
+            // subscription, because CombatTracker.Begin fires ParticipantJoined BEFORE it flips
+            // _encounterOpen/fires InCombatChanged(true) - so this reads false exactly once per
+            // encounter, for its first participant, and true for every later joiner of the same
+            // fight.
+            if (!_combat.InCombat)
+                StopCreatureValueProbeLocked();
+            // Heartbeat disabled is this codebase's existing "reactive probing is off" switch (see
+            // OnProbeHint) - honoured here too rather than treating this as a separate feature with
+            // its own opinion about it.
+            if (_fesInterval <= TimeSpan.Zero || !InGameMode)
+                return;
+            if (_creatureValueKnown.Contains(npc))
+                return;
+            if (_pendingCreatureNames.Contains(npc, StringComparer.OrdinalIgnoreCase))
+                return;
+            if (_creatureProbeInFlight is { } inFlight && inFlight.Contains(npc, StringComparer.OrdinalIgnoreCase))
+                return;
+            _pendingCreatureNames.Add(npc);
+            ScheduleCreatureValueProbeLocked(DateTime.UtcNow);
+        }
+    }
+
+    /// <summary>
+    /// When the pending batch goes out. Same trailing-debounce-plus-tick-guard shape as
+    /// <see cref="ScheduleInventoryProbeLocked"/> (see that method's remarks for why a restarted
+    /// timer is what makes a burst of joiners cost one probe, and why a guarded boundary is moved
+    /// past it rather than raced) - deliberately the same options, not a second set of tunables for
+    /// what is the same scheduling problem.
+    /// </summary>
+    private void ScheduleCreatureValueProbeLocked(DateTime now)
+    {
+        var delay = _options.InventoryProbeDebounce;
+        if (MillisecondsToNextCombatTick?.Invoke() is double toTick
+            && toTick <= _options.InventoryProbeTickGuard.TotalMilliseconds)
+        {
+            delay = TimeSpan.FromMilliseconds(toTick) + _options.InventoryProbeTickClearance;
+        }
+        _creatureValueProbeTimer ??= new Timer(_ => OnCreatureValueProbeDeadline(), null, Timeout.Infinite, Timeout.Infinite);
+        _creatureValueProbeTimer.Change(delay, Timeout.InfiniteTimeSpan);
+    }
+
+    /// <summary>
+    /// Claims the pending batch and returns its bytes, or null to leave it pending (rescheduled) or
+    /// to abandon it. Caller holds <see cref="_fesLock"/>.
+    /// </summary>
+    private byte[]? TakeCreatureValueProbeLocked()
+    {
+        if (_pendingCreatureNames.Count == 0)
+            return null;
+        if (!InGameMode)
+        {
+            _pendingCreatureNames.Clear();
+            return null;
+        }
+        if (_creatureProbeInFlight is { Count: > 0 })
+        {
+            // A batch is already outstanding - wait for its window to close (every requested name
+            // accounted for, at the following frame boundary - or the timeout backstop giving up;
+            // see TryConsumeCreatureValueLine) rather than sending a second `value` command whose
+            // replies could not be told apart from the first's.
+            ScheduleCreatureValueProbeLocked(DateTime.UtcNow);
+            return null;
+        }
+        if (_probesHeld || _resetDiscoveryHold || _resetClock.IsSamplingInFlight)
+        {
+            // Something else owns the wire; wait it out and try again, exactly as the inventory
+            // probe does.
+            ScheduleCreatureValueProbeLocked(DateTime.UtcNow);
+            return null;
+        }
+        // Deliberately NOT folded into _lastProbeSentUtc/MinProbeSpacing: that floor is shared by
+        // the whole FES/FEW/FEI probe family specifically so they space themselves out from EACH
+        // OTHER, and a `value` command is neither part of that family nor competing with it for
+        // anything - coupling this probe's timing to that shared clock only makes an unrelated
+        // feature's own carefully-timed spacing unpredictable (found via a real regression: it
+        // pushed InventoryProbeTests' piggybacked send outside its debounce window).
+        var names = new List<string>(_pendingCreatureNames);
+        _pendingCreatureNames.Clear();
+        var command = "value " + string.Join(" and ", names);
+        _creatureProbeEcho = command;
+        _creatureProbeUnresolved = new HashSet<string>(names, StringComparer.OrdinalIgnoreCase);
+        _creatureProbeReadyToClose = false;
+        _creatureProbeTimeoutTimer ??= new Timer(_ => OnCreatureValueProbeTimeout(), null, Timeout.Infinite, Timeout.Infinite);
+        _creatureProbeTimeoutTimer.Change(_options.CreatureValueProbeTimeout, Timeout.InfiniteTimeSpan);
+        _creatureProbeInFlight = names;   // publish last - the Feed thread starts matching against
+                                          // this the instant it becomes non-null
+        return System.Text.Encoding.Latin1.GetBytes(command + "\r\n");
+    }
+
+    /// <summary>The quiet period elapsed with no player command to ride: send the batch on its own.
+    /// (Unlike the inventory probe, this command is never piggybacked onto a player line - `value`
+    /// is an ordinary typed command with its own frame, not an FES/FEW/FEI subscription component
+    /// that rides in front of one - so it only ever goes out from here.)</summary>
+    private void OnCreatureValueProbeDeadline()
+    {
+        byte[]? probe;
+        lock (_fesLock)
+            probe = TakeCreatureValueProbeLocked();
+        if (probe is null)
+            return;
+        OutgoingBytes?.Invoke(probe);
+        ProbeSent?.Invoke();
+    }
+
+    // Feed thread. Returns true when the line is the echo, a reply, or a bad-target rejection for
+    // the in-flight batch and should be swallowed.
+    //
+    // Frame prompts do NOT close this window on sight. On real wire traffic every frame is LED by
+    // its prompt (see PostSelectSetupTests' own model, and MudSession's post-select setup remarks):
+    // the very first thing back after arming is the prompt that introduces the ECHO's own frame,
+    // not a closing boundary - closing there was the bug (review, 2026-09-02: every documented
+    // frame shape - "prompt, echo" then "prompt, reply" as two frames, or "prompt, echo+reply" as
+    // one - shut the window before a reply, or even the echo, had been seen). Instead the window
+    // tracks which requested names are still unaccounted for (_creatureProbeUnresolved) and only
+    // actually closes at the frame boundary that FOLLOWS the point where every one of them has
+    // drawn at least one reply or bad-target rejection (_creatureProbeReadyToClose) - deliberately
+    // the NEXT prompt after that point, not the moment it happens, so a further reply for a name
+    // already accounted for THIS batch (two live creatures sharing an unnumbered name, both
+    // answering the same `value <name>` - see FightAccumulator.NoteValue) still lands inside the
+    // still-open window and can be flagged ambiguous rather than leaking to the terminal as an
+    // unswallowed line. A batch that never gets fully accounted for (a name that legitimately never
+    // draws a reply) is bounded by _creatureProbeTimeoutTimer instead, so it cannot wedge the
+    // window open forever. Positional pairing is still never assumed - a reply is matched by NAME
+    // against the requested set, exactly the "value gg" answering both gargoyle0 and gargoyle1 shape
+    // the domain notes describe.
+    private bool TryConsumeCreatureValueLine(StyledLine line)
+    {
+        var inFlight = _creatureProbeInFlight;
+        if (inFlight is null)
+            return false;
+
+        if (line.IsPartial)
+        {
+            if (_creatureProbeReadyToClose)
+                CloseCreatureValueProbeWindow();
+            return false;   // let the prompt render as it always does; not part of the swallow
+        }
+
+        var text = line.PlainText.Trim('\r', '\n', '\0', ' ');
+
+        if (_creatureProbeEcho is { } echo && text.Equals(echo, StringComparison.OrdinalIgnoreCase))
+            return true;   // echo of the command we injected
+
+        var reply = CreatureValueReply.Match(text);
+        if (reply.Success)
+        {
+            var name = reply.Groups["name"].Value;
+            if (!inFlight.Contains(name, StringComparer.OrdinalIgnoreCase))
+                return false;   // names someone we did not ask about - not ours, show it
+            // Thousands separator observed on the wire ("1,419 points") - strip it before parsing;
+            // see the domain notes on why this is stated rather than assumed as a general locale rule.
+            var digits = reply.Groups["value"].Value.Replace(",", "");
+            if (int.TryParse(digits, System.Globalization.NumberStyles.None,
+                    System.Globalization.CultureInfo.InvariantCulture, out var value))
+            {
+                lock (_fesLock)
+                    _creatureValueKnown.Add(name);
+                // Fired for EVERY reply, including a second one for a name already accounted for
+                // this batch - FightAccumulator.NoteValue is what detects and retracts that
+                // ambiguous case, and ClogWriter.OnCreatureValueResolved flags the clog row, rather
+                // than this call site trying to suppress the resend itself.
+                CreatureValueResolved?.Invoke(name, value);
+            }
+            NoteCreatureProbeNameAccountedFor(name);
+            return true;
+        }
+
+        var bad = CreatureValueBadTarget.Match(text);
+        if (bad.Success && inFlight.Contains(bad.Groups["name"].Value, StringComparer.OrdinalIgnoreCase))
+        {
+            NoteCreatureProbeNameAccountedFor(bad.Groups["name"].Value);
+            return true;   // bad target for one of our own names - swallow, no value recorded
+        }
+
+        return false;
+    }
+
+    // Marks one requested name as accounted for (a reply or bad-target rejection has been seen for
+    // it this batch). Once every requested name has been, arms the window to close - but does not
+    // close it outright, so a further reply for an already-accounted-for name (see this method's
+    // caller) still lands inside the window instead of leaking to the terminal unswallowed.
+    private void NoteCreatureProbeNameAccountedFor(string name)
+    {
+        var unresolved = _creatureProbeUnresolved;
+        unresolved?.Remove(name);
+        if (unresolved is { Count: 0 })
+            _creatureProbeReadyToClose = true;
+    }
+
+    // Actually closes the creature-value probe window: called either from TryConsumeCreatureValueLine
+    // (the frame boundary after every requested name was accounted for) or from the timeout backstop
+    // (OnCreatureValueProbeTimeout, when one never was).
+    private void CloseCreatureValueProbeWindow()
+    {
+        lock (_fesLock)
+        {
+            _creatureProbeTimeoutTimer?.Change(Timeout.Infinite, Timeout.Infinite);
+            _creatureProbeInFlight = null;
+            _creatureProbeEcho = null;
+            _creatureProbeUnresolved = null;
+        }
+        _creatureProbeReadyToClose = false;
+    }
+
+    // The backstop fired: the batch was never fully accounted for within CreatureValueProbeTimeout
+    // (a requested name that legitimately never draws a reply - e.g. an ambiguous match consumed by
+    // another slot, or the creature left before answering). Give up on it rather than wedge the
+    // window open forever; whatever wasn't heard from simply stays unknown.
+    private void OnCreatureValueProbeTimeout() => CloseCreatureValueProbeWindow();
+
+    /// <summary>
+    /// Fully resets the creature-value probe: nothing pending, nothing in flight, the debounce
+    /// timer disarmed, AND every reading learned so far forgotten. Called at every boundary past
+    /// which a "known" reading or an outstanding batch would be stale rather than merely unused -
+    /// a new encounter's first participant (see OnParticipantJoined - the reason
+    /// <see cref="_creatureValueKnown"/> must not survive past a fight is on that field's own
+    /// remarks), and disconnect/relog/app-exit (<see cref="Reset"/>/<see cref="OnGameModeExited"/>/
+    /// <see cref="Dispose"/>), where an open encounter has just been force-ended anyway and a
+    /// pending reply could otherwise be swallowed for a fight that no longer exists.
+    /// </summary>
+    private void StopCreatureValueProbeLocked()
+    {
+        _pendingCreatureNames.Clear();
+        _creatureProbeInFlight = null;
+        _creatureProbeEcho = null;
+        _creatureProbeUnresolved = null;
+        _creatureProbeReadyToClose = false;
+        _creatureValueProbeTimer?.Change(Timeout.Infinite, Timeout.Infinite);
+        _creatureProbeTimeoutTimer?.Change(Timeout.Infinite, Timeout.Infinite);
+        _creatureValueKnown.Clear();
     }
 
     // ── Post-character-select setup swallow ─────────────────────────────────────
@@ -1115,6 +1567,176 @@ public sealed class MudSession : IDisposable
         }
         OutgoingBytes?.Invoke(probe);
         ProbeSent?.Invoke();
+    }
+
+    // ── In-combat inventory probe ──────────────────────────────────────────────
+
+    /// <summary>
+    /// One parsed line, checked for the four wordings that mean the loadout just changed (see
+    /// <see cref="InventoryChangeLines"/>). Runs on the Feed thread as part of parsing incoming
+    /// bytes — never from input handling, which is why the combat and game-mode gates come before
+    /// the regexes.
+    ///
+    /// <para><b>In combat only.</b> That is where the measurement lives and where a stale strength
+    /// reading costs the player something. Out of combat the routine heartbeat is soon enough, and a
+    /// player emptying a hoard into a container would otherwise spend a tick per item.</para>
+    /// </summary>
+    private void NoteInventoryChangeLine(StyledLine line)
+    {
+        if (!InGameMode || line.IsPartial || !_combat.InCombat)
+            return;
+        if (!InventoryChangeLines.IsChange(line.PlainText))
+            return;
+        lock (_fesLock)
+        {
+            if (_fesInterval <= TimeSpan.Zero)
+                return;
+            var now = DateTime.UtcNow;
+            _inventoryProbePending = true;
+            _inventoryChangeSeenUtc = now;
+            ScheduleInventoryProbeLocked(now);
+        }
+    }
+
+    /// <summary>
+    /// When the pending probe goes out if no player command carries it first. Restarting the timer
+    /// rather than "arm if idle" is what makes the delay a QUIET PERIOD measured from the LAST
+    /// change line: a bulk command's items all arrive in one server frame — the owner's clog has
+    /// three inside the same millisecond — and they must cost one probe, not one each.
+    ///
+    /// <para><b>The tick guard.</b> Commands are drained from a server-side queue one per tick, so a
+    /// probe placed just before a boundary can take the slot the player's own action wanted; the
+    /// owner's worked case is <c>e,feed coal to dragon</c> failing because the creature got the tick
+    /// first. When the next boundary is inside
+    /// <see cref="MudSessionOptions.InventoryProbeTickGuard"/> the probe is moved to just PAST it
+    /// (<see cref="MudSessionOptions.InventoryProbeTickClearance"/>), which is the position with the
+    /// longest clear run before the following boundary. The priority this encodes is the owner's:
+    /// the probe is not critical, but it is very useful — so it always yields to the player's
+    /// timing, and it is never dropped merely for being inconvenient.</para>
+    ///
+    /// <para><b>The lattice is not always known.</b> <see cref="MillisecondsToNextCombatTick"/>
+    /// returns null until the phase estimate has settled (it needs samples), and then the plain
+    /// delay is used with no guard at all. That is the honest behaviour: no phase, no claim about
+    /// where the boundary is. When it IS known, the +50ms placement is comfortably robust to the
+    /// estimate's own error — one lattice fits a whole session to a ~26ms median residual (see
+    /// Mucka.Core.TickPhase, which owns the estimate; this asks it rather than keeping a second
+    /// clock).</para>
+    /// </summary>
+    private void ScheduleInventoryProbeLocked(DateTime now)
+    {
+        var delay = _options.InventoryProbeDebounce;
+        if (MillisecondsToNextCombatTick?.Invoke() is double toTick
+            && toTick <= _options.InventoryProbeTickGuard.TotalMilliseconds)
+        {
+            delay = TimeSpan.FromMilliseconds(toTick) + _options.InventoryProbeTickClearance;
+        }
+        _inventoryProbeTimer ??= new Timer(_ => OnInventoryProbeDeadline(), null, Timeout.Infinite, Timeout.Infinite);
+        _inventoryProbeTimer.Change(delay, Timeout.InfiniteTimeSpan);
+    }
+
+    /// <summary>
+    /// Claims the pending inventory probe and returns its bytes, or null to leave it pending (the
+    /// timer having been re-armed) or to abandon it. Caller holds <see cref="_fesLock"/>.
+    ///
+    /// <para><b>Why FES and FEI together rather than FES alone.</b> Each costs the player a tick, so
+    /// the pair costs two — but this probe REPLACES one the client already sends. Every one of these
+    /// lines is un-coded, which sets <c>StaleStats.Inventory</c> in the parser, and OnStaleDeadline
+    /// answers that with exactly <c>FES,FEI</c> a couple of hundred milliseconds later (measured
+    /// across the capture corpus: median 209ms from "X dropped." to the next FES-carrying probe, 85%
+    /// within 500ms). Clearing both flag groups here means that generic probe finds nothing stale
+    /// and stays home, so the marginal cost of this feature against today's behaviour is zero ticks.
+    /// FES alone would be one tick cheaper than today, but only by leaving Inventory flagged for the
+    /// generic path to spend later and less usefully.</para>
+    ///
+    /// <para><b>Nothing needs swallowing.</b> Bartle: a command interrupt "will not be echoed, but
+    /// will cause the FES to be executed", and its reply is wholly C1-bracketed — the FES packet is
+    /// consumed by the decoder and the FEI list is diverted into the parser's own buffer
+    /// (MudStreamParser's InFeiResponseContext), so neither ever reaches LineReady. That is why the
+    /// existing heartbeat, which sends this same interrupt at a ~1.26s median cadence, is invisible
+    /// in the terminal today. TrySwallowSetupLine exists for TYPED commands whose replies are plain
+    /// text; routing an interrupt through it would leave the swallow window waiting for a first
+    /// content line that never comes, eating real combat text instead.</para>
+    /// </summary>
+    private byte[]? TakeInventoryProbeLocked(DateTime now)
+    {
+        if (!_inventoryProbePending)
+            return null;
+        if (_fesInterval <= TimeSpan.Zero || !InGameMode)
+        {
+            StopInventoryProbeLocked();
+            return null;
+        }
+        if (_lastProbeSentUtc >= _inventoryChangeSeenUtc)
+        {
+            // Some other probe already went out AFTER the change, so the server has already been
+            // asked about the new loadout and its reply is post-drop. Spending a tick to ask the
+            // same question again is exactly what this feature exists to avoid. Inventory is left
+            // flagged in case that probe was one of the FES-only shapes and carried no FEI; the next
+            // routine beat then picks it up at no extra cost.
+            _staleFlags |= StaleStats.Inventory;
+            StopInventoryProbeLocked();
+            return null;
+        }
+        if (_probesHeld || _resetDiscoveryHold || _resetClock.IsSamplingInFlight)
+        {
+            // Something else owns the wire; wait out another quiet period and try again.
+            ScheduleInventoryProbeLocked(now);
+            return null;
+        }
+        var wait = _options.MinProbeSpacing - (now - _lastProbeSentUtc);
+        if (wait > TimeSpan.Zero)
+        {
+            _inventoryProbeTimer?.Change(wait, Timeout.InfiniteTimeSpan);
+            return null;
+        }
+        if (_nextRoutineProbeUtc - now <= _options.MinProbeSpacing)
+        {
+            // The beat is about to fire and always leads with FES; leaving Inventory flagged is what
+            // makes it carry the FEI too. Spending a tick here to save that much is not a trade
+            // worth making mid-fight.
+            _staleFlags |= StaleStats.Inventory;
+            StopInventoryProbeLocked();
+            return null;
+        }
+        _staleFlags &= ~(StaleStats.AllStats | StaleStats.Inventory);
+        _lastProbeSentUtc = now;
+        _lastFesSentUtc = now;
+        StopInventoryProbeLocked();
+        return InventoryProbe;
+    }
+
+    /// <summary>The quiet period elapsed with no player command to ride: send the probe on its own.</summary>
+    private void OnInventoryProbeDeadline()
+    {
+        byte[]? probe;
+        lock (_fesLock)
+            probe = TakeInventoryProbeLocked(DateTime.UtcNow);
+        if (probe is null)
+            return;
+        OutgoingBytes?.Invoke(probe);
+        ProbeSent?.Invoke();
+    }
+
+    /// <summary>
+    /// Whether a pending probe may ride out in front of this outgoing command.
+    ///
+    /// <para><b>Single commands only.</b> MUD2 drains a comma-combo one element per tick, so a probe
+    /// prepended to <c>e,feed coal to dragon</c> pushes every element back a tick — the owner's own
+    /// example of a combo that fails when something else takes the tick first. A combo therefore
+    /// goes out untouched and the probe waits for its timer, by which point it is BEHIND the combo
+    /// in the queue: strictly better placement than prepending, which is why this is a refusal
+    /// rather than a fallback.</para>
+    ///
+    /// <para>Nothing else needs excluding here: the setup batch goes out through
+    /// <see cref="Send(byte[])"/>, not this path, and a probe can only be pending while a fight is
+    /// open.</para>
+    /// </summary>
+    private static bool CanCarryInventoryProbe(string line) => !line.Contains(',');
+
+    private void StopInventoryProbeLocked()
+    {
+        _inventoryProbePending = false;
+        _inventoryProbeTimer?.Change(Timeout.Infinite, Timeout.Infinite);
     }
 
     /// <summary>

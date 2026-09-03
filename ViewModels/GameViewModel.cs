@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Windows.Input;
@@ -16,6 +16,15 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
 {
     private readonly MuckaConnection _conn;
     private readonly Func<ClientSettings, string[], Task>? _saveSettingsAsync;
+    /// <summary>Persists ONLY the Combat Rail's shown/hidden state - deliberately a separate delegate
+    /// from <see cref="_saveSettingsAsync"/> rather than a second call through it. That delegate's
+    /// receiving end (ConnectViewModel.SaveProfileSettingsAsync) always writes the whole "Display tab
+    /// globals" block, and <see cref="CurrentSettings"/> sources that block's Show* fields from LIVE
+    /// SidePanel fold/pin state - correct when the player explicitly hit Save in the settings dialog,
+    /// wrong for a one-click overflow-menu toggle, which must not promote whatever the Onlines section
+    /// happens to be folded to this session into every profile's shared global default. See
+    /// <see cref="PersistCombatRailVisibilityAsync"/>.</summary>
+    private readonly Func<bool, Task>? _persistCombatRailVisibilityAsync;
     private readonly List<string> _history = new();
     private readonly string[] _allFkeys = new string[36];
     private readonly string _profileName;
@@ -521,6 +530,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         OnlineForgetWindow = SidePanel.ForgetWindowMinutes,
         FloatOnline      = _floatOnline,
         FloatCompass     = _floatCompass,
+        ShowCombatRail   = SidePanel.IsCombatPanelVisible,
     };
 
     public ICommand SendCommand { get; }
@@ -570,10 +580,12 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public void SetStatusProbesBlocked(bool blocked) => _conn.SetProbeHold(blocked);
 #endif
 
-    public GameViewModel(MuckaConnection conn, Profile profile, Func<ClientSettings, string[], Task>? saveSettingsAsync = null)
+    public GameViewModel(MuckaConnection conn, Profile profile, Func<ClientSettings, string[], Task>? saveSettingsAsync = null,
+        Func<bool, Task>? persistCombatRailVisibilityAsync = null)
     {
         _conn = conn;
         _saveSettingsAsync = saveSettingsAsync;
+        _persistCombatRailVisibilityAsync = persistCombatRailVisibilityAsync;
         IsCapturing = _conn.IsCapturing;
         _profileName = profile.Name;
         _guidedLoginEnabled = profile.GuidedLogin;
@@ -618,6 +630,13 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         SidePanel = new SidePanelViewModel();
         SidePanel.AttachFightHistory(_conn.FightHistory);
         SidePanel.AttachSwingDamage(_conn.SwingDamage);
+        SidePanel.AttachStaminaPool(_conn.StaminaPool);
+        SidePanel.AttachReachMarks(_conn.ReachMarks);
+        // The combat-tick phase, for the in-combat inventory probe's tick guard (see
+        // MudSession.ScheduleInventoryProbeLocked). The panel owns the only lattice estimate in the
+        // client; this hands the session a read of it rather than letting a second one grow. Gated
+        // on IsSettled so an unconverged phase yields null and the probe keeps its plain delay.
+        _conn.CombatTickAnchorProvider = () => SidePanel.IsTickPhaseSettled ? SidePanel.TickPhaseUtc : null;
         // Fire-and-forget: neither is needed until a fight starts, and reading them must never sit on
         // the UI thread (Invariant #1). Both swallow their own I/O failures.
         _ = LoadCombatHistoryAsync();
@@ -630,6 +649,10 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         SidePanel.ForgetWindowMinutes = profile.OnlineForgetWindow;
         SidePanel.IsOnlinePinned      = !profile.FloatOnline;   // apply the saved float default to the live state
         SidePanel.IsMapPinned         = !profile.FloatCompass;  // ditto for the compass
+        // T2: restore the Combat Rail's shown/hidden state for this persona. The setter itself gates
+        // to IsCombatRailSupported (Windows only), so a Windows-saved "true" is silently ignored on
+        // Android rather than needing a platform check here too.
+        SidePanel.IsCombatPanelVisible = profile.ShowCombatRail;
         WhoEntry.NamesOnlyMode        = profile.OnlineNamesOnly;
         SidePanel.SubscriptionOptionsChanged += (few, fei) => _conn.UpdateSubscriptionOptions(few, fei);
         SidePanel.ValueProbeRequested += name => _conn.QueueValueProbe(name);
@@ -748,6 +771,34 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         {
             await _saveSettingsAsync(CurrentSettings, GetAllFkeys());
             SettingsSaved?.Invoke();
+        }
+    }
+
+    /// <summary>
+    /// Persists ONLY the Combat Rail's current shown/hidden state
+    /// (<c>SidePanel.IsCombatPanelVisible</c>) to mucka.ini, outside the settings dialog's Apply/Save
+    /// flow, via <see cref="_persistCombatRailVisibilityAsync"/> - see that field's remarks for why
+    /// this is not just a second call through <see cref="_saveSettingsAsync"/>/<see cref="CurrentSettings"/>.
+    ///
+    /// <para>Deliberately does NOT call <see cref="ApplyClientSettings"/> or raise <see cref="SettingsSaved"/>:
+    /// the rail toggle is a one-click overflow-menu action, nothing it touches needs re-applying (the
+    /// live SidePanel state is already correct - this only writes it to disk), and re-running the
+    /// dialog's full apply path here would also re-touch the FEW/FEI subscription for no reason - plus
+    /// a "* Settings saved" toast on every combat-panel toggle would misattribute an unrelated dialog's
+    /// confirmation to this one. Any failure is logged and swallowed: a missed write here costs the
+    /// player one relog's worth of the toggle's memory, never gameplay.</para>
+    /// </summary>
+    public async Task PersistCombatRailVisibilityAsync()
+    {
+        if (_persistCombatRailVisibilityAsync is null)
+            return;
+        try
+        {
+            await _persistCombatRailVisibilityAsync(SidePanel.IsCombatPanelVisible);
+        }
+        catch (Exception ex)
+        {
+            CrashLog.Write("PersistCombatRailVisibility", ex);
         }
     }
 
@@ -1985,6 +2036,8 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _conn.StatsUpdated     += OnStatsUpdated;
         _conn.PersonaWiped     += OnPersonaWiped;
         _conn.AutoResetInitiated += OnAutoResetInitiated;
+        // The dead strip's reset-grouping ordinal - see SidePanelViewModel.OnAutoResetInitiated.
+        _conn.AutoResetInitiated += SidePanel.OnAutoResetInitiated;
         _conn.StatusEffectsChanged += SidePanel.OnStatusEffectsChanged;
         _conn.InCombatChanged  += OnInCombatChanged;
         _conn.CombatGracePeriodChanged += OnCombatGracePeriodChanged;
@@ -2005,9 +2058,11 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _conn.FewListStarting  += SidePanel.OnFewListStarting;
         _conn.FewListComplete  += SidePanel.OnFewListComplete;
         _conn.SniffResult      += SidePanel.OnSniffResult;
+        _conn.CreatureValueResolved += SidePanel.OnCreatureValueResolved;
         _conn.FeiListStarting  += SidePanel.OnFeiListStarting;
         _conn.FeiItemReady     += SidePanel.OnFeiItemReady;
         _conn.FeiListComplete  += SidePanel.OnFeiListComplete;
+        _conn.CreatureTextReady += SidePanel.OnCreatureText;
         _conn.FexListStarting  += SidePanel.OnFexListStarting;
         _conn.FexItemReady     += SidePanel.OnFexItemReady;
         _conn.FexListComplete  += SidePanel.OnFexListComplete;
@@ -2019,6 +2074,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _conn.StatsUpdated     -= OnStatsUpdated;
         _conn.PersonaWiped     -= OnPersonaWiped;
         _conn.AutoResetInitiated -= OnAutoResetInitiated;
+        _conn.AutoResetInitiated -= SidePanel.OnAutoResetInitiated;
         _conn.StatusEffectsChanged -= SidePanel.OnStatusEffectsChanged;
         _conn.InCombatChanged  -= OnInCombatChanged;
         _conn.CombatGracePeriodChanged -= OnCombatGracePeriodChanged;
@@ -2039,9 +2095,11 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _conn.FewListStarting  -= SidePanel.OnFewListStarting;
         _conn.FewListComplete  -= SidePanel.OnFewListComplete;
         _conn.SniffResult      -= SidePanel.OnSniffResult;
+        _conn.CreatureValueResolved -= SidePanel.OnCreatureValueResolved;
         _conn.FeiListStarting  -= SidePanel.OnFeiListStarting;
         _conn.FeiItemReady     -= SidePanel.OnFeiItemReady;
         _conn.FeiListComplete  -= SidePanel.OnFeiListComplete;
+        _conn.CreatureTextReady -= SidePanel.OnCreatureText;
         _conn.FexListStarting  -= SidePanel.OnFexListStarting;
         _conn.FexItemReady     -= SidePanel.OnFexItemReady;
         _conn.FexListComplete  -= SidePanel.OnFexListComplete;
