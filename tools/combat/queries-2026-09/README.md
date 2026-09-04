@@ -63,10 +63,21 @@ never "unarmed". No line in 36,291 clog events announces a disarm.
 **Rung descent is monotonic enough to model as monotonic** — 0.75% of clean steps go up. Zombies are
 the real exception at 7.4% of single-instance fights (p=0.0002, with instance-renumbering,
 adjacent-kill and mixed-vocabulary confounds each tested and eliminated). That is an observation
-about rungs; it is not a measurement of regeneration. But **39% of fights emit no rung line at all**
-(ceiling ~74% however long they run), and the two reads a rate needs do not arrive until ~tick 6, by
-which point 37% of fights are over. A fixed per-species constant beats the fight's own measured
-descent rate (41% vs 53% median error), so measuring it live is worse than not measuring it.
+about rungs; it is not a measurement of regeneration.
+
+**Rung lines are near-universal, and a "39% of fights emit none" figure is an artefact — do not
+reinstate it.** `NpcHealth` only populates from 2026-08-10, so any join against `fights` data
+reaching back to 2026-08-07 counts pre-instrumentation fights as silent ones. This was found and
+refuted in the 2026-09-01 session, reproduced anyway by an agent on 2026-09-02, and re-refuted on
+2026-09-04 — three times now, which is why it is written down here. Windowed to fights starting after
+2026-08-16: **98.9% of non-killing player hits are followed by a rung line** (3,446/3,485), and only
+**17.4%** of fights emit none (214/1,227) — those being fights where no non-killing hit ever landed:
+one-shot kills, all-miss fights, flees. The rule is per-hit and it essentially always fires.
+
+What *is* true is that the rate is too noisy to forecast from. A fixed per-species constant beats the
+fight's own measured descent rate (41% vs 53% median error), because the ticks-per-rung IQR runs 3–4×
+wide inside every species. So the conclusion "do not build live rate-observation machinery" stands —
+but on grounds of variance, not availability. Availability is fine.
 
 **There is no rung-to-stamina mapping anywhere.** 7 rungs over 3,599 observations establish the
 *order* only; `npc_stamina_reads` has 0 rows and the only 4 numeric diagnose brackets are pre-combat
