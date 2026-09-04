@@ -45,10 +45,22 @@ fecodes.txt
 __pycache__/
 *.pyc
 
-# Regenerable combat-research scratch databases (see tools/combat/README.md — reduce_combat.py
-# rebuilds these from the tracked RESEARCH/*.jsonl captures; too large/derived to commit).
-tools/combat/*.db
-tools/mapping/*.db
+# Analysis and research tooling is NOT committed. It is scratch: scripts written against one
+# session's question, their scratch databases, and the notes around them. Untracked wholesale on
+# 2026-09-04 (44 files) after an agent added 47 more. The files stay on disk; nothing here is
+# deleted, it just does not belong in the repo.
+#
+# Consequence to respect: nothing tracked may DEPEND on a path under tools/. A test fixture that
+# a build needs lives under mudsharp.Tests/Fixtures/Data/ instead — see npc_group_fixture.txt,
+# which was moved there for exactly this reason.
+tools/
+
+# Captured wire data from the operator's own play sessions. Recordings, clogs and the fixtures cut
+# from them are his game data and are not committed, however useful they are as test input. Tests
+# that want real bytes either inline the few frames they need or guard the file with File.Exists
+# and skip when it is absent.
+*.jsonl
+mudsharp.Tests/Fixtures/Data/*.jsonl
 
 # Files whose names begin with "--": always a mistyped command-line flag that a tool then treated
 # as an output path. One such (`tools/combat/--db`, 217 KB of SQLite from a misplaced `--db`) was

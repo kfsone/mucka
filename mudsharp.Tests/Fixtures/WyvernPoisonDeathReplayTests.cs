@@ -3,6 +3,7 @@ using System.Text.Json;
 using MudSharp.Combat;
 using MudSharp.Models;
 using MudSharp.Session;
+using Xunit.Abstractions;
 
 namespace MudSharp.Tests.Fixtures;
 
@@ -21,10 +22,23 @@ namespace MudSharp.Tests.Fixtures;
 /// "You can fight the wyvern no longer." is wrapped in 08.12 — the one coded statement in the whole
 /// frame that a fight ended.</para>
 /// </summary>
-public sealed class WyvernPoisonDeathReplayTests
+public sealed class WyvernPoisonDeathReplayTests(ITestOutputHelper output)
 {
     private static readonly string CaptureFile =
         Path.Combine(AppContext.BaseDirectory, "Fixtures", "Data", "wyvern-poison-death.jsonl");
+
+    /// <summary>
+    /// The capture is the owner's own play data, so it is gitignored and simply absent from a fresh
+    /// clone - these three tests skip rather than fail there. Same log-and-return idiom as
+    /// <see cref="CombatCaptureReplayTests"/>, xunit 2.9.2 having no runtime Skip.
+    /// </summary>
+    private bool CaptureMissing()
+    {
+        if (File.Exists(CaptureFile))
+            return false;
+        output.WriteLine($"SKIPPED: capture not present at {CaptureFile}");
+        return true;
+    }
 
     private static (List<bool> inCombat, List<CombatEvent> events, List<StyledLine> lines) Replay()
     {
@@ -63,6 +77,8 @@ public sealed class WyvernPoisonDeathReplayTests
     [Fact]
     public void TheFightOpensAndCloses_WithTheDeathAttributedToTheWyvern()
     {
+        if (CaptureMissing()) return;
+
         var (inCombat, events, _) = Replay();
 
         // Exactly one encounter, opened and CLOSED. The closing half is the whole bug: nothing in
@@ -82,6 +98,8 @@ public sealed class WyvernPoisonDeathReplayTests
     [Fact]
     public void TheDeathLinesCarryNoC1Code_ButTheTrailingFightEndIs0812()
     {
+        if (CaptureMissing()) return;
+
         var (_, _, lines) = Replay();
 
         // Why the prose matchers cannot be retired in favour of the codes: MUD2 states the death
@@ -101,6 +119,8 @@ public sealed class WyvernPoisonDeathReplayTests
     [Fact]
     public void TheVenomousStingIsNotAFightHit_AndIsStillUncounted()
     {
+        if (CaptureMissing()) return;
+
         // Recorded, not fixed. "The wyvern stings you with its venomous tail." is C07.02.00 - an
         // ISOLATED hit (the 07 "stings by objects of class STINGER" family), not a fight hit (08.03),
         // and it is followed by "Stamina=64/99." rather than the "(cur/max)" parenthetical the
