@@ -1,0 +1,122 @@
+SQL:
+  select npc, npc_group, encounter_started_at_ms, ts, dmg, reset_epoch_ms
+  from swings where dir='in' and hit=1 and dmg is not null;
+
+==============================================================================
+Q4  INSTANCE KEY A: npc name   (instances kept only at >= 10 landed blows)
+==============================================================================
+
+species   instances  blows  mean   sd_between_inst  ICC    F      perm                     
+--------  ---------  -----  -----  ---------------  -----  -----  -------------------------
+rats      22         1116   2.726  0.240            0.032  2.638  p=0.000 / blocked p=0.000
+snakes    6          237    5.557  0.269            0.007  1.296  p=0.256 / blocked p=0.315
+zombies   9          386    7.264  0.737            0.035  2.532  p=0.012 / blocked p=0.022
+banshees  1          140                                          too few                  
+dwarves   4          82     6.622  0.000            0.000  0.836  p=0.470 / blocked p=0.465
+thieves   1          107                                          too few                  
+rams      1          74                                           too few                  
+goblins   2          20                                           too few                  
+
+==============================================================================
+Q4  INSTANCE KEY B: npc name + 5-min reset bucket   (instances kept only at >= 5 landed blows)
+==============================================================================
+
+species   instances  blows  mean   sd_between_inst  ICC    F      perm                     
+--------  ---------  -----  -----  ---------------  -----  -----  -------------------------
+rats      43         310    2.929  0.473            0.097  1.771  p=0.004 / blocked p=0.002
+snakes    23         161    5.621  0.000            0.000  0.914  p=0.561 / blocked p=0.772
+zombies   10         66     7.591  0.000            0.000  0.967  p=0.476 / blocked p=0.455
+banshees  12         79     8.696  0.904            0.034  1.230  p=0.288 / blocked p=1.000
+dwarves   5          52     6.788  0.206            0.003  1.032  p=0.392 / blocked p=0.388
+thieves   10         92     9.467  3.691            0.424  7.587  p=0.000 / blocked p=1.000
+rams      6          39     7.205  1.808            0.245  3.104  p=0.021 / blocked p=1.000
+goblins   3          17                                           too few                  
+
+==============================================================================
+Q4  INSTANCE KEY C: npc name + fight   (instances kept only at >= 3 landed blows)
+==============================================================================
+
+species   instances  blows  mean   sd_between_inst  ICC    F      perm                     
+--------  ---------  -----  -----  ---------------  -----  -----  -------------------------
+rats      166        717    2.785  0.233            0.027  1.122  p=0.165 / blocked p=0.081
+snakes    39         225    5.556  0.000            0.000  0.693  p=0.913 / blocked p=0.939
+zombies   50         190    7.295  0.000            0.000  0.953  p=0.570 / blocked p=0.780
+banshees  23         118    8.932  0.000            0.000  0.912  p=0.569 / blocked p=0.394
+dwarves   15         85     6.588  0.000            0.000  0.922  p=0.556 / blocked p=0.549
+thieves   19         103    9.913  3.841            0.478  5.911  p=0.000 / blocked p=0.184
+rams      13         67     6.940  1.713            0.220  2.442  p=0.013 / blocked p=1.000
+goblins   9          39     9.026  1.441            0.069  1.318  p=0.273 / blocked p=0.019
+
+==============================================================================
+Q4d. POWER -- what size of real instance effect WOULD this corpus have found?
+==============================================================================
+Simulation on the observed design (same species, same instance sizes, key C
+= per-fight): resample each blow as species_mean + instance_offset + noise, with
+sd(offset) set to a given fraction of the species mean, and count how often the
+permutation test at alpha=0.05 detects it. 1000 sims per cell.
+
+species  detect sd_inst=10% of mean  20%    35%    50%  
+-------  --------------------------  -----  -----  -----
+rats     0.455                       1.000  1.000  1.000
+snakes   0.145                       0.750  0.995  1.000
+zombies  0.130                       0.665  0.995  1.000
+
+==============================================================================
+Q4f. IS THE KEY-A SIGNAL JUST DIFFERENT NAMED KINDS POOLED INTO ONE GROUP?
+==============================================================================
+npc_group is NpcGroups.Normalize, which folds e.g. 'large rat3' and 'rat3'
+into 'rats'. If it folds two things that hit differently, key A picks that up as
+'instance variance' when it is really species variance under a coarse label.
+Stripping the trailing digits off npc gives the KIND; the digits give the slot.
+
+  rats -- by KIND (digits stripped):
+    kind       n     mean   sd   
+    ---------  ----  -----  -----
+    rat        1035  2.624  1.264
+    large rat  169   3.337  1.686
+    key A re-run WITHIN kind 'rat' only: 21 slots, 965 blows, F=1.00 ICC=0.000 sd_between=0.000 p=0.460 blocked p=0.461
+
+  zombies -- by KIND (digits stripped):
+    kind    n    mean   sd   
+    ------  ---  -----  -----
+    zombie  433  7.289  3.957
+    key A re-run WITHIN kind 'zombie' only: 9 slots, 386 blows, F=2.53 ICC=0.035 sd_between=0.737 p=0.012 blocked p=0.023
+
+  snakes -- by KIND (digits stripped):
+    kind         n    mean   sd   
+    -----------  ---  -----  -----
+    water-snake  273  5.568  3.118
+    key A re-run WITHIN kind 'water-snake' only: 6 slots, 237 blows, F=1.30 ICC=0.007 sd_between=0.269 p=0.273 blocked p=0.320
+
+==============================================================================
+Q4e. THE ONE SPECIES THAT DOES SEPARATE -- thieves
+==============================================================================
+thieves is the only species with a non-zero ICC anywhere in Q3f/Q4, and it is
+also the only species in the corpus whose 'instances' all share ONE name and
+differ by WEAPON. Per-fight means, with the weapon that fight announced:
+
+encounter      npc    blows  mean_dmg  weapons seen     
+-------------  -----  -----  --------  -----------------
+1788388664579  thief  4      19.750    broadsword       
+1788389493705  thief  3      17.000    -                
+1787254538141  thief  5      15.600    -,dagger0        
+1786850360619  thief  4      13.500    dagger0          
+1786850640599  thief  7      13.000    -,dagger0        
+1788388931976  thief  4      12.750    -                
+1787026555142  thief  4      12.500    -                
+1788388433325  thief  3      12.000    -,broadsword     
+1787955171800  thief  8      11.250    -                
+1788388600920  thief  5      10.800    broadsword       
+1788418845893  thief  9      10.333    -,dagger0        
+1786850829465  thief  3      10.000    -                
+1786998740361  thief  4      9.750     -,dagger0        
+1787124806201  thief  3      8.667     -,dagger0        
+1788368086691  thief  6      7.167     -                
+1788291098861  thief  5      6.200     -,club           
+1787006089720  thief  5      5.800     -,dagger0        
+1787511415803  thief  13     4.615     commode          
+1787978509428  thief  8      4.500     grandfather clock
+Read down the mean column against the weapon column. This is 19 fights, so it
+is a hypothesis and not a finding -- but it says the thing that looks like
+'instance variance' in thieves is weapon variance, i.e. Q1 again, and NOT
+evidence that a creature has a hidden personal damage roll.

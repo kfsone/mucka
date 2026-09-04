@@ -1,0 +1,57 @@
+==============================================================================
+Q2e. P(swing) BY FIGHT DURATION -- where duration_ms stops meaning 'engaged'
+==============================================================================
+SQL: select duration_ms, they_hits+they_misses, you_hits+you_misses from fights;
+
+duration  fights  eng_ticks  in_swings  P(swing_in)  P(swing_out)
+--------  ------  ---------  ---------  -----------  ------------
+0-2s      317     443        120        0.271        0.709       
+2-5s      96      261        142        0.544        0.755       
+5-10s     225     1070       499        0.466        0.589       
+10-20s    464     3849       1725       0.448        0.507       
+20-40s    498     7470       3348       0.448        0.487       
+40-80s    289     8144       3629       0.446        0.469       
+80-160s   33      1673       725        0.433        0.444       
+160-infs  5       1912       57         0.030        0.033       
+
+P(swing) collapses in the long tail. Those fights are not creatures pausing; they
+are fights left open while the player did something else. The duration-based tick
+count over-counts engagement, and it over-counts it MOST for the species that
+happen to appear in a couple of abandoned fights -- which is precisely how
+lobsters got a 1206-tick denominator off 2 fights.
+
+==============================================================================
+Q2f. TICKS REBUILT FROM OBSERVED SWING TIMESTAMPS
+==============================================================================
+For every fight the swings ledger covers, engaged_ticks is taken as
+    round((last_swing_ts - first_swing_ts)/2000) + 1
+over ALL swings of that fight, in and out. This cannot include trailing dead
+time. It slightly UNDER-counts (a fight's last tick after the final swing is
+lost), so it is the opposite bias to Q2b and brackets the truth with it.
+
+species   fights  eng_ticks  in_swings  landed  P(swing)  P(hit|sw)  E[dmg|hit]  dpt_fact  dpt_emp  dpt_sd  CV_tick
+--------  ------  ---------  ---------  ------  --------  ---------  ----------  --------  -------  ------  -------
+rats      524     5515       2680       1118    0.486     0.417      2.727       0.553     0.553    1.253   2.266  
+zombies   299     3443       1549       403     0.450     0.260      7.283       0.852     0.852    2.703   3.171  
+snakes    56      1232       584        237     0.474     0.406      5.557       1.069     1.069    2.579   2.412  
+banshees  55      859        393        140     0.458     0.356      8.886       1.448     1.448    3.795   2.620  
+rams      20      556        256        74      0.460     0.289      6.905       0.919     0.919    2.701   2.939  
+thieves   33      505        238        107     0.471     0.450      9.766       2.069     2.069    4.704   2.273  
+dwarves   26      491        226        96      0.460     0.425      6.427       1.257     1.257    2.955   2.352  
+goblins   49      284        130        66      0.458     0.508      8.803       2.046     2.046    4.479   2.190  
+ogres     5       182        79         19      0.434     0.241      11.895      1.242     1.242    4.400   3.543  
+goats     19      165        82         26      0.497     0.317      8.500       1.339     1.339    3.768   2.813  
+
+Global pooled P(swing_in) on this denominator = 6760/14367 = 0.4705
+(The 49.6% prior lands inside the bracket set by this and Q2b's 41.3%.)
+
+==============================================================================
+Q2g. IS P(swing) FLAT ACROSS SPECIES? (permutation over fights)
+==============================================================================
+Statistic: the spread (max-min) of per-species pooled P(swing) across the
+species above, with whole fights reassigned to species labels at random,
+preserving each species' fight count. Observed spread vs the null spread.
+
+Observed spread of P(swing) across 10 species: 0.0629
+Null (fights reshuffled): median 0.0472, p95 0.0802
+p = 0.1942

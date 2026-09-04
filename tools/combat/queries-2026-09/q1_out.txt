@@ -1,0 +1,135 @@
+==============================================================================
+Q1a. HOW OFTEN IS npc_weapon POPULATED?
+==============================================================================
+SQL:
+  select count(*) rows, sum(npc_weapon is not null) wpop from swings where dir='in';
+  ... and the same grouped by npc_group, and restricted to hit=1.
+
+All incoming rows            n=  7347   npc_weapon populated   656  (8.9%)
+Incoming LANDED blows        n=  2748   npc_weapon populated   194  (7.1%)
+
+Every species that EVER announces a weapon (all others: exactly 0 rows):
+species    in_rows  w_pop  landed  landed_w  %rows_w
+---------  -------  -----  ------  --------  -------
+zombies    1657     400    433     91        24.140 
+thieves    255      146    116     67        57.255 
+ogres      79       74     19      17        93.671 
+giants     20       17     12      10        85.000 
+goblins    169      12     88      6         7.101  
+skeletons  6        4      5       3         66.667 
+vampires   4        3      0       0         75.000 
+
+Species with >=1 incoming row: 42.  Species that ever announce a weapon: 7.
+Every animal species (rats, snakes, banshees, rams, foxes, ...) is 0.0% -- never once.
+
+==============================================================================
+Q1b. IS npc_weapon STABLE WITHIN A FIGHT?
+==============================================================================
+SQL: group incoming rows by the fight key (encounter_started_at_ms, npc),
+ordered by ts, and classify the sequence of npc_weapon values.
+
+pattern                            fights
+---------------------------------  ------
+all NULL (never announced)         1035  
+NULL -> one weapon (the announce)  108   
+one weapon, whole fight            1     
+
+Fights with a weapon CHANGE mid-fight: 0
+
+Reading: a NULL->value transition is the announce line arriving, not a pickup we
+can date, and there is no value->NULL transition anywhere in the corpus -- the
+recorder cannot emit one (NoteNpcWeapon ignores null/blank). DISARMS ARE NOT
+OBSERVABLE IN THIS DATA AT ALL. Absence of evidence only.
+
+==============================================================================
+Q1c. INCOMING DAMAGE BY (species, npc_weapon) CELL
+==============================================================================
+SQL:
+  select npc_group, coalesce(npc_weapon,'<none announced>'), count(*), avg(dmg), ...
+  from swings where dir='in' and hit=1 and dmg is not null group by 1,2;
+
+ALL cells with n>=5 landed blows (n>=30 marked *):
+species   npc_weapon             n     mean    sd      median  max      
+--------  ---------------------  ----  ------  ------  ------  ------  -
+rats      <none announced>       1204  2.724   1.354   3.000   7.000   *
+zombies   <none announced>       342   7.009   3.859   7.000   16.000  *
+snakes    <none announced>       273   5.568   3.118   5.000   11.000  *
+banshees  <none announced>       147   8.925   4.724   9.000   17.000  *
+dwarves   <none announced>       102   6.431   3.405   6.000   15.000  *
+goblins   <none announced>       81    8.000   4.778   7.000   17.000  *
+rams      <none announced>       74    6.905   3.698   6.000   14.000  *
+thieves   <none announced>       49    10.306  4.374   10.000  19.000  *
+foxes     <none announced>       43    6.814   3.547   6.000   14.000  *
+zombies   well-maintained pick2  34    8.618   4.321   8.000   17.000  *
+thieves   dagger0                30    11.267  4.913   11.500  19.000  *
+magpies   <none announced>       29    3.069   1.811   2.000   7.000    
+goats     <none announced>       28    8.286   5.381   8.000   17.000   
+eagles    <none announced>       28    6.036   3.191   5.500   12.000   
+parrots   <none announced>       24    3.625   1.952   3.000   9.000    
+zombies   fork1                  22    8.636   4.204   9.500   14.000   
+ogres     club                   17    12.647  7.984   11.000  26.000   
+boars     <none announced>       14    6.929   3.583   7.000   13.000   
+rocs      <none announced>       14    6.643   4.378   6.500   13.000   
+coots     <none announced>       13    3.692   1.494   4.000   5.000    
+thieves   commode                13    4.615   2.181   5.000   8.000    
+sharks    <none announced>       12    9.417   4.999   9.500   15.000   
+thieves   broadsword             11    14.091  7.713   11.000  27.000   
+piglets   <none announced>       10    3.100   1.524   3.000   6.000    
+vines     <none announced>       10    8.800   5.574   8.500   15.000   
+ravens    <none announced>       8     3.500   1.927   4.000   6.000    
+wyverns   <none announced>       8     10.000  3.251   9.500   15.000   
+thieves   grandfather clock      8     4.500   2.777   4.000   10.000   
+zombies   staff0                 7     8.000   3.266   9.000   13.000   
+zombies   axe1                   6     10.333  5.574   13.000  15.000   
+canaries  <none announced>       5     1.000   0.000   1.000   1.000    
+wolves    <none announced>       5     7.400   4.278   5.000   13.000   
+giants    cleaver                5     19.800  10.895  23.000  33.000   
+
+Cells meeting the n>=30 bar: 11
+Species with >=2 such cells: ['zombies', 'thieves']
+
+==============================================================================
+Q1d. ARMED vs NONE-ANNOUNCED, WITHIN SPECIES  (permutation test, 20k iters)
+==============================================================================
+Statistic: mean(armed) - mean(none announced), two-sided, labels shuffled
+within the species only. Effect sizes: Cohen's d and Cliff's delta.
+
+species  n_armed  mean_armed  n_none  mean_none  diff    cohen_d  cliff_d  p_perm
+-------  -------  ----------  ------  ---------  ------  -------  -------  ------
+thieves  66       9.318       49      10.306     -0.988  -0.185   -0.160   0.332 
+zombies  91       8.341       342     7.009      1.332   0.339    0.182    0.005 
+
+==============================================================================
+Q1e. WEAPON vs WEAPON, WITHIN SPECIES (pairwise, both cells n>=30)
+==============================================================================
+species  wA                wB                     nA   nB  meanA   meanB   diff    cohen_d  cliff_d  p_perm
+-------  ----------------  ---------------------  ---  --  ------  ------  ------  -------  -------  ------
+thieves  <none announced>  dagger0                49   30  10.306  11.267  -0.961  -0.210   -0.139   0.379 
+zombies  <none announced>  well-maintained pick2  342  34  7.009   8.618   -1.609  -0.412   -0.208   0.024 
+
+==============================================================================
+Q1f. SAME TEST AT A RELAXED BAR (n>=10 per cell) -- UNDERPOWERED, read as such
+==============================================================================
+
+species  wA                     wB                     nA   nB  meanA   meanB   diff    cohen_d  cliff_d  p_perm
+-------  ---------------------  ---------------------  ---  --  ------  ------  ------  -------  -------  ------
+thieves  <none announced>       dagger0                49   30  10.306  11.267  -0.961  -0.210   -0.139   0.380 
+thieves  <none announced>       commode                49   13  10.306  4.615   5.691   1.411    0.741    0.000 
+thieves  <none announced>       broadsword             49   11  10.306  14.091  -3.785  -0.741   -0.262   0.031 
+thieves  dagger0                commode                30   13  11.267  4.615   6.651   1.548    0.726    0.000 
+thieves  dagger0                broadsword             30   11  11.267  14.091  -2.824  -0.490   -0.136   0.179 
+thieves  commode                broadsword             13   11  4.615   14.091  -9.476  -1.741   -0.832   0.000 
+zombies  <none announced>       well-maintained pick2  342  34  7.009   8.618   -1.609  -0.412   -0.208   0.021 
+zombies  <none announced>       fork1                  342  22  7.009   8.636   -1.628  -0.419   -0.236   0.058 
+zombies  well-maintained pick2  fork1                  34   22  8.618   8.636   -0.019  -0.004   -0.036   1.000 
+
+==============================================================================
+Q1g. NOISE FLOOR -- split the LARGEST single cell in half at random and
+     measure the |mean difference| we get from nothing at all.
+==============================================================================
+  rats       <none announced>       n=1204  mean=2.72  split-half |dmean| median=0.05 p95=0.15
+  zombies    <none announced>       n= 342  mean=7.01  split-half |dmean| median=0.29 p95=0.80
+  snakes     <none announced>       n= 273  mean=5.57  split-half |dmean| median=0.26 p95=0.72
+  banshees   <none announced>       n= 147  mean=8.93  split-half |dmean| median=0.53 p95=1.54
+  dwarves    <none announced>       n= 102  mean=6.43  split-half |dmean| median=0.47 p95=1.30
+  goblins    <none announced>       n=  81  mean=8.00  split-half |dmean| median=0.74 p95=2.12

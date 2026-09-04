@@ -134,6 +134,41 @@ public class CreatureValueProbeTests : IDisposable
         Assert.True(WaitFor(() => Resolved().Any(r => r.Name == "ox" && r.Value == 0)));
     }
 
+    // A NEGATIVE value is a real wire shape, not a defensive guess: 36 occurrences across 21
+    // distinct forms in the session recordings plus clogs (2026-09-04), all of them in this same
+    // "the <name>" form. Verbatim from the corpus. Two things had to change together for this to
+    // pass - the pattern's [\d,]+ and int.TryParse's NumberStyles.None, either of which alone
+    // silently swallows the reply and never raises CreatureValueResolved.
+    [Fact]
+    public void ANegativeValue_IsParsed()
+    {
+        EnterCombat("map");
+        Assert.True(WaitFor(() => Sent().Any(o => o.Contains("value map"))));
+        Prompt();
+        Feed("value map\r\n");
+        Prompt();
+        Feed("The value of the map is -12 points.\r\n");
+        Prompt();
+        Assert.True(WaitFor(() => Resolved().Any(r => r.Name == "map" && r.Value == -12)));
+        Assert.DoesNotContain(Visible(), v => v.Contains("map"));
+    }
+
+    // MUD2 agrees the noun with the number: "1 point.", not "1 points.". 6 occurrences across 5
+    // distinct forms in the same corpus. A hardcoded "points." tail drops every one.
+    [Fact]
+    public void ASingularPoint_IsParsed()
+    {
+        EnterCombat("penny");
+        Assert.True(WaitFor(() => Sent().Any(o => o.Contains("value penny"))));
+        Prompt();
+        Feed("value penny\r\n");
+        Prompt();
+        Feed("The value of the penny is 1 point.\r\n");
+        Prompt();
+        Assert.True(WaitFor(() => Resolved().Any(r => r.Name == "penny" && r.Value == 1)));
+        Assert.DoesNotContain(Visible(), v => v.Contains("penny"));
+    }
+
     [Fact]
     public void NumberedInstance_IsAttributedByItsFullEchoedName()
     {

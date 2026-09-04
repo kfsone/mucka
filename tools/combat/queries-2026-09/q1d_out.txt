@@ -1,0 +1,72 @@
+clog files: 1294
+
+==============================================================================
+Q1o. EVERY NPC WEAPON EQUIP IN THE CLOG CORPUS
+==============================================================================
+
+npc kind                    equip events  distinct weapons
+--------------------------  ------------  ----------------
+zombie                      127           22              
+thief                       18            7               
+ogre                        8             1               
+goblin                      7             6               
+giant                       4             2               
+ghoul                       1             1               
+exceptionally large goblin  1             1               
+skeleton                    1             1               
+vampire                     1             1               
+
+Total equip events: 168   distinct (kind, weapon) pairs: 42
+Same closed list of kinds as the db: humanoids only. No animal ever equips.
+
+==============================================================================
+Q1p. IS THERE ANY 'NPC LOSES ITS WEAPON' LINE AT ALL?
+==============================================================================
+Scanning every raw line in the corpus for a disarm-shaped sentence about an NPC.
+
+line                                                                                              count
+------------------------------------------------------------------------------------------------  -----
+The dagger0 breaks to bits.                                                                       4    
+northern end, while a tall wall encloses the western and southern edges. To the east you can see  2    
+The pitchfork breaks to bits.                                                                     2    
+The axe0 breaks to bits.                                                                          2    
+enclose the area loom over you, throwing the whole place into deep shadow. The wood continues in  1    
+The falchion breaks to bits.                                                                      1    
+The rolling-pin1 breaks to bits.                                                                  1    
+The staff0 breaks to bits.                                                                        1    
+Any 'breaks to bits' hits are the PLAYER's weapon (CombatTracker.WeaponBroke
+matches '^The <weapon> breaks to bits.$' with no actor). Nothing in the corpus
+announces an NPC losing a weapon, which is why npc_weapon can only ever ratchet
+on. So: a disarm is not observable, and its absence in the data is not evidence
+that disarms do not happen.
+
+==============================================================================
+Q1q. NPC HIT RATE BEFORE vs AFTER IT ARMS ITSELF (within the same encounter)
+==============================================================================
+Per (clog file, npc instance): count HitByNpc / MissByNpc strictly before the
+first NpcWeaponEquip for that npc, and strictly after. Paired, one pair per
+instance that has >=3 swings on each side.
+
+clog                              npc      weapon   n_pre  hitrate_pre  n_post  hitrate_post  delta 
+--------------------------------  -------  -------  -----  -----------  ------  ------------  ------
+clog.20260815-215603.jsonl        zombie0  shovel0  3      0.333        6       0.167         -0.167
+clog.20260829-182035748-10.jsonl  zombie7  sceptre  5      0.400        4       0.000         -0.400
+
+Paired instances: 2   mean delta hit rate = -0.283   median -0.283   sign-flip p = 0.504
+Instances where post > pre: 0 / 2
+
+==============================================================================
+Q1r. POOLED HIT RATE, ARMED vs NOT-YET-ARMED (weapon-capable kinds only)
+==============================================================================
+
+npc kind  sw_armed  hitrate_armed  sw_unarmed  hitrate_unarmed  delta 
+--------  --------  -------------  ----------  ---------------  ------
+zombie    589       0.233          1767        0.279            -0.046
+thief     194       0.495          128         0.461            0.034 
+ogre      125       0.216          7           0.286            -0.070
+giant     23        0.522          4           0.750            -0.228
+goblin    21        0.619          195         0.523            0.096 
+ghoul     15        0.267          23          0.435            -0.168
+'unarmed' here means 'has not yet been seen to equip in this encounter' -- the
+same not-observed-is-not-absent caveat as the db. Read the delta column only as
+a direction check on Q1's damage result, never as a rate in its own right.

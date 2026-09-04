@@ -132,8 +132,16 @@ public sealed class MudSession : IDisposable
     // (ScheduleInventoryProbeLocked), including its options - InventoryProbeDebounce/TickGuard/
     // TickClearance - rather than inventing a second scheduler for what is the same problem (don't
     // fire on every arrival; don't fire onto a tick boundary the player's own command wanted).
+    // Value can be NEGATIVE and the noun agrees with it, so neither the sign nor the plural is
+    // optional decoration: over the session recordings in %LOCALAPPDATA%\Temp\mucka plus
+    // ~/.mucka/clogs (458 "The value of" lines, 246 distinct, 2026-09-04), 36 occurrences across 21
+    // distinct forms are negative ("The value of the map is -12 points.") and 6 across 5 are
+    // singular ("The value of the penny is 1 point."). Every one of those uses this "the" form, so
+    // a [\d,]+ / "points." pattern drops all 42 on the floor. Negatives are inanimate only - no
+    // bestiary creature has one - but they arrive through the same probe, so they are this
+    // pattern's problem. Query: grep -o 'The value of [^"]*' over both corpora.
     private static readonly System.Text.RegularExpressions.Regex CreatureValueReply = new(
-        @"^The value of the (?<name>.+?) is (?<value>[\d,]+) points\.$",
+        @"^The value of the (?<name>.+?) is (?<value>-?[\d,]+) points?\.$",
         System.Text.RegularExpressions.RegexOptions.Compiled);
     // "I don't know to what \"vase1\" you're referring." - the bad-target rejection. Different
     // wording from the player sniff's "I don't know the word" (that one means the PERSONA name is
@@ -1293,7 +1301,12 @@ public sealed class MudSession : IDisposable
             // Thousands separator observed on the wire ("1,419 points") - strip it before parsing;
             // see the domain notes on why this is stated rather than assumed as a general locale rule.
             var digits = reply.Groups["value"].Value.Replace(",", "");
-            if (int.TryParse(digits, System.Globalization.NumberStyles.None,
+            // AllowLeadingSign, not None: the regex now admits the 36 observed negative values, and
+            // None would reject every one of them here instead - the reply would be swallowed as
+            // ours and no CreatureValueResolved would ever fire. Thousands stay hand-stripped above
+            // rather than delegated to AllowThousands, so the accepted shape is still exactly the
+            // one the wire produces.
+            if (int.TryParse(digits, System.Globalization.NumberStyles.AllowLeadingSign,
                     System.Globalization.CultureInfo.InvariantCulture, out var value))
             {
                 lock (_fesLock)

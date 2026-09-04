@@ -1,0 +1,50 @@
+==============================================================================
+Q4g. THE ZOMBIE SLOT EFFECT, HELD AGAINST npc_weapon
+==============================================================================
+SQL: the landed-blow set for npc_group='zombies', grouped by npc and by
+coalesce(npc_weapon,'<none announced>').
+
+Per-slot means, and what fraction of that slot's blows came after it armed:
+
+slot     blows  mean   sd     frac_armed  weapons announced                                  
+-------  -----  -----  -----  ----------  ---------------------------------------------------
+zombie0  64     6.656  3.751  0.078       croquet mallet,pebble0,rolling-pin1,satchel,shovel0
+zombie9  57     8.000  3.510  0.035       fork1                                              
+zombie1  53     6.906  4.311  0.189       fork1,staff0,well-maintained pick2                 
+zombie4  42     8.643  4.366  0.786       well-maintained pick2                              
+zombie3  35     6.143  3.934  0.171       fork1,pebble3,staff0                               
+zombie2  35     5.686  3.917  0.029       satchel                                            
+zombie6  34     8.059  3.498  0.324       axe0,dagger0,fork1,satchel                         
+zombie5  34     7.500  3.578  0.147       dagger0,fork1,staff0                               
+zombie7  32     7.812  3.955  0.250       fork1,pebble0,sceptre                              
+
+  <none announced> blows only: 9 slots, 305 blows -- F=1.55 ICC=0.016 sd_between=0.495 p=0.144
+
+  armed blows only: 4 slots, 62 blows -- F=1.20 ICC=0.015 sd_between=0.511 p=0.315
+
+  correlation(slot mean, slot's fraction of armed blows) over 9 slots: r = +0.648
+
+If the slot effect vanishes once npc_weapon is held fixed, 'zombie4 hits harder'
+is 'zombie4 is the one that keeps finding the pick', not a property of the slot.
+
+==============================================================================
+Q4h. THE BLOCKED PERMUTATION AT KEY C IS DEGENERATE -- how degenerate
+==============================================================================
+At key C the instance is the fight. A 30-minute time block usually contains
+one fight, so there is nothing to exchange and the test cannot reject. Counting
+how many exchangeable label pairs each design actually has.
+
+species   key           instances  blows  time_blocks  blocks with >1 instance  frac 
+--------  ------------  ---------  -----  -----------  -----------------------  -----
+rats      A: npc        22         1116   53           52                       0.981
+rats      C: npc+fight  166        717    49           42                       0.857
+snakes    A: npc        6          237    14           10                       0.714
+snakes    C: npc+fight  39         225    14           9                        0.643
+zombies   A: npc        9          386    76           45                       0.592
+zombies   C: npc+fight  50         190    35           10                       0.286
+banshees  C: npc+fight  23         118    22           2                        0.091
+thieves   C: npc+fight  19         103    13           2                        0.154
+rams      C: npc+fight  13         67     13           0                        0.000
+Where 'frac' is near zero the blocked p-value is an artefact of the design and
+carries no information. Only the key-A rows should be read from the blocked
+column; key-C conclusions rest on the free permutation and on the ICC.
