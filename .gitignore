@@ -55,12 +55,17 @@ __pycache__/
 # which was moved there for exactly this reason.
 tools/
 
-# Captured wire data from the operator's own play sessions. Recordings, clogs and the fixtures cut
-# from them are his game data and are not committed, however useful they are as test input. Tests
-# that want real bytes either inline the few frames they need or guard the file with File.Exists
-# and skip when it is absent.
+# Captured wire data from the operator's own play sessions. Recordings and clogs are his game data
+# and are not committed, however useful they are as test input.
+#
+# A test that needs real bytes does NOT get to be optional. Making one skip when its capture is
+# absent was tried once (WyvernPoisonDeathReplayTests) and is a bad precedent: a protocol test that
+# passes silently on a fresh clone is worse than no test, because it looks like coverage. The rule
+# instead is to commit a REDACTED cut - only the frames under test, no tx records of what the owner
+# typed, no stat/inventory/who rows, nothing identifying - and to negate it here by name.
 *.jsonl
 mudsharp.Tests/Fixtures/Data/*.jsonl
+!mudsharp.Tests/Fixtures/Data/wyvern-poison-death.jsonl
 
 # Files whose names begin with "--": always a mistyped command-line flag that a tool then treated
 # as an output path. One such (`tools/combat/--db`, 217 KB of SQLite from a misplaced `--db`) was

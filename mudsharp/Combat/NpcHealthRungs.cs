@@ -32,8 +32,9 @@ namespace MudSharp.Combat;
 /// 25-stamina rat is a different amount of trouble than rung 2 on a 100-stamina rat0. Nor is it a
 /// ratchet - creatures regenerate. A zombie in the corpus oscillates between "strong" and
 /// "superficially damaged" four times in one fight, and another climbs from "moderately damaged" back
-/// to "minor damage". Every observed improvement is exactly one rung, but they happen, so the reading
-/// to show is always the LATEST one, never the worst seen.</para>
+/// to "minor damage". Improvements are rare - 26 of 2,269 changed transitions, 1.15% - but they are
+/// NOT all one rung: 3->6, 1->4, 2->5 and 4->6 all occur, so nothing may assume a single step. The
+/// reading to show is always the LATEST one, never the worst seen.</para>
 /// </summary>
 public static class NpcHealthRungs
 {
@@ -55,8 +56,16 @@ public static class NpcHealthRungs
     /// reading into a longer sentence - "The ram looks covered in wounds, and is holding the
     /// following:" - and an end-anchored pattern silently dropped a perfectly good rung-4 reading
     /// every time it did. The descriptor match is lazy so the run-on clause is never absorbed into it,
-    /// and it still has to survive <see cref="TryRung"/>, which is what actually keeps aggro poses
-    /// and object condition out.</para>
+    /// and it still has to survive <see cref="TryRung"/>, which is what actually keeps aggro poses out.
+    ///
+    /// <para><b>It does NOT keep all object condition out, despite what this used to claim.</b> The
+    /// "in ... condition" family is rejected, but the BySeverity fallback matches an object's wear the
+    /// same way it matches a creature's: "The broadsword looks to be seriously damaged." reads 3, the
+    /// well-maintained pick reads 6, "The rolling-pin1 looks close to disintegration." reads 1 - eight
+    /// such lines in the raw corpus. What actually contains this is the caller: CombatTracker only
+    /// consults a reading for a name already in its active set, so an object has to share an engaged
+    /// creature's name to land. Low risk, not no risk, and worth knowing before anything else starts
+    /// calling TryParse.</para>
     /// </summary>
     private static readonly Regex Line = new(
         @"^The (?<npc>.+?) looks (?<desc>[a-z][a-z ]*?)(?:\.|,\s.*)$", RegexOptions.Compiled);
@@ -70,6 +79,7 @@ public static class NpcHealthRungs
         // 7 - unhurt.
         ["fit"] = 7,
         ["strong"] = 7,
+        ["full of energy"] = 7,
         // 6 - a scratch. ("slightly weakened" is the banshee's word and is only seen at full or
         // near-full health, so it sits here rather than deeper in.)
         ["superficially injured"] = 6,
@@ -96,6 +106,33 @@ public static class NpcHealthRungs
         ["close to death"] = 1,
         ["close to expiry"] = 1,
         ["to be fading rapidly"] = 1,
+        // The banshee's terminal reading, and the only descriptor in the corpus with no severity
+        // adverb - so it missed this table AND fell straight through the BySeverity fallback, and
+        // TryParse returned false. The cost: of the 3,484 non-killing player hits in clogs whose
+        // fight began after 2026-08-16 (the window matters - NpcHealth only emits from 2026-08-10,
+        // so an unwindowed count is 1,291 and meaningless), 27 have no descriptor before the next
+        // event naming that creature, and all 27 are banshee. Widening to 2026-08-11 gives 34 of
+        // 4,210, still 100% banshee. In the five fights whose raw wire is readable, every silent
+        // hit is exactly a "faint" line.
+        //
+        // It IS a health reading, and that is settled by the protocol rather than by the wording:
+        // the line arrives under FE code 12 (0xA7), byte-identical to every other descriptor and to
+        // `ql` output. A spirit turning see-through would be a visibility event, and visibility has
+        // its own codes (04 00 04/05) which are binary with no graded state - this is not one.
+        //
+        // Rung 1 because it is TERMINAL: it appears in four of the five banshee fights that have
+        // readings at all, is the last reading in every one, and one hit kills after it each time.
+        // The "never 0" rule above sets the floor.
+        //
+        // Do NOT re-derive this from "it follows 'to be fading rapidly', which is already 1" - that
+        // argument is circular and points at a real problem elsewhere. The banshee has exactly seven
+        // words and they map 1:1 onto 7..1, which would put "slightly weakened" at 5 and "fading
+        // rapidly" at 2, not where this table has them. Corroborating: "critically drained" below
+        // occurs ZERO times in the raw corpus - it is an entry invented by analogy with the other
+        // families - and superficially damaged -> slightly weakened is 3/3 deterministic, which two
+        // phrases sharing rung 6 would not produce. Both readings agree faint = 1, so this entry is
+        // safe either way; the ranking of the OTHER banshee words is the open question.
+        ["faint"] = 1,
     };
 
     /// <summary>

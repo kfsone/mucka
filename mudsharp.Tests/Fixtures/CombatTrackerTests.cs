@@ -410,6 +410,60 @@ public class CombatTrackerTests
         Assert.True(t.InCombat);   // offer alone changes nothing until the NPC accepts
     }
 
+    /// <summary>
+    /// The NPC's half of the handshake, replayed verbatim from session-rec.mud2.co.uk.20260902-232101
+    /// records 994 and 998 - the only one of the five captured offers whose frame carries an incoming
+    /// blow as well, and one of the three that run straight on to a kill.
+    ///
+    /// <para>Two things are being asserted and they are the whole point of the kind: the line is
+    /// classified and attributed to the creature that spoke it, and it does NOT end the fight. Prior
+    /// to this it matched nothing at all, so the offer was invisible to the clog corpus.</para>
+    /// </summary>
+    [Fact]
+    public void NpcWithdrawOffer_IsAttributed_AndDoesNotEndTheFight()
+    {
+        var (t, _, events) = NewTracker();
+        var now = DateTime.UtcNow;
+        t.Observe(Line("You attack the zombie1, using the halberd as a weapon."), now);
+        t.Observe(Line("You hit the zombie1 (1-4)."), now.AddSeconds(1));
+        t.Observe(Line("The zombie1 hits you (69/91)."), now.AddSeconds(2));
+        t.Observe(Line("The zombie1 offers to withdraw from your fight if you do likewise."), now.AddSeconds(3));
+
+        Assert.True(t.InCombat);   // an invitation, not an end - the code on the wire is 08.07, not 08.10
+
+        var offer = events.Last();
+        Assert.Equal(CombatEventKind.NpcWithdrawOffer, offer.Kind);
+        Assert.Equal(CombatActor.Npc, offer.Actor);
+        Assert.Equal("zombie1", offer.NpcName);
+        Assert.Equal("The zombie1 offers to withdraw from your fight if you do likewise.", offer.RawText);
+
+        // ...and the fight really did run on: next frame, the player killed it.
+        t.Observe(Line("You have killed the zombie1."), now.AddSeconds(4));
+        Assert.False(t.InCombat);
+        Assert.Equal(CombatEventKind.Kill, events.Last().Kind);
+    }
+
+    /// <summary>The creature's offer and the mutual acceptance are one word apart in the same
+    /// vocabulary and mean opposite things, so neither pattern may match the other's line. Guarded
+    /// because getting it wrong in the "offer closes the fight" direction is silent - the panel would
+    /// simply stop showing an opponent that is still swinging.</summary>
+    [Fact]
+    public void NpcWithdrawOffer_AndMutualWithdraw_AreNotConfused()
+    {
+        var (t, _, events) = NewTracker();
+        var now = DateTime.UtcNow;
+        t.Observe(Line("You attack the zombie9, using the halberd as a weapon."), now);
+        t.Observe(Line("The zombie9 offers to withdraw from your fight if you do likewise."), now.AddSeconds(1));
+        Assert.True(t.InCombat);
+
+        t.Observe(Line("The zombie9 withdraws from your fight, and so do you."), now.AddSeconds(2));
+        Assert.False(t.InCombat);
+
+        Assert.Equal(
+            [CombatEventKind.FightStart, CombatEventKind.NpcWithdrawOffer, CombatEventKind.Withdrawn],
+            events.Select(e => e.Kind));
+    }
+
     [Fact]
     public void YouFlee_ClosesEveryActiveFightAtOnce()
     {

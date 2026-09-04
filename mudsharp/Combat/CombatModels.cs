@@ -50,6 +50,38 @@ public enum CombatEventKind
     MissByNpc,
     /// <summary>"You offer to withdraw from your fight with the X." — an offer, NOT an end.</summary>
     WithdrawOffer,
+    /// <summary>
+    /// "The zombie1 offers to withdraw from your fight if you do likewise." — the NPC's half of the
+    /// withdraw handshake, and the third member of a family whose other two were already here:
+    /// <see cref="WithdrawOffer"/> is the player offering, <see cref="Withdrawn"/> is the mutual
+    /// acceptance that actually ends the fight. This is neither. It is an INVITATION, and until the
+    /// player answers it nothing has changed.
+    ///
+    /// <para><b>It is not a fight end, and the wire says so twice.</b> The line carries C1 code
+    /// <c>08 07</c> — "Offer to withdraw." in Bartle's own code list, the SAME code the player's own
+    /// offer carries — not <c>08 10</c> ("Fight ends - withdraw."), which is what
+    /// <see cref="Withdrawn"/> arrives under. 08 07 is deliberately absent from the three codes
+    /// <c>Mud2C1Decoder</c> tags as <see cref="MudSharp.Models.LineKind.FightEnd"/>, so the nameless-end
+    /// backstop cannot fire on it either. And the prose bears it out: of the 5 occurrences on disk,
+    /// 3 are followed by "You have killed the &lt;same creature&gt;." in the very next frame and the
+    /// other 2 by further blows traded with it. Not one ended a fight. So this neither resolves nor
+    /// closes anything — it is recorded and nothing more.</para>
+    ///
+    /// <para><b>Every occurrence in the corpus, verbatim</b> (5, across 5 captures, one single
+    /// wording): "The zombie1 offers to withdraw from your fight if you do likewise." (×2, in
+    /// session-rec.mud2.co.uk.20260902-232101 and session-rec.www.mud2.com.20260828-134332),
+    /// "The zombie2 …" (×1, session-rec.mud2.co.uk.20260826-134435) and "The zombie9 …" (×2,
+    /// session-rec.www.mud2.com.20260824-231526 and -20260828-180336). No plural form, no titled
+    /// name, no pronoun variant has ever been seen — so the regex asks for exactly this sentence and
+    /// nothing more is inferred about its grammar.</para>
+    ///
+    /// <para>In all 5 the creature had just been described "critically damaged" or "close to
+    /// expiry" — i.e. it offers when it is nearly dead. Recorded, not acted on: the owner's
+    /// hypothesis is that ACCEPTING an offer may be survivable where waiting for the creature to
+    /// withdraw on its own is not, and no capture on disk contains a player who accepted one, so
+    /// there is nothing yet to test it against. That is precisely why this lands in the clog.</para>
+    /// </summary>
+    NpcWithdrawOffer,
     /// <summary>"You have killed the X."</summary>
     Kill,
     /// <summary>"The X has killed you." (fightbrief), or "You have been killed by the X/someone."

@@ -33,12 +33,13 @@
          result back over this file. -->
     <None Include="Fixtures\Data\npc_group_fixture.txt" Link="Fixtures\Data\npc_group_fixture.txt"
           CopyToOutputDirectory="PreserveNewest" />
-    <!-- The poisoned-wyvern fight, verbatim wire bytes from the owner's 2026-08-26 session. It is
-         his game data, so it is gitignored and absent from a fresh clone; the Include stays so it
-         is copied when it IS present locally. WyvernPoisonDeathReplayTests skips itself when the
-         file is missing. -->
+    <!-- The poisoned-wyvern death, as five verbatim wire frames cut out of the owner's 2026-08-26
+         session - see WyvernPoisonDeathReplayTests for what was kept and what was thrown away. It
+         is committed (with a matching negation in .gitignore, which ignores *.jsonl wholesale) and
+         has no Exists() condition on purpose: this replays protocol facts that no transcript can
+         carry, and the previous arrangement - gitignored file, test skipping when absent - meant a
+         fresh clone ran three tests that silently proved nothing. -->
     <None Include="Fixtures\Data\wyvern-poison-death.jsonl" Link="Fixtures\Data\wyvern-poison-death.jsonl"
-          Condition="Exists('Fixtures\Data\wyvern-poison-death.jsonl')"
           CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 

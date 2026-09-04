@@ -87,6 +87,29 @@ public sealed class NpcHealthRungTests
         Assert.Equal(1, Rung("The banshee looks to be fading rapidly."));
     }
 
+    /// <summary>The banshee's terminal word, and the only descriptor in the corpus with no severity
+    /// adverb - so it missed the phrase table AND the severity fallback, and TryParse returned false.
+    /// The cost was invisible: every one of the 27 non-killing player hits in the whole corpus with no
+    /// descriptor after it was a banshee. Regression, not a nicety.</summary>
+    [Fact]
+    public void Faint_TheBansheesTerminalReading_IsRungOneAndNotSilence()
+    {
+        Assert.True(NpcHealthRungs.TryParse(
+            "The banshee looks faint.", out var npc, out var rung, out var phrase));
+        Assert.Equal("banshee", npc);
+        Assert.Equal(1, rung);
+        Assert.Equal("faint", phrase);
+    }
+
+    /// <summary>Seen once, on a zombie4 examine rather than in combat, and with no severity word - so
+    /// it fell through exactly as "faint" did. Asserted in the run-on form the game actually printed,
+    /// inventory tail and all, because that comma branch is the only place it has ever been observed
+    /// and a bare "looks full of energy." is a wording nobody has seen.</summary>
+    [Fact]
+    public void FullOfEnergy_ReadsAsUnhurt()
+        => Assert.Equal(7, Rung(
+            "The zombie4 looks full of energy, and is holding the following:"));
+
     /// <summary>A vocabulary nobody has fought yet still lands correctly off its severity word alone.
     /// Without this, an unseen creature family would read as "no information" for every rung it has -
     /// silently, and for as long as it took someone to notice.</summary>

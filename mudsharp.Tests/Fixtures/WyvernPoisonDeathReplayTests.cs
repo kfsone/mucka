@@ -3,7 +3,6 @@ using System.Text.Json;
 using MudSharp.Combat;
 using MudSharp.Models;
 using MudSharp.Session;
-using Xunit.Abstractions;
 
 namespace MudSharp.Tests.Fixtures;
 
@@ -11,34 +10,49 @@ namespace MudSharp.Tests.Fixtures;
 /// The poisoned-wyvern fight replayed from its own wire bytes, through the production
 /// <see cref="MudSession"/> (real parser, real tracker, real wiring).
 ///
-/// <para>Extracted verbatim from session-rec.mud2.co.uk.20260826-134435.jsonl (records 2905-3034 of
-/// the owner's session, 2026-08-26): the wyvern turns on the player after a herb is fed to it, they
-/// trade blows for ninety seconds, and then it dies of the poison with no kill line at all. Before
-/// the fix this frame left the client "in combat" for the rest of the session.</para>
+/// <para>Origin: session-rec.mud2.co.uk.20260826-134435.jsonl, records 2905-3034 of the owner's
+/// session on 2026-08-26. The wyvern turns on the player after a herb is fed to it, they trade blows
+/// for ninety seconds, and then it dies of the poison with no kill line at all. Before the fix, that
+/// frame left the client "in combat" for the rest of the session.</para>
+///
+/// <para><b>The fixture is a redaction of that, not a copy of it.</b> Six <c>rx</c> frames are kept,
+/// byte-for-byte and in their original order, and everything else in those 130 records is gone: every
+/// <c>tx</c> record of what the owner typed, the FES stat rows and FEI carry lists, the FEW who-list
+/// and the other personas on it, a line of speech, and the potion/wafer/urn business that has nothing
+/// to do with the fight. The death frame itself is truncated at its own prompt, dropping the carry
+/// list that followed it in the same record. What is left is six frames of one creature fighting one
+/// player, which is exactly and only what the three tests below read.</para>
+///
+/// <para>The six, in order: the aggro line that opens the encounter (08.00); one ordinary
+/// miss-for-miss exchange; the two venomous stings (07.02.00) that
+/// <see cref="TheVenomousStingIsNotAFightHit_AndIsStillUncounted"/> exists for; an exchange carrying a
+/// real fight hit (08.03) and a real player hit (08.01), so the no-event-for-the-sting assertion is
+/// measured against a pipeline visibly capable of producing one; and the death frame. The ninety
+/// seconds of further blows between them were dropped: they change none of the three results, and
+/// every one of them is a slab of somebody's play session.</para>
+///
+/// <para><b>Why the second frame is not optional.</b> A session's FIRST prompt is never emitted as a
+/// partial line - the capture is still open when the feed runs dry, and the next frame's arrival
+/// spills the captured '*' into the head of its first line. So whichever frame follows the aggro line
+/// arrives as "*&lt;that line&gt;" and does not parse. In the full capture that landed on a command echo
+/// nobody reads; here it would land on the first sting and cost that test its second occurrence. The
+/// miss-for-miss frame is real bytes from the same fight, holds nothing but the two creatures, and
+/// puts the artefact back where it does no harm. (The swallowed prompt is pre-existing parser
+/// behaviour, unchanged by this fixture and out of its scope - noted so the next person to trim this
+/// file does not lose an hour to it.)</para>
 ///
 /// <para>Kept as bytes rather than as the hand-typed lines in <c>CombatTrackerTests</c> because the
 /// two facts that make this frame hard are both protocol facts, and neither survives a transcript:
 /// the death lines carry NO C1 code at all (bare text at base scope), while the trailing
 /// "You can fight the wyvern no longer." is wrapped in 08.12 — the one coded statement in the whole
-/// frame that a fight ended.</para>
+/// frame that a fight ended. That is also why the file is committed rather than gitignored with the
+/// tests skipping when it is absent, which is what this used to do: a protocol regression test that
+/// silently passes on a fresh clone is not a test.</para>
 /// </summary>
-public sealed class WyvernPoisonDeathReplayTests(ITestOutputHelper output)
+public sealed class WyvernPoisonDeathReplayTests
 {
     private static readonly string CaptureFile =
         Path.Combine(AppContext.BaseDirectory, "Fixtures", "Data", "wyvern-poison-death.jsonl");
-
-    /// <summary>
-    /// The capture is the owner's own play data, so it is gitignored and simply absent from a fresh
-    /// clone - these three tests skip rather than fail there. Same log-and-return idiom as
-    /// <see cref="CombatCaptureReplayTests"/>, xunit 2.9.2 having no runtime Skip.
-    /// </summary>
-    private bool CaptureMissing()
-    {
-        if (File.Exists(CaptureFile))
-            return false;
-        output.WriteLine($"SKIPPED: capture not present at {CaptureFile}");
-        return true;
-    }
 
     private static (List<bool> inCombat, List<CombatEvent> events, List<StyledLine> lines) Replay()
     {
@@ -77,8 +91,6 @@ public sealed class WyvernPoisonDeathReplayTests(ITestOutputHelper output)
     [Fact]
     public void TheFightOpensAndCloses_WithTheDeathAttributedToTheWyvern()
     {
-        if (CaptureMissing()) return;
-
         var (inCombat, events, _) = Replay();
 
         // Exactly one encounter, opened and CLOSED. The closing half is the whole bug: nothing in
@@ -98,8 +110,6 @@ public sealed class WyvernPoisonDeathReplayTests(ITestOutputHelper output)
     [Fact]
     public void TheDeathLinesCarryNoC1Code_ButTheTrailingFightEndIs0812()
     {
-        if (CaptureMissing()) return;
-
         var (_, _, lines) = Replay();
 
         // Why the prose matchers cannot be retired in favour of the codes: MUD2 states the death
@@ -119,12 +129,12 @@ public sealed class WyvernPoisonDeathReplayTests(ITestOutputHelper output)
     [Fact]
     public void TheVenomousStingIsNotAFightHit_AndIsStillUncounted()
     {
-        if (CaptureMissing()) return;
-
         // Recorded, not fixed. "The wyvern stings you with its venomous tail." is C07.02.00 - an
         // ISOLATED hit (the 07 "stings by objects of class STINGER" family), not a fight hit (08.03),
         // and it is followed by "Stamina=64/99." rather than the "(cur/max)" parenthetical the
-        // combat-hit lines use. It landed twice in this fight for 15 and 20 stamina.
+        // combat-hit lines use. It landed twice in this fight, for 15 and 20 stamina - figures read
+        // off the FULL session, whose intervening stat rows the fixture no longer carries; both
+        // sting frames themselves are here byte-for-byte, which is what this test reads.
         //
         // So the encounter's damage-taken total does see it (the C89 stamina reading moves the
         // baseline), but no HitByNpc event is attributed to the wyvern, which means TheyHits and the

@@ -439,6 +439,40 @@ public sealed class ParserGapTests
         Assert.False(tracker.InCombat);
     }
 
+    /// <summary>The third member of the withdraw family, and the one that matched nothing until now:
+    /// the creature's own offer. Verbatim from session-rec.mud2.co.uk.20260902-232101 records 994-998
+    /// (the "critically damaged" line is quoted with it because in all five captured occurrences the
+    /// offer follows one - the creature offers when it is nearly dead).
+    ///
+    /// <para>Asserted at the AGGREGATOR, not just the tracker: the offer must leave the fight
+    /// Unresolved and the encounter open, so that the kill four seconds later is what resolves it.
+    /// A kind that quietly resolved a fight would be invisible in the tracker's InCombat flag alone
+    /// whenever some other creature kept the encounter up.</para></summary>
+    [Fact]
+    public void NpcWithdrawOffer_LeavesTheFightUnresolved()
+    {
+        var aggregator = new CombatStatsAggregator();
+        var tracker = new CombatTracker();
+        tracker.EventOccurred += aggregator.Observe;
+        var seen = new List<CombatEvent>();
+        tracker.EventOccurred += seen.Add;
+
+        tracker.Observe(Line("You attack the zombie1, using the halberd as a weapon."), T0);
+        tracker.Observe(Line("You hit the zombie1 (1-4)."), T0.AddSeconds(1));
+        tracker.Observe(Line("The zombie1 looks critically damaged."), T0.AddSeconds(2));
+        tracker.Observe(Line("The zombie1 offers to withdraw from your fight if you do likewise."), T0.AddSeconds(3));
+
+        Assert.Contains(seen, e => e.Kind == CombatEventKind.NpcWithdrawOffer && e.NpcName == "zombie1");
+
+        var mid = aggregator.Snapshot(T0.AddSeconds(3));
+        Assert.True(mid.InCombat);
+        Assert.Equal(FightOutcome.Unresolved, Assert.Single(mid.Fights).Outcome);
+
+        tracker.Observe(Line("You have killed the zombie1."), T0.AddSeconds(4));
+        var after = aggregator.Snapshot(T0.AddSeconds(5));
+        Assert.Equal(FightOutcome.Kill, Assert.Single(after.Fights).Outcome);
+    }
+
     /// <summary>Case 7, the death frame, verbatim from session-rec.mud2.co.uk.20260819-001608. Three of
     /// its five lines were unparsed before 2026-08-19: the fatal blow (no stamina parenthetical), the
     /// narrative precursor, and - not asserted here, it is not a combat line - "Not updating

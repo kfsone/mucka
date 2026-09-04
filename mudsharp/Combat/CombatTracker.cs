@@ -145,6 +145,19 @@ public sealed class CombatTracker
     private static readonly Regex NpcMissesYou = new(@"^The (?<npc>.+?) misses you\.$", RegexOptions.Compiled);
     private static readonly Regex WithdrawOffer = new(
         @"^You offer to withdraw from your fight with the (?<npc>.+?)\.$", RegexOptions.Compiled);
+
+    /// <summary>
+    /// "The zombie1 offers to withdraw from your fight if you do likewise." - the creature's own half
+    /// of the handshake, and NOT an end; see <see cref="CombatEventKind.NpcWithdrawOffer"/> for the
+    /// code-level and prose-level evidence, and for all 5 occurrences on disk. One wording, exactly
+    /// as written here - nothing plural, titled or pronominal has ever been observed, so nothing
+    /// wider is guessed at.
+    ///
+    /// <para>Cannot collide with <see cref="MutualWithdraw"/> ("... withdraws from your fight, and so
+    /// do you.") in either direction: the verbs differ and both patterns are anchored at both ends.</para>
+    /// </summary>
+    private static readonly Regex NpcWithdrawOffer = new(
+        @"^The (?<npc>.+?) offers to withdraw from your fight if you do likewise\.$", RegexOptions.Compiled);
     private static readonly Regex YouKilled = new(@"^You have killed the (?<npc>.+?)\.$", RegexOptions.Compiled);
     private static readonly Regex NpcKilledYou = new(@"^The (?<npc>.+?) has killed you\.$", RegexOptions.Compiled);
 
@@ -476,6 +489,17 @@ public sealed class CombatTracker
         {
             // An offer only — does not end the fight until the NPC's own line accepts it.
             Emit(timestampUtc, CombatEventKind.WithdrawOffer, CombatActor.Player, m.Groups["npc"].Value, null, null, null, text);
+        }
+        else if ((m = NpcWithdrawOffer.Match(text)).Success)
+        {
+            // The mirror image, and equally not an end: the creature is asking, and the fight runs on
+            // until the player answers (3 of the 5 captured offers are followed by the player killing
+            // that same creature in the next frame). So no End(), and deliberately no Begin() either -
+            // exactly as the player's own offer above does neither. Begin() would let a line that is
+            // not a swing open an encounter, and every creature that has ever printed this was already
+            // trading blows on the lines immediately above it, so there is nothing for it to rescue.
+            // Actor is the NPC: it is the creature making the offer.
+            Emit(timestampUtc, CombatEventKind.NpcWithdrawOffer, CombatActor.Npc, m.Groups["npc"].Value, null, null, null, text);
         }
         else if ((m = YouKilled.Match(text)).Success)
         {
