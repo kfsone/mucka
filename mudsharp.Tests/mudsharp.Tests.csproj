@@ -73,6 +73,17 @@
     <Compile Include="..\Core\WavProbe.cs" Link="Core\WavProbe.cs" />
     <Compile Include="..\Audio\SoundCatalog.cs" Link="Audio\SoundCatalog.cs" />
     <Compile Include="..\Core\ClogWriter.cs" Link="Core\ClogWriter.cs" />
+    <!-- The wire log: framing, both sinks, its own database and the decoder/exporter. All
+         deliberately MAUI-free (the platform directory lookup lives in ClogPaths, which is not
+         linked here) for the same reason CombatDb is - so the storage contract can be tested
+         against a temp path instead of only in a running app. -->
+    <Compile Include="..\Core\IWireLogSink.cs" Link="Core\IWireLogSink.cs" />
+    <Compile Include="..\Core\WireLogFraming.cs" Link="Core\WireLogFraming.cs" />
+    <Compile Include="..\Core\WireLogDb.cs" Link="Core\WireLogDb.cs" />
+    <Compile Include="..\Core\SqliteWireLogSink.cs" Link="Core\SqliteWireLogSink.cs" />
+    <Compile Include="..\Core\JsonlWireLogSink.cs" Link="Core\JsonlWireLogSink.cs" />
+    <Compile Include="..\Core\WireLogExport.cs" Link="Core\WireLogExport.cs" />
+    <Compile Include="..\Core\SessionCapture.cs" Link="Core\SessionCapture.cs" />
   </ItemGroup>
 
 </Project>

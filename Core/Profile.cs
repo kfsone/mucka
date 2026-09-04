@@ -88,6 +88,10 @@ public class Profile
     public bool FloatOnline { get; set; }
     /// <summary>Global default for floating (unpinning) the compass. False = pinned in the side panel.</summary>
     public bool FloatCompass { get; set; }
+    /// <summary>Global: log the whole wire session to ~/.mucka/wire/wire.db. Default off. Read at
+    /// connect time (ConnectViewModel) to decide whether to start the log; it rides on Profile only
+    /// because that is how every other global reaches the connect page.</summary>
+    public bool LogWireSession { get; set; }
 
     private static readonly Dictionary<int, string> s_defaultFkeys = new()
     {

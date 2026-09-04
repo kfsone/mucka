@@ -83,4 +83,12 @@ public sealed record ClientSettings
     /// <summary>Global default for whether the compass floats (unpinned from the side panel)
     /// rather than living in the side panel. False (pinned) matches the historical behaviour.</summary>
     public bool FloatCompass { get; init; }
+    /// <summary>Log every byte of every session to the wire-log database (~/.mucka/wire/wire.db).
+    /// Global and one-time: turn it on once and every connection from then on records itself, with no
+    /// per-run arming. Default false. Lives in this always-global block rather than the per-profile one
+    /// deliberately — it is a property of the install, not of a persona — and inside the
+    /// <c>writeDisplayGlobals</c> group for the protection that flag gives: see
+    /// <see cref="SettingsStore.SaveProfileAsync"/>, where the connect page's partial snapshot would
+    /// otherwise write this field's C# default straight over the player's choice on every connect.</summary>
+    public bool LogWireSession { get; init; }
 }

@@ -21,6 +21,7 @@ public sealed class FkeyEditorViewModel : BaseViewModel
     private bool _muteBeepSession;
     private bool _muteBeepPermanently;
     private bool _logResetDiagnostics;
+    private bool _logWireSession;
     private bool _settingsToProfileOnly;
     private bool _fkeysToProfileOnly;
     private bool _soundsEnabled;
@@ -138,6 +139,14 @@ public sealed class FkeyEditorViewModel : BaseViewModel
     {
         get => _logResetDiagnostics;
         set => Set(ref _logResetDiagnostics, value);
+    }
+
+    /// <summary>Global, one-time: record every byte of every session into ~/.mucka/wire/wire.db.
+    /// Not Debug-gated — this is the switch the owner is meant to flip once and forget.</summary>
+    public bool LogWireSession
+    {
+        get => _logWireSession;
+        set => Set(ref _logWireSession, value);
     }
 
     /// <summary>Gates the Debug-only "log reset diagnostics" row (XAML has no #if, so bind visibility here).</summary>
@@ -323,6 +332,7 @@ public sealed class FkeyEditorViewModel : BaseViewModel
         _muteBeepSession     = settings.MuteBeepSession;
         _muteBeepPermanently = settings.MuteBeepPermanently;
         _logResetDiagnostics = settings.LogResetDiagnostics;
+        _logWireSession      = settings.LogWireSession;
         _settingsToProfileOnly = settings.SettingsPerProfile;
         _fkeysToProfileOnly    = settings.FkeysPerProfile;
         _soundsEnabled         = settings.Sounds.MasterEnabled;
@@ -473,6 +483,7 @@ public sealed class FkeyEditorViewModel : BaseViewModel
         OnlineForgetWindow  = _onlineForgetWindow,
         FloatOnline         = _floatOnline,
         FloatCompass        = _floatCompass,
+        LogWireSession      = _logWireSession,
     };
 
     /// <summary>The Sounds tab's tree as an override-only settings blob.</summary>

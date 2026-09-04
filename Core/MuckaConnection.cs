@@ -133,8 +133,13 @@ public sealed class MuckaConnection : IAsyncDisposable
     public bool IsConnected => _client?.Connected ?? false;
     public bool InGameMode => _session.InGameMode;
 
-    public bool IsCapturing => _capture.IsRecording;
+    /// <summary>True when the manual JSONL file capture is running — what the capture button shows.
+    /// Deliberately NOT "anything is recording": the always-on wire log must not make the button
+    /// read as armed, nor the button's Stop switch the wire log off.</summary>
+    public bool IsCapturing => _capture.IsFileRecording;
     public string? CaptureFilePath => _capture.FilePath;
+    /// <summary>Path of the wire-log database when the global setting turned it on, else null.</summary>
+    public string? WireLogPath => _capture.DatabasePath;
     /// <summary>Write a free-text annotation into the active capture log.</summary>
     public void Annotate(string message) => _capture.Annotate(message);
 
@@ -270,18 +275,43 @@ public sealed class MuckaConnection : IAsyncDisposable
         stream?.Dispose();
         client?.Dispose();
         cts?.Dispose();
+        // Both loops have ended, so nothing more will be recorded for this connection: close the open
+        // wire-log batch now rather than leaving it exposed until dispose. A reconnect on the same
+        // MuckaConnection simply opens a new batch.
+        _capture.Flush();
         _session.Reset();
         _loginHandler?.Reset();
     }
 
+    /// <summary>Arms the manual JSONL file capture (the capture button / --record).</summary>
     public bool TryStartCapture(string? hostOverride, out string? error)
+        => _capture.TryStartFile(ClogPaths.GetCaptureDirectory(), ResolveHost(hostOverride), out error);
+
+    public void StopCapture() => _capture.StopFile();
+
+    /// <summary>
+    /// Starts the always-on wire log into <c>~/.mucka/wire/wire.db</c>. Driven by the global
+    /// <c>logwiresession</c> setting — the caller reads the setting, this does the work — and started
+    /// BEFORE <see cref="ConnectAsync"/> so the login exchange is in the log like everything else.
+    /// Independent of <see cref="TryStartCapture"/>; both may run at once.
+    /// </summary>
+    public bool TryStartWireLog(string? hostOverride, out string? error)
     {
-        var host = string.IsNullOrWhiteSpace(hostOverride) ? _host : hostOverride!.Trim();
-        if (string.IsNullOrWhiteSpace(host)) host = "unknown";
-        return _capture.TryStart(host, out error);
+        var host = ResolveHost(hostOverride);
+        return _capture.TryStartDatabase(
+            () => new SqliteWireLogSink(
+                Path.Combine(ClogPaths.GetWireLogDirectory(), WireLogDb.DefaultFileName),
+                host,
+                typeof(MuckaConnection).Assembly.GetName().Version?.ToString(),
+                CrashLog.Write),
+            out error);
     }
 
-    public void StopCapture() => _capture.Stop();
+    private string ResolveHost(string? hostOverride)
+    {
+        var host = string.IsNullOrWhiteSpace(hostOverride) ? _host : hostOverride!.Trim();
+        return string.IsNullOrWhiteSpace(host) ? "unknown" : host;
+    }
 
     /// <summary>Send a line of text to the server (appends \r\n).</summary>
     public void SendLine(string line) => _session.SendLine(line);

@@ -110,6 +110,10 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private bool _muteBeepSession;
     private bool _muteBeepPermanently;
     private bool _logResetDiagnostics;
+    // The global wire-log switch, carried through so the settings dialog round-trips it instead of
+    // saving its C# default back over the player's choice. Nothing in this class acts on it: the log
+    // is started at connect time (ConnectViewModel), so a change here takes effect next session.
+    private bool _logWireSession;
     private SoundSettings _sounds = new();
     private bool _settingsPerProfile;
     private bool _fkeysPerProfile;
@@ -531,6 +535,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         FloatOnline      = _floatOnline,
         FloatCompass     = _floatCompass,
         ShowCombatRail   = SidePanel.IsCombatPanelVisible,
+        LogWireSession   = _logWireSession,
     };
 
     public ICommand SendCommand { get; }
@@ -608,6 +613,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _muteBeepSession     = profile.MuteBeepPermanently;
         _logResetDiagnostics = profile.LogResetDiagnostics;
         _conn.LogResetDiagnostics = _logResetDiagnostics;
+        _logWireSession      = profile.LogWireSession;
         _settingsPerProfile  = profile.SettingsPerProfile;
         _fkeysPerProfile     = profile.FkeysPerProfile;
         _sounds              = profile.Sounds;
@@ -725,6 +731,10 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _muteBeepSession     = settings.MuteBeepSession || settings.MuteBeepPermanently;
         _logResetDiagnostics = settings.LogResetDiagnostics;
         _conn.LogResetDiagnostics = _logResetDiagnostics;
+        // Stored, not acted on: the wire log is started at connect time, so flipping it here takes
+        // effect on the next connection. Not applied live on purpose - starting a log mid-session
+        // would produce a recording that silently begins in the middle of a conversation.
+        _logWireSession      = settings.LogWireSession;
         _settingsPerProfile  = settings.SettingsPerProfile;
         _fkeysPerProfile     = settings.FkeysPerProfile;
         _sounds              = settings.Sounds;

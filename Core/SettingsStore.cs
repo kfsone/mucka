@@ -75,6 +75,7 @@ public static class SettingsStore
         int? OnlineForgetWindow = null,
         bool? FloatOnline       = null,
         bool? FloatCompass      = null,
+        bool? LogWireSession    = null,
         bool? LogResetDiagnostics = null,
         string? MeNameColor     = null,
         string? MeSpeechColor   = null,
@@ -106,6 +107,7 @@ public static class SettingsStore
             if (OnlineForgetWindow is int ofw) profile.OnlineForgetWindow = ofw;
             if (FloatOnline      is bool fo)  profile.FloatOnline      = fo;
             if (FloatCompass     is bool fc)  profile.FloatCompass     = fc;
+            if (LogWireSession   is bool lws) profile.LogWireSession   = lws;
             if (MeNameColor   is { Length: > 0 } mnc) profile.MeNameColor   = mnc;
             if (MeSpeechColor is { Length: > 0 } msc) profile.MeSpeechColor = msc;
             if (ShowCombatRail is bool scr) profile.ShowCombatRail = scr;
@@ -190,6 +192,9 @@ public static class SettingsStore
                 OnlineForgetWindow: ini.HasSection("settings") ? GetInt (ini, "settings", "onlineforgetwindow") : null,
                 FloatOnline:        ini.HasSection("settings") ? GetBool(ini, "settings", "floatonline")        : null,
                 FloatCompass:       ini.HasSection("settings") ? GetBool(ini, "settings", "floatcompass")       : null,
+                // Global and one-time - absent means off, which is the default for a feature that
+                // silently records everything.
+                LogWireSession:     ini.HasSection("settings") ? GetBool(ini, "settings", "logwiresession")    : null,
                 MeNameColor:        ini.HasSection("settings") ? ini.Get("settings", "menamecolor")   : null,
                 MeSpeechColor:      ini.HasSection("settings") ? ini.Get("settings", "mespeechcolor") : null);
         }
@@ -213,9 +218,9 @@ public static class SettingsStore
     /// purges the whole <c>sound*</c> family before rewriting it, so passing a
     /// <see cref="ClientSettings"/> whose <see cref="ClientSettings.Sounds"/> was not deliberately
     /// populated silently erases the player's volume overrides. Mirrors <c>fkeys: null</c>.</param>
-    /// <param name="writeDisplayGlobals">False leaves the whole "Display tab globals" block (default
+    /// <param name="writeDisplayGlobals">False leaves the whole always-global block (default
     /// font/columns, dreamword offset, the Show* section toggles, online display options, the float
-    /// defaults, the "me" chat colours) untouched. Pass false from callers that cannot edit any of
+    /// defaults, the "me" chat colours, the wire-log switch) untouched. Pass false from callers that cannot edit any of
     /// those fields (the connect page): unlike <paramref name="writeSounds"/>'s block, this one has
     /// no per-key purge-then-rewrite, but a <see cref="ClientSettings"/> assembled without deliberately
     /// populating this block still carries C# defaults for every field in it, and writing those
@@ -261,6 +266,7 @@ public static class SettingsStore
                 ini.Set("settings", "onlineforgetwindow", settings.OnlineForgetWindow.ToString());
                 ini.Set("settings", "floatonline",        settings.FloatOnline     ? "yes" : "no");
                 ini.Set("settings", "floatcompass",       settings.FloatCompass    ? "yes" : "no");
+                ini.Set("settings", "logwiresession",     settings.LogWireSession  ? "yes" : "no");
                 ini.Set("settings", "menamecolor",        settings.MeNameColor);
                 ini.Set("settings", "mespeechcolor",      settings.MeSpeechColor);
             }

@@ -172,12 +172,25 @@ public sealed class ConnectViewModel : BaseViewModel
                 return;
             }
 
-            await conn.ConnectAsync(Host.Trim(), Port);
-
             // Carry the persisted settings (fkeys, font, volume, …) over from the saved
             // profile — they are not editable on this page but must not reset on connect.
             var saved = SavedProfiles.FirstOrDefault(p =>
                 string.Equals(p.Name, ProfileName, StringComparison.OrdinalIgnoreCase));
+
+            // The one-time global wire log. Read here rather than in GamePage because it must be
+            // running BEFORE the socket opens, or the login exchange - the part of a session most
+            // worth having a byte-exact record of - is the one part missing from it. Falling back to
+            // any loaded profile is not a guess: the key lives in the single global [settings]
+            // section, so every profile carries the same value; the fallback only matters for a
+            // brand-new profile name typed on this page, which has no SavedProfiles entry yet.
+            // Failure is reported but never blocks the connection - unlike the hand-armed capture
+            // above, nobody asked for this on this particular run.
+            var wireLog = (saved ?? SavedProfiles.FirstOrDefault())?.LogWireSession ?? false;
+            if (wireLog && !conn.TryStartWireLog(Host.Trim(), out var wireLogError))
+                System.Diagnostics.Debug.WriteLine($"[ConnectViewModel] wire log failed to start: {wireLogError}");
+
+            await conn.ConnectAsync(Host.Trim(), Port);
+
             var profile = new Profile
             {
                 Name = ProfileName,
@@ -501,6 +514,12 @@ public sealed class ConnectViewModel : BaseViewModel
             if (string.Equals(existing.Name, ProfileName, StringComparison.OrdinalIgnoreCase))
                 MaxColumns = settings.MaxColumns;
         }
+        // The wire-log switch is GLOBAL - one key in the one [settings] section - so it is mirrored
+        // onto every loaded profile, not just the one being saved. Same in-memory-staleness reasoning
+        // as ShowCombatRail above: SavedProfiles is never re-read from disk for the life of the run,
+        // and a reconnect to any OTHER profile would otherwise still see the pre-toggle value.
+        foreach (var p in SavedProfiles)
+            p.LogWireSession = settings.LogWireSession;
         await SettingsStore.SaveProfileAsync(profileName, settings, fkeys);
     }
 

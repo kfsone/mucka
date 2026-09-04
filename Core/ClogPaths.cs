@@ -34,4 +34,27 @@ internal static class ClogPaths
 
         return Path.Combine(FileSystem.Current.CacheDirectory, "mucka", "combat");
     }
+
+    /// <summary>Where the wire-log database lives - ~/.mucka/wire on desktop, alongside the other
+    /// ~/.mucka stores, and the platform cache directory on mobile for the same reason the two above
+    /// use it. Its own directory as well as its own file: see <see cref="WireLogDb"/> for why it is
+    /// kept apart from the combat database.</summary>
+    internal static string GetWireLogDirectory()
+    {
+        if (OperatingSystem.IsWindows())
+            return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".mucka", "wire");
+
+        return Path.Combine(FileSystem.Current.CacheDirectory, "mucka", "wire");
+    }
+
+    /// <summary>Where the manual JSONL session recordings go. Desktop capture files are transient
+    /// debug artifacts, so temp rather than roaming app data - unchanged from where SessionCapture
+    /// itself used to compute this.</summary>
+    internal static string GetCaptureDirectory()
+    {
+        if (OperatingSystem.IsWindows())
+            return Path.Combine(Path.GetTempPath(), "mucka");
+
+        return Path.Combine(FileSystem.Current.CacheDirectory, "mucka");
+    }
 }
