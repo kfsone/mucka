@@ -28,6 +28,17 @@ public sealed class MudStreamParser
     /// </summary>
     public event Action? PersonaWiped;
 
+    /// <summary>
+    /// The server announced a score change: <c>(Persona saved on +38 = 19,214).</c> Carries the signed
+    /// delta as printed and the resulting total - see <see cref="ScoreSave"/>.
+    ///
+    /// <para>Fires alongside <see cref="StatsUpdated"/> (whose snapshot carries the same total as
+    /// <c>Score</c>) rather than instead of it. The two say different things and both are wanted: the
+    /// snapshot is the player's running state, this is the discrete event that moved it, and only this
+    /// one carries the amount.</para>
+    /// </summary>
+    public event Action<ScoreSave>? ScoreSaved;
+
     /// <summary>Server signalled game-mode entry (0x9D 0x9C 0xFF 0xFF).</summary>
     public event Action? GameModeEntered;
 
@@ -728,6 +739,11 @@ public sealed class MudStreamParser
             }
             var stats = LineAnalyzer.Analyze(line, _inGameMode);
             if (stats != null) StatsUpdated?.Invoke(stats);
+            // Raised AFTER StatsUpdated so a consumer that reacts to the event can already see the new
+            // total in the merged snapshot. Not gated on game mode: the save that lands as the world
+            // resets is printed on the way OUT of it, and it is the one that closes the books.
+            if (GameLineAnalyzer.TryReadScoreSave(line.PlainText, out var scoreSave))
+                ScoreSaved?.Invoke(scoreSave);
             if (_inGameMode) { var sf = LineAnalyzer.CheckSoundTrigger(line); if (sf != null) EmitSound(sf); }
             if (_inGameMode && tellAlertRequested && !ownListenersSend)
                 EmitSound(ChooseTellAlertSound(line.PlainText));

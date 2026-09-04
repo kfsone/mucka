@@ -94,12 +94,17 @@ public static class CombatDb
     /// Creates every table, index and view if absent. Idempotent by construction (every statement is
     /// IF NOT EXISTS) and cheap enough to run on every open.
     ///
-    /// <para><b>There is no migration mechanism, deliberately.</b> A <c>user_version</c> gate would
-    /// only skip these statements, not perform an ALTER, so it could never actually migrate anything -
-    /// it would be a version number that looked like a plan. To change the schema: edit
-    /// <see cref="SchemaSql"/> and delete the database file. That is the whole procedure while this
-    /// database exists on exactly one machine; the day it exists on two, a real migration step belongs
-    /// here and the absence of one becomes a bug.</para>
+    /// <para><b>There is still no version-gated migration mechanism, deliberately.</b> A
+    /// <c>user_version</c> gate would only skip these statements, not perform an ALTER, so it could
+    /// never actually migrate anything - it would be a version number that looked like a plan.</para>
+    ///
+    /// <para><b>What replaced "delete the database file".</b> That instruction was cheap while the
+    /// file was a convenience. It is not any more: the corpus in it is months of play and is the only
+    /// evidence behind every stamina-pool figure the client shows, so a schema change may not cost it.
+    /// <see cref="AddMissingColumns"/> below is the whole migration story - additive columns only,
+    /// applied by reading the table's own shape rather than by trusting a stored version. A change
+    /// that CANNOT be expressed as an added column (a renamed or retyped column, a new NOT NULL) still
+    /// needs a real plan, and there is deliberately no machinery here pretending otherwise.</para>
     /// </summary>
     public static void ApplySchema(SqliteConnection connection)
     {
@@ -110,7 +115,46 @@ public static class CombatDb
             command.CommandText = SchemaSql;
             command.ExecuteNonQuery();
         }
+        AddMissingColumns(connection, transaction);
         transaction.Commit();
+    }
+
+    /// <summary>
+    /// Columns added to a table after rows already existed in it, as (table, column, declaration).
+    /// Every entry must also appear in <see cref="SchemaSql"/> - this list is what brings an OLD file
+    /// up to that definition, not a second definition of its own.
+    /// </summary>
+    private static readonly (string Table, string Column, string Declaration)[] AddedColumns =
+    [
+        ("fights", "prev_same_name_ended_ms", "INTEGER"),
+    ];
+
+    /// <summary>
+    /// Adds any column in <see cref="AddedColumns"/> that the file does not already have. Idempotent:
+    /// the existing shape is read from <c>pragma_table_info</c> first, so a current file does no work
+    /// and an ALTER can never run twice. Nullable-only by construction (SQLite cannot add a NOT NULL
+    /// column without a default), which is also the honest value for a fact nobody was recording when
+    /// the older rows were written.
+    /// </summary>
+    private static void AddMissingColumns(SqliteConnection connection, SqliteTransaction transaction)
+    {
+        foreach (var (table, column, declaration) in AddedColumns)
+        {
+            using var probe = connection.CreateCommand();
+            probe.Transaction = transaction;
+            probe.CommandText = "SELECT COUNT(*) FROM pragma_table_info($table) WHERE name = $column;";
+            probe.Parameters.AddWithValue("$table", table);
+            probe.Parameters.AddWithValue("$column", column);
+            if (Convert.ToInt64(probe.ExecuteScalar()) != 0)
+                continue;
+
+            using var alter = connection.CreateCommand();
+            alter.Transaction = transaction;
+            // Identifiers cannot be parameterised, and these three strings are compile-time literals
+            // from AddedColumns - never anything a caller or the game supplies.
+            alter.CommandText = $"ALTER TABLE {table} ADD COLUMN {column} {declaration};";
+            alter.ExecuteNonQuery();
+        }
     }
 
     /// <summary>
@@ -244,7 +288,14 @@ public static class CombatDb
             is_deaf             INTEGER NOT NULL,
             is_crippled         INTEGER NOT NULL,
             is_dumb             INTEGER NOT NULL,
-            effects             TEXT NOT NULL        -- comma-separated, as FightRecord.Effects
+            effects             TEXT NOT NULL,       -- comma-separated, as FightRecord.Effects
+
+            -- When the previous engagement against this same instance name ended, if the recorder saw
+            -- one this session. See FightRecord.PrevSameNameEndedMs: MUD2 opens a fresh engagement
+            -- every time a creature tries to flee, so the row holding the killing blow is routinely
+            -- the last of several and holds only that blow. Without this column the table cannot tell
+            -- a terminal link from a genuine one-hit kill.
+            prev_same_name_ended_ms INTEGER
         );
 
         CREATE INDEX IF NOT EXISTS ix_fights_npc       ON fights(npc_name);
@@ -277,6 +328,36 @@ public static class CombatDb
             printed_high        INTEGER NOT NULL,
             raw_text            TEXT
         );
+
+        -- Every "(Persona saved on +38 = 19,214)." line: MUD2 stating, explicitly, that the score
+        -- changed and by how much. The only place the game says what an event was WORTH - a kill's
+        -- award and a flee's cost (-102, -872) both arrive here and nowhere else.
+        --
+        -- An EVENT table rather than a column on swings, because score is not a per-swing quantity:
+        -- one blow can finish several creatures and the game scores them one line at a time. Nothing
+        -- here attributes a row to a creature, deliberately. The timestamp and the encounter key are
+        -- the context an analysis pass needs to do that against the swing stream, and doing it here -
+        -- on the feed thread, with only the current line in hand - would be guessing.
+        CREATE TABLE IF NOT EXISTS score_events (
+            id                  INTEGER PRIMARY KEY,
+            ts                  INTEGER NOT NULL,   -- unix ms, the ledger's own feed-thread stamp
+            -- The encounter this line landed in, or - see encounter_open - the one that had just
+            -- closed. A kill's award is printed on the line AFTER the kill, and the kill line is what
+            -- closes the encounter, so the award for the last creature in a room ALWAYS arrives with
+            -- no encounter open. Recording only the open key would leave the most interesting rows in
+            -- the table unattributable.
+            encounter_started_at_ms INTEGER,
+            encounter_open      INTEGER NOT NULL,   -- 1: still fighting. 0: the key above is the encounter just ended
+            persona             TEXT,
+            -- Signed, exactly as printed. NULL - never 0 - for the 60 total-only forms, which are the
+            -- reset and shell-exit saves rather than a scoring event.
+            delta               INTEGER,
+            total               INTEGER NOT NULL,   -- authoritative; what the game says the score IS now
+            raw_text            TEXT
+        );
+
+        CREATE INDEX IF NOT EXISTS ix_score_events_ts        ON score_events(ts);
+        CREATE INDEX IF NOT EXISTS ix_score_events_encounter ON score_events(encounter_started_at_ms);
 
         CREATE INDEX IF NOT EXISTS ix_stamina_reads_npc  ON npc_stamina_reads(npc);
         CREATE INDEX IF NOT EXISTS ix_stamina_reads_pool ON npc_stamina_reads(pool_key);

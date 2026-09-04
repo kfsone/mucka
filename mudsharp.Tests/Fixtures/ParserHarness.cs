@@ -11,6 +11,8 @@ internal sealed class ParserHarness
     public MudStreamParser Parser { get; } = new();
     public List<StyledLine> Lines { get; } = new();
     public List<GameStatsSnapshot> Stats { get; } = new();
+    /// <summary>"(Persona saved on ...)" score announcements - see MudStreamParser.ScoreSaved.</summary>
+    public List<ScoreSave> ScoreSaves { get; } = new();
     public int PersonaWipedCount { get; private set; }
     public List<byte[]> Outgoing { get; } = new();
     public int GameModeEnteredCount { get; private set; }
@@ -47,6 +49,7 @@ internal sealed class ParserHarness
         Parser.LineReady          += l => Lines.Add(l);
         Parser.StatsUpdated       += s => Stats.Add(s);
         Parser.PersonaWiped       += () => PersonaWipedCount++;
+        Parser.ScoreSaved         += s => ScoreSaves.Add(s);
         Parser.GameModeEntered    += () => { if (GameModeEnteredAtLineIndex < 0) GameModeEnteredAtLineIndex = Lines.Count; GameModeEnteredCount++; };
         Parser.GameModeExited     += () => GameModeExitedCount++;
         Parser.OutgoingBytes      += b => Outgoing.Add(b);
@@ -86,6 +89,7 @@ internal sealed class ParserHarness
     {
         Lines.Clear();
         Stats.Clear();
+        ScoreSaves.Clear();
         PersonaWipedCount = 0;
         Outgoing.Clear();
         Dreamwords.Clear();

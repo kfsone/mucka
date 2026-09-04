@@ -594,6 +594,9 @@ public sealed class MuckaConnection : IAsyncDisposable
         _session.GameModeEntered    += () => GameModeEntered?.Invoke();
         _session.GameModeExited     += () => GameModeExited?.Invoke();
         _session.CharacterIdentified += n => { _fightRecorder.OnCharacterIdentified(n); _swingLedger.OnCharacterIdentified(n); CharacterIdentified?.Invoke(n); };
+        // The ledger writes the event row; the recorder takes the total as the authoritative score for
+        // any fight still open. Ledger first, so the row exists even if a consumer downstream throws.
+        _session.ScoreSaved         += save => { _swingLedger.OnScoreSave(save); _fightRecorder.OnScoreSave(save); };
         _session.DreamwordChanged   += w =>
         {
             if (w != null)

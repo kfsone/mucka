@@ -230,4 +230,46 @@ public sealed class FightHistoryStoreTests : IDisposable
         Assert.Equal((NoveltyMark.Undefeated, NoveltyMark.Undefeated), reader.NoveltyFor("rat0", "axe0"));
         reader.Dispose();
     }
+
+    /// <summary>
+    /// A column added after the operator's file already existed. There is one database in the world
+    /// and it holds months of play, so "edit the schema and delete the file" is no longer a procedure
+    /// that may be followed - CombatDb.AddMissingColumns is what replaced it, and this is the test
+    /// that says an old file comes up to the new shape with its rows intact.
+    /// </summary>
+    [Fact]
+    public async Task AFileWrittenBeforeAColumnExisted_GainsItWithoutLosingItsRows()
+    {
+        // Build the file, then take the column back out to make it an "old" one. SQLite has DROP
+        // COLUMN, which is exactly the pre-migration shape rather than an approximation of it.
+        var seed = new FightHistoryStore(DbPath);
+        seed.Append(Fight("zombie5"));
+        seed.Dispose();
+
+        using (var connection = new SqliteConnection(CombatDb.ConnectionString(DbPath)))
+        {
+            connection.Open();
+            using var drop = connection.CreateCommand();
+            drop.CommandText = "ALTER TABLE fights DROP COLUMN prev_same_name_ended_ms;";
+            drop.ExecuteNonQuery();
+        }
+
+        var reopened = new FightHistoryStore(DbPath);
+        await reopened.LoadAsync();
+
+        var old = Assert.Single(reopened.Snapshot());
+        Assert.Equal("zombie5", old.NpcName);
+        Assert.Null(old.PrevSameNameEndedMs);   // nobody was recording it when that row was written
+
+        // And the migrated file can carry the new fact from here on.
+        reopened.Append(Fight("zombie5") with { PrevSameNameEndedMs = 1_788_290_125_490 });
+        reopened.Dispose();
+
+        var next = new FightHistoryStore(DbPath);
+        await next.LoadAsync();
+        Assert.Equal(
+            [null, 1_788_290_125_490L],
+            next.Snapshot().Select(r => r.PrevSameNameEndedMs).ToArray());
+        next.Dispose();
+    }
 }

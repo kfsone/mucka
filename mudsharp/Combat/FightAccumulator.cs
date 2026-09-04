@@ -226,7 +226,13 @@ public sealed class FightAccumulator
         // despite the value being perfectly knowable. NoteStamina/NoteScore then refine these as
         // real readings arrive over the fight's lifetime.
         if (staminaAtStart is int sta) { MinStamina = sta; StaminaAtEnd = sta; }
+        // Score seeds BOTH ends, the same way stamina does. It used to seed only the start, so a fight
+        // during which MUD2 never announced a score change left ScoreAtEnd null despite the value
+        // being perfectly well known - and "the score did not change" is a fact, not an absence. The
+        // two differ exactly when a "(Persona saved on ...)" landed mid-fight, which is the only thing
+        // that CAN move a score, so the pair now says something true and specific.
         ScoreAtStart = scoreAtStart;
+        ScoreAtEnd = scoreAtStart;
     }
 
     public string NpcName { get; }
@@ -304,11 +310,12 @@ public sealed class FightAccumulator
     public int? StaminaAtEnd { get; private set; }
 
     /// <summary>Player score at the instant this fight began (seeded once at construction, never
-    /// revised) - the baseline the flee-economics work (DESIGN_FINAL.md 5.6) will diff against.</summary>
+    /// revised) - score-at-risk, which is what a flee stands to cost.</summary>
     public int? ScoreAtStart { get; private set; }
 
-    /// <summary>Player score as of the last reading observed while this fight was still open. Same
-    /// "no re-probe after close" honesty rule as <see cref="StaminaAtEnd"/>.</summary>
+    /// <summary>The last score total MUD2 stated while this fight was still open. Same "no re-probe
+    /// after close" honesty rule as <see cref="StaminaAtEnd"/>, and see FightRecord.ScoreAtEnd for
+    /// why the gap from <see cref="ScoreAtStart"/> is not what the fight earned.</summary>
     public int? ScoreAtEnd { get; private set; }
 
     /// <summary>How many of each side's most recent swings the clog window's recent-hits strip

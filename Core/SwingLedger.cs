@@ -67,6 +67,16 @@ public sealed class SwingLedger : IDisposable
     private StatusEffectState _lastEffects = StatusEffectState.Empty;
     private string? _persona;
     private long? _encounterStartedAtMs;
+    // The last encounter key this ledger saw, kept after the encounter closes. Only score_events uses
+    // it, and only because a kill's award is printed after the line that closed the encounter - see
+    // OnScoreSave.
+    private long? _lastEncounterStartedAtMs;
+    // Whether a fight is in progress. Tracked separately from _encounterStartedAtMs rather than read
+    // off it, because the KEY is supplied by the caller and is allowed to be null (MuckaConnection
+    // always passes one; nothing makes it mandatory, and the test harness does not). Deriving "are we
+    // fighting" from "did someone give us an id" conflates two questions that are only usually the
+    // same answer.
+    private bool _encounterOpen;
 
     private string? _currentWeapon;
     // When _currentWeapon was last confirmed, so an equip seen just before the client noticed the
@@ -290,6 +300,41 @@ public sealed class SwingLedger : IDisposable
             _persona = name;
     }
 
+    /// <summary>
+    /// MUD2 announced a score change - <c>(Persona saved on +38 = 19,214).</c> Written as its own row,
+    /// unattributed, exactly as printed. See the <c>score_events</c> table comment in
+    /// <see cref="CombatDb"/> and <see cref="MudSharp.Models.ScoreSave"/>.
+    ///
+    /// <para><b>Recorded whether or not a fight is in progress.</b> Treasure deposits, the reset save
+    /// and the shell-exit save all come through here, and a table that held only the combat ones could
+    /// not be used to check that the deltas account for the whole of a session's score movement -
+    /// which is the one property that makes the deltas trustworthy.</para>
+    ///
+    /// <para><b>The encounter key survives the close on purpose.</b> The award for a kill is printed
+    /// on the line AFTER the kill, and the kill line is what closes the encounter, so by the time this
+    /// runs <see cref="_encounterStartedAtMs"/> has already been nulled for exactly the rows that most
+    /// need it. <c>_lastEncounterStartedAtMs</c> keeps the key and <c>encounter_open</c> records which
+    /// of the two situations produced it - no time bound is applied here, deliberately, because "is
+    /// this award close enough to that encounter to belong to it" is an analysis question and the
+    /// timestamps are already in the table to answer it.</para>
+    /// </summary>
+    public void OnScoreSave(ScoreSave save)
+    {
+        lock (_lock)
+        {
+            AppendLocked(new ScoreEventRow
+            {
+                TimestampMs = new DateTimeOffset(DateTime.UtcNow, TimeSpan.Zero).ToUnixTimeMilliseconds(),
+                EncounterStartedAtMs = _encounterStartedAtMs ?? _lastEncounterStartedAtMs,
+                EncounterOpen = _encounterOpen,
+                Persona = _persona,
+                Delta = save.Delta,
+                Total = save.Total,
+                RawText = save.RawText,
+            });
+        }
+    }
+
     /// <param name="encounterStartedAtMs">The shared encounter id, stamped ONCE by MuckaConnection and
     /// handed to every consumer. Not computed here: this row's join partner in the fights table
     /// carries the same value, and two consumers each reading their own clock would produce two ids
@@ -301,6 +346,8 @@ public sealed class SwingLedger : IDisposable
             if (inCombat)
             {
                 _encounterStartedAtMs = encounterStartedAtMs;
+                _lastEncounterStartedAtMs = encounterStartedAtMs ?? _lastEncounterStartedAtMs;
+                _encounterOpen = true;
                 // Arm the pending-weapon latch; the first event of the encounter resolves it (see
                 // _encounterJustOpened). "You are now using the axe0 to fight!" names no NPC so it
                 // cannot open an encounter, and against something already engaging you it is the ONLY
@@ -313,6 +360,7 @@ public sealed class SwingLedger : IDisposable
             }
 
             _encounterJustOpened = false;
+            _encounterOpen = false;
 
             // The encounter is over, so its blows can now become history. Done BEFORE the _fights
             // guard below, and unconditionally: the guard is about whether a WEAPON latch should
@@ -643,10 +691,19 @@ public sealed class SwingLedger : IDisposable
         );
         """;
 
+    private const string InsertScoreEventSql = """
+        INSERT INTO score_events (
+            ts, encounter_started_at_ms, encounter_open, persona, delta, total, raw_text
+        ) VALUES (
+            $ts, $encounter, $encounter_open, $persona, $delta, $total, $raw_text
+        );
+        """;
+
     /// <summary>Drains up to <see cref="MaxBatch"/> rows into one transaction, dispatching each to the
-    /// statement for its own table. Two prepared commands rather than two channels: the ordering
-    /// between a swing and a diagnose reading taken in the same breath is real evidence, and two
-    /// queues would lose it.</summary>
+    /// statement for its own table. Prepared commands rather than a channel each: the ordering between
+    /// a swing, a diagnose reading and a score announcement made in the same breath is real evidence -
+    /// it is the whole basis on which an award is later attributed to a kill - and separate queues
+    /// would lose it.</summary>
     private void WriteBatch(SqliteConnection connection, ChannelReader<ICombatLedgerRow> reader)
     {
         using var transaction = connection.BeginTransaction();
@@ -656,6 +713,9 @@ public sealed class SwingLedger : IDisposable
         using var staminaCommand = connection.CreateCommand();
         staminaCommand.Transaction = transaction;
         staminaCommand.CommandText = InsertStaminaReadSql;
+        using var scoreCommand = connection.CreateCommand();
+        scoreCommand.Transaction = transaction;
+        scoreCommand.CommandText = InsertScoreEventSql;
 
         var written = 0;
         while (written < MaxBatch && reader.TryRead(out var row))
@@ -672,6 +732,10 @@ public sealed class SwingLedger : IDisposable
                         Bind(staminaCommand, read);
                         staminaCommand.ExecuteNonQuery();
                         break;
+                    case ScoreEventRow score:
+                        Bind(scoreCommand, score);
+                        scoreCommand.ExecuteNonQuery();
+                        break;
                     default:
                         continue;
                 }
@@ -687,6 +751,18 @@ public sealed class SwingLedger : IDisposable
 
         if (written > 0)
             transaction.Commit();
+    }
+
+    private static void Bind(SqliteCommand command, ScoreEventRow row)
+    {
+        command.Parameters.Clear();
+        command.Parameters.AddWithValue("$ts", row.TimestampMs);
+        command.Parameters.AddWithValue("$encounter", Value(row.EncounterStartedAtMs));
+        command.Parameters.AddWithValue("$encounter_open", row.EncounterOpen ? 1 : 0);
+        command.Parameters.AddWithValue("$persona", Value(row.Persona));
+        command.Parameters.AddWithValue("$delta", Value(row.Delta));
+        command.Parameters.AddWithValue("$total", row.Total);
+        command.Parameters.AddWithValue("$raw_text", Value(row.RawText));
     }
 
     private static void Bind(SqliteCommand command, NpcStaminaReadRow row)

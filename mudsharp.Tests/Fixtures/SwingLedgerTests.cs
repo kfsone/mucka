@@ -45,6 +45,7 @@ public sealed class SwingLedgerTests : IDisposable
         private readonly SwingLedger _ledger;
         private readonly string _path;
         private int _second;
+        private int _encounters;
 
         public Session(string directory)
         {
@@ -52,9 +53,11 @@ public sealed class SwingLedgerTests : IDisposable
             _ledger = new SwingLedger(_path);
             _tracker.EventOccurred += _ledger.OnCombatEvent;
             // Wrapped rather than assigned directly: OnInCombatChanged takes the shared encounter id
-            // too (MuckaConnection supplies it in production), which the tracker's own event does not
-            // carry. These tests are about swing content, so the id is left to its default.
-            _tracker.InCombatChanged += inCombat => _ledger.OnInCombatChanged(inCombat);
+            // too, which the tracker's own event does not carry. MuckaConnection stamps one per
+            // encounter and hands the same value to every consumer, so this does too - a fixed
+            // sequence rather than a clock, since these tests assert on the value.
+            _tracker.InCombatChanged += inCombat =>
+                _ledger.OnInCombatChanged(inCombat, inCombat ? ++_encounters * 1000L : null);
         }
 
         public Session Persona(string name)
@@ -79,6 +82,20 @@ public sealed class SwingLedgerTests : IDisposable
             return this;
         }
 
+        /// <summary>MUD2 announcing a score change. Delivered the way MudStreamParser delivers it -
+        /// as its own signal, not folded into a stats snapshot.</summary>
+        public Session ScoreSaved(int? delta, int total)
+        {
+            var text = delta is int d
+                ? $"(Persona saved on {d:+#;-#;0} = {total:N0})."
+                : $"(Persona saved on {total:N0}).";
+            _ledger.OnScoreSave(new ScoreSave(delta, total, text));
+            return this;
+        }
+
+        /// <summary>Closes the ledger and reads the score_events table back in insertion order.</summary>
+        public IReadOnlyList<Dictionary<string, object?>> ScoreRows() => Read("score_events");
+
         public Session Say(params string[] lines)
         {
             foreach (var text in lines)
@@ -88,7 +105,9 @@ public sealed class SwingLedgerTests : IDisposable
 
         /// <summary>Closes the ledger (draining its background writer) and reads every row back, in
         /// insertion order, as column-name to value maps.</summary>
-        public IReadOnlyList<Dictionary<string, object?>> Rows()
+        public IReadOnlyList<Dictionary<string, object?>> Rows() => Read("swings");
+
+        private IReadOnlyList<Dictionary<string, object?>> Read(string table)
         {
             _ledger.Dispose();
             if (!File.Exists(_path))
@@ -98,7 +117,7 @@ public sealed class SwingLedgerTests : IDisposable
             using var connection = new SqliteConnection(CombatDb.ConnectionString(_path));
             connection.Open();
             using var command = connection.CreateCommand();
-            command.CommandText = "SELECT * FROM swings ORDER BY id;";
+            command.CommandText = $"SELECT * FROM {table} ORDER BY id;";
             using var reader = command.ExecuteReader();
             while (reader.Read())
             {
@@ -648,5 +667,78 @@ public sealed class SwingLedgerTests : IDisposable
                     "You have killed the rat0.");
 
         Assert.Empty(session.Rows());
+    }
+
+    // ---- score_events --------------------------------------------------------------------------
+
+    /// <summary>
+    /// The three forms MUD2 prints, each landing as one row with the signed delta the game gave. The
+    /// total-only form keeps a NULL delta, never a zero: those 60 lines in the corpus are the reset
+    /// and shell-exit saves, and nothing was scored at all.
+    /// </summary>
+    [Fact]
+    public void ScoreSaves_AreRecordedAsEventsWithTheirSignedDelta()
+    {
+        using var session = new Session(_directory);
+        session.Persona("Ollie")
+               .ScoreSaved(+38, 19_214)     // a kill award
+               .ScoreSaved(-872, 18_382)    // a flee cost - the reason this table exists
+               .ScoreSaved(null, 45_691);   // a reset save: no delta at all
+
+        var rows = session.ScoreRows();
+        Assert.Equal(3, rows.Count);
+
+        Assert.Equal(38, Int(rows[0], "delta"));
+        Assert.Equal(19_214, Int(rows[0], "total"));
+        Assert.Equal("Ollie", Str(rows[0], "persona"));
+        Assert.Equal("(Persona saved on +38 = 19,214).", Str(rows[0], "raw_text"));
+
+        Assert.Equal(-872, Int(rows[1], "delta"));
+        Assert.Equal(18_382, Int(rows[1], "total"));
+
+        Assert.Null(Int(rows[2], "delta"));
+        Assert.Equal(45_691, Int(rows[2], "total"));
+    }
+
+    /// <summary>
+    /// The encounter context, and the reason it is two columns rather than one. MUD2 prints a kill's
+    /// award on the line AFTER the kill, and the kill line is what closes the encounter - so the award
+    /// for the last creature in a room always arrives with nothing open. Recording only the open key
+    /// would leave exactly the rows worth attributing with a null.
+    /// </summary>
+    [Fact]
+    public void AnAwardLandingAfterTheKillClosedTheEncounter_KeepsThatEncountersKey()
+    {
+        using var session = new Session(_directory);
+        session.Say("You attack the zombie2, using the axe0 as a weapon.")
+               .ScoreSaved(+2, 19_176)                  // mid-fight: something else scored
+               .Say("You hit the zombie2 (15-19).",
+                    "You have killed the zombie2.")     // closes the fight AND the encounter
+               .ScoreSaved(+38, 19_214);                // ...and the award lands one line later
+
+        var rows = session.ScoreRows();
+        Assert.Equal(2, rows.Count);
+
+        Assert.True(Flag(rows[0], "encounter_open"));
+        Assert.False(Flag(rows[1], "encounter_open"));
+
+        // Same encounter either way - that is the whole point of keeping the key past the close.
+        Assert.NotNull(rows[0]["encounter_started_at_ms"]);
+        Assert.Equal(rows[0]["encounter_started_at_ms"], rows[1]["encounter_started_at_ms"]);
+    }
+
+    /// <summary>A score change outside any fight - a treasure deposit - is still recorded. A table
+    /// holding only the combat ones could not be checked against a session's total movement, which is
+    /// what makes the deltas trustworthy in the first place.</summary>
+    [Fact]
+    public void AScoreSaveWithNoFightEverStarted_IsStillRecorded()
+    {
+        using var session = new Session(_directory);
+        session.ScoreSaved(+26, 45_646);
+
+        var row = Assert.Single(session.ScoreRows());
+        Assert.Equal(26, Int(row, "delta"));
+        Assert.False(Flag(row, "encounter_open"));
+        Assert.Null(row["encounter_started_at_ms"]);
     }
 }

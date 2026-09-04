@@ -29,6 +29,15 @@ public sealed class FightHistoryRecorder : IDisposable
     private readonly Dictionary<string, FightAccumulator> _fights = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<FightAccumulator> _fightOrder = [];
 
+    // When the last engagement against each instance name ended, unix ms. Survives FlushLocked on
+    // purpose - the whole point is to link across encounters, and MUD2 opens a new encounter every
+    // time a creature tries to flee. Session-scoped, like _characterName. See
+    // FightRecord.PrevSameNameEndedMs.
+    private readonly Dictionary<string, long> _lastEngagementEndedMs = new(StringComparer.OrdinalIgnoreCase);
+    // Per-accumulator, because one name can hold several engagements inside one encounter and _fights
+    // only ever keeps the newest. Reference-keyed; emptied with _fightOrder at every flush.
+    private readonly Dictionary<FightAccumulator, long> _prevEndedForFight = [];
+
     private string? _currentWeapon;
     // When _currentWeapon was last confirmed, so an equip seen just before the client noticed the
     // fight can be carried into it while a stale one is discarded. See the use in OnInCombatChanged.
@@ -71,21 +80,21 @@ public sealed class FightHistoryRecorder : IDisposable
         {
             _lastStats = stats;
             ObserveStaminaLocked(stats.Stamina);
-            if (stats.Score is int score)
-                _lastKnownScore = score;
-
-            // Broadcast to every fight still open, not just the primary target: stamina and score
-            // are player-scoped, not per-NPC, so a pack fight's concurrent rows all share the same
+            // Broadcast to every fight still open, not just the primary target: stamina is a
+            // player-scoped stat, not per-NPC, so a pack fight's concurrent rows all share the same
             // readings (mirrors the existing WeaponEquip broadcast below). A resolved fight is
-            // skipped on purpose - that is what freezes its StaminaAtEnd/ScoreAtEnd/MinStamina at
-            // "last known while still open" instead of drifting into post-fight regen or a later
-            // fight's own score changes.
+            // skipped on purpose - that is what freezes its StaminaAtEnd/MinStamina at "last known
+            // while still open" instead of drifting into post-fight regen.
+            //
+            // Score is deliberately NOT taken from here any more. The FES heartbeat's score is a
+            // sample: it says what the total happens to be when a heartbeat lands, which is a
+            // different fact from "the game told us the score changed". MUD2 announces every change
+            // explicitly on its own line, and OnScoreSave below is where that is read.
             foreach (var fight in _fightOrder)
             {
                 if (fight.IsResolved)
                     continue;
                 fight.NoteStamina(stats.Stamina);
-                fight.NoteScore(stats.Score);
             }
         }
     }
@@ -139,6 +148,31 @@ public sealed class FightHistoryRecorder : IDisposable
             }
 
             FlushLocked();
+        }
+    }
+
+    /// <summary>
+    /// MUD2 announcing a score change: <c>(Persona saved on +38 = 19,214).</c> The total is
+    /// authoritative and is the only score this class records - see the remarks in OnStatsUpdated for
+    /// why the FES heartbeat's sampled figure is not the same fact.
+    ///
+    /// <para><b>What this does NOT capture, and must not pretend to.</b> The award for a kill arrives
+    /// on the line AFTER the kill line, and the kill line is what closes the fight (and, when it takes
+    /// the last creature in the room, the whole encounter - so the rows are already written). So a
+    /// kill's own award is never in its own <c>score_at_end</c>. It does not need to be: the award is
+    /// its own row in <c>score_events</c>, with its own timestamp and delta, which is a better record
+    /// than a differenced pair could ever be. See SwingLedger.OnScoreSave.</para>
+    /// </summary>
+    public void OnScoreSave(ScoreSave save)
+    {
+        lock (_lock)
+        {
+            _lastKnownScore = save.Total;
+            foreach (var fight in _fightOrder)
+            {
+                if (!fight.IsResolved)
+                    fight.NoteScore(save.Total);
+            }
         }
     }
 
@@ -321,10 +355,18 @@ public sealed class FightHistoryRecorder : IDisposable
 
         var endedUtc = DateTime.UtcNow;
         foreach (var fight in _fightOrder)
-            _store.Append(BuildRecord(fight, endedUtc));
+        {
+            var record = BuildRecord(fight, endedUtc);
+            // Remember when this engagement ended, so the NEXT one against the same instance name can
+            // say what it continues. Deliberately AFTER the row is built, so a fight can never point
+            // at itself, and deliberately outside the clear below, so it survives the encounter.
+            _lastEngagementEndedMs[fight.NpcName] = record.EndedAtMs;
+            _store.Append(record);
+        }
 
         _fights.Clear();
         _fightOrder.Clear();
+        _prevEndedForFight.Clear();
         _currentWeapon = null;
         // Clear the encounter key too: FightForLocked must never stamp a stray late fight (should
         // not happen post-clear, but leaving a stale value around risks a silent mis-attribution to
@@ -383,6 +425,7 @@ public sealed class FightHistoryRecorder : IDisposable
             IsCrippled = _encounterStats.IsCrippled,
             IsDumb = _encounterStats.IsDumb,
             Effects = DescribeEffects(_encounterEffects),
+            PrevSameNameEndedMs = _prevEndedForFight.TryGetValue(fight, out var prevEnded) ? prevEnded : null,
         };
     }
 
@@ -490,6 +533,16 @@ public sealed class FightHistoryRecorder : IDisposable
         if (_encounterStartedAtMs is null)
             return null;
 
+        // What this engagement continues, if anything. Two routes, because a creature that keeps
+        // failing to flee re-engages inside one encounter while a creature that gets away is chased
+        // into the next: the resolved accumulator still sitting under this name, or the last
+        // engagement flushed under it. See FightRecord.PrevSameNameEndedMs.
+        long? previousEnded = null;
+        if (_fights.TryGetValue(npcName, out var previous) && previous.EndedUtc is DateTime priorEnd)
+            previousEnded = new DateTimeOffset(priorEnd, TimeSpan.Zero).ToUnixTimeMilliseconds();
+        else if (_lastEngagementEndedMs.TryGetValue(npcName, out var flushedEnded))
+            previousEnded = flushedEnded;
+
         // Seed the min/end trackers from whatever we already know at the instant this NPC joins -
         // see FightAccumulator's constructor remarks for why (a one-sided fight may never trigger
         // another stats reading before it resolves).
@@ -497,6 +550,8 @@ public sealed class FightHistoryRecorder : IDisposable
             npcName, combatEvent.TimestampUtc, _currentWeapon, _staminaRelay.LastKnown, _lastKnownScore);
         _fights[npcName] = fight;
         _fightOrder.Add(fight);
+        if (previousEnded is long ended)
+            _prevEndedForFight[fight] = ended;
         return fight;
     }
 

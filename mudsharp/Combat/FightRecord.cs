@@ -81,15 +81,50 @@ public sealed record FightRecord
     /// v2+ only.</summary>
     public int? StaminaAtEnd { get; init; }
 
-    /// <summary>Player score at the instant this fight began. Captured for the combat-log research
-    /// tooling under tools/combat/ - score-at-risk per fight is exactly the kind of variable that
-    /// tooling needs to surface (e.g. a specific weapon/creature pairing costing more than usual).
-    /// Not currently read by any shipped UI. Format v2+ only.</summary>
+    /// <summary>
+    /// The player's score when this fight began - score-at-risk, which is what a flee stands to cost.
+    /// Since 2026-09-04 this is the last total MUD2 itself stated in a <c>(Persona saved on ...)</c>
+    /// line, not a sample off the FES heartbeat, so it and <see cref="ScoreAtEnd"/> are the same kind
+    /// of number and are comparable at all. Format v2+ only.
+    ///
+    /// <para><b>Kept even though score_events now supersedes the pair.</b> It is derivable - the last
+    /// <c>total</c> before <c>started_at_ms</c> - but only for fights recorded after that table
+    /// existed, and 1,972 rows predate it. A column that keeps those rows answerable is worth more
+    /// than the duplication costs.</para>
+    /// </summary>
     public int? ScoreAtStart { get; init; }
 
-    /// <summary>Player score as of the last reading observed while this fight was still open. Format
-    /// v2+ only.</summary>
+    /// <summary>
+    /// The last score total MUD2 stated while this fight was still open.
+    ///
+    /// <para><b>This is NOT what the fight earned, and the difference from
+    /// <see cref="ScoreAtStart"/> is not either.</b> A kill's award is printed on the line AFTER the
+    /// kill, and the kill line is what closes the fight, so a kill's own award is by construction not
+    /// in here. What the fight was worth lives in <c>score_events</c>, as a signed delta the game
+    /// stated outright, and that is the only honest source for it. Format v2+ only.</para>
+    /// </summary>
     public int? ScoreAtEnd { get; init; }
+
+    /// <summary>
+    /// When the previous engagement against this exact instance name ended, if this recorder saw one
+    /// in this session. Unix ms, matching <see cref="EndedAtMs"/> on that earlier row.
+    ///
+    /// <para><b>Why the row needs this.</b> MUD2 ends combat with a creature every time it tries to
+    /// flee, succeeds or not, and a cornered creature tries every round; a creature that gets away is
+    /// chased into another room. Each of those is its own engagement with its own attack command, so
+    /// the recorder writes each as its own row - deliberately, because <c>ChaseLinker</c> can only
+    /// rejoin them into one observation against one stamina pool if they are separate rows in the
+    /// first place. The cost is that the LAST row of such a run holds only the killing blow, and read
+    /// on its own it says a banshee died to one hit. 128 of the 206 one-hit kills in the corpus at the
+    /// time of writing are that row; the rest are genuine (foxes, fireflies, goblins).</para>
+    ///
+    /// <para><b>Deliberately raw.</b> No time bound and no policy is applied here: this is the
+    /// observation, and whether the gap is short enough to be one creature is
+    /// <c>ChaseLinkPolicy</c>'s question, asked at read time where it can be changed without
+    /// rewriting history. The earlier row's outcome is recoverable by joining on
+    /// (npc_name, ended_at_ms).</para>
+    /// </summary>
+    public long? PrevSameNameEndedMs { get; init; }
     public int? ObjectsCarried { get; init; }
     public int? Level { get; init; }
     public bool IsBlind { get; init; }

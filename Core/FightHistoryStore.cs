@@ -205,7 +205,8 @@ public sealed class FightHistoryStore : IDisposable
         "you_hits, you_misses, they_hits, they_misses, approx_damage_done, approx_damage_taken, " +
         "narrative_mode, room, weather, strength, raw_strength, dexterity, raw_dexterity, " +
         "stamina_at_start, max_stamina, min_stamina, stamina_at_end, score_at_start, score_at_end, " +
-        "objects_carried, level, is_blind, is_deaf, is_crippled, is_dumb, effects";
+        "objects_carried, level, is_blind, is_deaf, is_crippled, is_dumb, effects, " +
+        "prev_same_name_ended_ms";
 
     private const string SelectSql = $"SELECT {Columns} FROM fights ORDER BY started_at_ms;";
 
@@ -216,7 +217,8 @@ public sealed class FightHistoryStore : IDisposable
             $you_hits, $you_misses, $they_hits, $they_misses, $dmg_done, $dmg_taken,
             $narrative, $room, $weather, $strength, $raw_strength, $dexterity, $raw_dexterity,
             $sta_start, $sta_max, $sta_min, $sta_end, $score_start, $score_end,
-            $objects, $level, $blind, $deaf, $crippled, $dumb, $effects
+            $objects, $level, $blind, $deaf, $crippled, $dumb, $effects,
+            $prev_same_name
         );
         """;
 
@@ -257,6 +259,7 @@ public sealed class FightHistoryStore : IDisposable
         IsCrippled = reader.GetInt64(32) != 0,
         IsDumb = reader.GetInt64(33) != 0,
         Effects = SplitEffects(reader.IsDBNull(34) ? null : reader.GetString(34)),
+        PrevSameNameEndedMs = Long(reader, 35),
     };
 
     private static string? Str(SqliteDataReader reader, int i) => reader.IsDBNull(i) ? null : reader.GetString(i);
@@ -311,6 +314,7 @@ public sealed class FightHistoryStore : IDisposable
         command.Parameters.AddWithValue("$crippled", record.IsCrippled ? 1 : 0);
         command.Parameters.AddWithValue("$dumb", record.IsDumb ? 1 : 0);
         command.Parameters.AddWithValue("$effects", JoinEffects(record.Effects));
+        command.Parameters.AddWithValue("$prev_same_name", Value(record.PrevSameNameEndedMs));
     }
 
     private static object Value(object? value) => value ?? DBNull.Value;

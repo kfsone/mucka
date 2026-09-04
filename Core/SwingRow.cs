@@ -23,11 +23,42 @@ namespace Mucka.Core;
 /// invented it.</para>
 /// </summary>
 /// <summary>
-/// A row this ledger can write. Two shapes go down the one queue - the per-swing stream and the rare
-/// <c>diagnose</c> reading - and one ordered channel is what keeps them on a single writer thread and
-/// a single connection. See <see cref="SwingLedger"/>.
+/// A row this ledger can write. Three shapes go down the one queue - the per-swing stream, the rare
+/// <c>diagnose</c> reading and the score announcements - and one ordered channel is what keeps them on
+/// a single writer thread and a single connection. See <see cref="SwingLedger"/>.
 /// </summary>
 public interface ICombatLedgerRow;
+
+/// <summary>
+/// One <c>(Persona saved on +38 = 19,214).</c> line, as stored in the <c>score_events</c> table. See
+/// <see cref="MudSharp.Models.ScoreSave"/> for the three forms the game prints, and the table's own
+/// comment in <see cref="CombatDb"/> for why this is a row rather than a column on a swing.
+/// </summary>
+public sealed record ScoreEventRow : ICombatLedgerRow
+{
+    public long TimestampMs { get; init; }
+
+    /// <summary>The open encounter, or the one that had just closed - <see cref="EncounterOpen"/>
+    /// says which. Null only when this session has not seen a fight yet.</summary>
+    public long? EncounterStartedAtMs { get; init; }
+
+    /// <summary>Whether a fight was still in progress when the line arrived. False for every kill
+    /// award that finished a room, because the kill line closes the encounter and the award is
+    /// printed on the line after it.</summary>
+    public bool EncounterOpen { get; init; }
+
+    public string? Persona { get; init; }
+
+    /// <summary>Signed, exactly as printed; null when the line carried no delta.</summary>
+    public int? Delta { get; init; }
+
+    /// <summary>The score after the change, as the game states it.</summary>
+    public int Total { get; init; }
+
+    /// <summary>The line verbatim, so a later pass can re-read the wording instead of trusting this
+    /// row's parse.</summary>
+    public string? RawText { get; init; }
+}
 
 /// <summary>
 /// One <c>diagnose</c> reading, as stored in the <c>npc_stamina_reads</c> table: "The water-snake5 has
@@ -123,6 +154,17 @@ public sealed record SwingRow : ICombatLedgerRow
     public int? MaxDexterity { get; init; }
 
     public int? Level { get; init; }
+
+    /// <summary>
+    /// The player's running score at this swing.
+    ///
+    /// <para><b>No reader, and a successor.</b> Score is not a combat stat - it is not earned per
+    /// swing, and one blow can finish several creatures with the game scoring them a line at a time -
+    /// so this column can only ever say what the total happened to be, never what anything was worth.
+    /// The <c>score_events</c> table now carries the real fact, signed delta and all. Nothing reads
+    /// this column; dropping it is a separate change from the one that added its replacement, and
+    /// this note is here so that change knows it is safe to make.</para>
+    /// </summary>
     public int? Score { get; init; }
     public int? ObjectsCarried { get; init; }
     public string? Weather { get; init; }

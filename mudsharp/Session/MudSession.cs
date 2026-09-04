@@ -273,6 +273,11 @@ public sealed class MudSession : IDisposable
     /// <summary>The server's C08+C13 ("Not updating persona.") signal: permadeath wiped the
     /// current persona. Fires alongside <see cref="StatsUpdated"/>'s zeroed snapshot.</summary>
     public event Action? PersonaWiped;
+
+    /// <summary>MUD2 announced a score change - see <see cref="MudStreamParser.ScoreSaved"/> and
+    /// <see cref="ScoreSave"/>. The only place the client is told what an event was WORTH; a kill's
+    /// award and a flee's cost both arrive here and nowhere else.</summary>
+    public event Action<ScoreSave>? ScoreSaved;
     public event Action? GameModeEntered;
     public event Action? GameModeExited;
     public event Action<byte[]>? OutgoingBytes;
@@ -590,6 +595,7 @@ public sealed class MudSession : IDisposable
         };
         _parser.StatsUpdated += MergeStats;
         _parser.PersonaWiped += () => PersonaWiped?.Invoke();
+        _parser.ScoreSaved += save => ScoreSaved?.Invoke(save);
         _parser.GameModeEntered += OnGameModeEntered;
         _parser.GameModeExited += OnGameModeExited;
         _parser.OutgoingBytes  += bytes => OutgoingBytes?.Invoke(bytes);

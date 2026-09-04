@@ -26,6 +26,13 @@ public sealed class FightHistoryRecorderTests : IDisposable
 
     private static readonly DateTime Start = new(2026, 8, 6, 12, 0, 0, DateTimeKind.Utc);
 
+    /// <summary>
+    /// MUD2 announcing a score change, which is the only way a score reaches the recorder - see
+    /// FightHistoryRecorder.OnScoreSave.
+    /// </summary>
+    private static void Saved(FightHistoryRecorder recorder, int total, int? delta = null)
+        => recorder.OnScoreSave(new ScoreSave(delta, total, $"(Persona saved on {total})."));
+
     private static CombatEvent Event(
         CombatEventKind kind, string? npc = null, string? weapon = null,
         int? rangeLow = null, int? rangeHigh = null, int atSecond = 0)
@@ -269,22 +276,27 @@ public sealed class FightHistoryRecorderTests : IDisposable
         Assert.Equal(88, row.StaminaAtEnd);
     }
 
+    /// <summary>
+    /// Both figures come from MUD2's own "(Persona saved on ...)" statements now, never from an FES
+    /// sample: a total the game stated and a total a heartbeat happened to be carrying are different
+    /// facts, and differencing one against the other is meaningless.
+    /// </summary>
     [Fact]
     public void FlushedRecord_TracksScoreAtStartAndEnd()
     {
         using var store = MakeStore();
         var recorder = new FightHistoryRecorder(store);
 
+        Saved(recorder, 26_000);
         recorder.OnInCombatChanged(true);
-        recorder.OnStatsUpdated(new GameStatsSnapshot(Score: 26000));
         recorder.OnCombatEvent(Event(CombatEventKind.FightStart, "rat0"));
-        recorder.OnStatsUpdated(new GameStatsSnapshot(Score: 26050));   // score ticks up mid-fight
+        Saved(recorder, 26_050, delta: 50);   // something else scored mid-fight
         recorder.OnCombatEvent(Event(CombatEventKind.Kill, "rat0", atSecond: 3));
         recorder.OnInCombatChanged(false);
 
         var row = Assert.Single(store.Snapshot());
-        Assert.Equal(26000, row.ScoreAtStart);
-        Assert.Equal(26050, row.ScoreAtEnd);
+        Assert.Equal(26_000, row.ScoreAtStart);
+        Assert.Equal(26_050, row.ScoreAtEnd);
     }
 
     /// <summary>The encounter id is taken from the CALLER, not read off a local clock. It is the join
@@ -389,5 +401,152 @@ public sealed class FightHistoryRecorderTests : IDisposable
 
         var row = Assert.Single(store.Snapshot());
         Assert.Equal(nameof(FightOutcome.Kill), row.Outcome);
+    }
+
+    // -- the terminal link of a run of engagements --------------------------------
+
+    /// <summary>
+    /// The corpus reason this column exists. 206 rows in the operator's database are a kill with one
+    /// hit and no misses, and 128 of them follow a non-kill engagement against the same instance name
+    /// - zombies (pool ~43-54), banshees (~84), water-snakes (~105), which no single blow can kill
+    /// when the player's top damage bucket is 20-29. Nothing was lost when those were written: the
+    /// earlier blows are on the earlier rows. What was missing is any way for the row holding the
+    /// killing blow to say so, which is what made it read as an impossible one-hit kill.
+    /// </summary>
+    [Fact]
+    public void TheKillAfterAFailedFlee_RecordsWhenTheEngagementBeforeItEnded()
+    {
+        using var store = MakeStore();
+        var recorder = new FightHistoryRecorder(store);
+
+        recorder.OnInCombatChanged(true);
+        recorder.OnCombatEvent(Event(CombatEventKind.FightStart, "water-snake0"));
+        recorder.OnCombatEvent(Event(CombatEventKind.Hit, "water-snake0", rangeLow: 15, rangeHigh: 19, atSecond: 1));
+        recorder.OnCombatEvent(Event(CombatEventKind.NpcFleeFailed, "water-snake0", atSecond: 2));
+        recorder.OnCombatEvent(Event(CombatEventKind.FightStart, "water-snake0", atSecond: 3));
+        recorder.OnCombatEvent(Event(CombatEventKind.Hit, "water-snake0", rangeLow: 15, rangeHigh: 19, atSecond: 3));
+        recorder.OnCombatEvent(Event(CombatEventKind.Kill, "water-snake0", atSecond: 4));
+        recorder.OnInCombatChanged(false);
+
+        var rows = store.Snapshot().OrderBy(r => r.StartedAtMs).ToList();
+        Assert.Equal(2, rows.Count);
+
+        // The opening engagement continues nothing.
+        Assert.Null(rows[0].PrevSameNameEndedMs);
+
+        // The kill knows what it finished, and points at a row that is actually in the table.
+        Assert.Equal(rows[0].EndedAtMs, rows[1].PrevSameNameEndedMs);
+        Assert.Equal(nameof(FightOutcome.Kill), rows[1].Outcome);
+        Assert.Equal(1, rows[1].YouHits);
+    }
+
+    /// <summary>
+    /// The other route to the same row, and the more common one: the creature gets away, the encounter
+    /// closes because nothing is left in the room, and the player follows it and finishes it. The two
+    /// engagements are then in DIFFERENT encounters, so nothing that groups by encounter can pair
+    /// them - which is why this is remembered per instance name across the flush rather than inside
+    /// the encounter's own state.
+    /// </summary>
+    [Fact]
+    public void TheKillAfterAChaseIntoTheNextEncounter_StillRecordsTheEngagementBeforeIt()
+    {
+        using var store = MakeStore();
+        var recorder = new FightHistoryRecorder(store);
+
+        recorder.OnInCombatChanged(true, 1_786_850_304_235);
+        recorder.OnCombatEvent(Event(CombatEventKind.FightStart, "banshee"));
+        recorder.OnCombatEvent(Event(CombatEventKind.Hit, "banshee", rangeLow: 15, rangeHigh: 19, atSecond: 1));
+        recorder.OnCombatEvent(Event(CombatEventKind.NpcFled, "banshee", atSecond: 2));
+        recorder.OnInCombatChanged(false);
+
+        recorder.OnInCombatChanged(true, 1_786_850_360_619);
+        recorder.OnCombatEvent(Event(CombatEventKind.FightStart, "banshee", atSecond: 56));
+        recorder.OnCombatEvent(Event(CombatEventKind.Hit, "banshee", rangeLow: 10, rangeHigh: 14, atSecond: 56));
+        recorder.OnCombatEvent(Event(CombatEventKind.Kill, "banshee", atSecond: 57));
+        recorder.OnInCombatChanged(false);
+
+        var rows = store.Snapshot().OrderBy(r => r.StartedAtMs).ToList();
+        Assert.Equal(2, rows.Count);
+        Assert.NotEqual(rows[0].EncounterStartedAtMs, rows[1].EncounterStartedAtMs);
+        Assert.Equal(rows[0].EndedAtMs, rows[1].PrevSameNameEndedMs);
+    }
+
+    /// <summary>
+    /// The half of this that must NOT change. A fox, a firefly or a lair goblin really does die to one
+    /// blow - foxes go 15 one-hit kills to 2 two-hit, goblins 74/27/8, a monotone run with no gap -
+    /// and those rows are real data. Nothing here suppresses or annotates them: a name this session
+    /// has never fought before carries no predecessor, and that is the whole discriminator.
+    /// </summary>
+    [Fact]
+    public void AGenuineOneHitKill_CarriesNoPredecessor()
+    {
+        using var store = MakeStore();
+        var recorder = new FightHistoryRecorder(store);
+
+        recorder.OnInCombatChanged(true);
+        recorder.OnCombatEvent(Event(CombatEventKind.FightStart, "fox3"));
+        recorder.OnCombatEvent(Event(CombatEventKind.Hit, "fox3", rangeLow: 20, rangeHigh: 29, atSecond: 1));
+        recorder.OnCombatEvent(Event(CombatEventKind.Kill, "fox3", atSecond: 1));
+        recorder.OnInCombatChanged(false);
+
+        var row = Assert.Single(store.Snapshot());
+        Assert.Equal(1, row.YouHits);
+        Assert.Equal(0, row.YouMisses);
+        Assert.Null(row.PrevSameNameEndedMs);
+    }
+
+    // -- where a score comes from -------------------------------------------------
+
+    /// <summary>
+    /// An FES heartbeat's Score must not touch a fight row. It is a sample of a running total, taken
+    /// whenever a heartbeat happens to land; MUD2 states the score outright whenever it changes, and
+    /// that statement is the fact worth recording. Mixing the two put a number on the row that nothing
+    /// could say the provenance of.
+    /// </summary>
+    [Fact]
+    public void AnFesHeartbeatsScore_DoesNotReachTheRow()
+    {
+        using var store = MakeStore();
+        var recorder = new FightHistoryRecorder(store);
+
+        recorder.OnInCombatChanged(true);
+        recorder.OnCombatEvent(Event(CombatEventKind.FightStart, "rat0"));
+        recorder.OnStatsUpdated(new GameStatsSnapshot(Stamina: 41, Score: 99_999));
+        recorder.OnCombatEvent(Event(CombatEventKind.Kill, "rat0", atSecond: 2));
+        recorder.OnInCombatChanged(false);
+
+        var row = Assert.Single(store.Snapshot());
+        Assert.Null(row.ScoreAtEnd);
+        Assert.Null(row.ScoreAtStart);
+        Assert.Equal(41, row.StaminaAtEnd);   // the rest of the heartbeat is still consumed
+    }
+
+    /// <summary>
+    /// The honest limit of score_at_end, pinned so nobody "fixes" it back into a lie. MUD2 prints the
+    /// award on the line AFTER the kill, and the kill line is what closes the fight - so the award is
+    /// not in the row, and score_at_end - score_at_start is NOT what the fight earned. That number
+    /// lives in score_events, where the game's own signed delta is recorded.
+    /// </summary>
+    [Fact]
+    public void AKillsOwnAward_ArrivesAfterTheRowIsWritten_AndIsNotInIt()
+    {
+        using var store = MakeStore();
+        var recorder = new FightHistoryRecorder(store);
+
+        Saved(recorder, 85_291);
+        recorder.OnInCombatChanged(true);
+        recorder.OnCombatEvent(Event(CombatEventKind.FightStart, "goblin3"));
+        recorder.OnCombatEvent(Event(CombatEventKind.Hit, "goblin3", rangeLow: 10, rangeHigh: 14, atSecond: 1));
+
+        // "You have killed the goblin3." - closes the fight and, being the last creature, the encounter.
+        recorder.OnCombatEvent(Event(CombatEventKind.Kill, "goblin3", atSecond: 1));
+        recorder.OnInCombatChanged(false);
+
+        // "(Persona saved on +24 = 85,315)." - the very next line, and one line too late.
+        Saved(recorder, 85_315, delta: 24);
+
+        var row = Assert.Single(store.Snapshot());
+        Assert.Equal(85_291, row.ScoreAtStart);
+        Assert.Equal(85_291, row.ScoreAtEnd);
     }
 }

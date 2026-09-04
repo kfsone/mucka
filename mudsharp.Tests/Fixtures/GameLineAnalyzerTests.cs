@@ -158,6 +158,91 @@ public class GameLineAnalyzerTests
         Assert.Equal(2500, h.Stats[0].Score);
     }
 
+    /// <summary>
+    /// The signed delta, which the old pattern's lazy wildcard swallowed. It is the only place MUD2
+    /// states what an event was WORTH: a kill's award and a flee's cost arrive here and nowhere else.
+    /// All three forms, with the counts they have across the 877 occurrences in the raw recordings.
+    /// </summary>
+    [Theory]
+    [InlineData("(Persona saved on +38 = 19,214).", 38, 19214)]      // a gain; 802 of them
+    [InlineData("(Persona saved on -872 = 18,382).", -872, 18382)]   // a flee cost; 15 of them
+    [InlineData("(Persona saved on +200 = 200).", 200, 200)]         // no comma grouping either side
+    [InlineData("(Persona saved on -102 = 98).", -102, 98)]
+    public void PersonaSaved_CarriesTheSignedDelta(string line, int expectedDelta, int expectedTotal)
+    {
+        var h = new ParserHarness();
+        h.Feed(line + "\n");
+
+        var save = Assert.Single(h.ScoreSaves);
+        Assert.Equal(expectedDelta, save.Delta);
+        Assert.Equal(expectedTotal, save.Total);
+        Assert.Equal(line, save.RawText);
+
+        // The stat path still sees exactly what it always did.
+        Assert.Equal(expectedTotal, h.Stats[0].Score);
+        Assert.True(h.Stats[0].PersonaSaved);
+    }
+
+    /// <summary>
+    /// The 60 total-only lines. Delta must be NULL and never 0: these are the world reset and the
+    /// shell-exit save, where nothing was scored - which is a different fact from an event that
+    /// happened to be worth nothing, and only one of the two occurs.
+    /// </summary>
+    [Fact]
+    public void PersonaSaved_WithNoDelta_ReportsNullRatherThanZero()
+    {
+        var h = new ParserHarness();
+        h.Feed("(Persona saved on 45,691).\n");
+
+        var save = Assert.Single(h.ScoreSaves);
+        Assert.Null(save.Delta);
+        Assert.Equal(45691, save.Total);
+    }
+
+    /// <summary>
+    /// The same three forms as they really arrive, C1 frames and all.
+    ///
+    /// <para>On the wire the TOTAL is wrapped (<c>F4 9C FF FF FE 9x FF FF</c> … <c>FF FF FF FF</c>,
+    /// the inner code varying with the colour the server wants for a gain, a loss or a plain save)
+    /// while the signed delta sits outside it as plain text. Everything above tests the parse against
+    /// already-decoded text; this tests the assumption that lets it - that by the time the analyzer
+    /// runs, the decoder has left ordinary ASCII behind. Bytes transcribed from the raw session
+    /// recordings, and matching the frame WorldResetEndsCombatTests pins independently.</para>
+    /// </summary>
+    [Theory]
+    [InlineData("+38 = ", "19,214", (byte)0x9D, 38, 19214)]
+    [InlineData("-872 = ", "18,382", (byte)0x9C, -872, 18382)]
+    [InlineData("", "45,691", (byte)0x9E, null, 45691)]
+    public void PersonaSaved_SurvivesTheC1FrameAroundTheTotal(
+        string delta, string total, byte colour, int? expectedDelta, int expectedTotal)
+    {
+        var h = new ParserHarness();
+        h.Feed(0x9D, 0x9C, 0xFF, 0xFF);   // game mode
+        h.Feed(System.Text.Encoding.Latin1.GetBytes("(Persona saved on " + delta));
+        h.Feed(0xF4, 0x9C, 0xFF, 0xFF, 0xFE, colour, 0xFF, 0xFF);
+        h.Feed(System.Text.Encoding.Latin1.GetBytes(total));
+        h.Feed(0xFF, 0xFF, 0xFF, 0xFF);
+        h.Feed(System.Text.Encoding.Latin1.GetBytes(")."));
+        h.Feed(0x0D, 0x00, 0x0D, 0x0A);
+
+        var save = Assert.Single(h.ScoreSaves);
+        Assert.Equal(expectedDelta, save.Delta);
+        Assert.Equal(expectedTotal, save.Total);
+    }
+
+    /// <summary>A line that merely mentions the phrase without a parsable total produces no event.
+    /// The stat path's PersonaSaved flag is deliberately left as it was - it keys on the phrase, and
+    /// changing that is a different question from capturing the numbers.</summary>
+    [Fact]
+    public void PersonaSavedWithNoNumber_ProducesNoScoreEvent()
+    {
+        var h = new ParserHarness();
+        h.Feed("(Persona saved on nothing at all).\n");
+
+        Assert.Empty(h.ScoreSaves);
+        Assert.True(h.Stats[0].PersonaSaved);
+    }
+
     [Fact]
     public void UnrelatedLine_ReturnsNull()
     {
