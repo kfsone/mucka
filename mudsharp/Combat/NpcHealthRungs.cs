@@ -80,20 +80,29 @@ public static class NpcHealthRungs
         ["fit"] = 7,
         ["strong"] = 7,
         ["full of energy"] = 7,
-        // 6 - a scratch. ("slightly weakened" is the banshee's word and is only seen at full or
-        // near-full health, so it sits here rather than deeper in.)
+        // 6 - a scratch.
         ["superficially injured"] = 6,
         ["superficially damaged"] = 6,
-        ["slightly weakened"] = 6,
         // 5.
         ["to have minor injuries"] = 5,
         ["to have minor damage"] = 5,
+        // The banshee's rung-5 word, in the slot the other families fill with "minor". It sat at 6
+        // until 2026-09-04 on the reasoning that it was "only seen at full or near-full health" -
+        // which was reading the word rather than the corpus. Across seven banshee fights the step
+        // superficially damaged -> slightly weakened happens five times and never reverses, and two
+        // phrases genuinely sharing a rung do not produce a one-way progression.
+        ["slightly weakened"] = 5,
         // 4 - the rung where the vocabularies diverge: living creatures say "covered in wounds" here
         // and never "moderately"; undead say "moderately damaged" and never "wounds".
         ["covered in wounds"] = 4,
         ["moderately damaged"] = 4,
-        ["moderately injured"] = 4,
         ["moderately drained"] = 4,
+        // "moderately injured" was here and is gone for the same reason "critically drained" is:
+        // zero occurrences corpus-wide, invented by analogy. Living creatures say "covered in
+        // wounds" at 4 and never "moderately", which the line above already states. Keeping it gave
+        // the living vocabulary eight words and quietly contradicted the seven-words-per-family rule
+        // the rest of this table rests on. Both deletions are behavioural no-ops - the severity
+        // fallback reads "moderately" as 4 and "critically" as 2 regardless.
         // 3.
         ["seriously injured"] = 3,
         ["seriously damaged"] = 3,
@@ -101,11 +110,14 @@ public static class NpcHealthRungs
         // 2.
         ["critically injured"] = 2,
         ["critically damaged"] = 2,
-        ["critically drained"] = 2,
+        // The banshee's rung-2 word, where the other families say "critically". Was 1 until
+        // 2026-09-04. "critically drained" used to sit here instead and has been deleted: it occurs
+        // ZERO times in the corpus and was an entry invented by analogy with the other two families,
+        // which is how the banshee ended up with no rung-2 word and two words at 1.
+        ["to be fading rapidly"] = 2,
         // 1 - one more hit. Never 0: a creature that reads at all is still standing.
         ["close to death"] = 1,
         ["close to expiry"] = 1,
-        ["to be fading rapidly"] = 1,
         // The banshee's terminal reading, and the only descriptor in the corpus with no severity
         // adverb - so it missed this table AND fell straight through the BySeverity fallback, and
         // TryParse returned false. The cost: of the 3,484 non-killing player hits in clogs whose
@@ -120,18 +132,29 @@ public static class NpcHealthRungs
         // `ql` output. A spirit turning see-through would be a visibility event, and visibility has
         // its own codes (04 00 04/05) which are binary with no graded state - this is not one.
         //
-        // Rung 1 because it is TERMINAL: it appears in four of the five banshee fights that have
-        // readings at all, is the last reading in every one, and one hit kills after it each time.
-        // The "never 0" rule above sets the floor.
+        // Rung 1 because it is TERMINAL: where it appears it is always the last reading, and a hit
+        // kills shortly after. It is not in every banshee fight - the 2026-09-04 one died out of
+        // "to be fading rapidly" without ever printing it - so absence says nothing. The "never 0"
+        // rule above sets the floor.
         //
-        // Do NOT re-derive this from "it follows 'to be fading rapidly', which is already 1" - that
-        // argument is circular and points at a real problem elsewhere. The banshee has exactly seven
-        // words and they map 1:1 onto 7..1, which would put "slightly weakened" at 5 and "fading
-        // rapidly" at 2, not where this table has them. Corroborating: "critically drained" below
-        // occurs ZERO times in the raw corpus - it is an entry invented by analogy with the other
-        // families - and superficially damaged -> slightly weakened is 3/3 deterministic, which two
-        // phrases sharing rung 6 would not produce. Both readings agree faint = 1, so this entry is
-        // safe either way; the ranking of the OTHER banshee words is the open question.
+        // The banshee's seven words map 1:1 onto 7..1, which is what every other vocabulary does and
+        // is why this one now reads strong / superficially damaged / slightly weakened / moderately
+        // drained / seriously drained / to be fading rapidly / faint. Settled 2026-09-04 on seven
+        // fights whose raw wire is readable, and confirmed on all 45 banshee fight-segments in the
+        // clogs: scoring every word-change, the old table gave 120 strict descents and 27 FLAT steps
+        // - the game saying the creature had changed while the rail showed the same rung - against
+        // 147 strict and ZERO flat under this one. One regen either way. All three words that moved
+        // are banshee-exclusive, so nothing else shifted.
+        //
+        // Independently, and on a different axis: summing bracket midpoints per fight puts the seven
+        // words on an even staircase of ~11.7 damage per rung against a pool of ~82 (published STA
+        // 80). The four undisputed words land on their existing rungs, which validates the method,
+        // and both disputed words land on the NEW value, not the old.
+        //
+        // Same-rung pairs never co-occur, which is what makes a flat step evidence of an error
+        // rather than of two phrasings: across 1,315 clogs and 2,275 word-changes, no fight contains
+        // both of fit/strong, close to death/close to expiry, or superficially injured/superficially
+        // damaged. The duplicates in this table are cross-vocabulary, never within one creature.
         ["faint"] = 1,
     };
 
@@ -145,13 +168,18 @@ public static class NpcHealthRungs
     private static readonly (string Word, int Rung)[] BySeverity =
     [
         ("superficially", 6),
-        ("slightly", 6),
+        // 5, not 6, and it must agree with ByPhrase above: the only "slightly" phrase anyone has
+        // ever seen is the banshee's "slightly weakened", which the 2026-09-04 remap put at 5. A
+        // fallback that generalises the value the table just disproved is worse than no fallback.
+        ("slightly", 5),
         ("minor", 5),
         ("moderately", 4),
         ("seriously", 3),
         ("critically", 2),
         ("close to", 1),
-        ("fading", 1),
+        // Also 2, for the same reason "slightly" is 5: the sole observed "fading" phrase is the
+        // banshee's, and it is rung 2 as of the remap.
+        ("fading", 2),
     ];
 
     /// <summary>

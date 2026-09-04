@@ -81,11 +81,48 @@ public sealed class NpcHealthRungTests
     [Fact]
     public void DrainedVocabulary_LandsOnTheSameScale()
     {
-        Assert.Equal(6, Rung("The banshee looks slightly weakened."));
+        Assert.Equal(5, Rung("The banshee looks slightly weakened."));
         Assert.Equal(4, Rung("The banshee looks moderately drained."));
         Assert.Equal(3, Rung("The banshee looks seriously drained."));
-        Assert.Equal(1, Rung("The banshee looks to be fading rapidly."));
+        Assert.Equal(2, Rung("The banshee looks to be fading rapidly."));
     }
+
+    /// <summary>The banshee's seven words occupy seven distinct rungs, like every other vocabulary.
+    /// This is the assertion that would have caught the old table, which had two words at 6, nothing
+    /// at 5, an unobserved word at 2 and two words at 1 - so eight of the twenty-five word-changes
+    /// across seven recorded fights moved the creature's description without moving the rail.</summary>
+    [Fact]
+    public void TheBansheesSevenWords_OccupySevenDistinctRungs()
+    {
+        string[] ladder =
+        [
+            "strong", "superficially damaged", "slightly weakened", "moderately drained",
+            "seriously drained", "to be fading rapidly", "faint",
+        ];
+        var rungs = ladder.Select(w => Rung($"The banshee looks {w}.")).ToArray();
+        Assert.Equal([7, 6, 5, 4, 3, 2, 1], rungs);
+    }
+
+    /// <summary>Two entries were deleted as unobserved-and-invented ("critically drained",
+    /// "moderately injured" - both zero occurrences corpus-wide). This does NOT guard the deletion:
+    /// it passes against the old table too, because the explicit entries carried the same values the
+    /// fallback now supplies. That is the point being pinned - both deletions are behavioural
+    /// no-ops, so a phrase nobody has seen still degrades to its adverb rather than vanishing.</summary>
+    [Theory]
+    [InlineData("The banshee looks critically drained.", 2)]
+    [InlineData("The rat3 looks moderately injured.", 4)]
+    public void DeletedInventedPhrases_StillDegradeToTheirAdverb(string line, int expected)
+        => Assert.Equal(expected, Rung(line));
+
+    /// <summary>The severity fallback must agree with the phrase table, or it generalises a value the
+    /// table has disproved. Both of these moved in the 2026-09-04 remap and the fallback moved with
+    /// them; "slightly weakened" and the banshee's "fading" phrase are the only observed users of
+    /// either adverb.</summary>
+    [Theory]
+    [InlineData("The wraith2 looks slightly dimmed.", 5)]
+    [InlineData("The spectre looks to be fading fast.", 2)]
+    public void TheSeverityFallback_AgreesWithThePhraseTable(string line, int expected)
+        => Assert.Equal(expected, Rung(line));
 
     /// <summary>The banshee's terminal word, and the only descriptor in the corpus with no severity
     /// adverb - so it missed the phrase table AND the severity fallback, and TryParse returned false.
