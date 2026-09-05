@@ -57,6 +57,13 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     // the life of this Mucka session: leave Ollie, play someone else, come back to Ollie, and his
     // session delta resumes from where it was — instead of the old single-baseline "-47354" jump.
     private readonly Dictionary<string, int> _baseScoreByChar = new(StringComparer.Ordinal);
+    // Whether the Combat Rail was showing for a given server+persona, for the life of this Mucka
+    // session. Same shape and the same reason as _baseScoreByChar above: the rail belongs to the
+    // persona it was opened for - its fight history, its bestiary and its pool estimates are all
+    // that character's - so carrying its visibility across a switch puts one persona's fights on
+    // screen under another's name. Keyed on host as well as name because two servers can have the
+    // same persona name and they are not the same character.
+    private readonly Dictionary<string, bool> _railVisibleByChar = new(StringComparer.OrdinalIgnoreCase);
     // The character occupying the session, from the setup `score` reply. null at the option menu.
     private string? _currentChar;
     private byte _staminaColor;
@@ -1008,6 +1015,11 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             _recentLines.Clear();
     }
 
+    /// <summary>Key for <see cref="_railVisibleByChar"/>. Host as well as persona: the same name on
+    /// two servers is two characters, and a NUL separator so no host/name pair can collide with
+    /// another by concatenation.</summary>
+    private string RailKey(string persona) => $"{_profileHost}\u0000{persona}";
+
     // The character was identified from the setup `score` reply (fires on the Feed thread).
     // The score StatsUpdated for that same line is queued just ahead of this on the UI thread,
     // so _score already holds this character's score — seed a first-seen baseline from it.
@@ -1015,6 +1027,20 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         => MainThread.BeginInvokeOnMainThread(() =>
         {
             if (name == _currentChar) return;
+            // Hand the rail over with the persona. Remember what the outgoing character had, then
+            // restore what the incoming one had - and a persona not seen this run starts HIDDEN
+            // rather than inheriting profile.ShowCombatRail, because that preference belongs to a
+            // connection (host/port/account) and says nothing about a character it was never saved
+            // for. The exception is the first persona of the run, which keeps whatever the profile
+            // applied at connect; otherwise the saved preference would never take effect at all.
+            if (_currentChar is { Length: > 0 } outgoing)
+                _railVisibleByChar[RailKey(outgoing)] = SidePanel.IsCombatPanelVisible;
+            var railKey = RailKey(name);
+            if (!_railVisibleByChar.TryGetValue(railKey, out var railWasVisible))
+                railWasVisible = _railVisibleByChar.Count == 0 && SidePanel.IsCombatPanelVisible;
+            _railVisibleByChar[railKey] = railWasVisible;
+            SidePanel.IsCombatPanelVisible = railWasVisible;
+
             _currentChar = name;
             if (_baseScoreByChar.TryGetValue(name, out var stored))
                 _baseScore = stored;                 // returning character — resume their delta
@@ -2076,7 +2102,20 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _conn.FexListStarting  += SidePanel.OnFexListStarting;
         _conn.FexItemReady     += SidePanel.OnFexItemReady;
         _conn.FexListComplete  += SidePanel.OnFexListComplete;
+
+        // The wire log is switched on once and then trusted for months, so its failures have to be
+        // somewhere the owner will actually pass by - the crash log is not. Same treatment as
+        // InputGate.Faulted above, and for the same reason. WireLogFailure is drained as well as
+        // subscribed because a failure to OPEN the database happens on the connect page, before this
+        // view model exists; OnLineReady queues into _pendingLines, so a line emitted here survives
+        // until the terminal attaches.
+        _conn.WireLogFailed += OnWireLogFailed;
+        if (_conn.WireLogFailure is { Length: > 0 } wireLogFailure)
+            OnWireLogFailed(wireLogFailure);
     }
+
+    private void OnWireLogFailed(string message)
+        => AddSystemLine($"[wire log] stopped recording this session: {message}", 12);
 
     private void UnsubscribeConnectionEvents()
     {
@@ -2113,6 +2152,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _conn.FexListStarting  -= SidePanel.OnFexListStarting;
         _conn.FexItemReady     -= SidePanel.OnFexItemReady;
         _conn.FexListComplete  -= SidePanel.OnFexListComplete;
+        _conn.WireLogFailed    -= OnWireLogFailed;
     }
 
     public async ValueTask DisposeAsync()
