@@ -107,11 +107,13 @@ public sealed record SessionCombatTotals(
 /// <param name="EncounterOrdinal">Which encounter this ending belongs to. Incremented once per
 /// encounter OPEN (<c>SidePanelViewModel.OnInCombatChanged</c>'s <c>inCombat: true</c> branch) -
 /// every ending recorded while that encounter is live or at its close shares this value.</param>
-/// <param name="ResetOrdinal">Which reset cycle this ending belongs to. Incremented on the
-/// server's own C06 C04 "auto reset initiated" announcement
-/// (<c>SidePanelViewModel.OnAutoResetInitiated</c>, wired to <c>MuckaConnection.AutoResetInitiated</c>)
-/// - the one authoritative signal for a reset actually occurring, never inferred from
-/// <c>ResetEpochMs</c> or from prose.</param>
+/// <param name="ResetOrdinal">Which reset cycle this ending belongs to. Incremented when the reset
+/// LANDS - the server's own C06 C06, corroborated against the reset countdown
+/// (<c>SidePanelViewModel.OnWorldResetLanded</c>, wired to <c>MuckaConnection.WorldResetLanded</c>),
+/// with the shell prompt as a backstop. Never inferred from <c>ResetEpochMs</c> or from prose. It
+/// was previously incremented on the C06 C04 WARNING, which put anything ending in the 120-second
+/// finish-up window - a fight cut short BY the reset, most obviously - on the wrong side of the
+/// separator.</param>
 public readonly record struct CombatEnding(
     string Name, MudSharp.Combat.FightOutcome Outcome, DateTime? EndedUtc,
     int EncounterOrdinal = 0, int ResetOrdinal = 0);

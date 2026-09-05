@@ -353,6 +353,13 @@ public sealed class MudSession : IDisposable
     /// Fires on the read-loop thread.</summary>
     public event Action? AutoResetInitiated;
 
+    /// <summary>The reset actually LANDED - FE 06 06, corroborated against the reset countdown.
+    /// Distinct from <see cref="AutoResetInitiated"/>, which is the 06 04 warning two minutes
+    /// earlier: anything that wants to mark the boundary between one world and the next wants this
+    /// one, or it groups the finish-up window with the wrong cycle. Fires at most once per reset and
+    /// not at all when the projection cannot corroborate the line.</summary>
+    public event Action? WorldResetLanded;
+
     // ── Public state ───────────────────────────────────────────────────────────
     /// <summary>The current merged stats snapshot (see <c>MergeStats</c>) — always up to date
     /// thanks to the periodic FES heartbeat, so callers that just need "whatever we currently
@@ -910,6 +917,11 @@ public sealed class MudSession : IDisposable
         if (Math.Abs((DateTime.UtcNow - target).TotalSeconds) > tolerance)
             return;
         _combat.ForceEnd(CombatClock(), "world reset");
+        // Raised only past the corroboration above, so a stray "Something magical is happening."
+        // with no reset due tells nobody anything. This is the moment the world actually turned
+        // over - consumers that were previously hanging off AutoResetInitiated, which fires on the
+        // WARNING two minutes earlier, should hang off this instead.
+        WorldResetLanded?.Invoke();
     }
 
     private void OnDreamwordChanged(string? word)

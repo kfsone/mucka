@@ -61,6 +61,10 @@ public sealed class MuckaConnection : IAsyncDisposable
     /// an exact statement that a reset is under way, used to classify the drop to the Option menu
     /// that follows. Fires on the read-loop thread — consumers marshal to their UI thread.</summary>
     public event Action? AutoResetInitiated;
+
+    /// <summary>The reset landed, corroborated - see <see cref="MudSession.WorldResetLanded"/>. Use
+    /// this, not <see cref="AutoResetInitiated"/>, for anything marking the world-to-world boundary.</summary>
+    public event Action? WorldResetLanded;
     public event Action<StatusEffectState>? StatusEffectsChanged;
     /// <summary>Fires whenever combat is entered/left (see MudSharp.Combat.CombatTracker).</summary>
     public event Action<bool>? InCombatChanged;
@@ -647,6 +651,7 @@ public sealed class MuckaConnection : IAsyncDisposable
     {
         _session.PersonaWiped       += () => PersonaWiped?.Invoke();
         _session.AutoResetInitiated += () => AutoResetInitiated?.Invoke();
+        _session.WorldResetLanded += () => WorldResetLanded?.Invoke();
         _session.LineReady          += l => { _clog.OnLineReady(l); LineReady?.Invoke(l); };
         _session.StatsUpdated       += s => { _clog.OnStatsUpdated(s); _fightRecorder.OnStatsUpdated(s); _swingLedger.OnStatsUpdated(s); StatsUpdated?.Invoke(s); };
         _session.StatusEffectsChanged += s => { _clog.OnStatusEffectsChanged(s); _fightRecorder.OnStatusEffectsChanged(s); _swingLedger.OnStatusEffectsChanged(s); StatusEffectsChanged?.Invoke(s); };

@@ -267,6 +267,10 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     // be a stable key, never a human-facing count.
     private int _encounterOrdinal;
     private int _resetOrdinal;
+    // True once the corroborated reset landing has advanced _resetOrdinal for the current cycle, so
+    // the shell-prompt backstop in OnGameModeExited does not advance it a second time. Cleared by
+    // that same handler, which every reset passes through. See OnWorldResetLanded.
+    private bool _resetOrdinalAdvanced;
     private readonly List<CombatEnding> _endingArchive = new();
     // The published, immutable form of _endingArchive - a fresh array taken only when the archive
     // actually grows (at an encounter close), so every frame published before that close keeps
@@ -1739,6 +1743,13 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         {
             CurrentRoom = "Option Menu.";
             SetAllExitsPresent(false);
+            // Backstop for the dead strip's reset boundary - see OnWorldResetLanded. Only advances
+            // when the landing did not, so a corroborated reset gets its line at 06 06 and an
+            // uncorroborated one gets it here, at the shell prompt about 200 ms later, rather than
+            // not at all.
+            if (!_resetOrdinalAdvanced)
+                _resetOrdinal++;
+            _resetOrdinalAdvanced = false;
         });
 
     /// <summary>
@@ -1749,15 +1760,23 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     /// signal for a reset (the server's own C06 C04 "auto reset initiated"), never inferred from
     /// <c>ResetEpochMs</c> or from prose (see CombatEnding's own remarks on why).
     ///
-    /// <para><b>Fires on the WARNING, not the reset instant.</b> <c>MudSession</c>'s own comment on
-    /// this event is explicit that it announces "you have 120 seconds to finish up", not the reset
-    /// landing - so an ending recorded in that finish-up window is grouped with the NEXT reset cycle
-    /// a little early, by at most that window. This is the signal the task named as authoritative,
-    /// and the alternative (waiting for the drop itself) has no event of its own to hang from - the
-    /// session simply disconnects.</para>
+    /// <para><b>Now fires on the reset LANDING, not the warning (2026-09-04).</b> It used to hang off
+    /// <c>AutoResetInitiated</c> - the C06 C04 warning - whose own comment admitted the consequence:
+    /// an ending inside the 120-second finish-up window got grouped with the NEXT cycle, up to two
+    /// minutes early. Observed exactly that way: a banshee fight cut short BY the reset was drawn
+    /// BELOW the separator, as though it belonged to the world that came after it. That comment also
+    /// said the alternative "has no event of its own to hang from", which stopped being true when
+    /// FE 06 06 was parsed - <c>MudSession.WorldResetLanded</c> is that event, corroborated against
+    /// the reset countdown so a stray line cannot move the boundary.</para>
+    ///
+    /// <para><see cref="OnGameModeExited"/> is the backstop: the landing is only raised when the
+    /// projection can corroborate it, and a missing separator merges two cycles, which is worse than
+    /// one drawn slightly late. The shell prompt always follows a reset (~200 ms behind 06 06), so
+    /// exiting game mode advances the ordinal if the landing did not. It also fires on an ordinary
+    /// logout, which is harmless - that is a session boundary worth a line too.</para>
     /// </summary>
-    public void OnAutoResetInitiated()
-        => MainThread.BeginInvokeOnMainThread(() => _resetOrdinal++);
+    public void OnWorldResetLanded()
+        => MainThread.BeginInvokeOnMainThread(() => { _resetOrdinal++; _resetOrdinalAdvanced = true; });
 
     // ── WHO list (FEW) ────────────────────────────────────────────────────────
 

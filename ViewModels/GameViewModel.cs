@@ -2072,8 +2072,10 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _conn.StatsUpdated     += OnStatsUpdated;
         _conn.PersonaWiped     += OnPersonaWiped;
         _conn.AutoResetInitiated += OnAutoResetInitiated;
-        // The dead strip's reset-grouping ordinal - see SidePanelViewModel.OnAutoResetInitiated.
-        _conn.AutoResetInitiated += SidePanel.OnAutoResetInitiated;
+        // The dead strip's reset-grouping ordinal - see SidePanelViewModel.OnWorldResetLanded. The
+        // LANDING, not the warning: hanging this off AutoResetInitiated grouped anything ending in
+        // the 120-second finish-up window with the next cycle.
+        _conn.WorldResetLanded += SidePanel.OnWorldResetLanded;
         _conn.StatusEffectsChanged += SidePanel.OnStatusEffectsChanged;
         _conn.InCombatChanged  += OnInCombatChanged;
         _conn.CombatGracePeriodChanged += OnCombatGracePeriodChanged;
@@ -2123,7 +2125,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _conn.StatsUpdated     -= OnStatsUpdated;
         _conn.PersonaWiped     -= OnPersonaWiped;
         _conn.AutoResetInitiated -= OnAutoResetInitiated;
-        _conn.AutoResetInitiated -= SidePanel.OnAutoResetInitiated;
+        _conn.WorldResetLanded -= SidePanel.OnWorldResetLanded;
         _conn.StatusEffectsChanged -= SidePanel.OnStatusEffectsChanged;
         _conn.InCombatChanged  -= OnInCombatChanged;
         _conn.CombatGracePeriodChanged -= OnCombatGracePeriodChanged;
