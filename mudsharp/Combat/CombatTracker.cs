@@ -324,12 +324,34 @@ public sealed class CombatTracker
     private static readonly Regex GuardConfusion = new(
         @"^Your guard drops momentarily in your confusion\.$", RegexOptions.Compiled);
 
-    /// <summary>"You feel your life concluding..." - the narrative precursor to the player's death.
-    /// Informational only; it shares its frame with the "has killed you" line that follows, so it is
-    /// no earlier a warning than the death itself. Matched purely so it stops being an unexplained
-    /// line in the one frame nobody wants to be guessing about.</summary>
+    /// <summary>The narrative precursor to the player's death. Informational only; it shares its
+    /// frame with the "has killed you" line that follows, so it is no earlier a warning than the
+    /// death itself. Matched purely so it stops being an unexplained line in the one frame nobody
+    /// wants to be guessing about.
+    ///
+    /// <para><b>It is a GENERATED PAIRING, not a fixed string.</b> This was
+    /// <c>^You feel your life concluding\.\.\.$</c> until 2026-09-05, one member of a family that
+    /// the wire log then produced two more of - "You feel your vitality stopping..." (Awlie's death)
+    /// and "You feel your very soul terminating..." (Bludgeon's). The shape is
+    /// <c>You feel your {life|vitality|very soul} {concluding|stopping|terminating}...</c>, so three
+    /// observed out of at least nine combinations, and enumerating strings would keep losing one
+    /// death at a time.</para>
+    ///
+    /// <para>The SUBJECT is pinned to the three observed values and the verb phrase left loose,
+    /// rather than the other way round. That is where the evidence is: six members are known across
+    /// only three subjects (life, vitality, very soul) but six distinct verb phrases, including
+    /// two-word ones - "snatched away", "seizing up". A loose subject would also start swallowing
+    /// ordinary prose, since "You feel your ..." opens plenty of lines that are not deaths.
+    ///
+    /// <para>Residual risk, stated because it is real: a NEW subject is still missed. The actual fix
+    /// is the C1 code - every observed member carries <c>08.09</c>, with the container left UNCLOSED
+    /// at end of line - and a matcher keying on that would not care about the prose at all. See the
+    /// project rule on preferring the code to the words. This pattern is the belt to those braces,
+    /// and the family was discovered at a rate of one member per persona lost, which is not a rate
+    /// anyone should want to keep paying.</para></summary>
     private static readonly Regex LifeConcluding = new(
-        @"^You feel your life concluding\.\.\.$", RegexOptions.Compiled);
+        @"^You feel your (?:life|vitality|very soul) [a-z][a-z ]{2,18}\.\.\.$",
+        RegexOptions.Compiled);
 
     // NPC instance names currently engaged (case-insensitive) — non-empty implies InCombat.
     private readonly HashSet<string> _active = new(StringComparer.OrdinalIgnoreCase);

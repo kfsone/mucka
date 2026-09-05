@@ -503,6 +503,51 @@ public sealed class ParserGapTests
         Assert.Contains(seen, e => e.Kind == CombatEventKind.KilledByNpc);
     }
 
+    /// <summary>The death precursor is a generated pairing, not a fixed string. The client matched
+    /// only "You feel your life concluding..." until two more members turned up in the wire log -
+    /// one per persona lost, which is a bad rate at which to discover a vocabulary. All three carry
+    /// C1 08.09; the shape is You feel your {life|vitality|very soul} {concluding|stopping|
+    /// terminating}..., so three of at least nine combinations are known and the rest will arrive
+    /// the same expensive way unless the pattern covers them in advance.</summary>
+    [Theory]
+    [InlineData("You feel your life concluding...")]      // the one it always matched
+    [InlineData("You feel your vitality stopping...")]    // Awlie, 2026-09-05
+    [InlineData("You feel your very soul terminating...")]// Bludgeon, 2026-09-05
+    [InlineData("You feel your life snatched away...")]
+    [InlineData("You feel your life seizing up...")]
+    [InlineData("You feel your very soul ceasing...")]
+    public void TheDeathPrecursor_IsMatchedAcrossItsWholeFamily(string line)
+    {
+        var tracker = new CombatTracker();
+        var seen = new List<CombatEvent>();
+        tracker.EventOccurred += seen.Add;
+
+        tracker.Observe(Line("You attack the rat18, using the unlit brand as a weapon."), T0);
+        tracker.Observe(Line(line), T0.AddSeconds(1));
+
+        Assert.Contains(seen, e => e.Kind == CombatEventKind.LifeConcluding);
+    }
+
+    /// <summary>...and the widening must not swallow ordinary prose. These share the opening words
+    /// and are not deaths. CONSTRUCTED, not observed - they guard the shape rather than record a
+    /// sighting, which is why the subject is pinned to the three seen values and only the verb
+    /// phrase is loose.</summary>
+    [Theory]
+    [InlineData("You feel your way along the wall...")]
+    [InlineData("You feel your pockets are empty.")]
+    [InlineData("You feel your strength returning.")]
+    public void TheWiderPrecursorPattern_DoesNotSwallowOrdinaryProse(string line)
+    {
+        var tracker = new CombatTracker();
+        var seen = new List<CombatEvent>();
+        tracker.EventOccurred += seen.Add;
+
+        tracker.Observe(Line("You attack the rat18, using the unlit brand as a weapon."), T0);
+        tracker.Observe(Line(line), T0.AddSeconds(1));
+
+        Assert.DoesNotContain(seen, e => e.Kind == CombatEventKind.LifeConcluding);
+    }
+
     /// <summary>The ordinary hit-by-NPC line still carries its stamina reading - widening the pattern to
     /// accept the bare form must not have cost the parenthetical one its numbers.</summary>
     [Fact]
