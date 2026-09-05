@@ -103,6 +103,36 @@ public sealed class NpcHealthRungTests
         Assert.Equal([7, 6, 5, 4, 3, 2, 1], rungs);
     }
 
+    /// <summary>An object's wear is not a creature's health, and the two share the "The X looks ..."
+    /// shape exactly. The severity fallback read "close to disintegration" as "close to" and returned
+    /// rung 1 - a weapon reporting itself as about to die, on the rail, if it shares a name with the
+    /// creature you are fighting. All observed in the corpus off a `ql` on a carried item.</summary>
+    [Theory]
+    [InlineData("The rolling-pin1 looks close to disintegration.")]
+    [InlineData("The coracle looks to be in relatively good condition.")]
+    [InlineData("The lamp looks to be in very bad condition.")]
+    public void ObjectCondition_IsNotAHealthReading(string line)
+        => Assert.False(NpcHealthRungs.TryParse(line, out _, out _, out _), line);
+
+    /// <summary>The other half, and the honest limit of this parser: an object's wear reuses the
+    /// creature vocabulary exactly, so "The broadsword looks to be seriously damaged." is
+    /// indistinguishable BY PHRASE from a zombie on rung 3. These still parse, and must - rejecting
+    /// them would mean rejecting the creature readings that share their words.
+    ///
+    /// <para>What contains them is the caller: CombatTracker only consults a reading for a name
+    /// already in its active set, so an object has to share an engaged creature's name to land.
+    /// Pinned so nobody "fixes" TryRung to reject these and silently blinds the rail to three
+    /// rungs of every undead vocabulary.</para></summary>
+    [Theory]
+    [InlineData("The broadsword looks to be seriously damaged.", 3)]
+    [InlineData("The well-maintained pick2 looks to be superficially damaged.", 6)]
+    public void ObjectWearSharingTheCreatureVocabulary_StillParses_AndIsTheCallersProblem(
+        string line, int expected)
+    {
+        Assert.True(NpcHealthRungs.TryParse(line, out _, out var rung, out _), line);
+        Assert.Equal(expected, rung);
+    }
+
     /// <summary>Two entries were deleted as unobserved-and-invented ("critically drained",
     /// "moderately injured" - both zero occurrences corpus-wide). This does NOT guard the deletion:
     /// it passes against the old table too, because the explicit entries carried the same values the
