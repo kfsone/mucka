@@ -225,6 +225,13 @@ public sealed class ConnectViewModel : BaseViewModel
                 // this one would hand GameViewModel a `false` regardless of what was actually saved,
                 // and SaveCurrentProfileAsync below would then write that false straight back to disk.
                 ShowCombatRail = saved?.ShowCombatRail ?? false,
+                // Third time for this exact trap - see the two comments above. Omitting it meant the
+                // wire log switched itself off the first time the operator saved anything in-game:
+                // this fresh Profile carried false, SaveCurrentProfileAsync wrote that to mucka.ini,
+                // and the next connect read it back as the truth. Silent, and the symptom is an empty
+                // log rather than an error. Any new settings field has to be added HERE as well as to
+                // ClientSettings, Profile and SettingsStore.
+                LogWireSession = saved?.LogWireSession ?? false,
             };
             if (saved is null)
             {
