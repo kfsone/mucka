@@ -103,6 +103,28 @@ public sealed class NpcHealthRungTests
         Assert.Equal([7, 6, 5, 4, 3, 2, 1], rungs);
     }
 
+    /// <summary>The at-max words parse, which "full of life" did not until now - it was in neither
+    /// table and has no severity adverb, so TryParse returned false and a `ql` on anything living
+    /// produced nothing at all.</summary>
+    [Theory]
+    [InlineData("The viper looks full of life.", 7)]
+    [InlineData("The banshee looks full of energy.", 7)]
+    public void TheAtMaxWords_Parse(string line, int expected)
+        => Assert.Equal(expected, Rung(line));
+
+    /// <summary>...and are distinguishable from the top band, which is what they are NOT. Measured
+    /// over 218 paired readings across four personae: "full of life" is cur==max 13 times out of 13,
+    /// "fit" is never at max across 35. Exposed as a predicate rather than as rung 8 because the
+    /// ladder is seven BANDS and at-max is a point - see IsAtMax.</summary>
+    [Theory]
+    [InlineData("full of life", true)]
+    [InlineData("full of energy", true)]
+    [InlineData("fit", false)]
+    [InlineData("strong", false)]
+    [InlineData("superficially injured", false)]
+    public void AtMaxIsDistinguishableFromTheTopBand(string phrase, bool atMax)
+        => Assert.Equal(atMax, NpcHealthRungs.IsAtMax(phrase));
+
     /// <summary>An object's wear is not a creature's health, and the two share the "The X looks ..."
     /// shape exactly. The severity fallback read "close to disintegration" as "close to" and returned
     /// rung 1 - a weapon reporting itself as about to die, on the rail, if it shares a name with the

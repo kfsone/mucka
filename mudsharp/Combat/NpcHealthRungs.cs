@@ -79,7 +79,11 @@ public static class NpcHealthRungs
         // 7 - unhurt.
         ["fit"] = 7,
         ["strong"] = 7,
+        // The AT-MAX words. Both sit at 7 because that is the top BAND and nothing downstream can
+        // hold an eighth value - see IsAtMax for what they actually mean and why the distinction is
+        // exposed separately rather than as rung 8.
         ["full of energy"] = 7,
+        ["full of life"] = 7,
         // 6 - a scratch.
         ["superficially injured"] = 6,
         ["superficially damaged"] = 6,
@@ -259,6 +263,33 @@ public static class NpcHealthRungs
     /// being in either table; it is stated explicitly now so that adding a "condition" phrase to
     /// ByPhrase later cannot silently re-open the hole.</para>
     /// </summary>
+    /// <summary>
+    /// The descriptor means <b>exactly</b> <c>cur == max</c> - untouched - rather than the top band.
+    ///
+    /// <para><b>Measured, not assumed.</b> 218 paired readings across four personae and four
+    /// different maxima (61, 85, 97, 100), each pinning a descriptor against a stamina figure from
+    /// the same frame: <c>full of life</c> occurs 13 times and every single one is cur == max, never
+    /// below. <c>fit</c> occurs 35 times and is never at max, topping out at 99/100, 71/75, 89/97.
+    /// The game agrees at the protocol level - the C1 colour code on the stamina value is
+    /// <c>99.10</c> only and exactly at max. <c>full of life</c> is the living word,
+    /// <c>full of energy</c> the undead/spirit one, and neither has ever appeared in a combat
+    /// descriptor line, because combat only describes a creature after damage, when cur &lt; max by
+    /// construction. They come from <c>ql</c> and examine.</para>
+    ///
+    /// <para><b>Why this is not rung 8.</b> The ladder is <c>ceil(cur * 7 / max)</c> - fitted
+    /// 218/218, against 138/218 for a hard-coded /100 - and that is seven BANDS. At-max is a point,
+    /// not a band, so making <see cref="Rungs"/> 8 would corrupt every division that uses it
+    /// (<c>DamagePrediction.StepsWide</c>) and every range check written as 1..Rungs
+    /// (<c>PoolObservationBuilder</c>, which would silently drop an 8). Seven bands plus a point is
+    /// the shape of the thing; the rail can draw it however it likes.</para>
+    ///
+    /// <para>Worth more than a rung to anything estimating a pool: a rung is a 1/7 band, this is an
+    /// exact equality.</para>
+    /// </summary>
+    public static bool IsAtMax(string phrase)
+        => phrase.Equals("full of life", StringComparison.OrdinalIgnoreCase)
+        || phrase.Equals("full of energy", StringComparison.OrdinalIgnoreCase);
+
     private static bool IsObjectCondition(string descriptor)
         => descriptor.Contains("condition", StringComparison.OrdinalIgnoreCase)
         || descriptor.Contains("disintegration", StringComparison.OrdinalIgnoreCase);
