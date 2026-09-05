@@ -266,18 +266,19 @@ public static class NpcHealthRungs
     /// <summary>
     /// The descriptor means <b>exactly</b> <c>cur == max</c> - untouched - rather than the top band.
     ///
-    /// <para><b>Measured, not assumed.</b> 218 paired readings across four personae and four
-    /// different maxima (61, 85, 97, 100), each pinning a descriptor against a stamina figure from
-    /// the same frame: <c>full of life</c> occurs 13 times and every single one is cur == max, never
-    /// below. <c>fit</c> occurs 35 times and is never at max, topping out at 99/100, 71/75, 89/97.
-    /// The game agrees at the protocol level - the C1 colour code on the stamina value is
-    /// <c>99.10</c> only and exactly at max. <c>full of life</c> is the living word,
-    /// <c>full of energy</c> the undead/spirit one, and neither has ever appeared in a combat
-    /// descriptor line, because combat only describes a creature after damage, when cur &lt; max by
-    /// construction. They come from <c>ql</c> and examine.</para>
+    /// <para><b>Measured, not assumed.</b> 328 paired readings across three personae and six
+    /// different maxima (61, 75, 85, 95, 97, 100), each pinning a descriptor against a stamina
+    /// figure from the same frame. The biconditional holds both ways: <c>full of life</c> is never
+    /// below max (n=15), and every single reading where cur == max returns <c>full of life</c> and
+    /// nothing else (n=15, across four maxima). <c>fit</c> occurs 46 times and is never at max,
+    /// topping out at 99/100, 71/75, 89/97. The game agrees at the protocol level - the C1 colour
+    /// code on the stamina value is <c>99.10</c> only and exactly at max. <c>full of life</c> is the
+    /// living word, <c>full of energy</c> the undead/spirit one, and neither has ever appeared in a
+    /// combat descriptor line, because combat only describes a creature after damage, when
+    /// cur &lt; max by construction. They come from <c>ql</c> and examine.</para>
     ///
     /// <para><b>Why this is not rung 8.</b> The ladder is <c>ceil(cur * 7 / max)</c> - fitted
-    /// 218/218, against 138/218 for a hard-coded /100 - and that is seven BANDS. At-max is a point,
+    /// 328/328, against 223/328 for a hard-coded /100 - and that is seven BANDS. At-max is a point,
     /// not a band, so making <see cref="Rungs"/> 8 would corrupt every division that uses it
     /// (<c>DamagePrediction.StepsWide</c>) and every range check written as 1..Rungs
     /// (<c>PoolObservationBuilder</c>, which would silently drop an 8). Seven bands plus a point is
@@ -285,6 +286,15 @@ public static class NpcHealthRungs
     ///
     /// <para>Worth more than a rung to anything estimating a pool: a rung is a 1/7 band, this is an
     /// exact equality.</para>
+    ///
+    /// <para><b>The limit of all of this, stated because it is the actual use case.</b> Every one of
+    /// the 328 readings is a PLAYER self-inspection, because the player is the only creature whose
+    /// max is knowable. Applying the ladder to creatures assumes they use the same one - plausible,
+    /// since the vocabularies are the same three families, but untested. The experiment that would
+    /// settle it is the stethoscope: <c>diagnose</c> prints "has a stamina lying between X and Y"
+    /// for a creature (see CombatTracker's NpcStaminaRead), so diagnose + <c>ql</c> on the same
+    /// creature would pin a creature reading the way <c>qs,ql me</c> pins a player one. That table
+    /// has zero rows - nobody has ever run it.</para>
     /// </summary>
     public static bool IsAtMax(string phrase)
         => phrase.Equals("full of life", StringComparison.OrdinalIgnoreCase)
