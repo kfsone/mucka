@@ -137,9 +137,16 @@ public static class NpcHealthRungs
         // "to be fading rapidly" without ever printing it - so absence says nothing. The "never 0"
         // rule above sets the floor.
         //
-        // The banshee's seven words map 1:1 onto 7..1, which is what every other vocabulary does and
-        // is why this one now reads strong / superficially damaged / slightly weakened / moderately
-        // drained / seriously drained / to be fading rapidly / faint. Settled 2026-09-04 on seven
+        // The banshee's seven COMBAT-DESCRIPTOR words map 1:1 onto 7..1, which is what every other
+        // vocabulary does and is why this one now reads strong / superficially damaged / slightly
+        // weakened / moderately drained / seriously drained / to be fading rapidly / faint.
+        //
+        // "Combat-descriptor" is load-bearing: the inspection commands phrase rung 7 differently.
+        // `ql banshee` on a healed banshee returned "full of energy" (owner, 2026-09-04), and the
+        // only other sighting of that phrase in the corpus is a zombie4 EXAMINE - never a descriptor
+        // line, where the same creatures say "strong". Both are rung 7 and both are in this table,
+        // so nothing is mis-scored; but do not count words across surfaces and conclude a species
+        // has eight. Settled 2026-09-04 on seven
         // fights whose raw wire is readable, and confirmed on all 45 banshee fight-segments in the
         // clogs: scoring every word-change, the old table gave 120 strict descents and 27 FLAT steps
         // - the game saying the creature had changed while the rail showed the same rung - against
