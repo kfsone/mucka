@@ -140,6 +140,25 @@ public sealed class MuckaConnection : IAsyncDisposable
     public string? CaptureFilePath => _capture.FilePath;
     /// <summary>Path of the wire-log database when the global setting turned it on, else null.</summary>
     public string? WireLogPath => _capture.DatabasePath;
+
+    /// <summary>
+    /// Raised when the wire log fails — at start, or later if its writer dies. The crash log is not a
+    /// place the owner ever looks, and this is a feature switched on once and then trusted forever, so
+    /// its failures go to the terminal like every other client-side fault (see GameViewModel's handling
+    /// of <c>InputGate.Faulted</c>, which exists for the same reason).
+    /// </summary>
+    public event Action<string>? WireLogFailed;
+
+    /// <summary>The wire log's last failure, or null. Held as well as raised so a failure that happens
+    /// during connect — before anything is subscribed — is not lost.</summary>
+    public string? WireLogFailure { get; private set; }
+
+    private void ReportWireLogFailure(string context, Exception ex)
+    {
+        CrashLog.Write(context, ex);
+        WireLogFailure = ex.Message;
+        WireLogFailed?.Invoke(ex.Message);
+    }
     /// <summary>Write a free-text annotation into the active capture log.</summary>
     public void Annotate(string message) => _capture.Annotate(message);
 
@@ -277,7 +296,9 @@ public sealed class MuckaConnection : IAsyncDisposable
         cts?.Dispose();
         // Both loops have ended, so nothing more will be recorded for this connection: close the open
         // wire-log batch now rather than leaving it exposed until dispose. A reconnect on the same
-        // MuckaConnection simply opens a new batch.
+        // MuckaConnection simply opens a new batch. The read loop's own finally has usually done this
+        // already; what is left for here is anything the WRITE loop recorded after it - and the case
+        // where a connect attempt failed before the read loop ever started.
         _capture.Flush();
         _session.Reset();
         _loginHandler?.Reset();
@@ -294,17 +315,26 @@ public sealed class MuckaConnection : IAsyncDisposable
     /// <c>logwiresession</c> setting — the caller reads the setting, this does the work — and started
     /// BEFORE <see cref="ConnectAsync"/> so the login exchange is in the log like everything else.
     /// Independent of <see cref="TryStartCapture"/>; both may run at once.
+    ///
+    /// <para>This really can fail, and the caller really must report it: the sink opens the database in
+    /// its constructor precisely so that a wire log which cannot be written says so here, at the one
+    /// moment a human is watching, rather than dying quietly on a background thread. Directory creation
+    /// is part of the open (<see cref="WireLogDb.Open"/>), so a first-ever run with no
+    /// <c>~/.mucka/wire</c> is not a failure case.</para>
     /// </summary>
     public bool TryStartWireLog(string? hostOverride, out string? error)
     {
         var host = ResolveHost(hostOverride);
-        return _capture.TryStartDatabase(
+        var started = _capture.TryStartDatabase(
             () => new SqliteWireLogSink(
                 Path.Combine(ClogPaths.GetWireLogDirectory(), WireLogDb.DefaultFileName),
                 host,
                 typeof(MuckaConnection).Assembly.GetName().Version?.ToString(),
-                CrashLog.Write),
+                ReportWireLogFailure),
             out error);
+        if (!started)
+            WireLogFailure = error;
+        return started;
     }
 
     private string ResolveHost(string? hostOverride)
@@ -503,6 +533,14 @@ public sealed class MuckaConnection : IAsyncDisposable
         catch (Exception ex) { error = ex; }
         finally
         {
+            // The read loop ending IS the end of the session's incoming traffic, however it ended:
+            // cancelled by DisconnectAsync, the server closing the socket, or the socket throwing. Close
+            // the open wire-log batch here rather than only on the graceful path - a server drop used to
+            // leave up to a whole batch in memory, and the drop is exactly the session you would want to
+            // read back afterwards. Once per connection, so it costs the batching nothing; the flush in
+            // DisconnectAsync (which runs after this, and after any last write) then finds nothing to do
+            // unless the write loop got a byte out in between.
+            _capture.Flush();
             if (!_deliberateDisconnect)
                 Disconnected?.Invoke(error);
         }

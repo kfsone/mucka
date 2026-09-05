@@ -17,38 +17,54 @@ public enum WireLogCodec
 /// The batch framing: how a run of <see cref="WireRecord"/>s becomes one byte buffer that compresses
 /// well and decodes back to exactly the records that went in.
 ///
-/// <para><b>Why batch at all.</b> The average wire record is 77 bytes (6.1 MB over 79,455 records in
+/// <para><b>Units, because these numbers are meaningless without them: KB = 1000 bytes and MB = 10^6
+/// bytes throughout this file and in <see cref="SqliteWireLogSink"/>.</b> Not KiB/MiB. Everything below
+/// was produced by replaying the owner's corpus through this code; nothing in it is an estimate.</para>
+///
+/// <para><b>Why batch at all.</b> The average wire record is 77.3 bytes (6.14 MB over 79,495 records in
 /// the owner's existing corpus). Compressing one of those on its own gains nothing — a deflate or
 /// brotli stream spends more on its own header than the record contains. Compression here is entirely
 /// a function of how much text shares one dictionary, and MUD2 text is extremely repetitive, so the
 /// gain is large but only if the window is large.</para>
 ///
-/// <para><b>Measured, on the owner's 40 real captures</b> — 79,495 records, 6.14 MB of payload, 8.91
-/// play-hours, replayed through this framing and brotli-11. The ratio is set by batch size and
-/// essentially nothing else:
+/// <para><b>Measured, on the owner's 40 real captures</b> — 79,495 records, 6,144,190 bytes of payload,
+/// 8.91 play-hours, an average wire rate of 0.191 KB/s, replayed through this framing and brotli-11.
+/// The ratio is set by batch size and essentially nothing else:
 /// <code>
 ///   batch bound   avg raw batch   ratio vs payload   MB/play-hour
-///     5 s              1.1 KB          2.61x            0.303
-///    15 s              3.1 KB          3.88x            0.192
-///    60 s             11.7 KB          5.36x            0.133
-///    64 KB            50.9 KB          6.66x            0.104      &lt;- what this sink does
+///     5 s              1.3 KB          2.73x            0.252
+///    15 s              3.3 KB          3.91x            0.176
+///    60 s             11.9 KB          5.37x            0.128      &lt;- what this sink does
+///    64 KB            50.9 KB          6.66x            0.103
+///     5 min           48.6 KB          6.67x            0.103
 ///   whole session    160.3 KB          8.00x            0.086      &lt;- the ceiling
 /// </code>
-/// End to end, through the real sink and SQLite, the 64 KB row is <b>1.04 MB of wire.db for 8.91
-/// play-hours = 0.117 MB per play-hour = ~0.17 GB/year at 4h/day, and 16.4x smaller than the same
-/// traffic as .jsonl</b> (the gap between 0.104 and 0.117 is SQLite's own pages and indexes).</para>
+/// The 64 KB and 5-minute rows are the same row in practice: at 0.191 KB/s a 64 KB batch takes about
+/// 5.6 minutes to fill, so whichever of the two is written down, the other one never fires.</para>
 ///
-/// <para>That table is the whole argument for <see cref="SqliteWireLogSink.MaxBatchAge"/> being five
-/// minutes rather than five seconds: at MUD2's measured ~0.19 KB/s a five-second batch is one
-/// kilobyte, and a kilobyte does not compress — it would cost 2.9x more disk forever to shrink the
-/// crash window from five minutes to five seconds on a diagnostic log. The 64 KB size bound takes
-/// ~5.6 minutes to reach at that rate, so the two bounds are deliberately the same order and the size
-/// one is what normally fires.</para>
+/// <para>End to end, through the real sink and SQLite, the shipped 60 s bound is <b>1.552 MB of wire.db
+/// for 8.91 play-hours = 0.174 MB per play-hour = 0.254 GB/year at 4 h/day, and 11.0x smaller than the
+/// same traffic as .jsonl</b> (17.15 MB, 1.924 MB/play-hour). The gap between the table's 0.128 and the
+/// file's 0.174 is SQLite's own pages and two indexes, measured at ~0.74 KB per batch row.</para>
 ///
-/// <para>The remaining 6.66x-to-8.00x gap is only reachable by compressing a whole session as one
-/// blob, which cannot be done live — it needs a compaction pass over a session after it closes. The
-/// schema supports it (batches are keyed by session and seq); it is not implemented, and it is worth
-/// ~0.04 GB/year.</para>
+/// <para><b>What the one-minute bound costs, measured rather than predicted.</b> The same replay through
+/// the previous bound — 64 KB, which is what actually fired before <see cref="SqliteWireLogSink"/>
+/// enforced an age — produced 1.012 MB of wire.db, 0.114 MB per play-hour, 0.166 GB/year. So one minute
+/// costs <b>0.088 GB a year, about 88 MB</b>, to cut the worst-case crash loss from roughly five and a
+/// half minutes of traffic to one. Note that this is more than twice what the blob column alone
+/// suggests (0.128 vs 0.103 is only ~37 MB/year): 4.3x as many rows is 4.3x as much per-row SQLite
+/// overhead, and that overhead is the larger half of the bill. The trade is still obviously worth
+/// taking at this scale; it is written down because "the blobs only grow 25%" would have been the
+/// wrong number.</para>
+///
+/// <para>Going the other way is not free either: at 0.191 KB/s a five-second batch is a kilobyte, and a
+/// kilobyte does not compress. Buying a five-second crash window would cost 0.252 against 0.128, near
+/// enough double, forever, on a diagnostic log.</para>
+///
+/// <para>The remaining 5.37x-to-8.00x gap is only reachable by compressing a whole session as one blob,
+/// which cannot be done live — it needs a compaction pass over a session after it closes. The schema
+/// supports it (batches are keyed by session and seq); it is not implemented, and it is now worth
+/// ~0.06 GB/year.</para>
 ///
 /// <para><b>Format.</b> A batch buffer is
 /// <code>
@@ -62,7 +78,14 @@ public enum WireLogCodec
 /// varint each that compress badly; zigzag rather than plain because a wall-clock step backwards
 /// (NTP) must round-trip exactly rather than being clamped into a lie. Direction rides in the low two
 /// bits of the length varint because it only has three values and a whole byte per record is 1.3%
-/// of the corpus. Total framing overhead measured at 4.7% before compression, near zero after.</para>
+/// of the corpus. Total framing overhead measured at 4.2% before compression, near zero after.</para>
+///
+/// <para><b>There is no redundancy in here at all</b>, and that is a deliberate limitation with a
+/// measured consequence. Every byte is a varint or a payload byte, so damage that keeps the buffer
+/// parseable produces a different but entirely well-formed run of records. What guards a batch is not
+/// the format but the two numbers stored beside it in the row — <c>raw_bytes</c> and <c>records</c> —
+/// which <see cref="Decompress"/> and <see cref="Decode"/> now enforce. See
+/// <see cref="WireLogExport.ReadSession"/> for what that catches and what it does not.</para>
 /// </summary>
 public static class WireLogFraming
 {
@@ -86,8 +109,26 @@ public static class WireLogFraming
         }
     }
 
-    /// <summary>Inverse of <see cref="Compress"/>.</summary>
+    /// <summary>
+    /// Inverse of <see cref="Compress"/>, and the first of the two integrity checks.
+    ///
+    /// <para><paramref name="expectedLength"/> is <c>batches.raw_bytes</c>. It used to be nothing but a
+    /// capacity hint for the output buffer; it is now enforced, because a stored length that disagrees
+    /// with what came out of the decompressor is proof the row is damaged and costs one comparison to
+    /// notice. Pass 0 only where no stored length exists.</para>
+    /// </summary>
+    /// <exception cref="InvalidDataException">Unknown codec, or the decompressed length is not
+    /// <paramref name="expectedLength"/>.</exception>
     public static byte[] Decompress(WireLogCodec codec, byte[] data, int expectedLength)
+    {
+        var framed = DecompressRaw(codec, data, expectedLength);
+        if (expectedLength > 0 && framed.Length != expectedLength)
+            throw new InvalidDataException(
+                $"Wire-log batch is {framed.Length} bytes decompressed, but the row says {expectedLength}.");
+        return framed;
+    }
+
+    private static byte[] DecompressRaw(WireLogCodec codec, byte[] data, int expectedLength)
     {
         if (codec == WireLogCodec.None) return data;
 
@@ -110,9 +151,18 @@ public static class WireLogFraming
     /// Decodes a framed batch buffer back into the exact records that were appended to it.
     /// <paramref name="baseTimestampMs"/> is the batch's stored base (the first record's absolute
     /// timestamp); everything after is reconstructed from the deltas.
+    ///
+    /// <para><paramref name="expectedRecords"/> is <c>batches.records</c>, and is the second integrity
+    /// check. The framing has no internal redundancy at all — every byte is either a varint or payload,
+    /// so most single-byte damage re-parses into a different but perfectly well-formed run of records
+    /// and is indistinguishable from real traffic. The record count is the one thing stored outside the
+    /// blob that a corrupted blob has to agree with; requiring it is what turns "decoded fine" into
+    /// "decoded as what was written." Pass -1 only where no stored count exists.</para>
     /// </summary>
-    /// <exception cref="InvalidDataException">The buffer is not a batch, or is truncated.</exception>
-    public static List<WireRecord> Decode(ReadOnlySpan<byte> framed, long baseTimestampMs)
+    /// <exception cref="InvalidDataException">The buffer is not a batch, is truncated, or does not hold
+    /// <paramref name="expectedRecords"/> records.</exception>
+    public static List<WireRecord> Decode(ReadOnlySpan<byte> framed, long baseTimestampMs,
+        int expectedRecords = -1)
     {
         if (framed.Length < Magic.Length || !framed[..Magic.Length].SequenceEqual(Magic))
             throw new InvalidDataException("Not a wire-log batch (bad magic).");
@@ -124,16 +174,24 @@ public static class WireLogFraming
         {
             var delta = Zigzag.Decode(ReadVarint(framed, ref offset));
             var header = ReadVarint(framed, ref offset);
-            var length = (int)(header >> 2);
+            // The cast to int is why this is checked against the ulong and not after: a length varint of
+            // 2^32 truncates to 0, which is a valid empty payload, so the bounds test below would pass
+            // and the batch would decode into records nobody wrote.
+            var length64 = header >> 2;
             var direction = (WireDirection)(byte)(header & 0b11);
-            if (length < 0 || offset + length > framed.Length)
+            if (length64 > int.MaxValue || offset + (int)length64 > framed.Length)
                 throw new InvalidDataException("Truncated wire-log batch.");
+            var length = (int)length64;
 
             var timestamp = previous + delta;
             previous = timestamp;
             records.Add(new WireRecord(timestamp, direction, framed.Slice(offset, length).ToArray()));
             offset += length;
         }
+
+        if (expectedRecords >= 0 && records.Count != expectedRecords)
+            throw new InvalidDataException(
+                $"Wire-log batch decoded {records.Count} records, but the row says {expectedRecords}.");
         return records;
     }
 

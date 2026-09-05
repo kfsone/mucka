@@ -13,8 +13,9 @@ namespace Mucka.Core;
 /// <c>ATTACH</c> if it ever needs to be a real query). With no join to buy, the differences decide it,
 /// and they all point the same way:</para>
 /// <list type="bullet">
-///   <item><description><b>Growth.</b> This grows without bound — every byte of every session, roughly
-///   0.1 MB per play-hour compressed, so on the order of 0.15 GB a year at the owner's rate. The combat
+///   <item><description><b>Growth.</b> This grows without bound — every byte of every session, a
+///   measured 0.174 MB per play-hour compressed (MB = 10^6; see <see cref="WireLogFraming"/>), so about
+///   0.25 GB a year at the owner's four-hours-a-day rate. The combat
 ///   database is thousands of small rows and is read interactively. Interleaving multi-kilobyte blob
 ///   pages through a file whose queries want to stay in page cache makes the small, frequent, latency-
 ///   sensitive reads pay for the large, rare, latency-indifferent writes.</description></item>
@@ -25,7 +26,7 @@ namespace Mucka.Core;
 ///   wire log" must never be an operation that can touch the combat data.</description></item>
 ///   <item><description><b>Writers.</b> CombatDb already carries two independent writers and needed a
 ///   five-second busy timeout to stop them dropping each other's batches. A third writer committing a
-///   50 KB blob every few minutes is more lock time on a file whose readers are on the analysis
+///   ~12 KB blob every minute is more lock time on a file whose readers are on the analysis
 ///   path.</description></item>
 /// </list>
 ///
@@ -96,11 +97,13 @@ public static class WireLogDb
     /// compressed runs of framed records (see <see cref="WireLogFraming"/> for the byte layout inside
     /// <c>data</c>).
     ///
-    /// <para><c>raw_bytes</c> is kept alongside the blob so the decoder can size its output buffer in one
-    /// allocation and so a "what is this costing me" query is arithmetic on two columns rather than a
-    /// decompression pass. <c>seq</c> is per-session and gapless when nothing was lost: a hole in it is
-    /// the visible evidence that a batch failed to write, which a blob table otherwise hides
-    /// completely.</para>
+    /// <para><c>raw_bytes</c> and <c>records</c> earn their space three times over: they size the
+    /// decoder's output buffer in one allocation, they make "what is this costing me" arithmetic on two
+    /// columns rather than a decompression pass, and — since the framing itself carries no redundancy
+    /// whatever — they are the ONLY thing that can tell a damaged batch from a plausible one. Both are
+    /// enforced on every read; see <see cref="WireLogExport.ReadSession"/>. <c>seq</c> is per-session and
+    /// gapless when nothing was lost: a hole in it is the visible evidence that a batch failed to write
+    /// or was dropped by a wedged writer, which a blob table otherwise hides completely.</para>
     /// </summary>
     private const string SchemaSql = """
         CREATE TABLE IF NOT EXISTS sessions (

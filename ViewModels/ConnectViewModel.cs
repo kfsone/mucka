@@ -184,10 +184,14 @@ public sealed class ConnectViewModel : BaseViewModel
             // section, so every profile carries the same value; the fallback only matters for a
             // brand-new profile name typed on this page, which has no SavedProfiles entry yet.
             // Failure is reported but never blocks the connection - unlike the hand-armed capture
-            // above, nobody asked for this on this particular run.
+            // above, nobody asked for this on this particular run. It IS reported where a human can see
+            // it, though: this branch is reachable (the sink opens the database in its constructor), and
+            // a wire log that silently never records is the worst outcome for a setting switched on once
+            // and never checked again. StatusText covers the case where the connection then fails too;
+            // MuckaConnection.WireLogFailure carries it into the terminal if the connection succeeds.
             var wireLog = (saved ?? SavedProfiles.FirstOrDefault())?.LogWireSession ?? false;
             if (wireLog && !conn.TryStartWireLog(Host.Trim(), out var wireLogError))
-                System.Diagnostics.Debug.WriteLine($"[ConnectViewModel] wire log failed to start: {wireLogError}");
+                StatusText = $"Wire log failed to start: {wireLogError}";
 
             await conn.ConnectAsync(Host.Trim(), Port);
 

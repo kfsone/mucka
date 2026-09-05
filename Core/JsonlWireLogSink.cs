@@ -13,10 +13,11 @@ namespace Mucka.Core;
 /// players would want. It is additive-only alongside <see cref="SqliteWireLogSink"/>; retiring it is a
 /// separate decision.</para>
 ///
-/// <para><b>What it costs, so the choice is informed.</b> Measured on the owner's 40 captures: 6.1 MB of
-/// payload becomes 17.2 MB on disk, because MUD2's C1 codes are high bytes and
-/// <see cref="JsonSerializer"/> writes each one as a six-character <c>ÿ</c> escape. That is 1.93 MB
-/// per play-hour against the SQLite sink's ~0.10.</para>
+/// <para><b>What it costs, so the choice is informed.</b> Measured on the owner's 40 captures (MB =
+/// 10^6 bytes, as in <see cref="WireLogFraming"/>): 6.14 MB of payload becomes 17.15 MB on disk,
+/// because MUD2's C1 codes are high bytes and <see cref="JsonSerializer"/> writes each one as a
+/// six-character <c>ÿ</c> escape. That is 1.924 MB per play-hour against the SQLite sink's measured
+/// 0.174 — eleven times the disk for the same traffic.</para>
 ///
 /// <para><b>Encoding.</b> The inverse of the contract on <see cref="WireRecord"/>: rx/tx payloads are raw
 /// wire bytes and come back through Latin-1 (byte-for-char, lossless); annotations are UTF-8 of a .NET

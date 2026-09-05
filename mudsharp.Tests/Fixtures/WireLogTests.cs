@@ -356,7 +356,213 @@ public sealed class WireLogTests : IDisposable
         Assert.Contains("\"an\",\"capture stopped\"", lines[2]);
     }
 
+    // -- The batch bounds -------------------------------------------------------
+
+    [Fact]
+    public void Sink_closes_a_batch_at_the_age_bound_not_only_at_the_size_bound()
+    {
+        // Ten minutes of idle chatter: a few hundred bytes, nowhere near MaxBatchBytes. The age bound is
+        // the only thing that can close these, and it is enforced on the RECORD's timestamp rather than
+        // by the housekeeping timer, so this is deterministic rather than a sleep. Before the age check
+        // moved into Record() this produced exactly one batch, and a crash at minute nine lost all of it.
+        var start = 1_787_000_000_000L;
+        var records = new List<WireRecord>();
+        for (var minute = 0; minute < 20; minute++)
+            records.Add(new WireRecord(start + minute * 60_000L, WireDirection.Rx, Wire("tick%0D%0A")));
+
+        using (var sink = new SqliteWireLogSink(DbPath, "mud2.co.uk"))
+            foreach (var r in records) sink.Record(r.Direction, r.TimestampMs, r.Payload);
+
+        // The bound is checked after the append, so a batch SPANS at most MaxBatchAge rather than
+        // ending just before it: these pair up two ticks per batch, ten batches for twenty minutes.
+        var session = Assert.Single(WireLogExport.ListSessions(DbPath));
+        Assert.Equal(records.Count, session.Records);
+        Assert.True(session.Batches >= 9,
+            $"the {SqliteWireLogSink.MaxBatchAge.TotalSeconds}s age bound should have closed a batch a minute, got {session.Batches}");
+        AssertSame(records, WireLogExport.ReadSession(DbPath, session.Id).ToList());
+    }
+
+    // -- Opening the database: eagerly, and loudly when it fails -----------------
+
+    [Fact]
+    public void Sink_creates_its_directory_and_database_before_anything_is_recorded()
+    {
+        // The wire log is switched on once and never checked again, so "did it open?" has to be
+        // answerable at start. Nothing has been recorded here at all: the directory, the file and the
+        // sessions row must exist anyway. While it opened lazily, a broken log looked exactly like a
+        // quiet one.
+        var nested = Path.Combine(_dir, "does", "not", "exist", "yet");
+        var path = Path.Combine(nested, "wire.db");
+        Assert.False(Directory.Exists(nested));
+
+        using (var sink = new SqliteWireLogSink(path, "mud2.co.uk"))
+        {
+            Assert.True(Directory.Exists(nested));
+            Assert.True(File.Exists(path));
+            var open = Assert.Single(WireLogExport.ListSessions(path));
+            Assert.Equal("mud2.co.uk", open.Host);
+            Assert.Equal(0L, open.Batches);
+        }
+    }
+
+    [Fact]
+    public void Sink_throws_at_construction_when_the_database_cannot_be_opened()
+    {
+        // A plain file where the directory has to go: Directory.CreateDirectory cannot make one, so the
+        // open fails. Before the constructor opened the database this call succeeded and the failure
+        // arrived - if at all - minutes later on a background thread.
+        Assert.ThrowsAny<Exception>(() => new SqliteWireLogSink(BlockedDbPath(), "mud2.co.uk"));
+    }
+
+    [Fact]
+    public void Capture_reports_a_database_it_cannot_open_instead_of_claiming_success()
+    {
+        // This is the contract MuckaConnection.TryStartWireLog hands to ConnectViewModel, and the whole
+        // reason that error branch is not dead code.
+        var blocked = BlockedDbPath();
+        using var capture = new SessionCapture();
+
+        var started = capture.TryStartDatabase(() => new SqliteWireLogSink(blocked, "mud2.co.uk"), out var error);
+
+        Assert.False(started);
+        Assert.False(string.IsNullOrWhiteSpace(error));
+        Assert.Null(capture.DatabasePath);
+        Assert.False(capture.IsRecording);
+    }
+
+    [Fact]
+    public void A_database_sink_that_fails_does_not_take_the_file_capture_down_with_it()
+    {
+        // One dead sink must not cost the others. The file capture is the one the player armed by hand
+        // this run; the database log failing is not its problem.
+        var capture = new SessionCapture();
+        try
+        {
+            Assert.False(capture.TryStartDatabase(() => new SqliteWireLogSink(BlockedDbPath(), "h"), out _));
+            Assert.True(capture.TryStartFile(_dir, "mud2.co.uk", out _));
+            // ...and a sink that fails on every single call, attached alongside it.
+            Assert.True(capture.TryStartDatabase(() => new ThrowingSink(), out _));
+
+            capture.RecordRx(Wire("%A3%9Bhello%0D%0A"));
+            var filePath = capture.FilePath!;
+            capture.Stop();
+
+            var lines = File.ReadAllLines(filePath).Where(l => l.Length > 0).ToArray();
+            Assert.Contains(lines, l => l.Contains("hello", StringComparison.Ordinal));
+        }
+        finally { capture.Dispose(); }
+    }
+
+    [Fact]
+    public void A_dead_writer_stops_accepting_records_and_says_so()
+    {
+        // Kill the writer for real - drop the table out from under it - rather than mocking the failure.
+        // Before this, the writer died on the first SQLite error and Record()/Flush() went on feeding a
+        // channel with no reader for the rest of the session: an unbounded leak whose only trace was one
+        // line in the crash log.
+        var failures = new List<string>();
+        using var sink = new SqliteWireLogSink(DbPath, "mud2.co.uk", null,
+            (context, _) => { lock (failures) failures.Add(context); });
+
+        sink.Record(WireDirection.Rx, 1_787_000_000_000L, Wire("first%0D%0A"));
+        sink.Flush();
+        WaitForRecords(DbPath, 1);   // the writer is definitely alive and has committed
+
+        using (var saboteur = WireLogDb.Open(DbPath))
+        {
+            using var drop = saboteur.CreateCommand();
+            drop.CommandText = "DROP TABLE batches;";
+            drop.ExecuteNonQuery();
+        }
+
+        sink.Record(WireDirection.Rx, 1_787_000_000_001L, Wire("second%0D%0A"));
+        sink.Flush();
+
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+        while (!sink.IsFaulted && DateTime.UtcNow < deadline) Thread.Sleep(25);
+        Assert.True(sink.IsFaulted, "the sink should have marked itself faulted when its writer died");
+        lock (failures) Assert.NotEmpty(failures);
+
+        // And it is now inert: nothing accepted, nothing queued, nothing thrown at the socket loop.
+        for (var i = 0; i < 1000; i++)
+            sink.Record(WireDirection.Rx, 1_787_000_000_002L + i, Wire("ignored%0D%0A"));
+        sink.Flush();
+        Assert.True(sink.IsFaulted);
+        Assert.Equal(0, sink.DroppedBatches);
+    }
+
+    // -- Integrity: the two fields that were stored and ignored ------------------
+
+    [Fact]
+    public void Framing_rejects_a_batch_that_does_not_hold_the_record_count_the_row_claims()
+    {
+        var builder = new WireLogBatchBuilder();
+        foreach (var r in SampleRecords()) builder.Append(r.Direction, r.TimestampMs, r.Payload);
+        var framed = builder.ToArray();
+
+        Assert.Equal(6, WireLogFraming.Decode(framed, 0, expectedRecords: 6).Count);
+        Assert.Throws<InvalidDataException>(() => WireLogFraming.Decode(framed, 0, expectedRecords: 5));
+        Assert.Throws<InvalidDataException>(() => WireLogFraming.Decode(framed, 0, expectedRecords: 7));
+    }
+
+    [Fact]
+    public void Framing_rejects_a_blob_that_does_not_decompress_to_the_length_the_row_claims()
+    {
+        var builder = new WireLogBatchBuilder();
+        foreach (var r in SampleRecords()) builder.Append(r.Direction, r.TimestampMs, r.Payload);
+        var framed = builder.ToArray();
+        var (codec, blob) = WireLogFraming.Compress(framed);
+
+        Assert.Equal(framed, WireLogFraming.Decompress(codec, blob, framed.Length));
+        Assert.Throws<InvalidDataException>(() => WireLogFraming.Decompress(codec, blob, framed.Length - 1));
+        Assert.Throws<InvalidDataException>(() => WireLogFraming.Decompress(codec, blob, framed.Length + 1));
+    }
+
+    [Theory]
+    [InlineData("records")]
+    [InlineData("raw_bytes")]
+    public void Export_refuses_a_batch_row_whose_integrity_field_no_longer_matches(string column)
+    {
+        // The end-to-end version: a row damaged in the database is rejected on read rather than
+        // decoded into records nobody ever sent. Both columns were written from the first commit and
+        // neither was ever read back.
+        var records = SampleRecords();
+        using (var sink = new SqliteWireLogSink(DbPath, "mud2.co.uk"))
+            foreach (var r in records) sink.Record(r.Direction, r.TimestampMs, r.Payload);
+
+        var session = Assert.Single(WireLogExport.ListSessions(DbPath));
+        AssertSame(records, WireLogExport.ReadSession(DbPath, session.Id).ToList());   // healthy first
+
+        using (var connection = WireLogDb.Open(DbPath))
+        {
+            using var damage = connection.CreateCommand();
+            damage.CommandText = $"UPDATE batches SET {column} = {column} + 1;";
+            Assert.Equal(1, damage.ExecuteNonQuery());
+        }
+
+        Assert.Throws<InvalidDataException>(() => WireLogExport.ReadSession(DbPath, session.Id).ToList());
+    }
+
     // -- Helpers ----------------------------------------------------------------
+
+    /// <summary>A database path that cannot possibly be opened: its parent "directory" is a file.</summary>
+    private string BlockedDbPath()
+    {
+        Directory.CreateDirectory(_dir);
+        var blocker = Path.Combine(_dir, "blocker-" + Guid.NewGuid().ToString("N"));
+        File.WriteAllText(blocker, "not a directory");
+        return Path.Combine(blocker, "wire.db");
+    }
+
+    /// <summary>A sink that fails at everything, to prove the others carry on regardless.</summary>
+    private sealed class ThrowingSink : IWireLogSink
+    {
+        public string Location => "throwing";
+        public void Record(WireDirection direction, long timestampMs, ReadOnlySpan<byte> payload)
+            => throw new IOException("sink is broken");
+        public void Flush() => throw new IOException("sink is broken");
+        public void Dispose() => throw new IOException("sink is broken");
+    }
 
     /// <summary>Parses a capture file in the existing <c>[ts,"rx"|"tx"|"an",text]</c> format back into
     /// records, applying the encoding contract on <see cref="WireRecord"/> in reverse.</summary>
