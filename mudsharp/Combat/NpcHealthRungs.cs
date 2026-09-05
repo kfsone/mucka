@@ -287,14 +287,17 @@ public static class NpcHealthRungs
     /// <para>Worth more than a rung to anything estimating a pool: a rung is a 1/7 band, this is an
     /// exact equality.</para>
     ///
-    /// <para><b>The limit of all of this, stated because it is the actual use case.</b> Every one of
-    /// the 328 readings is a PLAYER self-inspection, because the player is the only creature whose
-    /// max is knowable. Applying the ladder to creatures assumes they use the same one - plausible,
-    /// since the vocabularies are the same three families, but untested. The experiment that would
-    /// settle it is the stethoscope: <c>diagnose</c> prints "has a stamina lying between X and Y"
-    /// for a creature (see CombatTracker's NpcStaminaRead), so diagnose + <c>ql</c> on the same
-    /// creature would pin a creature reading the way <c>qs,ql me</c> pins a player one. That table
-    /// has zero rows - nobody has ever run it.</para>
+    /// <para><b>A rung is a FRACTION, not a quantity.</b> "full of life" means 100% - not 100
+    /// stamina, not 5, not 500. "close to death" means the bottom seventh of whatever that creature
+    /// has. So the ladder needs no per-creature calibration and carries no absolute information: it
+    /// applies to a rat and to a giant identically, and players are creatures like any other, which
+    /// is why 328 player self-inspections measure the scale for everything.
+    ///
+    /// <para>What a creature's rung does NOT give you is its stamina. That is the pool-estimation
+    /// problem and it is separate - see StaminaPoolEstimator. The stethoscope is the tool there:
+    /// <c>diagnose</c> prints "has a stamina lying between X and Y" (CombatTracker's
+    /// NpcStaminaRead), which is a numeric read on a creature, and combined with its rung it
+    /// brackets the creature's max. npc_stamina_reads has zero rows - nobody has run it.</para>
     /// </summary>
     public static bool IsAtMax(string phrase)
         => phrase.Equals("full of life", StringComparison.OrdinalIgnoreCase)
