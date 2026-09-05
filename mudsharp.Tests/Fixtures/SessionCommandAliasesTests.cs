@@ -129,6 +129,87 @@ public class SessionCommandAliasesTests
         Assert.Equal("look", stored);
     }
 
+    /// <summary>The owner's worked example, verbatim.</summary>
+    [Fact]
+    public void PositionalSlots_AreFilledFromTheArguments()
+    {
+        var aliases = CreateAliases();
+        Define(aliases, "k=ql $1,k $1 wi $2");
+
+        Assert.Equal("ql rat0,k rat0 wi axe", aliases.Expand("$k rat0 axe"));
+    }
+
+    /// <summary>A body with no slots keeps the behaviour it has always had - the reference is
+    /// replaced in place and the rest of the line is left alone, which appends.</summary>
+    [Fact]
+    public void ABodyWithoutSlots_StillAppendsItsArguments()
+    {
+        var aliases = CreateAliases();
+        Define(aliases, "g=get");
+
+        Assert.Equal("get sword", aliases.Expand("$g sword"));
+    }
+
+    /// <summary>Arguments past the highest slot the body mentions are appended, so a one-slot body
+    /// still behaves like the old form for anything extra.</summary>
+    [Fact]
+    public void ArgumentsBeyondTheHighestSlot_AreAppended()
+    {
+        var aliases = CreateAliases();
+        Define(aliases, "q=ql $1");
+
+        Assert.Equal("ql rat0 and rat3", aliases.Expand("$q rat0 and rat3"));
+    }
+
+    /// <summary>A slot with no argument expands to nothing, as a shell does. The result can be a
+    /// malformed command, which is the point: the player sees what was sent.</summary>
+    [Fact]
+    public void AMissingArgument_ExpandsToNothing()
+    {
+        var aliases = CreateAliases();
+        Define(aliases, "k=k $1 wi $2");
+
+        Assert.Equal("k rat0 wi ", aliases.Expand("$k rat0"));
+    }
+
+    /// <summary>Slots survive definition intact - there are no arguments at definition time, and
+    /// $1 has never matched the alias-reference pattern.</summary>
+    [Fact]
+    public void SlotsAreStoredUnexpanded()
+    {
+        var aliases = CreateAliases();
+        Define(aliases, "k=ql $1,k $1 wi $2");
+
+        Assert.True(aliases.TryGet("k", out var stored));
+        Assert.Equal("ql $1,k $1 wi $2", stored);
+    }
+
+    /// <summary>Only a reference at the START of the line takes arguments: there is no rule for
+    /// which words belong to which reference once there can be several. Mid-line it stays an
+    /// ordinary inline replacement, and an unfilled slot is left standing rather than quietly
+    /// dropped - the player sees a literal $1 in what was sent and learns the slot form is
+    /// line-leading, which a silent empty string would not teach them.</summary>
+    [Fact]
+    public void AMidLineReference_ExpandsInlineAndLeavesItsSlotsStanding()
+    {
+        var aliases = CreateAliases();
+        Define(aliases, "k=k $1");
+
+        Assert.Equal("say hello k $1 rat0", aliases.Expand("say hello $k rat0"));
+    }
+
+    /// <summary>An argument is text, not a reference - expanding it would make the result depend on
+    /// which aliases happen to exist when it is used.</summary>
+    [Fact]
+    public void ArgumentsAreNotThemselvesExpanded()
+    {
+        var aliases = CreateAliases();
+        Define(aliases, "weap=axe");
+        Define(aliases, "k=k $1 wi $2");
+
+        Assert.Equal("k rat0 wi $weap", aliases.Expand("$k rat0 $weap"));
+    }
+
     private static SessionCommandAliases CreateAliases() => new("0.14.0.98");
 
     private static void Define(SessionCommandAliases aliases, string definition)
