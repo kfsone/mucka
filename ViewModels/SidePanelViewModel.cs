@@ -645,7 +645,10 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             {
                 if (_awaitingAward.Count >= MaxAwaitingAwards)
                     _awaitingAward.Dequeue();
-                _awaitingAward.Enqueue((_encounterOrdinal, killed));
+                // The kill event's own stamp is what the fight will resolve with, so the key built
+                // here and the one AwardFor looks up with are the same value by construction.
+                _awaitingAward.Enqueue(
+                    new KillKey(_encounterOrdinal, killed, combatEvent.TimestampUtc.Ticks));
             }
             _combatStats.Observe(combatEvent);
             if (_combatStats.HasEncounter)
@@ -1944,7 +1947,26 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         => new(
             fight.NpcName, fight.Outcome, fight.EndedUtc, encounterOrdinal, resetOrdinal,
             DealtLine(fight), TakenLine(fight),
-            _awardByKill.TryGetValue((encounterOrdinal, fight.NpcName), out var award) ? award : null);
+            AwardFor(encounterOrdinal, fight.NpcName, fight.EndedUtc));
+
+    /// <summary>
+    /// The award paired to one kill. Keyed on WHEN it died as well as what it was called.
+    ///
+    /// <para><b>A creature can be killed more than once in one encounter</b> (owner, 2026-09-07): MUD2
+    /// has in-game mechanisms for re-summoning a dead NPC to kill it again, and the same instance name
+    /// comes back with it. Keyed on name alone, the second rat8's award overwrote the first's - or, with
+    /// an add-only guard, was dropped and both rows then showed the first kill's figure.</para>
+    ///
+    /// <para>The timestamp is what makes it unique, and it is exact rather than approximate: a fight
+    /// resolves with the kill EVENT's own stamp (CombatStatsAggregator.ResolveFight), which is the same
+    /// value the pending queue was given when that event arrived. Two kills of one name cannot share it,
+    /// because the player cannot be engaged with the same creature twice inside one combat slice.</para>
+    /// </summary>
+    private int? AwardFor(int encounterOrdinal, string name, DateTime? endedUtc)
+        => endedUtc is DateTime ended
+            && _awardByKill.TryGetValue(new KillKey(encounterOrdinal, name, ended.Ticks), out var award)
+                ? award
+                : null;
 
     /// <summary>
     /// Kills still waiting for the score line that follows them, oldest first.
@@ -1960,9 +1982,9 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     /// cosmetic error rather than a decision the player would make. Bounded to the last few kills so a
     /// long session cannot accumulate a queue nobody drains.</para>
     /// </summary>
-    private readonly Queue<(int Encounter, string Name)> _awaitingAward = new();
+    private readonly Queue<KillKey> _awaitingAward = new();
 
-    private readonly Dictionary<(int Encounter, string Name), int> _awardByKill = new();
+    private readonly Dictionary<KillKey, int> _awardByKill = new();
 
     /// <summary>How many unpaired kills to remember. Small deliberately: if an award has not arrived
     /// within a few kills, the pairing has already gone wrong and holding the entry forever would only
@@ -1985,8 +2007,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             if (save.Delta is not int delta || delta <= 0 || _awaitingAward.Count == 0)
                 return;
 
-            var (encounter, name) = _awaitingAward.Dequeue();
-            RecordAward(encounter, name, delta);
+            RecordAward(_awaitingAward.Dequeue(), delta);
             // The dirty check is a resolved-count comparison, which cannot see an award attaching to a
             // row that already exists - so the cache is invalidated explicitly.
             _deadStripHistoryCachedResolvedCount = -1;
@@ -2001,20 +2022,23 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     /// panel has room for behind its "+N earlier" marker. Evicting the oldest therefore drops figures
     /// for rows that cannot be seen, which is the right thing to lose.</para>
     /// </summary>
-    private void RecordAward(int encounter, string name, int delta)
+    private void RecordAward(KillKey key, int delta)
     {
         if (_awardOrder.Count >= MaxRememberedAwards)
             _awardByKill.Remove(_awardOrder.Dequeue());
 
-        var key = (encounter, name);
-        // A creature can only be killed once, so a repeat key is not expected - but a fight CAN reopen
-        // against the same instance name within one encounter (see CombatStatsAggregator's failed-flee
-        // segmentation), so the guard is here rather than assumed away.
+        // TryAdd rather than an assignment only so a repeat can never silently rewrite an earlier
+        // row's figure. With the kill's own timestamp in the key it should be unreachable - see
+        // AwardFor for why two kills of one name cannot share a stamp.
         if (_awardByKill.TryAdd(key, delta))
             _awardOrder.Enqueue(key);
     }
 
-    private readonly Queue<(int Encounter, string Name)> _awardOrder = new();
+    /// <summary>One kill, identified well enough to survive a creature being re-summoned and killed
+    /// again inside the same encounter. See <see cref="AwardFor"/>.</summary>
+    private readonly record struct KillKey(int Encounter, string Name, long EndedTicks);
+
+    private readonly Queue<KillKey> _awardOrder = new();
 
     private const int MaxRememberedAwards = 512;
 
