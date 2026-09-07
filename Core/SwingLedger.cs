@@ -98,7 +98,7 @@ public sealed class SwingLedger : IDisposable
     // what makes a live fight's "ever" figures genuinely mean "before this fight" - see
     // SwingDamageIndex's class remarks. Cleared by the same merge that consumes them, so an encounter
     // can never be folded in twice.
-    private readonly List<(string NpcName, double Damage)> _encounterTaken = [];
+    private readonly List<(string NpcName, string? NpcWeapon, double Damage)> _encounterTaken = [];
     private readonly List<(string NpcName, double Low, double High)> _encounterDealt = [];
 
     private readonly SwingDamageIndex _damage = new();
@@ -166,8 +166,10 @@ public sealed class SwingLedger : IDisposable
             var incomingByGroup = ReadDamage(connection, "v_incoming_by_group");
             var outgoingByNpc = ReadBracket(connection, "v_outgoing_by_npc");
             var outgoingByGroup = ReadBracket(connection, "v_outgoing_by_group");
+            var incomingByGroupWeapon = ReadDamage(connection, "v_incoming_by_group_weapon");
 
-            _damage.LoadProfiles(incomingByNpc, incomingByGroup, outgoingByNpc, outgoingByGroup);
+            _damage.LoadProfiles(
+                incomingByNpc, incomingByGroup, outgoingByNpc, outgoingByGroup, incomingByGroupWeapon);
 
             // Reach marks come off the same per-instance rows the damage index already read, folded
             // up to the pool key: "large rat0" and "large rat7" are one creature as far as how hard it
@@ -374,7 +376,7 @@ public sealed class SwingLedger : IDisposable
                 // Reach marks fold at the same instant and for the same reason. Unlike the damage
                 // index this one only ever rises, so folding it late costs nothing but a session's
                 // worth of latency on a number that changes a handful of times a month.
-                foreach (var (npcName, damage) in _encounterTaken)
+                foreach (var (npcName, _, damage) in _encounterTaken)
                     _reach.Observe(npcName, damage);
                 _encounterTaken.Clear();
                 _encounterDealt.Clear();
@@ -491,7 +493,15 @@ public sealed class SwingLedger : IDisposable
                     // the stamina baseline (see ResolveDamageTakenLocked).
                     var (damage, staminaBefore) = ResolveDamageTakenLocked(combatEvent.RangeLow);
                     if (damage is int taken && !string.IsNullOrWhiteSpace(combatEvent.NpcName))
-                        _encounterTaken.Add((combatEvent.NpcName, taken));
+                    {
+                        // The creature's weapon as of THIS blow, from the same per-NPC state the row
+                        // itself is built from - not the weapon it ends the fight holding. A creature
+                        // that swaps mid-fight landed its earlier blows with the earlier weapon, and
+                        // attributing them all to the last one would quietly corrupt the per-weapon
+                        // history this is being collected for.
+                        _encounterTaken.Add(
+                            (combatEvent.NpcName, FightForLocked(combatEvent)?.NpcWeapon, taken));
+                    }
                     AppendLocked(BuildRowLocked(
                         combatEvent, SwingRow.DirectionIn, hit: true, damage, staminaBefore));
                     break;

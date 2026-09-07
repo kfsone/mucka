@@ -38,14 +38,15 @@ public static class CombatRailResize
     // so the canvas/Composition-sibling content area inside is narrower than the panel's own
     // WidthRequest by twice this.
     public const double CombatPanelBorderStrokeDp = 1.0;
-    // Content width of the combat rail panel once the Border's stroke has inset it. MUST match
-    // Mucka.Rendering.CombatRailView.RailWidth (336f) - that type lives in the Mucka project, which
-    // depends on THIS project, so the dependency cannot point the other way and this value is
-    // necessarily a hand-kept duplicate. Same risk class as GamePage.xaml's WidthRequest="338"
-    // literal duplicating CombatPanelWidthDp below, or SidePanelWidthDp duplicating
-    // SidePanelBorder's own WidthRequest - this codebase's established, accepted way of pairing a
-    // XAML/cross-project literal with a comment rather than a compile-time link.
-    public const double CombatPanelContentWidthDp = 336.0;
+    // Content width of the combat rail panel once the Border's stroke has inset it. Mucka's
+    // CombatRailView.RailWidth READS this constant (this project is the plain net10.0 one and cannot
+    // reference that one), so there is exactly one source of truth for the width itself - what is
+    // hand-kept is GamePage.xaml's WidthRequest literal, which must be this plus two strokes.
+    //
+    // 336 until 2026-09-06, when the tile's ring seal became a full-width bar. The extra 40 units are
+    // what the two damage rows and the exchange spark are drawn in; the owner set the budget ("I'm
+    // fine with widening the whole rail another 16-48 pixels").
+    public const double CombatPanelContentWidthDp = 376.0;
     // The outer Border's own WidthRequest (must match GamePage.xaml literally) - the amount of
     // window width the docked panel actually costs when reserved in the Grid.
     public const double CombatPanelWidthDp = CombatPanelContentWidthDp + (CombatPanelBorderStrokeDp * 2.0);

@@ -547,8 +547,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
                 foreach (var fight in closingSnapshot.Fights)
                 {
                     if (fight.IsResolved)
-                        newEndings.Add(new CombatEnding(
-                            fight.NpcName, fight.Outcome, fight.EndedUtc, _encounterOrdinal, _resetOrdinal));
+                        newEndings.Add(EndingFor(fight, _encounterOrdinal, _resetOrdinal));
                 }
                 _endingArchive.AddRange(CombatEndingOrder.Sorted(newEndings));
                 // A fresh immutable copy - see _archiveSnapshot's own remarks on why this is the ONLY
@@ -639,6 +638,15 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             if (IsSwing(combatEvent.Kind) && _tickPhase.Observe(combatEvent.TimestampUtc))
                 OnPropertyChanged(nameof(TickPhaseUtc));
             _combatClearGeneration++;
+            // Queued BEFORE the aggregator sees it, so the kill is waiting by the time the award line
+            // that follows it arrives - see _awaitingAward for why that ordering is the whole pairing.
+            if (combatEvent.Kind == CombatEventKind.Kill
+                && combatEvent.NpcName is { Length: > 0 } killed)
+            {
+                if (_awaitingAward.Count >= MaxAwaitingAwards)
+                    _awaitingAward.Dequeue();
+                _awaitingAward.Enqueue((_encounterOrdinal, killed));
+            }
             _combatStats.Observe(combatEvent);
             if (_combatStats.HasEncounter)
                 _hasCombatData = true;
@@ -661,6 +669,12 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         => MainThread.BeginInvokeOnMainThread(() =>
         {
             ObserveFloatStamina(stats.Stamina);
+            // The game's own colour for the stamina figure. Sticky: a partial snapshot that carries no
+            // colour must not reset it to "unknown" and flip the condition line to a default tone
+            // mid-fight - MudSession.OnStatsUpdated carries the previous value forward for the same
+            // reason.
+            if (stats.StaminaColor is byte staColor)
+                _staminaAnsiColor = staColor;
             // Every stamina reading, not just the ones inside a fight: the tracker's own gain rule is
             // what clears a stale slice, and it only sees a gain if it sees the reading.
             _tickLoss.Observe(stats.Stamina, DateTime.UtcNow);
@@ -1075,8 +1089,6 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             // is the absolute-threshold bug this replaced.
             FleeCostPoints: FleeCostEstimate.Points(
                 deficits.StaminaCurrent, deficits.StaminaMax, deficits.Score),
-            // The bracket MUD2 printed, never a midpoint. See CombatLiveView.TargetDealtBracket.
-            TargetDealtBracket: primary is { IsResolved: false } ? primary.YourDamage : null,
             // The incoming half of the border language, pooled over everything still swinging at the
             // player. See CombatLiveView.IncomingTempo for why it is a ratio of sums.
             IncomingTempo: IncomingTempoOf(snapshot),
@@ -1090,7 +1102,24 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
                 2, deficits.StaminaCurrent, deficits.StaminaMax, incomingPerBlow),
             StaminaLostLastTick: _tickLoss.LostThisTick,
             // Only meaningful alongside a nonzero LostThisTick - see CombatLiveView.StaminaLossUtc.
-            StaminaLossUtc: _tickLoss.LostThisTick > 0 ? _tickLoss.LastLossUtc : null);
+            StaminaLossUtc: _tickLoss.LostThisTick > 0 ? _tickLoss.LastLossUtc : null,
+            // The encounter table. Par counts what is still up; Op counts everything this encounter
+            // has produced, which is why a fight that has killed four of five reads "1" and "5".
+            PlayerName: _personaName,
+            StaminaAnsiColor: _staminaAnsiColor,
+            YourDealt: EncounterLine(snapshot, outgoing: true),
+            YourTaken: EncounterLine(snapshot, outgoing: false),
+            YourExchange: snapshot.Exchange,
+            LiveOpponents: roster.LiveCount,
+            OpponentsFaced: roster.TotalCount,
+            // Duration comes off the encounter, not the primary fight: a fight that started when the
+            // third creature joined has been going a fraction of the time the player has been in
+            // trouble, and the table is about the encounter.
+            EncounterTicks: EncounterTicksOf(snapshot),
+            // Both null until the projection will commit. Same instrument the survivability line uses
+            // (CombatComposition.ComputeOutlook), converted to ticks in this one place.
+            TicksToVictory: TicksFromSeconds(outlook.SecondsToKill),
+            TicksToDeath: TicksFromSeconds(outlook.SecondsToDie));
     }
 
     /// <summary>
@@ -1145,8 +1174,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         foreach (var fight in snapshot.Fights)
         {
             if (fight.IsResolved)
-                tail.Add(new CombatEnding(
-                    fight.NpcName, fight.Outcome, fight.EndedUtc, _encounterOrdinal, _resetOrdinal));
+                tail.Add(EndingFor(fight, _encounterOrdinal, _resetOrdinal));
         }
 
         var combined = new List<CombatEnding>(_archiveSnapshot.Count + tail.Count);
@@ -1272,9 +1300,13 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
                 // this fight's cumulative bracket because on a first encounter that is the only floor
                 // under the pool there is.
                 fight.RungCrossing, fight.YourDamage);
+            // One probe, three answers. Narrowed by the creature's CURRENT weapon so the armed-as-now
+            // profile comes back alongside the species-wide one; both are dictionary lookups under a
+            // single lock (SwingDamageIndex's own remarks), and taking them together rather than in
+            // two calls halves the locking on a path that runs once per opponent per refresh.
+            var damage = _swingDamage?.Lookup(fight.NpcName, fight.NpcWeapon) ?? OpponentDamage.Empty;
             var perBlow = DamagePrediction.PerBlow(
-                fight.YourDamage, fight.YouHits,
-                _swingDamage?.Lookup(fight.NpcName).Outgoing ?? BracketProfile.Empty);
+                fight.YourDamage, fight.YouHits, damage.Outgoing);
             // (None, None) with no store attached (unit/design contexts): no corpus means no evidence
             // either way, and "unfought" is a claim about the corpus rather than the absence of one.
             var novelty = _fightHistory?.NoveltyFor(fight.NpcName, currentWeapon)
@@ -1289,7 +1321,10 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
                 // file - never a zero, which would read as "this thing cannot hurt you". Only the
                 // incoming half reaches the rail today; the outgoing brackets are cached alongside it
                 // for the exchange bars and the analysis view, which want both sides.
-                _swingDamage?.Lookup(fight.NpcName).Incoming ?? DamageProfile.Empty,
+                // BestIncoming, not Incoming: narrowed to the weapon this creature is actually holding
+                // when enough blows have been seen through it. This feeds the player's own prediction
+                // bands and the flee readout, which is exactly where the sharper number belongs.
+                damage.BestIncoming,
                 vitality,
                 // rDPT: where the next two landed blows put this creature's boundary, as intervals off
                 // the player's own damage brackets. This fight's bracket is preferred over history so a
@@ -1314,9 +1349,131 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
                 // printed. Kept for the rest of the fight rather than expiring - see
                 // RosterRow.StaleAfterSeconds for why silence corroborates a reading here.
                 fight.StaminaReading,
-                fight.Value);
+                fight.Value,
+                DealtLine(fight),
+                TakenLine(fight),
+                fight.Exchange);
         }
         return facts;
+    }
+
+    /// <summary>How many combat ticks this fight has been running, as a real number. Wall clock over
+    /// the measured 2000 ms tick, NOT a count of swings: roughly half the ticks an engaged creature is
+    /// present for carry no swing at all (DamagePrediction's own remarks), so swings would understate
+    /// the elapsed time by about half and double every rate built on it.</summary>
+    private static double TicksElapsed(TimeSpan duration)
+        => duration.TotalMilliseconds / CombatTiming.TickMilliseconds;
+
+    /// <summary>Seconds into ticks, or null straight through. Null is the whole point: CombatOutlook
+    /// returns null for "not enough evidence to project", and turning that into a zero here would put
+    /// a confident "0t to death" on the table at the exact moment the projection was refusing to make
+    /// one. Permadeath game; that particular zero is the worst lie on the panel.</summary>
+    private static double? TicksFromSeconds(double? seconds)
+        => seconds is double value ? value * 1000.0 / CombatTiming.TickMilliseconds : null;
+
+    /// <summary>
+    /// The player's own stat row, pooled over every fight in the encounter.
+    ///
+    /// <para>Folded from the per-fight figures rather than kept as a second running tally, so the
+    /// player's row and the opponents' rows cannot disagree: a total is a sum, the extremes are the
+    /// extremes, and the mean comes from the pooled numerator and the pooled denominator rather than
+    /// from averaging averages (which would weight a creature hit twice like one hit forty times).</para>
+    ///
+    /// <para>The rate divides by the ENCOUNTER's duration, not the sum of the fights': three
+    /// creatures swinging at once for ten ticks is ten ticks of trouble, not thirty.</para>
+    /// </summary>
+    private static ExchangeLine EncounterLine(CombatEncounterSnapshot snapshot, bool outgoing)
+    {
+        var samples = 0;
+        var min = 0.0;
+        var max = 0.0;
+        var low = 0.0;
+        var high = 0.0;
+
+        foreach (var fight in snapshot.Fights)
+        {
+            var line = outgoing ? DealtLine(fight) : TakenLine(fight);
+            if (!line.HasSamples)
+                continue;
+
+            if (samples == 0 || line.Min < min)
+                min = line.Min;
+            if (line.Max > max)
+                max = line.Max;
+            samples += line.Samples;
+            low += line.Total.Low;
+            high += line.Total.High;
+        }
+
+        if (samples == 0)
+            return ExchangeLine.Empty;
+
+        // Both ends pooled on the outgoing side, matching DealtLine's own definition of a mean; the
+        // incoming side's two ends are equal, so the same expression is simply the exact mean.
+        return new ExchangeLine(
+            samples, min, max, (low + high) / (2.0 * samples),
+            PerTick((low + high) / 2.0, snapshot.Duration),
+            new DamageBracket(low, high));
+    }
+
+    /// <summary>
+    /// How long the whole ENCOUNTER has been running, in ticks.
+    ///
+    /// <para>Straight off <c>snapshot.Duration</c>, which the aggregator keeps as
+    /// <c>nowUtc - _encounterStartUtc</c>. This used to walk the fights and take the longest, which
+    /// was wrong twice over: <see cref="FightAccumulator.DurationAt"/> FREEZES at <c>EndedUtc</c> once
+    /// a fight resolves, so killing the last creature stopped Dur advancing while the encounter was
+    /// still open through the grace window - and the <c>dmg/tick</c> cells on the same tile divide by
+    /// this same encounter duration, so the two readouts visibly drifted apart every second.</para>
+    /// </summary>
+    private static double? EncounterTicksOf(CombatEncounterSnapshot snapshot)
+        => snapshot.Duration > TimeSpan.Zero ? TicksElapsed(snapshot.Duration) : null;
+
+    /// <summary>The player's side of the stat row. <see cref="ExchangeLine.Mean"/> pools BOTH ends of
+    /// every bracket - the owner's definition, 2026-09-05: three blows of (1-5), (5-9) and (10-14)
+    /// average to (1+5+5+9+10+14)/6. The extremes are upper bounds for the reason ExchangeLine
+    /// records.</summary>
+    private static ExchangeLine DealtLine(FightSnapshot fight)
+    {
+        if (fight.DealtSamples <= 0)
+            return ExchangeLine.Empty;
+
+        var bothEnds = fight.YourDamage.Low + fight.YourDamage.High;
+        return new ExchangeLine(
+            fight.DealtSamples,
+            fight.DealtMinHigh,
+            fight.DealtMaxHigh,
+            bothEnds / (2.0 * fight.DealtSamples),
+            PerTick(bothEnds / 2.0, fight.Duration),
+            fight.YourDamage);
+    }
+
+    /// <summary>The creature's side. Exact throughout - MUD2 prints the player absolute stamina on
+    /// every blow that lands - so the total comes back with equal ends rather than as a range.</summary>
+    private static ExchangeLine TakenLine(FightSnapshot fight)
+    {
+        var profile = fight.TheirDamage;
+        if (profile.Samples <= 0)
+            return ExchangeLine.Empty;
+
+        return new ExchangeLine(
+            profile.Samples,
+            fight.MinDamageTaken,
+            profile.Max,
+            profile.Average,
+            PerTick(profile.Sum, fight.Duration),
+            new DamageBracket(profile.Sum, profile.Sum));
+    }
+
+    /// <summary>A rate, or zero for "not yet worth stating". Under one full tick there is no rate to
+    /// report - dividing by a fraction of a tick turns the first blow of a fight into a catastrophic
+    /// -40/tick - so this returns zero and the tile draws the cell as unknown rather than as a
+    /// measurement (rule 5). Same refusal CombatOutlook makes for the same reason, at a lower bar
+    /// because this states what HAS happened rather than projecting what will.</summary>
+    private static double PerTick(double total, TimeSpan duration)
+    {
+        var ticks = TicksElapsed(duration);
+        return ticks < 1.0 ? 0.0 : total / ticks;
     }
 
     /// <summary>Stand-in for "no encounter", so the formatter's session-totals path can run without a
@@ -1775,6 +1932,105 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     /// exiting game mode advances the ordinal if the landing did not. It also fires on an ordinary
     /// logout, which is harmless - that is a session boundary worth a line too.</para>
     /// </summary>
+    /// <summary>
+    /// One resolved fight as the dead strip records it: the outcome, the exchange summary its live
+    /// tile carried, and the kill award if one has been paired to it.
+    ///
+    /// <para>Both places that build an ending route through here - the encounter-close fold and the
+    /// live tail - so a row cannot pick up different figures depending on which side of the close it
+    /// was built on.</para>
+    /// </summary>
+    private CombatEnding EndingFor(FightSnapshot fight, int encounterOrdinal, int resetOrdinal)
+        => new(
+            fight.NpcName, fight.Outcome, fight.EndedUtc, encounterOrdinal, resetOrdinal,
+            DealtLine(fight), TakenLine(fight),
+            _awardByKill.TryGetValue((encounterOrdinal, fight.NpcName), out var award) ? award : null);
+
+    /// <summary>
+    /// Kills still waiting for the score line that follows them, oldest first.
+    ///
+    /// <para>MUD2 prints a kill's award on the line AFTER the kill line - the observation is
+    /// FightHistoryRecorder.OnScoreSave's, which records it as the reason a fight's own
+    /// <c>score_at_end</c> can never hold its own award. So this queue is the pairing: a kill goes on
+    /// when its line lands, and comes off against the next announcement that raised the score.</para>
+    ///
+    /// <para><b>It is an inference and it can be wrong.</b> Anything else that raises the score inside
+    /// the gap - another character's doing, a treasure handed in - takes the award the kill was
+    /// waiting for. Nothing downstream depends on it, and a mis-paired figure on a corpse's row is a
+    /// cosmetic error rather than a decision the player would make. Bounded to the last few kills so a
+    /// long session cannot accumulate a queue nobody drains.</para>
+    /// </summary>
+    private readonly Queue<(int Encounter, string Name)> _awaitingAward = new();
+
+    private readonly Dictionary<(int Encounter, string Name), int> _awardByKill = new();
+
+    /// <summary>How many unpaired kills to remember. Small deliberately: if an award has not arrived
+    /// within a few kills, the pairing has already gone wrong and holding the entry forever would only
+    /// let it attach to something much later.</summary>
+    private const int MaxAwaitingAwards = 4;
+
+    /// <summary>MUD2 announced a score change. Pairs it with the oldest kill still waiting for
+    /// one - see <see cref="_awaitingAward"/> for why that pairing is an inference.</summary>
+    public void OnScoreSaved(MudSharp.Models.ScoreSave save)
+        // MainThread, like every other handler on this class. MuckaConnection re-raises ScoreSaved on
+        // the FEED thread with no dispatch anywhere in the chain, and _awaitingAward is a plain Queue
+        // that OnCombatEvent enqueues into from the UI thread - so without this hop the two ends of
+        // this feature race each other on exactly the sequence it exists to handle (a kill line
+        // immediately followed by its score line). Concurrent mutation of a non-thread-safe queue,
+        // reachable on every kill.
+        => MainThread.BeginInvokeOnMainThread(() =>
+        {
+            // Only a RISE can be a kill award. A flee is charged against the score and would otherwise
+            // hand a negative "reward" to the corpse of whatever the player just ran from.
+            if (save.Delta is not int delta || delta <= 0 || _awaitingAward.Count == 0)
+                return;
+
+            var (encounter, name) = _awaitingAward.Dequeue();
+            RecordAward(encounter, name, delta);
+            // The dirty check is a resolved-count comparison, which cannot see an award attaching to a
+            // row that already exists - so the cache is invalidated explicitly.
+            _deadStripHistoryCachedResolvedCount = -1;
+            RefreshCombatDisplay(DateTime.UtcNow);
+        });
+
+    /// <summary>
+    /// Stores one paired award, evicting the oldest once <see cref="MaxRememberedAwards"/> is reached.
+    ///
+    /// <para>Bounded because nothing else prunes it: a long session kills thousands of creatures and an
+    /// award is only ever read back by a dead-strip row, and the strip hides everything past what the
+    /// panel has room for behind its "+N earlier" marker. Evicting the oldest therefore drops figures
+    /// for rows that cannot be seen, which is the right thing to lose.</para>
+    /// </summary>
+    private void RecordAward(int encounter, string name, int delta)
+    {
+        if (_awardOrder.Count >= MaxRememberedAwards)
+            _awardByKill.Remove(_awardOrder.Dequeue());
+
+        var key = (encounter, name);
+        // A creature can only be killed once, so a repeat key is not expected - but a fight CAN reopen
+        // against the same instance name within one encounter (see CombatStatsAggregator's failed-flee
+        // segmentation), so the guard is here rather than assumed away.
+        if (_awardByKill.TryAdd(key, delta))
+            _awardOrder.Enqueue(key);
+    }
+
+    private readonly Queue<(int Encounter, string Name)> _awardOrder = new();
+
+    private const int MaxRememberedAwards = 512;
+
+    /// <summary>The persona occupying this session, from MudSession.CharacterIdentified - the same
+    /// post-login handshake FightHistoryRecorder stamps its rows with. Session-scoped and replaced
+    /// wholesale on a persona switch; the rail is handed over at the same moment (see
+    /// GameViewModel.OnCharacterIdentified), so the name and the panel it labels cannot disagree.</summary>
+    public void OnCharacterIdentified(string name)
+    {
+        _personaName = name ?? string.Empty;
+        RefreshCombatDisplay(DateTime.UtcNow);
+    }
+
+    private string _personaName = string.Empty;
+    private byte? _staminaAnsiColor;
+
     public void OnWorldResetLanded()
         => MainThread.BeginInvokeOnMainThread(() => { _resetOrdinal++; _resetOrdinalAdvanced = true; });
 

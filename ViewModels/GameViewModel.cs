@@ -1040,6 +1040,10 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
                 railWasVisible = _railVisibleByChar.Count == 0 && SidePanel.IsCombatPanelVisible;
             _railVisibleByChar[railKey] = railWasVisible;
             SidePanel.IsCombatPanelVisible = railWasVisible;
+            // The rail labels its own tile with the persona, so it is handed the name in the same
+            // block that hands it the visibility - the two cannot then disagree about whose fight is
+            // on screen.
+            SidePanel.OnCharacterIdentified(name);
 
             _currentChar = name;
             if (_baseScoreByChar.TryGetValue(name, out var stored))
@@ -2097,6 +2101,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _conn.FewListComplete  += SidePanel.OnFewListComplete;
         _conn.SniffResult      += SidePanel.OnSniffResult;
         _conn.CreatureValueResolved += SidePanel.OnCreatureValueResolved;
+        _conn.ScoreSaved       += SidePanel.OnScoreSaved;
         _conn.FeiListStarting  += SidePanel.OnFeiListStarting;
         _conn.FeiItemReady     += SidePanel.OnFeiItemReady;
         _conn.FeiListComplete  += SidePanel.OnFeiListComplete;
@@ -2147,6 +2152,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _conn.FewListComplete  -= SidePanel.OnFewListComplete;
         _conn.SniffResult      -= SidePanel.OnSniffResult;
         _conn.CreatureValueResolved -= SidePanel.OnCreatureValueResolved;
+        _conn.ScoreSaved       -= SidePanel.OnScoreSaved;
         _conn.FeiListStarting  -= SidePanel.OnFeiListStarting;
         _conn.FeiItemReady     -= SidePanel.OnFeiItemReady;
         _conn.FeiListComplete  -= SidePanel.OnFeiListComplete;

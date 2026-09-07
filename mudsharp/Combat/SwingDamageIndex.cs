@@ -71,9 +71,26 @@ public readonly record struct BracketProfile(int Samples, double SumLow, double 
 
 /// <summary>Both sides of the exchange with one creature. Kept together because every question worth
 /// asking about a fight is a ratio of the two.</summary>
-public readonly record struct OpponentDamage(DamageProfile Incoming, BracketProfile Outgoing)
+/// <param name="IncomingArmedAsNow">The incoming history narrowed to blows this creature's SPECIES
+/// landed while holding the weapon it is holding right now. Empty when the creature's weapon is
+/// unknown, or when too few blows have been seen through that particular weapon to say anything -
+/// callers must fall back to <paramref name="Incoming"/> rather than read an empty profile as
+/// "harmless". Instance is deliberately not a scope here: splitting an already-thin sample by weapon
+/// as well as by instance leaves nothing to average.</param>
+public readonly record struct OpponentDamage(
+    DamageProfile Incoming, BracketProfile Outgoing, DamageProfile IncomingArmedAsNow)
 {
-    public static readonly OpponentDamage Empty = new(DamageProfile.Empty, BracketProfile.Empty);
+    public static readonly OpponentDamage Empty =
+        new(DamageProfile.Empty, BracketProfile.Empty, DamageProfile.Empty);
+
+    /// <summary>The sharpest incoming answer available: the weapon-specific profile when it has
+    /// enough blows behind it, the species-wide one otherwise.</summary>
+    public DamageProfile BestIncoming
+        => IncomingArmedAsNow.Samples >= MinimumIncomingSamples ? IncomingArmedAsNow : Incoming;
+
+    /// <summary>Mirrors <see cref="SwingDamageIndex.MinimumSamples"/>; duplicated here only so this
+    /// value type does not have to reach into the index to answer its own question.</summary>
+    public const int MinimumIncomingSamples = 3;
 }
 
 /// <summary>
@@ -128,16 +145,57 @@ public sealed class SwingDamageIndex
     private readonly Dictionary<string, BracketProfile> _outByInstance = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, BracketProfile> _outByGroup = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>Incoming blows keyed by species AND the creature's own weapon. The key is assembled by
+    /// <see cref="GroupWeaponKey"/>, whose shape must match v_incoming_by_group_weapon's - the live
+    /// fold and the warm query write into the same dictionary and a disagreement would show up as
+    /// history that silently resets every restart.</summary>
+    private readonly Dictionary<string, DamageProfile> _inByGroupWeapon = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Group and weapon joined by a tab, which cannot occur inside a MUD2 object name.
+    ///
+    /// <para><b>The weapon has its instance digits stripped</b>, which is the whole reason this is a
+    /// method rather than a concatenation. MUD2 numbers object instances the same way it numbers
+    /// creatures - across the live database's own arming lines, 24 of 41 distinct weapon names carry a
+    /// trailing digit and 8 base names appear BOTH ways (<c>axe</c>/<c>axe0</c>,
+    /// <c>fork</c>/<c>fork1</c>, <c>staff</c>/<c>staff0</c>), with multi-digit forms
+    /// (<c>unlit brand40</c>) and digits attached to the last word of a multi-word name
+    /// (<c>glass bottle0</c>). Keyed raw, "zombies with an axe" splits into as many buckets as there
+    /// are axes in the world, none of them reaching <see cref="MinimumSamples"/> - and that would
+    /// reintroduce per-instance scope through the back door, which
+    /// <see cref="OpponentDamage.IncomingArmedAsNow"/> explicitly says it does not want.</para>
+    ///
+    /// <para><b>The SQL view must strip the same digits, and does</b> -
+    /// <c>lower(rtrim(npc_weapon, '0123456789'))</c> in v_incoming_by_group_weapon. The lower() is not
+    /// cosmetic: SQLite's GROUP BY is BINARY-collated where this dictionary is OrdinalIgnoreCase, so
+    /// two rows differing only in case would arrive as separate profiles and the second would
+    /// OVERWRITE the first rather than merge with it. Change either side and you must change both.</para>
+    /// </summary>
+    public static string GroupWeaponKey(string group, string weapon)
+        => group + "\t" + StripInstanceDigits(weapon);
+
+    /// <summary>Removes a trailing run of ASCII digits - <c>axe0</c> to <c>axe</c>,
+    /// <c>unlit brand40</c> to <c>unlit brand</c>. Trailing only: a digit anywhere else is part of the
+    /// name.</summary>
+    public static string StripInstanceDigits(string name)
+    {
+        var end = name.Length;
+        while (end > 0 && char.IsAsciiDigit(name[end - 1]))
+            end--;
+        // All digits, or nothing to strip: hand back what came in rather than an empty key.
+        return end == 0 || end == name.Length ? name : name[..end];
+    }
+
     /// <summary>Folds in one blow the player TOOK from <paramref name="npcName"/>. The group key is
     /// derived here rather than passed in, so a caller cannot key the two halves inconsistently -
     /// NpcGroups.Normalize is also what reduce_combat.py applies, which is what keeps the live and
     /// offline halves of the pipeline bucketing identically.</summary>
-    public void FoldIncoming(string? npcName, double damage)
+    public void FoldIncoming(string? npcName, double damage, string? npcWeapon = null)
     {
         if (string.IsNullOrWhiteSpace(npcName) || damage < 0)
             return;
         lock (_lock)
-            FoldIncomingLocked(npcName, damage);
+            FoldIncomingLocked(npcName, damage, npcWeapon);
     }
 
     /// <summary>Folds in one blow the player LANDED on <paramref name="npcName"/>, as the bracket the
@@ -153,15 +211,15 @@ public sealed class SwingDamageIndex
     /// <summary>Folds in a whole encounter under one lock acquisition. Taking the lock per blow would
     /// be a few thousand acquisitions across a long session for no gain.</summary>
     public void FoldAll(
-        IEnumerable<(string NpcName, double Damage)> taken,
+        IEnumerable<(string NpcName, string? NpcWeapon, double Damage)> taken,
         IEnumerable<(string NpcName, double Low, double High)> dealt)
     {
         lock (_lock)
         {
-            foreach (var (npcName, damage) in taken)
+            foreach (var (npcName, npcWeapon, damage) in taken)
             {
                 if (!string.IsNullOrWhiteSpace(npcName) && damage >= 0)
-                    FoldIncomingLocked(npcName, damage);
+                    FoldIncomingLocked(npcName, damage, npcWeapon);
             }
             foreach (var (npcName, low, high) in dealt)
             {
@@ -179,7 +237,8 @@ public sealed class SwingDamageIndex
         IEnumerable<(string Name, DamageProfile Profile)> incomingByInstance,
         IEnumerable<(string Name, DamageProfile Profile)> incomingByGroup,
         IEnumerable<(string Name, BracketProfile Profile)> outgoingByInstance,
-        IEnumerable<(string Name, BracketProfile Profile)> outgoingByGroup)
+        IEnumerable<(string Name, BracketProfile Profile)> outgoingByGroup,
+        IEnumerable<(string Name, DamageProfile Profile)>? incomingByGroupWeapon = null)
     {
         lock (_lock)
         {
@@ -187,11 +246,14 @@ public sealed class SwingDamageIndex
             _inByGroup.Clear();
             _outByInstance.Clear();
             _outByGroup.Clear();
+            _inByGroupWeapon.Clear();
 
             foreach (var (name, profile) in incomingByInstance)
                 _inByInstance[name] = profile;
             foreach (var (name, profile) in incomingByGroup)
                 _inByGroup[name] = profile;
+            foreach (var (name, profile) in incomingByGroupWeapon ?? [])
+                _inByGroupWeapon[name] = profile;
             foreach (var (name, profile) in outgoingByInstance)
                 _outByInstance[name] = profile;
             foreach (var (name, profile) in outgoingByGroup)
@@ -203,7 +265,7 @@ public sealed class SwingDamageIndex
     /// its instance-vs-group preference independently: they accumulate at different rates (the player
     /// swings at things that never land a blow, and vice versa), so forcing one direction's scope onto
     /// the other would discard the better sample for no reason.</summary>
-    public OpponentDamage Lookup(string? npcName)
+    public OpponentDamage Lookup(string? npcName, string? npcWeapon = null)
     {
         if (string.IsNullOrWhiteSpace(npcName))
             return OpponentDamage.Empty;
@@ -211,17 +273,28 @@ public sealed class SwingDamageIndex
         var group = NpcGroups.Normalize(npcName);
         lock (_lock)
         {
+            var armed = string.IsNullOrWhiteSpace(npcWeapon)
+                ? DamageProfile.Empty
+                : Get(_inByGroupWeapon, GroupWeaponKey(group, npcWeapon), DamageProfile.Empty);
+
             return new OpponentDamage(
                 Resolve(_inByInstance, _inByGroup, npcName, group, DamageProfile.Empty, p => p.Samples),
-                Resolve(_outByInstance, _outByGroup, npcName, group, BracketProfile.Empty, p => p.Samples));
+                Resolve(_outByInstance, _outByGroup, npcName, group, BracketProfile.Empty, p => p.Samples),
+                armed.Samples >= MinimumSamples ? armed : DamageProfile.Empty);
         }
     }
 
-    private void FoldIncomingLocked(string npcName, double damage)
+    private void FoldIncomingLocked(string npcName, double damage, string? npcWeapon)
     {
         var group = NpcGroups.Normalize(npcName);
         _inByInstance[npcName] = Get(_inByInstance, npcName, DamageProfile.Empty).Add(damage);
         _inByGroup[group] = Get(_inByGroup, group, DamageProfile.Empty).Add(damage);
+
+        if (!string.IsNullOrWhiteSpace(npcWeapon))
+        {
+            var key = GroupWeaponKey(group, npcWeapon);
+            _inByGroupWeapon[key] = Get(_inByGroupWeapon, key, DamageProfile.Empty).Add(damage);
+        }
     }
 
     private void FoldOutgoingLocked(string npcName, double low, double high)

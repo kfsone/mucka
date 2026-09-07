@@ -1,6 +1,56 @@
 namespace MudSharp.Combat;
 
 /// <summary>
+/// One direction of an exchange, shaped for the tile's stat row: a running total, the three figures
+/// of the blow-shape readout, and the drain rate.
+///
+/// <para><b>The two directions are not symmetrical and this type does not pretend otherwise.</b>
+/// Incoming damage is exact - MUD2 prints absolute stamina on every blow that lands on the player - so
+/// <see cref="Total"/> comes back with equal ends and <see cref="Min"/>/<see cref="Max"/> are real
+/// measurements. Outgoing damage is bracketed, so <see cref="Total"/> is a genuine range and the two
+/// extremes are UPPER bounds: "the smallest this blow could not have exceeded" and "the largest".
+/// The renderer knows which side it is drawing and needs no flag; a caller reading these without
+/// knowing does.</para>
+///
+/// <para><b><see cref="Mean"/> is a midpoint on the outgoing side</b>, pooling both ends of every
+/// bracket - the owner's own definition, given 2026-09-05. That is a display figure and it is allowed
+/// to be one; what may never happen is a bracket being STORED collapsed, because a later constraint
+/// pass can only narrow a range that is still a range. See SwingRow.DamageLow.</para>
+///
+/// <para><b>This type is where that rule now lives.</b> It used to be written out at length on
+/// CombatLiveView.TargetDealtBracket, which drove the old "dealt 15-19" line; the stat row replaced
+/// that line and the field went with it. The version there also carried a blanket ban on ever DRAWING
+/// a midpoint, which was never the owner's rule - it was generalised out of something he said during
+/// the ladder-seal work and quoted back as doctrine until he was finally asked (2026-09-06): "it
+/// sounds like something a model decided to codify as gods word when I asked it not to do
+/// something". The storage half is real and is stated above; the display half is not a rule.</para>
+/// </summary>
+/// <param name="Samples">Landed blows that actually produced numbers. The honest denominator for
+/// <see cref="Mean"/>, and the test for whether anything here is a measurement at all - never read a
+/// zero in the other fields as "none", which is rule 5.</param>
+/// <param name="PerTick">Damage per two-second tick over WALL CLOCK, not per landed blow. Pass ticks
+/// are included deliberately: roughly half the ticks an engaged creature is present for carry no
+/// swing at all, so a per-blow rate answers "how hard does it hit" and this answers "how long can I
+/// stand here", which is the flee question.</param>
+public readonly record struct ExchangeLine(
+    int Samples, double Min, double Max, double Mean, double PerTick, DamageBracket Total)
+{
+    public static readonly ExchangeLine Empty = new(0, 0, 0, 0, 0, DamageBracket.Zero);
+
+    public bool HasSamples => Samples > 0;
+
+    /// <summary>True when the low and high blows report the same figure - one measured blow, or any
+    /// run of blows sharing a bracket, which for one weapon against one species is the ordinary case
+    /// rather than the rare one. The tile dims the outer two on this, so the eye is told there is
+    /// nothing to compare between them.
+    ///
+    /// <para>Note this says nothing about the MEAN, which on the outgoing side is a midpoint and so
+    /// legitimately differs from two equal upper bounds: three blows of (5-9) give 9 / 9 / 7. That is
+    /// why the tile labels the group low/high/avg and not min/max/avg.</para></summary>
+    public bool AllAlike => Samples > 0 && Min >= Max;
+}
+
+/// <summary>
 /// Minimal per-participant facts the roster/opposition-count decision needs. Deliberately NOT the
 /// app's own <c>FightSnapshot</c> record - that type lives in the Mucka/MAUI assembly, which this
 /// project does not and must not reference (mudsharp is the plain class library mudsharp.Tests links
@@ -31,7 +81,15 @@ namespace MudSharp.Combat;
 /// ticks when the fight is still a decision.</param>
 /// <param name="EverDamage">What this creature's kind has hit the player for across all recorded
 /// history, EXCLUDING the current encounter - see SwingDamageIndex on why a live fight can never enter
-/// its own baseline. Empty until enough blows are on file to be worth stating.</param>
+/// its own baseline. Empty until enough blows are on file to be worth stating.
+///
+/// <para>This is <see cref="OpponentDamage.BestIncoming"/>: the profile narrowed to the weapon the
+/// creature is holding RIGHT NOW when enough blows have been seen through that weapon, and the
+/// species-wide one otherwise. An ogre with a great club and an ogre with its fists are different
+/// threats, and this is the figure the flee decision divides by - so it takes the sharpest answer
+/// available rather than the broadest. Which of the two it came from is deliberately not carried:
+/// nothing on the tile draws the distinction, and a field nobody reads is the sediment this project
+/// deletes on sight.</para></param>
 /// <param name="Vitality">How much of this creature is left, as a FRACTION of its own full, in a
 /// band - what its seal fills to. Null when MUD2 has said nothing that supports one, which the seal
 /// draws as a full unknown ring and never as an empty one. The absolute stamina estimate stays under
@@ -79,7 +137,10 @@ public readonly record struct ParticipantFact(
     NoveltyMark Novelty = NoveltyMark.None,
     NoveltyMark WeaponNovelty = NoveltyMark.None,
     NpcStaminaReading? StaminaRead = null,
-    int? Value = null);
+    int? Value = null,
+    ExchangeLine Dealt = default,
+    ExchangeLine Taken = default,
+    IReadOnlyList<SwingMark>? Exchange = null);
 
 /// <summary>
 /// One row of the opposition list as actually drawn. <see cref="IsCurrentTarget"/> marks the ONE live
@@ -114,10 +175,21 @@ public readonly record struct RosterRow(
     NoveltyMark Novelty = NoveltyMark.None,
     // The game's own diagnose reading, kept for the fight - see ParticipantFact.
     NpcStaminaReading? StaminaRead = null,
-    // The `value <name>` points, or null if never learned - see ParticipantFact.Value. Not yet
-    // drawn anywhere (a separate pass adds the readout once a species-baseline table exists); this
-    // is the plumbing that gets it as far as the row.
-    int? Value = null)
+    // The `value <name>` points, or null if never learned - see ParticipantFact.Value. NOT DRAWN
+    // ANYWHERE yet: it says what a kill is worth, which is a reading question rather than a glancing
+    // one, and it is waiting on the hover fly-out that will carry that kind of detail. This comment
+    // said "reaches the hover readout" for one revision, which was describing a surface that does not
+    // exist - exactly the invented-mechanism rot CLAUDE.md warns about, committed by the same pass
+    // that was cleaning it up elsewhere.
+    int? Value = null,
+    // The tile's two stat rows: what the player has dealt this creature, and what it has dealt back.
+    // See ExchangeLine for why the two are not symmetrical.
+    ExchangeLine Dealt = default,
+    ExchangeLine Taken = default,
+    // The last two dozen swings of this fight from BOTH sides in arrival order - the spark's
+    // timeline. Null rather than empty when nothing has been thrown yet, so "no fight yet" and "a
+    // fight in which nobody has swung" stay distinguishable.
+    IReadOnlyList<SwingMark>? Exchange = null)
 {
     /// <summary>
     /// Age past which a reading is drawn as faded rather than current: three combat ticks. One missed
@@ -275,7 +347,8 @@ public static class ParticipantRoster
                 fact.HealthRung, fact.HealthPhrase, fact.HealthAgeSeconds, fact.DamageTakenFrom,
                 fact.NpcWeapon, fact.FightDamage, fact.EverDamage,
                 fact.Vitality, fact.NextBlow, fact.BlowAfter, fact.YourTempo, fact.Reach,
-                fact.Novelty, fact.StaminaRead, fact.Value));
+                fact.Novelty, fact.StaminaRead, fact.Value,
+                fact.Dealt, fact.Taken, fact.Exchange));
         }
 
         var hiddenCount = ordered.Count - shownCount;

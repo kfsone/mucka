@@ -197,6 +197,39 @@ public readonly record struct SwingOutcome(bool IsHit, double Damage)
 }
 
 /// <summary>
+/// One swing in the EXCHANGE, in arrival order, whichever side threw it. The rail's spark draws
+/// these left to right off a shared baseline - the player's above it, the creature's below - so what
+/// matters here is the sequence, which the two per-side rings above cannot reconstruct between them.
+///
+/// <para><b>Why a third ring rather than merging the two.</b> The per-side rings are ordered within
+/// themselves and carry no timestamp, so "your third swing" and "its second swing" cannot be
+/// interleaved after the fact without inventing an order. Recording arrival order once, at the point
+/// where it is still known, is cheaper and honest; the two per-side rings keep their own shape and
+/// their own tests.</para>
+///
+/// <para><b>Both bracket ends survive.</b> <paramref name="Damage"/> is what the bar height is scaled
+/// from - the exact stamina delta for an incoming blow, the bracket's midpoint for one of the
+/// player's - but the ends are kept beside it so a caller that wants the range still has it. MUD2
+/// brackets the player's own blows; nothing here can recover ends that were never stored.</para>
+/// </summary>
+/// <param name="Mine">True for a swing the player threw, false for one the creature threw.</param>
+/// <param name="Measured">Whether <paramref name="Damage"/> is a figure or a placeholder. A landed
+/// blow can genuinely have NO magnitude: the player's own in narrative mode, and a creature's when no
+/// stamina baseline was available to diff against (the first blow of a fight, and the killing one,
+/// which prints bare). Without this flag those collapse into <c>Damage == 0</c> alongside a real
+/// measured zero - a blow that landed and took nothing off, which the ledger counts on purpose - and
+/// rule 5 says an unknown must never render as a measurement. The swing still happened either way;
+/// only its size is missing.</param>
+public readonly record struct SwingMark(
+    bool Mine, bool IsHit, double Damage, int? BracketLow, int? BracketHigh, bool Measured = true)
+{
+    public static SwingMark Miss(bool mine) => new(mine, false, 0, null, null);
+
+    /// <summary>A blow that landed with no magnitude to show for it.</summary>
+    public static SwingMark UnmeasuredHit(bool mine) => new(mine, true, 0, null, null, Measured: false);
+}
+
+/// <summary>
 /// Accumulates one NPC's fight within an encounter: the counters, the weapon actually used, and
 /// how it ended.
 ///
@@ -330,6 +363,35 @@ public sealed class FightAccumulator
     private int _yourRecentCount;
     private int _theirRecentHead;
     private int _theirRecentCount;
+
+    /// <summary>How many swings of the EXCHANGE the rail's spark keeps, both sides pooled. Larger
+    /// than <see cref="RecentSwingCapacity"/> because this ring is shared: at the roughly even split
+    /// a real fight produces, 24 leaves each side about a dozen marks, which is what the spark's
+    /// width takes. Still a fixed ring for the same reason - this is written on every combat line
+    /// (Invariant #1) and a growing list would be pure churn on that path.</summary>
+    public const int RecentExchangeCapacity = 24;
+
+    private readonly SwingMark[] _exchange = new SwingMark[RecentExchangeCapacity];
+    private int _exchangeHead;
+    private int _exchangeCount;
+
+    /// <summary>Landed blows of the player's whose bracket actually reached
+    /// <see cref="DamageDealt"/>. The honest denominator for the outgoing mean, for the same reason
+    /// <see cref="TheyHitsMeasured"/> is the honest one incoming: a narrative-mode blow landed and is
+    /// counted in <see cref="YouHits"/>, but contributed no numbers.</summary>
+    public int DealtSamples { get; private set; }
+
+    /// <summary>The smallest and largest UPPER bound the player has landed this fight. Uppers rather
+    /// than midpoints because "the worst this blow could have been" is the only end of a bracket that
+    /// answers a danger question, and the owner's blow-shape readout asks for exactly these two
+    /// figures either side of the mean.</summary>
+    public double DealtMinHigh { get; private set; }
+    public double DealtMaxHigh { get; private set; }
+
+    /// <summary>The gentlest single blow this creature has landed, over the same measured set as
+    /// <see cref="MaxDamageTaken"/>. Zero-damage hits count, so this can legitimately be 0 - test
+    /// <see cref="TheyHitsMeasured"/>, never this value, to ask whether anything was measured.</summary>
+    public double MinDamageTaken { get; private set; }
 
     public bool IsResolved => Outcome != FightOutcome.Unresolved;
 
@@ -554,9 +616,21 @@ public sealed class FightAccumulator
             // door CombatDb's own remarks warn about.
             DamageDealt = DamageDealt.Plus(new DamageBracket(low, high));
             RecordSwing(_yourRecent, ref _yourRecentHead, ref _yourRecentCount, SwingOutcome.Hit(midpoint));
+
+            if (DealtSamples == 0 || high < DealtMinHigh)
+                DealtMinHigh = high;
+            if (high > DealtMaxHigh)
+                DealtMaxHigh = high;
+            DealtSamples++;
+
+            RecordExchange(new SwingMark(true, true, midpoint, low, high));
         }
         else
         {
+            // Still part of the exchange - the swing happened and its rhythm is real - but with no
+            // magnitude to scale a mark from, so it draws as a landed blow of unknown size rather
+            // than as a miss. Rule 5: unknown must never render as a measured zero.
+            RecordExchange(SwingMark.UnmeasuredHit(mine: true));
             // No range means no parsed swing detail (narrative mode). The blow landed and did damage,
             // but none of it reached DamageDealt - so the span since the last descriptor now understates
             // what the creature absorbed, and any crossing measured across it would imply a pool ceiling
@@ -569,6 +643,7 @@ public sealed class FightAccumulator
     {
         YouMisses++;
         RecordSwing(_yourRecent, ref _yourRecentHead, ref _yourRecentCount, SwingOutcome.Miss);
+        RecordExchange(SwingMark.Miss(true));
     }
 
     /// <summary>Records an incoming hit. <paramref name="damage"/> is the already-resolved stamina
@@ -588,6 +663,8 @@ public sealed class FightAccumulator
         // guard there and the counter here deliberately disagree about zero.
         if (damage is double measured && measured >= 0)
         {
+            if (TheyHitsMeasured == 0 || measured < MinDamageTaken)
+                MinDamageTaken = measured;
             TheyHitsMeasured++;
             if (measured > MaxDamageTaken)
                 MaxDamageTaken = measured;
@@ -598,12 +675,20 @@ public sealed class FightAccumulator
         // baseline (damage null) is skipped, since there is nothing honest to show for it.
         if (damage is double resolved)
             RecordSwing(_theirRecent, ref _theirRecentHead, ref _theirRecentCount, SwingOutcome.Hit(Math.Max(resolved, 0)));
+
+        // The exchange records the blow either way. An unresolvable baseline (the first blow of a
+        // fight, or the killing one, which prints bare) still happened, and dropping it would leave a
+        // gap in the spark where a real swing was - so it draws as a landed blow of unknown size.
+        RecordExchange(damage is double d
+            ? new SwingMark(false, true, Math.Max(d, 0), null, null)
+            : SwingMark.UnmeasuredHit(mine: false));
     }
 
     public void AddTheyMiss()
     {
         TheyMisses++;
         RecordSwing(_theirRecent, ref _theirRecentHead, ref _theirRecentCount, SwingOutcome.Miss);
+        RecordExchange(SwingMark.Miss(false));
     }
 
     /// <summary>Oldest-to-newest snapshot of the player's last <see cref="RecentSwingCapacity"/>
@@ -616,10 +701,18 @@ public sealed class FightAccumulator
     public IReadOnlyList<SwingOutcome> RecentTheirSwings
         => OrderedRingCopy(_theirRecent, _theirRecentHead, _theirRecentCount);
 
+    /// <summary>Oldest-to-newest snapshot of the last <see cref="RecentExchangeCapacity"/> swings of
+    /// this fight from BOTH sides, in the order they arrived - the spark's timeline.</summary>
+    public IReadOnlyList<SwingMark> RecentExchange
+        => OrderedRingCopy(_exchange, _exchangeHead, _exchangeCount);
+
+    private void RecordExchange(SwingMark mark)
+        => RecordSwing(_exchange, ref _exchangeHead, ref _exchangeCount, mark);
+
     /// <summary>Writes into a fixed-capacity ring: <paramref name="head"/> is the next write index,
     /// wrapping at capacity, and <paramref name="count"/> saturates at capacity once the ring has
     /// filled at least once (it never needs to count past that).</summary>
-    private static void RecordSwing(SwingOutcome[] ring, ref int head, ref int count, SwingOutcome outcome)
+    private static void RecordSwing<T>(T[] ring, ref int head, ref int count, T outcome)
     {
         ring[head] = outcome;
         head = (head + 1) % ring.Length;
@@ -631,12 +724,12 @@ public sealed class FightAccumulator
     /// not yet filled, the oldest entry is always index 0 (writes started there and have not
     /// wrapped); once full, <paramref name="head"/> itself points at the oldest entry, because that
     /// is exactly the slot the NEXT write is about to overwrite.</summary>
-    private static SwingOutcome[] OrderedRingCopy(SwingOutcome[] ring, int head, int count)
+    private static T[] OrderedRingCopy<T>(T[] ring, int head, int count)
     {
         if (count == 0)
-            return Array.Empty<SwingOutcome>();
+            return Array.Empty<T>();
 
-        var result = new SwingOutcome[count];
+        var result = new T[count];
         var oldest = count < ring.Length ? 0 : head;
         for (var i = 0; i < count; i++)
             result[i] = ring[(oldest + i) % ring.Length];

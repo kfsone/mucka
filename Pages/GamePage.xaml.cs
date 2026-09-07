@@ -1991,7 +1991,7 @@ public partial class GamePage : ContentPage
         RailRect anchor;
         if (floatEvent.IsPlayerAnchored)
         {
-            anchor = CombatRailView.StaminaSealDp(_railContentWidthDp, _railContentHeightDp);
+            anchor = CombatRailView.PlayerTileDp(_railContentWidthDp, _railContentHeightDp);
         }
         else
         {
@@ -2112,7 +2112,7 @@ public partial class GamePage : ContentPage
     /// <summary>
     /// Fires once the tick sweep's native view exists. Sizes the element onto the exact track the
     /// canvas draws (<see cref="CombatRailView.TickTrackDp"/> owns that arithmetic - the rail lays
-    /// itself out in a fixed 336-unit space scaled to the panel's real width, so a sibling in dp has
+    /// itself out in a fixed 376-unit space scaled to the panel's real width, so a sibling in dp has
     /// to have the same factor applied), then attaches the Composition animator.
     /// </summary>
     private void OnCombatTickSweepHandlerChanged(object? sender, EventArgs e)
@@ -2279,6 +2279,43 @@ public partial class GamePage : ContentPage
             hit.IsTabStop = false;
             hit.UseSystemFocusVisuals = false;
         }
+    }
+
+    /// <summary>
+    /// The pointer moved over the combat panel. The ONLY thing this changes is whether the encounter
+    /// table paints its headings and separators - see CombatRailView.DrawEncounterTable.
+    ///
+    /// <para><b>Cheap on purpose.</b> This runs on every pointer move across a docked panel, which is
+    /// squarely the kind of thing Invariant #1 is about. The hit test is a handful of divisions
+    /// (CombatRailView.EncounterColumnAt) and the result is written to a bindable that only invalidates
+    /// the canvas when the COLUMN actually changes - moving within one column, or anywhere outside the
+    /// table, costs nothing beyond the arithmetic and one boxed int. No layout, and no repaint on the
+    /// overwhelming majority of moves.</para>
+    ///
+    /// <para><b>Focus is not touched, and that is what makes this admissible.</b> Invariant #0 is
+    /// about the keyboard; a pointer move takes no focus and a PointerGestureRecognizer cannot be
+    /// tabbed to. Nothing here may become a click without answering the invariant properly.</para>
+    /// </summary>
+    private void OnCombatPanelPointerMoved(object? sender, PointerEventArgs e)
+    {
+        if (CombatPanelCanvas is null || CombatPanelLayers is null)
+            return;
+
+        var position = e.GetPosition(CombatPanelLayers);
+        if (position is not { } point)
+            return;
+
+        CombatPanelCanvas.EncounterHoverColumn = CombatRailView.EncounterColumnAt(
+            point.X, point.Y, CombatPanelLayers.Width, CombatPanelLayers.Height);
+    }
+
+    /// <summary>The pointer left the panel. Cleared explicitly rather than left to the next move: a
+    /// pointer that leaves through the table's own edge produces no further moves, and the headings
+    /// would stay painted until the mouse happened to come back.</summary>
+    private void OnCombatPanelPointerExited(object? sender, PointerEventArgs e)
+    {
+        if (CombatPanelCanvas is not null)
+            CombatPanelCanvas.EncounterHoverColumn = -1;
     }
 
     /// <summary>

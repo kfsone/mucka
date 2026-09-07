@@ -79,6 +79,12 @@ public sealed class MuckaConnection : IAsyncDisposable
     /// <summary>The character in this session was identified from the setup <c>score</c> reply.
     /// Payload is the character name. Fires on the Feed thread — consumers marshal to the UI.</summary>
     public event Action<string>? CharacterIdentified;
+
+    /// <summary>MUD2 announcing a score change - <c>(Persona saved on +38 = 19,214).</c> Re-raised for
+    /// the UI because the combat rail pairs a rise with the kill it follows; the ledger and the fight
+    /// recorder consume the same event for their own reasons. See
+    /// SidePanelViewModel's remarks on why that pairing is an inference.</summary>
+    public event Action<MudSharp.Models.ScoreSave>? ScoreSaved;
     public event Action<string?>? DreamwordChanged;
     public event Action<string>? SoundRequested;
     /// <summary>A tell arrived from a named sender. Payload is the sender's screen name; drives the
@@ -669,7 +675,12 @@ public sealed class MuckaConnection : IAsyncDisposable
         _session.CharacterIdentified += n => { _fightRecorder.OnCharacterIdentified(n); _swingLedger.OnCharacterIdentified(n); CharacterIdentified?.Invoke(n); };
         // The ledger writes the event row; the recorder takes the total as the authoritative score for
         // any fight still open. Ledger first, so the row exists even if a consumer downstream throws.
-        _session.ScoreSaved         += save => { _swingLedger.OnScoreSave(save); _fightRecorder.OnScoreSave(save); };
+        _session.ScoreSaved         += save =>
+        {
+            _swingLedger.OnScoreSave(save);
+            _fightRecorder.OnScoreSave(save);
+            ScoreSaved?.Invoke(save);
+        };
         _session.DreamwordChanged   += w =>
         {
             if (w != null)

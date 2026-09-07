@@ -114,9 +114,23 @@ public sealed record SessionCombatTotals(
 /// was previously incremented on the C06 C04 WARNING, which put anything ending in the 120-second
 /// finish-up window - a fight cut short BY the reset, most obviously - on the wrong side of the
 /// separator.</param>
+/// <param name="Dealt">What the player did to this creature over the whole fight, and at what rate -
+/// the same <see cref="MudSharp.Combat.ExchangeLine"/> its live tile carried, frozen at the moment it
+/// resolved. A corpse's row is the only place that summary survives, since the tile is gone.</param>
+/// <param name="Taken">And what it did back.</param>
+/// <param name="ScoreAwarded">Points MUD2 announced for this kill, or null.
+///
+/// <para><b>This is ATTRIBUTED, not stated.</b> The game prints the award on the line AFTER the kill
+/// line, and the kill line is what closes the fight - so no fight record can contain its own award
+/// (FightHistoryRecorder.OnScoreSave says exactly this). The panel pairs each kill with the next
+/// positive score announcement, which is right whenever that ordering holds and wrong if some other
+/// award lands in between. Null wherever no announcement arrived, never a zero.</para></param>
 public readonly record struct CombatEnding(
     string Name, MudSharp.Combat.FightOutcome Outcome, DateTime? EndedUtc,
-    int EncounterOrdinal = 0, int ResetOrdinal = 0);
+    int EncounterOrdinal = 0, int ResetOrdinal = 0,
+    MudSharp.Combat.ExchangeLine Dealt = default,
+    MudSharp.Combat.ExchangeLine Taken = default,
+    int? ScoreAwarded = null);
 
 /// <summary>
 /// Pure ordering for the dead strip's session history - kept out of <c>SidePanelViewModel</c> (MAUI-
@@ -286,18 +300,6 @@ public sealed record CombatLiveView(
     // The pill's two alarm states pulse, and this canvas never animates (Invariant #1) - so this value
     // also drives the Composition sibling behind the canvas, via GamePage.UpdateCombatFleePill.
     MudSharp.Combat.FleePillStatus FleePill = MudSharp.Combat.FleePillStatus.Hidden,
-    // What the player has dealt the current target so far this fight, as the RANGE MUD2 actually
-    // printed - "You hit the rat (15-19)." summed, never a midpoint. Null once nothing is live.
-    //
-    // This is the one half of the reasoning the panel is built to support that neither seal carries:
-    // "I've hit for 15-19 three times and it's still fit, so it still has four fifths of its stamina
-    // at least, and I've lost a third of mine." The two seals answer the second and third clauses; the
-    // first is the player remembering the scroll, and it does not have to be.
-    //
-    // A RANGE, never a midpoint. CombatOutlook runs its seconds-to-kill clock off a midpoint total,
-    // and that figure is deliberately not carried here: drawn, it would present as a number the game
-    // gave, when the game only ever gave a bracket.
-    MudSharp.Combat.DamageBracket? TargetDealtBracket = null,
     // Every live opponent's swings against the player this encounter, POOLED - hits and misses added,
     // so the rate is a ratio of sums rather than an average of per-creature rates (which would weight a
     // creature that has swung twice like one that has swung forty times). Drives the dash density of
@@ -324,7 +326,35 @@ public sealed record CombatLiveView(
     // fade the slice's tint at paint time (Core.TickStaminaLoss.FadeFactor) instead of drawing it at a
     // fixed strength until the next loss replaces it. Null whenever StaminaLostLastTick is 0 - there
     // is nothing to fade, and CLAUDE.md forbids inventing a timestamp for a slice that is not there.
-    DateTime? StaminaLossUtc = null)
+    DateTime? StaminaLossUtc = null,
+    // The encounter table above the tick gauge, in its drawn order. Par is live opponents right now;
+    // Op is how many this encounter has produced in total, resolved ones included, so the pair says
+    // "three still up, out of five so far".
+    //
+    // Dur, Vic and Die are all in TICKS, converted here rather than in the renderer so exactly one
+    // place divides by the tick length. Vic and Die are null until CombatOutlook will commit to a
+    // projection (ten seconds and two landed hits) - a fight's opening ticks legitimately have no
+    // answer, and the table draws that as unknown rather than as a number.
+    // The player's own tile draws the same two stat rows and the same spark every opponent carries -
+    // pooled across everything still swinging, which is what makes "am I winning this" a comparison of
+    // two identically-shaped things rather than a translation between two layouts.
+    // The persona this rail belongs to, from MudSession.CharacterIdentified. Empty until the login
+    // handshake names it - the tile then leaves its name slot blank rather than substituting a word,
+    // because "you" is not what the game calls anybody.
+    string PlayerName = "",
+    // The ANSI colour index MUD2 itself puts on the stamina value (GameStatsSnapshot.StaminaColor).
+    // Carried so the condition line can be coloured the way the game colours the same number in the
+    // status strip, rather than by a second opinion the client invented - the player is already
+    // reading one of them, and two different colours for one fact is worse than either.
+    byte? StaminaAnsiColor = null,
+    MudSharp.Combat.ExchangeLine YourDealt = default,
+    MudSharp.Combat.ExchangeLine YourTaken = default,
+    IReadOnlyList<MudSharp.Combat.SwingMark>? YourExchange = null,
+    int LiveOpponents = 0,
+    int OpponentsFaced = 0,
+    double? EncounterTicks = null,
+    double? TicksToVictory = null,
+    double? TicksToDeath = null)
 {
     public static readonly CombatLiveView Idle = new(
         InCombat: false, HasEncounter: false, WeaponText: string.Empty, IsUnarmed: false,

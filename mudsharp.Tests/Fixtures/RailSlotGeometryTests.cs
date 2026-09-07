@@ -15,24 +15,46 @@ namespace mudsharp.Tests.Fixtures;
 /// </summary>
 public sealed class RailSlotGeometryTests
 {
-    // Mirrors CombatRailView.SlotMetrics.
+    // Mirrors CombatRailView.SlotMetrics. THIS IS A HAND-COPY AND IT WENT STALE ONCE ALREADY: the
+    // 2026-09-06 tile rebuild changed RailWidth 336->376 and BottomRowHeight 96->113 and this fixture
+    // stayed green throughout, because it is internally self-consistent and asserts a panel that no
+    // longer exists. The class remarks above claim it exists so that a canvas change "shows up as a
+    // failing expectation here" - it cannot do that while it is a copy. If you change SlotMetrics,
+    // change these numbers in the same commit.
     private static readonly RailSlotMetrics M = new(
-        RailWidth: 336f, Pad: 10f, SlotHeight: 76f, SlotGap: 5f, SlotsGap: 6f,
-        BottomRowHeight: 96f, TickRowHeight: 30f, SealSize: 92f, MaxSlots: 8);
+        RailWidth: 376f, Pad: 10f, SlotHeight: 76f, SlotGap: 5f, SlotsGap: 6f,
+        BottomRowHeight: 113f, TickRowHeight: 30f, PlayerTileHeight: 81f, MaxSlots: 8);
 
     /// <summary>A panel at the design width, so dp and the canvas's logical units are 1:1 - which
-    /// is the condition GamePage.xaml's 338dp Border exists to guarantee (338 minus its own 1dp
-    /// stroke per side).</summary>
-    private const double W = 336.0;
+    /// is the condition GamePage.xaml's Border exists to guarantee (its WidthRequest minus its own
+    /// 1dp stroke per side).</summary>
+    private const double W = 376.0;
+
+    /// <summary>
+    /// The exact panel height at which <paramref name="slots"/> slots first fit, DERIVED from the
+    /// metrics rather than written down.
+    ///
+    /// <para>The boundary tests below used to hardcode 309 / 552 / 795. Those were correct for a
+    /// 96-unit bottom row, and when the encounter table pushed that to 113 every one of them became a
+    /// statement about a panel that no longer existed - while still passing, because the mirror above
+    /// had gone stale in the same direction. Deriving the boundary means the next change to the chrome
+    /// moves these tests with it instead of silently invalidating them.</para>
+    ///
+    /// <para>N slots cost <c>N*SlotHeight + (N-1)*SlotGap</c>; the chrome above the bottom edge is pad
+    /// + tick row + bottom block + the slots gap, and the top pad bounds the other end.</para>
+    /// </summary>
+    private static double HeightForSlots(int slots)
+        => M.Pad + M.TickRowHeight + M.BottomRowHeight + M.SlotsGap + M.Pad
+           + (slots * (M.SlotHeight + M.SlotGap)) - M.SlotGap;
 
     // -- the bottom-up chain -----------------------------------------------------
 
     [Fact]
     public void SlotsBottom_IsMeasuredUpFromThePanelsBottomEdge()
     {
-        // Pad + tick row + bottom row + the 6 gap = 142 above the bottom edge, whatever the height.
-        Assert.Equal(600.0 - 142.0, RailSlotGeometry.SlotsBottom(M, 600.0), 3);
-        Assert.Equal(400.0 - 142.0, RailSlotGeometry.SlotsBottom(M, 400.0), 3);
+        // Pad + tick row + bottom block + the 6 gap = 159 above the bottom edge, whatever the height.
+        Assert.Equal(600.0 - 159.0, RailSlotGeometry.SlotsBottom(M, 600.0), 3);
+        Assert.Equal(400.0 - 159.0, RailSlotGeometry.SlotsBottom(M, 400.0), 3);
     }
 
     [Fact]
@@ -49,7 +71,7 @@ public sealed class RailSlotGeometryTests
         Assert.Equal(76.0 + 5.0, bottom.Value.Top - above.Value.Top, 3);
         Assert.Equal(76.0, bottom.Value.Height, 3);
         Assert.Equal(10.0, bottom.Value.Left, 3);
-        Assert.Equal(336.0 - 20.0, bottom.Value.Width, 3);
+        Assert.Equal(376.0 - 20.0, bottom.Value.Width, 3);
     }
 
     // -- capacity and the overflow row -------------------------------------------
@@ -72,10 +94,9 @@ public sealed class RailSlotGeometryTests
     [Fact]
     public void OneSlotIsSurrenderedToTheOverflowRow_AsSoonAsTheRosterOutgrowsTheCapacity()
     {
-        // 142 of chrome plus 10 of top pad leaves 248 for slots at 400dp tall. N slots cost
-        // N*SlotHeight + (N-1)*SlotGap: 3*76 + 2*5 = 238 fits within 248, but 4*76 + 3*5 = 319 does
-        // not, so capacity is 3.
-        var height = 400.0;
+        // Exactly three slots' worth of room, so a fourth opponent has to surrender one to the
+        // overflow row.
+        var height = HeightForSlots(3);
         Assert.Equal(3, RailSlotGeometry.Capacity(M, height));
 
         Assert.Equal(3, RailSlotGeometry.ShownSlots(M, height, liveCount: 3));
@@ -87,7 +108,7 @@ public sealed class RailSlotGeometryTests
     [Fact]
     public void ARowInTheOverflowTail_HasNoRectangle()
     {
-        var height = 400.0;
+        var height = HeightForSlots(3);
         // Index 2 has a slot when three opponents fit exactly, and loses it the moment a fourth joins
         // and the overflow row claims that slot. A float must not be drawn for it either way round.
         Assert.NotNull(RailSlotGeometry.OpponentSlotDp(M, W, height, rosterIndex: 2, liveCount: 3));
@@ -102,39 +123,39 @@ public sealed class RailSlotGeometryTests
         // could never report an overflow once the panel was tall enough to fit the whole capped list.
         // Counted on LIVE opponents now - the resolved ones take no slot at all, they are in the
         // top-anchored dead strip.
-        Assert.Equal(8, RailSlotGeometry.Capacity(M, 800.0));
-        Assert.Equal(8, RailSlotGeometry.ShownSlots(M, 800.0, liveCount: 8));
-        Assert.Equal(7, RailSlotGeometry.ShownSlots(M, 800.0, liveCount: 14));
-        Assert.Null(RailSlotGeometry.OpponentSlotDp(M, W, 800.0, rosterIndex: 7, liveCount: 14));
+        var tall = HeightForSlots(8);
+        Assert.Equal(8, RailSlotGeometry.Capacity(M, tall));
+        Assert.Equal(8, RailSlotGeometry.ShownSlots(M, tall, liveCount: 8));
+        Assert.Equal(7, RailSlotGeometry.ShownSlots(M, tall, liveCount: 14));
+        Assert.Null(RailSlotGeometry.OpponentSlotDp(M, W, tall, rosterIndex: 7, liveCount: 14));
     }
 
     [Fact]
     public void Capacity_OffByOneBoundary_AtTwoSlots()
     {
-        // The exact boundary the current formula's own comment calls out: at height 309, available
-        // is 157 - precisely 2*(SlotHeight+SlotGap) - SlotGap (2*81-5). The retired
-        // available/(SlotHeight+SlotGap) formula charges a trailing gap the top slot never draws and
-        // floors this to 1; the current (available+SlotGap)/(SlotHeight+SlotGap) formula correctly
-        // reports 2. One dp lower, at height 308 (available 156), neither formula is at a boundary
-        // and both agree on 1 - included so the pair pins the boundary at exactly 309, not 308.
-        Assert.Equal(2, RailSlotGeometry.Capacity(M, 309.0));
-        Assert.Equal(1, RailSlotGeometry.Capacity(M, 308.0));
+        // The boundary the current formula's own comment calls out: available is precisely
+        // 2*(SlotHeight+SlotGap) - SlotGap. The retired available/(SlotHeight+SlotGap) formula charges
+        // a trailing gap the top slot never draws and floors this to 1; the current
+        // (available+SlotGap)/(SlotHeight+SlotGap) formula correctly reports 2. One dp lower, neither
+        // formula is at a boundary and both agree on 1 - the pair pins the boundary exactly.
+        Assert.Equal(2, RailSlotGeometry.Capacity(M, HeightForSlots(2)));
+        Assert.Equal(1, RailSlotGeometry.Capacity(M, HeightForSlots(2) - 1.0));
     }
 
     [Fact]
     public void Capacity_OffByOneBoundary_AtFiveSlots()
     {
-        // available=400 at height 552 is exactly 5*81-5 - the same boundary shape as the two-slot
-        // case above, one slot-height further out.
-        Assert.Equal(5, RailSlotGeometry.Capacity(M, 552.0));
+        // The same boundary shape as the two-slot case above, three slot-heights further out.
+        Assert.Equal(5, RailSlotGeometry.Capacity(M, HeightForSlots(5)));
+        Assert.Equal(4, RailSlotGeometry.Capacity(M, HeightForSlots(5) - 1.0));
     }
 
     [Fact]
     public void Capacity_OffByOneBoundary_AtEightSlots_StillClampedToMax()
     {
-        // available=643 at height 795 is exactly 8*81-5, MaxSlots' own boundary - the retired formula
-        // undercounts to 7 here too, not just 8 clamped down from something higher.
-        Assert.Equal(8, RailSlotGeometry.Capacity(M, 795.0));
+        // MaxSlots' own boundary - the retired formula undercounts to 7 here too, not just 8 clamped
+        // down from something higher.
+        Assert.Equal(8, RailSlotGeometry.Capacity(M, HeightForSlots(8)));
     }
 
     [Fact]
@@ -147,15 +168,15 @@ public sealed class RailSlotGeometryTests
         // rather than spot-checked so a future change to the constants can't reintroduce an off-by-one
         // at a boundary nobody thought to spot-check.
         //
-        // Starts at 228, not 160: below 228 the single slot Capacity's own documented floor-of-1
-        // clamp ("at least one, even in a window too short for it, matching the canvas") reports
-        // does not itself fit above the pad - confirmed by running this sweep from 160 first, which
-        // fails at h=160 (SlotTop -58) all the way up to h=227 (SlotTop 9) for exactly that reason.
-        // That is intended degradation, the same kind Item 1's ShownSlots reasoning documents, not
-        // the under/over-count bug this invariant hunts for; 228 is the exact height at which the
-        // lone slot's top first reaches the pad (SlotTop == Pad == 10) and the invariant becomes
-        // meaningful.
-        for (var h = 228.0; h <= 1200.0; h += 1.0)
+        // Starts at HeightForSlots(1) - the exact height at which the lone slot's top first reaches
+        // the pad (SlotTop == Pad) and the invariant becomes meaningful. Below it, the floor-of-1
+        // clamp Capacity documents ("at least one, even in a window too short for it, matching the
+        // canvas") reports a slot that does not itself fit above the pad. That is intended
+        // degradation, not the under/over-count bug this sweep hunts for.
+        //
+        // Derived, not the literal 228 it used to be: that was the boundary for a 96-unit bottom row,
+        // and it silently became wrong when the encounter table made it 113.
+        for (var h = HeightForSlots(1); h <= 1200.0; h += 1.0)
         {
             var capacity = RailSlotGeometry.Capacity(M, h);
             var topmostTop = RailSlotGeometry.SlotTop(M, h, capacity - 1);
@@ -186,30 +207,32 @@ public sealed class RailSlotGeometryTests
         Assert.Equal(0, RailSlotGeometry.ShownSlots(M, 600, liveCount: 0));
     }
 
-    // -- the stamina seal --------------------------------------------------------
+    // -- the player's tile -------------------------------------------------------
 
     [Fact]
-    public void StaminaSeal_SitsAtTheBottomRowsTopEdge_InTheLeftColumn()
+    public void PlayerTile_SitsAtTheBottomBlocksTopEdge_AndSpansTheContentWidth()
     {
-        var seal = RailSlotGeometry.StaminaSealDp(M, W, 600);
+        var tile = RailSlotGeometry.PlayerTileDp(M, W, 600);
 
-        // Bottom row top = height - pad - tick row - bottom row.
-        Assert.Equal(600.0 - 10.0 - 30.0 - 96.0, seal.Top, 3);
-        Assert.Equal(10.0, seal.Left, 3);
-        Assert.Equal(92.0, seal.Width, 3);
-        Assert.Equal(92.0, seal.Height, 3);
+        // Bottom block top = height - pad - tick row - bottom block.
+        Assert.Equal(600.0 - 10.0 - 30.0 - 113.0, tile.Top, 3);
+        Assert.Equal(10.0, tile.Left, 3);
+        // Full content width, not a 92-unit seal box in the left column - the ring is gone.
+        Assert.Equal(376.0 - 20.0, tile.Width, 3);
+        // The TILE's height, not the block's: the encounter table sits below it inside that block.
+        Assert.Equal(81.0, tile.Height, 3);
     }
 
     [Fact]
-    public void TheSealNeverOverlapsTheLowestSlot()
+    public void ThePlayerTileNeverOverlapsTheLowestSlot()
     {
-        // Six dp between them, which is the SlotsGap the canvas leaves. A float anchored on the seal
-        // and one anchored on slot 0 must not start life on the same pixels.
-        var seal = RailSlotGeometry.StaminaSealDp(M, W, 600);
+        // Six dp between them, which is the SlotsGap the canvas leaves. A float anchored on the
+        // player and one anchored on slot 0 must not start life on the same pixels.
+        var tile = RailSlotGeometry.PlayerTileDp(M, W, 600);
         var slot0 = RailSlotGeometry.OpponentSlotDp(M, W, 600, rosterIndex: 0, liveCount: 1);
 
         Assert.NotNull(slot0);
-        Assert.Equal(6.0, seal.Top - (slot0!.Value.Top + slot0.Value.Height), 3);
+        Assert.Equal(6.0, tile.Top - (slot0!.Value.Top + slot0.Value.Height), 3);
     }
 
     // -- the scale factor --------------------------------------------------------
@@ -217,7 +240,7 @@ public sealed class RailSlotGeometryTests
     [Fact]
     public void EverythingScalesWithThePanelWidth_TheSameWayTheCanvasDoes()
     {
-        // The canvas maps its fixed 336-unit space onto whatever width it is given, so a sibling
+        // The canvas maps its fixed 376-unit space onto whatever width it is given, so a sibling
         // positioned in dp needs the same factor. Double the panel width at double the height and
         // every dp figure should double - this is the invariant TickTrackDp/FleePillDp already hold
         // and the one a float overlay silently violates if it hardcodes the design width.
@@ -235,16 +258,20 @@ public sealed class RailSlotGeometryTests
     [Fact]
     public void FiveLiveSlotsStillFitTheShortestRealisticRail()
     {
-        // What the badge size was bought against. Live concurrency in the clog corpus peaks at 5 or
+        // What the tile size was bought against. Live concurrency in the clog corpus peaks at 5 or
         // fewer in 1268 of 1275 encounters (99.45%; tools/combat/concurrency.py against the whole clog
         // corpus, 2026-09-02 - see tools/combat/README.md's own stored result), so five slots is the
-        // case worth sizing for - and a 76-unit slot comfortably fits five at a 560-unit rail (408
-        // available; N slots cost N*SlotHeight + (N-1)*SlotGap, so five cost 5*76 + 4*5 = 400 - the
-        // true minimum rail height for five is 552, not 560). The one encounter that reached thirteen
-        // is the overflow row's business.
-        Assert.Equal(5, RailSlotGeometry.Capacity(M, 560.0));
-        Assert.Equal(5, RailSlotGeometry.ShownSlots(M, 560.0, liveCount: 5));
-        Assert.Equal(8, RailSlotGeometry.Capacity(M, 800.0));
+        // case worth sizing for. The one encounter that reached thirteen is the overflow row's
+        // business.
+        //
+        // THE PRICE OF THE ENCOUNTER TABLE, recorded here rather than argued: the minimum rail height
+        // for five slots was 552 and is now 569, because the table added 17 units to the bottom block.
+        // At 560 - the height this test used to assert against - the rail now shows FOUR. Whether that
+        // matters is a question about the owner's actual window height, not about this arithmetic.
+        Assert.Equal(569.0, HeightForSlots(5), 3);
+        Assert.Equal(5, RailSlotGeometry.Capacity(M, 569.0));
+        Assert.Equal(5, RailSlotGeometry.ShownSlots(M, 569.0, liveCount: 5));
+        Assert.Equal(4, RailSlotGeometry.Capacity(M, 560.0));
     }
 
     [Fact]
@@ -367,10 +394,17 @@ public sealed class RailSlotGeometryTests
     [Fact]
     public void PlanDeadStrip_AtTheLivePanelsOwnLineHeight()
     {
-        // The rail's real numbers (CombatRailView.Pad=10, DeadLineHeight=13): startY=23. A 200-unit
-        // floor gives room for floor((200-23)/13)+1 = 14 rows, comfortably more than a realistic
-        // session's endings, so nothing is truncated.
-        var plan = RailSlotGeometry.PlanDeadStrip(floor: 200, startY: 23, lineHeight: 13, 0, 0, Uniform(12));
+        // The rail's real numbers. DeadLineHeight became 24 on 2026-09-07 when an ending grew to two
+        // lines (name and outcome on the left, the exchange summary opposite); this test still said 13,
+        // which is the pre-redesign single-line value, and passed anyway because it is internally
+        // consistent - the same way this whole fixture stayed green through a width change.
+        const double lineHeight = 24.0;
+        const double startY = 10.0 + lineHeight;
+
+        // A 400-unit floor gives room for floor((400-34)/24)+1 = 16 rows, comfortably more than the
+        // twelve offered, so nothing is truncated.
+        var plan = RailSlotGeometry.PlanDeadStrip(
+            floor: 400, startY: startY, lineHeight: lineHeight, 0, 0, Uniform(12));
 
         Assert.False(plan.ShowMarker);
         Assert.Equal(0, plan.ShownStart);

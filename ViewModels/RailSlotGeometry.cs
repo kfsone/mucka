@@ -70,9 +70,13 @@ public readonly record struct RailSlotMetrics(
     double SlotGap,
     // The gap the canvas leaves between the bottom row's top edge and the lowest opponent slot.
     double SlotsGap,
+    // The whole bottom block: the player's tile PLUS the encounter table under it. This is what the
+    // opponent stack is measured against, so it is the figure that decides how many slots fit.
     double BottomRowHeight,
     double TickRowHeight,
-    double SealSize,
+    // Just the player's tile, which is shorter than the block above. Only PlayerTileDp needs it -
+    // a float anchored to the player belongs on the tile, not over the table beneath it.
+    double PlayerTileHeight,
     int MaxSlots);
 
 /// <summary>
@@ -80,7 +84,7 @@ public readonly record struct RailSlotMetrics(
 ///
 /// <para><b>This is a mirror of the paint path's own arithmetic, and it has to stay one.</b>
 /// <c>CombatRailView.OnPaintSurface</c> lays the panel out from the BOTTOM edge upward in a fixed
-/// 336-unit logical space and scales that space to whatever width the panel is given; a consumer
+/// 376-unit logical space and scales that space to whatever width the panel is given; a consumer
 /// working in real dp therefore needs the same scale factor applied, exactly as
 /// <c>TickTrackDp</c>/<c>FleePillDp</c> already do for the two Composition siblings. The
 /// difference here is that the slot layout also has a CAPACITY rule (how many slots the available
@@ -316,10 +320,21 @@ public static class RailSlotGeometry
             m.SlotHeight * k);
     }
 
-    /// <summary>The stamina seal's box - the left column of the bottom row. Its top edge IS the
-    /// bottom row's top edge (the seal is 92 in a 96-high row), so this is the same bottom-up chain
-    /// with the slot gap left off.</summary>
-    public static RailRect StaminaSealDp(in RailSlotMetrics m, double panelWidthDp, double panelHeightDp)
+    /// <summary>
+    /// The PLAYER'S TILE - what a player-anchored damage float centres itself on.
+    ///
+    /// <para>Was <c>StaminaSealDp</c>, a 92x92 box in the bottom row's left column, back when the
+    /// player's stamina was a ring seal sitting there. The ring is gone (2026-09-06) and the stamina
+    /// readout is now a full-width bar inside a full-width tile, so a float centred on the old box
+    /// landed at x=56 on a tile whose centre is 188 - visibly left of where the number it describes
+    /// actually is. It is the whole tile now, which is also what the float is conceptually about:
+    /// "this happened to you", not "this happened to that widget".</para>
+    ///
+    /// <para>Its top edge IS the bottom block's top edge, so this is the same bottom-up chain with the
+    /// slot gap left off. The block is TALLER than the tile - it carries the encounter table too - so
+    /// the height here is the tile's own, not <c>m.BottomRowHeight</c>.</para>
+    /// </summary>
+    public static RailRect PlayerTileDp(in RailSlotMetrics m, double panelWidthDp, double panelHeightDp)
     {
         if (panelWidthDp <= 0 || m.RailWidth <= 0)
             return default;
@@ -327,6 +342,7 @@ public static class RailSlotGeometry
         var k = panelWidthDp / m.RailWidth;
         var logicalHeight = panelHeightDp / k;
         var top = logicalHeight - m.Pad - m.TickRowHeight - m.BottomRowHeight;
-        return new RailRect(m.Pad * k, top * k, m.SealSize * k, m.SealSize * k);
+        return new RailRect(
+            m.Pad * k, top * k, (m.RailWidth - (m.Pad * 2.0)) * k, m.PlayerTileHeight * k);
     }
 }

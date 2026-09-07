@@ -1154,11 +1154,11 @@
              change drives GamePage's ResizeWindowForCombatPanel). The window never resizes itself for
              any other reason - not combat start, not combat end.
 
-             WidthRequest=338, not 336: this Border's own StrokeThickness=1 insets its content by 1dp
+             WidthRequest=378, not 376: this Border's own StrokeThickness=1 insets its content by 1dp
              per side (MAUI's Border.CrossPlatformMeasure subtracts Padding+StrokeThickness on each
              side, confirmed by decompiling Microsoft.Maui.Controls.dll - not assumed), so the canvas/
-             Composition-sibling content area inside is 336dp - exactly CombatRailView.RailWidth. That
-             makes the rail's 336-unit design space map 1:1 onto this dp content area at every DPI (see
+             Composition-sibling content area inside is 376dp - exactly CombatRailView.RailWidth. That
+             makes the rail's 376-unit design space map 1:1 onto this dp content area at every DPI (see
              GamePage.xaml.cs's CombatPanelContentWidthDp/CombatPanelWidthDp, which this must keep
              matching); OnPaintSurface's `scale` itself still carries the DPI factor on top of that,
              because SKCanvasView reports its surface in physical pixels, not dp (IgnorePixelScaling is
@@ -1167,7 +1167,7 @@
         <Border Grid.Column="2"
                 x:Name="CombatPanelBorder"
                 IsVisible="{Binding SidePanel.IsCombatPanelVisible}"
-                WidthRequest="338"
+                WidthRequest="378"
                 BackgroundColor="#101618"
                 Stroke="#2d333b" StrokeThickness="1"
                 Padding="0">
@@ -1176,7 +1176,28 @@
                  many there are IS the motion budget - RailFloatBudget.MaxInFlight - and four
                  hand-copied Labels would be a second copy of that number, free to disagree with the
                  policy that actually hands out the slots. -->
-            <Grid x:Name="CombatPanelLayers">
+            <!-- BackgroundColor is load-bearing, not cosmetic: WinUI does not hit-test a Panel whose
+                 Background is null, and MAUI leaves it null unless one is set. Every child of this
+                 Grid is InputTransparent except two small Buttons, so without this the pointer events
+                 the recognizer below needs would land on the parent Border instead and never reach
+                 it. Both of the other working PointerGestureRecognizers in this file sit on a Border
+                 that has an explicit BackgroundColor, for the same reason. Transparent, so the panel's
+                 own #101618 still shows through. -->
+            <Grid x:Name="CombatPanelLayers" BackgroundColor="Transparent">
+                <!-- Hover, and ONLY hover. The encounter table above the tick gauge stays wordless
+                     until the pointer is on it, at which point its (permanently reserved) heading row
+                     and its separators are painted - see CombatRailView.DrawEncounterTable.
+
+                     This is a real exception to Invariant #0 and it is deliberately the narrowest one
+                     available: a PointerGestureRecognizer receives moves and exits and nothing else,
+                     it cannot take keyboard focus, and the canvas underneath stays InputTransparent.
+                     Do NOT grow this into a TapGestureRecognizer without answering the invariant - a
+                     click here would have to hand focus straight back to the command box, which is
+                     exactly the per-element list Behaviors/FocusGuard.cs exists to have deleted. -->
+                <Grid.GestureRecognizers>
+                    <PointerGestureRecognizer PointerMoved="OnCombatPanelPointerMoved"
+                                              PointerExited="OnCombatPanelPointerExited"/>
+                </Grid.GestureRecognizers>
                 <!-- Glow layer BEHIND the canvas (D9): opacity animated ONLY via WinUI Composition
                      (PulseLayer, GamePage.xaml.cs), never via a UI-thread timer and never by
                      recolouring the canvas's own drawn text. Rests at Opacity 0 (invisible) whenever

@@ -25,7 +25,13 @@ public sealed record CombatEncounterSnapshot(
     // "am I winning this". (Plain comment, not an XML one: a positional record parameter is not a
     // valid target for /// and warns CS1587.)
     double TheirApproxDps,
-    IReadOnlyList<FightSnapshot> Fights);
+    IReadOnlyList<FightSnapshot> Fights,
+    // Every swing of this ENCOUNTER in arrival order, whoever threw it and whoever at. The player's
+    // own tile draws this rather than a merge of the per-fight rings, which could not be merged
+    // honestly: those are ordered within themselves and carry no timestamps, so interleaving three
+    // creatures' swings after the fact would be inventing a sequence. Recorded once, here, where the
+    // order is still known. See MudSharp.Combat.SwingMark.
+    IReadOnlyList<SwingMark>? Exchange = null);
 
 /// <summary>One NPC's fight within the current encounter, in first-engaged order. Includes fights
 /// that have already resolved, so a multi-NPC encounter shows "goat kill / ram live" rather than
@@ -85,7 +91,18 @@ public sealed record FightSnapshot(
     NpcRungCrossing? RungCrossing = null,
     // The `value <name>` points this creature is worth killing, or null until a probe has answered
     // for it - see FightAccumulator.Value for why null and zero must stay distinguishable.
-    int? Value = null);
+    int? Value = null,
+    // Both sides' last two dozen swings in ARRIVAL order - the rail spark's timeline. Distinct from
+    // the two per-side rings above, which cannot be interleaved after the fact; see SwingMark.
+    IReadOnlyList<SwingMark>? Exchange = null,
+    // The outgoing blow-shape figures, which the bracket total alone cannot reconstruct: how many of
+    // the player's blows carried numbers, and the smallest and largest UPPER bound among them.
+    int DealtSamples = 0,
+    double DealtMinHigh = 0,
+    double DealtMaxHigh = 0,
+    // The incoming counterpart to TheirDamage.Max. Zero is a legal value (a blow that took nothing
+    // off), so read TheirDamage.Samples to ask whether anything was measured.
+    double MinDamageTaken = 0);
 
 public sealed class CombatStatsAggregator
 {
@@ -97,6 +114,32 @@ public sealed class CombatStatsAggregator
     // one ended, and so a rejoining NPC does not silently reset its own tally.
     private readonly Dictionary<string, FightAccumulator> _fights = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<FightAccumulator> _fightOrder = new();
+
+    // The encounter's own exchange ring - same fixed-capacity discipline and the same reason as
+    // FightAccumulator's (this is written on every combat line; Invariant #1).
+    private readonly SwingMark[] _exchange = new SwingMark[FightAccumulator.RecentExchangeCapacity];
+    private int _exchangeHead;
+    private int _exchangeCount;
+
+    private void RecordExchange(SwingMark mark)
+    {
+        _exchange[_exchangeHead] = mark;
+        _exchangeHead = (_exchangeHead + 1) % _exchange.Length;
+        if (_exchangeCount < _exchange.Length)
+            _exchangeCount++;
+    }
+
+    private SwingMark[] ExchangeSnapshot()
+    {
+        if (_exchangeCount == 0)
+            return Array.Empty<SwingMark>();
+
+        var result = new SwingMark[_exchangeCount];
+        var oldest = _exchangeCount < _exchange.Length ? 0 : _exchangeHead;
+        for (var i = 0; i < _exchangeCount; i++)
+            result[i] = _exchange[(oldest + i) % _exchange.Length];
+        return result;
+    }
 
     private DateTime? _encounterStartUtc;
     private string? _currentWeapon;
@@ -139,6 +182,8 @@ public sealed class CombatStatsAggregator
         _theyMisses = 0;
         _approxDamageDone = 0;
         _approxDamageTaken = 0;
+        _exchangeHead = 0;
+        _exchangeCount = 0;
         _activeNpcSet.Clear();
         _activeNpcOrder.Clear();
         _npcWeapons.Clear();
@@ -159,6 +204,8 @@ public sealed class CombatStatsAggregator
         _theyMisses = 0;
         _approxDamageDone = 0;
         _approxDamageTaken = 0;
+        _exchangeHead = 0;
+        _exchangeCount = 0;
         _activeNpcSet.Clear();
         _activeNpcOrder.Clear();
         _fights.Clear();
@@ -310,13 +357,21 @@ public sealed class CombatStatsAggregator
                 _youHits++;
                 AddParticipant(combatEvent.NpcName);
                 if (combatEvent.RangeLow is int low && combatEvent.RangeHigh is int high)
+                {
                     _approxDamageDone += (low + high) / 2.0;
+                    RecordExchange(new SwingMark(true, true, (low + high) / 2.0, low, high));
+                }
+                else
+                {
+                    RecordExchange(SwingMark.UnmeasuredHit(mine: true));
+                }
                 EngagedFightFor(combatEvent)?.AddYouHit(combatEvent.RangeLow, combatEvent.RangeHigh);
                 break;
 
             case CombatEventKind.Miss:
                 _youMisses++;
                 AddParticipant(combatEvent.NpcName);
+                RecordExchange(SwingMark.Miss(true));
                 EngagedFightFor(combatEvent)?.AddYouMiss();
                 break;
 
@@ -326,12 +381,16 @@ public sealed class CombatStatsAggregator
                 // The encounter-level baseline chain owns the delta; the fight bucket receives the
                 // already-resolved figure so both agree and the baseline is only advanced once.
                 var damageTaken = ObserveDamageTaken(combatEvent.RangeLow);
+                RecordExchange(damageTaken is double taken
+                    ? new SwingMark(false, true, Math.Max(taken, 0), null, null)
+                    : SwingMark.UnmeasuredHit(mine: false));
                 EngagedFightFor(combatEvent)?.AddTheyHit(damageTaken);
                 break;
 
             case CombatEventKind.MissByNpc:
                 _theyMisses++;
                 AddParticipant(combatEvent.NpcName);
+                RecordExchange(SwingMark.Miss(false));
                 EngagedFightFor(combatEvent)?.AddTheyMiss();
                 break;
 
@@ -479,7 +538,8 @@ public sealed class CombatStatsAggregator
             duration,
             dps,
             theirDps,
-            BuildFightSnapshots(nowUtc));
+            BuildFightSnapshots(nowUtc),
+            ExchangeSnapshot());
     }
 
     /// <summary>The per-NPC fights of this encounter, in first-engaged order.</summary>
@@ -519,7 +579,12 @@ public sealed class CombatStatsAggregator
                 fight.RungAnchor,
                 fight.StaminaReading,
                 fight.RungCrossing,
-                fight.Value));
+                fight.Value,
+                fight.RecentExchange,
+                fight.DealtSamples,
+                fight.DealtMinHigh,
+                fight.DealtMaxHigh,
+                fight.MinDamageTaken));
         }
 
         return result;

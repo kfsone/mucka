@@ -55,9 +55,12 @@ public sealed record RailFloat(
 /// Outgoing damage is a BUCKET - MUD2 prints "You hit the rat (5-9)." - so the float prints the
 /// bracket exactly as the game printed it, unsigned. Incoming damage is EXACT, because the wire
 /// carries absolute stamina ("The rat hits you (58/62)."), so the float prints a signed "-5". A
-/// player who sees a signed number on the rail is looking at a measurement; an unsigned range is a
-/// range. Giving the outgoing side a minus sign, or a midpoint, would launder a bracket into a
-/// value.</para>
+/// player who sees a signed number on a float is looking at a measurement; an unsigned range is a
+/// range. Giving the outgoing side a minus sign would launder a bracket into a value.</para>
+///
+/// <para>That is a rule about the FLOAT, whose whole job is to echo the one line the game just
+/// printed. It is NOT a rule about what the rail may derive elsewhere - see
+/// <see cref="MudSharp.Combat.ExchangeLine"/>, which owns that distinction now.</para>
 /// </summary>
 public static class RailFloatText
 {

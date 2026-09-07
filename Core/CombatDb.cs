@@ -376,6 +376,29 @@ public static class CombatDb
         FROM swings WHERE dir = 'in' AND hit = 1 AND dmg IS NOT NULL AND npc_group IS NOT NULL
         GROUP BY npc_group;
 
+        -- The same question again, but split by the weapon the CREATURE was holding. A creature arms
+        -- itself independently of the player and that materially changes its output (see
+        -- SwingRow.NpcWeapon), so "how hard does an ogre hit" and "how hard does an ogre with a great
+        -- club hit" are different questions and the second is the one worth fleeing on.
+        --
+        -- Keyed on group and weapon joined by a tab, which cannot occur inside a MUD2 object name.
+        -- The key's SHAPE must match SwingDamageIndex.GroupWeaponKey exactly - see its remarks; the
+        -- two halves of this cache are written by the live fold and by this query, and a silent
+        -- disagreement would show up only as history that resets on every restart.
+        --
+        -- rtrim(x, '0123456789') strips the object's INSTANCE digits, so every axe in the world folds
+        -- into "axe" rather than becoming its own bucket that never reaches three samples. lower() is
+        -- not cosmetic either: GROUP BY here is BINARY-collated where the C# dictionary is
+        -- OrdinalIgnoreCase, so without it two case-differing rows arrive separately and the second
+        -- OVERWRITES the first instead of merging.
+        CREATE VIEW IF NOT EXISTS v_incoming_by_group_weapon AS
+        SELECT npc_group || char(9) || lower(rtrim(npc_weapon, '0123456789')) AS name,
+               COUNT(*) AS samples, MAX(dmg) AS max_dmg, SUM(dmg) AS sum_dmg
+        FROM swings
+        WHERE dir = 'in' AND hit = 1 AND dmg IS NOT NULL
+          AND npc_group IS NOT NULL AND npc_weapon IS NOT NULL
+        GROUP BY npc_group, lower(rtrim(npc_weapon, '0123456789'));
+
         -- The player's own output, kept as brackets throughout. Both ends are summed separately so a
         -- consumer can report "averages 12-16" rather than being handed a midpoint someone else chose.
         CREATE VIEW IF NOT EXISTS v_outgoing_by_npc AS

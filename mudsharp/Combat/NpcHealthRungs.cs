@@ -322,4 +322,71 @@ public static class NpcHealthRungs
             return phrase[toBe.Length..];
         return phrase;
     }
+
+    /// <summary>
+    /// Which rung a known cur/max lands on: <c>ceil(cur * 7 / max)</c>. Null when the inputs cannot
+    /// support an answer.
+    ///
+    /// <para><b>Provenance, honestly.</b> <see cref="IsAtMax"/>'s remarks describe this formula as
+    /// "fitted 328/328 against paired readings across six maxima". A 2026-09-06 audit could not
+    /// reproduce that: there is no script or stored query under <c>tools/</c> that produces it, the
+    /// sibling claim in <c>NpcHealthRungTests</c> states a DIFFERENT figure (218 readings, four
+    /// personae) for the same fact, and the corpus on this machine contains no player self-inspection
+    /// descriptor line at all - every "The X looks Y." line has an NPC subject. Treat the ladder
+    /// formula as a reasonable inference, not as a measurement someone took. It is used here only for
+    /// the player, whose maximum the game states outright, and only to choose a WORD; nothing decides
+    /// anything on it.</para>
+    ///
+    /// <para><b>This is only ever asked about the PLAYER.</b> A creature's rung comes from the word
+    /// MUD2 printed, never from arithmetic, because the client has no honest denominator for one - the
+    /// pool estimate is an inference and putting it through this would dress it as a reading. The
+    /// player is the single creature whose maximum the game states outright.</para>
+    /// </summary>
+    public static int? RungFor(int? current, int? max)
+    {
+        if (current is not int cur || max is not int maximum || maximum <= 0)
+            return null;
+
+        var clamped = Math.Clamp(cur, 0, maximum);
+        var rung = (int)Math.Ceiling(clamped * (double)Rungs / maximum);
+        return Math.Clamp(rung, 1, Rungs);
+    }
+
+    /// <summary>
+    /// The LIVING family's word for a rung - fit / superficially injured / minor injuries / covered in
+    /// wounds / seriously injured / critically injured / close to death.
+    ///
+    /// <para>Every one of these is lifted from <see cref="ByPhrase"/> rather than composed here, so
+    /// this cannot drift into vocabulary MUD2 does not use. That matters: the undead say "damaged"
+    /// where the living say "injured" and the banshee says neither, and a family invented by analogy
+    /// is exactly how "critically drained" and "moderately injured" got into that table and had to be
+    /// deleted again.</para>
+    ///
+    /// <para>Used for the player's own readout, the player being a living creature. The game's word
+    /// for the player is available from <c>ql me</c> and is NOT captured today; when it is, prefer it
+    /// over this, the same way every creature's own printed descriptor already outranks inference.</para>
+    ///
+    /// <para><b>Rung 7 is the shakiest entry and it is the resting state.</b> <see cref="IsAtMax"/>
+    /// claims the game says "full of life" at exactly max and never "fit" - which would make the word
+    /// this returns wrong for a player sitting at full stamina, the commonest thing the panel ever
+    /// shows. The 2026-09-06 audit could neither confirm nor refute it: "full of life" appears ten
+    /// times corpus-wide and every one describes an NPC, so there is no player evidence either way.
+    /// The word stays because it cannot be shown wrong, not because it has been shown right.</para>
+    ///
+    /// <para>If an at-max distinction is wanted, the evidence for one already exists and is not a
+    /// descriptor: the C1 code on the stamina numerator is <c>99.10</c> if and only if
+    /// <c>cur == max</c> - 45 of 45 across 660 captured "hits you (cur/max)" frames, never once below
+    /// max. Build on that rather than on a word nobody has captured for the player.</para>
+    /// </summary>
+    public static string? LivingLabel(int? rung) => rung switch
+    {
+        7 => "fit",
+        6 => "superficially injured",
+        5 => "minor injuries",
+        4 => "covered in wounds",
+        3 => "seriously injured",
+        2 => "critically injured",
+        1 => "close to death",
+        _ => null,
+    };
 }

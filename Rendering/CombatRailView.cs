@@ -35,7 +35,7 @@ public sealed class CombatRailView : SKCanvasView
 {
     // ---- Geometry (logical units; the canvas is scaled to these at paint time) -------------
     // Internal (not private): GamePage.xaml.cs sizes the host Border's WidthRequest off this value so
-    // the rail's 336-unit design space maps 1:1 onto the Border's dp content area (WidthRequest minus
+    // the rail's 376-unit design space maps 1:1 onto the Border's dp content area (WidthRequest minus
     // its own stroke inset) at every DPI - the rail was previously hosted in a panel narrower than
     // this by more than the Border's own stroke inset, so every glyph drew at ~0.887x its designed
     // size REGARDLESS of DPI. That is distinct from OnPaintSurface's own `scale` below, which still
@@ -66,6 +66,102 @@ public sealed class CombatRailView : SKCanvasView
     private const float SlotHeight = 76f;
     private const float SlotGap = 5f;
 
+    // ---- the tile, 2026-09-06 ----
+    //
+    // The ring seal used to sit on the left of every tile and every text line began to the right of
+    // it, at x=91. Replacing it with a full-width bar gave all four lines the whole 356 units back -
+    // 81 more than they had - which is what let the two damage rows and the spark fit at a size worth
+    // reading. The tile height did not move: four lines and a bar still land inside the original 76.
+    //
+    // The PANEL's capacity did change, though, and not because of the tile: the encounter table added
+    // 17 units to BottomRowHeight, which RailSlotGeometry.SlotsBottom subtracts before it divides. Five
+    // live slots needed a rail of 552 units and now need 569. Five covered 99.45% of encounters in the
+    // corpus, so this is a real trade and it is the owner's to accept - it is recorded here rather
+    // than left for someone to rediscover from the arithmetic.
+    //
+    // Every offset below is from the tile's own top. They are constants rather than a measured flow
+    // because a line that moves when its neighbour's text grows is the re-find-it-on-every-glance
+    // failure the whole panel is laid out to avoid.
+    private const float TileNameBaseline = 14f;
+    private const float TileHealthBaseline = 29f;
+    private const float TileBarTop = 34f;
+    private const float TileBarFillHeight = 6f;
+    private const float TileBarLaneTop = 41f;
+    private const float TileBarLaneHeight = 2f;
+    /// <summary>The tile's two stat rows, named by POSITION rather than by content - deliberately.
+    /// Which direction each row carries depends on whose badge it is (see DrawStatRow: the upper row
+    /// is always what the subject is TAKING), so a name like "DealtBaseline" would be true on an
+    /// opponent's tile and a lie on the player's.</summary>
+    private const float TileUpperBaseline = 56f;
+    private const float TileLowerBaseline = 71f;
+
+    /// <summary>
+    /// The spark's own baseline, and the whole reason it is a constant rather than an offset from a
+    /// text baseline.
+    ///
+    /// <para><b>It was <c>TileUpperBaseline - 9</c> and that overdrew the ladder.</b> Marks grow up to
+    /// <see cref="SparkMaxBar"/> either side of this line, so a centre at 47 put a player-side bar's
+    /// top at 33 - through the prediction lane at 41-43 for any blow over ~1.8, and into the ladder
+    /// fill at 34-40 for anything over ~7.3, which is the midpoint of an ordinary
+    /// <c>You hit the rat (5-9)</c>. The spark occupies x 264-366 where the ladder spans the full
+    /// width, so the collision was real and took out the last two rungs of the health readout.</para>
+    ///
+    /// <para>Sits below the bar's band (34-43) with the full bar height clear above it, and the tile's
+    /// own bottom edge clear below. There is no clip anywhere on this canvas; the geometry has to be
+    /// right rather than contained.</para>
+    /// </summary>
+    private const float TileSparkCentre = 59f;
+
+    /// <summary>The same, on the player's tile, which additionally has the magic strip at 45-47 to
+    /// clear.</summary>
+    private const float PlayerSparkCentre = 64f;
+
+    /// <summary>The magic line's own strip, drawn on the player's tile only, immediately under the
+    /// stamina bar. Two units high with notches at the quarters - it answers "roughly how much is
+    /// left" and nothing more, because a caster who needs the exact figure has it in the seal slot
+    /// above.</summary>
+    private const float PlayerMagTop = 45f;
+    private const float PlayerMagHeight = 2f;
+    private const float PlayerUpperBaseline = 61f;
+    private const float PlayerLowerBaseline = 76f;
+    private const float PlayerTileHeight = 81f;
+
+    // The stat row's four fixed columns and the spark that follows them. Fixed centres, so the two
+    // rows of a tile line up with each other and with every other tile's - the owner's requirement
+    // when the sizes inside the blow-shape group stopped them lining up on their own.
+    private const float StatMarkWidth = 14f;
+    private const float StatTotalWidth = 88f;
+    private const float StatShapeWidth = 96f;
+    private const float StatDptWidth = 52f;
+    private const float StatMarkLeft = Pad;
+    private const float StatTotalLeft = StatMarkLeft + StatMarkWidth;
+    private const float StatShapeLeft = StatTotalLeft + StatTotalWidth;
+    private const float StatDptLeft = StatShapeLeft + StatShapeWidth;
+    private const float SparkLeft = StatDptLeft + StatDptWidth + 4f;
+    private const float SparkWidth = Pad + Content - SparkLeft;
+
+    // Inside the blow-shape group: three slots and two separators, all fixed. The outer two figures
+    // are drawn a size down, which is exactly why the slots have to be positioned rather than laid
+    // out by measuring - mixed sizes would otherwise shift the group's centre between the two rows.
+    private const float ShapeLowWidth = 30f;
+    private const float ShapeSepWidth = 6f;
+    private const float ShapeHighWidth = 24f;
+    private const float ShapeLowLeft = StatShapeLeft;
+    private const float ShapeSep1Left = ShapeLowLeft + ShapeLowWidth;
+    private const float ShapeHighLeft = ShapeSep1Left + ShapeSepWidth;
+    private const float ShapeSep2Left = ShapeHighLeft + ShapeHighWidth;
+    private const float ShapeMeanLeft = ShapeSep2Left + ShapeSepWidth;
+
+    /// <summary>One swing's slot in the spark, and the widest bar it can draw. Damage saturates the
+    /// bar at <see cref="SparkDamageCap"/>: beyond that the creature is already hitting for more than
+    /// any single tick of headroom the player is likely to have, and a taller mark would only be
+    /// re-stating that in a way that squeezed every other mark shorter.</summary>
+    private const float SparkPitch = 5.5f;
+    private const float SparkBarWidth = 3f;
+    private const float SparkMinBar = 3f;
+    private const float SparkMaxBar = 14f;
+    private const double SparkDamageCap = 20.0;
+
     /// <summary>
     /// One line of the top-anchored dead strip.
     ///
@@ -93,7 +189,12 @@ public sealed class CombatRailView : SKCanvasView
     /// both by EndedUtc; see <see cref="Mucka.ViewModels.CombatEndingOrder"/>. See
     /// <see cref="DrawDeadStrip"/> and <c>SidePanelViewModel.BuildDeadStripHistory</c>.</para>
     /// </summary>
-    private const float DeadLineHeight = 13f;
+    /// <summary>One ending's whole block, which is now TWO lines rather than one (owner, 2026-09-06:
+    /// the strip carries the exchange summary and the kill award as well as the name and the outcome).
+    /// Named "line" because RailSlotGeometry.PlanDeadStrip budgets in these units and does not care
+    /// what is drawn inside one - it is the strip's row PITCH, and the two sub-lines are
+    /// DeadSubLineHeight apart within it.</summary>
+    private const float DeadLineHeight = 24f;
 
     /// <summary>
     /// The dead strip's two grouping separators' own vertical allowance - 2026-09-02, the owner
@@ -114,7 +215,20 @@ public sealed class CombatRailView : SKCanvasView
     private const float DeadStripEncounterSeparatorHeight = 6f;
     private const float DeadStripResetSeparatorHeight = 6f;
 
-    private const float BottomRowHeight = 96f;
+    /// <summary>The encounter table above the tick gauge: a heading row that is RESERVED always and
+    /// painted only on hover, and the value row under it. Reserved rather than inserted because the
+    /// owner's standing preference is against dynamic positioning - headings that appeared on hover
+    /// would push the whole rail down every time the pointer crossed it.</summary>
+    private const float EncounterHeadingHeight = 13f;
+    private const float EncounterValueHeight = 15f;
+    private const float EncounterRowHeight = EncounterHeadingHeight + EncounterValueHeight;
+    private const float EncounterRowGap = 4f;
+
+    /// <summary>The whole bottom block: the player's own tile plus the encounter table under it. Kept
+    /// as one figure because RailSlotMetrics measures the opponent stack against it, and GamePage's
+    /// float overlay measures against the same metrics - splitting it into two constants here would
+    /// leave that arithmetic reading only half the block.</summary>
+    private const float BottomRowHeight = PlayerTileHeight + EncounterRowGap + EncounterRowHeight;
     private const float TickRowHeight = 30f;
     private const float TickTrackHeight = 5f;
 
@@ -126,123 +240,21 @@ public sealed class CombatRailView : SKCanvasView
     private const float TickTrackWidth = Content - MetronomeReserve;
     private const float SealSize = 92f;
 
-    /// <summary>
-    /// The player's own ring, and the two prediction lanes outside it.
-    ///
-    /// <para><b>The ring gave up four units of radius to make room for the lanes.</b> 39 to 35. The
-    /// owner asked for the opponent badges' adornment on his own gauge, and the bottom row's height is
-    /// fixed by the flee pill's arithmetic and by the slot capacity above it, so the room had to come
-    /// from somewhere inside the seal. The number in the middle - which is what the player actually
-    /// reads off this device - is untouched.</para>
-    ///
-    /// <para>Dropped two units below the seal box's own centre so the ring sits centred in the 96-unit
-    /// ROW rather than in its 92-unit box, which buys the two units the outer lane needs at the top.
-    /// Checked against the flee pill: at the pill's vertical centre the outer lane has narrowed to
-    /// cx +/- 28.5, reaching x=84.5 against the pill's left edge at 92.</para>
-    /// </summary>
-    private const float SealRadius = 35f;
-    private const float SealStroke = 7f;
-    private const float SealCenterDropY = 2f;
-    private const float SealNextBlowInner = 39.4f;
-    private const float SealNextBlowOuter = 41.4f;
-    private const float SealBlowAfterInner = 42.4f;
-    private const float SealBlowAfterOuter = 44.4f;
-
-    /// <summary>The player's lanes never carry a dash. On an opponent's badge the dash reports how
-    /// often the PLAYER is landing on it; the player's own device is not answering that question, and
-    /// leaving the channel unused is better than giving it a second meaning.</summary>
-    private static readonly DamagePrediction.TempoStroke SolidTempo =
-        new(DamagePrediction.TempoReading.Fluent, 0f, 0f);
-
-    /// <summary>The opponent seal: the same ring the player's STA and MAG seals are, shrunk to fit an
-    /// opponent slot. Owner's call - "I want seals for npcs; they're no less approximate than a bar,
-    /// but critically they're the same shape, comparison is trivial."
-    ///
-    /// <para><b>Sized against a shipped element, not against a guess.</b> The owner reported the badges
-    /// "low value due to overly small size" and, after a first attempt, that "the notches are not
-    /// countable". The gate is exactly that: whether the six rung notches can be COUNTED, since "down 2
-    /// bubbles" is the whole justification for the ladder being a ring rather than a bar.
-    ///
-    /// <para>The reference is this panel's own history. The seven-pip health ladder that the ring
-    /// replaced drew <b>16dp segments, 3dp gaps, 6dp thick</b>, and it sat in the owner's hands for
-    /// months without a single complaint that its pips could not be counted. That makes it an empirical
-    /// floor for countability at this DPI and in this panel, rather than a number somebody liked. The
-    /// rail renders 1:1 dp (see <see cref="RailWidth"/>), so those figures are directly comparable.</para>
-    ///
-    /// <para>A rung segment on a ring is <c>R x 2pi/7</c> of arc. At the old radius 12 that was
-    /// <b>10.8dp</b> - two thirds of the proven floor, and duly reported as uncountable. At 26 it is
-    /// <b>23.3dp</b>, which is 1.46x that floor, with the stroke raised to 6dp to match the pips'
-    /// proven thickness exactly. Anything that trades this radius down is trading against those two
-    /// figures: stay at or above 16dp of segment and 6dp of stroke, or the ladder stops being
-    /// countable and the ring stops earning its shape.</para>
-    ///
-    /// <para>The radius is then capped by the slot: half of 76 is 38, less 1.2 for the tempo frame,
-    /// less 1.2 of margin, less the 9.4 the ring stroke and the two prediction lanes need outside
-    /// it.</para></summary>
-    private const float SlotSealStroke = 6f;
-    private const float SlotSealRadius = 26f;
-
-    /// <summary>How far the outermost drawn pixel of a badge sits from its centre: the ring's outer
-    /// edge (26 + 2.5), the two prediction lanes and half the outer band's stroke. Everything that
-    /// positions a badge is derived from THIS rather than from a nominal box, because the lanes extend
-    /// past any box the ring alone would suggest and the old constant let text creep under them.</summary>
-    private const float SlotSealExtent = BlowAfterOuter + (BlowAfterStroke / 2f);
-
-    /// <summary>The badge's centre, far enough in that its leftmost pixel clears the slot frame.</summary>
-    private const float SlotSealCenterX = Pad + SlotSealExtent + 4.1f;
-
-    /// <summary>
-    /// The two rDPT prediction bands ride outside the ring in lanes of their OWN, one per blow, with a
-    /// clear gap between them.
-    ///
-    /// <para><b>Concentric separation is required, not decoration.</b> The two bands are frequently
-    /// coincident in ANGLE: whenever the pool has no upper bound - a first encounter, or a species
-    /// fought but never killed - both bands start at the boundary itself, so the next blow's band lies
-    /// entirely inside the one after it. Drawn in a shared lane they would be one smudge differing only
-    /// in hue, and at the 12-degree minimum sweep (about three units of arc) they would be
-    /// indistinguishable even when they are NOT coincident. Radius is the only channel that survives
-    /// both cases.</para>
-    ///
-    /// <para>The next blow takes the INNER lane, nearest the ring it is about to move; the blow after
-    /// it sits further out. Reading outward is reading forward in time.</para>
-    ///
-    /// <para>Budget, from the seal's centre: ring outer edge 13.75, outermost band pixel 19.75, against
-    /// a slot half-height of 23 whose frame sits 0.6 in. 2.65 units of clearance.</para>
-    /// </summary>
-    private const float NextBlowInner = 29.9f;
-    private const float NextBlowOuter = 31.9f;
-    private const float BlowAfterInner = 32.9f;
-    private const float BlowAfterOuter = 34.9f;
-
-    /// <summary>Stroke of the prediction outlines. The owner's note on the mockup: "I think the actual
-    /// should be more of a bounding box border than a thick outline" - so a band is a thin box drawn
-    /// AROUND the segment it predicts, never a fat second arc competing with the fill.
-    ///
-    /// <para>The nearer blow is drawn slightly heavier. A third channel on top of radius and hue, so
-    /// the two remain separable for a reader who cannot rely on colour.</para></summary>
-    private const float NextBlowStroke = 1.3f;
-    private const float BlowAfterStroke = 1f;
-
     /// <summary>The tempo border's inset inside an opponent slot and around the player's device, and
     /// its stroke. Both fixed: the border is a frame on a rectangle whose bounds never change, so
     /// nothing here can reflow when a fight's rate does (only the DASH changes).</summary>
     private const float FrameStroke = 1.2f;
 
-    /// <summary>Left edge of an opponent slot's text, clear of its seal.</summary>
-    private const float SlotTextLeft = SlotSealCenterX + SlotSealExtent + 6f;
-
-    /// <summary>The bottom row's middle column - weapon, alternate weapon, and the flee pill - between
-    /// the two seals. Named rather than restated at each use so a sibling positioned in real dp
-    /// (<see cref="FleePillDp"/>) cannot drift off the column the canvas draws.</summary>
-    private const float ColumnLeft = Pad + SealSize + 8f;
-    private const float ColumnWidth = Content - (SealSize * 2f) - 16f;
-
     /// <summary>The flee pill, at the TOP of the middle column - the band above the weapon line, level
     /// with the upper arc of both seal rings, so the pill sits visually between the two stamina-shaped
     /// readouts the flee decision is actually about. Reserved whether or not the pill is drawn (rule 3);
     /// nothing else in the column moves when it lights up.</summary>
-    private const float PillHeight = 24f;
-    private const float PillTopInset = 3f;
+    private const float PillHeight = 20f;
+    /// <summary>4, not 5: the pill sits inside the tick row and the row's contents are dropped
+    /// <see cref="TickRowDrop"/>, so 5 + 6 + 20 put its lower edge one unit past the row. It landed in
+    /// the panel's bottom padding and was invisible, which is exactly the kind of off-by-one that stops
+    /// being invisible the next time the row's height changes.</summary>
+    private const float PillTopInset = 4f;
 
     /// <summary>The pill is WIDER than the middle column the weapon lines use, and centred on the panel
     /// rather than on that column. It has to be: the chip now carries stamina and a price as well as the
@@ -253,8 +265,12 @@ public sealed class CombatRailView : SKCanvasView
     /// (~15dp from the row's top) the ring has narrowed to cx +/- 23.7 - the left ring reaches x=83 at
     /// most, the right no further left than x=253. 92..244 clears both by roughly 9dp. Do not widen
     /// further without redoing that arithmetic; the rings bulge fast further down.</para></summary>
-    private const float PillLeft = 92f;
-    private const float PillWidth = 152f;
+    /// <summary>Centred over the tick gauge, where the pill now lives (owner, 2026-09-06). It covers
+    /// the gauge only while it is showing, which is the point: between fights the tick bar is
+    /// unobstructed, and when there is a reason to leave the alarm sits on top of the one instrument
+    /// the eye is already returning to every two seconds.</summary>
+    private const float PillWidth = 220f;
+    private const float PillLeft = Pad + ((Content - PillWidth) / 2f);
 
     /// <summary>The pill is the floating dreamword chip's treatment in reds - a FILLED chip with a
     /// bright 2dp border and white bold text, not the thin dim outline the rest of this panel favours.
@@ -316,7 +332,7 @@ public sealed class CombatRailView : SKCanvasView
     // (SealTrackJustLost, Tint(SealTrack, Hostile, 0.35f)) until 2026-09-02. The owner: "it seems to
     // stay red for multiple ticks; also, I'd like to reduce the *amount* of red... I'd like it to fade
     // red->final gray over the combat tick." A tint that fades cannot be a compile-time constant, so
-    // it is now computed at paint time in DrawSeal from Mucka.Core.TickStaminaLoss.FadeFactor - see
+    // it is now computed at paint time in DrawPlayerBar from Mucka.Core.TickStaminaLoss.FadeFactor - see
     // that method's own remarks for the peak (down to 0.18) and the one-tick linear fade.
 
     /// <summary>The ring drawn for a species nothing is known about. Deliberately bright enough to
@@ -458,7 +474,7 @@ public sealed class CombatRailView : SKCanvasView
         => new((byte)(c.Red * k), (byte)(c.Green * k), (byte)(c.Blue * k), c.Alpha);
 
     /// <summary>Pushes a colour <paramref name="k"/> of the way toward another, keeping its alpha. For
-    /// tinting rather than replacing - see <see cref="DrawSeal"/>'s just-lost slice.</summary>
+    /// tinting rather than replacing - see <see cref="DrawPlayerBar"/>'s just-lost slice.</summary>
     private static SKColor Tint(SKColor c, SKColor toward, float k)
         => new(
             (byte)(c.Red + ((toward.Red - c.Red) * k)),
@@ -540,9 +556,9 @@ public sealed class CombatRailView : SKCanvasView
     private readonly SKPaint _fill = new() { IsAntialias = true, Style = SKPaintStyle.Fill };
     private readonly SKPaint _stroke = new() { IsAntialias = true, Style = SKPaintStyle.Stroke, StrokeWidth = 1f };
     private readonly SKPaint _text = new() { IsAntialias = true };
-    /// <summary>Scratch path for <see cref="DrawRingArc"/> - built once and <c>Reset()</c> before
-    /// every arc rather than <c>new SKPath()</c>'d per call (2026-09-02 review finding: this method
-    /// runs up to ~8 times per paint, once per opponent seal plus the player's own two). Never held
+    /// <summary>Scratch path for <see cref="DrawDirectionMark"/> - built once and <c>Reset()</c>
+    /// before every mark rather than <c>new SKPath()</c>'d per call (2026-09-02 review finding, then
+    /// against the ring arcs this replaced: it runs twice per tile, so ~12 times per paint). Never held
     /// past the <c>DrawPath</c> call that consumes it, so reusing it across draws is safe - Skia has
     /// already copied whatever it needs onto the canvas by the time the next caller resets it.</summary>
     private readonly SKPath _arcPath = new();
@@ -551,9 +567,46 @@ public sealed class CombatRailView : SKCanvasView
     /// the next paint ever touches it again.</summary>
     private readonly SKPath _metronomeBodyPath = new();
     private readonly SKFont _nameFont = new(SKTypeface.Default, 13.5f);
+    /// <summary>A live creature's name, bold (owner, 2026-09-06). Falls back to the regular cut where
+    /// the platform has no bold face, exactly as <see cref="_pillFont"/> does - the name loses its
+    /// emphasis rather than going missing. A RESOLVED row keeps <see cref="_nameFont"/>: the dead
+    /// strip is a record, not a thing to be watched.</summary>
+    private readonly SKFont _nameBoldFont = new(
+        SKTypeface.FromFamilyName(SKTypeface.Default.FamilyName, SKFontStyle.Bold) ?? SKTypeface.Default, 13.5f);
     private readonly SKFont _phraseFont = new(SKTypeface.FromFamilyName("Cascadia Mono") ?? SKTypeface.Default, 13f);
-    private readonly SKFont _sealNumFont = new(SKTypeface.Default, 25f);
-    private readonly SKFont _tinyFont = new(SKTypeface.Default, 7.5f);
+    /// <summary>The wound phrase and the stat rows, a point down from <see cref="_phraseFont"/>
+    /// (owner, 2026-09-06). Monospace and tabular, which is what actually holds the two stat rows in
+    /// register: the fixed column origins place the groups, and equal digit advances line the figures
+    /// up inside them.</summary>
+    private readonly SKFont _rungFont = new(SKTypeface.FromFamilyName("Cascadia Mono") ?? SKTypeface.Default, 12f);
+    /// <summary>The blow-shape group's outer two figures, and the ghost labels. Same face as the stat
+    /// row so the digits still align, two points down so the eye is told which figure is the one that
+    /// matters without the colour having to carry it alone.</summary>
+    private readonly SKFont _statSmallFont = new(
+        SKTypeface.FromFamilyName("Cascadia Mono") ?? SKTypeface.Default, 10f);
+
+    /// <summary>The swap mark on the alternate-weapon line, U+1F5D8 (owner's choice, 2026-09-06).
+    /// Written as an escape because this codebase rejects non-ASCII characters in source; the escape
+    /// is the same character either way.</summary>
+    private const string SwapGlyph = "\U0001F5D8";
+
+    /// <summary>
+    /// A face that actually HAS <see cref="SwapGlyph"/>, or null.
+    ///
+    /// <para>Segoe UI - what <see cref="SKTypeface.Default"/> resolves to on Windows - does not carry
+    /// U+1F5D8, so drawing it in any of the fonts above would produce a tofu box rather than a mark.
+    /// <see cref="SKFontManager.MatchCharacter(int)"/> asks the platform which installed face does
+    /// carry it, which is the only reliable way to ask. Null when nothing on the machine has it, and
+    /// the alternate-weapon line then simply draws its name and its key without a mark - a missing
+    /// decoration, never a missing affordance.</para>
+    /// </summary>
+    private readonly SKFont? _swapFont = MakeSwapFont();
+
+    private static SKFont? MakeSwapFont()
+    {
+        var typeface = SKFontManager.Default.MatchCharacter(0x1F5D8);
+        return typeface is null ? null : new SKFont(typeface, 12f);
+    }
     private readonly SKFont _weaponFont = new(SKTypeface.Default, 13f);
     private readonly SKFont _smallFont = new(SKTypeface.Default, 10f);
     /// <summary>The dead strip's recent-ending cut: same size as <see cref="_smallFont"/>, bold face.
@@ -588,12 +641,12 @@ public sealed class CombatRailView : SKCanvasView
     // reference and setting the property back to null releases only that. These wrappers stay valid
     // across any number of paints, which is the whole point.
     private SKPathEffect? _dashResetRule;   // 1 on, 3 off - the dead strip's reset separator
-    private SKPathEffect? _dashUnmetSeal;   // 4 on, 3 off - a seal for a creature never yet struck
     private SKPathEffect? _dashOverflow;    // 3 on, 3 off - the overflow row's frame
+    private SKPathEffect? _dashHalfLink;    // 1 on, 2 off - the half-link underline (see HalfLinkInk)
 
     private SKPathEffect DashResetRule => _dashResetRule ??= SKPathEffect.CreateDash([1f, 3f], 0f);
-    private SKPathEffect DashUnmetSeal => _dashUnmetSeal ??= SKPathEffect.CreateDash([4f, 3f], 0f);
     private SKPathEffect DashOverflow  => _dashOverflow  ??= SKPathEffect.CreateDash([3f, 3f], 0f);
+    private SKPathEffect DashHalfLink  => _dashHalfLink  ??= SKPathEffect.CreateDash([1f, 2f], 0f);
 
     /// <summary>Cap on the tempo-dash cache before it is emptied wholesale. The two tempo sites take
     /// their dash lengths from a continuous function of an observed hit rate
@@ -635,10 +688,10 @@ public sealed class CombatRailView : SKCanvasView
         _stroke.PathEffect = null;
         _dashResetRule?.Dispose();
         _dashResetRule = null;
-        _dashUnmetSeal?.Dispose();
-        _dashUnmetSeal = null;
         _dashOverflow?.Dispose();
         _dashOverflow = null;
+        _dashHalfLink?.Dispose();
+        _dashHalfLink = null;
         foreach (var effect in _tempoDashes.Values)
             effect.Dispose();
         _tempoDashes.Clear();
@@ -889,14 +942,34 @@ public sealed class CombatRailView : SKCanvasView
             var isRecent = age >= 0 && age < DeadStripRecentWindowMs;
             var font = isRecent ? _smallFontBold : _smallFont;
 
-            var word = OutcomeWord(ending.Outcome);
-            _text.Color = ending.Outcome == FightOutcome.Died ? Hostile : OutcomeTint(InkDim, ending.Outcome);
-            canvas.DrawText(word, Pad, y, SKTextAlign.Left, font, _text);
+            // Two lines per ending (owner, 2026-09-06): the creature and what it cost above, how it
+            // ended and what it cost the player below. The exchange summary is the only place a
+            // finished fight's figures survive - its tile is gone.
+            var nameBaseline = y - DeadSubLineHeight;
 
             _text.Color = Ink;
             canvas.DrawText(
-                Ellipsize(ending.Name, Content - DeadOutcomeColumn, font),
-                Pad + DeadOutcomeColumn, y, SKTextAlign.Left, font, _text);
+                Ellipsize(ending.Name, DeadNameWidth, font), Pad, nameBaseline, SKTextAlign.Left,
+                font, _text);
+
+            _text.Color = ending.Outcome == FightOutcome.Died ? Hostile : OutcomeTint(InkDim, ending.Outcome);
+            canvas.DrawText(
+                Ellipsize(OutcomeWord(ending.Outcome), DeadNameWidth, font), Pad, y,
+                SKTextAlign.Left, font, _text);
+
+            // The award, when one was paired to this kill. Never a zero - see CombatEnding.ScoreAwarded
+            // for why the pairing is an inference and null means "no announcement", not "worth nothing".
+            if (ending.ScoreAwarded is int award)
+            {
+                _text.Color = Caution;
+                canvas.DrawText(
+                    "+" + award.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    Pad + DeadNameWidth + DeadScoreWidth, nameBaseline, SKTextAlign.Right,
+                    _statSmallFont, _text);
+            }
+
+            DrawDeadExchange(canvas, nameBaseline, ending.Dealt, inbound: true, byPlayer: true);
+            DrawDeadExchange(canvas, y, ending.Taken, inbound: false, byPlayer: false);
 
             // The grouping separator, if any, belongs BETWEEN this row and the next SHOWN one - never
             // above the topmost shown row (there is nothing above it to separate from) and never below
@@ -1005,7 +1078,12 @@ public sealed class CombatRailView : SKCanvasView
 
     /// <summary>Width of the outcome word's column in the dead strip - "KILLED YOU" is the longest at
     /// 10f, and the names start clear of it so the two never run together.</summary>
-    private const float DeadOutcomeColumn = 62f;
+    /// <summary>The gap between an ending's two lines, and the room its left column takes. The name
+    /// sits on the upper line and the outcome word under it, so both are ellipsized against the same
+    /// width - a long creature name must not run into the exchange summary opposite it.</summary>
+    private const float DeadSubLineHeight = 11f;
+    private const float DeadNameWidth = 104f;
+    private const float DeadScoreWidth = 44f;
 
     /// <summary>The overflow row's own height. One line of text, so it takes a line's worth rather than
     /// a live slot's - the same accounting the dead strip is built on.</summary>
@@ -1023,24 +1101,25 @@ public sealed class CombatRailView : SKCanvasView
     public static readonly RailSlotMetrics SlotMetrics = new(
         RailWidth: RailWidth, Pad: Pad, SlotHeight: SlotHeight, SlotGap: SlotGap,
         SlotsGap: SlotsGap, BottomRowHeight: BottomRowHeight, TickRowHeight: TickRowHeight,
-        SealSize: SealSize, MaxSlots: MaxSlots);
+        PlayerTileHeight: PlayerTileHeight, MaxSlots: MaxSlots);
 
     /// <summary>
     /// Where roster row <paramref name="rosterIndex"/> is actually drawn, in dp from the panel
     /// content box's top-left, or null when that row has no slot of its own (it is in the overflow
     /// tail, or the panel has not been measured). Same contract and same reason as
-    /// <see cref="TickTrackDp"/>: this canvas lays itself out in a fixed 336-unit space and scales
+    /// <see cref="TickTrackDp"/>: this canvas lays itself out in a fixed 376-unit space and scales
     /// it, so anything positioned in real dp needs the same factor and must not re-derive it.
     /// </summary>
     public static RailRect? OpponentSlotDp(
         double panelWidthDp, double panelHeightDp, int rosterIndex, int participantCount)
         => RailSlotGeometry.OpponentSlotDp(SlotMetrics, panelWidthDp, panelHeightDp, rosterIndex, participantCount);
 
-    /// <summary>Where the stamina seal is drawn, in dp from the panel content box's top-left.</summary>
-    public static RailRect StaminaSealDp(double panelWidthDp, double panelHeightDp)
-        => RailSlotGeometry.StaminaSealDp(SlotMetrics, panelWidthDp, panelHeightDp);
+    /// <summary>Where the player's own tile is drawn, in dp from the panel content box's top-left -
+    /// what a player-anchored damage float centres on.</summary>
+    public static RailRect PlayerTileDp(double panelWidthDp, double panelHeightDp)
+        => RailSlotGeometry.PlayerTileDp(SlotMetrics, panelWidthDp, panelHeightDp);
 
-    /// <summary>One opponent: a stamina SEAL, the name, and the game's own wound phrase. The phrase is
+    /// <summary>One opponent: the ladder bar, the name, and the game's own wound phrase. The phrase is
     /// verbatim from the MUD and set in the terminal's own monospace, because echoing what the player
     /// just read in the scroll is what anchors the panel to it.
     ///
@@ -1074,28 +1153,58 @@ public sealed class CombatRailView : SKCanvasView
         // is the slot's own, so the frame can never reflow - only the dash changes.
         DrawTempoFrame(canvas, Pad, y, Content, SlotHeight, row.YourTempo, isGreatestThreat);
 
-        var nameBaseline = y + (SlotHeight / 2f) - 5f;
-        var phraseBaseline = y + (SlotHeight / 2f) + 12f;
-
+        // Line 1: the creature and what it is holding. Bold while it is alive (owner, 2026-09-06) -
+        // the tile is a thing to watch until it is not.
+        var nameFont = row.IsLive ? _nameBoldFont : _nameFont;
         DrawMarkedText(
-            canvas, Ellipsize(row.Name, SlotNameWidth, _nameFont), SlotTextLeft, nameBaseline,
-            SKTextAlign.Left, _nameFont,
+            canvas, Ellipsize(row.Name, SlotNameWidth, nameFont), TileTextLeft, y + TileNameBaseline,
+            SKTextAlign.Left, nameFont,
             row.IsCurrentTarget ? InkBright : Ink, row.Novelty);
-
-        DrawOpponentSeal(canvas, SlotSealCenterX, y + (SlotHeight / 2f), row);
 
         // What THIS creature is fighting with, right-aligned opposite its name. A per-participant fact
         // belongs on the participant, not in the player's own weapon column where only one of a pack
         // could ever be named.
+        //
+        // BLANK when unknown, never "unarmed". RosterRow.NpcWeapon means "the weapon it has ANNOUNCED",
+        // and its only source is the "has started to use the X to fight!" line - which a creature that
+        // walked in already holding an axe never prints. Writing "unarmed" there turned an unknown into
+        // a measured claim on nearly every opponent, which is rule 5 inverted, on the readout that
+        // decides whether a fight is survivable. The client cannot tell empty hands from silence, so it
+        // says nothing and the slot simply stays reserved.
         if (row.NpcWeapon is { Length: > 0 } npcWeapon)
         {
             _text.Color = Hostile;
             canvas.DrawText(
-                Ellipsize(CombatComposition.DisplayName(npcWeapon), SlotWeaponWidth, _smallFont),
-                Pad + Content - 8f, nameBaseline, SKTextAlign.Right, _smallFont, _text);
+                Ellipsize(CombatComposition.DisplayName(npcWeapon), SlotWeaponWidth, _weaponFont),
+                TileTextRight, y + TileNameBaseline, SKTextAlign.Right, _weaponFont, _text);
         }
 
-        DrawWoundPhrase(canvas, SlotTextLeft, phraseBaseline, row);
+        // Line 2: the game's own words.
+        DrawWoundPhrase(canvas, TileTextLeft, y + TileHealthBaseline, row);
+
+        // The ladder. Same seven rungs and the same two prediction lanes the ring carried, unrolled -
+        // see DrawVitalityBar for why the shape changed and what did not.
+        DrawVitalityBar(
+            canvas, y + TileBarTop, Pad, Content, row.Vitality, row.NextBlow, row.BlowAfter,
+            Vitality, row.IsHealthStale);
+
+        // The exchange: what the player has done to it, what it has done back, and the timeline of
+        // the swings themselves.
+        // An opponent's tile: what IT is taking on top (the player's blows, white), what it is dealing
+        // underneath (its own, red). See DrawStatRow for why position and colour answer different
+        // questions.
+        DrawStatRow(canvas, y + TileUpperBaseline, row.Dealt, inbound: true, byPlayer: true);
+        DrawStatRow(canvas, y + TileLowerBaseline, row.Taken, inbound: false, byPlayer: false);
+        DrawSpark(canvas, y + TileSparkCentre, row.Exchange, subjectIsPlayer: false);
+
+        // The current-target stripe is redrawn LAST, over the ladder. The bar spans the tile's full
+        // width from x=Pad, which is the same three units the stripe occupies - drawn in the other
+        // order, six units of the stripe were punched out by the bar's fill.
+        if (row.IsCurrentTarget)
+        {
+            _fill.Color = TerminalTheme.Palette[14];
+            canvas.DrawRect(Pad, y, 3f, SlotHeight, _fill);
+        }
     }
 
     /// <summary>
@@ -1111,14 +1220,17 @@ public sealed class CombatRailView : SKCanvasView
     /// chevron, deleted 2026-09-02 once the two per-blow lanes made it redundant - see
     /// MudSharp.Combat.StaminaSeal's remarks on ReachAggregate); how fast the fight is going is the
     /// tempo frame; and how much of the creature is left is the badge itself.</para></summary>
-    private const float SlotNameWidth = 120f;
-    private const float SlotWeaponWidth = 88f;
+    private const float SlotNameWidth = 168f;
+    private const float SlotWeaponWidth = 152f;
+    private const float TileInset = 6f;
+    private const float TileTextLeft = Pad + TileInset;
+    private const float TileTextRight = Pad + Content - TileInset;
 
     /// <summary>Room for the game's wound phrase on the row below. Wider than the name's, because the
     /// only thing to its right on that row is the damage pair, which starts further over than the
     /// weapon does. The longest phrase in NpcHealthRungs ("superficially injured") is 21 monospace
     /// characters, about 139 units at 11f.</summary>
-    private const float SlotPhraseWidth = 218f;
+    private const float SlotPhraseWidth = Content - (TileInset * 2f);
 
     /// <summary>
     /// The game's own words about this creature, verbatim, under its name: the wound phrase, and the
@@ -1155,8 +1267,8 @@ public sealed class CombatRailView : SKCanvasView
             var culture = System.Globalization.CultureInfo.InvariantCulture;
             var band = read.PrintedLow.ToString(culture) + "-" + read.PrintedHigh.ToString(culture);
             _text.Color = row.IsHealthStale ? Ink : InkBright;
-            canvas.DrawText(band, x + SlotPhraseWidth, baseline, SKTextAlign.Right, _phraseFont, _text);
-            room -= _phraseFont.MeasureText(band) + 8f;
+            canvas.DrawText(band, x + SlotPhraseWidth, baseline, SKTextAlign.Right, _rungFont, _text);
+            room -= _rungFont.MeasureText(band) + 8f;
         }
 
         if (row.HealthPhrase is not { Length: > 0 } raw)
@@ -1164,182 +1276,385 @@ public sealed class CombatRailView : SKCanvasView
 
         _text.Color = row.IsHealthStale ? InkDim : Ink;
         canvas.DrawText(
-            Ellipsize(NpcHealthRungs.Label(raw), room, _phraseFont),
-            x, baseline, SKTextAlign.Left, _phraseFont, _text);
+            Ellipsize(NpcHealthRungs.Label(raw), room, _rungFont),
+            x, baseline, SKTextAlign.Left, _rungFont, _text);
     }
 
     /// <summary>
-    /// One opponent's seal: a seven-rung ladder bent into a ring, draining from Fit at the origin
-    /// toward dead at the far end.
+    /// The seven-rung ladder as a horizontal bar, filling from the left with what is LEFT.
     ///
-    /// <para><b>The structure, from the owner's mockup and his stated convention.</b> The origin is
-    /// BOTTOM-MIDDLE and the drain runs ANTICLOCKWISE: grey climbs the right side of the face from 6
-    /// o'clock, and the lit run carries on from the boundary round to 6 o'clock again. At half gone the
-    /// lit run is the left-hand "C" with its top-right tip at 12 o'clock as the leading edge - the
-    /// owner's own description. Every prediction sits immediately ahead of that edge, anticlockwise, in
-    /// the direction it is travelling. See <c>MudSharp.Combat.StaminaSeal</c> for the worked
-    /// positions.</para>
+    /// <para><b>This was a ring until 2026-09-06</b>, on the left of every tile, pushing all four
+    /// text lines to x=91. Unrolling it gave them the full width back, which is what the two damage
+    /// rows and the exchange spark are drawn in. Only the SHAPE changed; everything below survived
+    /// the move and none of it is negotiable.</para>
     ///
-    /// <para>The player's own STA and MAG seals drain the same way. The owner specified "the sta seals",
-    /// and this was extended to the opponent rings on his own grounds for making them rings at all -
-    /// "they're no less approximate than a bar, but critically they're the same shape, comparison is
-    /// trivial". Same shape draining opposite ways would destroy exactly that.</para>
-    ///
-    /// <para><b>A ladder, not a stamina bar.</b> Every creature has exactly seven rungs; a giant does
-    /// not get more rungs, its rungs are worth more stamina and it labels them with different words. So
-    /// the ring is notched into sevenths and the boundary is how far up that ladder the creature has
+    /// <para><b>A ladder, not a stamina bar.</b> Every creature has exactly seven rungs. A giant does
+    /// not get more rungs - its rungs are worth more stamina and it labels them with different words.
+    /// So the bar is notched into sevenths and the boundary is how far up that ladder the creature has
     /// been driven. The estimator's absolute figures stay under the hood, placing the boundary more
     /// finely INSIDE the seventh the descriptor gave; none of them is drawn. Owner's call: "We're not
     /// asking the player to do math."</para>
     ///
-    /// <para><b>The wound phrase beside this ring is load-bearing</b> - see
-    /// <see cref="DrawWoundPhrase"/>. It is the bind between the ring and the words MUD2 actually
-    /// printed, and it is the last thing on the slot that may be traded for space, never the first.</para>
+    /// <para><b>The boundary's two sides differ on purpose.</b> Hard on the near side - the creature
+    /// certainly still has that much - and a fade beyond it. Averaging them into one edge would turn
+    /// what the game said into a number it never gave. A <c>diagnose</c> probe, the one direct
+    /// measurement MUD2 offers, earns a bright tick at the hard edge, and is the only exception to the
+    /// no-absolute-figures rule because it is a number the game printed to the player in so many
+    /// words.</para>
     ///
-    /// <para><b>The three evidence states must look different, and none may read as safe.</b></para>
-    /// <list type="bullet">
-    /// <item><b>Unmet</b> - a full ring, dashed, in <see cref="SealUnknown"/>, with a "?" in it. Never
-    /// empty and never absent: empty reads as nearly dead and absent reads as safe, and a creature
-    /// nobody has a reading on is the most dangerous thing that can be standing in the room. It is an
-    /// ordinary state and has to carry its own weight - not because MUD2 is sparing with descriptors
-    /// (it prints one after every non-killing landed hit) but because the player swings at ONE creature
-    /// at a time, so in a pack every other row sits here for the whole fight. Same RADIUS as every
-    /// other seal - nothing on this panel changes size - but
-    /// it is the only ring whose whole circumference is drawn in a colour that reads (every other ring
-    /// draws its full circumference as the near-invisible track and lights only what is left), the only
-    /// dashed one, and the only one with a glyph in the middle.</item>
-    /// <item><b>Rung</b> - a boundary whose fade spans a whole seventh, because a whole seventh is what
-    /// the game said.</item>
-    /// <item><b>Narrowed</b> - the same boundary with a visibly tighter fade, because damage landed
-    /// since the descriptor printed has placed it inside that seventh.</item>
-    /// </list>
+    /// <para><b>An unmet creature draws FULL, never empty and never absent.</b> Empty reads as nearly
+    /// dead and absent reads as safe, and a creature nobody has a reading on is the most dangerous
+    /// thing that can be standing in the room. It is an ordinary state, not an edge case: the player
+    /// swings at ONE creature at a time, so in a pack every other tile sits here for the whole fight.
+    /// It is drawn in <see cref="SealUnknown"/> with a mark in it, which is what distinguishes it from
+    /// a reading.</para>
     ///
-    /// <para><b>The boundary's two sides differ on purpose.</b> Hard on the far side - the creature
-    /// certainly still has that much - and a fade back toward the origin. Averaging them into one edge
-    /// would turn what the game said into a number it never gave. A <c>diagnose</c> probe, the one
-    /// direct measurement MUD2 offers, earns a bright tick at the hard edge.</para>
+    /// <para><b>The wound phrase beside this bar is load-bearing</b> - see
+    /// <see cref="DrawWoundPhrase"/>. It is the bind between the bar and the words MUD2 actually
+    /// printed, and it is the last thing on the tile that may be traded for space, never the
+    /// first.</para>
+    ///
+    /// <para><b>The plan comes from <see cref="StaminaSeal.Plan"/></b>, which is unchanged and still
+    /// shared with the player's own bar, so the two can never disagree about where a boundary is. Its
+    /// arcs are degrees clockwise from the top with the LIT portion running to 360, so a
+    /// remaining-fraction is <c>(360 - start) / 360</c>; that conversion lives here and nowhere
+    /// else.</para>
+    ///
+    /// <para><b>The two prediction lanes keep their lanes.</b> They sit in a strip under the fill
+    /// rather than at two radii, still one in front of the other, still coloured by which blow they
+    /// are - hue alone was never allowed to carry that and still does not.</para>
     /// </summary>
-    private void DrawOpponentSeal(SKCanvas canvas, float cx, float cy, RosterRow row)
+    private void DrawVitalityBar(
+        SKCanvas canvas, float top, float x, float width,
+        VitalityBand? vitality, DamageBand? nextBlow, DamageBand? blowAfter,
+        SKColor color, bool stale)
     {
-        var plan = StaminaSeal.Plan(row.Vitality, row.NextBlow, row.BlowAfter);
+        var plan = StaminaSeal.Plan(vitality, nextBlow, blowAfter);
 
-        _stroke.StrokeWidth = SlotSealStroke;
+        _fill.Color = SealTrack;
+        canvas.DrawRect(x, top, width, TileBarFillHeight, _fill);
 
         if (plan.Shape == SealShape.Unmet)
         {
-            _stroke.Color = SealUnknown;
-            _stroke.PathEffect = DashUnmetSeal;
-            canvas.DrawCircle(cx, cy, SlotSealRadius, _stroke);
-            _stroke.PathEffect = null;
-            _stroke.StrokeWidth = 1f;
-
-            _text.Color = Ink;
-            canvas.DrawText("?", cx, cy + 4.5f, SKTextAlign.Center, _nameFont, _text);
+            // Full width, in the unknown tone, with a mark in it. A creature nobody has a reading on
+            // is the most dangerous thing in the room and this is an ordinary state - in a pack every
+            // row but the one being swung at sits here for the whole fight.
+            _fill.Color = SealUnknown;
+            canvas.DrawRect(x, top, width, TileBarFillHeight, _fill);
+            DrawRungNotches(canvas, x, top, width);
+            _text.Color = InkBright;
+            canvas.DrawText("?", x + (width / 2f), top + TileBarFillHeight - 1f,
+                SKTextAlign.Center, _statSmallFont, _text);
             return;
         }
 
-        // The whole ladder, unclimbed. What the lit run does not cover is what has been taken off.
-        _stroke.Color = SealTrack;
-        canvas.DrawCircle(cx, cy, SlotSealRadius, _stroke);
+        var lit = stale ? VitalityStale : color;
 
-        var tone = row.IsHealthStale ? VitalityStale : Vitality;
-
-        // What it MIGHT still have, as a stepped fade running back toward the origin from the hard
-        // edge. Three steps rather than a gradient shader: the canvas repaints on state change only,
-        // and steps read as "and possibly this far back" just as well at a 14-unit radius while
-        // allocating nothing per slot.
-        if (plan.LitSoft is SealArc soft && soft.SweepDegrees > 0f)
+        // The soft half first, so the hard edge draws over it: the creature has AT LEAST the hard
+        // fraction and possibly as much as the soft one, and painting the certain part last is what
+        // makes the boundary read as a boundary rather than as a gradient someone chose.
+        if (plan.LitSoft is { } soft)
         {
-            const int steps = 3;
-            var each = soft.SweepDegrees / steps;
-            for (var i = 0; i < steps; i++)
-            {
-                _stroke.Color = tone.WithAlpha((byte)(0x2C + (i * 0x30)));
-                DrawRingArc(canvas, cx, cy, SlotSealRadius, new SealArc(soft.StartDegrees + (i * each), each));
-            }
+            _fill.Color = Dim(lit, 0.42f);
+            canvas.DrawRect(x, top, RemainingWidth(soft.StartDegrees, width), TileBarFillHeight, _fill);
         }
 
-        // What it CERTAINLY still has.
-        if (plan.LitHard is SealArc hard)
+        if (plan.LitHard is { } hard)
         {
-            _stroke.Color = tone;
-            DrawRingArc(canvas, cx, cy, SlotSealRadius, hard);
+            _fill.Color = lit;
+            canvas.DrawRect(x, top, RemainingWidth(hard.StartDegrees, width), TileBarFillHeight, _fill);
         }
 
-        DrawStepNotches(canvas, cx, cy, SlotSealRadius, SlotSealStroke);
-        _stroke.StrokeWidth = 1f;
+        DrawRungNotches(canvas, x, top, width);
 
-        // A boundary that is a MEASUREMENT rather than an inference. The rest of this ring is the
-        // game's own adjective plus arithmetic; a diagnose probe read the number off the creature, and
-        // saying so is the difference between the two strongest states on the panel.
-        if (plan.Measured && plan.LitHard is SealArc measured)
-            DrawRadialTick(canvas, cx, cy, SlotSealRadius, SlotSealStroke, measured.StartDegrees, InkBright, 1.6f);
+        // A diagnose reading is a number MUD2 printed to the player in so many words, so its hard edge
+        // earns a bright tick - the one measurement on this side of the panel.
+        if (plan.Measured && plan.LitHard is { } measured)
+        {
+            _fill.Color = InkBright;
+            canvas.DrawRect(
+                x + RemainingWidth(measured.StartDegrees, width) - 1f, top - 1f, 1.5f,
+                TileBarFillHeight + 2f, _fill);
+        }
 
-        // rDPT, one lane per blow. Both carry the engagement's tempo, so predictions for a fight where
-        // nothing is landing are drawn as brackets or dots rather than as confident boxes.
-        var tempo = DamagePrediction.Tempo(row.YourTempo);
-        if (plan.NextBlow is SealArc next)
-            DrawBandOutline(canvas, cx, cy, NextBlowInner, NextBlowOuter, next, PredictNext, NextBlowStroke, tempo);
-        if (plan.BlowAfter is SealArc after)
-            DrawBandOutline(canvas, cx, cy, BlowAfterInner, BlowAfterOuter, after, PredictAfter, BlowAfterStroke, tempo);
+        DrawPredictionLane(canvas, plan.BlowAfter, x, top, width, PredictAfter);
+        DrawPredictionLane(canvas, plan.NextBlow, x, top, width, PredictNext);
+    }
+
+    /// <summary>Where a boundary at <paramref name="startDegrees"/> falls along a bar that fills from
+    /// the left with what remains. The ring's lit arc runs from its start round to 360, so the
+    /// fraction still standing is everything the arc covers.</summary>
+    private static float RemainingWidth(float startDegrees, float width)
+        => Math.Clamp((360f - startDegrees) / 360f, 0f, 1f) * width;
+
+    /// <summary>Six cuts in the fill, one per rung boundary. Painted in the panel's own ground rather
+    /// than a colour, so they read as gaps in the ladder rather than as marks on it - the same trick
+    /// the ring's notches used.</summary>
+    private void DrawRungNotches(SKCanvas canvas, float x, float top, float width)
+    {
+        _fill.Color = PanelGround;
+        for (var rung = 1; rung < NpcHealthRungs.Rungs; rung++)
+            canvas.DrawRect(x + (width * rung / NpcHealthRungs.Rungs), top, 1f, TileBarFillHeight, _fill);
+    }
+
+    /// <summary>One prediction band, in the lane under the fill. Nothing is drawn when the band is
+    /// absent: an unsupported prediction has to look like no prediction, never like a small one.</summary>
+    private void DrawPredictionLane(
+        SKCanvas canvas, SealArc? arc, float x, float top, float width, SKColor color)
+    {
+        if (arc is not { } band)
+            return;
+
+        var far = RemainingWidth(band.StartDegrees, width);
+        var near = RemainingWidth(band.StartDegrees + band.SweepDegrees, width);
+        var span = Math.Max(far - near, 1.5f);
+
+        _fill.Color = color;
+        canvas.DrawRect(x + near, top + (TileBarLaneTop - TileBarTop), span, TileBarLaneHeight, _fill);
+    }
+
+    /// <summary>The incoming side's second colour. Dimmed rather than alpha-faded because every other
+    /// de-emphasis on this canvas is a <see cref="Dim"/> against the panel's near-black ground, where
+    /// the two are visually the same thing and one of them does not have to be composited.</summary>
+    private static readonly SKColor HostileDim = Dim(Hostile, 0.72f);
+
+    /// <summary>How far a cell that has nothing to say is pushed back. The owner asked for 0.8 alpha;
+    /// on this ground a 0.8 dim is the same reading and matches the rest of the file.</summary>
+    private const float GhostDim = 0.8f;
+
+    /// <summary>
+    /// One direction of the exchange: mark, running total, blow shape, drain rate.
+    ///
+    /// <para><b>Four fixed columns, so the tile's two rows lock to each other.</b> The owner's
+    /// requirement, 2026-09-06, when the blow-shape group's mixed point sizes stopped the rows lining
+    /// up on their own: the answer is that the columns are POSITIONS, not a measured flow, so the
+    /// sizes inside a group cannot move the group.</para>
+    ///
+    /// <para><b>An empty row names its own cells</b> rather than printing dashes - the owner's
+    /// suggestion, and a better one: the tile teaches its layout while it has nothing to report and
+    /// goes quiet the moment a figure lands. Either way rule 5 holds, because a word can no more be
+    /// read as a measurement than a dash can.</para>
+    ///
+    /// <para><b>Row POSITION and row COLOUR answer different questions, and conflating them was the
+    /// bug.</b> Every badge is about its own subject: the UPPER row is what that subject is TAKING and
+    /// the lower row is what it is DEALING, so an opponent's tile leads with the damage the player put
+    /// into it and the player's tile leads with the damage coming back. The COLOUR says who threw the
+    /// blow - white for the player, red for a creature - which is why the two tiles do not simply
+    /// invert into each other's colours.
+    ///
+    /// <para>Until 2026-09-07 both tiles were drawn from the player's point of view, which made the
+    /// player's tile a verbatim copy of the opponent's in any one-on-one fight. The owner spotted it
+    /// as transposition; it was worse than that - it was the same row twice.</para></para>
+    /// </summary>
+    /// <param name="inbound">Which mark to draw: the upper row of a tile takes the inward mark, the
+    /// lower row the outward one, regardless of whose blow the row describes.</param>
+    /// <param name="byPlayer">Whose blow this is. Decides the colour and whether the total is a
+    /// bracket - MUD2 brackets the player's own blows and states a creature's exactly.</param>
+    private void DrawStatRow(
+        SKCanvas canvas, float baseline, ExchangeLine line, bool inbound, bool byPlayer)
+    {
+        var culture = System.Globalization.CultureInfo.InvariantCulture;
+        var bright = byPlayer ? InkBright : Hostile;
+        var dim = byPlayer ? InkDim : HostileDim;
+
+        DrawDirectionMark(canvas, StatMarkLeft + 2f, baseline - 8.5f, !inbound, dim);
+
+        if (!line.HasSamples)
+        {
+            _text.Color = Dim(dim, GhostDim);
+            canvas.DrawText(
+                byPlayer ? "dmg done by" : "dmg done to",
+                StatTotalLeft + (StatTotalWidth / 2f), baseline, SKTextAlign.Center, _statSmallFont, _text);
+            // "low/high/avg", not "min/max/avg". On the outgoing side the outer two are the UPPER
+            // bounds of the smallest and largest blows (the owner's spec, with his worked example),
+            // while the mean pools both ends - so three identical (5-9) blows read 9 / 9 / 7, and a
+            // label promising a minimum below the average would be contradicted by the commonest case
+            // of all. "low" and "high" describe WHICH BLOW, which is what these actually are.
+            canvas.DrawText(
+                "low/high/avg",
+                StatShapeLeft + (StatShapeWidth / 2f), baseline, SKTextAlign.Center, _statSmallFont, _text);
+            canvas.DrawText(
+                "dmg/tick", StatDptLeft + StatDptWidth, baseline, SKTextAlign.Right, _statSmallFont, _text);
+            return;
+        }
+
+        // Centred (owner, 2026-09-06) so a wide outgoing bracket and a bare incoming figure share an
+        // axis instead of drifting apart against a right edge.
+        var total = byPlayer && line.Total.High > line.Total.Low
+            ? line.Total.Low.ToString("0.#", culture) + "-" + line.Total.High.ToString("0.#", culture)
+            : line.Total.High.ToString("0.#", culture);
+        _text.Color = bright;
+        canvas.DrawText(
+            Ellipsize(total, StatTotalWidth, _rungFont),
+            StatTotalLeft + (StatTotalWidth / 2f), baseline, SKTextAlign.Center, _rungFont, _text);
+
+        DrawShapeGroup(canvas, baseline, line, bright, dim);
+
+        // Zero means "under one tick elapsed", not "no damage" - see SidePanelViewModel.PerTick. It
+        // draws as the unknown it is.
+        if (line.PerTick > 0)
+        {
+            _text.Color = bright;
+            canvas.DrawText(
+                line.PerTick.ToString("0.#", culture) + "/t",
+                StatDptLeft + StatDptWidth, baseline, SKTextAlign.Right, _rungFont, _text);
+        }
+        else
+        {
+            _text.Color = Dim(dim, GhostDim);
+            canvas.DrawText(
+                "dmg/tick", StatDptLeft + StatDptWidth, baseline, SKTextAlign.Right, _statSmallFont, _text);
+        }
     }
 
     /// <summary>
-    /// One rDPT prediction band: a thin box drawn AROUND the segment of ladder the blow is predicted to
-    /// take, in its own lane outside the ring.
+    /// The blow shape: smallest, LARGEST, mean. The largest is drawn full size because it is the
+    /// figure that kills you; the other two sit a size down, in three fixed slots with fixed
+    /// separators so the mixed sizes cannot shift the group between rows.
     ///
-    /// <para>A box rather than a fat arc, which is the owner's note on his own mockup ("I think the
-    /// actual should be more of a bounding box border than a thick outline"). Two concentric arcs and
-    /// two radial ends - a bounding box in polar coordinates - so the band encloses what it predicts
-    /// instead of competing with the fill for the same visual weight.</para>
-    ///
-    /// <para>Its LENGTH is the damage bracket's own width carried through the pool interval, so the
-    /// band is wide for a creature the client barely knows and tight for one it has killed a dozen
-    /// times. Its LANE says which blow it is - see <see cref="NextBlowInner"/> for why hue alone could
-    /// not carry that. Its STROKE says how often blows are actually landing. None of the three is a
-    /// borrowed constant.</para>
-    ///
-    /// <para><b>With no swings yet the long sides are not drawn at all</b> - just the two radial ends,
-    /// as brackets. Same grammar as <see cref="DrawTempoFrame"/>'s corners and for the same reason: the
-    /// band's position is known, how soon it happens is not, and a dotted box would answer the second
-    /// question with a measurement nobody has taken.</para>
+    /// <para>On the outgoing side the outer two are UPPER bounds of brackets, and the mean pools both
+    /// ends of every bracket - the owner's own definition. On the incoming side all three are exact.
+    /// See <see cref="ExchangeLine"/>.</para>
     /// </summary>
-    private void DrawBandOutline(
-        SKCanvas canvas, float cx, float cy, float inner, float outer, SealArc arc,
-        SKColor color, float stroke, DamagePrediction.TempoStroke tempo)
+    private void DrawShapeGroup(
+        SKCanvas canvas, float baseline, ExchangeLine line, SKColor bright, SKColor dim)
     {
-        _stroke.Color = color;
-        _stroke.StrokeWidth = stroke;
+        var culture = System.Globalization.CultureInfo.InvariantCulture;
+        // One measured blow means the three figures cannot differ yet, so the outer two are pushed
+        // back (owner, 2026-09-06) - the eye is told there is nothing to compare rather than left to
+        // work out why it is reading the same number three times.
+        var outer = line.AllAlike ? Dim(dim, GhostDim) : dim;
 
-        if (tempo.Reading != DamagePrediction.TempoReading.NoEvidence)
-        {
-            if (tempo.Reading == DamagePrediction.TempoReading.Landing)
-                _stroke.PathEffect = TempoDash(tempo.Dot, tempo.Gap);
+        _text.Color = outer;
+        canvas.DrawText(
+            line.Min.ToString("0.#", culture),
+            ShapeLowLeft + ShapeLowWidth, baseline, SKTextAlign.Right, _statSmallFont, _text);
+        canvas.DrawText(
+            "/", ShapeSep1Left + (ShapeSepWidth / 2f), baseline, SKTextAlign.Center, _statSmallFont, _text);
+        canvas.DrawText(
+            "/", ShapeSep2Left + (ShapeSepWidth / 2f), baseline, SKTextAlign.Center, _statSmallFont, _text);
+        canvas.DrawText(
+            line.Mean.ToString("0.#", culture),
+            ShapeMeanLeft, baseline, SKTextAlign.Left, _statSmallFont, _text);
 
-            DrawRingArc(canvas, cx, cy, outer, arc);
-            DrawRingArc(canvas, cx, cy, inner, arc);
-            _stroke.PathEffect = null;
-        }
-
-        // The two ends are drawn SOLID at every state. They are what says where the band starts and
-        // stops, a dash pattern is free to land a gap exactly on one of them, and with no evidence yet
-        // they are the whole mark. Two direct calls rather than a `new[] { start, end }` loop
-        // (2026-09-02 review finding) - there are only ever two ends and never more, so the array
-        // bought nothing but an allocation on every paint.
-        DrawBandEnd(canvas, cx, cy, inner, outer, arc.StartDegrees);
-        DrawBandEnd(canvas, cx, cy, inner, outer, arc.EndDegrees);
-
-        _stroke.StrokeWidth = 1f;
+        _text.Color = bright;
+        canvas.DrawText(
+            line.Max.ToString("0.#", culture),
+            ShapeHighLeft + (ShapeHighWidth / 2f), baseline, SKTextAlign.Center, _rungFont, _text);
     }
 
-    /// <summary>One radial end of a band outline - see <see cref="DrawBandOutline"/>'s own remarks
-    /// on why both ends are always drawn solid.</summary>
-    private void DrawBandEnd(SKCanvas canvas, float cx, float cy, float inner, float outer, float degrees)
+    /// <summary>
+    /// The exchange spark: one fixed slot per swing, in the order they arrived, off a shared
+    /// baseline - the player's above it, the creature's below.
+    ///
+    /// <para><b>Why one strip and not two.</b> Stacked per-side strips read as two separate charts;
+    /// a fight is one thing happening. Interleaving them puts a swing and the answer to it next to
+    /// each other, which is how the ogre case reads at a glance - two flat dashes and one full-height
+    /// red bar says "rarely connects, connects like a truck" before a digit has been parsed.</para>
+    ///
+    /// <para><b>A miss is a flat dash on its own side, and a blow of unknown size is a minimum bar,
+    /// never a missing slot.</b> The swing happened either way, and the rhythm is the point: it is
+    /// what separates a creature that keeps missing from one that is not swinging at all.</para>
+    ///
+    /// <para>Incoming bars carry severity twice, in height and in hue, both saturating at
+    /// <see cref="SparkDamageCap"/> - the owner's ramp, 2026-09-06.</para>
+    ///
+    /// <para><b>It mirrors between the two kinds of tile</b>, for the same reason the stat rows do:
+    /// UP is what the badge's subject is TAKING. On an opponent's tile the player's blows rise; on the
+    /// player's own tile the creatures' blows rise. Drawn the same way on both until 2026-09-07, which
+    /// left the player's tile saying the opposite of what its rows said.</para>
+    ///
+    /// <para><b>The newest mark is at the RIGHT EDGE, always.</b> Marks are laid out backwards from
+    /// the right rather than forwards from the left, so a fight three swings old has its three marks
+    /// against the right edge with empty track to their left, and every later swing pushes the strip
+    /// leftward. Filling from the left instead made "now" sit wherever the fight happened to have
+    /// reached, which is the re-find-it-on-every-glance failure the panel is laid out to avoid.</para>
+    /// </summary>
+    /// <param name="subjectIsPlayer">Whose tile this is. Decides which side of the baseline each
+    /// swing goes: the subject's own blows fall, the blows landing on it rise.</param>
+    private void DrawSpark(
+        SKCanvas canvas, float centre, IReadOnlyList<SwingMark>? exchange, bool subjectIsPlayer)
     {
-        var (ix, iy) = OnRing(cx, cy, inner, degrees);
-        var (ox, oy) = OnRing(cx, cy, outer, degrees);
-        _stroke.StrokeCap = SKStrokeCap.Butt;
-        canvas.DrawLine(ix, iy, ox, oy, _stroke);
+        _fill.Color = FrameTone;
+        canvas.DrawRect(SparkLeft, centre, SparkWidth, 1f, _fill);
+
+        if (exchange is null || exchange.Count == 0)
+            return;
+
+        var slots = (int)(SparkWidth / SparkPitch);
+        var shown = Math.Min(exchange.Count, slots);
+        var right = SparkLeft + SparkWidth;
+
+        for (var n = 0; n < shown; n++)
+        {
+            // n = 0 is the NEWEST, drawn hard against the right edge; each older mark steps left.
+            var mark = exchange[exchange.Count - 1 - n];
+            var x = right - SparkBarWidth - (n * SparkPitch);
+
+            // "Rises" means "this blow landed on the badge's subject". A creature's tile lifts the
+            // player's blows; the player's tile lifts the creatures'.
+            var rises = mark.Mine != subjectIsPlayer;
+
+            if (!mark.IsHit)
+            {
+                _fill.Color = InkDim;
+                canvas.DrawRect(x, rises ? centre - 3f : centre + 2f, SparkBarWidth, 2f, _fill);
+                continue;
+            }
+
+            var height = mark.Measured && mark.Damage > 0 ? SparkBarHeight(mark.Damage) : SparkMinBar;
+
+            // Colour follows the ACTOR, never the side of the line - that is what keeps the player's
+            // own blows white on both tiles while their position flips. An UNMEASURED blow is the one
+            // exception: it takes the neutral dim tone rather than the bottom of the severity ramp,
+            // because the ramp's colour is a claim about how hard the blow was and nobody knows. It
+            // still draws, at the minimum height - the swing happened (rule 5: unknown must look
+            // unknown, not like a measured nothing).
+            _fill.Color = !mark.Measured ? InkDim : mark.Mine ? Ink : IncomingRamp(mark.Damage);
+            canvas.DrawRect(x, rises ? centre - height : centre + 1f, SparkBarWidth, height, _fill);
+        }
+    }
+
+    private static float SparkBarHeight(double damage)
+        => SparkMinBar + (float)(Math.Clamp(damage / SparkDamageCap, 0.0, 1.0) * (SparkMaxBar - SparkMinBar));
+
+    /// <summary>Yellow through to bright red, saturating at <see cref="SparkDamageCap"/> - the owner's
+    /// ramp. A blow of unknown size gets the bottom of it rather than a colour of its own: the height
+    /// already says "unknown" by sitting at the minimum, and a fourth colour on a three-unit mark
+    /// would be a distinction nobody can see.</summary>
+    private static SKColor IncomingRamp(double damage)
+    {
+        var t = Math.Clamp(damage / SparkDamageCap, 0.0, 1.0);
+        return t < 0.5
+            ? Tint(Caution, NoveltyUnfought, (float)(t * 2.0))
+            : Tint(NoveltyUnfought, Hostile, (float)((t - 0.5) * 2.0));
+    }
+
+    /// <summary>The direction mark: a small filled triangle, DRAWN rather than typed. The owner ruled
+    /// out an arrow character (2026-09-06, "MUD2 is a text game, and we're a text-focused UI, we're
+    /// not a TUI") - a glyph would also have put a non-ASCII literal in the source, which this
+    /// codebase rejects, so the vector settles both at once.</summary>
+    private void DrawDirectionMark(SKCanvas canvas, float x, float top, bool outgoing, SKColor color)
+    {
+        const float w = 6f;
+        const float h = 8f;
+        _arcPath.Reset();
+        if (outgoing)
+        {
+            _arcPath.MoveTo(x, top);
+            _arcPath.LineTo(x + w, top + (h / 2f));
+            _arcPath.LineTo(x, top + h);
+        }
+        else
+        {
+            _arcPath.MoveTo(x + w, top);
+            _arcPath.LineTo(x, top + (h / 2f));
+            _arcPath.LineTo(x + w, top + h);
+        }
+        _arcPath.Close();
+
+        _fill.Color = color;
+        canvas.DrawPath(_arcPath, _fill);
     }
 
     /// <summary>
@@ -1422,64 +1737,6 @@ public sealed class CombatRailView : SKCanvasView
         }
     }
 
-    /// <summary>One arc on a ring, from the 6 o'clock anticlockwise convention
-    /// <c>MudSharp.Combat.StaminaSeal</c> uses. Skia measures from 3 o'clock, hence the -90.</summary>
-    private void DrawRingArc(SKCanvas canvas, float cx, float cy, float radius, SealArc arc)
-    {
-        if (arc.SweepDegrees <= 0f)
-            return;
-        // The cap is asserted, not assumed. _stroke is shared across this whole paint and the icons on
-        // it set Round; a round cap on an arc extends it by half a stroke at each end, which on a
-        // 14-unit ring is about eight degrees of stamina this creature does not have.
-        _stroke.StrokeCap = SKStrokeCap.Butt;
-        // Reused rather than `new SKPath()` per call (see _arcPath's own remarks) - Reset() clears
-        // both the point list and any leftover fill type/bounds cache without freeing the backing
-        // buffer, so this method allocates nothing on the up-to-~8-per-paint path it is actually on.
-        _arcPath.Reset();
-        // Logical-to-Skia. Skia puts 0 at 3 o'clock and sweeps CLOCKWISE for a positive angle; the
-        // seals put 0 at 6 o'clock and travel ANTICLOCKWISE. 6 o'clock is Skia 90, and anticlockwise is
-        // decreasing, so a logical d sits at Skia (90 - d) and a logical sweep is a negative Skia one.
-        _arcPath.AddArc(new SKRect(cx - radius, cy - radius, cx + radius, cy + radius),
-            90f - arc.StartDegrees, -arc.SweepDegrees);
-        canvas.DrawPath(_arcPath, _stroke);
-    }
-
-    /// <summary>
-    /// The six interior notches that cut a ring into MUD2's seven rung steps.
-    ///
-    /// <para>Drawn in the panel's own ground colour rather than in a lighter grey, so they read as gaps
-    /// in the ring at any fill level instead of as marks that disappear against whichever of the fill
-    /// or the track they happen to cross. Six 1.2-unit slivers over the glow layer behind the canvas is
-    /// not a cost worth avoiding.</para>
-    ///
-    /// <para>Only opponents get these. The player's own seal reports an absolute number the game prints
-    /// for them, and MUD2 has no wound ladder for the player - notching that ring into sevenths would
-    /// impose a vocabulary the game never applies to them.</para>
-    /// </summary>
-    private void DrawStepNotches(SKCanvas canvas, float cx, float cy, float radius, float ringStroke)
-    {
-        for (var step = 1; step < NpcHealthRungs.Rungs; step++)
-            DrawRadialTick(canvas, cx, cy, radius, ringStroke, StaminaSeal.StepDegrees(step), PanelGround, 1.2f);
-    }
-
-    /// <summary>A short radial mark across a ring's stroke, at a given angle anticlockwise from 6
-    /// o'clock.</summary>
-    private void DrawRadialTick(
-        SKCanvas canvas, float cx, float cy, float radius, float ringStroke,
-        float degrees, SKColor color, float width)
-    {
-        var half = (ringStroke / 2f) + 0.6f;
-        var (ix, iy) = OnRing(cx, cy, radius - half, degrees);
-        var (ox, oy) = OnRing(cx, cy, radius + half, degrees);
-
-        var previous = _stroke.StrokeWidth;
-        _stroke.Color = color;
-        _stroke.StrokeWidth = width;
-        _stroke.StrokeCap = SKStrokeCap.Butt;
-        canvas.DrawLine(ix, iy, ox, oy, _stroke);
-        _stroke.StrokeWidth = previous;
-    }
-
     /// <summary>
     /// The opponent row to pair with the player's device, or -1 for none.
     ///
@@ -1505,14 +1762,6 @@ public sealed class CombatRailView : SKCanvasView
         if (!live.InCombat || InGracePeriod)
             return -1;
         return ReachAggregate.GreatestThreatForAccent(live.Roster);
-    }
-
-    /// <summary>A point on a ring, in the seals' own convention: degrees ANTICLOCKWISE from 6 o'clock.
-    /// 0 is bottom-middle, 90 is 3 o'clock, 180 is 12 o'clock, 270 is 9 o'clock.</summary>
-    private static (float X, float Y) OnRing(float cx, float cy, float radius, float degrees)
-    {
-        var rad = (90f - degrees) * (float)(Math.PI / 180.0);
-        return (cx + (radius * (float)Math.Cos(rad)), cy + (radius * (float)Math.Sin(rad)));
     }
 
     /// <summary>
@@ -1637,48 +1886,692 @@ public sealed class CombatRailView : SKCanvasView
     /// </summary>
     private void DrawBottomRow(SKCanvas canvas, float y, CombatLiveView live)
     {
-        // Applied to the seal colours only, never to the pips or the tick - one grammar for
-        // "recorded, not current", in one place.
+        DrawPlayerTile(canvas, y, live);
+        DrawEncounterTable(canvas, y + PlayerTileHeight + EncounterRowGap, live);
+    }
+
+    /// <summary>
+    /// The player's own tile: the same four lines every opponent carries, in the same order, at the
+    /// same sizes. The owner's instruction, 2026-09-06 - "give our stamina seal the same size and
+    /// treatment as the npcs ones, it's just a different color" - and it is the whole reason the
+    /// panel can be read as a comparison at all. Two identically-shaped things, one blue and one
+    /// coloured by how much trouble you are in.
+    ///
+    /// <para><b>The one asymmetry is the numbers, and it is the honest one.</b> Line two carries the
+    /// rung word AND the exact figure, where a creature's carries the word alone. The player is the
+    /// single creature whose maximum MUD2 states outright; every opponent's is inferred, and an
+    /// inference dressed as a reading is the thing this panel is built not to do.</para>
+    /// </summary>
+    private void DrawPlayerTile(SKCanvas canvas, float y, CombatLiveView live)
+    {
         var wash = live.InCombat ? 1f : SpentWash;
 
-        // The player's device carries the incoming half of the same border language every engaged
-        // opponent slot carries: dash density is how often blows are landing on the player, pooled
-        // across everything still swinging. Absent between fights and through the grace window, which
-        // is the same "no frame means not engaged" rule that makes a resolved opponent read as
-        // resolved. Its rectangle is the row's own, so only the dash ever changes.
+        _fill.Color = new SKColor(0xff, 0xff, 0xff, 0x08);
+        canvas.DrawRoundRect(Pad, y, Content, PlayerTileHeight, 5f, 5f, _fill);
+
+        // The incoming half of the same border language every engaged opponent tile carries: dash
+        // density is how often blows are landing on the player, pooled across everything still
+        // swinging. Its rectangle is the tile's own, so only the dash ever changes.
         if (live.InCombat && !InGracePeriod)
-            DrawTempoFrame(canvas, Pad, y, Content, BottomRowHeight, live.IncomingTempo,
+            DrawTempoFrame(canvas, Pad, y, Content, PlayerTileHeight, live.IncomingTempo,
                 accent: GreatestThreatRow(live) >= 0);
 
-        DrawSeal(canvas, Pad, y, "STA", live.StaminaCurrent, live.StaminaMax,
-            live.StaminaCurrent is int s && live.StaminaMax is int m && m > 0
-                ? Dim(RatioColor(s, m), wash)
-                : InkDim,
-            inert: false,
-            // Gated on the fight being live: a prediction drawn in the tea room is instrumentation for
-            // a flight that has landed, and a tinted slice would still be marking the last blow of a
-            // fight that ended.
-            live.InCombat && !InGracePeriod ? live.YourNextBlow : null,
-            live.InCombat && !InGracePeriod ? live.YourBlowAfter : null,
-            live.InCombat && !InGracePeriod ? live.StaminaLostLastTick : 0,
-            live.InCombat && !InGracePeriod ? live.StaminaLossUtc : null);
+        // The persona's own name, exactly as an opponent tile carries the creature's. Blank until the
+        // login handshake names them - never a stand-in word, which is what "you" was.
+        if (live.PlayerName is { Length: > 0 } persona)
+        {
+            _text.Color = InkBright;
+            canvas.DrawText(
+                Ellipsize(persona, SlotNameWidth, _nameBoldFont),
+                TileTextLeft, y + TileNameBaseline, SKTextAlign.Left, _nameBoldFont, _text);
+        }
 
-        var magMax = live.MagicMax ?? 0;
-        var magInert = magMax <= 0;
-        var magColor = magInert
-            ? InkDim
-            : Dim(live.MagicCurrent is int mc && mc < 20 ? Hostile : Magic, wash);
-        DrawSeal(canvas, Pad + Content - SealSize, y, "MAG", live.MagicCurrent, live.MagicMax,
-            magColor, magInert);
+        DrawCurrentWeapon(canvas, y + TileNameBaseline, live);
+        DrawPlayerCondition(canvas, y + TileHealthBaseline, live);
+        DrawAltWeapon(canvas, y + TileHealthBaseline, live);
 
-        DrawWeapon(canvas, ColumnLeft, y, ColumnWidth, live);
-        DrawDealt(canvas, ColumnLeft, y + (SealSize / 2f) + 8f, ColumnWidth, live);
+        // The player's ladder, same seven rungs and the same two prediction lanes - pointed the other
+        // way. These are the TIGHTEST bands on the panel: the denominator is a maximum the game
+        // printed, where every opponent band divides by an inferred pool.
+        var live5 = live.InCombat && !InGracePeriod;
+        DrawPlayerBar(
+            canvas, y + TileBarTop, live.StaminaCurrent, live.StaminaMax,
+            live5 ? live.YourNextBlow : null, live5 ? live.YourBlowAfter : null, wash,
+            live5 ? live.StaminaLostLastTick : 0,
+            live5 ? live.StaminaLossUtc : null);
 
-        // Grace counts as not fighting, exactly as it does for the tick meter: nothing is attacking, so
-        // an instrument telling the player to run is telling them to pay for an escape from a fight that
-        // is already over. Read from the bindable rather than the frame state because it changes without
-        // the frame being rebuilt.
-        DrawFleePill(canvas, y, InGracePeriod ? FleePillStatus.Hidden : live.FleePill, live);
+        DrawMagLine(canvas, y + PlayerMagTop, live, wash);
+
+        // The player's tile, MIRRORED against an opponent's: what the player is taking on top (the
+        // creatures' blows, red), what they are dealing underneath (their own, white). Both tiles were
+        // drawn player-first until 2026-09-07, which made this one a verbatim copy of the opponent's
+        // tile in any one-on-one fight.
+        DrawStatRow(canvas, y + PlayerUpperBaseline, live.YourTaken, inbound: true, byPlayer: false);
+        DrawStatRow(canvas, y + PlayerLowerBaseline, live.YourDealt, inbound: false, byPlayer: true);
+        DrawSpark(canvas, y + PlayerSparkCentre, live.YourExchange, subjectIsPlayer: true);
+    }
+
+    /// <summary>
+    /// What is in the player's hands, opposite "you" exactly as a creature's weapon sits opposite its
+    /// name. Bold, because it is the current one (owner, 2026-09-06) - the ALTERNATIVE on the line
+    /// below is the plain one, which is the way round it had been drawn before and read as backwards.
+    ///
+    /// <para><b>Empty hands are an alarm only when they are a PROBLEM.</b> Yellow and underlined once
+    /// stamina is below maximum; dim and plain at full. Every fight begins with the weapon unknown -
+    /// the aggregator clears it per encounter and it stays clear until a line names it - so alarming
+    /// unconditionally meant a yellow underlined UNARMED at the opening of every single fight. An
+    /// alarm that fires every time is one the eye learns to skip, which on a permadeath readout is
+    /// worse than no alarm at all. The gate is the one the deleted DrawWeapon carried and its reason
+    /// was already written down: "an unarmed opening is normal and must not raise an alarm."</para>
+    ///
+    /// <para>The 1 Hz alternation against white is NOT drawn here and cannot be: this canvas never
+    /// animates (Invariant #1), so the blink rides a Composition sibling over it, the same way the flee
+    /// pill's pulse already does through GamePage.UpdateCombatFleePill. What this method draws is the
+    /// still state.</para>
+    /// </summary>
+    private void DrawCurrentWeapon(SKCanvas canvas, float baseline, CombatLiveView live)
+    {
+        if (live.IsUnarmed)
+        {
+            const string unarmed = "UNARMED";
+            var hurt = live.StaminaCurrent is int sta && live.StaminaMax is int max && sta < max;
+            var width = _nameBoldFont.MeasureText(unarmed);
+            _text.Color = hurt ? Caution : InkDim;
+            canvas.DrawText(unarmed, TileTextRight, baseline, SKTextAlign.Right, _nameBoldFont, _text);
+            if (hurt)
+            {
+                _fill.Color = Caution;
+                canvas.DrawRect(TileTextRight - width, baseline + 2f, width, 1f, _fill);
+            }
+            return;
+        }
+
+        // Carries its novelty mark, exactly as an opponent's name does. This was lost when the ring
+        // seal's DrawWeapon was deleted - CombatLiveView.WeaponNovelty went on being computed with
+        // nothing reading it, so "you have never finished anything with this weapon" silently stopped
+        // being a thing the panel said. See CombatNovelty.WeaponRollup: it is a rollup over everything
+        // currently engaged, which is why it belongs on the weapon rather than on any one tile.
+        DrawMarkedText(
+            canvas, Ellipsize(live.WeaponText, SlotWeaponWidth, _nameBoldFont),
+            TileTextRight, baseline, SKTextAlign.Right, _nameBoldFont, Ink, live.WeaponNovelty);
+    }
+
+    /// <summary>
+    /// The player's condition in the slot a creature uses for its wound phrase: the rung word and,
+    /// because this is the one creature whose maximum the game states, the figure itself.
+    ///
+    /// <para><b>Two fixed columns, word then figure.</b> Drawn as one concatenated string it came out
+    /// as "superficially injured (7..." - the half that is a measurement lost to the half that is an
+    /// adjective, and the figure is the reason this line exists on the player's tile at all. The word
+    /// is ellipsized inside its own column and the figure has its own origin, so a long adjective can
+    /// never reach it and the figure never moves as the word changes length.</para>
+    ///
+    /// <para><b>The colour is MUD2's own</b> (<see cref="CombatLiveView.StaminaAnsiColor"/>), not a
+    /// second opinion computed here. The player is already reading the game's coloured stamina in the
+    /// status strip, and two different colours for one number is worse than either of them alone.
+    /// Falls back to the client's ratio colour only when no code has arrived.</para>
+    /// </summary>
+    private void DrawPlayerCondition(SKCanvas canvas, float baseline, CombatLiveView live)
+    {
+        var culture = System.Globalization.CultureInfo.InvariantCulture;
+
+        if (live.StaminaCurrent is not int cur || live.StaminaMax is not int max || max <= 0)
+        {
+            // No reading at all. The word STA rather than a blank or a zero - the slot is reserved and
+            // has to say which instrument is silent (rule 5).
+            _text.Color = InkDim;
+            canvas.DrawText("STA", TileTextLeft, baseline, SKTextAlign.Left, _rungFont, _text);
+            return;
+        }
+
+        var tone = StaminaTone(live, cur, max);
+
+        // The word, a size down (owner, 2026-09-07) - it is the adjective, and it is what gives when
+        // the two cannot both fit.
+        if (NpcHealthRungs.LivingLabel(NpcHealthRungs.RungFor(cur, max)) is { } label)
+        {
+            _text.Color = Dim(tone, 0.82f);
+            canvas.DrawText(
+                Ellipsize(label, ConditionWordWidth, _statSmallFont),
+                TileTextLeft, baseline, SKTextAlign.Left, _statSmallFont, _text);
+        }
+
+        _text.Color = tone;
+        canvas.DrawText(
+            "(" + cur.ToString(culture) + "/" + max.ToString(culture) + ")",
+            TileTextLeft + ConditionWordWidth + 4f, baseline, SKTextAlign.Left, _rungFont, _text);
+    }
+
+    /// <summary>
+    /// Room for the rung word on the player's condition line, before the figure's own fixed origin.
+    ///
+    /// <para><b>Sized backwards from the figure, not forwards from the word.</b> The alt-weapon group
+    /// shares this line, right-aligned, and at its widest starts at about x=182; the figure needs
+    /// <see cref="ConditionFigureWidth"/> and must never be clipped (owner, 2026-09-07), so the word
+    /// gets whatever is left - which is why 118 was wrong: an ordinary "(85/120)" then ran to 194 and
+    /// straight into the weapon name.</para>
+    ///
+    /// <para>The longest living-family label, "superficially injured", does not fit and is not meant
+    /// to. It ellipsizes; the figure stays put.</para>
+    ///
+    /// <para><b>Derived, not chosen.</b> Whatever is left of the line once the alt-weapon group and
+    /// the figure have taken theirs. Written down as a number, it silently became wrong the moment
+    /// either of the other two changed - which is how the 3dp collision got in.</para>
+    /// </summary>
+    private const float ConditionWordWidth =
+        AltGroupWorstCaseLeft - TileTextLeft - ConditionFigureWidth - 4f;
+
+    /// <summary>Reserved for the stamina figure, never ellipsized against. "(999/999)" is nine
+    /// characters of Cascadia Mono at the stat size, which is what this allows for - a persona whose
+    /// maximum runs to four digits would overflow it, and MUD2 has no such persona.</summary>
+    private const float ConditionFigureWidth = 66f;
+
+    /// <summary>
+    /// Room for the ALTERNATE weapon's name, narrower than <see cref="SlotWeaponWidth"/> on line 1.
+    ///
+    /// <para>Line 2 is shared with the player's condition readout, which needs its word column plus an
+    /// unclipped stamina figure. At the line-1 width the alt group's worst case reached x=171 and the
+    /// figure ran to 174 - a 3dp collision that only appears with a long alt-weapon name, which is
+    /// exactly the case nobody tests by eye. The alt name is the half that can afford to ellipsize:
+    /// it is a hint about a key, not a measurement.</para>
+    /// </summary>
+    private const float AltWeaponWidth = 120f;
+
+    /// <summary>What the alt-weapon group reserves besides the name: the <c>^W</c> hint and the swap
+    /// mark with its gap, both at the stat size. Approximate by design - they are measured text - and
+    /// generous, because this is the figure <see cref="ConditionWordWidth"/> keeps clear of.</summary>
+    private const float AltHotkeyReserve = 22f;
+    private const float AltMarkReserve = 15f;
+
+    /// <summary>The leftmost x the alt-weapon group can reach, with the longest name it will draw.
+    /// The condition line opposite it must end before here.</summary>
+    private const float AltGroupWorstCaseLeft =
+        TileTextRight - AltHotkeyReserve - AltWeaponWidth - AltMarkReserve;
+
+    /// <summary>MUD2's own colour for the stamina figure, or the client's ratio colour when the game
+    /// has not said. The mapping matches GameViewModel.AnsiToColor, which colours the same number in
+    /// the status strip - the two must not disagree about one fact.</summary>
+    private static SKColor StaminaTone(CombatLiveView live, int current, int max)
+        => live.StaminaAnsiColor switch
+        {
+            1 => TerminalTheme.Palette[1],
+            2 => TerminalTheme.Palette[2],
+            3 => TerminalTheme.Palette[3],
+            9 => TerminalTheme.Palette[9],
+            10 => TerminalTheme.Palette[10],
+            11 => TerminalTheme.Palette[11],
+            _ => RatioColor(current, max),
+        };
+
+    /// <summary>
+    /// The alternative weapon and the key that reaches it: <c>[swap] a rune axe ^W</c>, together or
+    /// not at all (owner, 2026-09-06). Naming the alternative without the key leaves the player
+    /// nothing to do about it, and offering the key without naming what it swaps to is the version he
+    /// called clouded.
+    /// </summary>
+    private void DrawAltWeapon(SKCanvas canvas, float baseline, CombatLiveView live)
+    {
+        // Length-checked, not merely null-checked: an empty string would advertise Ctrl+W with nothing
+        // behind it, which is a dead key dressed as an affordance.
+        if (live.AltWeapon is not { Length: > 0 } alt)
+            return;
+
+        var name = Ellipsize(CombatComposition.DisplayName(alt), AltWeaponWidth, _rungFont);
+        var hotkey = " ^W";
+        var hotkeyWidth = _rungFont.MeasureText(hotkey);
+
+        _text.Color = InkDim;
+        canvas.DrawText(hotkey, TileTextRight, baseline, SKTextAlign.Right, _rungFont, _text);
+
+        var nameRight = TileTextRight - hotkeyWidth;
+        _text.Color = Ink;
+        canvas.DrawText(name, nameRight, baseline, SKTextAlign.Right, _rungFont, _text);
+
+        if (_swapFont is null)
+            return;
+
+        var glyphRight = nameRight - _rungFont.MeasureText(name) - 3f;
+        _text.Color = InkDim;
+        canvas.DrawText(SwapGlyph, glyphRight, baseline, SKTextAlign.Right, _swapFont, _text);
+    }
+
+    /// <summary>
+    /// The player's stamina ladder. Same bar, same notches, same lanes as an opponent's - it simply
+    /// has a real denominator, so the hard and soft edges coincide and there is no fade.
+    ///
+    /// <para><b>The just-lost slice rides here</b>, immediately past the fill's edge: the stamina this
+    /// tick took, drawn where it used to be. It fades to nothing across one tick
+    /// (<see cref="Mucka.Core.TickStaminaLoss.FadeFactor"/>, a pure function of the loss timestamp and now,
+    /// sampled at paint time - no timer, Invariant #1). Both halves of that are the owner's, from
+    /// living with the un-faded version: a slice that persisted read as a live part of the gauge, and
+    /// one dimmed instead of faded could not be seen at all.</para>
+    /// </summary>
+    private void DrawPlayerBar(
+        SKCanvas canvas, float top, int? current, int? max,
+        MudSharp.Combat.DamageBand? nextBlow, MudSharp.Combat.DamageBand? blowAfter, float wash,
+        double lostLastTick, DateTime? lostAtUtc)
+    {
+        _fill.Color = SealTrack;
+        canvas.DrawRect(Pad, top, Content, TileBarFillHeight, _fill);
+
+        if (current is int cur && max is int maximum && maximum > 0)
+        {
+            var unit = Content / maximum;
+            var filled = Math.Clamp(cur * unit, 0f, Content);
+            _fill.Color = Dim(RatioColor(cur, maximum), wash);
+            canvas.DrawRect(Pad, top, filled, TileBarFillHeight, _fill);
+
+            // Past the edge, in the track: what the last tick took, still in the place it occupied.
+            if (lostLastTick > 0 && lostAtUtc is DateTime lostAt)
+            {
+                var strength = Mucka.Core.TickStaminaLoss.FadeFactor(lostAt, DateTime.UtcNow);
+                if (strength > 0f)
+                {
+                    var width = Math.Min((float)lostLastTick * unit, Content - filled);
+                    if (width > 0f)
+                    {
+                        _fill.Color = Tint(SealTrack, Hostile, strength / Mucka.Core.TickStaminaLoss.PeakTintStrength);
+                        canvas.DrawRect(Pad + filled, top, width, TileBarFillHeight, _fill);
+                    }
+                }
+            }
+        }
+
+        DrawRungNotches(canvas, Pad, top, Content);
+        DrawPredictionLane(canvas, StaminaSeal.BandArc(blowAfter), Pad, top, Content, PredictAfter);
+        DrawPredictionLane(canvas, StaminaSeal.BandArc(nextBlow), Pad, top, Content, PredictNext);
+    }
+
+    /// <summary>Magic, as a two-unit strip notched at the quarters (owner, 2026-09-06). It answers
+    /// "roughly how much is left" and nothing more. A persona with no magic gets the empty track,
+    /// which is a measurement (max is zero, and the game said so) rather than an unknown.
+    ///
+    /// <para><b>The magic FIGURE is not on the panel at all any more.</b> The deleted MAG seal drew it
+    /// at 25f; nothing replaced it, and two comments here claimed otherwise until 2026-09-06 - one
+    /// pointing at a "seal slot" that no longer exists, one at the condition line, which prints
+    /// stamina only. If the number is wanted back it needs a slot of its own; do not assume it is
+    /// somewhere else on the tile, because it is not.</para></summary>
+    private void DrawMagLine(SKCanvas canvas, float top, CombatLiveView live, float wash)
+    {
+        _fill.Color = SealTrack;
+        canvas.DrawRect(Pad, top, Content, PlayerMagHeight, _fill);
+
+        if (live.MagicMax is int magMax && magMax > 0 && live.MagicCurrent is int magCur)
+        {
+            _fill.Color = Dim(magCur < 20 ? Hostile : Magic, wash);
+            canvas.DrawRect(Pad, top, Content * Math.Clamp(magCur / (float)magMax, 0f, 1f),
+                PlayerMagHeight, _fill);
+        }
+
+        _fill.Color = PanelGround;
+        for (var quarter = 1; quarter < 4; quarter++)
+            canvas.DrawRect(Pad + (Content * quarter / 4f), top - 1f, 1f, PlayerMagHeight + 2f, _fill);
+    }
+
+    /// <summary>
+    /// The encounter table's five columns, in the owner's order (2026-09-06), as WHOLE WORDS.
+    ///
+    /// <para>They were three-letter abbreviations because the values used to carry a <c>/t</c> suffix
+    /// in the heading. Moving the <c>t</c> onto the values freed the room, and a column nobody can
+    /// name is a column nobody can use - the headings only appear on hover anyway, which is exactly
+    /// when the reader wants the word rather than the crossword clue.</para>
+    ///
+    /// <para>"Participants" is the widest at 12 characters, which is what the 71-unit column takes at
+    /// the heading size. Do not lengthen one without checking the others still fit.</para>
+    /// </summary>
+    private static readonly string[] EncounterHeadings =
+        ["Participants", "Opponents", "Duration", "Victory", "Death"];
+
+    /// <summary>
+    /// What each column means, shown when the pointer is on that column.
+    ///
+    /// <para>The owner asked for these back as "(i) mouse-overs". There is no (i) glyph: a full word
+    /// plus a marker does not fit a 71-unit column, and this codebase already has an idiom for "there
+    /// is more here if you ask" - the half link (see <see cref="HalfLinkInk"/>). So the hovered
+    /// heading takes the dotted blue underline and its description appears above the row. Same
+    /// promise, one glyph cheaper, and consistent with whatever the fly-out does next.</para>
+    /// </summary>
+    private static readonly string[] EncounterTips =
+    [
+        "Live participants in the fight, not including you.",
+        "Opponents faced in this encounter so far, dead ones included.",
+        "How many ticks this encounter has lasted.",
+        "Projected ticks until you would win.",
+        "Projected ticks until you may die.",
+    ];
+
+    /// <summary>
+    /// <b>The half link - this client's idiom for "there is more here if you ask".</b>
+    ///
+    /// <para>A mark in this blue under a DOTTED underline means: hovering reveals more, and one day
+    /// clicking may open more still. It is deliberately a broken hyperlink rather than a whole one -
+    /// the thing is not a link, it does not navigate, and a solid underline would promise that it
+    /// does. Owner's decision and his own words, 2026-09-06: "hovers should have a dotted blue
+    /// underline, 'half link'".</para>
+    ///
+    /// <para><b>This is a client-wide style decision, not a combat-rail one.</b> It lives here
+    /// because the rail is the first surface to need it; any other affordance of the same kind - the
+    /// fly-out anchors, the fight card, whatever comes after - takes this colour and this dash rather
+    /// than inventing its own, and should point at this remark rather than restating it.</para>
+    ///
+    /// <para><b>The anchor is FALSE, and that is intentional.</b> The whole table is the hover target,
+    /// not the mark; the mark exists purely so the target announces itself, because a row that is
+    /// silent until pointed at can only be found by accident. It is drawn in the heading row's own
+    /// space at the heading row's own size, so revealing the headings changes ink and never
+    /// geometry.</para>
+    /// </summary>
+    private static readonly SKColor HalfLinkInk = TerminalTheme.Palette[12];
+
+    /// <summary>
+    /// The encounter table: five fixed columns above the tick gauge.
+    ///
+    /// <para><b>Quiet by default, explained on demand.</b> At rest it is five numbers and nothing
+    /// else. Pointing at it paints the headings and the separators that were reserved all along - the
+    /// row's height never changes, which is the owner's standing objection to dynamic positioning
+    /// answered by reserving the space rather than by doing without the headings.</para>
+    ///
+    /// <para><b>Die is the only coloured cell</b>, and it carries the verdict for the pair: green when
+    /// the fight is won with ticks to spare, through orange when it is level, to red when the creature
+    /// outlasts the player. One coloured cell means red there means exactly one thing.</para>
+    ///
+    /// <para><b>Vic and Die are blank for the opening of every fight and that is deliberate.</b>
+    /// CombatOutlook will not project before ten seconds and two landed hits, because a projection off
+    /// one lucky blow is worse than none in a game where death is deletion. They draw as unknown, never
+    /// as a zero.</para>
+    /// </summary>
+    private void DrawEncounterTable(SKCanvas canvas, float y, CombatLiveView live)
+    {
+        if (!live.HasEncounter)
+            return;
+
+        var culture = System.Globalization.CultureInfo.InvariantCulture;
+        var column = Content / EncounterHeadings.Length;
+        var headingBaseline = y + EncounterHeadingHeight - 3f;
+        var valueBaseline = y + EncounterRowHeight - 3f;
+
+        var hovered = EncounterHoverColumn;
+        if (hovered >= 0)
+        {
+            _fill.Color = Rule;
+            for (var i = 1; i < EncounterHeadings.Length; i++)
+                canvas.DrawRect(Pad + (column * i), y + 1f, 1f, EncounterRowHeight - 2f, _fill);
+
+            for (var i = 0; i < EncounterHeadings.Length; i++)
+            {
+                var centre = Pad + (column * i) + (column / 2f);
+                var label = Ellipsize(EncounterHeadings[i], column - 4f, _statSmallFont);
+                _text.Color = i == hovered ? InkBright : InkDim;
+                canvas.DrawText(label, centre, headingBaseline, SKTextAlign.Center, _statSmallFont, _text);
+
+                // The hovered heading takes the half link's dotted underline - this IS the affordance,
+                // in place of an (i) that would not fit beside a whole word.
+                if (i != hovered)
+                    continue;
+                var half = _statSmallFont.MeasureText(label) / 2f;
+                _stroke.Color = HalfLinkInk;
+                _stroke.PathEffect = DashHalfLink;
+                canvas.DrawLine(
+                    centre - half, headingBaseline + 2f, centre + half, headingBaseline + 2f, _stroke);
+                _stroke.PathEffect = null;
+            }
+        }
+        else
+        {
+            DrawHalfLinkAnchor(canvas, headingBaseline);
+        }
+
+        // Par and Op are counts; Dur, Vic and Die are ticks and say so on the VALUE (owner,
+        // 2026-09-06), which is what lets the headings stay three letters wide.
+        //
+        // Par and Op go BLANK while the encounter has produced at most one creature (owner,
+        // 2026-09-06). "1" and "1" is the overwhelmingly common case and says nothing anyone needs;
+        // the pair earns its ink the moment either becomes a fight worth counting. Blank rather than
+        // a dash here because this is not an unknown - it is known and uninteresting, which is a
+        // different thing and rule 5 has no opinion about it.
+        var countsWorthStating = live.LiveOpponents > 1 || live.OpponentsFaced > 1;
+
+        // Stack-allocated rather than `new[] { ... }`: this runs on every paint of a docked panel, and
+        // a 2026-09-02 review finding removed exactly this allocation from the band drawing a few
+        // hundred lines away. The strings themselves are unavoidable (Skia takes strings), but the
+        // array they sit in is not.
+        Span<string> values =
+        [
+            countsWorthStating ? live.LiveOpponents.ToString(culture) : string.Empty,
+            countsWorthStating ? live.OpponentsFaced.ToString(culture) : string.Empty,
+            Ticks(live.EncounterTicks, culture),
+            Ticks(live.TicksToVictory, culture),
+            Ticks(live.TicksToDeath, culture),
+        ];
+
+        for (var i = 0; i < values.Length; i++)
+        {
+            // A count that is deliberately not stated draws nothing at all; a PROJECTION that cannot
+            // be made yet draws a dimmed dash (owner, 2026-09-06). The two look different because
+            // they are different: one is a column with nothing to say, the other is the panel
+            // declining to guess - and Vic and Die decline for the opening ticks of every fight, by
+            // CombatOutlook's own refusal to project off one lucky blow.
+            if (values[i].Length == 0)
+            {
+                if (i < 2)
+                    continue;
+
+                _text.Color = Dim(InkDim, GhostDim);
+                canvas.DrawText(
+                    "-", Pad + (column * i) + (column / 2f), valueBaseline,
+                    SKTextAlign.Center, _rungFont, _text);
+                continue;
+            }
+
+            _text.Color = i == 4 ? SurvivalVerdict(live) : Ink;
+            canvas.DrawText(
+                values[i], Pad + (column * i) + (column / 2f), valueBaseline,
+                SKTextAlign.Center, _rungFont, _text);
+        }
+
+        // Last, so it sits over its neighbour rather than under it.
+        if (hovered >= 0 && hovered < EncounterTips.Length)
+            DrawEncounterTip(canvas, y + EncounterRowHeight, EncounterTips[hovered], live);
+    }
+
+    /// <summary>
+    /// One direction of a finished fight, right-aligned on a dead-strip line:
+    /// <c>[mark] 155-209 @ 9.1t</c> - what was dealt in total, and the rate it went out at.
+    ///
+    /// <para>Same drawn direction marks and the same monospace figures the live tile uses, a size
+    /// down. A fight with nothing measured draws nothing at all rather than a zero (rule 5) - an
+    /// all-miss fight really did deal nothing, but a narrative-mode one merely never said.</para>
+    /// </summary>
+    /// <param name="inbound">Upper line takes the inward mark, lower the outward - the corpse is the
+    /// subject of its own row, exactly as it was of its tile.</param>
+    /// <param name="byPlayer">Whose blows these were: the colour, and whether the total is a bracket.</param>
+    private void DrawDeadExchange(
+        SKCanvas canvas, float baseline, ExchangeLine line, bool inbound, bool byPlayer)
+    {
+        if (!line.HasSamples)
+            return;
+
+        var culture = System.Globalization.CultureInfo.InvariantCulture;
+        var total = byPlayer && line.Total.High > line.Total.Low
+            ? line.Total.Low.ToString("0.#", culture) + "-" + line.Total.High.ToString("0.#", culture)
+            : line.Total.High.ToString("0.#", culture);
+        var text = line.PerTick > 0
+            ? total + " @ " + line.PerTick.ToString("0.#", culture) + "t"
+            : total;
+
+        var right = Pad + Content;
+        var tone = byPlayer ? InkDim : HostileDim;
+        _text.Color = tone;
+        canvas.DrawText(text, right, baseline, SKTextAlign.Right, _statSmallFont, _text);
+
+        DrawDirectionMark(
+            canvas, right - _statSmallFont.MeasureText(text) - 10f, baseline - 7f, !inbound, tone);
+    }
+
+    /// <summary>
+    /// The hovered column's description, in a chip immediately BELOW the table - over the tick gauge.
+    ///
+    /// <para>Drawn on the canvas rather than as a platform tooltip because the rail is
+    /// InputTransparent and takes no gestures of its own, and because a tooltip that appears where the
+    /// eye already is beats one that chases the pointer.</para>
+    ///
+    /// <para><b>Below, not above.</b> Above the table is the player's own tile, and a chip there
+    /// covered the "what you dealt" stat row and the tail of the spark every single time the pointer
+    /// crossed the table. Below it is the tick gauge, which is a timer - losing sight of it for as
+    /// long as someone deliberately holds the pointer on a heading costs nothing.</para>
+    ///
+    /// <para><b>Except when the flee pill is up.</b> The pill lives in that same row and is the one
+    /// alarm on the panel that means "leave now". A label explaining what "Duration" means does not
+    /// get to cover it.</para>
+    /// </summary>
+    private void DrawEncounterTip(SKCanvas canvas, float below, string text, CombatLiveView live)
+    {
+        if (live.FleePill != FleePillStatus.Hidden && !InGracePeriod)
+            return;
+
+        const float padX = 6f;
+        const float height = 16f;
+
+        // Bounded and centred inside the room LEFT of the metronome toggle, not inside the whole
+        // content width - centring on the full width put the chip's right edge at 351 with the toggle
+        // starting at 340, so a long description covered a control. And +1 rather than +3 below the
+        // table, which keeps the chip clear of the tick track at 18.5.
+        var usable = Content - MetronomeReserve - 4f;
+        var width = Math.Min(_statSmallFont.MeasureText(text) + (padX * 2f), usable);
+        var left = Math.Clamp(Pad + ((usable - width) / 2f), Pad, Pad + usable - width);
+        var top = below + 1f;
+
+        _fill.Color = new SKColor(0x1c, 0x24, 0x27, 0xF2);
+        canvas.DrawRoundRect(left, top, width, height, 3f, 3f, _fill);
+        _stroke.Color = Rule;
+        canvas.DrawRoundRect(left + 0.5f, top + 0.5f, width - 1f, height - 1f, 3f, 3f, _stroke);
+
+        _text.Color = Ink;
+        canvas.DrawText(
+            Ellipsize(text, width - (padX * 2f), _statSmallFont),
+            left + (width / 2f), top + height - 5f, SKTextAlign.Center, _statSmallFont, _text);
+    }
+
+    /// <summary>
+    /// The half-link anchor: a small drawn magnifier over a dotted blue underline, at the right end of
+    /// the heading row. See <see cref="HalfLinkInk"/> for what the idiom means and why it is dotted.
+    ///
+    /// <para>Drawn only while the table is NOT hovered - once the headings are up they have said
+    /// everything the anchor was advertising. It occupies the heading row's own space either way, so
+    /// nothing on the rail moves when the pointer arrives.</para>
+    ///
+    /// <para>Drawn rather than typed, like the direction marks: U+1F50D would need a font that has it
+    /// and would be a non-ASCII literal in source, and a five-unit vector is more legible at this size
+    /// than any glyph would be.</para>
+    /// </summary>
+    private void DrawHalfLinkAnchor(SKCanvas canvas, float baseline)
+    {
+        const float radius = 3.1f;
+        const float underlineWidth = 11f;
+
+        var right = Pad + Content - 2f;
+        var cx = right - underlineWidth + radius + 1f;
+        var cy = baseline - 4f;
+
+        _stroke.Color = HalfLinkInk;
+        _stroke.StrokeWidth = 1.1f;
+        canvas.DrawCircle(cx, cy, radius, _stroke);
+        canvas.DrawLine(
+            cx + (radius * 0.75f), cy + (radius * 0.75f),
+            cx + radius + 2f, cy + radius + 2f, _stroke);
+        _stroke.StrokeWidth = 1f;
+
+        _stroke.Color = HalfLinkInk;
+        _stroke.PathEffect = DashHalfLink;
+        canvas.DrawLine(right - underlineWidth, baseline + 1.5f, right, baseline + 1.5f, _stroke);
+        _stroke.PathEffect = null;
+    }
+
+    /// <summary>Ticks, rounded and suffixed, or empty for "no answer" - which the caller draws as the
+    /// column's own name rather than as a figure.</summary>
+    private static string Ticks(double? ticks, System.Globalization.CultureInfo culture)
+        => ticks is double value && value >= 0 ? value.ToString("0", culture) + "t" : string.Empty;
+
+    /// <summary>
+    /// The colour on Die, from the SLACK between the two projections - how many ticks of headroom the
+    /// player has, <c>die - vic</c>.
+    ///
+    /// <para><b>The owner's ladder, 2026-09-06, with one clause read against its literal wording.</b>
+    /// He gave the alarm side as "orange when die &lt;= vic" and the safe side as "green tint when vic
+    /// &gt; die + 2, full green when vic &gt;= die + 4" - which, taken literally, paints green exactly
+    /// when the player dies BEFORE winning. The two halves compare in opposite directions, so one of
+    /// them is a slip; this implements slack, which makes green mean surviving. It is one table and
+    /// trivially flipped if the literal reading was meant.</para>
+    /// </summary>
+    private static SKColor SurvivalVerdict(CombatLiveView live)
+    {
+        if (live.TicksToDeath is not double die || live.TicksToVictory is not double vic)
+            return Ink;
+
+        var slack = die - vic;
+        if (die <= 2)
+            return Hostile;
+        if (slack >= 4)
+            return TerminalTheme.Palette[10];
+        if (slack >= 3)
+            return TerminalTheme.Palette[2];
+        if (slack <= -3)
+            return Hostile;
+        if (slack <= 0)
+            return NoveltyUnfought;
+        return Ink;
+    }
+
+    /// <summary>Which encounter-table column the pointer is over, or -1 for none - the only thing on
+    /// this canvas that responds to hover. Set by GamePage's pointer-only hit test; see Invariant #0
+    /// for why hovering is admissible where clicking is not.
+    ///
+    /// <para>A column index rather than a bool because the headings and the tooltip need different
+    /// answers from the same gesture: any column paints all five headings, and the one under the
+    /// pointer additionally takes the half-link underline and shows its description.</para></summary>
+    public int EncounterHoverColumn
+    {
+        get => (int)GetValue(EncounterHoverColumnProperty);
+        set => SetValue(EncounterHoverColumnProperty, value);
+    }
+
+    public static readonly BindableProperty EncounterHoverColumnProperty = BindableProperty.Create(
+        nameof(EncounterHoverColumn), typeof(int), typeof(CombatRailView), -1,
+        propertyChanged: (bindable, _, _) => ((CombatRailView)bindable).InvalidateSurface());
+
+    /// <summary>
+    /// Whether a pointer at <paramref name="xDp"/>,<paramref name="yDp"/> is inside the encounter
+    /// table, for a panel measured <paramref name="panelWidthDp"/> by <paramref name="panelHeightDp"/>.
+    ///
+    /// <para>Here rather than in GamePage for the same reason <see cref="TickTrackDp"/> and
+    /// <see cref="FleePillDp"/> are: this canvas lays itself out in a fixed design space and scales
+    /// it, so anything asked about in real dp needs the same factor, and a second copy of the
+    /// arithmetic would disagree the first time a row's height changed. The bottom-up chain below is
+    /// OnPaintSurface's own, read in the same order.</para>
+    ///
+    /// <para><b>Pointer only, and that is the whole of the exception.</b> Invariant #0 says the
+    /// command box keeps the keyboard; hovering takes no focus, so a hover-driven readout does not
+    /// touch it. Nothing here may grow into a click handler without answering that invariant
+    /// properly.</para>
+    /// </summary>
+    public static int EncounterColumnAt(
+        double xDp, double yDp, double panelWidthDp, double panelHeightDp)
+    {
+        if (panelWidthDp <= 0 || panelHeightDp <= 0)
+            return -1;
+
+        var k = panelWidthDp / RailWidth;
+        var x = xDp / k;
+        var y = yDp / k;
+        var height = panelHeightDp / k;
+
+        var tickTop = height - Pad - TickRowHeight;
+        var tableTop = tickTop - BottomRowHeight + PlayerTileHeight + EncounterRowGap;
+
+        if (x < Pad || x > Pad + Content || y < tableTop || y > tableTop + EncounterRowHeight)
+            return -1;
+
+        var column = (int)((x - Pad) / (Content / EncounterHeadings.Length));
+        return Math.Clamp(column, 0, EncounterHeadings.Length - 1);
     }
 
     /// <summary>
@@ -1709,7 +2602,7 @@ public sealed class CombatRailView : SKCanvasView
         if (status == FleePillStatus.Hidden)
             return;
 
-        var top = rowTop + PillTopInset;
+        var top = rowTop + PillTopInset + TickRowDrop;
         var wash = status == FleePillStatus.Visible ? PillQuietWash : 1f;
 
         _fill.Color = Dim(PillFill, wash);
@@ -1737,39 +2630,37 @@ public sealed class CombatRailView : SKCanvasView
         // the decision is actually about, and at the moment of deciding the eye is on the chip. The
         // PRICE is a parenthetical and is absent when there is none - see FleeCostEstimate for how
         // rough it is, and for why "no parenthetical" means free or unpriceable rather than zero.
-        var baseline = top + (PillHeight / 2f) + 4.5f;
-        var label = "Flee";
+        // One centred string in the owner's own wording, 2026-09-06:
+        //     ^F:  FLEE  sta:23  cost:-2.1k
+        //
+        // The key leads, because it is the only thing that can be DONE about any of it - "^F", not
+        // "Ctrl+F", the owner's shorthand for a player whose hand is already on the keyboard.
+        //
+        // The STAMINA is on the pill rather than left to the bar above it because this is the number
+        // the decision is actually about, and at the moment of deciding the eye is on the chip. The
+        // PRICE is labelled and is absent when there is none - see FleeCostEstimate for how rough it
+        // is, and FleeCostParenthetical for why "no cost clause" means free or unpriceable rather than
+        // zero.
+        var baseline = top + (PillHeight / 2f) + 4f;
+        var label = "^F:  FLEE";
         if (live.StaminaCurrent is int sta)
-            label += " " + sta.ToString(System.Globalization.CultureInfo.InvariantCulture);
-        // FleeCostParenthetical, never FleeCostPoints. That field is null both for a flee that is free
-        // and for a stamina above anything ever measured, so branching on it drew "leaving is free" and
-        // "leaving costs an unknown amount" as the same empty space - and on a weak character the
-        // unmeasured case is most of the bar, not a corner. This prints "(-?)" there and nothing at all
-        // only where the price really is nothing.
+            label += "  sta:" + sta.ToString(System.Globalization.CultureInfo.InvariantCulture);
         if (live.FleeCostParenthetical is string price)
-            label += " (-" + price + ")";
+            label += "  cost:-" + price;
 
-        // Ellipsized against the room actually left by "^F" and the two paddings. The worst realistic
-        // string fits 152dp at 12f with ~19dp to spare, so this should never fire - but font metrics are
-        // a platform's to choose, and a price running into the hotkey would make both unreadable at the
-        // one moment they matter. Costs nothing until it truncates.
-        const float keyReserve = 26f;
+        // Ellipsized against the chip's own padding. The worst realistic string fits at 12f with room
+        // to spare, so this should never fire - but font metrics are a platform's to choose, and a
+        // price running off the chip would be unreadable at the one moment it matters.
         _text.Color = Dim(PillText, wash);
-        canvas.DrawText(Ellipsize(label, PillWidth - 22f - keyReserve, _pillFont),
-            PillLeft + 11f, baseline, SKTextAlign.Left, _pillFont, _text);
-
-        // "^F", not "Ctrl+F". The owner's shorthand, and its whole job is to remind a player whose hand
-        // is already on the keyboard that they do not have to reach for the mouse - so it is drawn even
-        // though the chip is also clickable. Terse enough to leave the room the price needs.
-        _text.Color = Dim(PillText, wash * 0.75f);
-        canvas.DrawText("^F", PillLeft + PillWidth - 11f, baseline, SKTextAlign.Right, _smallFont, _text);
+        canvas.DrawText(Ellipsize(label, PillWidth - 20f, _pillFont),
+            PillLeft + (PillWidth / 2f), baseline, SKTextAlign.Center, _pillFont, _text);
     }
 
     /// <summary>
     /// Where the flee pill sits, in device-independent units, for a rail rendered at
     /// <paramref name="panelWidthDp"/> wide - the geometry the Composition border/background behind this
     /// canvas has to match exactly. Same contract and same reason as <see cref="TickTrackDp"/>: the rail
-    /// lays itself out in a fixed 336-unit space and scales it, so a sibling in real dp needs the same
+    /// lays itself out in a fixed 376-unit space and scales it, so a sibling in real dp needs the same
     /// factor, and two copies of the arithmetic would silently disagree the first time this row's height
     /// or padding changed.
     /// </summary>
@@ -1784,195 +2675,14 @@ public sealed class CombatRailView : SKCanvasView
         return (
             PillLeft * k,
             (RailWidth - PillLeft - PillWidth) * k,
-            // Measured up from the panel's bottom edge, mirroring OnPaintSurface's own bottom-up chain:
-            // tick row, then the bottom row, then down to the pill's lower edge inside it.
-            (Pad + TickRowHeight + BottomRowHeight - PillTopInset - PillHeight) * k,
+            // Measured up from the panel's bottom edge, mirroring OnPaintSurface's own bottom-up
+            // chain. The pill lives INSIDE the tick row now (2026-09-06), so the chain is one term
+            // shorter than it was: the bottom row no longer enters it at all. TickRowDrop subtracts,
+            // because a drop measured downward from the row's top is a reduction measured upward
+            // from the panel's bottom.
+            (Pad + TickRowHeight - PillTopInset - PillHeight - TickRowDrop) * k,
             PillHeight * k,
             PillRadius * k);
-    }
-
-    /// <summary>A seal: ring, value, and its own dim name INSIDE the ring. Never a label
-    /// underneath, and never a separate status dot beside it - the ring carries its own
-    /// state.</summary>
-    private void DrawSeal(SKCanvas canvas, float x, float y, string label, int? value, int? max,
-        SKColor color, bool inert,
-        DamageBand? nextBlow = null, DamageBand? blowAfter = null, double lostLastTick = 0,
-        DateTime? lostAtUtc = null)
-    {
-        var cx = x + (SealSize / 2f);
-        var cy = y + (SealSize / 2f) + SealCenterDropY;
-        const float radius = SealRadius;
-
-        _stroke.StrokeWidth = SealStroke;
-        _stroke.Color = SealTrack;
-        canvas.DrawCircle(cx, cy, radius, _stroke);
-
-        // Drains from 6 o'clock anticlockwise, exactly as an opponent's ladder does: the grey run
-        // climbs the right side of the face, and the lit run carries on from the boundary round to 6
-        // o'clock again. Two rings on one panel draining opposite ways would be a contradiction the eye
-        // has to translate on every glance - and one direction is what lets one rule cover both
-        // devices: a mark AHEAD of the boundary is where the next blow puts that side, whoever throws
-        // it.
-        if (!inert && value is int v && max is int mx && mx > 0)
-        {
-            var boundary = StaminaSeal.BoundaryFor(Math.Clamp(v / (double)mx, 0.0, 1.0));
-
-            // The slice that has JUST gone, immediately behind the boundary: the same grey as the rest
-            // of the spent run, tinted red. Owner's wording, 2026-09-01 - "the same gray but tinted",
-            // so it is a tint of the track colour and not a colour of its own, which would read as a
-            // fourth thing on a ring that already has three. One slice per tick however many blows
-            // landed in it - see Core.TickStaminaLoss for why it is grouped by arrival.
-            //
-            // The TINT fades over the tick (2026-09-02); the ARC does not. Only the strength read off
-            // Core.TickStaminaLoss.FadeFactor changes here - the sweep and the boundary above are
-            // exactly the same arithmetic as before, so the slice's LENGTH still reports exactly how
-            // much stamina was actually lost for as long as it is drawn at all. lostAtUtc is null
-            // exactly when there is nothing to fade from (see CombatLiveView.StaminaLossUtc), in which
-            // case this draws nothing rather than guess a strength - CLAUDE.md forbids inventing a
-            // timestamp, and the same rule applies to inventing a fade position for a missing one.
-            if (lostLastTick > 0 && lostAtUtc is DateTime lossUtc)
-            {
-                var fade = Mucka.Core.TickStaminaLoss.FadeFactor(lossUtc, DateTime.UtcNow);
-                if (fade > 0f)
-                {
-                    var lost = StaminaSeal.Sweep(Math.Clamp(lostLastTick / mx, 0.0, 1.0));
-                    var from = Math.Max(0f, boundary - lost);
-                    _stroke.Color = Tint(SealTrack, Hostile, fade);
-                    DrawRingArc(canvas, cx, cy, radius, new SealArc(from, boundary - from));
-                }
-            }
-
-            _stroke.Color = color;
-            DrawRingArc(canvas, cx, cy, radius, new SealArc(boundary, 360f - boundary));
-        }
-        _stroke.StrokeWidth = 1f;
-
-        // The player's own prediction lanes, in the same two-lane grammar every opponent badge uses:
-        // inner is the next blow, outer the one after, and both sit ahead of the boundary in the
-        // direction it travels. Tempo is Fluent so they draw solid - the dash on an opponent's badge
-        // reports how often the PLAYER is landing, which is not a question this device asks.
-        if (StaminaSeal.BandArc(nextBlow) is SealArc yourNext)
-        {
-            DrawBandOutline(
-                canvas, cx, cy, SealNextBlowInner, SealNextBlowOuter, yourNext,
-                PredictNext, NextBlowStroke, SolidTempo);
-        }
-        if (StaminaSeal.BandArc(blowAfter) is SealArc yourAfter)
-        {
-            DrawBandOutline(
-                canvas, cx, cy, SealBlowAfterInner, SealBlowAfterOuter, yourAfter,
-                PredictAfter, BlowAfterStroke, SolidTempo);
-        }
-
-        _text.Color = inert ? Dim(InkDim, 0.7f) : color;
-        var text = inert ? "-" : value?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "--";
-        canvas.DrawText(text, cx, cy + 4f, SKTextAlign.Center, _sealNumFont, _text);
-
-        _text.Color = Dim(InkDim, 0.85f);
-        canvas.DrawText(label, cx, cy - 16f, SKTextAlign.Center, _tinyFont, _text);
-    }
-
-    /// <summary>
-    /// The weapon in hand and the alternate. An icon carries the armed/unarmed state - the word
-    /// "armed" is redundant next to a weapon's name.
-    ///
-    /// <para>`wield` is per-engagement, not sticky: every fight starts empty-handed until the
-    /// player says otherwise, so an unarmed opening is normal and must not raise an alarm. Only
-    /// once damage has landed does this go amber, and it never goes straight to red.</para>
-    ///
-    /// <para>That same rule is why the hand state is drawn ONLY while in combat. Between fights the
-    /// client genuinely does not know what is in the player's hands - "UNARMED" out of combat is a
-    /// claim, not an observation, and it was reading as one while the player sat in the tea room.
-    /// Rule 5 of the spec applies: unknown must never render as a measured state, so the column
-    /// stays empty (its space still reserved) until a fight states what is in hand.</para>
-    /// </summary>
-    private void DrawWeapon(SKCanvas canvas, float x, float y, float width, CombatLiveView live)
-    {
-        var midY = y + (SealSize / 2f);
-
-        if (live.InCombat)
-        {
-            // The weapon's novelty mark colours the icon as well as the name. Bare hands are a weapon
-            // choice in MUD2 (no equipment slots, and fighting unarmed is ordinary), so the mark
-            // applies to UNARMED too - "nothing engaged has ever been fought bare-handed" is the same
-            // warning as it is for an axe.
-            var mark = live.WeaponNovelty;
-            var lit = NoveltyColor(mark);
-            if (live.IsUnarmed)
-            {
-                var hurt = live.StaminaCurrent is int sta && live.StaminaMax is int max && max > 0 && sta < max;
-                var tone = hurt ? Caution : InkDim;
-                DrawOpenHand(canvas, x + 2f, midY - 16f, lit ?? tone);
-                DrawMarkedText(canvas, "UNARMED", x + 20f, midY - 8f, SKTextAlign.Left, _weaponFont,
-                    tone, mark);
-            }
-            else if (!string.IsNullOrEmpty(live.WeaponText))
-            {
-                DrawSword(canvas, x + 2f, midY - 16f, lit ?? Ink);
-                DrawMarkedText(canvas, Ellipsize(live.WeaponText, width - 22f, _weaponFont),
-                    x + 20f, midY - 8f, SKTextAlign.Left, _weaponFont, Ink, mark);
-            }
-
-        }
-
-        // Alternate weapon: hotkey chip left, name right-aligned. Ctrl+W, consistent with the
-        // client's other combat bindings; the accelerator marks the event handled so it never
-        // reaches a default close-window action.
-        //
-        // Drawn only when there IS something to switch to. The chip is the key's only advertisement,
-        // so showing it with no candidate would advertise a dead key - and the candidate list is
-        // empty exactly when nothing carried is on file as a weapon, which includes every moment
-        // outside a fight. Its position is fixed either way, so lighting up mid-fight displaces
-        // nothing (spec rule 3).
-        if (live.AltWeapon is not { Length: > 0 } alt)
-            return;
-
-        const float chipWidth = 36f;
-        _stroke.Color = Rule;
-        canvas.DrawRoundRect(x, midY + 18f, chipWidth, 13f, 3f, 3f, _stroke);
-        _text.Color = InkDim;
-        canvas.DrawText("Ctrl+W", x + (chipWidth / 2f), midY + 27.5f, SKTextAlign.Center, _tinyFont, _text);
-
-        _text.Color = Ink;
-        canvas.DrawText(Ellipsize(CombatComposition.DisplayName(alt), width - chipWidth - 6f, _smallFont),
-            x + width, midY + 27.5f, SKTextAlign.Right, _smallFont, _text);
-    }
-
-    /// <summary>
-    /// What the player has dealt the current target so far, as the RANGE the game printed.
-    ///
-    /// <para>This closes the one clause of the reasoning the panel exists to support that neither seal
-    /// carries. The owner's description of the thought, 2026-09-01: "ok, I've hit for 15-19 3x, and it's
-    /// still fit - it still has 4/5ths of its stamina, at least, and I've lost 1/3rd of mine, so I need
-    /// to be dropping items to max my dex/str, and thinking about fleeing." The opponent's seal answers
-    /// "still fit, so four fifths at least"; the player's seal answers "I've lost a third"; this answers
-    /// "I've hit for 15-19 three times", which was otherwise the player remembering the scroll.</para>
-    ///
-    /// <para><b>A range, never a total.</b> MUD2 gives the player's own blows as brackets and never as
-    /// numbers, so the sum of the brackets is what is shown. CombatOutlook's seconds-to-kill clock runs
-    /// on a midpoint of the same exchange; that figure is deliberately not carried to the panel at all,
-    /// because drawn it would look like a number the game gave.</para>
-    ///
-    /// <para><b>It states what happened; it does not say what it means.</b> No "you are winning", no
-    /// suggestion to drop items or flee. The inference is the player's, and the panel's job is to make
-    /// it fast rather than to make it for them.</para>
-    ///
-    /// <para>In the player's own middle column, under the weapon that did it, on a line whose position
-    /// is fixed whether or not a blow has landed yet (rule 3).</para>
-    /// </summary>
-    private void DrawDealt(SKCanvas canvas, float x, float baseline, float width, CombatLiveView live)
-    {
-        if (!live.InCombat || live.TargetDealtBracket is not { } dealt || dealt.High <= 0)
-            return;
-
-        var culture = System.Globalization.CultureInfo.InvariantCulture;
-        var range = dealt.Low.ToString("0.#", culture) + "-" + dealt.High.ToString("0.#", culture);
-
-        _text.Color = InkDim;
-        canvas.DrawText("dealt", x, baseline, SKTextAlign.Left, _smallFont, _text);
-        _text.Color = Ink;
-        canvas.DrawText(Ellipsize(range, width - 34f, _smallFont), x + width, baseline,
-            SKTextAlign.Right, _smallFont, _text);
     }
 
     /// <summary>
@@ -2007,6 +2717,14 @@ public sealed class CombatRailView : SKCanvasView
         // be the thing animating a 2-second progress bar.
         _fill.Color = new SKColor(0xff, 0xff, 0xff, 0x10);
         canvas.DrawRoundRect(Pad, TrackTopIn(y), TickTrackWidth, TickTrackHeight, 3f, 3f, _fill);
+
+        // The flee pill sits OVER the gauge (owner, 2026-09-06). Drawn last so it covers the track,
+        // and only while there is a reason to leave - between fights the gauge is unobstructed.
+        //
+        // Grace counts as not fighting here too, and is already handled by the early return above:
+        // nothing is attacking, so an instrument telling the player to run would be charging them for
+        // an escape from a fight that is over.
+        DrawFleePill(canvas, y, live.FleePill, live);
     }
 
     /// <summary>
@@ -2022,7 +2740,7 @@ public sealed class CombatRailView : SKCanvasView
     private void DrawMetronomeToggle(SKCanvas canvas, float rowTop, bool armed)
     {
         var cx = Pad + Content - (MetronomeReserve / 2f) + 3f;
-        var cy = rowTop + (TickRowHeight / 2f);
+        var cy = rowTop + (TickRowHeight / 2f) + TickRowDrop;
         var tone = armed ? Vitality : Dim(InkDim, 0.8f);
 
         // A metronome: tapered body, and a pendulum arm that leans when armed and stands upright
@@ -2054,17 +2772,29 @@ public sealed class CombatRailView : SKCanvasView
         canvas.DrawCircle(armed ? cx + 2.2f : cx, cy - 2.5f, 1.6f, _fill);
     }
 
+    /// <summary>
+    /// How far the tick row's CONTENTS sit below the row's own centre line (owner, 2026-09-06: "we
+    /// can afford to move the combat ticker down 6px").
+    ///
+    /// <para>Applied to the contents rather than to the row's top edge on purpose. The row's position
+    /// is the last link in the bottom-up chain that RailSlotGeometry divides against to decide how
+    /// many opponent slots fit; moving the row itself would move the player's tile and the whole
+    /// opponent stack with it and quietly change that count. Moving what is drawn INSIDE the row
+    /// changes exactly what was asked for and nothing else.</para>
+    /// </summary>
+    private const float TickRowDrop = 6f;
+
     /// <summary>The tick track's top edge within its row. Shared with <see cref="TickTrackDp"/>, so
     /// the Composition sweep cannot drift off the track the canvas draws.</summary>
     private static float TrackTopIn(float rowTop)
-        => rowTop + (TickRowHeight / 2f) - (TickTrackHeight / 2f);
+        => rowTop + (TickRowHeight / 2f) - (TickTrackHeight / 2f) + TickRowDrop;
 
     /// <summary>
     /// Where the tick track sits, in device-independent units, for a rail rendered at
     /// <paramref name="panelWidthDp"/> wide - the geometry the Composition sweep behind this canvas
     /// has to match exactly.
     ///
-    /// <para>The rail lays itself out in a fixed 336-unit coordinate space and scales that space to
+    /// <para>The rail lays itself out in a fixed 376-unit coordinate space and scales that space to
     /// whatever width it is given (see OnPaintSurface), so a sibling element positioned in real dp
     /// has to have the same scale factor applied to it. Exposing it from here rather than restating
     /// the numbers in XAML is deliberate: two copies of this arithmetic would silently disagree the
@@ -2076,7 +2806,8 @@ public sealed class CombatRailView : SKCanvasView
         return (
             Pad * k,
             (Pad + MetronomeReserve) * k,
-            (Pad + (TickRowHeight / 2f) - (TickTrackHeight / 2f)) * k,
+            // Measured up from the bottom edge, so the row-internal drop SUBTRACTS here.
+            (Pad + (TickRowHeight / 2f) - (TickTrackHeight / 2f) - TickRowDrop) * k,
             TickTrackHeight * k);
     }
 
@@ -2113,34 +2844,6 @@ public sealed class CombatRailView : SKCanvasView
 
     // ---- Drawn icons. ASCII source only, so every glyph is a path, never a font character. --
 
-    private void DrawSword(SKCanvas canvas, float x, float y, SKColor color)
-    {
-        _stroke.Color = color;
-        _stroke.StrokeWidth = 1.8f;
-        _stroke.StrokeCap = SKStrokeCap.Round;
-        canvas.DrawLine(x + 2f, y + 14f, x + 13f, y + 2f, _stroke);
-        canvas.DrawLine(x + 8f, y + 2f, x + 14f, y + 8f, _stroke);
-        _stroke.StrokeWidth = 1f;
-    }
-
-    /// <summary>An open hand - four fingers and a thumb. Deliberately literal: the previous
-    /// icon was a curve and a dot and read as nothing at all.</summary>
-    private void DrawOpenHand(SKCanvas canvas, float x, float y, SKColor color)
-    {
-        _stroke.Color = color;
-        _stroke.StrokeWidth = 1.5f;
-        _stroke.StrokeCap = SKStrokeCap.Round;
-        for (var i = 0; i < 4; i++)
-        {
-            var fx = x + 3f + (i * 3f);
-            canvas.DrawLine(fx, y + 3f + (i == 0 || i == 3 ? 2f : 0f), fx, y + 9f, _stroke);
-        }
-        canvas.DrawLine(x + 1f, y + 8f, x + 3f, y + 6f, _stroke);
-        _fill.Color = color;
-        canvas.DrawRoundRect(x + 2f, y + 8f, 11f, 6f, 3f, 3f, _fill);
-        _stroke.StrokeWidth = 1f;
-    }
-
     // ---- Helpers ---------------------------------------------------------------------------
 
     private static string OutcomeWord(FightOutcome outcome) => outcome switch
@@ -2165,9 +2868,9 @@ public sealed class CombatRailView : SKCanvasView
         // inventing one. Distinct from a blank label, which means we never saw it end at all.
         FightOutcome.EndOther => "ended",
         // The client stopped it, not the game - a reset, a logout, a room change, app exit. "cut
-        // short" rather than "interrupted" only because the word is drawn unclipped in a 62f column
-        // ahead of the name (see DeadOutcomeColumn); which of the four reasons it was is in the
-        // clog's EncounterForceEnded event, not on a roster row.
+        // short" rather than "interrupted" only because the word has to fit DeadNameWidth on the dead
+        // strip's second line; which of the four reasons it was is in the clog's EncounterForceEnded
+        // event, not on a roster row.
         FightOutcome.Interrupted => "cut short",
         _ => string.Empty,
     };

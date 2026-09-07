@@ -227,11 +227,18 @@ public sealed record SwingRow : ICombatLedgerRow
 
     public bool Hit { get; init; }
 
-    /// <summary>The game's own damage bracket, <c>dir=out</c> hits only - MUD2 never gives the player
-    /// an exact figure for their own blows. BOTH ENDS, never a midpoint, and that is a one-way door:
-    /// a later pass that can constrain these ranges (a <c>diagnose</c> reading giving a known hitpoint
-    /// band, or kill-total arithmetic across a fight) can only narrow a bracket that is still stored
-    /// as a bracket.</summary>
+    /// <summary>The game's own damage bracket, <c>dir=out</c> hits only. MUD2 almost always brackets
+    /// the player's own blows, but it does occasionally print an exact figure and CombatTracker parses
+    /// that form too - roughly 6 such lines against 820 bracketed ones in the corpus, with the selector
+    /// still undetermined. An exact hit is stored here as a zero-width range so this stays one shape.
+    ///
+    /// <para>BOTH ENDS, never collapsed, and that is a one-way door: a later pass that can constrain
+    /// these ranges (a <c>diagnose</c> reading giving a known hitpoint band, or kill-total arithmetic
+    /// across a fight) can only narrow a bracket that is still stored as a bracket.</para>
+    ///
+    /// <para>That is a rule about STORAGE. What a display derives from these two numbers - a mean, a
+    /// midpoint, a shape - is the display's own call; see MudSharp.Combat.ExchangeLine's remarks
+    /// for why the blanket "never draw a midpoint" that used to sit here was not the owner's rule.</para></summary>
     public int? DamageLow { get; init; }
     public int? DamageHigh { get; init; }
 
