@@ -350,6 +350,17 @@ public sealed record CombatLiveView(
     MudSharp.Combat.ExchangeLine YourDealt = default,
     MudSharp.Combat.ExchangeLine YourTaken = default,
     IReadOnlyList<MudSharp.Combat.SwingMark>? YourExchange = null,
+    // How the fight is going, as MudSharp.Combat.Survival reads it off CombatOutlook - one opinion,
+    // resolved once, rather than a colour re-derived from the raw projections at paint time.
+    MudSharp.Combat.SurvivalReading Survival = MudSharp.Combat.SurvivalReading.None,
+    // Which half of the blink cycle this frame was built in, and ONLY meaningful while something is
+    // actually blinking - it is held false otherwise so an idle panel does not republish once a second
+    // for a phase nothing draws. See Mucka.Rendering.Blink.
+    bool BlinkOn = false,
+    // The same cycle in ANTIPHASE, for the unarmed alarm. Two alarms blinking together read as one
+    // flashing region; in opposition they stay two things. Held false unless the player is actually
+    // unarmed AND hurt, for the same "do not republish for a blink nobody draws" reason as BlinkOn.
+    bool BlinkOffPhase = false,
     int LiveOpponents = 0,
     int OpponentsFaced = 0,
     double? EncounterTicks = null,

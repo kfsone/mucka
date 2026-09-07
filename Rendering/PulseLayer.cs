@@ -40,7 +40,7 @@ internal sealed class PulseLayer
     /// element at a time precisely because several on their own phases read as noise rather than as
     /// urgency, and two that share a period and are armed in the same synchronous block are the nearest
     /// thing to one heartbeat that two visuals can be.</summary>
-    internal const double PeriodMilliseconds = 1200.0;
+    internal const double PeriodMilliseconds = Blink.PulsePeriodMilliseconds;
 
     private CompositionAnimation? _anim;
     private Visual? _visual;

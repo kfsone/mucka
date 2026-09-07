@@ -1964,10 +1964,12 @@ public sealed class CombatRailView : SKCanvasView
     /// worse than no alarm at all. The gate is the one the deleted DrawWeapon carried and its reason
     /// was already written down: "an unarmed opening is normal and must not raise an alarm."</para>
     ///
-    /// <para>The 1 Hz alternation against white is NOT drawn here and cannot be: this canvas never
-    /// animates (Invariant #1), so the blink rides a Composition sibling over it, the same way the flee
-    /// pill's pulse already does through GamePage.UpdateCombatFleePill. What this method draws is the
-    /// still state.</para>
+    /// <para><b>It blinks on the client's shared cycle</b> - see <see cref="Blink"/>, which owns the
+    /// period and the doctrine. In ANTIPHASE to the Death cell, so if both are alarming at once they
+    /// stay two alarms rather than merging into one flashing corner. Drawn on the canvas rather than
+    /// by a Composition sibling because a sibling can only reach seven characters of text by
+    /// duplicating their geometry, and every such duplicate here has drifted at least once; the
+    /// repaint that makes it visible is the 1 Hz flush the panel already performs.</para>
     /// </summary>
     private void DrawCurrentWeapon(SKCanvas canvas, float baseline, CombatLiveView live)
     {
@@ -1976,7 +1978,9 @@ public sealed class CombatRailView : SKCanvasView
             const string unarmed = "UNARMED";
             var hurt = live.StaminaCurrent is int sta && live.StaminaMax is int max && sta < max;
             var width = _nameBoldFont.MeasureText(unarmed);
-            _text.Color = hurt ? Caution : InkDim;
+            // Yellow on the quiet half of the cycle, white on the loud one - the owner's pairing. The
+            // underline stays put through both, so the word never appears to move.
+            _text.Color = hurt ? (live.BlinkOffPhase ? InkBright : Caution) : InkDim;
             canvas.DrawText(unarmed, TileTextRight, baseline, SKTextAlign.Right, _nameBoldFont, _text);
             if (hurt)
             {
@@ -2362,10 +2366,26 @@ public sealed class CombatRailView : SKCanvasView
                 continue;
             }
 
-            _text.Color = i == 4 ? SurvivalVerdict(live) : Ink;
+            var centre = Pad + (column * i) + (column / 2f);
+
+            // The Death column is the only coloured cell on the panel, and at its worst it INVERTS
+            // rather than merely reddening - see Blink for why the top of a scale escalates by
+            // blinking, and why two characters of red text is not a signal where a reversed block is.
+            if (i == 4 && live.Survival == MudSharp.Combat.SurvivalReading.Dire && live.BlinkOn)
+            {
+                var half = (_rungFont.MeasureText(values[i]) / 2f) + 4f;
+                _fill.Color = Hostile;
+                canvas.DrawRoundRect(
+                    centre - half, valueBaseline - 11f, half * 2f, 15f, 2f, 2f, _fill);
+                _text.Color = PanelGround;
+            }
+            else
+            {
+                _text.Color = i == 4 ? SurvivalTone(live.Survival) : Ink;
+            }
+
             canvas.DrawText(
-                values[i], Pad + (column * i) + (column / 2f), valueBaseline,
-                SKTextAlign.Center, _rungFont, _text);
+                values[i], centre, valueBaseline, SKTextAlign.Center, _rungFont, _text);
         }
 
         // Last, so it sits over its neighbour rather than under it.
@@ -2492,34 +2512,22 @@ public sealed class CombatRailView : SKCanvasView
         => ticks is double value && value >= 0 ? value.ToString("0", culture) + "t" : string.Empty;
 
     /// <summary>
-    /// The colour on Die, from the SLACK between the two projections - how many ticks of headroom the
-    /// player has, <c>die - vic</c>.
+    /// The Death column's tone. One lookup - the reading itself is resolved once, in
+    /// <see cref="MudSharp.Combat.Survival"/>, off the same projection the tier resolver uses.
     ///
-    /// <para><b>The owner's ladder, 2026-09-06, with one clause read against its literal wording.</b>
-    /// He gave the alarm side as "orange when die &lt;= vic" and the safe side as "green tint when vic
-    /// &gt; die + 2, full green when vic &gt;= die + 4" - which, taken literally, paints green exactly
-    /// when the player dies BEFORE winning. The two halves compare in opposite directions, so one of
-    /// them is a slip; this implements slack, which makes green mean surviving. It is one table and
-    /// trivially flipped if the literal reading was meant.</para>
+    /// <para><b>Dire has no tone of its own</b>, because it is drawn inverted and blinking. Its entry
+    /// here is the appearance it takes on the dark half of the cycle, which is the same red Losing
+    /// wears - so the alarm reads as Losing escalating rather than as a sixth colour to learn.</para>
     /// </summary>
-    private static SKColor SurvivalVerdict(CombatLiveView live)
+    private static SKColor SurvivalTone(MudSharp.Combat.SurvivalReading reading) => reading switch
     {
-        if (live.TicksToDeath is not double die || live.TicksToVictory is not double vic)
-            return Ink;
-
-        var slack = die - vic;
-        if (die <= 2)
-            return Hostile;
-        if (slack >= 4)
-            return TerminalTheme.Palette[10];
-        if (slack >= 3)
-            return TerminalTheme.Palette[2];
-        if (slack <= -3)
-            return Hostile;
-        if (slack <= 0)
-            return NoveltyUnfought;
-        return Ink;
-    }
+        MudSharp.Combat.SurvivalReading.Commanding => TerminalTheme.Palette[10],
+        MudSharp.Combat.SurvivalReading.Winning => TerminalTheme.Palette[2],
+        MudSharp.Combat.SurvivalReading.Even => NoveltyUnfought,
+        MudSharp.Combat.SurvivalReading.Losing => Hostile,
+        MudSharp.Combat.SurvivalReading.Dire => Hostile,
+        _ => Ink,
+    };
 
     /// <summary>Which encounter-table column the pointer is over, or -1 for none - the only thing on
     /// this canvas that responds to hover. Set by GamePage's pointer-only hit test; see Invariant #0

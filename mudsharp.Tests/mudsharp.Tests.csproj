@@ -56,6 +56,10 @@
          so they can be linked here - the elements and the Composition animations they drive are
          GamePage's and are not testable without a window. -->
     <Compile Include="..\ViewModels\RailSlotGeometry.cs" Link="ViewModels\RailSlotGeometry.cs" />
+    <!-- Blink is pure arithmetic over the wall clock with no MAUI dependency, and it is the client's
+         single definition of what a blink IS - so it is linked here rather than left untestable in
+         the app project, the same way RailSlotGeometry is. -->
+    <Compile Include="..\Rendering\Blink.cs" Link="Rendering\Blink.cs" />
     <Compile Include="..\ViewModels\RailFloats.cs" Link="ViewModels\RailFloats.cs" />
     <Compile Include="..\ViewModels\CombatHistoryCache.cs" Link="ViewModels\CombatHistoryCache.cs" />
     <!-- The Here list's "which of these are we fighting" set. MAUI-free for the same reason

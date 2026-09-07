@@ -1033,6 +1033,11 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             ? (int)Math.Ceiling(sta1 / rate)
             : null;
 
+        // The encounter table's one coloured cell, off the SAME outlook the tier resolver below reads.
+        // Two consumers of one projection, which is what ComputeOutlook was extracted for; what must
+        // never happen again is a second ladder derived from the raw seconds beside it.
+        var survival = Survival.Read(outlook, CombatTiming.TickMilliseconds);
+
         var staminaTier = CombatTierResolver.StaminaTier(
             deficits.StaminaCurrent, deficits.StaminaMax, hitsLeft, outlook.SecondsToDie, outlook.SecondsToKill);
         var fightTier = CombatTierResolver.ResolvePulseTier(staminaTier, CombatTier.None);
@@ -1113,6 +1118,17 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             YourDealt: EncounterLine(snapshot, outgoing: true),
             YourTaken: EncounterLine(snapshot, outgoing: false),
             YourExchange: snapshot.Exchange,
+            // One reading, resolved here off the same outlook the survivability line uses. The phase
+            // rides with it rather than being sampled at paint time, so the 1 Hz flush that already
+            // runs through a fight is what makes a blink visible - and it only alternates while the
+            // reading is Dire, so nothing republishes once a second for a blink nobody is drawing.
+            Survival: survival,
+            BlinkOn: survival == MudSharp.Combat.SurvivalReading.Dire
+                && Mucka.Rendering.Blink.PhaseOn(nowUtc),
+            // Unarmed AND below maximum - an unarmed opening is normal and must not raise an alarm.
+            BlinkOffPhase: !hasWeapon
+                && deficits.StaminaCurrent is int sta2 && deficits.StaminaMax is int max2 && sta2 < max2
+                && Mucka.Rendering.Blink.PhaseOn(nowUtc, inverted: true),
             LiveOpponents: roster.LiveCount,
             OpponentsFaced: roster.TotalCount,
             // Duration comes off the encounter, not the primary fight: a fight that started when the
