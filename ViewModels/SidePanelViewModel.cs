@@ -1237,10 +1237,25 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         return _deadStripHistoryCache;
     }
 
-    /// <summary>Resolves each row's kill award from <see cref="_awardByKill"/>, in place. Called on
-    /// every rebuild rather than at fold time, because an award can arrive after the row it belongs to
-    /// has been archived - see BuildDeadStripHistory. Rebuilds are cached and invalidated when an
-    /// award lands, so this walks the list once per award rather than once per frame.</summary>
+    /// <summary>
+    /// Resolves each row's kill award from <see cref="_awardByKill"/>, in place.
+    ///
+    /// <para>Called on every rebuild rather than at fold time because the ENCOUNTER FOLD RUNS
+    /// MID-FRAME: the kill line drops the fight count to zero, which closes the encounter and freezes
+    /// its rows, and the award is still a line or two further into that same frame. The award is
+    /// certain to arrive (the frame guarantees it - see <see cref="_awaitingAward"/>); it is certain
+    /// to arrive AFTER the fold, which is the whole problem.</para>
+    ///
+    /// <para>The cleaner fix is to fold at the frame boundary instead, and the parser already knows
+    /// where that is (MudStreamParser.ClosePromptContext) - but nothing surfaces it past the parser,
+    /// so it would mean threading a frame-closed signal through five layers to change the timing of
+    /// one list. Resolving at read time gets the same answer with no new plumbing; if that signal ever
+    /// exists for another reason, folding on it would make this a belt-and-braces rather than the
+    /// mechanism.</para>
+    ///
+    /// <para>Rebuilds are cached and invalidated when an award lands, so this walks the list once per
+    /// award rather than once per paint.</para>
+    /// </summary>
     private void FillAwards(List<CombatEnding> endings)
     {
         for (var i = 0; i < endings.Count; i++)
@@ -2035,17 +2050,28 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     /// <c>score_at_end</c> can never hold its own award. So this queue is the pairing: a kill goes on
     /// when its line lands, and comes off against the next announcement that raised the score.</para>
     ///
-    /// <para><b>It is an inference and it can be wrong.</b> Anything else that raises the score inside
-    /// the gap - another character's doing, a treasure handed in - takes the award the kill was
-    /// waiting for. Nothing downstream depends on it, and a mis-paired figure on a corpse's row is a
-    /// cosmetic error rather than a decision the player would make. Bounded to the last few kills so a
-    /// long session cannot accumulate a queue nobody drains.</para>
+    /// <para><b>The wait is BOUNDED BY THE FRAME, not open-ended</b> (owner, 2026-09-07): MUD2's
+    /// output is framed by the prompt, and the award arrives before that frame closes - always. It is
+    /// the same guarantee tools/combat/FIGHT-ENDS.md rests on for fight ends, and it is why nothing
+    /// here needs a timeout, a lull window or a notion of an award "going missing". An entry sits on
+    /// this queue for the remainder of one frame at most.</para>
+    ///
+    /// <para><b>It is still an inference about WHICH kill</b>, and that is the part that can be
+    /// wrong: anything else raising the score inside that same frame takes the award the kill was
+    /// waiting for. A tight window and a checkable claim rather than a race with no end - but not a
+    /// guarantee. Nothing downstream depends on it, and a mis-paired figure on a corpse's row is a
+    /// cosmetic error rather than a decision the player would make.</para>
+    ///
+    /// <para>Bounded to the last few kills anyway. Not because an award might never come - it will -
+    /// but because several creatures CAN die in one frame (poison, a pack finishing together), so the
+    /// depth this needs is kills-per-frame, and a cap costs nothing.</para>
     /// </summary>
     private readonly Queue<KillKey> _awaitingAward = new();
 
     private readonly Dictionary<KillKey, int> _awardByKill = new();
 
-    /// <summary>How many unpaired kills to remember. Small deliberately: if an award has not arrived
+    /// <summary>How many unpaired kills to remember - the most that can plausibly die inside one
+    /// frame, since that is the whole window. Small deliberately: if an award has not arrived
     /// within a few kills, the pairing has already gone wrong and holding the entry forever would only
     /// let it attach to something much later.</summary>
     private const int MaxAwaitingAwards = 4;

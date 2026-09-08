@@ -123,8 +123,12 @@ public sealed record SessionCombatTotals(
 /// <para><b>This is ATTRIBUTED, not stated.</b> The game prints the award on the line AFTER the kill
 /// line, and the kill line is what closes the fight - so no fight record can contain its own award
 /// (FightHistoryRecorder.OnScoreSave says exactly this). The panel pairs each kill with the next
-/// positive score announcement, which is right whenever that ordering holds and wrong if some other
-/// award lands in between. Null wherever no announcement arrived, never a zero.</para></param>
+/// announcement that raised the score.</para>
+///
+/// <para>The wait is bounded: MUD2's output is framed by the prompt and the award arrives before that
+/// frame closes, always. So this is not a race that can time out - what it can get wrong is WHICH
+/// kill, if something else raises the score inside the same frame. Null wherever no announcement
+/// arrived, never a zero.</para></param>
 public readonly record struct CombatEnding(
     string Name, MudSharp.Combat.FightOutcome Outcome, DateTime? EndedUtc,
     int EncounterOrdinal = 0, int ResetOrdinal = 0,
