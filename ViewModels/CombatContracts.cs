@@ -259,6 +259,10 @@ public sealed record CombatLiveView(
     bool HasEncounter,
     // "UNARMED" (uppercase) when no weapon is in hand, else the display-shortened weapon name -
     // matches CombatHistoryFormatter.AppendHeadline's own wording so the two surfaces never drift.
+    // The NAME of what the player is fighting with, and empty whenever that is nothing - including
+    // between fights, because a weapon belongs to an encounter rather than to a person (see
+    // IsUnarmed). Never the word "UNARMED": that is drawn from the flag, which knows whether a fight
+    // is running, where a string cannot.
     string WeaponText,
     // Whether the player is fighting BARE-HANDED, and only ever true while a fight is running. MUD2
     // has no persistent wielded weapon: one is named for the current fight and stops being wielded

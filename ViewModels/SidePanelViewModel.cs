@@ -961,17 +961,23 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             return;
         }
 
-        // Live while fighting, historical once the fight is over. MUD2 auto-drops your weapon when
-        // you flee - printing the drop in the same tick, just BEFORE the flee line - so the live
-        // "what is in my hands" answer is correctly empty the instant an encounter ends that way. It
-        // is the wrong answer for a finished fight, which was fought with something: the primary
-        // fight's own WeaponUsed is the durable fact, and reading it here is what stops a
-        // just-completed axe fight being summarised as UNARMED.
-        var liveWeapon = snapshot.InCombat
-            ? snapshot.CurrentWeapon
-            : CombatComposition.PrimaryFight(snapshot)?.Weapon;
+        // IN COMBAT ONLY. A weapon is a property of the ENCOUNTER, not of the player (owner,
+        // 2026-09-07): MUD2 has no equipment slots and no persistent wield - one is named for the
+        // current fight, or as part of starting it ("kill x with y"), and when that fight ends nothing
+        // is held. So between fights there is no weapon to report, not an old one worth remembering.
+        // The variable one line below has said exactly this about the Ctrl+W offer since it was
+        // written; this half of the same fact disagreed with it.
+        //
+        // It used to fall back to the finished fight's own WeaponUsed, on the reasoning that a
+        // just-completed axe fight should not be summarised as UNARMED. That was solving the right
+        // problem in the wrong place - UNARMED is now suppressed out of combat at its own flag, so
+        // the fallback has nothing left to fix and only produced a weapon the player is not holding.
+        var liveWeapon = snapshot.InCombat ? snapshot.CurrentWeapon : null;
         var hasWeapon = !string.IsNullOrWhiteSpace(liveWeapon);
-        var weaponText = hasWeapon ? CombatComposition.DisplayName(liveWeapon) : "UNARMED";
+        // Empty rather than "UNARMED" for the bare-handed case: the tile draws that word off
+        // CombatLiveView.IsUnarmed, which knows whether a fight is running, and this string is only
+        // ever the NAME of something held.
+        var weaponText = hasWeapon ? CombatComposition.DisplayName(liveWeapon) : string.Empty;
         // Roster/weapon/duration context is worth showing whenever an encounter exists at all, live
         // or just-finished - mirrors CombatComposition.Build's own AppendHeadline/AppendParticipants,
         // which never gated on InCombat either (2.4/3.7's post-combat wireframe still names the target).
