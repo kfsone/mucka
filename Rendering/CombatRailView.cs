@@ -230,6 +230,24 @@ public sealed class CombatRailView : SKCanvasView
     /// leave that arithmetic reading only half the block.</summary>
     private const float BottomRowHeight = PlayerTileHeight + EncounterRowGap + EncounterRowHeight;
     private const float TickRowHeight = 30f;
+
+    // ---- the bottom-up chain, 2026-09-07 ----
+    //
+    // Order from the panel's bottom edge upward: the PLAYER'S TILE, then the tick gauge, then the
+    // encounter table, then the opponent stack. The player used to sit above both of those; the owner
+    // asked to try it at the very bottom, with the encounter chrome between him and the creatures.
+    //
+    // Everything below is an offset of a row's BOTTOM edge above the panel's, so it can be read in the
+    // same direction the layout is built. The total is unchanged (Pad + tick + BottomRowHeight = 153),
+    // which is why RailSlotMetrics needs no adjustment and the opponent capacity does not move: only
+    // the order inside that block changed, not its size.
+    //
+    // One reason to prefer this order beyond the owner's ask: the flee pill rides the tick gauge and
+    // carries "sta:23 cost:-2.1k", so it now sits directly against the player's own stamina bar -
+    // what leaving costs, next to what you have left.
+    private const float PlayerTileBottomOffset = Pad;
+    private const float TickRowBottomOffset = PlayerTileBottomOffset + PlayerTileHeight;
+    private const float EncounterBottomOffset = TickRowBottomOffset + TickRowHeight + EncounterRowGap;
     private const float TickTrackHeight = 5f;
 
     /// <summary>Width reserved at the RIGHT end of the tick row for the metronome toggle. Taken out
@@ -802,12 +820,11 @@ public sealed class CombatRailView : SKCanvasView
         var height = e.Info.Height / scale;
         var live = _live;
 
-        // Everything is placed relative to the BOTTOM edge and worked upward.
-        var tickTop = height - Pad - TickRowHeight;
-        var bottomRowTop = tickTop - BottomRowHeight;
-
-        DrawTickRow(canvas, tickTop, live);
-        DrawBottomRow(canvas, bottomRowTop, live);
+        // Everything is placed relative to the BOTTOM edge and worked upward - see the offsets'
+        // own remarks for the order and why the block's total height is unchanged.
+        DrawPlayerTile(canvas, height - PlayerTileBottomOffset - PlayerTileHeight, live);
+        DrawTickRow(canvas, height - TickRowBottomOffset - TickRowHeight, live);
+        DrawEncounterTable(canvas, height - EncounterBottomOffset - EncounterRowHeight, live);
         DrawOpponents(canvas, height, live);
 
         canvas.Restore();
@@ -984,7 +1001,7 @@ public sealed class CombatRailView : SKCanvasView
                     var allowance = kind == DeadStripSeparatorKind.Reset
                         ? DeadStripResetSeparatorHeight
                         : DeadStripEncounterSeparatorHeight;
-                    DrawDeadStripSeparator(canvas, y, DeadLineHeight, allowance, kind);
+                    DrawDeadStripSeparator(canvas, y, allowance, kind);
                     y += DeadLineHeight + allowance;
                     continue;
                 }
@@ -1003,9 +1020,18 @@ public sealed class CombatRailView : SKCanvasView
     /// same figures <c>RailSlotGeometry.PlanDeadStrip</c> budgeted this boundary against.
     /// </summary>
     private void DrawDeadStripSeparator(
-        SKCanvas canvas, float rowY, float rowLineHeight, float allowance, DeadStripSeparatorKind kind)
+        SKCanvas canvas, float rowY, float allowance, DeadStripSeparatorKind kind)
     {
-        var lineY = rowY + ((rowLineHeight + allowance) / 2f);
+        // In the ALLOWANCE, which is the space reserved for exactly this - just below the row that
+        // has finished, well above the next row's first line.
+        //
+        // It used to be rowY + (lineHeight + allowance) / 2, which put it half a row DOWN from the
+        // baseline. That worked while a row was one line and the pitch ran downward from it; a row is
+        // two lines now and extends UPWARD from rowY, so the old figure landed inside the next row's
+        // name and struck it through. The row's own height does not enter this at all any more, which
+        // is why the parameter is gone: the separator's place is defined by the gap, not by what is
+        // above it.
+        var lineY = rowY + DeadRowDescent + (allowance / 2f);
         if (kind == DeadStripSeparatorKind.Reset)
         {
             _stroke.Color = Ink;
@@ -1082,6 +1108,12 @@ public sealed class CombatRailView : SKCanvasView
     /// sits on the upper line and the outcome word under it, so both are ellipsized against the same
     /// width - a long creature name must not run into the exchange summary opposite it.</summary>
     private const float DeadSubLineHeight = 11f;
+
+    /// <summary>How far the small font's descenders reach below a dead-strip baseline. Used to place
+    /// the grouping separator clear of the row above it - approximate on purpose, since it only has to
+    /// keep a 1px line out of a "g".</summary>
+    private const float DeadRowDescent = 4f;
+
     private const float DeadNameWidth = 104f;
     private const float DeadScoreWidth = 44f;
 
@@ -1884,12 +1916,6 @@ public sealed class CombatRailView : SKCanvasView
     /// seals hot after a fight ends would keep raising an alarm about a fight that is over. They are
     /// dimmed rather than removed so the row never changes shape.</para>
     /// </summary>
-    private void DrawBottomRow(SKCanvas canvas, float y, CombatLiveView live)
-    {
-        DrawPlayerTile(canvas, y, live);
-        DrawEncounterTable(canvas, y + PlayerTileHeight + EncounterRowGap, live);
-    }
-
     /// <summary>
     /// The player's own tile: the same four lines every opponent carries, in the same order, at the
     /// same sizes. The owner's instruction, 2026-09-06 - "give our stamina seal the same size and
@@ -2573,8 +2599,7 @@ public sealed class CombatRailView : SKCanvasView
         var y = yDp / k;
         var height = panelHeightDp / k;
 
-        var tickTop = height - Pad - TickRowHeight;
-        var tableTop = tickTop - BottomRowHeight + PlayerTileHeight + EncounterRowGap;
+        var tableTop = height - EncounterBottomOffset - EncounterRowHeight;
 
         if (x < Pad || x > Pad + Content || y < tableTop || y > tableTop + EncounterRowHeight)
             return -1;
@@ -2684,12 +2709,11 @@ public sealed class CombatRailView : SKCanvasView
         return (
             PillLeft * k,
             (RailWidth - PillLeft - PillWidth) * k,
-            // Measured up from the panel's bottom edge, mirroring OnPaintSurface's own bottom-up
-            // chain. The pill lives INSIDE the tick row now (2026-09-06), so the chain is one term
-            // shorter than it was: the bottom row no longer enters it at all. TickRowDrop subtracts,
-            // because a drop measured downward from the row's top is a reduction measured upward
-            // from the panel's bottom.
-            (Pad + TickRowHeight - PillTopInset - PillHeight - TickRowDrop) * k,
+            // Measured up from the panel's bottom edge, off the same offsets OnPaintSurface uses. The
+            // pill lives INSIDE the tick row, which now sits above the player's tile - so that tile's
+            // height is part of the chain. TickRowDrop subtracts, because a drop measured downward
+            // from the row's top is a reduction measured upward from the panel's bottom.
+            (TickRowBottomOffset + TickRowHeight - PillTopInset - PillHeight - TickRowDrop) * k,
             PillHeight * k,
             PillRadius * k);
     }
@@ -2816,7 +2840,7 @@ public sealed class CombatRailView : SKCanvasView
             Pad * k,
             (Pad + MetronomeReserve) * k,
             // Measured up from the bottom edge, so the row-internal drop SUBTRACTS here.
-            (Pad + (TickRowHeight / 2f) - (TickTrackHeight / 2f) - TickRowDrop) * k,
+            (TickRowBottomOffset + (TickRowHeight / 2f) - (TickTrackHeight / 2f) - TickRowDrop) * k,
             TickTrackHeight * k);
     }
 

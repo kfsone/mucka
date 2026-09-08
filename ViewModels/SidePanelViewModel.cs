@@ -1185,20 +1185,35 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     /// </summary>
     private IReadOnlyList<CombatEnding> BuildDeadStripHistory(CombatEncounterSnapshot snapshot)
     {
-        if (_currentEncounterArchived)
-            return _archiveSnapshot;
-
         var resolvedThisEncounter = 0;
-        foreach (var fight in snapshot.Fights)
+        if (!_currentEncounterArchived)
         {
-            if (fight.IsResolved)
-                resolvedThisEncounter++;
+            foreach (var fight in snapshot.Fights)
+            {
+                if (fight.IsResolved)
+                    resolvedThisEncounter++;
+            }
         }
-        if (resolvedThisEncounter == 0)
-            return _archiveSnapshot;
 
         if (resolvedThisEncounter == _deadStripHistoryCachedResolvedCount)
             return _deadStripHistoryCache;
+
+        // The ARCHIVE goes through the award fill too, which is the whole fix for the last kill of an
+        // encounter. That kill closes the encounter, so the archive fold runs and freezes its row -
+        // and MUD2 prints the award on the NEXT line, after the fold. Returning the frozen snapshot
+        // verbatim meant the final creature of every encounter could never show what it paid, while
+        // every earlier one could, because those rows are still being rebuilt from the live tail.
+        //
+        // So an ending records what was observed when the fight ended, and the award is looked up at
+        // read time from the one place awards live. Nothing is patched after the fact.
+        if (resolvedThisEncounter == 0)
+        {
+            var archived = new List<CombatEnding>(_archiveSnapshot);
+            FillAwards(archived);
+            _deadStripHistoryCache = archived;
+            _deadStripHistoryCachedResolvedCount = 0;
+            return _deadStripHistoryCache;
+        }
 
         var tail = new List<CombatEnding>(resolvedThisEncounter);
         foreach (var fight in snapshot.Fights)
@@ -1215,10 +1230,27 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         // is already chronological, and every one of its timestamps precedes every timestamp in THIS
         // still-open encounter by wall-clock necessity.
         combined.AddRange(CombatEndingOrder.Sorted(tail));
+        FillAwards(combined);
 
         _deadStripHistoryCache = combined;
         _deadStripHistoryCachedResolvedCount = resolvedThisEncounter;
         return _deadStripHistoryCache;
+    }
+
+    /// <summary>Resolves each row's kill award from <see cref="_awardByKill"/>, in place. Called on
+    /// every rebuild rather than at fold time, because an award can arrive after the row it belongs to
+    /// has been archived - see BuildDeadStripHistory. Rebuilds are cached and invalidated when an
+    /// award lands, so this walks the list once per award rather than once per frame.</summary>
+    private void FillAwards(List<CombatEnding> endings)
+    {
+        for (var i = 0; i < endings.Count; i++)
+        {
+            var ending = endings[i];
+            if (ending.ScoreAwarded is not null)
+                continue;
+            if (AwardFor(ending.EncounterOrdinal, ending.Name, ending.EndedUtc) is int award)
+                endings[i] = ending with { ScoreAwarded = award };
+        }
     }
 
     /// <summary>

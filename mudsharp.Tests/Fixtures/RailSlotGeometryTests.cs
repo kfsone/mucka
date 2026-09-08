@@ -210,29 +210,36 @@ public sealed class RailSlotGeometryTests
     // -- the player's tile -------------------------------------------------------
 
     [Fact]
-    public void PlayerTile_SitsAtTheBottomBlocksTopEdge_AndSpansTheContentWidth()
+    public void PlayerTile_SitsAtTheVeryBottom_AndSpansTheContentWidth()
     {
         var tile = RailSlotGeometry.PlayerTileDp(M, W, 600);
 
-        // Bottom block top = height - pad - tick row - bottom block.
-        Assert.Equal(600.0 - 10.0 - 30.0 - 113.0, tile.Top, 3);
+        // One pad up from the panel's bottom edge and nothing else in the chain: as of 2026-09-07 the
+        // player's tile is the LOWEST thing on the rail, with the tick gauge and the encounter table
+        // above it rather than below. It used to sit at the bottom block's top edge.
+        Assert.Equal(600.0 - 10.0 - 81.0, tile.Top, 3);
         Assert.Equal(10.0, tile.Left, 3);
         // Full content width, not a 92-unit seal box in the left column - the ring is gone.
         Assert.Equal(376.0 - 20.0, tile.Width, 3);
-        // The TILE's height, not the block's: the encounter table sits below it inside that block.
+        // The TILE's height, not the whole block's - the block still counts the table and the gauge,
+        // which is what the opponent capacity is measured against.
         Assert.Equal(81.0, tile.Height, 3);
     }
 
     [Fact]
     public void ThePlayerTileNeverOverlapsTheLowestSlot()
     {
-        // Six dp between them, which is the SlotsGap the canvas leaves. A float anchored on the
-        // player and one anchored on slot 0 must not start life on the same pixels.
+        // A float anchored on the player and one anchored on slot 0 must not start life on the same
+        // pixels. They are now separated by the whole of the tick gauge and the encounter table, not
+        // just the 6dp SlotsGap - so this asserts the gap is at least that block, which is the thing
+        // that would actually break if the bottom-up chain were rewired wrongly.
         var tile = RailSlotGeometry.PlayerTileDp(M, W, 600);
         var slot0 = RailSlotGeometry.OpponentSlotDp(M, W, 600, rosterIndex: 0, liveCount: 1);
 
         Assert.NotNull(slot0);
-        Assert.Equal(6.0, tile.Top - (slot0!.Value.Top + slot0.Value.Height), 3);
+        var gap = tile.Top - (slot0!.Value.Top + slot0.Value.Height);
+        Assert.Equal(M.SlotsGap + M.TickRowHeight + (M.BottomRowHeight - M.PlayerTileHeight), gap, 3);
+        Assert.True(gap > 0);
     }
 
     // -- the scale factor --------------------------------------------------------

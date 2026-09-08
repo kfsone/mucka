@@ -330,9 +330,10 @@ public static class RailSlotGeometry
     /// actually is. It is the whole tile now, which is also what the float is conceptually about:
     /// "this happened to you", not "this happened to that widget".</para>
     ///
-    /// <para>Its top edge IS the bottom block's top edge, so this is the same bottom-up chain with the
-    /// slot gap left off. The block is TALLER than the tile - it carries the encounter table too - so
-    /// the height here is the tile's own, not <c>m.BottomRowHeight</c>.</para>
+    /// <para>The tile sits at the very BOTTOM of the panel as of 2026-09-07 - the tick gauge and the
+    /// encounter table are above it, between the player and the creatures - so it is one pad up from
+    /// the bottom edge and nothing else enters the chain. <c>m.BottomRowHeight</c> still describes the
+    /// whole block for the opponent-capacity arithmetic and is deliberately NOT used here.</para>
     /// </summary>
     public static RailRect PlayerTileDp(in RailSlotMetrics m, double panelWidthDp, double panelHeightDp)
     {
@@ -341,7 +342,7 @@ public static class RailSlotGeometry
 
         var k = panelWidthDp / m.RailWidth;
         var logicalHeight = panelHeightDp / k;
-        var top = logicalHeight - m.Pad - m.TickRowHeight - m.BottomRowHeight;
+        var top = logicalHeight - m.Pad - m.PlayerTileHeight;
         return new RailRect(
             m.Pad * k, top * k, (m.RailWidth - (m.Pad * 2.0)) * k, m.PlayerTileHeight * k);
     }
