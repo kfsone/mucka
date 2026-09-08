@@ -256,6 +256,11 @@ public sealed record CombatLiveView(
     // "UNARMED" (uppercase) when no weapon is in hand, else the display-shortened weapon name -
     // matches CombatHistoryFormatter.AppendHeadline's own wording so the two surfaces never drift.
     string WeaponText,
+    // Whether the player is fighting BARE-HANDED, and only ever true while a fight is running. MUD2
+    // has no persistent wielded weapon: one is named for the current fight and stops being wielded
+    // when the fight ends (owner, 2026-09-07), so "unarmed" describes a fight rather than a person and
+    // there is no such state to report between them. Both construction sites hold this false outside
+    // combat; see SidePanelViewModel's post-combat branch.
     bool IsUnarmed,
     // The whole opposition, one row per participant. Each row carries its own seal state, so the
     // NPC weapon a previous version of this record held as a single "current target's weapon" now

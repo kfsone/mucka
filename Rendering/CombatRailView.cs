@@ -1956,13 +1956,14 @@ public sealed class CombatRailView : SKCanvasView
     /// name. Bold, because it is the current one (owner, 2026-09-06) - the ALTERNATIVE on the line
     /// below is the plain one, which is the way round it had been drawn before and read as backwards.
     ///
-    /// <para><b>Empty hands are an alarm only when they are a PROBLEM.</b> Yellow and underlined once
-    /// stamina is below maximum; dim and plain at full. Every fight begins with the weapon unknown -
-    /// the aggregator clears it per encounter and it stays clear until a line names it - so alarming
-    /// unconditionally meant a yellow underlined UNARMED at the opening of every single fight. An
-    /// alarm that fires every time is one the eye learns to skip, which on a permadeath readout is
-    /// worse than no alarm at all. The gate is the one the deleted DrawWeapon carried and its reason
-    /// was already written down: "an unarmed opening is normal and must not raise an alarm."</para>
+    /// <para><b>Empty hands are an alarm only when they are a PROBLEM</b>, which takes two gates.
+    /// Stamina below maximum, because every fight begins with the weapon unknown - the aggregator
+    /// clears it per encounter and it stays clear until a line names one - so alarming unconditionally
+    /// put a yellow UNARMED on the opening of every single fight, and an alarm that fires every time
+    /// is one the eye learns to skip. And IN A FIGHT: MUD2 has no persistent wielded weapon at all, so
+    /// out of combat there is nothing to be unarmed relative to. That second gate lives on
+    /// <see cref="CombatLiveView.IsUnarmed"/>, which is held false outside combat, rather than being
+    /// re-tested here - one flag, one meaning.</para>
     ///
     /// <para><b>It blinks on the client's shared cycle</b> - see <see cref="Blink"/>, which owns the
     /// period and the doctrine. In ANTIPHASE to the Death cell, so if both are alarming at once they

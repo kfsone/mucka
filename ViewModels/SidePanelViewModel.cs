@@ -1006,7 +1006,18 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             // context stay, exactly as the old formatter's headline/participant rows did.
             _pulseTier = vulnerable;
             _live = new CombatLiveView(
-                InCombat: false, HasEncounter: true, WeaponText: weaponText, IsUnarmed: !hasWeapon,
+                InCombat: false, HasEncounter: true, WeaponText: weaponText,
+                // FALSE out of combat, whatever the player is holding. MUD2 has no persistent notion
+                // of being armed - a weapon is named for the CURRENT fight and stops being wielded
+                // when that fight ends (owner, 2026-09-07). So "unarmed" is not a state the player can
+                // be in between fights; it is the only state, and an alarm about it would fire from
+                // the end of every fight until the start of the next one.
+                //
+                // This flag therefore means "unarmed IN A FIGHT", which is the only thing it can
+                // usefully mean. It was !hasWeapon here on the reasoning that the post-combat branch
+                // resolves a weapon from the fight that just ended and so would rarely be empty -
+                // true, and beside the point: the rare case was the one that fired the alarm.
+                IsUnarmed: false,
                 Roster: roster,
                 StaminaCurrent: deficits.StaminaCurrent, StaminaMax: deficits.StaminaMax,
                 ObjectsCarried: deficits.ObjectsCarried,
