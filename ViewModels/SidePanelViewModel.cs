@@ -2137,50 +2137,31 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     /// The persona occupying this session, from MudSession.CharacterIdentified - the same post-login
     /// handshake FightHistoryRecorder stamps its rows with.
     ///
-    /// <para><b>A persona switch WIPES the rail's accumulated state</b>, and it has to: one connection
-    /// can carry several characters (log out to the picker, choose another, same socket -
-    /// GameViewModel.OnCharacterIdentified keeps its own per-character dictionaries precisely because
-    /// of that), while this view model is constructed once for the whole connection. Without the wipe,
-    /// the new character's panel opened showing the previous one's kills, their awards and their
-    /// encounter numbering - and on a permadeath game, a dead character's kill history presented as
-    /// yours is exactly the confidently-wrong readout this panel exists not to produce.</para>
+    /// <para><b>NOTHING ELSE IS RESET HERE, and that is deliberate.</b> The dead strip is a record of
+    /// what this SITTING has killed - it survives a persona switch, a world reset, and a hop to a
+    /// different server, because the owner's use for it spans all three: "you might log in to
+    /// mud2.co.uk and kill the goat, then hop over to mud2.com to see if it's as difficult... it forms
+    /// part of your 'in memory' profile" (2026-09-08). It lives as long as the app run and is
+    /// deliberately not persisted past it.</para>
     ///
-    /// <para>This comment used to CLAIM the state was "replaced wholesale on a persona switch" while
-    /// the method changed nothing but the name. It was describing intent as if it were behaviour -
-    /// the invented-mechanism failure CLAUDE.md warns about, committed here in the same pass that was
-    /// cleaning up other instances of it.</para>
+    /// <para><b>Do not re-scope this without asking him.</b> An adversarial review flagged the
+    /// carry-over as a bug - a dead character's kills presented as the new character's - and it was
+    /// briefly "fixed" by wiping the archive, the awards and the ordinals on switch (2026-09-08,
+    /// reverted the same day). That reading is defensible and it is not his: the strip answers "what
+    /// have I been doing", not "what has this character done". The wipe also zeroed the encounter and
+    /// reset ordinals while the strip's existing rows kept theirs, so the grouping separators drew
+    /// against ordinals that had started again from zero.</para>
     ///
-    /// <para>Session TOTALS are deliberately not reset: they are the client's own "this sitting" tally
-    /// across everything played, which is a different question from what this character has done.</para>
+    /// <para>He floated one staleness rule - discard if a persona has not been played on that server
+    /// for more than a reset - and set it aside as not worth the complexity yet. If that ever ships it
+    /// belongs here.</para>
+    ///
+    /// <para>Session TOTALS likewise carry: they are the client's own "this sitting" tally.</para>
     /// </summary>
     public void OnCharacterIdentified(string name)
     {
-        var switching = !string.Equals(_personaName, name, StringComparison.Ordinal)
-            && _personaName.Length > 0;
         _personaName = name ?? string.Empty;
-
-        if (switching)
-            ClearPersonaScopedState();
-
         RefreshCombatDisplay(DateTime.UtcNow);
-    }
-
-    /// <summary>Everything on the rail that belongs to ONE character: the dead strip's session
-    /// history, the kill-award pairing, and the ordinals that group the strip into encounters and
-    /// resets. Anything added to this class that accumulates across encounters belongs here too.</summary>
-    private void ClearPersonaScopedState()
-    {
-        _endingArchive.Clear();
-        _archiveSnapshot = Array.Empty<CombatEnding>();
-        _currentEncounterArchived = false;
-        _awaitingAward.Clear();
-        _awardByKill.Clear();
-        _awardOrder.Clear();
-        _encounterOrdinal = 0;
-        _resetOrdinal = 0;
-        _resetOrdinalAdvanced = false;
-        _deadStripHistoryCache = Array.Empty<CombatEnding>();
-        _deadStripHistoryCachedResolvedCount = -1;
     }
 
     private string _personaName = string.Empty;

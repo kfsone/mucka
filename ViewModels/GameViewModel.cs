@@ -53,9 +53,17 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     // character arrives. Kept as a plain field so the ScoreDelta/ScoreColor properties stay
     // unchanged; the per-character history lives in _baseScoreByChar.
     private int _baseScore = -1;
-    // Per-character baselines, keyed by character name. Persists across character switches for
-    // the life of this Mucka session: leave Ollie, play someone else, come back to Ollie, and his
-    // session delta resumes from where it was — instead of the old single-baseline "-47354" jump.
+    // Per-character baselines, keyed by SERVER+character (RailKey) - a score belongs to one persona
+    // on one host, and a same-named character on another server is a different character with a
+    // different score. Keyed on the bare name until 2026-09-08, which silently shared one baseline
+    // between them and would have shown the difference as this session's gain.
+    //
+    // Persists across character switches for the life of this Mucka session: leave Ollie, play someone
+    // else, come back to Ollie, and his session delta resumes from where it was - instead of the old
+    // single-baseline "-47354" jump. Note this is a per-persona record, unlike the combat rail's dead
+    // strip, which deliberately spans personas AND servers (see SidePanelViewModel
+    // .OnCharacterIdentified): "how much have I gained" is a question about a character, "what have I
+    // been killing" is a question about the sitting.
     private readonly Dictionary<string, int> _baseScoreByChar = new(StringComparer.Ordinal);
     // Whether the Combat Rail was showing for a given server+persona, for the life of this Mucka
     // session. Same shape and the same reason as _baseScoreByChar above: the rail belongs to the
@@ -1046,10 +1054,11 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             SidePanel.OnCharacterIdentified(name);
 
             _currentChar = name;
-            if (_baseScoreByChar.TryGetValue(name, out var stored))
-                _baseScore = stored;                 // returning character — resume their delta
+            // railKey, not the bare name: same persona, different server is a different character.
+            if (_baseScoreByChar.TryGetValue(railKey, out var stored))
+                _baseScore = stored;                 // returning character - resume their delta
             else if (_score > 0)
-                _baseScoreByChar[name] = _baseScore = _score;   // first seen this session
+                _baseScoreByChar[railKey] = _baseScore = _score;   // first seen this session
             else
                 _baseScore = -1;                     // score not in yet; set on next StatsUpdated
             OnPropertiesChanged(nameof(WindowTitle),
@@ -1120,7 +1129,10 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             if (_baseScore < 0 && _score > 0)
             {
                 _baseScore = _score;
-                if (_currentChar != null) _baseScoreByChar[_currentChar] = _baseScore;
+                // RailKey, matching where OnCharacterIdentified reads it back - keyed on the bare
+                // name here, this late-arriving seed would write to a key nothing ever looks up, and
+                // the character's baseline would silently re-seed every time they were switched to.
+                if (_currentChar != null) _baseScoreByChar[RailKey(_currentChar)] = _baseScore;
             }
 
             _blind        = stats.IsBlind;
