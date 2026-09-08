@@ -1528,7 +1528,7 @@ public sealed class CombatRailView : SKCanvasView
         {
             _text.Color = bright;
             canvas.DrawText(
-                line.PerTick.ToString("0.#", culture) + "/t",
+                Ellipsize(line.PerTick.ToString("0.#", culture) + "/t", StatDptWidth, _rungFont),
                 StatDptLeft + StatDptWidth, baseline, SKTextAlign.Right, _rungFont, _text);
         }
         else
@@ -1557,21 +1557,31 @@ public sealed class CombatRailView : SKCanvasView
         // work out why it is reading the same number three times.
         var outer = line.AllAlike ? Dim(dim, GhostDim) : dim;
 
+        // Every figure BOUNDED to its own slot. Nothing here was, which made this the one group on the
+        // tile that could run into its neighbour: the mean is drawn left-aligned from ShapeMeanLeft
+        // and the dmg/tick column starts 30 units later, so a three-digit mean sat flush against it
+        // and a four-digit one crossed into it - while a four-digit rate, right-aligned in its own 52,
+        // reached back the other way. MUD2's creatures level with no cap on their stats, so the fight
+        // where those figures get long is exactly the fight this panel is for.
+        //
+        // Ellipsizing rather than widening the columns: the row's four fixed origins are what hold the
+        // two stat rows in register with each other and with every other tile (see DrawStatRow), and a
+        // rare truncated figure is a far smaller loss than a group that shifts.
         _text.Color = outer;
         canvas.DrawText(
-            line.Min.ToString("0.#", culture),
+            Ellipsize(line.Min.ToString("0.#", culture), ShapeLowWidth, _statSmallFont),
             ShapeLowLeft + ShapeLowWidth, baseline, SKTextAlign.Right, _statSmallFont, _text);
         canvas.DrawText(
             "/", ShapeSep1Left + (ShapeSepWidth / 2f), baseline, SKTextAlign.Center, _statSmallFont, _text);
         canvas.DrawText(
             "/", ShapeSep2Left + (ShapeSepWidth / 2f), baseline, SKTextAlign.Center, _statSmallFont, _text);
         canvas.DrawText(
-            line.Mean.ToString("0.#", culture),
+            Ellipsize(line.Mean.ToString("0.#", culture), StatDptLeft - ShapeMeanLeft, _statSmallFont),
             ShapeMeanLeft, baseline, SKTextAlign.Left, _statSmallFont, _text);
 
         _text.Color = bright;
         canvas.DrawText(
-            line.Max.ToString("0.#", culture),
+            Ellipsize(line.Max.ToString("0.#", culture), ShapeHighWidth, _rungFont),
             ShapeHighLeft + (ShapeHighWidth / 2f), baseline, SKTextAlign.Center, _rungFont, _text);
     }
 
@@ -2093,8 +2103,10 @@ public sealed class CombatRailView : SKCanvasView
         AltGroupWorstCaseLeft - TileTextLeft - ConditionFigureWidth - 4f;
 
     /// <summary>Reserved for the stamina figure, never ellipsized against. "(999/999)" is nine
-    /// characters of Cascadia Mono at the stat size, which is what this allows for - a persona whose
-    /// maximum runs to four digits would overflow it, and MUD2 has no such persona.</summary>
+    /// characters of Cascadia Mono at <see cref="_rungFont"/>'s 12f - which is what draws the figure,
+    /// NOT the 10f stat size beside it that this comment used to name. The reservation was right and
+    /// the reason given for it was wrong; a persona whose maximum runs to four digits would overflow
+    /// it, and MUD2 has no such persona.</summary>
     private const float ConditionFigureWidth = 66f;
 
     /// <summary>

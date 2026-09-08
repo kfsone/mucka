@@ -210,6 +210,11 @@ public sealed class CombatStatsAggregator
         _activeNpcOrder.Clear();
         _fights.Clear();
         _fightOrder.Clear();
+        // Cleared here as well as in BeginEncounter and the flee/force-end paths, which all clear it.
+        // Inert today - the only reader walks _activeNpcOrder, which this method has just emptied - but
+        // it was the one collection this reset did not touch, and an asymmetry that is only safe
+        // because of what happens to read it is a trap for whatever reads it next.
+        _npcWeapons.Clear();
     }
 
     public void ObserveStamina(int? currentStamina) => _staminaRelay.Observe(currentStamina);

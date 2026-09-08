@@ -1,4 +1,4 @@
-﻿using System.Runtime.InteropServices;
+using System.Runtime.InteropServices;
 using Mucka.Core;
 using Mucka.Rendering;
 using Mucka.Terminal;
@@ -326,7 +326,7 @@ public partial class GamePage : ContentPage
                     // the failure mode worth the most noise: it looks exactly like normal until
                     // the player clicks something, and then nothing works and nothing says why.
                     CrashLog.Write("FocusGuard", new InvalidOperationException(
-                        "Window root unavailable — Invariant #0 is unenforced for this session."));
+                        "Window root unavailable - Invariant #0 is unenforced for this session."));
                 }
 #if FOCUS_DIAG
                 Microsoft.UI.Xaml.Input.FocusManager.GettingFocus += OnFmGettingFocus;
@@ -392,7 +392,12 @@ public partial class GamePage : ContentPage
                 // MaxColumns and SidePanel.IsPanelExpanded are set synchronously in GameViewModel's
                 // constructor, with no dependency on a layout pass having run yet, so this seed-at-
                 // startup call computes the same delta here as it would once OnSizeAllocated has fired.
-                ResizeWindowForCombatPanel(_vm.SidePanel.IsCombatPanelVisible);
+                //
+                // SEEDING, not toggling: this page is adopting a window it did not size. The very
+                // first page of a run adopts one that owes the rail nothing, so the delta comes out
+                // zero and this is a no-op; a page arriving after a relog adopts one that has already
+                // paid for the rail, and picks up the delta its first hide will need.
+                ResizeWindowForCombatPanel(_vm.SidePanel.IsCombatPanelVisible, seeding: true);
 #if INPUT_DIAG
                 StartUiThreadProbe();
 #endif
@@ -3131,7 +3136,7 @@ public partial class GamePage : ContentPage
     /// (<see cref="_railWidthApplied"/>), not on the view-model flag, because those are what can
     /// disagree.</para>
     /// </summary>
-    private void ResizeWindowForCombatPanel(bool showing)
+    private void ResizeWindowForCombatPanel(bool showing, bool seeding = false)
     {
         if (_hwnd == IntPtr.Zero) return;
         if (showing == _railWidthApplied) return;
@@ -3141,6 +3146,24 @@ public partial class GamePage : ContentPage
         var dpi = GetDpiForWindow(_hwnd);
         var appWindow = nativeWindow.AppWindow;
         var panelExpanded = _vm.SidePanel.IsPanelExpanded;
+
+        // SEEDING: this page is adopting a window it did not size. A relog builds a new GamePage while
+        // the OS window keeps the width the previous one gave it, so the rail may already be paid for
+        // in that width - and this instance's delta starts at zero, which would leave the first hide
+        // subtracting nothing and the window stuck a rail-width too wide (owner, 2026-09-08).
+        //
+        // Adopt what the window is already carrying instead of toggling: no resize, just the delta a
+        // later hide will need. See CombatRailResize.SeedAppliedDeltaDp for why attributing the slack
+        // to the rail up to its own width is the honest reading.
+        if (seeding)
+        {
+            _railDeltaAppliedDp = showing
+                ? CombatRailResize.SeedAppliedDeltaDp(
+                    appWindow.Size.Width, dpi, _vm.MaxColumns, CharWidthDp, panelExpanded)
+                : 0.0;
+            _railWidthApplied = showing;
+            return;
+        }
 
         // All the arithmetic - the T3 auto/fixed regimes, the T4 delta-preservation on hide, and the
         // floor clamp (which deliberately forgets whatever width it could not remove, e.g. hiding on

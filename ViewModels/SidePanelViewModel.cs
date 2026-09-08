@@ -1,4 +1,4 @@
-﻿using Microsoft.Maui.Graphics;
+using Microsoft.Maui.Graphics;
 using Mucka.Core;
 using MudSharp.Combat;
 using MudSharp.Models;
@@ -2133,14 +2133,54 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
 
     private const int MaxRememberedAwards = 512;
 
-    /// <summary>The persona occupying this session, from MudSession.CharacterIdentified - the same
-    /// post-login handshake FightHistoryRecorder stamps its rows with. Session-scoped and replaced
-    /// wholesale on a persona switch; the rail is handed over at the same moment (see
-    /// GameViewModel.OnCharacterIdentified), so the name and the panel it labels cannot disagree.</summary>
+    /// <summary>
+    /// The persona occupying this session, from MudSession.CharacterIdentified - the same post-login
+    /// handshake FightHistoryRecorder stamps its rows with.
+    ///
+    /// <para><b>A persona switch WIPES the rail's accumulated state</b>, and it has to: one connection
+    /// can carry several characters (log out to the picker, choose another, same socket -
+    /// GameViewModel.OnCharacterIdentified keeps its own per-character dictionaries precisely because
+    /// of that), while this view model is constructed once for the whole connection. Without the wipe,
+    /// the new character's panel opened showing the previous one's kills, their awards and their
+    /// encounter numbering - and on a permadeath game, a dead character's kill history presented as
+    /// yours is exactly the confidently-wrong readout this panel exists not to produce.</para>
+    ///
+    /// <para>This comment used to CLAIM the state was "replaced wholesale on a persona switch" while
+    /// the method changed nothing but the name. It was describing intent as if it were behaviour -
+    /// the invented-mechanism failure CLAUDE.md warns about, committed here in the same pass that was
+    /// cleaning up other instances of it.</para>
+    ///
+    /// <para>Session TOTALS are deliberately not reset: they are the client's own "this sitting" tally
+    /// across everything played, which is a different question from what this character has done.</para>
+    /// </summary>
     public void OnCharacterIdentified(string name)
     {
+        var switching = !string.Equals(_personaName, name, StringComparison.Ordinal)
+            && _personaName.Length > 0;
         _personaName = name ?? string.Empty;
+
+        if (switching)
+            ClearPersonaScopedState();
+
         RefreshCombatDisplay(DateTime.UtcNow);
+    }
+
+    /// <summary>Everything on the rail that belongs to ONE character: the dead strip's session
+    /// history, the kill-award pairing, and the ordinals that group the strip into encounters and
+    /// resets. Anything added to this class that accumulates across encounters belongs here too.</summary>
+    private void ClearPersonaScopedState()
+    {
+        _endingArchive.Clear();
+        _archiveSnapshot = Array.Empty<CombatEnding>();
+        _currentEncounterArchived = false;
+        _awaitingAward.Clear();
+        _awardByKill.Clear();
+        _awardOrder.Clear();
+        _encounterOrdinal = 0;
+        _resetOrdinal = 0;
+        _resetOrdinalAdvanced = false;
+        _deadStripHistoryCache = Array.Empty<CombatEnding>();
+        _deadStripHistoryCachedResolvedCount = -1;
     }
 
     private string _personaName = string.Empty;

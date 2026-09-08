@@ -153,6 +153,36 @@ public static class CombatRailResize
         return new ToggleResult(targetWidth, newDelta);
     }
 
+    /// <summary>
+    /// How much of a window's CURRENT width is attributable to the rail, for a page that is adopting a
+    /// window it did not size - used to seed the applied-delta when the rail is already showing.
+    ///
+    /// <para><b>Why this is needed at all.</b> The applied delta lives on GamePage, and a relog builds
+    /// a NEW GamePage while the OS window keeps the width the old one gave it. So the incoming page
+    /// starts believing it has added nothing, and the first hide subtracts nothing: the window stays
+    /// exactly one rail-width too wide. (In auto-columns the seed also re-adds the full width first,
+    /// reaching the same place by a longer route.) Reported by the owner, 2026-09-08: show the rail,
+    /// quit, relog, hide - window never shrinks.</para>
+    ///
+    /// <para><b>It is an inference, and the honest one.</b> Nothing records why a window is the width
+    /// it is. What is known is that the rail IS showing and that a rail costs its own width, so the
+    /// slack above natural is attributed to the rail up to that width and no further - which leaves
+    /// whatever the player had widened the window by themselves intact, and gives back exactly the
+    /// rail when it is hidden. Attributing all the slack would eat their sizing; attributing none is
+    /// the bug.</para>
+    /// </summary>
+    public static double SeedAppliedDeltaDp(
+        int currentWidthPx, double dpi, int maxColumns, double charWidthDp, bool panelExpanded)
+    {
+        var naturalPx = maxColumns <= 0
+            ? DpToPxCeil(PreferredWindowWidthDp(charWidthDp, panelExpanded, maxColumns), dpi)
+            : DpToPxCeil(PreferredWindowWidthDp(charWidthDp, panelExpanded, maxColumns + 2.0), dpi);
+
+        var slackPx = Math.Max(0, currentWidthPx - naturalPx);
+        var railPx = DpToPxRound(CombatPanelWidthDp, dpi);
+        return Math.Min(slackPx, railPx) * 96.0 / dpi;
+    }
+
     /// <summary>Result of <see cref="ReserveRailWidth"/>.</summary>
     public readonly record struct RailReservation(int TargetWidthPx, double AppliedDeltaDp);
 
