@@ -2738,7 +2738,18 @@ public sealed class CombatRailView : SKCanvasView
         if (live.StaminaCurrent is int sta)
             label += "  sta:" + sta.ToString(System.Globalization.CultureInfo.InvariantCulture);
         if (live.FleeCostParenthetical is string price)
-            label += "  cost:-" + price;
+        {
+            // The minus belongs to a FIGURE, not to the marker. In the pill's old parenthetical form
+            // "(-?)" it read as "a deduction of unknown size"; in a labelled field, "cost:-?" reads as
+            // a malformed number - a minus sign with nothing after it - and the owner took it for a
+            // broken calculation. "cost:?" says the same thing and looks deliberate, which it is:
+            // AboveEvidence is the ORDINARY state for a healthy character, not a failure. The flee
+            // model's evidence tops out at 18.1% of maximum stamina and it declines to quote past
+            // that; see FleeCostEstimate.
+            label += price == MudSharp.Combat.FleeCostEstimate.UnmeasuredMarker
+                ? "  cost:" + price
+                : "  cost:-" + price;
+        }
 
         // Ellipsized against the chip's own padding. The worst realistic string fits at 12f with room
         // to spare, so this should never fire - but font metrics are a platform's to choose, and a
