@@ -2361,7 +2361,16 @@ public sealed class CombatRailView : SKCanvasView
     /// </summary>
     private void DrawEncounterTable(SKCanvas canvas, float y, CombatLiveView live)
     {
-        if (!live.HasEncounter)
+        // Only when there is an ENCOUNTER to describe - a live one, or one whose duration is still on
+        // screen through the post-combat window. HasEncounter is not that test: it is also set true
+        // whenever the dead strip has session history to show (see SidePanelViewModel's idle branch),
+        // which is most of the time. Gated on it, an idle panel drew a table whose every cell was
+        // unknown - Par and Op self-suppress at one or fewer, so what reached the screen was three
+        // dashes floating over nothing, reading as three stray marks rather than as a table.
+        //
+        // The dashes themselves stay: inside a fight, "no answer yet" is exactly what Vic and Die
+        // have to say for the first few ticks, and saying it is the point.
+        if (!live.InCombat && live.EncounterTicks is null)
             return;
 
         var culture = System.Globalization.CultureInfo.InvariantCulture;
