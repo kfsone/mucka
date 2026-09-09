@@ -1292,15 +1292,33 @@ public sealed class CombatRailView : SKCanvasView
     /// </summary>
     private void DrawWoundPhrase(SKCanvas canvas, float x, float baseline, RosterRow row)
     {
-        var room = SlotPhraseWidth;
+        var culture = System.Globalization.CultureInfo.InvariantCulture;
 
         if (row.StaminaRead is { } read)
         {
-            var culture = System.Globalization.CultureInfo.InvariantCulture;
             var band = read.PrintedLow.ToString(culture) + "-" + read.PrintedHigh.ToString(culture);
             _text.Color = row.IsHealthStale ? Ink : InkBright;
             canvas.DrawText(band, x + SlotPhraseWidth, baseline, SKTextAlign.Right, _rungFont, _text);
-            room -= _rungFont.MeasureText(band) + 8f;
+        }
+
+        // What killing it is worth, after the rung word - the slot the player's own tile uses for
+        // their stamina figure (owner, 2026-09-08). Its own fixed origin, so it does not move as the
+        // phrase beside it changes length.
+        //
+        // THE RISK, and why it is drawn the way it is: a bare number in the position where the
+        // player's badge shows "(61/105)" invites being read as the CREATURE's stamina, which is the
+        // one figure this panel may never imply it knows. Three things separate them - it is never a
+        // fraction, it is gold rather than the condition's own tone, and the hover readout will name
+        // it. If it still reads wrong in play, that is worth knowing rather than working around.
+        //
+        // Null is "never probed" and draws nothing; ZERO is a legal answer (the ox) and draws. See
+        // FightAccumulator.Value for why the two must stay distinguishable.
+        if (row.Value is int value)
+        {
+            _text.Color = TerminalTheme.Palette[3];
+            canvas.DrawText(
+                Ellipsize(value.ToString(culture), NpcValueWidth, _rungFont),
+                x + NpcValueLeft, baseline, SKTextAlign.Left, _rungFont, _text);
         }
 
         if (row.HealthPhrase is not { Length: > 0 } raw)
@@ -1308,9 +1326,28 @@ public sealed class CombatRailView : SKCanvasView
 
         _text.Color = row.IsHealthStale ? InkDim : Ink;
         canvas.DrawText(
-            Ellipsize(NpcHealthRungs.Label(raw), room, _rungFont),
+            Ellipsize(NpcHealthRungs.Label(raw), NpcPhraseWidth, _rungFont),
             x, baseline, SKTextAlign.Left, _rungFont, _text);
     }
+
+    /// <summary>
+    /// Room for a creature's wound phrase, and where its value sits after it.
+    ///
+    /// <para>Wider than the player tile's <see cref="ConditionWordWidth"/> because this line has no
+    /// alt-weapon group on its right to make room for - only the diagnose band, which is right-aligned
+    /// at the far edge. The longest phrase NpcHealthRungs can produce is "superficially injured", 21
+    /// monospace characters, which is 151.2 units at the rung size; 156 clears it with room rather
+    /// than truncating the game's own words, which this file's remarks call the last thing on the tile
+    /// that may be traded for space.</para>
+    ///
+    /// <para>Both fixed, so neither moves when the other's content changes.</para>
+    /// </summary>
+    private const float NpcPhraseWidth = 156f;
+    private const float NpcValueLeft = NpcPhraseWidth + 4f;
+
+    /// <summary>Room for the value itself. Four digits at the rung size is 28.8 units; this allows
+    /// five, and the diagnose band's worst case still starts ~120 units to its right.</summary>
+    private const float NpcValueWidth = 40f;
 
     /// <summary>
     /// The seven-rung ladder as a horizontal bar, filling from the left with what is LEFT.

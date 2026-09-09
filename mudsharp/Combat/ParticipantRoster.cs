@@ -175,12 +175,14 @@ public readonly record struct RosterRow(
     NoveltyMark Novelty = NoveltyMark.None,
     // The game's own diagnose reading, kept for the fight - see ParticipantFact.
     NpcStaminaReading? StaminaRead = null,
-    // The `value <name>` points, or null if never learned - see ParticipantFact.Value. NOT DRAWN
-    // ANYWHERE yet: it says what a kill is worth, which is a reading question rather than a glancing
-    // one, and it is waiting on the hover fly-out that will carry that kind of detail. This comment
-    // said "reaches the hover readout" for one revision, which was describing a surface that does not
-    // exist - exactly the invented-mechanism rot CLAUDE.md warns about, committed by the same pass
-    // that was cleaning it up elsewhere.
+    // The `value <name>` points, or null if never learned - see ParticipantFact.Value. Drawn on the
+    // creature's own tile as of 2026-09-08, after the rung word, in the slot the player's tile uses
+    // for their stamina figure; see CombatRailView.DrawWoundPhrase for the layout and for why a bare
+    // number in that position needs distinguishing from a stamina reading.
+    //
+    // (For one revision this comment claimed it "reaches the hover readout" - a surface that did not
+    // exist - and was then corrected to say it was drawn nowhere. Now it is genuinely drawn, and this
+    // is the third thing this line has said; the code is the check, not the comment.)
     int? Value = null,
     // The tile's two stat rows: what the player has dealt this creature, and what it has dealt back.
     // See ExchangeLine for why the two are not symmetrical.
