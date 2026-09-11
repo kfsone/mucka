@@ -93,6 +93,17 @@ public sealed class SwingLedgerTests : IDisposable
             return this;
         }
 
+        /// <summary>MUD2 announcing one of the eight tasks discharged. Its own signal, raised ahead of
+        /// the score line it pays out on - see MudSharp.Models.TaskCompletion.</summary>
+        public Session TaskCompleted(int? total = 1)
+        {
+            var text = total is int n
+                ? $"You have completed a Task. This makes a total of {n}."
+                : "You have completed a Task which you have done before.";
+            _ledger.OnTaskCompleted(new TaskCompletion(total, text));
+            return this;
+        }
+
         /// <summary>Closes the ledger and reads the score_events table back in insertion order.</summary>
         public IReadOnlyList<Dictionary<string, object?>> ScoreRows() => Read("score_events");
 
@@ -740,5 +751,42 @@ public sealed class SwingLedgerTests : IDisposable
         Assert.Equal(26, Int(row, "delta"));
         Assert.False(Flag(row, "encounter_open"));
         Assert.Null(row["encounter_started_at_ms"]);
+    }
+
+    /// <summary>
+    /// A task discharged by a kill, as recorded: the task's flat payout is printed FIRST and the
+    /// creature's own award second. Only the first row carries the mark, which is what lets a query
+    /// tell the two rises in that frame apart at all - without it they are two positive deltas
+    /// microseconds from each other, and the +100 reads as what the creature was worth.
+    /// </summary>
+    [Fact]
+    public void ATaskPayout_MarksOnlyTheScoreLineItPrecedes()
+    {
+        using var session = new Session(_directory);
+        session.Say("You attack the water-snake4, using the axe0 as a weapon.")
+               .Say("You hit the water-snake4 (10-14).",
+                    "You have killed the water-snake4.")
+               .TaskCompleted()
+               .ScoreSaved(+100, 7_058)   // the task's payout
+               .ScoreSaved(+84, 7_142);   // ...and the creature's own award
+
+        var rows = session.ScoreRows();
+        Assert.Equal(2, rows.Count);
+
+        Assert.Equal(100, Int(rows[0], "delta"));
+        Assert.True(Flag(rows[0], "after_task_line"));
+
+        Assert.Equal(84, Int(rows[1], "delta"));
+        Assert.False(Flag(rows[1], "after_task_line"));
+    }
+
+    /// <summary>The ordinary case, which is nearly all of them: no task line, no mark.</summary>
+    [Fact]
+    public void AnAwardWithNoTaskBeforeIt_IsUnmarked()
+    {
+        using var session = new Session(_directory);
+        session.ScoreSaved(+38, 19_214);
+
+        Assert.False(Flag(Assert.Single(session.ScoreRows()), "after_task_line"));
     }
 }

@@ -218,6 +218,100 @@ public class GamePromptTests
         Assert.Equal("*", string.Concat(line.Spans.Select(s => s.Text)));
     }
 
+    // ── Frame boundary (MudStreamParser.FrameClosed) ─────────────────────────
+
+    /// <summary>
+    /// A shown prompt ends a frame. This is the signal Mucka.ViewModels.KillAwardLedger uses to
+    /// conclude that a line MUD2 owed an ending is never coming - the only sound way to conclude it,
+    /// since the arrival is guaranteed rather than raced.
+    /// </summary>
+    [Fact]
+    public void WirePrompt_Shown_ClosesTheFrame()
+    {
+        var h = InGameMode();
+        h.Feed(WithPrompt("You have killed the billy goat.\n"));
+        Assert.Equal(1, h.FrameClosedCount);
+    }
+
+    /// <summary>The invisible-player form is the same container and closes the frame the same way -
+    /// "the prompt" is the whole outer C01 container, not the '*'.</summary>
+    [Fact]
+    public void WireInvisiblePrompt_Shown_ClosesTheFrame()
+    {
+        var h = InGameMode();
+        h.Feed(WithInvisiblePrompt("You have killed the billy goat.\n"));
+        Assert.Equal(1, h.FrameClosedCount);
+    }
+
+    /// <summary>
+    /// A suppressed FES heartbeat is NOT a frame boundary. It arrives precisely when no game output
+    /// has occurred since the last prompt, so there is no frame for it to close - and closing one
+    /// would discard an ending still legitimately waiting for its award.
+    /// </summary>
+    [Fact]
+    public void WirePrompt_FesHeartbeat_DoesNotCloseTheFrame()
+    {
+        var h = InGameMode();
+        h.Feed(WithPrompt("You arrive in the tearoom.\n"));
+        Assert.Equal(1, h.FrameClosedCount);
+        h.Feed(WirePromptPreamble);           // heartbeat: no '\n' since the last prompt
+        Assert.Equal(1, h.FrameClosedCount);  // still one
+    }
+
+    /// <summary>
+    /// The boundary falls AFTER every line of the frame it closes, which is what lets a consumer
+    /// process a frame's endings and its awards before being told the frame ended.
+    ///
+    /// <para>This is the exact shape of the 2026-09-10 goat kill: the ending line, the award, then the
+    /// prompt. Had the close arrived between the two, the pairing would drop every award it has.</para>
+    /// </summary>
+    [Fact]
+    public void FrameCloses_AfterTheScoreLineItCarries()
+    {
+        var h = InGameMode();
+        h.Feed(System.Text.Encoding.Latin1.GetBytes("You have killed the billy goat."));
+        h.Feed(0x0D, 0x00, 0x0D, 0x0A);
+        h.Feed(WithPrompt("(Persona saved on +118 = 12,459).\n"));
+
+        Assert.Equal(["+118", "frame"], h.ScoringOrder);
+    }
+
+    /// <summary>
+    /// Quitting to the option menu mid-frame CLOSES the frame. The award pairing concludes at the
+    /// boundary that a line it was owed is never coming, so a session-ending path that stayed silent
+    /// would leave an ending waiting across a relog and let it take the next login's award - the same
+    /// drift KillAwardLedger exists to prevent, through another door.
+    /// </summary>
+    [Fact]
+    public void ExitingGameMode_MidFrame_ClosesTheFrame()
+    {
+        var h = InGameMode();
+        h.Feed(System.Text.Encoding.Latin1.GetBytes("You have killed the thief."));
+        h.Feed(0x0D, 0x00, 0x0D, 0x0A);
+        Assert.Equal(0, h.FrameClosedCount);     // no prompt yet: the frame is still open
+
+        h.Feed(0x9B, 0xFF, 0xFF);                                            // {C00}{C255}
+        h.Feed(System.Text.Encoding.Latin1.GetBytes("Option (H for help): "));
+
+        Assert.Equal(1, h.GameModeExitedCount);
+        Assert.Equal(1, h.FrameClosedCount);
+    }
+
+    /// <summary>A disconnect takes the same path - MudSession.Reset calls straight into the parser,
+    /// and the session and its view models are reused across reconnects.</summary>
+    [Fact]
+    public void ResettingTheParser_MidFrame_ClosesTheFrame()
+    {
+        var h = InGameMode();
+        h.Feed(System.Text.Encoding.Latin1.GetBytes("You have killed the thief."));
+        h.Feed(0x0D, 0x00, 0x0D, 0x0A);
+        Assert.Equal(0, h.FrameClosedCount);
+
+        h.Parser.Reset();
+
+        Assert.Equal(1, h.FrameClosedCount);
+    }
+
     // ── FES heartbeat suppression tests ──────────────────────────────────────
 
     [Fact]

@@ -105,6 +105,22 @@ internal sealed class GameLineAnalyzer
         @"\(Persona saved on\s*(?:(?<delta>[+-][\d,]+)\s*=\s*)?[^\d)]*(?<total>[\d,]+)\)\.",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
+    // "You have completed a Task. This makes a total of 1."
+    // "You have completed a Task which you have done before."
+    //
+    // Anchored at column 0 and matched on the invariant head, because the tail differs between the
+    // first-time and repeat wordings and only the first-time one carries a count. Player speech
+    // cannot reach this: a line quoting the same words arrives as `Bob shouts "..."`, with the verb
+    // and the quote ahead of it. The count is its own optional group rather than a second pattern so
+    // that a wording this has not seen still yields the event, just without a number.
+    private static readonly Regex TaskCompletedRegex = new(
+        @"^You have completed a Task\b",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    private static readonly Regex TaskTotalRegex = new(
+        @"This makes a total of\s*(?<n>[\d,]+)",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
     // `passes you a note which says "troulm"` or `gasps "orchid"` etc.
     // Only matched outside game mode (pre-login); in game mode dreamwords arrive
     // exclusively via the binary C15+C00+C00+C255 sequence in Mud2C1Decoder.
@@ -329,6 +345,29 @@ internal sealed class GameLineAnalyzer
             delta = parsedDelta;
 
         save = new ScoreSave(delta, total, text);
+        return true;
+    }
+
+    /// <summary>
+    /// Reads a <c>You have completed a Task.</c> line. See <see cref="TaskCompletion"/> for the two
+    /// wordings, the ordering against the score lines that follow, and why the line's payout must not
+    /// be mistaken for a kill's award.
+    ///
+    /// <para>Static and separate from <see cref="Analyze"/> for the same reason
+    /// <see cref="TryReadScoreSave"/> is: this is a one-shot fact and <see cref="GameStatsSnapshot"/>
+    /// is carried forward, so a task flag living there would be re-reported on every line after it
+    /// until something cleared it.</para>
+    /// </summary>
+    internal static bool TryReadTaskCompleted(string text, out TaskCompletion completed)
+    {
+        completed = null!;
+        if (!TaskCompletedRegex.IsMatch(text))
+            return false;
+
+        var tm = TaskTotalRegex.Match(text);
+        int? total = tm.Success && TryStripCommas(tm.Groups["n"].Value, out var parsed) ? parsed : null;
+
+        completed = new TaskCompletion(total, text);
         return true;
     }
 

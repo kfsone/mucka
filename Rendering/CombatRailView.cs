@@ -243,8 +243,9 @@ public sealed class CombatRailView : SKCanvasView
     // the order inside that block changed, not its size.
     //
     // One reason to prefer this order beyond the owner's ask: the flee pill rides the tick gauge and
-    // carries "sta:23 cost:-2.1k", so it now sits directly against the player's own stamina bar -
-    // what leaving costs, next to what you have left.
+    // carries the stamina reading and what leaving costs at it, so it now sits directly against the
+    // player's own stamina bar - the numbers the leaving decision turns on, next to the gauge they
+    // came off.
     private const float PlayerTileBottomOffset = Pad;
     private const float TickRowBottomOffset = PlayerTileBottomOffset + PlayerTileHeight;
     private const float EncounterBottomOffset = TickRowBottomOffset + TickRowHeight + EncounterRowGap;
@@ -334,6 +335,11 @@ public sealed class CombatRailView : SKCanvasView
     private static readonly SKColor InkDim = TerminalTheme.Palette[8];
     private static readonly SKColor Hostile = TerminalTheme.Palette[9];
     private static readonly SKColor Caution = TerminalTheme.Palette[11];
+    /// <summary>Score gained on a dead-strip row where the gain is the whole story - a creature that
+    /// broke off and paid for the privilege. The SAME green <see cref="SurvivalTone"/> gives a
+    /// Commanding fight, so the panel keeps one "this went your way" hue rather than learning a
+    /// second.</summary>
+    private static readonly SKColor Reward = TerminalTheme.Palette[10];
     /// <summary>How far up its ladder an opponent still is. ONE hue for every creature and every rung:
     /// the arc carries the position and the notches carry the steps, and colouring the fill by the rung
     /// would say the same thing twice in a channel the player would then have to learn. The player's own
@@ -860,12 +866,15 @@ public sealed class CombatRailView : SKCanvasView
 
         var y = (float)RailSlotGeometry.SlotsBottom(SlotMetrics, height) - SlotHeight;
         var threatRow = GreatestThreatRow(live);
+        var hoveredValueTop = float.NaN;
         for (var i = 0; i < shown; i++)
         {
             // Every live row gets its own prediction, not just the current target: the bands come from
             // per-creature brackets and per-creature pool estimates, so each one is about the creature
             // it is drawn on.
             DrawOpponentSlot(canvas, y, rows[i], i == threatRow);
+            if (i == NpcValueHoverRow && rows[i].Value is not null)
+                hoveredValueTop = y;
             y -= SlotHeight + SlotGap;
         }
 
@@ -883,6 +892,23 @@ public sealed class CombatRailView : SKCanvasView
         DrawDeadStrip(
             canvas, (float)RailSlotGeometry.DeadStripBottom(SlotMetrics, height, stack),
             live.DeadStripHistory);
+
+        // LAST, over every tile and the strip alike - a readout the pointer is deliberately holding
+        // open must not be overdrawn by the row below it.
+        //
+        // It covers its OWN tile's two damage rows, which is the acceptable half of the trade: that
+        // tile is the one being interrogated, and the sentence explaining what "205pts" means is
+        // worth more for those few seconds than the numbers it hides. Same reasoning as the encounter
+        // tip covering the tick gauge.
+        if (!float.IsNaN(hoveredValueTop))
+        {
+            var row = rows[NpcValueHoverRow];
+            DrawTipChip(
+                canvas,
+                $"{row.Name} is worth {row.Value} points if killed",
+                hoveredValueTop + TileHealthBaseline + 6f,
+                Pad, Content);
+        }
     }
 
     /// <summary>
@@ -974,13 +1000,27 @@ public sealed class CombatRailView : SKCanvasView
                 Ellipsize(OutcomeWord(ending.Outcome), DeadNameWidth, font), Pad, y,
                 SKTextAlign.Left, font, _text);
 
-            // The award, when one was paired to this kill. Never a zero - see CombatEnding.ScoreAwarded
-            // for why the pairing is an inference and null means "no announcement", not "worth nothing".
-            if (ending.ScoreAwarded is int award)
+            // What MUD2 announced against this ending, when anything was paired to it. Never a zero -
+            // see CombatEnding.ScoreAwarded for why the pairing is an inference and null means "no
+            // announcement", not "worth nothing".
+            //
+            // Three tones, because the figure means three different things (owner, 2026-09-09):
+            //   a kill      +205   amber, the panel's existing award colour
+            //   it fled     +158   green - it got away AND paid you, which is the only outcome on this
+            //                      strip that is unambiguously good news
+            //   you fled    -438   red, dimmed. Slight rather than full: it is a price already paid on
+            //                      a row the player is reading after the fact, not an alarm. Full
+            //                      Hostile on this strip belongs to "KILLED YOU".
+            // The sign is carried in the value itself, so the label and the tone cannot disagree about
+            // which way the score went.
+            if (ending.ScoreAwarded is int award && award != 0)
             {
-                _text.Color = Caution;
+                _text.Color = award < 0
+                    ? HostileDim
+                    : ending.Outcome == FightOutcome.CFled ? Reward : Caution;
+                var culture = System.Globalization.CultureInfo.InvariantCulture;
                 canvas.DrawText(
-                    "+" + award.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    (award < 0 ? "-" : "+") + Math.Abs(award).ToString(culture),
                     Pad + DeadNameWidth + DeadScoreWidth, nameBaseline, SKTextAlign.Right,
                     _statSmallFont, _text);
             }
@@ -1185,9 +1225,15 @@ public sealed class CombatRailView : SKCanvasView
         // is the slot's own, so the frame can never reflow - only the dash changes.
         DrawTempoFrame(canvas, Pad, y, Content, SlotHeight, row.YourTempo, isGreatestThreat);
 
-        // Line 1: the creature and what it is holding. Bold while it is alive (owner, 2026-09-06) -
-        // the tile is a thing to watch until it is not.
-        var nameFont = row.IsLive ? _nameBoldFont : _nameFont;
+        // Line 1: the creature and what it is holding.
+        //
+        // Bold ONLY on a tick this creature took a blow on (owner, 2026-09-09). It used to be bold for
+        // as long as the creature was alive, which spent the panel's strongest typographic signal on
+        // the one fact every other part of the tile already carried - a live row has a frame, a ladder
+        // and a stat pair, and a dead one is in the strip. Tied to damage instead, the weight means
+        // something that changes: in a pack, which of them is actually being worked on. See
+        // Mucka.Core.TickDamageEmphasis for the rule and the carry-forward behind the flag.
+        var nameFont = row.TookDamageThisTick ? _nameBoldFont : _nameFont;
         DrawMarkedText(
             canvas, Ellipsize(row.Name, SlotNameWidth, nameFont), TileTextLeft, y + TileNameBaseline,
             SKTextAlign.Left, nameFont,
@@ -1305,20 +1351,32 @@ public sealed class CombatRailView : SKCanvasView
         // their stamina figure (owner, 2026-09-08). Its own fixed origin, so it does not move as the
         // phrase beside it changes length.
         //
-        // THE RISK, and why it is drawn the way it is: a bare number in the position where the
-        // player's badge shows "(61/105)" invites being read as the CREATURE's stamina, which is the
-        // one figure this panel may never imply it knows. Three things separate them - it is never a
-        // fraction, it is gold rather than the condition's own tone, and the hover readout will name
-        // it. If it still reads wrong in play, that is worth knowing rather than working around.
+        // THE RISK, and how it is answered: a bare number in the position where the player's badge
+        // shows "(61/105)" invites being read as the CREATURE's stamina, which is the one figure this
+        // panel may never imply it knows. Four things separate them now - it is never a fraction, it
+        // is gold rather than the condition's own tone, it carries its own UNIT, and it has a hover
+        // readout that says the whole sentence. The unit is the owner's own fix (2026-09-09: "make it
+        // '{value}pts' and give it a tooltip that says '{id} is worth {value} points if killed'"),
+        // and it is the one that does the work: "205pts" cannot be a stamina reading.
         //
         // Null is "never probed" and draws nothing; ZERO is a legal answer (the ox) and draws. See
         // FightAccumulator.Value for why the two must stay distinguishable.
         if (row.Value is int value)
         {
+            var points = Ellipsize(value.ToString(culture) + "pts", NpcValueWidth, _rungFont);
             _text.Color = TerminalTheme.Palette[3];
-            canvas.DrawText(
-                Ellipsize(value.ToString(culture), NpcValueWidth, _rungFont),
-                x + NpcValueLeft, baseline, SKTextAlign.Left, _rungFont, _text);
+            canvas.DrawText(points, x + NpcValueLeft, baseline, SKTextAlign.Left, _rungFont, _text);
+
+            // The half link's dotted underline, and unlike the encounter headings' it is drawn at
+            // rest rather than on hover: there is no other state in which this figure announces that
+            // it has a readout behind it, and a hover target that is silent until pointed at can only
+            // be found by accident. See HalfLinkInk - the idiom is the client's, not this row's.
+            _stroke.Color = HalfLinkInk;
+            _stroke.PathEffect = DashHalfLink;
+            canvas.DrawLine(
+                x + NpcValueLeft, baseline + 2f,
+                x + NpcValueLeft + _rungFont.MeasureText(points), baseline + 2f, _stroke);
+            _stroke.PathEffect = null;
         }
 
         if (row.HealthPhrase is not { Length: > 0 } raw)
@@ -1345,9 +1403,20 @@ public sealed class CombatRailView : SKCanvasView
     private const float NpcPhraseWidth = 156f;
     private const float NpcValueLeft = NpcPhraseWidth + 4f;
 
-    /// <summary>Room for the value itself. Four digits at the rung size is 28.8 units; this allows
-    /// five, and the diagnose band's worst case still starts ~120 units to its right.</summary>
-    private const float NpcValueWidth = 40f;
+    /// <summary>Room for the value and its unit. Cascadia Mono at the rung size is 7.2 units a
+    /// character, so this is eight of them - five digits plus "pts", which covers everything the
+    /// corpus has seen with a digit in hand (the highest observed is the levelled thief at 1400).
+    /// The diagnose band's worst case - seven characters right-aligned at the tile's far edge - still
+    /// starts about 76 units to the right of where this ends.</summary>
+    private const float NpcValueWidth = 58f;
+
+    /// <summary>The value's hover box, relative to its own text baseline: how far above the baseline
+    /// it starts and how tall it is. The rung font's cap height is about 8.5 units and the dotted
+    /// underline sits 2 below the baseline, so this is the drawn extent plus a unit of slack either
+    /// side - a target the pointer can actually land on without being larger than the thing it
+    /// describes.</summary>
+    private const float NpcValueBoxLift = 11f;
+    private const float NpcValueBoxHeight = 15f;
 
     /// <summary>
     /// The seven-rung ladder as a horizontal bar, filling from the left with what is LEFT.
@@ -1989,14 +2058,20 @@ public sealed class CombatRailView : SKCanvasView
             DrawTempoFrame(canvas, Pad, y, Content, PlayerTileHeight, live.IncomingTempo,
                 accent: GreatestThreatRow(live) >= 0);
 
-        // The persona's own name, exactly as an opponent tile carries the creature's. Blank until the
-        // login handshake names them - never a stand-in word, which is what "you" was.
+        // The persona's own name, exactly as an opponent tile carries the creature's - including the
+        // emphasis rule, which the owner extended here in the same breath ("unbold the id/name field
+        // (including player)"). Bold means the player took a blow on the tick being drawn and nothing
+        // else; it was unconditionally bold before, which made it the one name on the panel whose
+        // weight could not mean anything.
+        //
+        // Blank until the login handshake names them - never a stand-in word, which is what "you" was.
         if (live.PlayerName is { Length: > 0 } persona)
         {
+            var nameFont = live.PlayerTookDamageThisTick ? _nameBoldFont : _nameFont;
             _text.Color = InkBright;
             canvas.DrawText(
-                Ellipsize(persona, SlotNameWidth, _nameBoldFont),
-                TileTextLeft, y + TileNameBaseline, SKTextAlign.Left, _nameBoldFont, _text);
+                Ellipsize(persona, SlotNameWidth, nameFont),
+                TileTextLeft, y + TileNameBaseline, SKTextAlign.Left, nameFont, _text);
         }
 
         DrawCurrentWeapon(canvas, y + TileNameBaseline, live);
@@ -2533,17 +2608,31 @@ public sealed class CombatRailView : SKCanvasView
         if (live.FleePill != FleePillStatus.Hidden && !InGracePeriod)
             return;
 
-        const float padX = 6f;
-        const float height = 16f;
-
         // Bounded and centred inside the room LEFT of the metronome toggle, not inside the whole
         // content width - centring on the full width put the chip's right edge at 351 with the toggle
         // starting at 340, so a long description covered a control. And +1 rather than +3 below the
         // table, which keeps the chip clear of the tick track at 18.5.
-        var usable = Content - MetronomeReserve - 4f;
-        var width = Math.Min(_statSmallFont.MeasureText(text) + (padX * 2f), usable);
-        var left = Math.Clamp(Pad + ((usable - width) / 2f), Pad, Pad + usable - width);
-        var top = below + 1f;
+        DrawTipChip(canvas, text, below + 1f, Pad, Content - MetronomeReserve - 4f);
+    }
+
+    /// <summary>
+    /// One hover readout, as a chip: dark ground, hairline border, one line of small text, centred
+    /// inside <paramref name="usableWidth"/> from <paramref name="usableLeft"/> and clamped to it.
+    ///
+    /// <para>Every hover readout on this canvas draws through here, so the two - the encounter
+    /// table's column descriptions and the creature-value sentence - cannot drift into two different
+    /// chips. Drawn on the canvas rather than as a platform tooltip because the rail is
+    /// InputTransparent and takes no gestures of its own (Invariant #0), and because a tooltip that
+    /// appears where the eye already is beats one that chases the pointer.</para>
+    /// </summary>
+    private void DrawTipChip(SKCanvas canvas, string text, float top, float usableLeft, float usableWidth)
+    {
+        const float padX = 6f;
+        const float height = 16f;
+
+        var width = Math.Min(_statSmallFont.MeasureText(text) + (padX * 2f), usableWidth);
+        var left = Math.Clamp(
+            usableLeft + ((usableWidth - width) / 2f), usableLeft, usableLeft + usableWidth - width);
 
         _fill.Color = new SKColor(0x1c, 0x24, 0x27, 0xF2);
         canvas.DrawRoundRect(left, top, width, height, 3f, 3f, _fill);
@@ -2666,6 +2755,63 @@ public sealed class CombatRailView : SKCanvasView
         return Math.Clamp(column, 0, EncounterHeadings.Length - 1);
     }
 
+    /// <summary>Which opponent row's VALUE figure the pointer is over, or -1 for none. Set by
+    /// GamePage's pointer-only hit test, exactly like <see cref="EncounterHoverColumn"/>, and subject
+    /// to the same Invariant #0 reasoning: hovering takes no focus.</summary>
+    public int NpcValueHoverRow
+    {
+        get => (int)GetValue(NpcValueHoverRowProperty);
+        set => SetValue(NpcValueHoverRowProperty, value);
+    }
+
+    public static readonly BindableProperty NpcValueHoverRowProperty = BindableProperty.Create(
+        nameof(NpcValueHoverRow), typeof(int), typeof(CombatRailView), -1,
+        propertyChanged: (bindable, _, _) => ((CombatRailView)bindable).InvalidateSurface());
+
+    /// <summary>
+    /// Which opponent row's value figure a pointer at <paramref name="xDp"/>,<paramref name="yDp"/>
+    /// sits on, or -1 for none.
+    ///
+    /// <para>An instance method where <see cref="EncounterColumnAt"/> is static, because this one
+    /// needs the live count to know how many slots are on screen and the canvas already holds it -
+    /// asking the caller for a number it would have to read off this same object is how two copies of
+    /// a fact start disagreeing. The slot rectangle itself still comes from
+    /// <see cref="RailSlotGeometry"/>, so the row this returns is the row that was drawn; only the
+    /// sub-rectangle WITHIN a tile is added here, from the same constants
+    /// <see cref="DrawWoundPhrase"/> draws with.</para>
+    ///
+    /// <para>It answers for a row whether or not that row has a value to show; the renderer draws the
+    /// chip only when there is one. Keeping the hit test ignorant of the content is what stops the
+    /// target moving as probes land mid-fight.</para>
+    /// </summary>
+    public int NpcValueRowAt(double xDp, double yDp, double panelWidthDp, double panelHeightDp)
+    {
+        if (panelWidthDp <= 0 || panelHeightDp <= 0)
+            return -1;
+
+        var live = _live;
+        if (!live.HasEncounter)
+            return -1;
+
+        var k = panelWidthDp / RailWidth;
+        var left = (Pad + TileInset + NpcValueLeft) * k;
+        if (xDp < left || xDp > left + (NpcValueWidth * k))
+            return -1;
+
+        for (var i = 0; i < live.Roster.Rows.Count; i++)
+        {
+            if (RailSlotGeometry.OpponentSlotDp(
+                    SlotMetrics, panelWidthDp, panelHeightDp, i, live.Roster.LiveCount)
+                is not RailRect slot)
+                continue;
+
+            var top = slot.Top + ((TileHealthBaseline - NpcValueBoxLift) * k);
+            if (yDp >= top && yDp <= top + (NpcValueBoxHeight * k))
+                return i;
+        }
+        return -1;
+    }
+
     /// <summary>
     /// The flee pill: <c>FLEE</c> and the key that sends it, at the top of the middle column.
     ///
@@ -2714,46 +2860,35 @@ public sealed class CombatRailView : SKCanvasView
             _stroke.StrokeWidth = 1f;
         }
 
-        // "Flee 23 (-2.1k)" left, "^F" right. Bold at every state, like the dreamword chip's own word:
-        // the escalation is the chip's brightness and the pulse, never the letterforms changing under
-        // the eye.
-        //
-        // The STAMINA is on the pill rather than left to the seal beside it because this is the number
-        // the decision is actually about, and at the moment of deciding the eye is on the chip. The
-        // PRICE is a parenthetical and is absent when there is none - see FleeCostEstimate for how
-        // rough it is, and for why "no parenthetical" means free or unpriceable rather than zero.
         // One centred string in the owner's own wording, 2026-09-06:
-        //     ^F:  FLEE  sta:23  cost:-2.1k
+        //     ^F:  FLEE  sta:23
+        // Bold at every state, like the dreamword chip's own word: the escalation is the chip's
+        // brightness and the pulse, never the letterforms changing under the eye.
         //
         // The key leads, because it is the only thing that can be DONE about any of it - "^F", not
         // "Ctrl+F", the owner's shorthand for a player whose hand is already on the keyboard.
         //
         // The STAMINA is on the pill rather than left to the bar above it because this is the number
-        // the decision is actually about, and at the moment of deciding the eye is on the chip. The
-        // PRICE is labelled and is absent when there is none - see FleeCostEstimate for how rough it
-        // is, and FleeCostParenthetical for why "no cost clause" means free or unpriceable rather than
-        // zero.
+        // the decision is actually about, and at the moment of deciding the eye is on the chip.
+        //
+        // The PRICE is MUD2's own arithmetic (MudSharp.Combat.FleeWorth - Bartle's formula, replayed
+        // exactly against every recorded flight), so the rule is right or absent: null (an input is
+        // missing) prints nothing, and an estimate is never printed - the estimator this replaced
+        // disagreed with every flee observed after it. Zero prints "free" rather than "-0", because it
+        // is a known answer and "-0" reads as a rounding artefact. A plain word, NOT a highlight: section
+        // 10 of COMBAT-RAIL-SPEC.md bans framing the cheap band as an achievement.
         var baseline = top + (PillHeight / 2f) + 4f;
         var label = "^F:  FLEE";
         if (live.StaminaCurrent is int sta)
             label += "  sta:" + sta.ToString(System.Globalization.CultureInfo.InvariantCulture);
-        if (live.FleeCostParenthetical is string price)
-        {
-            // The minus belongs to a FIGURE, not to the marker. In the pill's old parenthetical form
-            // "(-?)" it read as "a deduction of unknown size"; in a labelled field, "cost:-?" reads as
-            // a malformed number - a minus sign with nothing after it - and the owner took it for a
-            // broken calculation. "cost:?" says the same thing and looks deliberate, which it is:
-            // AboveEvidence is the ORDINARY state for a healthy character, not a failure. The flee
-            // model's evidence tops out at 18.1% of maximum stamina and it declines to quote past
-            // that; see FleeCostEstimate.
-            label += price == MudSharp.Combat.FleeCostEstimate.UnmeasuredMarker
-                ? "  cost:" + price
-                : "  cost:-" + price;
-        }
+        if (MudSharp.Combat.FleeWorth.Cost(live.Score, live.StaminaCurrent, live.StaminaMax) is int cost)
+            label += cost == 0
+                ? "  free"
+                : "  -" + cost.ToString("N0", System.Globalization.CultureInfo.InvariantCulture);
 
         // Ellipsized against the chip's own padding. The worst realistic string fits at 12f with room
         // to spare, so this should never fire - but font metrics are a platform's to choose, and a
-        // price running off the chip would be unreadable at the one moment it matters.
+        // label running off the chip would be unreadable at the one moment it matters.
         _text.Color = Dim(PillText, wash);
         canvas.DrawText(Ellipsize(label, PillWidth - 20f, _pillFont),
             PillLeft + (PillWidth / 2f), baseline, SKTextAlign.Center, _pillFont, _text);

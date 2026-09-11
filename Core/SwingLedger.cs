@@ -78,6 +78,12 @@ public sealed class SwingLedger : IDisposable
     // same answer.
     private bool _encounterOpen;
 
+    // Set by a "You have completed a Task." line and cleared by the very next score announcement,
+    // which is the one it pays for. Not a count and not time-bounded: the payout is printed on the
+    // line immediately after the task line in every recording of it, so the mark has exactly one row
+    // to land on. See OnTaskCompleted.
+    private bool _taskLineJustSeen;
+
     private string? _currentWeapon;
     // When _currentWeapon was last confirmed, so an equip seen just before the client noticed the
     // fight can be carried into it while a stale one is discarded - see _encounterJustOpened.
@@ -332,9 +338,32 @@ public sealed class SwingLedger : IDisposable
                 Persona = _persona,
                 Delta = save.Delta,
                 Total = save.Total,
+                AfterTaskLine = _taskLineJustSeen,
                 RawText = save.RawText,
             });
+            _taskLineJustSeen = false;
         }
+    }
+
+    /// <summary>
+    /// MUD2 announced a discharged task - <c>You have completed a Task. This makes a total of 1.</c>
+    /// Not a row of its own: it is a mark on the NEXT <c>score_events</c> row, which is the payout it
+    /// explains.
+    ///
+    /// <para><b>What the column is and is not.</b> <c>after_task_line</c> records an OBSERVATION - the
+    /// game printed a task line and then this score line, in that order, with nothing between them.
+    /// It does not assert that the delta is the task's rather than a kill's; a query can decide that,
+    /// with the swings in the same encounter in front of it. Recording it at all is what stops an
+    /// analysis pass from having to re-derive it from a raw_text scan of a line that is not in this
+    /// table.</para>
+    ///
+    /// <para>Recorded whether or not a fight is in progress, like every other score row - a task can
+    /// be discharged by carrying something to a place, with no combat anywhere near it.</para>
+    /// </summary>
+    public void OnTaskCompleted(TaskCompletion completed)
+    {
+        lock (_lock)
+            _taskLineJustSeen = true;
     }
 
     /// <param name="encounterStartedAtMs">The shared encounter id, stamped ONCE by MuckaConnection and
@@ -703,9 +732,9 @@ public sealed class SwingLedger : IDisposable
 
     private const string InsertScoreEventSql = """
         INSERT INTO score_events (
-            ts, encounter_started_at_ms, encounter_open, persona, delta, total, raw_text
+            ts, encounter_started_at_ms, encounter_open, persona, delta, total, after_task_line, raw_text
         ) VALUES (
-            $ts, $encounter, $encounter_open, $persona, $delta, $total, $raw_text
+            $ts, $encounter, $encounter_open, $persona, $delta, $total, $after_task_line, $raw_text
         );
         """;
 
@@ -772,6 +801,7 @@ public sealed class SwingLedger : IDisposable
         command.Parameters.AddWithValue("$persona", Value(row.Persona));
         command.Parameters.AddWithValue("$delta", Value(row.Delta));
         command.Parameters.AddWithValue("$total", row.Total);
+        command.Parameters.AddWithValue("$after_task_line", row.AfterTaskLine ? 1 : 0);
         command.Parameters.AddWithValue("$raw_text", Value(row.RawText));
     }
 

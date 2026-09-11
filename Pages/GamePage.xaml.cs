@@ -2312,6 +2312,8 @@ public partial class GamePage : ContentPage
 
         CombatPanelCanvas.EncounterHoverColumn = CombatRailView.EncounterColumnAt(
             point.X, point.Y, CombatPanelLayers.Width, CombatPanelLayers.Height);
+        CombatPanelCanvas.NpcValueHoverRow = CombatPanelCanvas.NpcValueRowAt(
+            point.X, point.Y, CombatPanelLayers.Width, CombatPanelLayers.Height);
     }
 
     /// <summary>The pointer left the panel. Cleared explicitly rather than left to the next move: a
@@ -2319,8 +2321,10 @@ public partial class GamePage : ContentPage
     /// would stay painted until the mouse happened to come back.</summary>
     private void OnCombatPanelPointerExited(object? sender, PointerEventArgs e)
     {
-        if (CombatPanelCanvas is not null)
-            CombatPanelCanvas.EncounterHoverColumn = -1;
+        if (CombatPanelCanvas is null)
+            return;
+        CombatPanelCanvas.EncounterHoverColumn = -1;
+        CombatPanelCanvas.NpcValueHoverRow = -1;
     }
 
     /// <summary>

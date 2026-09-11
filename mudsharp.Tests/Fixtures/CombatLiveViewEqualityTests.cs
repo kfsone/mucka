@@ -51,7 +51,7 @@ public sealed class CombatLiveViewEqualityTests
     private static CombatLiveView Frame(RosterPlan roster, IReadOnlyList<CombatEnding> deadStrip)
         => new(
             InCombat: false, HasEncounter: true, WeaponText: string.Empty, IsUnarmed: false,
-            Roster: roster, StaminaCurrent: 40, StaminaMax: 40, ObjectsCarried: 3,
+            Roster: roster, StaminaCurrent: 40, StaminaMax: 40, ObjectsCarried: 3, Score: 1_000,
             DeadStripHistory: deadStrip);
 
     [Fact]

@@ -56,6 +56,8 @@
          so they can be linked here - the elements and the Composition animations they drive are
          GamePage's and are not testable without a window. -->
     <Compile Include="..\ViewModels\RailSlotGeometry.cs" Link="ViewModels\RailSlotGeometry.cs" />
+    <Compile Include="..\ViewModels\FleeChargeLedger.cs" Link="ViewModels\FleeChargeLedger.cs" />
+    <Compile Include="..\ViewModels\KillAwardLedger.cs" Link="ViewModels\KillAwardLedger.cs" />
     <!-- Blink is pure arithmetic over the wall clock with no MAUI dependency, and it is the client's
          single definition of what a blink IS - so it is linked here rather than left untestable in
          the app project, the same way RailSlotGeometry is. -->
@@ -74,6 +76,7 @@
     <Compile Include="..\Core\CombatTiming.cs" Link="Core\CombatTiming.cs" />
     <Compile Include="..\Core\TickStaminaLoss.cs" Link="Core\TickStaminaLoss.cs" />
     <Compile Include="..\Core\TickPhase.cs" Link="Core\TickPhase.cs" />
+    <Compile Include="..\Core\TickDamageEmphasis.cs" Link="Core\TickDamageEmphasis.cs" />
     <Compile Include="..\Core\WavProbe.cs" Link="Core\WavProbe.cs" />
     <Compile Include="..\Audio\SoundCatalog.cs" Link="Audio\SoundCatalog.cs" />
     <Compile Include="..\Core\ClogWriter.cs" Link="Core\ClogWriter.cs" />

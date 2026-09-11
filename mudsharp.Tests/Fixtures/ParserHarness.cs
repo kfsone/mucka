@@ -13,6 +13,16 @@ internal sealed class ParserHarness
     public List<GameStatsSnapshot> Stats { get; } = new();
     /// <summary>"(Persona saved on ...)" score announcements - see MudStreamParser.ScoreSaved.</summary>
     public List<ScoreSave> ScoreSaves { get; } = new();
+    /// <summary>"You have completed a Task." announcements - see MudStreamParser.TaskCompleted.</summary>
+    public List<TaskCompletion> TaskCompletions { get; } = new();
+    /// <summary>Task and score events interleaved in the order they were raised, as
+    /// "task" / "+100" / "-872" strings. The ORDER is the whole reason the task event exists, so it
+    /// needs a capture that can actually see it - two separate lists cannot.</summary>
+    public List<string> ScoringOrder { get; } = new();
+    /// <summary>How many frames closed - see MudStreamParser.FrameClosed. Also interleaved into
+    /// <see cref="ScoringOrder"/> as "frame", because where the boundary falls RELATIVE to the score
+    /// lines is the entire reason the signal exists.</summary>
+    public int FrameClosedCount { get; private set; }
     public int PersonaWipedCount { get; private set; }
     public List<byte[]> Outgoing { get; } = new();
     public int GameModeEnteredCount { get; private set; }
@@ -49,7 +59,9 @@ internal sealed class ParserHarness
         Parser.LineReady          += l => Lines.Add(l);
         Parser.StatsUpdated       += s => Stats.Add(s);
         Parser.PersonaWiped       += () => PersonaWipedCount++;
-        Parser.ScoreSaved         += s => ScoreSaves.Add(s);
+        Parser.ScoreSaved         += s => { ScoreSaves.Add(s); ScoringOrder.Add(s.Delta is int d ? d.ToString("+0;-0") : "="); };
+        Parser.TaskCompleted      += t => { TaskCompletions.Add(t); ScoringOrder.Add("task"); };
+        Parser.FrameClosed        += () => { FrameClosedCount++; ScoringOrder.Add("frame"); };
         Parser.GameModeEntered    += () => { if (GameModeEnteredAtLineIndex < 0) GameModeEnteredAtLineIndex = Lines.Count; GameModeEnteredCount++; };
         Parser.GameModeExited     += () => GameModeExitedCount++;
         Parser.OutgoingBytes      += b => Outgoing.Add(b);

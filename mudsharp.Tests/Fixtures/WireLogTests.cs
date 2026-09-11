@@ -1,13 +1,14 @@
 using System.Text;
 using System.Text.Json;
+using Microsoft.Data.Sqlite;
 using Mucka.Core;
 
 namespace mudsharp.Tests.Fixtures;
 
 /// <summary>
-/// The wire log's storage contract: bytes in must equal bytes out, through framing, compression,
-/// SQLite and back, and the exported <c>.jsonl</c> must be the format the whole existing corpus
-/// already reads.
+/// The wire log's storage contract: bytes in must equal bytes out, through framing, SQLite and back;
+/// the payloads must be findable verbatim in the stored blob; and the exported <c>.jsonl</c> must be
+/// the format the whole existing corpus already reads.
 ///
 /// <para>The high-byte cases are the point of the whole exercise, not decoration. MUD2's C1 codes are
 /// bytes 0x80-0xFF; any layer that quietly decides they are text - a UTF-8 round trip, a
@@ -116,18 +117,6 @@ public sealed class WireLogTests : IDisposable
     }
 
     [Fact]
-    public void Framing_round_trips_through_compression()
-    {
-        var builder = new WireLogBatchBuilder();
-        foreach (var r in SampleRecords()) builder.Append(r.Direction, r.TimestampMs, r.Payload);
-        var framed = builder.ToArray();
-
-        var (codec, blob) = WireLogFraming.Compress(framed);
-        Assert.Equal(WireLogCodec.Brotli, codec);
-        Assert.Equal(framed, WireLogFraming.Decompress(codec, blob, framed.Length));
-    }
-
-    [Fact]
     public void Framing_rejects_a_truncated_batch_rather_than_inventing_records()
     {
         var builder = new WireLogBatchBuilder();
@@ -203,19 +192,74 @@ public sealed class WireLogTests : IDisposable
     }
 
     [Fact]
-    public void Sink_compresses_real_mud2_traffic()
+    public void Sink_stores_real_mud2_traffic_as_bytes_you_can_grep_for()
     {
-        // Not a ratio assertion - the corpus here is six frames, and a ratio measured on six frames
-        // would be a number pretending to be evidence. It asserts only the direction: the stored blob
-        // is smaller than the bytes that went into it. The real figures, measured over the owner's 40
-        // captures, are in the table on WireLogFraming.
+        // The point of taking the compression out (owner, 2026-09-09: "Just the raw bytes from the
+        // server"), asserted rather than described: every payload the sink was handed is findable
+        // verbatim inside batches.data. That is what makes the log a corpus you can ask questions of
+        // without writing a decoder first - the thing that was missing when answering "what does a
+        // flee cost" needed a hand-rolled brotli-and-varint reader.
         var records = ReadJsonl(WyvernFixturePath);
         using (var sink = new SqliteWireLogSink(DbPath, "mud2.co.uk"))
             foreach (var r in records) sink.Record(r.Direction, r.TimestampMs, r.Payload);
 
+        var blobs = new List<byte[]>();
+        using (var connection = WireLogDb.OpenRead(DbPath))
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText = "SELECT data FROM batches ORDER BY seq;";
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+                blobs.Add((byte[])reader.GetValue(0));
+        }
+
+        Assert.NotEmpty(blobs);
+        foreach (var record in records)
+        {
+            Assert.True(
+                blobs.Exists(blob => Contains(blob, record.Payload)),
+                $"payload of {record.Payload.Length} bytes is not present verbatim in any stored batch");
+        }
+    }
+
+    /// <summary>Whether <paramref name="needle"/> appears as a contiguous byte run in
+    /// <paramref name="haystack"/> - the programmatic form of grepping the blob.</summary>
+    private static bool Contains(byte[] haystack, byte[] needle)
+        => needle.Length == 0 || haystack.AsSpan().IndexOf(needle.AsSpan()) >= 0;
+
+    [Fact]
+    public void Open_discards_a_wire_log_written_by_a_build_with_a_different_batches_schema()
+    {
+        // WireLogDb.DiscardOnSchemaChange's standing policy, exercised on the shape that actually
+        // provoked it: an older file whose `batches` still carries the `codec` and `raw_bytes` columns
+        // the compression needed. CREATE TABLE IF NOT EXISTS would leave it alone and the first insert
+        // would fail a NOT NULL constraint, faulting the sink out for the whole session.
+        // WireLogDb.Open creates the directory; a bare connection does not.
+        Directory.CreateDirectory(Path.GetDirectoryName(DbPath)!);
+        using (var legacy = new SqliteConnection(WireLogDb.ConnectionString(DbPath)))
+        {
+            legacy.Open();
+            using var command = legacy.CreateCommand();
+            command.CommandText = """
+                CREATE TABLE sessions (
+                    id INTEGER PRIMARY KEY, started_ms INTEGER NOT NULL, ended_ms INTEGER,
+                    host TEXT, client_version TEXT);
+                CREATE TABLE batches (
+                    id INTEGER PRIMARY KEY, session_id INTEGER NOT NULL, seq INTEGER NOT NULL,
+                    base_ts_ms INTEGER NOT NULL, last_ts_ms INTEGER NOT NULL, records INTEGER NOT NULL,
+                    raw_bytes INTEGER NOT NULL, codec INTEGER NOT NULL, data BLOB NOT NULL);
+                INSERT INTO sessions (started_ms, host) VALUES (1, 'mud2.co.uk');
+                """;
+            command.ExecuteNonQuery();
+        }
+
+        var records = SampleRecords();
+        using (var sink = new SqliteWireLogSink(DbPath, "mud2.co.uk"))
+            foreach (var r in records) sink.Record(r.Direction, r.TimestampMs, r.Payload);
+
+        // The legacy session went with the table; this build's own writes are intact.
         var session = Assert.Single(WireLogExport.ListSessions(DbPath));
-        Assert.True(session.StoredBytes < session.RawBytes,
-            $"stored {session.StoredBytes} >= raw {session.RawBytes}");
+        AssertSame(records, WireLogExport.ReadSession(DbPath, session.Id).ToList());
     }
 
     // -- The .jsonl export, against the format that already exists --------------
@@ -505,27 +549,14 @@ public sealed class WireLogTests : IDisposable
         Assert.Throws<InvalidDataException>(() => WireLogFraming.Decode(framed, 0, expectedRecords: 7));
     }
 
-    [Fact]
-    public void Framing_rejects_a_blob_that_does_not_decompress_to_the_length_the_row_claims()
-    {
-        var builder = new WireLogBatchBuilder();
-        foreach (var r in SampleRecords()) builder.Append(r.Direction, r.TimestampMs, r.Payload);
-        var framed = builder.ToArray();
-        var (codec, blob) = WireLogFraming.Compress(framed);
-
-        Assert.Equal(framed, WireLogFraming.Decompress(codec, blob, framed.Length));
-        Assert.Throws<InvalidDataException>(() => WireLogFraming.Decompress(codec, blob, framed.Length - 1));
-        Assert.Throws<InvalidDataException>(() => WireLogFraming.Decompress(codec, blob, framed.Length + 1));
-    }
-
     [Theory]
     [InlineData("records")]
-    [InlineData("raw_bytes")]
     public void Export_refuses_a_batch_row_whose_integrity_field_no_longer_matches(string column)
     {
         // The end-to-end version: a row damaged in the database is rejected on read rather than
-        // decoded into records nobody ever sent. Both columns were written from the first commit and
-        // neither was ever read back.
+        // decoded into records nobody ever sent. `records` is the only such column left - `raw_bytes`
+        // held the DECOMPRESSED length, which with nothing compressed is LENGTH(data), so it compared
+        // the blob against itself. It went out with the codec.
         var records = SampleRecords();
         using (var sink = new SqliteWireLogSink(DbPath, "mud2.co.uk"))
             foreach (var r in records) sink.Record(r.Direction, r.TimestampMs, r.Payload);

@@ -55,6 +55,11 @@ public sealed record ScoreEventRow : ICombatLedgerRow
     /// <summary>The score after the change, as the game states it.</summary>
     public int Total { get; init; }
 
+    /// <summary>Whether a <c>You have completed a Task.</c> line was printed immediately before this
+    /// one, with no score line between. An observation about the wire's ordering, not a claim that
+    /// this delta is the task's payout - see SwingLedger.OnTaskCompleted.</summary>
+    public bool AfterTaskLine { get; init; }
+
     /// <summary>The line verbatim, so a later pass can re-read the wording instead of trusting this
     /// row's parse.</summary>
     public string? RawText { get; init; }

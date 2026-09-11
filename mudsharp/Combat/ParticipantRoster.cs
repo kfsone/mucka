@@ -118,6 +118,12 @@ public readonly record struct ExchangeLine(
 /// nullable rather than defaulting to zero: 0 is itself a legal answer (the ox), so the two must
 /// stay distinguishable all the way to the row - an absent probe must never render as a measured
 /// zero.</param>
+/// <param name="TookDamageThisTick">Whether this creature took a blow on the tick being drawn, which
+/// is what emboldens its name. Resolved by <c>Mucka.Core.TickDamageEmphasis</c> against the session's
+/// tick lattice at the moment the view is built, so this arrives as a plain answer rather than as a
+/// timestamp the renderer would have to re-interpret - see that class for the rule, for what "we took
+/// damage" means on a per-badge cue, and for the carry-forward that stops an early frame producing a
+/// 50 ms flash.</param>
 public readonly record struct ParticipantFact(
     string Name,
     bool IsResolved,
@@ -140,7 +146,8 @@ public readonly record struct ParticipantFact(
     int? Value = null,
     ExchangeLine Dealt = default,
     ExchangeLine Taken = default,
-    IReadOnlyList<SwingMark>? Exchange = null);
+    IReadOnlyList<SwingMark>? Exchange = null,
+    bool TookDamageThisTick = false);
 
 /// <summary>
 /// One row of the opposition list as actually drawn. <see cref="IsCurrentTarget"/> marks the ONE live
@@ -191,7 +198,13 @@ public readonly record struct RosterRow(
     // The last two dozen swings of this fight from BOTH sides in arrival order - the spark's
     // timeline. Null rather than empty when nothing has been thrown yet, so "no fight yet" and "a
     // fight in which nobody has swung" stay distinguishable.
-    IReadOnlyList<SwingMark>? Exchange = null)
+    IReadOnlyList<SwingMark>? Exchange = null,
+    // Whether this creature took a blow on the tick being drawn - the ONLY thing that emboldens its
+    // name. The name used to be bold for as long as the creature was alive, which meant "bold" said
+    // nothing an empty slot did not already say; the owner replaced it with this on 2026-09-09. See
+    // Mucka.Core.TickDamageEmphasis for the rule, and ParticipantFact.TookDamageThisTick for why the
+    // answer is resolved before it gets here.
+    bool TookDamageThisTick = false)
 {
     /// <summary>
     /// Age past which a reading is drawn as faded rather than current: three combat ticks. One missed
@@ -350,7 +363,7 @@ public static class ParticipantRoster
                 fact.NpcWeapon, fact.FightDamage, fact.EverDamage,
                 fact.Vitality, fact.NextBlow, fact.BlowAfter, fact.YourTempo, fact.Reach,
                 fact.Novelty, fact.StaminaRead, fact.Value,
-                fact.Dealt, fact.Taken, fact.Exchange));
+                fact.Dealt, fact.Taken, fact.Exchange, fact.TookDamageThisTick));
         }
 
         var hiddenCount = ordered.Count - shownCount;

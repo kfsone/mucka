@@ -127,6 +127,7 @@ public static class CombatDb
     private static readonly (string Table, string Column, string Declaration)[] AddedColumns =
     [
         ("fights", "prev_same_name_ended_ms", "INTEGER"),
+        ("score_events", "after_task_line", "INTEGER"),
     ];
 
     /// <summary>
@@ -353,6 +354,13 @@ public static class CombatDb
             -- reset and shell-exit saves rather than a scoring event.
             delta               INTEGER,
             total               INTEGER NOT NULL,   -- authoritative; what the game says the score IS now
+            -- 1 when "You have completed a Task." was printed immediately before this line, with no
+            -- score line between. One of the eight tasks discharged BY A KILL pays out on its own line
+            -- FIRST and the creature's award second, so without this mark the two rises in that frame
+            -- are indistinguishable and the task's payout reads as the kill's value. Ordering fixed by
+            -- three observations - see MudSharp.Models.TaskCompletion. Nullable: rows written before
+            -- the mark existed did not record it, and 0 would claim they did.
+            after_task_line     INTEGER,
             raw_text            TEXT
         );
 

@@ -65,6 +65,9 @@ public sealed class MuckaConnection : IAsyncDisposable
     /// <summary>The reset landed, corroborated - see <see cref="MudSession.WorldResetLanded"/>. Use
     /// this, not <see cref="AutoResetInitiated"/>, for anything marking the world-to-world boundary.</summary>
     public event Action? WorldResetLanded;
+    /// <summary>Forwarded from <see cref="MudStreamParser.FrameClosed"/>. Read-loop thread, like
+    /// <see cref="ScoreSaved"/>.</summary>
+    public event Action? FrameClosed;
     public event Action<StatusEffectState>? StatusEffectsChanged;
     /// <summary>Fires whenever combat is entered/left (see MudSharp.Combat.CombatTracker).</summary>
     public event Action<bool>? InCombatChanged;
@@ -85,6 +88,12 @@ public sealed class MuckaConnection : IAsyncDisposable
     /// recorder consume the same event for their own reasons. See
     /// SidePanelViewModel's remarks on why that pairing is an inference.</summary>
     public event Action<MudSharp.Models.ScoreSave>? ScoreSaved;
+
+    /// <summary>MUD2 announcing that one of the eight tasks has been discharged. Re-raised for the UI
+    /// for one reason: a task discharged by a KILL pays out on the line before the kill's own award,
+    /// and without this the rail hands the task's payout to the corpse. See
+    /// <see cref="MudSharp.Models.TaskCompletion"/>.</summary>
+    public event Action<MudSharp.Models.TaskCompletion>? TaskCompleted;
     public event Action<string?>? DreamwordChanged;
     public event Action<string>? SoundRequested;
     /// <summary>A tell arrived from a named sender. Payload is the sender's screen name; drives the
@@ -658,6 +667,7 @@ public sealed class MuckaConnection : IAsyncDisposable
         _session.PersonaWiped       += () => PersonaWiped?.Invoke();
         _session.AutoResetInitiated += () => AutoResetInitiated?.Invoke();
         _session.WorldResetLanded += () => WorldResetLanded?.Invoke();
+        _session.FrameClosed      += () => FrameClosed?.Invoke();
         _session.LineReady          += l => { _clog.OnLineReady(l); LineReady?.Invoke(l); };
         _session.StatsUpdated       += s => { _clog.OnStatsUpdated(s); _fightRecorder.OnStatsUpdated(s); _swingLedger.OnStatsUpdated(s); StatsUpdated?.Invoke(s); };
         _session.StatusEffectsChanged += s => { _clog.OnStatusEffectsChanged(s); _fightRecorder.OnStatusEffectsChanged(s); _swingLedger.OnStatusEffectsChanged(s); StatusEffectsChanged?.Invoke(s); };
@@ -680,6 +690,13 @@ public sealed class MuckaConnection : IAsyncDisposable
             _swingLedger.OnScoreSave(save);
             _fightRecorder.OnScoreSave(save);
             ScoreSaved?.Invoke(save);
+        };
+        // Ledger first here too, and for the same reason: the row it stamps this onto is the very next
+        // score line, so a consumer downstream throwing must not be able to lose the mark.
+        _session.TaskCompleted      += task =>
+        {
+            _swingLedger.OnTaskCompleted(task);
+            TaskCompleted?.Invoke(task);
         };
         _session.DreamwordChanged   += w =>
         {

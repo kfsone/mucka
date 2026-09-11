@@ -29,11 +29,13 @@ public static class CombatTierResolver
     /// <para><b>Its value has no danger measurement behind it, and this comment used to imply
     /// otherwise.</b> 6.5 entered this codebase as the FLEE-FREE boundary - the stamina below which
     /// MUD2 stops charging to leave - and was then re-used as a danger threshold because it was the
-    /// only number available. It is now identifiable as a fraction wearing an absolute's clothes: the
-    /// free-flee band is about 6% of MAXIMUM stamina (40 measured flee events), and 6.5 is 6.2% of the
-    /// 105-maximum persona it was observed on. <see cref="FleeCostEstimate"/> has been rebuilt on the
-    /// fraction and no longer references this constant; the two quantities are severed and must stay
-    /// severed.</para>
+    /// only number available. The two quantities are severed and must stay severed: whatever a flee
+    /// costs is a question about score, and this is a question about how many blows you can take.
+    ///
+    /// <para>There is no flee-cost model in the client to be severed FROM any more. One was built on
+    /// a fraction-of-maximum band and deleted on 2026-09-09 because its stated evidence could not be
+    /// found anywhere in the repo; see the remarks on CombatRailView.DrawFleePill and Lab-spec.md. Do
+    /// not reconnect this constant to a future one.</para>
     ///
     /// <para><b>It stays ABSOLUTE all the same, and that is not an oversight.</b> MUD2 damage does not
     /// consult the player's ceiling - a rat hits for what a rat hits for - so a danger threshold

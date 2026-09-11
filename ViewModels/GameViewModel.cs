@@ -2114,6 +2114,8 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _conn.SniffResult      += SidePanel.OnSniffResult;
         _conn.CreatureValueResolved += SidePanel.OnCreatureValueResolved;
         _conn.ScoreSaved       += SidePanel.OnScoreSaved;
+        _conn.TaskCompleted    += SidePanel.OnTaskCompleted;
+        _conn.FrameClosed      += SidePanel.OnFrameClosed;
         _conn.FeiListStarting  += SidePanel.OnFeiListStarting;
         _conn.FeiItemReady     += SidePanel.OnFeiItemReady;
         _conn.FeiListComplete  += SidePanel.OnFeiListComplete;
@@ -2165,6 +2167,8 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _conn.SniffResult      -= SidePanel.OnSniffResult;
         _conn.CreatureValueResolved -= SidePanel.OnCreatureValueResolved;
         _conn.ScoreSaved       -= SidePanel.OnScoreSaved;
+        _conn.TaskCompleted    -= SidePanel.OnTaskCompleted;
+        _conn.FrameClosed      -= SidePanel.OnFrameClosed;
         _conn.FeiListStarting  -= SidePanel.OnFeiListStarting;
         _conn.FeiItemReady     -= SidePanel.OnFeiItemReady;
         _conn.FeiListComplete  -= SidePanel.OnFeiListComplete;

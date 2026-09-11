@@ -1,70 +1,35 @@
-using System.IO.Compression;
-
 namespace Mucka.Core;
 
-/// <summary>Which compressor produced a batch blob. Stored in <c>batches.codec</c>; never renumber.</summary>
-public enum WireLogCodec
-{
-    /// <summary>No compression — the framed bytes as-is. Only used if compression itself fails.</summary>
-    None = 0,
-    /// <summary>Brotli, <see cref="CompressionLevel.SmallestSize"/> (quality 11).</summary>
-    Brotli = 1,
-    /// <summary>GZip. Reserved; nothing writes it today, the decoder accepts it.</summary>
-    Gzip = 2,
-}
-
 /// <summary>
-/// The batch framing: how a run of <see cref="WireRecord"/>s becomes one byte buffer that compresses
-/// well and decodes back to exactly the records that went in.
+/// The batch framing: how a run of <see cref="WireRecord"/>s becomes one byte buffer that decodes back
+/// to exactly the records that went in.
 ///
-/// <para><b>Units, because these numbers are meaningless without them: KB = 1000 bytes and MB = 10^6
-/// bytes throughout this file and in <see cref="SqliteWireLogSink"/>.</b> Not KiB/MiB. Everything below
-/// was produced by replaying the owner's corpus through this code; nothing in it is an estimate.</para>
+/// <para><b>Nothing here compresses anything, deliberately.</b> This used to brotli every batch at
+/// <c>CompressionLevel.SmallestSize</c>, and the owner's instruction on 2026-09-09 was to take it out
+/// entirely: <i>"rip out the compression bullshit. Just the raw bytes from the server... the idea was
+/// to store it plain keep things simple, and possibly put together tools for exploding it out into
+/// other tables."</i> That is the whole rationale and it is a good one - the wire log's only job is to
+/// be the corpus that questions get asked of, and a blob you cannot look at without writing a decoder
+/// first is a corpus in name only. The immediate provocation was real: answering "what does a flee
+/// actually cost" needed a hand-written brotli-and-varint reader before a single frame could be read.
+/// See <c>Lab-spec.md</c> for the tool that is supposed to make that a query instead.</para>
 ///
-/// <para><b>Why batch at all.</b> The average wire record is 77.3 bytes (6.14 MB over 79,495 records in
-/// the owner's existing corpus). Compressing one of those on its own gains nothing — a deflate or
-/// brotli stream spends more on its own header than the record contains. Compression here is entirely
-/// a function of how much text shares one dictionary, and MUD2 text is extremely repetitive, so the
-/// gain is large but only if the window is large.</para>
+/// <para><b>What it costs, as arithmetic off the figures the compressed version measured</b> (MB = 10^6
+/// bytes here and in <see cref="SqliteWireLogSink"/>, not MiB). Those measurements were real: 40
+/// captures, 79,495 records, 6,144,190 bytes of payload over 8.91 play-hours, an average wire rate of
+/// 0.191 KB/s, and ~0.74 KB of SQLite page and index overhead per batch row. Plain, at the one-minute
+/// batch bound, that same corpus is 6.14 MB of payload plus 4.2% framing plus ~535 rows of overhead:
+/// about 6.8 MB, or <b>0.76 MB per play-hour, ~1.1 GB/year at the owner's four hours a day</b>. Brotli
+/// made it 0.174 MB/play-hour and ~0.25 GB/year. So legibility costs roughly 0.85 GB a year, which is
+/// a few pence of disk against a corpus that can now be grepped. It is still 2.5x smaller than the
+/// same traffic as <c>.jsonl</c> (1.924 MB/play-hour), because the framing does not repeat a
+/// timestamp and a direction as text on every line.</para>
 ///
-/// <para><b>Measured, on the owner's 40 real captures</b> — 79,495 records, 6,144,190 bytes of payload,
-/// 8.91 play-hours, an average wire rate of 0.191 KB/s, replayed through this framing and brotli-11.
-/// The ratio is set by batch size and essentially nothing else:
-/// <code>
-///   batch bound   avg raw batch   ratio vs payload   MB/play-hour
-///     5 s              1.3 KB          2.73x            0.252
-///    15 s              3.3 KB          3.91x            0.176
-///    60 s             11.9 KB          5.37x            0.128      &lt;- what this sink does
-///    64 KB            50.9 KB          6.66x            0.103
-///     5 min           48.6 KB          6.67x            0.103
-///   whole session    160.3 KB          8.00x            0.086      &lt;- the ceiling
-/// </code>
-/// The 64 KB and 5-minute rows are the same row in practice: at 0.191 KB/s a 64 KB batch takes about
-/// 5.6 minutes to fill, so whichever of the two is written down, the other one never fires.</para>
-///
-/// <para>End to end, through the real sink and SQLite, the shipped 60 s bound is <b>1.552 MB of wire.db
-/// for 8.91 play-hours = 0.174 MB per play-hour = 0.254 GB/year at 4 h/day, and 11.0x smaller than the
-/// same traffic as .jsonl</b> (17.15 MB, 1.924 MB/play-hour). The gap between the table's 0.128 and the
-/// file's 0.174 is SQLite's own pages and two indexes, measured at ~0.74 KB per batch row.</para>
-///
-/// <para><b>What the one-minute bound costs, measured rather than predicted.</b> The same replay through
-/// the previous bound — 64 KB, which is what actually fired before <see cref="SqliteWireLogSink"/>
-/// enforced an age — produced 1.012 MB of wire.db, 0.114 MB per play-hour, 0.166 GB/year. So one minute
-/// costs <b>0.088 GB a year, about 88 MB</b>, to cut the worst-case crash loss from roughly five and a
-/// half minutes of traffic to one. Note that this is more than twice what the blob column alone
-/// suggests (0.128 vs 0.103 is only ~37 MB/year): 4.3x as many rows is 4.3x as much per-row SQLite
-/// overhead, and that overhead is the larger half of the bill. The trade is still obviously worth
-/// taking at this scale; it is written down because "the blobs only grow 25%" would have been the
-/// wrong number.</para>
-///
-/// <para>Going the other way is not free either: at 0.191 KB/s a five-second batch is a kilobyte, and a
-/// kilobyte does not compress. Buying a five-second crash window would cost 0.252 against 0.128, near
-/// enough double, forever, on a diagnostic log.</para>
-///
-/// <para>The remaining 5.37x-to-8.00x gap is only reachable by compressing a whole session as one blob,
-/// which cannot be done live — it needs a compaction pass over a session after it closes. The schema
-/// supports it (batches are keyed by session and seq); it is not implemented, and it is now worth
-/// ~0.06 GB/year.</para>
+/// <para><b>Why batch at all, now that it is not for the dictionary.</b> Purely SQLite row overhead:
+/// one row per record would pay ~0.74 KB of pages and index entries for a 77-byte average payload,
+/// which is an order of magnitude worse than the traffic itself. A minute of MUD2 is about 12 KB, so a
+/// batch amortises that overhead to nothing while bounding what a hard kill can lose to one minute of
+/// traffic.</para>
 ///
 /// <para><b>Format.</b> A batch buffer is
 /// <code>
@@ -74,90 +39,43 @@ public enum WireLogCodec
 ///        varint   (payload_length &lt;&lt; 2) | direction
 ///        [len]    payload bytes, verbatim
 /// </code>
-/// Timestamps are deltas because a batch spans minutes and absolute unix-ms values are 6 bytes of
-/// varint each that compress badly; zigzag rather than plain because a wall-clock step backwards
-/// (NTP) must round-trip exactly rather than being clamped into a lie. Direction rides in the low two
-/// bits of the length varint because it only has three values and a whole byte per record is 1.3%
-/// of the corpus. Total framing overhead measured at 4.2% before compression, near zero after.</para>
+/// <b>The payload bytes are the server's own bytes, untouched</b>, which is what makes the blob
+/// legible: a hexdump or a <c>strings</c> pass over <c>batches.data</c> reads as MUD2 text with a
+/// couple of header bytes between records. What the varints buy is the two things text cannot carry
+/// for free - which direction a record went and when it arrived - at 4.2% of the corpus rather than
+/// the ~180% <c>.jsonl</c> spends on the same two facts.</para>
+///
+/// <para>Timestamps are deltas because a batch spans minutes and absolute unix-ms values are 6 bytes
+/// of varint each; zigzag rather than plain because a wall-clock step backwards (NTP) must round-trip
+/// exactly rather than being clamped into a lie. Direction rides in the low two bits of the length
+/// varint because it only has three values.</para>
 ///
 /// <para><b>There is no redundancy in here at all</b>, and that is a deliberate limitation with a
 /// measured consequence. Every byte is a varint or a payload byte, so damage that keeps the buffer
-/// parseable produces a different but entirely well-formed run of records. What guards a batch is not
-/// the format but the two numbers stored beside it in the row — <c>raw_bytes</c> and <c>records</c> —
-/// which <see cref="Decompress"/> and <see cref="Decode"/> now enforce. See
-/// <see cref="WireLogExport.ReadSession"/> for what that catches and what it does not.</para>
+/// parseable produces a different but entirely well-formed run of records - over 200,000 mutated
+/// batches, 39,789 decoded into silent garbage. What guards a batch is not the format but
+/// <c>batches.records</c> stored beside it, which <see cref="Decode"/> enforces. (There used to be a
+/// second such field, <c>raw_bytes</c>, holding the DECOMPRESSED length. With nothing compressed it is
+/// exactly <c>LENGTH(data)</c>, so it checked the blob against itself; it is gone with the codec.)</para>
 /// </summary>
 public static class WireLogFraming
 {
-    /// <summary>"MWL1" — Mucka Wire Log, framing version 1. A version bump means a new magic.</summary>
+    /// <summary>"MWL1" - Mucka Wire Log, framing version 1. A version bump means a new magic.
+    /// Unchanged by the removal of compression: the bytes INSIDE a batch are the same bytes they always
+    /// were, and only the row that wraps one lost a column.</summary>
     public static ReadOnlySpan<byte> Magic => "MWL1"u8;
-
-    /// <summary>Compresses a framed batch buffer. Returns <see cref="WireLogCodec.None"/> and the
-    /// input unchanged if compression somehow fails — a bigger row beats a lost one.</summary>
-    public static (WireLogCodec Codec, byte[] Data) Compress(byte[] framed)
-    {
-        try
-        {
-            using var output = new MemoryStream(framed.Length / 4 + 64);
-            using (var brotli = new BrotliStream(output, CompressionLevel.SmallestSize, leaveOpen: true))
-                brotli.Write(framed, 0, framed.Length);
-            return (WireLogCodec.Brotli, output.ToArray());
-        }
-        catch
-        {
-            return (WireLogCodec.None, framed);
-        }
-    }
-
-    /// <summary>
-    /// Inverse of <see cref="Compress"/>, and the first of the two integrity checks.
-    ///
-    /// <para><paramref name="expectedLength"/> is <c>batches.raw_bytes</c>. It used to be nothing but a
-    /// capacity hint for the output buffer; it is now enforced, because a stored length that disagrees
-    /// with what came out of the decompressor is proof the row is damaged and costs one comparison to
-    /// notice. Pass 0 only where no stored length exists.</para>
-    /// </summary>
-    /// <exception cref="InvalidDataException">Unknown codec, or the decompressed length is not
-    /// <paramref name="expectedLength"/>.</exception>
-    public static byte[] Decompress(WireLogCodec codec, byte[] data, int expectedLength)
-    {
-        var framed = DecompressRaw(codec, data, expectedLength);
-        if (expectedLength > 0 && framed.Length != expectedLength)
-            throw new InvalidDataException(
-                $"Wire-log batch is {framed.Length} bytes decompressed, but the row says {expectedLength}.");
-        return framed;
-    }
-
-    private static byte[] DecompressRaw(WireLogCodec codec, byte[] data, int expectedLength)
-    {
-        if (codec == WireLogCodec.None) return data;
-
-        using var input = new MemoryStream(data, writable: false);
-        Stream decoder = codec switch
-        {
-            WireLogCodec.Brotli => new BrotliStream(input, CompressionMode.Decompress),
-            WireLogCodec.Gzip   => new GZipStream(input, CompressionMode.Decompress),
-            _ => throw new InvalidDataException($"Unknown wire-log codec {(int)codec}."),
-        };
-        using (decoder)
-        {
-            using var output = new MemoryStream(expectedLength > 0 ? expectedLength : 4096);
-            decoder.CopyTo(output);
-            return output.ToArray();
-        }
-    }
 
     /// <summary>
     /// Decodes a framed batch buffer back into the exact records that were appended to it.
     /// <paramref name="baseTimestampMs"/> is the batch's stored base (the first record's absolute
     /// timestamp); everything after is reconstructed from the deltas.
     ///
-    /// <para><paramref name="expectedRecords"/> is <c>batches.records</c>, and is the second integrity
-    /// check. The framing has no internal redundancy at all — every byte is either a varint or payload,
-    /// so most single-byte damage re-parses into a different but perfectly well-formed run of records
-    /// and is indistinguishable from real traffic. The record count is the one thing stored outside the
-    /// blob that a corrupted blob has to agree with; requiring it is what turns "decoded fine" into
-    /// "decoded as what was written." Pass -1 only where no stored count exists.</para>
+    /// <para><paramref name="expectedRecords"/> is <c>batches.records</c>, and is the only integrity
+    /// check there is. The framing has no internal redundancy, so a damaged blob usually re-parses into
+    /// a well-formed run of records that is simply not what was written. The record count is the one
+    /// thing stored outside the blob that a corrupted blob has to agree with; requiring it is what
+    /// turns "decoded fine" into "decoded as what was written." Pass -1 only where no stored count
+    /// exists.</para>
     /// </summary>
     /// <exception cref="InvalidDataException">The buffer is not a batch, is truncated, or does not hold
     /// <paramref name="expectedRecords"/> records.</exception>
@@ -236,7 +154,7 @@ public static class WireLogFraming
 }
 
 /// <summary>
-/// Accumulates records into one framed batch buffer. Not thread-safe by itself — the owning sink
+/// Accumulates records into one framed batch buffer. Not thread-safe by itself - the owning sink
 /// holds a lock around it (see <see cref="SqliteWireLogSink"/>).
 /// </summary>
 public sealed class WireLogBatchBuilder
@@ -256,7 +174,7 @@ public sealed class WireLogBatchBuilder
     public int Count { get; private set; }
     /// <summary>Framed bytes so far, magic included.</summary>
     public int Length => _length;
-    /// <summary>Absolute timestamp of the first record — the decoder's starting point.</summary>
+    /// <summary>Absolute timestamp of the first record - the decoder's starting point.</summary>
     public long BaseTimestampMs => _baseTimestampMs;
     /// <summary>Absolute timestamp of the most recent record.</summary>
     public long LastTimestampMs => _lastTimestampMs;

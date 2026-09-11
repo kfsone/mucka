@@ -39,6 +39,12 @@ public sealed class MudStreamParser
     /// </summary>
     public event Action<ScoreSave>? ScoreSaved;
 
+    /// <summary>MUD2 announced that one of the eight tasks has been discharged - see
+    /// <see cref="TaskCompletion"/>. Raised BEFORE the <see cref="ScoreSaved"/> events it precedes on
+    /// the wire, so a consumer pairing awards to kills knows the next rise is the task's payout and
+    /// not a creature's value.</summary>
+    public event Action<TaskCompletion>? TaskCompleted;
+
     /// <summary>Server signalled game-mode entry (0x9D 0x9C 0xFF 0xFF).</summary>
     public event Action? GameModeEntered;
 
@@ -141,6 +147,27 @@ public sealed class MudStreamParser
     /// evidence, and MudSession.OnWorldResetLanded for why the consumer corroborates it against the
     /// reset countdown instead of acting on it unconditionally.</summary>
     public event Action? WorldResetLanded;
+
+    /// <summary>
+    /// One frame of game output has ended — the prompt that closes it has just been shown.
+    ///
+    /// <para><b>The frame is the only sound bound on "a line MUD2 owes us is never coming".</b> MUD2
+    /// buffers everything one game tick produced, then appends the prompt and a copy of any pending
+    /// input — so an event and everything the game says about it (a kill and its award, a flee and its
+    /// charge) share one prompt-bounded frame by construction (owner, 2026-09-07: "the reward is on
+    /// the next line and that might not have arrived yet, but it *will* arrive before the end of the
+    /// text-stream-level packet — the next prompt"). Nothing bounds how long TCP takes to deliver the
+    /// two halves — only that it delivers them or the connection fails — so elapsed time carries no
+    /// information here and a timeout or lull window is never an acceptable substitute: any window
+    /// wide enough to be safe under a stalled segment is also wide enough to span the next tick.</para>
+    ///
+    /// <para>Fires only for a prompt that was actually SHOWN, i.e. one that followed real game output
+    /// (<see cref="PromptAllowed"/>). A discarded FES heartbeat is not a frame boundary: it arrives
+    /// precisely when no game output has occurred since the last prompt, so there is no frame for it
+    /// to close. Fires on the Feed thread, AFTER the <see cref="LineReady"/> for the prompt itself, so
+    /// a consumer has seen every line of the frame before being told it ended.</para>
+    /// </summary>
+    public event Action? FrameClosed;
 
     /// <summary>
     /// A player name bracketed by a C05 presence code (here/arriving/departing/
@@ -490,9 +517,46 @@ public sealed class MudStreamParser
             PromptAllowed = false;
             LineReady?.Invoke(new StyledLine(_promptSpans.ToArray(), isPartial: true));
             SetLineStart();     // prompt shown: next game-output frame starts a new line
+            FrameClosed?.Invoke();  // after LineReady - see FrameClosed
         }
         _promptSpans.Clear();
         _promptText.Clear();
+    }
+
+    /// <summary>
+    /// The game session ended — a quit, a drop to the option menu, a death back to it, or a
+    /// disconnect. Discards any half-captured prompt and CLOSES the frame.
+    ///
+    /// <para><b>This exists so that <see cref="FrameClosed"/> has no silent holes.</b> Its whole
+    /// contract is that a consumer may conclude at the boundary that a line MUD2 owed it is never
+    /// coming; a path that ends the session while a frame is open and says nothing leaves that
+    /// consumer waiting forever on a line that certainly will not arrive. The session ending is the
+    /// strongest form of the same statement, not a weaker one, so it fires the same event.</para>
+    ///
+    /// <para>It was a real hole: <c>ExitGameMode</c> and <c>Reset</c> both cleared the capture
+    /// directly. The connection and the view models outlive both (MudSession is reused across
+    /// reconnects; <c>[Drop to menu]</c> keeps the same SidePanelViewModel), so an ending left
+    /// unpaired by a quit would have taken the next award after the NEXT login - the exact drift
+    /// <c>Mucka.ViewModels.KillAwardLedger</c> exists to prevent, reached by another door.</para>
+    ///
+    /// <para>Gated on <see cref="PromptAllowed"/>, which is exactly "a frame is open": it is set by
+    /// every real game newline and cleared by whichever boundary consumes it. Without the gate this
+    /// double-fires, because <c>Reset</c> calls <c>ExitGameMode</c> first and both would report the
+    /// same frame. Firing once per open frame is what makes the event countable rather than merely
+    /// advisory.</para>
+    ///
+    /// <para><c>AbortPromptContext</c> deliberately does NOT do this - a malformed container spills
+    /// its capture as ordinary text and the frame CONTINUES.</para>
+    /// </summary>
+    private void EndFrameOnSessionEnd()
+    {
+        _inPromptContext = false;
+        _promptSpans.Clear();
+        _promptText.Clear();
+        if (!PromptAllowed)
+            return;
+        PromptAllowed = false;
+        FrameClosed?.Invoke();
     }
 
     // Flush pending prompt text into _promptSpans with the current style.
@@ -597,10 +661,11 @@ public sealed class MudStreamParser
         _spans.Clear();
         _text.Clear();
         _pendingReprocess = null;
+        // BEFORE PromptAllowed is re-armed for the next connection: the helper reads it to decide
+        // whether a frame was open. ExitGameMode above has usually closed it already; this catches a
+        // drop that happened outside game mode.
+        EndFrameOnSessionEnd();
         PromptAllowed = true;
-        _inPromptContext = false;
-        _promptSpans.Clear();
-        _promptText.Clear();
         _fewNameActive = false;
         _fewName.Clear();
         _feiLine.Clear();
@@ -742,6 +807,12 @@ public sealed class MudStreamParser
             // Raised AFTER StatsUpdated so a consumer that reacts to the event can already see the new
             // total in the merged snapshot. Not gated on game mode: the save that lands as the world
             // resets is printed on the way OUT of it, and it is the one that closes the books.
+            // Before ScoreSaved, and not merely because it happens to sit on an earlier line: a task
+            // discharged by a kill prints its own payout FIRST and the kill's award second, so the
+            // consumer must already know a task landed by the time the first rise reaches it. See
+            // TaskCompletion for the recordings that fix that ordering.
+            if (GameLineAnalyzer.TryReadTaskCompleted(line.PlainText, out var taskCompleted))
+                TaskCompleted?.Invoke(taskCompleted);
             if (GameLineAnalyzer.TryReadScoreSave(line.PlainText, out var scoreSave))
                 ScoreSaved?.Invoke(scoreSave);
             if (_inGameMode) { var sf = LineAnalyzer.CheckSoundTrigger(line); if (sf != null) EmitSound(sf); }
@@ -925,10 +996,9 @@ public sealed class MudStreamParser
         if (!_inGameMode) return;
         _inGameMode = false;
         _optionMatchLen = 0;
-        // Discard any half-captured prompt — it belongs to the game session just ended.
-        _inPromptContext = false;
-        _promptSpans.Clear();
-        _promptText.Clear();
+        // Discard any half-captured prompt — it belongs to the game session just ended — and CLOSE
+        // the frame, because the session ending is the strongest form of what FrameClosed asserts.
+        EndFrameOnSessionEnd();
         // Drop all stream-scope state — it's only valid within a game session. Leaving a
         // scope open on relog causes text suppression (FEW) or spurious item/exit events;
         // C1.ResetGameState() clears the colour stack (and with it every open scope) silently,

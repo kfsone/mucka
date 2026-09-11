@@ -278,6 +278,11 @@ public sealed class MudSession : IDisposable
     /// <see cref="ScoreSave"/>. The only place the client is told what an event was WORTH; a kill's
     /// award and a flee's cost both arrive here and nowhere else.</summary>
     public event Action<ScoreSave>? ScoreSaved;
+
+    /// <summary>One of the eight tasks was discharged - see <see cref="MudStreamParser.TaskCompleted"/>
+    /// and <see cref="TaskCompletion"/>. Fires ahead of the <see cref="ScoreSaved"/> for the task's own
+    /// payout, which is the fact consumers actually need from it.</summary>
+    public event Action<TaskCompletion>? TaskCompleted;
     public event Action? GameModeEntered;
     public event Action? GameModeExited;
     public event Action<byte[]>? OutgoingBytes;
@@ -359,6 +364,9 @@ public sealed class MudSession : IDisposable
     /// one, or it groups the finish-up window with the wrong cycle. Fires at most once per reset and
     /// not at all when the projection cannot corroborate the line.</summary>
     public event Action? WorldResetLanded;
+
+    /// <summary>Forwarded verbatim from <see cref="MudStreamParser.FrameClosed"/>.</summary>
+    public event Action? FrameClosed;
 
     // ── Public state ───────────────────────────────────────────────────────────
     /// <summary>The current merged stats snapshot (see <c>MergeStats</c>) — always up to date
@@ -603,6 +611,7 @@ public sealed class MudSession : IDisposable
         _parser.StatsUpdated += MergeStats;
         _parser.PersonaWiped += () => PersonaWiped?.Invoke();
         _parser.ScoreSaved += save => ScoreSaved?.Invoke(save);
+        _parser.TaskCompleted += t => TaskCompleted?.Invoke(t);
         _parser.GameModeEntered += OnGameModeEntered;
         _parser.GameModeExited += OnGameModeExited;
         _parser.OutgoingBytes  += bytes => OutgoingBytes?.Invoke(bytes);
@@ -651,6 +660,7 @@ public sealed class MudSession : IDisposable
             AutoResetInitiated?.Invoke();
         };
         _parser.WorldResetLanded  += OnWorldResetLanded;
+        _parser.FrameClosed       += () => FrameClosed?.Invoke();
         _parser.PresenceNameSeen  += OnPresenceName;
         _parser.StatusEffectChanged += _effects.Apply;
         _effects.Changed += state => StatusEffectsChanged?.Invoke(state);

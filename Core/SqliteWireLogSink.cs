@@ -4,14 +4,14 @@ using Microsoft.Data.Sqlite;
 namespace Mucka.Core;
 
 /// <summary>
-/// The wire log's SQLite backend: raw payload bytes, batched, compressed, one row per batch in
-/// <see cref="WireLogDb"/>.
+/// The wire log's SQLite backend: raw payload bytes, batched, one row per batch in
+/// <see cref="WireLogDb"/>. Nothing is compressed - see <see cref="WireLogFraming"/> for why not.
 ///
 /// <para><b>Shape of the work.</b> <see cref="Record"/> is on the read and write loops and does nothing
 /// but take a lock, memcpy the payload into the open batch buffer and compare two longs. When that
 /// buffer crosses <see cref="MaxBatchBytes"/>, or the record just appended is <see cref="MaxBatchAge"/>
 /// past the batch's first, it is swapped out and handed to a single background task, which does the
-/// compression and the INSERT. Nothing on the caller's thread ever compresses or touches SQLite.</para>
+/// INSERT. Nothing on the caller's thread ever touches SQLite.</para>
 ///
 /// <para>The age bound is enforced <i>on the record's own timestamp</i>, in <see cref="Record"/>, so it
 /// fires exactly at the bound rather than at the next tick of a timer. The housekeeping timer below
@@ -21,25 +21,27 @@ namespace Mucka.Core;
 ///
 /// <para><b>What a crash costs.</b> At most the open batch: everything already handed to the writer is
 /// in a committed WAL transaction, and everything still in the builder is in memory only. That is
-/// bounded by the two constants below — 64 KB of traffic or one minute of it, whichever comes first,
+/// bounded by the two constants below - 64 KB of traffic or one minute of it, whichever comes first,
 /// and at MUD2's measured 0.19 KB/s the minute is what fires. <see cref="Flush"/> closes the open batch
-/// and is called on stop, on dispose, and on every path that ends a connection — the graceful
-/// disconnect and the server drop alike — so a normal end of session loses nothing at all; only a hard
+/// and is called on stop, on dispose, and on every path that ends a connection - the graceful
+/// disconnect and the server drop alike - so a normal end of session loses nothing at all; only a hard
 /// kill or a power cut can reach the window.</para>
 ///
-/// <para>One minute rather than five is a paid-for trade, not a free one: see the measured table on
-/// <see cref="WireLogFraming"/>. It costs about 0.04 GB a year to shrink the worst case from five
-/// minutes of lost traffic to one.</para>
+/// <para>One minute rather than five used to be a paid-for trade - a longer batch shared a bigger
+/// compression dictionary, so the shorter window cost real disk. With nothing compressed the only
+/// thing batch length buys is amortising SQLite's ~0.74 KB of per-row overhead, which a minute of
+/// MUD2 (about 12 KB) already reduces to noise. So the minute is now free and there is no reason to
+/// revisit it.</para>
 ///
 /// <para><b>Best-effort throughout.</b> Every failure path here swallows and reports; nothing in a
 /// diagnostic recorder may take the client down or stall the socket. Two failure modes are handled
 /// explicitly rather than swallowed, because both were silent and unbounded:</para>
 /// <list type="bullet">
-///   <item><description><b>A dead writer.</b> If the background task falls over — the disk fills, the
-///   file is deleted underneath it — it sets <see cref="IsFaulted"/>, drops whatever is still queued,
+///   <item><description><b>A dead writer.</b> If the background task falls over - the disk fills, the
+///   file is deleted underneath it - it sets <see cref="IsFaulted"/>, drops whatever is still queued,
 ///   and <see cref="Record"/> stops accepting. Retrying was rejected: if the database cannot be written
 ///   at all, a retry turns one failure into one a minute forever, and a diagnostic log is not worth
-///   that. Continuing to accept was rejected harder — that is a queue with no reader, which is a memory
+///   that. Continuing to accept was rejected harder - that is a queue with no reader, which is a memory
 ///   leak whose size is the rest of the session.</description></item>
 ///   <item><description><b>A wedged writer.</b> Not dead, just far behind (SQLite blocked on a lock, a
 ///   stalled disk). The queue is bounded at <see cref="MaxQueuedBatches"/> and drops the OLDEST batch
@@ -56,12 +58,11 @@ public sealed class SqliteWireLogSink : IWireLogSink
     public const int MaxBatchBytes = 64 * 1024;
 
     /// <summary>Close the batch once the record being appended is this far past the batch's first.
-    /// One minute: see the measured ratio table on <see cref="WireLogFraming"/>, and the note above on
-    /// what the choice costs.</summary>
+    /// One minute - the note above on why that is no longer a trade-off.</summary>
     public static readonly TimeSpan MaxBatchAge = TimeSpan.FromMinutes(1);
 
     /// <summary>Hard cap on batches awaiting the writer. At the bounds above a batch is ~12 KB framed,
-    /// so this is under a megabyte of backlog and about an hour of play — far more slack than a healthy
+    /// so this is under a megabyte of backlog and about an hour of play - far more slack than a healthy
     /// writer ever needs, and a ceiling a wedged one cannot climb past.</summary>
     public const int MaxQueuedBatches = 256;
 
@@ -92,7 +93,7 @@ public sealed class SqliteWireLogSink : IWireLogSink
     ///
     /// <para><b>The database is opened here, on the caller's thread, and this throws if it cannot be.</b>
     /// It used to open lazily on the first batch, which meant the only report of a broken wire log was a
-    /// line in the crash log some minutes later — and this is a feature whose whole design goal is that
+    /// line in the crash log some minutes later - and this is a feature whose whole design goal is that
     /// the owner turns it on once and never looks at it again. A failure that is not reported at start
     /// is a failure that is never reported. The cost of being eager is one empty <c>sessions</c> row and
     /// a created file for a connection that records nothing, which is a fair price and arguably the more
@@ -167,7 +168,7 @@ public sealed class SqliteWireLogSink : IWireLogSink
     }
 
     /// <summary>Closes the open batch, drains the writer, and stamps the session's end time.
-    /// Blocks briefly (bounded) so an app exit cannot lose what is already buffered — the same
+    /// Blocks briefly (bounded) so an app exit cannot lose what is already buffered - the same
     /// shutdown contract SwingLedger and FightHistoryStore use.</summary>
     public void Dispose()
     {
@@ -214,7 +215,7 @@ public sealed class SqliteWireLogSink : IWireLogSink
     }
 
     /// <summary>Called by the channel itself when the bound above forces a batch out. Counts every one
-    /// and reports the first — a report per drop would be its own flood.</summary>
+    /// and reports the first - a report per drop would be its own flood.</summary>
     private void OnBatchDropped(PendingBatch batch)
     {
         var total = Interlocked.Increment(ref _dropped);
@@ -225,7 +226,7 @@ public sealed class SqliteWireLogSink : IWireLogSink
     }
 
     /// <summary>The single background writer. Owns the only write connection for this session's
-    /// lifetime — opened in the constructor, so a database that cannot be written is reported to the
+    /// lifetime - opened in the constructor, so a database that cannot be written is reported to the
     /// caller at start rather than discovered here. <c>WaitToReadAsync</c> completes only once the queue
     /// is both closed and drained, which is the "nothing queued is lost on shutdown" property
     /// <see cref="Dispose"/> relies on.</summary>
@@ -242,7 +243,7 @@ public sealed class SqliteWireLogSink : IWireLogSink
         {
             // Abandoned rather than retried, matching SwingLedger: if the database cannot be written at
             // all, retrying per batch turns one failure into one every minute, forever. But abandoning
-            // has to mean abandoning BOTH ends — before this flag existed, Record and Flush kept feeding
+            // has to mean abandoning BOTH ends - before this flag existed, Record and Flush kept feeding
             // a channel with no reader, and the wire log's failure mode was to eat memory for the rest
             // of the session.
             _faulted = true;
@@ -286,12 +287,12 @@ public sealed class SqliteWireLogSink : IWireLogSink
     }
 
     private const string InsertSql = """
-        INSERT INTO batches (session_id, seq, base_ts_ms, last_ts_ms, records, raw_bytes, codec, data)
-        VALUES ($session, $seq, $base, $last, $records, $raw, $codec, $data);
+        INSERT INTO batches (session_id, seq, base_ts_ms, last_ts_ms, records, data)
+        VALUES ($session, $seq, $base, $last, $records, $data);
         """;
 
-    /// <summary>Writes everything already queued in one transaction. Compression happens here, on this
-    /// background thread, never on a caller's.</summary>
+    /// <summary>Writes everything already queued in one transaction. The framed buffer goes in as-is:
+    /// the payloads inside it are the server's own bytes and nothing here transforms them.</summary>
     private void WriteBatches(SqliteConnection connection, long sessionId, ChannelReader<PendingBatch> reader)
     {
         using var transaction = connection.BeginTransaction();
@@ -303,21 +304,16 @@ public sealed class SqliteWireLogSink : IWireLogSink
         var baseTs  = command.Parameters.Add("$base",    SqliteType.Integer);
         var lastTs  = command.Parameters.Add("$last",    SqliteType.Integer);
         var records = command.Parameters.Add("$records", SqliteType.Integer);
-        var raw     = command.Parameters.Add("$raw",     SqliteType.Integer);
-        var codec   = command.Parameters.Add("$codec",   SqliteType.Integer);
         var data    = command.Parameters.Add("$data",    SqliteType.Blob);
         session.Value = sessionId;
 
         while (reader.TryRead(out var batch))
         {
-            var (usedCodec, blob) = WireLogFraming.Compress(batch.Framed);
             seq.Value     = batch.Seq;
             baseTs.Value  = batch.BaseTsMs;
             lastTs.Value  = batch.LastTsMs;
             records.Value = batch.Records;
-            raw.Value     = batch.Framed.Length;
-            codec.Value   = (int)usedCodec;
-            data.Value    = blob;
+            data.Value    = batch.Framed;
             command.ExecuteNonQuery();
         }
         transaction.Commit();

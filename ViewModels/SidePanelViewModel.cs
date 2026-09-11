@@ -638,18 +638,16 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             if (IsSwing(combatEvent.Kind) && _tickPhase.Observe(combatEvent.TimestampUtc))
                 OnPropertyChanged(nameof(TickPhaseUtc));
             _combatClearGeneration++;
-            // Queued BEFORE the aggregator sees it, so the kill is waiting by the time the award line
-            // that follows it arrives - see _awaitingAward for why that ordering is the whole pairing.
-            if (combatEvent.Kind == CombatEventKind.Kill
-                && combatEvent.NpcName is { Length: > 0 } killed)
-            {
-                if (_awaitingAward.Count >= MaxAwaitingAwards)
-                    _awaitingAward.Dequeue();
-                // The kill event's own stamp is what the fight will resolve with, so the key built
-                // here and the one AwardFor looks up with are the same value by construction.
-                _awaitingAward.Enqueue(
-                    new KillKey(_encounterOrdinal, killed, combatEvent.TimestampUtc.Ticks));
-            }
+            // Queued BEFORE the aggregator sees it, so the ending is waiting by the time the award line
+            // that follows it arrives (KillAwardLedger). The event's own stamp is what the fight will
+            // resolve with, so this key and the one AwardFor looks up with are the same by construction.
+            // NpcFled joins Kill (owner, 2026-09-09: show what an NPC's flight was worth); NpcFleeFailed
+            // does not - the creature is still in the room and nothing was scored.
+            if (combatEvent.Kind is CombatEventKind.Kill or CombatEventKind.NpcFled
+                && combatEvent.NpcName is { Length: > 0 } ended)
+                _killAwards.NoteEnding(_encounterOrdinal, ended, combatEvent.TimestampUtc);
+            if (combatEvent.Kind is CombatEventKind.YouFled or CombatEventKind.YouFleeFailed)
+                OnPlayerFled(combatEvent.TimestampUtc);
             _combatStats.Observe(combatEvent);
             if (_combatStats.HasEncounter)
                 _hasCombatData = true;
@@ -694,10 +692,10 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
                 // fraction-of-max. The dexterity pair beside it went with the deltas: nothing read it.
                 StrengthEffective: stats.Strength,
                 StrengthMax: stats.MaxStrength,
+                // MUD2's own input to what leaving costs - see MudSharp.Combat.FleeWorth.
+                Score: stats.Score,
                 MagicCurrent: stats.CurrentMagic,
-                MagicMax: stats.MaxMagic,
-                // For the flee pill's price only - MUD2 charges a fraction of total score to leave.
-                Score: stats.Score);
+                MagicMax: stats.MaxMagic);
             // Same reasoning as OnCombatEvent above: this fires on every FES heartbeat, which is
             // independent of (and can be faster than) the combat tick, so it goes through the same
             // render gate rather than forcing a rebuild every time.
@@ -1026,7 +1024,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
                 IsUnarmed: false,
                 Roster: roster,
                 StaminaCurrent: deficits.StaminaCurrent, StaminaMax: deficits.StaminaMax,
-                ObjectsCarried: deficits.ObjectsCarried,
+                ObjectsCarried: deficits.ObjectsCarried, Score: deficits.Score,
                 DeadStripHistory: deadStripHistory,
                 MagicCurrent: deficits.MagicCurrent, MagicMax: deficits.MagicMax,
                 AltWeapon: altWeapon,
@@ -1095,7 +1093,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             InCombat: true, HasEncounter: true, WeaponText: weaponText, IsUnarmed: !hasWeapon,
             Roster: roster,
             StaminaCurrent: deficits.StaminaCurrent, StaminaMax: deficits.StaminaMax,
-            ObjectsCarried: deficits.ObjectsCarried,
+            ObjectsCarried: deficits.ObjectsCarried, Score: deficits.Score,
             DeadStripHistory: deadStripHistory,
             MagicCurrent: deficits.MagicCurrent, MagicMax: deficits.MagicMax,
             AltWeapon: altWeapon,
@@ -1109,11 +1107,6 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             FleePill: FleePillResolver.Resolve(
                 inCombat: true, deficits.StaminaCurrent,
                 FleePillResolver.WorstCaseTickDamage(roster), hitsLeft),
-            // The charge is a fraction of SCORE banded by stamina as a fraction of MAXIMUM, so the
-            // maximum is a required input rather than a nicety - a model that can be asked without one
-            // is the absolute-threshold bug this replaced.
-            FleeCostPoints: FleeCostEstimate.Points(
-                deficits.StaminaCurrent, deficits.StaminaMax, deficits.Score),
             // The incoming half of the border language, pooled over everything still swinging at the
             // player. See CombatLiveView.IncomingTempo for why it is a ratio of sums.
             IncomingTempo: IncomingTempoOf(snapshot),
@@ -1155,7 +1148,14 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             // Both null until the projection will commit. Same instrument the survivability line uses
             // (CombatComposition.ComputeOutlook), converted to ticks in this one place.
             TicksToVictory: TicksFromSeconds(outlook.SecondsToKill),
-            TicksToDeath: TicksFromSeconds(outlook.SecondsToDie));
+            TicksToDeath: TicksFromSeconds(outlook.SecondsToDie),
+            // The player's name emphasis, off the same instant the ring's just-lost slice fades from -
+            // TickStaminaLoss already groups a tick's blows into one burst with one arrival time, which
+            // is exactly the granularity this cue wants. Gated on there being a loss at all, for the
+            // same reason StaminaLossUtc is: LastLossUtc is DateTime.MinValue until something lands,
+            // and a default that reads as "damage in 1 AD" is not a timestamp.
+            PlayerTookDamageThisTick: _tickLoss.LostThisTick > 0
+                && TickDamageEmphasis.IsOn(_tickLoss.LastLossUtc, nowUtc, _tickPhase.Anchor));
     }
 
     /// <summary>
@@ -1244,31 +1244,51 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     }
 
     /// <summary>
-    /// Resolves each row's kill award from <see cref="_awardByKill"/>, in place.
+    /// Resolves each row's award from <see cref="_killAwards"/>, in place.
     ///
     /// <para>Called on every rebuild rather than at fold time because the ENCOUNTER FOLD RUNS
-    /// MID-FRAME: the kill line drops the fight count to zero, which closes the encounter and freezes
-    /// its rows, and the award is still a line or two further into that same frame. The award is
-    /// certain to arrive (the frame guarantees it - see <see cref="_awaitingAward"/>); it is certain
-    /// to arrive AFTER the fold, which is the whole problem.</para>
-    ///
-    /// <para>The cleaner fix is to fold at the frame boundary instead, and the parser already knows
-    /// where that is (MudStreamParser.ClosePromptContext) - but nothing surfaces it past the parser,
-    /// so it would mean threading a frame-closed signal through five layers to change the timing of
-    /// one list. Resolving at read time gets the same answer with no new plumbing; if that signal ever
-    /// exists for another reason, folding on it would make this a belt-and-braces rather than the
-    /// mechanism.</para>
+    /// MID-FRAME: the ending line drops the fight count to zero, which closes the encounter and freezes
+    /// its rows, and the award is still a line or two further into that same frame - certain to arrive,
+    /// and certain to arrive AFTER the fold. Resolving at read time is what makes the fold's timing not
+    /// matter.</para>
     ///
     /// <para>Rebuilds are cached and invalidated when an award lands, so this walks the list once per
     /// award rather than once per paint.</para>
     /// </summary>
     private void FillAwards(List<CombatEnding> endings)
     {
+        // Flights already charged on this walk. A player's flee ends EVERY active fight in the
+        // encounter, so a pack flee produces several rows sharing one timestamp - and MUD2 charged for
+        // it once. Printing the figure on each would read as three separate deductions and invite
+        // summing them, so it goes on the first row of the group and the rest stay blank. Blank is
+        // already what "no announcement" looks like here, and the rows are visibly one flee.
+        HashSet<(int Encounter, long AtTicks)>? charged = null;
+
         for (var i = 0; i < endings.Count; i++)
         {
             var ending = endings[i];
+            var isFlight = ending.Outcome is FightOutcome.UFled or FightOutcome.UFledFail;
+
             if (ending.ScoreAwarded is not null)
+            {
+                // A row filled on an earlier walk still holds the group's charge, so it has to be
+                // counted or the second row would take a duplicate on the next rebuild.
+                if (isFlight && ending.EndedUtc is DateTime held)
+                    (charged ??= []).Add((ending.EncounterOrdinal, held.Ticks));
                 continue;
+            }
+
+            if (isFlight)
+            {
+                if (ending.EndedUtc is not DateTime ended
+                    || !(charged ??= []).Add((ending.EncounterOrdinal, ended.Ticks)))
+                    continue;
+                // NEGATIVE: what leaving took, not what it gave. See DrawDeadStrip for the tone.
+                if (_fleeCharges.ChargeFor(ending.EncounterOrdinal, ended) is int points)
+                    endings[i] = ending with { ScoreAwarded = -points };
+                continue;
+            }
+
             if (AwardFor(ending.EncounterOrdinal, ending.Name, ending.EndedUtc) is int award)
                 endings[i] = ending with { ScoreAwarded = award };
         }
@@ -1435,7 +1455,16 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
                 fight.Value,
                 DealtLine(fight),
                 TakenLine(fight),
-                fight.Exchange);
+                fight.Exchange,
+                // The name's emphasis. HealthReadUtc is the arrival of a WOUND DESCRIPTOR, and MUD2
+                // prints one after every landed blow that does not kill - 3,559 descriptors against
+                // 3,561 such hits across 1,197 fights - so it is the sharpest "this creature just took
+                // damage" instant the client has. `diagnose` does not touch it (that is
+                // FightAccumulator.NoteStaminaRead), so a probe cannot fake a blow. What it does
+                // include is damage the player did not deal: NPC-versus-NPC combat is in the corpus,
+                // and a creature being hurt by something else is still a creature being hurt, which is
+                // what the cue claims.
+                TickDamageEmphasis.IsOn(fight.HealthReadUtc, nowUtc, _tickPhase.Anchor));
         }
         return facts;
     }
@@ -2029,109 +2058,66 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             DealtLine(fight), TakenLine(fight),
             AwardFor(encounterOrdinal, fight.NpcName, fight.EndedUtc));
 
-    /// <summary>
-    /// The award paired to one kill. Keyed on WHEN it died as well as what it was called.
-    ///
-    /// <para><b>A creature can be killed more than once in one encounter</b> (owner, 2026-09-07): MUD2
-    /// has in-game mechanisms for re-summoning a dead NPC to kill it again, and the same instance name
-    /// comes back with it. Keyed on name alone, the second rat8's award overwrote the first's - or, with
-    /// an add-only guard, was dropped and both rows then showed the first kill's figure.</para>
-    ///
-    /// <para>The timestamp is what makes it unique, and it is exact rather than approximate: a fight
-    /// resolves with the kill EVENT's own stamp (CombatStatsAggregator.ResolveFight), which is the same
-    /// value the pending queue was given when that event arrived. Two kills of one name cannot share it,
-    /// because the player cannot be engaged with the same creature twice inside one combat slice.</para>
-    /// </summary>
+    /// <summary>The award paired to one ending - see <see cref="KillAwardLedger"/>, which owns the
+    /// pairing and the reason it is scoped to the frame that produced the ending.</summary>
     private int? AwardFor(int encounterOrdinal, string name, DateTime? endedUtc)
-        => endedUtc is DateTime ended
-            && _awardByKill.TryGetValue(new KillKey(encounterOrdinal, name, ended.Ticks), out var award)
-                ? award
-                : null;
+        => _killAwards.AwardFor(encounterOrdinal, name, endedUtc);
 
-    /// <summary>
-    /// Kills still waiting for the score line that follows them, oldest first.
-    ///
-    /// <para>MUD2 prints a kill's award on the line AFTER the kill line - the observation is
-    /// FightHistoryRecorder.OnScoreSave's, which records it as the reason a fight's own
-    /// <c>score_at_end</c> can never hold its own award. So this queue is the pairing: a kill goes on
-    /// when its line lands, and comes off against the next announcement that raised the score.</para>
-    ///
-    /// <para><b>The wait is BOUNDED BY THE FRAME, not open-ended</b> (owner, 2026-09-07): MUD2's
-    /// output is framed by the prompt, and the award arrives before that frame closes - always. It is
-    /// the same guarantee tools/combat/FIGHT-ENDS.md rests on for fight ends, and it is why nothing
-    /// here needs a timeout, a lull window or a notion of an award "going missing". An entry sits on
-    /// this queue for the remainder of one frame at most.</para>
-    ///
-    /// <para><b>It is still an inference about WHICH kill</b>, and that is the part that can be
-    /// wrong: anything else raising the score inside that same frame takes the award the kill was
-    /// waiting for. A tight window and a checkable claim rather than a race with no end - but not a
-    /// guarantee. Nothing downstream depends on it, and a mis-paired figure on a corpse's row is a
-    /// cosmetic error rather than a decision the player would make.</para>
-    ///
-    /// <para>Bounded to the last few kills anyway. Not because an award might never come - it will -
-    /// but because several creatures CAN die in one frame (poison, a pack finishing together), so the
-    /// depth this needs is kills-per-frame, and a cap costs nothing.</para>
-    /// </summary>
-    private readonly Queue<KillKey> _awaitingAward = new();
+    /// <summary>What each kill and creature flight was scored, and what the player's own flights cost.
+    /// Kept out of this class (MAUI-dependent, unreachable from mudsharp.Tests) so the pairing can be
+    /// replayed by a test, like <c>CombatEndingOrder</c>.</summary>
+    private readonly KillAwardLedger _killAwards = new();
+    private readonly FleeChargeLedger _fleeCharges = new();
 
-    private readonly Dictionary<KillKey, int> _awardByKill = new();
-
-    /// <summary>How many unpaired kills to remember - the most that can plausibly die inside one
-    /// frame, since that is the whole window. Small deliberately: if an award has not arrived
-    /// within a few kills, the pairing has already gone wrong and holding the entry forever would only
-    /// let it attach to something much later.</summary>
-    private const int MaxAwaitingAwards = 4;
-
-    /// <summary>MUD2 announced a score change. Pairs it with the oldest kill still waiting for
-    /// one - see <see cref="_awaitingAward"/> for why that pairing is an inference.</summary>
+    /// <summary>MUD2 announced a score change. A rise is an award for the oldest ending still waiting
+    /// in this frame (<see cref="KillAwardLedger"/>); a fall is held as the frame's flight charge
+    /// (<see cref="FleeChargeLedger"/>).</summary>
     public void OnScoreSaved(MudSharp.Models.ScoreSave save)
-        // MainThread, like every other handler on this class. MuckaConnection re-raises ScoreSaved on
-        // the FEED thread with no dispatch anywhere in the chain, and _awaitingAward is a plain Queue
-        // that OnCombatEvent enqueues into from the UI thread - so without this hop the two ends of
-        // this feature race each other on exactly the sequence it exists to handle (a kill line
-        // immediately followed by its score line). Concurrent mutation of a non-thread-safe queue,
-        // reachable on every kill.
+        // MainThread, like every other handler on this class: MuckaConnection re-raises this on the
+        // FEED thread, and both ledgers are plain single-threaded state that OnCombatEvent writes from
+        // the UI thread. The hop is also what makes the frame boundary usable - OnTaskCompleted and
+        // OnFrameClosed hop the same way, so ending, award, task line and frame close reach the ledgers
+        // in the order their lines arrived.
         => MainThread.BeginInvokeOnMainThread(() =>
         {
-            // Only a RISE can be a kill award. A flee is charged against the score and would otherwise
-            // hand a negative "reward" to the corpse of whatever the player just ran from.
-            if (save.Delta is not int delta || delta <= 0 || _awaitingAward.Count == 0)
+            if (save.Delta is not int delta || delta == 0)
+                return;
+            if (delta < 0)
+            {
+                _fleeCharges.NoteScoreFall(-delta);   // the row changes at OnPlayerFled, not here
+                return;
+            }
+            if (!_killAwards.NoteScoreRise(delta))
                 return;
 
-            RecordAward(_awaitingAward.Dequeue(), delta);
-            // The dirty check is a resolved-count comparison, which cannot see an award attaching to a
+            // The dirty check is a resolved-count comparison, which cannot see a figure attaching to a
             // row that already exists - so the cache is invalidated explicitly.
             _deadStripHistoryCachedResolvedCount = -1;
             RefreshCombatDisplay(DateTime.UtcNow);
         });
 
-    /// <summary>
-    /// Stores one paired award, evicting the oldest once <see cref="MaxRememberedAwards"/> is reached.
-    ///
-    /// <para>Bounded because nothing else prunes it: a long session kills thousands of creatures and an
-    /// award is only ever read back by a dead-strip row, and the strip hides everything past what the
-    /// panel has room for behind its "+N earlier" marker. Evicting the oldest therefore drops figures
-    /// for rows that cannot be seen, which is the right thing to lose.</para>
-    /// </summary>
-    private void RecordAward(KillKey key, int delta)
+    /// <summary>See <see cref="KillAwardLedger.NoteTaskCompleted"/>. Hops like OnScoreSaved.</summary>
+    public void OnTaskCompleted(MudSharp.Models.TaskCompletion completed)
+        => MainThread.BeginInvokeOnMainThread(_killAwards.NoteTaskCompleted);
+
+    /// <summary>A frame of game output ended (<see cref="MudSharp.Protocol.MudStreamParser.FrameClosed"/>):
+    /// anything either ledger is still waiting on is never coming. Hops like OnScoreSaved.</summary>
+    public void OnFrameClosed()
+        => MainThread.BeginInvokeOnMainThread(() =>
+        {
+            _killAwards.NoteFrameClosed();
+            _fleeCharges.NoteFrameClosed();
+        });
+
+    /// <summary>The player fled, or tried to. The charge has already gone past - see
+    /// <see cref="FleeChargeLedger"/>.</summary>
+    private void OnPlayerFled(DateTime atUtc)
     {
-        if (_awardOrder.Count >= MaxRememberedAwards)
-            _awardByKill.Remove(_awardOrder.Dequeue());
-
-        // TryAdd rather than an assignment only so a repeat can never silently rewrite an earlier
-        // row's figure. With the kill's own timestamp in the key it should be unreachable - see
-        // AwardFor for why two kills of one name cannot share a stamp.
-        if (_awardByKill.TryAdd(key, delta))
-            _awardOrder.Enqueue(key);
+        if (!_fleeCharges.NoteFled(_encounterOrdinal, atUtc))
+            return;
+        _deadStripHistoryCachedResolvedCount = -1;
+        RefreshCombatDisplay(DateTime.UtcNow);
     }
-
-    /// <summary>One kill, identified well enough to survive a creature being re-summoned and killed
-    /// again inside the same encounter. See <see cref="AwardFor"/>.</summary>
-    private readonly record struct KillKey(int Encounter, string Name, long EndedTicks);
-
-    private readonly Queue<KillKey> _awardOrder = new();
-
-    private const int MaxRememberedAwards = 512;
 
     /// <summary>
     /// The persona occupying this session, from MudSession.CharacterIdentified - the same post-login

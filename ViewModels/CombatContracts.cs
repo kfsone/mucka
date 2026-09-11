@@ -21,14 +21,12 @@ public sealed record CombatStatDeficits(
     // delta-from-raw pair this record used to carry beside it is gone - nothing read it.
     int? StrengthEffective = null,
     int? StrengthMax = null,
+    // Total score, from the same FES snapshot. Carried only as an input to MUD2's own formula for what
+    // leaving costs (MudSharp.Combat.FleeWorth); the top status strip owns the score READOUT.
+    int? Score = null,
     // Magic rides the same FES snapshot. See CombatLiveView.MagicCurrent for why it matters.
     int? MagicCurrent = null,
-    int? MagicMax = null,
-    // Total score, from the same FES heartbeat. Carried only so the flee pill can price a flee
-    // (MudSharp.Combat.FleeCostEstimate) - MUD2 charges a FRACTION of total score to leave, so the
-    // figure is meaningless without it. Not shown anywhere as a score readout; the top status strip
-    // already owns that.
-    int? Score = null)
+    int? MagicMax = null)
 {
     public static readonly CombatStatDeficits None = new(null, null, null);
 }
@@ -118,17 +116,19 @@ public sealed record SessionCombatTotals(
 /// the same <see cref="MudSharp.Combat.ExchangeLine"/> its live tile carried, frozen at the moment it
 /// resolved. A corpse's row is the only place that summary survives, since the tile is gone.</param>
 /// <param name="Taken">And what it did back.</param>
-/// <param name="ScoreAwarded">Points MUD2 announced for this kill, or null.
+/// <param name="ScoreAwarded">What MUD2 announced against this ending, SIGNED, or null.
 ///
-/// <para><b>This is ATTRIBUTED, not stated.</b> The game prints the award on the line AFTER the kill
-/// line, and the kill line is what closes the fight - so no fight record can contain its own award
-/// (FightHistoryRecorder.OnScoreSave says exactly this). The panel pairs each kill with the next
-/// announcement that raised the score.</para>
+/// <para>Positive for a kill and for a creature breaking off and running - points gained. NEGATIVE
+/// for the player's OWN flight, where the announcement is a charge: MUD2 takes a share of score to
+/// let you leave. One flee ends every active fight in the encounter but is charged once, so exactly
+/// one of the rows it produced carries the figure (SidePanelViewModel.FillAwards).</para>
 ///
-/// <para>The wait is bounded: MUD2's output is framed by the prompt and the award arrives before that
-/// frame closes, always. So this is not a race that can time out - what it can get wrong is WHICH
-/// kill, if something else raises the score inside the same frame. Null wherever no announcement
-/// arrived, never a zero.</para></param>
+/// <para><b>This is ATTRIBUTED, not stated.</b> No fight record can contain its own announcement, so
+/// the panel pairs each ending with the score line in the same prompt-bounded frame - KillAwardLedger
+/// for awards (the line after the ending), FleeChargeLedger for the player's charge (the line before
+/// it). Null wherever nothing was paired, never a zero: MUD2 prints nothing for an unscored flight.
+/// What the pairing can still get wrong is WHICH ending, if something else moves the score inside the
+/// same frame; nothing downstream decides on it, so a mis-paired figure is cosmetic.</para></param>
 public readonly record struct CombatEnding(
     string Name, MudSharp.Combat.FightOutcome Outcome, DateTime? EndedUtc,
     int EncounterOrdinal = 0, int ResetOrdinal = 0,
@@ -277,6 +277,9 @@ public sealed record CombatLiveView(
     int? StaminaCurrent,
     int? StaminaMax,
     int? ObjectsCarried,
+    // Total score, for the flee pill's price - see CombatStatDeficits.Score. Stamina, its maximum and
+    // this are exactly MUD2's three inputs to the cost of leaving, so they travel together.
+    int? Score,
     // The dead strip's whole session history, chronological (oldest first, newest last) by
     // EndedUtc - see CombatEndingOrder.Sorted for the sort itself (and how a null EndedUtc is
     // ordered) and SidePanelViewModel.BuildDeadStripHistory for where it runs: prior encounters
@@ -300,13 +303,6 @@ public sealed record CombatLiveView(
     // Null whenever nothing in the pack qualifies - which is also what hides the Ctrl+W chip, so
     // the key is never advertised when it would do nothing. See CombatComposition.ChooseAltWeapon.
     string? AltWeapon = null,
-    // Estimated points a flee would cost right now, or null when there is no price to show - the
-    // inputs are missing, the flee is free, or the stamina is above anything ever measured. The pill
-    // prints it as a parenthetical; null draws nothing there. See MudSharp.Combat.FleeCostEstimate:
-    // the charge is a fraction of SCORE banded by stamina as a fraction of MAXIMUM, from 40 measured
-    // flee events, and it replaced an absolute-stamina model whose free boundary was one persona's
-    // maximum in disguise.
-    int? FleeCostPoints = null,
     // How loudly the flee pill is drawn, between the two seals. See MudSharp.Combat.FleePillResolver
     // for the thresholds and for what the spec's section-10 ban does and does not cover.
     //
@@ -378,36 +374,16 @@ public sealed record CombatLiveView(
     int OpponentsFaced = 0,
     double? EncounterTicks = null,
     double? TicksToVictory = null,
-    double? TicksToDeath = null)
+    double? TicksToDeath = null,
+    // Whether the PLAYER took damage on the tick being drawn - the only thing that emboldens their
+    // name, exactly as RosterRow.TookDamageThisTick is for a creature's. Resolved off
+    // StaminaLossUtc through Mucka.Core.TickDamageEmphasis, which owns the rule and the reason a
+    // per-badge cue is about that badge's own subject rather than about the player globally.
+    bool PlayerTookDamageThisTick = false)
 {
     public static readonly CombatLiveView Idle = new(
         InCombat: false, HasEncounter: false, WeaponText: string.Empty, IsUnarmed: false,
         Roster: MudSharp.Combat.RosterPlan.Empty,
-        StaminaCurrent: null, StaminaMax: null, ObjectsCarried: null,
+        StaminaCurrent: null, StaminaMax: null, ObjectsCarried: null, Score: null,
         DeadStripHistory: Array.Empty<CombatEnding>());
-
-    /// <summary>
-    /// Which measured band <see cref="FleeCostPoints"/> came out of - and, when it is null, WHICH of
-    /// the reasons applies.
-    ///
-    /// <para>Derived rather than passed, because it is a pure function of StaminaCurrent and
-    /// StaminaMax, both of which are already on this record. A second constructor parameter carrying
-    /// the same fact could be set inconsistently with the points figure beside it; this cannot.</para>
-    /// </summary>
-    public MudSharp.Combat.FleeCostBand FleeCostBand =>
-        MudSharp.Combat.FleeCostEstimate.Band(StaminaCurrent, StaminaMax);
-
-    /// <summary>
-    /// What the flee pill must print inside its parenthetical, or null to print none.
-    ///
-    /// <para><b>Renderers must read this and not <see cref="FleeCostPoints"/>.</b> That field is null
-    /// for a free flee AND for a stamina above anything ever measured, so branching on it draws
-    /// "leaving is free" and "leaving costs an unknown amount" as the same empty space. On a weak
-    /// character the unmeasured case covers most of the bar - the evidence tops out at 18.1% of
-    /// maximum, about 5 stamina on a 30-maximum novice - so this is the common reading, not a corner.
-    /// This property returns <c>MudSharp.Combat.FleeCostEstimate.UnmeasuredMarker</c> there, giving
-    /// <c>(-?)</c>, and null only where the price really is nothing.</para>
-    /// </summary>
-    public string? FleeCostParenthetical =>
-        MudSharp.Combat.FleeCostEstimate.Parenthetical(FleeCostBand, FleeCostPoints);
 }

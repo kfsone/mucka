@@ -230,6 +230,72 @@ public class GameLineAnalyzerTests
         Assert.Equal(expectedTotal, save.Total);
     }
 
+    /// <summary>
+    /// The two wordings of the task line, both from recordings. Only the first-time one states a
+    /// count; the repeat wording states none and must still produce the event, because the event's
+    /// job is the payout that follows it and both wordings are followed by one.
+    /// </summary>
+    [Theory]
+    [InlineData("You have completed a Task. This makes a total of 1.", 1)]
+    [InlineData("You have completed a Task. This makes a total of 8.", 8)]
+    [InlineData("You have completed a Task which you have done before.", null)]
+    public void TaskCompleted_IsReadFromEitherWording(string line, int? expectedTotal)
+    {
+        var h = new ParserHarness();
+        h.Feed(line + "\n");
+
+        var task = Assert.Single(h.TaskCompletions);
+        Assert.Equal(expectedTotal, task.TotalCompleted);
+        Assert.Equal(line, task.RawText);
+    }
+
+    /// <summary>Anchored at column 0, so another player quoting the words cannot raise the event and
+    /// swallow the next award. Chat arrives with the speaker and verb ahead of the quote.</summary>
+    [Fact]
+    public void TaskPhraseInsideChat_RaisesNothing()
+    {
+        var h = new ParserHarness();
+        h.Feed("Bob shouts \"You have completed a Task. This makes a total of 1.\"\n");
+
+        Assert.Empty(h.TaskCompletions);
+    }
+
+    /// <summary>
+    /// The whole bug, as it arrived: a task discharged BY A KILL, with the task's flat payout printed
+    /// FIRST and the creature's own award second.
+    ///
+    /// <para>Bytes transcribed from session-rec.mud2.co.uk.20260902-232101.jsonl. The two things this
+    /// pins are the two things the fix rests on: the task line carries NO C1 code at all (it is bare
+    /// ASCII between two 0D 00 0D 0A breaks, unlike the framed line above it), so prose is the only
+    /// handle there is; and the task event is raised BEFORE either score event, so a consumer pairing
+    /// awards to kills already knows to skip the first rise by the time it arrives.</para>
+    /// </summary>
+    [Fact]
+    public void TaskCompletedByAKill_RaisesTheTaskBeforeBothScoreLines()
+    {
+        var h = new ParserHarness();
+        h.Feed(0x9D, 0x9C, 0xFF, 0xFF);   // game mode
+        h.Feed(System.Text.Encoding.Latin1.GetBytes("You have completed a Task. This makes a total of 1."));
+        h.Feed(0x0D, 0x00, 0x0D, 0x0A);
+        h.Feed(System.Text.Encoding.Latin1.GetBytes("(Persona saved on +100 = "));
+        h.Feed(0xF4, 0x9C, 0xFF, 0xFF, 0xFE, 0x9D, 0xFF, 0xFF);
+        h.Feed(System.Text.Encoding.Latin1.GetBytes("5,144"));
+        h.Feed(0xFF, 0xFF, 0xFF, 0xFF);
+        h.Feed(System.Text.Encoding.Latin1.GetBytes(")."));
+        h.Feed(0x0D, 0x00, 0x0D, 0x0A);
+        h.Feed(System.Text.Encoding.Latin1.GetBytes("(Persona saved on +976 = "));
+        h.Feed(0xF4, 0x9C, 0xFF, 0xFF, 0xFE, 0x9D, 0xFF, 0xFF);
+        h.Feed(System.Text.Encoding.Latin1.GetBytes("6,120"));
+        h.Feed(0xFF, 0xFF, 0xFF, 0xFF);
+        h.Feed(System.Text.Encoding.Latin1.GetBytes(")."));
+        h.Feed(0x0D, 0x00, 0x0D, 0x0A);
+
+        Assert.Equal(["task", "+100", "+976"], h.ScoringOrder);
+        Assert.Equal(1, Assert.Single(h.TaskCompletions).TotalCompleted);
+        Assert.Equal([100, 976], h.ScoreSaves.Select(s => s.Delta));
+        Assert.Equal([5144, 6120], h.ScoreSaves.Select(s => s.Total));
+    }
+
     /// <summary>A line that merely mentions the phrase without a parsable total produces no event.
     /// The stat path's PersonaSaved flag is deliberately left as it was - it keys on the phrase, and
     /// changing that is a different question from capturing the numbers.</summary>
