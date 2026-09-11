@@ -1126,8 +1126,7 @@ internal sealed class MappingPage : ContentPage
                     }
                     catch { /* partial or malformed line (mid-write) -- skip, keep scanning */ }
                 }
-                detail.AppendLine($"rx: {rxBytes} bytes total");
-                detail.Append($"decode: uv run tools/mapping/decode_probe.py \"{path}\"");
+                detail.Append($"rx: {rxBytes} bytes total");
             }
             catch (Exception ex)
             {

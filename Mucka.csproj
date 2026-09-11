@@ -122,6 +122,7 @@
 
 	<ItemGroup>
 		<Compile Remove="tools\**" />
+		<Compile Remove="scripts\**" />
 		<Compile Remove="mudsharp\**" />
 		<Compile Remove="mudsharp.Tests\**" />
 		<Compile Remove="Mucka.Terminal\**" />

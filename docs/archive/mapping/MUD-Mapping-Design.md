@@ -1,8 +1,11 @@
 # MUD2 Mapping: Design Proposal (preliminary)
 
+> **Archived.** Mapping is parked (see INTERNAL.md). Capture formats are in
+> `mapping-capture-format.md` beside this file; the `tools/mapping` scripts no longer exist.
+
 Status: DRAFT for discussion. Domain model lives in `MUD-Cartography.md` — this
 document does not restate it; it proposes the data model, analysis pipeline, and
-$map console UX built on top of it. Capture formats are in `tools/mapping/README.md`.
+$map console UX built on top of it.
 
 ## 1. End artifact
 

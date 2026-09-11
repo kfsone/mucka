@@ -2,23 +2,19 @@
 - Make the 'compass' a compass,
 - Chat panel?
 - Right-click context menu with "Copy" or "Dictionary" for individual words?
-- ResetClock: re-derive the FES-suppression model from the wire. The engine assumes
-  a ~500ms server rate limit, but the corpus contradicts a time-based cause: 547
-  stats-container pairs land <500ms apart, 58 under 250ms, and two probes sent in the
-  same millisecond were both answered. Clio's FES.md says the score packet is sent
-  when a stat CHANGES. If suppression is change-driven, every sample the engine
-  discards as a "collision" is the server stating the value did not change - the most
-  informative signal available to something whose whole job is finding the change
-  instant. Also: LogResetDiagnostics defaults to false, so the theory currently cannot
-  be falsified in normal use.
-- Combat: DONE for the fight-end codes (2026-08-26). CombatTracker now reads 08 10/11/12
-  as LineKind.FightEnd and treats it as authoritative that a fight ended even when no regex
-  matches the wording. The question this item asked has an answer, and it is no: a FAILED
-  flee carries the same 08 11 as a real one (19 occurrences, no exceptions), because 08 11
-  is "fight ends - flee" - a REASON the fight ended, not a report of whether anyone got
-  away. The one-word text distinction has no coded source and cannot be replaced. Measured
-  table and the resulting rule ("the code carries the reason, the prose carries the
-  particulars") in tools/combat/FIGHT-ENDS.md.
-  Still open, same area: the 07 "isolated hit" family (bites/stings/kicks/throws) is
-  unparsed, so a wyvern's venomous tail sting - real damage, its own code, its own
-  "Stamina=N/M." line - is invisible to per-fight stats. See MECHANICS_NOTES.md.
+- ResetClock: re-derive the FES-suppression model from the wire. The engine assumes a ~500ms
+  server rate limit; the corpus contradicts a time-based cause (547 stats-container pairs land
+  <500ms apart, 58 under 250ms, two probes sent in the same millisecond were both answered).
+  Clio's FES.md says the score packet is sent when a stat CHANGES. LogResetDiagnostics defaults
+  to false, so the theory cannot be falsified in normal use.
+- Combat: the 07 "isolated hit" family (bites/stings/kicks/throws) is unparsed, so a wyvern's
+  venomous tail sting - real damage, its own code, its own "Stamina=N/M." line - is invisible to
+  per-fight stats.
+- Combat rail: CombatTierResolver.CriticalStaminaFloorTier (the "no lower than T2 at or below
+  6.5 stamina" floor in docs/combat-panel-design.md) exists and is tested but nothing calls it;
+  SidePanelViewModel feeds the stamina tier straight to ResolvePulseTier.
+- Mapping: MappingStore.IsTransientRefusal matches only "blocked by". Movement refusals come in
+  three families - hard no-exit ("You cannot go north from here."), blocked by an entity
+  (transient), and terrain/conditional ("The forest becomes too dense...", "Rain has swollen the
+  river...", "The gap is too narrow... without dropping everything") which are weather- or
+  encumbrance-gated and can succeed on retry. The third family is recorded as no-edge.

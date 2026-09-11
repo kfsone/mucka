@@ -1,5 +1,9 @@
 # MUD2 Cartography — Session Handoff
 
+> **Archived.** Mapping is parked (see INTERNAL.md). The `tools/mapping` scripts this document
+> names no longer exist; the capture format they read is in `mapping-capture-format.md` beside
+> this file. The code it describes (`Core/Mapping`, `Pages/MappingPage.cs`) is still in the tree.
+
 **Last updated: 2026-07-09. Read this first when resuming mapping work.**
 
 > **2026-07-09 correction — the live model is C#, not the DB.** The derived map

@@ -3,7 +3,6 @@
 .idea
 .vs
 .vscode
-INTERNAL.md
 
 bin/
 obj/
@@ -34,44 +33,28 @@ AppPackages/
 # macOS
 .DS_Store
 
-# Misc
+# Copies of Bartle's FE documentation; the originals are in G:\Source\mud-fe.
 Bartle.MUD2-C1-Codes.txt
-MUD-ClientProto.md
+fecodes.txt
 screen.png
 android-screen.png
-fecodes.txt
 
 # Python
 __pycache__/
 *.pyc
 
-# Analysis and research tooling is NOT committed. It is scratch: scripts written against one
-# session's question, their scratch databases, and the notes around them. Untracked wholesale on
-# 2026-09-04 (44 files) after an agent added 47 more. The files stay on disk; nothing here is
-# deleted, it just does not belong in the repo.
-#
-# Consequence to respect: nothing tracked may DEPEND on a path under tools/. A test fixture that
-# a build needs lives under mudsharp.Tests/Fixtures/Data/ instead — see npc_group_fixture.txt,
-# which was moved there for exactly this reason.
+# Scratch. An agent may write a script here while it works and deletes it when the work is
+# committed. Nothing tracked may depend on a path under tools/.
 tools/
 
-# Captured wire data from the operator's own play sessions. Recordings and clogs are his game data
-# and are not committed, however useful they are as test input.
-#
-# A test that needs real bytes does NOT get to be optional. Making one skip when its capture is
-# absent was tried once (WyvernPoisonDeathReplayTests) and is a bad precedent: a protocol test that
-# passes silently on a fresh clone is worse than no test, because it looks like coverage. The rule
-# instead is to commit a REDACTED cut - only the frames under test, no tx records of what the owner
-# typed, no stat/inventory/who rows, nothing identifying - and to negate it here by name.
+# The operator's own play sessions are not committed. A test that needs real bytes commits a
+# REDACTED cut (only the frames under test, no tx records, nothing identifying) and negates it
+# here by name; it never skips when the file is absent.
 *.jsonl
-mudsharp.Tests/Fixtures/Data/*.jsonl
 !mudsharp.Tests/Fixtures/Data/wyvern-poison-death.jsonl
 
-# Files whose names begin with "--": always a mistyped command-line flag that a tool then treated
-# as an output path. One such (`tools/combat/--db`, 217 KB of SQLite from a misplaced `--db`) was
-# committed and had to be purged from history. The pattern is never a real filename here.
-tools/**/--*
+# A filename starting "--" is a mistyped command-line flag that became an output path.
 --*
 
-# Allow displacement of the mucka.exe for testing, don't commit it.
+# A displaced mucka.exe for testing.
 mucka.exe

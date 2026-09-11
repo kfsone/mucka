@@ -1,0 +1,143 @@
+Mobile	Area	STR	DEX	STA	Dislikes	Level	PACIF	VPACIF	FPACIF	Speed	React	Interv.	MS	KS	Points
+Dragon	Druid Isle	200	200	800	Creatures	Novice	50	50	50	8	0	No	✓	✓	1,950
+Giant0	Goblin Realm	310	40	280	Creatures	Champion	10	20	1	8	2	10			678
+Giant2	Goblin Realm	300	40	280	Creatures	Champion	10	20	1	8	2	10			654
+Giant1	Goblin Realm	230	50	280	Creatures	Champion	10	20	1	8	2	10			654
+Giant3	Goblin Realm	250	50	250	Creatures	Champion	10	20	1	8	2	10			636
+Vampire	Evil Wood	100	80	100	Players	Novice	1	1	1	17	2	100	✓		354
+Wraith	Evil Wood	80	120	60	Players	Novice	100	10	10	11	1	No	✓		238
+Mammoth0	North Mountain	200	45	230	Players	Novice	500	500	500	18	2	72		✓	200
+Skeleton1	Roaming	72	100	80	Players	Novice	100	1	70	20	2	100	✓		226
+Tiger	Pagoda	165	60	175	Creatures	Novice	5	1	1	15	2	55		✓	360
+Santa Claus	Roaming	130	80	160	None	Novice	1000	1	980	8	2	0	✓		200
+Lion1	Graveyard	155	60	170	Creatures	Novice	800	1	INF	12	2	49		✓	330
+Griffin	Keep	120	90	140	Players	Novice	1	1	1	23	2	100	✓		306
+Wolf	Yew Tree	140	70	150	Creatures	Novice	1	1	1	30	2	100		✓	298
+Octopus	Sea	150	100	95	Fish	Novice	60	60	60	25	1	0		✓	402
+Crocodile	Swamp	160	40	220	Creatures	Protector	8	8	8	39	2	No		✓	348
+Skeleton0/2	Roaming	80	80	80	Players	Novice	100	1	70	20	2	100	✓		202
+Wyvern	Keep	140	65	130	Creatures	Novice	1	1	1	40	2	100	✓	✓	238
+King Dwarf	Dwarf Realm	90	95	100	Players, Undead	Novice	30	1	1	7	SC-2	75	✓		204
+Old Man	Roaming	65	125	90	Players	Novice	400	50	380	20	1	23			154
+Thief	Roaming	90	125	80	Players	Legend	200	50	180	15	1	No			202
+Narwhal	Sea	110	65	125	Players	Novice	60	60	60	7	3	0		✓	196
+Shark0/1	Sea	90	80	120	Players	Novice	14	5	14	4	3	0		✓	178
+Stegosaurus	Roaming	120	30	250	Players	Novice	1000	1000	1000	33	4	74		✓	186
+Stag	Gardens	120	60	120	Players	Swordsman	50	50	50	40	2	0		✓	178
+Giant Snake	Pagoda	120	60	120	Creatures	Novice	1	1	1	4	0	No		✓	292
+Snow Leopard	North Mountain	110	95	80	Mammals	Novice	100	100	100	10	2	No		✓	202
+Ghost	Pagoda	90	150	43	Players	Novice	30	1	1	3	1	10	✓		192
+Golem	Sanctum	110	60	120	Creatures	Novice	1	1	1	4	2	100	✓		112
+Pony	North Mountain	105	55	130	Players	Novice	500	500	500	20	2	0		✓	40
+Ogre	Cave	160	32	150	Creatures	Novice	1	1	1	30	2	100			158
+Grizzly	North Mountain	170	50	90	Mammals	Superhero	20	20	20	31	2	0			322
+Ghoul	Graveyard	110	50	90	Players	Novice	1	1	1	11	2	No	✓		162
+Spider	Ruin	110	60	110	Creatures	Novice	10	10	10	4	2	13			150
+Maiden	Keep	80	110	66	Players	Novice	400	1	380	5	1	18			128
+Hunchback	Monastery	100	80	85	Players	Yeoman	50	1	30	2	2	0			150
+Ape0	Pagoda	120	45	120	Players	Novice	20	5	1	25	1-3	15		✓	164
+Mermaid	Sea	65	100	75	Players	Novice	500	500	480	7	2	5	✓	✓	120
+Monk	Pagoda	75	85	90	Players	Novice	INF	INF	INF	40	2	100			90
+Bison	Roaming	110	40	135	Players	Novice	400	100	400	55	2	60		✓	138
+Reindeer	Roaming	120	40	120	Players	Novice	400	50	400	9	2	59		✓	50
+Surly Dwarf Guards	Dwarf Realm	80	75	90	Players, Undead	Novice	8	1	1	17	SC-2	100	✓		108
+Dwarf48	Dwarf Realm	80	75	90	Players, Undead	Hero	1	1	1	23	SC-2	0	✓		108
+Albatross	Sea	35	110	120	Players, Rodents	Protector	300	300	300	20	1	0			130
+Goat	Roaming	110	50	100	Creatures	Swordsman	20	20	20	20	2	0		✓	118
+Apes1-7	Pagoda	110	45	110	Players	Novice	80	5	1	25	1-3	15		✓	128
+Ape8	Pagoda	110	45	110	Players	Novice	15	5	1	25	1	15		✓	128
+Ape9	Pagoda	110	45	110	Players	Novice	15	5	1	6	1-3	15		✓	128
+Ape10	Pagoda	110	45	110	Players	Novice	80	5	1	25	1-3	15		✓	128
+Ape11	Pagoda	110	45	110	Players	Novice	80	5	1	25	1-3	15		✓	128
+Burly Dwarf Guards	Dwarf Realm	75	75	90	Players, Undead	Novice	8	1	1	17	SC-2	100	✓		108
+Ox	Roaming	120	30	150	Players	Novice	1000	100	1000	70	2	50		✓	59
+Boar	Gardens	80	55	115	Rodents	Novice	20	5	20	25	2	0		✓	115
+Lynx	North Mountain	85	90	65	Birds	Novice	40	40	40	14	2	0		✓	117
+Spectre	Keep	105	60	40	Players	Novice	5	1	1	9	2	100	✓		214
+Phoenix	Pagoda	55	110	75	Players, Rodents	Protector	INF	1	INF	20	1	0	✓		110
+Eagle	Dwarf Realm	66	110	65	Players, Rodents	Protector	10	1	10	20	1	No			90
+Ram0	Roaming	80	60	100	Players	Swordsman	10	10	10	40	2	0		✓	106
+Goblin10	Cave	110	110	40	Players	Novice	1	1	1	9	1-2	STA*20	✓		45
+Banshee	Swamp	100	60	80	Players	Swordsman	30	30	30	40	2	No	✓		106
+Ichthyosaurus	Sea	68	44	152	Creatures	Novice	55	55	55	15	4	63		✓	118
+Alligator	Swamp	135	60	60	Mammals	Protector	25	25	25	28	2	No		✓	210
+Swan	Gardens	35	110	100	Players, Rodents	Protector	INF	INF	INF	20	1	0			38
+Dwarf37	Dwarf Realm	STA	70	80	Players, Undead	Novice	25	1	12	23	SC-2	20	✓		96
+Turkey	Roaming	50	110	75	Players, Rodents	Protector	80	80	80	5	1	0			30
+Dwarf16	Dwarf Realm	70	65	95	Players, Undead	Hero	20	1	10	23	SC-2	0	✓		114
+Queen Dwarf	Dwarf Realm	60	100	65	Players, Undead	Novice	25	1	12	23	SC-2	20	✓		78
+Ape12	Pagoda	110	45	85	Players	Novice	1	5	1	13	1-3	90		✓	128
+Water-snakes	Under Well	60	70	90	Players	Novice	20	1	20	4	0	No		✓	86
+Dwarf17	Dwarf Realm	70	65	85	Players, Undead	Swordsman	20	1	10	23	SC-2	0	✓		102
+Pterodactyl	Roaming	75	120	40	Mammals, Birds	Warrior	30	30	30	15	4	0		✓	62
+Thickset Dwarf Guards	Dwarf Realm	70	80	60	Players, Undead	Novice	8	1	1	17	SC-2	100	✓		72
+Hefty Dwarf Guards	Dwarf Realm	75	70	60	Players, Undead	Novice	8	1	1	17	SC-2	100	✓		72
+Basilisk	Grandfather Clock	110	25	120	Creatures	Novice	20	1	20	11	1	50	✓	✓	332
+Dwarf18	Dwarf Realm	70	65	65	Players, Undead	Warrior	20	1	10	23	SC-2	0	✓		78
+Snowbird	North Mountain	40	220	30	Players, Rodents	Protector	200	200	200	20	0	0			49
+Goose	Roaming	30	90	90	Players, Rodents	Protector	INF	INF	INF	20	2	0			34
+Snugglepuss	Il Castellare	100	60	50	Rats	Novice	60	1	60	40	2	0	✓	✓	10
+Marmot	North Mountain	30	100	80	Players	Novice	500	500	500	40	1	10		✓	50
+Rat0	Cottage	30	75	100	Players	Novice	1	1	1	21	0-8	5		✓	42
+Pike	Rivers	58	85	52	Fish	Novice	INF	INF	INF	13	3	0		✓	72
+Zombie9	Graveyard	90	50	50	Players	Novice	700	1	670	29	SC-?5	100	✓		38
+Electric Eel	Rivers	60	140	30	Players	Novice	1	1	1	9	2	No		✓	51
+Dwarf22	Dwarf Realm	70	90	40	Players, Undead	Novice	20	1	10	23	SC-2	18	✓		48
+Dwarf35	Dwarf Realm	60	90	45	Players, Undead	Novice	25	1	12	23	SC-2	16	✓		54
+Stocky Dwarf Guards	Dwarf Realm	70	70	50	Players, Undead	Novice	8	1	1	17	SC-2	100	✓		60
+Goblin5	Cave	110	110	20	Players	Novice	1	1	1	9	1-2	STA*20	✓		38
+Goblin11/12	Cave	110	110	20	Players	Novice	1	1	1	9	1-2	STA*20	✓		34
+Dwarf21	Dwarf Realm	70	80	40	Players, Undead	Warrior	20	1	10	23	SC-2	0	✓		48
+Beetle	Roaming	110	20	110	Players	Novice	100	100	100	31	2	7			46
+Fox	Gardens	80	100	25	Birds, Rodents	Novice	50	50	50	40	2	0		✓	40
+Dwarf24	Dwarf Realm	80	65	40	Players, Undead	Novice	20	1	10	23	SC-2	15	✓		48
+Wasp	Gardens	90	90	25	Humanoids	Protector	1	1	1	23	2	0			42
+Dwarf29	Dwarf Realm	40	110	40	Players, Undead	Novice	20	1	10	23	SC-2	20	✓		48
+Dwarf30/31	Dwarf Realm	60	70	45	Players, Undead	Novice	25	1	12	23	SC-2	15	✓		54
+Snowperson	Roaming	40	30	140	None	Novice	1000	10	1000	39	2	0	✓		20
+Dwarf27	Dwarf Realm	20	65	100	Players, Undead	Novice	20	1	10	23	SC-2	22	✓		120
+Zombie8	Cottage	95	40	40	Players	Novice	700	1	670	29	SC-?5	100	✓		38
+Dwarf36	Dwarf Realm	50	70	45	Players, Undead	Novice	25	1	12	23	SC-2	14	✓		54
+Otter	Rivers	45	105	32	Fish	Novice	INF	INF	INF	17	1	0		✓	49
+Coot	Gardens	35	110	35	Rodents	Protector	INF	INF	INF	20	1	0			18
+Zombie0-7	Roaming	80	40	40	Players	Novice	700	1	670	29	SC-?5	100	✓		38
+Dwarf38	Dwarf Realm	60	50	45	Players, Undead	Novice	25	1	12	23	SC-2	12	✓		54
+Dwarf41	Dwarf Realm	40	70	45	Players, Undead	Novice	5	1	2	25	SC-2	11	✓		54
+Dwarf28	Dwarf Realm	90	35	40	Players, Undead	Novice	20	1	10	23	SC-2	12	✓		48
+Raven	Roaming	40	110	25	Players, Rodents	Protector	200	200	200	20	1	0			34
+Seagull	Sea	40	110	25	Players, Rodents	Protector	300	300	300	20	1	0			33
+Dwarf20	Dwarf Realm	70	65	25	Players, Undead	Novice	20	1	10	23	SC-2	13	✓		30
+Crab	Sea	60	60	30	Players	Novice	INF	INF	INF	30	2	-2			34
+Mongoose	Pagoda	30	75	40	Players	Novice	1	1	1	44	1	5		✓	46
+Hare	Roaming	35	80	30	Humanoids	Novice	20	20	20	10	1	0		✓	26
+Parrot	Roaming	40	110	20	Players, Rodents	Protector	100	100	100	20	1	0			30
+Crow	Keep	40	110	20	Players, Rodents	Protector	10	1	1	20	1	No		✓	28
+Dwarf26	Dwarf Realm	30	65	40	Players, Undead	Novice	20	1	10	23	SC-2	15	✓		48
+Jellyfish	Sea	30	120	20	Players	Novice	1	1	1	4	2	No		✓	66
+Rabbit	Roaming	35	70	30	None	Novice	100	100	100	9	1	0		✓	26
+Piglet	Monastery	30	40	60	Players	Novice	200	200	200	10	2	5		✓	25
+Dwarf32	Dwarf Realm	60	70	20	Players, Undead	Novice	25	1	12	23	SC-2	11	✓		24
+Magpie	Roaming	30	110	20	Players, Rodents	Protector	300	300	300	20	1	0			22
+Viper	Roaming	30	110	20	Creatures	Hero	20	20	20	9	0	0		✓	33
+Scorpion	Gardens	50	100	15	Players	Protector	INF	INF	INF	40	2	0			50
+Rat1-21	Cottage	30	75	25	Players	Novice	1	1	1	21	0-8	5		✓	22
+Dwarf23	Dwarf Realm	70	25	40	Players, Undead	Novice	20	1	10	23	SC-2	11	✓		48
+Dwarf33	Dwarf Realm	60	70	15	Players, Undead	Novice	25	1	12	23	SC-2	10	✓		18
+Goblin1-4/6-9	Cave	110	110	5	Players	Novice	1	1	1	9	1-2	STA*20	✓		24
+Dwarf39/40	Dwarf Realm	40	50	25	Players, Undead	Novice	40	1	20	33	SC-2	6	✓		30
+Mole	Cottage	40	57	21	Insects	Novice	100	100	100	23	2	0		✓	20
+Dwarf19	Dwarf Realm	70	65	10	Players, Undead	Novice	20	1	10	23	SC-2	10	✓		12
+Dwarf42/43 (Old)	Dwarf Realm	50	45	20	Players, Undead	Novice	35	1	17	29	SC-2	5	✓		24
+Carp	Pagoda	15	140	15	Players	Novice	INF	INF	17	20	2	0		✓	26
+Bee0-9	Gardens	10	150	10	Players	Novice	10	10	10	10	1	0			5
+Dove	Gardens	20	110	10	Players, Rodents	Protector	INF	INF	INF	20	5	0			14
+Canary	Dwarf Realm	10	110	15	Players, Rodents	Protector	200	200	200	19	0	0		✓	14
+Mouse0	Admiral Bombow	10	110	10	Players	Novice	50	50	50	40	1	0		✓	14
+Stickleback	Rivers	10	110	10	Players	Novice	50	50	50	13	2	0		✓	14
+Centipede	Roaming	10	70	15	Players	Protector	INF	INF	INF	43	2	0			32
+Hedgehog	Roaming	20	80	5	Players	Novice	INF	INF	INF	19	2	0		✓	4+
+Dragonfly	Roaming	5	130	4	Players	Novice	50	50	50	4	1	0			10
+Dwarf44-47 (Young)	Dwarf Realm	30	25	5	Players, Undead	Novice	10	1	5	17	SC-2	60	✓		6
+Baby Dwarf	Dwarf Realm	30	25	5	Players, Undead	Novice	10	1	5	17	SC-2	60	✓		6
+Firefly0-4	Roaming	8	120	1	Players	Novice	INF	INF	INF	20	1	0			1
+Butterfly	Roaming	5	30	1	Players	Novice	100	100	100	10	2	0			10

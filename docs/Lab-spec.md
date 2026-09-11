@@ -121,40 +121,18 @@ Stamina and its maximum come from the most recent `sc`/`qs` or inline `(cur/max)
 the row says how stale that reading is - a flee resolved against a stamina from four ticks ago is a
 different quality of sample and must be distinguishable, not silently mixed in.
 
-## The flee equation, as it currently ships
+## The flee equation
 
-`MudSharp.Combat.FleeCostEstimate` - a three-band step function on stamina as a fraction of maximum:
-
-| stamina / max | charge |
-|---|---|
-| < 6% | free |
-| 6% - 15.2% | 2.25% of score |
-| 15.2% - 18.1% | 4.5% of score |
-| > 18.1% | refuses to quote (`cost:?`) |
-
-**Two problems with it, and the second is the serious one.**
-
-*It disagrees with the new observations.* At 13/68 (19.1% of maximum) the charge was 7.7% of score,
-where the model's top band peaks at 4.5% and then declines to answer. At full stamina it was 20.9% and
-21.6% on two separate personas and servers, which is far outside anything it describes. And the owner's
-account - a linear curve, zero at 6.0 stamina absolute, rising with stamina remaining - is not a step
-function at all.
-
-*Its evidence cannot be found.* The class remarks cite "40 flee events with score captured before and
-after" and a second pass over 38 of them finding 2.25% on 36. There is no script, no table, no notes
-file and no query anywhere in this repo that produces those numbers; grepping for the specific scores
-they quote (7,873 / 88,308) returns nothing. The only recorded flee measurement in the corpus is
-`tools/combat/MECHANICS-VERIFICATION.md`, which says **n=1** - fled at 19/105, lost 2,079 from 46,416,
-4.48% - and rates the bands INSUFFICIENT DATA.
-
-So the shipped model's stated provenance is a scratchpad that no longer exists, and the bands may well
-be an artifact of exactly the extraction bug described above. `flees --scan` producing a real,
-re-runnable table is what settles it. Do not patch `FleeCostEstimate` before that table exists.
+The client prices a flee with `MudSharp.Combat.FleeWorth`, which implements Bartle's formula
+(`MUD2-flee-cost.md`). `flees --scan` should produce a re-runnable table of every recorded flee
+with the formula's prediction beside the observed charge, so the formula is checked against the
+whole corpus rather than the handful of flights in `FleeWorthTests`.
 
 ### Observations to reproduce first
 
 Hand-transcribed from the owner's scroll, so the first job is to recover these same events from
-`wire.db` and check the tool agrees with the transcription.
+`wire.db` and check the tool agrees with the transcription. The two full-stamina rows match the
+formula with zero bounties (371.7 and 438.9 predicted).
 
 | fight | score before | sta | max | cost | cost/score |
 |---|---|---|---|---|---|
@@ -169,8 +147,6 @@ Hand-transcribed from the owner's scroll, so the first job is to recover these s
 - The two `<=` rows had lines elided in transcription; their real stamina is at or below what is shown.
 - **The magpie row may not be a flee.** No flee command appears in it, 51% is unlike anything else, and
   it lands on exactly 98 - one point under the level-100 threshold. Recover the frame before using it.
-- **Regime gap.** The shipped bands claim scores 7,873 to 88,308 at levels 5-9. Every row above is
-  score 200-2,094 at levels 1-4. If both are real, there is a term nobody has looked for.
 
 ## Stat facts the extractor may rely on
 

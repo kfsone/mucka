@@ -1,5 +1,8 @@
 # Mapping work-in-progress: context handoff
 
+> **Archived.** Mapping is parked (see INTERNAL.md). The `tools/mapping` scripts named below no
+> longer exist; the capture format is in `mapping-capture-format.md` beside this file.
+
 Prompt for a fresh session picking up the MUD2 mapping effort. State as of 2026-06-12.
 
 **2026-07-09 update:** `mapdb.sqlite` is confirmed dormant -- the live model is `MapGraph`

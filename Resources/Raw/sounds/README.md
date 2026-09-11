@@ -14,14 +14,6 @@ anything WITHOUT it is not Clio's and is not covered by that licence - see "Muck
 
 `mucka.flee_failed.wav` is the owner's own recording/production: 44.1 kHz 16-bit stereo, 470 ms.
 
-`tools/sounds/make_flee_failed.py` generated the earlier, superseded versions and is kept as history -
-it records what was tried and why. **It refuses to overwrite an existing file**, so running it out of
-curiosity cannot destroy the shipped sound; `--force` is required to replace it. Its final state was a
-sawtooth at 106 Hz, 280 ms, harmonics stopped at the 24th, after three rounds of notes: a first attempt
-with a pitch bend, a detuned voice and a two-burst gate was rejected as too complex ("a buzzer is not a
-composition"); the single-note square that replaced it was rejected as not harsh enough; the saw
-version was overtaken by the owner recording their own
-
 It fires on `You have fled by trying to go <dir>.`, the worst-value outcome MUD2 offers: the points
 are charged, the persona can lose an experience level, the weapon drops out of your hands, every fight
 you were in ends, and you are still standing in front of whatever you were running from. It is
