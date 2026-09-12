@@ -53,7 +53,7 @@ public readonly record struct ResetObservation(
 /// ThreadPool thread. All state is guarded by <c>_lock</c>. Lock order engine-><c>_fesLock</c>: the only
 /// outward calls under the lock are the send / discovery-hold callbacks.</para>
 /// </summary>
-public sealed class ResetClock : IDisposable
+internal sealed class ResetClock : IDisposable
 {
     private const double MinuteUncertaintySec = 30.0;
     private const long PausedRetryMs = 400;

@@ -4,7 +4,7 @@ namespace Mucka.Behaviors;
 /// Marks an element so pointer interaction never moves keyboard focus to it - its commands and
 /// gesture recognizers still fire, but the command box keeps the keyboard (Invariant #0).
 ///
-/// <b>You almost certainly do not need this.</b> <see cref="FocusGuard"/> covers every element
+/// <b>You almost certainly do not need this.</b> <c>FocusGuard</c> covers every element
 /// under the game page automatically, by tree position, including lazily created ones - adding a
 /// widget requires wiring up nothing at all.
 ///

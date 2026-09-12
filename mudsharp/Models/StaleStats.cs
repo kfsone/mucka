@@ -8,7 +8,7 @@ namespace MudSharp.Models;
 /// full FES snapshot refreshes all of <see cref="AllStats"/>.
 /// </summary>
 [Flags]
-public enum StaleStats
+internal enum StaleStats
 {
     None      = 0,
     Stamina   = 1 << 0,

@@ -52,7 +52,7 @@ public sealed class MudSessionOptions
     public TimeSpan InventoryProbeTickClearance { get; init; } = TimeSpan.FromMilliseconds(50);
 
     /// <summary>Tunables for the reset-time projection / staged precision burst (see ResetClock).</summary>
-    public ResetClockOptions ResetClock { get; init; } = new();
+    internal ResetClockOptions ResetClock { get; init; } = new();
 
     /// <summary>
     /// How long to wait after a room description arrives (<c>RoomEntered</c>) for an accompanying

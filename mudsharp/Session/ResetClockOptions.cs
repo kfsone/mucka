@@ -5,7 +5,7 @@ namespace MudSharp.Session;
 /// near the start, then stop" model. Times are wall durations; the engine works in a monotonic
 /// millisecond domain internally.
 /// </summary>
-public sealed class ResetClockOptions
+internal sealed class ResetClockOptions
 {
     /// <summary>Coarse readings must have plateaued to at least this +/- (seconds) before discovery arms.
     /// At a 5 s heartbeat the intersection collapses to ~2.5 s the first time two beats straddle a

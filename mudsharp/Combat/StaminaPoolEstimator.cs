@@ -247,7 +247,7 @@ public sealed record StaminaPoolEstimate(
 ///
 /// <para>Pure and primitive-typed, so mudsharp.Tests exercises the arithmetic directly.</para>
 /// </summary>
-public static class StaminaPoolEstimator
+internal static class StaminaPoolEstimator
 {
     /// <summary>
     /// Species words whose creatures regenerate fast enough that "damage required to kill" and

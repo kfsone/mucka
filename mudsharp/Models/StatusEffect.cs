@@ -39,7 +39,7 @@ public enum EffectSign
 /// <see cref="Started"/> => present, <see cref="FullyWoreOff"/> => absent,
 /// <see cref="PartiallyWoreOff"/> => still present (a candidate for a fade cue).</para>
 /// </summary>
-public enum EffectTransition
+internal enum EffectTransition
 {
     Started,          // 11 02 enhance start / 11 00 glow
     PartiallyWoreOff, // 11 03 "Some of your magical X has worn off" - still active
@@ -51,7 +51,7 @@ public enum EffectTransition
 /// is decoded. The stat identity and direction come from the phrase the code brackets
 /// (the code itself is ambiguous - all six stat spells share <c>11 02</c>).
 /// </summary>
-public sealed record StatusEffectChange(
+internal sealed record StatusEffectChange(
     StatusEffectKind Kind,
     EffectSign Sign,
     EffectTransition Transition,

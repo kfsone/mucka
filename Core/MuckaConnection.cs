@@ -67,7 +67,7 @@ public sealed class MuckaConnection : IAsyncDisposable
     /// <summary>The reset landed, corroborated - see <see cref="MudSession.WorldResetLanded"/>. Use
     /// this, not <see cref="AutoResetInitiated"/>, for anything marking the world-to-world boundary.</summary>
     public event Action? WorldResetLanded;
-    /// <summary>Forwarded from <see cref="MudStreamParser.FrameClosed"/>. Read-loop thread, like
+    /// <summary>Forwarded from <see cref="MudSharp.Protocol.MudStreamParser.FrameClosed"/>. Read-loop thread, like
     /// <see cref="ScoreSaved"/>.</summary>
     public event Action? FrameClosed;
     public event Action<StatusEffectState>? StatusEffectsChanged;

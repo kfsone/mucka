@@ -35,7 +35,7 @@ namespace MudSharp.Combat;
 /// sleeping without recovering, which is not a thing. Recorded so that when the code is identified,
 /// this is where the clause belongs.</para>
 /// </summary>
-public static class ChaseLinkPolicy
+internal static class ChaseLinkPolicy
 {
     /// <summary>
     /// Stamina recovery across the gap, as a fraction of the player's maximum, above which the next
@@ -127,7 +127,7 @@ public static class ChaseLinkPolicy
 /// supportable healing rate at all - about 0.25 stamina per second of disengagement against a ~42
 /// pool, so roughly 1.4 stamina over a median gap.</para>
 /// </summary>
-public static class ChaseLinker
+internal static class ChaseLinker
 {
     /// <summary>
     /// The observations to actually estimate from: chains joined, folds dropped.

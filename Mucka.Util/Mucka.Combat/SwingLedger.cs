@@ -117,7 +117,7 @@ public sealed class SwingLedger : IDisposable
 
     /// <summary>
     /// Per-species stamina pool bands, from the censored-interval estimator (see
-    /// <see cref="StaminaPoolEstimator"/>).
+    /// <c>MudSharp.Combat.StaminaPoolEstimator</c>).
     ///
     /// <para><b>Filled at warm-up only, and therefore a session behind.</b> Unlike
     /// <see cref="Damage"/> and <see cref="Reach"/>, which fold an encounter's own blows in as it

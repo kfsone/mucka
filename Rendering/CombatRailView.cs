@@ -966,8 +966,8 @@ public sealed class CombatRailView : SKCanvasView
     /// already uses, so the strip does not gain a second yellow) or
     /// <see cref="DeadStripSeparatorKind.Reset"/> (2px solid, <see cref="Ink"/> rather than
     /// <see cref="InkBright"/> - deliberately not the brightest thing on the panel). Centered in the
-    /// allowance <paramref name="rowLineHeight"/> and <paramref name="allowance"/> reserve for it, the
-    /// same figures <c>RailSlotGeometry.PlanDeadStrip</c> budgeted this boundary against.
+    /// <paramref name="allowance"/> reserved for it, the same figure
+    /// <c>RailSlotGeometry.PlanDeadStrip</c> budgeted this boundary against.
     /// </summary>
     private void DrawDeadStripSeparator(
         SKCanvas canvas, float rowY, float allowance, DeadStripSeparatorKind kind)
@@ -1837,9 +1837,9 @@ public sealed class CombatRailView : SKCanvasView
     /// <para><b>Keyed on the overflow tail's own composition, not on the roster's identity.</b> The
     /// roster is rebuilt fresh on every refresh (<c>ParticipantRoster.Build</c>), including refreshes
     /// where nothing about the OVERFLOW tail changed - a shown slot's health reading ticking, say -
-    /// so keying on <paramref name="rows"/>'s reference would never hit. What the drawn string
+    /// so keying on <c>rows</c>'s reference would never hit. What the drawn string
     /// actually depends on is each hidden row's <see cref="RosterRow.Name"/> and
-    /// <see cref="RosterRow.DamageTakenFrom"/> (the sort key) plus <paramref name="hasHidden"/> (the
+    /// <see cref="RosterRow.DamageTakenFrom"/> (the sort key) plus <c>hasHidden</c> (the
     /// trailing ellipsis), so the cache key is exactly that tuple set, in the roster's own natural
     /// order - which <see cref="ParticipantRoster.Build"/> constructs deterministically, so two
     /// refreshes with an unchanged tail always produce the same key. A change to any hidden row's

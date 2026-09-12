@@ -13,10 +13,11 @@ namespace MudSharp.Session;
 /// (one cast can be multi-level and bleeds off in stages), so depth from messages is a lie.</para>
 ///
 /// <para>Not internally locked: <see cref="Apply"/> and <see cref="Reset"/> are called from
-/// the parser Feed thread only (same thread that decodes the C11 codes). Consumers marshal
-/// <see cref="Changed"/> to their UI thread.</para>
+/// the parser Feed thread only (same thread that decodes the C11 codes). <see cref="Changed"/>
+/// fires on that thread and <c>MudSession.StatusEffectsChanged</c> forwards it synchronously,
+/// so the marshal to the UI thread happens at the far end, in the app.</para>
 /// </summary>
-public sealed class EffectTracker
+internal sealed class EffectTracker
 {
     private bool _strBuff, _strDebuff, _dexBuff, _dexDebuff, _staBuff, _staDebuff, _glow;
     // The game line that last turned each slot on - surfaced as the icon tooltip.

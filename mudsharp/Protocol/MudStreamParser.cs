@@ -134,7 +134,7 @@ public sealed class MudStreamParser
     /// Policy (debounce, probe scheduling) is the consumer's responsibility - the
     /// parser never sends probes itself.
     /// </summary>
-    public event Action<StaleStats>? ProbeHintReceived;
+    internal event Action<StaleStats>? ProbeHintReceived;
 
     /// <summary>The server announced an auto-reset (C1 code C06 C04, "Auto reset initiated, you have
     /// 120 seconds..."). The reset is imminent and precisely timed from this instant. Fires on the Feed
@@ -179,10 +179,11 @@ public sealed class MudStreamParser
 
     /// <summary>
     /// A temporary magical effect (STR/DEX/STA buff or debuff, or glow) started or ended on
-    /// the local player. Derived from the C11 spell-start/end protocol family. Consumers keep
-    /// the running per-stat stack and drive the status-icon overlay.
+    /// the local player. Derived from the C11 spell-start/end protocol family. One discrete
+    /// change per bracket; <see cref="MudSharp.Session.EffectTracker"/> folds them into the
+    /// running present/absent set the session publishes.
     /// </summary>
-    public event Action<StatusEffectChange>? StatusEffectChanged;
+    internal event Action<StatusEffectChange>? StatusEffectChanged;
 
     /// <summary>A single exit keyword from the FEX (Front End eXits) response is ready.</summary>
     public event Action<string>? FexItemReady;
