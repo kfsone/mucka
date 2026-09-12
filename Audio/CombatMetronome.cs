@@ -1,3 +1,4 @@
+
 namespace Mucka.Audio;
 
 /// <summary>
@@ -16,7 +17,7 @@ namespace Mucka.Audio;
 ///
 /// <para><b>One alternating chain, not two independent schedules.</b> Each beat's own job is to
 /// schedule the next, and every delay is recomputed from the ANCHOR rather than from the instant the
-/// callback happened to run - see <see cref="Mucka.Core.CombatTiming.NextBeat"/>, which owns that
+/// callback happened to run - see <see cref="Mucka.Combat.CombatTiming.NextBeat"/>, which owns that
 /// arithmetic and is unit-tested against injected lateness.</para>
 ///
 /// <para><b>Every beat re-checks that the fight is still on.</b> Silence is the correct output for a
@@ -32,7 +33,7 @@ namespace Mucka.Audio;
 /// measures, or invalidates anything.</para>
 ///
 /// <para>Armed from the same anchor, in the same synchronous block, as the visual tick sweep, and both
-/// locate the boundary through <c>Mucka.Core.CombatTiming</c> - one implementation, so the sound and
+/// locate the boundary through <c>Mucka.Combat.CombatTiming</c> - one implementation, so the sound and
 /// the bar cannot disagree about where the rollover is. Note this holds only because the schedule is
 /// anchor-derived: the bar consults the lattice ONCE per fight and then runs a compositor animation
 /// that keeps its own time, so a click chain that drifted would drift away from a bar that did
@@ -41,9 +42,9 @@ namespace Mucka.Audio;
 internal sealed class CombatMetronome : IDisposable
 {
     /// <summary>One MUD2 combat tick - shared with <c>Mucka.Rendering.TickSweep</c> via
-    /// <see cref="Mucka.Core.CombatTiming.TickMilliseconds"/> so the click and the bar can never
+    /// <see cref="Mucka.Combat.CombatTiming.TickMilliseconds"/> so the click and the bar can never
     /// independently drift apart.</summary>
-    private const int TickMilliseconds = (int)Mucka.Core.CombatTiming.TickMilliseconds;
+    private const int TickMilliseconds = (int)Mucka.Combat.CombatTiming.TickMilliseconds;
 
     /// <summary>
     /// How far either side of the rollover the two clicks sit - the pre-tick at <c>boundary - N</c>,
@@ -67,7 +68,7 @@ internal sealed class CombatMetronome : IDisposable
     /// 13 dB hotter than either click, so on a tick carrying a landed hit the low click will likely be
     /// masked. That is a level problem, not a timing one.</para>
     ///
-    /// <para>Must stay under half a tick - <see cref="Mucka.Core.CombatTiming.NextBeat"/> throws
+    /// <para>Must stay under half a tick - <see cref="Mucka.Combat.CombatTiming.NextBeat"/> throws
     /// otherwise, since past that the two beats cross and the lattice stops being a bracket.</para>
     /// </summary>
     private const int OffsetMilliseconds = 50;
@@ -94,7 +95,7 @@ internal sealed class CombatMetronome : IDisposable
     /// <summary>Where the pre-tick clip is STARTED, before the boundary, so its audible content ENDS at
     /// <c>boundary - N</c>.</summary>
     private double PreTickLeadMilliseconds()
-        => _preSpan is Mucka.Core.ClipSpan span
+        => _preSpan is Mucka.Sounds.ClipSpan span
             ? OffsetMilliseconds + span.AudibleEndMs
             : OffsetMilliseconds;
 
@@ -103,11 +104,11 @@ internal sealed class CombatMetronome : IDisposable
     ///
     /// <para>Floored at 1 ms rather than allowed negative: a clip whose leading silence exceeded N would
     /// need to START before the boundary to have its body land after it, which
-    /// <see cref="Mucka.Core.CombatTiming.NextBeat"/> has no way to express. At the shipping values
+    /// <see cref="Mucka.Combat.CombatTiming.NextBeat"/> has no way to express. At the shipping values
     /// (N=50, pad=30) this is 20 ms and the floor is unreachable; it exists so replacing an asset with a
     /// heavily-padded one degrades to a tight bracket instead of throwing.</para></summary>
     private double AfterTickOffsetMilliseconds()
-        => _afterSpan is Mucka.Core.ClipSpan span
+        => _afterSpan is Mucka.Sounds.ClipSpan span
             ? Math.Max(1.0, OffsetMilliseconds - span.AudibleStartMs)
             : OffsetMilliseconds;
 
@@ -229,7 +230,7 @@ internal sealed class CombatMetronome : IDisposable
             // beat to always be the after-tick would throw away one pre-tick per arming and make the
             // first sound of every fight always the low click, at precisely the moment a listener is
             // calibrating their sense of the beat.
-            var (delay, afterTick) = Mucka.Core.CombatTiming.NextBeat(
+            var (delay, afterTick) = Mucka.Combat.CombatTiming.NextBeat(
                 tickAnchorUtc, DateTime.UtcNow, AfterTickOffsetMilliseconds(), PreTickLeadMilliseconds());
             _nextIsAfterTick = afterTick;
 
@@ -284,7 +285,7 @@ internal sealed class CombatMetronome : IDisposable
             //
             // The kind comes back from the same call rather than being toggled here: after a skipped
             // beat a toggle would keep alternating and put every later click on the wrong sample.
-            var (next, nextAfterTick) = Mucka.Core.CombatTiming.NextBeat(
+            var (next, nextAfterTick) = Mucka.Combat.CombatTiming.NextBeat(
                 _anchorUtc, DateTime.UtcNow, AfterTickOffsetMilliseconds(), PreTickLeadMilliseconds());
             _nextIsAfterTick = nextAfterTick;
             Mucka.Core.TickDiag.Log(
@@ -308,7 +309,7 @@ internal sealed class CombatMetronome : IDisposable
     /// which is a driver problem rather than a timer one.</summary>
     private static double DriftMilliseconds(DateTime anchorUtc, bool afterTick)
     {
-        var toNext = Mucka.Core.CombatTiming.MillisecondsToNextBoundary(anchorUtc, DateTime.UtcNow);
+        var toNext = Mucka.Combat.CombatTiming.MillisecondsToNextBoundary(anchorUtc, DateTime.UtcNow);
         // The after-tick beat should sit OffsetMilliseconds past the previous boundary; the pre-tick
         // beat should sit OffsetMilliseconds before the next one.
         return afterTick ? (TickMilliseconds - toNext) - OffsetMilliseconds : OffsetMilliseconds - toNext;

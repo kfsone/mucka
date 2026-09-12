@@ -287,7 +287,7 @@ rather than added beside it, so the row's overall geometry is unchanged.
   running through a lull - staying on the lattice, making no sound - rather than tearing down and
   having to re-derive the phase.
 - **The phase is an ESTIMATE over the session's accumulated swings, not one sample per
-  encounter** (`Mucka.Core.TickPhase`). The line that flips `InCombat` is the reply to the
+  encounter** (`Mucka.Combat.TickPhase`). The line that flips `InCombat` is the reply to the
   player's own `kill` command, so its phase is the keystroke's rather than the server's; a swing
   line - emitted *by* the tick - is the right kind of evidence, and every one of them (not just
   the first) feeds the estimate. It is **circular**-mean over folded residuals, because the

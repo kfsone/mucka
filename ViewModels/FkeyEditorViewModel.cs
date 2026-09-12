@@ -2,6 +2,7 @@ using System.Windows.Input;
 using Mucka.Audio;
 using Mucka.Core;
 using MudSharp.Models;
+using Mucka.Sounds;
 
 namespace Mucka.ViewModels;
 

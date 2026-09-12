@@ -3,8 +3,9 @@ using Mucka.Core;
 using Mucka.Rendering;
 using Mucka.Terminal;
 using Mucka.ViewModels;
-using static Mucka.Terminal.CombatRailResize;
+using static Mucka.Combat.CombatRailResize;
 using MudSharp.Models;   // StyledLine/StyledSpan/TextStyle - used by the chat placeholder (all targets) and the $f<n> annotation handler (Windows)
+using Mucka.Combat;
 
 namespace Mucka.Pages;
 
@@ -182,7 +183,7 @@ public partial class GamePage : ContentPage
     private int _wheelAccum;   // accumulates wheel delta so touchpad drift doesn't trip scrollback
     // -- Window minimum-size enforcement -------------------------------------
     // SidePanelWidthDp - the LEFT panel's (Online/Items/Map) own width, unrelated to the combat
-    // rail - lives in Mucka.Terminal.CombatRailResize alongside the rest of this file's
+    // rail - lives in Mucka.Combat.CombatRailResize alongside the rest of this file's
     // window-sizing constants. Must match SidePanelBorder's WidthRequest in GamePage.xaml; that
     // panel keeps the width the player already plays with. The Combat Rail is a wholly separate,
     // additional panel and never docks inside this one.
@@ -200,7 +201,7 @@ public partial class GamePage : ContentPage
     // on top of that floor, only when it is currently shown.
     //
     // These constants, PreferredWindowWidthDp itself, and the resize delta arithmetic all live in
-    // Mucka.Terminal.CombatRailResize now, not here - that project is plain net10.0 (no WinUI/Win32),
+    // Mucka.Combat.CombatRailResize now, not here - that project is plain net10.0 (no WinUI/Win32),
     // referenced by both this project and its own test project, so the arithmetic is unit-testable
     // without a live window. This file's own resize methods are thin callers of that class plus the
     // actual appWindow.Resize(...) side effect.
@@ -677,12 +678,12 @@ public partial class GamePage : ContentPage
     // re-run the persona dance rather than stranding the player at a bare menu prompt.
     private void OnGuidedLoginReentryRequested(
         Mucka.Core.GuidedLogin.GuidedLoginOptions options,
-        Mucka.Core.GuidedLogin.SessionDropContext drop)
+        Mucka.Commands.SessionDropContext drop)
         => _ = RunGuidedLoginOverlayAsync(options, drop);
 
     private async Task RunGuidedLoginOverlayAsync(
         Mucka.Core.GuidedLogin.GuidedLoginOptions options,
-        Mucka.Core.GuidedLogin.SessionDropContext drop)
+        Mucka.Commands.SessionDropContext drop)
     {
         // Fire-and-forget from the VM event, so nothing above us observes a faulted task.
         try { await RunGuidedLoginOverlayCoreAsync(options, drop); }
@@ -691,7 +692,7 @@ public partial class GamePage : ContentPage
 
     private async Task RunGuidedLoginOverlayCoreAsync(
         Mucka.Core.GuidedLogin.GuidedLoginOptions options,
-        Mucka.Core.GuidedLogin.SessionDropContext drop)
+        Mucka.Commands.SessionDropContext drop)
     {
         // Both guards run on the UI thread with no await in between, so this is a real latch.
         if (_guidedLoginOverlayRunning)
@@ -1249,7 +1250,7 @@ public partial class GamePage : ContentPage
     /// renderer's left gutter, the side panel when expanded, and the window frame. Shared by the
     /// app-launch default (<see cref="App.CreateWindow"/>) and the first-appearance resize here.
     ///
-    /// <para>Thin forwarder to <see cref="Mucka.Terminal.CombatRailResize.PreferredWindowWidthDp"/> -
+    /// <para>Thin forwarder to <see cref="Mucka.Combat.CombatRailResize.PreferredWindowWidthDp"/> -
     /// kept on GamePage itself (rather than relying on this file's own `using static` import of that
     /// class) because <c>App.xaml.cs</c> calls it as <c>Pages.GamePage.PreferredWindowWidthDp(...)</c>,
     /// which needs an actual member on this type; a `using static` only affects unqualified lookup
@@ -1585,7 +1586,7 @@ public partial class GamePage : ContentPage
     /// front of the player. A blank bar for up to one tick is the honest reading, and it is the price
     /// of the two being one clock rather than two.</para>
     /// </summary>
-    private void UpdateCombatTickSweep(Mucka.ViewModels.CombatLiveView live)
+    private void UpdateCombatTickSweep(Mucka.Combat.CombatLiveView live)
     {
         // The visual sweep needs its native layer; the metronome does not, so its update sits outside
         // this guard - the click must not depend on whether a Composition visual happens to exist.
@@ -1678,7 +1679,7 @@ public partial class GamePage : ContentPage
         _metronomeRunning = shouldRun && _combatMetronome.Start(anchor!.Value, TickIsMeaningful);
     }
 
-    private void UpdateTickSweepColour(Mucka.ViewModels.CombatLiveView live)
+    private void UpdateTickSweepColour(Mucka.Combat.CombatLiveView live)
     {
         // The spec's only two exceptions to "the tick carries no colour coding": red at 30 stamina
         // and below. A timer is not a verdict, so nothing else ever recolours it.

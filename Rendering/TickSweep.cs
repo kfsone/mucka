@@ -45,9 +45,9 @@ namespace Mucka.Rendering;
 internal sealed class TickSweep
 {
     /// <summary>One MUD2 combat tick - shared with <see cref="Mucka.Audio.CombatMetronome"/> via
-    /// <see cref="Mucka.Core.CombatTiming.TickMilliseconds"/> so the bar and the click can never
+    /// <see cref="Mucka.Combat.CombatTiming.TickMilliseconds"/> so the bar and the click can never
     /// independently drift apart.</summary>
-    private const double TickMilliseconds = Mucka.Core.CombatTiming.TickMilliseconds;
+    private const double TickMilliseconds = Mucka.Combat.CombatTiming.TickMilliseconds;
 
     private readonly FrameworkElement _host;
     private readonly Visual _visual;
@@ -102,7 +102,7 @@ internal sealed class TickSweep
 
         // Shared with the metronome - see CombatTiming.MillisecondsToNextBoundary, which owns this
         // computation.
-        var remaining = Mucka.Core.CombatTiming.MillisecondsToNextBoundary(anchorUtc, DateTime.UtcNow);
+        var remaining = Mucka.Combat.CombatTiming.MillisecondsToNextBoundary(anchorUtc, DateTime.UtcNow);
 
         // The number to compare against the metronome's own "boundary at +N ms" line: if the two
         // instruments disagree on where the boundary is, they disagree HERE, and the log says so

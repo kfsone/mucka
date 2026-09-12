@@ -219,7 +219,7 @@ public class GamePromptTests
     // -- Frame boundary (MudStreamParser.FrameClosed) --
 
     /// <summary>
-    /// A shown prompt ends a frame. This is the signal Mucka.ViewModels.KillAwardLedger uses to
+    /// A shown prompt ends a frame. This is the signal Mucka.Combat.KillAwardLedger uses to
     /// conclude that a line MUD2 owed an ending is never coming - the only sound way to conclude it,
     /// since the arrival is guaranteed rather than raced.
     /// </summary>

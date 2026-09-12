@@ -41,7 +41,7 @@ public enum InventoryChangeKind
 /// list in the clog's own "contents" rows, and it would not be resolvable from a line that had been
 /// folded into "dropped".</para>
 /// </summary>
-public static class InventoryChangeLines
+internal static class InventoryChangeLines
 {
     // Item names observed: letters, digits, apostrophes and hyphens, in at most a few words -
     // "Axe0", "Well-maintained pick2", "Cache of farthings", "Glass bottle15" (longest seen: three

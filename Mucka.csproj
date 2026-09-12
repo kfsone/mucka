@@ -114,9 +114,10 @@
 		<PackageReference Include="Microsoft.Maui.Controls" Version="$(MauiVersion)" />
 		<PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="10.0.0" />
 		<PackageReference Include="SkiaSharp.Views.Maui.Controls" Version="3.119.4" />
-		<!-- The client combat database (see Core/CombatDb.cs). Pulls SQLitePCLRaw.bundle_e_sqlite3
-		     for the native engine; on Android that is one libe_sqlite3.so, since the Release config
-		     above restricts RuntimeIdentifiers to android-arm64. Trim-safe, so PublishTrimmed stays. -->
+		<!-- The client databases (Mucka.Util/Mucka.Combat/CombatDb.cs, Mucka.Util/Mucka.WireLog/WireLogDb.cs).
+		     Pulls SQLitePCLRaw.bundle_e_sqlite3 for the native engine; on Android that is one
+		     libe_sqlite3.so, since the Release config above restricts RuntimeIdentifiers to
+		     android-arm64. Trim-safe, so PublishTrimmed stays. -->
 		<PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.11" />
 	</ItemGroup>
 
@@ -127,6 +128,7 @@
 		<Compile Remove="mudsharp.Tests\**" />
 		<Compile Remove="Mucka.Terminal\**" />
 		<Compile Remove="Mucka.Terminal.Tests\**" />
+		<Compile Remove="Mucka.Util\**" />
 		<!-- Mucka.Input is referenced as an ASSEMBLY, never compiled in: the assembly boundary IS the
 		     enforcement (see Mucka.Input/README.md). Globbing its sources into the app would silently
 		     put the framework and the app in one compilation unit again and hand every file back the
@@ -137,17 +139,23 @@
 		<EmbeddedResource Remove="Mucka.Terminal\**" />
 		<EmbeddedResource Remove="Mucka.Terminal.Tests\**" />
 		<EmbeddedResource Remove="Mucka.Input\**" />
+		<EmbeddedResource Remove="Mucka.Util\**" />
 		<None Remove="mudsharp\**" />
 		<None Remove="mudsharp.Tests\**" />
 		<None Remove="Mucka.Terminal\**" />
 		<None Remove="Mucka.Terminal.Tests\**" />
 		<None Remove="Mucka.Input\**" />
+		<None Remove="Mucka.Util\**" />
 	</ItemGroup>
 
 	<ItemGroup>
 		<ProjectReference Include="mudsharp\mudsharp.csproj" />
 		<ProjectReference Include="Mucka.Terminal\Mucka.Terminal.csproj" />
 		<ProjectReference Include="Mucka.Input\Mucka.Input.csproj" />
+		<ProjectReference Include="Mucka.Util\Mucka.WireLog\Mucka.WireLog.csproj" />
+		<ProjectReference Include="Mucka.Util\Mucka.Combat\Mucka.Combat.csproj" />
+		<ProjectReference Include="Mucka.Util\Mucka.Commands\Mucka.Commands.csproj" />
+		<ProjectReference Include="Mucka.Util\Mucka.Sounds\Mucka.Sounds.csproj" />
 	</ItemGroup>
 
 	<!-- Strip .pdb symbol files from the publish output. SkiaSharp's native assets ship ~220 MB

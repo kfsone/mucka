@@ -4,6 +4,8 @@ using MudSharp.Session;
 using System.Net.Sockets;
 using System.Text;
 using System.Threading.Channels;
+using Mucka.Combat;
+using Mucka.WireLog;
 
 namespace Mucka.Core;
 
@@ -370,7 +372,7 @@ public sealed class MuckaConnection : IAsyncDisposable
 
     /// <summary>
     /// The combat-tick phase, for the in-combat inventory probe's tick guard. Set to the estimate's
-    /// owner (<see cref="Mucka.Core.TickPhase"/>, reached through SidePanelViewModel.TickPhaseUtc);
+    /// owner (<see cref="Mucka.Combat.TickPhase"/>, reached through SidePanelViewModel.TickPhaseUtc);
     /// leave unset and the probe simply loses its guard and uses its plain delay. Resolved through
     /// <see cref="CombatTiming.MillisecondsToNextBoundary"/> here so callers do not each repeat the
     /// modulo - the one thing that class exists to prevent.

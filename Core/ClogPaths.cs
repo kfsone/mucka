@@ -1,3 +1,6 @@
+using Mucka.Combat;
+using Mucka.WireLog;
+
 namespace Mucka.Core;
 
 /// <summary>

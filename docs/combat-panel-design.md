@@ -56,7 +56,7 @@ D13. Cognitive-load tenets for the whole live combat panel: (a) the player's att
 
 ## Window policy
 
-The panel's width is `Mucka.Terminal/CombatRailResize.cs`: `CombatPanelContentWidthDp` (376) plus
+The panel's width is `Mucka.Util/Mucka.Combat/CombatRailResize.cs`: `CombatPanelContentWidthDp` (376) plus
 the border stroke on each side (`CombatPanelWidthDp`). `SidePanelWidthDp` = 228 is the LEFT panel's
 constant and is never merged with it. The toggle is `SidePanelViewModel.ToggleCombatPanelCommand`
 (overflow menu), persisted as `ClientSettings.ShowCombatRail`. Showing the panel widens the main

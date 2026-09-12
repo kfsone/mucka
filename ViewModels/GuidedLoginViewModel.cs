@@ -2,6 +2,7 @@ using System.Windows.Input;
 using Microsoft.Maui.Graphics;
 using Mucka.Core.GuidedLogin;
 using MudSharp.Models;
+using Mucka.Commands;
 
 namespace Mucka.ViewModels;
 

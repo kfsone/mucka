@@ -7,6 +7,7 @@ using System.ComponentModel;
 using System.Globalization;
 using System.Linq;
 using System.Windows.Input;
+using Mucka.Combat;
 
 namespace Mucka.ViewModels;
 
@@ -303,7 +304,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     /// <summary>Stamina lost on the most recent combat tick, for the STA ring's tinted slice. Fed by
     /// every stats reading (see OnStatsUpdated) rather than only combat events, because a stamina GAIN
     /// is what clears a stale slice and gains arrive on the heartbeat.</summary>
-    private readonly Mucka.Core.TickStaminaLoss _tickLoss = new();
+    private readonly Mucka.Combat.TickStaminaLoss _tickLoss = new();
 
     // Set once at startup (see AttachSwingDamage). Null in unit/design contexts, in which case the
     // opponents' "ever" damage row simply is not drawn. Unlike _fightHistory this needs no cache: the
@@ -502,7 +503,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
                 // The tick phase is deliberately NOT cleared here: a new fight does not re-learn the
                 // phase from its own first swing. Re-deriving the lattice from one noisy sample was off
                 // by more than 150 ms in 19% of encounters and by up to 963 ms at worst. MUD2's tick is
-                // a server-side lattice that outlives any one fight; see Mucka.Core.TickPhase for the
+                // a server-side lattice that outlives any one fight; see Mucka.Combat.TickPhase for the
                 // measurements.
             }
             else
@@ -564,7 +565,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         });
     }
 
-    /// <summary>See <see cref="Mucka.Core.ClogWriter.TailOnlyChanged"/> - flips true once the
+    /// <summary>See <see cref="Mucka.Combat.ClogWriter.TailOnlyChanged"/> - flips true once the
     /// encounter has already closed (InCombat is already false) but its clog is still draining
     /// its tail, so the indicator can dim rather than snap straight back to idle.</summary>
     public void OnCombatGracePeriodChanged(bool isGrace)
@@ -580,20 +581,20 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     /// <para>An estimate over the session's accumulated swings. Fed from swing lines rather than the
     /// combat-start line: the combat-start line is the reply to the player's own <c>kill</c> command,
     /// so its phase is the keystroke's rather than the server's, while a swing line is emitted BY the
-    /// tick. See <see cref="Mucka.Core.TickPhase"/>: a single-sample anchor was off by over 150 ms in
+    /// tick. See <see cref="Mucka.Combat.TickPhase"/>: a single-sample anchor was off by over 150 ms in
     /// 19% of encounters and by up to 963 ms - half a tick - matching the symptom that the indicator
     /// did not seem to coincide with the server's combat tick.</para></summary>
     public DateTime? TickPhaseUtc => _tickPhase.Anchor;
 
     /// <summary>Whether the phase estimate is trusted enough to make a SOUND. The bar takes
     /// <see cref="TickPhaseUtc"/> as soon as it exists and accepts a visible correction; the click waits
-    /// for this. See Mucka.Core.TickPhase.SettledSamples - a briefly-wrong bar explains itself, a
+    /// for this. See Mucka.Combat.TickPhase.SettledSamples - a briefly-wrong bar explains itself, a
     /// confidently-wrong click does not.</summary>
     public bool IsTickPhaseSettled => _tickPhase.IsSettled;
 
     /// <summary>Session-scoped, on purpose - it is not reset per encounter. Reset only belongs to a
     /// genuinely different lattice (another server), not to another fight.</summary>
-    private readonly Mucka.Core.TickPhase _tickPhase = new();
+    private readonly Mucka.Combat.TickPhase _tickPhase = new();
 
     private static bool IsSwing(CombatEventKind kind) => kind
         is CombatEventKind.Hit or CombatEventKind.Miss
@@ -1083,11 +1084,11 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             // reading is Dire, so nothing republishes once a second for a blink nobody is drawing.
             Survival: survival,
             BlinkOn: survival == MudSharp.Combat.SurvivalReading.Dire
-                && Mucka.Rendering.Blink.PhaseOn(nowUtc),
+                && Mucka.Combat.Blink.PhaseOn(nowUtc),
             // Unarmed AND below maximum - an unarmed opening is normal and must not raise an alarm.
             BlinkOffPhase: !hasWeapon
                 && deficits.StaminaCurrent is int sta2 && deficits.StaminaMax is int max2 && sta2 < max2
-                && Mucka.Rendering.Blink.PhaseOn(nowUtc, inverted: true),
+                && Mucka.Combat.Blink.PhaseOn(nowUtc, inverted: true),
             LiveOpponents: roster.LiveCount,
             OpponentsFaced: roster.TotalCount,
             // Duration comes off the encounter, not the primary fight: a fight that started when the

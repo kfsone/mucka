@@ -4,6 +4,7 @@ using Mucka.ViewModels;
 using SkiaSharp;
 using SkiaSharp.Views.Maui;
 using SkiaSharp.Views.Maui.Controls;
+using Mucka.Combat;
 
 namespace Mucka.Rendering;
 
@@ -141,7 +142,7 @@ public sealed class CombatRailView : SKCanvasView
     /// <summary>
     /// One ending's row in the top-anchored dead strip. The strip is top-anchored and grows downward:
     /// new rows append at the bottom, one row per ending, ordered chronologically by
-    /// <c>EndedUtc</c> (see <see cref="Mucka.ViewModels.CombatEndingOrder"/>) so two rows never swap
+    /// <c>EndedUtc</c> (see <see cref="Mucka.Combat.CombatEndingOrder"/>) so two rows never swap
     /// position after the fact. The live stack stays bottom-anchored and never moves.
     ///
     /// <para>Each row carries the exchange summary and the kill award as well as the name and the
@@ -163,9 +164,9 @@ public sealed class CombatRailView : SKCanvasView
     /// borrowing that gap. Equal for both kinds on purpose - the allowance's job is clearance, not
     /// visual weight, which the stroke width and dash/solid style already carry.
     ///
-    /// <para>Read by <see cref="Mucka.ViewModels.RailSlotGeometry.PlanDeadStrip"/> too, as the two
+    /// <para>Read by <see cref="Mucka.Combat.RailSlotGeometry.PlanDeadStrip"/> too, as the two
     /// height parameters passed in from here - the single source of truth for what counts as a
-    /// boundary is <see cref="Mucka.ViewModels.RailSlotGeometry.SeparatorBetween"/>, shared by both
+    /// boundary is <see cref="Mucka.Combat.RailSlotGeometry.SeparatorBetween"/>, shared by both
     /// this drawing method and that arithmetic so they can never disagree about where a line
     /// falls.</para>
     /// </summary>
@@ -299,7 +300,7 @@ public sealed class CombatRailView : SKCanvasView
     private static readonly SKColor SealTrack = Dim(TerminalTheme.Palette[8], 0.30f);
 
     // The spent slice's fade cannot be a compile-time constant, so it is computed at paint time in
-    // DrawPlayerBar from Mucka.Core.TickStaminaLoss.FadeFactor - see that method's own remarks for the
+    // DrawPlayerBar from Mucka.Combat.TickStaminaLoss.FadeFactor - see that method's own remarks for the
     // peak (down to 0.18) and the one-tick linear fade.
 
     /// <summary>The ring drawn for a species nothing is known about. Deliberately bright enough to
@@ -995,11 +996,11 @@ public sealed class CombatRailView : SKCanvasView
     }
 
     /// <summary>How long an ending stays drawn in bold: four combat ticks, derived from
-    /// <see cref="Mucka.Core.CombatTiming.TickMilliseconds"/> rather than hardcoded so the two can
+    /// <see cref="Mucka.Combat.CombatTiming.TickMilliseconds"/> rather than hardcoded so the two can
     /// never drift apart. Four is the generous end of the range rather than the stingy one: on this
     /// rail, missing a recent ending reads as it having already faded from notice, which is worse than
     /// it staying bold one tick longer than strictly necessary.</summary>
-    private static readonly double DeadStripRecentWindowMs = Mucka.Core.CombatTiming.TickMilliseconds * 4.0;
+    private static readonly double DeadStripRecentWindowMs = Mucka.Combat.CombatTiming.TickMilliseconds * 4.0;
 
     /// <summary>
     /// The dead strip's tint mapping over <see cref="FightOutcome"/>: a slight yellow tint marks the
@@ -1119,7 +1120,7 @@ public sealed class CombatRailView : SKCanvasView
         //
         // Bold ONLY on a tick this creature took a blow on. Tied to damage, the weight means
         // something that changes: in a pack, which of them is actually being worked on. See
-        // Mucka.Core.TickDamageEmphasis for the rule and the carry-forward behind the flag.
+        // Mucka.Combat.TickDamageEmphasis for the rule and the carry-forward behind the flag.
         var nameFont = row.TookDamageThisTick ? _nameBoldFont : _nameFont;
         DrawMarkedText(
             canvas, Ellipsize(row.Name, SlotNameWidth, nameFont), TileTextLeft, y + TileNameBaseline,
@@ -2141,7 +2142,7 @@ public sealed class CombatRailView : SKCanvasView
     ///
     /// <para><b>The just-lost slice rides here</b>, immediately past the fill's edge: the stamina this
     /// tick took, drawn where it used to be. It fades to nothing across one tick
-    /// (<see cref="Mucka.Core.TickStaminaLoss.FadeFactor"/>, a pure function of the loss timestamp and now,
+    /// (<see cref="Mucka.Combat.TickStaminaLoss.FadeFactor"/>, a pure function of the loss timestamp and now,
     /// sampled at paint time - no timer, Invariant #1). A slice that simply persisted would read as a
     /// live part of the gauge, and one dimmed instead of faded could not be seen at all.</para>
     /// </summary>
@@ -2163,13 +2164,13 @@ public sealed class CombatRailView : SKCanvasView
             // Past the edge, in the track: what the last tick took, still in the place it occupied.
             if (lostLastTick > 0 && lostAtUtc is DateTime lostAt)
             {
-                var strength = Mucka.Core.TickStaminaLoss.FadeFactor(lostAt, DateTime.UtcNow);
+                var strength = Mucka.Combat.TickStaminaLoss.FadeFactor(lostAt, DateTime.UtcNow);
                 if (strength > 0f)
                 {
                     var width = Math.Min((float)lostLastTick * unit, Content - filled);
                     if (width > 0f)
                     {
-                        _fill.Color = Tint(SealTrack, Hostile, strength / Mucka.Core.TickStaminaLoss.PeakTintStrength);
+                        _fill.Color = Tint(SealTrack, Hostile, strength / Mucka.Combat.TickStaminaLoss.PeakTintStrength);
                         canvas.DrawRect(Pad + filled, top, width, TileBarFillHeight, _fill);
                     }
                 }

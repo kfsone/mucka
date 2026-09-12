@@ -12,8 +12,6 @@
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
     <PackageReference Include="xunit" Version="2.9.2" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
-    <!-- Matches Mucka.csproj: the linked Core files below own the combat database. -->
-    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.11" />
   </ItemGroup>
 
   <ItemGroup>
@@ -34,59 +32,10 @@
          is committed (with a matching negation in .gitignore, which ignores *.jsonl wholesale) and
          has no Exists() condition on purpose: this replays protocol facts that no transcript can
          carry, and the previous arrangement - gitignored file, test skipping when absent - meant a
-         fresh clone ran three tests that silently proved nothing. -->
+         fresh clone ran three tests that silently proved nothing. Mucka.Util.Tests links the same
+         file for WireLogTests. -->
     <None Include="Fixtures\Data\wyvern-poison-death.jsonl" Link="Fixtures\Data\wyvern-poison-death.jsonl"
           CopyToOutputDirectory="PreserveNewest" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <Compile Include="..\Core\SessionCommandAliases.cs" Link="Core\SessionCommandAliases.cs" />
-    <Compile Include="..\Core\GuidedLogin\ShellText.cs" Link="Core\GuidedLogin\ShellText.cs" />
-    <Compile Include="..\Core\GuidedLogin\SessionDropContext.cs" Link="Core\GuidedLogin\SessionDropContext.cs" />
-    <Compile Include="..\ViewModels\CombatStatsAggregator.cs" Link="ViewModels\CombatStatsAggregator.cs" />
-    <Compile Include="..\ViewModels\CombatContracts.cs" Link="ViewModels\CombatContracts.cs" />
-    <Compile Include="..\ViewModels\CombatComposition.cs" Link="ViewModels\CombatComposition.cs" />
-    <Compile Include="..\ViewModels\ClogRenderGate.cs" Link="ViewModels\ClogRenderGate.cs" />
-    <!-- The Combat Rail's damage floats: the slot/seal geometry the overlay places against, and
-         the motion budget that decides how many may be in the air. Both are deliberately MAUI-free
-         so they can be linked here - the elements and the Composition animations they drive are
-         GamePage's and are not testable without a window. -->
-    <Compile Include="..\ViewModels\RailSlotGeometry.cs" Link="ViewModels\RailSlotGeometry.cs" />
-    <Compile Include="..\ViewModels\FleeChargeLedger.cs" Link="ViewModels\FleeChargeLedger.cs" />
-    <Compile Include="..\ViewModels\KillAwardLedger.cs" Link="ViewModels\KillAwardLedger.cs" />
-    <!-- Blink is pure arithmetic over the wall clock with no MAUI dependency, and it is the client's
-         single definition of what a blink IS - so it is linked here rather than left untestable in
-         the app project, the same way RailSlotGeometry is. -->
-    <Compile Include="..\Rendering\Blink.cs" Link="Rendering\Blink.cs" />
-    <Compile Include="..\ViewModels\RailFloats.cs" Link="ViewModels\RailFloats.cs" />
-    <Compile Include="..\ViewModels\CombatHistoryCache.cs" Link="ViewModels\CombatHistoryCache.cs" />
-    <!-- The Here list's "which of these are we fighting" set. MAUI-free for the same reason
-         CombatHistoryCache is: its unchanged-refresh property is load-bearing for Invariant #1 and
-         cannot be checked from inside a view model. -->
-    <Compile Include="..\ViewModels\EngagedNpcSet.cs" Link="ViewModels\EngagedNpcSet.cs" />
-    <Compile Include="..\Core\FightHistoryStore.cs" Link="Core\FightHistoryStore.cs" />
-    <Compile Include="..\Core\FightHistoryRecorder.cs" Link="Core\FightHistoryRecorder.cs" />
-    <Compile Include="..\Core\SwingLedger.cs" Link="Core\SwingLedger.cs" />
-    <Compile Include="..\Core\SwingRow.cs" Link="Core\SwingRow.cs" />
-    <Compile Include="..\Core\CombatDb.cs" Link="Core\CombatDb.cs" />
-    <Compile Include="..\Core\CombatTiming.cs" Link="Core\CombatTiming.cs" />
-    <Compile Include="..\Core\TickStaminaLoss.cs" Link="Core\TickStaminaLoss.cs" />
-    <Compile Include="..\Core\TickPhase.cs" Link="Core\TickPhase.cs" />
-    <Compile Include="..\Core\TickDamageEmphasis.cs" Link="Core\TickDamageEmphasis.cs" />
-    <Compile Include="..\Core\WavProbe.cs" Link="Core\WavProbe.cs" />
-    <Compile Include="..\Audio\SoundCatalog.cs" Link="Audio\SoundCatalog.cs" />
-    <Compile Include="..\Core\ClogWriter.cs" Link="Core\ClogWriter.cs" />
-    <!-- The wire log: framing, both sinks, its own database and the decoder/exporter. All
-         deliberately MAUI-free (the platform directory lookup lives in ClogPaths, which is not
-         linked here) for the same reason CombatDb is - so the storage contract can be tested
-         against a temp path instead of only in a running app. -->
-    <Compile Include="..\Core\IWireLogSink.cs" Link="Core\IWireLogSink.cs" />
-    <Compile Include="..\Core\WireLogFraming.cs" Link="Core\WireLogFraming.cs" />
-    <Compile Include="..\Core\WireLogDb.cs" Link="Core\WireLogDb.cs" />
-    <Compile Include="..\Core\SqliteWireLogSink.cs" Link="Core\SqliteWireLogSink.cs" />
-    <Compile Include="..\Core\JsonlWireLogSink.cs" Link="Core\JsonlWireLogSink.cs" />
-    <Compile Include="..\Core\WireLogExport.cs" Link="Core\WireLogExport.cs" />
-    <Compile Include="..\Core\SessionCapture.cs" Link="Core\SessionCapture.cs" />
   </ItemGroup>
 
 </Project>

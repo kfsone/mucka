@@ -18,7 +18,7 @@ namespace MudSharp.Combat;
 /// <param name="FemaleProtected">Female, protected, non-magical.</param>
 /// <param name="FemaleProtectedMagical">Female, protected, magical. Differs from the male column
 /// only where the game gives a gendered word ("Brother"/"Sister", "priest"/"priestess").</param>
-public readonly record struct PersonaRank(
+internal readonly record struct PersonaRank(
     int Level,
     int Points,
     int? Mpksl,
@@ -59,7 +59,7 @@ public readonly record struct PersonaRank(
 /// ESTIMATE resting on an unverified premise, and any readout built on it must say so. See
 /// <see cref="NpcPoolKey"/> for the separate matter of what a creature's value is.</para>
 /// </summary>
-public static class PersonaRanks
+internal static class PersonaRanks
 {
     /// <summary>The twelve rows, in level order. Index equals <see cref="PersonaRank.Level"/>.</summary>
     public static readonly IReadOnlyList<PersonaRank> Table =

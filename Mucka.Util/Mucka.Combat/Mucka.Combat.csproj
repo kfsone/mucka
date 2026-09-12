@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The client's combat record and the combat panel's model: the combat database, swing ledger,
+       fight history store and recorder, clog writer, tick timing, the aggregator and its contracts,
+       the ledgers, the rail's slot geometry, floats and window arithmetic, and Blink. Built on
+       mudsharp's combat model; no MAUI, so all of it is tested from Mucka.Util.Tests and readable
+       by an offline analysis tool. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Mucka.Combat</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.11" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>Mucka.Util.Tests</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\mudsharp\mudsharp.csproj" />
+    <ProjectReference Include="..\Mucka.WireLog\Mucka.WireLog.csproj" />
+  </ItemGroup>
+
+</Project>
