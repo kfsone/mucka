@@ -338,4 +338,123 @@ public class CombatRailResizeTests
         Assert.Equal(824, result.TargetWidthPx);
         Assert.Equal(0.0, result.NewAppliedDeltaDp);
     }
+
+    // -- T0: the first sizing of a run, which happens before any toggle has run and must already
+    //    account for a profile that starts with the rail shown --------------------------------
+
+    [Fact]
+    public void InitialWidth_FixedColumns_TargetsTheConfiguredColumnsPlusTwo()
+    {
+        // 100 configured columns, rail off: 102*8 + 4 gutter + 228 panel + 16 chrome = 1064.
+        // The launch default (DefaultViewColumns, 82) is NOT the basis when columns are configured.
+        var initial = CombatRailResize.ComputeInitialWidth(
+            minWidthPx: 0, dpi: Dpi100, maxColumns: 100, charWidthDp: 8.0,
+            panelExpanded: true, railShown: false);
+
+        Assert.Equal(1064, initial.TargetWidthPx);
+        Assert.Equal(0.0, initial.AppliedDeltaDp);
+    }
+
+    [Fact]
+    public void InitialWidth_RailShownFromTheProfile_ReservesItOnTopOfTheColumns()
+    {
+        // The reported defect: a profile with 100 columns AND the rail already shown was sized to
+        // the terminal alone, so the rail's 378 came out of the columns and the text was cut off.
+        // The rail must be added on top, and the delta recorded in full - this width was computed
+        // with no slack, so a later hide gives back exactly the rail.
+        var initial = CombatRailResize.ComputeInitialWidth(
+            minWidthPx: 0, dpi: Dpi100, maxColumns: 100, charWidthDp: 8.0,
+            panelExpanded: true, railShown: true);
+
+        Assert.Equal(1064 + 378, initial.TargetWidthPx);
+        Assert.Equal(378.0, initial.AppliedDeltaDp);
+
+        // The terminal keeps all 102 columns rather than paying for the rail out of them.
+        var terminalColumnsWidth = initial.TargetWidthPx
+            - CombatRailResize.DpToPxRound(CombatRailResize.CombatPanelWidthDp, Dpi100)
+            - (int)CombatRailResize.SidePanelWidthDp
+            - (int)CombatRailResize.TerminalGutterDp
+            - (int)CombatRailResize.WindowChromeDp;
+        Assert.Equal((int)(102.0 * 8.0), terminalColumnsWidth);
+    }
+
+    [Fact]
+    public void InitialWidth_ThatFirstDelta_MakesTheFirstHideExact()
+    {
+        // The delta T0 records has to be the one T4 subtracts: showing from the profile and then
+        // hiding must land back on the railless width for those columns, with nothing orphaned.
+        var initial = CombatRailResize.ComputeInitialWidth(
+            minWidthPx: 0, dpi: Dpi100, maxColumns: 100, charWidthDp: 8.0,
+            panelExpanded: true, railShown: true);
+
+        var hidden = CombatRailResize.ComputeToggle(
+            showing: false, currentWidthPx: initial.TargetWidthPx, dpi: Dpi100, maxColumns: 100,
+            charWidthDp: 8.0, panelExpanded: true, appliedDeltaDp: initial.AppliedDeltaDp);
+
+        Assert.Equal(1064, hidden.TargetWidthPx);
+        Assert.Equal(0.0, hidden.NewAppliedDeltaDp);
+    }
+
+    [Fact]
+    public void InitialWidth_AutoColumns_UsesTheLaunchDefaultBasis()
+    {
+        // Auto columns (0): DefaultViewColumns (82) is the right basis - 82*8 + 248 = 904.
+        var initial = CombatRailResize.ComputeInitialWidth(
+            minWidthPx: 0, dpi: Dpi100, maxColumns: 0, charWidthDp: 8.0,
+            panelExpanded: true, railShown: false);
+
+        Assert.Equal(904, initial.TargetWidthPx);
+    }
+
+    [Fact]
+    public void InitialWidth_NeverNarrowerThanTheEnforcedMinimum()
+    {
+        // The caller's floor still wins, and the rail is reserved on top of the floor - not taken
+        // out of it - so a floor-pinned window still has room for the rail.
+        var initial = CombatRailResize.ComputeInitialWidth(
+            minWidthPx: 2000, dpi: Dpi100, maxColumns: 42, charWidthDp: 8.0,
+            panelExpanded: true, railShown: true);
+
+        Assert.Equal(2000 + 378, initial.TargetWidthPx);
+    }
+
+    // -- The drag floor: while the rail is shown it includes the rail, so a drag cannot squeeze
+    //    the terminal below its configured columns to pay for it -------------------------------
+
+    [Fact]
+    public void MinTrack_WithoutTheRail_IsThePlainColumnFloor()
+        => Assert.Equal(600, CombatRailResize.MinTrackWidthPx(600, Dpi100, railShown: false));
+
+    [Fact]
+    public void MinTrack_WithTheRail_AddsTheRailsReservation()
+        => Assert.Equal(978, CombatRailResize.MinTrackWidthPx(600, Dpi100, railShown: true));
+
+    [Fact]
+    public void MinTrack_AfterAShowThatHadToGrow_LeavesNothingToDragAway()
+    {
+        // The operator's case: natural 600, the player has widened to 800 (200 of slack), the rail
+        // is 378, so showing adds only 178 and lands on 978. That is exactly the rail-shown drag
+        // floor, so there is nothing left to shrink - which is what makes the later hide's
+        // arithmetic ("-178, plus whatever they added after") the only thing that can move it.
+        var shown = CombatRailResize.ComputeToggle(
+            showing: true, currentWidthPx: 800, dpi: Dpi100, maxColumns: FixedMaxColumns,
+            charWidthDp: FixedCharWidthDp, panelExpanded: FixedPanelExpanded, appliedDeltaDp: 0.0);
+
+        Assert.Equal(978, shown.TargetWidthPx);
+        Assert.Equal(178.0, shown.NewAppliedDeltaDp);
+        Assert.Equal(shown.TargetWidthPx, CombatRailResize.MinTrackWidthPx(600, Dpi100, railShown: true));
+    }
+
+    [Fact]
+    public void MinTrack_RailShownFloorIsNotTheHideFloor()
+    {
+        // Hiding is allowed to shrink past the rail-shown floor - the column width is the floor it
+        // is held to instead, which is what makes the width the rail was costing recoverable.
+        var hidden = CombatRailResize.ComputeToggle(
+            showing: false, currentWidthPx: 978, dpi: Dpi100, maxColumns: FixedMaxColumns,
+            charWidthDp: FixedCharWidthDp, panelExpanded: FixedPanelExpanded, appliedDeltaDp: 178.0);
+
+        Assert.Equal(800, hidden.TargetWidthPx);
+        Assert.Equal(600, CombatRailResize.MinTrackWidthPx(600, Dpi100, railShown: false));
+    }
 }

@@ -206,6 +206,13 @@ public partial class GamePage : ContentPage
     // without a live window. This file's own resize methods are thin callers of that class plus the
     // actual appWindow.Resize(...) side effect.
     private int              _minWindowWidthPx;
+    // Set once this page has given the window its preferred width. Per page instance, which is per
+    // connection: ConnectPage builds a new GamePage each time, so coming back in from the connect
+    // page re-sizes for the profile just chosen, while returning from a modal re-appears this same
+    // instance and leaves the player's own sizing alone. The flag is needed because OnDisappearing
+    // tears the window subclass down, so OnAppearing's whole Windows block - this sizing included -
+    // runs again on every appearance, not just the first.
+    private bool             _preferredSizeApplied;
     private IntPtr           _hwnd = IntPtr.Zero;
     private WndProcDelegate? _wndProcDelegate;
 #if INPUT_DIAG
@@ -385,11 +392,21 @@ public partial class GamePage : ContentPage
                 // having run yet, so this seed-at-startup call computes the same delta here as it
                 // would once OnSizeAllocated has fired.
                 //
-                // SEEDING, not toggling: this page is adopting a window it did not size. The very
-                // first page of a run adopts one that owes the rail nothing, so the delta comes out
-                // zero and this is a no-op; a page arriving after a relog adopts one that has already
-                // paid for the rail, and picks up the delta its first hide will need.
+                // SEEDING, not toggling: adopt what the window already carries rather than adding to
+                // it. SetPreferredInitialWindowSize above has normally already sized this window and
+                // recorded the rail delta it applied, which makes this a no-op - it returns as soon
+                // as the window's state matches what the view model asks for. It still runs because
+                // that sizing bails when the window handle or AppWindow is not available, and a page
+                // that believes it has added nothing can never give the rail's width back.
                 ResizeWindowForCombatPanel(_vm.SidePanel.IsCombatPanelVisible, seeding: true);
+                // The rail's state is only known once the line above has run, and an ADOPTED window
+                // (a relog, or a profile switch into one that shows the rail) can be narrower than
+                // the columns plus the rail need - seeding infers a delta but deliberately never
+                // resizes. UpdateWindowMinimumWidth reserves the rail in its own force-grow floor, so
+                // running it here is what guarantees the invariant the rail depends on: while the rail
+                // is shown the window is never narrower than the configured columns plus the rail.
+                // A window already wide enough is left exactly as the player had it.
+                UpdateWindowMinimumWidth();
 #if INPUT_DIAG
                 StartUiThreadProbe();
 #endif
@@ -1328,28 +1345,45 @@ public partial class GamePage : ContentPage
     }
 
     /// <summary>
-    /// Sizes the window once (on first GamePage appearance) so the terminal view fits
-    /// <see cref="DefaultViewColumns"/> characters plus the side panel when expanded, instead
-    /// of inheriting WinUI's oversized default window width. Height is left untouched.
-    /// Subsequent appearances (e.g. returning from the config editor) do not re-run this, so a
-    /// user's manual resize is preserved.
+    /// Sizes the window so the terminal view fits the configured column count plus the side panel
+    /// when expanded, and the Combat Rail when the connecting profile has it shown, instead of
+    /// inheriting WinUI's oversized default window width. Height is left untouched.
+    ///
+    /// <para>The arithmetic - which column basis a fixed vs auto column setting implies, and the
+    /// rail's reservation on top - lives in <see cref="CombatRailResize.ComputeInitialWidth"/>. This
+    /// method is the thin caller: gather the live window/DPI/column state, apply the one side effect,
+    /// and adopt the delta a later hide will subtract.</para>
+    ///
+    /// <para>Runs once per page instance, which is once per connection - see
+    /// <see cref="_preferredSizeApplied"/>. Coming in from the connect page sizes for the profile
+    /// just chosen; returning from a modal (config editor, F-key editor) does not re-snap, so a
+    /// manual resize made during a session survives it.</para>
+    ///
+    /// <para>Setting <see cref="_railWidthApplied"/> here is what makes the seeding call that follows
+    /// in OnAppearing a no-op (it returns when the window already carries what the view model asks
+    /// for). That is the intended division: this width is known, not inferred, so the full
+    /// reservation is recorded directly rather than read back out of the window by
+    /// <see cref="CombatRailResize.SeedAppliedDeltaDp"/>.</para>
     /// </summary>
     private void SetPreferredInitialWindowSize()
     {
         if (_hwnd == IntPtr.Zero) return;
+        if (_preferredSizeApplied) return;
         var nativeWindow = Window?.Handler?.PlatformView as Microsoft.UI.Xaml.Window;
         if (nativeWindow is null) return;
+        _preferredSizeApplied = true;
 
-        var panelExpanded = _vm.SidePanel.IsPanelExpanded;
-        var contentDp = PreferredWindowWidthDp(CharWidthDp, panelExpanded);
-        var dpi       = GetDpiForWindow(_hwnd);
-        var targetPx  = (int)Math.Ceiling(contentDp * dpi / 96.0);
+        var dpi = GetDpiForWindow(_hwnd);
+        var railShown = _vm.SidePanel.IsCombatPanelVisible;
+        var initial = CombatRailResize.ComputeInitialWidth(
+            _minWindowWidthPx, dpi, _vm.MaxColumns, CharWidthDp,
+            _vm.SidePanel.IsPanelExpanded, railShown);
 
-        // Never set the window narrower than the enforced minimum.
-        if (targetPx < _minWindowWidthPx) targetPx = _minWindowWidthPx;
+        _railWidthApplied = railShown;
+        _railDeltaAppliedDp = initial.AppliedDeltaDp;
 
         var appWindow = nativeWindow.AppWindow;
-        appWindow.Resize(new Windows.Graphics.SizeInt32(targetPx, appWindow.Size.Height));
+        appWindow.Resize(new Windows.Graphics.SizeInt32(initial.TargetWidthPx, appWindow.Size.Height));
     }
 
     /// <summary>
@@ -1410,7 +1444,15 @@ public partial class GamePage : ContentPage
     /// <summary>
     /// Win32 subclass procedure: intercepts WM_GETMINMAXINFO to prevent the user from
     /// resizing the window narrower than the configured terminal width (plus side panel
-    /// when it is open).
+    /// when it is open, and plus the Combat Rail while it is shown - see
+    /// <see cref="CombatRailResize.MinTrackWidthPx"/> for why the rail belongs in the floor a drag
+    /// is held to but not in <see cref="_minWindowWidthPx"/> itself).
+    ///
+    /// <para>The rail term is computed here rather than cached in a second field so it cannot go
+    /// stale against <see cref="_railWidthApplied"/>, and so it follows the CURRENT dpi - the same
+    /// reason <see cref="_railDeltaAppliedDp"/> is stored in dp. A hide clears
+    /// <see cref="_railWidthApplied"/> before it resizes, so the floor has already dropped by the
+    /// time the shrink is applied.</para>
     /// </summary>
     private IntPtr GameWindowSubclassProc(
         IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam, IntPtr uIdSubclass, IntPtr dwRefData)
@@ -1418,10 +1460,12 @@ public partial class GamePage : ContentPage
         const uint WM_GETMINMAXINFO = 0x0024;
         if (msg == WM_GETMINMAXINFO && lParam != IntPtr.Zero && _minWindowWidthPx > 0)
         {
+            var minTrackPx = CombatRailResize.MinTrackWidthPx(
+                _minWindowWidthPx, GetDpiForWindow(hwnd), _railWidthApplied);
             var info = Marshal.PtrToStructure<MinMaxInfo>(lParam);
-            if (info.ptMinTrackSize.x < _minWindowWidthPx)
+            if (info.ptMinTrackSize.x < minTrackPx)
             {
-                info.ptMinTrackSize.x = _minWindowWidthPx;
+                info.ptMinTrackSize.x = minTrackPx;
                 Marshal.StructureToPtr(info, lParam, false);
             }
         }

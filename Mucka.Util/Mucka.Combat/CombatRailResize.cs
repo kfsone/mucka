@@ -155,12 +155,12 @@ public static class CombatRailResize
     /// How much of a window's CURRENT width is attributable to the rail, for a page that is adopting a
     /// window it did not size - used to seed the applied-delta when the rail is already showing.
     ///
-    /// <para><b>Why this is needed at all.</b> The applied delta lives on GamePage, and a relog builds
-    /// a NEW GamePage while the OS window keeps the width the old one gave it. So the incoming page
-    /// starts believing it has added nothing, and the first hide subtracts nothing: the window stays
-    /// exactly one rail-width too wide. (In auto-columns the seed also re-adds the full width first,
-    /// reaching the same place by a longer route.) Without this seeding: show the rail, quit, relog,
-    /// hide - the window never shrinks.</para>
+    /// <para><b>When this is reached.</b> A page that sizes the window itself
+    /// (<see cref="ComputeInitialWidth"/>) knows exactly what it added and records that directly, so
+    /// it never needs this. This is the fallback for a page that could not: no window handle or no
+    /// AppWindow at the point the sizing would have run. Such a page starts believing it has added
+    /// nothing, and the first hide then subtracts nothing - leaving the window exactly one rail-width
+    /// too wide, with no later event able to correct it.</para>
     ///
     /// <para><b>It is an inference, and the honest one.</b> Nothing records why a window is the width
     /// it is. What is known is that the rail IS showing and that a rail costs its own width, so the
@@ -180,6 +180,60 @@ public static class CombatRailResize
         var railPx = DpToPxRound(CombatPanelWidthDp, dpi);
         return Math.Min(slackPx, railPx) * 96.0 / dpi;
     }
+
+    /// <summary>Result of <see cref="ComputeInitialWidth"/>: the width to size a freshly-adopted
+    /// window to, and the rail delta the page must start life believing it has applied.</summary>
+    public readonly record struct InitialSize(int TargetWidthPx, double AppliedDeltaDp);
+
+    /// <summary>
+    /// T0: the single sizing a page performs when it first adopts a window
+    /// (<c>GamePage.SetPreferredInitialWindowSize</c>), before any toggle has run.
+    ///
+    /// <para><b>The column basis follows the configured count, not the launch default.</b> With a
+    /// fixed <paramref name="maxColumns"/> the target is <c>maxColumns + 2</c> columns - the same
+    /// "+2 breathing columns" margin <c>ResizeWindowToFitColumns</c> and <see cref="ComputeToggle"/>
+    /// both treat as this app's notion of "the width we'd pick automatically" for a fixed column
+    /// count. Sizing to <see cref="DefaultViewColumns"/> instead leaves a profile configured for more
+    /// columns than that pinned to its bare floor by the caller's minimum clamp, with none of the
+    /// margin. <paramref name="maxColumns"/> of 0 is auto, where <see cref="DefaultViewColumns"/> is
+    /// the right basis.</para>
+    ///
+    /// <para><b>The rail is reserved here or it is taken out of the terminal.</b> Showing the rail is
+    /// a profile preference (<c>ClientSettings.ShowCombatRail</c>) that is already true before a page
+    /// has toggled anything, and <see cref="PreferredWindowWidthDp"/> never includes the rail - so a
+    /// first sizing that ignores <paramref name="railShown"/> hands the rail a window sized for the
+    /// terminal alone, and the rail's <see cref="CombatPanelWidthDp"/> comes out of the columns.</para>
+    ///
+    /// <para>The returned delta is the rail's full reservation, not an inference: this width was just
+    /// computed with zero slack, so a later hide must give back exactly that. It is what the caller
+    /// seeds its applied-delta with, in place of <see cref="SeedAppliedDeltaDp"/> - that one reads a
+    /// window whose history is unknown, which is not this case.</para>
+    /// </summary>
+    public static InitialSize ComputeInitialWidth(
+        int minWidthPx, double dpi, int maxColumns, double charWidthDp,
+        bool panelExpanded, bool railShown)
+    {
+        var columns = maxColumns > 0 ? maxColumns + 2.0 : DefaultViewColumns;
+        var targetPx = DpToPxCeil(PreferredWindowWidthDp(charWidthDp, panelExpanded, columns), dpi);
+        if (targetPx < minWidthPx) targetPx = minWidthPx;
+
+        if (!railShown) return new InitialSize(targetPx, 0.0);
+        var reserved = ReserveRailWidth(targetPx, dpi);
+        return new InitialSize(reserved.TargetWidthPx, reserved.AppliedDeltaDp);
+    }
+
+    /// <summary>
+    /// The narrowest the user may drag the window (<c>WM_GETMINMAXINFO</c>'s <c>ptMinTrackSize.x</c>).
+    /// <paramref name="floorPx"/> is the pure terminal+left-panel floor.
+    ///
+    /// <para>While the rail is shown the floor includes the rail, so the configured columns stay
+    /// intact: a drag cannot squeeze the terminal to pay for the rail. It is also what makes a show
+    /// that had to grow the window land ON the minimum - with slack smaller than the rail, the grow
+    /// puts the window exactly here and there is nothing left to give back. Hiding drops the floor to
+    /// the column width again, which is the only width a hide is allowed to shrink to.</para>
+    /// </summary>
+    public static int MinTrackWidthPx(int floorPx, double dpi, bool railShown)
+        => railShown ? floorPx + DpToPxRound(CombatPanelWidthDp, dpi) : floorPx;
 
     /// <summary>Result of <see cref="ReserveRailWidth"/>.</summary>
     public readonly record struct RailReservation(int TargetWidthPx, double AppliedDeltaDp);
