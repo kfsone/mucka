@@ -5,11 +5,10 @@ namespace MudSharp.Tests.Fixtures;
 /// <summary>
 /// The command-input framework's rules, as tests.
 ///
-/// <para>These exist because the command box is the one part of this application whose failures the
-/// owner experiences as unacceptable rather than annoying, and because it has now been broken three
-/// times by three different well-meant additions. Comments did not stop that. The point of
-/// Mucka.Input is that its rules are now (a) behind an assembly boundary, so app code cannot reach
-/// past them, and (b) platform-free, so they can be proven here instead of discovered at 120 wpm.</para>
+/// <para>These exist because the command box's failures are unacceptable rather than merely
+/// annoying. The point of Mucka.Input is that its rules are (a) behind an assembly boundary, so
+/// app code cannot reach past them, and (b) platform-free, so they can be proven here instead of
+/// discovered at 120 wpm.</para>
 ///
 /// <para>Every test below is a rule someone could plausibly break by accident. If one starts failing,
 /// the fix is almost certainly not the test.</para>
@@ -87,9 +86,8 @@ public class CommandInputTests
     }
 
     /// <summary>
-    /// The exact reported corruption, as a regression test. A character that lands in the box AFTER an
-    /// Enter must start the next line, never join the one already accepted - and the accepted line
-    /// must not have been mutated by it.
+    /// A character that lands in the box AFTER an Enter must start the next line, never join the one
+    /// already accepted - and the accepted line must not have been mutated by it.
     /// </summary>
     [Fact]
     public void Accept_TextArrivingAfterEnter_StartsTheNextLine()
@@ -275,8 +273,8 @@ public class CommandInputTests
         Assert.Equal("tell fred ".Length, surface.Caret);
     }
 
-    /// <summary>A prefix the player is expected to type after leaves the caret where it was asked for,
-    /// not at the end - the case that used to justify reaching past the boundary to the control.</summary>
+    /// <summary>A prefix the player is expected to type after leaves the caret where it was asked
+    /// for, not at the end.</summary>
     [Fact]
     public void RequestSetText_WithACaret_LeavesItWhereAsked()
     {
@@ -306,15 +304,14 @@ public class CommandInputTests
 
     /// <summary>
     /// A set-text request must reach the surface even when the text is IDENTICAL to what is already
-    /// there. Unconditional delivery is the whole contract, and its absence has now caused two live
-    /// bugs of the same shape.
+    /// there. Unconditional delivery is the whole contract.
     ///
-    /// <para>Both came from inferring a UI update from a value CHANGING rather than asserting it:
-    /// BaseViewModel.Set raises no PropertyChanged for an unchanged value, so a clear-on-send whose
-    /// value was already empty cleared nothing (leaving typed text to corrupt the next command), and a
-    /// history recall of an entry equal to the view model's copy showed nothing while the history index
-    /// moved anyway ("cursor up doesn't always recover the last line typed"). This framework must never
-    /// acquire that behaviour: it does not compare, it delivers.</para>
+    /// <para>Inferring a UI update from a value CHANGING rather than asserting it is the failure mode
+    /// this guards against: BaseViewModel.Set raises no PropertyChanged for an unchanged value, so a
+    /// clear-on-send whose value is already empty must still clear the box, and a history recall of
+    /// an entry equal to the view model's copy must still show it rather than silently leaving the
+    /// index moved with nothing displayed. This framework must never acquire that behaviour: it does
+    /// not compare, it delivers.</para>
     /// </summary>
     [Fact]
     public void RequestSetText_DeliversEvenWhenTheTextIsUnchanged()
@@ -349,8 +346,8 @@ public class CommandInputTests
 
     /// <summary>
     /// Walking history must show a DIFFERENT entry on each press even when consecutive entries are
-    /// identical - the case that produced the report. Three sends of "n" then three presses of Up must
-    /// deliver three set-text calls, not one.
+    /// identical. Three sends of "n" then three presses of Up must deliver three set-text calls, not
+    /// one.
     /// </summary>
     [Fact]
     public void RepeatedIdenticalRecalls_EachReachTheBox()

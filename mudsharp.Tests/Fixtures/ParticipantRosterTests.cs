@@ -3,11 +3,10 @@ using MudSharp.Combat;
 namespace mudsharp.Tests.Fixtures;
 
 /// <summary>
-/// Covers the opposition roster (DESIGN_FINAL.md, amended): the owner's direct complaint that a
-/// 14-rat fight rendered "5 dead rats and 9 more" with the 9 hidden participants' live/dead status
-/// simply unknown. <see cref="ParticipantRoster.Build"/> is the fix - counts that survive the row cap,
-/// and a hidden-tail breakdown that never collapses "9 more, all down" and "9 more, all still up" into
-/// the same sentence.
+/// The opposition roster. When participants are hidden by the row cap, the hidden-tail breakdown
+/// must still distinguish "9 more, all down" from "9 more, all still up" - a live/dead count, not
+/// just a total. <see cref="ParticipantRoster.Build"/> provides it: counts that survive the row cap,
+/// plus that breakdown.
 /// </summary>
 public sealed class ParticipantRosterTests
 {
@@ -66,10 +65,8 @@ public sealed class ParticipantRosterTests
     [Fact]
     public void Build_TheReportedFourteenRatCase_CountsAndHidesCorrectly()
     {
-        // The exact failure case: 5 already dead, 9 more still alive and swinging - the old panel's
-        // "and 9 more" line gave no way to tell which. Expressed against MaxRows rather than a literal
-        // cap, because the cap has moved once already (5 -> 8, to stop it overruling the rail's own
-        // height-derived slot count) and the distinction under test is not about its value.
+        // 5 already dead, 9 more still alive and swinging. Expressed against MaxRows rather than a
+        // literal cap, since the distinction under test is not about the cap's value.
         const int dead = 5;
         const int live = 9;
         var fights = Enumerable.Range(0, dead).Select(i => Dead($"dead{i}"))
@@ -85,8 +82,7 @@ public sealed class ParticipantRosterTests
         // Every shown row is a live one (live sorts first) - every single dead rat is hidden.
         Assert.All(plan.Rows, r => Assert.True(r.IsLive));
         Assert.Equal(dead + live - ParticipantRoster.MaxRows, plan.HiddenCount);
-        // Critically: some of the hidden ones are STILL LIVE, not already dead - the exact distinction
-        // the old "and 9 more" line could never make.
+        // Critically: some of the hidden ones are STILL LIVE, not already dead.
         Assert.Equal(live - ParticipantRoster.MaxRows, plan.HiddenLiveCount);
     }
 

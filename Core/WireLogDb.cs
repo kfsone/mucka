@@ -5,8 +5,7 @@ namespace Mucka.Core;
 /// <summary>
 /// The wire-log database: <c>~/.mucka/wire/wire.db</c>, holding whole sessions of raw socket traffic as
 /// batches of length-prefixed records. The payload bytes are the server's own, verbatim and
-/// uncompressed - see <see cref="WireLogFraming"/> for the byte layout and for the owner's instruction
-/// that put it that way.
+/// uncompressed - see <see cref="WireLogFraming"/> for the byte layout and the rationale.
 ///
 /// <para><b>Why this is its own file and not a table in <see cref="CombatDb"/>.</b> The combat database
 /// argues for one file on the grounds that swings and fights JOIN - an analysis view walks from a fight
@@ -17,7 +16,7 @@ namespace Mucka.Core;
 /// <list type="bullet">
 ///   <item><description><b>Growth.</b> This grows without bound - every byte of every session, about
 ///   0.76 MB per play-hour stored plain (MB = 10^6; see <see cref="WireLogFraming"/> for the
-///   arithmetic), so roughly 1.1 GB a year at the owner's four-hours-a-day rate. The combat database is
+///   arithmetic), so roughly 1.1 GB a year at four hours of daily play. The combat database is
 ///   thousands of small rows and is read interactively. Interleaving multi-kilobyte blob pages through
 ///   a file whose queries want to stay in page cache makes the small, frequent, latency-sensitive reads
 ///   pay for the large, rare, latency-indifferent writes.</description></item>
@@ -105,11 +104,10 @@ public static class WireLogDb
     /// anything. <see cref="CombatDb"/> gets the opposite treatment and must keep it - that corpus is
     /// months of irreplaceable observation and no code may ever drop a table in it.</para>
     ///
-    /// <para>What tripped it first: removing <c>codec</c> and <c>raw_bytes</c> when the compression
-    /// came out. <c>CREATE TABLE IF NOT EXISTS</c> silently leaves an existing table alone, so without
-    /// this the first insert against an old file would fail a NOT NULL constraint on a column this
-    /// build no longer knows about, and the wire log would fault out for the rest of the session with
-    /// nothing but a swallowed exception to show why.</para>
+    /// <para><c>CREATE TABLE IF NOT EXISTS</c> silently leaves an existing table alone, so without this
+    /// check an insert against an old file with a different column set would fail a NOT NULL constraint
+    /// on a column this build no longer knows about, and the wire log would fault out for the rest of
+    /// the session with nothing but a swallowed exception to show why.</para>
     /// </summary>
     private static void DiscardOnSchemaChange(SqliteConnection connection)
     {

@@ -5,7 +5,7 @@ namespace Mucka.Audio;
 /// <summary>
 /// Fire-and-forget platform-native sound effect player.
 /// Asset names are app-package-relative paths, e.g. "sounds/clio.1311.wav".
-/// Called from the TCP background thread — Play() is non-blocking.
+/// Called from the TCP background thread - Play() is non-blocking.
 /// </summary>
 internal static class SoundService
 {
@@ -26,7 +26,7 @@ internal static class SoundService
     private static readonly HashSet<string> s_checkedMuckaOverrides = new(StringComparer.Ordinal);
     private static readonly HashSet<string> s_existingMuckaOverrides = new(StringComparer.Ordinal);
 
-    /// <summary>Sets the playback volume (0–100) for subsequently played sounds.</summary>
+    /// <summary>Sets the playback volume (0-100) for subsequently played sounds.</summary>
     public static void SetVolume(int percent) => s_volumePercent = Math.Clamp(percent, 0, 100);
 
     /// <summary>Replaces the sound enablement settings used by <see cref="PlayServerSound"/>.</summary>
@@ -46,7 +46,7 @@ internal static class SoundService
         if (!settings.MasterEnabled) return;
 
         // Catalogued by exact asset (a clio.*.wav or a prefixed family like the tell alerts):
-        // gate by group + sound, play at the resolved sound → group → master volume.
+        // gate by group + sound, play at the resolved sound -> group -> master volume.
         var hit = SoundCatalog.FindByAsset(assetName);
         if (hit is not null)
         {
@@ -57,8 +57,8 @@ internal static class SoundService
             return;
         }
 
-        // Not shipped by name — maybe a clio code within a known group that has no wav of its
-        // own; play that group's chosen fallback (if any), else it's uncatalogued → play as-is.
+        // Not shipped by name - maybe a clio code within a known group that has no wav of its
+        // own; play that group's chosen fallback (if any), else it's uncatalogued -> play as-is.
         var code = ExtractClioCode(assetName);
         var grp  = code is null ? null : SoundCatalog.FindGroupForCode(code);
         if (code is null || grp is null)
@@ -76,7 +76,7 @@ internal static class SoundService
     public static void PlayBell()
         => Play("beep.wav", s_settings.GetGroupVolume(SoundSettings.BellGroup));
 
-    /// <summary>"sounds/clio.0703.wav" → "0703"; null when the name isn't that shape.</summary>
+    /// <summary>"sounds/clio.0703.wav" -> "0703"; null when the name isn't that shape.</summary>
     private static string? ExtractClioCode(string assetName)
     {
         const string prefix = "sounds/clio.";
@@ -161,7 +161,7 @@ internal static class SoundService
 #endif
     }
 
-    /// <summary>Plays a sound at <paramref name="volumePercent"/> (0–100 absolute), or
+    /// <summary>Plays a sound at <paramref name="volumePercent"/> (0-100 absolute), or
     /// at the master volume when null (the inherited default).</summary>
     public static void Play(string assetName, int? volumePercent = null)
     {

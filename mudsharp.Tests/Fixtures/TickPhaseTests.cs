@@ -6,11 +6,10 @@ namespace MudSharp.Tests.Fixtures;
 /// The one piece of arithmetic both renderings of the combat tick depend on, plus the alternating
 /// chain the click schedules on top of it.
 ///
-/// <para>Worth pinning because "the bar and the click disagree" is this feature's most-reported fault,
-/// and every time it has been investigated the derivation turned out to be right - the anchor was
-/// measured against real captures at within 3% of a tick, and the two boundary calculations agreed
-/// algebraically. What that history actually argues for is not more scrutiny of the formula but a test
-/// that makes the shared lattice impossible to break silently while attention is elsewhere.</para>
+/// <para>Worth pinning because the bar and the click must never visibly disagree about where the
+/// rollover is. The anchor is measured against real captures at within 3% of a tick, and the two
+/// boundary calculations agree algebraically; this test makes the shared lattice impossible to break
+/// silently.</para>
 /// </summary>
 public class TickPhaseTests
 {
@@ -22,9 +21,8 @@ public class TickPhaseTests
     ///
     /// <para>The value does not have to match the shipping one for these tests to mean something - they
     /// assert properties of the lattice that hold for ANY offset under half a tick, and each one passes
-    /// its own offset to <c>NextBeat</c>. That is deliberate: the previous version of this file mirrored
-    /// the constant and then built its assertions out of the same arithmetic the code used, so the tests
-    /// could only ever agree with themselves.</para></summary>
+    /// its own offset to <c>NextBeat</c>. Building assertions out of the same arithmetic the code uses
+    /// would let the tests agree only with themselves.</para></summary>
     private const int Offset = 50;
 
     private static readonly DateTime Anchor = new(2026, 8, 19, 12, 0, 0, DateTimeKind.Utc);
@@ -99,19 +97,12 @@ public class TickPhaseTests
     }
 
     /// <summary>
-    /// THE test this file exists for, and the one its predecessor could not perform.
+    /// This test injects real timer lateness rather than an idealized zero-slop clock.
     ///
     /// <para>A <c>System.Threading.Timer</c> is never early and is routinely late - Windows' default
-    /// granularity is ~15.6 ms. The old chain re-armed with two constant legs measured from the previous
-    /// callback's own execution instant, so that lateness accumulated with nothing to correct it: the
-    /// entire budget before a beat crossed to the wrong side of its boundary was N ms for a whole fight,
-    /// and at N=200 the pre-boundary beat exhausted it in roughly thirteen rollovers. That was the
-    /// shipped bug behind "the pre-cycle sound only occasionally plays".</para>
-    ///
-    /// <para>The two tests replaced here claimed to prove the opposite property. One asserted
-    /// <c>1600 + 400 == 2000</c>. The other walked two hundred beats advancing a simulated clock by
-    /// EXACTLY the legs its assertions were derived from - an ideal zero-slop clock, so it could not
-    /// observe timer lateness, which was the entire defect. This one injects the lateness.</para>
+    /// granularity is ~15.6 ms. The beat chain must absorb that lateness rather than accumulate it: a
+    /// fixed two-leg schedule measured from each callback's own (late) execution instant would let
+    /// lateness compound across a whole fight instead of being bounded by one beat's worth.</para>
     /// </summary>
     [Theory]
     [InlineData(15.6)]    // Windows default timer granularity
@@ -138,8 +129,8 @@ public class TickPhaseTests
             (delay, afterTick) = CombatTiming.NextBeat(Anchor, now, Offset, Offset);
         }
 
-        // Bounded by ONE beat's lateness for the whole fight, not 600 of them accumulated. The old
-        // fixed-leg chain would reach 600 * lateness here.
+        // Bounded by ONE beat's lateness for the whole fight, not 600 of them accumulated: a fixed-leg
+        // chain measured from each late callback would reach 600 * lateness here.
         Assert.True(worst <= latenessPerBeat + 0.001,
             $"worst error {worst:F1} ms against a per-beat lateness of {latenessPerBeat} ms - lateness is accumulating");
     }
@@ -255,7 +246,5 @@ public class TickPhaseTests
         // beat lattice treats that same instant as a boundary just PASSED and schedules its after-tick
         // 50 ms later - which is correct, because the anchor is a swing timestamp and a swing is
         // emitted BY a tick, so the anchor itself is a real boundary that deserves its after-click.
-        // An earlier version of this test asserted equality here and failed on exactly that case; the
-        // premise was wrong, not the code.
     }
 }

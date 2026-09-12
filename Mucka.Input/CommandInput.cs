@@ -18,10 +18,10 @@ namespace Mucka.Input;
 /// Enter.</para>
 ///
 /// <para><b>What it deliberately does NOT do:</b> autocomplete, expansion, history, command parsing,
-/// or anything else that inspects a line. The owner's standing position is that the box has one job -
-/// capture and enqueue user input correctly and smoothly - and every one of those features belongs on
-/// the far side of <see cref="InputGate"/>. If a future feature seems to need to look at the text as
-/// it is typed, that is a design conversation, not a small addition here.</para>
+/// or anything else that inspects a line. The box has one job - capture and enqueue user input
+/// correctly and smoothly - and every one of those features belongs on the far side of
+/// <see cref="InputGate"/>. If a future feature seems to need to look at the text as it is typed, that
+/// is a design conversation, not a small addition here.</para>
 /// </summary>
 public sealed class CommandInput
 {
@@ -57,9 +57,7 @@ public sealed class CommandInput
     ///
     /// <para>Ordering inside this method is the load-bearing part, and it is: read, empty, hand off.
     /// The box is emptied BEFORE the line goes anywhere, so it is never waiting on downstream work
-    /// and there is no window in which a stale character can be left behind to join the next command.
-    /// That last failure is not hypothetical - it put <c>nne</c> on the wire when the owner typed
-    /// <c>n</c>, Enter, <c>ne</c>, Enter.</para>
+    /// and there is no window in which a stale character can be left behind to join the next command.</para>
     /// </summary>
     /// <param name="keyCode">The platform's key value - see <see cref="Hotkey"/>.</param>
     /// <param name="isAcceptKey">True for the key that completes a line (Enter). Passed in rather
@@ -90,9 +88,7 @@ public sealed class CommandInput
     {
         var line = _surface.Text;
         // Emptied first, unconditionally, and without consulting anything: the box's state after an
-        // accept is not a conclusion to be derived from a notification chain (which is how a hole
-        // opened here before - a chain that raised nothing when the value happened to be unchanged,
-        // leaving typed text behind to corrupt the next command).
+        // accept is not a conclusion to be derived from a notification chain.
         _surface.Clear();
         if (line.Length == 0)
             EmptyLineCount++;

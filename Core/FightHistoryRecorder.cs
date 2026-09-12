@@ -63,7 +63,7 @@ public sealed class FightHistoryRecorder : IDisposable
     private long? _encounterStartedAtMs;
 
     // Context captured at ENCOUNTER start and stamped onto every fight in it. A joiner inherits the
-    // opening context because we never re-probe stats mid-encounter — see FightRecord's remarks.
+    // opening context because we never re-probe stats mid-encounter - see FightRecord's remarks.
     private GameStatsSnapshot _encounterStats = GameStatsSnapshot.Empty;
     private StatusEffectState _encounterEffects = StatusEffectState.Empty;
     private string? _encounterRoom;
@@ -218,11 +218,9 @@ public sealed class FightHistoryRecorder : IDisposable
 
                 case CombatEventKind.ItemDropped:
                     // Fleeing auto-drops the weapon, in the same tick and just before the flee line.
-                    // CombatStatsAggregator has handled this since the drop was first parsed; this
-                    // class did not, so the display and the history disagreed about whether the
-                    // player was still armed - and a second fight opening later in the same encounter
-                    // would inherit a weapon lying on the floor. Unlike the break/refusal cases above
-                    // this one names an item, so it only counts when the item IS the weapon in use.
+                    // Unlike the break/refusal cases above this one names an item, so it only counts
+                    // when the item IS the weapon in use - otherwise a second fight opening later in
+                    // the same encounter would inherit a weapon lying on the floor.
                     if (!string.IsNullOrWhiteSpace(combatEvent.Weapon)
                         && string.Equals(combatEvent.Weapon, _currentWeapon, StringComparison.OrdinalIgnoreCase))
                     {
@@ -290,9 +288,8 @@ public sealed class FightHistoryRecorder : IDisposable
                     // keeps drawing a creature as an opponent, and "we never saw it end" renders as
                     // "still swinging". Two accumulators, two questions. See FightOutcome.Interrupted.
                     //
-                    // This case exists to say that rather than to do it: falling through to the
-                    // default was the same no-op, and was how the force-end went unnoticed for as long
-                    // as it did.
+                    // This case exists to document the no-op explicitly, rather than falling through
+                    // to the default silently.
                     break;
 
                 case CombatEventKind.Withdrawn:
@@ -305,9 +302,9 @@ public sealed class FightHistoryRecorder : IDisposable
 
                 case CombatEventKind.NpcFleeFailed:
                     // The creature stayed in the room but the fight ended - see FightOutcome.CFledFail.
-                    // Nothing resolved this before 2026-08-19, so every failed flee was persisted as an
-                    // Unresolved row: the history could not distinguish "the client lost track of this
-                    // fight" from "this creature broke off", which are very different evidence.
+                    // Resolving this explicitly is what lets the history distinguish "the client lost
+                    // track of this fight" (Unresolved) from "this creature broke off" (CFledFail),
+                    // which are very different evidence.
                     FightForLocked(combatEvent)?.Resolve(FightOutcome.CFledFail, combatEvent.TimestampUtc);
                     break;
 
@@ -407,7 +404,7 @@ public sealed class FightHistoryRecorder : IDisposable
             // A fight that reached a real resolution yet produced not one parsed swing is the
             // signature of a character without fightbrief: narrative mode replaces every hit/miss
             // line with flavour text we do not parse. Flag it so aggregates can exclude it rather
-            // than averaging in a spurious zero. An unresolved fight is NOT flagged — it may simply
+            // than averaging in a spurious zero. An unresolved fight is NOT flagged - it may simply
             // have been cut short before anyone swung.
             NarrativeMode = swings == 0 && fight.IsResolved,
             Room = _encounterRoom,
@@ -451,32 +448,29 @@ public sealed class FightHistoryRecorder : IDisposable
     ///
     /// <para>For anything meaning "a fight is happening right now". A name outlives its fight.</para>
     ///
-    /// <para><b>The mechanic, from the owner (2026-09-01): "fleeing ends combat with all creatures
-    /// attacking you. so if a zombie flees, even if it fails, it is no-longer in combat with you."</b>
-    /// A creature that attempts to flee leaves combat whether or not it gets away. It may still be
-    /// standing in the room, but it is not fighting the player, and the player must attack again to
-    /// re-engage. Corroborated in the clog corpus: across 128 NpcFleeFailed events in 1,195 clogs, the
-    /// next event naming that creature was a fresh FightStart 100 times and nothing at all 28 times -
-    /// never a swing in either direction.</para>
+    /// <para><b>The mechanic.</b> A creature that attempts to flee leaves combat whether or not it
+    /// gets away. It may still be standing in the room, but it is not fighting the player, and the
+    /// player must attack again to re-engage. Corroborated in the clog corpus: across 128
+    /// NpcFleeFailed events in 1,195 clogs, the next event naming that creature was a fresh FightStart
+    /// 100 times and nothing at all 28 times - never a swing in either direction.</para>
     ///
     /// <para>So a swing arriving after "the rat17 attempts to flee, but fails" belongs to a NEW
-    /// engagement - the first one really is over. Feeding it to the closed bucket corrupted a persisted
-    /// row's damage totals and, because <c>FightAccumulator.Resolve</c> keeps the first outcome, lost
-    /// the second engagement's ending: a creature that broke off and was then killed was written to
-    /// history as "broke off" with the kill's blows folded into it.</para>
+    /// engagement - the first one really is over. Feeding it to the closed bucket would corrupt that
+    /// row's damage totals and, because <c>FightAccumulator.Resolve</c> keeps the first outcome, lose
+    /// the second engagement's ending: a creature that broke off and was then killed would be written
+    /// to history as "broke off" with the kill's blows folded into it.</para>
     ///
     /// <para><b>This side is the one that matters most.</b> The aggregator's copy of this drives the
-    /// live panel; these rows ARE the corpus, so a merged bucket here corrupts every constraint the
-    /// stamina-pool estimator later derives. It also defeated the estimator's own defence:
+    /// live panel; these rows ARE the corpus, so a merged bucket here would corrupt every constraint
+    /// the stamina-pool estimator later derives. It would also defeat the estimator's own defence:
     /// <c>ChaseLinker</c> joins consecutive engagements against one name into a single observation
     /// against one pool - which is what lets a terminal kill bound that pool from above - and it can
-    /// only do that if the two engagements are two ROWS. Merged into one by this class, they were a
-    /// single row it could never take apart.</para>
+    /// only do that if the two engagements are two ROWS.</para>
     ///
-    /// <para>Note what the fix does and does not buy. It does not add a clean kill observation: the
-    /// filter will correctly drop the second engagement, because that creature was pre-damaged by the
-    /// first. What it buys is that the FIRST row is no longer polluted with the second's blows, and the
-    /// contaminated one is now visible as contaminated instead of hiding inside it.</para>
+    /// <para>What this buys, and does not: it does not add a clean kill observation, since the filter
+    /// correctly drops the second engagement (that creature was pre-damaged by the first). What it
+    /// does buy is that the FIRST row is not polluted with the second's blows, and the contaminated
+    /// one is visible as contaminated instead of hiding inside it.</para>
     ///
     /// <para>The client cannot tell a creature you chased from a fresh <c>rat17</c> after a reset - MUD2
     /// reuses instance names and says nothing about identity. That ambiguity is about which CREATURE

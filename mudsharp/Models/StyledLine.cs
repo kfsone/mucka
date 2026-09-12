@@ -2,7 +2,7 @@ namespace MudSharp.Models;
 
 /// <summary>
 /// An ordered sequence of styled spans forming one line of MUD2 output.
-/// IsPartial = true means no \n received yet (e.g. a login prompt) — rendered in-place, replaced when completed.
+/// IsPartial = true means no \n received yet (e.g. a login prompt) - rendered in-place, replaced when completed.
 /// </summary>
 public sealed class StyledLine
 {
@@ -16,7 +16,7 @@ public sealed class StyledLine
     /// True when this line continues the chat message of the previous line: its C09 colour scope
     /// was already open when the line started (the server soft-wrapped one speaker message across
     /// several '\n' lines without re-sending the code). Lets consumers treat the wrapped rows as
-    /// one message — e.g. the self-chat recolour keeps its per-message state across them — instead
+    /// one message - e.g. the self-chat recolour keeps its per-message state across them - instead
     /// of guessing from the text.
     /// </summary>
     public bool ContinuesChat { get; }

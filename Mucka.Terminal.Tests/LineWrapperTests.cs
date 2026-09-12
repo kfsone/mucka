@@ -3,7 +3,7 @@ using Mucka.Terminal;
 
 namespace Mucka.Terminal.Tests;
 
-/// <summary>Tests for <see cref="LineWrapper"/> — naive fixed-column wrapping with style preservation.</summary>
+/// <summary>Tests for <see cref="LineWrapper"/> - naive fixed-column wrapping with style preservation.</summary>
 public class LineWrapperTests
 {
     private static readonly TextStyle Red = new(Foreground: AnsiColor.Red);
@@ -46,7 +46,7 @@ public class LineWrapperTests
     [Fact]
     public void SplitAcrossSpans_PreservesStyles()
     {
-        // "abc"(red) + "defghij"(blue), wrapped at 5 → ["ab cde"->row1: abc+de], [fghij]
+        // "abc"(red) + "defghij"(blue), wrapped at 5 -> ["abcde", "fghij"]; row 0 mixes styles: "abc" red + "de" blue.
         var rows = LineWrapper.Wrap(Line(Span("abc", Red), Span("defghij", Blue)), columns: 5);
 
         Assert.Equal(new[] { "abcde", "fghij" }, rows.Select(r => r.PlainText));

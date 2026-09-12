@@ -11,13 +11,13 @@
              SafeAreaEdges="All">
 
     <!-- Static placement below is the WIDE layout (list panel left of the form); ApplyLayout in
-         the code-behind re-grids by actual width — narrow puts the logo beside a height-capped
+         the code-behind re-grids by actual width - narrow puts the logo beside a height-capped
          list, then the form below. Width-based (not OnIdiom) so a phone in landscape goes wide. -->
     <Grid x:Name="RootGrid"
           RowDefinitions="Auto,*"
           ColumnDefinitions="256,1,*">
 
-        <!-- Narrow-only title strip: app name + version (replaces the old nav bar usefully).
+        <!-- Narrow-only title strip: app name + version.
              Hidden in wide layout, where the version renders under the logo instead. -->
         <Border x:Name="TitleBar"
                 Grid.Row="0" Grid.Column="0"
@@ -32,7 +32,7 @@
                    VerticalOptions="Center"/>
         </Border>
 
-        <!-- Logo + version — fixed above the profile list so the list scrolls under it -->
+        <!-- Logo + version - fixed above the profile list so the list scrolls under it -->
         <VerticalStackLayout x:Name="HeaderPanel"
                              Grid.Row="0" Grid.Column="0"
                              Padding="0" BackgroundColor="#111111">
@@ -47,7 +47,6 @@
                    Padding="0,0,0,2"/>
         </VerticalStackLayout>
 
-        <!-- Profile list -->
         <CollectionView Grid.Row="1"
                         Grid.Column="0"
                         x:Name="ProfileList"
@@ -86,7 +85,6 @@
                  Color="#333333"
                  WidthRequest="1" />
 
-        <!-- Main form -->
         <ScrollView x:Name="FormScroll"
                     Grid.Row="0" Grid.RowSpan="2"
                     Grid.Column="2"
@@ -168,7 +166,6 @@
                                ReturnType="Done" />
                     </Grid>
 
-                    <!-- Remember Password -->
                     <Grid Grid.Row="3"
                           Grid.Column="0"
                           Grid.ColumnSpan="2"
@@ -374,7 +371,6 @@
                         </Button.Triggers>
                     </Button>
 
-                    <!-- Delete Profile -->
                     <Button Text="Delete Profile"
                             Command="{Binding DeleteProfileCommand}"
                             IsEnabled="{Binding CanConnect}"

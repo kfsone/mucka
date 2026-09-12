@@ -56,7 +56,7 @@ public sealed record FightSnapshot(
     // When this fight ended, straight from FightAccumulator.EndedUtc - null until IsResolved. Feeds
     // the dead strip's recency window (bold for the last four ticks) and doubles as the session-scoped
     // ending archive's timestamp; see SidePanelViewModel.BuildDeadStripHistory. Never fabricated when
-    // absent (CLAUDE.md: record what was observed, do not invent a mechanism).
+    // absent.
     DateTime? EndedUtc,
     // Recent-hits strip data (clog window, primary fight only - see CombatHistoryFormatter). Every
     // fight carries its own bounded ring regardless, since the cost is a handful of structs and
@@ -151,7 +151,7 @@ public sealed class CombatStatsAggregator
     private double _approxDamageTaken;
     // Continuously-updated "last known player stamina", fed by EVERY external stat reading:
     // qs/heartbeat probes, natural 1-point regen ticks, the dreamword's stamina recovery, the
-    // temporary-heal spell, eating a wafer, etc. — anything GameLineAnalyzer recognises. This is
+    // temporary-heal spell, eating a wafer, etc. - anything GameLineAnalyzer recognises. This is
     // the single running source of truth an NPC hit's damage is diffed against, so healing/regen
     // that happens on OTHER lines between hits correctly revises the baseline rather than being
     // silently absorbed into (or wrongly blamed on) the next hit's delta. See
@@ -293,8 +293,7 @@ public sealed class CombatStatsAggregator
 
             // WeaponUnusable shares this: "You cannot use the X to fight now!" means the weapon is
             // not in play whatever the cause (it just broke, or MUD2 refused the wield). Either way
-            // the player is fighting bare-handed from here, and the readout must say so - the owner
-            // lost a weapon mid-fight and the panel went on showing it as equipped.
+            // the player is fighting bare-handed from here, and the readout must say so.
             case CombatEventKind.WeaponBroke:
             case CombatEventKind.WeaponUnusable:
                 _currentWeapon = null;
@@ -323,11 +322,9 @@ public sealed class CombatStatsAggregator
 
             case CombatEventKind.NpcFleeFailed:
                 // The creature is still standing in the room, but it has LEFT COMBAT: a flee attempt
-                // ends combat whether or not it succeeds (owner, 2026-09-01), so the player has to
-                // attack again to re-engage. This resolves the fight (CFledFail)
-                // and drops the creature from the live roster - it is no longer an opponent until
-                // re-engaged, and leaving it listed is what kept the panel claiming "in combat" after
-                // a fight the player simply walked away from.
+                // ends combat whether or not it succeeds, so the player has to attack again to
+                // re-engage. This resolves the fight (CFledFail) and drops the creature from the live
+                // roster - it is no longer an opponent until re-engaged.
                 ResolveFight(combatEvent, FightOutcome.CFledFail);
                 RemoveParticipant(combatEvent.NpcName);
                 break;
@@ -447,9 +444,8 @@ public sealed class CombatStatsAggregator
 
             // FightEndOther ("You can fight it no longer.") does not RESOLVE a fight here, mirroring
             // CombatTracker: it is a trailing acknowledgment of an end already stated earlier in the
-            // same frame - a kill, a poison death, a real flee, or (the case that used to be
-            // mishandled) a FAILED flee, all of which have resolved their own fight before this line
-            // is reached.
+            // same frame - a kill, a poison death, a real flee, or a FAILED flee, all of which have
+            // resolved their own fight before this line is reached.
             //
             // The named variant ("You can fight the wyvern no longer.") drops that creature from the
             // live roster, because CombatTracker has just closed its fight and the panel must not go
@@ -459,11 +455,9 @@ public sealed class CombatStatsAggregator
             // acting on them would clear OTHER still-active participants in a pack.
             //
             // That no-op is right for MUD2's line and wrong for the client's own force-end, which
-            // also arrives unnamed - and until 2026-09-03 both were the same event kind, so this
-            // branch swallowed the force-end too and a reset left every fight in the encounter live
-            // (owner: "a reset doesn't cancel open fights"). The force-end is now its own kind and is
-            // handled below; nothing here keys off the "(forced end: ...)" raw text, which would put
-            // the distinction back at the mercy of a reason string.
+            // also arrives unnamed. The force-end is its own event kind, handled below; nothing here
+            // keys off the "(forced end: ...)" raw text, which would put the distinction back at the
+            // mercy of a reason string.
             case CombatEventKind.FightEndOther:
                 if (combatEvent.NpcName is not null)
                 {
@@ -633,32 +627,29 @@ public sealed class CombatStatsAggregator
     /// <para><b>Why a resolved bucket is never reused.</b> Fights are keyed by the game's instance name
     /// and a name outlives its fight.</para>
     ///
-    /// <para><b>The mechanic, from the owner (2026-09-01): "fleeing ends combat with all creatures
-    /// attacking you. so if a zombie flees, even if it fails, it is no-longer in combat with you."</b>
-    /// A creature that attempts to flee leaves combat whether or not it gets away. It may still be
-    /// standing in the room, but it is not fighting the player, and the player must attack again to
-    /// re-engage. Corroborated in the clog corpus: across 128 NpcFleeFailed events in 1,195 clogs, the
-    /// next event naming that creature was a fresh FightStart 100 times and nothing at all 28 times -
-    /// never a swing in either direction.</para>
+    /// <para><b>The rule.</b> A creature that attempts to flee leaves combat whether or not it gets
+    /// away. It may still be standing in the room, but it is not fighting the player, and the player
+    /// must attack again to re-engage. Corroborated in the clog corpus: across 128 NpcFleeFailed
+    /// events in 1,195 clogs, the next event naming that creature was a fresh FightStart 100 times and
+    /// nothing at all 28 times - never a swing in either direction.</para>
     ///
     /// <para>So a swing landing after "the rat17 attempts to flee, but fails" is not the same fight
     /// continuing - it is a SECOND engagement, because the first genuinely ended. Reusing the closed
-    /// bucket merged the two: it corrupted the damage totals of a fight that had already ended and,
-    /// because <c>FightAccumulator.Resolve</c> keeps the first outcome, swallowed the second
-    /// engagement's ending entirely. A creature that broke off and was then killed stayed labelled
-    /// "broke off" with the kill's blows folded in and the kill never recorded.</para>
+    /// bucket would merge the two: it would corrupt the damage totals of a fight that had already
+    /// ended and, because <c>FightAccumulator.Resolve</c> keeps the first outcome, would swallow the
+    /// second engagement's ending entirely - a creature that broke off and was then killed would stay
+    /// labelled "broke off" with the kill's blows folded in and the kill never recorded.</para>
     ///
     /// <para>The client cannot tell a creature you chased from a fresh <c>rat17</c> after a reset - MUD2
     /// reuses instance names and says nothing about identity - but that ambiguity is about which
     /// CREATURE this is, not about whether a new engagement started. The new engagement is certain;
     /// only its subject is not, and <c>ChaseLinker</c> is what handles that.</para>
     ///
-    /// <para><b>It also restores a safeguard that was being defeated.</b> <c>ChaseLinker</c> exists
-    /// precisely for this ambiguity: it joins consecutive engagements against one name back into a
-    /// single observation against one pool, which is what makes the terminal kill usable as a ceiling.
-    /// It can only do that if the two engagements are two observations. Merged into one bucket here
-    /// they were a single fight it could never take apart, so the corruption went into the corpus
-    /// unflagged.</para>
+    /// <para><b>It also preserves a safeguard <c>ChaseLinker</c> depends on.</b> <c>ChaseLinker</c>
+    /// exists precisely for this ambiguity: it joins consecutive engagements against one name back
+    /// into a single observation against one pool, which is what makes the terminal kill usable as a
+    /// ceiling. It can only do that if the two engagements are two observations; merging them into one
+    /// bucket here would give it a single fight it could never take apart.</para>
     ///
     /// <para>Consequence worth knowing: one creature can occupy more than one roster row in an
     /// encounter, the earlier ones resolved. That is the honest record of what happened, and

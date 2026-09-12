@@ -5,7 +5,7 @@ namespace Mucka.Core;
 /// sound effects (the bell/beep keeps its own MuteBeep* flags). Stores overrides only:
 /// a code or group absent from the sets is enabled, a group absent from the defaults
 /// map has no fallback. Travels inside <see cref="ClientSettings"/>; treat an instance
-/// as frozen once it is placed in a snapshot — use <see cref="Clone"/> to edit.
+/// as frozen once it is placed in a snapshot - use <see cref="Clone"/> to edit.
 /// </summary>
 public sealed class SoundSettings
 {
@@ -22,16 +22,16 @@ public sealed class SoundSettings
     /// <summary>Sound codes ("0703", "070001", ...) the user has switched off.</summary>
     public HashSet<string> DisabledSounds { get; } = new();
 
-    /// <summary>Group prefix → sound code played when the server triggers a code in the
+    /// <summary>Group prefix -> sound code played when the server triggers a code in the
     /// group that has no wav of its own. No entry = stay silent for unknown codes.</summary>
     public Dictionary<string, string> GroupDefaults { get; } = new();
 
-    /// <summary>Group prefix → volume percent override (0–100). Absent = the group
+    /// <summary>Group prefix -> volume percent override (0-100). Absent = the group
     /// inherits the master volume. A sound plays at its own override, else its group's,
     /// else the master volume.</summary>
     public Dictionary<string, int> GroupVolumes { get; } = new();
 
-    /// <summary>Sound code → volume percent override (0–100). Absent = inherit the group.</summary>
+    /// <summary>Sound code -> volume percent override (0-100). Absent = inherit the group.</summary>
     public Dictionary<string, int> SoundVolumes { get; } = new();
 
     public bool IsGroupEnabled(string prefix) => !DisabledGroups.Contains(prefix);

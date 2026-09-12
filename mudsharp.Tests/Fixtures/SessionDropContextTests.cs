@@ -13,10 +13,10 @@ public class SessionDropContextTests
         => text.Select(t => new StyledLine(new[] { new StyledSpan(t, TextStyle.Default) })).ToList();
 
     /// <summary>
-    /// A rebase dropped quit detection on the false premise that main's classifier already covered it.
-    /// It does not: SessionDropReason had no Quit at all, and IsResetDrop is a pure proximity test, so
-    /// a qq inside the 95-120s finish-up window classified as Reset - which auto-relogs the player
-    /// straight back into the persona they just deliberately left, without even showing the picker.
+    /// Quit is its own SessionDropReason, distinct from Reset: IsResetDrop is a pure proximity test,
+    /// so a qq inside the reset finish-up window must still classify as Quit rather than Reset - a
+    /// Reset classification auto-relogs the player straight back into the persona they just
+    /// deliberately left, without even showing the picker.
     /// </summary>
     [Fact]
     public void QuitIsItsOwnReason_SoItCanOutrankTheResetTimingGuess()

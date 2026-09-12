@@ -34,9 +34,7 @@ public readonly record struct PersonaRank(
 /// <summary>
 /// MUD2's experience-level table, exactly as the game prints it.
 ///
-/// <para><b>Hard-coded on purpose, and the owner's reasoning is the whole justification</b>
-/// (2026-09-02): "The levels table hasn't changed in nearly 50 years. Do you know something I don't
-/// that suggests we shouldn't hard code it?" No. MUD2 is a frozen artifact - see CLAUDE.md's museum
+/// <para><b>Hard-coded on purpose.</b> MUD2 is a frozen artifact - see CLAUDE.md's museum
 /// section - so a constant of it is a constant, not a value that might drift. Asking the game for
 /// this at login would cost four server ticks (`levels` then `nx` three times), a parser, and terminal
 /// output the player did not ask for, all to re-derive something that cannot change. Do not "improve"
@@ -55,8 +53,8 @@ public readonly record struct PersonaRank(
 /// exactly <c>Points / 5 + 75</c> for every row that has one, and <see cref="PersonaRank.Points"/>
 /// doubles from 200. A mistyped digit breaks one of those and is caught.</para>
 ///
-/// <para><b>This is the PLAYER table.</b> The owner reports that NPCs level "on a similar levelling
-/// schema" with no upper cap on sta, str or dex where a player has one - similar, explicitly not
+/// <para><b>This is the PLAYER table.</b> NPCs level on a similar levelling
+/// schema with no upper cap on sta, str or dex where a player has one - similar, explicitly not
 /// stated as identical. So using these thresholds to convert a creature's value into a level is an
 /// ESTIMATE resting on an unverified premise, and any readout built on it must say so. See
 /// <see cref="NpcPoolKey"/> for the separate matter of what a creature's value is.</para>

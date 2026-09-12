@@ -5,11 +5,11 @@ namespace Mucka.Core;
 /// and sending the stored credentials. Deactivates permanently once the game mode is entered.
 /// </summary>
 /// <remarks>
-/// Login sequence (WONT NEW_ENVIRON — shell login prompt IS presented):
-///   1. "login:"    → send "mud"                   (Linux shell login)
-///   2. "account id"→ send account ID              (MUD2 application)
-///   3. "password"  → send password                (MUD2 application)
-///   4. "Option"    → send ESC Ctrl-F ESC-T        (mudshell sequence for client-emulation mode entry)
+/// Login sequence (WONT NEW_ENVIRON - shell login prompt IS presented):
+///   1. "login:"    -> send "mud"                   (Linux shell login)
+///   2. "account id"-> send account ID              (MUD2 application)
+///   3. "password"  -> send password                (MUD2 application)
+///   4. "Option"    -> send ESC Ctrl-F ESC-T        (mudshell sequence for client-emulation mode entry)
 /// </remarks>
 internal sealed class MudLoginHandler
 {
@@ -57,7 +57,7 @@ internal sealed class MudLoginHandler
 
         var text = line.PlainText;
 
-        // 1. Shell login prompt — send the configured login name
+        // 1. Shell login prompt - send the configured login name
         if (text.Contains("login:", StringComparison.OrdinalIgnoreCase))
         {
             _conn.SendLine(_loginName);
@@ -80,7 +80,7 @@ internal sealed class MudLoginHandler
             return;
         }
 
-        // 4. Game selection menu — send client-mode entry once (Clio telnet.l line 390–403)
+        // 4. Game selection menu - send client-mode entry once (Clio telnet.l line 390-403)
         if (!_clientModeSent && text.Contains("Option", StringComparison.Ordinal))
         {
             _clientModeSent = true;

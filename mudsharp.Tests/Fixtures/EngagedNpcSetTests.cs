@@ -71,9 +71,9 @@ public sealed class EngagedNpcSetTests
     [Fact]
     public void OneJoiningWhileAnotherResolves_IsAChange()
     {
-        // THE reason this type replaced a count-compare. The count stays at one across this refresh
-        // while the membership changes completely, so a count-only check reports no change: rat1
-        // keeps a grey icon while it is hitting the player, and the dead rat0 keeps a red one.
+        // The count stays at one across this refresh while the membership changes completely, so a
+        // count-only check would report no change: rat1 keeps a grey icon while it is hitting the
+        // player, and the dead rat0 keeps a red one.
         var set = new EngagedNpcSet();
         set.Update([Fight("rat0")]);
         Assert.True(set.Update([Fight("rat0", resolved: true), Fight("rat1")]));
@@ -128,9 +128,9 @@ public sealed class EngagedNpcSetTests
     [Fact]
     public void ADescribedCreature_MatchesTheHereListsBareId()
     {
-        // The bug this exists for, observed on screen 2026-09-02: fighting the large rat0 in a room of
-        // four rats, the terminal and the rail both said "large rat0" while the Here list said "rat0",
-        // so rat0 alone kept a grey swords icon while it was hitting the player.
+        // Fighting a described creature among plain ones: the terminal and the rail print
+        // "large rat0" while the Here list shows the bare "rat0" -- both must resolve to the same
+        // fight, or rat0 keeps a grey swords icon while it is hitting the player.
         var set = new EngagedNpcSet();
         set.Update([Fight("large rat0")]);
 

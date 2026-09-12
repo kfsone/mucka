@@ -5,11 +5,11 @@ namespace MudSharp.Combat;
 /// they are the player coming back later to try again.
 ///
 /// <para><b>This whole policy is a proposal, not a measured law, and it is deliberately one class so it
-/// can be reverted in one edit.</b> The owner has not blessed the discriminator; what he described is
-/// the case it has to separate - fight the banshee, it withdraws, "I'm so low on stamina I leave, go
-/// sleep, and come back minutes later to retry the fight with a [different] weapon and from full
-/// stamina, perhaps with a dream-word under my belt". Everything below is an attempt to detect exactly
-/// that, and if it is wrong the fix is here and nowhere else.</para>
+/// can be reverted in one edit.</b> The case it has to separate: fight the banshee, it withdraws,
+/// then the player is so low on stamina they leave, go sleep, and come back minutes later to retry
+/// the fight with a different weapon and from full stamina, perhaps with a dream-word under their
+/// belt. Everything below is an attempt to detect exactly that, and if it is wrong the fix is here
+/// and nowhere else.</para>
 ///
 /// <para><b>Player state is the test; time is only a backstop.</b> A chase is one continuous player
 /// state - still depleted, same weapon in hand, same maximum. A deliberate re-attempt resets at least
@@ -26,8 +26,8 @@ namespace MudSharp.Combat;
 /// separates a slow one. <see cref="BackstopMs"/> exists only to stop an unbounded chain forming when
 /// no state signal fires at all; 221 of the 223 pairs fall inside it.</para>
 ///
-/// <para><b>Sleeping is covered, without a detector.</b> The operator reports that sentient creatures
-/// sleep to accelerate recovery, and a chain must not span that. There is no signal to test on: the
+/// <para><b>Sleeping is covered, without a detector.</b> Sentient creatures sleep to accelerate
+/// recovery, and a chain must not span that. There is no signal to test on: the
 /// sleep wordings ("The thief has just fallen asleep.") appear only as clog plain text and never on
 /// the wire, so the C1 code is unknown and no honest detector can be built today. It costs nothing
 /// here, because the POINT of sleeping is to recover and recovering is exactly what
@@ -49,7 +49,7 @@ public static class ChaseLinkPolicy
 
     /// <summary>
     /// The longest gap that may still be a chase when nothing about the player's state has changed.
-    /// The owner's own suggested figure, and comfortably past the measured p95 of 35.8s - 221 of 223
+    /// Comfortably past the measured p95 of 35.8s - 221 of 223
     /// same-name pairs inside two minutes fall within it.
     /// </summary>
     public const long BackstopMs = 90_000;
@@ -58,11 +58,10 @@ public static class ChaseLinkPolicy
     public static bool IsChase(PoolFightObservation previous, PoolFightObservation next)
     {
         // A kill ends the chain absolutely, and the game has a mechanism that makes this a live hazard
-        // rather than a theoretical one. The operator, 2026-09-02: "there's a potion in-game that
-        // summons creatures, and can draw from the full pool including dead ones. that's how we'd have
-        // the occasional killed-twice-in-one-reset. it's also possible for a wizard to resummon a
-        // previously dead creature, so it could happen more than 2x, but there can't be more than two
-        // of the same id'd cre at the same time."
+        // rather than a theoretical one: a potion summons creatures and can draw from the full pool
+        // including dead ones, which is how the occasional killed-twice-in-one-reset happens. A wizard
+        // can also resummon a previously dead creature, so it could happen more than twice, but there
+        // cannot be more than two of the same numbered creature alive at the same time.
         //
         // So a name really can carry a second creature after the first dies, inside one reset - and
         // summoning is a repeatable player action, so this is not bounded by respawn timing. Linking
@@ -113,11 +112,11 @@ public static class ChaseLinkPolicy
 /// Joins consecutive engagements against one creature into a single observation, and throws away the
 /// ones whose damage cannot be attributed to any single creature at all.
 ///
-/// <para><b>What this replaced, and why.</b> The estimator used to DROP any fight preceded by another
-/// against the same name inside two minutes, keeping the first link. That protected the corpus from
-/// re-engagement contamination but paid for it with the terminal kill: the long opening fight - a
-/// floor only - was kept, and the short fight that finished the creature, the only two-sided
-/// constraint there is, was discarded. Those discarded fights are 12.6% of fights but just 2.7% of
+/// <para><b>Why this replaces a drop-and-keep-first rule.</b> Dropping any fight preceded by another
+/// against the same name inside two minutes, keeping only the first link, protects the corpus from
+/// re-engagement contamination but pays for it with the terminal kill: the long opening fight - a
+/// floor only - would be kept, and the short fight that finished the creature, the only two-sided
+/// constraint there is, would be discarded. Those fights are 12.6% of fights but just 2.7% of
 /// swings, and 131 of 1,384 kills.</para>
 ///
 /// <para><b>Linking is sound because the chain is one creature at one pool.</b> Two independent checks
@@ -220,8 +219,8 @@ public static class ChaseLinker
     ///
     /// <para><b>Two different mechanisms produce this signature, with different bounds.</b> A NOID name
     /// - bare "rat", no instance number - is shared by an unbounded number of creatures. A summoning
-    /// potion or a wizard resummon can give one ID'D name a second life, but "there can't be more than
-    /// two of the same id'd cre at the same time" (operator, 2026-09-02). Both look identical from here:
+    /// potion or a wizard resummon can give one ID'D name a second life, but there cannot be more than
+    /// two of the same id'd creature alive at the same time. Both look identical from here:
     /// a kill followed by another terminator under one name.</para>
     ///
     /// <para><b>The corpus supports only the NOID cause.</b> Three encounters in 1,195 clogs show a kill

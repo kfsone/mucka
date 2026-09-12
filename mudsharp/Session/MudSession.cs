@@ -28,11 +28,11 @@ public sealed class MudSession : IDisposable
     private static readonly byte[] FesOnlyProbe = System.Text.Encoding.Latin1.GetBytes("\x1b-[FES\x1b-]");
     // Minimum spacing between wake probes so a chatty burst (e.g. dream text) fires only one.
     private static readonly TimeSpan WakeProbeFloor = TimeSpan.FromSeconds(2);
-    // ── Reactive stale-stats probing ───────────────────────────────────────────
+    // -- Reactive stale-stats probing -------------------------------------------
     // C1 codes hint that state changed (ProbeHintReceived). Rather than probing
     // instantly (Clio's txfes), the hinted categories are marked stale and a one-shot
-    // timer fires StaleProbeDelay later; updates that arrive in the meantime — the
-    // inline "(84/90)" after a hit, an unsolicited FES — clear their flags so only
+    // timer fires StaleProbeDelay later; updates that arrive in the meantime - the
+    // inline "(84/90)" after a hit, an unsolicited FES - clear their flags so only
     // genuinely missing values are queried. Probes cost the player a game turn, so
     // they are also rate-limited (MinProbeSpacing) and suppressed when the routine
     // heartbeat is about to cover them anyway. All fields guarded by _fesLock except
@@ -54,7 +54,7 @@ public sealed class MudSession : IDisposable
     // set means the Online list is stale.
     private readonly HashSet<string> _onlineNames = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _pendingOnlineNames = new(StringComparer.OrdinalIgnoreCase);
-    // ── "Sniff" value-probe state ───────────────────────────────────────────────
+    // -- "Sniff" value-probe state -----------------------------------------------
     // A `value <name>` command prepended to a routine probe to disambiguate a player who
     // dropped off the FEW list (see QueueValueProbe / SniffResult). _pendingSniff (a queued
     // request) is guarded by _fesLock; _sniffInFlight is volatile so the Feed-thread line
@@ -62,7 +62,7 @@ public sealed class MudSession : IDisposable
     private string? _pendingSniff;
     private volatile string? _sniffInFlight;
 
-    // ── Resite/supersite recovery probe ─────────────────────────────────────────
+    // -- Resite/supersite recovery probe -----------------------------------------
     // Ordinary movement's room description is always followed by an auto-fex FEEXITS block in
     // the same transmission. A spell-driven relocation (resite, supersite, and any future
     // mechanic shaped the same way) fires no auto commands at all, so RoomEntered arrives with
@@ -72,9 +72,9 @@ public sealed class MudSession : IDisposable
     // timers in this file.
     private Timer? _roomFexProbeTimer;
 
-    // ── In-combat inventory probe ───────────────────────────────────────────────
+    // -- In-combat inventory probe -----------------------------------------------
     // A drop or a take during a fight changes the two numbers a fight is decided by - dexterity is
-    // burdened by item COUNT and strength by WEIGHT (owner) - and until this existed nothing asked
+    // burdened by item COUNT and strength by WEIGHT - and until this existed nothing asked
     // the server about it on purpose. The generic plain-line hint happened to cover most drops
     // (measured across 36 captures: median 209ms from "X dropped." to the next FES-carrying probe,
     // 85% within 500ms), but only because a drop prints an un-coded line, and not at all when the
@@ -82,7 +82,7 @@ public sealed class MudSession : IDisposable
     // _includeFei, and with no FEW pending either it returns having sent nothing.
     //
     // Trailing debounce, deliberately: the timer is RESTARTED by each change line, so a burst is
-    // one probe. FES and FEI each cost the player a tick (owner) and ticks are short, but three
+    // one probe. FES and FEI each cost the player a tick and ticks are short, but three
     // items must not cost six.
     private static readonly byte[] InventoryProbe = System.Text.Encoding.Latin1.GetBytes("\x1b-[FES,FEI\x1b-]");
     private Timer? _inventoryProbeTimer;
@@ -97,10 +97,10 @@ public sealed class MudSession : IDisposable
     // generic stale timer is often already part-way through its own delay when a drop lands.
     private DateTime _inventoryChangeSeenUtc;
 
-    // ── In-combat creature value probe ──────────────────────────────────────────
-    // `val`/`value <name>` reports the points awarded for killing that creature (operator,
-    // 2026-09-02); multiple targets in one command ("value x and y and z") cost ONE server tick, so
-    // one probe covers the whole live roster rather than one per creature.
+    // -- In-combat creature value probe ------------------------------------------
+    // `val`/`value <name>` reports the points awarded for killing that creature; multiple targets
+    // in one command ("value x and y and z") cost ONE server tick, so one probe covers the whole
+    // live roster rather than one per creature.
     //
     // Fired off CombatTracker.ParticipantJoined, not off FightStart alone: several combat lines
     // Begin() a participant defensively for a pack member that spoke no aggro line of its own
@@ -124,9 +124,9 @@ public sealed class MudSession : IDisposable
     // its match on where the sniffed NAME sits in the line (see that method), a live creature reply
     // ("The value of the ram2 is 313 points.") could satisfy the sniff's old bare Contains(name)
     // check and get misread as proof a same-named PLAYER was present - a false positive in the
-    // PK-awareness path of a permadeath game (found by review, fixed 2026-09-02). The two slots
-    // only stay independent because BOTH sides now discriminate: this one by target name, the
-    // sniff by the name's anchored position in the reply text.
+    // PK-awareness path of a permadeath game. The two slots only stay independent because BOTH
+    // sides now discriminate: this one by target name, the sniff by the name's anchored position in
+    // the reply text.
     //
     // Debounced with the SAME trailing-quiet-period + tick-guard shape as the inventory probe below
     // (ScheduleInventoryProbeLocked), including its options - InventoryProbeDebounce/TickGuard/
@@ -134,7 +134,7 @@ public sealed class MudSession : IDisposable
     // fire on every arrival; don't fire onto a tick boundary the player's own command wanted).
     // Value can be NEGATIVE and the noun agrees with it, so neither the sign nor the plural is
     // optional decoration: over the session recordings in %LOCALAPPDATA%\Temp\mucka plus
-    // ~/.mucka/clogs (458 "The value of" lines, 246 distinct, 2026-09-04), 36 occurrences across 21
+    // ~/.mucka/clogs (458 "The value of" lines, 246 distinct), 36 occurrences across 21
     // distinct forms are negative ("The value of the map is -12 points.") and 6 across 5 are
     // singular ("The value of the penny is 1 point."). Every one of those uses this "the" form, so
     // a [\d,]+ / "points." pattern drops all 42 on the floor. Negatives are inanimate only - no
@@ -154,14 +154,14 @@ public sealed class MudSession : IDisposable
     // OnParticipantJoined). Deliberately NOT session-lifetime: a creature's value is not a fixed
     // per-species constant, it is CUMULATIVE and climbs with whatever that individual has scored
     // since it was created - swamping items day to day, and in big jumps off a player's death or a
-    // failed flee (owner's brief). Corpus evidence for the same creature NAME across separate
+    // failed flee. Corpus evidence for the same creature NAME across separate
     // fights: ram 106 -> 129 -> 313, dwarf 12 -> 78 -> 102, billy goat 74 -> 118 -> 146, banshee
     // 102 -> 143. A session-lifetime cache would answer a later fight against the same name from a
-    // stale pre-climb (or, across a reset, pre-reset - resets pull the value back toward base,
-    // owner: a thief "usually only gets 1-2 levels in a reset") reading and never notice the climb
-    // this feature exists to surface. Per-fight is exactly the operator's own spec ("only needs
-    // doing once per fight"), read literally. Guarded by _fesLock; the Feed thread takes the lock
-    // to write it, exactly as ClearStale already does from that thread for _staleFlags.
+    // stale pre-climb (or, across a reset, pre-reset - resets pull the value back toward base; a
+    // thief usually only gets 1-2 levels in a reset) reading and never notice the climb this
+    // feature exists to surface. Per-fight is the rule: this only needs doing once per fight, read
+    // literally. Guarded by _fesLock; the Feed thread takes the lock to write it, exactly as
+    // ClearStale already does from that thread for _staleFlags.
     private readonly HashSet<string> _creatureValueKnown = new(StringComparer.OrdinalIgnoreCase);
     // Names seen but not yet sent - guarded by _fesLock, like _pendingSniff.
     private readonly List<string> _pendingCreatureNames = new();
@@ -192,10 +192,10 @@ public sealed class MudSession : IDisposable
     // never draw a reply wedging the window open past its usefulness.
     private Timer? _creatureProbeTimeoutTimer;
 
-    // ── Post-character-select setup swallow state ───────────────────────────────
+    // -- Post-character-select setup swallow state -------------------------------
     // On game-mode entry we inject a setup batch ("auto fex\r\nscore\r\n") and hide its echo +
     // replies from the terminal (TrySwallowSetupLine). Each reply arrives as its own server
-    // "frame", and every frame is introduced by an IsPartial '*' prompt line — a boundary that
+    // "frame", and every frame is introduced by an IsPartial '*' prompt line - a boundary that
     // survives line-wrapping (narrow widths only add more content lines within a frame, never
     // more prompts). So we recognise each setup frame by its first content line and then swallow
     // the whole frame up to the next prompt; the score frame is the last, and its closing prompt
@@ -215,8 +215,8 @@ public sealed class MudSession : IDisposable
     // Gating it on "not in combat" does not rescue it either: that is the CLIENT's view of combat,
     // which lags the server, so a sheet already in flight when a fight starts still lands in the
     // middle of it. In a permadeath game no inventory count is worth that.
-    private volatile bool _setupWindowActive;  // window open (game-entry → score frame closed)
-    private bool _setupSwallowingFrame;   // inside a setup frame we've claimed — swallow its lines
+    private volatile bool _setupWindowActive;  // window open (game-entry -> score frame closed)
+    private bool _setupSwallowingFrame;   // inside a setup frame we've claimed - swallow its lines
     private bool _setupCloseAfterFrame;   // the score frame is in progress; close when it ends
     private string? _currentCharName;
 
@@ -238,8 +238,8 @@ public sealed class MudSession : IDisposable
     private string? _lastRoomShort;
 
     // Testability seam only: production code never overrides this, so combat timestamps are
-    // always the real wall clock. CombatCaptureReplayTests overrides it to replay the research
-    // capture's own original timestamps, since a fast in-memory replay's real elapsed time bears
+    // always the real wall clock. WyvernPoisonDeathReplayTests overrides it to replay a captured
+    // session's own original timestamps, since a fast in-memory replay's real elapsed time bears
     // no relation to the many-hour session it captures and would otherwise stamp every event with
     // whatever instant the test happened to run at.
     internal Func<DateTime> CombatClock { get; set; } = () => DateTime.UtcNow;
@@ -257,17 +257,17 @@ public sealed class MudSession : IDisposable
     /// <para>Called from the probe timer's thread while the estimate is updated on the UI thread, so
     /// the read is unsynchronised. Deliberately: the resolver normalises any input to a value in
     /// (0, tick], so the worst a stale or torn read can do is place one probe on the wrong side of
-    /// one boundary — and the probe is, in the owner's words, not critical but very useful.</para>
+    /// one boundary - and the probe is not critical but very useful.</para>
     /// </summary>
     public Func<double?>? MillisecondsToNextCombatTick { get; set; }
 
     // Reset-time projection: folds the minute-granular FES reset value into an absolute target and,
     // once per session near the start, runs a staged burst (~1 s then ~250 ms probes) to pin it to
     // sub-second. Owned here (not the VM) so all sub-second probe timing stays off the UI thread and
-    // reply↔probe correlation sits next to the wire. See ResetClock.
+    // reply<->probe correlation sits next to the wire. See ResetClock.
     private readonly ResetClock _resetClock;
 
-    // ── Public events (forwarded from parser) ─────────────────────────────────
+    // -- Public events (forwarded from parser) ---------------------------------
     public event Action<StyledLine>? LineReady;
     public event Action<GameStatsSnapshot>? StatsUpdated;
     /// <summary>The server's C08+C13 ("Not updating persona.") signal: permadeath wiped the
@@ -327,33 +327,33 @@ public sealed class MudSession : IDisposable
     public event Action? ProbeSent;
     /// <summary>
     /// A queued "sniff" value-probe has resolved. Payload is the probed persona name and the
-    /// outcome (present / offline / invisible). Fires on the Feed thread — consumers marshal.
+    /// outcome (present / offline / invisible). Fires on the Feed thread - consumers marshal.
     /// </summary>
     public event Action<string, SniffOutcome>? SniffResult;
     /// <summary>
     /// An in-combat creature-value probe answered for one name. Payload is the creature name
     /// exactly as engaged (a numbered instance echoes its own number) and the points a `value`
-    /// probe reported for killing it. Fires on the Feed thread — consumers marshal.
+    /// probe reported for killing it. Fires on the Feed thread - consumers marshal.
     /// </summary>
     public event Action<string, int>? CreatureValueResolved;
     /// <summary>
     /// The character occupying this session has been identified from the post-character-select
     /// setup <c>score</c> reply. Payload is the character name (e.g. "Ollie"). Fires once per
-    /// game-mode entry, on the Feed thread — consumers marshal. Used to key per-character score
+    /// game-mode entry, on the Feed thread - consumers marshal. Used to key per-character score
     /// tracking and the window title.
     /// </summary>
     public event Action<string>? CharacterIdentified;
     /// <summary>The reset-time projection changed. Optional immediate UI-refresh hint; the countdown
     /// also polls <see cref="ResetEstimate"/> on its own 1 Hz tick. Fires off the UI thread.</summary>
     public event Action? ResetEstimateChanged;
-    /// <summary>A reset-projection reading was folded — for diagnostic logging only. Fires on the
+    /// <summary>A reset-projection reading was folded - for diagnostic logging only. Fires on the
     /// read-loop thread.</summary>
     public event Action<ResetObservation>? ResetObservationRecorded;
     /// <summary>A notable reset-projection incident (unanswered sample, lock contradiction, auto-reset
-    /// anchor) — for the capture log. Fires off the UI thread.</summary>
+    /// anchor) - for the capture log. Fires off the UI thread.</summary>
     public event Action<string>? ResetDiagnostic;
     /// <summary>The server announced the auto-reset (C06 C04, "you have 120 seconds to finish up").
-    /// Unlike the projection, this is an exact, unambiguous "a reset is happening now" statement —
+    /// Unlike the projection, this is an exact, unambiguous "a reset is happening now" statement -
     /// consumers use it to tell a reset-driven drop to the Option menu from a deliberate quit.
     /// Fires on the read-loop thread.</summary>
     public event Action? AutoResetInitiated;
@@ -368,8 +368,8 @@ public sealed class MudSession : IDisposable
     /// <summary>Forwarded verbatim from <see cref="MudStreamParser.FrameClosed"/>.</summary>
     public event Action? FrameClosed;
 
-    // ── Public state ───────────────────────────────────────────────────────────
-    /// <summary>The current merged stats snapshot (see <c>MergeStats</c>) — always up to date
+    // -- Public state -----------------------------------------------------------
+    /// <summary>The current merged stats snapshot (see <c>MergeStats</c>) - always up to date
     /// thanks to the periodic FES heartbeat, so callers that just need "whatever we currently
     /// know" (e.g. a baseline read before an item-eval drop/get pair) should read this directly
     /// rather than subscribing to <see cref="StatsUpdated"/> and waiting for the next event, which
@@ -459,7 +459,7 @@ public sealed class MudSession : IDisposable
         return System.Text.Encoding.ASCII.GetBytes("\x1b-[" + string.Join(',', cmds) + "\x1b-]");
     }
 
-    /// <summary>Feed raw bytes from the network. Thread-safe relative to the FES timer — Feed() itself is not thread-safe.</summary>
+    /// <summary>Feed raw bytes from the network. Thread-safe relative to the FES timer - Feed() itself is not thread-safe.</summary>
     public void Feed(ReadOnlySpan<byte> data)
     {
         var nonEmpty = data.Length > 0;
@@ -573,7 +573,7 @@ public sealed class MudSession : IDisposable
         _resetClock.Dispose();
     }
 
-    // ── Private ────────────────────────────────────────────────────────────────
+    // -- Private ----------------------------------------------------------------
     private void WireParserEvents()
     {
         _parser.LineReady += line =>
@@ -592,14 +592,14 @@ public sealed class MudSession : IDisposable
             // outstanding player sniff and an outstanding creature probe only avoid eating each
             // other's lines because BOTH sides discriminate - this slot by target name, the sniff
             // above by the reply's anchored name position (see the "In-combat creature value
-            // probe" field remarks and TryConsumeSniffLine) - discriminating by target alone was
-            // found NOT sufficient (review, 2026-09-02): a creature reply satisfied the sniff's old
-            // bare substring match.
+            // probe" field remarks and TryConsumeSniffLine) - discriminating by target alone is not
+            // sufficient: a creature reply can satisfy a bare substring match against the sniff's
+            // name.
             if (_creatureProbeInFlight != null && TryConsumeCreatureValueLine(line))
                 return;
             // Cancel the dreamword when we see our own persona speak it: speaking uses it,
             // whether it recovered stamina (scenario: server also sends a C1 clear) or was a
-            // no-op (full stamina / already consumed — no C1 clear ever arrives). Cheap guard:
+            // no-op (full stamina / already consumed - no C1 clear ever arrives). Cheap guard:
             // only runs while a dreamword is active. See TryCancelSpokenDreamword.
             if (_currentDreamword is not null)
                 TryCancelSpokenDreamword(line);
@@ -627,18 +627,16 @@ public sealed class MudSession : IDisposable
             // finish up" - not on the reset itself, so the fight in progress is still very much in
             // progress and the player has two minutes of play left.
             //
-            // This used to also call _combat.ForceEnd here, on the reasoning that "a reset wipes game
-            // state, no fight-end line ever arrives". True of the reset; false of the warning. The
-            // effect was that the client declared combat over up to two minutes early and then
-            // discarded every subsequent non-FightStart combat event (CombatStatsAggregator.Observe
-            // returns early while !InCombat) - which silently ate weapon equips and left fights
-            // reading as UNARMED for their whole duration. Confirmed in the clog corpus: an encounter
-            // that reopened on "The eagle misses you." ran 41 events across 4 participants with no
+            // Do NOT force-end combat here: a reset wipes game state with no fight-end line, but
+            // this warning is not the reset itself. Ending combat on the warning discards every
+            // subsequent non-FightStart combat event (CombatStatsAggregator.Observe returns early
+            // while !InCombat) - which silently eats weapon equips and leaves fights reading as
+            // UNARMED for their whole duration. Confirmed in the clog corpus: an encounter that
+            // reopened on "The eagle misses you." ran 41 events across 4 participants with no
             // weapon, having swallowed "You are now using the broadsword to fight!" in the pre-roll.
             //
-            // What the real transition looks like, established from the three complete reset
-            // captures in the corpus (RESEARCH/mud2-multi-combat.jsonl, RESEARCH/game-reset.jsonl,
-            // session-rec.mud2.co.uk.20260825-020825.jsonl) rather than assumed. All three agree:
+            // What the real transition looks like, established from three complete reset captures.
+            // All three agree:
             //   T+0      this warning (C06 C04). The server means "no further warnings" literally -
             //            zero further broadcasts across all three full countdowns.
             //   T+120s   C06 C06 "Something magical is happening." + "(Persona saved on N)." That
@@ -646,17 +644,14 @@ public sealed class MudSession : IDisposable
             //            and the last in-world line.
             //   T+120.2s "Option (H for help): ". The TCP connection is NEVER dropped; the socket
             //            just starts carrying the outer MUD-Shell menu.
-            // So the old claim that "GameModeExited already covers it" was RIGHT, not a guess: the
-            // parser's option-menu matcher fires on that last step and OnGameModeExited force-ends
-            // the encounter. WorldResetEndsCombatTests replays those exact bytes and pins it, which
-            // it was not before - the behaviour rested entirely on an incidental string match in
-            // another subsystem, with nothing naming a reset anywhere in the chain.
-            // What that left open is the ~200 ms between the reset landing and the shell prompt, in
-            // which the client is still feeding a live encounter from a world that no longer
+            // The parser's option-menu matcher fires on that last step and OnGameModeExited
+            // force-ends the encounter; WorldResetEndsCombatTests replays those exact bytes and pins
+            // it.
+            // What that leaves open is the ~200 ms between the reset landing and the shell prompt,
+            // in which the client is still feeding a live encounter from a world that no longer
             // exists. C06 C06 closes it - see OnWorldResetLanded.
             _resetClock.NoteAutoResetInitiated(_resetClock.NowMono);
             // Still forwarded: consumers use it to tell a reset-driven drop from a deliberate quit.
-            // It is only the combat force-end that was wrong here.
             AutoResetInitiated?.Invoke();
         };
         _parser.WorldResetLanded  += OnWorldResetLanded;
@@ -692,8 +687,8 @@ public sealed class MudSession : IDisposable
             _pendingOnlineNames.Clear();
             ClearStale(StaleStats.WhoList);
             FewListComplete?.Invoke();
-            // A sniff still in flight when this probe's FEW completes drew no `value` reply —
-            // the reply always precedes the FEW in the same transmission — so the player is
+            // A sniff still in flight when this probe's FEW completes drew no `value` reply -
+            // the reply always precedes the FEW in the same transmission - so the player is
             // online but invisible (the game says nothing). Fire AFTER FewListComplete so the
             // list diff runs before any promotion the outcome triggers.
             var pendingSniff = _sniffInFlight;
@@ -724,12 +719,12 @@ public sealed class MudSession : IDisposable
         // burst probe's RTT/observation-time correction uses the earliest possible reply instant.
         long replyMono = _resetClock.NowMono;
 
-        // An FES snapshot is a probe reply — the panel data is fresh again.
+        // An FES snapshot is a probe reply - the panel data is fresh again.
         if (partial.HasFesStats)
             _lastProbeReplyUtc = DateTime.UtcNow;
 
-        // Whatever values this update carries — a full FES snapshot or an inline text
-        // line like "(84/90)" — are no longer stale, so a pending hint for them won't
+        // Whatever values this update carries - a full FES snapshot or an inline text
+        // line like "(84/90)" - are no longer stale, so a pending hint for them won't
         // trigger a probe.
         var refreshed = StaleStats.None;
         if (partial.HasFesStats)
@@ -789,7 +784,7 @@ public sealed class MudSession : IDisposable
             // `score`-sheet-only fields. FES never carries them, so every heartbeat would otherwise
             // blank them; carrying forward is the same "null = not reported this time" rule the
             // fields above follow. They stay valid until the next sheet (see the periodic `score`
-            // refresh) — sex never changes at all, and weight/objects/value change only on our own
+            // refresh) - sex never changes at all, and weight/objects/value change only on our own
             // actions, which is exactly what the refresh cadence is sized for.
             Sex:           partial.Sex           ?? _currentStats.Sex,
             ScoreThisGame: partial.ScoreThisGame ?? _currentStats.ScoreThisGame,
@@ -802,14 +797,14 @@ public sealed class MudSession : IDisposable
             HasFesStats = partial.HasFesStats
         };
         // Fold the reset value into the projection. Called outside _fesLock (ClearStale above took and
-        // released it) so the engine→_fesLock order holds when Observe fires a burst probe.
+        // released it) so the engine->_fesLock order holds when Observe fires a burst probe.
         _resetClock.Observe(_currentStats.TimeToReset, partial.HasFesStats, replyMono);
         StatsUpdated?.Invoke(_currentStats);
     }
 
     private void OnGameModeEntered()
     {
-        _effects.Reset();   // fresh character — no effects carried from a previous session
+        _effects.Reset();   // fresh character - no effects carried from a previous session
         _resetClock.OnGameModeEntered();   // eligible for a fresh one-time reset-time refinement
         GameModeEntered?.Invoke();
         lock (_fesLock)
@@ -843,7 +838,7 @@ public sealed class MudSession : IDisposable
         //     rat21/rat19/rat16/rat17, so four separate fights collapse onto one participant and the
         //     per-creature history is attributed to a name that does not identify anything.
         //
-        // Both are SETs, not toggles (owner, 2026-08-19) - sending them to a persona that already has
+        // Both are SETs, not toggles - sending them to a persona that already has
         // them on is a no-op, so this batch is safe to fire unconditionally on every game-mode entry
         // and needs no "is it already on?" probe first.
         //
@@ -855,7 +850,7 @@ public sealed class MudSession : IDisposable
         // LAST so its reply frame is the one that closes the swallow window.
         OpenSetupWindow();
         // The server echoes each command back on its own line, then executes them on subsequent
-        // game turns — the outputs (auto-fex FEEXITS confirmation, then the score sheet) trickle
+        // game turns - the outputs (auto-fex FEEXITS confirmation, then the score sheet) trickle
         // in over the next ~700ms. Both echoes and outputs are hidden (TrySwallowSetupLine).
         Send(System.Text.Encoding.Latin1.GetBytes(string.Join("\r\n", SetupCommands) + "\r\n"));
 
@@ -892,27 +887,27 @@ public sealed class MudSession : IDisposable
         // name from the PREVIOUS login is not a fact about this one, and leaving it set makes the
         // backstop's correctness depend on the order of the next two lines.
         _lastRoomShort = null;
-        _combat.ForceEnd(CombatClock());   // logout ends any open encounter — no fight-end line will arrive
+        _combat.ForceEnd(CombatClock());   // logout ends any open encounter - no fight-end line will arrive
         _resetClock.OnGameModeExited();   // drop the projection incl. the once-per-session token
         GameModeExited?.Invoke();
     }
 
     /// <summary>
-    /// C06 C06, "Something magical is happening." (Bartle 06 06) — the reset landing. Ends any open
+    /// C06 C06, "Something magical is happening." (Bartle 06 06) - the reset landing. Ends any open
     /// encounter about 200 ms before the shell prompt would, so no combat line from a world that has
     /// already been rebuilt is folded into a fight from the world that is gone.
     ///
     /// <para><b>Corroborated, not trusted.</b> Bartle's own gloss for this code is generic, and the
-    /// corpus has exactly two occurrences of the line — both at a reset, no counter-example, but
-    /// n=2. Acting on it unconditionally would risk re-creating the premature-end bug that removing
-    /// ForceEnd from the C06 C04 WARNING handler fixed: once an encounter is closed early,
-    /// CombatStatsAggregator.Observe drops every subsequent non-FightStart event, which is how a
-    /// whole fight came to read as UNARMED. So this only fires when the reset countdown independently
+    /// corpus has exactly two occurrences of the line - both at a reset, no counter-example, but
+    /// n=2. Acting on it unconditionally risks the same premature-end failure mode: once an
+    /// encounter is closed early, CombatStatsAggregator.Observe drops every subsequent
+    /// non-FightStart event, which is how a whole fight can read as UNARMED. So this only fires
+    /// when the reset countdown independently
     /// says the reset is due right now. That countdown is the solid half of the evidence: it is
     /// anchored either by the C06 C04 warning (exact, +120 s) or by the FES "minutes to next reset"
     /// field, which is Bartle's own documented FES output.</para>
     ///
-    /// <para>If the projection has nothing to say — not in game, no reading yet — this does nothing
+    /// <para>If the projection has nothing to say - not in game, no reading yet - this does nothing
     /// and the shell prompt closes the encounter as it always has. Degrading to the previous
     /// behaviour is the correct failure mode for a signal this thinly observed.</para>
     /// </summary>
@@ -922,7 +917,7 @@ public sealed class MudSession : IDisposable
         if (estimate.TargetUtc is not DateTime target)
             return;
         // The tolerance is the projection's own stated uncertainty, floored at 2 s so a hard lock
-        // (±0.3 s) still absorbs ordinary jitter between the anchor and this line's arrival.
+        // (+/-0.3 s) still absorbs ordinary jitter between the anchor and this line's arrival.
         var tolerance = Math.Max(2.0, estimate.UncertaintySec);
         if (Math.Abs((DateTime.UtcNow - target).TotalSeconds) > tolerance)
             return;
@@ -943,7 +938,7 @@ public sealed class MudSession : IDisposable
     // The dreamword is a server-generated word given to sleeping players; the first to speak it
     // wins a random stamina refresh. When we speak it successfully the server both echoes our
     // speech and sends a C1 code that clears the dreamword (OnDreamwordChanged(null)). But when
-    // the speak is a no-op — we spoke at full stamina, or someone drained the FIFO queue first —
+    // the speak is a no-op - we spoke at full stamina, or someone drained the FIFO queue first -
     // no C1 clear arrives, and we would otherwise keep advertising a dead dreamword forever.
     // Detection: our own persona saying the exact current dreamword. Speaking uses it, full stop.
     // Runs on the Feed thread (LineReady), so no marshalling; _currentDreamword/_currentCharName
@@ -953,20 +948,20 @@ public sealed class MudSession : IDisposable
         var word = _currentDreamword;
         if (word is null || _currentCharName is null)
             return;
-        // Player speech is C1 code 09 → LineKind.Chat; anything else can't be a `says` line.
+        // Player speech is C1 code 09 -> LineKind.Chat; anything else can't be a `says` line.
         if (line.Kind != LineKind.Chat)
             return;
 
         var text = line.PlainText;
-        // Speaker must be our persona — including while we are invisible, when the game
-        // parenthesises the whole name ("(Ollie the warlock) says ..."). This used to test the
-        // raw prefix itself and so missed every invisible speak; PlayerNameParts.StartsWithPersona
-        // owns the rule (and the "Ollie" must not match "Ollier" boundary) for both this and
+        // Speaker must be our persona - including while we are invisible, when the game
+        // parenthesises the whole name ("(Ollie the warlock) says ..."). Testing the raw prefix
+        // directly would miss every invisible speak; PlayerNameParts.StartsWithPersona owns the
+        // rule (and the "Ollie" must not match "Ollier" boundary) for both this and
         // SelfChatColorizer.
         if (!PlayerNameParts.StartsWithPersona(text, _currentCharName))
             return;
 
-        // `... says "<word>"` — the quoted content must be exactly the current dreamword.
+        // `... says "<word>"` - the quoted content must be exactly the current dreamword.
         const string verb = " says \"";
         var idx = text.IndexOf(verb, StringComparison.Ordinal);
         if (idx < 0)
@@ -983,7 +978,7 @@ public sealed class MudSession : IDisposable
 
         // Clear at the parser too (not just _currentDreamword): FES snapshots carry
         // _parser.CurrentDreamword, so a stale value there would resurrect it on the next probe.
-        // EmitDreamwordChanged fires DreamwordChanged → OnDreamwordChanged, syncing session state.
+        // EmitDreamwordChanged fires DreamwordChanged -> OnDreamwordChanged, syncing session state.
         _parser.EmitDreamwordChanged(null);
     }
 
@@ -1002,7 +997,7 @@ public sealed class MudSession : IDisposable
             _lastProbeSentUtc = now;
             _lastFesSentUtc = now;
             _nextRoutineProbeUtc = now + _fesInterval;
-            // The beat refreshes only what it carries — clear exactly those pending flags.
+            // The beat refreshes only what it carries - clear exactly those pending flags.
             var carried = StaleStats.None;
             if (fes) carried |= StaleStats.AllStats;
             if (few) carried |= StaleStats.WhoList;
@@ -1010,7 +1005,7 @@ public sealed class MudSession : IDisposable
             _staleFlags &= ~carried;
             // Ride a queued sniff (value <name>) on this probe, but only when the probe carries
             // FEW: the FEW-complete boundary is what closes out an invisible (no-reply) sniff, so
-            // a FEW-less probe could never resolve it. LIFO — one sniff per probe.
+            // a FEW-less probe could never resolve it. LIFO - one sniff per probe.
             if (_pendingSniff is { } sniff && few)
             {
                 _sniffInFlight = sniff;
@@ -1030,7 +1025,7 @@ public sealed class MudSession : IDisposable
     /// Queue a "sniff" probe for <paramref name="name"/>: the next routine FES heartbeat is
     /// prefixed with <c>value &lt;name&gt;</c> so we can tell whether a player who fell off the
     /// Online list is present/visible, logged out, or invisible (see <see cref="SniffResult"/>).
-    /// LIFO — a newer request replaces an unsent one, since only one sniff rides each probe.
+    /// LIFO - a newer request replaces an unsent one, since only one sniff rides each probe.
     /// May be called from any thread.
     /// </summary>
     public void QueueValueProbe(string name)
@@ -1047,14 +1042,13 @@ public sealed class MudSession : IDisposable
         var name = _sniffInFlight;
         if (name is null) return false;
         var text = line.PlainText.Trim('\r', '\n', '\0', ' ');
-        // Echo of the command we injected — swallow but keep waiting for the reply.
+        // Echo of the command we injected - swallow but keep waiting for the reply.
         if (text.Equals("value " + name, StringComparison.OrdinalIgnoreCase))
             return true;
-        // Outcome 1 — present & visible.
+        // Outcome 1 - present & visible.
         //
         // WIRE GRAMMAR (raw session recordings under %LOCALAPPDATA%\Temp\mucka plus the clog
-        // corpus; 458 "The value of …" lines, 246 distinct, re-verified 2026-09-03). Exactly three
-        // shapes exist:
+        // corpus; 458 "The value of ..." lines, 246 distinct). Exactly three shapes exist:
         //   PLAYER   "The value of Crispybob the necromancer is 5,965 points."   (2 captures, each
         //            with its own `val <name>` echo on the preceding tx frame; the other is
         //            "The value of Drizzle the wobbly mage is 26,105 points.")
@@ -1062,39 +1056,39 @@ public sealed class MudSession : IDisposable
         //   OBJECT   "The value of Columbus is 10 points."                        (proper-noun
         //            objects; 7 occurrences, 3 distinct, no "the " and no trailing description.
         //            Counts only the objects: the 2 PLAYER lines above also lack the "the ", so a
-        //            no-"the" query returns 9 and this used to quote that.)
+        //            no-"the" query returns 9.)
         // The number may be comma-grouped ("5,965"), zero, or NEGATIVE (36 occurrences, all
-        // objects), and the noun is SINGULAR at one point ("The value of the penny is 1 point." —
+        // objects), and the noun is SINGULAR at one point ("The value of the penny is 1 point." -
         // 6 occurrences), which is why the tail below accepts both.
         //
         // The literal "the " after "of " is the discriminator between the player and creature
         // forms, and it is the whole reason a `ram2` creature reply must not resolve a queued sniff
-        // for persona "Ram" (review, 2026-09-02). It is kept.
+        // for persona "Ram". It is kept.
         //
         // What is NOT kept is anchoring the persona name at exactly offset 13. The corpus shows the
         // rank rendered as a SUFFIX ("Kram the hero") and never the other way round - 9,879 matches
         // for "<Name> the <rank>" against 0 for the reverse order, over 31 distinct rank forms
-        // (same corpus as the sibling figure above, re-measured 2026-09-03; the query is the
+        // (same corpus as the sibling figure above; the query is the
         // PersonaRanks title vocabulary as one alternation, matched as
         // /\b[A-Z][A-Za-z'\-]+ the ((?:[a-z][a-z'\-]*[ ])*?(?:<titles>))\b/ and then with the two
         // halves swapped).
         //
-        // But MUD2's own `levels` table — captured verbatim on the wire — makes "Sir" and "Lady" the
+        // But MUD2's own `levels` table - captured verbatim on the wire - makes "Sir" and "Lady" the
         // level-10 NORMAL titles, and this codebase's one name grammar (PlayerNameParts) models
-        // those two as PREFIXES. A "Lady Polly …" reply to a sniff for persona "Polly" therefore
+        // those two as PREFIXES. A "Lady Polly ..." reply to a sniff for persona "Polly" therefore
         // fails a fixed offset and reads as "no reply", which the FEW-completion backstop then
-        // promotes to Invisible — a fabricated invisibility claim, the mirror of the fabricated
+        // promotes to Invisible - a fabricated invisibility claim, the mirror of the fabricated
         // sighting. Deferring to PlayerNameParts.Parse means there is still exactly ONE place that
         // knows what a MUD2 name looks like, whichever end the honorific sits at.
         //
         // Honest limit: NO capture of a "Sir <Name>"/"Lady <Name>" player exists in the corpus at
-        // all — the prefix model is inferred from the levels table, not observed. (Every line in that
+        // all - the prefix model is inferred from the levels table, not observed. (Every line in that
         // corpus containing the bare word "Sir" or "Lady" is a row of the levels table itself, e.g.
-        // "Sir          mage        102400 10  20555"; re-checked 2026-09-03.) Handling both
+        // "Sir          mage        102400 10  20555".) Handling both
         // orders costs nothing and neither order can be ruled out; asserting which one MUD2 emits
         // would be inventing grammar.
         const string presencePrefix = "The value of ";
-        const string creatureLead   = "the ";     // "The value of the wyvern is …" — never a player
+        const string creatureLead   = "the ";     // "The value of the wyvern is ..." - never a player
         if (text.StartsWith(presencePrefix, StringComparison.Ordinal) &&
             (text.EndsWith(" points.", StringComparison.Ordinal) ||
              text.EndsWith(" point.", StringComparison.Ordinal)))
@@ -1107,22 +1101,22 @@ public sealed class MudSession : IDisposable
                 return true;
             }
         }
-        // Outcome 2 — logged out: I don't know the word "{name}".
+        // Outcome 2 - logged out: I don't know the word "{name}".
         //
         // The quoted word is compared for EQUALITY, never Contains. Same class of bug as the
         // sighting above and the same severity in the other direction: this line is the game's
         // generic "that token is not in my vocabulary" and the corpus is full of them from the
-        // player's own typing — 48 occurrences, 35 distinct words over the same corpus as the wire
-        // grammar above (re-measured 2026-09-03; query: count of /I don't know the word "([^"]*)"\./
+        // player's own typing - 48 occurrences, 35 distinct words over the same corpus as the wire
+        // grammar above (query: count of /I don't know the word "([^"]*)"\./
         // matches, distinct on the captured group as written), e.g. "dro", "clsoe", "krat11",
         // "atomcibob". Under a substring test any of those containing the sniffed persona as a
         // substring ("krat11" for a persona "Rat", "atomcibob" for a persona "Bob") resolved the
         // sniff to Offline, swallowed the line, and asserted the player had logged out when
-        // nothing of the kind had happened. The shape is fixed and fully delimited — ASCII quotes,
-        // trailing full stop, no variants observed — so the word can simply be lifted out.
+        // nothing of the kind had happened. The shape is fixed and fully delimited - ASCII quotes,
+        // trailing full stop, no variants observed - so the word can simply be lifted out.
         //
         // OrdinalIgnoreCase is required, not defensive: the server canonicalises case in the
-        // matching Present reply (tx "val crispybob" → rx "The value of Crispybob …").
+        // matching Present reply (tx "val crispybob" -> rx "The value of Crispybob ...").
         const string unknownWordPrefix = "I don't know the word \"";
         const string unknownWordSuffix = "\".";
         if (text.Length > unknownWordPrefix.Length + unknownWordSuffix.Length &&
@@ -1145,7 +1139,7 @@ public sealed class MudSession : IDisposable
         SniffResult?.Invoke(name, outcome);
     }
 
-    // ── In-combat creature value probe ──────────────────────────────────────────
+    // -- In-combat creature value probe ------------------------------------------
 
     /// <summary>
     /// A name just became newly active in the current encounter (CombatTracker.ParticipantJoined).
@@ -1251,8 +1245,7 @@ public sealed class MudSession : IDisposable
         // the whole FES/FEW/FEI probe family specifically so they space themselves out from EACH
         // OTHER, and a `value` command is neither part of that family nor competing with it for
         // anything - coupling this probe's timing to that shared clock only makes an unrelated
-        // feature's own carefully-timed spacing unpredictable (found via a real regression: it
-        // pushed InventoryProbeTests' piggybacked send outside its debounce window).
+        // feature's own carefully-timed spacing unpredictable.
         var names = new List<string>(_pendingCreatureNames);
         _pendingCreatureNames.Clear();
         var command = "value " + string.Join(" and ", names);
@@ -1287,9 +1280,9 @@ public sealed class MudSession : IDisposable
     // Frame prompts do NOT close this window on sight. On real wire traffic every frame is LED by
     // its prompt (see PostSelectSetupTests' own model, and MudSession's post-select setup remarks):
     // the very first thing back after arming is the prompt that introduces the ECHO's own frame,
-    // not a closing boundary - closing there was the bug (review, 2026-09-02: every documented
-    // frame shape - "prompt, echo" then "prompt, reply" as two frames, or "prompt, echo+reply" as
-    // one - shut the window before a reply, or even the echo, had been seen). Instead the window
+    // not a closing boundary - closing there is wrong: every documented frame shape - "prompt, echo"
+    // then "prompt, reply" as two frames, or "prompt, echo+reply" as one - would shut the window
+    // before a reply, or even the echo, had been seen. Instead the window
     // tracks which requested names are still unaccounted for (_creatureProbeUnresolved) and only
     // actually closes at the frame boundary that FOLLOWS the point where every one of them has
     // drawn at least one reply or bad-target rejection (_creatureProbeReadyToClose) - deliberately
@@ -1433,17 +1426,17 @@ public sealed class MudSession : IDisposable
         _creatureValueProbeTimer?.Change(Timeout.Infinite, Timeout.Infinite);
     }
 
-    // ── Post-character-select setup swallow ─────────────────────────────────────
+    // -- Post-character-select setup swallow -------------------------------------
     // Commands injected on game-mode entry, in order. `score` MUST stay last: its reply frame is
     // the one whose closing prompt shuts the swallow window. Future user-defined setup commands go
-    // BEFORE `score`. (A trailing CTRL-T "done" sentinel was tried and removed — the server
+    // BEFORE `score`. (A trailing CTRL-T "done" sentinel was tried and removed - the server
     // answers CTRL-T on receipt, ~500ms ahead of the queued command outputs, so it cannot mark
-    // completion; verified from a live session recording 2026-07-09.)
+    // completion; verified from a live session recording.)
     private static readonly string[] SetupCommands = { "identify", "fightbrief", "auto fex", "score" };
 
     // First line of the `score` sheet: "name:           Ollie". A leading frame prompt ("*name:")
     // is stripped before matching. Character names are single tokens, so the "name:" line never
-    // wraps — a reliable frame-start marker even at narrow terminal widths.
+    // wraps - a reliable frame-start marker even at narrow terminal widths.
     private static readonly System.Text.RegularExpressions.Regex SetupNameRegex = new(
         @"^name:\s+(\S+)",
         System.Text.RegularExpressions.RegexOptions.Compiled | System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
@@ -1451,16 +1444,16 @@ public sealed class MudSession : IDisposable
     // Feed thread. Returns true when the line belongs to the injected setup batch and should be
     // swallowed. Works by frame, not by matching every line: each server reply arrives as a frame
     // led by an IsPartial '*' prompt, so we recognise a setup frame from its FIRST content line
-    // (echo / FEEXITS / "name:" — all at column 0, so wrapping never hides them) and then swallow
+    // (echo / FEEXITS / "name:" - all at column 0, so wrapping never hides them) and then swallow
     // every line of that frame up to the next prompt. This is width-independent: a wrapped reply
-    // just adds more content lines inside the same frame (the old per-line label match leaked the
-    // moment a value wrapped). Player chatter arrives in its own frame, is not claimed, and still
+    // just adds more content lines inside the same frame (matching by individual line label would
+    // leak the moment a value wrapped). Player chatter arrives in its own frame, is not claimed, and still
     // shows. The score frame is the last we claim; its closing prompt shuts the window. Called
     // only while _setupWindowActive.
     private bool TrySwallowSetupLine(StyledLine line)
     {
         // Frame boundary: the '*' prompt that leads every frame. Let it render as the prompt, but
-        // use it to delimit frames — and to close the window once the score frame has ended.
+        // use it to delimit frames - and to close the window once the score frame has ended.
         if (line.IsPartial)
         {
             if (_setupCloseAfterFrame)
@@ -1472,16 +1465,16 @@ public sealed class MudSession : IDisposable
             return false;                    // show the prompt (rendered in place, as normal)
         }
 
-        // Already inside a setup frame we've claimed — swallow the rest of it (wrapped
+        // Already inside a setup frame we've claimed - swallow the rest of it (wrapped
         // continuations included) until the next prompt clears _setupSwallowingFrame.
         if (_setupSwallowingFrame)
             return true;
 
-        // First content line of a fresh frame — decide whether the setup batch owns it.
+        // First content line of a fresh frame - decide whether the setup batch owns it.
         var text = line.PlainText.Trim('\r', '\n', '\0', ' ');
         var body = StripLeadingPrompt(text);   // a frame prompt can glue onto the first line
 
-        // Command echoes — the server echoes each injected command on its own line.
+        // Command echoes - the server echoes each injected command on its own line.
         foreach (var cmd in SetupCommands)
             if (body.Equals(cmd, StringComparison.OrdinalIgnoreCase))
                 return ClaimFrame();
@@ -1493,7 +1486,7 @@ public sealed class MudSession : IDisposable
 
         // `identify` / `fightbrief` confirmation frames - one frame each, and TWO wordings apiece,
         // because MUD2 answers differently when the setting was already on. All four verbatim
-        // (session-rec.mud2.co.uk.20260819-134737 for the first pair, owner's paste for the second):
+        // (session-rec.mud2.co.uk.20260819-134737 for the first pair, a second capture for the pair):
         //   You'll now get object identification numbers where applicable.
         //   You're already getting object identification numbers where applicable.
         //   You'll now get brief descriptions of fights.
@@ -1510,7 +1503,7 @@ public sealed class MudSession : IDisposable
              body.Contains("descriptions of fights", StringComparison.OrdinalIgnoreCase)))
             return ClaimFrame();
 
-        // `score` sheet frame — opens on the "name:" line, which yields the character name and is
+        // `score` sheet frame - opens on the "name:" line, which yields the character name and is
         // the LAST frame we claim, so arm the window to close when this frame's prompt arrives.
         var nm = SetupNameRegex.Match(body);
         if (nm.Success)
@@ -1520,7 +1513,7 @@ public sealed class MudSession : IDisposable
             return ClaimFrame();
         }
 
-        return false;   // not ours (e.g. player chatter) — show it
+        return false;   // not ours (e.g. player chatter) - show it
 
         bool ClaimFrame()
         {
@@ -1539,7 +1532,7 @@ public sealed class MudSession : IDisposable
     {
         _setupSwallowingFrame = false;
         _setupCloseAfterFrame = false;
-        _setupWindowActive    = true;   // volatile store — publishes the two writes above
+        _setupWindowActive    = true;   // volatile store - publishes the two writes above
     }
 
     // Strip a leading frame prompt ("*", "(*)", surrounding spaces) that the server glues onto the
@@ -1560,7 +1553,7 @@ public sealed class MudSession : IDisposable
         CharacterIdentified?.Invoke(name);
     }
 
-    // ── Resite/supersite recovery probe ─────────────────────────────────────────
+    // -- Resite/supersite recovery probe -----------------------------------------
 
     /// <summary>
     /// A room description just arrived (RoomEntered). Arm a short one-shot timer: if
@@ -1582,27 +1575,27 @@ public sealed class MudSession : IDisposable
 
     /// <summary>
     /// A room short description arrived at column 0. When it differs from the last one, the player is
-    /// somewhere else than they were, and in MUD2 you cannot walk out of a fight (owner) — so any
+    /// somewhere else than they were, and in MUD2 you cannot walk out of a fight - so any
     /// encounter still open is over, and <see cref="CombatTracker.NoteRoomChanged"/> closes it. See
     /// there for why this backstop exists and why it announces itself.
     ///
     /// <para>Gated on the name CHANGING, because RoomShortReady fires for a plain `look` at the room
-    /// the player is already standing in — measured, not assumed: of the 399 column-0 room shorts in
+    /// the player is already standing in - measured, not assumed: of the 399 column-0 room shorts in
     /// session-rec.mud2.co.uk.20260826-134435, five follow a bare `l` and one a probe reply, and
     /// looking around mid-fight is free and constant. Closing a fight on every `look` would be far
     /// worse than a backstop that sometimes abstains.</para>
     ///
     /// <para>What it costs: a move between two rooms whose shorts read identically does not fire. Not
-    /// hypothetical — eleven column-0 room shorts in that capture read "You are lost in a misty
+    /// hypothetical - eleven column-0 room shorts in that capture read "You are lost in a misty
     /// graveyard.", ten of them on entry to a room, so those rooms are indistinguishable by name. The
     /// backstop is silent in there and the primary parsing carries the fight, which is the intended
     /// failure direction.</para>
     ///
     /// <para><b>Open question, deliberately not designed around.</b> In that capture a room short
     /// arriving on MOVEMENT is preceded by an ambient-sound code (C20.xx) and one arriving from `look`
-    /// is not — 393 of 399 carried one. If that holds it is a true move/look discriminator and would
+    /// is not - 393 of 399 carried one. If that holds it is a true move/look discriminator and would
     /// also work in the maze. It rests on one session, and reading it wrong closes fights on `look`,
-    /// so it stays an observation in tools/combat/MECHANICS_NOTES.md until a second capture agrees.
+    /// so it stays an open observation until a second capture agrees.
     /// As for a snoop putting somebody else's room short in our stream: it cannot, and not merely
     /// because snooping is wiz-only. Bartle's own description of the codes settles it - 94 "brackets
     /// the name of the person being snooped" and 97 is "snooped material FROM the player using
@@ -1620,7 +1613,7 @@ public sealed class MudSession : IDisposable
             _combat.NoteRoomChanged(CombatClock());
     }
 
-    /// <summary>A FEX list has started arriving — the pending recovery probe (if any) is moot.</summary>
+    /// <summary>A FEX list has started arriving - the pending recovery probe (if any) is moot.</summary>
     private void CancelRoomFexProbe()
     {
         lock (_fesLock)
@@ -1669,11 +1662,11 @@ public sealed class MudSession : IDisposable
         }
     }
 
-    // ── Reactive stale-stats probing ───────────────────────────────────────────
+    // -- Reactive stale-stats probing -------------------------------------------
 
     /// <summary>
     /// A C1 code hinted that the given categories may be out of date. Mark them stale
-    /// and arm the one-shot probe timer — unless reactive probing is disabled (heartbeat
+    /// and arm the one-shot probe timer - unless reactive probing is disabled (heartbeat
     /// interval 0) or the routine probe is due soon enough to cover them.
     /// </summary>
     private void OnProbeHint(StaleStats kinds)
@@ -1683,17 +1676,16 @@ public sealed class MudSession : IDisposable
         {
             if (_fesInterval <= TimeSpan.Zero || !InGameMode)
                 return;
-            // Record ALL hinted categories — the routine beat composes FEI from the Inventory flag,
+            // Record ALL hinted categories - the routine beat composes FEI from the Inventory flag,
             // so the fact must be kept even when no off-cadence probe fires (e.g. beat imminent).
             _staleFlags |= kinds;
             // Only who-list / inventory staleness warrants an off-cadence probe. Stat categories
             // are advisory: combat deltas arrive as inline text ("(84/90)") and the next routine
-            // probe catches anything else — rapid-firing on every combat code was pure noise
-            // (probe-noise policy, 2026-07-25).
+            // probe catches anything else - rapid-firing on every combat code is pure noise.
             if ((kinds & (StaleStats.WhoList | StaleStats.Inventory)) == StaleStats.None)
                 return;
             if (_nextRoutineProbeUtc - DateTime.UtcNow <= _options.MinProbeSpacing)
-                return;   // beat imminent — it will carry the flagged parts
+                return;   // beat imminent - it will carry the flagged parts
             if (!_staleArmed)
             {
                 _staleArmed = true;
@@ -1704,7 +1696,7 @@ public sealed class MudSession : IDisposable
     }
 
     /// <summary>
-    /// The grace period after a stale hint has elapsed. Query whatever is still stale —
+    /// The grace period after a stale hint has elapsed. Query whatever is still stale -
     /// values that arrived on their own in the meantime have already cleared their flags.
     /// </summary>
     private void OnStaleDeadline()
@@ -1736,7 +1728,7 @@ public sealed class MudSession : IDisposable
                 _staleTimer?.Change(wait, Timeout.InfiniteTimeSpan);
                 return;
             }
-            // Routine probe now imminent — keep the flags; the beat composes FEW every time and
+            // Routine probe now imminent - keep the flags; the beat composes FEW every time and
             // FEI from the Inventory flag, so it will carry the stale parts itself.
             if (_nextRoutineProbeUtc - now <= _options.MinProbeSpacing)
                 return;
@@ -1761,12 +1753,12 @@ public sealed class MudSession : IDisposable
         ProbeSent?.Invoke();
     }
 
-    // ── In-combat inventory probe ──────────────────────────────────────────────
+    // -- In-combat inventory probe ----------------------------------------------
 
     /// <summary>
     /// One parsed line, checked for the four wordings that mean the loadout just changed (see
     /// <see cref="InventoryChangeLines"/>). Runs on the Feed thread as part of parsing incoming
-    /// bytes — never from input handling, which is why the combat and game-mode gates come before
+    /// bytes - never from input handling, which is why the combat and game-mode gates come before
     /// the regexes.
     ///
     /// <para><b>In combat only.</b> That is where the measurement lives and where a stale strength
@@ -1793,24 +1785,24 @@ public sealed class MudSession : IDisposable
     /// <summary>
     /// When the pending probe goes out if no player command carries it first. Restarting the timer
     /// rather than "arm if idle" is what makes the delay a QUIET PERIOD measured from the LAST
-    /// change line: a bulk command's items all arrive in one server frame — the owner's clog has
-    /// three inside the same millisecond — and they must cost one probe, not one each.
+    /// change line: a bulk command's items all arrive in one server frame - one captured clog has
+    /// three inside the same millisecond - and they must cost one probe, not one each.
     ///
     /// <para><b>The tick guard.</b> Commands are drained from a server-side queue one per tick, so a
-    /// probe placed just before a boundary can take the slot the player's own action wanted; the
-    /// owner's worked case is <c>e,feed coal to dragon</c> failing because the creature got the tick
+    /// probe placed just before a boundary can take the slot the player's own action wanted; one
+    /// worked case is <c>e,feed coal to dragon</c> failing because the creature got the tick
     /// first. When the next boundary is inside
     /// <see cref="MudSessionOptions.InventoryProbeTickGuard"/> the probe is moved to just PAST it
     /// (<see cref="MudSessionOptions.InventoryProbeTickClearance"/>), which is the position with the
-    /// longest clear run before the following boundary. The priority this encodes is the owner's:
-    /// the probe is not critical, but it is very useful — so it always yields to the player's
-    /// timing, and it is never dropped merely for being inconvenient.</para>
+    /// longest clear run before the following boundary. The priority this encodes: the probe is not
+    /// critical, but it is very useful - so it always yields to the player's timing, and it is never
+    /// dropped merely for being inconvenient.</para>
     ///
     /// <para><b>The lattice is not always known.</b> <see cref="MillisecondsToNextCombatTick"/>
     /// returns null until the phase estimate has settled (it needs samples), and then the plain
     /// delay is used with no guard at all. That is the honest behaviour: no phase, no claim about
     /// where the boundary is. When it IS known, the +50ms placement is comfortably robust to the
-    /// estimate's own error — one lattice fits a whole session to a ~26ms median residual (see
+    /// estimate's own error - one lattice fits a whole session to a ~26ms median residual (see
     /// Mucka.Core.TickPhase, which owns the estimate; this asks it rather than keeping a second
     /// clock).</para>
     /// </summary>
@@ -1831,7 +1823,7 @@ public sealed class MudSession : IDisposable
     /// timer having been re-armed) or to abandon it. Caller holds <see cref="_fesLock"/>.
     ///
     /// <para><b>Why FES and FEI together rather than FES alone.</b> Each costs the player a tick, so
-    /// the pair costs two — but this probe REPLACES one the client already sends. Every one of these
+    /// the pair costs two - but this probe REPLACES one the client already sends. Every one of these
     /// lines is un-coded, which sets <c>StaleStats.Inventory</c> in the parser, and OnStaleDeadline
     /// answers that with exactly <c>FES,FEI</c> a couple of hundred milliseconds later (measured
     /// across the capture corpus: median 209ms from "X dropped." to the next FES-carrying probe, 85%
@@ -1841,7 +1833,7 @@ public sealed class MudSession : IDisposable
     /// generic path to spend later and less usefully.</para>
     ///
     /// <para><b>Nothing needs swallowing.</b> Bartle: a command interrupt "will not be echoed, but
-    /// will cause the FES to be executed", and its reply is wholly C1-bracketed — the FES packet is
+    /// will cause the FES to be executed", and its reply is wholly C1-bracketed - the FES packet is
     /// consumed by the decoder and the FEI list is diverted into the parser's own buffer
     /// (MudStreamParser's InFeiResponseContext), so neither ever reaches LineReady. That is why the
     /// existing heartbeat, which sends this same interrupt at a ~1.26s median cadence, is invisible
@@ -1913,8 +1905,8 @@ public sealed class MudSession : IDisposable
     /// Whether a pending probe may ride out in front of this outgoing command.
     ///
     /// <para><b>Single commands only.</b> MUD2 drains a comma-combo one element per tick, so a probe
-    /// prepended to <c>e,feed coal to dragon</c> pushes every element back a tick — the owner's own
-    /// example of a combo that fails when something else takes the tick first. A combo therefore
+    /// prepended to <c>e,feed coal to dragon</c> pushes every element back a tick - one example of a
+    /// combo that fails when something else takes the tick first. A combo therefore
     /// goes out untouched and the probe waits for its timer, by which point it is BEHIND the combo
     /// in the queue: strictly better placement than prepending, which is why this is a refusal
     /// rather than a fallback.</para>
@@ -1932,14 +1924,14 @@ public sealed class MudSession : IDisposable
     }
 
     /// <summary>
-    /// A player name was seen bracketed by a C05 presence code — that player is online.
+    /// A player name was seen bracketed by a C05 presence code - that player is online.
     /// If they are missing from the last complete FEW response, the Online list is stale.
     /// The bracketed text may be a full persona ("Polly the witch"), a titled level-10
     /// mortal ("Lady Polly"), or run on into the sentence.
     /// </summary>
     private void OnPresenceName(string name)
     {
-        // No baseline yet — nothing to compare against; the routine probe establishes one.
+        // No baseline yet - nothing to compare against; the routine probe establishes one.
         if (_onlineNames.Count == 0)
             return;
         if (!_onlineNames.Contains(PlayerNameParts.Parse(name).PersonaName))
@@ -1961,8 +1953,8 @@ public sealed class MudSession : IDisposable
     }
 
     /// <summary>
-    /// BUGS #5: if the server just sent real data but the last FES-carrying probe never drew its
-    /// stats reply (the character was asleep — FES/FEI/FEW no-op during sleep), fire the heartbeat
+    /// If the server just sent real data but the last FES-carrying probe never drew its
+    /// stats reply (the character was asleep - FES/FEI/FEW no-op during sleep), fire the heartbeat
     /// now and re-phase its period, so the panel recovers on wake instead of waiting out the
     /// current interval. Rate-limited so a wake-up text burst fires only one early probe.
     ///
@@ -1979,7 +1971,7 @@ public sealed class MudSession : IDisposable
         var now = DateTime.UtcNow;
         if (_lastFesSentUtc <= _lastProbeReplyUtc)     // last FES-carrying probe was answered
             return;
-        if (now - _lastFesSentUtc <= _options.WakeReplySlack)  // in flight — give the reply time to land
+        if (now - _lastFesSentUtc <= _options.WakeReplySlack)  // in flight - give the reply time to land
             return;
         if (now - _lastWakeProbeUtc < WakeProbeFloor)
             return;
@@ -1992,11 +1984,11 @@ public sealed class MudSession : IDisposable
         }
     }
 
-    // ── Reset-time discovery (driven by ResetClock) ─────────────────────────────
+    // -- Reset-time discovery (driven by ResetClock) -----------------------------
     // ResetClock owns the one-time edge search; these are its wire hooks. While discovering it holds
     // the routine heartbeat suspended (SetResetDiscoveryHold) so a compound reply never races its
     // rate-limited FES samples, and its samples deliberately BYPASS MinProbeSpacing (they are self-paced
-    // at ≥ ~501 ms). The global spacing floor still guards every reactive/routine path.
+    // at >= ~501 ms). The global spacing floor still guards every reactive/routine path.
 
     /// <summary>Can a discovery probe usefully go out right now? (In game, heartbeat enabled, not held.)</summary>
     private bool CanResetProbe()
@@ -2024,7 +2016,7 @@ public sealed class MudSession : IDisposable
     /// <summary>Suspend (true) / resume (false) the routine heartbeat while a reset-discovery pass owns
     /// the channel. Resuming fires a beat IMMEDIATELY (then keeps the period): the pass already
     /// suppressed beats for several seconds, and re-phasing a full interval out on top of that pushed
-    /// the panel past its stale threshold at every retried minute boundary — the "status updates
+    /// the panel past its stale threshold at every retried minute boundary - the "status updates
     /// aren't regular" complaint. The channel is free the instant the hold drops, so an immediate
     /// compound probe is safe. Outside game mode, just restore the period. Called by ResetClock.</summary>
     private void SetResetDiscoveryHold(bool held)

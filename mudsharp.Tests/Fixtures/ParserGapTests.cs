@@ -5,9 +5,9 @@ using MudSharp.Models;
 namespace mudsharp.Tests.Fixtures;
 
 /// <summary>
-/// Regressions for combat lines the parser did not recognise, all found by reducing two real play
-/// sessions (see tools/combat/SESSION-NOTES-20260810.md). Every string here is quoted verbatim from a
-/// capture - none is invented, and none should be "tidied up" to read better.
+/// Regressions for combat lines the parser did not recognise, found by reducing two real play
+/// sessions. Every string here is quoted verbatim from a capture - none is invented, and none
+/// should be "tidied up" to read better.
 /// </summary>
 public sealed class ParserGapTests
 {
@@ -29,14 +29,9 @@ public sealed class ParserGapTests
 
     /// <summary>
     /// The highest-value gap in the session review. A water-snake attempted this 7 times in 13 seconds
-    /// and never left the room, and the game prints "You can fight it no longer." after each one.
-    ///
-    /// <para>Note what this test does NOT assert any more. It used to also pin "the fight stays open",
-    /// on the reasoning that 7 attempts inside one 13-second fight must be one encounter rather than
-    /// eight. The owner corrected that on 2026-08-19: a failed flee really does end the fight, so those
-    /// are eight encounters - eight frames, eight attack commands, eight weapon selections - and the
-    /// price of the old reading was a fight the player never re-opened staying "in combat" forever.
-    /// See <see cref="FailedFlee_EndsTheFight_CreatureStaysInTheRoom"/>.</para>
+    /// and never left the room, and the game prints "You can fight it no longer." after each one. A
+    /// failed flee really does end the fight - see
+    /// <see cref="FailedFlee_EndsTheFight_CreatureStaysInTheRoom"/>.
     /// </summary>
     [Fact]
     public void FailedFlee_IsReportedAsAnAttempt_NotAnEscape()
@@ -54,12 +49,9 @@ public sealed class ParserGapTests
 
     /// <summary>
     /// The fight ENDS: MUD2 breaks the sequence even though the creature never left the room, and the
-    /// player has to attack again to re-engage.
-    ///
-    /// <para>This is the exact frame the owner reported (water-snake3, 2026-08-19). It inverts the
-    /// previous expectation, which was that the fight stayed open - and that is why the bug existed at
-    /// all: nothing else in this frame can close a fight, so a player who walked away instead of
-    /// re-attacking left the panel claiming combat until reset or logout.</para>
+    /// player has to attack again to re-engage. Nothing else in this frame can close a fight, so
+    /// without this a player who walked away instead of re-attacking would leave the panel claiming
+    /// combat until reset or logout.
     /// </summary>
     [Fact]
     public void FailedFlee_EndsTheFight_CreatureStaysInTheRoom()
@@ -80,9 +72,8 @@ public sealed class ParserGapTests
         Assert.False(tracker.InCombat);
     }
 
-    /// <summary>Re-attacking the creature that is still standing there opens a NEW encounter - it is a
-    /// new frame, a new command and a new weapon selection, and the owner's model says that is exactly
-    /// what it is.</summary>
+    /// <summary>Re-attacking the creature that is still standing there opens a NEW encounter: a new
+    /// frame, a new command and a new weapon selection.</summary>
     [Fact]
     public void FailedFlee_ThenReattack_OpensAFreshEncounter()
     {
@@ -153,8 +144,8 @@ public sealed class ParserGapTests
 
     // ---- Health readings folded into a longer sentence --------------------------------------
 
-    /// <summary>The reading is real and was being dropped purely because the sentence carried on past
-    /// it. Captured verbatim from a ram.</summary>
+    /// <summary>The reading is real; a sentence that continues past it must not cause it to be
+    /// dropped. Captured verbatim from a ram.</summary>
     [Fact]
     public void HealthReading_SurvivesARunOnSentence()
     {
@@ -180,8 +171,7 @@ public sealed class ParserGapTests
     // ---- The game does report NPC stamina ---------------------------------------------------
 
     /// <summary>
-    /// Five comments in this codebase asserted MUD2 never reports NPC stamina, and an estimator was
-    /// built on that belief. The stethoscope's `diagnose` says otherwise, in a bracket.
+    /// MUD2 does report NPC stamina: the stethoscope's `diagnose` command returns it in a bracket.
     /// </summary>
     [Theory]
     [InlineData("The water-snake5 has a stamina lying between 90 and 99.", "water-snake5", 90, 99)]
@@ -210,7 +200,7 @@ public sealed class ParserGapTests
     // ---- The weapon that flees out of your hands --------------------------------------------
 
     /// <summary>Fleeing drops your weapon automatically, in the same tick, with no WeaponBroke line to
-    /// explain it. The panel went on reporting it as equipped.</summary>
+    /// explain it - so the readout must not go on reporting it as equipped.</summary>
     [Fact]
     public void DroppingTheWeaponInUse_DisarmsTheReadout()
     {
@@ -258,8 +248,7 @@ public sealed class ParserGapTests
         Assert.Null(snapshot.CurrentWeapon);
     }
 
-    /// <summary>Same rule for a weapon that breaks mid-fight - the pre-existing half of the same
-    /// bug, which had already written two fights to the research corpus as unarmed.</summary>
+    /// <summary>Same rule for a weapon that breaks mid-fight.</summary>
     [Fact]
     public void BreakingTheWeapon_DoesNotErodeTheFightsOwnWeaponRecord()
     {
@@ -361,7 +350,7 @@ public sealed class ParserGapTests
         Assert.Equal("axe0", aggregator.Snapshot(T0.AddSeconds(1)).CurrentWeapon);
     }
 
-    // ---- The ends of a fight (seven from the owner, 2026-08-19; an eighth found 2026-08-26) ---
+    // ---- The ends of a fight -----------------------------------------------------------------
 
     /// <summary>
     /// Cases 4 and 5, the player's own flee, successful and failed. Both zero the fight count, so both
@@ -370,7 +359,7 @@ public sealed class ParserGapTests
     /// <para>Case 5 is quoted from session-rec.mud2.co.uk.20260819-000137, where the whole exchange
     /// arrived in ONE frame: <c>flee n / You cannot go north from here. / You have changed experience
     /// level from protector to novice. / (Persona saved on -102 = 98). / You have fled by trying to go
-    /// north.</c> Nothing in this client matched that last line until 2026-08-19.</para>
+    /// north.</c></para>
     /// </summary>
     [Theory]
     [InlineData("You have fled by going out.", CombatEventKind.YouFled)]
@@ -439,8 +428,8 @@ public sealed class ParserGapTests
         Assert.False(tracker.InCombat);
     }
 
-    /// <summary>The third member of the withdraw family, and the one that matched nothing until now:
-    /// the creature's own offer. Verbatim from session-rec.mud2.co.uk.20260902-232101 records 994-998
+    /// <summary>The third member of the withdraw family: the creature's own offer. Verbatim from
+    /// session-rec.mud2.co.uk.20260902-232101 records 994-998
     /// (the "critically damaged" line is quoted with it because in all five captured occurrences the
     /// offer follows one - the creature offers when it is nearly dead).
     ///
@@ -473,10 +462,9 @@ public sealed class ParserGapTests
         Assert.Equal(FightOutcome.Kill, Assert.Single(after.Fights).Outcome);
     }
 
-    /// <summary>Case 7, the death frame, verbatim from session-rec.mud2.co.uk.20260819-001608. Three of
-    /// its five lines were unparsed before 2026-08-19: the fatal blow (no stamina parenthetical), the
-    /// narrative precursor, and - not asserted here, it is not a combat line - "Not updating
-    /// persona."</summary>
+    /// <summary>Case 7, the death frame, verbatim from session-rec.mud2.co.uk.20260819-001608: the
+    /// fatal blow (no stamina parenthetical), the narrative precursor, and - not asserted here, it is
+    /// not a combat line - "Not updating persona."</summary>
     [Fact]
     public void DeathFrame_CountsTheFatalBlow_AndEndsEverything()
     {
@@ -568,11 +556,6 @@ public sealed class ParserGapTests
     /// "You hit the banshee (6)." - verbatim from session-rec.mud2.co.uk.20260819-001118: the exact
     /// figure MUD2 sometimes prints in place of a range. Reported as a zero-width range so consumers
     /// that average the pair need no special case.
-    ///
-    /// <para>This heading used to read "identify on", and that attribution is wrong - the recording it
-    /// quotes never sends `identify`, and the sessions that do send it print brackets. See
-    /// CombatTracker.YouHitExact. What is under test here is the parse, which is correct either
-    /// way.</para>
     /// </summary>
     [Fact]
     public void ExactDamage_IsReportedAsAZeroWidthRange()
@@ -606,10 +589,10 @@ public sealed class ParserGapTests
     /// "You're using the unlit brand anyway..." - MUD2's reply to a redundant weapon selection, and in
     /// that frame the ONLY line naming the weapon actually in hand.
     ///
-    /// <para>Verbatim from session-rec.mud2.co.uk.20260819-001608, where the owner sent
-    /// <c>k rat with stick</c> and got this four times over (once per rat) paired with two guard drops.
-    /// Note the weapon named is NOT the one the command asked for: taking the command at its word would
-    /// have recorded the fight under "stick".</para>
+    /// <para>Verbatim from session-rec.mud2.co.uk.20260819-001608, where <c>k rat with stick</c> was
+    /// sent and got this four times over (once per rat) paired with two guard drops. Note the weapon
+    /// named is NOT the one the command asked for: taking the command at its word would have recorded
+    /// the fight under "stick".</para>
     /// </summary>
     [Fact]
     public void RedundantWeaponSelection_ReportsTheWeaponActuallyInUse()

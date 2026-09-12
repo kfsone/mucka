@@ -23,7 +23,7 @@ internal sealed class GameLineAnalyzer
         @"^\((\d+)/(\d+)\)",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
-    // "The rat hits you (89/94)."  — stamina embedded in combat hit lines; find the last (N/M)
+    // "The rat hits you (89/94)."  - stamina embedded in combat hit lines; find the last (N/M)
     private static readonly Regex CombatStaminaRegex = new(
         @"\((\d+)/(\d+)\)",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
@@ -38,21 +38,21 @@ internal sealed class GameLineAnalyzer
         @"^dexterity:\s*(\d+)(?:.*?effective dexterity:\s*(\d+))?",
         RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
-    // "sex:            male"  — score sheet only; there is no FES field for it.
+    // "sex:            male"  - score sheet only; there is no FES field for it.
     private static readonly Regex SexRegex = new(
         @"^sex:\s*([A-Za-z]+)",
         RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
-    // "magic:          110"  — the score sheet reports current magic with no max (FES carries both).
+    // "magic:          110"  - the score sheet reports current magic with no max (FES carries both).
     private static readonly Regex MagicRegex = new(
         @"^magic:\s*(\d+)(?:\s+max:\s*(\d+))?",
         RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
     // "nothing" is the server's word for an empty pack: a measurement of ZERO, not a missing
     // reading, and it is what most sheets say. The "max:" clause is optional so a server-wrapped
-    // line still yields the carried figure (see tools/combat/TEXT-WRAPPING-REVIEW.md).
+    // line still yields the carried figure.
 
-    // "objects carried:        1       max:    12"  ("max:" optional — the line can wrap)
+    // "objects carried:        1       max:    12"  ("max:" optional - the line can wrap)
     private static readonly Regex ObjectsCarriedRegex = new(
         @"^objects carried:\s*(?<n>\d+)(?:\s+max:\s*(?<max>\d+))?",
         RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
@@ -71,19 +71,19 @@ internal sealed class GameLineAnalyzer
     // Three separate figures on one ~70-column line, so at narrow widths the server wraps it and
     // the tail arrives on a continuation line ("points        value:  9,534 points"). Each figure
     // therefore gets its own regex: the score prefix anchors at column 0, while the other two
-    // anchor either at column 0 or immediately after the previous figure's "points" — enough of a
+    // anchor either at column 0 or immediately after the previous figure's "points" - enough of a
     // guard to keep player chatter from matching, while surviving the wrap.
     private static readonly Regex ScoreRegex = new(
         @"^score:\s*([\d,]+)",
         RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
-    // "this game:      10 points" — can be zero, and (points lost this game) can be negative.
+    // "this game:      10 points" - can be zero, and (points lost this game) can be negative.
     private static readonly Regex ThisGameRegex = new(
         @"(?:^|points\s+)this game:\s*(-?[\d,]+)",
         RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
-    // "value:  10,389 points" — the persona's own value; what an attacker collects when we flee or
-    // die (see tools/combat/MUD2-PUBLISHED-MECHANICS.md, "Where the points go"). The colon is what
+    // "value:  10,389 points" - the persona's own value; what an attacker collects when we flee or
+    // die (see docs/MUD2-published-mechanics.md, "Where the points go"). The colon is what
     // keeps this off the `value <name>` sniff reply ("The value of Ollie the warlock is N points.").
     private static readonly Regex ValueRegex = new(
         @"(?:^|points\s+)value:\s*(-?[\d,]+)",
@@ -91,16 +91,12 @@ internal sealed class GameLineAnalyzer
 
     // "(Persona saved on [+N = ]M,NNN)."
     //
-    // Both halves are captured. The old pattern was `.*?([\d,]+)\)\.` — the lazy wildcard swallowed
-    // the "+26 = " and kept only the running total, which threw away the one number in the whole
-    // protocol that says explicitly what an event was worth. Flee costs arrive here as a negative and
-    // nowhere else at all.
+    // Both halves are captured. Flee costs arrive here as a negative and nowhere else at all.
     //
-    // `filler` keeps the old pattern's tolerance rather than tightening it: anything that is not a
-    // digit and not the closing paren may sit between the preamble and the total, so a wording this
-    // has not seen still yields the total exactly as it used to. It cannot eat the delta out from
-    // under the optional group, because the group is tried first and the total must butt up against
-    // ")." for the match to complete at all.
+    // The filler between the preamble and the total is deliberately tolerant: anything that is not
+    // a digit and not the closing paren may sit there, so a wording this has not seen still yields
+    // the total. It cannot eat the delta out from under the optional group, because the group is
+    // tried first and the total must butt up against ")." for the match to complete at all.
     private static readonly Regex PersonaSavedScoreRegex = new(
         @"\(Persona saved on\s*(?:(?<delta>[+-][\d,]+)\s*=\s*)?[^\d)]*(?<total>[\d,]+)\)\.",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
@@ -124,7 +120,7 @@ internal sealed class GameLineAnalyzer
     // `passes you a note which says "troulm"` or `gasps "orchid"` etc.
     // Only matched outside game mode (pre-login); in game mode dreamwords arrive
     // exclusively via the binary C15+C00+C00+C255 sequence in Mud2C1Decoder.
-    // "says" is intentionally excluded — it is a normal player speech verb and
+    // "says" is intentionally excluded - it is a normal player speech verb and
     // produces false positives (e.g. 'Ollie says "boom"').
     private static readonly Regex DreamwordLineRegex = new(
         @"(?:gasps|whispers|shouts|screams|hisses|murmurs)\s+""([a-z]{1,14})""",
@@ -145,7 +141,7 @@ internal sealed class GameLineAnalyzer
         if (text.Length == 0)
             return null;
 
-        // "(Persona saved on ...)" — early return in Clio; also extracts score from the number
+        // "(Persona saved on ...)" - early return in Clio; also extracts score from the number
         if (text.Contains("(Persona saved on "))
         {
             var pm = PersonaSavedScoreRegex.Match(text);
@@ -171,7 +167,7 @@ internal sealed class GameLineAnalyzer
         if (m.Success)
             return GameStatsSnapshot.Empty with { Sex = m.Groups[1].Value.ToLowerInvariant() };
 
-        // "strength: N [effective strength: M]"  — use effective when present, else raw.
+        // "strength: N [effective strength: M]"  - use effective when present, else raw.
         // The effective clause is printed ONLY when it differs from the base, so an absent group
         // means "equal", not "unknown": fall back to the raw value rather than leaving it null.
         // Effective may be HIGHER than raw (a buff: "strength: 100  effective strength: 105"), so
@@ -183,7 +179,7 @@ internal sealed class GameLineAnalyzer
             return GameStatsSnapshot.Empty with { RawStrength = strRaw, Strength = effective };
         }
 
-        // "dexterity: N [effective dexterity: M]"  — use effective when present, else raw
+        // "dexterity: N [effective dexterity: M]"  - use effective when present, else raw
         m = DexterityRegex.Match(text);
         if (m.Success && int.TryParse(m.Groups[1].Value, out var dexRaw))
         {
@@ -191,7 +187,7 @@ internal sealed class GameLineAnalyzer
             return GameStatsSnapshot.Empty with { RawDexterity = dexRaw, Dexterity = effective };
         }
 
-        // "magic: N" — the score sheet's only magic reading (FES supplies current + max).
+        // "magic: N" - the score sheet's only magic reading (FES supplies current + max).
         m = MagicRegex.Match(text);
         if (m.Success && int.TryParse(m.Groups[1].Value, out var magic))
         {
@@ -199,8 +195,7 @@ internal sealed class GameLineAnalyzer
             return GameStatsSnapshot.Empty with { CurrentMagic = magic, MaxMagic = maxMagic };
         }
 
-        // Carried weight is deliberately NOT parsed, stored, or shown - the owner's decision, and
-        // worth writing down so nobody "completes" the sheet parser by adding it back.
+        // Carried weight is deliberately NOT parsed, stored, or shown.
         //
         // It is an unwanted variable. The only source is this sheet, so it is never fresher than the
         // last `score`; it changes on every pick-up and drop, which the client cannot see; and the one
@@ -212,7 +207,7 @@ internal sealed class GameLineAnalyzer
         // Objects carried IS kept, just below: it has a live source (the FEI inventory list), so it can
         // be trusted between sheets.
 
-        // "objects carried: N [max: M]"  — N is legitimately 0 (empty pack)
+        // "objects carried: N [max: M]"  - N is legitimately 0 (empty pack)
         m = ObjectsCarriedRegex.Match(text);
         if (m.Success && int.TryParse(m.Groups["n"].Value, out var objectsCarried))
         {
@@ -230,7 +225,7 @@ internal sealed class GameLineAnalyzer
         if (m.Success && int.TryParse(m.Groups["n"].Value, out var gamesPlayed))
             return GameStatsSnapshot.Empty with { GamesPlayed = gamesPlayed };
 
-        // "score: N,NNN points   this game: N points   value: N,NNN points" — three figures.
+        // "score: N,NNN points   this game: N points   value: N,NNN points" - three figures.
         // Score keeps its historical "only when > 0" guard (a bare 0 is not worth trusting from a
         // loose text match); this game / value are taken at face value, zero included.
         m = ScoreRegex.Match(text);
@@ -276,7 +271,7 @@ internal sealed class GameLineAnalyzer
                 return GameStatsSnapshot.Empty with { Stamina = sta, MaxStamina = msta };
         }
 
-        // `passes you a note which says "word"` — dreamword delivered as game text.
+        // `passes you a note which says "word"` - dreamword delivered as game text.
         // Only matched outside game mode; in game mode dreamwords arrive exclusively
         // via the binary C15+C00+C00+C255 sequence in Mud2C1Decoder.
         if (!inGameMode)

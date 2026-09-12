@@ -10,34 +10,34 @@ namespace Mucka.Core;
 /// looks at and weighs a carried item, then drops and re-gets it to measure its otherwise
 /// unreported effect on effective strength/dexterity. MUD2's FES stats already reflect an
 /// item's weight cost (Strength/Dexterity in GameStatsSnapshot are the *effective*, post-load
-/// values — confirmed against the 'sc'/full-status command's "effective strength"/"effective
+/// values - confirmed against the 'sc'/full-status command's "effective strength"/"effective
 /// dexterity" text, which is what GameLineAnalyzer actually parses; MUD2's terser 'qs' quick-stats
 /// reply looks similar to a human eye but isn't recognised by that parser), but it never tells the
 /// player the cost directly, and some items appear to carry a str/dex modifier beyond what their
-/// reported weight alone would predict (per the user's observation). Bracketing a drop/get pair
+/// reported weight alone would predict. Bracketing a drop/get pair
 /// with a stats read on each side isolates that single item's contribution.
 ///
 /// <para>Sequence: "look &lt;id&gt;" (description), "weigh &lt;id&gt;" (weight), then
 /// "drop &lt;id&gt;" / "get &lt;id&gt;" bracketing the before/after FES reads, plus a "sc" probe
-/// after each. All six sub-commands are sent as ONE comma-joined line — MUD2 already runs a
+/// after each. All six sub-commands are sent as ONE comma-joined line - MUD2 already runs a
 /// comma-joined command as a strict sequence of separate game turns, so this preserves correct
 /// ordering (no risk of "sc" landing before drop/get takes effect) while avoiding a client/server
 /// round trip between every step. Because "get" is always part of that single sent line, the item
 /// is never left lying on the ground even if the reply-capture logic below times out.</para>
 ///
 /// <para>GameViewModel does a cheap local sanity check against the last carried-items (FEI)
-/// snapshot before calling <see cref="RunAsync"/>, but that check is only a heuristic — FEI shows
+/// snapshot before calling <see cref="RunAsync"/>, but that check is only a heuristic - FEI shows
 /// an item's display name/label (e.g. "croquet mallet"), which need not equal the short id a
 /// player can type for it (e.g. "mallet"). The authoritative check is the "identify &lt;id&gt;"
 /// step below: MUD2 replies "The X is referred to as X when identification numbers are
 /// requested." for a single carried/visible match, naming its canonical display text, which is
-/// what we then use for the rest of the sequence (look/weigh/drop/get all accept it directly —
+/// what we then use for the rest of the sequence (look/weigh/drop/get all accept it directly -
 /// confirmed live). If the id instead names a whole weapon *class* (e.g. "axe" while carrying a
-/// falchion and a halberd), MUD2 replies once per matching item — we detect that (more than one
+/// falchion and a halberd), MUD2 replies once per matching item - we detect that (more than one
 /// match) and abort rather than guess, logging the matches as a class-membership observation
 /// since that's independently useful research data.</para>
 ///
-/// <para>Not reentrant — GameViewModel guards against a second eval starting while one is
+/// <para>Not reentrant - GameViewModel guards against a second eval starting while one is
 /// running (SendLine while one is mid-flight would otherwise interleave two commands sequences
 /// on the same wire and hopelessly confuse the line/stats matching below).</para>
 /// </summary>
@@ -49,14 +49,14 @@ public sealed class ItemEvalSession
     // each, per MudSession's observed per-turn trickle) sent as a single comma-joined command.
     private static readonly TimeSpan BatchTimeout = TimeSpan.FromSeconds(10);
 
-    // "The weight of the staff is 4kg." / "...is 0.5kg." — MUD2 always names the item generically
+    // "The weight of the staff is 4kg." / "...is 0.5kg." - MUD2 always names the item generically
     // ("the staff"), not by itemid, so we match on the surrounding phrase, not the noun.
     private static readonly Regex WeighRegex = new(
         @"weight of .*? is\s*(?<kg>[\d.]+)\s*kg",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     // "The croquet mallet is referred to as the croquet mallet when identification numbers are
-    // requested." — group 1 is the canonical display name for whatever id/keyword we sent.
+    // requested." - group 1 is the canonical display name for whatever id/keyword we sent.
     private static readonly Regex IdentifyRegex = new(
         @"^(?:The\s+)?(?<name>.+?)\s+is referred to as\s+.+?\s+when identification numbers are requested\.?$",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
@@ -97,22 +97,19 @@ public sealed class ItemEvalSession
             _report($"[eval] '{itemId}' resolved to '{resolvedName}' via 'identify'.");
 
         // Baseline: read the live merged snapshot directly (MudSession.CurrentStats) rather than
-        // sending 'qs' — MUD2's 'qs' reply ("eff str 45  eff dex 61  ...") is a different, terser
+        // sending 'qs' - MUD2's 'qs' reply ("eff str 45  eff dex 61  ...") is a different, terser
         // format than GameLineAnalyzer parses (it only recognises the 'sc'/full-status
-        // "strength: N  effective strength: M" line), so a prior version that awaited a
-        // StatsUpdated event after sending 'qs' always timed out and silently fell back to a
-        // stale/empty snapshot — the reported "str: ? -> 45" bug. CurrentStats is always fresh
-        // thanks to the client's periodic FES heartbeat, no round trip required.
+        // "strength: N  effective strength: M" line), so awaiting a StatsUpdated event after
+        // sending 'qs' would time out. CurrentStats is always fresh thanks to the client's periodic
+        // FES heartbeat, no round trip required.
         var before = _conn.CurrentStats;
 
         // Send look/weigh/drop/get + 2 stats probes as ONE comma-separated command line. MUD2
-        // already processes a comma-joined command as a strict sequence of separate game turns
-        // (per the user: "cripple thief,e,e,e,...,kill thief" runs each sub-command on its own
-        // turn), so this preserves the exact ordering guarantee the earlier per-command
-        // confirmation-wait was working around — without paying for a client/server round trip
-        // between every step. "sc" (not 'qs') forces the parseable "strength: N  effective
-        // strength: M" reply GameLineAnalyzer understands, once immediately after 'drop' and once
-        // after 'get'.
+        // already processes a comma-joined command as a strict sequence of separate game turns, so
+        // this guarantees ordering (no risk of "sc" landing before drop/get takes effect) without
+        // paying for a client/server round trip between every step. "sc" (not 'qs') forces the
+        // parseable "strength: N  effective strength: M" reply GameLineAnalyzer understands, once
+        // immediately after 'drop' and once after 'get'.
         var lookEcho = $"look {resolvedName}";
         var weighEcho = $"weigh {resolvedName}";
         var combined = $"{lookEcho},{weighEcho},drop {resolvedName},sc,get {resolvedName},sc";
@@ -153,7 +150,7 @@ public sealed class ItemEvalSession
     /// <summary>Watches for "look &lt;resolvedName&gt;" then its description line, followed by
     /// "weigh &lt;resolvedName&gt;" then its weight line, as anchors within the single combined
     /// batch command's reply stream. Intervening lines that belong to other sub-commands in the
-    /// batch (their echoes, "sc" stats blocks, prompts) are simply skipped — each anchor is only
+    /// batch (their echoes, "sc" stats blocks, prompts) are simply skipped - each anchor is only
     /// recognised once the FSM is actually waiting for it, so out-of-order noise cannot be
     /// mistaken for the wrong slot's answer.</summary>
     private Task<(string? Description, string? WeighLine)> CaptureLookAndWeighAsync(string lookEcho, string weighEcho)
@@ -198,7 +195,7 @@ public sealed class ItemEvalSession
     }
 
     /// <summary>Collects up to <paramref name="count"/> merged stats snapshots (each reporting
-    /// both Strength and Dexterity, i.e. a genuine "sc" reply — see the parser-coverage note
+    /// both Strength and Dexterity, i.e. a genuine "sc" reply - see the parser-coverage note
     /// above) in arrival order, then stops.</summary>
     private Task<List<GameStatsSnapshot>> CollectStatsAsync(int count)
     {
@@ -238,7 +235,7 @@ public sealed class ItemEvalSession
     /// <summary>Send "identify &lt;token&gt;" and collect every matching reply line until a quiet
     /// period elapses (a class keyword like "axe" produces one reply per matching carried item,
     /// with no other terminator) or the hard timeout is hit. Returns the canonical display
-    /// name(s) named in each reply — zero, one, or several.</summary>
+    /// name(s) named in each reply - zero, one, or several.</summary>
     private async Task<List<string>> SendAndCollectIdentifyAsync(string token)
     {
         var names = new List<string>();
@@ -335,7 +332,7 @@ public sealed class ItemEvalSession
         }
         catch
         {
-            // Best-effort — never disrupt play over eval-log I/O failures.
+            // Best-effort - never disrupt play over eval-log I/O failures.
         }
     });
 }

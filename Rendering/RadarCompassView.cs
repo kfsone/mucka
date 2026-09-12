@@ -7,16 +7,16 @@ using SkiaSharp.Views.Maui.Controls;
 namespace Mucka.Rendering;
 
 /// <summary>
-/// The room-exits "radar" — a printed-compass-card rendering of the 12 non-swamp exits.
+/// The room-exits "radar" - a printed-compass-card rendering of the 12 non-swamp exits.
 /// (Swampward is drawn separately as the marshy seam below, see <see cref="SwampSeamView"/>.)
 ///
 /// Eight ordinal wedges ring a small core carrying up/down (chevrons) and out/in (O / I).
 /// A wedge tile is faintly present at rest and warms to parchment when its exit is open;
 /// its letter is only painted when the exit is available. North is deep red, south deep
-/// blue; cardinals are upper-case, the diagonals lower-case — all read as printing on the
+/// blue; cardinals are upper-case, the diagonals lower-case - all read as printing on the
 /// lit parchment tile.
 ///
-/// Geometry is authored in a 120×120 space and the canvas is scaled to the control's box —
+/// Geometry is authored in a 120x120 space and the canvas is scaled to the control's box -
 /// non-uniformly, so a wider-than-tall box renders a horizontal oval (the compact float step).
 ///
 /// Open exits are clickable (<see cref="MoveCommand"/> is invoked with the direction keyword),
@@ -24,15 +24,15 @@ namespace Mucka.Rendering;
 /// </summary>
 public sealed class RadarCompassView : SKCanvasView
 {
-    // ── Geometry (120-space) ─────────────────────────────────────────────────
+    // -- Geometry (120-space) ---------------------------------------------------
     private const float CX = 60, CY = 60;   // centre
     private const float R  = 50, RI = 36;   // ring outer / inner radius
     private const float LBLR = 44;          // label radius (letters sit over their wedge)
-    private const float HALF = 20;          // wedge half-angle (±20° → 40° wedge)
+    private const float HALF = 20;          // wedge half-angle (+/-20 deg -> 40 deg wedge)
     private const float PAD  = 3;           // breathing room around the ring (120-space units)
     private const float CONTENT = 2 * R + 2 * PAD;   // the box the rose is scaled to fill
 
-    // ── Palette ──────────────────────────────────────────────────────────────
+    // -- Palette -----------------------------------------------------------------
     private static readonly SKColor SegOff  = new(120, 110, 92, 18);     // faint tile at rest
     private static readonly SKColor SegOn    = new(183, 161, 116, 230);   // warm parchment when open
     private static readonly SKColor InkNorth = new(0x7f, 0x00, 0x00);     // deep red
@@ -80,14 +80,14 @@ public sealed class RadarCompassView : SKCanvasView
         EnableTouchEvents = true;
         Touch += OnTouch;
 
-        // Pointer hover (desktop) — highlights the exit under the cursor.
+        // Pointer hover (desktop) - highlights the exit under the cursor.
         var pointer = new PointerGestureRecognizer();
         pointer.PointerMoved += OnPointerMoved;
         pointer.PointerExited += OnPointerExited;
         GestureRecognizers.Add(pointer);
     }
 
-    // ── Data source & command ────────────────────────────────────────────────
+    // -- Data source & command ---------------------------------------------------
     public static readonly BindableProperty SidePanelProperty = BindableProperty.Create(
         nameof(SidePanel), typeof(SidePanelViewModel), typeof(RadarCompassView), null,
         propertyChanged: OnSidePanelChanged);
@@ -101,7 +101,7 @@ public sealed class RadarCompassView : SKCanvasView
     public static readonly BindableProperty MoveCommandProperty = BindableProperty.Create(
         nameof(MoveCommand), typeof(ICommand), typeof(RadarCompassView), null);
 
-    /// <summary>Invoked with a direction keyword ("north", "up", "swampward"…) when an open exit is clicked.</summary>
+    /// <summary>Invoked with a direction keyword ("north", "up", "swampward"...) when an open exit is clicked.</summary>
     public ICommand? MoveCommand
     {
         get => (ICommand?)GetValue(MoveCommandProperty);
@@ -144,7 +144,7 @@ public sealed class RadarCompassView : SKCanvasView
             InvalidateSurface();
     }
 
-    // ── Paint ────────────────────────────────────────────────────────────────
+    // -- Paint -------------------------------------------------------------------
     private void OnPaintSurface(object? sender, SKPaintSurfaceEventArgs e)
     {
         var canvas = e.Surface.Canvas;
@@ -173,7 +173,7 @@ public sealed class RadarCompassView : SKCanvasView
             }
         }
 
-        // Ordinal letters — only when the exit is open.
+        // Ordinal letters - only when the exit is open.
         foreach (var (dir, deg, label, diag) in Ordinals)
         {
             if (!Present(vm, dir)) continue;
@@ -228,7 +228,7 @@ public sealed class RadarCompassView : SKCanvasView
         return (CX + r * (float)Math.Cos(a), CY + r * (float)Math.Sin(a));
     }
 
-    // A 40°-wide wedge of the ring at bearing deg.
+    // A 40-degree-wide wedge of the ring at bearing deg.
     private static SKPath Wedge(float deg)
     {
         var outer = new SKRect(CX - R,  CY - R,  CX + R,  CY + R);
@@ -270,7 +270,7 @@ public sealed class RadarCompassView : SKCanvasView
         canvas.DrawPath(tri, _fill);
     }
 
-    // ── Hit-testing (canvas pixels → direction keyword) ──────────────────────
+    // -- Hit-testing (canvas pixels -> direction keyword) ------------------------
     private string? HitTest(float pxX, float pxY)
     {
         var size = CanvasSize;   // device pixels
@@ -283,7 +283,7 @@ public sealed class RadarCompassView : SKCanvasView
 
         if (r >= RI - 2 && r <= R + 2)
         {
-            float deg = (float)(Math.Atan2(dy, dx) * 180.0 / Math.PI) + 90f;   // → compass bearing
+            float deg = (float)(Math.Atan2(dy, dx) * 180.0 / Math.PI) + 90f;   // -> compass bearing
             deg = (deg % 360f + 360f) % 360f;
             foreach (var (dir, bd, _, _) in Ordinals)
             {
@@ -306,7 +306,7 @@ public sealed class RadarCompassView : SKCanvasView
         return null;
     }
 
-    // ── Click ─────────────────────────────────────────────────────────────────
+    // -- Click --------------------------------------------------------------------
     private void OnTouch(object? sender, SKTouchEventArgs e)
     {
         switch (e.ActionType)
@@ -322,7 +322,7 @@ public sealed class RadarCompassView : SKCanvasView
                     var d = e.Location - _pressLoc;
                     if (Math.Abs(d.X) < 10 && Math.Abs(d.Y) < 10)
                     {
-                        // Every direction is clickable, open or not — you must be able to leave
+                        // Every direction is clickable, open or not - you must be able to leave
                         // a dark room whose exits the server hasn't disclosed. A miss still fires
                         // (null) so MoveCommand can hand focus straight back to the input box.
                         var dir = HitTest(e.Location.X, e.Location.Y);
@@ -338,7 +338,7 @@ public sealed class RadarCompassView : SKCanvasView
         }
     }
 
-    // ── Hover ───────────────────────────────────────────────────────────────
+    // -- Hover -------------------------------------------------------------------
     private void OnPointerMoved(object? sender, PointerEventArgs e)
     {
         var pt = e.GetPosition(this);
@@ -346,7 +346,7 @@ public sealed class RadarCompassView : SKCanvasView
         if (pt is { } p && Width > 0)
         {
             // GetPosition is in DIPs; scale to device pixels for the hit-test.
-            // Highlight any direction under the cursor — all are clickable, open or not.
+            // Highlight any direction under the cursor - all are clickable, open or not.
             float density = (float)(CanvasSize.Width / Width);
             dir = HitTest((float)p.X * density, (float)p.Y * density);
         }

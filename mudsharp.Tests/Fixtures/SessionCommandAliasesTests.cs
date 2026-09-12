@@ -109,8 +109,8 @@ public class SessionCommandAliasesTests
     }
 
     // GameViewModel.HandleCommand's "^N=command" guard relies on TryDefine trimming
-    // whitespace around "=" itself (see issue #137) — lock that behavior down here so a
-    // future change to either side doesn't silently break "^1 = look" / "^1= look" / "^1 =look".
+    // whitespace around "=" itself - lock that behavior down here so a future change to
+    // either side doesn't silently break "^1 = look" / "^1= look" / "^1 =look".
     [Theory]
     [InlineData("^1=look")]
     [InlineData("^1 = look")]
@@ -129,7 +129,7 @@ public class SessionCommandAliasesTests
         Assert.Equal("look", stored);
     }
 
-    /// <summary>The owner's worked example, verbatim.</summary>
+    /// <summary>A worked example of positional-slot filling, verbatim.</summary>
     [Fact]
     public void PositionalSlots_AreFilledFromTheArguments()
     {

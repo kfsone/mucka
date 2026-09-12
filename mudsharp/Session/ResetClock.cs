@@ -2,7 +2,7 @@ using System.Diagnostics;
 
 namespace MudSharp.Session;
 
-/// <summary>The engine's current activity — surfaced for display/diagnostics.</summary>
+/// <summary>The engine's current activity - surfaced for display/diagnostics.</summary>
 public enum ResetPhase
 {
     /// <summary>Not in game / no reading yet.</summary>
@@ -32,25 +32,25 @@ public readonly record struct ResetObservation(
 /// intersected, converge this to about half the
 /// heartbeat cadence. To reach sub-second we run a ONE-TIME edge search near a predicted decrement.
 ///
-/// <para>EDGE SEARCH (rate-limit-aware): the server rate-limits FES to roughly one answered probe per
-/// ~500 ms and returns a bare prompt (no stats) if we ask faster or while a compound heartbeat reply is
-/// still enroute. So discovery OWNS THE CHANNEL: it suspends the routine heartbeat, waits a
-/// clear-channel lead (nothing regular enroute), then samples one-in-flight at ≥ ~501 ms. That brackets
-/// a 60 s edge to ≈ ±250 ms in a single pass — inside the success target — then it LOCKS and never
+/// <para>EDGE SEARCH: asking faster than roughly one probe per ~500 ms, or while a compound heartbeat
+/// reply is still enroute, returns a bare prompt (no stats) instead of an answer. So discovery OWNS
+/// THE CHANNEL: it suspends the routine heartbeat, waits a clear-channel lead (nothing regular
+/// enroute), then samples one-in-flight at >= ~501 ms. That brackets
+/// a 60 s edge to ~ +/-250 ms in a single pass - inside the success target - then it LOCKS and never
 /// probes again for the session. A pass stepped on by the player (unanswered samples / timeouts) simply
 /// retries at the next minute boundary.</para>
 ///
 /// <para>RE-ANCHORING: a normal countdown only decreases, so an UPWARD jump past the window is a
-/// server reset event (main counter → finish-up, or → new cycle) and re-anchors. A reading that
-/// contradicts a lock DOWNWARD (the reset came sooner than the lock said — e.g. an early decrement) is
+/// server reset event (main counter -> finish-up, or -> new cycle) and re-anchors. A reading that
+/// contradicts a lock DOWNWARD (the reset came sooner than the lock said - e.g. an early decrement) is
 /// NOT ignored: it is annotated to the capture, re-anchored, and re-verified. We never silently trust a
 /// stale lock and never panic to coarse on an ordinary reading.</para>
 ///
-/// <para>C06 C04 ("Auto reset initiated, you have 120 seconds…") gives an EXACT anchor for the final
-/// countdown — see <see cref="NoteAutoResetInitiated"/>.</para>
+/// <para>C06 C04 ("Auto reset initiated, you have 120 seconds...") gives an EXACT anchor for the final
+/// countdown - see <see cref="NoteAutoResetInitiated"/>.</para>
 ///
 /// <para>THREADING: <see cref="Observe"/> runs on the read-loop thread; the pacing timer fires on a
-/// ThreadPool thread. All state is guarded by <c>_lock</c>. Lock order engine→<c>_fesLock</c>: the only
+/// ThreadPool thread. All state is guarded by <c>_lock</c>. Lock order engine-><c>_fesLock</c>: the only
 /// outward calls under the lock are the send / discovery-hold callbacks.</para>
 /// </summary>
 public sealed class ResetClock : IDisposable
@@ -67,7 +67,7 @@ public sealed class ResetClock : IDisposable
     private readonly Timer? _timer;
     private bool _disposed;
 
-    // Window on R in monotonic ms: R ∈ [_loMs, _hiMs). Null when unheld.
+    // Window on R in monotonic ms: R  in  [_loMs, _hiMs). Null when unheld.
     private long? _loMs;
     private long? _hiMs;
 
@@ -93,7 +93,7 @@ public sealed class ResetClock : IDisposable
 
     /// <summary>Optional one-shot UI refresh hint on any estimate change.</summary>
     public event Action? EstimateChanged;
-    /// <summary>Per folded reading — for diagnostic logging only.</summary>
+    /// <summary>Per folded reading - for diagnostic logging only.</summary>
     public event Action<ResetObservation>? ObservationRecorded;
     /// <summary>Notable incident text (unanswered sample, lock contradiction, auto-reset anchor) for
     /// the capture log. Fires off the UI thread.</summary>
@@ -124,7 +124,7 @@ public sealed class ResetClock : IDisposable
             return _snapshot;
     }
 
-    /// <summary>True while a discovery sample is outstanding — <see cref="MudSession"/> defers routine
+    /// <summary>True while a discovery sample is outstanding - <see cref="MudSession"/> defers routine
     /// probes so the next reply is unambiguously the sample's.</summary>
     public bool IsSamplingInFlight => _sampleInFlight;
 
@@ -217,15 +217,15 @@ public sealed class ResetClock : IDisposable
             }
             else if (cLo >= hi)
             {
-                // TIME WENT UP — a server reset event (main → finish-up, or → new cycle). Re-anchor.
+                // TIME WENT UP - a server reset event (main -> finish-up, or -> new cycle). Re-anchor.
                 ReAnchorLocked(cLo, cHi);
                 _phase = _locked ? ResetPhase.CoarseOnly : ResetPhase.Coarse;
             }
             else if (cHi <= lo)
             {
-                // Reset came SOONER than the window said — a genuine early decrement, or a routine
+                // Reset came SOONER than the window said - a genuine early decrement, or a routine
                 // reading's reply-time bias inflating lo past an RTT/2-corrected sample's cHi.
-                // Never treated as a firing; but if we were locked it means the lock is wrong —
+                // Never treated as a firing; but if we were locked it means the lock is wrong -
                 // annotate, reopen, re-verify.
                 if (_phase == ResetPhase.Locked || _locked)
                 {
@@ -236,9 +236,9 @@ public sealed class ResetClock : IDisposable
                 {
                     note = $"early decrement mid-discovery: reading v={v} is below the window; pass ended";
                 }
-                // ALWAYS end an active pass here (like the upward-jump re-anchor does). This branch
-                // used to flip Discovering→Coarse directly, orphaning the channel hold — the routine
-                // heartbeat stayed suppressed for the rest of the session (live 2026-07-25).
+                // ALWAYS end an active pass here (like the upward-jump re-anchor does) - flipping
+                // Discovering->Coarse directly here would orphan the channel hold, leaving the
+                // routine heartbeat suppressed for the rest of the session.
                 EndDiscoveryLocked();
                 _loMs = cLo;
                 _hiMs = cHi;
@@ -246,7 +246,7 @@ public sealed class ResetClock : IDisposable
             }
             else if (_phase == ResetPhase.Locked)
             {
-                // Consistent reading — trust the lock, don't move a pinned window.
+                // Consistent reading - trust the lock, don't move a pinned window.
             }
             else
             {
@@ -278,7 +278,7 @@ public sealed class ResetClock : IDisposable
 
     /// <summary>
     /// The server announced the auto-reset (C06 C04): the reset is in exactly the finish-up period.
-    /// Anchor precisely from the message arrival (RTT/2-corrected) — the last two minutes are exact
+    /// Anchor precisely from the message arrival (RTT/2-corrected) - the last two minutes are exact
     /// with no further probing.
     /// </summary>
     public void NoteAutoResetInitiated(long arrivalMs)
@@ -318,12 +318,12 @@ public sealed class ResetClock : IDisposable
             if (_discoveryCrossed)
             {
                 if (half <= _o.SuccessTargetSec) LockSuccessLocked();
-                else EndDiscoveryLocked();   // bracketed but not tight enough — retry next boundary
+                else EndDiscoveryLocked();   // bracketed but not tight enough - retry next boundary
                 return;
             }
             if (_discoverySamples >= _o.SampleCap || _budgetLeft <= 0)
             {
-                EndDiscoveryLocked();        // edge not crossed within the pass budget — retry next boundary
+                EndDiscoveryLocked();        // edge not crossed within the pass budget - retry next boundary
                 return;
             }
             if (nowMs >= _nextSampleAtMs) SendSampleLocked(nowMs);
@@ -365,12 +365,12 @@ public sealed class ResetClock : IDisposable
     {
         if (!_canProbe())
         {
-            ReArmTimerLocked(nowMs, nowMs + PausedRetryMs);   // held/asleep — pause, don't spend budget
+            ReArmTimerLocked(nowMs, nowMs + PausedRetryMs);   // held/asleep - pause, don't spend budget
             return;
         }
         _sampleSendMs = nowMs;
         _sampleInFlight = true;
-        if (!_sendFesProbe())   // takes _fesLock (engine→_fesLock order)
+        if (!_sendFesProbe())   // takes _fesLock (engine->_fesLock order)
         {
             _sampleInFlight = false;
             ReArmTimerLocked(nowMs, nowMs + PausedRetryMs);
@@ -430,7 +430,7 @@ public sealed class ResetClock : IDisposable
         {
             // The timer fired ahead of the sample's deadline (timer-clock vs monotonic-clock skew,
             // or a stale callback that raced a reply): KEEP the deadline armed. Returning without
-            // re-arming left the sample in flight with no timer pending — and every probe path
+            // re-arming left the sample in flight with no timer pending - and every probe path
             // gates on IsSamplingInFlight, so one early fire deadlocked the entire FES machinery
             // (no status updates at all) for the rest of the session.
             ReArmTimerLocked(now, dueMs);

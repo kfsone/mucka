@@ -6,15 +6,14 @@ namespace Mucka.Core;
 /// Whole-session recording: raw RX/TX bytes and text annotations, fanned out to whichever
 /// <see cref="IWireLogSink"/>s are attached.
 ///
-/// <para>This used to be the JSONL file writer itself. It is now the tap and nothing else — it stamps
-/// the time, tags the direction, and hands the bytes to every attached sink. Two sinks exist and they
-/// are independent:</para>
+/// <para>The tap and nothing else - it stamps the time, tags the direction, and hands the bytes to
+/// every attached sink. Two sinks exist and they are independent:</para>
 /// <list type="bullet">
-///   <item><description><b>The file</b> (<see cref="JsonlWireLogSink"/>) — armed by hand, per run, from
-///   the connect page or the in-game capture button. Unchanged in behaviour and output.</description></item>
-///   <item><description><b>The database</b> (<see cref="SqliteWireLogSink"/>) — driven by the global
+///   <item><description><b>The file</b> (<see cref="JsonlWireLogSink"/>) - armed by hand, per run, from
+///   the connect page or the in-game capture button.</description></item>
+///   <item><description><b>The database</b> (<see cref="SqliteWireLogSink"/>) - driven by the global
 ///   <c>logwiresession</c> setting in mucka.ini, started with the session, never touched again. Its
-///   whole design goal is that the owner turns it on once and forgets it exists.</description></item>
+///   whole design goal is to be turned on once and forgotten.</description></item>
 /// </list>
 ///
 /// <para>They start and stop separately on purpose: the in-game "capture stopped" button must not
@@ -36,7 +35,7 @@ public sealed class SessionCapture : IDisposable
     /// <summary>True when anything at all is being recorded.</summary>
     public bool IsRecording => _sinks.Length > 0;
 
-    /// <summary>True when the manual JSONL file capture is running — what the capture button reflects.</summary>
+    /// <summary>True when the manual JSONL file capture is running - what the capture button reflects.</summary>
     public bool IsFileRecording => _file is not null;
 
     /// <summary>Path of the active JSONL capture file, or null.</summary>
@@ -47,7 +46,7 @@ public sealed class SessionCapture : IDisposable
 
     /// <summary>
     /// Starts the manual JSONL file capture in <paramref name="directory"/>, named for
-    /// <paramref name="hostname"/> and the current local time. Idempotent — a second call while one is
+    /// <paramref name="hostname"/> and the current local time. Idempotent - a second call while one is
     /// running succeeds and changes nothing.
     /// </summary>
     public bool TryStartFile(string directory, string hostname, out string? error)

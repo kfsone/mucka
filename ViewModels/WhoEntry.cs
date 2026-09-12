@@ -25,14 +25,14 @@ public sealed class WhoEntry : INotifyPropertyChanged
     internal static bool NamesOnlyMode;
 
     /// <summary>
-    /// True when the server sent the name wrapped in parens ("(Ollie the sorcerer)") —
+    /// True when the server sent the name wrapped in parens ("(Ollie the sorcerer)") -
     /// the player is invisible but we can still see them (it's us, a team member, or
     /// someone we outrank). A status, not part of the name.
     /// </summary>
     public bool IsInvisible => _parts.IsInvisible;
 
     /// <summary>Full display string as received from the server (e.g. "Ollie the Wizard",
-    /// "(Ollie the Wizard)" while invisible). Parens are kept for display — they are the
+    /// "(Ollie the Wizard)" while invisible). Parens are kept for display - they are the
     /// game's own invisibility convention.</summary>
     public string Name
     {
@@ -65,9 +65,8 @@ public sealed class WhoEntry : INotifyPropertyChanged
         }
     }
 
-    /// <summary>The text color the XAML label binds to. (Was a glow-blend driven by the old
-    /// UI-thread fade timer; arrival/departure animation is now a GPU compositor fade — see
-    /// <c>WhoEntryFadeBehavior</c> — so this is just the wire color.)</summary>
+    /// <summary>The text color the XAML label binds to - just the wire color; arrival/departure
+    /// animation is a GPU compositor fade, see <c>WhoEntryFadeBehavior</c>.</summary>
     public Color DisplayColor => _color;
 
     /// <summary>Invisibility paren plus any leading Sir/Lady title, rendered at the same smaller

@@ -11,9 +11,9 @@ namespace Mucka.Rendering;
 ///
 /// Two modes:
 /// <list type="bullet">
-/// <item><b>Live</b> (default) — the tail of the buffer pinned to the bottom edge; repainted
+/// <item><b>Live</b> (default) - the tail of the buffer pinned to the bottom edge; repainted
 ///   on each flush. No DOM, no cross-process calls, so it does not contend with typing.</item>
-/// <item><b>History</b> — entered by scrolling up (wheel / PgUp / touch-drag). A snapshot of the
+/// <item><b>History</b> - entered by scrolling up (wheel / PgUp / touch-drag). A snapshot of the
 ///   buffer is frozen at entry and the view scrolls within it with a real scrollbar; live output
 ///   keeps filling the buffer behind the frozen view. Scrolling back to the bottom (or Esc/End)
 ///   returns to live. While in history the host blocks the input buffer.</item>
@@ -23,7 +23,7 @@ namespace Mucka.Rendering;
 public sealed class TerminalView : SKCanvasView
 {
     // 500 logical lines of scrollback. Each live repaint re-wraps the whole committed buffer
-    // (see BuildVisualRows), so this is the per-paint wrap cost — but wrapping 500 short lines is
+    // (see BuildVisualRows), so this is the per-paint wrap cost - but wrapping 500 short lines is
     // sub-millisecond and only one viewport's worth is ever drawn, so it stays comfortably cheap.
     private readonly TerminalBuffer _buffer = new(cap: 500);
     private TerminalFont? _font;
@@ -36,7 +36,7 @@ public sealed class TerminalView : SKCanvasView
     // Left gutter in device-independent pixels (scaled at paint time), echoing the WebView's padding.
     private const float LeftPadDip = 4f;
 
-    // ── History (scrollback) state ───────────────────────────────────────────
+    // -- History (scrollback) state -------------------------------------------
     private bool _historyMode;
     private IReadOnlyList<StyledLine>? _frozen;   // logical snapshot taken at history entry
     private int _scrollOffset;                    // visual rows scrolled up from the bottom (0 = live bottom)
@@ -45,8 +45,8 @@ public sealed class TerminalView : SKCanvasView
     private float _touchAccum;
 
     // A click that arrives within this window of the host window being activated is treated as
-    // the click that focused the app (→ focus the input box) rather than a deliberate click on
-    // the view (→ enter scrollback).
+    // the click that focused the app (-> focus the input box) rather than a deliberate click on
+    // the view (-> enter scrollback).
     private const double ActivationClickMs = 300;
     private DateTime _lastActivatedUtc = DateTime.MinValue;
 
@@ -55,10 +55,10 @@ public sealed class TerminalView : SKCanvasView
     private const double RecentKeypressMs = 300;
     private DateTime _lastKeypressUtc = DateTime.MinValue;
 
-    // ── Selection (mouse drag in history) ────────────────────────────────────
+    // -- Selection (mouse drag in history) -------------------------------------
     // Translucent so text shows through; bright enough to be unmistakable on the dark background.
     private static readonly SKColor SelectionColor = new(0x3A, 0x6E, 0xA5, 0x99);
-    // A plain click must NOT enter scrollback — only a deliberate drag does (along with the
+    // A plain click must NOT enter scrollback - only a deliberate drag does (along with the
     // wheel and PgUp/PgDn keys). On a live press we arm a pending drag and stay live; scrollback
     // begins the moment the pointer moves past this threshold (see PointerDrag).
     private const float DragThresholdDip = 4f;
@@ -118,13 +118,13 @@ public sealed class TerminalView : SKCanvasView
         InvalidateSurface();
     }
 
-    /// <summary>Append a flushed batch of lines. Repaints only when live — the frozen view holds still.</summary>
+    /// <summary>Append a flushed batch of lines. Repaints only when live - the frozen view holds still.</summary>
     public void AppendLines(IReadOnlyList<StyledLine> lines)
     {
         if (lines.Count == 0) return;
         for (int i = 0; i < lines.Count; i++)
         {
-            // Strip control-char tofu (\r, \b, …) then expand tabs to 8-col stops before buffering.
+            // Strip control-char tofu (\r, \b, ...) then expand tabs to 8-col stops before buffering.
             var line = TerminalText.ExpandTabs(TerminalText.Sanitize(lines[i]));
             _buffer.Append(line);
         }
@@ -146,7 +146,7 @@ public sealed class TerminalView : SKCanvasView
         InvalidateSurface();
     }
 
-    // ── Scroll API (host wires wheel / keys to these) ─────────────────────────
+    // -- Scroll API (host wires wheel / keys to these) -------------------------
 
     /// <summary>Scroll by visual rows; positive = toward older output (up). Enters/exits history as needed.</summary>
     public void ScrollByRows(int rowsTowardOlder)
@@ -205,7 +205,7 @@ public sealed class TerminalView : SKCanvasView
     }
 
     // Touch-device finger-drag panning (primary on Android). Mouse/pen input is driven by native
-    // pointer events on the host via PointerPress/PointerDrag/PointerRelease — SkiaSharp's mouse
+    // pointer events on the host via PointerPress/PointerDrag/PointerRelease - SkiaSharp's mouse
     // Touch reporting is unreliable for this on Windows.
     private void OnTouch(object? sender, SKTouchEventArgs e)
     {
@@ -239,13 +239,13 @@ public sealed class TerminalView : SKCanvasView
         }
     }
 
-    // ── Pointer API (host drives these from native mouse/pen pointer events) ──
+    // -- Pointer API (host drives these from native mouse/pen pointer events) --
     // Coordinates are in device-independent pixels relative to the view; converted to canvas
     // pixels here using the scale captured at the last paint.
 
     /// <summary>Mouse/pen press. In live mode a plain click never enters scrollback: an activation
     /// click focuses the input, any other press just arms a pending drag and stays live (scrollback
-    /// begins only if the pointer then moves — see <see cref="PointerDrag"/>). In history mode a
+    /// begins only if the pointer then moves - see <see cref="PointerDrag"/>). In history mode a
     /// press starts a fresh selection anchor.</summary>
     public void PointerPress(float dipX, float dipY)
     {
@@ -296,7 +296,7 @@ public sealed class TerminalView : SKCanvasView
     }
 
     /// <summary>Mouse/pen release: finish the selection gesture. A live press that never dragged
-    /// simply disarms — the view stayed live throughout.</summary>
+    /// simply disarms - the view stayed live throughout.</summary>
     public void PointerRelease()
     {
         _pendingPress = false;
@@ -443,7 +443,7 @@ public sealed class TerminalView : SKCanvasView
                     _textPaint.Color = TerminalTheme.Foreground(run.Style);
                     var runFont = run.Style.Italic ? font.ItalicFont : font.Font;
                     // Windows Terminal renders intense text bold AND bright; mirror the weight
-                    // with a stroke-and-fill fake bold (advances unchanged → grid stays aligned).
+                    // with a stroke-and-fill fake bold (advances unchanged -> grid stays aligned).
                     if (run.Style.Bold)
                     {
                         _textPaint.Style = SKPaintStyle.StrokeAndFill;
@@ -511,7 +511,7 @@ public sealed class TerminalView : SKCanvasView
         return rows;
     }
 
-    // Live: faint thumb hugging the bottom — purely indicative that there is more above.
+    // Live: faint thumb hugging the bottom - purely indicative that there is more above.
     private void DrawLiveScrollbar(SKCanvas canvas, int pxW, int pxH, float scale, int contentRows, int viewportRows)
     {
         if (contentRows <= viewportRows || viewportRows <= 0) return;

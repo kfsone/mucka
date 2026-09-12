@@ -15,11 +15,10 @@ namespace mudsharp.Tests.Fixtures;
 ///
 /// <para><b>A note on how these are written.</b> <see cref="NpcVitality.Estimate"/> takes three
 /// arguments and short-circuits on two of them, so a test can pass an elaborate pool that is never
-/// read and assert an outcome that would hold for any pool at all. One test in this fixture did
-/// exactly that. Every test below that supplies a pool or a remaining band therefore also pins
-/// something that CHANGES when that argument changes - a narrowed basis flag, or a band strictly
-/// tighter than the bare seventh - so a green result means the argument was consumed and not merely
-/// accepted.</para>
+/// read and assert an outcome that would hold for any pool at all. Every test below that supplies a
+/// pool or a remaining band therefore also pins something that CHANGES when that argument changes -
+/// a narrowed basis flag, or a band strictly tighter than the bare seventh - so a green result means
+/// the argument was consumed and not merely accepted.</para>
 /// </summary>
 public sealed class StaminaSealTests
 {
@@ -52,10 +51,10 @@ public sealed class StaminaSealTests
     [Fact]
     public void ARatAndAGiantAtTheSameRung_ReadTheSame_ThroughTheNarrowingPath()
     {
-        // The user's central requirement, and it has to be tested THROUGH the estimator rather than
-        // around it. An earlier version of this test passed remaining:null to both sides, which makes
-        // NpcVitality.TryDerive return before the pool is ever read - so the two wildly different pools
-        // were never consulted and the test would have passed for any pair of numbers at all.
+        // A rat and a giant at the same rung must read the same, and this has to be tested THROUGH
+        // the estimator rather than around it: passing remaining:null to both sides would make
+        // NpcVitality.TryDerive return before the pool is ever read, so the two wildly different
+        // pools would never be consulted and the test would pass for any pair of numbers at all.
         //
         // Here both creatures go through the full path with proportionally identical evidence: a
         // well-pinned pool, a rung-4 descriptor, and damage scaled 10x with the giant. The giant is ten
@@ -247,8 +246,8 @@ public sealed class StaminaSealTests
     [Fact]
     public void ManySmallBlowsResolveTheLadderFarBetterThanFewLargeOnes_AtTheSameTotalDamage()
     {
-        // The owner's requirement, and the mechanism by which the reading earns accuracy: "if we keep
-        // doing 1-5 damage repeatedly, we have a finer grained read on when we cross those boundaries."
+        // The mechanism by which the reading earns accuracy: repeated small blows give a finer-grained
+        // read on when a rung boundary is crossed than one large blow does.
         //
         // A 280-stamina giant driven into rung 4. Both fights have dealt the SAME 120 total, so nothing
         // here turns on cumulative damage - the only difference is the bracket of the blow that pushed
@@ -356,9 +355,9 @@ public sealed class StaminaSealTests
     [Fact]
     public void OneBlowCrossingSeveralRungs_ProvesTheCreatureIsSmall_OnAFirstEncounter()
     {
-        // The third case, and the one the panel had no answer for. A large blow that crosses NO
-        // boundary says the creature is big (the still-standing floor). A small blow crossing ONE says
-        // where it is. A large blow crossing THREE says how big it is - at most 7 x 29 / 2 = 101.5 -
+        // A large blow that crosses NO boundary says the creature is big (the still-standing floor).
+        // A small blow crossing ONE says where it is. A large blow crossing THREE says how big it is
+        // - at most 7 x 29 / 2 = 101.5 -
         // and that is a ceiling, available on a species nobody has ever killed.
         var threeRungs = new NpcRungCrossing(4, new DamageBracket(20, 29), DamageBracket.Zero, RungsDropped: 3);
 
@@ -647,7 +646,7 @@ public sealed class StaminaSealTests
     [Fact]
     public void NotHittingTheThing_DecaysToOneDotEveryFivePixels()
     {
-        // The owner's spec at the low end, exactly.
+        // Matches the spec at the low end, exactly.
         var tempo = DamagePrediction.Tempo(new SwingTempo(Hits: 0, Misses: 12));
 
         Assert.Equal(DamagePrediction.TempoReading.Landing, tempo.Reading);
@@ -658,12 +657,11 @@ public sealed class StaminaSealTests
     [Fact]
     public void NothingSwungYet_IsItsOwnState_NotAWhiffStreak()
     {
-        // The defect this replaced: zero attempts mapped to a hit rate of zero, so a row nobody had
-        // swung at drew identically to twelve swings that all missed. Worse than a corner case - the
-        // player swings at ONE creature at a time, so in a pack every other live row sat in it for the
-        // whole fight and drew as a fight being lost. Since MUD2 prints a descriptor after every
-        // non-killing landed hit, "never swung at" is the only way into this state, which makes it
-        // sharply defined rather than rare.
+        // Zero attempts must not draw identically to twelve swings that all missed: the player swings
+        // at ONE creature at a time, so in a pack every other live row would sit in this state for the
+        // whole fight and draw as a fight being lost. MUD2 prints a descriptor after every non-killing
+        // landed hit, so "never swung at" is the only way into this state, which makes it sharply
+        // defined rather than rare.
         var nothingYet = DamagePrediction.Tempo(SwingTempo.None);
         var whiffing = DamagePrediction.Tempo(new SwingTempo(Hits: 0, Misses: 12));
 
@@ -824,8 +822,8 @@ public sealed class StaminaSealTests
     {
         // Grey from the origin is what has been taken off, the lit run from the boundary round to the
         // end is what is left. The origin is 6 o'clock and the angle grows ANTICLOCKWISE, so the
-        // half-gone boundary at 180 lands at 12 o'clock and the lit run is the left-hand "C" - the
-        // owner's own description of what 50% should look like. The screen mapping itself lives in
+        // half-gone boundary at 180 lands at 12 o'clock and the lit run is the left-hand "C" - which
+        // is what 50% should look like. The screen mapping itself lives in
         // CombatRailView.OnRing / DrawRingArc, which no test can reach; what is pinnable here is that
         // the axis runs 0 at full to 360 at dead, which is what every other angle on the panel is
         // measured against.
@@ -906,13 +904,9 @@ public sealed class StaminaSealTests
     // -- group fights: which one is the greatest threat --------------------------
     //
     // GreatestThreat picks the ONE live opponent SidePanelViewModel.IncomingPerBlowOf projects the
-    // player's own prediction bands from - see ReachAggregate's own remarks. It used to also be the
-    // row the player seal's reach chevron was drawn from; the chevron (and WorstSingleBlow, its only
-    // other consumer) was deleted 2026-09-02, but this selection is still load-bearing for the
-    // surviving prediction bands, so GreatestThreat and the RosterRow.Reach data behind it stay - and
-    // CombatRailView's accent frame (deleted alongside the chevron, then restored the SAME day once it
-    // was noticed the selection needed a visible check) means this is drawn on screen again too, via
-    // GreatestThreatForAccent below.
+    // player's own prediction bands from. GreatestThreat and the RosterRow.Reach data behind it are
+    // load-bearing for those prediction bands, and CombatRailView's accent frame draws this same
+    // selection on screen too, via GreatestThreatForAccent below.
 
     [Fact]
     public void GreatestThreat_IsTheRowWithTheLargestReachMark()

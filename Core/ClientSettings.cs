@@ -7,17 +7,17 @@ namespace Mucka.Core;
 /// </summary>
 public sealed record ClientSettings
 {
-    /// <summary>Terminal font size in pixels (9–24).</summary>
+    /// <summary>Terminal font size in pixels (9-24).</summary>
     public int FontSize { get; init; }
-    /// <summary>Maximum terminal columns advertised to the server (40–160).</summary>
+    /// <summary>Maximum terminal columns advertised to the server (40-160).</summary>
     public int MaxColumns { get; init; }
-    /// <summary>Sound volume, 0–100.</summary>
+    /// <summary>Sound volume, 0-100.</summary>
     public int Volume { get; init; }
     /// <summary>FES stats-update heartbeat interval in seconds; 0 disables it.</summary>
     public int StatUpdateFrequency { get; init; }
-    /// <summary>Bell muted for this session only — never persisted.</summary>
+    /// <summary>Bell muted for this session only - never persisted.</summary>
     public bool MuteBeepSession { get; init; }
-    /// <summary>Bell muted permanently — persisted to mucka.ini.</summary>
+    /// <summary>Bell muted permanently - persisted to mucka.ini.</summary>
     public bool MuteBeepPermanently { get; init; }
     /// <summary>Debug-only: log reset-timer (TTR) diagnostics into the session recording.
     /// Persisted to mucka.ini; only surfaced/honoured in Debug builds while recording.</summary>
@@ -29,7 +29,7 @@ public sealed record ClientSettings
     /// global [fkeys]. Mirrors the Hotkeys page's "Save to profile only" checkbox.</summary>
     public bool FkeysPerProfile { get; init; }
     /// <summary>Per-sound enablement and group fallbacks (the Sounds tab's tree).
-    /// Treated as frozen once snapshotted — see <see cref="SoundSettings"/>.</summary>
+    /// Treated as frozen once snapshotted - see <see cref="SoundSettings"/>.</summary>
     public SoundSettings Sounds { get; init; } = new();
     /// <summary>Whether the Combat Rail (the right-edge combat panel) is shown. Declared here, next
     /// to <see cref="Sounds"/> rather than in the Display-tab-globals group below, because it is
@@ -50,7 +50,7 @@ public sealed record ClientSettings
     /// </summary>
     public bool ShowCombatRail { get; init; }
 
-    // ── Display tab settings (always global, never per-profile) ──────────────
+    // -- Display tab settings (always global, never per-profile) --------------
     /// <summary>Global default terminal font size in pixels; 0 = use built-in default.</summary>
     public int DefaultFontSize { get; init; }
     /// <summary>Global default maximum terminal columns; 0 = auto-size.</summary>
@@ -75,7 +75,7 @@ public sealed record ClientSettings
     /// <summary>Show only the persona name (first word) in the who-list, hiding title/level suffix.</summary>
     public bool OnlineNamesOnly { get; init; }
     /// <summary>Minutes a departed player lingers in the "Recent" list before being forgotten.
-    /// 0 = disabled (no Recent list). Range 0–10.</summary>
+    /// 0 = disabled (no Recent list). Range 0-10.</summary>
     public int OnlineForgetWindow { get; init; }
     /// <summary>Global default for whether the Online list floats (unpinned from the side panel)
     /// rather than living in the side panel. False (pinned) matches the historical behaviour.</summary>
@@ -86,7 +86,7 @@ public sealed record ClientSettings
     /// <summary>Log every byte of every session to the wire-log database (~/.mucka/wire/wire.db).
     /// Global and one-time: turn it on once and every connection from then on records itself, with no
     /// per-run arming. Default false. Lives in this always-global block rather than the per-profile one
-    /// deliberately — it is a property of the install, not of a persona — and inside the
+    /// deliberately - it is a property of the install, not of a persona - and inside the
     /// <c>writeDisplayGlobals</c> group for the protection that flag gives: see
     /// <see cref="SettingsStore.SaveProfileAsync"/>, where the connect page's partial snapshot would
     /// otherwise write this field's C# default straight over the player's choice on every connect.</summary>

@@ -31,7 +31,7 @@ public class GameLineAnalyzerTests
     [Fact]
     public void CompactStamina_ExtractsFromLineStart()
     {
-        // Clio: buf[0]=='(' then (N/M) — prompt-style compact stamina
+        // Clio: buf[0]=='(' then (N/M) -- prompt-style compact stamina
         var h = new ParserHarness();
         h.Feed("(42/100) You are standing in a clearing.\n");
         Assert.Single(h.Stats);
@@ -56,7 +56,7 @@ public class GameLineAnalyzerTests
     [Fact]
     public void StrengthLine_ExtractsStrength()
     {
-        // "strength:       N" — uses raw value when no effective strength present
+        // "strength:       N" -- uses raw value when no effective strength present
         var h = new ParserHarness();
         h.Feed("strength:       94\n");
         Assert.Single(h.Stats);
@@ -67,7 +67,7 @@ public class GameLineAnalyzerTests
     [Fact]
     public void DexterityLine_ExtractsDexterity()
     {
-        // "dexterity:      N" — uses raw value when no effective dexterity present
+        // "dexterity:      N" -- uses raw value when no effective dexterity present
         var h = new ParserHarness();
         h.Feed("dexterity:      95\n");
         Assert.Single(h.Stats);
@@ -140,7 +140,7 @@ public class GameLineAnalyzerTests
     [Fact]
     public void ScoreLine_ExtractsScore()
     {
-        // "score:  N,NNN points ..." — strips commas
+        // "score:  N,NNN points ..." -- strips commas
         var h = new ParserHarness();
         h.Feed("score:  1,785 points    this game: 500\n");
         Assert.Single(h.Stats);
@@ -150,7 +150,7 @@ public class GameLineAnalyzerTests
     [Fact]
     public void PersonaSaved_SetsFlag_AndExtractsScore()
     {
-        // "(Persona saved on [+N = ]M,NNN)." — sets PersonaSaved and extracts score
+        // "(Persona saved on [+N = ]M,NNN)." -- sets PersonaSaved and extracts score
         var h = new ParserHarness();
         h.Feed("(Persona saved on +500 = 2,500).\n");
         Assert.Single(h.Stats);
@@ -159,9 +159,9 @@ public class GameLineAnalyzerTests
     }
 
     /// <summary>
-    /// The signed delta, which the old pattern's lazy wildcard swallowed. It is the only place MUD2
-    /// states what an event was WORTH: a kill's award and a flee's cost arrive here and nowhere else.
-    /// All three forms, with the counts they have across the 877 occurrences in the raw recordings.
+    /// The signed delta. It is the only place MUD2 states what an event was WORTH: a kill's award and
+    /// a flee's cost arrive here and nowhere else. All three forms, with the counts they have across
+    /// the 877 occurrences in the raw recordings.
     /// </summary>
     [Theory]
     [InlineData("(Persona saved on +38 = 19,214).", 38, 19214)]      // a gain; 802 of them
@@ -202,7 +202,7 @@ public class GameLineAnalyzerTests
     /// <summary>
     /// The same three forms as they really arrive, C1 frames and all.
     ///
-    /// <para>On the wire the TOTAL is wrapped (<c>F4 9C FF FF FE 9x FF FF</c> … <c>FF FF FF FF</c>,
+    /// <para>On the wire the TOTAL is wrapped (<c>F4 9C FF FF FE 9x FF FF</c> ... <c>FF FF FF FF</c>,
     /// the inner code varying with the colour the server wants for a gain, a loss or a plain save)
     /// while the signed delta sits outside it as plain text. Everything above tests the parse against
     /// already-decoded text; this tests the assumption that lets it - that by the time the analyzer
@@ -261,14 +261,13 @@ public class GameLineAnalyzerTests
     }
 
     /// <summary>
-    /// The whole bug, as it arrived: a task discharged BY A KILL, with the task's flat payout printed
-    /// FIRST and the creature's own award second.
+    /// A task discharged BY A KILL, with the task's flat payout printed FIRST and the creature's own
+    /// award second.
     ///
-    /// <para>Bytes transcribed from session-rec.mud2.co.uk.20260902-232101.jsonl. The two things this
-    /// pins are the two things the fix rests on: the task line carries NO C1 code at all (it is bare
-    /// ASCII between two 0D 00 0D 0A breaks, unlike the framed line above it), so prose is the only
-    /// handle there is; and the task event is raised BEFORE either score event, so a consumer pairing
-    /// awards to kills already knows to skip the first rise by the time it arrives.</para>
+    /// <para>Bytes transcribed from a session recording. The task line carries NO C1 code at all (it
+    /// is bare ASCII between two 0D 00 0D 0A breaks, unlike the framed line above it), so prose is the
+    /// only handle there is; and the task event is raised BEFORE either score event, so a consumer
+    /// pairing awards to kills must skip the first rise.</para>
     /// </summary>
     [Fact]
     public void TaskCompletedByAKill_RaisesTheTaskBeforeBothScoreLines()
@@ -321,7 +320,7 @@ public class GameLineAnalyzerTests
     [Fact]
     public void CombatHitLine_ExtractsStamina()
     {
-        // "The rat16 hits you (89/94)." — stamina embedded mid-line
+        // "The rat16 hits you (89/94)." -- stamina embedded mid-line
         var h = new ParserHarness();
         h.Feed("The rat16 hits you (89/94).\n");
         Assert.Single(h.Stats);
@@ -343,7 +342,7 @@ public class GameLineAnalyzerTests
     [Fact]
     public void DreamwordLine_Says_DoesNotMatch()
     {
-        // "says" is a normal player speech verb — must not trigger dreamword detection.
+        // "says" is a normal player speech verb -- must not trigger dreamword detection.
         // Dreamwords arrive via binary C15+C00+C00+C255 in game mode; text scanning
         // only covers verbs that are exclusively used by the MUD2 system (gasps etc.).
         var h = new ParserHarness();
@@ -354,7 +353,7 @@ public class GameLineAnalyzerTests
     [Fact]
     public void DreamwordLine_PlayerSays_DoesNotMatch()
     {
-        // Regression: player speech via "says" must not be mis-detected as a dreamword.
+        // Player speech via "says" must not be mis-detected as a dreamword.
         var h = new ParserHarness();
         h.Feed("Ollie the hero says \"boom\".\n");
         Assert.Empty(h.Stats);
@@ -363,7 +362,7 @@ public class GameLineAnalyzerTests
     [Fact]
     public void DreamwordLine_Gasps_ExtractsDreamword()
     {
-        // `gasps "orchid"` — server uses gasps for the dreamword announcement
+        // `gasps "orchid"` -- server uses gasps for the dreamword announcement
         var h = new ParserHarness();
         h.Feed("The wanderer gasps \"orchid\".\n");
         Assert.Single(h.Stats);

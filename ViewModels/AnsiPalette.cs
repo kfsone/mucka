@@ -2,7 +2,7 @@ using Microsoft.Maui.Graphics;
 
 namespace Mucka.ViewModels;
 
-// Campbell color scheme — the Windows Terminal default dark theme.
+// Campbell color scheme - the Windows Terminal default dark theme.
 public static class AnsiPalette
 {
     private static readonly Color[] _colors =

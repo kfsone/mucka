@@ -11,12 +11,11 @@ namespace Mucka.Rendering;
 /// a pane of the Combat Rail, drifts upward and fades out over about a second and a half.
 ///
 /// <para><b>Why this is not drawn by the canvas.</b> The same Invariant #1 that put the tick
-/// meter's fill and the flee pill's pulse on the compositor. <c>SKXamlCanvas</c> paints ON the UI
-/// thread on WinUI, and a float is by definition continuous motion - repainting the rail thirty
-/// times a second for a second and a half, several times per two-second tick, is exactly the work
-/// that competes with typing. The canvas draws the still panel; this element rides above it and
-/// costs the UI thread nothing once started. See <see cref="TickSweep"/>, which says the same thing
-/// at greater length about a bar.</para>
+/// meter's fill and the flee pill's pulse on the compositor: a float is by definition continuous
+/// motion - repainting the rail thirty times a second for a second and a half, several times per
+/// two-second tick, is exactly the work that competes with typing. The canvas draws the still
+/// panel; this element rides above it and costs the UI thread nothing once started. See
+/// <see cref="TickSweep"/>, which says the same thing at greater length about a bar.</para>
 ///
 /// <para><b>Translation, not Offset.</b> A XAML element's visual Offset is owned by layout and is
 /// rewritten on every arrange, so animating it would fight the layout system for the property and

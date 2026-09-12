@@ -14,10 +14,10 @@ namespace Mucka.Core;
 ///
 /// Log lines are BUFFERED in memory and flushed in batches (every <see cref="FlushEvery"/> lines
 /// or on <see cref="Flush"/>) so the act of logging does NOT do a synchronous disk write on the
-/// UI thread per event — that I/O would itself perturb the very latency we are measuring.
+/// UI thread per event - that I/O would itself perturb the very latency we are measuring.
 ///
 /// Reading the log: every line is "&lt;wall-clock&gt;  +&lt;ms-since-start&gt;  &lt;message&gt;".
-/// The high-resolution +ms column is what you correlate — a keystroke's TextChanged stamp that
+/// The high-resolution +ms column is what you correlate - a keystroke's TextChanged stamp that
 /// lands well after its KeyDown stamp, or a "UI STALL" line between them, pinpoints the culprit.
 /// </summary>
 public static class InputDiag

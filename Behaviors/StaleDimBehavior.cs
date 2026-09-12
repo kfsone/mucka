@@ -7,12 +7,12 @@ namespace Mucka.Behaviors;
 
 /// <summary>
 /// Dims a side-panel section toward 70% when its data goes stale, via a WinUI compositor opacity
-/// animation (render/GPU thread — never touches the UI thread or typing). Restarted on every
+/// animation (render/GPU thread - never touches the UI thread or typing). Restarted on every
 /// refresh through <see cref="SidePanelViewModel"/>'s FewRefreshed/FeiRefreshed events.
 ///
 /// The stale threshold is RELATIVE to the configured FES update interval, not a fixed time:
 /// FEW/FEI refresh on that heartbeat, so a fixed delay would falsely dim every cycle at long
-/// intervals. We hold full-bright for ~1.5× the interval — so a normal on-time refresh resets
+/// intervals. We hold full-bright for ~1.5x the interval - so a normal on-time refresh resets
 /// before any dimming, and the dim only appears when an expected update is genuinely late. When
 /// the heartbeat is disabled (interval 0) staleness is meaningless, so we never dim.
 ///
@@ -80,7 +80,7 @@ public sealed class StaleDimBehavior : Behavior<View>
         int freq = (_view.BindingContext as GameViewModel)?.StatUpdateFrequency ?? 0;
         if (freq <= 0)
         {
-            // Heartbeat disabled → no staleness concept. Cancel any dim, stay full-bright.
+            // Heartbeat disabled -> no staleness concept. Cancel any dim, stay full-bright.
             visual.StopAnimation("Opacity");
             visual.Opacity = 1.0f;
             return;

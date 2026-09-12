@@ -3,12 +3,11 @@ namespace Mucka.ViewModels;
 /// <summary>
 /// Bounds how often the clog readout is allowed to rebuild and republish.
 ///
-/// <para>Rendering rebuilds a native FormattedString - one WinUI Run per styled span - which is a
-/// full teardown-plus-remeasure on the UI thread (see ClogPage.Render). Combat events and the FES
-/// stats heartbeat can fire many times per second, especially in a pack fight, but MUD2's own
-/// combat tick is roughly 2 seconds (see tools/combat/NOTES.md's duration clustering), so
-/// rendering faster than a few times a second is UI-thread work the player cannot perceive -
-/// exactly what CLAUDE.md's Invariant #1 forbids.</para>
+/// <para>Rendering rebuilds a native FormattedString on the UI thread (see ClogPage.Render), which
+/// is expensive enough to compete with typing. Combat events and the FES stats heartbeat can fire
+/// many times per second, especially in a pack fight, but MUD2's own combat tick is roughly 2
+/// seconds, so rendering faster than a few times a second is UI-thread work the player cannot
+/// perceive.</para>
 ///
 /// <para>Usage: every event that WOULD trigger a render calls <see cref="RequestRender"/>. If
 /// enough time has passed since the last render it returns true (render now, and the gate

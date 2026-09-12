@@ -3,7 +3,7 @@ using Mucka.Terminal;
 
 namespace Mucka.Terminal.Tests;
 
-/// <summary>Tests for <see cref="TerminalText"/> — control-char stripping + tab expansion.</summary>
+/// <summary>Tests for <see cref="TerminalText"/> - control-char stripping + tab expansion.</summary>
 public class TerminalTextTests
 {
     private static StyledSpan Span(string text, TextStyle? style = null) => new(text, style ?? TextStyle.Default);
@@ -71,7 +71,7 @@ public class TerminalTextTests
         Assert.Same(line, TerminalText.Sanitize(line));
     }
 
-    // ── Tab expansion ─────────────────────────────────────────────────────────
+    // -- Tab expansion -----------------------------------------------------------
 
     [Fact]
     public void ExpandTabs_AtColumnZero_FillsToFirstStop()
@@ -84,14 +84,14 @@ public class TerminalTextTests
     public void ExpandTabs_AdvancesToNextStop()
     {
         var line = TerminalText.ExpandTabs(Line(false, Span("ab\tc")));
-        Assert.Equal("ab      c", line.Spans[0].Text);   // col 2 → +6 spaces → c at col 8
+        Assert.Equal("ab      c", line.Spans[0].Text);   // col 2 -> +6 spaces -> c at col 8
     }
 
     [Fact]
     public void ExpandTabs_OnStopBoundary_AddsFullTab()
     {
         var line = TerminalText.ExpandTabs(Line(false, Span("12345678\t")));
-        Assert.Equal("12345678        ", line.Spans[0].Text);   // col 8 → +8 spaces
+        Assert.Equal("12345678        ", line.Spans[0].Text);   // col 8 -> +8 spaces
     }
 
     [Fact]

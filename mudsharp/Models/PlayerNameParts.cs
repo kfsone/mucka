@@ -30,7 +30,7 @@ public readonly record struct PlayerNameParts(
     /// plus any Sir/Lady title), the full-size persona name, and a small trailing span (level
     /// description plus the closing paren).
     ///
-    /// <para>The invisibility parens belong to the SMALL spans — they are a status marker, not
+    /// <para>The invisibility parens belong to the SMALL spans - they are a status marker, not
     /// part of the name. Composing them here keeps that decision in one place: the bug this
     /// replaced had the leading "(" emitted by BOTH the prefix span and the name span whenever
     /// the player had no title, rendering "((Ollie the warlock)" with the second paren in the
@@ -52,7 +52,7 @@ public readonly record struct PlayerNameParts(
 
     /// <summary>
     /// True when <paramref name="text"/> opens with <paramref name="personaName"/> as its speaker
-    /// or subject — "Ollie says ...", "Ollie the necromancer waves." — tolerating the parens the
+    /// or subject - "Ollie says ...", "Ollie the necromancer waves." - tolerating the parens the
     /// game wraps around the whole name-and-description while that player is invisible:
     /// <c>(Ollie the warlock) says "..."</c>.
     ///

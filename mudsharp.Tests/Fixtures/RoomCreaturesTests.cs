@@ -124,7 +124,7 @@ public sealed class RoomCreaturesTests
         Assert.False(creatures.IsCreature(""));
     }
 
-    // ── The boundary rule on its own ──────────────────────────────────────────
+    // -- The boundary rule on its own ------------------------------------------
 
     [Theory]
     [InlineData("a small mouse squeaks", "mouse", true)]
@@ -144,7 +144,7 @@ public sealed class RoomCreaturesTests
     public void ContainsToken(string haystack, string needle, bool expected)
         => Assert.Equal(expected, RoomCreatures.ContainsToken(haystack, needle));
 
-    // ── The row's icon state ──────────────────────────────────────────────────
+    // -- The row's icon state --------------------------------------------------
 
     [Theory]
     [InlineData(false, false, HereSwords.Hidden)]

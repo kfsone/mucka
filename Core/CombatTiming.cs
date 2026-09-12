@@ -20,9 +20,7 @@ internal static class CombatTiming
     /// <para><b>One implementation, on purpose.</b> Both renderings of the tick - the bar
     /// (<c>Mucka.Rendering.TickSweep</c>) and the click
     /// (<see cref="Mucka.Audio.CombatMetronome"/>) - locate the rollover through this method and
-    /// nothing else. They each used to do the modulo themselves, and while the two expressions agreed
-    /// algebraically, "the bar and the click disagree" is the single most reported fault in this
-    /// feature's history and it is not worth leaving two places where that could become true.</para>
+    /// nothing else, so the two cannot independently drift out of agreement.</para>
     ///
     /// <para>Returns a full tick, never zero, when <paramref name="nowUtc"/> lands exactly on a
     /// boundary: the question is "how long until the NEXT one", and a bar told it has 0 ms left would
@@ -44,19 +42,12 @@ internal static class CombatTiming
     /// The next metronome beat on the bracketed lattice: beats sit at <c>boundary - offset</c> and
     /// <c>boundary + offset</c> for every boundary defined by <paramref name="anchorUtc"/>.
     ///
-    /// <para><b>This exists so the click's schedule is derived from the ANCHOR every beat, which is the
-    /// whole correctness property.</b> The chain used to re-arm with two constant legs
-    /// (<c>tick - 2N</c> and <c>2N</c>) measured from the moment the previous callback actually ran.
-    /// <c>System.Threading.Timer</c> lateness is one-sided - a timer never fires early - so that
-    /// lateness accumulated monotonically with nothing to correct it, and the whole budget before a
-    /// beat crossed to the wrong side of its boundary was N milliseconds for an entire fight. At
-    /// Windows' default ~15.6 ms granularity the pre-boundary beat ran out of margin in about thirteen
-    /// rollovers, roughly 26 seconds, while the after-boundary beat had nine times as long - which is
-    /// exactly the reported fault, the pre-click "only occasionally" playing. COMBAT-RAIL-SPEC.md
-    /// section 6 forbids a fixed-period timer here by name, and the implementation had become one with
-    /// an alternating period. Deriving each delay from the anchor makes every beat self-correcting: one
-    /// beat's lateness is absorbed by the next delay instead of being added to every delay after
-    /// it.</para>
+    /// <para><b>Every delay is derived from the anchor, not accumulated from constant legs.</b>
+    /// <c>System.Threading.Timer</c> lateness is one-sided - a timer never fires early - so re-arming
+    /// from a fixed offset off the previous callback lets lateness accumulate with nothing to correct
+    /// it until a beat crosses to the wrong side of its boundary. Deriving each delay from the anchor
+    /// instead makes every beat self-correcting: one beat's lateness is absorbed by the next delay
+    /// instead of being added to every delay after it.</para>
     ///
     /// <para><b>A beat that is already too late is SKIPPED, not fired late.</b> If this callback ran so
     /// far behind that the next lattice position has passed, the result is the one after it. A click in

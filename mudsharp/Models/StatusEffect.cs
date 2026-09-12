@@ -11,7 +11,7 @@ public enum StatusEffectKind
     Dexterity,
     Stamina,
     Glow,
-    // Afflictions (blind/deaf/dumb/cripple) — carried only to supply the detected line as a
+    // Afflictions (blind/deaf/dumb/cripple) - carried only to supply the detected line as a
     // tooltip. Their on/off visibility is FES-authoritative (GameViewModel flags), NOT tracked here.
     Deaf,
     Blind,
@@ -20,36 +20,36 @@ public enum StatusEffectKind
 }
 
 /// <summary>
-/// Which direction an effect pushes a stat. Buff and Debuff are independent slots —
-/// a stat can carry both at once (e.g. +STR and −STR). Glow is always <see cref="Buff"/>.
+/// Which direction an effect pushes a stat. Buff and Debuff are independent slots -
+/// a stat can carry both at once (e.g. +STR and -STR). Glow is always <see cref="Buff"/>.
 /// </summary>
 public enum EffectSign
 {
     Buff,   // + : stronger / more adroit / fitter / glowing
-    Debuff, // − : weaker / less adroit / less fit
+    Debuff, // - : weaker / less adroit / less fit
 }
 
 /// <summary>
 /// The kind of change reported by a single C11 bracket.
 ///
-/// <para>NOTE: cast count and wear-off count do NOT match 1:1 — a single cast can apply
+/// <para>NOTE: cast count and wear-off count do NOT match 1:1 - a single cast can apply
 /// multiple levels, and they bleed off in stages ("Some of your magical X has worn off"
 /// one or more times, then "Your magical X has worn off" for the final clear). So a
 /// consumer should treat each (Kind, Sign) slot as present/absent rather than counting:
-/// <see cref="Started"/> ⇒ present, <see cref="FullyWoreOff"/> ⇒ absent,
-/// <see cref="PartiallyWoreOff"/> ⇒ still present (a candidate for a fade cue).</para>
+/// <see cref="Started"/> => present, <see cref="FullyWoreOff"/> => absent,
+/// <see cref="PartiallyWoreOff"/> => still present (a candidate for a fade cue).</para>
 /// </summary>
 public enum EffectTransition
 {
     Started,          // 11 02 enhance start / 11 00 glow
-    PartiallyWoreOff, // 11 03 "Some of your magical X has worn off" — still active
-    FullyWoreOff,     // 11 03 "Your magical X has worn off" / 11 01 unglow — now clear
+    PartiallyWoreOff, // 11 03 "Some of your magical X has worn off" - still active
+    FullyWoreOff,     // 11 03 "Your magical X has worn off" / 11 01 unglow - now clear
 }
 
 /// <summary>
 /// A change to one of the local player's temporary effects, emitted when a C11 bracket
 /// is decoded. The stat identity and direction come from the phrase the code brackets
-/// (the code itself is ambiguous — all six stat spells share <c>11 02</c>).
+/// (the code itself is ambiguous - all six stat spells share <c>11 02</c>).
 /// </summary>
 public sealed record StatusEffectChange(
     StatusEffectKind Kind,
@@ -59,7 +59,7 @@ public sealed record StatusEffectChange(
 
 /// <summary>
 /// Immutable snapshot of which of the local player's effects are currently active.
-/// Buff and Debuff for the same stat are independent — both can be true at once.
+/// Buff and Debuff for the same stat are independent - both can be true at once.
 /// Present/absent only: message counts don't reliably give stack depth, so depth is
 /// not tracked (see <see cref="EffectTransition"/>).
 /// </summary>
@@ -68,7 +68,7 @@ public sealed record StatusEffectState(
     bool DexterityBuff = false, bool DexterityDebuff = false,
     bool StaminaBuff   = false, bool StaminaDebuff   = false,
     bool Glow          = false,
-    // The exact game line that turned each slot on — surfaced as the icon's tooltip.
+    // The exact game line that turned each slot on - surfaced as the icon's tooltip.
     string? StrengthBuffMsg  = null, string? StrengthDebuffMsg  = null,
     string? DexterityBuffMsg = null, string? DexterityDebuffMsg = null,
     string? StaminaBuffMsg   = null, string? StaminaDebuffMsg   = null,

@@ -13,8 +13,8 @@ internal static class ClogPaths
     /// (items.jsonl), so both live side by side.</summary>
     internal static string GetClogDirectory()
     {
-        // Desktop: literally ~/.mucka/clogs, matching the offline research tooling's
-        // ~/.mucka/mapping and ~/.mucka/combat convention (tools/mapping, tools/combat).
+        // Desktop: literally ~/.mucka/clogs, matching the ~/.mucka/mapping and ~/.mucka/combat
+        // convention used for this project's other stores.
         if (OperatingSystem.IsWindows())
             return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".mucka", "clogs");
 
@@ -23,9 +23,8 @@ internal static class ClogPaths
         return Path.Combine(FileSystem.Current.CacheDirectory, "mucka", "clogs");
     }
 
-    /// <summary>Where the combat database lives - ~/.mucka/combat on desktop, matching the offline
-    /// tooling's own convention (tools/combat writes its reduced combat.db into the same directory),
-    /// and the platform cache directory on mobile for the same reason
+    /// <summary>Where the combat database lives - ~/.mucka/combat on desktop, matching the ~/.mucka
+    /// store convention, and the platform cache directory on mobile for the same reason
     /// <see cref="GetClogDirectory"/> uses it.</summary>
     internal static string GetCombatDirectory()
     {
@@ -48,8 +47,7 @@ internal static class ClogPaths
     }
 
     /// <summary>Where the manual JSONL session recordings go. Desktop capture files are transient
-    /// debug artifacts, so temp rather than roaming app data - unchanged from where SessionCapture
-    /// itself used to compute this.</summary>
+    /// debug artifacts, so temp rather than roaming app data.</summary>
     internal static string GetCaptureDirectory()
     {
         if (OperatingSystem.IsWindows())

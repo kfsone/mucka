@@ -55,7 +55,7 @@ public class SelfChatColorizerTests
     [InlineData("OK, you wave.", true)]
     [InlineData("OK,\tyou wave.", true)]
     [InlineData("OK, Ollie the superheroine waves.", true)]
-    [InlineData("OK,you wave.", false)]   // /^OK,\s+/ — the whitespace is required
+    [InlineData("OK,you wave.", false)]   // /^OK,\s+/ - the whitespace is required
     [InlineData("OKAY, nothing happens.", false)]
     [InlineData("OK", false)]
     [InlineData("OK,", false)]
@@ -65,7 +65,7 @@ public class SelfChatColorizerTests
     [Fact]
     public void OkActEcho_ThirdPerson_Coloured()
     {
-        // `*wave` echoes "OK, Ollie the superheroine waves." — the OK acknowledgement marks
+        // `*wave` echoes "OK, Ollie the superheroine waves." - the OK acknowledgement marks
         // it as your own command regardless of the subject form.
         var line = SelfChatColorizer.Apply(
             Chat("OK, Ollie the superheroine waves."), "Ollie", NameRgb, SpeechRgb);
@@ -76,7 +76,7 @@ public class SelfChatColorizerTests
     [Fact]
     public void OkActEcho_YouForm_ColouredEvenWithoutName()
     {
-        // Plain `wave` echoes "OK, you wave." (lowercase subject) — still self, and the OK
+        // Plain `wave` echoes "OK, you wave." (lowercase subject) - still self, and the OK
         // prefix needs no persona name to qualify.
         var line = SelfChatColorizer.Apply(Chat("OK, you wave."), myName: null, NameRgb, SpeechRgb);
         Assert.Contains(line.Spans, s => s.Text == "OK, you wave." && s.Style.ForegroundRgb == NameRgb);
@@ -165,7 +165,7 @@ public class SelfChatColorizerTests
     public void WrapOutsideQuote_ContinuationStillColoured()
     {
         // The wrap point can fall OUTSIDE any quote (an emote, or label text after the closing
-        // quote). The continuation must still recolour — in the name colour — because eligibility
+        // quote). The continuation must still recolour - in the name colour - because eligibility
         // comes from ContinuesChat + SelfActive, not from an open quote.
         var carry = default(SelfChatColorizer.Carry);
         SelfChatColorizer.Apply(

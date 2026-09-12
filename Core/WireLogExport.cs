@@ -65,9 +65,7 @@ public static class WireLogExport
     /// decoded into silent garbage. Requiring the blob to agree with the count stored beside it costs
     /// one comparison and removes almost all of that; a damaged batch throws
     /// <see cref="InvalidDataException"/> instead of yielding invented traffic, which is the right
-    /// outcome for a corpus whose only job is to be believed. (There was a second such field,
-    /// <c>raw_bytes</c>, holding the decompressed length. With nothing compressed it equals
-    /// <c>LENGTH(data)</c>, so it compared the blob with itself; it went with the codec.)</para>
+    /// outcome for a corpus whose only job is to be believed.</para>
     /// </summary>
     /// <exception cref="InvalidDataException">A batch does not match its stored record count.</exception>
     public static IEnumerable<WireRecord> ReadSession(string dbPath, long sessionId)

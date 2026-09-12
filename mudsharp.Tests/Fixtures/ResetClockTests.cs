@@ -197,8 +197,8 @@ public class ResetClockTests
         var h = LockedViaDiscovery();
         Assert.Equal(ResetPhase.Locked, h.Snap.Phase);
 
-        // A reading whose remaining is BELOW the locked window (the reset came sooner — an early
-        // decrement like the observed v9→v8): must annotate and reopen, not silently hold a stale lock.
+        // A reading whose remaining is BELOW the locked window (the reset came sooner - an early
+        // decrement like the observed v9->v8): must annotate and reopen, not silently hold a stale lock.
         h.NowMs = 930_000;
         h.Clock.Observe(0, fresh: true, 930_000);
         Assert.Contains(h.Notes, n => n.Contains("contradicted"));
@@ -208,18 +208,16 @@ public class ResetClockTests
     [Fact]
     public void EarlyDecrement_DuringDiscovery_EndsPassAndReleasesHold()
     {
-        // Live 2026-07-25 probe-silence trace: a discovery sample reading BELOW the window (a real
-        // early decrement, or a routine reading's reply-time bias inflating lo past the unbiased
-        // sample's cHi) took the early-decrement fold branch, which flipped Discovering→Coarse
-        // WITHOUT ending the pass — the channel hold was never released, the routine heartbeat
-        // stayed suppressed for the rest of the session, and with no fresh replies discovery could
-        // never re-arm to release it. The branch must end an active pass like the upward-jump one.
+        // A discovery sample reading BELOW the window (a real early decrement, or a routine
+        // reading's reply-time bias inflating lo past the unbiased sample's cHi) takes the
+        // early-decrement fold branch. That branch must end an active pass and release the
+        // channel hold, the same as the upward-jump branch does.
         var h = CoarseStraddled();                 // window [997.5k, 1002.5k)
         Routine(h, 904_000);                       // arms discovery
         Assert.True(h.DiscoveryHold);
 
         h.NowMs = 905_000;
-        h.Clock.PumpForTest();                     // clear-channel lead elapsed → sample #1
+        h.Clock.PumpForTest();                     // clear-channel lead elapsed -> sample #1
         Assert.Equal(1, h.Sends);
 
         h.NowMs = 905_100;

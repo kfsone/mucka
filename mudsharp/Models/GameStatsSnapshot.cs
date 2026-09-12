@@ -28,12 +28,12 @@ public sealed record GameStatsSnapshot(
     string? AccountId = null,
     int? Privs = null,
     byte? StaminaColor = null,
-    // ── `score` sheet only (no FES equivalent) ────────────────────────────────
+    // -- `score` sheet only (no FES equivalent) --------------------------------
     // The sheet is the sole source for these, so they are appended (never reordered):
     // every construction site names its arguments, and appending keeps that safe.
     /// <summary>Persona sex as the sheet words it ("male"/"female"). Never changes within a persona.</summary>
     string? Sex = null,
-    /// <summary>Points earned in the current game ("this game: N points"). Legitimately 0 — null means
+    /// <summary>Points earned in the current game ("this game: N points"). Legitimately 0 - null means
     /// "not reported", 0 means "reported as zero", per the nullable convention above.</summary>
     int? ScoreThisGame = null,
     /// <summary>The persona's own point value ("value: N points"). This is what an attacker collects
@@ -46,7 +46,7 @@ public sealed record GameStatsSnapshot(
     /// <summary>
     /// True when this snapshot originates from a FES binary data packet.
     /// When true, boolean flags (IsBlind, IsDeaf, IsCrippled, IsDumb, PersonaSaved)
-    /// represent authoritative server state and replace — not OR — the current values
+    /// represent authoritative server state and replace - not OR - the current values
     /// in MergeStats. Text-analysis snapshots leave this false and are OR-merged.
     /// </summary>
     public bool HasFesStats { get; init; }

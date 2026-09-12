@@ -3,12 +3,12 @@ using MudSharp.Combat;
 namespace mudsharp.Tests.Fixtures;
 
 /// <summary>
-/// Covers DESIGN_FINAL.md 4.2-4.4's tier table: the stamina/strength/dexterity/unarmed tiers, the
-/// stamina tie-break, and the critical-stamina hard floor.
+/// Covers the alert tiers and trigger table in docs/combat-panel-design.md: the stamina/strength/dexterity/unarmed
+/// tiers, the stamina tie-break, and the critical-stamina hard floor.
 /// </summary>
 public sealed class CombatTierResolverTests
 {
-    // ── Stamina tier (4.3) ──────────────────────────────────────────────────────
+    // -- Stamina tier (4.3) ------------------------------------------------------
 
     [Fact]
     public void StaminaTier_HitsLeftAtOrBelowTwo_IsT3()
@@ -29,7 +29,7 @@ public sealed class CombatTierResolverTests
     [Fact]
     public void StaminaTier_DeathProjectedSoonButSlowerThanTheKill_IsNotT3FromThatAlone()
     {
-        // Under 15s to die, but the kill lands first — 4.3 requires BOTH.
+        // Under 15s to die, but the kill lands first - 4.3 requires BOTH.
         var tier = CombatTierResolver.StaminaTier(
             staminaCurrent: 40, staminaMax: 100, hitsLeft: null, secondsToDie: 10, secondsToKill: 5);
         Assert.NotEqual(CombatTier.T3, tier);
@@ -74,12 +74,12 @@ public sealed class CombatTierResolverTests
         Assert.Equal(CombatTier.None, tier);
     }
 
-    // ── Strength / dexterity / unarmed tiers (4.3) ──────────────────────────────
+    // -- Strength / dexterity / unarmed tiers (4.3) ------------------------------
 
     [Theory]
-    [InlineData(80, 100, CombatTier.None)]   // 80% — above the 75% brief threshold
-    [InlineData(70, 100, CombatTier.T1)]     // 70% — below 75%, at/above 50%
-    [InlineData(40, 100, CombatTier.T2)]     // 40% — below 50%, intensifies
+    [InlineData(80, 100, CombatTier.None)]   // 80% - above the 75% brief threshold
+    [InlineData(70, 100, CombatTier.T1)]     // 70% - below 75%, at/above 50%
+    [InlineData(40, 100, CombatTier.T2)]     // 40% - below 50%, intensifies
     public void StrengthTier_MatchesTheFractionOfMaxThresholds(int effective, int max, CombatTier expected)
         => Assert.Equal(expected, CombatTierResolver.StrengthTier(effective, max));
 
@@ -114,7 +114,7 @@ public sealed class CombatTierResolverTests
         Assert.Equal(CombatTier.None, CombatTierResolver.UnarmedTier(isUnarmed: true, fightLive: false));
     }
 
-    // ── Pulse tie-break (4.2) ────────────────────────────────────────────────────
+    // -- Pulse tie-break (4.2) ----------------------------------------------------
 
     [Fact]
     public void ResolvePulseTier_StaminaT3AlwaysWins()
@@ -122,7 +122,7 @@ public sealed class CombatTierResolverTests
 
     [Fact]
     public void ResolvePulseTier_TieBetweenTwoT3CandidatesGoesToStamina()
-        // Stamina is the only T3-eligible signal that can directly end the encounter in death — no
+        // Stamina is the only T3-eligible signal that can directly end the encounter in death - no
         // other signal in this design reaches T3 today, but the tie-break itself must still resolve
         // in stamina's favour if it ever does.
         => Assert.Equal(CombatTier.T3, CombatTierResolver.ResolvePulseTier(CombatTier.T3, CombatTier.T3));
@@ -131,7 +131,7 @@ public sealed class CombatTierResolverTests
     public void ResolvePulseTier_NoT3AnywhereFallsBackToTheHigherStaticTier()
         => Assert.Equal(CombatTier.T2, CombatTierResolver.ResolvePulseTier(CombatTier.T1, CombatTier.T2));
 
-    // ── Critical-stamina hard floor (4.4) ───────────────────────────────────────
+    // -- Critical-stamina hard floor (4.4) ---------------------------------------
 
     [Fact]
     public void CriticalStaminaFloorTier_AtOrBelowThreshold_NeverRendersBelowT2()

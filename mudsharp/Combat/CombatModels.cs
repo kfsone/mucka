@@ -8,11 +8,9 @@ public enum CombatActor
 }
 
 /// <summary>
-/// Classification of a single combat-relevant line. Mirrors the event taxonomy validated
-/// offline in tools/combat/reduce_combat.py against RESEARCH/mud2-multi-combat.jsonl:
-/// the "08" C1 code family (FightStart/Hit/Miss/WithdrawOffer/Kill/FightEnd*) PLUS three
-/// plain-prose event kinds that carry no C1 wrapper at all in observed captures
-/// (WeaponEquip/WeaponBroke/DroppedGuard) — see NOTES.md "Plain-text combat-only events".
+/// Classification of a single combat-relevant line: the "08" C1 code family
+/// (FightStart/Hit/Miss/WithdrawOffer/Kill/FightEnd*) PLUS three plain-prose event kinds that carry
+/// no C1 wrapper at all in observed captures (WeaponEquip/WeaponBroke/DroppedGuard).
 /// </summary>
 public enum CombatEventKind
 {
@@ -25,12 +23,10 @@ public enum CombatEventKind
     /// and RangeLow/RangeHigh are the bracket; rarely it reports the EXACT figure ("You hit the banshee
     /// (6).", verbatim from session-rec.mud2.co.uk.20260819-001118) and both fields carry that one
     /// number - an exact reading is simply a range of width zero, so every consumer averaging the two
-    /// still lands on the right value with no special case. The exact form went unparsed until
-    /// 2026-08-19, so those hits went uncounted.</para>
+    /// still lands on the right value with no special case.</para>
     ///
-    /// <para><b>What selects between the two forms is unknown.</b> This comment used to attribute it to
-    /// the <c>identify</c> setting; a sweep of every capture on disk (2026-09-01) contradicts that in
-    /// both directions - see CombatTracker.YouHitExact for the evidence.</para>
+    /// <para><b>What selects between the two forms is unknown.</b> It is not the <c>identify</c>
+    /// setting - see CombatTracker.YouHitExact for the evidence.</para>
     /// </summary>
     Hit,
     /// <summary>"You miss the X."</summary>
@@ -40,58 +36,56 @@ public enum CombatEventKind
     ///
     /// <para>The parenthetical is not guaranteed. The KILLING blow prints bare - "The rat18 hits
     /// you." - because there is no surviving stamina to report; verbatim from
-    /// session-rec.mud2.co.uk.20260819-001608's death frame. That form went unparsed until
-    /// 2026-08-19, so the single most consequential hit of a session was the one the client never
-    /// counted. RangeLow/RangeHigh are null for it, and the stamina relay must (and does) tolerate
-    /// a null reading rather than treat it as zero.</para>
+    /// session-rec.mud2.co.uk.20260819-001608's death frame. RangeLow/RangeHigh are null for it, and
+    /// the stamina relay must (and does) tolerate a null reading rather than treat it as zero.</para>
     /// </summary>
     HitByNpc,
     /// <summary>"The X misses you."</summary>
     MissByNpc,
-    /// <summary>"You offer to withdraw from your fight with the X." — an offer, NOT an end.</summary>
+    /// <summary>"You offer to withdraw from your fight with the X." - an offer, NOT an end.</summary>
     WithdrawOffer,
     /// <summary>
-    /// "The zombie1 offers to withdraw from your fight if you do likewise." — the NPC's half of the
+    /// "The zombie1 offers to withdraw from your fight if you do likewise." - the NPC's half of the
     /// withdraw handshake, and the third member of a family whose other two were already here:
     /// <see cref="WithdrawOffer"/> is the player offering, <see cref="Withdrawn"/> is the mutual
     /// acceptance that actually ends the fight. This is neither. It is an INVITATION, and until the
     /// player answers it nothing has changed.
     ///
     /// <para><b>It is not a fight end, and the wire says so twice.</b> The line carries C1 code
-    /// <c>08 07</c> — "Offer to withdraw." in Bartle's own code list, the SAME code the player's own
-    /// offer carries — not <c>08 10</c> ("Fight ends - withdraw."), which is what
+    /// <c>08 07</c> - "Offer to withdraw." in Bartle's own code list, the SAME code the player's own
+    /// offer carries - not <c>08 10</c> ("Fight ends - withdraw."), which is what
     /// <see cref="Withdrawn"/> arrives under. 08 07 is deliberately absent from the three codes
     /// <c>Mud2C1Decoder</c> tags as <see cref="MudSharp.Models.LineKind.FightEnd"/>, so the nameless-end
     /// backstop cannot fire on it either. And the prose bears it out: of the 5 occurrences on disk,
     /// 3 are followed by "You have killed the &lt;same creature&gt;." in the very next frame and the
     /// other 2 by further blows traded with it. Not one ended a fight. So this neither resolves nor
-    /// closes anything — it is recorded and nothing more.</para>
+    /// closes anything - it is recorded and nothing more.</para>
     ///
     /// <para><b>Every occurrence in the corpus, verbatim</b> (5, across 5 captures, one single
-    /// wording): "The zombie1 offers to withdraw from your fight if you do likewise." (×2, in
+    /// wording): "The zombie1 offers to withdraw from your fight if you do likewise." (x2, in
     /// session-rec.mud2.co.uk.20260902-232101 and session-rec.www.mud2.com.20260828-134332),
-    /// "The zombie2 …" (×1, session-rec.mud2.co.uk.20260826-134435) and "The zombie9 …" (×2,
+    /// "The zombie2 ..." (x1, session-rec.mud2.co.uk.20260826-134435) and "The zombie9 ..." (x2,
     /// session-rec.www.mud2.com.20260824-231526 and -20260828-180336). No plural form, no titled
-    /// name, no pronoun variant has ever been seen — so the regex asks for exactly this sentence and
+    /// name, no pronoun variant has ever been seen - so the regex asks for exactly this sentence and
     /// nothing more is inferred about its grammar.</para>
     ///
     /// <para>In all 5 the creature had just been described "critically damaged" or "close to
-    /// expiry" — i.e. it offers when it is nearly dead. Recorded, not acted on: the owner's
-    /// hypothesis is that ACCEPTING an offer may be survivable where waiting for the creature to
-    /// withdraw on its own is not, and no capture on disk contains a player who accepted one, so
-    /// there is nothing yet to test it against. That is precisely why this lands in the clog.</para>
+    /// expiry" - i.e. it offers when it is nearly dead. Recorded, not acted on: the hypothesis is
+    /// that ACCEPTING an offer may be survivable where waiting for the creature to withdraw on its
+    /// own is not, and no capture on disk contains a player who accepted one, so there is nothing yet
+    /// to test it against. That is precisely why this lands in the clog.</para>
     /// </summary>
     NpcWithdrawOffer,
     /// <summary>"You have killed the X."</summary>
     Kill,
     /// <summary>"The X has killed you." (fightbrief), or "You have been killed by the X/someone."
-    /// (narrative/non-fightbrief — confirmed live: player killed by a spellcasting vampire that
+    /// (narrative/non-fightbrief - confirmed live: player killed by a spellcasting vampire that
     /// put them to sleep first; "someone" appears instead of the NPC name whenever the player is
-    /// blind at the moment of death — see CombatTracker's NpcKilledYouNarrative handling).</summary>
+    /// blind at the moment of death - see CombatTracker's NpcKilledYouNarrative handling).</summary>
     KilledByNpc,
     /// <summary>"The X withdraws from your fight, and so do you." - mutual withdraw accepted. Ends
     /// ONLY the fight it names: the player agreed to it, but the agreement is with one creature, so
-    /// anything else in a pack fight is still engaged (owner, 2026-08-19). Contrast
+    /// anything else in a pack fight is still engaged. Contrast
     /// <see cref="YouFled"/>/<see cref="YouFleeFailed"/>/<see cref="KilledByNpc"/>, which change the
     /// player's own state and therefore end everything.</summary>
     Withdrawn,
@@ -101,14 +95,13 @@ public enum CombatEventKind
     YouFled,
     /// <summary>"You have fled by trying to go &lt;dir&gt;." - the PLAYER's flee failed. They are
     /// still in the room, but MUD2 has zeroed the fight count all the same, so this ends every
-    /// currently-active fight exactly as <see cref="YouFled"/> does. Unparsed until 2026-08-19; see
+    /// currently-active fight exactly as <see cref="YouFled"/> does. See
     /// <see cref="FightOutcome.UFledFail"/> for the verbatim frame and for the price a failed flee
     /// still charges.</summary>
     YouFleeFailed,
     /// <summary>"You can fight it no longer." - a fight-end with no reason detail (08 12). Always a
     /// TRAILING acknowledgment of an end already stated on an earlier line of the same frame (a real
-    /// flee, or - the case that fooled this client for months - a FAILED one, see
-    /// <see cref="NpcFleeFailed"/>).
+    /// flee, or a FAILED one - see <see cref="NpcFleeFailed"/>).
     ///
     /// <para><b>The object slot varies, and one of its forms names the creature.</b> Counted across
     /// every capture on disk: "it" 14, "him" 4, "her" 1, and one "the wyvern". What they trail is
@@ -116,16 +109,15 @@ public enum CombatEventKind
     /// whose flee FAILED and never moved, and 1 follows a death. "it" appears after both flee kinds
     /// (8 failed, 6 real); the gendered forms happen to have followed only real flees, but n=5 and
     /// the likelier explanation is simply the creature's own gender. Nothing here selects the slot as
-    /// far as this evidence goes - an earlier version of this comment claimed the pronoun forms
-    /// always meant a creature that had left the room, which the captures flatly contradict.</para>
+    /// far as this evidence goes.</para>
     ///
     /// <para>So <see cref="CombatEvent.NpcName"/> is set when the line named a creature, and null for
     /// the pronoun forms. Named, it can safely close that one fight; unnamed it stays informational,
     /// because a line that cannot say who it means must never close a fight in a pack.</para>
     ///
     /// <para>Never used for the client's OWN force-end - that is
-    /// <see cref="EncounterForceEnded"/>, and the two were indistinguishable until 2026-09-03; see
-    /// there for what that cost.</para>
+    /// <see cref="EncounterForceEnded"/>, which is kept as a separate kind for exactly that
+    /// reason.</para>
     /// </summary>
     FightEndOther,
     /// <summary>
@@ -136,14 +128,13 @@ public enum CombatEventKind
     /// <c>CombatTracker.ForceEnd</c>/<c>NoteRoomChanged</c>, and always with a null
     /// <see cref="CombatEvent.NpcName"/> - it means EVERY open fight, never one of them.
     ///
-    /// <para><b>Why it is its own kind.</b> It used to be emitted as <see cref="FightEndOther"/> with
-    /// a null name, which made it byte-identical at every consumer to MUD2's pronoun form ("You can
-    /// fight it no longer."). That form must stay a no-op - it names nobody and acting on it would
-    /// close a pack's other still-swinging participants - so the aggregator ignored the force-end
-    /// too, and every fight in a reset encounter stayed live and went on being drawn as an opponent
-    /// after the world had been rebuilt (owner: "a reset doesn't cancel open fights"). Nothing but
-    /// the raw-text string separated them, and keying behaviour off a reason string that any caller
-    /// can change is not a distinction. This is.</para>
+    /// <para><b>Why it is its own kind.</b> Emitting this as <see cref="FightEndOther"/> with a null
+    /// name would make it byte-identical at every consumer to MUD2's pronoun form ("You can fight it
+    /// no longer."). That form must stay a no-op - it names nobody and acting on it would close a
+    /// pack's other still-swinging participants - so a consumer that correctly ignores the pronoun
+    /// form would also ignore a reset, leaving every fight in a reset encounter live and drawn as an
+    /// opponent after the world had been rebuilt. Keying behaviour off a reason string that any
+    /// caller can change is not a distinction. This is.</para>
     ///
     /// <para>Every other kind in this enum classifies an observed line, so a consumer that treats
     /// kinds as wire evidence must exclude this one.</para>
@@ -163,39 +154,33 @@ public enum CombatEventKind
     /// "Your guard drops momentarily in your confusion." lines. The guard drop arrives as its own
     /// <see cref="DroppedGuard"/> line, so nothing needs inferring here.</para>
     ///
-    /// <para>MUD2 has no equipment slots (per the owner): a weapon is ordinary inventory burden, and
+    /// <para>MUD2 has no equipment slots: a weapon is ordinary inventory burden, and
     /// each creature - the player included - selects one that then applies to every creature it
     /// swings at for the rest of that ENCOUNTER, until it is dropped, breaks, or is changed. That is
     /// why the weapon never carries across encounters, and why both the aggregator and the recorder
     /// re-derive it at encounter start rather than keeping the last one seen.</para>
     /// </summary>
     WeaponEquip,
-    /// <summary>"The X has started to use the Y to fight!" — an NPC equips/switches to a weapon
+    /// <summary>"The X has started to use the Y to fight!" - an NPC equips/switches to a weapon
     /// mid-fight (confirmed live: a zombie switching to a fork). The per-tick "The X hits you
     /// (N/M)." line never names a weapon, so this equip line is the only observed source of NPC
-    /// weapon identity — track it, since NPC weapon choice presumably affects their damage output
+    /// weapon identity - track it, since NPC weapon choice presumably affects their damage output
     /// the same way it does the player's.</summary>
     NpcWeaponEquip,
-    /// <summary>"The X breaks to bits." — the weapon in use broke mid-fight, forcing a guard drop.</summary>
+    /// <summary>"The X breaks to bits." - the weapon in use broke mid-fight, forcing a guard drop.</summary>
     WeaponBroke,
-    /// <summary>"Your guard drops..." (weapon switch or post-break confusion) — no C1 wrapper observed.</summary>
+    /// <summary>"Your guard drops..." (weapon switch or post-break confusion) - no C1 wrapper observed.</summary>
     DroppedGuard,
     /// <summary>"The X has fled by trying to go &lt;dir&gt;." - a flee that FAILED. The creature is
     /// still in the room but it has LEFT COMBAT, and the FIGHT IS OVER (see
-    /// <see cref="FightOutcome.CFledFail"/>): a flee attempt ends combat whether or not it succeeds
-    /// (owner, 2026-09-01), so the player has to attack again to re-engage. Not "still hostile", which
-    /// an earlier version of this claimed - it is standing there, not swinging. Never confuse this with <see cref="NpcFled"/> - chasing something standing
-    /// in front of you is nonsense, and counting it as an escape corrupts the per-class flee rates.
-    ///
-    /// <para>This used NOT to end the fight, on the theory that keeping it open stopped one snake
-    /// fight fragmenting into eight encounters. That was the wrong trade: eight re-engagements really
-    /// are eight encounters, and refusing to close meant a fight the player simply walked away from
-    /// stayed "in combat" until logout.</para></summary>
+    /// <see cref="FightOutcome.CFledFail"/>): a flee attempt ends combat whether or not it succeeds,
+    /// so the player has to attack again to re-engage. It is standing there, not swinging. Never
+    /// confuse this with <see cref="NpcFled"/> - chasing something standing in front of you is
+    /// nonsense, and counting it as an escape corrupts the per-class flee rates.</summary>
     NpcFleeFailed,
     /// <summary>"The X has a stamina lying between 90 and 99." - the stethoscope's `diagnose` read,
     /// carried in the RangeLow/RangeHigh fields. A probe, not free telemetry, but a DIRECT reading of
-    /// NPC stamina - which this codebase spent four separate comments asserting the game never
-    /// gives.</summary>
+    /// NPC stamina.</summary>
     NpcStaminaRead,
     /// <summary>"Axe0 dropped." - an item hit the floor, including automatically when fleeing strips
     /// the weapon from your hands. Only acted on when it names the weapon in use.</summary>
@@ -214,7 +199,7 @@ public enum CombatEventKind
     /// "Baton inserted in glass bottle6." - an item went from the pack into a container.
     /// <see cref="CombatEvent.Container"/> names the container.
     ///
-    /// <para>Deliberately NOT folded into <see cref="ItemDropped"/>. Per the owner a container
+    /// <para>Deliberately NOT folded into <see cref="ItemDropped"/>. A container
     /// decouples the two burdens - contents levy no dexterity cost but their weight still counts -
     /// so this changes the item count while leaving the weight alone, which is the cleanest
     /// single-variable separation of the two the game offers. Calling it a drop would assert the
@@ -245,24 +230,21 @@ public enum CombatEventKind
     LifeConcluding,
     /// <summary>"You cannot use the X to fight now!" - the wield refusal. Fires both when the weapon
     /// has just broken and when MUD2 refuses the wield outright because effective strength (itself
-    /// reduced by carried weight, and per the owner by low stamina) is below the hidden threshold
-    /// for that weapon. The second case is the ONLY direct evidence of that gate the game emits,
-    /// and nothing parsed this line before, so no observation of it has ever been recorded.</summary>
+    /// reduced by carried weight and by low stamina) is below the hidden threshold for that weapon.
+    /// The second case is the ONLY direct evidence of that gate the game emits.</summary>
     WeaponUnusable,
 
     /// <summary>
     /// The named creature DIED, by something other than the player's own blow landing last.
-    /// Observed wording (2026-08-26): "The wyvern drops dead, poisoned..." - and then, as with any
-    /// death, "The wyvern has just passed on." Both forms report here.
+    /// Observed wording: "The wyvern drops dead, poisoned..." - and then, as with any death, "The
+    /// wyvern has just passed on." Both forms report here.
     ///
-    /// <para>This is a fight end MUD2 has, and neither <see cref="Kill"/> nor anything else covered
+    /// <para>This is a fight end MUD2 has, and neither <see cref="Kill"/> nor anything else covers
     /// it: there is no "You have killed the X." line anywhere in the frame, because the player did
-    /// not deliver the killing damage - the poison did. Nothing in the client matched either line, so
-    /// the encounter had no terminator at all and the panel went on claiming combat until logout.</para>
+    /// not deliver the killing damage - the poison did.</para>
     ///
-    /// <para><b>Two occurrences, deliberately labelled apart</b> (they were conflated into one
-    /// "verbatim" frame in this comment's first draft, and a review caught it). The one that is
-    /// BYTES is session-rec.mud2.co.uk.20260826-134435.jsonl, records 2905-3034, extracted to
+    /// <para><b>Two occurrences, of different evidentiary weight.</b> The one that is BYTES is
+    /// session-rec.mud2.co.uk.20260826-134435.jsonl, records 2905-3034, extracted to
     /// mudsharp.Tests/Fixtures/Data/wyvern-poison-death.jsonl - dagger0 in hand, no weapon break,
     /// stamina 57/99, score a flat 6,209 with no persona save in the death frame:</para>
     /// <code>
@@ -271,10 +253,9 @@ public enum CombatEventKind
     /// {c08.12}You can fight the wyvern no longer.{/c08.12}
     /// </code>
     ///
-    /// <para>The other is the owner's own paste from his screen, an earlier fight at 5,201 points
-    /// that no capture holds - a pitchfork that broke mid-fight, "(Persona saved on +26 = 5,201)"
-    /// trailing the death. A recollection, not evidence, and treated as one; see
-    /// tools/combat/FIGHT-ENDS.md case 8, which sets both out side by side.</para>
+    /// <para>The other is a recollection, not a capture: an earlier fight at 5,201 points, a
+    /// pitchfork that broke mid-fight, "(Persona saved on +26 = 5,201)" trailing the death. See
+    /// docs/MUD2-fight-ends.md, which sets both out side by side.</para>
     ///
     /// <para><b>Attribution is deliberately not asserted.</b> The line says the creature is dead and
     /// says what killed it; it does not say who applied the poison, and the client has no way to
@@ -287,16 +268,15 @@ public enum CombatEventKind
     /// <para><b>"has just passed on." is reported only for a creature still believed engaged.</b>
     /// It trails every ordinary kill too (see <see cref="FightOutcome.Kill"/>'s verbatim frame),
     /// where the fight is already resolved and re-reporting it would be noise. Reaching it with the
-    /// fight still open means our terminator was missed - which is exactly what happened here - so
-    /// in that case it is the rescue, and its presence in a clog is the signal to go and find the
-    /// line we failed to match.</para>
+    /// fight still open means the real terminator was missed, so in that case it is the rescue, and
+    /// its presence in a clog is the signal to go and find the line that went unmatched.</para>
     /// </summary>
     NpcDied,
 }
 
 /// <summary>
 /// One classified combat line, timestamped at observation (wall-clock at the point the line
-/// completed on the Feed thread — see CombatTracker.Observe). NpcName/Weapon are null when the
+/// completed on the Feed thread - see CombatTracker.Observe). NpcName/Weapon are null when the
 /// event kind does not name one (e.g. DroppedGuard from confusion).
 /// </summary>
 public sealed record CombatEvent(

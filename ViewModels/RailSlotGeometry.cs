@@ -48,8 +48,8 @@ public enum DeadStripSeparatorKind
     Encounter,
     /// <summary>Different <see cref="CombatEnding.ResetOrdinal"/> - the 2px white solid line.
     /// Takes priority over <see cref="Encounter"/> even when the encounter ordinal also differs (it
-    /// always does - a reset ends the encounter too): the owner's ask draws ONE line at a reset
-    /// boundary, never both stacked.</summary>
+    /// always does - a reset ends the encounter too): a reset boundary draws ONE line, never both
+    /// stacked.</summary>
     Reset,
 }
 
@@ -109,10 +109,10 @@ public static class RailSlotGeometry
     /// slot cap. At least one, even in a window too short for it, matching the canvas.
     ///
     /// <para>Live only. Resolved creatures left the vertical slots entirely and live in a top-anchored
-    /// strip of their own (see <see cref="DeadStripBottom"/>), which is what paid for the live badge
-    /// being more than twice the diameter it was. The two regions grow toward the gap between them and
-    /// neither displaces the other: capacity here is computed against the WHOLE available height and
-    /// never against what the strip has left over, so a death can never move a live slot.</para></summary>
+    /// strip of their own (see <see cref="DeadStripBottom"/>). The two regions grow toward the gap
+    /// between them and neither displaces the other: capacity here is computed against the WHOLE
+    /// available height and never against what the strip has left over, so a death can never move a
+    /// live slot.</para></summary>
     public static int Capacity(in RailSlotMetrics m, double logicalHeight)
     {
         var available = SlotsBottom(m, logicalHeight) - m.Pad;
@@ -132,8 +132,8 @@ public static class RailSlotGeometry
     ///
     /// <para><paramref name="liveCount"/> is the count of LIVE opponents - everything still fighting,
     /// including any past the roster's own row cap, and NOT the resolved ones. Resolved creatures are
-    /// drawn in the dead strip and take no slot. Counting the published row list instead made the tail
-    /// invisible whenever the panel was tall enough to fit the whole capped list, which is every
+    /// drawn in the dead strip and take no slot. Counting the published row list instead would hide
+    /// the tail whenever the panel is tall enough to fit the whole capped list - true of every
     /// ordinary window.</para></summary>
     public static int ShownSlots(in RailSlotMetrics m, double logicalHeight, int liveCount)
     {
@@ -163,7 +163,7 @@ public static class RailSlotGeometry
     ///
     /// <para>Reset checked first and unconditionally wins: a reset always ends the encounter too
     /// (<see cref="CombatEnding.EncounterOrdinal"/> differs whenever <see cref="CombatEnding.ResetOrdinal"/>
-    /// does), and the owner's ask draws ONE line at a reset boundary, never both stacked.</para>
+    /// does), and a reset boundary draws ONE line, never both stacked.</para>
     /// </summary>
     public static DeadStripSeparatorKind SeparatorBetween(in CombatEnding older, in CombatEnding newer)
     {
@@ -176,12 +176,11 @@ public static class RailSlotGeometry
 
     /// <summary>
     /// How many of <paramref name="history"/>'s session-history rows are drawn this frame, and where
-    /// the truncation marker (if any) goes - the row-count arithmetic <c>CombatRailView.DrawDeadStrip</c>
-    /// used to do inline, lifted out here (2026-09-02) so mudsharp.Tests can pin it directly:
+    /// the truncation marker (if any) goes - lifted out here so mudsharp.Tests can pin it directly:
     /// <c>CombatRailView</c> is an <c>SKCanvasView</c> and unreachable from a unit test.
     ///
-    /// <para><b>Per-row heights, not a uniform pitch (2026-09-02).</b> The strip gained two grouping
-    /// separators (1px dotted yellow between encounters, 2px solid white between resets), which makes
+    /// <para><b>Per-row heights, not a uniform pitch.</b> The strip has two grouping separators
+    /// (1px dotted yellow between encounters, 2px solid white between resets), which makes
     /// row pitch non-uniform - a boundary row costs its own text line PLUS the separator's own vertical
     /// allowance. The separator between ending <c>i</c> and the next, more recent, ending
     /// <c>i + 1</c> is costed as part of row <c>i</c> - the OLDER of the pair - rather than row
@@ -226,10 +225,8 @@ public static class RailSlotGeometry
             };
         }
 
-        // budget == the total vertical space from the strip's top pad down to the floor. Equivalent
-        // to the old capacity formula's floor((floor-startY)/lineHeight)+1 when every RowCost is the
-        // same lineHeight (startY is always Pad + lineHeight - see CombatRailView.DrawDeadStrip), so
-        // this generalises the old arithmetic rather than replacing its meaning.
+        // budget == the total vertical space from the strip's top pad down to the floor
+        // (startY is always Pad + lineHeight - see CombatRailView.DrawDeadStrip).
         var budget = floor - startY + lineHeight;
         if (budget < lineHeight)
             // Not even the newest ending fits above the live stack this frame - draw nothing rather
@@ -262,9 +259,7 @@ public static class RailSlotGeometry
             // Nothing fit even after giving up the marker's own row - the capacity-1 rule: a marker
             // with zero endings under it is a NET LOSS of information versus the newest ending on its
             // own (RowCost(n-1) == lineHeight <= budget, guaranteed by the guard above), so the row
-            // goes to the newest ending instead of the marker. (2026-09-02: preserved unchanged across
-            // this signature's generalisation - the previous version reserved this row for the marker
-            // unconditionally and drew zero endings here.)
+            // goes to the newest ending instead of the marker.
             return new DeadStripPlan(n - 1, false, n - 1);
 
         return new DeadStripPlan(shownStart, true, shownStart);
@@ -323,17 +318,13 @@ public static class RailSlotGeometry
     /// <summary>
     /// The PLAYER'S TILE - what a player-anchored damage float centres itself on.
     ///
-    /// <para>Was <c>StaminaSealDp</c>, a 92x92 box in the bottom row's left column, back when the
-    /// player's stamina was a ring seal sitting there. The ring is gone (2026-09-06) and the stamina
-    /// readout is now a full-width bar inside a full-width tile, so a float centred on the old box
-    /// landed at x=56 on a tile whose centre is 188 - visibly left of where the number it describes
-    /// actually is. It is the whole tile now, which is also what the float is conceptually about:
-    /// "this happened to you", not "this happened to that widget".</para>
+    /// <para>Centres on the whole tile, not a sub-region within it: the float represents "this
+    /// happened to you", not "this happened to that widget".</para>
     ///
-    /// <para>The tile sits at the very BOTTOM of the panel as of 2026-09-07 - the tick gauge and the
-    /// encounter table are above it, between the player and the creatures - so it is one pad up from
-    /// the bottom edge and nothing else enters the chain. <c>m.BottomRowHeight</c> still describes the
-    /// whole block for the opponent-capacity arithmetic and is deliberately NOT used here.</para>
+    /// <para>The tile sits at the very BOTTOM of the panel - the tick gauge and the encounter table
+    /// are above it, between the player and the creatures - so it is one pad up from the bottom edge
+    /// and nothing else enters the chain. <c>m.BottomRowHeight</c> still describes the whole block for
+    /// the opponent-capacity arithmetic and is deliberately NOT used here.</para>
     /// </summary>
     public static RailRect PlayerTileDp(in RailSlotMetrics m, double panelWidthDp, double panelHeightDp)
     {

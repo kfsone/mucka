@@ -32,7 +32,7 @@ internal sealed class AnsiSgrState
                     return ParserState.EscapeBracket;
                 }
                 if (b == 0x2D) return ParserState.EscapeDash; // ESC - (MUD2 shell command)
-                // Any other byte after ESC is unrecognised — consume and return to Normal.
+                // Any other byte after ESC is unrecognised - consume and return to Normal.
                 return ParserState.Normal;
 
             case ParserState.EscapeDash:
@@ -43,7 +43,7 @@ internal sealed class AnsiSgrState
                     _paramBuf.Append((char)b);
                     return ParserState.EscapeDashWidth;
                 }
-                // Any other byte is a named shell command letter — consume it silently.
+                // Any other byte is a named shell command letter - consume it silently.
                 return ParserState.Normal;
 
             case ParserState.EscapeDashWidth:
@@ -61,7 +61,7 @@ internal sealed class AnsiSgrState
                     _paramBuf.Clear();
                     return ParserState.EscapeDashAnnotation;
                 }
-                // Any other terminator — discard collected digits.
+                // Any other terminator - discard collected digits.
                 _paramBuf.Clear();
                 return ParserState.Normal;
 
@@ -78,7 +78,7 @@ internal sealed class AnsiSgrState
                     _paramBuf.Append((char)b);
                     return ParserState.CsiParam;
                 }
-                // Unrecognised terminator — discard the sequence.
+                // Unrecognised terminator - discard the sequence.
                 _paramBuf.Clear();
                 return ParserState.Normal;
 
@@ -106,7 +106,7 @@ internal sealed class AnsiSgrState
         var style = CurrentStyle;
         foreach (var part in parts)
         {
-            // Bare semicolons produce empty strings — treat as 0.
+            // Bare semicolons produce empty strings - treat as 0.
             int n = part.Length == 0 ? 0 : -1;
             if (n < 0 && !int.TryParse(part, out n))
                 continue;
@@ -125,7 +125,7 @@ internal sealed class AnsiSgrState
                 25                 => style with { Blink     = false },
                 27                 => style with { Reverse   = false },
                 >= 30 and <= 37    => style with { Foreground = (AnsiColor)(n - 30)       },
-                38                 => style,   // extended color — not used in MUD2
+                38                 => style,   // extended color - not used in MUD2
                 39                 => style with { Foreground = AnsiColor.Default          },
                 >= 40 and <= 47    => style with { Background = (AnsiColor)(n - 40)       },
                 49                 => style with { Background = AnsiColor.Default          },

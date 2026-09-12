@@ -6,8 +6,8 @@ using MudSharp.Models;
 namespace mudsharp.Tests.Fixtures;
 
 /// <summary>
-/// The per-swing ledger (tools/combat/SWING-LEDGER-SPEC.md sections 2/3/6): one row per swing in the
-/// combat database, both directions, written from real game lines.
+/// The per-swing ledger: one row per swing in the combat database, both directions, written from
+/// real game lines.
 ///
 /// <para>Driven end to end through <see cref="CombatTracker"/> rather than by hand-built
 /// <see cref="CombatEvent"/>s, because half of what the ledger has to get right is a consequence of
@@ -142,7 +142,7 @@ public sealed class SwingLedgerTests : IDisposable
 
         /// <summary>The swings table's columns, in declaration order - the schema is the deliverable
         /// now that a query is what reads this, so a rename is a breaking change and belongs under
-        /// test the same way the JSONL field names were.</summary>
+        /// test.</summary>
         public IReadOnlyList<string> Columns()
         {
             _ledger.Dispose();
@@ -171,8 +171,8 @@ public sealed class SwingLedgerTests : IDisposable
 
     // ---- Row shape -------------------------------------------------------------------------
 
-    /// <summary>The column names ARE the deliverable: the analysis view and tools/combat query this
-    /// table, so a rename silently breaks them. Pins the full set.</summary>
+    /// <summary>The column names ARE the deliverable: an analysis view and offline tooling query
+    /// this table, so a rename silently breaks them. Pins the full set.</summary>
     [Fact]
     public void SwingsTable_HasExactlyTheExpectedColumns()
     {
@@ -204,9 +204,8 @@ public sealed class SwingLedgerTests : IDisposable
         Assert.Equal("Ollie", Str(row, "persona"));
         Assert.Equal("rat0", Str(row, "npc"));
         Assert.Equal("rats", Str(row, "npc_group"));
-        // SWING-LEDGER-SPEC.md section 3 says sex is unobtainable for an existing character and to
-        // ship the field null. That note is stale: GameStatsSnapshot.Sex parses it off the score
-        // sheet, so it is recorded rather than left blank.
+        // GameStatsSnapshot.Sex parses it off the score sheet, so it is recorded rather than left
+        // blank.
         Assert.Equal("male", Str(row, "sex"));
     }
 
@@ -280,9 +279,8 @@ public sealed class SwingLedgerTests : IDisposable
 
     /// <summary>The incoming line carries POST-hit stamina, not a delta, and the same line is parsed
     /// twice (stats scan, then combat classifier). Without the one-shot relay the baseline has already
-    /// advanced by the time the delta is computed and every blow records 0 - which is what shipped
-    /// once, most visibly on single-hit fights. Two consecutive hits here so a stale relay cannot pass
-    /// by luck.</summary>
+    /// advanced by the time the delta is computed and every blow would record 0. Two consecutive hits
+    /// here so a stale relay cannot pass by luck.</summary>
     [Fact]
     public void IncomingHit_RecordsExactDamageAndNoBracket()
     {
@@ -382,7 +380,7 @@ public sealed class SwingLedgerTests : IDisposable
 
         Assert.False(session.Ledger.Damage.Lookup("zombie2").Incoming.HasSamples);
 
-        // ...and lands the moment the encounter closes — CombatTracker closes it immediately,
+        // ...and lands the moment the encounter closes - CombatTracker closes it immediately,
         // right on this same Say() call, once the kill line empties its combatant count.
         session.Say("You have killed the zombie2.");
 
@@ -495,10 +493,10 @@ public sealed class SwingLedgerTests : IDisposable
     /// so the two weapons get two COLUMNS rather than sharing one that means different things by
     /// direction.
     ///
-    /// <para>The old single field forced a choice on every row and made the player's weapon
+    /// <para>A single field would force a choice on every row and make the player's weapon
     /// unrecoverable from an incoming swing. What you were holding when something hit you is exactly
     /// as much a condition of that blow as what you were holding when you landed one, so both sides
-    /// carry both facts now.</para></summary>
+    /// carry both facts.</para></summary>
     [Fact]
     public void EachSwing_CarriesBothTheCreaturesWeaponAndThePlayers()
     {
@@ -632,8 +630,7 @@ public sealed class SwingLedgerTests : IDisposable
 
     /// <summary>"You are now using the X to fight!" names no NPC, so it cannot open an encounter -
     /// and against something already engaging you it is the only line printed. Without the latch the
-    /// whole fight's rows read as bare-handed, which is how a broadsword fight got recorded as
-    /// unarmed in the fight history.</summary>
+    /// whole fight's rows would read as bare-handed.</summary>
     [Fact]
     public void OutgoingSwing_AdoptsAWeaponEquippedJustBeforeTheFightWasNoticed()
     {
@@ -647,8 +644,7 @@ public sealed class SwingLedgerTests : IDisposable
     }
 
     /// <summary>Once the weapon leaves the player's hands every subsequent swing is bare-handed, and
-    /// the rows must say so - the owner lost a weapon mid-fight and the readout went on showing it.
-    /// </summary>
+    /// the rows must say so.</summary>
     [Fact]
     public void OutgoingSwing_AfterTheWeaponBreaks_IsRecordedUnarmed()
     {
@@ -667,7 +663,7 @@ public sealed class SwingLedgerTests : IDisposable
     // ---- Non-swing events produce nothing ------------------------------------------------------
 
     /// <summary>Only the four swing kinds produce rows. Everything else the tracker classifies is
-    /// context the ledger consumes without emitting, or fights.jsonl's business.</summary>
+    /// context the ledger consumes without emitting.</summary>
     [Fact]
     public void NonSwingEvents_ProduceNoRows()
     {

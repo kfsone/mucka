@@ -4,10 +4,8 @@ namespace Mucka.Terminal.Tests;
 
 /// <summary>
 /// Tests for <see cref="CombatRailResize"/> - the Combat Rail's window-resize arithmetic (T1/T3/T4
-/// and the round-four column-change desync fix), extracted from GamePage.xaml.cs specifically so it
-/// could be exercised here without a live WinUI window. Every scenario below was independently
-/// verified only by hand-tracing the code before this file existed; per CLAUDE.md ("anything that
-/// never reaches the user's hands has no gate unless you give it one"), these are that gate.
+/// and the column-change desync fix), extracted from GamePage.xaml.cs so it can be exercised here
+/// without a live WinUI window.
 ///
 /// DPI is passed as a plain value everywhere (96 == 100%, 120 == 125%, 144 == 150%) - see
 /// <see cref="CombatRailResize.DpToPxCeil"/>/<see cref="CombatRailResize.DpToPxRound"/> for the
@@ -17,8 +15,8 @@ public class CombatRailResizeTests
 {
     private const double Dpi100 = 96.0;
 
-    // -- The user's own four acceptance-criteria examples, at the real CombatPanelWidthDp (378, not
-    //    the illustrative 336 - see CombatRailResize's own remarks on why the two differ by the
+    // -- Four acceptance-criteria examples, at the real CombatPanelWidthDp (378, not the
+    //    illustrative 336 - see CombatRailResize's own remarks on why the two differ by the
     //    Border's 2dp stroke inset) --------------------------------------------------------------
 
     [Fact]
@@ -50,9 +48,9 @@ public class CombatRailResizeTests
 
     // Fixed-columns setup shared by the next several tests: panelExpanded=true, maxColumns=42,
     // charWidthDp=8.0 makes PreferredWindowWidthDp(8, true, 44 /* maxColumns+2 */) come out to
-    // exactly 600 (44*8 + 4 gutter + 228 panel + 16 chrome = 352 + 248 = 600) - the "fixed natural
-    // 600" the user's own examples use, reached with clean round numbers rather than reverse-
-    // engineering charWidthDp to an ugly fraction.
+    // exactly 600 (44*8 + 4 gutter + 228 panel + 16 chrome = 352 + 248 = 600) - a "fixed natural
+    // 600" reached with clean round numbers rather than reverse-engineering charWidthDp to an
+    // ugly fraction.
     private const int FixedMaxColumns = 42;
     private const double FixedCharWidthDp = 8.0;
     private const bool FixedPanelExpanded = true;
@@ -73,10 +71,10 @@ public class CombatRailResizeTests
     [Fact]
     public void Seed_AfterRelog_AdoptsTheRailWidthTheWindowAlreadyCarries()
     {
-        // The owner's bug, 2026-09-08: show the rail, quit to the persona picker, log back in, hide
-        // the rail - and the window never shrinks. A relog builds a NEW GamePage while the OS window
-        // keeps the width the old one gave it, so the incoming page's applied-delta starts at zero
-        // and the first hide subtracts nothing.
+        // Show the rail, quit to the persona picker, log back in, hide the rail - and the window
+        // never shrinks. A relog builds a NEW GamePage while the OS window keeps the width the old
+        // one gave it, so the incoming page's applied-delta starts at zero and the first hide
+        // subtracts nothing.
         //
         // Natural here is 600 and the window arrives at 978: 650 of the player's own sizing plus the
         // 328 the rail was actually seated in. The seed must claim the 328 and leave the 50 of manual
@@ -184,11 +182,7 @@ public class CombatRailResizeTests
 
         Assert.Equal(584, result.TargetWidthPx);
         // The remembered delta must match what was ACTUALLY applied (584 - 0 = 584), not the raw
-        // pre-clamp deltaPx (378) computed before the floor pushed the target up further. A version
-        // that derived the delta from the pre-clamp value instead of the post-clamp TargetWidthPx
-        // would report 378.0 here even though the window actually moved by 584 - see
-        // Show_WhenFloorClampBites_DeltaMatchesWhatWasActuallyApplied_AndHideRoundTripsCorrectly
-        // below for why that disagreement matters.
+        // pre-clamp deltaPx (378) computed before the floor pushed the target up further.
         Assert.Equal(584.0, result.NewAppliedDeltaDp);
     }
 
@@ -200,9 +194,7 @@ public class CombatRailResizeTests
         // but ComputeToggle is a pure function and has to stay correct regardless of caller
         // discipline. At such a low starting width there is no slack, so the raw computed delta is
         // the rail's full 378 - but 0 + 378 = 378 is still below the 584 floor, so the clamp bites and
-        // the amount ACTUALLY applied is 584, not 378. This is the defect this test exists to catch:
-        // an earlier version derived the remembered delta from the pre-clamp 378 instead of the
-        // post-clamp TargetWidthPx, so it disagreed with what the window actually did.
+        // the amount ACTUALLY applied is 584, not 378.
         var shown = CombatRailResize.ComputeToggle(
             showing: true, currentWidthPx: 0, dpi: Dpi100, maxColumns: FixedMaxColumns,
             charWidthDp: FixedCharWidthDp, panelExpanded: FixedPanelExpanded, appliedDeltaDp: 0.0);
@@ -212,10 +204,8 @@ public class CombatRailResizeTests
 
         // Hiding immediately, using the resynced delta, must not overshoot below the floor either -
         // the window lands back at the floor (584), which is the honest answer: the pre-show 0 was
-        // never a legal width to begin with, and a stale (pre-clamp) delta of 378 would have produced
-        // a wrong, different result here (0 + 584 - 378 = 206, still below the floor and clamped up
-        // to 584 anyway by coincidence at THIS floor - the point is the delta driving that arithmetic
-        // has to be the real one, not an assumption that happens to still land in the right place).
+        // never a legal width to begin with. The delta driving this arithmetic has to be the real
+        // (post-clamp) one, not the raw pre-clamp value.
         var hidden = CombatRailResize.ComputeToggle(
             showing: false, currentWidthPx: shown.TargetWidthPx, dpi: Dpi100, maxColumns: FixedMaxColumns,
             charWidthDp: FixedCharWidthDp, panelExpanded: FixedPanelExpanded,
@@ -239,7 +229,7 @@ public class CombatRailResizeTests
         Assert.Equal(0.0, result.NewAppliedDeltaDp);
     }
 
-    // -- Non-100% DPI: the dp/px round-trip, and a DPI change made WHILE the rail is shown (finding 5) --
+    // -- Non-100% DPI: the dp/px round-trip, and a DPI change made WHILE the rail is shown --
 
     [Fact]
     public void DpToPxRound_ScalesWithDpi_150Percent()
@@ -273,8 +263,8 @@ public class CombatRailResizeTests
     [Fact]
     public void Hide_AfterDpiChangedWhileShown_ReconvertsAtTheNewDpi_NotTheStaleOne()
     {
-        // Finding 5. Show at 100% DPI (auto mode, currentWidthPx 800): delta stored as 338dp,
-        // window grows to 1138px.
+        // Show at 100% DPI (auto mode, currentWidthPx 800): delta stored as 378dp,
+        // window grows to 1178px.
         var shown = CombatRailResize.ComputeToggle(
             showing: true, currentWidthPx: 800, dpi: Dpi100, maxColumns: 0,
             charWidthDp: 8.0, panelExpanded: true, appliedDeltaDp: 0.0);
@@ -284,9 +274,8 @@ public class CombatRailResizeTests
         // The window is then dragged to a 150%-scaled monitor. WinUI rescales the whole window's
         // physical size with it (1178 * 1.5 = 1767) - this test does not re-derive that rescale, it
         // simply asserts what CombatRailResize does with the new state: hiding must reconvert the
-        // STORED 338dp at the CURRENT 150% dpi (378 * 144 / 96 = 567), not subtract the stale 338px
-        // an earlier (buggy) version would have cached, and not leave the window's DPI-rescaled
-        // extra width behind as orphaned space.
+        // STORED 338dp at the CURRENT 150% dpi (378 * 144 / 96 = 567), and not leave the window's
+        // DPI-rescaled extra width behind as orphaned space.
         var hidden = CombatRailResize.ComputeToggle(
             showing: false, currentWidthPx: 1767, dpi: 144.0, maxColumns: 0,
             charWidthDp: 12.0, panelExpanded: true, appliedDeltaDp: shown.NewAppliedDeltaDp);
@@ -297,8 +286,8 @@ public class CombatRailResizeTests
         Assert.Equal(0.0, hidden.NewAppliedDeltaDp);
     }
 
-    // -- Round-four defect: a column-count change made while the rail is shown must not eat the
-    //    rail's width out of the terminal, and the resynced delta must make a later hide exact -----
+    // -- A column-count change made while the rail is shown must not eat the rail's width out of
+    //    the terminal, and the resynced delta must make a later hide exact -----------------------
 
     [Fact]
     public void ReserveRailWidth_AddsExactlyTheRailsFullReservation()
@@ -312,10 +301,10 @@ public class CombatRailResizeTests
     [Fact]
     public void ColumnsChangeWhileRailShown_TerminalKeepsItsFullColumnCount()
     {
-        // The reviewer's own concrete failure: fixed columns changed from 60 to 70 while the rail is
-        // shown. ResizeWindowToFitColumns snaps to PreferredWindowWidthDp(charWidthDp, panelExpanded,
-        // 72 /* 70 + 2 breathing columns */) = 72*8 + 4 + 228 + 16 = 824 - then, because the rail is
-        // shown, reserves its width on top via ReserveRailWidth.
+        // Fixed columns changed from 60 to 70 while the rail is shown. ResizeWindowToFitColumns
+        // snaps to PreferredWindowWidthDp(charWidthDp, panelExpanded, 72 /* 70 + 2 breathing
+        // columns */) = 72*8 + 4 + 228 + 16 = 824 - then, because the rail is shown, reserves its
+        // width on top via ReserveRailWidth.
         const double charWidthDp = 8.0;
         const bool panelExpanded = true;
         var naturalWithoutRail = CombatRailResize.PreferredWindowWidthDp(charWidthDp, panelExpanded, 72.0);
@@ -328,8 +317,7 @@ public class CombatRailResizeTests
         Assert.Equal(378.0, reserved.AppliedDeltaDp);
 
         // The terminal's own share of that final width - subtracting the rail, the left panel, the
-        // gutter and the chrome - must equal exactly 72 columns' worth (576 = 72 * 8), not the ~30
-        // columns the pre-fix snap left it with (824 - 16 - 228 - 378 = 202 =~ 30 columns).
+        // gutter and the chrome - must equal exactly 72 columns' worth (576 = 72 * 8).
         var terminalColumnsWidth = reserved.TargetWidthPx
             - CombatRailResize.DpToPxRound(CombatRailResize.CombatPanelWidthDp, Dpi100)
             - (int)CombatRailResize.SidePanelWidthDp
@@ -341,10 +329,8 @@ public class CombatRailResizeTests
     [Fact]
     public void ColumnsChangeWhileRailShown_LaterHideReturnsExactlyToTheNewNaturalWidth()
     {
-        // Continuing the scenario above: the resynced delta (378, zero slack - not whatever partial
-        // amount an earlier toggle's slack absorption had computed) must make hiding land exactly
-        // back on the new natural width (824), not on stale pre-change arithmetic and not clamped
-        // below the new floor.
+        // Continuing the scenario above: the resynced delta (378, zero slack) must make hiding land
+        // exactly back on the new natural width (824), not clamped below the new floor.
         var result = CombatRailResize.ComputeToggle(
             showing: false, currentWidthPx: 824 + 378, dpi: Dpi100, maxColumns: 70,
             charWidthDp: 8.0, panelExpanded: true, appliedDeltaDp: 378.0);

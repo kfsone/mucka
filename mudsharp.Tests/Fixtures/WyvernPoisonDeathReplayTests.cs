@@ -10,14 +10,14 @@ namespace MudSharp.Tests.Fixtures;
 /// The poisoned-wyvern fight replayed from its own wire bytes, through the production
 /// <see cref="MudSession"/> (real parser, real tracker, real wiring).
 ///
-/// <para>Origin: session-rec.mud2.co.uk.20260826-134435.jsonl, records 2905-3034 of the owner's
-/// session on 2026-08-26. The wyvern turns on the player after a herb is fed to it, they trade blows
-/// for ninety seconds, and then it dies of the poison with no kill line at all. Before the fix, that
-/// frame left the client "in combat" for the rest of the session.</para>
+/// <para>Origin: session-rec.mud2.co.uk.20260826-134435.jsonl, records 2905-3034, from a 2026-08-26
+/// session. The wyvern turns on the player after a herb is fed to it, they trade blows for ninety
+/// seconds, and then it dies of the poison with no kill line at all - so a fight-end detector relying
+/// on a kill line alone would leave the client "in combat" for the rest of the session.</para>
 ///
 /// <para><b>The fixture is a redaction of that, not a copy of it.</b> Six <c>rx</c> frames are kept,
 /// byte-for-byte and in their original order, and everything else in those 130 records is gone: every
-/// <c>tx</c> record of what the owner typed, the FES stat rows and FEI carry lists, the FEW who-list
+/// <c>tx</c> record of what the player typed, the FES stat rows and FEI carry lists, the FEW who-list
 /// and the other personas on it, a line of speech, and the potion/wafer/urn business that has nothing
 /// to do with the fight. The death frame itself is truncated at its own prompt, dropping the carry
 /// list that followed it in the same record. What is left is six frames of one creature fighting one
@@ -38,16 +38,16 @@ namespace MudSharp.Tests.Fixtures;
 /// nobody reads; here it would land on the first sting and cost that test its second occurrence. The
 /// miss-for-miss frame is real bytes from the same fight, holds nothing but the two creatures, and
 /// puts the artefact back where it does no harm. (The swallowed prompt is pre-existing parser
-/// behaviour, unchanged by this fixture and out of its scope - noted so the next person to trim this
-/// file does not lose an hour to it.)</para>
+/// behaviour, not an artefact of this fixture - noted so the next person to trim this file does not
+/// lose an hour to it.)</para>
 ///
 /// <para>Kept as bytes rather than as the hand-typed lines in <c>CombatTrackerTests</c> because the
 /// two facts that make this frame hard are both protocol facts, and neither survives a transcript:
 /// the death lines carry NO C1 code at all (bare text at base scope), while the trailing
-/// "You can fight the wyvern no longer." is wrapped in 08.12 — the one coded statement in the whole
+/// "You can fight the wyvern no longer." is wrapped in 08.12 - the one coded statement in the whole
 /// frame that a fight ended. That is also why the file is committed rather than gitignored with the
-/// tests skipping when it is absent, which is what this used to do: a protocol regression test that
-/// silently passes on a fresh clone is not a test.</para>
+/// tests skipping when it is absent: a protocol regression test that silently passes on a fresh clone
+/// is not a test.</para>
 /// </summary>
 public sealed class WyvernPoisonDeathReplayTests
 {
@@ -93,8 +93,9 @@ public sealed class WyvernPoisonDeathReplayTests
     {
         var (inCombat, events, _) = Replay();
 
-        // Exactly one encounter, opened and CLOSED. The closing half is the whole bug: nothing in
-        // this frame is a kill line, so before the fix the second element here did not exist.
+        // Exactly one encounter, opened and CLOSED. The closing half is the hard part: nothing in
+        // this frame is a kill line, so a detector relying on one would never produce the second
+        // element here.
         Assert.Equal([true, false], inCombat);
 
         var start = Assert.Single(events, e => e.Kind == CombatEventKind.FightStart);

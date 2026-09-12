@@ -9,17 +9,17 @@ namespace MudSharp.Tests.Fixtures;
 /// 20260711-235427 = wear-offs).
 ///
 /// Byte encoding: a C-code is 0x9B + code, so C11 = 0xA6 and its sub-code byte is 0x9B + sub:
-///   glow    → C11 C00 (A6 9B)   unglow → C11 C01 (A6 9C)
-///   start   → C11 C02 (A6 9D) + comparative phrase ("...become stronger!")
-///   wear-off→ C11 C03 (A6 9E) + noun phrase ("[Some of] your magical strength has worn off.")
-/// All six stat spells share 11 02 — only the bracketed phrase disambiguates stat + direction.
+///   glow    -> C11 C00 (A6 9B)   unglow -> C11 C01 (A6 9C)
+///   start   -> C11 C02 (A6 9D) + comparative phrase ("...become stronger!")
+///   wear-off-> C11 C03 (A6 9E) + noun phrase ("[Some of] your magical strength has worn off.")
+/// All six stat spells share 11 02 - only the bracketed phrase disambiguates stat + direction.
 /// </summary>
 public class StatusEffectTests
 {
     private static ParserHarness InGameMode()
     {
         var h = new ParserHarness();
-        h.Feed(0x9D, 0x9C, 0xFF, 0xFF); // C02 C01 → enter game mode
+        h.Feed(0x9D, 0x9C, 0xFF, 0xFF); // C02 C01 -> enter game mode
         h.ClearCounters();
         return h;
     }
@@ -30,7 +30,7 @@ public class StatusEffectTests
     private static byte[] Start(string phrase) => Bracket(0x9D, phrase);   // 11 02
     private static byte[] End(string phrase)   => Bracket(0x9E, phrase);   // 11 03
 
-    // ── Starts (11 02) ────────────────────────────────────────────────────────
+    // -- Starts (11 02) --------------------------------------------------------
 
     [Theory]
     [InlineData("You have suddenly and magically become stronger!",    StatusEffectKind.Strength,  EffectSign.Buff)]
@@ -52,8 +52,7 @@ public class StatusEffectTests
     [Fact]
     public void Start_CapturesDetectedLineAsMessage()
     {
-        // The exact fed line is carried on the change as the tooltip source. Only the affliction
-        // path asserted .Message before; the enhancing-start path is the primary tooltip source.
+        // The exact fed line is carried on the change as the tooltip source.
         const string line = "You have suddenly and magically become stronger!";
         var h = InGameMode();
         h.Feed(Start(line));
@@ -71,7 +70,7 @@ public class StatusEffectTests
         // across Feed() calls, so a mid-word split must still resolve to the same effect.
         var h = InGameMode();
         h.Feed([0xA6, 0x9D, 0xFF, 0xFF, .. Encoding.Latin1.GetBytes("You have suddenly and magically become str")]);
-        Assert.Empty(h.StatusEffects);   // bracket not yet closed — nothing emitted
+        Assert.Empty(h.StatusEffects);   // bracket not yet closed - nothing emitted
         h.Feed([.. Encoding.Latin1.GetBytes("onger!"), 0xFF, 0xFF]);
         var e = Assert.Single(h.StatusEffects);
         Assert.Equal(StatusEffectKind.Strength, e.Kind);
@@ -79,7 +78,7 @@ public class StatusEffectTests
         Assert.Equal(EffectTransition.Started, e.Transition);
     }
 
-    // ── Wear-offs (11 03) — confirmed nouns from the 235427 capture ─────────────
+    // -- Wear-offs (11 03) - confirmed nouns from the 235427 capture -------------
 
     [Theory]
     [InlineData("Your magical weakness has worn off.",   StatusEffectKind.Strength,  EffectSign.Debuff)]
@@ -101,7 +100,7 @@ public class StatusEffectTests
     [Fact]
     public void Unfitness_NotMisreadAsFitness()
     {
-        // "unfitness" contains "fitness" — ordering must resolve it to the Debuff slot.
+        // "unfitness" contains "fitness" - ordering must resolve it to the Debuff slot.
         var h = InGameMode();
         h.Feed(End("Your magical unfitness has worn off."));
         var e = Assert.Single(h.StatusEffects);
@@ -123,7 +122,7 @@ public class StatusEffectTests
     [Fact]
     public void OneDrain_ProducesPartialThenFullUnfitnessWearOff()
     {
-        // Real 235427 quirk: a single drain bled off as two 11 03 brackets in one packet —
+        // Real 235427 quirk: a single drain bled off as two 11 03 brackets in one packet -
         // "Some of ... unfitness" then "... unfitness has worn off". Both must decode.
         var h = InGameMode();
         h.Feed([
@@ -138,7 +137,7 @@ public class StatusEffectTests
     [Fact]
     public void StackedWeaken_StaysOneDebuffAcrossPartialsUntilFullClear()
     {
-        // Real 002448 capture: 3× weaken → one STR-debuff that bled off as two partials
+        // Real 002448 capture: 3x weaken -> one STR-debuff that bled off as two partials
         // then a full clear. The parser reports every transition faithfully; a binary
         // tracker keeps the slot on from the first Started until FullyWoreOff.
         var h = InGameMode();
@@ -159,7 +158,7 @@ public class StatusEffectTests
             h.StatusEffects.ConvertAll(e => e.Transition));
     }
 
-    // ── Glow (11 00 / 11 01) ────────────────────────────────────────────────────
+    // -- Glow (11 00 / 11 01) ----------------------------------------------------
 
     // 11 00 disabling-start + glow phrase. Byte C00 = 0x9B.
     private static byte[] DisableStart(string phrase) => Bracket(0x9B, phrase);
@@ -187,9 +186,9 @@ public class StatusEffectTests
     }
 
     [Theory]
-    // Regression (bug h): ailments share the disabling code family with glow. Their start/end
-    // must NOT emit a GLOW event — "regained your hearing" was clearing the glow icon. (Afflictions
-    // do emit their own tooltip-only change on start; they must never be a Glow change.)
+    // Ailments share the disabling code family with glow. Their start/end must NOT emit a GLOW
+    // event - "regained your hearing" must not clear the glow icon. (Afflictions do emit their own
+    // tooltip-only change on start; they must never be a Glow change.)
     [InlineData("You have suddenly and magically gone deaf!")]
     [InlineData("You have suddenly and magically regained your hearing!")]
     [InlineData("You have suddenly and magically gone blind!")]
@@ -215,8 +214,8 @@ public class StatusEffectTests
     [Fact]
     public void GlowSurvives_WhenAilmentEndsBeside_It()
     {
-        // Exact bug h sequence: glow on, deaf on, then deafness wears off. Glow must persist —
-        // no glow-off event, regardless of the deaf affliction change that also fires.
+        // Glow on, deaf on, then deafness wears off. Glow must persist - no glow-off event,
+        // regardless of the deaf affliction change that also fires.
         var h = InGameMode();
         h.Feed(DisableStart("You have suddenly and magically started glowing!"));
         h.Feed(DisableStart("You have suddenly and magically gone deaf!"));
@@ -234,11 +233,11 @@ public class StatusEffectTests
         Assert.Contains(h.Lines, l => l.PlainText.Contains("become stronger!"));
     }
 
-    // ── Target gate: effects on OTHERS must not touch our icons ─────────────────
+    // -- Target gate: effects on OTHERS must not touch our icons -----------------
     // The C11 spell codes fire for an effect landing on anyone in the room. The bracketed phrase
-    // is the only target signal — self-phrases begin "You "/"Your "/"Some of your "; others read
-    // "The <mob> is now …", "Someone has …", "<name> … has …". All forms below are verbatim from
-    // session captures. Regression for: a debuff cast on a zombie lit up the player's own icon.
+    // is the only target signal - self-phrases begin "You "/"Your "/"Some of your "; others read
+    // "The <mob> is now ...", "Someone has ...", "<name> ... has ...". All forms below are verbatim from
+    // session captures.
 
     [Theory]
     [InlineData(0x9D, "The zombie1 is now less adroit!")]                 // 11 02 enhance start, NPC
@@ -257,7 +256,7 @@ public class StatusEffectTests
     [Fact]
     public void EffectOnAnother_StillDisplayed()
     {
-        // The gate only suppresses the icon change — the message is other-players' visible output
+        // The gate only suppresses the icon change - the message is other-players' visible output
         // and must still reach the terminal.
         var h = InGameMode();
         h.Feed(Start("The zombie1 is now less adroit!"));

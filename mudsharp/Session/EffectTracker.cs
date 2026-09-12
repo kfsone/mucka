@@ -9,7 +9,7 @@ namespace MudSharp.Session;
 /// <para>Binary model: <see cref="EffectTransition.Started"/> turns a (stat, sign) slot on,
 /// <see cref="EffectTransition.FullyWoreOff"/> turns it off, and
 /// <see cref="EffectTransition.PartiallyWoreOff"/> is ignored (the effect is still active).
-/// Stack depth is deliberately not tracked — cast and wear-off message counts don't line up
+/// Stack depth is deliberately not tracked - cast and wear-off message counts don't line up
 /// (one cast can be multi-level and bleeds off in stages), so depth from messages is a lie.</para>
 ///
 /// <para>Not internally locked: <see cref="Apply"/> and <see cref="Reset"/> are called from
@@ -19,9 +19,9 @@ namespace MudSharp.Session;
 public sealed class EffectTracker
 {
     private bool _strBuff, _strDebuff, _dexBuff, _dexDebuff, _staBuff, _staDebuff, _glow;
-    // The game line that last turned each slot on — surfaced as the icon tooltip.
+    // The game line that last turned each slot on - surfaced as the icon tooltip.
     private string? _strBuffMsg, _strDebuffMsg, _dexBuffMsg, _dexDebuffMsg, _staBuffMsg, _staDebuffMsg, _glowMsg;
-    // Affliction tooltip lines (no on/off tracked here — FES drives their display).
+    // Affliction tooltip lines (no on/off tracked here - FES drives their display).
     private string? _deafMsg, _blindMsg, _dumbMsg, _crippledMsg;
 
     /// <summary>Fires with the new snapshot only when the active set actually changes.</summary>
@@ -31,7 +31,7 @@ public sealed class EffectTracker
 
     public void Apply(StatusEffectChange change)
     {
-        // PartiallyWoreOff leaves the slot on — a level bled off but the effect remains.
+        // PartiallyWoreOff leaves the slot on - a level bled off but the effect remains.
         if (change.Transition == EffectTransition.PartiallyWoreOff)
             return;
 
@@ -57,7 +57,7 @@ public sealed class EffectTracker
         Publish();
     }
 
-    /// <summary>Clear all effects — call on game-mode entry/exit (relog wipes effects).</summary>
+    /// <summary>Clear all effects - call on game-mode entry/exit (relog wipes effects).</summary>
     public void Reset()
     {
         _strBuff = _strDebuff = _dexBuff = _dexDebuff = _staBuff = _staDebuff = _glow = false;
@@ -72,7 +72,7 @@ public sealed class EffectTracker
             _strBuff, _strDebuff, _dexBuff, _dexDebuff, _staBuff, _staDebuff, _glow,
             _strBuffMsg, _strDebuffMsg, _dexBuffMsg, _dexDebuffMsg, _staBuffMsg, _staDebuffMsg, _glowMsg,
             _deafMsg, _blindMsg, _dumbMsg, _crippledMsg);
-        if (next == Current) return;   // record value-equality — no-op changes stay silent
+        if (next == Current) return;   // record value-equality - no-op changes stay silent
         Current = next;
         Changed?.Invoke(next);
     }

@@ -10,9 +10,9 @@ namespace MudSharp.Combat;
 ///
 /// <para><b>This hierarchy is deliberately not a danger ramp.</b> Orange means "no evidence"; red
 /// means "evidence, and it says you could not finish this". Red is worse than unknown here, which is
-/// the opposite of the convention where an unknown is the scary one, and it is the owner's own
-/// reading: a creature you have already failed to kill is a known problem, where one you have never
-/// met is merely an open question. Do not "correct" this to orange-then-red-by-difficulty.</para>
+/// the opposite of the convention where an unknown is the scary one: a creature you have already
+/// failed to kill is a known problem, where one you have never met is merely an open question. Do
+/// not "correct" this to orange-then-red-by-difficulty.</para>
 /// </summary>
 public enum NoveltyMark
 {
@@ -58,13 +58,11 @@ public static class CombatNovelty
     /// dead creature, and the red mark says "you have fought this and could not finish it". Marking a
     /// creature you poisoned to death as unfinished is simply false.</para>
     ///
-    /// <para><b>The operator's own framing, 2026-09-02</b>, which is also why the family is open
-    /// rather than poison-specific: "NoMore usually indicates a non-combat defeat of the npc - such
-    /// as poisoning them, or if you were in combat with the dragon when it dies from eating coal 10
-    /// minutes earlier, etc. So it's a kill but an outlier to be ignored if it has no swings." The
-    /// coal is the case that shows why no damage figure here can be trusted: the thing that killed it
-    /// happened in another room, ten minutes earlier, and nothing about it crossed the wire during
-    /// this fight.</para>
+    /// <para><b>Why the family is open rather than poison-specific:</b> NoMore covers any non-combat
+    /// defeat of the NPC - poisoning is one, and so is the case where the player was in combat with a
+    /// dragon when it died from eating coal ten minutes earlier. The coal case is why no damage
+    /// figure here can be trusted: the thing that killed it happened in another room, ten minutes
+    /// earlier, and nothing about it crossed the wire during this fight.</para>
     ///
     /// <para><b>The second half of that sentence is a different rule with a different owner.</b>
     /// "An outlier to be ignored if it has no swings" governs POOL ESTIMATION, not this. A NoMore row
@@ -80,7 +78,7 @@ public static class CombatNovelty
     /// The mark the weapon in hand carries, across everything still ENGAGED: the worst mark any one
     /// of them contributes.
     ///
-    /// <para>The owner's wording is "if there is ANY engaged npc you have ... " for both colours, so
+    /// <para>The rule is "if there is ANY engaged npc you have ..." for both colours, so
     /// this is a maximum and not a vote. Red therefore wins over orange whenever both are present -
     /// one creature this weapon has never met matters less than one it has met and failed to
     /// finish.</para>

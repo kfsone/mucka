@@ -6,9 +6,8 @@ namespace mudsharp.Tests.Fixtures;
 /// The badge-name emphasis rule: bold for the tick a blow landed on, and never for the 50 ms that a
 /// frame arriving just before a boundary would otherwise get.
 ///
-/// <para>The numbers matter more than usual here because the owner specified them - "the last ~300ms
-/// prior to where our tick cycle starts" - so the carry-forward's size is a requirement rather than a
-/// tuning choice.</para>
+/// <para>The carry-forward window is fixed at roughly the last 300ms before a tick boundary; its
+/// size is a requirement rather than a tuning choice.</para>
 /// </summary>
 public sealed class TickDamageEmphasisTests
 {
@@ -36,8 +35,8 @@ public sealed class TickDamageEmphasisTests
     [Fact]
     public void A_blow_in_the_last_sixth_of_a_tick_is_carried_into_the_next_one()
     {
-        // 1900 ms in: 100 ms of its own tick left, which is the 50 ms flash the owner ruled out. It
-        // takes the following tick instead, so the emphasis runs 100 + 2000 ms.
+        // 1900 ms in: 100 ms of its own tick left, too brief a flash to show on its own. It takes the
+        // following tick instead, so the emphasis runs 100 + 2000 ms.
         var blow = At(1900);
         Assert.True(TickDamageEmphasis.IsOn(blow, At(2100), Anchor));   // past the boundary
         Assert.True(TickDamageEmphasis.IsOn(blow, At(3999), Anchor));

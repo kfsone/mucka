@@ -17,8 +17,7 @@ public sealed record CombatStatDeficits(
     int? StaminaMax,
     int? ObjectsCarried,
     // Effective (not raw) strength and its maximum, for the encumbrance-tier signal: T1 below 75% of
-    // max effective strength, T2 below 50%. An ABSOLUTE fraction-of-max, which is why the
-    // delta-from-raw pair this record used to carry beside it is gone - nothing read it.
+    // max effective strength, T2 below 50%. An ABSOLUTE fraction-of-max, not a delta from raw strength.
     int? StrengthEffective = null,
     int? StrengthMax = null,
     // Total score, from the same FES snapshot. Carried only as an input to MUD2's own formula for what
@@ -93,13 +92,12 @@ public sealed record SessionCombatTotals(
 /// actually draws, sourced straight off <see cref="FightSnapshot"/> (unbounded) rather than off the
 /// row-capped roster - see <c>SidePanelViewModel.BuildDeadStripHistory</c>.</para>
 ///
-/// <para><b>2026-09-02: <see cref="EncounterOrdinal"/> and <see cref="ResetOrdinal"/> added</b> for
-/// the strip's two grouping separators (owner: "put a 1px yellow dotted separator between
-/// encounters... put a 2px white solid line between resets"). Both are simple monotonic
+/// <para><see cref="EncounterOrdinal"/> and <see cref="ResetOrdinal"/> are simple monotonic
 /// session-scoped counters, not timestamps or epochs - <c>SwingLedger.ResetEpochMs</c> is derived
 /// from the FES <c>TimeToReset</c>, which is in whole MINUTES, and is noisy row-to-row within one
-/// reset cycle (a prior repair on this corpus found only 13.2% of rows within +-30s of their cycle
-/// median before correction, 93.9% after) - equality on it would draw spurious lines mid-session.
+/// reset cycle (on the swing ledger corpus, 13.2% of rows sat within +-30s of their cycle median
+/// before that column was repaired, 93.9% after) - equality on it would draw spurious lines
+/// mid-session.
 /// See <see cref="SidePanelViewModel"/>'s own fields for where each counter is advanced.</para>
 /// </summary>
 /// <param name="EncounterOrdinal">Which encounter this ending belongs to. Incremented once per
@@ -108,10 +106,9 @@ public sealed record SessionCombatTotals(
 /// <param name="ResetOrdinal">Which reset cycle this ending belongs to. Incremented when the reset
 /// LANDS - the server's own C06 C06, corroborated against the reset countdown
 /// (<c>SidePanelViewModel.OnWorldResetLanded</c>, wired to <c>MuckaConnection.WorldResetLanded</c>),
-/// with the shell prompt as a backstop. Never inferred from <c>ResetEpochMs</c> or from prose. It
-/// was previously incremented on the C06 C04 WARNING, which put anything ending in the 120-second
-/// finish-up window - a fight cut short BY the reset, most obviously - on the wrong side of the
-/// separator.</param>
+/// with the shell prompt as a backstop. Never inferred from <c>ResetEpochMs</c> or from prose, and
+/// never from the C06 C04 WARNING - anything ending in the 120-second finish-up window (a fight cut
+/// short BY the reset, most obviously) must land on the pre-reset side of the separator.</param>
 /// <param name="Dealt">What the player did to this creature over the whole fight, and at what rate -
 /// the same <see cref="MudSharp.Combat.ExchangeLine"/> its live tile carried, frozen at the moment it
 /// resolved. A corpse's row is the only place that summary survives, since the tile is gone.</param>
@@ -141,14 +138,13 @@ public readonly record struct CombatEnding(
 /// dependent, unreachable from mudsharp.Tests) so the one property that actually matters - an
 /// ending's row, once drawn, never moves - can be pinned directly by a test.
 ///
-/// <para><b>2026-09-02 fix.</b> <c>CombatStatsAggregator.BuildFightSnapshots</c> produces
-/// <c>FightSnapshot</c>s in FIRST-ENGAGED order (<c>_fightOrder</c>), not resolution order - nothing
-/// downstream sorted them, so the strip drew a creature engaged first but killed LAST above one
-/// engaged second but killed first, and the second creature's row moved down a line the moment the
-/// first one died. That is exactly the shifting failure the strip's own "nothing moves" rule exists
-/// to prevent. <see cref="Sorted"/> is the fix, and it is the only place that fix may live - both call
-/// sites in <c>SidePanelViewModel</c> (the encounter-close fold and the live tail) route through
-/// it.</para>
+/// <para><c>CombatStatsAggregator.BuildFightSnapshots</c> produces <c>FightSnapshot</c>s in
+/// FIRST-ENGAGED order (<c>_fightOrder</c>), not resolution order. <see cref="Sorted"/> is the only
+/// place that reorders them into the strip's actual draw order - both call sites in
+/// <c>SidePanelViewModel</c> (the encounter-close fold and the live tail) must route through it, or a
+/// creature engaged first but killed last would draw above one engaged second but killed first, and
+/// that row would move the moment the first one died, breaking the strip's own "nothing moves"
+/// rule.</para>
 /// </summary>
 public static class CombatEndingOrder
 {
@@ -234,9 +230,8 @@ public sealed record CombatHistoryContext(
 /// locking and can never observe a half-updated fight.
 ///
 /// <para>This is the whole model-to-view contract: the render surface composes its own layout from
-/// these values and inherits no layout from anywhere else. That direction matters - the previous
-/// implementation drew a text formatter's pre-composed lines verbatim onto a canvas, so the signal
-/// that mattered most was never actually composed for the canvas at all.</para>
+/// these values and inherits no layout from anywhere else, rather than drawing pre-composed lines
+/// from a text formatter verbatim onto the canvas.</para>
 ///
 /// <para>Equality is structural, which is what lets <see cref="Mucka.Rendering.CombatRailView.Live"/>
 /// skip invalidating the canvas when a freshly-allocated frame is not actually different from the
@@ -266,13 +261,12 @@ public sealed record CombatLiveView(
     string WeaponText,
     // Whether the player is fighting BARE-HANDED, and only ever true while a fight is running. MUD2
     // has no persistent wielded weapon: one is named for the current fight and stops being wielded
-    // when the fight ends (owner, 2026-09-07), so "unarmed" describes a fight rather than a person and
-    // there is no such state to report between them. Both construction sites hold this false outside
-    // combat; see SidePanelViewModel's post-combat branch.
+    // when the fight ends, so "unarmed" describes a fight rather than a person and there is no such
+    // state to report between them. Both construction sites hold this false outside combat; see
+    // SidePanelViewModel's post-combat branch.
     bool IsUnarmed,
-    // The whole opposition, one row per participant. Each row carries its own seal state, so the
-    // NPC weapon a previous version of this record held as a single "current target's weapon" now
-    // lives on the participant it belongs to - see RosterRow.
+    // The whole opposition, one row per participant. Each row carries its own seal state and its own
+    // NPC weapon - see RosterRow.
     MudSharp.Combat.RosterPlan Roster,
     int? StaminaCurrent,
     int? StaminaMax,

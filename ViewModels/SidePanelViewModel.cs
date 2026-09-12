@@ -24,7 +24,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     private string _previousRoom = "Option Menu";
     private string _oldestRoom   = "Logging in";
 
-    // ── Section fold/unfold state ─────────────────────────────────────────────
+    // -- Section fold/unfold state ---------------------------------------------
     // Each section heading has a [v]/[>] widget; folding is equivalent to disabling in settings.
     private bool _isOnlineExpanded   = true;
     private bool _isInventoryExpanded = true;
@@ -36,7 +36,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     private bool _namesOnly;
     private int  _maxOnline;
     private int  _forgetWindowMinutes;
-    // UTC time the last FEW response completed — the "last seen" baseline for players who drop
+    // UTC time the last FEW response completed - the "last seen" baseline for players who drop
     // off it, and the gap used to low-clamp an overdue FEW's Recent lifetimes.
     private DateTime _lastFewCompleteUtc;
     // Source of truth for the Recent list (side-panel only). RecentGroups is the grouped view.
@@ -51,15 +51,12 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     }
     public bool IsPanelCollapsed => !_isPanelExpanded;
     // [v] when expanded (click to hide the left-edge panel), [>] when collapsed (click to show
-    // panel) -- same fixed-width ASCII fold convention as the section glyphs below
-    // (DESIGN_FINAL.md D12/4.5: a variable-width glyph mixed into fixed-width monospace
-    // ASCII is the exact bug class that broke ClogPage's column alignment once already,
-    // so the whole panel now shares one fold-glyph convention).
+    // panel) -- same fixed-width ASCII fold convention as the section glyphs below: a
+    // variable-width glyph mixed into fixed-width monospace ASCII breaks column alignment.
     public string PanelToggleGlyph => _isPanelExpanded ? "[v]" : "[>]";
 
-    // ── Section fold/unfold ────────────────────────────────────────────────────
-    // [v] = expanded (content visible), [>] = collapsed (content hidden). ASCII-only
-    // per DESIGN_FINAL.md D12 -- these used to be triangle glyph escapes.
+    // -- Section fold/unfold ----------------------------------------------------
+    // [v] = expanded (content visible), [>] = collapsed (content hidden). ASCII-only.
     public bool IsOnlineExpanded
     {
         get => _isOnlineExpanded;
@@ -165,13 +162,12 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     public double FloatingMapHeight => MapSizes[_mapSizeIx].H;
     /// <summary>
     /// Outer width for the floating-compass windlet: the dial plus the panel's 8+8 horizontal
-    /// padding. Bound to the Border's WidthRequest so the windlet hugs the dial. Without it,
-    /// Android's stack layout lets the star-column heading row and the Fill'd swamp seam stretch
-    /// the panel to the full screen width (Windows measures to content, so it looked fine there).
+    /// padding. Bound to the Border's WidthRequest so the windlet hugs the dial. Without it, the
+    /// panel stretches to the full screen width on Android (not observed on Windows).
     /// </summary>
     public double FloatingMapPanelWidth => FloatingMapWidth + 16;
 
-    // ── Buffs / status effects ─────────────────────────────────────────────────
+    // -- Buffs / status effects -------------------------------------------------
     // Rendered in the status-bar effect cluster (see GamePage.xaml StatusBar). Per-slot active
     // flags drive each icon's IsVisible; tooltips carry the exact detected game line.
     private bool _strBuff, _strDebuff, _dexBuff, _dexDebuff, _staBuff, _staDebuff, _glow;
@@ -187,8 +183,8 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     public bool Glow            => _glow;
 
     // Vertical nudge (px) for the +/- overlap: icons sit vertically centred when only one sign is
-    // active, and split ±1 apart only when both are present (the stacked look). TranslationY, so
-    // it never affects layout. Buff sits behind (+1, down), debuff in front (−1, up).
+    // active, and split +/-1 apart only when both are present (the stacked look). TranslationY, so
+    // it never affects layout. Buff sits behind (+1, down), debuff in front (-1, up).
     public double StaminaBuffDy    => (_staBuff && _staDebuff) ?  1 : 0;
     public double StaminaDebuffDy  => (_staBuff && _staDebuff) ? -1 : 0;
     public double StrengthBuffDy   => (_strBuff && _strDebuff) ?  1 : 0;
@@ -211,10 +207,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     public string CrippledTip        => _crippledTip   ?? "You are crippled";
 
     // -- Combat indicator ---------------------------------------------------------
-    // Driven by MudSharp.Combat.CombatTracker via MuckaConnection.InCombatChanged. There used to be
-    // a companion IsClogging flag here; it meant something while clogging was opt-in ("in combat,
-    // but not recording"), and nothing at all now that a clog is written for every detected
-    // encounter. A flag that cannot differ from the one beside it is not a second fact.
+    // Driven by MudSharp.Combat.CombatTracker via MuckaConnection.InCombatChanged.
     private readonly CombatStatsAggregator _combatStats = new();
     // Bounds how often the clog readout actually rebuilds/republishes (see ClogRenderGate). Combat
     // events and the FES heartbeat can fire many times a second in a pack fight; this collapses
@@ -224,13 +217,13 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     private readonly ClogRenderGate _clogRenderGate = new();
     private bool _inCombat, _hasCombatData, _isCombatGrace;
     private int _combatClearGeneration;
-    // -- Combat Rail: the new right-edge panel (DESIGN_FINAL.md D3/2.2, corrected) -----------
+    // -- Combat Rail: the right-edge panel -----------
     // Show/hide only - driven by ToggleCombatPanelCommand from the overflow menu, with GamePage
     // resizing the window on the change. GameViewModel's constructor is the one exception to "an
     // explicit toggle is the only way this becomes true": it seeds this from the connecting profile's
     // persisted ClientSettings.ShowCombatRail (T2), so the panel restores to whatever a given persona
-    // last left it at on relog. D3's "the window never resizes itself" rule still holds for every
-    // change AFTER that seed - see GamePage.OnAppearing's own remarks on applying that first state.
+    // last left it at on relog. The window never resizes itself on any other change - see
+    // GamePage.OnAppearing's own remarks on applying that first state.
     private bool _isCombatPanelVisible;
     private CombatTier _pulseTier = CombatTier.None;
 
@@ -255,9 +248,9 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     // rest of the session, so handing IT out would alias a "final" frame to storage a later encounter
     // close then mutates. _archiveSnapshot below is the immutable copy that actually gets published;
     // see BuildDeadStripHistory.
-    // The dead strip's two grouping counters (2026-09-02, owner: "put a 1px yellow dotted separator
-    // between encounters... put a 2px white solid line between resets"). Both are simple monotonic
-    // session-scoped ordinals - see CombatEnding's own remarks for why not a timestamp/epoch.
+    // The dead strip's two grouping counters draw a 1px yellow dotted separator between encounters
+    // and a 2px white solid line between resets. Both are simple monotonic session-scoped ordinals -
+    // see CombatEnding's own remarks for why not a timestamp/epoch.
     // Neither is ever decremented or reset mid-session: a fresh CombatEnding always gets the CURRENT
     // value of both, so two endings compare equal on one iff they were recorded in the same
     // encounter/reset cycle, whatever else about the session has happened since.
@@ -307,7 +300,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     // is unit-testable - see that class's remarks for the full reasoning.
     private readonly CombatHistoryCache _historyCache = new();
 
-    /// <summary>Stamina lost on the most recent combat tick, for the STA ring'''s tinted slice. Fed by
+    /// <summary>Stamina lost on the most recent combat tick, for the STA ring's tinted slice. Fed by
     /// every stats reading (see OnStatsUpdated) rather than only combat events, because a stamina GAIN
     /// is what clears a stale slice and gains arrive on the heartbeat.</summary>
     private readonly Mucka.Core.TickStaminaLoss _tickLoss = new();
@@ -328,10 +321,6 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     // the ONE live opponent the player's own incoming-damage prediction bands are projected from (see
     // IncomingPerBlowOf) - the reason this index is read per roster row rather than once for the
     // primary target is that the selection is a question about the whole opposition, not one target.
-    // (2026-09-02: this used to also feed the player seal's reach chevron, deleted at the owner's
-    // request - "We also have the residual arrow on the players' stamina seal from before we added
-    // the same guide ring around the outside. thats an indicator too many". This is the surviving
-    // consumer.)
     private ReachMarkIndex? _reachMarks;
     // Cached once so the per-carried-item weapon test costs no allocation on the refresh path. Reads
     // _fightHistory through the closure rather than capturing it, so attaching the store later (as
@@ -340,7 +329,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
 
     public bool InCombat   => _inCombat;
     /// <summary>True while a just-ended encounter's clog is still draining its tail (trailing
-    /// prose captured up to the next prompt — see ClogWriter.IsTailOnly) with no new encounter
+    /// prose captured up to the next prompt - see ClogWriter.IsTailOnly) with no new encounter
     /// yet live - bind the combat indicator's opacity to this so it dims instead of looking
     /// identical to an actively-ongoing fight.</summary>
     public bool IsCombatGracePeriod => _isCombatGrace;
@@ -364,7 +353,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
 
     /// <summary>Whether the Combat Rail (the new right-edge panel) is shown. Toggled from the
     /// overflow menu's "Combat" entry and, when it changes, by GamePage resizing the window
-    /// by the panel's own width (DESIGN_FINAL.md D3/2.2) - never by anything else; this property
+    /// by the panel's own width (docs/combat-panel-design.md, window policy) - never by anything else; this property
     /// does not change on combat start/end, only on an explicit toggle. Refuses to become true at
     /// all when <see cref="IsCombatRailSupported"/> is false, so no future caller can light up an
     /// unmanaged panel on a platform its supporting logic was never built for.</summary>
@@ -443,13 +432,13 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     /// </summary>
     public event Action<RailFloat>? CombatFloatRaised;
 
-    /// <summary>The tier driving the Combat Rail's single shared Composition glow layer (4.2: "at
-    /// most one T3 element at a time"). Only <see cref="CombatTier.T3"/> ever requests motion - the
-    /// glow helper (PulseLayer) treats every other value as "stop".</summary>
+    /// <summary>The tier driving the Combat Rail's single shared Composition glow layer. At most one
+    /// T3 element runs at a time: only <see cref="CombatTier.T3"/> ever requests motion - the glow
+    /// helper (PulseLayer) treats every other value as "stop".</summary>
     public CombatTier PulseTier => _pulseTier;
 
-    /// <summary>Encumbrance tier for the load line's colour intensity (4.3: T1 below 75% of max
-    /// effective strength, T2 below 50%). Computed unconditionally whenever there is anything on
+    /// <summary>Encumbrance tier for the load line's colour intensity: T1 below 75% of max
+    /// effective strength, T2 below 50%. Computed unconditionally whenever there is anything on
     /// screen at all - carrying too much is worth flagging even during the post-fight grace window,
     /// not only while a fight is actively live.</summary>
     public CombatTier EncumbranceTier => _encumbranceTier;
@@ -508,17 +497,13 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
                 // frame, with no prompt between them - so without this, the last blow of a fight that
                 // just ended could still be drawn tinted over the new encounter's first frames, marking
                 // a loss that happened to a different fight against a ring that has already reset to
-                // the new one's own stamina. (2026-09-02: TickStaminaLoss.Reset existed but nothing
-                // called it - wired in here rather than deleted, since this frame-sharing behaviour is
-                // exactly the boundary its own doc comment already named.)
+                // the new one's own stamina.
                 _tickLoss.Reset();
-                // The tick phase is deliberately NOT cleared here. It used to be, on the reasoning that
-                // a new fight had to re-learn the phase from its own first swing - which threw away
-                // everything the session had already established and re-derived the lattice from one
-                // noisy sample, off by more than 150 ms in 19% of encounters and by up to 963 ms at
-                // worst. MUD2's tick is a server-side lattice that outlives any one fight; see
-                // Mucka.Core.TickPhase for the measurements and for why the spec's own premise argued
-                // for keeping it.
+                // The tick phase is deliberately NOT cleared here: a new fight does not re-learn the
+                // phase from its own first swing. Re-deriving the lattice from one noisy sample was off
+                // by more than 150 ms in 19% of encounters and by up to 963 ms at worst. MUD2's tick is
+                // a server-side lattice that outlives any one fight; see Mucka.Core.TickPhase for the
+                // measurements.
             }
             else
             {
@@ -534,7 +519,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
                 // resolves every open fight before this fires, but a genuinely unmatched line could in
                 // principle leave one Unresolved, and Unresolved is not an ending to record.
                 //
-                // Sorted by EndedUtc before appending (CombatEndingOrder.Sorted, 2026-09-02 fix) -
+                // Sorted by EndedUtc before appending (CombatEndingOrder.Sorted) -
                 // closingSnapshot.Fights is in FIRST-ENGAGED order, not resolution order, and appending
                 // it unsorted drew a creature engaged first above one engaged second but killed first,
                 // moving the second creature's row when the first one died. This is the ONLY place a
@@ -589,30 +574,15 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             OnPropertiesChanged(nameof(IsCombatGracePeriod), nameof(CombatIconOpacity), nameof(CombatTip));
         });
 
-    /// <summary>
-    /// When the current encounter's FIRST swing landed - the tick lattice's phase, and the anchor the
-    /// tick bar and metronome align to.
-    ///
-    /// <para>Not the moment combat started. The line that flips InCombat is the reply to the player's
-    /// own <c>kill</c> command, so its phase is the keystroke's rather than the server's: measured
-    /// across 16 encounters, anchoring there put the indicator a median of ~1.0 s away from the real
-    /// boundary, effectively at random, which is why the lag felt intermittent. A swing line is
-    /// emitted BY the tick, so anchoring on the first one measures a median error of ~22 ms.</para>
-    ///
-    /// <para>Set once per encounter and then left alone. Re-anchoring on every swing would be more
-    /// accurate still, but would yank the bar and the click around several times a fight; a phase
-    /// this stable (one lattice fits a whole session to ~4 ppm) does not need chasing.</para>
-    ///
-    /// <para>The timestamp is the tracker's own, stamped on the feed thread when the line completed -
-    /// never <c>DateTime.UtcNow</c> here, which would add this dispatch hop to the measurement.</para>
-    /// </summary>
     /// <summary>The tick boundary both instruments align to - the bar's zero crossing and the click's
     /// bracket - or null until the estimate has enough swings to be worth publishing.
     ///
-    /// <para>Now an ESTIMATE over the session's accumulated swings rather than the timestamp of the
-    /// current encounter's first one. See <see cref="Mucka.Core.TickPhase"/>: the single-sample anchor
-    /// was off by over 150 ms in 19% of encounters and by up to 963 ms - half a tick - which is what
-    /// "the ticker didn't seem to coincide with the server's combat tick" was.</para></summary>
+    /// <para>An estimate over the session's accumulated swings. Fed from swing lines rather than the
+    /// combat-start line: the combat-start line is the reply to the player's own <c>kill</c> command,
+    /// so its phase is the keystroke's rather than the server's, while a swing line is emitted BY the
+    /// tick. See <see cref="Mucka.Core.TickPhase"/>: a single-sample anchor was off by over 150 ms in
+    /// 19% of encounters and by up to 963 ms - half a tick - matching the symptom that the indicator
+    /// did not seem to coincide with the server's combat tick.</para></summary>
     public DateTime? TickPhaseUtc => _tickPhase.Anchor;
 
     /// <summary>Whether the phase estimate is trusted enough to make a SOUND. The bar takes
@@ -641,8 +611,8 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             // Queued BEFORE the aggregator sees it, so the ending is waiting by the time the award line
             // that follows it arrives (KillAwardLedger). The event's own stamp is what the fight will
             // resolve with, so this key and the one AwardFor looks up with are the same by construction.
-            // NpcFled joins Kill (owner, 2026-09-09: show what an NPC's flight was worth); NpcFleeFailed
-            // does not - the creature is still in the room and nothing was scored.
+            // NpcFled joins Kill, showing what an NPC's flight was worth; NpcFleeFailed does not - the
+            // creature is still in the room and nothing was scored.
             if (combatEvent.Kind is CombatEventKind.Kill or CombatEventKind.NpcFled
                 && combatEvent.NpcName is { Length: > 0 } ended)
                 _killAwards.NoteEnding(_encounterOrdinal, ended, combatEvent.TimestampUtc);
@@ -863,8 +833,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     }
 
     /// <summary>Wipes the last encounter's readout, leaving the session totals. Bound to the clog
-    /// window's clear button - the summary used to self-erase after 8 seconds, which was far too
-    /// quick to read after a fight, so it now persists until dismissed on purpose.</summary>
+    /// window's clear button; the summary persists until dismissed rather than self-erasing.</summary>
     public void ClearCombatSummaryCommand() => ClearCombatSummary();
 
     private void ClearCombatSummary()
@@ -909,12 +878,11 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     }
 
     /// <summary>
-    /// Computes the Combat Rail's genuinely NEW content (DESIGN_FINAL.md, this implementation
-    /// phase): the threat indicator (4.7/D14), the plain-language "why" line (3.8), and the tier
-    /// driving the shared pulse layer (4.2/4.3/4.4). Kept separate from the deleted
-    /// <c>CombatHistoryFormatter</c> deliberately - that class's content (survivability,
-    /// participants, exchange, history comparison, weapon table, session totals) is salvaged as-is
-    /// per the brief; this is the new layer built on top of it.
+    /// Computes the Combat Rail's own content: the threat indicator, the plain-language "why" line,
+    /// and the tier driving the shared pulse layer. Kept separate from
+    /// <c>CombatHistoryFormatter</c>'s content (survivability, participants, exchange, history
+    /// comparison, weapon table, session totals), which is salvaged as-is; this is the new layer
+    /// built on top of it.
     /// </summary>
     private void RefreshCombatSignals(
         CombatEncounterSnapshot snapshot, CombatStatDeficits deficits, CombatHistoryContext history,
@@ -927,13 +895,12 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
 
         // The panel's glow keeps running at low stamina whether or not a fight is happening, because
         // the danger does not stop when the fight does. At this stamina a wandering NPC that would
-        // ignore a healthy player will attack (that is RATE crossing its threshold, computed against
-        // the stats the 40 and 30 knees have already degraded), one blow from most creatures can kill,
-        // and fleeing still costs real points. Walking away from a fight at 22 stamina and forgetting
-        // about it is a way to lose a character between fights.
+        // ignore a healthy player will attack, one blow from most creatures can kill, and fleeing
+        // still costs real points. Walking away from a fight at 22 stamina and forgetting about it is
+        // a way to lose a character between fights.
         //
-        // 25 rather than the documented 20: the owner's chosen margin, close enough to the survival
-        // threshold to matter with a little room before it.
+        // 25 rather than 20: chosen as a margin close enough to the survival threshold to matter with
+        // a little room before it.
         var vulnerable = deficits.StaminaCurrent is int sta && sta <= OutOfCombatVulnerableStamina
             ? CombatTier.T3
             : CombatTier.None;
@@ -941,35 +908,24 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         if (!snapshot.HasEncounter)
         {
             _pulseTier = vulnerable;
-            // The dead strip is session-scoped (task 1) and must survive dismissing the encounter
-            // summary - ClearCombatSummaryCommand's own comment says it leaves "the session totals",
-            // and the strip is part of that, not part of the per-encounter readout being wiped.
-            // CombatLiveView.Idle alone blanks it (DeadStripHistory defaults to empty), so HasEncounter
-            // is set true here whenever there IS session history to show. CombatRailView.DrawOpponents
-            // gates the WHOLE opponent-slot/dead-strip region on that one flag, and with an empty
-            // Roster (RosterPlan.Empty, from CombatLiveView.Idle) the live-slot loop draws nothing
-            // regardless of it - so this only ever re-enables the dead strip, never the live stack.
-            // (2026-09-02 fix: this used to publish CombatLiveView.Idle unconditionally, which blanked
-            // the whole session strip on every dismiss/idle transition even though _archiveSnapshot was
-            // untouched in memory - a transient display bug, not data loss, but one that contradicted
-            // the strip's own "session-scoped" contract.)
+            // The dead strip is session-scoped and must survive dismissing the encounter summary -
+            // ClearCombatSummaryCommand leaves the session totals, and the strip is part of that, not
+            // part of the per-encounter readout being wiped. CombatLiveView.Idle alone blanks it
+            // (DeadStripHistory defaults to empty), so HasEncounter is set true here whenever there IS
+            // session history to show. CombatRailView.DrawOpponents gates the WHOLE
+            // opponent-slot/dead-strip region on that one flag, and with an empty Roster
+            // (RosterPlan.Empty, from CombatLiveView.Idle) the live-slot loop draws nothing regardless
+            // of it - so this only ever re-enables the dead strip, never the live stack.
             _live = _archiveSnapshot.Count == 0
                 ? CombatLiveView.Idle
                 : CombatLiveView.Idle with { HasEncounter = true, DeadStripHistory = _archiveSnapshot };
             return;
         }
 
-        // IN COMBAT ONLY. A weapon is a property of the ENCOUNTER, not of the player (owner,
-        // 2026-09-07): MUD2 has no equipment slots and no persistent wield - one is named for the
-        // current fight, or as part of starting it ("kill x with y"), and when that fight ends nothing
-        // is held. So between fights there is no weapon to report, not an old one worth remembering.
-        // The variable one line below has said exactly this about the Ctrl+W offer since it was
-        // written; this half of the same fact disagreed with it.
-        //
-        // It used to fall back to the finished fight's own WeaponUsed, on the reasoning that a
-        // just-completed axe fight should not be summarised as UNARMED. That was solving the right
-        // problem in the wrong place - UNARMED is now suppressed out of combat at its own flag, so
-        // the fallback has nothing left to fix and only produced a weapon the player is not holding.
+        // IN COMBAT ONLY. A weapon is a property of the ENCOUNTER, not of the player: MUD2 has no
+        // equipment slots and no persistent wield - one is named for the current fight, or as part of
+        // starting it ("kill x with y"), and when that fight ends nothing is held. So between fights
+        // there is no weapon to report, not an old one worth remembering.
         var liveWeapon = snapshot.InCombat ? snapshot.CurrentWeapon : null;
         var hasWeapon = !string.IsNullOrWhiteSpace(liveWeapon);
         // Empty rather than "UNARMED" for the bare-handed case: the tile draws that word off
@@ -978,7 +934,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         var weaponText = hasWeapon ? CombatComposition.DisplayName(liveWeapon) : string.Empty;
         // Roster/weapon/duration context is worth showing whenever an encounter exists at all, live
         // or just-finished - mirrors CombatComposition.Build's own AppendHeadline/AppendParticipants,
-        // which never gated on InCombat either (2.4/3.7's post-combat wireframe still names the target).
+        // which never gated on InCombat either.
         //
         // Built AFTER the weapon is known, because each participant's novelty is asked twice - once
         // bare, once against what is actually in hand - and the second question has no answer until
@@ -1013,14 +969,13 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
                 InCombat: false, HasEncounter: true, WeaponText: weaponText,
                 // FALSE out of combat, whatever the player is holding. MUD2 has no persistent notion
                 // of being armed - a weapon is named for the CURRENT fight and stops being wielded
-                // when that fight ends (owner, 2026-09-07). So "unarmed" is not a state the player can
-                // be in between fights; it is the only state, and an alarm about it would fire from
-                // the end of every fight until the start of the next one.
+                // when that fight ends. So "unarmed" is not a state the player can be in between
+                // fights; it is the only state, and an alarm about it would fire from the end of every
+                // fight until the start of the next one.
                 //
                 // This flag therefore means "unarmed IN A FIGHT", which is the only thing it can
-                // usefully mean. It was !hasWeapon here on the reasoning that the post-combat branch
-                // resolves a weapon from the fight that just ended and so would rarely be empty -
-                // true, and beside the point: the rare case was the one that fired the alarm.
+                // usefully mean; !hasWeapon would fire falsely for the common case where the
+                // post-combat branch resolves a weapon from the fight that just ended.
                 IsUnarmed: false,
                 Roster: roster,
                 StaminaCurrent: deficits.StaminaCurrent, StaminaMax: deficits.StaminaMax,
@@ -1040,7 +995,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
 
         // Incoming per-hit rate this fight - thin-sample gated (MinimumOwnHits) the same way the old
         // ladder's own risk pairing gated it, reused here for the tier table's "hits-left" trigger
-        // (4.3) too, so the threat indicator and the tier table never quietly disagree about "how
+        // too, so the threat indicator and the tier table never quietly disagree about "how
         // close is this fight".
         double? incomingPerHit = primary is { TheyHits: > 0 } f ? f.ApproxDamageTaken / f.TheyHits : null;
         int? hitsLeft = incomingPerHit is double rate && rate > 0
@@ -1075,17 +1030,11 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             ? CombatTier.T3
             : fightTier == CombatTier.T3 ? CombatTier.T2 : fightTier;
 
-        // No flee-COST figure is computed or published here, and never will be (DESIGN_FINAL.md D15).
-        // The flee pill published below is not that: it computes no price, and its loudest state is an
-        // alarm about the cheap band rather than a report of it - see COMBAT-RAIL-SPEC.md section 10's
-        // 2026-08-28 amendment, which records what the owner's objection actually was.
-        // the owner's instruction is explicit - "We don't need to be telling/showing the player the
-        // flee statistics - that's stupid cognitive burden." The player already knows fleeing is
-        // expensive - one accidental flee from a zombie at 90/100 stamina cost 1300 of 13,000 points
-        // and a level. What the panel owes them is the zone signal (staminaTier, above) and a valid
-        // direction to run, not a price tag to read while deciding, so no code computing a cost
-        // figure is kept "just in case" either - see D15/D16 for the panel's full cognitive-load
-        // design tenets (fixed layout, unambiguous cues, sub-second glance budget).
+        // The flee pill computes no flee-cost figure and publishes no price; its loudest state is an
+        // alarm about the cheap band, not a report of a cost. One accidental flee from a zombie at
+        // 90/100 stamina cost 1300 of 13,000 points and a level, so the player already knows fleeing
+        // is expensive. What the panel owes them is the zone signal (staminaTier, above) and a valid
+        // direction to run, not a price tag to read while deciding.
 
         var incomingPerBlow = IncomingPerBlowOf(roster);
 
@@ -1180,7 +1129,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     /// is the flag that says which side of that fold the caller is on, so an ending is counted
     /// exactly once.</para>
     ///
-    /// <para><b>Cached against the resolved-fight count (2026-09-02).</b> This runs on every combat
+    /// <para><b>Cached against the resolved-fight count.</b> This runs on every combat
     /// event, every FES heartbeat and every 1 Hz tick once anything in the encounter has resolved
     /// (Invariant #1) - mirroring <see cref="_historyCache"/> below. The resolved count is a valid
     /// dirty check (see <see cref="_deadStripHistoryCache"/>'s own remarks), so the steady state - no
@@ -1230,9 +1179,8 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
 
         var combined = new List<CombatEnding>(_archiveSnapshot.Count + tail.Count);
         combined.AddRange(_archiveSnapshot);
-        // Sorted (CombatEndingOrder.Sorted, 2026-09-02 fix): snapshot.Fights is in first-engaged
-        // order, not resolution order, and appending it unsorted is the ordering bug this method used
-        // to have - see CombatEndingOrder's own remarks. _archiveSnapshot above needs no re-sort: it
+        // Sorted (CombatEndingOrder.Sorted): snapshot.Fights is in first-engaged order, not
+        // resolution order - see CombatEndingOrder's own remarks. _archiveSnapshot above needs no re-sort: it
         // is already chronological, and every one of its timestamps precedes every timestamp in THIS
         // still-open encounter by wall-clock necessity.
         combined.AddRange(CombatEndingOrder.Sorted(tail));
@@ -1532,19 +1480,18 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     /// How long the whole ENCOUNTER has been running, in ticks.
     ///
     /// <para>Straight off <c>snapshot.Duration</c>, which the aggregator keeps as
-    /// <c>nowUtc - _encounterStartUtc</c>. This used to walk the fights and take the longest, which
-    /// was wrong twice over: <see cref="FightAccumulator.DurationAt"/> FREEZES at <c>EndedUtc</c> once
-    /// a fight resolves, so killing the last creature stopped Dur advancing while the encounter was
+    /// <c>nowUtc - _encounterStartUtc</c>. Walking the fights and taking the longest instead would be
+    /// wrong twice over: <see cref="FightAccumulator.DurationAt"/> FREEZES at <c>EndedUtc</c> once a
+    /// fight resolves, so killing the last creature would stop Dur advancing while the encounter is
     /// still open through the grace window - and the <c>dmg/tick</c> cells on the same tile divide by
-    /// this same encounter duration, so the two readouts visibly drifted apart every second.</para>
+    /// this same encounter duration, so the two readouts would visibly drift apart every second.</para>
     /// </summary>
     private static double? EncounterTicksOf(CombatEncounterSnapshot snapshot)
         => snapshot.Duration > TimeSpan.Zero ? TicksElapsed(snapshot.Duration) : null;
 
     /// <summary>The player's side of the stat row. <see cref="ExchangeLine.Mean"/> pools BOTH ends of
-    /// every bracket - the owner's definition, 2026-09-05: three blows of (1-5), (5-9) and (10-14)
-    /// average to (1+5+5+9+10+14)/6. The extremes are upper bounds for the reason ExchangeLine
-    /// records.</summary>
+    /// every bracket: three blows of (1-5), (5-9) and (10-14) average to (1+5+5+9+10+14)/6. The
+    /// extremes are upper bounds for the reason ExchangeLine records.</summary>
     private static ExchangeLine DealtLine(FightSnapshot fight)
     {
         if (fight.DealtSamples <= 0)
@@ -1580,7 +1527,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     /// <summary>A rate, or zero for "not yet worth stating". Under one full tick there is no rate to
     /// report - dividing by a fraction of a tick turns the first blow of a fight into a catastrophic
     /// -40/tick - so this returns zero and the tile draws the cell as unknown rather than as a
-    /// measurement (rule 5). Same refusal CombatOutlook makes for the same reason, at a lower bar
+    /// measurement. Same refusal CombatOutlook makes for the same reason, at a lower bar
     /// because this states what HAS happened rather than projecting what will.</summary>
     private static double PerTick(double total, TimeSpan duration)
     {
@@ -1597,9 +1544,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         ApproxDps: 0, TheirApproxDps: 0, Fights: []);
 
     /// <summary>Resolves the history context for the encounter's primary target via the incremental
-    /// index (see CombatHistoryCache/HistoryIndex) instead of scanning the whole fight corpus -
-    /// DESIGN_FINAL.md section 7.3, and the reason this whole file's history block used to be the
-    /// clog window's lag source on a long session.</summary>
+    /// index (see CombatHistoryCache/HistoryIndex) instead of scanning the whole fight corpus.</summary>
     private CombatHistoryContext ResolveHistory(CombatEncounterSnapshot snapshot)
     {
         var primary = CombatComposition.PrimaryFight(snapshot);
@@ -1636,7 +1581,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
                 nameof(DeafTip), nameof(BlindTip), nameof(DumbTip), nameof(CrippledTip));
         });
 
-    // ── Floating online panel state ────────────────────────────────────────────
+    // -- Floating online panel state --------------------------------------------
 
     /// <summary>When true (and the side panel is hidden), a floating online-list panel is shown.</summary>
     public bool IsOnlinePinned
@@ -1646,8 +1591,8 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             [nameof(IsFloatingOnlineVisible), nameof(IsOnlineSectionVisible), nameof(PinGlyph), nameof(PinColor)]);
     }
 
-    // \u25CF = ● (filled circle)  \u25CB = ○ (hollow circle)
-    // These are regular text glyphs that obey TextColor — unlike emoji which ignore it.
+    // \u25CF = filled circle (filled circle)  \u25CB = hollow circle (hollow circle)
+    // These are regular text glyphs that obey TextColor - unlike emoji which ignore it.
     /// <summary>Glyph for the dock toggle \u2014 shows the action, not the state:
     /// hollow "float me" square while docked, filled "dock me" square while floating.</summary>
     public string PinGlyph => _isOnlinePinned ? "\u25A1" : "\u25A0";
@@ -1706,7 +1651,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     }
 
     /// <summary>Minutes a departed player lingers in the Recent list before being forgotten.
-    /// 0 = disabled (Recent list never populates). Range 0–10.</summary>
+    /// 0 = disabled (Recent list never populates). Range 0-10.</summary>
     public int ForgetWindowMinutes
     {
         get => _forgetWindowMinutes;
@@ -1718,7 +1663,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     }
 
     /// <summary>Grouped view of the Recent list (one bucket per "minutes since last seen").
-    /// Rebuilt wholesale by <see cref="RebuildRecentGroups"/>. Side-panel only — never floated.</summary>
+    /// Rebuilt wholesale by <see cref="RebuildRecentGroups"/>. Side-panel only - never floated.</summary>
     public ObservableCollection<RecentGroup> RecentGroups { get; } = new();
 
     /// <summary>True when the Recent list has any entries (drives its section visibility).</summary>
@@ -1730,10 +1675,10 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     /// <summary>Formatted count for the Online section heading, e.g. " (3)".</summary>
     public string OnlineCountText => $" ({WhoCount})";
 
-    /// <summary>Raised when the user taps the hamburger in the floating panel — opens settings/display.</summary>
+    /// <summary>Raised when the user taps the hamburger in the floating panel - opens settings/display.</summary>
     public event Action? FloatingOpenDisplaySettings;
 
-    /// <summary>Raised when the user taps a Recent-list name — requests a "sniff" value-probe
+    /// <summary>Raised when the user taps a Recent-list name - requests a "sniff" value-probe
     /// for that persona (see MudSession.QueueValueProbe). Payload is the persona name.</summary>
     public event Action<string>? ValueProbeRequested;
 
@@ -1753,7 +1698,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         SubscriptionOptionsChanged?.Invoke(_isOnlineExpanded, _isInventoryExpanded || _isItemsHereExpanded);
     }
 
-    /// <summary>True while the About dialog overlay is shown (opened via the ⓘ status-bar icon).</summary>
+    /// <summary>True while the About dialog overlay is shown (opened via the info status-bar icon).</summary>
     public bool IsAboutVisible
     {
         get => _isAboutVisible;
@@ -1773,11 +1718,11 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
 
     public string AppVersion => AppInfo.VersionString;
 
-    // ── WHO list ──────────────────────────────────────────────────────────────
+    // -- WHO list --------------------------------------------------------------
     public ObservableCollection<WhoEntry> WhosList { get; } = new();
     private readonly List<WhoEntry> _pendingWhos = new();
 
-    // ── Room exits (FEX) ─────────────────────────────────────────────────────
+    // -- Room exits (FEX) -----------------------------------------------------
     public ExitIndicator ExitNorth     { get; } = new();
     public ExitIndicator ExitSouth     { get; } = new();
     public ExitIndicator ExitEast      { get; } = new();
@@ -1794,7 +1739,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
 
     private readonly List<string> _pendingExits = new();
 
-    // ── Inventory / room items ────────────────────────────────────────────────
+    // -- Inventory / room items ------------------------------------------------
     public ObservableCollection<string> InventoryList { get; } = new();
 
     /// <summary>The "Here" list. Rows rather than bare strings, because a name on the floor may be a
@@ -1821,11 +1766,10 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     public bool NoInventory   => InventoryList.Count  == 0;
     public bool NoRoomItems   => RoomItemsList.Count  == 0;
 
-    // ── Stale-fade signals ─────────────────────────────────────────────────────
+    // -- Stale-fade signals -----------------------------------------------------
     // Raised (on the UI thread) when a list type is fully refreshed. StaleDimBehavior listens and
     // (re)starts a COMPOSITOR opacity animation on the section: hold full-bright for 15 s, then
-    // ease to 70% — entirely on the render thread, so it never touches typing. (Was a UI-thread
-    // fade timer recomputing opacity 10×/sec — the typing-lag culprit — now deleted.)
+    // ease to 70% - entirely on the render thread, so it never touches typing.
     /// <summary>Fired when the Here/Carrying (FEI) lists are refreshed.</summary>
     public event Action? FeiRefreshed;
     /// <summary>Fired when the Online (FEW) list is refreshed.</summary>
@@ -1838,7 +1782,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     public ICommand ToggleOnlineCommand { get; }
     public ICommand ToggleInventoryCommand { get; }
     public ICommand ToggleItemsHereCommand { get; }
-    /// <summary>Toggles the Combat Rail (the right-edge panel - DESIGN_FINAL.md D3/2.2), from the
+    /// <summary>Toggles the Combat Rail (the right-edge panel), from the
     /// overflow menu's "Combat" entry, alongside Side Panel / Onlines / Compass. GamePage
     /// resizes the window by the rail's width off the resulting
     /// <see cref="IsCombatPanelVisible"/> change, so every route to that property makes room for
@@ -1861,7 +1805,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     public ICommand ToggleCombatFloatsCommand { get; }
 
     /// <summary>Raised when an interaction should hand keyboard focus back to the input box.
-    /// Opening the About dialog deliberately does not raise it — focus belongs to the dialog.</summary>
+    /// Opening the About dialog deliberately does not raise it - focus belongs to the dialog.</summary>
     public event Action? RequestFocus;
 
     public SidePanelViewModel()
@@ -1899,7 +1843,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             _onlineSizeIx--;
             OnPropertyChanged(nameof(FloatingOnlineWidth));
         });
-        // MapSizes runs largest → smallest, so "increase" walks the index down.
+        // MapSizes runs largest -> smallest, so "increase" walks the index down.
         IncreaseMapSizeCommand = new Command(() =>
         {
             if (_mapSizeIx <= 0) return;
@@ -1915,7 +1859,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         ToggleFloatingOnlineLockCommand = new Command(() => { IsFloatingOnlineLocked = !IsFloatingOnlineLocked; RequestFocus?.Invoke(); });
         ToggleFloatingMapLockCommand    = new Command(() => { IsFloatingMapLocked    = !IsFloatingMapLocked;    RequestFocus?.Invoke(); });
         // Tapping a Recent name asks for a one-shot value-probe, then hands focus back to the
-        // command box (Invariant #0 — every interaction leaves the user able to type).
+        // command box (Invariant #0 - every interaction leaves the user able to type).
         ProbeRecentCommand = new Command<WhoEntry>(e =>
         {
             if (e is not null && !string.IsNullOrEmpty(e.PersonaName))
@@ -1936,20 +1880,19 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     }
 
     // UI-thread dispatcher, captured from the host. Used only for one-shot DispatchDelayed calls
-    // that remove a who-entry AFTER its GPU fade-out finishes (see OnFewListComplete) — NOT a
-    // repeating animation tick. The old 100 ms (10 Hz) UI-thread fade timer was the typing-lag
-    // culprit and is gone; all visual fading now runs on the compositor via behaviors.
+    // that remove a who-entry AFTER its GPU fade-out finishes (see OnFewListComplete) - NOT a
+    // repeating animation tick. All visual fading runs on the compositor via behaviors.
     private IDispatcher? _dispatcher;
 
     /// <summary>Captures the UI-thread dispatcher (call once on the UI thread after game-mode is
-    /// entered). Named for call-site compatibility — it no longer starts any timer.</summary>
+    /// entered). Named for call-site compatibility - it no longer starts any timer.</summary>
     public void InitializeFadeTimer(IDispatcher dispatcher) => _dispatcher = dispatcher;
 
-    // ── Room name ─────────────────────────────────────────────────────────────
+    // -- Room name -------------------------------------------------------------
 
     /// <summary>
     /// Called on the TCP read thread when the player has entered (or can now see) a room.
-    /// Clears the "Here" (room items) list. InventoryList is intentionally preserved —
+    /// Clears the "Here" (room items) list. InventoryList is intentionally preserved -
     /// carried items do not change just because the room changes.
     ///
     /// Exits are NOT cleared here. RoomEntered fires on the room-short at frame start for
@@ -2004,8 +1947,8 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     /// <summary>
     /// Called when the player exits game mode (e.g. types 'qq').
     /// Sets CurrentRoom to "Option Menu" so the side panel reflects the player's new location,
-    /// and clears the compass — the option menu is not a room, so any exits are stale.
-    /// Does not push history — history shifts on the next real room entry.
+    /// and clears the compass - the option menu is not a room, so any exits are stale.
+    /// Does not push history - history shifts on the next real room entry.
     /// </summary>
     public void OnGameModeExited()
         => MainThread.BeginInvokeOnMainThread(() =>
@@ -2021,29 +1964,6 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             _resetOrdinalAdvanced = false;
         });
 
-    /// <summary>
-    /// Advances the dead strip's reset-grouping ordinal (<see cref="CombatEnding.ResetOrdinal"/>).
-    /// Wired to <c>MuckaConnection.AutoResetInitiated</c> in <c>GameViewModel.SubscribeConnectionEvents</c>,
-    /// the same direct connection-event-to-SidePanel wiring style as
-    /// <see cref="OnStatusEffectsChanged"/>/<see cref="OnGameModeExited"/> - the one authoritative
-    /// signal for a reset (the server's own C06 C04 "auto reset initiated"), never inferred from
-    /// <c>ResetEpochMs</c> or from prose (see CombatEnding's own remarks on why).
-    ///
-    /// <para><b>Now fires on the reset LANDING, not the warning (2026-09-04).</b> It used to hang off
-    /// <c>AutoResetInitiated</c> - the C06 C04 warning - whose own comment admitted the consequence:
-    /// an ending inside the 120-second finish-up window got grouped with the NEXT cycle, up to two
-    /// minutes early. Observed exactly that way: a banshee fight cut short BY the reset was drawn
-    /// BELOW the separator, as though it belonged to the world that came after it. That comment also
-    /// said the alternative "has no event of its own to hang from", which stopped being true when
-    /// FE 06 06 was parsed - <c>MudSession.WorldResetLanded</c> is that event, corroborated against
-    /// the reset countdown so a stray line cannot move the boundary.</para>
-    ///
-    /// <para><see cref="OnGameModeExited"/> is the backstop: the landing is only raised when the
-    /// projection can corroborate it, and a missing separator merges two cycles, which is worse than
-    /// one drawn slightly late. The shell prompt always follows a reset (~200 ms behind 06 06), so
-    /// exiting game mode advances the ordinal if the landing did not. It also fires on an ordinary
-    /// logout, which is harmless - that is a session boundary worth a line too.</para>
-    /// </summary>
     /// <summary>
     /// One resolved fight as the dead strip records it: the outcome, the exchange summary its live
     /// tile carried, and the kill award if one has been paired to it.
@@ -2125,22 +2045,8 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     ///
     /// <para><b>NOTHING ELSE IS RESET HERE, and that is deliberate.</b> The dead strip is a record of
     /// what this SITTING has killed - it survives a persona switch, a world reset, and a hop to a
-    /// different server, because the owner's use for it spans all three: "you might log in to
-    /// mud2.co.uk and kill the goat, then hop over to mud2.com to see if it's as difficult... it forms
-    /// part of your 'in memory' profile" (2026-09-08). It lives as long as the app run and is
-    /// deliberately not persisted past it.</para>
-    ///
-    /// <para><b>Do not re-scope this without asking him.</b> An adversarial review flagged the
-    /// carry-over as a bug - a dead character's kills presented as the new character's - and it was
-    /// briefly "fixed" by wiping the archive, the awards and the ordinals on switch (2026-09-08,
-    /// reverted the same day). That reading is defensible and it is not his: the strip answers "what
-    /// have I been doing", not "what has this character done". The wipe also zeroed the encounter and
-    /// reset ordinals while the strip's existing rows kept theirs, so the grouping separators drew
-    /// against ordinals that had started again from zero.</para>
-    ///
-    /// <para>He floated one staleness rule - discard if a persona has not been played on that server
-    /// for more than a reset - and set it aside as not worth the complexity yet. If that ever ships it
-    /// belongs here.</para>
+    /// different server: it answers "what have I been doing", not "what has this character done". It
+    /// lives as long as the app run and is deliberately not persisted past it.</para>
     ///
     /// <para>Session TOTALS likewise carry: they are the client's own "this sitting" tally.</para>
     /// </summary>
@@ -2153,15 +2059,22 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     private string _personaName = string.Empty;
     private byte? _staminaAnsiColor;
 
+    /// <summary>
+    /// Advances the dead strip's reset-grouping ordinal (<see cref="CombatEnding.ResetOrdinal"/>) on
+    /// <c>MudSession.WorldResetLanded</c> (FE 06 06). Fires on the reset LANDING, not the C06 C04
+    /// warning: an ending inside the finish-up window belongs to the cycle that is ending, not the
+    /// next one. <see cref="OnGameModeExited"/> is the backstop when the landing is not raised; a
+    /// missing separator merges two cycles, which is worse than one drawn late.
+    /// </summary>
     public void OnWorldResetLanded()
         => MainThread.BeginInvokeOnMainThread(() => { _resetOrdinal++; _resetOrdinalAdvanced = true; });
 
-    // ── WHO list (FEW) ────────────────────────────────────────────────────────
+    // -- WHO list (FEW) --------------------------------------------------------
 
     /// <summary>
     /// Called when the parser opens a FEW-response context (C12+C08+C05).
     /// Clears the accumulation buffer; WhosList is not touched until the response is complete.
-    /// Fires on the TCP read thread — no marshal needed (_pendingWhos is read-loop-only).
+    /// Fires on the TCP read thread - no marshal needed (_pendingWhos is read-loop-only).
     /// </summary>
     public void OnFewListStarting()
         => _pendingWhos.Clear();
@@ -2174,13 +2087,13 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         => _pendingWhos.Add(new WhoEntry(playerName, AnsiPalette.GetFg((byte)color)));
 
     /// <summary>
-    /// Called when the FEW-response context closes — all names have been delivered.
+    /// Called when the FEW-response context closes - all names have been delivered.
     /// Diffs the incoming snapshot against the current WhosList:
-    ///   • Players no longer in the snapshot are marked departing and fade out over 4 s.
-    ///   • Players that reappear before their fade completes have their departure cancelled.
-    ///   • New arrivals are appended with a white→color glow over 4 s.
-    ///   • Players whose name or color changed (e.g. level-up) are updated in-place with a glow.
-    ///   • A visibility change ("Ollie the sorcerer" ⇄ "(Ollie the sorcerer)") is a status
+    ///   - Players no longer in the snapshot are marked departing and fade out over 4 s.
+    ///   - Players that reappear before their fade completes have their departure cancelled.
+    ///   - New arrivals are appended with a white->color glow over 4 s.
+    ///   - Players whose name or color changed (e.g. level-up) are updated in-place with a glow.
+    ///   - A visibility change ("Ollie the sorcerer" <-> "(Ollie the sorcerer)") is a status
     ///     change, not a rename: WhoEntry.PersonaName ignores the invisibility parens, so the
     ///     entry updates in-place (with glow) instead of fading out and back in.
     /// </summary>
@@ -2196,7 +2109,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             var newByPersona = snapshot.ToDictionary(
                 w => w.PersonaName, StringComparer.OrdinalIgnoreCase);
 
-            // A persona present in this FEW is live again — it must never also sit in Recent
+            // A persona present in this FEW is live again - it must never also sit in Recent
             // (covers both returnees still in WhosList and a floating-departure copy in Recent).
             _recent.RemoveAll(r => newByPersona.ContainsKey(r.PersonaName));
 
@@ -2205,38 +2118,38 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             bool recentEligible = _forgetWindowMinutes > 0 && _isPanelExpanded && _isOnlineExpanded;
 
             // Update returnees in place; route departures by display state:
-            //  • docked + Recent   → jump straight to Recent, no fade
-            //  • floating + Recent → fade out in the floater AND show in Recent immediately
-            //  • otherwise         → the plain fade-out then removal (no Recent)
+            //  - docked + Recent   -> jump straight to Recent, no fade
+            //  - floating + Recent -> fade out in the floater AND show in Recent immediately
+            //  - otherwise         -> the plain fade-out then removal (no Recent)
             for (int i = WhosList.Count - 1; i >= 0; i--)
             {
                 var existing = WhosList[i];
                 if (newByPersona.TryGetValue(existing.PersonaName, out var updated))
                 {
-                    existing.IsDeparting = false;   // present again — cancel any pending fade-out + removal
+                    existing.IsDeparting = false;   // present again - cancel any pending fade-out + removal
                     if (existing.Name  != updated.Name)  existing.Name  = updated.Name;
                     if (existing.Color != updated.Color) existing.Color = updated.Color;
                     continue;
                 }
                 if (existing.IsDeparting)
-                    continue;   // already fading — leave its pending removal alone
+                    continue;   // already fading - leave its pending removal alone
 
                 var leaving = existing;
                 // They were present in the previous FEW, so that completion is their "last seen"
                 // time; the gap since then low-clamps their Recent lifetime (an overdue FEW can't
-                // instant-flush them — see MoveToRecent).
+                // instant-flush them - see MoveToRecent).
                 var lastSeenUtc = _lastFewCompleteUtc == default ? now : _lastFewCompleteUtc;
 
                 if (recentEligible && _isOnlinePinned)
                 {
-                    // Docked: no fade — jump straight to Recent.
+                    // Docked: no fade - jump straight to Recent.
                     WhosList.RemoveAt(i);
                     MoveToRecent(leaving, lastSeenUtc);
                 }
                 else if (recentEligible)
                 {
                     // Floating: the online copy fades out in the floater, while Recent gets a fresh
-                    // (non-fading) copy right away — the original is removed once the fade finishes.
+                    // (non-fading) copy right away - the original is removed once the fade finishes.
                     existing.IsDeparting = true;
                     MoveToRecent(new WhoEntry(leaving.Name, leaving.Color), lastSeenUtc);
                     _dispatcher?.DispatchDelayed(TimeSpan.FromMilliseconds(3400), () =>
@@ -2279,7 +2192,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             }
 
             _lastFewCompleteUtc = now;
-            // Re-age the Recent groups (and sweep anything past its window) on the heartbeat —
+            // Re-age the Recent groups (and sweep anything past its window) on the heartbeat -
             // no repeating UI-thread timer (Invariant #1); this piggybacks the FEW refresh.
             // Unconditional: a returning player removed from _recent above may have emptied it,
             // and the view still needs clearing (the signature guard makes the no-op case cheap).
@@ -2287,11 +2200,11 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         });
     }
 
-    // ── Recent list (players who faded off Online, kept for the Forget window) ──────────
+    // -- Recent list (players who faded off Online, kept for the Forget window) ----------
 
     /// <summary>
     /// Move a just-departed player into the Recent list. Their lifetime there is
-    /// <c>clamp(ForgetWindow − minutesSinceLastSeen, 1 min, ForgetWindow)</c>: a normal
+    /// <c>clamp(ForgetWindow - minutesSinceLastSeen, 1 min, ForgetWindow)</c>: a normal
     /// departure keeps almost the full window, while a seriously overdue FEW (we slept, the
     /// gap dwarfs the poll interval) floors at 1 minute instead of instant-flushing everyone.
     /// No-op when the Forget window is disabled. UI thread.
@@ -2361,11 +2274,11 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
 
     /// <summary>
     /// Result of a "sniff" value-probe on a Recent name (see MudSession.SniffResult). UI-marshalled.
-    ///   • Present   → the player is online and visible; promote back into Online (plain).
-    ///   • Invisible → online but invisible; promote into Online wrapped in parens for one probe
+    ///   - Present   -> the player is online and visible; promote back into Online (plain).
+    ///   - Invisible -> online but invisible; promote into Online wrapped in parens for one probe
     ///                 interval, then the next FEW drops them back to Recent (parens retained).
-    ///   • Offline   → logged out; leave the entry to age out of Recent on its own (a probe only
-    ///                 ever *promotes* — it never removes).
+    ///   - Offline   -> logged out; leave the entry to age out of Recent on its own (a probe only
+    ///                 ever *promotes* - it never removes).
     /// The next FEW makes the final call in every case; we never auto-re-probe.
     /// </summary>
     public void OnSniffResult(string name, SniffOutcome outcome)
@@ -2376,7 +2289,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             switch (outcome)
             {
                 case SniffOutcome.Offline:
-                    // Confirmed logged out — do nothing. The entry just ages out of Recent on its
+                    // Confirmed logged out - do nothing. The entry just ages out of Recent on its
                     // own; a probe never removes it (we only act when they turn out to be online).
                     break;
                 case SniffOutcome.Present:
@@ -2420,7 +2333,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         WhosList.Add(new WhoEntry(display, color));
     }
 
-    // ── Inventory / room items (FEI) ──────────────────────────────────────────
+    // -- Inventory / room items (FEI) ------------------------------------------
 
     /// <summary>Called when the FEI context opens. Clears pending buffers.</summary>
     public void OnFeiListStarting()
@@ -2553,7 +2466,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     /// </summary>
     private int? LiveObjectsCarried => _feiEverCompleted ? InventoryList.Count : null;
 
-    // ── Room exits (FEX) ──────────────────────────────────────────────────────
+    // -- Room exits (FEX) ------------------------------------------------------
 
     public void OnFexListStarting()
         => _pendingExits.Clear();
@@ -2615,7 +2528,6 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
 
     public void Dispose()
     {
-        // No resources to release — the who-list/stale-fade animation timer was removed
-        // (it was the UI-thread typing-lag culprit). Kept for the IDisposable contract.
+        // No resources to release. Kept for the IDisposable contract.
     }
 }

@@ -11,17 +11,14 @@ namespace Mucka.ViewModels;
 ///
 /// <para><b>The frame is the scope.</b> The award arrives inside the frame carrying its ending or not
 /// at all (<c>MudStreamParser.FrameClosed</c> has the argument, and why no time window may stand in
-/// for it), so <see cref="NoteFrameClosed"/> drops whatever is still unpaired. It exists because an
-/// unpaired ending used to sit on the queue and take the next award that arrived: on 2026-09-10 the
-/// panel drew <c>+367</c> (the thief's kill award - its <c>value</c> exactly) on a thief FLED row three
-/// endings earlier, and <c>+118</c> (the goat's) on another, and was off by two by the end of the
-/// sitting. <c>KillAwardLedgerTests.Replays_the_20260910_drift</c> is that session.</para>
+/// for it), so <see cref="NoteFrameClosed"/> drops whatever is still unpaired rather than carrying it
+/// forward - an unclaimed ending must never take the next frame's award instead of its own.</para>
 ///
-/// <para>Endings go unpaired because a creature's flight is often not scored at all - four of the five
-/// thief flights that day were not, and MUD2 prints nothing rather than <c>+0</c>. The presumed rule is
-/// Bartle's flee arithmetic applied to the creature (see <c>MudSharp.Combat.FleeWorth</c>: nothing is
-/// paid below 6% of maximum stamina), but the creature-side inputs are not observable, so nothing here
-/// computes an award; it only pairs announced ones.</para>
+/// <para>Endings go unpaired because a creature's flight is often not scored at all, and MUD2 prints
+/// nothing rather than <c>+0</c>. The presumed rule is Bartle's flee arithmetic applied to the creature
+/// (see <c>MudSharp.Combat.FleeWorth</c>: nothing is paid below 6% of maximum stamina), but the
+/// creature-side inputs are not observable, so nothing here computes an award; it only pairs announced
+/// ones.</para>
 ///
 /// <para>Pure and MAUI-free; linked into mudsharp.Tests like <see cref="FleeChargeLedger"/>. Every
 /// caller is on the UI thread - see <c>SidePanelViewModel.OnScoreSaved</c> for why that hop exists and
@@ -42,8 +39,8 @@ public sealed class KillAwardLedger
 
     /// <summary>
     /// One fight ending, identified well enough to survive a creature being re-summoned and killed
-    /// again inside the same encounter (owner, 2026-09-07: the same instance name comes back, and keyed
-    /// on name alone the second rat8's award overwrote the first's).
+    /// again inside the same encounter: a re-summoned creature can reuse the same instance name, so
+    /// name alone is not a stable key.
     ///
     /// <para>The timestamp is exact rather than approximate: a fight resolves with the ending EVENT's
     /// own stamp (<c>CombatStatsAggregator.ResolveFight</c>), the same value this queue was given when
@@ -64,11 +61,11 @@ public sealed class KillAwardLedger
     /// MUD2 discharged one of the eight tasks. Arms a swallow for the payout that follows.
     ///
     /// <para>Two of the eight tasks are completed by killing something, and when one is, the frame
-    /// carries TWO rises with the task's first (owner, 2026-09-09): <c>You have killed the
-    /// water-snake4.</c>, <c>You have completed a Task.</c>, <c>(Persona saved on +100 = 7,058).</c>,
-    /// <c>(Persona saved on +84 = 7,142).</c> Without this the kill's row showed the task's flat +100
-    /// instead of the +84 the creature was worth. Counted rather than flagged, because nothing observed
-    /// says two tasks cannot discharge in one frame.</para>
+    /// carries TWO rises with the task's first: <c>You have killed the water-snake4.</c>, <c>You have
+    /// completed a Task.</c>, <c>(Persona saved on +100 = 7,058).</c>, <c>(Persona saved on +84 =
+    /// 7,142).</c> Without this the kill's row would show the task's flat +100 instead of the +84 the
+    /// creature was worth. Counted rather than flagged, because nothing observed says two tasks cannot
+    /// discharge in one frame.</para>
     /// </summary>
     public void NoteTaskCompleted() => _pendingTaskPayouts++;
 

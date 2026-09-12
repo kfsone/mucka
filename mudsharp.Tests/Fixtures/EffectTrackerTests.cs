@@ -43,7 +43,7 @@ public class EffectTrackerTests
     [Fact]
     public void StackedThenPartialsThenFull_MatchesRealWeakenSequence()
     {
-        // 3× weaken, two partials, one full clear → on the whole time, off only at the end.
+        // 3x weaken, two partials, one full clear -- on the whole time, off only at the end.
         var t = new EffectTracker();
         t.Apply(Start(StatusEffectKind.Strength, EffectSign.Debuff));
         t.Apply(Start(StatusEffectKind.Strength, EffectSign.Debuff));
@@ -62,10 +62,10 @@ public class EffectTrackerTests
         var t = new EffectTracker();
         int fires = 0;
         t.Changed += _ => fires++;
-        t.Apply(Start(StatusEffectKind.Glow, EffectSign.Buff));       // on  → fire
-        t.Apply(Start(StatusEffectKind.Glow, EffectSign.Buff));       // still on → no fire
-        t.Apply(Partial(StatusEffectKind.Stamina, EffectSign.Buff));  // ignored → no fire
-        t.Apply(Full(StatusEffectKind.Glow, EffectSign.Buff));        // off → fire
+        t.Apply(Start(StatusEffectKind.Glow, EffectSign.Buff));       // on  -> fire
+        t.Apply(Start(StatusEffectKind.Glow, EffectSign.Buff));       // still on -> no fire
+        t.Apply(Partial(StatusEffectKind.Stamina, EffectSign.Buff));  // ignored -> no fire
+        t.Apply(Full(StatusEffectKind.Glow, EffectSign.Buff));        // off -> fire
         Assert.Equal(2, fires);
     }
 

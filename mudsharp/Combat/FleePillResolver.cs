@@ -23,9 +23,8 @@ public enum FleePillStatus
     /// <para><b>This state exists because the danger here is MASKED, not because it is merely worse.</b>
     /// At this stamina MUD2 charges almost nothing to leave, and a fight that has stopped costing
     /// points reads as a fight that has stopped costing anything. It has not: the player is inside the
-    /// band where a single ordinary blow kills, and death in combat is character deletion. The owner's
-    /// framing, kept verbatim because it is the whole justification for a fourth state - it is the tide
-    /// retreating ahead of the tsunami.</para>
+    /// band where a single ordinary blow kills, and death in combat is character deletion. It is the
+    /// tide retreating ahead of the tsunami - the whole justification for a fourth state.</para>
     /// </summary>
     EscapeNow,
 }
@@ -43,7 +42,7 @@ public enum FleePillStatus
 /// which is the only question the pill answers.</para>
 ///
 /// <para><b>What the spec's section-10 ban actually forbids.</b> That entry has read as a ban on the
-/// whole subject of fleeing, and it is a model's overreach: the owner's objection was to a specific
+/// whole subject of fleeing, which is a misreading: the objection was to a specific
 /// proposed surface - a large gauge, taking half the rail's vertical height, showing how close the
 /// player was to being able to flee, which framed reaching the 1-6 stamina band as an OBJECTIVE, and
 /// ranked it above winning the fight. What stays banned is that: cost figures, points at risk, flee
@@ -60,7 +59,7 @@ public static class FleePillResolver
     /// Stamina at or below which the pill is drawn at all, before any damage evidence is considered:
     /// the survival threshold plus the width of the band below it.
     ///
-    /// <para>The owner's own arithmetic, and its reason is cognitive rather than mechanical - the pill
+    /// <para>The reason is cognitive rather than mechanical - the pill
     /// has to be on screen and already noticed BEFORE it starts alarming, or its first appearance is
     /// itself a new thing to read at the worst possible moment. One threshold's worth of warm-up.</para>
     /// </summary>
@@ -68,29 +67,24 @@ public static class FleePillResolver
         CombatTierResolver.SurvivalStaminaThreshold + CombatTierResolver.CriticalStaminaThreshold;
 
     /// <summary>
-    /// What a live opponent is assumed to hit for when nothing is on file about it - owner's decision,
-    /// 2026-08-28, replacing an earlier version that contributed nothing at all.
+    /// What a live opponent is assumed to hit for when nothing is on file about it.
     /// </summary>
     /// <remarks>
     /// <para><b>It is a stand-in, not a floor.</b> A creature with samples uses its samples, however
     /// gentle they turn out to be; a rat measured at 4 a blow contributes 4, not 20. This value applies
     /// only where there is no reading to prefer.</para>
     ///
-    /// <para><b>Why 20, and what that rests on.</b> It is the top of the range the OWNER gives for
-    /// ordinary NPC maximum damage - "many NPCs have a maximum hit in the 15-20 range" - which is one of
-    /// his stated reasons the survival threshold sits at 20 at all
-    /// (<c>MUD2-PUBLISHED-MECHANICS.md</c> section 3). So an unknown creature is assumed to be about as
-    /// dangerous as an ordinary creature's worst blow.</para>
+    /// <para><b>Why 20, and what that rests on.</b> It is the top of the range for ordinary NPC maximum
+    /// damage - many NPCs have a maximum hit in the 15-20 range - which is part of why the survival
+    /// threshold sits at 20 at all (see docs/MUD2-published-mechanics.md section 3). So an unknown
+    /// creature is assumed to be about as dangerous as an ordinary creature's worst blow.</para>
     ///
-    /// <para><b>That is lived experience, not a published ceiling, and the distinction is the one this
-    /// project keeps getting wrong.</b> An earlier version of this comment called the figure "published",
-    /// which is false twice over: the bullet it comes from is headed "per the owner", and the document
-    /// holding it opens by saying its contents are hypotheses transcribed from a fan strategy guide and
-    /// that nothing in it may be treated as settled. For a mechanics question the owner's own account
-    /// outranks that guide - but neither is a measurement, and there IS a route to a real ceiling that
-    /// nothing here uses: <c>bestiary.tsv</c> gives every creature's STR, and the damage bound
-    /// <c>1..(CS/6)+1</c> turns that into a hard maximum per creature. Until that reaches runtime, 20 is
-    /// a reasonable guess held by one person, and should be read as one.</para>
+    /// <para><b>This is an estimate, not a published ceiling.</b> The guide the survival threshold is
+    /// partly drawn from opens by saying its contents are hypotheses transcribed from a fan strategy
+    /// guide, not settled fact - and there IS a route to a real ceiling that nothing here uses yet:
+    /// docs/bestiary.tsv gives every creature's STR, and the damage bound <c>1..(CS/6)+1</c> turns
+    /// that into a hard maximum per creature. Until that reaches runtime, 20 is a reasonable estimate
+    /// and should be read as one.</para>
     ///
     /// <para>Deliberately pessimistic all the same, because the alternative it replaced was silence, and
     /// silence about an unmeasured creature reads as a claim that it is harmless.</para>
@@ -134,9 +128,8 @@ public static class FleePillResolver
     /// rows of real participants are already in hand, and eight readings say more about the ninth
     /// creature than a global default does. It only engages past
     /// <see cref="ParticipantRoster.MaxRows"/> simultaneous opponents - against a measured maximum of 7
-    /// (2026-08-27; tools/combat/concurrency.py over the live clog corpus), so this is one creature away
-    /// from being reached in ordinary play rather than the remote branch an earlier version of this
-    /// comment claimed when it cited a stale maximum of 4.</para>
+    /// concurrent opponents in the live clog corpus, so this is one creature away from being reached in
+    /// ordinary play.</para>
     /// </summary>
     public static double WorstCaseTickDamage(RosterPlan plan)
     {
@@ -154,11 +147,10 @@ public static class FleePillResolver
             // A measured zero is a real reading and it has to survive to the total. MUD2 lands blows that
             // take nothing off, DamageProfile counts them deliberately (dropping them would bias the mean
             // into answering "how hard does it hit when it hurts"), so Samples > 0 with Sum == 0 is a
-            // reachable state describing a creature that has demonstrably failed to hurt anyone. An
-            // earlier version here branched on `worst > 0` and so fed that creature the 20-point
-            // assumption - identical treatment to one never seen before, which is the exact "unknown and
-            // zero are not the same thing" error the assumption exists to avoid, made in the other
-            // direction.
+            // reachable state describing a creature that has demonstrably failed to hurt anyone. Testing
+            // `worst > 0` instead of the sample count would feed that creature the 20-point assumption -
+            // identical treatment to one never seen before, which is the exact "unknown and zero are not
+            // the same thing" error the assumption exists to avoid, made in the other direction.
             double? fight = row.FightDamage.HasSamples ? row.FightDamage.Average : null;
             double? ever = row.EverDamage.HasSamples ? row.EverDamage.Average : null;
             var measured = (fight, ever) switch

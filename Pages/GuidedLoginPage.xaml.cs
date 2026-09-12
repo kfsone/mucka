@@ -5,7 +5,7 @@ using MudSharp.Models;
 namespace Mucka.Pages;
 
 /// <summary>
-/// Hosts the guided-login "Connecting…" experience: shows status/splash text and turns the
+/// Hosts the guided-login "Connecting..." experience: shows status/splash text and turns the
 /// controller's persona-choice/create-confirmation events into native pickers/prompts. Pushed
 /// modally by <c>ConnectPage</c> while <see cref="GuidedLoginController.RunAsync"/> runs.
 /// </summary>

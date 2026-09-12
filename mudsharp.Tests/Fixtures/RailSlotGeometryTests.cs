@@ -15,12 +15,8 @@ namespace mudsharp.Tests.Fixtures;
 /// </summary>
 public sealed class RailSlotGeometryTests
 {
-    // Mirrors CombatRailView.SlotMetrics. THIS IS A HAND-COPY AND IT WENT STALE ONCE ALREADY: the
-    // 2026-09-06 tile rebuild changed RailWidth 336->376 and BottomRowHeight 96->113 and this fixture
-    // stayed green throughout, because it is internally self-consistent and asserts a panel that no
-    // longer exists. The class remarks above claim it exists so that a canvas change "shows up as a
-    // failing expectation here" - it cannot do that while it is a copy. If you change SlotMetrics,
-    // change these numbers in the same commit.
+    // Mirrors CombatRailView.SlotMetrics - a hand-copy. If you change SlotMetrics, change these
+    // numbers in the same commit.
     private static readonly RailSlotMetrics M = new(
         RailWidth: 376f, Pad: 10f, SlotHeight: 76f, SlotGap: 5f, SlotsGap: 6f,
         BottomRowHeight: 113f, TickRowHeight: 30f, PlayerTileHeight: 81f, MaxSlots: 8);
@@ -32,13 +28,8 @@ public sealed class RailSlotGeometryTests
 
     /// <summary>
     /// The exact panel height at which <paramref name="slots"/> slots first fit, DERIVED from the
-    /// metrics rather than written down.
-    ///
-    /// <para>The boundary tests below used to hardcode 309 / 552 / 795. Those were correct for a
-    /// 96-unit bottom row, and when the encounter table pushed that to 113 every one of them became a
-    /// statement about a panel that no longer existed - while still passing, because the mirror above
-    /// had gone stale in the same direction. Deriving the boundary means the next change to the chrome
-    /// moves these tests with it instead of silently invalidating them.</para>
+    /// metrics rather than written down - so the next change to the chrome moves these tests with
+    /// it instead of silently invalidating them.
     ///
     /// <para>N slots cost <c>N*SlotHeight + (N-1)*SlotGap</c>; the chrome above the bottom edge is pad
     /// + tick row + bottom block + the slots gap, and the top pad bounds the other end.</para>
@@ -119,10 +110,10 @@ public sealed class RailSlotGeometryTests
     [Fact]
     public void ATallPanel_StillSurrendersASlot_WhenTheOppositionOutGrowsTheRowCap()
     {
-        // The regression this parameter was renamed for: a caller passing the published ROW count
-        // could never report an overflow once the panel was tall enough to fit the whole capped list.
-        // Counted on LIVE opponents now - the resolved ones take no slot at all, they are in the
-        // top-anchored dead strip.
+        // Capacity must be checked against LIVE opponent count, not the published row count - a
+        // caller using total roster size could never report an overflow once the panel was tall
+        // enough to fit the whole capped list. Resolved opponents take no slot at all; they are in
+        // the top-anchored dead strip.
         var tall = HeightForSlots(8);
         Assert.Equal(8, RailSlotGeometry.Capacity(M, tall));
         Assert.Equal(8, RailSlotGeometry.ShownSlots(M, tall, liveCount: 8));
@@ -134,8 +125,8 @@ public sealed class RailSlotGeometryTests
     public void Capacity_OffByOneBoundary_AtTwoSlots()
     {
         // The boundary the current formula's own comment calls out: available is precisely
-        // 2*(SlotHeight+SlotGap) - SlotGap. The retired available/(SlotHeight+SlotGap) formula charges
-        // a trailing gap the top slot never draws and floors this to 1; the current
+        // 2*(SlotHeight+SlotGap) - SlotGap. A naive available/(SlotHeight+SlotGap) formula would
+        // charge a trailing gap the top slot never draws and floor this to 1; the
         // (available+SlotGap)/(SlotHeight+SlotGap) formula correctly reports 2. One dp lower, neither
         // formula is at a boundary and both agree on 1 - the pair pins the boundary exactly.
         Assert.Equal(2, RailSlotGeometry.Capacity(M, HeightForSlots(2)));
@@ -153,7 +144,7 @@ public sealed class RailSlotGeometryTests
     [Fact]
     public void Capacity_OffByOneBoundary_AtEightSlots_StillClampedToMax()
     {
-        // MaxSlots' own boundary - the retired formula undercounts to 7 here too, not just 8 clamped
+        // MaxSlots' own boundary - a naive formula undercounts to 7 here too, not just 8 clamped
         // down from something higher.
         Assert.Equal(8, RailSlotGeometry.Capacity(M, HeightForSlots(8)));
     }
@@ -173,9 +164,6 @@ public sealed class RailSlotGeometryTests
         // clamp Capacity documents ("at least one, even in a window too short for it, matching the
         // canvas") reports a slot that does not itself fit above the pad. That is intended
         // degradation, not the under/over-count bug this sweep hunts for.
-        //
-        // Derived, not the literal 228 it used to be: that was the boundary for a 96-unit bottom row,
-        // and it silently became wrong when the encounter table made it 113.
         for (var h = HeightForSlots(1); h <= 1200.0; h += 1.0)
         {
             var capacity = RailSlotGeometry.Capacity(M, h);
@@ -214,12 +202,12 @@ public sealed class RailSlotGeometryTests
     {
         var tile = RailSlotGeometry.PlayerTileDp(M, W, 600);
 
-        // One pad up from the panel's bottom edge and nothing else in the chain: as of 2026-09-07 the
-        // player's tile is the LOWEST thing on the rail, with the tick gauge and the encounter table
-        // above it rather than below. It used to sit at the bottom block's top edge.
+        // One pad up from the panel's bottom edge and nothing else in the chain: the player's tile
+        // is the LOWEST thing on the rail, with the tick gauge and the encounter table above it
+        // rather than below.
         Assert.Equal(600.0 - 10.0 - 81.0, tile.Top, 3);
         Assert.Equal(10.0, tile.Left, 3);
-        // Full content width, not a 92-unit seal box in the left column - the ring is gone.
+        // Full content width - not a boxed-off column on the left.
         Assert.Equal(376.0 - 20.0, tile.Width, 3);
         // The TILE's height, not the whole block's - the block still counts the table and the gauge,
         // which is what the opponent capacity is measured against.
@@ -230,7 +218,7 @@ public sealed class RailSlotGeometryTests
     public void ThePlayerTileNeverOverlapsTheLowestSlot()
     {
         // A float anchored on the player and one anchored on slot 0 must not start life on the same
-        // pixels. They are now separated by the whole of the tick gauge and the encounter table, not
+        // pixels. They are separated by the whole of the tick gauge and the encounter table, not
         // just the 6dp SlotsGap - so this asserts the gap is at least that block, which is the thing
         // that would actually break if the bottom-up chain were rewired wrongly.
         var tile = RailSlotGeometry.PlayerTileDp(M, W, 600);
@@ -265,16 +253,9 @@ public sealed class RailSlotGeometryTests
     [Fact]
     public void FiveLiveSlotsStillFitTheShortestRealisticRail()
     {
-        // What the tile size was bought against. Live concurrency in the clog corpus peaks at 5 or
-        // fewer in 1268 of 1275 encounters (99.45%; tools/combat/concurrency.py against the whole clog
-        // corpus, 2026-09-02 - see tools/combat/README.md's own stored result), so five slots is the
-        // case worth sizing for. The one encounter that reached thirteen is the overflow row's
-        // business.
-        //
-        // THE PRICE OF THE ENCOUNTER TABLE, recorded here rather than argued: the minimum rail height
-        // for five slots was 552 and is now 569, because the table added 17 units to the bottom block.
-        // At 560 - the height this test used to assert against - the rail now shows FOUR. Whether that
-        // matters is a question about the owner's actual window height, not about this arithmetic.
+        // What the tile size was bought against: live concurrency in the clog corpus peaks at 5 or
+        // fewer in 1268 of 1275 encounters (99.45%), so five slots is the case worth sizing for. The
+        // one encounter that reached thirteen is the overflow row's business.
         Assert.Equal(569.0, HeightForSlots(5), 3);
         Assert.Equal(5, RailSlotGeometry.Capacity(M, 569.0));
         Assert.Equal(5, RailSlotGeometry.ShownSlots(M, 569.0, liveCount: 5));
@@ -316,9 +297,7 @@ public sealed class RailSlotGeometryTests
 
     // -- PlanDeadStrip -------------------------------------------------------------
 
-    /// <summary>N endings, all in encounter 0 / reset 0 - i.e. no separators anywhere, the case the
-    /// pre-2026-09-02 signature covered exclusively. Used to migrate the uniform-pitch tests onto the
-    /// generalised signature without changing what they mean.</summary>
+    /// <summary>N endings, all in encounter 0 / reset 0 - i.e. no separators anywhere.</summary>
     private static CombatEnding[] Uniform(int count)
     {
         var list = new CombatEnding[count];
@@ -331,7 +310,7 @@ public sealed class RailSlotGeometryTests
     public void PlanDeadStrip_EverythingFits_NoMarkerNothingHidden()
     {
         // startY=0, lineHeight=1, floor=9 -> ten rows fit (indices 0..9); zero separator allowance
-        // reduces this to the pre-2026-09-02 uniform-pitch case.
+        // means every row costs the same, the uniform-pitch case.
         var plan = RailSlotGeometry.PlanDeadStrip(floor: 9, startY: 0, lineHeight: 1, 0, 0, Uniform(6));
 
         Assert.Equal(0, plan.ShownStart);
@@ -352,11 +331,10 @@ public sealed class RailSlotGeometryTests
     [Fact]
     public void PlanDeadStrip_Truncated_HiddenCountIsExactlyWhatTheMarkerDoesNotShow()
     {
-        // The reviewer's regression case: capacity 4 (floor=3, startY=0, lineHeight=1 -> rows 0..3),
-        // 5 endings on file. One row goes to the marker, three to the newest endings (indices 2,3,4),
-        // so TWO are actually hidden (indices 0,1) - not one. The old inline arithmetic printed
-        // hiddenOlder BEFORE reserving the marker's own row, so it always undercounted by exactly the
-        // row it had just taken; this pins the corrected count directly.
+        // Capacity 4 (floor=3, startY=0, lineHeight=1 -> rows 0..3), 5 endings on file. One row goes
+        // to the marker, three to the newest endings (indices 2,3,4), so TWO are actually hidden
+        // (indices 0,1) - not one. The hidden count must be computed AFTER reserving the marker's
+        // own row, or it undercounts by exactly the row just taken.
         var plan = RailSlotGeometry.PlanDeadStrip(floor: 3, startY: 0, lineHeight: 1, 0, 0, Uniform(5));
 
         Assert.True(plan.ShowMarker);
@@ -371,9 +349,7 @@ public sealed class RailSlotGeometryTests
     {
         // Exactly one row available (floor=0, startY=0, lineHeight=1) and more than one ending on
         // file: a "+N earlier" marker with zero endings below it would be a NET LOSS of information
-        // versus just showing the one ending that fits. The old code reserved this row for the marker
-        // unconditionally and drew nothing else. Preserved unchanged across the per-row-height
-        // signature change (2026-09-02).
+        // versus just showing the one ending that fits.
         var plan = RailSlotGeometry.PlanDeadStrip(floor: 0, startY: 0, lineHeight: 1, 0, 0, Uniform(2));
 
         Assert.False(plan.ShowMarker);
@@ -401,10 +377,8 @@ public sealed class RailSlotGeometryTests
     [Fact]
     public void PlanDeadStrip_AtTheLivePanelsOwnLineHeight()
     {
-        // The rail's real numbers. DeadLineHeight became 24 on 2026-09-07 when an ending grew to two
-        // lines (name and outcome on the left, the exchange summary opposite); this test still said 13,
-        // which is the pre-redesign single-line value, and passed anyway because it is internally
-        // consistent - the same way this whole fixture stayed green through a width change.
+        // The rail's real numbers. DeadLineHeight is 24 because an ending is drawn as two lines (name
+        // and outcome on the left, the exchange summary opposite).
         const double lineHeight = 24.0;
         const double startY = 10.0 + lineHeight;
 
@@ -417,12 +391,11 @@ public sealed class RailSlotGeometryTests
         Assert.Equal(0, plan.ShownStart);
     }
 
-    // -- PlanDeadStrip: separators (2026-09-02) --------------------------------------
-    // Coverage for the strip's two grouping lines (owner: "put a 1px yellow dotted separator
-    // between encounters... put a 2px white solid line between resets"). Every test in this section
-    // is built to FAIL against the old uniform-height arithmetic (PlanDeadStrip(floor, startY,
-    // lineHeight, totalCount)) - a test that would pass either way proves nothing, and one of this
-    // method's last two bugs was exactly that kind of gap.
+    // -- PlanDeadStrip: separators --------------------------------------
+    // Coverage for the strip's two grouping lines: a 1px yellow dotted separator appears between
+    // encounters, and a 2px white solid line appears between resets. Every test in this section is
+    // built to fail against uniform-height arithmetic that ignores separators - a test that would
+    // pass either way proves nothing.
 
     [Fact]
     public void PlanDeadStrip_ASeparator_ChangesWhichRowsFit_NewestStillWins()
@@ -486,8 +459,8 @@ public sealed class RailSlotGeometryTests
     [Fact]
     public void SeparatorBetween_AResetBoundary_ReportsResetOnly_NeverEncounterToo()
     {
-        // A reset always ends the encounter too (both ordinals differ here), and the owner's ask
-        // draws ONE line at a reset boundary, never both stacked.
+        // A reset always ends the encounter too (both ordinals differ here), so only one line is
+        // drawn at a reset boundary, never both stacked.
         var older = new CombatEnding("a", FightOutcome.Kill, null, EncounterOrdinal: 4, ResetOrdinal: 1);
         var newer = new CombatEnding("b", FightOutcome.Kill, null, EncounterOrdinal: 5, ResetOrdinal: 2);
 

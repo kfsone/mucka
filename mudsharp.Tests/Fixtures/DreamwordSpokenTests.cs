@@ -5,18 +5,18 @@ namespace MudSharp.Tests.Fixtures;
 
 /// <summary>
 /// Dreamword cancellation when our own persona speaks it. The server hands sleeping players a
-/// dreamword (C15 sequence); the first to speak it in the server's FIFO queue wins a random
-/// stamina refresh. A successful speak draws a C1 clear (handled elsewhere), but a NO-OP speak —
-/// full stamina, or the queue already drained by someone else — draws no clear at all, so without
-/// this we would keep advertising a dead dreamword. Rule: our persona saying the exact current
-/// dreamword cancels it, effect or not. Speaking uses it.
+/// dreamword (C15 sequence); the first to speak it wins a random stamina refresh. A successful
+/// speak draws a C1 clear (handled elsewhere), but a NO-OP speak -- full stamina, or someone else
+/// already spoke it -- draws no clear at all, so without this we would keep advertising a dead
+/// dreamword. Our persona saying the exact current dreamword cancels it, whether or not it grants
+/// an effect.
 ///
 /// Detection is scoped to our own character (identified from the post-select score sheet) and to
 /// C09 chat lines; another player's speech and non-chat text never cancel it.
 /// </summary>
 public class DreamwordSpokenTests : IDisposable
 {
-    // C02+C01 game-mode prompt variant — the post-character-select entry trigger.
+    // C02+C01 game-mode prompt variant -- the post-character-select entry trigger.
     private static readonly byte[] GameModeEntry = [0x9D, 0x9C, 0xFF, 0xFF];
     // The IsPartial '*' frame prompt that leads every server frame (verbatim from a live capture).
     private static readonly byte[] PromptBytes =
@@ -41,7 +41,7 @@ public class DreamwordSpokenTests : IDisposable
 
     // Enter game mode and run the minimal post-select setup so our persona is "Ollie" and the
     // setup-swallow window is closed (the score frame's "name:" line identifies us; the following
-    // prompt shuts the window — see PostSelectSetupTests for the full frame protocol).
+    // prompt shuts the window -- see PostSelectSetupTests for the full frame protocol).
     private void EnterAsOllie()
     {
         _session.Feed(GameModeEntry);
@@ -87,7 +87,7 @@ public class DreamwordSpokenTests : IDisposable
     [Fact]
     public void OwnPersonaWithTitle_CancelsIt()
     {
-        // "Ollie the necromancer says ..." — the name is the first token; the title after it is fine.
+        // "Ollie the necromancer says ..." -- the name is the first token; the title after it is fine.
         EnterAsOllie();
         SetDreamword("sword");
         _dreamwords.Clear();
@@ -103,8 +103,7 @@ public class DreamwordSpokenTests : IDisposable
     {
         // Invisible, the game parenthesises the whole name-and-description:
         //   (Ollie the warlock) says "oibloirduj".
-        // Matching the raw prefix missed this, so speaking the dreamword while invisible left it
-        // advertised forever -- the one state where you are most likely to be using it.
+        // Detection must strip the parens and still match -- invisibility is exactly when this is used.
         EnterAsOllie();
         SetDreamword("sword");
         _dreamwords.Clear();
@@ -146,7 +145,7 @@ public class DreamwordSpokenTests : IDisposable
     [Fact]
     public void OtherPlayerSpeaksDreamword_DoesNotCancel()
     {
-        // Another player saying the word is not "us speaking it" — do not cancel on their echo.
+        // Another player saying the word is not "us speaking it" -- do not cancel on their echo.
         EnterAsOllie();
         SetDreamword("sword");
         _dreamwords.Clear();
@@ -187,7 +186,7 @@ public class DreamwordSpokenTests : IDisposable
     [Fact]
     public void NamePrefixCollision_DoesNotCancel()
     {
-        // "Ollier" starts with "Ollie" but is a different persona — the name must be a whole token.
+        // "Ollier" starts with "Ollie" but is a different persona -- the name must be a whole token.
         EnterAsOllie();
         SetDreamword("sword");
         _dreamwords.Clear();
@@ -201,13 +200,13 @@ public class DreamwordSpokenTests : IDisposable
     [Fact]
     public void NonChatLineWithSameText_DoesNotCancel()
     {
-        // A plain (non-C09) line that happens to read like a say must not cancel — detection is
+        // A plain (non-C09) line that happens to read like a say must not cancel -- detection is
         // gated to chat lines, so narrative text quoting the word can't trip it.
         EnterAsOllie();
         SetDreamword("sword");
         _dreamwords.Clear();
 
-        Feed("Ollie says \"sword\".\n");   // LineKind.Normal — no C09 code
+        Feed("Ollie says \"sword\".\n");   // LineKind.Normal -- no C09 code
 
         Assert.Empty(_dreamwords);
         Assert.Equal("sword", _session.CurrentDreamword);

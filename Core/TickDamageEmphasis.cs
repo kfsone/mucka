@@ -4,10 +4,9 @@ namespace Mucka.Core;
 /// Whether a badge's name is drawn bold: the rule for "this thing took damage on the tick you are
 /// looking at".
 ///
-/// <para><b>The owner's instruction, 2026-09-09:</b> <i>"unbold the id/name field (including player) -
-/// only bold it during a tick where we've received damage, excepting the damage occured within the
-/// last (tick_damage_duration / 6) - so the last ~300ms prior to where our tick cycle starts - I
-/// don't want an early arriving packet to only bold the badge for 50ms."</i></para>
+/// <para>A badge's name is drawn bold only during a tick where its subject took damage, excepting
+/// damage that arrived within the last sixth of the tick (about 300 ms) before the boundary: an
+/// early-arriving packet must not bold the badge for only a handful of milliseconds.</para>
 ///
 /// <para><b>What "we" means per badge.</b> Each tile is the subject of its own row - the perspective
 /// rule the rail is already built on, where an opponent's tile shows what IT takes above and what it
@@ -30,7 +29,7 @@ namespace Mucka.Core;
 /// <c>Mucka.Rendering.Blink</c>, and the same reason: Invariant #1 forbids a UI-thread timer driving
 /// a visual, and the client already refreshes the panel on every combat event plus a 1 Hz heartbeat.
 /// That cadence can leave the bold up for up to a second past the boundary, which is the harmless
-/// direction of the error - the sin the instruction names is under-bolding, not over-bolding.</para>
+/// direction of the error - the rule guards against under-bolding, not over-bolding.</para>
 ///
 /// <para>MAUI-free; linked into mudsharp.Tests.</para>
 /// </summary>

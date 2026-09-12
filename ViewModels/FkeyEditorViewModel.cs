@@ -25,7 +25,7 @@ public sealed class FkeyEditorViewModel : BaseViewModel
     private bool _settingsToProfileOnly;
     private bool _fkeysToProfileOnly;
     private bool _soundsEnabled;
-    // ── Display tab (always global) ───────────────────────────────────────────
+    // -- Display tab (always global) -------------------------------------------
     private double _displayFontSize;
     private double _displayColumns;
     private double _displayDreamwordOffset;
@@ -142,7 +142,7 @@ public sealed class FkeyEditorViewModel : BaseViewModel
     }
 
     /// <summary>Global, one-time: record every byte of every session into ~/.mucka/wire/wire.db.
-    /// Not Debug-gated — this is the switch the owner is meant to flip once and forget.</summary>
+    /// Not Debug-gated - meant to be switched on once and left, not toggled per session.</summary>
     public bool LogWireSession
     {
         get => _logWireSession;
@@ -157,7 +157,7 @@ public sealed class FkeyEditorViewModel : BaseViewModel
         false;
 #endif
 
-    /// <summary>Master sound switch — the Sounds tab's top-level checkbox.</summary>
+    /// <summary>Master sound switch - the Sounds tab's top-level checkbox.</summary>
     public bool SoundsEnabled
     {
         get => _soundsEnabled;
@@ -168,7 +168,7 @@ public sealed class FkeyEditorViewModel : BaseViewModel
     public SoundGroupEditorItem[] SoundGroups { get; }
 
     // The bell row and the Settings tab's mute checkboxes are two views of one setting:
-    // bell unchecked ⇔ both mute flags set (Apply mutes the session, Save persists it).
+    // bell unchecked <-> both mute flags set (Apply mutes the session, Save persists it).
     // _syncingBell suppresses the bell row's change handler while the mute flags push
     // into it, so a session-only mute doesn't bounce back as a permanent one.
     private bool _syncingBell;
@@ -194,7 +194,7 @@ public sealed class FkeyEditorViewModel : BaseViewModel
         set => Set(ref _fkeysToProfileOnly, value);
     }
 
-    // ── Display tab properties ────────────────────────────────────────────────
+    // -- Display tab properties ------------------------------------------------
 
     public double DisplayFontSize
     {
@@ -212,7 +212,7 @@ public sealed class FkeyEditorViewModel : BaseViewModel
     }
     public string DisplayColumnsDisplay => _displayColumns <= 0 ? "auto" : ((int)Math.Round(_displayColumns)).ToString();
 
-    // "Me" chat colours — hex text the user edits, with a live-swatch Color the preview binds to.
+    // "Me" chat colours - hex text the user edits, with a live-swatch Color the preview binds to.
     public string MeNameColor
     {
         get => _meNameColor;
@@ -269,7 +269,7 @@ public sealed class FkeyEditorViewModel : BaseViewModel
     }
     public string MaxOnlineDisplayText => _maxOnlineDisplay == 0 ? "unlimited" : _maxOnlineDisplay.ToString();
     public bool OnlineNamesOnly { get => _onlineNamesOnly; set => Set(ref _onlineNamesOnly, value); }
-    /// <summary>Minutes a departed player lingers in the Recent list; 0 = off (no Recent list). Range 0–10.</summary>
+    /// <summary>Minutes a departed player lingers in the Recent list; 0 = off (no Recent list). Range 0-10.</summary>
     public int OnlineForgetWindow
     {
         get => _onlineForgetWindow;
@@ -353,7 +353,7 @@ public sealed class FkeyEditorViewModel : BaseViewModel
         _floatCompass     = settings.FloatCompass;
 
         // Preview the beep at the bell row's volume (which follows the master slider
-        // until overridden). _bellGroup is read at invoke time — it doesn't exist yet here.
+        // until overridden). _bellGroup is read at invoke time - it doesn't exist yet here.
         PlayBeepCommand = new Command(() =>
             SoundService.Play("beep.wav", _bellGroup?.VolumeDisplay ?? VolumeDisplay));
 

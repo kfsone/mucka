@@ -5,8 +5,8 @@ namespace Mucka.Core.Mapping;
 
 /// <summary>
 /// Locates and inventories the mapping data directory. The directory on disk is the
-/// source of truth: the client appends probe captures, external tooling (python via uv,
-/// sub-agents) may add or rewrite derived files between reloads.
+/// source of truth: the client appends probe captures, and other tools may add or
+/// rewrite derived files between reloads.
 /// </summary>
 public static class MappingStore
 {
@@ -186,9 +186,8 @@ public static class MappingStore
         var resolvesEdge = true;
         if (data[end] == '!')
         {
-            // Dark-text refusals are legacy records from before the parser knew the
-            // period variant of the too-dark line; like (dark) arrivals they mean the
-            // far end is unidentified.
+            // Dark-text refusals mean the far end is unidentified, like (dark)
+            // arrivals -- they do not resolve the edge.
             if (outcome is "(timeout)" or "(no output)" || IsTransientRefusal(outcome)
                 || outcome.StartsWith("It's too dark to see", StringComparison.Ordinal))
                 resolvesEdge = false;

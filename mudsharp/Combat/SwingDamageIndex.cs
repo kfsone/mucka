@@ -187,9 +187,7 @@ public sealed class SwingDamageIndex
     }
 
     /// <summary>Folds in one blow the player TOOK from <paramref name="npcName"/>. The group key is
-    /// derived here rather than passed in, so a caller cannot key the two halves inconsistently -
-    /// NpcGroups.Normalize is also what reduce_combat.py applies, which is what keeps the live and
-    /// offline halves of the pipeline bucketing identically.</summary>
+    /// derived here rather than passed in, so a caller cannot key the two halves inconsistently.</summary>
     public void FoldIncoming(string? npcName, double damage, string? npcWeapon = null)
     {
         if (string.IsNullOrWhiteSpace(npcName) || damage < 0)

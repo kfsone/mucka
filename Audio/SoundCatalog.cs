@@ -11,7 +11,7 @@ public sealed record SoundDef(string Code, string Name, string? Asset = null)
 }
 
 /// <summary>A family of sound effects sharing a code prefix. <paramref name="HasFallback"/> is
-/// true for clio families (the server can trigger a code with no shipped wav → group fallback);
+/// true for clio families (the server can trigger a code with no shipped wav -> group fallback);
 /// false for explicit families like the tell alerts, which never need a fallback pick.</summary>
 public sealed record SoundGroupDef(string Prefix, string Name, SoundDef[] Sounds, bool HasFallback = true)
 {
@@ -150,7 +150,7 @@ public static class SoundCatalog
         return null;
     }
 
-    // Reverse index: exact asset path → its catalog group + def. Covers clio.*.wav and the
+    // Reverse index: exact asset path -> its catalog group + def. Covers clio.*.wav and the
     // explicitly-pathed families (tell alerts) uniformly, so playback gating need not parse codes.
     private static readonly Dictionary<string, (SoundGroupDef Group, SoundDef Def)> s_byAsset = BuildAssetIndex();
 

@@ -232,10 +232,9 @@ public sealed class FightHistoryStoreTests : IDisposable
     }
 
     /// <summary>
-    /// A column added after the operator's file already existed. There is one database in the world
-    /// and it holds months of play, so "edit the schema and delete the file" is no longer a procedure
-    /// that may be followed - CombatDb.AddMissingColumns is what replaced it, and this is the test
-    /// that says an old file comes up to the new shape with its rows intact.
+    /// A column added after a database file already exists. There is one database and it holds months
+    /// of play, so the schema must be able to migrate in place - this is the test that an old file
+    /// comes up to the new shape with its rows intact.
     /// </summary>
     [Fact]
     public async Task AFileWrittenBeforeAColumnExisted_GainsItWithoutLosingItsRows()

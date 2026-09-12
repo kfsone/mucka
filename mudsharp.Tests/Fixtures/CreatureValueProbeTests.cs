@@ -8,22 +8,20 @@ namespace MudSharp.Tests.Fixtures;
 
 /// <summary>
 /// The in-combat creature-value probe: `value &lt;name&gt;` reports the points awarded for killing
-/// a creature (operator, 2026-09-02). Learned once per newly-active roster name, batched across
-/// whatever joined since the last quiet period ("value x and y and z" costs ONE server tick), and
-/// swallowed from the terminal the same way the player-presence sniff already is - see
-/// MudSession's "In-combat creature value probe" remarks for the design this exercises.
+/// a creature. Learned once per newly-active roster name, batched across whatever joined since the
+/// last quiet period ("value x and y and z" costs ONE server tick), and swallowed from the
+/// terminal the same way the player-presence sniff already is - see MudSession's "In-combat
+/// creature value probe" remarks for the design this exercises.
 ///
 /// <para><b>Wire shape, and why every case below leads a frame with its prompt.</b> On real wire
 /// traffic every server frame is LED by an IsPartial '*' prompt (verified: PostSelectSetupTests'
 /// own model, taken from a live capture) - so a `value` command's echo and its reply each arrive
-/// in a frame that STARTS with a prompt, not one that ends with one. An earlier version of this
-/// probe (and this file) assumed the opposite - that the in-flight window closes on the first
-/// prompt seen after arming - which meant it closed before the echo, let alone the reply, on every
-/// realistic shape (review, 2026-09-02). The fix tracks which requested names are still
-/// unaccounted-for and only actually closes the window at the frame boundary that FOLLOWS the
-/// point where all of them have drawn a reply or bad-target rejection - see
-/// TryConsumeCreatureValueLine's own remarks. The cases below exercise the shapes the reviewer's
-/// matrix specifically named.</para>
+/// in a frame that STARTS with a prompt, not one that ends with one. The in-flight window must not
+/// close on the first prompt seen after arming, since that would close it before the echo, let
+/// alone the reply, on every realistic shape. Instead it tracks which requested names are still
+/// unaccounted-for and only closes the window at the frame boundary that FOLLOWS the point where
+/// all of them have drawn a reply or bad-target rejection - see TryConsumeCreatureValueLine's own
+/// remarks. The cases below exercise the shapes this matrix names.</para>
 /// </summary>
 public class CreatureValueProbeTests : IDisposable
 {
@@ -103,7 +101,7 @@ public class CreatureValueProbeTests : IDisposable
         Assert.True(WaitFor(() => Sent().Contains("value rat17\r\n")));
     }
 
-    // ── Matrix row: "prompt, echo" / "prompt, reply" - the documented shape ────────────────────
+    // -- Matrix row: "prompt, echo" / "prompt, reply" - the documented shape --------------------
     // (MudSession.cs:166's own claim, and PostSelectSetupTests' model): echo and reply each arrive
     // as their OWN frame, each led by its own prompt.
 
@@ -185,8 +183,8 @@ public class CreatureValueProbeTests : IDisposable
     [Fact]
     public void UnnumberedName_IsAttributedByNameAlone()
     {
-        // No instance number, and (per the operator) potentially shared by more than one live
-        // creature - the value still attaches to the name, honestly, with no per-instance claim.
+        // No instance number, and potentially shared by more than one live creature - the value
+        // still attaches to the name, honestly, with no per-instance claim.
         EnterCombat("banshee");
         Assert.True(WaitFor(() => Sent().Any(o => o.Contains("value banshee"))));
         Prompt();
@@ -237,7 +235,7 @@ public class CreatureValueProbeTests : IDisposable
         Assert.Contains(Resolved(), r => r.Name == "gargoyle1" && r.Value == 300);
     }
 
-    // ── Matrix row: "prompt, echo+reply" - one frame, not two ──────────────────────────────────
+    // -- Matrix row: "prompt, echo+reply" - one frame, not two ----------------------------------
 
     [Fact]
     public void EchoAndReply_InTheSameFrame_StillResolve()
@@ -252,10 +250,10 @@ public class CreatureValueProbeTests : IDisposable
         Assert.DoesNotContain(Visible(), v => v.Contains("thief"));
     }
 
-    // ── Matrix row: an unrelated frame arrives first ───────────────────────────────────────────
-    // Under the bug, closing on the FIRST prompt seen after arming meant an intervening frame -
-    // any frame - shut the window before the probe's own echo/reply ever arrived. The fix must not
-    // close on ANY prompt; only on the one following full account-for.
+    // -- Matrix row: an unrelated frame arrives first -------------------------------------------
+    // Closing on the FIRST prompt seen after arming would let an intervening frame - any frame -
+    // shut the window before the probe's own echo/reply ever arrived. The window must not close
+    // on ANY prompt; only on the one following full account-for.
 
     [Fact]
     public void AnUnrelatedFrameArrivingFirst_DoesNotCloseTheWindowEarly()
@@ -275,10 +273,8 @@ public class CreatureValueProbeTests : IDisposable
         Assert.Contains(Visible(), v => v.Contains("nothing unusual"));
     }
 
-    // ── Matrix row: echo + reply with no prompt at all ─────────────────────────────────────────
-    // The one shape the OLD (buggy) code happened to work on. Kept to prove the fix does not
-    // regress it - content-line matching never depended on frame boundaries; only the window's
-    // CLOSE did.
+    // -- Matrix row: echo + reply with no prompt at all -----------------------------------------
+    // Content-line matching never depends on frame boundaries; only the window's CLOSE does.
 
     [Fact]
     public void EchoAndReply_WithNoPromptAtAll_StillResolve()
@@ -344,13 +340,12 @@ public class CreatureValueProbeTests : IDisposable
     }
 
     /// <summary>
-    /// Regression for the sniff/creature collision (review, 2026-09-02): a creature reply for
-    /// "ram2" satisfied a queued sniff for persona "Ram" under the OLD bare
-    /// <c>Contains(name, OrdinalIgnoreCase)</c> match, because "The value of the ram2 is 313
-    /// points." contains "Ram" as a substring. That swallowed the creature's value entirely AND
-    /// asserted a false player sighting - a false positive in the PK-awareness path of a permadeath
-    /// game. TryConsumeSniffLine now anchors on where the sniffed name sits in the reply, which a
-    /// creature's "the {name}" wording can never satisfy for an unrelated persona name.
+    /// A creature reply for "ram2" must not satisfy a queued sniff for persona "Ram" merely
+    /// because "The value of the ram2 is 313 points." contains "Ram" as a substring - swallowing
+    /// the creature's value entirely and asserting a false player sighting would be a false
+    /// positive in the PK-awareness path of a permadeath game. TryConsumeSniffLine anchors on
+    /// where the sniffed name sits in the reply, which a creature's "the {name}" wording can never
+    /// satisfy for an unrelated persona name.
     /// </summary>
     [Fact]
     public void ACreatureReply_ForANameContainingAQueuedSniffsPersona_DoesNotResolveTheSniff()
@@ -404,8 +399,8 @@ public class CreatureValueProbeTests : IDisposable
         Thread.Sleep(150);
         Assert.DoesNotContain(Sent(), o => o.Contains("rat18"));
 
-        // A bare prompt with NOTHING accounted for must NOT close the window (the bug this file was
-        // rewritten to stop asserting) - the second batch must still not have gone out.
+        // A bare prompt with NOTHING accounted for must NOT close the window - the second batch
+        // must still not have gone out.
         Prompt();
         Thread.Sleep(150);
         Assert.DoesNotContain(Sent(), o => o.Contains("rat18"));
@@ -425,12 +420,10 @@ public class CreatureValueProbeTests : IDisposable
     /// <summary>
     /// Unnumbered mobs (thief, banshee, coot, fox - see NpcPoolKey's own remarks) have no instance
     /// number and can share a live name, so ONE `value thief` command can legitimately draw a reply
-    /// from each of two different creatures. Reviewer's executed matrix: both replies resolved
-    /// silently with the roster ending up holding whichever arrived last, with nothing marking them
-    /// unattributable. This test proves the SESSION layer captures BOTH replies (neither leaks to
-    /// the terminal unswallowed) - see FightAccumulator.NoteValueTests / ClogWriterTests for the
-    /// downstream half: turning "resolved twice" into an honest ambiguous/unknown reading rather
-    /// than a last-writer-wins coin-flip.
+    /// from each of two different creatures. This test proves the SESSION layer captures BOTH
+    /// replies (neither leaks to the terminal unswallowed) - see FightAccumulator.NoteValueTests /
+    /// ClogWriterTests for the downstream half: turning "resolved twice" into an honest
+    /// ambiguous/unknown reading rather than a last-writer-wins coin-flip.
     /// </summary>
     [Fact]
     public void UnnumberedNameSharedByTwoLiveCreatures_BothRepliesAreCaptured_NeitherLeaked()
@@ -483,16 +476,14 @@ public class CreatureValueProbeTests : IDisposable
     }
 
     /// <summary>
-    /// Regression guard: value is NOT a fixed per-species constant, it is cumulative and climbs
-    /// with what the individual creature has scored (swamping items, big jumps off a player's
-    /// death or a failed flee - see MudSession's own remarks on <c>_creatureValueKnown</c>). A
-    /// session-lifetime "already answered" cache would suppress the second encounter's probe
-    /// entirely and leave the stale first reading in place - exactly the bug the owner reported
-    /// after being killed by a thief, logging back in, and finding its value had moved. This test
-    /// fails against that behaviour: it drives real wire bytes for TWO separate encounters against
-    /// the same literal name with two DIFFERENT readings, and confirms the probe fires again for
-    /// the second fight, then carries that second reading all the way to a RosterRow via the same
-    /// CombatStatsAggregator/ParticipantRoster path the app uses.
+    /// Value is NOT a fixed per-species constant: it is cumulative and climbs with what the
+    /// individual creature has scored (swamping items, big jumps off a player's death or a failed
+    /// flee - see MudSession's own remarks on <c>_creatureValueKnown</c>). A session-lifetime
+    /// "already answered" cache would suppress the second encounter's probe entirely and leave the
+    /// stale first reading in place. This test drives real wire bytes for TWO separate encounters
+    /// against the same literal name with two DIFFERENT readings, and confirms the probe fires
+    /// again for the second fight, then carries that second reading all the way to a RosterRow via
+    /// the same CombatStatsAggregator/ParticipantRoster path the app uses.
     /// </summary>
     [Fact]
     public void SameCreatureName_TwoSeparateEncounters_TheSecondEncountersValueReachesTheRosterRow()
@@ -507,9 +498,9 @@ public class CreatureValueProbeTests : IDisposable
         Assert.False(_session.InCombat);
         lock (_lock) { _outgoing.Clear(); _resolved.Clear(); }
 
-        // A second, separate encounter against a creature sharing the SAME literal name. Under the
-        // bug, `_creatureValueKnown` would still contain "thief" from the first fight and this
-        // probe would never be sent at all.
+        // A second, separate encounter against a creature sharing the SAME literal name. Without
+        // per-encounter clearing, `_creatureValueKnown` would still contain "thief" from the first
+        // fight and this probe would never be sent at all.
         Feed("You attack the thief, using the axe0 as a weapon.\r\n");
         Assert.True(_session.InCombat);
         Assert.True(WaitFor(() => Sent().Any(o => o.Contains("value thief"))));
@@ -534,16 +525,16 @@ public class CreatureValueProbeTests : IDisposable
         Assert.Equal(1419, plan.Rows.Single().Value);
     }
 
-    // ── The probe must never type at the shell ────────────────────────────────────────────────
+    // -- The probe must never type at the shell ------------------------------------------------
     //
     // The player dies. MUD2's death signal is C08 C13 ("Not updating persona.", Bartle 08 13)
     // alongside "The <npc> has killed you." and a drop to the login shell - but the parser only
     // LEAVES game mode when it matches the "Option:" prompt later in the stream, so `InGameMode`
-    // (the probe's only guard before this fix) is still true across that window while the far end
-    // is already a shell. With a name still queued and the debounce timer still armed, the probe
-    // sends `value <name>` into it. Permadeath game; an injected command at the shell is not
-    // cosmetic. Both tests below use their own session with a debounce long enough to make the
-    // queue-then-die ordering deterministic rather than a race.
+    // is still true across that window while the far end is already a shell. With a name still
+    // queued and the debounce timer still armed, the probe would otherwise send `value <name>`
+    // into it. Permadeath game; an injected command at the shell is not cosmetic. Both tests below
+    // use their own session with a debounce long enough to make the queue-then-die ordering
+    // deterministic rather than a race.
 
     private MudSession NewSlowDebounceSession(List<string> outgoing, object gate)
     {

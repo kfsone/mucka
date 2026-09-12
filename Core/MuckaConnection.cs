@@ -50,16 +50,16 @@ public sealed class MuckaConnection : IAsyncDisposable
     // Always on, like the fight history and unlike clogging - see SwingLedger's remarks.
     private readonly SwingLedger _swingLedger = new(CombatDbPath, CrashLog.Write);
 
-    // ── Public events (forwarded from MudSession) ─────────────────────────────
+    // -- Public events (forwarded from MudSession) -----------------------------
     public event Action<StyledLine>? LineReady;
     public event Action<GameStatsSnapshot>? StatsUpdated;
     /// <summary>The server's C08+C13 ("Not updating persona.") signal: permadeath wiped the
     /// current persona. Fires alongside <see cref="StatsUpdated"/>'s zeroed snapshot. Fires on
-    /// the read-loop thread — consumers marshal to their UI thread.</summary>
+    /// the read-loop thread - consumers marshal to their UI thread.</summary>
     public event Action? PersonaWiped;
     /// <summary>The server's C06 C04 auto-reset announcement ("you have 120 seconds to finish up"):
     /// an exact statement that a reset is under way, used to classify the drop to the Option menu
-    /// that follows. Fires on the read-loop thread — consumers marshal to their UI thread.</summary>
+    /// that follows. Fires on the read-loop thread - consumers marshal to their UI thread.</summary>
     public event Action? AutoResetInitiated;
 
     /// <summary>The reset landed, corroborated - see <see cref="MudSession.WorldResetLanded"/>. Use
@@ -80,7 +80,7 @@ public sealed class MuckaConnection : IAsyncDisposable
     public event Action? GameModeEntered;
     public event Action? GameModeExited;
     /// <summary>The character in this session was identified from the setup <c>score</c> reply.
-    /// Payload is the character name. Fires on the Feed thread — consumers marshal to the UI.</summary>
+    /// Payload is the character name. Fires on the Feed thread - consumers marshal to the UI.</summary>
     public event Action<string>? CharacterIdentified;
 
     /// <summary>MUD2 announcing a score change - <c>(Persona saved on +38 = 19,214).</c> Re-raised for
@@ -102,9 +102,9 @@ public sealed class MuckaConnection : IAsyncDisposable
     public event Action<string, AnsiColor>? FewPlayerReady;
     /// <summary>Fired when a FEW-response context opens (C12+C08+C05). Start accumulating names.</summary>
     public event Action? FewListStarting;
-    /// <summary>Fired when the FEW-response context closes — all names delivered. Replace the visible list now.</summary>
+    /// <summary>Fired when the FEW-response context closes - all names delivered. Replace the visible list now.</summary>
     public event Action? FewListComplete;
-    /// <summary>Fired when a room short (C02+C01) appears at frame start — player is at or has entered a room.</summary>
+    /// <summary>Fired when a room short (C02+C01) appears at frame start - player is at or has entered a room.</summary>
     public event Action? RoomEntered;
     /// <summary>Fired when a room short description line is received (LT_GREEN foreground). Payload is the room name.</summary>
     public event Action<string>? RoomShortReady;
@@ -112,7 +112,7 @@ public sealed class MuckaConnection : IAsyncDisposable
     public event Action? FeiListStarting;
     /// <summary>Fired for each item line in the FEI response. "========" is the room/carry separator.</summary>
     public event Action<string>? FeiItemReady;
-    /// <summary>Fired when the FEI-response context closes — all items delivered.</summary>
+    /// <summary>Fired when the FEI-response context closes - all items delivered.</summary>
     public event Action? FeiListComplete;
     /// <summary>One creature-presence sentence (C04) from the room, verbatim. The Here list's only
     /// evidence that a name FEI reported is alive - see MudSharp.Models.RoomCreatures.</summary>
@@ -121,7 +121,7 @@ public sealed class MuckaConnection : IAsyncDisposable
     public event Action? FexListStarting;
     /// <summary>Fired for each exit keyword in the FEX response.</summary>
     public event Action<string>? FexItemReady;
-    /// <summary>Fired when the FEX-response context closes — all exit keywords delivered.</summary>
+    /// <summary>Fired when the FEX-response context closes - all exit keywords delivered.</summary>
     public event Action? FexListComplete;
     /// <summary>An exits-verb line "direction: Destination." was parsed. Payload: (direction, destination name).</summary>
     public event Action<string, string>? ExitLineReady;
@@ -129,11 +129,11 @@ public sealed class MuckaConnection : IAsyncDisposable
     /// (ending in a prompt redraw) is about to contend with anything else on the wire.</summary>
     public event Action? FesProbeSent;
     /// <summary>Fired when a queued "sniff" value-probe resolves. Payload: probed name + outcome.
-    /// Fires on the read-loop thread — consumers marshal to their UI thread.</summary>
+    /// Fires on the read-loop thread - consumers marshal to their UI thread.</summary>
     public event Action<string, SniffOutcome>? SniffResult;
     /// <summary>Fired when an in-combat `value &lt;name&gt;` probe answers for a creature - the points
-    /// awarded for killing it (operator, 2026-09-02). Payload: creature name + points. Fires on the
-    /// read-loop thread — consumers marshal to their UI thread. See MudSession.CreatureValueResolved.</summary>
+    /// awarded for killing it. Payload: creature name + points. Fires on the
+    /// read-loop thread - consumers marshal to their UI thread. See MudSession.CreatureValueResolved.</summary>
     public event Action<string, int>? CreatureValueResolved;
     /// <summary>Fired when the connection is lost UNEXPECTEDLY (read loop ended on server EOF or an
     /// exception). Null = the loop ended without an exception (still unexpected -- the server
@@ -152,7 +152,7 @@ public sealed class MuckaConnection : IAsyncDisposable
     public bool IsConnected => _client?.Connected ?? false;
     public bool InGameMode => _session.InGameMode;
 
-    /// <summary>True when the manual JSONL file capture is running — what the capture button shows.
+    /// <summary>True when the manual JSONL file capture is running - what the capture button shows.
     /// Deliberately NOT "anything is recording": the always-on wire log must not make the button
     /// read as armed, nor the button's Stop switch the wire log off.</summary>
     public bool IsCapturing => _capture.IsFileRecording;
@@ -161,7 +161,7 @@ public sealed class MuckaConnection : IAsyncDisposable
     public string? WireLogPath => _capture.DatabasePath;
 
     /// <summary>
-    /// Raised when the wire log fails — at start, or later if its writer dies. The crash log is not a
+    /// Raised when the wire log fails - at start, or later if its writer dies. The crash log is not a
     /// place the owner ever looks, and this is a feature switched on once and then trusted forever, so
     /// its failures go to the terminal like every other client-side fault (see GameViewModel's handling
     /// of <c>InputGate.Faulted</c>, which exists for the same reason).
@@ -169,7 +169,7 @@ public sealed class MuckaConnection : IAsyncDisposable
     public event Action<string>? WireLogFailed;
 
     /// <summary>The wire log's last failure, or null. Held as well as raised so a failure that happens
-    /// during connect — before anything is subscribed — is not lost.</summary>
+    /// during connect - before anything is subscribed - is not lost.</summary>
     public string? WireLogFailure { get; private set; }
 
     private void ReportWireLogFailure(string context, Exception ex)
@@ -182,12 +182,12 @@ public sealed class MuckaConnection : IAsyncDisposable
     public void Annotate(string message) => _capture.Annotate(message);
 
     public bool InCombat => _session.InCombat;
-    /// <summary>See <see cref="ClogWriter.IsTailOnly"/> — a clog is still draining its tail
+    /// <summary>See <see cref="ClogWriter.IsTailOnly"/> - a clog is still draining its tail
     /// (trailing prose captured up to the next prompt) even though no encounter is actively
     /// live any more.</summary>
     public bool IsInCombatGracePeriod => _clog.IsTailOnly;
 
-    /// <summary>The current merged stats snapshot — see <see cref="MudSharp.Session.MudSession.CurrentStats"/>.
+    /// <summary>The current merged stats snapshot - see <see cref="MudSharp.Session.MudSession.CurrentStats"/>.
     /// Read this for an immediate "whatever we currently know" value; do not subscribe to
     /// <see cref="StatsUpdated"/> and wait for the next event when a synchronous read will do, since
     /// that races the FES heartbeat's own cadence.</summary>
@@ -195,7 +195,7 @@ public sealed class MuckaConnection : IAsyncDisposable
     public string? ClogFilePath => _clog.FilePath;
 
     /// <summary>The accumulated per-fight history index, for contrasting the current fight against
-    /// prior ones. Unlike clogging this always records — see FightHistoryRecorder's remarks.</summary>
+    /// prior ones. Unlike clogging this always records - see FightHistoryRecorder's remarks.</summary>
     public FightHistoryStore FightHistory => _fightHistory;
 
     /// <summary>Loads the fight-history index. Fire-and-forget from startup; must not be awaited on
@@ -265,7 +265,7 @@ public sealed class MuckaConnection : IAsyncDisposable
             _cts = cts;
             _sendChannel = sendChannel;
 
-            // Wire outgoing bytes → queued network write (+ capture if active)
+            // Wire outgoing bytes -> queued network write (+ capture if active)
             _session.OutgoingBytes -= EnqueueBytes;
             _session.OutgoingBytes += EnqueueBytes;
 
@@ -331,7 +331,7 @@ public sealed class MuckaConnection : IAsyncDisposable
 
     /// <summary>
     /// Starts the always-on wire log into <c>~/.mucka/wire/wire.db</c>. Driven by the global
-    /// <c>logwiresession</c> setting — the caller reads the setting, this does the work — and started
+    /// <c>logwiresession</c> setting - the caller reads the setting, this does the work - and started
     /// BEFORE <see cref="ConnectAsync"/> so the login exchange is in the log like everything else.
     /// Independent of <see cref="TryStartCapture"/>; both may run at once.
     ///
@@ -373,7 +373,7 @@ public sealed class MuckaConnection : IAsyncDisposable
     /// owner (<see cref="Mucka.Core.TickPhase"/>, reached through SidePanelViewModel.TickPhaseUtc);
     /// leave unset and the probe simply loses its guard and uses its plain delay. Resolved through
     /// <see cref="CombatTiming.MillisecondsToNextBoundary"/> here so callers do not each repeat the
-    /// modulo — the one thing that class exists to prevent.
+    /// modulo - the one thing that class exists to prevent.
     /// </summary>
     public Func<DateTime?>? CombatTickAnchorProvider
     {
@@ -421,7 +421,7 @@ public sealed class MuckaConnection : IAsyncDisposable
     /// countdown tick; the projection and its precision burst are driven entirely in the session layer.</summary>
     public ResetEstimate ResetEstimate => _session.ResetEstimate;
 
-    /// <summary>The reset-time projection changed — optional immediate UI-refresh hint (also polled).</summary>
+    /// <summary>The reset-time projection changed - optional immediate UI-refresh hint (also polled).</summary>
     public event Action? ResetEstimateChanged;
 
     /// <summary>When true (and a capture is active), each folded reset reading is written to the capture
@@ -450,7 +450,7 @@ public sealed class MuckaConnection : IAsyncDisposable
     /// Send the NAWS window-size update followed by the client-mode entry interrupt:
     ///   ESC-[ ESC^F ESC-T ESC-N /T{cols} ESC-]
     /// This enters best-client mode, selects normal mode (so cols are honoured), and
-    /// tells the MUD shell the effective terminal width — all without a trailing newline.
+    /// tells the MUD shell the effective terminal width - all without a trailing newline.
     /// </summary>
     internal void SendClientModeEntry()
     {
@@ -474,12 +474,12 @@ public sealed class MuckaConnection : IAsyncDisposable
     }
 
     /// <summary>
-    /// Re-advertise the terminal width to the MUD shell mid-session — e.g. after a device
+    /// Re-advertise the terminal width to the MUD shell mid-session - e.g. after a device
     /// rotation changes the usable column count. The server word-wraps game text on the /T
     /// value (set at client-mode entry), NOT on the telnet NAWS subnegotiation, so a resize
     /// that only updates NAWS leaves freshly-sent text wrapped at the old width. Wraps
-    /// /T{cols} in a command interrupt (ESC-[ … ESC-]) so no newline is injected. No-op
-    /// unless we are in game mode — /T is only meaningful once the in-game shell is active.
+    /// /T{cols} in a command interrupt (ESC-[ ... ESC-]) so no newline is injected. No-op
+    /// unless we are in game mode - /T is only meaningful once the in-game shell is active.
     /// Call after <see cref="SetWindowSize"/> so _windowCols already holds the new value.
     /// May be called from any thread.
     /// </summary>
@@ -488,7 +488,7 @@ public sealed class MuckaConnection : IAsyncDisposable
         if (!_session.InGameMode)
             return;
 
-        // ESC-[  = begin command interrupt · /T{n} = MUD shell width command · ESC-] = end
+        // ESC-[  = begin command interrupt . /T{n} = MUD shell width command . ESC-] = end
         byte[] prefix = { 0x1B, 0x2D, 0x5B };
         byte[] colCmd = Encoding.ASCII.GetBytes($"/T{_windowCols}");
         byte[] suffix = { 0x1B, 0x2D, 0x5D };
@@ -523,7 +523,7 @@ public sealed class MuckaConnection : IAsyncDisposable
         _clog.Dispose();
     }
 
-    // ── Private ────────────────────────────────────────────────────────────────
+    // -- Private ----------------------------------------------------------------
 
     private async Task ReadLoopAsync(NetworkStream stream, CancellationToken ct)
     {
@@ -539,7 +539,7 @@ public sealed class MuckaConnection : IAsyncDisposable
 #if WINDOWS
                 RawBytesReceived?.Invoke(buf[..read]);
 #endif
-                // Feed raw bytes into MudSession AFTER capturing — parser sees unmodified bytes.
+                // Feed raw bytes into MudSession AFTER capturing - parser sees unmodified bytes.
                 _session.Feed(buf.AsSpan(0, read));
                 // In pre-game mode, surface partial lines (e.g. "Account ID:") that arrive
                 // without a trailing newline. In game mode, the C01+C02 protocol owns prompt
@@ -554,11 +554,10 @@ public sealed class MuckaConnection : IAsyncDisposable
         {
             // The read loop ending IS the end of the session's incoming traffic, however it ended:
             // cancelled by DisconnectAsync, the server closing the socket, or the socket throwing. Close
-            // the open wire-log batch here rather than only on the graceful path - a server drop used to
-            // leave up to a whole batch in memory, and the drop is exactly the session you would want to
-            // read back afterwards. Once per connection, so it costs the batching nothing; the flush in
-            // DisconnectAsync (which runs after this, and after any last write) then finds nothing to do
-            // unless the write loop got a byte out in between.
+            // the open wire-log batch here rather than only on the graceful path, since a server drop is
+            // exactly the session you would want to read back afterwards. Once per connection, so it
+            // costs the batching nothing; the flush in DisconnectAsync (which runs after this, and after
+            // any last write) then finds nothing to do unless the write loop got a byte out in between.
             _capture.Flush();
             if (!_deliberateDisconnect)
                 Disconnected?.Invoke(error);
@@ -616,8 +615,7 @@ public sealed class MuckaConnection : IAsyncDisposable
     /// (<see cref="CombatEventKind.YouFleeFailed"/>) is the worst-value outcome in the game: MUD2
     /// charges the points, can demote the persona a whole experience level, drops the weapon out of
     /// the player's hands, ends every fight they were in - and leaves them standing exactly where they
-    /// were, in front of whatever they were running from. Owner, on the frame that prompted this:
-    /// "If I'd waited a heartbeat longer to qq, i'd have died."</para>
+    /// were, in front of whatever they were running from.</para>
     ///
     /// <para>The text alone is a poor carrier for it. "You have fled by trying to go out." differs from
     /// the success line by two words, arrives in a frame alongside the drop and the persona-save
@@ -739,7 +737,7 @@ public sealed class MuckaConnection : IAsyncDisposable
         _session.ResetDiagnostic        += OnResetDiagnostic;
     }
 
-    // Reset-projection incident (unanswered sample, lock contradiction, auto-reset anchor) → capture
+    // Reset-projection incident (unanswered sample, lock contradiction, auto-reset anchor) -> capture
     // log, when the per-profile toggle is on. Annotate() no-ops unless a capture is active.
     private void OnResetDiagnostic(string note)
     {

@@ -34,7 +34,7 @@ public sealed class CombatOutlookTests
     [Fact]
     public void Project_SaysNothingWithoutAKillEstimateToDivideInto()
     {
-        // Never having killed one of these means there is no denominator at all — MUD2 does not report
+        // Never having killed one of these means there is no denominator at all - MUD2 does not report
         // NPC stamina, so there is nothing to project against.
         var outlook = CombatOutlook.Project(
             elapsedSeconds: 30, damageDealt: 20, damageTaken: 10,
@@ -57,7 +57,7 @@ public sealed class CombatOutlookTests
     public void Project_ReportsUnhurtRatherThanWinningWhenNothingHasLandedOnYou()
     {
         // An opponent that has done no damage yields an infinite time-to-die, and calling that
-        // "winning" would overstate what is known — the pass tick means it may simply not have acted.
+        // "winning" would overstate what is known - the pass tick means it may simply not have acted.
         var outlook = CombatOutlook.Project(
             elapsedSeconds: 30, damageDealt: 20, damageTaken: 0,
             ownHits: 4, opponentHits: 0, playerStamina: 100, estimatedPool: 50);

@@ -1,6 +1,6 @@
 namespace MudSharp.Combat;
 
-/// <summary>Visual urgency tier for a STATE signal (DESIGN_FINAL.md section 4.2). Only <see cref="T3"/>
+/// <summary>Visual urgency tier for a STATE signal. Only <see cref="T3"/>
 /// carries motion (a Composition glow pulse); <see cref="T1"/>/<see cref="T2"/> are static colour
 /// moves.</summary>
 public enum CombatTier
@@ -15,8 +15,8 @@ public enum CombatTier
 }
 
 /// <summary>
-/// Resolves per-signal tiers per DESIGN_FINAL.md section 4.3, plus the critical-stamina hard floor
-/// (4.4). Everything here is a pure, stateless function of primitives - testable directly, and
+/// Resolves per-signal tiers, plus the critical-stamina hard floor. Everything here is a pure,
+/// stateless function of primitives - testable directly, and
 /// MAUI-independent so mudsharp.Tests can exercise it via the existing ProjectReference with no
 /// test-project wiring.
 /// </summary>
@@ -24,18 +24,13 @@ public static class CombatTierResolver
 {
     /// <summary>
     /// Stamina at/below which the player is close enough to permadeath that the panel must never read
-    /// calmer than T2, whatever else it would otherwise say (D15/4.4).
+    /// calmer than T2, whatever else it would otherwise say.
     ///
-    /// <para><b>Its value has no danger measurement behind it, and this comment used to imply
-    /// otherwise.</b> 6.5 entered this codebase as the FLEE-FREE boundary - the stamina below which
-    /// MUD2 stops charging to leave - and was then re-used as a danger threshold because it was the
-    /// only number available. The two quantities are severed and must stay severed: whatever a flee
-    /// costs is a question about score, and this is a question about how many blows you can take.
-    ///
-    /// <para>There is no flee-cost model in the client to be severed FROM any more. One was built on
-    /// a fraction-of-maximum band and deleted on 2026-09-09 because its stated evidence could not be
-    /// found anywhere in the repo; see the remarks on CombatRailView.DrawFleePill and Lab-spec.md. Do
-    /// not reconnect this constant to a future one.</para>
+    /// <para><b>Its value has no danger measurement behind it.</b> 6.5 entered this codebase as the
+    /// FLEE-FREE boundary - the stamina below which MUD2 stops charging to leave - and was then
+    /// re-used as a danger threshold because it was the only number available. The two quantities are
+    /// severed and must stay severed: whatever a flee costs is a question about score, and this is a
+    /// question about how many blows you can take.</para>
     ///
     /// <para><b>It stays ABSOLUTE all the same, and that is not an oversight.</b> MUD2 damage does not
     /// consult the player's ceiling - a rat hits for what a rat hits for - so a danger threshold
@@ -48,16 +43,15 @@ public static class CombatTierResolver
     public const double CriticalStaminaThreshold = 6.5;
 
     /// <summary>
-    /// The survival threshold: <c>COMBAT-RAIL-SPEC.md</c> section 6a's third stamina number, and the
+    /// The survival threshold: docs/combat-rail-spec.md section 6a's third stamina number, and the
     /// only one of the three that ALARMS rather than explains.
     ///
     /// <para>Deliberately not a formula, unlike the 40 and 30 stat knees. It is where the consequences
     /// converge - most NPCs cap out at 15-20 damage so one blow can now kill, several creatures flip
     /// from peaceful to hostile against a player this wounded, a newly-arrived NPC's surprise blow lands
     /// 5-15 regardless of what the current opponent can do, and MUD2 prints its own "consider fleeing"
-    /// near here. Against the owner's tally - outside rats, of 5 occasions at exactly 20 stamina, 3 cost
-    /// the character - a formula that fits the instrument better is still answering the wrong
-    /// question.</para>
+    /// near here. Of 5 occasions at exactly 20 stamina (outside rats), 3 cost the character - a formula
+    /// that fits the instrument better is still answering the wrong question.</para>
     /// </summary>
     public const double SurvivalStaminaThreshold = 20.0;
 
@@ -125,20 +119,11 @@ public static class CombatTierResolver
     /// </summary>
     ///
     /// <remarks>
-    /// <para><b>The justification this used to carry - "the player is 1-2 hits from permadeath here
-    /// whatever else is true" - is withdrawn.</b> It was never measured. It was inferred from the
-    /// number, and the number came from somewhere else entirely: 6.5 is the FLEE-FREE boundary, which
-    /// is now identifiable as roughly 6% of maximum stamina as it lands on the one 105-maximum persona
-    /// it was observed on. A price was read as a danger reading because it was the only number
-    /// available. See <see cref="CriticalStaminaThreshold"/>, which sets out the same correction, and
-    /// do not restate the permadeath claim here or anywhere else without a measurement behind it.</para>
-    ///
-    /// <para><b>The floor is kept anyway, deliberately.</b> Removing it would quietly lower the
-    /// loudest reading this panel has on the evidence that its threshold is unearned, which is the
-    /// wrong direction to be wrong in when death is character deletion. An absolute stamina IS the
-    /// right KIND of threshold - MUD2 damage does not consult the player's ceiling - so what is wrong
-    /// with this constant is its value, not its shape. It stands as a deliberately conservative
-    /// placeholder until somebody measures where the line actually falls.</para>
+    /// <see cref="CriticalStaminaThreshold"/>'s value has no danger measurement behind it, but the
+    /// floor is kept anyway: an absolute stamina is the right KIND of threshold - MUD2 damage does not
+    /// consult the player's ceiling - so what is wrong with the constant is its value, not its shape.
+    /// It stands as a deliberately conservative placeholder until somebody measures where the line
+    /// actually falls.
     /// </remarks>
     public static CombatTier CriticalStaminaFloorTier(CombatTier staminaTier, double staminaCurrent)
     {

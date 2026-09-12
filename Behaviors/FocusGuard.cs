@@ -12,13 +12,6 @@ using XamlMedia = Microsoft.UI.Xaml.Media;
 /// That is the entire point of this class. It works by tree position, not by name, so a control
 /// that did not exist when this was written is covered the moment it appears.
 ///
-/// <para>What this replaced, and why: enforcement used to be a hand-written list of
-/// <c>x:Name</c>s passed to <c>GamePage.DisableFocusOnInteraction(...)</c>. Twelve names against
-/// roughly fifty interactive elements in GamePage.xaml - the overflow (hamburger) menu and every
-/// row in it, the floating map panel, the Chat button and the data-templated fkey buttons were all
-/// missing, and rows built lazily inside a <c>BindableLayout</c> could not be passed to it at all.
-/// A list that must be remembered is a list that rots, and this one had.</para>
-///
 /// <para>Four layers, weakest-but-earliest first. Any one of them holding is enough:</para>
 /// <list type="number">
 /// <item><description><b>Hover pre-emption.</b> A mouse reaches a control before it clicks it, so

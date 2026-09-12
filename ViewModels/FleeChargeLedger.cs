@@ -13,17 +13,17 @@ namespace Mucka.ViewModels;
 ///   Croquet mallet dropped.
 ///   You have fled by going east.
 /// </code>
-/// <para>Every transcribed flee the owner supplied (2026-09-09) and every one of the flights in
+/// <para>Every transcribed flee session on record and every flight in
 /// <c>FleeWorthTests.RecordedFlights</c> has the fall stamped at or before the flee event. The
 /// reverse order is not handled: a flee that finds nothing held records nothing, and does NOT lie in
 /// wait for the next fall - which, in the one frame where a flee can be followed by another fall (a
 /// free flight from a shark, then the drowning), would have been the wrong figure.</para>
 ///
-/// <para><b>Only the FIRST fall of a frame is the flight cost</b> (owner, 2026-09-09: "there are
-/// *some* rare cases where fleeing has two penalties - such as fleeing from a shark and then drowning
-/// (one for flight, one for a non-combat death)"). A held charge is never overwritten by a later one,
-/// and a held charge that no flight claims dies with the frame - <c>MudStreamParser.FrameClosed</c>
-/// is the only bound; see there for why the one-tick hold window this replaced was unsound.</para>
+/// <para><b>Only the FIRST fall of a frame is the flight cost.</b> Rare cases exist where fleeing
+/// incurs two penalties - such as fleeing from a shark and then drowning (one for the flight, one
+/// for the non-combat death). A held charge is never overwritten by a later one, and a held charge
+/// that no flight claims dies with the frame - <c>MudStreamParser.FrameClosed</c> is the only
+/// bound.</para>
 ///
 /// <para>Pure and MAUI-free; linked into mudsharp.Tests. Every caller is on the UI thread (see
 /// <c>SidePanelViewModel.OnScoreSaved</c>).</para>

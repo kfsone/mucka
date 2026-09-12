@@ -5,26 +5,23 @@ namespace MudSharp.Combat;
 
 /// <summary>
 /// Detects the start/end of combat encounters and classifies individual combat lines, mostly from
-/// plain rendered text (<see cref="StyledLine.PlainText"/>) — it has to be mostly, because several of
-/// the lines that matter carry no C1 wrapper at all in real captures: WeaponEquip, WeaponBroke and
-/// DroppedGuard (see RESEARCH-derived NOTES.md in tools/combat), and — verified 2026-08-26 — the
-/// death lines "The X drops dead, poisoned..." and "The X has just passed on.", which arrive as bare
-/// untagged text at base scope.
+/// plain rendered text (<see cref="StyledLine.PlainText"/>): several lines that matter carry no C1
+/// wrapper at all in real captures (WeaponEquip, WeaponBroke, DroppedGuard), and the death lines
+/// "The X drops dead, poisoned..." and "The X has just passed on." arrive as bare untagged text at
+/// base scope.
 ///
 /// <para>The prose is what identifies WHICH creature, and there is no substitute for it. But the one
 /// tag this class does read, <see cref="LineKind.FightEnd"/> (C08.10/11/12), is what says a fight
-/// ended AT ALL, and it has been right every time the prose was not: three separate wordings have
-/// slipped past the regexes below over the project's life, each leaving a fight open until logout,
-/// and all three were correctly coded on the wire. Authority from the code, identity from the text.</para>
+/// ended AT ALL, and it has been right every time the prose was not. Authority from the code,
+/// identity from the text.</para>
 ///
 /// <para><b>What this class deliberately does NOT do:</b> it does not attempt to reconstruct
-/// per-fight damage/DPS/duration aggregates — that analysis already exists offline in
-/// tools/combat/reduce_combat.py against a full capture. This tracker's job is just to answer,
-/// live, "are we in combat right now" and "what combat line just happened", so a ClogWriter can
-/// record the raw stream faithfully for later offline analysis (same rules, same tool).</para>
+/// per-fight damage/DPS/duration aggregates. This tracker's job is just to answer, live, "are we
+/// in combat right now" and "what combat line just happened", so a ClogWriter can record the raw
+/// stream faithfully for later offline analysis.</para>
 ///
-/// <para><b>The ends (owner, 2026-08-19; an eighth found 2026-08-26).</b> Every end is printed inside
-/// a SINGLE frame - one prompt to the next - always. That guarantee is load-bearing here: it is the
+/// <para><b>Every end is printed inside a SINGLE frame</b> - one prompt to the next - always. That
+/// guarantee is load-bearing here: it is the
 /// reason this class needs no timer, no idle window and no "lull" state to decide a fight is over.
 /// The terminator line is never separated from its fight by a frame boundary, so whatever the frame
 /// says is the whole answer, and a fight that has not been ended by a line in the frame really is
@@ -43,15 +40,10 @@ namespace MudSharp.Combat;
 ///
 /// <para>1-3, 6 and 8 close only the creature they name. 4, 5 and 7 are the player's own state changing
 /// rather than one opponent's, so they return the fight count to 0 and close every open fight at once.
-/// Cases 3 and 5 were BOTH invisible to this class until 2026-08-19 - case 3 matched but deliberately
-/// closed nothing, case 5 had no pattern at all - which is why an encounter the player walked away from
-/// could stay "in combat" until reset or logout. Case 8 was invisible until 2026-08-26 and cost the same
-/// thing: a wyvern died of poison, no line in the frame matched, and combat never closed.</para>
+/// </para>
 ///
-/// <para><b>Do not read the list as closed.</b> Three of the eight were found by a player noticing the
-/// readout was wrong, months apart, each time in a frame that a careful reading of the existing list
-/// said could not happen. <see cref="NoteRoomChanged"/> is the backstop for the next one, and it is
-/// deliberately loud when it fires.</para>
+/// <para><see cref="NoteRoomChanged"/> is the backstop for an end whose wording this class does not
+/// yet recognise, and it is deliberately loud when it fires.</para>
 ///
 /// <para><b>A new encounter can begin in the same frame.</b> Nothing here waits for a frame to end
 /// before opening the next encounter, and it must not: MUD2 will happily kill the last creature of one
@@ -67,13 +59,11 @@ namespace MudSharp.Combat;
 /// <see cref="WeaponAlreadyInUse"/>). Nothing about a weapon survives into the next encounter.</para>
 ///
 /// <para><b>The "pass" tick:</b> MUD2 gives no textual signal at all for a combat tick where a
-/// participant chose not to attack (confirmed against RESEARCH/mud2-multi-combat.jsonl — solo
-/// combat can go silent for 90+ seconds with no hit/miss/pass message of any kind, until another
-/// entity's presence "unsticks" the server's combat scheduler). We do not fabricate a synthetic
-/// pass event; a clog's own event timestamps make the real silence visible for later statistical
-/// analysis across many clogs.</para>
+/// participant chose not to attack - solo combat can go silent for 90+ seconds with no hit/miss/pass
+/// message of any kind. We do not fabricate a synthetic pass event; a clog's own event timestamps
+/// make the real silence visible for later statistical analysis across many clogs.</para>
 ///
-/// <para><b>Internally locked (2026-08-16).</b> <see cref="Observe"/> and <see cref="ForceEnd"/> are
+/// <para><b>Internally locked.</b> <see cref="Observe"/> and <see cref="ForceEnd"/> are
 /// called from the parser Feed thread (and, for ForceEnd, occasionally a pool thread via
 /// MudSession.Dispose's async path) - a session teardown racing an in-flight Feed() could otherwise
 /// run both concurrently against this class's unsynchronized fields. A single <see cref="_gate"/>
@@ -94,10 +84,8 @@ public sealed class CombatTracker
     // Two forms, and the UNARMED one has no weapon clause at all:
     //   armed:   "You attack the thief, using the falchion as a weapon."
     //   unarmed: "You attack the thief."
-    // Only the armed form used to be matched, so opening a fight bare-handed did not start an
-    // encounter here at all - it limped along until YouHit's defensive Begin() picked it up. That
-    // also swallowed any "use <weapon>" issued between the attack and the first blow, because the
-    // weapon-equip line had no open encounter to attach to and the readout still said "unarmed".
+    // Both forms must open the encounter: a bare-handed attack that is not matched leaves nothing
+    // for a "use <weapon>" issued before the first blow to attach to, and the readout stays "unarmed".
     // Two patterns rather than one with an optional weapon clause: with a lazy npc group and the
     // clause optional, the engine prefers skipping the optional group and swallows ", using the X
     // as a weapon" into the npc name itself. Matched armed-first so the specific form wins.
@@ -112,19 +100,11 @@ public sealed class CombatTracker
     /// "You hit the banshee (6)." - the EXACT damage of a blow, instead of the bracket
     /// <see cref="YouHit"/> matches. Verbatim from session-rec.mud2.co.uk.20260819-001118.
     ///
-    /// <para><b>What makes MUD2 print this instead of a bracket is NOT KNOWN.</b> This comment used to
-    /// say it was the `identify` setting, and that is wrong - checked against every capture on disk
-    /// (2026-09-01). The one session with exact figures never sends `identify` at all, while the
-    /// sessions that DO send it print brackets throughout; the single exact line in the clog corpus
-    /// ("You hit the giant0 (10).") names a numbered creature, which means identify was on there and
-    /// the figure was exact anyway. The same banshee appears in RESEARCH/mud2-multi-combat.jsonl with
-    /// bracketed hits. Whatever the switch is - a persona property, an experience level, an
-    /// undiscovered setting - nothing observed distinguishes the two cases, so no cause is claimed
-    /// here. The corpus is 6 exact lines against roughly 820 bracketed ones.</para>
+    /// <para>What makes MUD2 print this instead of a bracket is not known; it is not the `identify`
+    /// setting. The corpus is 6 exact lines against roughly 820 bracketed ones.</para>
     ///
-    /// <para>Nothing matched this before 2026-08-19, so every one of those exact hits went uncounted.
-    /// Emitted with RangeLow == RangeHigh: an exact reading is a range of width zero, so the consumers
-    /// that average the pair need no special case for it.</para>
+    /// <para>Emitted with RangeLow == RangeHigh: an exact reading is a range of width zero, so the
+    /// consumers that average the pair need no special case for it.</para>
     /// </summary>
     private static readonly Regex YouHitExact = new(
         @"^You hit the (?<npc>.+?) \((?<dmg>\d+)\)\.$", RegexOptions.Compiled);
@@ -136,10 +116,6 @@ public sealed class CombatTracker
     /// there is no surviving stamina to report, so MUD2 omits the "(cur/max)" that
     /// <see cref="NpcHitsYou"/> requires. Verbatim from session-rec.mud2.co.uk.20260819-001608's death
     /// frame: <c>The rat18 hits you. / You feel your life concluding... / The rat18 has killed you.</c>
-    ///
-    /// <para>Unparsed until 2026-08-19, which meant the one hit in a session that actually mattered -
-    /// the fatal one - was the only hit never counted, understating both the swing count and the
-    /// damage taken on exactly the fights that ended worst.</para>
     /// </summary>
     private static readonly Regex NpcHitsYouBare = new(@"^The (?<npc>.+?) hits you\.$", RegexOptions.Compiled);
     private static readonly Regex NpcMissesYou = new(@"^The (?<npc>.+?) misses you\.$", RegexOptions.Compiled);
@@ -161,7 +137,7 @@ public sealed class CombatTracker
     private static readonly Regex YouKilled = new(@"^You have killed the (?<npc>.+?)\.$", RegexOptions.Compiled);
     private static readonly Regex NpcKilledYou = new(@"^The (?<npc>.+?) has killed you\.$", RegexOptions.Compiled);
 
-    // Non-fightbrief ("narrative") death line — confirmed live against a real capture where the
+    // Non-fightbrief ("narrative") death line - confirmed live against a real capture where the
     // player never enabled fightbrief for that character. "someone" replaces the NPC's name
     // whenever the player is blind at the moment of death (also confirmed live: a vampire that
     // cast a blindness spell mid-fight). See NpcKilledYouNarrative handling in Observe below for
@@ -177,18 +153,17 @@ public sealed class CombatTracker
     /// "The water-snake5 has fled by trying to go over." - a flee ATTEMPT that failed. One word of
     /// difference from <see cref="NpcFled"/> ("trying to") and the opposite meaning: the creature is
     /// still in the room and still has to be killed. It is NOT still fighting, though - a flee attempt
-    /// ends combat whether or not it succeeds (owner, 2026-09-01) - so killing it means attacking it
-    /// again first.
+    /// ends combat whether or not it succeeds - so killing it means attacking it again first.
     ///
     /// <para>Observed 7 times in 13 seconds against a single water-snake, each in a different and
-    /// apparently random direction. The owner's report - snakes "often try to flee but almost never
-    /// succeed, it just breaks the fight sequence" - is exactly this.</para>
+    /// apparently random direction: it often tries to flee but almost never succeeds, and the attempt
+    /// breaks the fight sequence regardless.</para>
     ///
     /// <para>Getting this wrong in either direction is expensive. Matched as <see cref="NpcFled"/>, it
     /// would send the chase assist after a creature standing in front of the player, and would poison
     /// the per-class flee statistics with escapes that never happened (the corpus records water snakes
-    /// at 0 flees from 6 fights precisely BECAUSE this line matched nothing). Left unmatched, as it was
-    /// until now, the panel sees an unexplained fight end instead.</para>
+    /// at 0 flees from 6 fights precisely BECAUSE this line matched nothing). Left unmatched, the panel
+    /// sees an unexplained fight end instead.</para>
     /// </summary>
     private static readonly Regex NpcFleeFailed = new(
         @"^The (?<npc>.+?) has fled by trying to go \w+\.$", RegexOptions.Compiled);
@@ -205,18 +180,16 @@ public sealed class CombatTracker
     /// to novice. / (Persona saved on -102 = 98). / You have fled by trying to go north.</c></para>
     ///
     /// <para>That frame is also the evidence that a failed flee is charged for: 102 points and a whole
-    /// experience level, for no escape. Nothing in this client parsed the line at all until
-    /// 2026-08-19, so every one of those was recorded as a fight that simply never ended.</para>
+    /// experience level, for no escape.</para>
     /// </summary>
     private static readonly Regex YouFleeFailed = new(
         @"^You have fled by trying to go \w+\.$", RegexOptions.Compiled);
     /// <summary>
     /// "You can fight it no longer." and its object variants - "him", "her", and the form that names
-    /// the creature outright: "You can fight the wyvern no longer." (owner, 2026-08-26).
+    /// the creature outright: "You can fight the wyvern no longer."
     ///
-    /// <para>The pronoun forms are all over the captures (it 14, him 4, her 1) and only "it" was
-    /// matched, so the gendered ones went unrecognised. They trail every kind of end indifferently -
-    /// 11 a real flee, 8 a FAILED one, 1 a death - which is the point: the sentence is a generic
+    /// <para>The pronoun forms are all over the captures (it 14, him 4, her 1). They trail every
+    /// kind of end indifferently - 11 a real flee, 8 a FAILED one, 1 a death - which is the point: the sentence is a generic
     /// acknowledgment and its object slot tells us nothing about what happened. The named form is the
     /// one that matters: it carries a creature name, so unlike the pronouns it CAN close a fight on
     /// its own - see the handler.</para>
@@ -226,12 +199,8 @@ public sealed class CombatTracker
 
     /// <summary>
     /// "The wyvern drops dead, poisoned..." - the creature died, and NOT from the player's blow
-    /// landing last, so no "You have killed the X." is printed anywhere in the frame. Verbatim
-    /// (owner, 2026-08-26); the full frame is in <see cref="CombatEventKind.NpcDied"/>.
-    ///
-    /// <para>Nothing in the client matched this, and nothing matched the "has just passed on." that
-    /// followed it either, so the frame contained no terminator this class could see and the fight
-    /// stayed open for the rest of the session - the bug that produced this pattern.</para>
+    /// landing last, so no "You have killed the X." is printed anywhere in the frame. Verbatim;
+    /// the full frame is in <see cref="CombatEventKind.NpcDied"/>.
     ///
     /// <para>Matched on the cause-bearing shape rather than on the word "poisoned": the sentence
     /// template is "The X drops dead, &lt;cause&gt;...", and poison is the only cause observed so
@@ -269,7 +238,7 @@ public sealed class CombatTracker
     /// <see cref="CombatEventKind.WeaponEquip"/>, because that is exactly what it states.
     ///
     /// <para>Worth parsing for a reason the wording hides: it names the weapon ACTUALLY in use, which
-    /// need not be the one asked for. In session-rec.mud2.co.uk.20260819-001608 the owner sent
+    /// need not be the one asked for. In session-rec.mud2.co.uk.20260819-001608 the player sent
     /// <c>k rat with stick</c> and MUD2 answered "You're using the unlit brand anyway..." - so the
     /// only truthful statement about the weapon in that whole frame was this line, and taking the
     /// command at its word would have recorded the fight under the wrong weapon.</para>
@@ -291,13 +260,10 @@ public sealed class CombatTracker
     ///   1. the weapon just broke, so it no longer exists to fight with (observed live: "The dagger0
     ///      breaks to bits." immediately followed by this), and
     ///   2. MUD2 REFUSING a wield because the player cannot handle that weapon right now - the
-    ///      hidden gate on effective strength, which is itself depressed by carried weight and, per
-    ///      the owner, by low stamina.
-    /// Cause 2 is the only direct evidence of that gate MUD2 ever emits, and until now nothing
-    /// parsed this line at all (the sole reference in the whole project was a dead regex at
-    /// tools/combat/reduce_combat.py:77, defined and never called), so the research corpus contains
-    /// ZERO observations of it. Recording the refusal together with the stats at that instant is
-    /// what would let the threshold be bracketed. See MECHANICS_NOTES.md.
+    ///      hidden gate on effective strength, which is itself depressed by carried weight and by
+    ///      low stamina.
+    /// Cause 2 is the only direct evidence of that gate MUD2 ever emits. Recording the refusal
+    /// together with the stats at that instant is what would let the threshold be bracketed.
     /// The two causes are not distinguishable from this line alone; a break arriving immediately
     /// before it is the only signal, and the consumer decides what to make of that.</summary>
     private static readonly Regex WeaponUnusable = new(
@@ -305,16 +271,15 @@ public sealed class CombatTracker
     /// <summary>
     /// "The water-snake5 has a stamina lying between 90 and 99." - the stethoscope's `diagnose` read.
     ///
-    /// <para><b>MUD2 does report NPC stamina after all.</b> Five separate comments in this codebase
-    /// asserted it never does, and a whole estimator was built around that belief. It is a probe
-    /// rather than free telemetry - it needs a stethoscope and a typed command - but it is a direct,
-    /// bracketed reading of the number everything else was approximating, and it is now recorded
+    /// <para><b>MUD2 does report NPC stamina after all.</b> It is a probe rather than free
+    /// telemetry - it needs a stethoscope and a typed command - but it is a direct, bracketed
+    /// reading of the number everything else was approximating, and it is now recorded
     /// (Core.CombatDb's <c>npc_stamina_reads</c>) and consumed as the strongest constraint the
     /// remaining-stamina model has (see MudSharp.Combat.NpcRemainingStamina).</para>
     ///
     /// <para>Worth parsing chiefly as an instrument: it is the only way to CHECK a published creature
-    /// stamina against the live game, and the owner's standing rule is that the published figures are
-    /// hypotheses until our own data settles them. Observed live: giant snake 117-126, water-snake5
+    /// stamina against the live game, and published figures are hypotheses until our own data
+    /// settles them. Observed live: giant snake 117-126, water-snake5
     /// 90-99 (published 90), viper 18-27 (published 20).</para>
     /// </summary>
     private static readonly Regex NpcStaminaRead = new(
@@ -329,44 +294,36 @@ public sealed class CombatTracker
     /// death itself. Matched purely so it stops being an unexplained line in the one frame nobody
     /// wants to be guessing about.
     ///
-    /// <para><b>It is a GENERATED PAIRING, not a fixed string.</b> This was
-    /// <c>^You feel your life concluding\.\.\.$</c> until 2026-09-05, one member of a family that
-    /// the wire log then produced two more of - "You feel your vitality stopping..." (Awlie's death)
-    /// and "You feel your very soul terminating..." (Bludgeon's). The shape is
-    /// <c>You feel your {life|vitality|very soul} {concluding|stopping|terminating}...</c>, so three
-    /// observed out of at least nine combinations, and enumerating strings would keep losing one
-    /// death at a time.</para>
+    /// <para><b>It is a GENERATED PAIRING, not a fixed string.</b> The shape is
+    /// <c>You feel your {life|vitality|very soul} {concluding|stopping|terminating}...</c>: three
+    /// observed subjects (life, vitality, very soul) across six distinct verb phrases, including
+    /// two-word ones - "snatched away", "seizing up" - out of at least nine possible combinations.
+    /// Enumerating full strings would keep losing one death at a time.</para>
     ///
     /// <para>The SUBJECT is pinned to the three observed values and the verb phrase left loose,
-    /// rather than the other way round. That is where the evidence is: six members are known across
-    /// only three subjects (life, vitality, very soul) but six distinct verb phrases, including
-    /// two-word ones - "snatched away", "seizing up". A loose subject would also start swallowing
-    /// ordinary prose, since "You feel your ..." opens plenty of lines that are not deaths.
+    /// rather than the other way round: that is where the evidence is. A loose subject would also
+    /// start swallowing ordinary prose, since "You feel your ..." opens plenty of lines that are not
+    /// deaths.</para>
     ///
     /// <para>Residual risk, stated because it is real: a NEW subject is still missed. The actual fix
     /// is the C1 code - every observed member carries <c>08.09</c>, with the container left UNCLOSED
-    /// at end of line - and a matcher keying on that would not care about the prose at all. See the
-    /// project rule on preferring the code to the words. This pattern is the belt to those braces,
-    /// and the family was discovered at a rate of one member per persona lost, which is not a rate
-    /// anyone should want to keep paying.</para></summary>
+    /// at end of line - and a matcher keying on that would not care about the prose at all. This
+    /// pattern is the belt to those braces.</para></summary>
     private static readonly Regex LifeConcluding = new(
         @"^You feel your (?:life|vitality|very soul) [a-z][a-z ]{2,18}\.\.\.$",
         RegexOptions.Compiled);
 
-    // NPC instance names currently engaged (case-insensitive) — non-empty implies InCombat.
+    // NPC instance names currently engaged (case-insensitive) - non-empty implies InCombat.
     private readonly HashSet<string> _active = new(StringComparer.OrdinalIgnoreCase);
 
     // The encounter closes the instant _active empties, whether that was a kill, a flee, or a
-    // withdrawal — see End(). There used to be a 5-second "grace" window here that kept the
-    // encounter open after a kill in case a pack straggler joined, on the theory that a pack
-    // fight otherwise fragments into several encounters. It doesn't need one: Begin() already
-    // keeps the SAME encounter open for as long as _active is non-empty, so a genuine pack fight
-    // (new participants joining while others are still engaged) was never affected by this at
-    // all — only a NEW mob attacking after the encounter had already fully ended was, and per
-    // the owner that IS a new encounter. Any residual need to keep capturing trailing prose
-    // (score, "has just passed on", dropped items) after the close is a LOGGING concern, not a
-    // combat-state one — see ClogWriter's own tail-capture, which runs until the next prompt
-    // regardless of whether a new encounter starts in the meantime.
+    // withdrawal - see End(). Begin() keeps the SAME encounter open for as long as _active is
+    // non-empty, so a genuine pack fight (new participants joining while others are still engaged)
+    // stays one encounter; a NEW mob attacking after the encounter had already fully ended is a new
+    // encounter. Any residual need to keep capturing trailing prose (score, "has just passed on",
+    // dropped items) after the close is a LOGGING concern, not a combat-state one - see
+    // ClogWriter's own tail-capture, which runs until the next prompt regardless of whether a new
+    // encounter starts in the meantime.
     private bool _encounterOpen;
 
     /// <summary>
@@ -419,7 +376,7 @@ public sealed class CombatTracker
     /// <summary>
     /// Classify one completed line. Cheap no-op for the overwhelming majority of lines
     /// (a plain-text prefix check would help further, but regex-per-candidate is already
-    /// negligible next to network I/O — see EffectTracker for the equivalent trade-off).
+    /// negligible next to network I/O - see EffectTracker for the equivalent trade-off).
     /// </summary>
     public void Observe(StyledLine line, DateTime timestampUtc)
     {
@@ -463,7 +420,7 @@ public sealed class CombatTracker
             // "bares its razor-sharp incisors at you" join message we don't classify as a start)
             // yet still trade blows with the player once another named participant is killed.
             // Any hit/miss line is itself proof that NPC is an active combat participant, so it
-            // must (re)join _active here — otherwise killing the one NPC that DID get an explicit
+            // must (re)join _active here - otherwise killing the one NPC that DID get an explicit
             // Begin() empties _active and spuriously closes/reopens the encounter mid-pack-fight.
             Begin(m.Groups["npc"].Value);
             Emit(timestampUtc, CombatEventKind.Hit, CombatActor.Player, m.Groups["npc"].Value, null,
@@ -509,7 +466,7 @@ public sealed class CombatTracker
         }
         else if ((m = WithdrawOffer.Match(text)).Success)
         {
-            // An offer only — does not end the fight until the NPC's own line accepts it.
+            // An offer only - does not end the fight until the NPC's own line accepts it.
             Emit(timestampUtc, CombatEventKind.WithdrawOffer, CombatActor.Player, m.Groups["npc"].Value, null, null, null, text);
         }
         else if ((m = NpcWithdrawOffer.Match(text)).Success)
@@ -526,7 +483,7 @@ public sealed class CombatTracker
         else if ((m = YouKilled.Match(text)).Success)
         {
             // Emit BEFORE End: End can flip InCombat to false and close out the encounter
-            // (e.g. a ClogWriter listening to InCombatChanged) — the closing line itself must
+            // (e.g. a ClogWriter listening to InCombatChanged) - the closing line itself must
             // still land inside that encounter's record, not be dropped after it's already shut.
             Emit(timestampUtc, CombatEventKind.Kill, CombatActor.Player, m.Groups["npc"].Value, null, null, null, text);
             End(m.Groups["npc"].Value);
@@ -561,7 +518,7 @@ public sealed class CombatTracker
         else if ((m = NpcKilledYou.Match(text)).Success)
         {
             Emit(timestampUtc, CombatEventKind.KilledByNpc, CombatActor.Npc, m.Groups["npc"].Value, null, null, null, text);
-            // Player death ends the WHOLE encounter unconditionally — a dead player cannot keep
+            // Player death ends the WHOLE encounter unconditionally - a dead player cannot keep
             // fighting anyone else in the same room, regardless of how many other NPCs are still
             // engaged. Using the ordinary single-NPC End() here would leave the rest of _active
             // dangling open (a latent bug: death is routinely followed immediately by a
@@ -573,7 +530,7 @@ public sealed class CombatTracker
         else if ((m = NpcKilledYouNarrative.Match(text)).Success)
         {
             // Non-fightbrief phrasing carries no per-line C1 hit/miss detail at all, so this may
-            // be the ONLY combat line we can classify in an entire narrative-mode fight — treat
+            // be the ONLY combat line we can classify in an entire narrative-mode fight - treat
             // it as authoritative regardless. When blind, the game says "someone" instead of
             // naming the killer; best-effort resolve that back to the sole active participant
             // (this is exactly the live scenario that surfaced this gap: fighting a single
@@ -584,7 +541,7 @@ public sealed class CombatTracker
             // _active.Count == 1 by our bookkeeping doesn't rule out an unseen second attacker
             // (another NPC, or another player) landing the actual blow. Callers/analysis should
             // treat this resolution as "most likely" whenever blindness was active, never as
-            // ground truth — see MECHANICS_NOTES.md's "sole active NPC" caution.
+            // ground truth.
             var npc = m.Groups["npc"].Success
                 ? m.Groups["npc"].Value
                 : _active.Count == 1 ? _active.First() : "someone";
@@ -593,7 +550,7 @@ public sealed class CombatTracker
         }
         else if ((m = MutualWithdraw.Match(text)).Success)
         {
-            // Per-creature: a withdraw zeroes only the fight it names (owner, 2026-08-19). It reads
+            // Per-creature: a withdraw zeroes only the fight it names. It reads
             // like a player-side terminator - the player agreed to it - but it is an agreement with
             // ONE creature, and anything else in a pack goes on swinging.
             Emit(timestampUtc, CombatEventKind.Withdrawn, CombatActor.Npc, m.Groups["npc"].Value, null, null, null, text);
@@ -604,21 +561,16 @@ public sealed class CombatTracker
             // Matched BEFORE NpcFled, because "has fled by trying to go" also contains "has fled by"
             // and the two must never be confused - see NpcFleeFailed's own remarks.
             //
-            // This DOES end the fight (owner, 2026-08-19), and it ends it for real rather than merely
-            // interrupting it. Per the owner again (2026-09-01): "fleeing ends combat with all creatures
-            // attacking you. so if a zombie flees, even if it fails, it is no-longer in combat with
-            // you." The creature is still in the room but it is NOT still fighting - "You can fight it
-            // no longer." trails this in the same frame saying so - and the player must attack again to
-            // re-engage. Not "still hostile", which an earlier version of this comment claimed: across
-            // 128 NpcFleeFailed events in the clog corpus, not one is followed by a swing from that
-            // creature before a fresh FightStart.
+            // This DOES end the fight, and it ends it for real rather than merely interrupting it:
+            // fleeing ends combat with all creatures attacking the player, even when the flee fails.
+            // The creature is still in the room but it is NOT still fighting - "You can fight it
+            // no longer." trails this in the same frame saying so - and the player must attack again
+            // to re-engage. Across 128 NpcFleeFailed events in the clog corpus, not one is followed
+            // by a swing from that creature before a fresh FightStart.
             //
-            // It used to deliberately NOT end here, to stop one 15-second snake fight being recorded
-            // as eight encounters. That reasoning was inverted: eight re-engagements ARE eight
-            // encounters (each is its own frame, its own attack command, and its own weapon
-            // selection), and the price of pretending otherwise was a fight the player simply walked
-            // away from - exactly the water-snake3 frame the owner reported - staying "in combat" with
-            // no line left that could ever close it, until reset or logout forced it.
+            // Each re-engagement is its own encounter (its own frame, its own attack command, and its
+            // own weapon selection) - a fight the player walked away from stays "in combat", with no
+            // line left that could ever close it, unless this closes it here.
             //
             // Per-creature, not EndAll: only this creature's fight ended, and anything else in a pack
             // is still swinging.
@@ -647,7 +599,7 @@ public sealed class CombatTracker
         else if (YouFled.IsMatch(text))
         {
             // One flee command can end several simultaneous fights at once (confirmed offline:
-            // a single flee line closed two concurrent rat fights) — close every active NPC.
+            // a single flee line closed two concurrent rat fights) - close every active NPC.
             Emit(timestampUtc, CombatEventKind.YouFled, CombatActor.Player, null, null, null, null, text);
             EndAll();
         }
@@ -656,10 +608,7 @@ public sealed class CombatTracker
             // Always a trailing acknowledgment of an end already stated on an earlier line of the
             // SAME frame - so the fight it refers to is normally closed before this line is reached,
             // by NpcFleeFailed or NpcFled (or a kill, or the poison death above). Verified 27/27
-            // against the research capture for the "has fled by going <dir>." case; the failed-flee
-            // case that also trails it was for a long time the one this reasoning got wrong, because
-            // NpcFleeFailed did not close anything, leaving this line as the only end-of-fight
-            // evidence in the frame and deliberately ignoring it.
+            // against the research capture for the "has fled by going <dir>." case.
             //
             // The pronoun forms ("it", "him", "her") stay informational, and for the original reason:
             // they name no creature, so promoting one to an independent terminator would close OTHER
@@ -670,19 +619,17 @@ public sealed class CombatTracker
             // end it acknowledges and closes nothing; the point is the frames we have not observed,
             // where it is the only line that both states an end and identifies its creature.
             //
-            // Named or not, it is ignored for a creature we are not fighting (owner, 2026-08-26).
-            // MUD2 stacks several end messages in a frame and this one can land AFTER the fight was
-            // already closed by another of them - which is exactly the captured wyvern frame, where
-            // the poison death closes the fight two lines earlier. So a name that is not on the roster
-            // is a trailing acknowledgment of something already dealt with, and the right response is
-            // nothing at all.
+            // Named or not, it is ignored for a creature we are not fighting. MUD2 stacks several end
+            // messages in a frame and this one can land AFTER the fight was already closed by another
+            // of them - which is exactly the captured wyvern frame, where the poison death closes the
+            // fight two lines earlier. So a name that is not on the roster is a trailing
+            // acknowledgment of something already dealt with, and the right response is nothing at all.
             //
-            // Not merely tidy, since FightEndOther began resolving fights: FightHistoryRecorder has no
-            // in-combat guard, so a named event is enough to get-or-CREATE a bucket, and one created
-            // after the encounter's flush is written out by the next flush as a zero-swing row - a
-            // second fight against the same creature that never happened. The recorder now refuses to
-            // create a fight outside an open encounter as well, so the two layers guard it
-            // independently; this side is pinned by
+            // Not merely tidy: FightHistoryRecorder has no in-combat guard, so a named event is enough
+            // to get-or-CREATE a bucket, and one created after the encounter's flush is written out by
+            // the next flush as a zero-swing row - a second fight against the same creature that never
+            // happened. The recorder now refuses to create a fight outside an open encounter as well,
+            // so the two layers guard it independently; this side is pinned by
             // CombatTrackerTests.FightEndOther_NamingACreatureWeAreNotFighting_ReportsNoName.
             var endedNpc = m.Groups["npc"].Success && _active.Contains(m.Groups["npc"].Value)
                 ? m.Groups["npc"].Value
@@ -725,19 +672,17 @@ public sealed class CombatTracker
         else if ((m = WeaponEquip.Match(text)).Success)
         {
             // No Begin() here, deliberately: this line names no NPC, so there is nothing to open an
-            // encounter AGAINST. It arrives between "You attack the thief." and the first blow, and
-            // before the PlayerAttackStart fix above that attack line was not matched at all - so
-            // the encounter did not exist yet and the weapon was dropped on the floor, leaving the
-            // readout showing "unarmed" for the rest of the fight. With the unarmed attack form now
-            // matched, the encounter is already open by the time this fires and the weapon lands on
-            // it. (NpcWeaponEquip below DOES Begin(), because that line does name its NPC.)
+            // encounter AGAINST. It arrives between "You attack the thief." and the first blow. With
+            // the unarmed attack form matched (see PlayerAttackStartUnarmed), the encounter is already
+            // open by the time this fires and the weapon lands on it. (NpcWeaponEquip below DOES
+            // Begin(), because that line does name its NPC.)
             Emit(timestampUtc, CombatEventKind.WeaponEquip, CombatActor.Player, null, m.Groups["weapon"].Value, null, null, text);
         }
         else if ((m = NpcWeaponEquip.Match(text)).Success)
         {
             // Confirmed live: "The zombie has started to use the fork to fight!" mid-fight,
             // following ordinary miss/miss lines that named it, so it's already an active
-            // participant — but Begin() defensively in case this is somehow the first line
+            // participant - but Begin() defensively in case this is somehow the first line
             // naming that NPC (mirrors YouHit's own defensive Begin() for the same reason).
             Begin(m.Groups["npc"].Value);
             Emit(timestampUtc, CombatEventKind.NpcWeaponEquip, CombatActor.Npc, m.Groups["npc"].Value, m.Groups["weapon"].Value, null, null, text);
@@ -804,33 +749,29 @@ public sealed class CombatTracker
     /// The one creature that a nameless but server-confirmed fight end can only be about, or null
     /// when that is a guess.
     ///
-    /// <para>Requires the C1 code (<see cref="LineKind.FightEnd"/>): the prose alone has never been
-    /// trusted to close a fight it does not name, and should not start being.</para>
+    /// <para>Requires the C1 code (<see cref="LineKind.FightEnd"/>): the prose alone is never
+    /// trusted to close a fight it does not name.</para>
     ///
-    /// <para><b>And requires that nothing has ended in this frame yet</b>, which is the condition the
-    /// first version of this method was missing - a regression the owner caught in play (a pack fight's
-    /// encounter closing and reopening on every kill). In a pack, MUD2 kills one creature and then
-    /// prints the trailing "You can fight it no longer." for THAT fight, in the same frame:
+    /// <para><b>And requires that nothing has ended in this frame yet.</b> In a pack, MUD2 kills one
+    /// creature and then prints the trailing "You can fight it no longer." for THAT fight, in the
+    /// same frame:
     /// <code>
     /// The goat0 is glaring at you madly.
     /// The ram1 is glaring at you madly.
     /// You have killed the goat0.        &lt;- closes goat0, leaving ram1 the only one active
     /// You can fight it no longer.      &lt;- refers to goat0, but "exactly one active" now means ram1
     /// </code>
-    /// so the survivor's fight was closed while it was still swinging. The encounter then reopened on
-    /// ram1's next blow, which is why the symptom was a metronome that kept restarting: the tick phase
-    /// is only known from an encounter's first swing.</para>
+    /// so without this guard the survivor's fight would be closed while it was still swinging.</para>
     ///
     /// <para>So once anything has ended in the frame being read, an unnamed end is assumed to be
     /// acknowledging that one and closes nothing. Frame scope is what the evidence supports and no
     /// more: the class's load-bearing guarantee is that every end prints inside a single frame, so an
-    /// echo cannot be separated from its own end by a prompt. An earlier version of this fix scoped
-    /// the suppression to the whole ENCOUNTER, which was over-broad - a review traced a pack where the
-    /// last survivor's genuinely unmatched end, frames later, went unrescued because an unrelated
-    /// creature had died earlier in the same encounter.</para>
+    /// echo cannot be separated from its own end by a prompt - not the whole encounter, since a
+    /// pack's last survivor can have a genuinely unmatched end frames after an unrelated creature
+    /// died earlier in the same encounter.</para>
     ///
-    /// <para>Where it does abstain, the fight stays open exactly as it did before this method existed,
-    /// with <see cref="NoteRoomChanged"/> as the floor.</para>
+    /// <para>Where it does abstain, the fight stays open, with <see cref="NoteRoomChanged"/> as the
+    /// floor.</para>
     ///
     /// <para>Best-effort by nature. Same caution as NpcKilledYouNarrative's "sole active participant":
     /// our roster is what we managed to observe, not necessarily what is in the room.</para>
@@ -852,13 +793,12 @@ public sealed class CombatTracker
     /// <summary>
     /// The player is in a different room than they were. Closes any open encounter.
     ///
-    /// <para><b>You cannot walk out of a fight in MUD2</b> (owner): movement is refused while
-    /// fighting, and leaving costs a flee - which prints its own line and is already handled. So a
-    /// room change is proof the fight is over, whatever we think, and it is the one such proof that
-    /// does not depend on having matched any particular sentence. That makes it the right backstop
-    /// for the whole class of bug this file keeps hitting: an end phrased in a way nothing here
-    /// matches, leaving combat stuck until logout (a poisoned wyvern, 2026-08-26; a water-snake's
-    /// failed flee before that; and, before that, a bare-handed fight that never opened).</para>
+    /// <para><b>You cannot walk out of a fight in MUD2.</b> Movement is refused while fighting, and
+    /// leaving costs a flee - which prints its own line and is already handled. So a room change is
+    /// proof the fight is over, whatever we think, and it is the one such proof that does not depend
+    /// on having matched any particular sentence. That makes it the right backstop for an end
+    /// phrased in a way nothing here matches, which would otherwise leave combat stuck until
+    /// logout.</para>
     ///
     /// <para>Deliberately NOT silent: it force-ends with its own reason string, so an encounter
     /// closed this way is visibly closed by the backstop rather than by evidence, and the clog says
@@ -873,13 +813,12 @@ public sealed class CombatTracker
     }
 
     /// <summary>
-    /// <see cref="CombatEventKind.EncounterForceEnded"/>, NOT <see cref="CombatEventKind.FightEndOther"/>:
-    /// this event means "every open fight is over", where the unnamed FightEndOther it used to be
-    /// emitted as means "some fight already stated as ended is being acknowledged, and I will not say
-    /// which". Consumers could not tell those apart, so the aggregator - correctly refusing to close a
-    /// pack's other participants on an unnamed line - ignored this too, and a reset left every fight
-    /// live on the rail. Emitted before the state teardown below so a consumer that acts on
-    /// InCombatChanged(false) sees the fights already resolved.
+    /// Emits <see cref="CombatEventKind.EncounterForceEnded"/>, NOT <see cref="CombatEventKind.FightEndOther"/>:
+    /// this event means "every open fight is over", where an unnamed FightEndOther means "some fight
+    /// already stated as ended is being acknowledged, without saying which". The aggregator rightly
+    /// refuses to close a pack's other participants on an unnamed line, so a reset reported the second
+    /// way leaves every fight live on the rail. Emitted before the state teardown below so a consumer
+    /// that acts on InCombatChanged(false) sees the fights already resolved.
     /// </summary>
     private void ForceEndLocked(DateTime timestampUtc, string reason)
     {

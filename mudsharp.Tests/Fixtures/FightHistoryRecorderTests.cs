@@ -7,9 +7,6 @@ namespace mudsharp.Tests.Fixtures;
 /// <summary>
 /// Covers the capture-schema additions to <see cref="FightHistoryRecorder"/>/<see cref="FightRecord"/>:
 /// character name, encounter id, min/end stamina, score at start/end, and the format-version stamp.
-/// Before this, every alt's fights pooled into one undifferentiated fights.jsonl, "how close did I
-/// come to dying" was unrecoverable (only stamina-at-START was stored), and there was no way to
-/// regroup a pack fight's per-NPC rows back into their shared encounter.
 /// </summary>
 public sealed class FightHistoryRecorderTests : IDisposable
 {
@@ -104,8 +101,7 @@ public sealed class FightHistoryRecorderTests : IDisposable
     /// "You can fight the wyvern no longer." arrives AFTER it. That trailing line must not produce a
     /// second, zero-swing row.
     ///
-    /// <para>The owner's point, and it is not hypothetical - it is the shape of the captured frame.
-    /// MUD2 stacks several end messages, and one of them can land after the fight was already closed
+    /// <para>MUD2 stacks several end messages, and one of them can land after the fight was already closed
     /// by something else (a death here; a flee or a kill just as easily). This recorder has no
     /// in-combat guard, so an event naming a creature is enough to get-or-CREATE a bucket, and a
     /// bucket created after the flush survives until the next encounter begins - or gets written by
@@ -182,12 +178,12 @@ public sealed class FightHistoryRecorderTests : IDisposable
     [Fact]
     public void FlushedRecord_DoesNotCarryTheWeaponIntoAnEncounterThatOpensImmediatelyAfter()
     {
-        // The owner's exact worked scenario: a solo rat is killed with a dagger equipped, and a
-        // completely unrelated rat starts attacking moments later - well within the old 5-second
-        // "pack straggler" window PendingWeaponWindow also uses. CombatTracker now closes the
-        // first encounter (and this class's OnInCombatChanged(false) flushes it) the instant the
-        // first rat dies, BEFORE the second rat's own encounter opens, so the second fight's
-        // WeaponUsed must come up empty rather than inheriting the first fight's dagger.
+        // A solo rat is killed with a dagger equipped, and a completely unrelated rat starts attacking
+        // moments later - well within the 5-second "pack straggler" window PendingWeaponWindow also
+        // uses. CombatTracker closes the first encounter (and this class's OnInCombatChanged(false)
+        // flushes it) the instant the first rat dies, BEFORE the second rat's own encounter opens, so
+        // the second fight's WeaponUsed must come up empty rather than inheriting the first fight's
+        // dagger.
         using var store = MakeStore();
         var recorder = new FightHistoryRecorder(store);
 
@@ -277,7 +273,7 @@ public sealed class FightHistoryRecorderTests : IDisposable
     }
 
     /// <summary>
-    /// Both figures come from MUD2's own "(Persona saved on ...)" statements now, never from an FES
+    /// Both figures come from MUD2's own "(Persona saved on ...)" statements, never from an FES
     /// sample: a total the game stated and a total a heartbeat happened to be carrying are different
     /// facts, and differencing one against the other is meaningless.
     /// </summary>
@@ -325,13 +321,10 @@ public sealed class FightHistoryRecorderTests : IDisposable
     /// The persisted half of the same fix CombatPerFightTests covers for the aggregator, and the half
     /// that matters more: these rows ARE the corpus the stamina-pool estimator reads.
     ///
-    /// <para>A flee attempt ends combat whether or not it succeeds (owner, 2026-09-01), so "the rat17
-    /// attempts to flee, but fails" really does end the fight - the creature is still in the room but no
-    /// longer fighting, and the player must attack again. Every swing after that used to land in the
-    /// closed bucket, so one row was written carrying both engagements' blows - and because
-    /// FightAccumulator.Resolve keeps the first outcome, a creature that broke off and was then killed
-    /// was persisted as "broke off" with the kill's damage folded in and the kill itself never
-    /// recorded.</para>
+    /// <para>A flee attempt ends combat whether or not it succeeds, so "the rat17 attempts to flee, but
+    /// fails" really does end the fight - the creature is still in the room but no longer fighting, and
+    /// the player must attack again. A creature that breaks off and is then killed must persist as two
+    /// rows: the failed-flee engagement and the kill, each carrying only its own blows.</para>
     /// </summary>
     [Fact]
     public void ReEngagingAClosedFight_PersistsTwoRows_NotOneCorruptedOne()
@@ -406,12 +399,12 @@ public sealed class FightHistoryRecorderTests : IDisposable
     // -- the terminal link of a run of engagements --------------------------------
 
     /// <summary>
-    /// The corpus reason this column exists. 206 rows in the operator's database are a kill with one
+    /// The corpus reason this column exists. 206 rows in the recorded fight corpus are a kill with one
     /// hit and no misses, and 128 of them follow a non-kill engagement against the same instance name
     /// - zombies (pool ~43-54), banshees (~84), water-snakes (~105), which no single blow can kill
-    /// when the player's top damage bucket is 20-29. Nothing was lost when those were written: the
-    /// earlier blows are on the earlier rows. What was missing is any way for the row holding the
-    /// killing blow to say so, which is what made it read as an impossible one-hit kill.
+    /// when the player's top damage bucket is 20-29. The earlier blows are on the earlier rows; what
+    /// was missing is any way for the row holding the killing blow to say so, which is what made it
+    /// read as an impossible one-hit kill.
     /// </summary>
     [Fact]
     public void TheKillAfterAFailedFlee_RecordsWhenTheEngagementBeforeItEnded()
@@ -522,8 +515,8 @@ public sealed class FightHistoryRecorderTests : IDisposable
     }
 
     /// <summary>
-    /// The honest limit of score_at_end, pinned so nobody "fixes" it back into a lie. MUD2 prints the
-    /// award on the line AFTER the kill, and the kill line is what closes the fight - so the award is
+    /// The honest limit of score_at_end. MUD2 prints the award on the line AFTER the kill, and the
+    /// kill line is what closes the fight - so the award is
     /// not in the row, and score_at_end - score_at_start is NOT what the fight earned. That number
     /// lives in score_events, where the game's own signed delta is recorded.
     /// </summary>

@@ -3,7 +3,7 @@ using Mucka.Terminal;
 
 namespace Mucka.Terminal.Tests;
 
-/// <summary>Tests for <see cref="TerminalSelection"/> — plain-text extraction over visual rows.</summary>
+/// <summary>Tests for <see cref="TerminalSelection"/> - plain-text extraction over visual rows.</summary>
 public class TerminalSelectionTests
 {
     private static StyledLine Row(string text) =>

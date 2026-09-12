@@ -17,12 +17,12 @@ public sealed class SoundEditorItem : BaseViewModel
     public string Code { get; }
     public string Name { get; }
     public string AssetName { get; }
-    /// <summary>The owning group — leaf rows bind IsEnabled to Group.Enabled so an
+    /// <summary>The owning group - leaf rows bind IsEnabled to Group.Enabled so an
     /// unchecked group greys out its children.</summary>
     public SoundGroupEditorItem Group { get; private set; } = null!;
     public bool Enabled { get => _enabled; set => Set(ref _enabled, value); }
 
-    /// <summary>Playback volume percent (0–100). Inherits the group volume until the
+    /// <summary>Playback volume percent (0-100). Inherits the group volume until the
     /// user moves the slider away from it.</summary>
     public double Volume
     {
@@ -103,7 +103,7 @@ public sealed class SoundGroupEditorItem : BaseViewModel
 
     public bool Enabled { get => _enabled; set => Set(ref _enabled, value); }
 
-    /// <summary>Playback volume percent (0–100) inherited by the group's sounds.
+    /// <summary>Playback volume percent (0-100) inherited by the group's sounds.
     /// Inherits the master volume until the user moves the slider away from it;
     /// dragging back onto the master value re-attaches it.</summary>
     public double Volume
@@ -187,7 +187,7 @@ public sealed class SoundGroupEditorItem : BaseViewModel
         _syncingVolume = true;
         try { Volume = _getMasterVolume(); }
         finally { _syncingVolume = false; }
-        // The Volume setter only cascades on change — reset the children explicitly so
+        // The Volume setter only cascades on change - reset the children explicitly so
         // their overrides clear even when the group's value didn't move.
         foreach (var sound in Sounds)
             sound.ResetVolumeToInherited(VolumeDisplay);

@@ -9,7 +9,7 @@ public partial class ConnectPage : ContentPage
     private readonly ConnectViewModel _vm;
     private int _autoConnectAttempted;
 
-    // ── Adaptive layout ──────────────────────────────────────────────────────
+    // -- Adaptive layout ------------------------------------------------------
     // Wide: logo+list in a fixed left column, form beside it (desktop, phone landscape).
     // Narrow: logo beside a height-capped scrollable list, form below (phone portrait).
     // Width-based rather than OnIdiom so rotating a phone re-lays-out.
@@ -46,7 +46,7 @@ public partial class ConnectPage : ContentPage
     }
 
     // The logo only gets its natural size when there's room for the list below it (tall, wide
-    // screens — i.e. desktop). Narrow layouts and short screens (phone landscape) cap it.
+    // screens - i.e. desktop). Narrow layouts and short screens (phone landscape) cap it.
     private void SizeLogo(bool wide, double heightDp)
         => LogoImage.HeightRequest = (!wide || heightDp < 500) ? 88 : -1;
 
@@ -117,8 +117,8 @@ public partial class ConnectPage : ContentPage
 
         // Re-gridding a live CollectionView leaves Android's RecyclerView with item sizes cached
         // from the old cell; resetting ItemsSource forces a rebuild. Deferred a dispatcher tick so
-        // the rebuild measures against the NEW cell — resetting synchronously re-measures against
-        // the outgoing layout and reproduces the bug on the wide→narrow flip. SavedProfiles is a
+        // the rebuild measures against the NEW cell - resetting synchronously re-measures against
+        // the outgoing layout and reproduces the bug on the wide->narrow flip. SavedProfiles is a
         // single ObservableCollection instance, so re-assigning it directly is binding-equivalent.
         if (ProfileList.Handler is not null)
         {
@@ -197,7 +197,7 @@ public partial class ConnectPage : ContentPage
         }
     }
 
-    // Blank → auto (0); a valid number is clamped by the VM setter; anything else restores display.
+    // Blank -> auto (0); a valid number is clamped by the VM setter; anything else restores display.
     private void OnMaxColumnsEntryCompleted(object? sender, EventArgs e)
     {
         var text = MaxColumnsEntry.Text;
@@ -205,13 +205,13 @@ public partial class ConnectPage : ContentPage
             _vm.MaxColumns = 0;
         else if (int.TryParse(text, out var v))
             _vm.MaxColumns = v;
-        // Reflect the (possibly clamped) value back — blank for auto, number otherwise.
+        // Reflect the (possibly clamped) value back - blank for auto, number otherwise.
         MaxColumnsEntry.Text = _vm.MaxColumnsText;
     }
 
     private void OnConnected(MuckaConnection conn, Profile profile)    {
         // Create GameViewModel on the UI thread so Dispatcher.CreateTimer() is available.
-        // The lambda is async void (BeginInvokeOnMainThread takes Action) — any unhandled
+        // The lambda is async void (BeginInvokeOnMainThread takes Action) - any unhandled
         // exception here would propagate to the WinUI 3 dispatcher and crash the process
         // (0xc000027b), so we catch explicitly and surface the error instead.
         MainThread.BeginInvokeOnMainThread(async () =>

@@ -7,7 +7,7 @@ namespace Mucka.Behaviors;
 
 /// <summary>
 /// Fades a who-list entry IN when it is added and OUT when it leaves, via WinUI
-/// <c>ElementCompositionPreview</c> compositor animations (render/GPU thread — never touches the
+/// <c>ElementCompositionPreview</c> compositor animations (render/GPU thread - never touches the
 /// UI thread or typing).
 ///
 /// Departure is explicit, NOT WinUI's implicit hide animation: MAUI's BindableLayout tears the
@@ -23,7 +23,7 @@ public sealed class WhoEntryFadeBehavior : Behavior<Label>
     private WhoEntry? _entry;
     private Microsoft.UI.Composition.Visual? _visual;
     private const double FadeInMs  = 2000;   // arrival
-    private const double FadeOutMs = 3000;   // departure — slower, easier to notice someone left
+    private const double FadeOutMs = 3000;   // departure - slower, easier to notice someone left
 #endif
 
     protected override void OnAttachedTo(Label label)
@@ -76,7 +76,7 @@ public sealed class WhoEntryFadeBehavior : Behavior<Label>
     private void OnEntryPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
         if (e.PropertyName == nameof(WhoEntry.IsDeparting) && _entry is not null)
-            FadeTo(_entry.IsDeparting ? 0f : 1f, fromZero: false);   // leaving → fade out; returned → fade back in
+            FadeTo(_entry.IsDeparting ? 0f : 1f, fromZero: false);   // leaving -> fade out; returned -> fade back in
     }
 
     private void FadeTo(float target, bool fromZero)

@@ -104,7 +104,7 @@ public sealed class TickStaminaLossTests
         Assert.Equal(7, loss.LostThisTick);
     }
 
-    // ── FadeFactor: the just-lost tint's strength over time ──────────────────────────────────
+    // -- FadeFactor: the just-lost tint's strength over time ----------------------------------
 
     [Fact]
     public void FadeFactor_AtTheInstantOfLoss_IsPeakStrength()
@@ -144,13 +144,7 @@ public sealed class TickStaminaLossTests
     [Fact]
     public void FadeFactor_DecaysStrictlyFromThePeakToNothingWithinOneTick()
     {
-        // This replaced a test asserting the strength stayed under the OLD static 0.35 at every point.
-        // That premise is dead: the peak went 0.35 -> 0.18 -> 0.35 again once it turned out the owner's
-        // "too much red" was about the slice PERSISTING rather than its saturation, and cutting the
-        // peak as well made it invisible ("I couldn't make it out with the last build"). See
-        // TickStaminaLoss.PeakTintStrength.
-        //
-        // What is load-bearing now is the DECAY, not any particular ceiling - a slice that reaches zero
+        // What is load-bearing is the DECAY, not any particular ceiling - a slice that reaches zero
         // inside one tick cannot read as a live part of the gauge however bright it starts. So that is
         // what this pins: starts at the peak, never rises, and is gone by the end of the tick.
         var previous = TickStaminaLoss.FadeFactor(T0, T0);

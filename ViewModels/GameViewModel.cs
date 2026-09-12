@@ -29,10 +29,10 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private readonly string[] _allFkeys = new string[36];
     private readonly string _profileName;
     private readonly bool _guidedLoginEnabled;
+    private readonly string _profileHost;
 #if WINDOWS
     private readonly WatchwordStore _watchwords;
     private readonly SessionCommandAliases _sessionAliases;
-    private readonly string _profileHost;
     private Mucka.Core.Mapping.MappingSession? _mapSession;
     private ItemEvalSession? _itemEval;
     private bool _itemEvalRunning;
@@ -55,15 +55,13 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private int _baseScore = -1;
     // Per-character baselines, keyed by SERVER+character (RailKey) - a score belongs to one persona
     // on one host, and a same-named character on another server is a different character with a
-    // different score. Keyed on the bare name until 2026-09-08, which silently shared one baseline
-    // between them and would have shown the difference as this session's gain.
+    // different score.
     //
     // Persists across character switches for the life of this Mucka session: leave Ollie, play someone
-    // else, come back to Ollie, and his session delta resumes from where it was - instead of the old
-    // single-baseline "-47354" jump. Note this is a per-persona record, unlike the combat rail's dead
-    // strip, which deliberately spans personas AND servers (see SidePanelViewModel
-    // .OnCharacterIdentified): "how much have I gained" is a question about a character, "what have I
-    // been killing" is a question about the sitting.
+    // else, come back to Ollie, and his session delta resumes from where it was. Note this is a
+    // per-persona record, unlike the combat rail's dead strip, which deliberately spans personas AND
+    // servers (see SidePanelViewModel.OnCharacterIdentified): "how much have I gained" is a question
+    // about a character, "what have I been killing" is a question about the sitting.
     private readonly Dictionary<string, int> _baseScoreByChar = new(StringComparer.Ordinal);
     // Whether the Combat Rail was showing for a given server+persona, for the life of this Mucka
     // session. Same shape and the same reason as _baseScoreByChar above: the rail belongs to the
@@ -84,9 +82,9 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     // (once per session) runs a staged precision burst to pin it to sub-second. The VM only displays
     // it: the 1 Hz tick polls _conn.ResetEstimate into this cache; no probe scheduling lives here.
     private ResetEstimate _reset;
-    // Below this ± (seconds) we trust the projection to ~second resolution and show the precise m:ss
+    // Below this +/- (seconds) we trust the projection to ~second resolution and show the precise m:ss
     // countdown; above it we fall back to floored whole minutes. Set tight so m:ss appears only once
-    // the precision burst has actually locked (coarse ±2.5 s stays on the minute form).
+    // the precision burst has actually locked (coarse +/-2.5 s stays on the minute form).
     private const double ResetSecondsDisplayMaxUncertainty = 1.5;
     private char _weather;
     private string _dreamword = string.Empty;
@@ -177,22 +175,22 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private static readonly TimeSpan DropTailWindow = TimeSpan.FromSeconds(10);
 
     // Lines from the TCP thread are enqueued here; the UI thread drains them in batches.
-    // Draining is event-driven (see OnLineReady/OutputAvailable) — no polling timer.
+    // Draining is event-driven (see OnLineReady/OutputAvailable) - no polling timer.
     private readonly ConcurrentQueue<StyledLine> _pendingLines = new();
-    // Coalescing guard: 0 = no flush pending, 1 = one flush already requested. Flipped 0→1 in
-    // OnLineReady (TCP thread) to fire OutputAvailable exactly once per idle→busy edge; cleared
+    // Coalescing guard: 0 = no flush pending, 1 = one flush already requested. Flipped 0->1 in
+    // OnLineReady (TCP thread) to fire OutputAvailable exactly once per idle->busy edge; cleared
     // in FlushPendingLines before draining so lines arriving during a drain re-arm it.
     private int _flushScheduled;
-    // History buffer for the (future) history panel — kept separately from the live view.
+    // History buffer for the (future) history panel - kept separately from the live view.
     private readonly List<StyledLine> _historyBuffer = new();
-    // Chat-only ring for the chat-view filter — kept deeper than the main ring so shouts/tells
+    // Chat-only ring for the chat-view filter - kept deeper than the main ring so shouts/tells
     // survive in chat mode long after they have scrolled out of the main history.
     private readonly List<StyledLine> _chatBuffer = new();
     private const int MainHistoryCap = 1000;
     private const int ChatHistoryCap = 3000;
 
     // INPUT_DIAG: the setter should fire only on deliberate pushes (send-clear, history nav,
-    // Escape) — NOT once per typed character. Per-character firing here proves the Entry's Text
+    // Escape) - NOT once per typed character. Per-character firing here proves the Entry's Text
     // binding has regressed from the OneWay fast path back to TwoWay (the recurring lag bug).
     public string InputText
     {
@@ -227,7 +225,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private bool _chatMode;
     public bool ChatMode { get => _chatMode; private set => Set(ref _chatMode, value); }
 
-    /// <summary>Command-box placeholder — swaps to a "chat" cue while the chat filter is on.</summary>
+    /// <summary>Command-box placeholder - swaps to a "chat" cue while the chat filter is on.</summary>
     public string InputPlaceholder => _chatMode ? "chat…" : "enter command…";
     public bool IsCapturing { get => _isCapturing; private set => Set(ref _isCapturing, value); }
     public int MaxColumns => _maxColumns;
@@ -235,8 +233,8 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public bool KeepScreenOn => _keepScreenOn;
     public int FontSize => _fontSize;
     // Advance width of one Cascadia Mono cell per pixel of font size: 1200/2048 em units
-    // (from the embedded TTF's hmtx/head tables — a true monospace, so every glyph shares
-    // this advance). The previous 8.0/15 (≈0.533) calibration dated from the WebView renderer
+    // (from the embedded TTF's hmtx/head tables - a true monospace, so every glyph shares
+    // this advance). The previous 8.0/15 (~0.533) calibration dated from the WebView renderer
     // and under-measured the Skia cell by ~10%, leaving windows sized from it 4-6 columns short.
     public const double CharWidthPerFontPx = 1200.0 / 2048.0;
     /// <summary>Default terminal font size in pixels when the profile does not override it.</summary>
@@ -253,7 +251,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
 
     public bool IsInGameMode => _inGameMode;
 
-    /// <summary>True when the capture button should be shown — an advanced feature, only surfaced once in game.</summary>
+    /// <summary>True when the capture button should be shown - an advanced feature, only surfaced once in game.</summary>
     public bool IsRecordingButtonVisible =>
         IsCaptureFacilityAvailable && _inGameMode;
 
@@ -274,7 +272,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public string ScoreDeltaValue => Score <= 0 || _baseScore < 0 ? string.Empty
         : $" ({ScoreDeltaStr(Score - _baseScore)})";
 
-    /// <summary>Score value for the compact bar — always carries the reset-delta suffix (rendered
+    /// <summary>Score value for the compact bar - always carries the reset-delta suffix (rendered
     /// one point smaller via <see cref="ScoreCompactFontSize"/> so it fits in narrow layouts).</summary>
     public string ScoreDisplayValue => Score <= 0 ? "—"
         : _baseScore < 0 ? $"{Score}"
@@ -289,10 +287,10 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
 
     public bool   MagVisible  => _magic > 0;
     // Countdown to the projected reset instant. Two forms:
-    //   • When the projection is dialled in to ~second resolution (uncertainty ≤
-    //     ResetSecondsDisplayMaxUncertainty), show precise "m:ss" (or "29s" under a minute) — the
+    //   - When the projection is dialled in to ~second resolution (uncertainty <=
+    //     ResetSecondsDisplayMaxUncertainty), show precise "m:ss" (or "29s" under a minute) - the
     //     accuracy is real, so show it off.
-    //   • Otherwise show FLOORED whole minutes ("28m"), matching the game's own `reset` command
+    //   - Otherwise show FLOORED whole minutes ("28m"), matching the game's own `reset` command
     //     ("auto-reset will be initiated in approximately 28 minutes"). Flooring (not ceiling) is
     //     the fix for the long-standing "a minute out" complaint: the server floors, so ceiling read
     //     exactly one minute high the whole time even though the underlying projection was correct.
@@ -310,7 +308,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         }
     }
     public bool   TtrVisible  => TtrText.Length != 0;
-    // "Time until reset" plus our current ± confidence, so hovering reveals how much to trust it.
+    // "Time until reset" plus our current +/- confidence, so hovering reveals how much to trust it.
     public string TtrTooltip  => _reset.TargetUtc is null
         ? "Time until reset"
         : $"Time until reset (±{(int)Math.Ceiling(_reset.UncertaintySec)}s)";
@@ -321,17 +319,17 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public bool IsCompactStats    => _effCols < 76;
     public bool IsNotCompactStats => _effCols >= 76;
     public bool IsCompactWeather  => _effCols < 80;
-    /// <summary>Font size for stat values in compact layout — shrinks when effcols &lt; 50.</summary>
+    /// <summary>Font size for stat values in compact layout - shrinks when effcols &lt; 50.</summary>
     public double StatsValueFontSize => _effCols < 50 ? 12.0 : 13.0;
-    /// <summary>Font size for the "/max" half of a stat pair — two points below the current value.</summary>
+    /// <summary>Font size for the "/max" half of a stat pair - two points below the current value.</summary>
     public double StatsMaxValueFontSize => StatsValueFontSize - 2.0;
-    /// <summary>Font size for the score (with its reset-delta) in the compact bar — one point below
+    /// <summary>Font size for the score (with its reset-delta) in the compact bar - one point below
     /// the stat values so the always-on delta suffix fits without crowding the effects column.</summary>
     public double ScoreCompactFontSize => StatsValueFontSize - 1.0;
-    /// <summary>Font size for the dreamword pill — one point larger in wide mode.</summary>
+    /// <summary>Font size for the dreamword pill - one point larger in wide mode.</summary>
     public double DreamwordFontSize => (_effCols < 50 ? 12.0 : 13.0) + _dreamwordSizeOffset;
 
-    // ── Fkey toolbar density — three tiers shrinking with effcols ────────────
+    // -- Fkey toolbar density - three tiers shrinking with effcols ------------
     // Returns (fontSize, buttonRightMargin, totalHorizPad).
     private (double Font, double Bm, double PadH) FkeyDensity() => _effCols switch
     {
@@ -344,7 +342,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public Thickness FkeyButtonMargin => new Thickness(0, 0, FkeyDensity().Bm, FkeyDensity().Bm);
     public Thickness FkeyBarPadding   { get { var d = FkeyDensity(); return new Thickness(d.PadH / 2, d.Bm, d.PadH / 2, d.Bm); } }
 
-    // How many F-keys to show — drop from the high end as space shrinks, min 8.
+    // How many F-keys to show - drop from the high end as space shrinks, min 8.
     private int  FkeyCount() => _effCols switch
     {
         >= 76 => 12,
@@ -415,7 +413,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _  => CampbellBrightGreen,
     };
 
-    /// <summary>Port of Clio's colorcode() — colors a stat by its eff/max ratio.</summary>
+    /// <summary>Port of Clio's colorcode() - colors a stat by its eff/max ratio.</summary>
     private static Color StatColor(int eff, int max)
     {
         if (eff <= 0 || max <= 0) return CampbellBrightGreen;
@@ -437,13 +435,13 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         : CampbellRed;
     public Color WeatherColor => _weather switch
     {
-        'F' => CampbellBrightYellow,   // Sunny  — LT_YELLOW
-        'C' => CampbellWhite,           // Cloud  — WHITE
-        'R' => CampbellGreen,           // Rain   — GREEN
-        'S' => CampbellWhite,           // Snow   — BLACK on WHITE → white
-        'O' => CampbellBrightBlack,     // Ocast  — LT_BLACK (dark grey)
-        'T' => CampbellGreen,           // Storm  — GREEN
-        'B' => CampbellWhite,           // Blizd  — BLACK on WHITE → white
+        'F' => CampbellBrightYellow,   // Sunny  - LT_YELLOW
+        'C' => CampbellWhite,           // Cloud  - WHITE
+        'R' => CampbellGreen,           // Rain   - GREEN
+        'S' => CampbellWhite,           // Snow   - BLACK on WHITE -> white
+        'O' => CampbellBrightBlack,     // Ocast  - LT_BLACK (dark grey)
+        'T' => CampbellGreen,           // Storm  - GREEN
+        'B' => CampbellWhite,           // Blizd  - BLACK on WHITE -> white
         _   => CampbellWhite,
     };
 
@@ -487,7 +485,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         ? (IsCompactWeather ? WeatherGlyph : $"{WeatherGlyph} {WeatherText}")
         : string.Empty;
 
-    // ── Status effects (afflictions) — shown after the score group ───────────
+    // -- Status effects (afflictions) - shown after the score group -----------
     private const string DeafGlyph     = "\U0001F442";        // ear
     private const string BlindGlyph    = "\U0001F441\uFE0F"; // eye (FE0F: emoji presentation)
     private const string DumbGlyph     = "\U0001F444";        // mouth
@@ -573,16 +571,16 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     /// <see cref="SessionDropContext"/> is what the overlay tells the player about why they are
     /// there, captured at the instant the terminal went behind it.</summary>
     public event Action<GuidedLoginOptions, SessionDropContext>? GuidedLoginReentryRequested;
-    /// <summary>Raised after <see cref="ChatMode"/> flips — GamePage clears and repaints the terminal
+    /// <summary>Raised after <see cref="ChatMode"/> flips - GamePage clears and repaints the terminal
     /// from the matching buffer (chat-only when on, full history when off).</summary>
     public event Action? ChatModeChanged;
-    /// <summary>Raised after settings have been persisted — GamePage shows a confirmation toast.</summary>
+    /// <summary>Raised after settings have been persisted - GamePage shows a confirmation toast.</summary>
     public event Action? SettingsSaved;
     /// <summary>Raised to surface a transient message in the GamePage toast.</summary>
     public event Action<string>? ToastRequested;
 #if WINDOWS
     public event Action? OpenRawConsoleRequested;
-    /// <summary>Raised by $map — GamePage opens (or surfaces) the mapping panel window.</summary>
+    /// <summary>Raised by $map - GamePage opens (or surfaces) the mapping panel window.</summary>
     public event Action? MapPanelRequested;
     public event Action<byte[]>? RawBytesReceived
     {
@@ -609,10 +607,10 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         IsCapturing = _conn.IsCapturing;
         _profileName = profile.Name;
         _guidedLoginEnabled = profile.GuidedLogin;
+        _profileHost = profile.Host;
 #if WINDOWS
         _watchwords = WatchwordStore.Load();
         _sessionAliases = new SessionCommandAliases(AppInfo.VersionString);
-        _profileHost = profile.Host;
 #endif
         _maxColumns = Math.Clamp(profile.MaxColumns, 0, 160);  // 0 = auto
         _effCols = _maxColumns > 0 ? _maxColumns : 80;  // sensible until OnSizeAllocated fires
@@ -731,7 +729,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     }
 
     /// <summary>
-    /// Applies a full settings snapshot (plus fkeys) to the live session — the settings
+    /// Applies a full settings snapshot (plus fkeys) to the live session - the settings
     /// dialog's Apply path. Every member of <see cref="ClientSettings"/> takes effect here;
     /// persistence is <see cref="SaveSettingsAsync"/>'s job.
     /// </summary>
@@ -829,9 +827,8 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
 
     /// <summary>
     /// Raised (on the TCP read-loop thread) when output has been enqueued and no flush is yet
-    /// pending. GamePage marshals a single <c>DoFlushWork</c> to the UI thread in response. This
-    /// replaces the old 50 ms poll: the first line of a server response renders on the next
-    /// dispatcher pump instead of waiting up to 50 ms for a timer tick, while a burst still
+    /// pending. GamePage marshals a single <c>DoFlushWork</c> to the UI thread in response: the
+    /// first line of a server response renders on the next dispatcher pump, while a burst still
     /// coalesces into one drain/paint because the guard suppresses redundant wake-ups.
     /// </summary>
     public event Action? OutputAvailable;
@@ -902,7 +899,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     // replaced (ClassifyDrop only reads it later, after GameModeExited marshals in).
     private void OnPersonaWiped() => _personaInvalidated = true;
 
-    // MudSession owns the FES heartbeat — nothing to do in GameViewModel on mode transitions
+    // MudSession owns the FES heartbeat - nothing to do in GameViewModel on mode transitions
     // beyond tracking game mode for anti-idle. Events fire on the TCP thread; marshal to UI.
     private void OnGameModeEntered()
         => MainThread.BeginInvokeOnMainThread(() =>
@@ -1030,7 +1027,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
 
     // The character was identified from the setup `score` reply (fires on the Feed thread).
     // The score StatsUpdated for that same line is queued just ahead of this on the UI thread,
-    // so _score already holds this character's score — seed a first-seen baseline from it.
+    // so _score already holds this character's score - seed a first-seen baseline from it.
     private void OnCharacterIdentified(string name)
         => MainThread.BeginInvokeOnMainThread(() =>
         {
@@ -1098,7 +1095,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         return batch;
     }
 
-    // Stats come exclusively from StatsUpdatedEvent — no text-based stat extraction.
+    // Stats come exclusively from StatsUpdatedEvent - no text-based stat extraction.
     private void OnInCombatChanged(bool inCombat)
         => SidePanel.OnInCombatChanged(inCombat);
 
@@ -1172,24 +1169,24 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
 
     // Advance the projected reset countdown; called from the 1 Hz UI tick (OnAntiIdleTick). Pure
     // display: poll the session-layer projection snapshot and re-notify. All probe scheduling lives in
-    // ResetClock, off the UI thread — nothing here can stall typing (Invariant #1).
+    // ResetClock, off the UI thread - nothing here can stall typing (Invariant #1).
     public void TickResetCountdown()
     {
         var had = _reset.TargetUtc is not null;
         PollResetEstimate();
-        // Show nothing once a projected target has lapsed (secs<=0 → TtrText empty).
+        // Show nothing once a projected target has lapsed (secs<=0 -> TtrText empty).
         if (_reset.TargetUtc is null)
         {
-            if (had)   // just cleared (menu / disconnect) — fire one final update so the countdown hides
+            if (had)   // just cleared (menu / disconnect) - fire one final update so the countdown hides
                 OnPropertiesChanged(nameof(TtrText), nameof(TtrVisible), nameof(TtrTooltip), nameof(AnyRightStatVisible));
             return;
         }
         OnPropertiesChanged(nameof(TtrText), nameof(TtrVisible), nameof(TtrTooltip), nameof(AnyRightStatVisible));
     }
 
-    // CombatTracker no longer has a time-only tick to drive (it closes an encounter synchronously
-    // the instant the last NPC is gone - see CombatTracker's own remarks). This just pumps the
-    // panel's render refresh at the UI's own 1 Hz tick rate.
+    // CombatTracker closes an encounter synchronously the instant the last NPC is gone (see
+    // CombatTracker's own remarks). This just pumps the panel's render refresh at the UI's own
+    // 1 Hz tick rate.
     public void TickCombatDisplay() => SidePanel.TickCombatDisplay();
 
     // Drop the cached projection (back at the option menu, or disconnected: no live world to count
@@ -1224,16 +1221,16 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         => MainThread.BeginInvokeOnMainThread(() => Dreamword = word ?? string.Empty);
 
     /// <summary>Screen name of the last person to send us a tell (never "Someone"/"Someone
-    /// powerful" — those never carry a named sender). Backs the ctrl-r reply hotkey: the game's
+    /// powerful" - those never carry a named sender). Backs the ctrl-r reply hotkey: the game's
     /// 're' command re-resolves its target at send time, so a second tell arriving between
-    /// keypress and the server receiving it can silently redirect a reply — tracking the name
+    /// keypress and the server receiving it can silently redirect a reply - tracking the name
     /// client-side and inserting it literally avoids that race (issue #147).</summary>
     public string? LastTellSender { get; private set; }
 
     private void OnTellReceived(string senderName)
         => MainThread.BeginInvokeOnMainThread(() => LastTellSender = senderName);
 
-    /// <summary>Tell the player, in the terminal, that ctrl-r had nobody to reply to — otherwise
+    /// <summary>Tell the player, in the terminal, that ctrl-r had nobody to reply to - otherwise
     /// the hotkey just does nothing with no indication why.</summary>
     public void NoteNoTellToReplyTo()
         => AddSystemLine("[reply] Nobody has sent you a tell yet.", 14);
@@ -1271,7 +1268,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         => new(_conn, options);
 
     /// <summary>Tell the player, in the terminal, that guided login has bowed out and left them
-    /// driving the shell by hand — otherwise the overlay just disappears and they are looking at a
+    /// driving the shell by hand - otherwise the overlay just disappears and they are looking at a
     /// prompt with no idea why.</summary>
     public void NoteLeftAtOptionMenu()
         => AddSystemLine("[persona] Persona login stopped — you are at the MUD Shell's Option menu. Type P to choose a persona.", 14);
@@ -1288,7 +1285,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         ResetSessionState();
     }
 
-    // Called from the TCP read thread — fire-and-forget, never block.
+    // Called from the TCP read thread - fire-and-forget, never block.
     // PlayServerSound applies the Sounds-tab gating (master/group/sound + fallback).
     private static void OnSoundRequested(string assetName) => SoundService.PlayServerSound(assetName);
 
@@ -1311,7 +1308,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             _conn.SendLine(dir);
             _lastSentUtc = DateTime.UtcNow;
         }
-        // Always hand typing back to the command box — a compass click must never strand focus
+        // Always hand typing back to the command box - a compass click must never strand focus
         // on the canvas. (Fires even on an empty hit so any tap on the dial re-focuses input.)
         RequestFocus?.Invoke();
     }
@@ -1330,15 +1327,13 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     /// <summary>
     /// Accepts one line from the input box. This is ALL the input path does with it.
     ///
-    /// <para><b>Pressing Enter and talking to the network are two different things</b> (owner,
-    /// 2026-08-20). The command box has exactly one job - capture and enqueue what was typed,
-    /// correctly and smoothly - and nothing about interpreting a line belongs anywhere near the
-    /// keystroke that finished it. That is not a style preference: what used to run inline on the
-    /// Enter keypress was the whole of <see cref="HandleCommand"/> (every <c>$</c> and <c>^</c>
-    /// client command, some of which touch settings and the filesystem), alias plus watchword
-    /// expansion, the socket write, and the history list mutation. All of it on the UI thread, in
-    /// the one path CLAUDE.md puts above every other consideration, and all of it growing every
-    /// time a new client command is added.</para>
+    /// <para><b>Pressing Enter and talking to the network are two different things.</b> The command
+    /// box has exactly one job - capture and enqueue what was typed, correctly and smoothly - and
+    /// nothing about interpreting a line belongs anywhere near the keystroke that finished it.
+    /// Interpreting it inline would run the whole of <see cref="HandleCommand"/> (every <c>$</c>
+    /// and <c>^</c> client command, some of which touch settings and the filesystem), alias plus
+    /// watchword expansion, the socket write, and the history list mutation, all on the UI thread,
+    /// in the one path CLAUDE.md puts above every other consideration.</para>
     ///
     /// <para>So: enqueue and return. The queue is drained on a posted callback, which yields the
     /// thread back to the input system first. Order is preserved absolutely - a single UI-thread
@@ -1417,14 +1412,14 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     {
 #if WINDOWS
         // ^1=command / ^2=command / ^3=command (or bare ^1..^3, with optional
-        // whitespace around "=") — bind/send the three Ctrl-1..Ctrl-3 control-macro slots.
-        // Three, not five (owner, 2026-08-21): reaching Ctrl-4/Ctrl-5 without looking is a
-        // stretch mid-fight, and a macro you have to look down for is a macro that gets you killed.
+        // whitespace around "=") - bind/send the three Ctrl-1..Ctrl-3 control-macro slots.
+        // Three, not five: reaching Ctrl-4/Ctrl-5 without looking is a stretch mid-fight, and a
+        // macro you have to look down for is a macro that gets you killed.
         // No "$" prefix: this is the one command family typed with a bare "^" lead,
         // matching the physical Ctrl+<digit> shortcut.
         // "^" is a client-local sigil, same as "$": ANY "^"-prefixed input is owned by
         // this block and must never fall through to the MUD, even when it fails to parse
-        // (e.g. "^6=foo", "^=foo", bare "^") — report a local error instead.
+        // (e.g. "^6=foo", "^=foo", bare "^") - report a local error instead.
         if (text.Length > 0 && text[0] == '^')
         {
             if (text.Length >= 2 && text[1] is >= '1' and <= '3' && IsCtrlMacroShape(text))
@@ -1501,7 +1496,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     }
 
 #if WINDOWS
-    // "^N" (bare, length 2 — caller already checked) or "^N" followed by optional
+    // "^N" (bare, length 2 - caller already checked) or "^N" followed by optional
     // whitespace then "=" (the rest, including whitespace after "=", is trimmed by
     // SessionCommandAliases.TryDefine itself). Anything else ("^Nfoo" with no "=",
     // a second digit, ...) is not a recognized control-macro shape.
@@ -1575,7 +1570,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     /// GamePage applies it to the terminal buffer (see TerminalView.InjectAnnotation).</summary>
     public event Action<StyledLine>? AnnotationReady;
 
-    // $help — list the client-side commands. Mirrored on the About page's Tips section.
+    // $help - list the client-side commands. Mirrored on the About page's Tips section.
     private void PrintHelp()
     {
         AddSystemLine("[help] client commands:", 14);
@@ -1593,7 +1588,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         AddSystemLine("  ^1/^2/^3=command  bind Ctrl-1..Ctrl-3", 14);
     }
 
-    // $fkeys [shift|ctrl] — list the 12 macros on the requested layer, echoing each line into the
+    // $fkeys [shift|ctrl] - list the 12 macros on the requested layer, echoing each line into the
     // active capture/log as well as the terminal.
     private void PrintFkeys(string layerArg)
     {
@@ -1629,7 +1624,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _conn.Annotate(msg);
     }
 
-    // $f<n> — take fkey n's macro (absolute 1-36), drop it above the prompt as a "// ..." note
+    // $f<n> - take fkey n's macro (absolute 1-36), drop it above the prompt as a "// ..." note
     // (the prompt is restored beneath it), and record it in the capture as an annotation.
     private void AnnotateFkey(int n)
     {
@@ -1700,7 +1695,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         }
     }
 
-    // ── $eval: item weigh/look/drop+get measurement (see ItemEvalSession) ────────────────────
+    // -- $eval: item weigh/look/drop+get measurement (see ItemEvalSession) --------------------
 
     private async Task RunItemEvalAsync(string itemId)
     {
@@ -1715,7 +1710,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             return;
         }
         // FEI lines are the item's display name/label, not necessarily the bare id you type
-        // ("croquet mallet" in FEI vs "mallet" as a valid short id for the same object) — so this
+        // ("croquet mallet" in FEI vs "mallet" as a valid short id for the same object) - so this
         // is only a cheap local sanity check (substring match either way), not authoritative.
         // ItemEvalSession resolves the real name via 'identify' before doing anything else.
         if (!SidePanel.InventoryList.Any(i =>
@@ -1805,11 +1800,11 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         RequestFocus?.Invoke();
     }
 
-    /// <summary>Speak the dreamword and chain a follow-up command (Ctrl+Shift+D) — sent as
+    /// <summary>Speak the dreamword and chain a follow-up command (Ctrl+Shift+D) - sent as
     /// <c>"word",follow\r\n</c>. With an empty input box the follow-up defaults to "sleep"
     /// (you usually want to sleep right after speaking). Otherwise the typed command is used:
     /// one leading comma is stripped (we supply our own separator), and a command beginning
-    /// ",," is refused with a toast — ",," means "repeat last command" in MUD2 and would
+    /// ",," is refused with a toast - ",," means "repeat last command" in MUD2 and would
     /// misfire here. The input box is left untouched.</summary>
     public void SpeakDreamwordThen()
     {
@@ -1905,10 +1900,10 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         RequestFocus?.Invoke();
     }
 
-    /// <summary>Snapshot of the full scrollback (non-partial lines) — used to repaint when the filter turns off.</summary>
+    /// <summary>Snapshot of the full scrollback (non-partial lines) - used to repaint when the filter turns off.</summary>
     public IReadOnlyList<StyledLine> HistorySnapshot() => _historyBuffer.ToArray();
 
-    /// <summary>Snapshot of chat-only history — used to repaint when the filter turns on.</summary>
+    /// <summary>Snapshot of chat-only history - used to repaint when the filter turns on.</summary>
     public IReadOnlyList<StyledLine> ChatSnapshot() => _chatBuffer.ToArray();
 
     public void AntiIdleTick()
@@ -1984,7 +1979,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         {
             _effCols = clamped;
             _conn.SetWindowSize(_effCols, 21);
-            // NAWS alone doesn't re-wrap MUD2 output — the server wraps on the /T width set at
+            // NAWS alone doesn't re-wrap MUD2 output - the server wraps on the /T width set at
             // client-mode entry. Re-issue it so text sent after a resize wraps at the new width.
             _conn.SendTerminalWidth();
             OnPropertyChanged(nameof(EffCols));

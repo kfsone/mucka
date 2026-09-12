@@ -3,7 +3,7 @@ using Microsoft.Maui.Storage;
 namespace Mucka.Core;
 
 /// <summary>
-/// Persists client settings and fkey macros to mucka.ini — the same file that holds the
+/// Persists client settings and fkey macros to mucka.ini - the same file that holds the
 /// hand-edited [watch] rules, which are preserved verbatim (IniFile only rewrites the
 /// lines it owns).
 ///
@@ -11,7 +11,7 @@ namespace Mucka.Core;
 /// via the "Save to profile only" checkboxes (one per page), which switch the save
 /// target to the suffixed sections. Loads prefer the per-profile section when present:
 ///
-///   [settings]            ; globals — the default save target
+///   [settings]            ; globals - the default save target
 ///   fontsize=15
 ///   columns=80
 ///   volume=75
@@ -21,14 +21,14 @@ namespace Mucka.Core;
 ///   [fkeys]               ; F1-F12 plain, F13-F24 shift, F25-F36 ctrl (clio.ini layout)
 ///   F1=l around
 ///
-///   [settings:MUD2 UK]    ; per-profile override — "Save to profile only" checked
+///   [settings:MUD2 UK]    ; per-profile override - "Save to profile only" checked
 ///   [fkeys:MUD2 UK]
 ///
 ///   [profiles]            ; connection profiles, most-recently-used first
 ///   1=MUD2 UK
 ///   2=MUD2.COM
 ///
-///   [profile:MUD2 UK]     ; connection identity — settings/fkeys live above, passwords
+///   [profile:MUD2 UK]     ; connection identity - settings/fkeys live above, passwords
 ///   host=mud2.co.uk       ; in SecureStorage (ProfileStore)
 ///   port=23
 ///
@@ -62,7 +62,7 @@ public static class SettingsStore
         string[]? Fkeys,
         bool SettingsPerProfile,
         bool FkeysPerProfile,
-        // Display tab — always read/written to the global [settings] section.
+        // Display tab - always read/written to the global [settings] section.
         int? DefaultFontSize    = null,
         int? DefaultMaxColumns  = null,
         int? DreamwordSizeOffset = null,
@@ -81,7 +81,7 @@ public static class SettingsStore
         string? MeSpeechColor   = null,
         bool? ShowCombatRail    = null)
     {
-        /// <summary>Overlays the stored (ini) values onto a profile — ini wins when present.</summary>
+        /// <summary>Overlays the stored (ini) values onto a profile - ini wins when present.</summary>
         public void ApplyTo(Profile profile)
         {
             if (FontSize            is int fontSize) profile.FontSize            = fontSize;
@@ -94,7 +94,7 @@ public static class SettingsStore
             if (Fkeys               is not null)     profile.Fkeys               = Fkeys;
             profile.SettingsPerProfile = SettingsPerProfile;
             profile.FkeysPerProfile    = FkeysPerProfile;
-            // Display tab — always from the global [settings] section.
+            // Display tab - always from the global [settings] section.
             if (DefaultFontSize   is int dfs)  profile.DefaultFontSize   = dfs;
             if (DefaultMaxColumns is int dmc)  profile.DefaultMaxColumns = dmc;
             if (DreamwordSizeOffset is int dso) profile.DreamwordSizeOffset = dso;
@@ -115,8 +115,8 @@ public static class SettingsStore
     }
 
     /// <summary>
-    /// The mucka.ini path: first existing of (./mucka.ini, ~/mucka.ini) on Windows —
-    /// mirroring WatchwordStore.Load — defaulting to ~/mucka.ini for new files.
+    /// The mucka.ini path: first existing of (./mucka.ini, ~/mucka.ini) on Windows -
+    /// mirroring WatchwordStore.Load - defaulting to ~/mucka.ini for new files.
     /// On Android (and others) the app-data directory.
     /// </summary>
     public static string ResolvePath()
@@ -131,8 +131,8 @@ public static class SettingsStore
     }
 
     /// <summary>
-    /// Loads the stored settings for a profile — preferring its per-profile sections,
-    /// falling back to the globals — or null when mucka.ini has neither (first run —
+    /// Loads the stored settings for a profile - preferring its per-profile sections,
+    /// falling back to the globals - or null when mucka.ini has neither (first run -
     /// callers keep the profile's built-in defaults).
     /// </summary>
     public static async Task<StoredSettings?> LoadProfileAsync(string profileName)
@@ -211,7 +211,7 @@ public static class SettingsStore
     /// <paramref name="settings"/> is set, otherwise to the globals. An existing section
     /// of the other scope is left alone (the saved-globals-while-profile-exists ambiguity
     /// is deliberately unresolved). Pass null <paramref name="fkeys"/> to leave all fkey
-    /// sections untouched — used by the connect page, which cannot edit hotkeys.
+    /// sections untouched - used by the connect page, which cannot edit hotkeys.
     /// </summary>
     /// <param name="writeSounds">False leaves every sound key in the section untouched. Pass false
     /// from callers that cannot edit sounds (the connect page): <see cref="WriteSoundSettings"/>
@@ -273,7 +273,7 @@ public static class SettingsStore
 
             if (fkeys is not null)
             {
-                // Section presence (even empty) marks "saved" — see LoadProfileAsync.
+                // Section presence (even empty) marks "saved" - see LoadProfileAsync.
                 var fkeysSection = settings.FkeysPerProfile ? $"fkeys:{profileName}" : "fkeys";
                 ini.EnsureSection(fkeysSection);
                 for (var i = 0; i < FkeyCount; i++)
@@ -316,8 +316,8 @@ public static class SettingsStore
     }
 
     /// <summary>
-    /// Writes the profiles to mucka.ini — MRU order into [profiles], identity fields
-    /// into each [profile:Name] section — and removes [profile:] sections for profiles
+    /// Writes the profiles to mucka.ini - MRU order into [profiles], identity fields
+    /// into each [profile:Name] section - and removes [profile:] sections for profiles
     /// no longer in the list. Settings/fkeys/watch sections are untouched.
     /// </summary>
     public static async Task SaveProfilesAsync(List<Profile> profiles)
@@ -336,7 +336,7 @@ public static class SettingsStore
         }
     }
 
-    // ── Private ────────────────────────────────────────────────────────────────
+    // -- Private ----------------------------------------------------------------
 
     private static List<Profile> DefaultProfiles() => new()
     {
@@ -424,7 +424,7 @@ public static class SettingsStore
         }
     }
 
-    // Sound enablement keys, all within the settings section. Override-only — defaults
+    // Sound enablement keys, all within the settings section. Override-only - defaults
     // (everything on at full volume, no fallbacks) leave no keys behind:
     //   sounds=yes               ; master switch (always written)
     //   soundgroup.07=off        ; a disabled group
@@ -439,7 +439,7 @@ public static class SettingsStore
     private const string SoundGroupVolKeyPrefix = "soundgroupvol.";
 
     /// <summary>Reads the sound settings from a section; null when no sound keys exist
-    /// (pre-feature ini — callers keep the built-in everything-on defaults).</summary>
+    /// (pre-feature ini - callers keep the built-in everything-on defaults).</summary>
     private static SoundSettings? ReadSoundSettings(IniFile ini, string section)
     {
         SoundSettings? sounds = null;
@@ -449,7 +449,7 @@ public static class SettingsStore
             Sounds().MasterEnabled = master;
         foreach (var (key, value) in ini.Items(section))
         {
-            // Longest prefixes first — "soundgroupvol."/"soundvol." must not fall into
+            // Longest prefixes first - "soundgroupvol."/"soundvol." must not fall into
             // the "soundgroup."/"sound." branches.
             if (key.StartsWith(SoundGroupVolKeyPrefix, StringComparison.OrdinalIgnoreCase))
             {

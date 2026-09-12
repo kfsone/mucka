@@ -13,7 +13,7 @@ namespace MudSharp.Protocol;
 /// </summary>
 public sealed class MudStreamParser
 {
-    // ── Events ────────────────────────────────────────────────────────────────
+    // -- Events ----------------------------------------------------------------
     /// <summary>A line (or partial line) of styled text is ready to display.</summary>
     public event Action<StyledLine>? LineReady;
 
@@ -59,7 +59,7 @@ public sealed class MudStreamParser
     public event Action<string>? RoomShortReady;
 
     /// <summary>
-    /// A room-short sequence (C02+C01) appeared at frame start — the player has entered or
+    /// A room-short sequence (C02+C01) appeared at frame start - the player has entered or
     /// is looking at the current room. The room name follows via <see cref="LineReady"/>.
     /// Not fired for C02+C01 that appears mid-frame (exits/look-around).
     /// </summary>
@@ -101,7 +101,7 @@ public sealed class MudStreamParser
     public event Action? FewListStarting;
 
     /// <summary>
-    /// A FEW-response context has just closed — all names for this response have been
+    /// A FEW-response context has just closed - all names for this response have been
     /// delivered via <see cref="FewPlayerReady"/>. Replace the visible list atomically now.
     /// </summary>
     public event Action? FewListComplete;
@@ -112,7 +112,7 @@ public sealed class MudStreamParser
     /// <summary>A FEI-response context has opened. Consumers should clear accumulation buffers.</summary>
     public event Action? FeiListStarting;
 
-    /// <summary>A FEI-response context has closed — all item lines have been delivered.</summary>
+    /// <summary>A FEI-response context has closed - all item lines have been delivered.</summary>
     public event Action? FeiListComplete;
 
     /// <summary>
@@ -120,7 +120,7 @@ public sealed class MudStreamParser
     /// single spaces and any nested object name removed ("An evil, black rat (rat17) bares its
     /// razor-sharp incisors at you."). Fires on the Feed thread when the C04 presence scope unwinds.
     ///
-    /// <para>Prose, not a name — MUD2 never prints a creature's bare name here. It exists because FEI
+    /// <para>Prose, not a name - MUD2 never prints a creature's bare name here. It exists because FEI
     /// returns creatures and objects in one undifferentiated list of names (verified against every
     /// capture on disk: rats, a raven, a coot and a parrot appear in the same room list as keys,
     /// brands and vials, in no separating order), so this is the only evidence the game gives about
@@ -131,17 +131,17 @@ public sealed class MudStreamParser
     /// <summary>
     /// A C1 code hinted that parts of the player state may have changed (combat hits,
     /// spells, items/creatures arriving, etc.). The payload says which categories.
-    /// Policy (debounce, probe scheduling) is the consumer's responsibility — the
+    /// Policy (debounce, probe scheduling) is the consumer's responsibility - the
     /// parser never sends probes itself.
     /// </summary>
     public event Action<StaleStats>? ProbeHintReceived;
 
     /// <summary>The server announced an auto-reset (C1 code C06 C04, "Auto reset initiated, you have
-    /// 120 seconds…"). The reset is imminent and precisely timed from this instant. Fires on the Feed
+    /// 120 seconds..."). The reset is imminent and precisely timed from this instant. Fires on the Feed
     /// thread.</summary>
     public event Action? AutoResetInitiated;
 
-    /// <summary>The world reset has LANDED (C1 code C06 C06, "Something magical is happening." —
+    /// <summary>The world reset has LANDED (C1 code C06 C06, "Something magical is happening." -
     /// Bartle 06 06). Distinct from <see cref="AutoResetInitiated"/>, which is the warning two
     /// minutes earlier. Fires on the Feed thread. See Mud2C1Decoder's C06 case for the capture
     /// evidence, and MudSession.OnWorldResetLanded for why the consumer corroborates it against the
@@ -149,17 +149,17 @@ public sealed class MudStreamParser
     public event Action? WorldResetLanded;
 
     /// <summary>
-    /// One frame of game output has ended — the prompt that closes it has just been shown.
+    /// One frame of game output has ended - the prompt that closes it has just been shown.
     ///
     /// <para><b>The frame is the only sound bound on "a line MUD2 owes us is never coming".</b> MUD2
     /// buffers everything one game tick produced, then appends the prompt and a copy of any pending
-    /// input — so an event and everything the game says about it (a kill and its award, a flee and its
-    /// charge) share one prompt-bounded frame by construction (owner, 2026-09-07: "the reward is on
-    /// the next line and that might not have arrived yet, but it *will* arrive before the end of the
-    /// text-stream-level packet — the next prompt"). Nothing bounds how long TCP takes to deliver the
-    /// two halves — only that it delivers them or the connection fails — so elapsed time carries no
-    /// information here and a timeout or lull window is never an acceptable substitute: any window
-    /// wide enough to be safe under a stalled segment is also wide enough to span the next tick.</para>
+    /// input - so an event and everything the game says about it (a kill and its award, a flee and its
+    /// charge) share one prompt-bounded frame by construction: the reward may not have arrived on the
+    /// next line yet, but it will arrive before the end of the text-stream-level packet - the next
+    /// prompt. Nothing bounds how long TCP takes to deliver the two halves - only that it delivers
+    /// them or the connection fails - so elapsed time carries no information here and a timeout or
+    /// lull window is never an acceptable substitute: any window wide enough to be safe under a
+    /// stalled segment is also wide enough to span the next tick.</para>
     ///
     /// <para>Fires only for a prompt that was actually SHOWN, i.e. one that followed real game output
     /// (<see cref="PromptAllowed"/>). A discarded FES heartbeat is not a frame boundary: it arrives
@@ -190,7 +190,7 @@ public sealed class MudStreamParser
     /// <summary>A FEX-response context has opened. Consumers should clear accumulation buffers.</summary>
     public event Action? FexListStarting;
 
-    /// <summary>A FEX-response context has closed — all exit keywords have been delivered.</summary>
+    /// <summary>A FEX-response context has closed - all exit keywords have been delivered.</summary>
     public event Action? FexListComplete;
 
     /// <summary>
@@ -210,13 +210,13 @@ public sealed class MudStreamParser
     /// </summary>
     public event Action<string, string>? ExitLineReady;
 
-    // ── Sub-parsers (set by internal wiring, replaceable for testing) ─────────
+    // -- Sub-parsers (set by internal wiring, replaceable for testing) ---------
     internal TelnetNegotiator Telnet { get; }
     internal AnsiSgrState Ansi { get; }
     internal Mud2C1Decoder C1 { get; }
     internal GameLineAnalyzer LineAnalyzer { get; }
 
-    // ── Parser state ──────────────────────────────────────────────────────────
+    // -- Parser state ----------------------------------------------------------
     private ParserState _state = ParserState.Normal;
     private readonly List<byte> _iacSbBuf = new();
     private readonly List<byte> _c1Buf = new();
@@ -225,7 +225,7 @@ public sealed class MudStreamParser
     // Pending reprocess: a byte queued by a sub-parser to be replayed in Normal after its call returns.
     private byte? _pendingReprocess;
 
-    // ── Text accumulation ─────────────────────────────────────────────────────
+    // -- Text accumulation -----------------------------------------------------
     private readonly List<StyledSpan> _spans = new();
     private readonly StringBuilder _text = new();
     private bool _inGameMode;
@@ -241,7 +241,7 @@ public sealed class MudStreamParser
     // Sound codes decoded on the line currently being accumulated (C06/C07/C08/C11/C13/C14/C18
     // payloads). Emission is deferred to the line's finalisation because the code arrives BEFORE
     // the text, and a self action echo ("OK, you wave." / "OK, Ollie the superheroine waves.")
-    // must drop its own act sound — the prefix isn't knowable at decode time. Every other line
+    // must drop its own act sound - the prefix isn't knowable at decode time. Every other line
     // path (including partial/prompt flushes) plays the queue, so audible timing is unchanged:
     // the code and its line share a packet.
     private readonly List<string> _pendingLineSounds = new();
@@ -264,30 +264,30 @@ public sealed class MudStreamParser
     }
 
     // qq-to-option-menu detection: the MUD2 server sends NO binary exit signal when the player
-    // quits — it just resets colour and prints the option-menu prompt as plain text. Match that
+    // quits - it just resets colour and prints the option-menu prompt as plain text. Match that
     // prompt char-by-char in the in-game text stream and exit game mode the instant it completes
     // (as Clio does), so the FES heartbeat stops before it misfires into the menu. Reset on each
     // newline so a partial match never carries across lines.
     private const string OptionMenuPrompt = "Option (H for help)";
     private int _optionMatchLen;
 
-    // ── Game state ────────────────────────────────────────────────────────────
+    // -- Game state ------------------------------------------------------------
     public bool InGameMode => _inGameMode;
 
-    // ── Line-start tracking ───────────────────────────────────────────────────
+    // -- Line-start tracking ---------------------------------------------------
     // True when no text characters have been output on the current display line yet
     // (i.e. the cursor is at column 0). Mirrors Clio's column-0 rule for room-short
     // detection (telnet.l:1218-1226: bold+GREEN at column 0 = room short description).
     //
     // Set to true:
     //   - On parser construction (start of first line).
-    //   - By SetLineStart() — called from ClosePromptContext when the captured prompt
+    //   - By SetLineStart() - called from ClosePromptContext when the captured prompt
     //     partial line is shown, marking the start of the next game-output frame.
     //   - After each real '\n' line is emitted (end of EmitChar newline path).
     //
     // Set to false:
     //   - When any printable text character is appended (_text.Append or _feiLine.Append).
-    //   - By ClearLineStart() — called from C02+C01 dispatch after consuming line-start
+    //   - By ClearLineStart() - called from C02+C01 dispatch after consuming line-start
     //     to prevent a second consecutive C02+C01 in the same line from double-firing.
     //
     // C1 color sequences do NOT touch _atLineStart (they don't advance display column).
@@ -301,11 +301,11 @@ public sealed class MudStreamParser
     private bool _pendingRoomShort;
     internal void SetPendingRoomShort() => _pendingRoomShort = true;
 
-    // ── C1 stream scopes ──────────────────────────────────────────────────────
+    // -- C1 stream scopes ------------------------------------------------------
     // The decoder's colour stack is the single source of truth for the semantic scopes the
     // server brackets in colour pushes (see C1Scope): these properties read it live, and
     // OnC1ScopesClosed below runs the end-of-scope actions when frames unwind. Only capture
-    // BUFFERS live here — never a parallel bool/depth pair.
+    // BUFFERS live here - never a parallel bool/depth pair.
 
     // Long-description scope (C02.02): while open, each completed line fires
     // LongDescLineReady alongside the normal LineReady.
@@ -318,29 +318,29 @@ public sealed class MudStreamParser
     // pushed at the wrap point.
     internal bool InChatContext => C1.HasScope(C1Scope.Chat);
     // Printable non-whitespace text was emitted on the current line while NO colour frame was
-    // open — i.e. plain, un-coded game output (command responses like "You drop the sword.").
-    // Consumed at the newline: such a line hints Inventory (probe-noise policy, 2026-07-25 —
-    // item-moving commands print plain text with no C1 code, so nothing else refreshes FEI).
+    // open - i.e. plain, un-coded game output (command responses like "You drop the sword.").
+    // Consumed at the newline: such a line hints Inventory - item-moving commands print plain
+    // text with no C1 code, so nothing else refreshes FEI.
     private bool _plainTextOnLine;
-    // Snapshot of InChatContext taken at each newline — i.e. whether the C09 scope was already
+    // Snapshot of InChatContext taken at each newline - i.e. whether the C09 scope was already
     // open when the NEXT line starts. A line finalised with this true is a server-wrapped
     // continuation of the previous chat line (StyledLine.ContinuesChat); a line that carries its
     // own C09 opens the scope mid-line, after this snapshot, so message starts are never tagged.
     private bool _chatOpenAtLineStart;
     // True when any of the current line's DISPLAYED text was emitted while the chat scope was
-    // open. This — not the scope state at the '\n' — is what makes the line part of the message:
+    // open. This - not the scope state at the '\n' - is what makes the line part of the message:
     // the message's LAST line carries the closing pop before its own newline (same as
     // single-line messages), so by finalisation the scope is already closed and testing it there
     // dropped exactly the final wrapped row out of Chat (and out of the self recolour).
     private bool _chatTextOnLine;
 
-    // ── FEW-response suppression ──────────────────────────────────────────────
+    // -- FEW-response suppression ----------------------------------------------
     // The C12+C08+C05 (FE WHO) scope. While open, display output is suppressed but
     // FewPlayerReady events still fire.
     internal bool InFewResponseContext => C1.HasScope(C1Scope.FewResponse);
     internal void BeginFewResponse() => FewListStarting?.Invoke();
 
-    // ── FEW name continuation ─────────────────────────────────────────────────
+    // -- FEW name continuation -------------------------------------------------
     // A WHO-list name interrupted by embedded colour codes (e.g. the C90 catch/throw
     // rainbow colouring of a wiz name) hands its partial text here; subsequent printable
     // characters append across the colour sequences and the name completes at '\n'.
@@ -371,7 +371,7 @@ public sealed class MudStreamParser
             FinalizeFewName();
     }
 
-    // ── FEI-response capture ──────────────────────────────────────────────────
+    // -- FEI-response capture --------------------------------------------------
     // The C12+C08+C03 (FE INVENTORY) scope. Item text accumulates in _feiLine (bypasses the
     // span machinery to avoid capturing stale spans from before the opener); each '\n' emits
     // one item, and scope close flushes any trailing item.
@@ -391,7 +391,7 @@ public sealed class MudStreamParser
         FeiItemReady?.Invoke(itemText);
     }
 
-    // ── FEX-response capture ──────────────────────────────────────────────────
+    // -- FEX-response capture --------------------------------------------------
     // The C12+C08+C02 (FE EXITS) scope. Exit keywords accumulate in _fexLine until each '\n';
     // scope close flushes any trailing keyword.
     private readonly StringBuilder _fexLine = new();
@@ -410,7 +410,7 @@ public sealed class MudStreamParser
         FexItemReady?.Invoke(itemText);
     }
 
-    // ── Creature-presence capture ─────────────────────────────────────────────
+    // -- Creature-presence capture ---------------------------------------------
     // The C04.0x.01..05 scope. Unlike FEI/FEX this does NOT bypass the normal path: the sentence is
     // ordinary game text the player must still see, so it is copied out alongside being displayed.
     // Nested C03 (an object the creature is carrying) is masked out - see C1Scope.ListedObject.
@@ -446,7 +446,7 @@ public sealed class MudStreamParser
     /// End-of-scope actions, invoked by the decoder when colour-stack frames that opened
     /// semantic scopes unwind (a bare FF FF pop, a C90 colour throw, or the C00 init reset).
     /// Several scopes can end on one unwind; the dispatch order below matches the old
-    /// per-context close order. Chat and LongDesc need no end action — their consumers read
+    /// per-context close order. Chat and LongDesc need no end action - their consumers read
     /// the In-properties live.
     /// </summary>
     internal void OnC1ScopesClosed(C1Scope closed)
@@ -468,23 +468,23 @@ public sealed class MudStreamParser
         }
         if ((closed & C1Scope.CreatureText) != 0)
             FlushCreatureText();
-        // The prompt container: show the whole captured prompt — '*', '(*)' when invisible,
-        // snoop/rank indicators — as a partial line (PromptAllowed) or discard it (FES
+        // The prompt container: show the whole captured prompt - '*', '(*)' when invisible,
+        // snoop/rank indicators - as a partial line (PromptAllowed) or discard it (FES
         // heartbeat). Skipped when a mid-container newline already aborted the capture.
         if ((closed & C1Scope.Prompt) != 0 && _inPromptContext)
             ClosePromptContext();
     }
 
-    // ── Prompt capture ────────────────────────────────────────────────────────
-    // Code 01 is "invisibility brackets around the prompt" (mud2_fe4 §codes): the OUTER
+    // -- Prompt capture --------------------------------------------------------
+    // Code 01 is "invisibility brackets around the prompt" (mud2_fe4 section codes): the OUTER
     // {C01}{C255} container wraps the ENTIRE prompt, and the inner {C01}{C0n}{C255}
     // variant (01 01 wiz / 01 02 mortal / 01 03 wiz-set / 01 04 snooping) colours the
-    // core prompt character(s). "The prompt" is contextual — everything inside the
-    // outer container — not just the '*':
+    // core prompt character(s). "The prompt" is contextual - everything inside the
+    // outer container - not just the '*':
     //   visible:    {C01}{C255}{C01}{C02}{C255}*{C255}{C255}
     //   invisible:  {C01}{C255}({C01}{C02}{C255}*{C255}){C255}
     // so the whole container is captured here and shown or discarded atomically.
-    // While active, text accumulates in _promptText/_promptSpans — never the display
+    // While active, text accumulates in _promptText/_promptSpans - never the display
     // span buffer, and never touching _atLineStart. The container's C1Scope.Prompt frame
     // popping closes the capture (OnC1ScopesClosed). _inPromptContext is the CAPTURE state,
     // not the scope: a mid-container newline aborts the capture while the scope frame is
@@ -504,9 +504,9 @@ public sealed class MudStreamParser
 
     /// <summary>
     /// Close the prompt-capture context (the container's C1Scope.Prompt frame unwound).
-    /// PromptAllowed=true  → show the captured prompt once as a partial line (mirrors
+    /// PromptAllowed=true  -> show the captured prompt once as a partial line (mirrors
     ///                       Clio's prompt_allowed gate, telnet.l:438-444).
-    /// PromptAllowed=false → discard it entirely (FES-heartbeat end-of-frame marker).
+    /// PromptAllowed=false -> discard it entirely (FES-heartbeat end-of-frame marker).
     /// </summary>
     internal void ClosePromptContext()
     {
@@ -524,7 +524,7 @@ public sealed class MudStreamParser
     }
 
     /// <summary>
-    /// The game session ended — a quit, a drop to the option menu, a death back to it, or a
+    /// The game session ended - a quit, a drop to the option menu, a death back to it, or a
     /// disconnect. Discards any half-captured prompt and CLOSES the frame.
     ///
     /// <para><b>This exists so that <see cref="FrameClosed"/> has no silent holes.</b> Its whole
@@ -533,10 +533,10 @@ public sealed class MudStreamParser
     /// consumer waiting forever on a line that certainly will not arrive. The session ending is the
     /// strongest form of the same statement, not a weaker one, so it fires the same event.</para>
     ///
-    /// <para>It was a real hole: <c>ExitGameMode</c> and <c>Reset</c> both cleared the capture
-    /// directly. The connection and the view models outlive both (MudSession is reused across
-    /// reconnects; <c>[Drop to menu]</c> keeps the same SidePanelViewModel), so an ending left
-    /// unpaired by a quit would have taken the next award after the NEXT login - the exact drift
+    /// <para>Without this, <c>ExitGameMode</c> and <c>Reset</c> would clear the capture directly.
+    /// The connection and the view models outlive both (MudSession is reused across reconnects;
+    /// <c>[Drop to menu]</c> keeps the same SidePanelViewModel), so an ending left unpaired by a
+    /// quit would take the next award after the NEXT login - the exact drift
     /// <c>Mucka.ViewModels.KillAwardLedger</c> exists to prevent, reached by another door.</para>
     ///
     /// <para>Gated on <see cref="PromptAllowed"/>, which is exactly "a frame is open": it is set by
@@ -569,7 +569,7 @@ public sealed class MudStreamParser
 
     // Abandon prompt capture without losing data: spill captured spans/text into the
     // display buffers so a malformed container (e.g. a '\n' arriving before the
-    // closing pop — lost C255, line noise) still renders as ordinary text.
+    // closing pop - lost C255, line noise) still renders as ordinary text.
     private void AbortPromptContext()
     {
         _inPromptContext = false;
@@ -586,7 +586,7 @@ public sealed class MudStreamParser
     /// Mirrors Clio's prompt_allowed flag.
     /// Set to true by each real game '\n' (via EmitChar); set to false by
     /// <see cref="ClosePromptContext"/> when it shows the captured prompt. Persists
-    /// across TCP packet boundaries — this is what lets the prompt gate distinguish a
+    /// across TCP packet boundaries - this is what lets the prompt gate distinguish a
     /// real prompt (which follows a game newline, possibly in a previous packet) from
     /// a FES heartbeat (which arrives when no real '\n' has occurred since the last
     /// prompt display).
@@ -606,7 +606,7 @@ public sealed class MudStreamParser
     /// <summary>Most recent FES weather char; used by C14 conditional txfes logic.</summary>
     internal char CurrentWeather { get; private set; }
 
-    // ── Constructor ────────────────────────────────────────────────────────────
+    // -- Constructor ------------------------------------------------------------
     public MudStreamParser()
     {
         Ansi = new AnsiSgrState();
@@ -616,7 +616,7 @@ public sealed class MudStreamParser
         LineAnalyzer = new GameLineAnalyzer();
     }
 
-    // ── Public API ─────────────────────────────────────────────────────────────
+    // -- Public API -------------------------------------------------------------
 
     /// <summary>
     /// Feed raw bytes from the network into the parser.
@@ -685,7 +685,7 @@ public sealed class MudStreamParser
         CurrentWeather = '\0';
     }
 
-    // ── Internal helpers (called by sub-parsers) ───────────────────────────────
+    // -- Internal helpers (called by sub-parsers) -------------------------------
 
     internal void EmitChar(char ch)
     {
@@ -710,9 +710,9 @@ public sealed class MudStreamParser
             // so they must NOT set PromptAllowed: on narrow terminals the server line-wraps
             // even these escaped responses, and ticking the flag here made the NEXT
             // heartbeat's prompt display as a stray '*'. PromptAllowed means "visible
-            // output occurred since the last displayed prompt" — only real lines set it.
+            // output occurred since the last displayed prompt" - only real lines set it.
             // These probe-context newlines emit no normal line, so clear any pending chat tag here
-            // too — otherwise a C09 seen just before an FE-probe response could stamp the next real
+            // too - otherwise a C09 seen just before an FE-probe response could stamp the next real
             // line as Chat. (Implausible in practice, but the reset belongs on every newline path.)
             if (InFexResponseContext)
             {
@@ -758,14 +758,14 @@ public sealed class MudStreamParser
                 return;
             }
             // In game mode, suppress all-asterisk lines entirely (Clio: prompt_allowed / preamble
-            // suppression — telnet.l:438-444). These are MUD2 prompt-preamble separator lines.
+            // suppression - telnet.l:438-444). These are MUD2 prompt-preamble separator lines.
             bool isAsteriskPreamble = _inGameMode && SpansAreAllAsterisks();
             // Chat if a C09 code was seen on this line (_pendingKind), OR any of the line's text
-            // was emitted inside the C09 scope (_chatTextOnLine — covers the message's LAST
+            // was emitted inside the C09 scope (_chatTextOnLine - covers the message's LAST
             // wrapped row, whose closing pop precedes its newline), OR the scope is still open at
             // the newline (a blank wrapped row). See C1Scope.Chat.
             // Chat outranks every other kind (it drives a filter the player sees); otherwise
-            // whatever the line's introducing code claimed stands — e.g. LineKind.FightEnd from
+            // whatever the line's introducing code claimed stands - e.g. LineKind.FightEnd from
             // C08.10/11/12, which CombatTracker treats as authoritative regardless of wording.
             var lineKind = (_pendingKind == LineKind.Chat || _chatTextOnLine || InChatContext)
                 ? LineKind.Chat : _pendingKind;
@@ -785,7 +785,7 @@ public sealed class MudStreamParser
             FlushPendingLineSounds(suppress: _inGameMode && SelfChatColorizer.IsOkActEcho(line.PlainText));
             if (isAsteriskPreamble) return;
             // Your own "send" to your listeners echoes as: You tell your listeners "...". It rides
-            // the tell channel (C09+C03) but is your own output — suppress the tell alert and
+            // the tell channel (C09+C03) but is your own output - suppress the tell alert and
             // italicise only the "your listeners" phrase, rather than the sender/"tells you"
             // decoration meant for tells directed AT you.
             bool ownListenersSend = _inGameMode && tellAlertRequested
@@ -821,8 +821,8 @@ public sealed class MudStreamParser
             if (_inGameMode)
             {
                 // Plain un-coded output can be an item-moving command's response ("You drop the
-                // sword." carries no C1 code) — mark the FEI panels dirty so the debounced
-                // reactive probe / next beat refreshes them (probe-noise policy, 2026-07-25).
+                // sword." carries no C1 code) - mark the FEI panels dirty so the debounced
+                // reactive probe / next beat refreshes them.
                 if (plainTextLine)
                     EmitProbeHint(StaleStats.Inventory);
                 // Fire RoomShortReady only when C02+C01 appeared at line start on this line
@@ -857,13 +857,13 @@ public sealed class MudStreamParser
         {
             // Suppress CR and NUL. Telnet transmits a bare carriage return as CR NUL
             // (RFC 854), so MUD2's "\r\0\r\n" line endings would otherwise leak the NUL
-            // into line text — breaking exact-match consumers (watchword triggers,
+            // into line text - breaking exact-match consumers (watchword triggers,
             // the too-dark room check) even though the terminal renders it invisibly.
         }
         else
         {
             // Prompt-container text ('(', '*', ')', snoop/rank indicators) accumulates
-            // in the prompt buffer — never the display spans, never _atLineStart.
+            // in the prompt buffer - never the display spans, never _atLineStart.
             if (_inPromptContext)
             {
                 _promptText.Append(ch);
@@ -874,7 +874,7 @@ public sealed class MudStreamParser
                 _fewName.Append(ch);
             // Discard characters inside a FEW response (names surface via FewPlayerReady).
             if (InFewResponseContext) return;
-            // FEX and FEI items accumulate in dedicated buffers — bypasses the span machinery.
+            // FEX and FEI items accumulate in dedicated buffers - bypasses the span machinery.
             // They are invisible (surfaced via events), so like FEW they must not touch
             // _atLineStart: clearing it here suppressed RoomEntered/RoomShortReady for any
             // room short arriving right after a heartbeat's FEI block or an auto-FEX block.
@@ -893,7 +893,7 @@ public sealed class MudStreamParser
             if (InChatContext) _chatTextOnLine = true;
             // Plain (un-coded) game output: printable text arriving with no colour frame open.
             // Any such line can be the response to an item-moving command ("You drop the
-            // sword.") — the server prints these with no C1 code at all, so no decoder Hint
+            // sword.") - the server prints these with no C1 code at all, so no decoder Hint
             // covers them. Consumed at the newline as an Inventory probe hint.
             else if (_inGameMode && !char.IsWhiteSpace(ch) && !C1.HasOpenColourFrame)
                 _plainTextOnLine = true;
@@ -908,7 +908,7 @@ public sealed class MudStreamParser
 
     // Advance the streaming match of the option-menu prompt against one in-game text character,
     // firing ExitGameMode the moment the whole prompt has been seen (before the trailing ": ").
-    // A plain restart-on-mismatch suffices — the prompt has no self-overlap.
+    // A plain restart-on-mismatch suffices - the prompt has no self-overlap.
     // A new match only arms at column 0: the real menu prompt always starts its line, and
     // matching mid-line let any player's speech ('say Option (H for help)') kick the client
     // out of game mode (stopping the heartbeat and sending a stray 'auto fex' on re-entry).
@@ -948,7 +948,7 @@ public sealed class MudStreamParser
         if (colon < 1 || colon > 12) return;
         var dir = plain[..colon].Trim();
         if (!ExitKeywords.Contains(dir)) return;
-        // Require at least one BrightGreen span to confirm this is an exits-verb line —
+        // Require at least one BrightGreen span to confirm this is an exits-verb line -
         // destination room names are always in C02.01 (LT_GREEN/BrightGreen). Guard
         // against spurious matches on other "word: text." lines with no coloured spans.
         bool hasRoomNameSpan = false;
@@ -974,8 +974,8 @@ public sealed class MudStreamParser
 
     internal void EmitPartialLine()
     {
-        // Sounds queued on a line that ends at a prompt (no '\n' yet) still play — only a
-        // completed "OK, …" echo suppresses, and those always newline-terminate.
+        // Sounds queued on a line that ends at a prompt (no '\n' yet) still play - only a
+        // completed "OK, ..." echo suppresses, and those always newline-terminate.
         FlushPendingLineSounds();
         FlushSpan();
         if (_spans.Count == 0) return;
@@ -996,10 +996,10 @@ public sealed class MudStreamParser
         if (!_inGameMode) return;
         _inGameMode = false;
         _optionMatchLen = 0;
-        // Discard any half-captured prompt — it belongs to the game session just ended — and CLOSE
+        // Discard any half-captured prompt - it belongs to the game session just ended - and CLOSE
         // the frame, because the session ending is the strongest form of what FrameClosed asserts.
         EndFrameOnSessionEnd();
-        // Drop all stream-scope state — it's only valid within a game session. Leaving a
+        // Drop all stream-scope state - it's only valid within a game session. Leaving a
         // scope open on relog causes text suppression (FEW) or spurious item/exit events;
         // C1.ResetGameState() clears the colour stack (and with it every open scope) silently,
         // without firing end-of-scope actions.
@@ -1013,7 +1013,7 @@ public sealed class MudStreamParser
         _plainTextOnLine = false;
         _pendingKind = LineKind.Normal;
         _pendingTellSound = false;
-        _pendingLineSounds.Clear();   // dropped, not played — the session they belong to is over
+        _pendingLineSounds.Clear();   // dropped, not played - the session they belong to is over
         C1.ResetGameState();
         GameModeExited?.Invoke();
     }
@@ -1183,7 +1183,7 @@ public sealed class MudStreamParser
 
     /// <summary>
     /// Emits the current accumulated text as a partial line.
-    /// C98 is an explicit "show prompt" signal — it fires unconditionally so that login-phase
+    /// C98 is an explicit "show prompt" signal - it fires unconditionally so that login-phase
     /// prompts ("Account ID:", etc.) always surface. Game-mode prompts are additionally gated
     /// by the C01+C02 PromptAllowed mechanism; ShowPrompt itself has no gate.
     /// </summary>
@@ -1238,7 +1238,7 @@ public sealed class MudStreamParser
 
     /// <summary>
     /// Returns true when every accumulated span contains only '*' characters and at least
-    /// one span is non-empty — i.e. the current line is the MUD2 ready-prompt re-echo.
+    /// one span is non-empty - i.e. the current line is the MUD2 ready-prompt re-echo.
     /// </summary>
     private bool SpansAreAllAsterisks()
     {
@@ -1254,7 +1254,7 @@ public sealed class MudStreamParser
         return hasContent;
     }
 
-    // ── Byte dispatch ──────────────────────────────────────────────────────────
+    // -- Byte dispatch ----------------------------------------------------------
     private void ProcessByte(byte b)
     {
         switch (_state)
@@ -1265,7 +1265,7 @@ public sealed class MudStreamParser
             case ParserState.Ff1:
                 if (b == 0xFF)
                 {
-                    // Bare FF FF: C255 rule — pop color stack (cf Clio telnet.l:1040)
+                    // Bare FF FF: C255 rule - pop color stack (cf Clio telnet.l:1040)
                     C1.PopColor();
                     _state = ParserState.Normal;
                 }
@@ -1339,7 +1339,7 @@ public sealed class MudStreamParser
             case 0x07: // BEL
                 EmitBell();
                 break;
-            case 0xFF: // first byte of FF FF — may be bare C255 pop or telnet IAC
+            case 0xFF: // first byte of FF FF - may be bare C255 pop or telnet IAC
                 FlushSpan();
                 _state = ParserState.Ff1;
                 break;

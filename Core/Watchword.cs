@@ -53,7 +53,7 @@ internal sealed class WatchwordStore
         @"\$([A-Za-z][A-Za-z0-9_]*)",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
-    // Any run of whitespace — collapsed to a single space before matching so that
+    // Any run of whitespace - collapsed to a single space before matching so that
     // server-side line wrapping (and double spacing) cannot break trigger matches.
     private static readonly Regex WhitespaceRunRegex = new(
         @"\s+",
@@ -238,7 +238,7 @@ internal sealed class WatchwordStore
     /// Expand $slotname tokens in <paramref name="text"/>.
     /// Each recognised slot whose queued answer is non-null has its $token replaced
     /// and its queue cleared. Unrecognised tokens or empty slots are left as-is.
-    /// Thread-safe — called from the UI thread.
+    /// Thread-safe - called from the UI thread.
     /// </summary>
     public string ExpandSlots(string text)
     {

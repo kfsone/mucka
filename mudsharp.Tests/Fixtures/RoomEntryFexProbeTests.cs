@@ -4,7 +4,7 @@ using MudSharp.Session;
 namespace MudSharp.Tests.Fixtures;
 
 /// <summary>
-/// Recovery probe for spell-driven relocations (resite/supersite, issue #136): the server sends
+/// Recovery probe for spell-driven relocations (resite/supersite): the server sends
 /// a room description with no accompanying auto-fex FEEXITS block, because auto commands only
 /// fire on real movement. MudSession arms a one-shot timer on RoomEntered; FexListStarting
 /// (ordinary auto-fex-covered movement) cancels it, otherwise it fires the same explicit FEX
@@ -15,15 +15,15 @@ public class RoomEntryFexProbeTests : IDisposable
 {
     private const string FexProbe = "\x1b-[FEX\x1b-]";
 
-    // C02+C01 game-mode prompt variant — the post-character-select entry trigger, and (once
+    // C02+C01 game-mode prompt variant - the post-character-select entry trigger, and (once
     // already in game mode, at line start) the generic room-short trigger for RoomEntered.
     private static readonly byte[] GameModeEntry = [0x9D, 0x9C, 0xFF, 0xFF];
-    // C95+C03 account-logout → ExitGameMode.
+    // C95+C03 account-logout -> ExitGameMode.
     private static readonly byte[] AccountLogout = [0xFA, 0x9E, 0xFF, 0xFF];
     // The frame prompt that leads every server frame (IsPartial '*'), taken from a live capture.
     private static readonly byte[] PromptBytes =
         [0x9C, 0xFF, 0xFF, 0x9C, 0x9D, 0xFF, 0xFF, 0x2A, 0xFF, 0xFF, 0xFF, 0xFF];
-    // C12+C08+C02+C255 — opens the FEX response scope (fires FexListStarting).
+    // C12+C08+C02+C255 - opens the FEX response scope (fires FexListStarting).
     private static readonly byte[] FexContextOpen = [0xA7, 0xA3, 0x9D, 0xFF, 0xFF];
     private static readonly byte[] Pop = [0xFF, 0xFF];
 
@@ -82,7 +82,7 @@ public class RoomEntryFexProbeTests : IDisposable
 
     /// <summary>
     /// Enter game mode and run the post-select setup batch to completion, closing the setup
-    /// window (_setupWindowActive) — mirrors PostSelectSetupTests. Until this window closes the
+    /// window (_setupWindowActive) - mirrors PostSelectSetupTests. Until this window closes the
     /// entry-time explicit FEX probe already covers room entry, so a later RoomEntered in this
     /// window would (correctly) not arm a recovery timer; these tests target the general,
     /// post-setup case (any subsequent room entry, not just resite/supersite specifically).
@@ -101,7 +101,7 @@ public class RoomEntryFexProbeTests : IDisposable
     private void FeedRoomEntry()
     {
         Feed("\r\n");   // guarantee AtLineStart
-        Feed(GameModeEntry);   // C02+C01 at line start, already in game mode → RoomEntered only
+        Feed(GameModeEntry);   // C02+C01 at line start, already in game mode -> RoomEntered only
     }
 
     [Fact]

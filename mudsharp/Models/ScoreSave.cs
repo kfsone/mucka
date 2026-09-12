@@ -22,7 +22,7 @@ namespace MudSharp.Models;
 /// facts and only one of them is true here.</item>
 /// </list></para>
 ///
-/// <para>On the wire the total is wrapped in a C1 frame (<c>F4 9C FF FF FE 9x FF FF</c> … <c>FF FF FF
+/// <para>On the wire the total is wrapped in a C1 frame (<c>F4 9C FF FF FE 9x FF FF</c> ... <c>FF FF FF
 /// FF</c>, the inner code varying with the colour the server wants) while the signed delta is plain
 /// text outside it. The decoder strips the frame, so by the time this is parsed the line is ordinary
 /// ASCII - but see GameLineAnalyzerTests for the verbatim-bytes test that pins that down, because it

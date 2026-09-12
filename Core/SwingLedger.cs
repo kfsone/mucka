@@ -7,28 +7,23 @@ namespace Mucka.Core;
 
 /// <summary>
 /// Records one <see cref="SwingRow"/> per swing, both directions, into the <c>swings</c> table of the
-/// client combat database (see <see cref="CombatDb"/>). This is the per-swing evidence base
-/// tools/combat/SWING-LEDGER-SPEC.md specifies: the fight rollup answers "how did that fight go", and
-/// could never answer "how hard does this thing hit at rung 3 while I am below the stamina knee",
-/// because the individual swings were never kept.
+/// client combat database (see <see cref="CombatDb"/>). This is the per-swing evidence base: the
+/// fight rollup answers "how did that fight go", but could never answer "how hard does this thing
+/// hit at rung 3 while I am below the stamina knee", because the individual swings were never kept.
 ///
-/// <para><b>SQLite rather than the JSONL this used to write.</b> The spec chose a flat file on the
-/// explicit condition of "a writer that only ever appends", and named its own revisit trigger:
-/// querying inside the client. A combat analysis view is that, and the corpus is nowhere near the
-/// scale the flat-file argument feared. Beyond queryability the swap also buys crash safety - WAL
-/// rolls back a torn write, where the text file left truncated final lines that every reader had to
-/// tolerate.</para>
+/// <para><b>SQLite, not a flat file.</b> Querying inside the client wants it, and beyond that the
+/// swap buys crash safety - WAL rolls back a torn write, where a plain append-only text file can
+/// leave a truncated final line that every reader has to tolerate.</para>
 ///
 /// <para>Always on: a switch means missing data precisely when something interesting happened, and
-/// everything downstream is built on this stream being continuous. ClogWriter, which used to be the
-/// one opt-in recorder here, now follows the same rule.</para>
+/// everything downstream is built on this stream being continuous.</para>
 ///
 /// <para>Threading: every On* method is called from the session Feed thread (same contract as
 /// ClogWriter and FightHistoryRecorder) and does nothing but cheap in-memory bookkeeping plus an
 /// enqueue. The database write happens on a single background task (<see cref="DrainAsync"/>) which
 /// owns the only write connection, so the thread parsing incoming combat text never pays for it -
 /// stalling that thread delays the combat text itself, which no UI-side throttle can fix
-/// (DESIGN_FINAL.md section 7.5, Invariant #1).</para>
+/// (Invariant #1).</para>
 ///
 /// <para>Never throws on the caller: a failed write loses a row, it must not lose a fight.</para>
 ///
@@ -151,8 +146,8 @@ public sealed class SwingLedger : IDisposable
     ///
     /// <para>The aggregation happens in SQL, not here, which is the point: the warm-up cost is
     /// proportional to the number of distinct creatures, not to the number of swings, so the corpus can
-    /// grow indefinitely without startup growing with it. That is the property the spec's proposed
-    /// index file was trying to buy, obtained without a second file that can disagree with the first.</para>
+    /// grow indefinitely without startup growing with it, and there is no second index file that can
+    /// disagree with the database.</para>
     /// </summary>
     public Task WarmDamageIndexAsync(CancellationToken cancellationToken = default)
         // Task.Run for the same reason FightHistoryStore.LoadAsync uses it: every step below is
@@ -470,9 +465,8 @@ public sealed class SwingLedger : IDisposable
                     break;
 
                 case CombatEventKind.NpcStaminaRead:
-                    // The only direct measurement of NPC stamina MUD2 gives, and until now it was
-                    // parsed and dropped - four observations exist in the whole corpus and not one of
-                    // them was written down. Recorded whether or not the creature is engaged, exactly
+                    // The only direct measurement of NPC stamina MUD2 gives - four observations exist
+                    // in the whole corpus. Recorded whether or not the creature is engaged, exactly
                     // as the tracker reports it: diagnosing something BEFORE picking a fight with it is
                     // the point of carrying a stethoscope, and an encounter id of null says so.
                     if (combatEvent.RangeLow is int staLow && combatEvent.RangeHigh is int staHigh
@@ -642,7 +636,7 @@ public sealed class SwingLedger : IDisposable
     // generically by GameLineAnalyzer (StatsUpdated -> ObserveStaminaLocked(95) first) and then by
     // CombatTracker's HitByNpc regex (RangeLow=95, reaching ResolveDamageTakenLocked second). See
     // MudSharp.Combat.StaminaDeltaRelay's own remarks for why this needs a relay at all - without one,
-    // every hit records exactly 0 damage (confirmed live before the fix).
+    // every hit records exactly 0 damage.
     private void ObserveStaminaLocked(int? currentStamina) => _staminaRelay.Observe(currentStamina);
 
     /// <summary>Resolves one incoming blow into a damage figure AND the pre-hit stamina it was

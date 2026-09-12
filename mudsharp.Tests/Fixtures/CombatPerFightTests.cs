@@ -69,7 +69,7 @@ public sealed class CombatPerFightTests
     [Fact]
     public void Fights_EncounterTotalsStillMatchTheSumOfTheFights()
     {
-        // The per-fight split must not change what the existing HUD numbers mean — the user is
+        // The per-fight split must not change what the existing HUD numbers mean - the user is
         // actively reading those.
         var aggregator = new CombatStatsAggregator();
         aggregator.BeginEncounter(Start);
@@ -164,7 +164,7 @@ public sealed class CombatPerFightTests
     [Fact]
     public void Fights_PlayerDeathResolvesEveryOpenFightNotJustTheKillers()
     {
-        // CombatTracker emits KilledByNpc once, naming only the killer, then calls EndAll() — no
+        // CombatTracker emits KilledByNpc once, naming only the killer, then calls EndAll() - no
         // other fight gets a close event of its own. Leaving the others Unresolved would understate
         // how badly a pile-on went.
         var aggregator = new CombatStatsAggregator();
@@ -216,7 +216,7 @@ public sealed class CombatPerFightTests
     public void Fights_IncomingDamageIsAttributedToTheAttackerThatLandedIt()
     {
         // Each hit's delta comes off the same continuously-revised baseline the encounter total uses,
-        // so the two cannot disagree — see CombatStatsAggregator.ObserveDamageTaken.
+        // so the two cannot disagree - see CombatStatsAggregator.ObserveDamageTaken.
         var aggregator = new CombatStatsAggregator();
         aggregator.ObserveStamina(100);
         aggregator.BeginEncounter(Start);
@@ -345,10 +345,10 @@ public sealed class CombatPerFightTests
     [Fact]
     public void Fights_PoisonDeathResolvesAsNoMoreNotKill()
     {
-        // The wyvern frame (owner, 2026-08-26): the creature died of poison, so no kill line was ever
-        // printed. Recorded as NoMore deliberately - the damage that finished it never crossed the
-        // wire, and StaminaPoolEstimator reads Kill rows' damage brackets to infer a
-        // creature's pool. See FightOutcome.NoMore.
+        // This wyvern frame: the creature died of poison, so no kill line was ever printed.
+        // Recorded as NoMore deliberately - the damage that finished it never crossed the wire,
+        // and StaminaPoolEstimator reads Kill rows' damage brackets to infer a creature's pool.
+        // See FightOutcome.NoMore.
         var aggregator = new CombatStatsAggregator();
         aggregator.BeginEncounter(Start);
 
@@ -416,10 +416,10 @@ public sealed class CombatPerFightTests
     // -- re-engagement against a name whose fight already closed ------------------
 
     /// <summary>
-    /// A flee attempt ends combat whether or not it succeeds (owner, 2026-09-01), so "the rat17 attempts
-    /// to flee, but fails" really does end the fight - the creature is still in the room but no longer
-    /// fighting. Anything the player lands after that is a NEW engagement, and reusing the closed bucket
-    /// folded its damage into a finished fight's totals.
+    /// A flee attempt ends combat whether or not it succeeds, so "the rat17 attempts to flee, but
+    /// fails" really does end the fight - the creature is still in the room but no longer
+    /// fighting. Anything the player lands after that is a NEW engagement, and reusing the closed
+    /// bucket would fold its damage into a finished fight's totals.
     /// </summary>
     [Fact]
     public void ReEngagingAClosedFight_OpensAFreshOne_RatherThanFeedingTheClosedRecord()
@@ -454,12 +454,13 @@ public sealed class CombatPerFightTests
     }
 
     /// <summary>
-    /// The consequence that made this worth fixing rather than noting. FightAccumulator.Resolve keeps
-    /// the FIRST outcome, so with one shared bucket a creature that broke off and was then killed stayed
-    /// labelled "broke off" for ever and the kill was never recorded at all.
+    /// FightAccumulator.Resolve keeps the FIRST outcome, so with one shared bucket a creature that
+    /// broke off and was then killed would stay labelled "broke off" and the kill would never be
+    /// recorded.
     ///
-    /// <para>The sequence is the observed one: a failed flee then a fresh attack. In the clog corpus 100
-    /// of 128 failed flees are followed by exactly this, at a median 1.8 seconds.</para>
+    /// <para>The sequence exercised here is the observed one: a failed flee then a fresh attack. In
+    /// the clog corpus 100 of 128 failed flees are followed by exactly this, at a median 1.8
+    /// seconds.</para>
     /// </summary>
     [Fact]
     public void AKillAfterAReEngagement_IsRecordedAsAKill()
@@ -559,7 +560,7 @@ public sealed class CombatPerFightTests
         Assert.Null(aggregator.Fights[0].NpcWeapon);
     }
 
-    // ── Creature-value probe: unnumbered-name collisions ──────────────────────────
+    // -- Creature-value probe: unnumbered-name collisions --------------------------
     // Unnumbered mobs (thief, banshee, coot, fox - see NpcPoolKey's own remarks) have no instance
     // number and can share a live name, so ONE `value <name>` probe can legitimately draw a reply
     // from more than one live creature. Both replies land on the SAME name-keyed bucket here - see
@@ -582,11 +583,11 @@ public sealed class CombatPerFightTests
     [Fact]
     public void ObserveCreatureValue_TwoRepliesForTheSameNameThisEncounter_IsUnattributableNotLastWriterWins()
     {
-        // Reviewer's executed reproduction: `value thief` drew two replies (two live thieves
-        // sharing the name), and the roster ended up holding whichever value arrived LAST - a
-        // coin-flip presented as a measurement. FightAccumulator.NoteValue now retracts the first
-        // reading the instant a second one arrives for the same bucket, rather than overwriting it,
-        // because there is no way to tell which live creature either value actually belongs to.
+        // `value thief` can draw two replies (two live thieves sharing the name), and which one
+        // arrives last says nothing about which creature it belongs to. FightAccumulator.NoteValue
+        // retracts the first reading the instant a second one arrives for the same bucket, rather
+        // than overwriting it, because there is no way to tell which live creature either value
+        // actually belongs to.
         var aggregator = new CombatStatsAggregator();
         aggregator.BeginEncounter(Start);
         aggregator.Observe(Event(CombatEventKind.FightStart, "thief"));
@@ -633,16 +634,15 @@ public sealed class CombatPerFightTests
 
     // -- the client's own force-end vs MUD2's unnamed fight-end ---------------------
     //
-    // These two events arrive with a null NpcName and used to arrive with the SAME event kind, which
-    // is the whole bug: the pronoun form ("You can fight it no longer.") must close nothing, so the
-    // force-end - which means the entire encounter is over - was swallowed by the same no-op and a
-    // reset left every fight live and drawn on the rail. See CombatEventKind.EncounterForceEnded.
+    // These two events arrive with a null NpcName. The pronoun form ("You can fight it no
+    // longer.") must close nothing, while the force-end means the entire encounter is over - so
+    // the two must not share an event kind, or a reset would leave every fight live and drawn on
+    // the rail. See CombatEventKind.EncounterForceEnded.
 
-    /// <summary>The roster as SidePanelViewModel builds it, reduced to the two fields this bug is
-    /// about. Asserting through ParticipantRoster rather than on the outcome alone is the point: the
-    /// symptom the owner saw was rows still being drawn as opponents, and IsLive is derived from the
-    /// outcome, so a fix that resolved the fights but left them live would still pass a bare
-    /// outcome assertion.</summary>
+    /// <summary>The roster as SidePanelViewModel builds it, reduced to the two fields relevant
+    /// here. Asserting through ParticipantRoster rather than on the outcome alone is the point:
+    /// IsLive is derived from the outcome, so a fix that resolved the fights but left them live
+    /// would still pass a bare outcome assertion.</summary>
     private static RosterPlan RosterOf(CombatEncounterSnapshot snapshot)
         => ParticipantRoster.Build(
             [.. snapshot.Fights.Select(f => new ParticipantFact(f.NpcName, f.IsResolved, f.Outcome))]);
@@ -696,7 +696,7 @@ public sealed class CombatPerFightTests
     {
         // "You can fight it no longer." names nobody. It is a trailing acknowledgment of an end
         // already stated earlier in the same frame, so acting on it would close a pack's other
-        // still-swinging participants. This is the behaviour the force-end fix had to preserve, and
+        // still-swinging participants. This is the behaviour force-end handling must preserve, and
         // the reason the two cannot share an event kind.
         var aggregator = new CombatStatsAggregator();
         aggregator.BeginEncounter(Start);

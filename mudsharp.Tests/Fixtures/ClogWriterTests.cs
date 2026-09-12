@@ -8,12 +8,11 @@ namespace mudsharp.Tests.Fixtures;
 /// <summary>
 /// ClogWriter's tail-capture and overlapping-clog behaviour: an encounter closes (Stop()) the
 /// instant CombatTracker says so, but its file stays open, draining trailing prose, until the
-/// next prompt (IsPartial line) actually arrives — and a brand new encounter can legitimately
+/// next prompt (IsPartial line) actually arrives - and a brand new encounter can legitimately
 /// open its own file while the previous one is still draining that tail. See ClogWriter's own
-/// class remarks for the full rationale; this is the owner's exact worked "rat17 dies, rat21
-/// attacks before the next prompt" scenario, driven directly against ClogWriter rather than
-/// through CombatTracker (CombatTrackerTests already covers CombatTracker's own boundary
-/// detection in isolation).
+/// class remarks for the full rationale; this drives the "rat17 dies, rat21 attacks before the
+/// next prompt" scenario directly against ClogWriter rather than through CombatTracker
+/// (CombatTrackerTests already covers CombatTracker's own boundary detection in isolation).
 /// </summary>
 public sealed class ClogWriterTests : IDisposable
 {
@@ -81,9 +80,9 @@ public sealed class ClogWriterTests : IDisposable
     [Fact]
     public void NewEncounter_WhilePreviousIsStillDrainingItsTail_OpensASeparateOverlappingFile()
     {
-        // The owner's exact worked fragment: rat17 dies, and before the next prompt an unrelated
-        // rat21 starts a genuinely new encounter. Both clogs must exist independently, and neither
-        // may leak the other's content.
+        // rat17 dies, and before the next prompt an unrelated rat21 starts a genuinely new
+        // encounter. Both clogs must exist independently, and neither may leak the other's
+        // content.
         using var writer = NewWriter();
 
         writer.OnInCombatChanged(true);
@@ -156,10 +155,10 @@ public sealed class ClogWriterTests : IDisposable
     [Fact]
     public void ManyEncounters_DoNotGrowTheTestOnlyWriterTaskTrackingListWithoutBound()
     {
-        // Regression test for the field being appended to unconditionally on every encounter with
-        // nothing ever removing entries (see ClogWriter's _writerTasksForTests remarks). Runs far
-        // more encounters than any single fight would need and asserts the tracking list stays
-        // bounded by "currently draining", not by "total encounters this session has ever had".
+        // Verifies the in-flight-drain tracking list does not grow unbounded across many
+        // encounters (see ClogWriter's _writerTasksForTests remarks). Runs far more encounters
+        // than any single fight would need and asserts the tracking list stays bounded by
+        // "currently draining", not by "total encounters this session has ever had".
         using var writer = NewWriter();
 
         const int encounterCount = 200;
@@ -182,12 +181,10 @@ public sealed class ClogWriterTests : IDisposable
         }
     }
 
-    // ── Room contents (FEI) and stat-change snapshots ─────────────────────────
+    // -- Room contents (FEI) and stat-change snapshots -------------------------
     //
-    // Both exist for one measurement: an object's dexterity cost (keyed on item COUNT) and its
-    // strength cost (keyed on WEIGHT) come from a fresh stat reading either side of a drop. Before
-    // this, stats appeared exactly once - in the header - so a fight that dropped four items
-    // carried no reading after any of them, and the FEI list was not in the file at all.
+    // An object's dexterity cost (keyed on item COUNT) and its strength cost (keyed on WEIGHT)
+    // each come from a fresh stat reading either side of a drop.
 
     private static void Fei(ClogWriter writer, IEnumerable<string> room, IEnumerable<string> carried)
     {
@@ -297,8 +294,8 @@ public sealed class ClogWriterTests : IDisposable
     [Fact]
     public void AfterAnItemDropped_TheNextStatsReadingIsWritten_EvenWhenNothingMoved()
     {
-        // A zero-cost object is a RESULT. Without a forced row it is indistinguishable from a
-        // reading that never arrived, which is exactly the hole this whole change exists to close.
+        // A zero-cost object is still a RESULT. Without a forced row it is indistinguishable from
+        // a reading that never arrived.
         using var writer = NewWriter();
 
         writer.OnStatsUpdated(Stats(strength: 100, dexterity: 100));
@@ -420,7 +417,7 @@ public sealed class ClogWriterTests : IDisposable
         Assert.Equal("encounter_end", TypeOf(entries[^1]));
     }
 
-    // ── Creature-value probe rows ──────────────────────────────────────────────
+    // -- Creature-value probe rows ----------------------------------------------
 
     [Fact]
     public void OnCreatureValueResolved_WritesAConfidentRowForANameSeenOnce()
@@ -445,9 +442,8 @@ public sealed class ClogWriterTests : IDisposable
     /// <summary>
     /// Unnumbered mobs (thief, banshee, coot, fox) have no instance number, so ONE `value thief`
     /// probe can draw a reply from each of two different live creatures sharing that name (see
-    /// MudSession.TryConsumeCreatureValueLine's own remarks). Reviewer's executed matrix: both
-    /// replies were written with nothing marking either unattributable. The second row for a name
-    /// already seen this encounter is now flagged <c>ambiguous</c> instead.
+    /// MudSession.TryConsumeCreatureValueLine's own remarks). The second row for a name already
+    /// seen this encounter is flagged <c>ambiguous</c>.
     /// </summary>
     [Fact]
     public void OnCreatureValueResolved_ASecondRowForTheSameNameThisEncounter_IsFlaggedAmbiguous()

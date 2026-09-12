@@ -4,7 +4,7 @@ using Mucka.Rendering;
 using Mucka.Terminal;
 using Mucka.ViewModels;
 using static Mucka.Terminal.CombatRailResize;
-using MudSharp.Models;   // StyledLine/StyledSpan/TextStyle — used by the chat placeholder (all targets) and the $f<n> annotation handler (Windows)
+using MudSharp.Models;   // StyledLine/StyledSpan/TextStyle - used by the chat placeholder (all targets) and the $f<n> annotation handler (Windows)
 
 namespace Mucka.Pages;
 
@@ -12,8 +12,8 @@ public partial class GamePage : ContentPage
 {
     private readonly GameViewModel _vm;
     private readonly bool _exitOnDisconnect;
-    // Slow (1 s) timer for anti-idle only. Output is NOT polled here — it is drained
-    // event-driven via _vm.OutputAvailable → OnOutputAvailable (see DoFlushWork). This field
+    // Slow (1 s) timer for anti-idle only. Output is NOT polled here - it is drained
+    // event-driven via _vm.OutputAvailable -> OnOutputAvailable (see DoFlushWork). This field
     // also doubles as the page-initialised sentinel (null == not yet set up).
     private IDispatcherTimer?      _antiIdleTimer;
     private IDispatcherTimer?      _toastTimer;
@@ -109,9 +109,6 @@ public partial class GamePage : ContentPage
     private int _lateTextAfterSendCount;
     private Window? _rawConsoleWindow;
     private Window? _mapWindow;
-    // The old floating clog window (ClogPage) is gone - DESIGN_FINAL.md D1/D2: the live readout now
-    // lives in the docked CombatPanelBorder (GamePage.xaml) instead of a second window, so there is
-    // nothing here to hold a Window/Page reference for any more.
     private PulseLayer? _combatPanelPulse;
     private TickSweep? _combatTickSweep;
     private FleePulse? _combatFleePulse;
@@ -173,51 +170,46 @@ public partial class GamePage : ContentPage
     private Microsoft.UI.Xaml.Controls.TextBox? _inputTextBox;
     private Microsoft.UI.Xaml.Controls.ScrollViewer? _inputScroller;   // _inputTextBox's inner ScrollViewer
     private Microsoft.UI.Xaml.UIElement? _terminalElement;   // SKXamlCanvas, for wheel scrollback
-    private Microsoft.UI.Xaml.UIElement? _fnButtonElement;   // Fn button, for right-tap → settings
+    private Microsoft.UI.Xaml.UIElement? _fnButtonElement;   // Fn button, for right-tap -> settings
     // Invariant #0's enforcement, entire. Built on appear, disposed on disappear; see
-    // Behaviors/FocusGuard.cs — and do NOT start a second list of "elements that must not steal
+    // Behaviors/FocusGuard.cs - and do NOT start a second list of "elements that must not steal
     // focus" anywhere in this file. That list is what FocusGuard replaced.
     private Mucka.Behaviors.FocusGuard? _focusGuard;
-    // Window root element — holds the keyboard accelerators (hotkeys) and, only while in
+    // Window root element - holds the keyboard accelerators (hotkeys) and, only while in
     // scrollback, the temporary key handler. Kept so both can be torn down on disappear.
     private Microsoft.UI.Xaml.UIElement? _rootElement;
     private readonly List<Microsoft.UI.Xaml.Input.KeyboardAccelerator> _accelerators = new();
     private int _wheelAccum;   // accumulates wheel delta so touchpad drift doesn't trip scrollback
-    // ── Window minimum-size enforcement ─────────────────────────────────────
-    // SidePanelWidthDp - the LEFT panel's (Online/Items/Map) own width, unrelated to the combat rail
-    // and deliberately unchanged/untouched by the Combat Rail work below - now lives in
-    // Mucka.Terminal.CombatRailResize alongside the rest of this file's window-sizing constants (see
-    // the remarks where PreferredWindowWidthDp used to sit, below). Must match SidePanelBorder's
-    // WidthRequest in GamePage.xaml; that panel keeps the width the player already plays with.
-    // Disturbing a working layout in a PvP, permadeath game is its own hazard - see DESIGN_FINAL.md
-    // D3, which corrects an earlier draft that said to widen THIS constant to 300 and dock combat
-    // content in it. That was wrong; the Combat Rail is a wholly separate, additional panel.
+    // -- Window minimum-size enforcement -------------------------------------
+    // SidePanelWidthDp - the LEFT panel's (Online/Items/Map) own width, unrelated to the combat
+    // rail - lives in Mucka.Terminal.CombatRailResize alongside the rest of this file's
+    // window-sizing constants. Must match SidePanelBorder's WidthRequest in GamePage.xaml; that
+    // panel keeps the width the player already plays with. The Combat Rail is a wholly separate,
+    // additional panel and never docks inside this one.
 
-    // - Combat Rail: the new, additional right-edge panel (DESIGN_FINAL.md D3/2.2) -
+    // - Combat Rail: the additional right-edge panel -
     // Own width constants, deliberately separate from SidePanelWidthDp above. Shown/hidden by the
     // overflow menu's "Combat" entry, which flips SidePanelViewModel.IsCombatPanelVisible; the
     // resize rides that property change (see OnSidePanelPropertyChanged and
     // ResizeWindowForCombatPanel) - the ONLY place this window resizes for combat-panel reasons
-    // (T3/T4 aside: that resize is no longer always the panel's full width - see
-    // ResizeWindowForCombatPanel's own remarks). Never included in PreferredWindowWidthDp/
-    // UpdateWindowMinimumWidth's own floor: those compute the LEFT panel + terminal minimum only,
-    // so the combat panel's own show/hide never feeds back into "what is the smallest this window
-    // may be" - UpdateWindowMinimumWidth/ResizeWindowToFitColumns each reserve the rail's width
-    // separately, on top of that floor, only when it is currently shown.
+    // (that resize is not always the panel's full width - see ResizeWindowForCombatPanel's own
+    // remarks). Never included in PreferredWindowWidthDp/UpdateWindowMinimumWidth's own floor:
+    // those compute the LEFT panel + terminal minimum only, so the combat panel's own show/hide
+    // never feeds back into "what is the smallest this window may be" -
+    // UpdateWindowMinimumWidth/ResizeWindowToFitColumns each reserve the rail's width separately,
+    // on top of that floor, only when it is currently shown.
     //
-    // These constants, PreferredWindowWidthDp itself, and the T3/T4 delta arithmetic all live in
+    // These constants, PreferredWindowWidthDp itself, and the resize delta arithmetic all live in
     // Mucka.Terminal.CombatRailResize now, not here - that project is plain net10.0 (no WinUI/Win32),
     // referenced by both this project and its own test project, so the arithmetic is unit-testable
     // without a live window. This file's own resize methods are thin callers of that class plus the
-    // actual appWindow.Resize(...) side effect. Brought into unqualified scope below so none of the
-    // many existing bare `PreferredWindowWidthDp(...)`/`CombatPanelWidthDp` call sites in this file
-    // needed to change.
+    // actual appWindow.Resize(...) side effect.
     private int              _minWindowWidthPx;
     private IntPtr           _hwnd = IntPtr.Zero;
     private WndProcDelegate? _wndProcDelegate;
 #if INPUT_DIAG
     // UI-thread responsiveness probe: a 16ms low-overhead heartbeat. Each tick measures the gap
-    // since the previous tick — if the gap balloons past the interval, the UI thread was blocked
+    // since the previous tick - if the gap balloons past the interval, the UI thread was blocked
     // (e.g. by a terminal repaint or a layout pass) for that long, which is exactly the stall that
     // reads as typing lag. Active only in INPUT_DIAG builds.
     private Microsoft.UI.Dispatching.DispatcherQueueTimer? _uiProbeTimer;
@@ -309,10 +301,10 @@ public partial class GamePage : ContentPage
                     RegisterHotkeyAccelerators(froot);
                     // Invariant #0, whole and automatic: FocusGuard keeps the keyboard on the
                     // command box for EVERY element under this page, by tree position rather than
-                    // by name — so a widget added later is covered without anyone remembering to
+                    // by name - so a widget added later is covered without anyone remembering to
                     // register it. It owns the focus veto, the refocus backstop, and the
-                    // non-focusable marking that used to be a hand-written list of x:Names here.
-                    // Nothing to wire up per control; see Behaviors/FocusGuard.cs.
+                    // non-focusable marking. Nothing to wire up per control; see
+                    // Behaviors/FocusGuard.cs.
                     _focusGuard = new Mucka.Behaviors.FocusGuard(
                         froot,
                         () => Handler?.PlatformView as Microsoft.UI.Xaml.FrameworkElement,
@@ -339,8 +331,8 @@ public partial class GamePage : ContentPage
                 // Hook the native TextBox so Up/Down/Esc keys work in the entry.
                 // Apply now AND on handler change: if the platform view already exists when
                 // this runs, HandlerChanged never fires again, and without the direct call the
-                // TwoWay Text binding stays live (per-keystroke VM round-trips — the recurring
-                // lag regression) and Up/Down/Esc/Enter handling silently degrades.
+                // TwoWay Text binding stays live (per-keystroke VM round-trips, which causes
+                // typing lag) and Up/Down/Esc/Enter handling silently degrades.
                 InputEntry.HandlerChanged += OnInputHandlerChanged;
                 OnInputHandlerChanged(InputEntry, EventArgs.Empty);
                 // Right-click on Fn opens the settings page (left-click toggles the fkey bar).
@@ -350,7 +342,7 @@ public partial class GamePage : ContentPage
                 // Hook the terminal canvas for mouse-wheel scrollback.
                 Terminal.HandlerChanged += OnTerminalHandlerChanged;
                 OnTerminalHandlerChanged(Terminal, EventArgs.Empty);
-                // The ▶ button must read the native TextBox like the Enter path does (no Text
+                // The play button must read the native TextBox like the Enter path does (no Text
                 // binding on Windows): shadow the XAML SendCommand and send via Clicked, or it
                 // sends a blank line and strands the typed text in the box.
                 SendButton.Command = null;
@@ -377,7 +369,7 @@ public partial class GamePage : ContentPage
                 // rather than inheriting WinUI's oversized default window width.
                 SetPreferredInitialWindowSize();
                 // A persisted "show combat rail" preference (SidePanelViewModel.IsCombatPanelVisible,
-                // restored from the connecting profile in GameViewModel's constructor - see T2's
+                // restored from the connecting profile in GameViewModel's constructor via
                 // ClientSettings.ShowCombatRail) can already be true here, before this page ever sets
                 // it - so nothing will raise the PropertyChanged that normally drives this resize.
                 // Apply the current state once, directly, so the very first frame already has room
@@ -385,13 +377,12 @@ public partial class GamePage : ContentPage
                 // resizes itself" - the FIRST layout still has to account for a state that started
                 // true; every resize after this point remains driven by an explicit toggle.
                 //
-                // The EffCols-staleness shortfall once noted here has evaporated, not just gone
-                // unfixed: ResizeWindowForCombatPanel's T3 baseline no longer consults EffCols at all
-                // (the user's own ruling - auto columns have no slack to measure, and fixed columns
-                // measure against the configured MaxColumns+2, not the negotiated column count). Both
-                // MaxColumns and SidePanel.IsPanelExpanded are set synchronously in GameViewModel's
-                // constructor, with no dependency on a layout pass having run yet, so this seed-at-
-                // startup call computes the same delta here as it would once OnSizeAllocated has fired.
+                // ResizeWindowForCombatPanel's baseline does not consult EffCols: auto columns have no
+                // slack to measure, and fixed columns measure against the configured MaxColumns+2, not
+                // the negotiated column count. Both MaxColumns and SidePanel.IsPanelExpanded are set
+                // synchronously in GameViewModel's constructor, with no dependency on a layout pass
+                // having run yet, so this seed-at-startup call computes the same delta here as it
+                // would once OnSizeAllocated has fired.
                 //
                 // SEEDING, not toggling: this page is adopting a window it did not size. The very
                 // first page of a run adopts one that owes the rail nothing, so the delta comes out
@@ -418,7 +409,7 @@ public partial class GamePage : ContentPage
         _androidFkeyHandler = _vm.SendFkeyAbsolute;
         _androidCtrlDHandler = _vm.SpeakDreamword;
         _androidCtrlLHandler = _vm.ClearScreen;
-        // History recall (Up/Down) is not a per-keystroke cost — wire the hardware arrows to the
+        // History recall (Up/Down) is not a per-keystroke cost - wire the hardware arrows to the
         // same commands the Windows input box uses, then park the cursor at the end of the recalled
         // command so it can be edited immediately (the TwoWay binding has already pushed the text).
         _androidHistoryUpHandler = () =>
@@ -444,7 +435,7 @@ public partial class GamePage : ContentPage
     protected override void OnNavigatedTo(NavigatedToEventArgs args)
     {
         base.OnNavigatedTo(args);
-        // Navigation is complete at this point — the shell Back button has given up focus,
+        // Navigation is complete at this point - the shell Back button has given up focus,
         // so focusing the entry here wins reliably.
         FocusInput();
     }
@@ -554,7 +545,7 @@ public partial class GamePage : ContentPage
         // Belt-and-braces alongside PulseLayer's own host.Unloaded hook (see PulseLayer's remarks):
         // stop any running Composition animation before this page's own teardown proceeds, so a
         // torn-down visual can never still have a live animation referencing it (the RO_E_CLOSED
-        // crash class the old ClogPage hit once already). The tick sweep is the same crash class.
+        // crash class). The tick sweep is the same crash class.
         _combatPanelPulse?.Stop();
         _combatPanelPulse = null;
         _combatTickSweep?.Stop();
@@ -573,7 +564,7 @@ public partial class GamePage : ContentPage
     }
 
     // 1 s tick: anti-idle keep-alive plus the projected reset countdown. Output draining is
-    // event-driven, not polled — see OnOutputAvailable.
+    // event-driven, not polled - see OnOutputAvailable.
     private void OnAntiIdleTick(object? sender, EventArgs e)
     {
         _vm.AntiIdleTick();
@@ -598,7 +589,7 @@ public partial class GamePage : ContentPage
             if (_vm.ChatMode)
             {
                 // Chat filter on: paint only chat lines. Non-chat output is still captured in the
-                // VM history buffers (so toggling off restores it) — it just does not draw here.
+                // VM history buffers (so toggling off restores it) - it just does not draw here.
                 // Any non-chat, non-partial line arriving is the "other stuff" the flash signals
                 // (FES/stats never arrive as terminal lines; prompts are IsPartial).
                 List<StyledLine>? chat = null;
@@ -612,8 +603,8 @@ public partial class GamePage : ContentPage
                 {
                     if (_chatPlaceholderShown)
                     {
-                        // First chat since the empty-state note — repaint from the buffer (which now
-                        // holds these lines) so the "[no chat…]" placeholder is dropped.
+                        // First chat since the empty-state note - repaint from the buffer (which now
+                        // holds these lines) so the "[no chat...]" placeholder is dropped.
                         Terminal.Clear();
                         Terminal.AppendLines(_vm.ChatSnapshot());
                         _chatPlaceholderShown = false;
@@ -632,7 +623,7 @@ public partial class GamePage : ContentPage
         }
     }
 
-    // Character width in MAUI logical pixels — delegates to the view-model so both
+    // Character width in MAUI logical pixels - delegates to the view-model so both
     // the column-count calculation and the minimum-width enforcement use one formula.
     private double CharWidthDp => _vm.CharWidthDp;
 
@@ -644,7 +635,7 @@ public partial class GamePage : ContentPage
 
     // Recompute the negotiated column count from the current page width and keep the terminal's
     // wrap width in sync. Funnelled here so both the layout pass (OnSizeAllocated) and an
-    // orientation flip (OnMainDisplayInfoChanged) drive the same recalculation — NotifyWindowSize
+    // orientation flip (OnMainDisplayInfoChanged) drive the same recalculation - NotifyWindowSize
     // is a no-op when the effective column count is unchanged, so calling it twice is harmless.
     private void RecalculateColumns(double width)
     {
@@ -656,7 +647,7 @@ public partial class GamePage : ContentPage
 
     // A rotation on Android reconfigures the activity in place (see MainActivity's
     // ConfigurationChanges) instead of recreating it, so OnSizeAllocated does not reliably fire
-    // with the new width — the terminal would stay wrapped to the old orientation's columns.
+    // with the new width - the terminal would stay wrapped to the old orientation's columns.
     // Recompute off the page's post-rotation width once the layout has settled.
     private void OnMainDisplayInfoChanged(object? sender, DisplayInfoChangedEventArgs e)
         => Dispatcher.Dispatch(() => RecalculateColumns(Width));
@@ -747,10 +738,7 @@ public partial class GamePage : ContentPage
             // back to it is the picker's explicit "[Drop to menu]" option (ManualAtOptionMenu).
             // Every other way of leaving the picker -- Escape, its own Cancel button, a stray
             // click outside it -- is Cancelled, and Cancelled always ends the connection, exactly
-            // like cancelling the initial-connect picker in ConnectPage. Do not special-case
-            // Cancelled here to "stay at the shell" again: that was tried (to dodge one bad
-            // stray-click-after-death recording) and it defeats the entire point of having a
-            // dedicated, explicit "drop to shell" affordance.
+            // like cancelling the initial-connect picker in ConnectPage.
             leftAtOptionMenu = result.Outcome == Mucka.Core.GuidedLogin.GuidedLoginOutcome.ManualAtOptionMenu;
             endConnection = result.Outcome == Mucka.Core.GuidedLogin.GuidedLoginOutcome.Cancelled;
         }
@@ -817,7 +805,7 @@ public partial class GamePage : ContentPage
 
     // Hover brightens the corner lock so it's obvious while you're working with the windlet,
     // and dims back to a discreet 0.5 at rest (still visible enough to tap on a touch screen,
-    // where these never fire). Opacity only — no layout impact.
+    // where these never fire). Opacity only - no layout impact.
     private void OnFloatingOnlinePointerEntered(object? sender, PointerEventArgs e) => OnlineLockIcon.Opacity = 1.0;
     private void OnFloatingOnlinePointerExited(object? sender, PointerEventArgs e)  => OnlineLockIcon.Opacity = 0.5;
     private void OnFloatingMapPointerEntered(object? sender, PointerEventArgs e)    => MapLockIcon.Opacity = 1.0;
@@ -844,7 +832,7 @@ public partial class GamePage : ContentPage
     {
         var cur = new Size(panel.Width, panel.Height);
         if (cur.Width <= 0 || cur.Height <= 0) return;      // hidden / not yet measured
-        if (last.Width <= 0) { last = cur; return; }        // first measure — nothing to anchor against
+        if (last.Width <= 0) { last = cur; return; }        // first measure - nothing to anchor against
 
         double dW = cur.Width  - last.Width;
         double dH = cur.Height - last.Height;
@@ -862,7 +850,7 @@ public partial class GamePage : ContentPage
 
         double panelCentreY = panel.Y + panel.TranslationY + cur.Height / 2;
         double bandY = parent.Height * 0.15;
-        if (panelCentreY > parent.Height / 2 + bandY)      panel.TranslationY -= dH;      // bottom → grow up
+        if (panelCentreY > parent.Height / 2 + bandY)      panel.TranslationY -= dH;      // bottom -> grow up
         else if (panelCentreY < parent.Height / 2 - bandY) { /* top → grow down */ }
         else                                               panel.TranslationY -= dH / 2;  // vertically centred
     }
@@ -875,17 +863,17 @@ public partial class GamePage : ContentPage
 #if WINDOWS
         var tb = _inputTextBox;
         if (tb is null) return;
-        // Skip if the box already holds focus — Focus(Programmatic) on an already-focused WinUI
+        // Skip if the box already holds focus - Focus(Programmatic) on an already-focused WinUI
         // TextBox resets the cursor to position 0, which causes a "|o" symptom on rapid
         // Enter+type sequences (character appears after the cursor).
         //
         // Ask WinUI's FocusManager, NOT MAUI's InputEntry.IsFocused, which is a cached mirror
         // maintained from the platform view's Got/LostFocus events. If that mirror is ever stale
-        // in the true direction, "skip, it already has focus" is wrong and this — the backstop the
-        // whole invariant rests on — silently does nothing, for the rest of the session. The
+        // in the true direction, "skip, it already has focus" is wrong and this - the backstop the
+        // whole invariant rests on - silently does nothing, for the rest of the session. The
         // authoritative answer costs one call and cannot go stale.
         // XamlRoot is null on an element that is no longer in a live tree (teardown races), and
-        // GetFocusedElement(null) throws — inside a dispatcher callback, that is a crash.
+        // GetFocusedElement(null) throws - inside a dispatcher callback, that is a crash.
         var xamlRoot = tb.XamlRoot;
         bool hasFocus = xamlRoot is not null && ReferenceEquals(
             Microsoft.UI.Xaml.Input.FocusManager.GetFocusedElement(xamlRoot), tb);
@@ -919,7 +907,7 @@ public partial class GamePage : ContentPage
     private void OnClearScreenRequested() => Terminal.Clear();
 
     // Chat filter flipped: repaint the whole terminal from the matching buffer. This is a
-    // user-initiated toggle (not the typing hot path), so a full Clear + re-append is fine —
+    // user-initiated toggle (not the typing hot path), so a full Clear + re-append is fine -
     // one screenful paints sub-millisecond and the source buffers live in the VM, so nothing
     // is lost either way. Kind==Chat lines that scrolled out of the main ring still show,
     // because the chat ring is kept deeper (ChatHistoryCap).
@@ -942,13 +930,13 @@ public partial class GamePage : ContentPage
             _chatPlaceholderShown = false;
             Terminal.AppendLines(_vm.HistorySnapshot());
         }
-        // A toggle is the user acknowledging activity — cancel any pending flash and reset the tint.
+        // A toggle is the user acknowledging activity - cancel any pending flash and reset the tint.
         _chatFlashGen++;
         _chatFlashActive = false;
         ChatButton.BackgroundColor = ChatButtonRest;
     }
 
-    // Chat button colours. Rest matches the XAML; alert is a bright-orange pulse — deliberately a
+    // Chat button colours. Rest matches the XAML; alert is a bright-orange pulse - deliberately a
     // different hue/luminance from the dark-slate rest and the yellow "on" cue so it reads as an
     // alert, not "still selected".
     private static readonly Color ChatButtonRest  = Color.FromArgb("#2d333b");
@@ -959,7 +947,7 @@ public partial class GamePage : ContentPage
     // One-shot attention pulse when non-chat output arrives while filtered. NOT a repeating
     // UI-thread timer (Invariant #1): a single DispatchDelayed clears the tint. While a pulse is
     // in flight we skip re-arming, so a burst of hidden output (combat) does not churn a timer +
-    // closure per flush — it pulses at most every ~450 ms until the output settles.
+    // closure per flush - it pulses at most every ~450 ms until the output settles.
     // If a stronger sustained pulse is ever wanted, drive it from a WinUI composition animation.
     private void FlashChatButton()
     {
@@ -1005,18 +993,15 @@ public partial class GamePage : ContentPage
 #if WINDOWS
         // NOTE: there is deliberately NO branch here for GameViewModel.InputText.
         //
-        // There was one, and it was a bug of exactly the kind this whole boundary exists to prevent.
-        // It pushed the view model's text into the box whenever PropertyChanged fired for it - but
-        // BaseViewModel.Set raises nothing when the value is UNCHANGED, and since the accept path no
-        // longer touches the view model's copy, that copy holds the last recalled value. So recalling
-        // a history entry equal to it produced no notification, no push, and no visible change - while
-        // HistoryUp had already moved its index. Pressing Up appeared to do nothing, pressing it again
-        // landed on the entry BEFORE the one wanted, and Down then walked forward through them.
-        // Reported from live play as "cursor up doesn't always recover the last line typed".
+        // A branch that pushes the view model's text into the box on PropertyChanged is unsafe:
+        // BaseViewModel.Set raises nothing when the value is UNCHANGED, and since the accept path
+        // does not touch the view model's copy, that copy holds the last recalled value - so
+        // recalling a history entry equal to it would produce no notification, no push, and no
+        // visible change, while HistoryUp had already moved its index.
         //
-        // The rule, which is the same one the accept path learned: what the box shows is asserted by an
-        // explicit request, never inferred from whether a value changed. Every writer now calls
-        // RequestSetText/RequestClear directly - see RegisterCommandInputBindings and SetInputText.
+        // What the box shows must be asserted by an explicit request, never inferred from whether a
+        // value changed. Every writer calls RequestSetText/RequestClear directly - see
+        // RegisterCommandInputBindings and SetInputText.
 #endif
     }
 
@@ -1031,7 +1016,7 @@ public partial class GamePage : ContentPage
     }
 
     // Android hardware/gesture back: dismiss the About overlay if open. Otherwise confirm before
-    // leaving — a gesture-nav back swipe is trivially easy to hit by accident, and popping this
+    // leaving - a gesture-nav back swipe is trivially easy to hit by accident, and popping this
     // page tears down the live session.
     protected override bool OnBackButtonPressed()
     {
@@ -1053,7 +1038,7 @@ public partial class GamePage : ContentPage
     private void OnHistoryModeChanged(object? sender, EventArgs e)
     {
         // Overlay the indicator ON TOP of the (still-present) input controls rather than hiding
-        // them, so the input row's measured height never changes — the text view above must not
+        // them, so the input row's measured height never changes - the text view above must not
         // reflow when entering/leaving scrollback.
         ScrollbackBar.IsVisible = Terminal.IsHistoryMode;
 #if WINDOWS
@@ -1083,8 +1068,8 @@ public partial class GamePage : ContentPage
     // Side Panel / Onlines / Compass are checkable toggles a player might flip back and forth
     // while the menu is open, so their tap-driven overlay rows bind straight to the toggle
     // commands (SidePanel.TogglePanelCommand / ToggleOnlinePinnedCommand / ToggleMapPinnedCommand)
-    // and deliberately stay open (the ✓ updates live) rather than routing through a Tapped
-    // handler here. All three flip live visibility only — saved settings are untouched.
+    // and deliberately stay open (the OK updates live) rather than routing through a Tapped
+    // handler here. All three flip live visibility only - saved settings are untouched.
     //
     // Unlike those three, Combat Rail is a one-shot panel toggle a player isn't watching
     // live while the menu stays open (more like Settings/About below) - so its overlay row
@@ -1106,7 +1091,7 @@ public partial class GamePage : ContentPage
     }
 
     // Orientation sub-menu: the header toggles the three choices open/closed in place; the
-    // chevron flips ▸/▾ to match. Kept inside the overlay so a tap outside still dismisses all.
+    // chevron flips >/v to match. Kept inside the overlay so a tap outside still dismisses all.
     private void OnOverflowOrientationTapped(object? sender, TappedEventArgs e)
     {
         bool show = !OrientationSubmenu.IsVisible;
@@ -1127,7 +1112,7 @@ public partial class GamePage : ContentPage
         OrientationSubmenu.IsVisible = false;
         OrientationChevron.Text = "▸";
         OverflowMenuOverlay.IsVisible = false;
-        // Mark the active choice (session-only — no saved-settings change).
+        // Mark the active choice (session-only - no saved-settings change).
         OrientCheckSystem.IsVisible    = mode == OrientationMode.System;
         OrientCheckPortrait.IsVisible  = mode == OrientationMode.Portrait;
         OrientCheckLandscape.IsVisible = mode == OrientationMode.Landscape;
@@ -1149,8 +1134,8 @@ public partial class GamePage : ContentPage
     // Prepends a clickable span's insert text ("Name ") to the command box when the caret is at
     // the start with nothing selected. Shared code: the subscription in OnAppearing is
     // unconditional, so this must live outside the Windows-only region below (the Android build
-    // broke when it didn't). On Android nothing raises SpanInsertTextRequested yet — the touch
-    // path only pans — so it is dormant there until a tap gesture is wired up.
+    // broke when it didn't). On Android nothing raises SpanInsertTextRequested yet - the touch
+    // path only pans - so it is dormant there until a tap gesture is wired up.
     private void OnTerminalSpanInsertTextRequested(string insertText)
     {
         if (string.IsNullOrWhiteSpace(insertText)) return;
@@ -1170,9 +1155,9 @@ public partial class GamePage : ContentPage
         SetInputText(insertText + (InputEntry.Text ?? string.Empty), insertText.Length);
     }
 
-    // Ctrl+R (issue #147): unconditionally replaces the input with "<sender> "" and puts the
+    // Ctrl+R: unconditionally replaces the input with "<sender> "" and puts the
     // caret after the quote, ready for the reply text. Unlike OnTerminalSpanInsertTextRequested's
-    // prepend, this clears whatever was typed — ctrl-r is a deliberate "start a reply now" action.
+    // prepend, this clears whatever was typed - ctrl-r is a deliberate "start a reply now" action.
     private void ReplyToLastTell()
     {
         var sender = _vm.LastTellSender;
@@ -1194,10 +1179,9 @@ public partial class GamePage : ContentPage
 #if WINDOWS
         if (_commandInput is not null)
         {
-            // Through the framework, not by hand: this was the last place in the app that wrote text
-            // into the native control directly, and closing it is what makes the boundary a wall
-            // rather than a convention. The request also queues behind anything already typed, so a
-            // clicked name cannot land in the middle of a command in progress.
+            // Through the framework, not by hand, so the boundary stays a wall rather than a
+            // convention. The request also queues behind anything already typed, so a clicked name
+            // cannot land in the middle of a command in progress.
             _commandInput.RequestSetText(text, caretPos);
             _vm.InputText = text;
             return;
@@ -1228,7 +1212,7 @@ public partial class GamePage : ContentPage
     }
 
 #if WINDOWS
-    // ── Win32 types and imports for minimum-window-size enforcement ──────────
+    // -- Win32 types and imports for minimum-window-size enforcement ----------
 
     private delegate IntPtr WndProcDelegate(
         IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam, IntPtr uIdSubclass, IntPtr dwRefData);
@@ -1258,7 +1242,7 @@ public partial class GamePage : ContentPage
     [DllImport("user32.dll")]
     private static extern uint GetDpiForWindow(IntPtr hwnd);
 
-    // ── Window minimum-size methods ──────────────────────────────────────────
+    // -- Window minimum-size methods ------------------------------------------
 
     /// <summary>
     /// Window width (in DIPs) that fits <paramref name="viewColumns"/> terminal columns plus the
@@ -1278,7 +1262,7 @@ public partial class GamePage : ContentPage
     /// <summary>
     /// Attaches a Win32 window subclass on first call so that WM_GETMINMAXINFO can be
     /// intercepted to enforce the minimum window width, then applies the initial constraint.
-    /// Safe to call multiple times — the subclass is only registered once.
+    /// Safe to call multiple times - the subclass is only registered once.
     /// </summary>
     private void SetupWindowMinimumSize()
     {
@@ -1290,7 +1274,7 @@ public partial class GamePage : ContentPage
         _wndProcDelegate = GameWindowSubclassProc;
         if (!SetWindowSubclass(_hwnd, _wndProcDelegate, IntPtr.Zero, IntPtr.Zero))
         {
-            // Subclass registration failed — minimum-size enforcement unavailable.
+            // Subclass registration failed - minimum-size enforcement unavailable.
             _hwnd = IntPtr.Zero;
             _wndProcDelegate = null;
             return;
@@ -1369,7 +1353,7 @@ public partial class GamePage : ContentPage
 
     /// <summary>
     /// Snaps the window width to fit the configured column count (+2 breathing columns, the
-    /// same margin as the launch default) after a settings change to columns or font size —
+    /// same margin as the launch default) after a settings change to columns or font size -
     /// without this the view stays clamped to whatever the old window width could display.
     /// Height is left untouched. Reserves and resyncs the Combat Rail's width if it is currently
     /// shown - see the reservation comment inside for why a plain column-count snap would otherwise
@@ -1458,7 +1442,7 @@ public partial class GamePage : ContentPage
             UpdateWindowMinimumWidth();
             // Toggling the panel can resize the window (its min width changes), and that resize
             // lands keyboard focus elsewhere AFTER TogglePanelCommand's own RequestFocus has
-            // already fired — so the input box is left unfocused. Re-assert focus once the resize
+            // already fired - so the input box is left unfocused. Re-assert focus once the resize
             // and re-layout have settled (a plain dispatch still races it; a short delay wins).
             Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(50), () =>
             {
@@ -1500,10 +1484,8 @@ public partial class GamePage : ContentPage
                                 or nameof(SidePanelViewModel.TickPhaseUtc))
         {
             // The window grows/shrinks by the rail's own width on the PROPERTY, not on whatever
-            // toggled it. It used to hang off the "$clog on"/"$clog off" handlers, so the rail's own
-            // ToggleCombatPanelCommand - which existed but had nothing bound to it - would have shown
-            // the panel without making room, taking 300dp straight out of the terminal. Now every
-            // route to the property resizes, and there is only one place that knows how.
+            // toggled it. Every route to the property resizes, and there is only one place that
+            // knows how.
             if (e.PropertyName == nameof(SidePanelViewModel.IsCombatPanelVisible))
             {
                 // Hiding the panel collapses the elements the floats ride on; showing it again
@@ -1512,7 +1494,7 @@ public partial class GamePage : ContentPage
                 // rising over a panel that has moved out from under it.
                 CancelCombatFloats();
                 ResizeWindowForCombatPanel(_vm.SidePanel.IsCombatPanelVisible);
-                // T2: remembered per persona so it comes back on relog - see ClientSettings.ShowCombatRail
+                // Remembered per persona so it comes back on relog - see ClientSettings.ShowCombatRail
                 // and GameViewModel.PersistCombatRailVisibilityAsync. Fire-and-forget, like the other
                 // startup-time I/O in this file (e.g. LoadCombatHistoryAsync in GameViewModel's own
                 // constructor); the method swallows and logs its own failures.
@@ -1565,7 +1547,7 @@ public partial class GamePage : ContentPage
     /// here would drift from the Rail's the first time either was tuned.</para>
     ///
     /// <para><b>No motion, and that is a rule rather than an omission.</b> The design allows at most
-    /// one T3 element pulsing at a time (DESIGN_FINAL.md 4.2) - the Rail's glow already owns it.
+    /// one T3 element pulsing at a time - the Rail's glow already owns it.
     /// Three things pulsing on their own phases would be noise, not urgency. These are static colour
     /// only, which is also why they cost the UI thread nothing (Invariant #1).</para>
     /// </summary>
@@ -1595,12 +1577,11 @@ public partial class GamePage : ContentPage
     /// is exactly the "it doesn't animate" symptom seen from the outside.</para>
     ///
     /// <para><b>The bar waits for the anchor.</b> Until the encounter's first swing lands there is no
-    /// known phase, so the bar stays empty - exactly the condition the click already obeyed. It used
-    /// to sweep anyway from the moment combat started, but the line that flips InCombat is the reply
-    /// to the player's own <c>kill</c>, so that phase is the KEYSTROKE'S: a measured median ~1.0 s
-    /// away from the real boundary, effectively at random. The bar therefore spent the opening tick
-    /// showing a countdown we had invented, then visibly jumped when the real anchor arrived, while
-    /// the click sat silent through the same window - two instruments on one panel disagreeing in
+    /// known phase, so the bar stays empty - exactly the condition the click already obeys. The line
+    /// that flips InCombat is the reply to the player's own <c>kill</c>, and that phase is the
+    /// KEYSTROKE'S: a measured median ~1.0 s away from the real boundary, effectively at random -
+    /// sweeping from it would show a countdown that visibly jumps once the real anchor arrives, while
+    /// the click stays silent through the same window: two instruments on one panel disagreeing in
     /// front of the player. A blank bar for up to one tick is the honest reading, and it is the price
     /// of the two being one clock rather than two.</para>
     /// </summary>
@@ -1644,9 +1625,9 @@ public partial class GamePage : ContentPage
     /// still attacking, even if some future change ever let it outlive InCombat's own flip.</para>
     ///
     /// <para>So during grace there is nothing to time, and a bar counting down to a swing that will
-    /// never come is a lie told by an instrument. Same for the click. An earlier version of this ran
-    /// the bar through grace anyway, justified by preserving phase - which was wrong twice over, since
-    /// resuming calls Restart() and begins at keyframe zero regardless.</para>
+    /// never come is a lie told by an instrument. Same for the click: resuming calls Restart() and
+    /// begins at keyframe zero regardless, so there is no phase to preserve by running through grace
+    /// anyway.</para>
     /// </summary>
     private bool TickIsMeaningful()
     {
@@ -1668,19 +1649,16 @@ public partial class GamePage : ContentPage
         //
         // The click additionally waits for the estimate to have SETTLED, which the bar does not. That
         // asymmetry is the spec's own: a briefly-wrong timer that visibly corrects itself is honest in a
-        // way a confidently-wrong sound is not. It also stops the two gates being tuned against each
-        // other - raising the bar's threshold to protect the click once left the ticker dark for the
-        // opening of a fight, which reads as a broken client.
+        // way a confidently-wrong sound is not. It also keeps the two gates from being tuned against
+        // each other: raising the bar's threshold to protect the click would leave the ticker dark for
+        // the opening of a fight, which reads as a broken client.
         var anchor = _vm.SidePanel.TickPhaseUtc;
         var shouldRun = _vm.SidePanel.IsCombatMetronomeEnabled && anchor is not null
             && _vm.SidePanel.IsTickPhaseSettled && TickIsMeaningful();
 
         // Two copies of "the player armed the click" exist - the view model's property and the
-        // metronome's own Enabled - and only one path used to reconcile them: the rail's
-        // HandlerChanged, which fires when the rail's hit-target view is first realised. Until that
-        // happened the metronome refused to arm while this driver believed it had, so the click stayed
-        // silent through fights that looked, from here, exactly like fights it was clicking through.
-        // Reconciling here instead makes the order of those two events stop mattering.
+        // metronome's own Enabled. Reconciling them here, rather than relying on the rail's own
+        // HandlerChanged to do it, makes the order those two events fire in stop mattering.
         _combatMetronome.SetEnabled(_vm.SidePanel.IsCombatMetronomeEnabled);
 
         if (shouldRun == _metronomeRunning && anchor == _metronomeAnchorUtc)
@@ -1713,7 +1691,7 @@ public partial class GamePage : ContentPage
         }
     }
 
-    // ── Damage floats ───────────────────────────────────────────────────────────────────────
+    // -- Damage floats -----------------------------------------------------------------------
     // The rail's one deliberate piece of motion: a small "5-9" / "-7" / "Miss" / "+14" that appears
     // over the pane an event belongs to, drifts upward and is gone in about a second and a half.
     //
@@ -1734,8 +1712,7 @@ public partial class GamePage : ContentPage
     //         propagate. See OnCombatFloatRaised, which carries the decompiled evidence.
     //     What remains is WinUI's own measure invalidation on a TextBlock whose text changed. That
     //     is unavoidable for any text anywhere in the app (the status bar does it once a second),
-    //     and it is bounded here by the budget below. It is also the one part of this that has NOT
-    //     been measured in the owner's hands - see the note in OnCombatFloatRaised.
+    //     and it is bounded here by the budget below.
     //   * Motion is budgeted (RailFloatBudget). The rail is a glance instrument; unbounded floats at
     //     a 2 s tick with a pack of opponents are ambient motion, which defeats the whole panel.
 
@@ -1778,9 +1755,8 @@ public partial class GamePage : ContentPage
     /// print on top of each other. One line's worth.</summary>
     private const double CombatFloatLaneStepDp = 15.0;
 
-    /// <summary>A float's whole life. The owner's figure; also RailFloatBudget's expiry, which is
-    /// read from there rather than restated so the animation and the budget cannot disagree about
-    /// when a slot is free again.</summary>
+    /// <summary>A float's whole life, read from RailFloatBudget's expiry rather than restated, so
+    /// the animation and the budget cannot disagree about when a slot is free again.</summary>
     private static readonly TimeSpan CombatFloatDuration = RailFloatBudget.Lifetime;
 
     /// <summary>
@@ -1882,7 +1858,7 @@ public partial class GamePage : ContentPage
     /// Attaches (or re-attaches) one pool element's Composition animator once its native view
     /// exists. Mirrors OnCombatTickSweepHandlerChanged: release the previous animator first and
     /// unconditionally, because a platform view can be recreated without the page unloading and a
-    /// running animation on the outgoing visual is the RO_E_CLOSED crash this codebase has taken.
+    /// running animation on the outgoing visual is the RO_E_CLOSED crash class this guards against.
     /// </summary>
     private void OnCombatFloatHandlerChanged(int slot)
     {
@@ -2039,18 +2015,15 @@ public partial class GamePage : ContentPage
         // layout thrash near the input path, and a house rule that such changes are measured rather
         // than reasoned about.
         //
-        // The honest state of that: as of MAUI 10.0.20 the invalidation would ALREADY be skipped,
-        // because Label.TextChangedShouldInvalidateMeasure short-circuits on IsLabelSizeable, which
-        // is false once both WidthRequest and HeightRequest are set (VisualElement.OnRequestChanged
-        // sets SelfConstraint = HorizontallyFixed | VerticallyFixed) - which they are, above. But
-        // that is an undocumented internal of one MAUI version standing between a combat event and
-        // the typing path, and it was an accident that it held rather than a decision. Writing
-        // natively means the question does not arise at any MAUI version.
+        // The alternative would rely on Label.TextChangedShouldInvalidateMeasure short-circuiting on
+        // IsLabelSizeable, which is false once both WidthRequest and HeightRequest are set
+        // (VisualElement.OnRequestChanged sets SelfConstraint = HorizontallyFixed | VerticallyFixed) -
+        // which they are, above. But that is an undocumented MAUI internal standing between a combat
+        // event and the typing path. Writing natively means the question does not arise at all.
         //
         // What is NOT removed, and cannot be: WinUI's own measure invalidation when a TextBlock's
         // text changes. That is true of every piece of text in the app, and the budget below is what
-        // bounds it. It is also the one claim here that has not been checked in the owner's hands -
-        // tools/type-test.ps1 needs the live app to say anything.
+        // bounds it.
         //
         // Guarded, because a burst of identical events is common in a pack fight ("Miss", "Miss")
         // and a same-value write still invalidates.
@@ -2085,15 +2058,15 @@ public partial class GamePage : ContentPage
     /// <summary>
     /// Fires once when the Combat Rail's glow layer's native platform view first exists (and again
     /// if the handler is ever recreated) - mirrors OnTerminalHandlerChanged/OnFnButtonHandlerChanged
-    /// above. Creates the PulseLayer bound to that native FrameworkElement; DESIGN_FINAL.md 7.1's
-    /// PulseLayer sketch needs a real WinUI element to attach a Composition visual to, which a MAUI
-    /// BoxView only exposes once its handler has produced one.
+    /// above. Creates the PulseLayer bound to that native FrameworkElement; PulseLayer needs a real
+    /// WinUI element to attach a Composition visual to, which a MAUI BoxView only exposes once its
+    /// handler has produced one.
     ///
     /// <para>Releases the previous animator first. A platform view can be recreated without the page
     /// ever unloading, and PulseLayer only self-stops on Unloaded - so overwriting the field would leave
-    /// a running Composition animation attached to a visual whose native object is on its way out, the
-    /// RO_E_CLOSED crash this codebase has already taken once. Unconditional, so the handler-going-null
-    /// case is covered by the same line.</para>
+    /// a running Composition animation attached to a visual whose native object is on its way out - the
+    /// RO_E_CLOSED crash this guards against. Unconditional, so the handler-going-null case is covered
+    /// by the same line.</para>
     /// </summary>
     private void OnCombatPanelGlowHandlerChanged(object? sender, EventArgs e)
     {
@@ -2196,7 +2169,7 @@ public partial class GamePage : ContentPage
         }
     }
 
-    /// <summary>The chip's border, at both alarm states - the owner's <c>#FF0000</c>, matching the ring
+    /// <summary>The chip's border, at both alarm states - <c>#FF0000</c>, matching the ring
     /// the canvas draws for itself in the quiet state, so escalating from Visible to Caution changes the
     /// ring's behaviour and not its colour.</summary>
     private static readonly Color FleePillStroke = Color.FromArgb("#FF0000");
@@ -2285,6 +2258,7 @@ public partial class GamePage : ContentPage
             hit.UseSystemFocusVisuals = false;
         }
     }
+#endif
 
     /// <summary>
     /// The pointer moved over the combat panel. The ONLY thing this changes is whether the encounter
@@ -2327,15 +2301,15 @@ public partial class GamePage : ContentPage
         CombatPanelCanvas.NpcValueHoverRow = -1;
     }
 
+#if WINDOWS
     /// <summary>
     /// The flee pill, clicked. Sends exactly what Ctrl+F sends - a bare <c>flee</c> - down the same
     /// path, so the two routes to the same action cannot behave differently.
     ///
-    /// <para>The pill was deliberately non-interactive at first, on the grounds that an accidental flee
-    /// is among the most expensive misclicks in the game. The owner overruled that in play, and was
-    /// right to: a control that looks like a button and does nothing is worse than either a button or a
-    /// label. The misclick risk is answered instead by the hit target existing only while the pill is
-    /// actually drawn (see UpdateCombatFleePill) rather than by refusing the click.</para>
+    /// <para>A control that looks like a button and does nothing is worse than either a button or a
+    /// label. The misclick risk - an accidental flee is among the most expensive misclicks in the game
+    /// - is answered by the hit target existing only while the pill is actually drawn (see
+    /// UpdateCombatFleePill), not by refusing the click.</para>
     ///
     /// <para><c>GameViewModel.Flee</c> flushes pending input first, so a flee cannot overtake a command
     /// the player already typed, and raises RequestFocus itself - <see cref="FocusInput"/> is called
@@ -2389,7 +2363,7 @@ public partial class GamePage : ContentPage
         Windows.System.VirtualKey.Menu    or Windows.System.VirtualKey.LeftMenu    or Windows.System.VirtualKey.RightMenu    or
         Windows.System.VirtualKey.LeftWindows or Windows.System.VirtualKey.RightWindows or Windows.System.VirtualKey.CapitalLock;
 
-    // ── Focus diagnostics — compiled out unless the FOCUS_DIAG symbol is defined
+    // -- Focus diagnostics - compiled out unless the FOCUS_DIAG symbol is defined
     // (add FOCUS_DIAG to DefineConstants in Mucka.csproj to enable). Logs every focus
     // transition (app-wide FocusManager events + our veto/redirect decisions) to
     // %TEMP%\mucka-focus.txt.
@@ -2424,7 +2398,7 @@ public partial class GamePage : ContentPage
         FocusDiag($"FM.LostFocus     old={FocusDesc(e.OldFocusedElement)}");
 #endif
 
-    // ── Hotkeys as KeyboardAccelerators (NOT a per-keystroke handler) ────────
+    // -- Hotkeys as KeyboardAccelerators (NOT a per-keystroke handler) --------
     // The framework matches these natively and invokes our callback only on a hit, so plain
     // typing never runs any of this. Every callback is gated on _isFkeyEditorOpen (the game
     // root's accelerators are still live under the modal editor) and marks itself Handled.
@@ -2436,14 +2410,14 @@ public partial class GamePage : ContentPage
             acc.Invoked += (_, e) =>
             {
                 e.Handled = true;                 // we own this combo; don't let it fall through
-                if (_isFkeyEditorOpen) return;    // editor is up — hotkeys are inert
+                if (_isFkeyEditorOpen) return;    // editor is up - hotkeys are inert
                 action();
             };
             root.KeyboardAccelerators.Add(acc);
             _accelerators.Add(acc);
         }
 
-        // F1-F12 with no modifier / Shift / Ctrl → macro slots 0-11 / 12-23 / 24-35.
+        // F1-F12 with no modifier / Shift / Ctrl -> macro slots 0-11 / 12-23 / 24-35.
         for (int f = 0; f < 12; f++)
         {
             var key = (Windows.System.VirtualKey)((int)Windows.System.VirtualKey.F1 + f);
@@ -2453,7 +2427,7 @@ public partial class GamePage : ContentPage
             Add(key, Windows.System.VirtualKeyModifiers.Control, () => _vm.SendFkeyAbsolute(24 + slot));
         }
 
-        // Ctrl+D speak dreamword (exits scrollback first if reviewing — dreamwords are
+        // Ctrl+D speak dreamword (exits scrollback first if reviewing - dreamwords are
         // time-critical); Ctrl+Shift+D speaks it then chains the typed command (or "sleep");
         // Ctrl+L clear screen; Ctrl+` window selfie.
         Add(Windows.System.VirtualKey.D, Windows.System.VirtualKeyModifiers.Control,
@@ -2477,9 +2451,9 @@ public partial class GamePage : ContentPage
             () => { if (Terminal.IsHistoryMode) Terminal.ScrollToBottom(); _vm.SendControlAlias(3); });
         Add(Windows.System.VirtualKey.L, Windows.System.VirtualKeyModifiers.Control, () => _vm.ClearScreen());
         Add((Windows.System.VirtualKey)0xC0, Windows.System.VirtualKeyModifiers.Control, () => _ = TakeSelfieAsync());
-        // Ctrl+R replies to the last person who sent us a tell (issue #147). Prefills the input
+        // Ctrl+R replies to the last person who sent us a tell. Prefills the input
         // rather than sending the game's 're' command, since 're' re-resolves its target
-        // server-side at send time — a second tell arriving mid-keystroke can redirect it.
+        // server-side at send time - a second tell arriving mid-keystroke can redirect it.
         Add(Windows.System.VirtualKey.R, Windows.System.VirtualKeyModifiers.Control,
             () => { if (Terminal.IsHistoryMode) Terminal.ScrollToBottom(); ReplyToLastTell(); });
 
@@ -2545,7 +2519,7 @@ public partial class GamePage : ContentPage
             case Windows.System.VirtualKey.End:
             case Windows.System.VirtualKey.Escape:   Terminal.ScrollToBottom();  e.Handled = true; return;
         }
-        e.Handled = true;   // swallow all other keys — input box is hidden in scrollback
+        e.Handled = true;   // swallow all other keys - input box is hidden in scrollback
     }
 
     private void OnSendButtonClicked(object? sender, EventArgs e) => AcceptInputLine();
@@ -2554,20 +2528,20 @@ public partial class GamePage : ContentPage
     /// Windows' one input-accept path, shared by Enter and the send button. Three steps, in this
     /// order, and nothing else: take the text, empty the box, hand the line off.
     ///
-    /// <para><b>Accepting a line and acting on it are separate concerns</b> (owner, 2026-08-20). The
+    /// <para><b>Accepting a line and acting on it are separate concerns.</b> The
     /// box's only job is to capture and enqueue what was typed, smoothly; command interpretation,
     /// alias expansion and the socket write all happen on the view model's drain, off this path. See
     /// <see cref="GameViewModel.EnqueueInput"/>. Nothing may be added here that does work - if a
     /// future feature needs to inspect or rewrite outgoing lines, it belongs in the drain.</para>
     ///
-    /// <para><b>The box is emptied directly, not via the view model.</b> The clear used to be a side
-    /// effect of <c>InputText = ""</c> raising PropertyChanged, which <c>OnVmPropertyChanged</c>
-    /// turned into a write to the box - and that chain has a hole: <c>Set</c> raises nothing when the
-    /// value is UNCHANGED, so whenever the text read from the box already equalled the view model's
-    /// (an empty box being the common case) nothing cleared the box at all. Text that arrived after
-    /// the read then sat there and was prepended to the NEXT command. Emptying the box here makes
-    /// "after Enter the box is empty" true by construction rather than inferred from a notification
-    /// chain, and it happens BEFORE the hand-off so the box is never waiting on anything.</para>
+    /// <para><b>The box is emptied directly, not via the view model.</b> Clearing it by setting
+    /// <c>InputText = ""</c> and relying on <c>OnVmPropertyChanged</c> to write the box back has a
+    /// hole: <c>Set</c> raises nothing when the value is UNCHANGED, so whenever the text read from the
+    /// box already equalled the view model's (an empty box being the common case) nothing would clear
+    /// the box at all, and text that arrived after the read would sit there and get prepended to the
+    /// NEXT command. Emptying the box here makes "after Enter the box is empty" true by construction
+    /// rather than inferred from a notification chain, and it happens BEFORE the hand-off so the box
+    /// is never waiting on anything.</para>
     ///
     /// <para>An EMPTY line is deliberately still accepted. A bare Enter is a real MUD2 action, so
     /// this must not "helpfully" swallow blank sends - and if a blank line ever goes out when the
@@ -2575,8 +2549,7 @@ public partial class GamePage : ContentPage
     /// hide precisely the thing worth seeing.</para>
     /// </summary>
     /// <summary>The send button, mirroring the Enter key exactly by going through the same accept
-    /// path - so the two cannot drift apart, which is how the button once came to send a blank line
-    /// while the typed text stayed in the box.</summary>
+    /// path, so the two cannot drift apart.</summary>
     private void AcceptInputLine()
     {
         if (_commandInput is not null)
@@ -2604,21 +2577,21 @@ public partial class GamePage : ContentPage
             tb.TextChanged += OnInputTextChanged;
             // Shadow the ReturnCommand with a local null so MAUI's KeyDown handler
             // (registered with handledEventsToo:true) sees null and skips execution.
-            // Do NOT use RemoveBinding — that fires PropertyChanged which causes MAUI's
+            // Do NOT use RemoveBinding - that fires PropertyChanged which causes MAUI's
             // binding infrastructure to re-evaluate and re-apply the XAML binding,
             // restoring ReturnCommand=SendCommand and producing a second send.
             // A plain null SetValue shadows the live binding without disturbing it.
             InputEntry.ReturnCommand = null;
             // Remove the Text binding entirely on Windows and drive the native TextBox by hand.
             // The XAML binding is TwoWay (Android/Mac rely on it), and a runtime SetBinding(OneWay)
-            // was proven NOT to stick — INPUT_DIAG showed VM.InputText written on EVERY keystroke,
-            // i.e. the binding still round-trips TextBox→VM. That feedback loop is the bug: when a
+            // was proven NOT to stick - INPUT_DIAG showed VM.InputText written on EVERY keystroke,
+            // i.e. the binding still round-trips TextBox->VM. That feedback loop is the bug: when a
             // type-then-Enter happens faster than the round-trip settles (~10ms), SendNow's clear
             // races the in-flight keystroke write-back, the write-back lands last, and the last
-            // character is re-stranded in the box ("n"+Enter → next "n" appends → "nn").
+            // character is re-stranded in the box ("n"+Enter -> next "n" appends -> "nn").
             // With no binding, typed text never touches the VM; we read it directly on Enter, and
             // the VM pushes to the box only on deliberate changes (clear/history/Escape) via
-            // OnVmPropertyChanged — all synchronous on the UI thread, so there is no loop to race.
+            // OnVmPropertyChanged - all synchronous on the UI thread, so there is no loop to race.
             InputEntry.RemoveBinding(Entry.TextProperty);
             tb.Text = _vm.InputText;   // seed the initial value (e.g. a prefilled account id)
 
@@ -2651,7 +2624,7 @@ public partial class GamePage : ContentPage
     }
 
     // WinUI's TextBox stops bringing the caret into view after another window in the
-    // app (the $con raw console) has been activated and focus returns to this one —
+    // app (the $con raw console) has been activated and focus returns to this one -
     // typed text appends past the right edge and the box stays anchored left. The
     // internal auto-scroll never recovers, so track the caret ourselves: whenever the
     // caret sits at the end of the text (the typing case), pin the inner ScrollViewer
@@ -2661,36 +2634,26 @@ public partial class GamePage : ContentPage
     /// Caret-follow workaround, armed only after an auxiliary window has been opened. Fires on every
     /// caret move, which means EVERY KEYSTROKE - so what it is allowed to do is tightly constrained.
     ///
-    /// <para><b>This used to call <c>tb.UpdateLayout()</c> here, and that was a serious defect
-    /// (Invariant #1, and #0 by consequence).</b> SelectionChanged is raised from inside the
-    /// TextBox's own text processing, so a forced synchronous layout pass ran INSIDE the handling of
-    /// each typed character, on the UI thread, in the one path this project holds above all others.
-    /// Two distinct harms came out of that:</para>
+    /// <para><b>Must never force a synchronous layout pass here</b> (Invariant #1, and #0 by
+    /// consequence). SelectionChanged is raised from inside the TextBox's own text processing, so a
+    /// forced layout pass (e.g. <c>tb.UpdateLayout()</c>) would run INSIDE the handling of each typed
+    /// character, on the UI thread, in the one path this project holds above all others. Beyond the
+    /// per-keystroke cost, such a call re-enters the layout system synchronously and can flush pending
+    /// work mid-input, which reorders when a typed character actually lands in <c>TextBox.Text</c>
+    /// relative to the NEXT key event. The Enter path reads <c>TextBox.Text</c> directly, so a
+    /// character reordered past an Enter is sent on the wrong line: type
+    /// <c>n</c>&lt;enter&gt;<c>ne</c>&lt;enter&gt; and the wire sees &lt;enter&gt; then
+    /// <c>nne</c>&lt;enter&gt;.</para>
     ///
-    /// <list type="number">
-    /// <item><description>Cost per keystroke, unbounded by anything - a measure/arrange of the
-    /// TextBox subtree plus a ScrollViewer <c>ChangeView</c>, ten-plus times a second at the owner's
-    /// typing speed.</description></item>
-    /// <item><description>Worse, and the reason this was more than slowness: <c>UpdateLayout</c>
-    /// re-enters the layout system synchronously and can flush pending work mid-input, which reorders
-    /// when a typed character actually lands in <c>TextBox.Text</c> relative to the NEXT key event.
-    /// The Enter path reads <c>TextBox.Text</c> directly, so a character reordered past an Enter is
-    /// sent on the wrong line: type <c>n</c>&lt;enter&gt;<c>ne</c>&lt;enter&gt; and the wire sees
-    /// &lt;enter&gt; then <c>nne</c>&lt;enter&gt;. Reported from live play, twice.</description></item>
-    /// </list>
+    /// <para>The handler is gated on <see cref="_auxiliaryWindowOpened"/>, which latches true for the
+    /// rest of the session the first time <c>$con</c> or <c>$map</c> is opened - WinUI's native
+    /// caret-follow does not recover once another app window has taken and returned focus, so the
+    /// workaround is only needed from that point on.</para>
     ///
-    /// <para><b>Why it was intermittent, and why only in this app.</b> The whole handler is gated on
-    /// <see cref="_auxiliaryWindowOpened"/>, which latches true for the rest of the session the first
-    /// time <c>$con</c> or <c>$map</c> is opened - so the fault appeared only after the player had
-    /// used one of those windows, and then never went away. And no other editor does this to the
-    /// owner because no other editor forces a layout pass inside its own text input, nor reads the
-    /// control's text from a key handler.</para>
-    ///
-    /// <para>Now: no synchronous layout, and nothing at all on the input path beyond three field
-    /// reads. The pin is coalesced onto a LOW-priority dispatcher callback, which by definition runs
-    /// after pending input and layout work - so the measurement <c>UpdateLayout</c> was forcing is
-    /// simply already current by the time it is read, and the keystroke that scheduled it has long
-    /// since been applied.</para>
+    /// <para>No synchronous layout, and nothing at all on the input path beyond three field reads.
+    /// The pin is coalesced onto a LOW-priority dispatcher callback, which by definition runs after
+    /// pending input and layout work, so the measurement it reads is already current by the time it
+    /// runs.</para>
     /// </summary>
     private void OnInputSelectionChanged(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
     {
@@ -2723,11 +2686,11 @@ public partial class GamePage : ContentPage
     ///
     /// <para><b>Compiled into every build, not only INPUT_DIAG ones.</b> This fault is intermittent, it
     /// latches on only after an auxiliary window has been opened, and it shows up solely in live play at
-    /// speed - so "reproduce it under a diagnostic build" is exactly the bar that let it survive two
-    /// rounds of being reported and fixed. It costs one <c>DateTime</c> subtraction per TextChanged.
-    /// <see cref="InputDiag.Log"/> is <c>[Conditional]</c> so the message compiles away in a normal
-    /// build; <see cref="_lateTextAfterSendCount"/> does not, so a later investigation can read the
-    /// count without the player having happened to run the right binary.</para>
+    /// speed - requiring a diagnostic build to reproduce it would mean it could go unnoticed
+    /// indefinitely. It costs one <c>DateTime</c> subtraction per TextChanged. <see cref="InputDiag.Log"/>
+    /// is <c>[Conditional]</c> so the message compiles away in a normal build; <see
+    /// cref="_lateTextAfterSendCount"/> does not, so a later investigation can read the count without
+    /// the player having happened to run the right binary.</para>
     ///
     /// <para>It reports and never corrects. Correcting would mean guessing which line the character
     /// belonged to, and guessing in this path is what produced the bug.</para>
@@ -2822,7 +2785,7 @@ public partial class GamePage : ContentPage
             _terminalElement = el;
             el.PointerWheelChanged += OnTerminalPointerWheel;
             // Drive mouse selection / click-to-enter from native pointer events (reliable on
-            // Windows). Turn off SkiaSharp's own pointer→Touch handling so the two don't fight;
+            // Windows). Turn off SkiaSharp's own pointer->Touch handling so the two don't fight;
             // touch-pan via OnTouch is only needed on Android, where this hook never runs.
             Terminal.EnableTouchEvents = false;
             el.PointerPressed  += OnTerminalPointerPressed;
@@ -2832,7 +2795,7 @@ public partial class GamePage : ContentPage
             if (el is Microsoft.UI.Xaml.FrameworkElement fe)
                 fe.AllowFocusOnInteraction = false;
             // WinUI elements with a NULL Background are not hit-test-visible, so pointer/wheel
-            // events never fire over the canvas (Skia still paints it — hence "see text, can't
+            // events never fire over the canvas (Skia still paints it - hence "see text, can't
             // click"). A Transparent brush IS hit-testable; the canvas paints its own background.
             var hitBrush = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent);
             switch (el)
@@ -2886,7 +2849,7 @@ public partial class GamePage : ContentPage
         e.Handled = true;
 
         // Accumulate and only act on whole wheel notches (120). A mouse wheel sends one full
-        // notch per click; a touchpad sends many tiny deltas — accumulating means it takes a
+        // notch per click; a touchpad sends many tiny deltas - accumulating means it takes a
         // deliberate scroll to enter scrollback, rather than incidental drift.
         _wheelAccum += delta;
         int notches = _wheelAccum / 120;
@@ -2896,20 +2859,13 @@ public partial class GamePage : ContentPage
     }
 
     /// <summary>
-    /// The command box's key handler, and the whole of it. Every branch that used to live here is now
-    /// either a declared binding (see <see cref="RegisterCommandInputBindings"/>) or the accept path,
-    /// both owned by Mucka.Input.
+    /// The command box's key handler, and the whole of it. Every branch here is either a declared
+    /// binding (see <see cref="RegisterCommandInputBindings"/>) or the accept path, both owned by
+    /// Mucka.Input.
     ///
-    /// <para><b>What this used to be, and why it isn't any more.</b> A chain of <c>if</c>s that ran
-    /// consumer logic ON the keystroke: history recall, an Escape branch that reached into the native
-    /// control twice, and a <c>GetKeyState</c> P/Invoke executed for EVERY character typed purely to
-    /// discover that Ctrl was not held. All of it in the path CLAUDE.md puts above every other
-    /// consideration, and all of it growing whenever a key was added. Now the cost of a plain letter
-    /// is one hash-set probe (<c>IsBoundKey</c>) and a return.</para>
-    ///
-    /// <para>Modifier state is read only for keys that could possibly match a binding, which is what
-    /// removes the per-character P/Invoke: a letter is not a bound key code, so nothing asks about
-    /// Ctrl.</para>
+    /// <para>Modifier state is read only for keys that could possibly match a binding: a letter is
+    /// not a bound key code, so nothing asks about Ctrl. The cost of a plain letter is one hash-set
+    /// probe (<c>IsBoundKey</c>) and a return.</para>
     /// </summary>
     private void OnInputPreviewKeyDown(object sender, Microsoft.UI.Xaml.Input.KeyRoutedEventArgs e)
     {
@@ -2988,15 +2944,15 @@ public partial class GamePage : ContentPage
                     return;
                 // RequestClear rather than relying on the InputText push: after an accept the
                 // view-model copy is often already empty, and Set() raises nothing for an unchanged
-                // value - the exact hole that used to leave typed text in the box. Ask the box
-                // directly, and keep the view model in step for Android's binding.
+                // value, which would leave typed text in the box. Ask the box directly, and keep the
+                // view model in step for Android's binding.
                 _vm.InputText = string.Empty;
                 input.RequestClear();
             });
 
-        // Ctrl+1..3 control macros. Three, not five (owner, 2026-08-21): reaching Ctrl+4/5 without
-        // looking is a stretch mid-fight, and a macro you have to look down for is a macro that gets
-        // you killed. The scrollback bounce is part of the action, so it too is off the keystroke.
+        // Ctrl+1..3 control macros. Three, not five: reaching Ctrl+4/5 without looking is a stretch
+        // mid-fight, and a macro you have to look down for is a macro that gets you killed. The
+        // scrollback bounce is part of the action, so it too is off the keystroke.
         for (var slot = 1; slot <= 3; slot++)
         {
             var n = slot;
@@ -3116,22 +3072,21 @@ public partial class GamePage : ContentPage
     private bool _railWidthApplied;
     /// <summary>How much of the window's current width was actually ADDED by the last "show" (as
     /// opposed to slack the window already had before it, which needed no adding) - in DP, not px.
-    /// Reconverted to px at whatever DPI is current only at the point of use (see the method's own
-    /// remarks on finding 5): a DPI change while the rail is shown rescales the window's physical
-    /// pixel width (WinUI rescales the whole window's client area when it crosses a monitor
-    /// boundary), so a px amount captured at the show-time DPI would be the wrong amount to remove at
-    /// a different DPI on hide.</summary>
+    /// Reconverted to px at whatever DPI is current only at the point of use: a DPI change while the
+    /// rail is shown rescales the window's physical pixel width (WinUI rescales the whole window's
+    /// client area when it crosses a monitor boundary), so a px amount captured at the show-time DPI
+    /// would be the wrong amount to remove at a different DPI on hide.</summary>
     private double _railDeltaAppliedDp;
 
     /// <summary>
     /// Grows or shrinks the window for the rail's own space, without the terminal's column count or
-    /// the left panel's width changing as a side effect (DESIGN_FINAL.md D3). This is the ONLY place
+    /// the left panel's width changing as a side effect. This is the ONLY place
     /// the window resizes for a combat-panel reason; it never resizes on combat start/end.
     ///
-    /// <para>The T3 (auto-vs-fixed-columns slack) and T4 (a manual resize survives the toggle)
+    /// <para>The auto-vs-fixed-columns slack reasoning, the manual-resize-survives-the-toggle
     /// reasoning, the floor clamp, and the DPI-safe dp-stored delta all live in
     /// <see cref="CombatRailResize.ComputeToggle"/> now (<c>Mucka.Terminal</c>, unit-tested against
-    /// the user's own acceptance examples in <c>CombatRailResizeTests</c>) - this method is a thin
+    /// acceptance examples in <c>CombatRailResizeTests</c>) - this method is a thin
     /// caller: gather the live window/DPI/column-count state, hand it to that pure function, apply
     /// the one real side effect (<c>appWindow.Resize</c>), and remember the returned delta.</para>
     ///
@@ -3154,7 +3109,7 @@ public partial class GamePage : ContentPage
         // SEEDING: this page is adopting a window it did not size. A relog builds a new GamePage while
         // the OS window keeps the width the previous one gave it, so the rail may already be paid for
         // in that width - and this instance's delta starts at zero, which would leave the first hide
-        // subtracting nothing and the window stuck a rail-width too wide (owner, 2026-09-08).
+        // subtracting nothing and the window stuck a rail-width too wide.
         //
         // Adopt what the window is already carrying instead of toggling: no resize, just the delta a
         // later hide will need. See CombatRailResize.SeedAppliedDeltaDp for why attributing the slack
@@ -3196,10 +3151,10 @@ public partial class GamePage : ContentPage
     }
 
 #if INPUT_DIAG
-    // ── INPUT_DIAG: UI-thread responsiveness probe ───────────────────────────
+    // -- INPUT_DIAG: UI-thread responsiveness probe ---------------------------
     // Posts a 16ms heartbeat on the WinUI DispatcherQueue (the same thread the TextBox paints
-    // on). When the thread is busy — a terminal repaint, a layout/composite pass from the
-    // side-panel fade timer, a per-keystroke binding round-trip — the heartbeat can't fire on
+    // on). When the thread is busy - a terminal repaint, a layout/composite pass from the
+    // side-panel fade timer, a per-keystroke binding round-trip - the heartbeat can't fire on
     // schedule, so the measured gap spikes. Any gap well over 16ms that lines up (in the +ms
     // column of mucka-input.txt) with a keystroke is the smoking gun for that stall.
     private void StartUiThreadProbe()
@@ -3237,10 +3192,10 @@ public partial class GamePage : ContentPage
 
     // Timeline marker: when the native TextBox actually commits a typed character. Correlate the
     // +ms of this line against the OnInputPreviewKeyDown/OnRootPreviewKeyDown KEY lines for the
-    // same character — a large key→TextChanged delta means the keystroke itself was delayed.
+    // same character - a large key->TextChanged delta means the keystroke itself was delayed.
     private void OnInputDiagTextChanged(object sender, Microsoft.UI.Xaml.Controls.TextChangedEventArgs e)
     {
-        // Log only the length — NOT the full text. Interpolating the whole box contents on every
+        // Log only the length - NOT the full text. Interpolating the whole box contents on every
         // keystroke allocated a growing string per char, adding GC pressure the real (non-diag)
         // app never has, which would itself perturb the latency we're trying to measure.
         var tb = (Microsoft.UI.Xaml.Controls.TextBox)sender;

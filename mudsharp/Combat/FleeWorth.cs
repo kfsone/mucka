@@ -3,7 +3,7 @@ namespace MudSharp.Combat;
 /// <summary>
 /// What leaving a fight costs, from MUD2's own arithmetic.
 ///
-/// <para><b>This is Bartle's formula, supplied by him directly</b> (email to the owner, 2026-09-10),
+/// <para><b>This is Bartle's formula, supplied by him directly</b> by email,
 /// with his caveat: "I haven't checked any of this by plugging in numbers, so it could well be wrong".
 /// It is the rule, not a fit; the corpus is used only to confirm it. That is why this class may exist
 /// where the estimator before it was deleted: the pill prints a price when the price is known and
@@ -39,7 +39,7 @@ namespace MudSharp.Combat;
 /// the corpus does not say which MUD2 does.</item>
 /// </list>
 ///
-/// <para>Bounties are out of scope (owner, 2026-09-10) and the term is dropped; a bountied persona is
+/// <para>Bounties are out of scope and the term is dropped; a bountied persona is
 /// under-priced by exactly <c>2/9 * 4/d * bounty/5</c>.</para>
 /// </summary>
 public static class FleeWorth

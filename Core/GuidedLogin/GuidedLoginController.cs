@@ -246,7 +246,7 @@ public sealed class GuidedLoginController : IDisposable
             // re-check. Grabbing the signal *after* the predicate check would race -- a line
             // landing in that gap would resolve a TCS we no longer hold, and we'd wait on a fresh
             // one that only completes on some *later* line, silently missing this one until the
-            // full timeout elapses (this was the cause of the intermittent co.uk hang).
+            // full timeout elapses.
             var signal = TakeSignalTask();
 
             List<StyledLine> snapshot;
@@ -283,13 +283,10 @@ public sealed class GuidedLoginController : IDisposable
     /// <summary>
     /// Sends "p" at the Option menu and returns the numbered persona slot list.
     ///
-    /// <para>The Option prompt is deliberately NOT a landmark here. The shell echoes whatever we
+    /// <para>The Option prompt is deliberately NOT a landmark here: the shell echoes whatever we
     /// type onto the prompt line itself ("Option (H for help): p"), and a partial line is
     /// re-published every time it grows, so a freshly cleared buffer matches "option (h for help)"
-    /// the instant we send anything. Treating that as the shell's reply made this loop conclude the
-    /// command had been refused, discard the persona list arriving behind it, and fire another "p"
-    /// into the "By what name...?" prompt -- which the shell answered with
-    /// 'Sorry, I can't call you "P".'</para>
+    /// the instant we send anything.</para>
     ///
     /// <para>So "p" goes out once, and is only re-sent when the shell explicitly refuses it because
     /// a reset is rebuilding the database. Anything we do not recognise rides the outer deadline and
@@ -566,7 +563,7 @@ public sealed class GuidedLoginController : IDisposable
         return new GuidedLoginResult(GuidedLoginOutcome.Succeeded);
     }
 
-    // ── Line buffering / landmark waiting ──────────────────────────────────────────────────────
+    // -- Line buffering / landmark waiting ------------------------------------------------------
 
     private void OnLineReady(StyledLine line)
     {

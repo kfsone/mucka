@@ -5,7 +5,7 @@ using System.Text;
 namespace MudSharp.Protocol;
 
 /// <summary>
-/// Decoder for the MUD2 proprietary C1 binary protocol (lead bytes 0x9B–0xFE).
+/// Decoder for the MUD2 proprietary C1 binary protocol (lead bytes 0x9B-0xFE).
 /// All sequences end with the C255 terminator (0xFF 0xFF).
 ///
 /// Color indexes mapping (internal, not ansi)
@@ -17,7 +17,7 @@ internal sealed class Mud2C1Decoder
     private readonly MudStreamParser _parser;
 
     // One colour-stack entry: the style plus the semantic scopes this frame opened (C1Scope
-    // doc explains the mechanism). Scope lifetime is frame lifetime — SettleScopes() reports
+    // doc explains the mechanism). Scope lifetime is frame lifetime - SettleScopes() reports
     // scopes whose frames have unwound.
     private readonly record struct ColorFrame(TextStyle Style, C1Scope Opens);
 
@@ -32,7 +32,7 @@ internal sealed class Mud2C1Decoder
     internal bool HasScope(C1Scope scope) => (_activeScopes & scope) != 0;
 
     /// <summary>
-    /// True while ANY colour frame is on the stack — i.e. some C1 code's styling is in effect.
+    /// True while ANY colour frame is on the stack - i.e. some C1 code's styling is in effect.
     /// Text arriving with the stack empty is plain, un-coded game output (the parser's
     /// plain-text-line Inventory hint keys off this).
     /// </summary>
@@ -51,35 +51,35 @@ internal sealed class Mud2C1Decoder
 
     // Which C11 sub-code opened the current StatusPhraseData capture. Set in Dispatch, read in
     // MatchStatusPhrase. The disabling family (11 00 / 11 01) covers blind/deaf/dumb/cripple/glow
-    // — only glow is ours, so the bracketed phrase disambiguates it from the ailments.
+    // - only glow is ours, so the bracketed phrase disambiguates it from the ailments.
     private enum C11Capture { EnhanceStart, EnhanceEnd, DisableStart, DisableEnd }
     private C11Capture _c11Capture;
 
     internal Mud2C1Decoder(MudStreamParser parser) { _parser = parser; }
 
-    // ── Color index constants ──────────────────────────────────────────────
+    // -- Color index constants ----------------------------------------------
     private const int BLACK = 0, RED = 1, GREEN = 2, YELLOW = 3;
     private const int BLUE = 4, MAGENTA = 5, CYAN = 6, WHITE = 7;
     private const int LT_BLACK = 8, LT_RED = 9, LT_GREEN = 10, LT_YELLOW = 11;
     private const int LT_BLUE = 12, LT_MAGENTA = 13, LT_CYAN = 14, LT_WHITE = 15;
 
-    // ── Helpers ───────────────────────────────────────────────────────────────
+    // -- Helpers ---------------------------------------------------------------
 
     /// <summary>
     /// Hint that parts of the player state may have changed (the debounced replacement
-    /// for Clio's instant txfes). Suppressed inside FEW/FEI/FEX response contexts —
+    /// for Clio's instant txfes). Suppressed inside FEW/FEI/FEX response contexts -
     /// codes there are part of a probe reply, not a state change.
     ///
-    /// Probe-noise policy (2026-07-25): hints are protocol FACTS ("this code implies X may have
-    /// changed"); MudSession decides what to actually probe. Stat categories (AllStats subsets)
-    /// no longer fire off-cadence probes — inline text carries combat deltas and routine FES
-    /// catches the rest; only Inventory/WhoList hints trigger reactive probes. Per-code
-    /// classification (which probes a code can justify):
-    ///   C00/C01 → none │ C02 room-enter → FEI │ C03 items → FEI │ C04/C05 creatures/players → FEI
-    ///   C06 → none (announcements suffice) │ C07/C08 combat → stats(+FEI for weapon/guard)
-    ///   C09 speakers → FEW-relevant, but FEW rides every beat anyway │ C11 spells → stats
-    ///   C13 → none │ C14 weather → stats │ C15..C20 → none.
-    /// PLAIN text (no code at all) → FEI, hinted by the PARSER at line finalisation
+    /// Hints are protocol FACTS ("this code implies X may have changed"); MudSession decides
+    /// what to actually probe. Stat categories (AllStats subsets) do not fire off-cadence
+    /// probes - inline text carries combat deltas and routine FES catches the rest; only
+    /// Inventory/WhoList hints trigger reactive probes. Per-code classification (which probes
+    /// a code can justify):
+    ///   C00/C01 -> none | C02 room-enter -> FEI | C03 items -> FEI | C04/C05 creatures/players -> FEI
+    ///   C06 -> none (announcements suffice) | C07/C08 combat -> stats(+FEI for weapon/guard)
+    ///   C09 speakers -> FEW-relevant, but FEW rides every beat anyway | C11 spells -> stats
+    ///   C13 -> none | C14 weather -> stats | C15..C20 -> none.
+    /// PLAIN text (no code at all) -> FEI, hinted by the PARSER at line finalisation
     /// (_plainTextOnLine): item-moving command responses ("You drop the sword.") are un-coded.
     /// </summary>
     private void Hint(StaleStats kinds)
@@ -102,7 +102,7 @@ internal sealed class Mud2C1Decoder
     {
         // The FIRST frame to open a scope owns it: a nested re-send of the same code (e.g. the
         // inner C09 around a quoted word inside a speaker message) must not re-anchor the scope
-        // to the inner frame, or it would end at the inner pop — one level too early.
+        // to the inner frame, or it would end at the inner pop - one level too early.
         opens &= ~_activeScopes;
         _colorStack.Push(new ColorFrame(s, opens));
         _activeScopes |= opens;
@@ -112,7 +112,7 @@ internal sealed class Mud2C1Decoder
     /// <summary>
     /// Attach <paramref name="scope"/> to the TOP stack frame, stripping it from any earlier
     /// frame first. For scopes whose open decision comes after the colour push (the C01 prompt
-    /// gate) — and where, unlike Apply's first-frame-owns rule, a re-open means the previous
+    /// gate) - and where, unlike Apply's first-frame-owns rule, a re-open means the previous
     /// container lost its pop and the NEW frame must own the scope (the stale frame would
     /// otherwise keep it alive until the next C00 reset).
     /// </summary>
@@ -131,7 +131,7 @@ internal sealed class Mud2C1Decoder
     // Clamp a raw C99 color byte to a color index: byte - 0x9B (C00 base)
     private static int C99Color(byte b) => Math.Clamp(b - 0x9B, 0, 15);
 
-    // ── Sound helpers (Clio sound.c formula) ─────────────────────────────────
+    // -- Sound helpers (Clio sound.c formula) ---------------------------------
 
     private static string SoundFile(int n1, int n2 = 255, int n3 = 255)
     {
@@ -143,13 +143,13 @@ internal sealed class Mud2C1Decoder
     }
 
     // Queued, not emitted: a C1 sound code precedes its line's text on the wire, and the parser
-    // drops the queue when the finished line is a self action echo ("OK, you wave.") — see
+    // drops the queue when the finished line is a self action echo ("OK, you wave.") - see
     // MudStreamParser.FlushPendingLineSounds. Every other line path plays the queue at the
     // line's newline (or at a partial/prompt flush), i.e. within the same network packet.
     private void Sound(int n1, int n2 = 255, int n3 = 255)
         => _parser.QueueLineSound(SoundFile(n1, n2, n3));
 
-    // ── Public entry point ────────────────────────────────────────────────────
+    // -- Public entry point ----------------------------------------------------
 
     /// <summary>
     /// Pop the color stack (Clio pop() on bare FF FF).
@@ -179,8 +179,8 @@ internal sealed class Mud2C1Decoder
     /// Scope bookkeeping after any stack unwind (bare FF FF pop, a C90 colour throw popping
     /// several frames at once, or the C00 init_stack reset): recompute which scopes are still
     /// open from the frames themselves and hand any that just ended to the parser, which owns
-    /// the end-of-scope actions (flushing FE captures, closing the prompt container, …).
-    /// A scope ends exactly when the frame that opened it leaves the stack — inner nests
+    /// the end-of-scope actions (flushing FE captures, closing the prompt container, ...).
+    /// A scope ends exactly when the frame that opened it leaves the stack - inner nests
     /// returning to the same depth cannot close it early, and a throw or reset that unwinds
     /// several scopes at once closes them all in one call.
     /// </summary>
@@ -254,13 +254,13 @@ internal sealed class Mud2C1Decoder
         _activeScopes = C1Scope.None;   // silent: relog/logout fires no end-of-scope actions
     }
 
-    // ── C1 sequence accumulation ──────────────────────────────────────────────
+    // -- C1 sequence accumulation ----------------------------------------------
 
     private ParserState OnC1Seq(byte b, byte lead, List<byte> buf)
     {
         if (b == 0xFF) return ParserState.C1Ff1;
         buf.Add(b);
-        // C89 (0xF4): non-terminated — F4+C01 (0x9C) is complete after exactly 1 byte (Clio telnet.l:968)
+        // C89 (0xF4): non-terminated - F4+C01 (0x9C) is complete after exactly 1 byte (Clio telnet.l:968)
         if (lead == 0xF4 && b == 0x9C)
         {
             var next = Dispatch(lead, buf);
@@ -276,7 +276,7 @@ internal sealed class Mud2C1Decoder
     {
         if (b == 0xFF) return ParserState.C1Ff1;
         buf.Add(b);
-        // C89 (0xF4): non-terminated — only F4+C00+xx (buf[0]==0x9B) is complete after exactly
+        // C89 (0xF4): non-terminated - only F4+C00+xx (buf[0]==0x9B) is complete after exactly
         // 2 bytes (Clio telnet.l:966-967: F4 9B 9B and F4 9B 9C).
         // Any other F4+xx+yy sequence is unrecognised and falls through to FF FF termination.
         if (lead == 0xF4 && buf.Count == 2 && buf[0] == 0x9B)
@@ -297,7 +297,7 @@ internal sealed class Mud2C1Decoder
     {
         if (b == 0xFF)
         {
-            // C255 complete — dispatch and clear buf
+            // C255 complete - dispatch and clear buf
             var next = Dispatch(lead, buf);
             buf.Clear();
             return next;
@@ -308,7 +308,7 @@ internal sealed class Mud2C1Decoder
         return ParserState.C1Data;
     }
 
-    // ── FES data state (after C12+C08+C01+C255) ───────────────────────────────
+    // -- FES data state (after C12+C08+C01+C255) -------------------------------
 
     private const int FesExpectedFields = 15;
     private const int FesMaxBufBytes = 1024;
@@ -319,10 +319,10 @@ internal sealed class Mud2C1Decoder
         // The data line ends at the first '\r' or '\n' once all 15 fields are present.
         // Both checks are required: on narrow terminals the server wraps the line
         // mid-stream (the plain-text content is ~51 chars; a phone may be <52 cols
-        // wide), so a line ending before all fields are present is a wrap — keep
+        // wide), so a line ending before all fields are present is a wrap - keep
         // collecting. And in client mode the server can end the line with a bare CR
         // ("\r\0") with the C255 pop, prompt container and FEW/FEI responses following
-        // immediately — waiting for a '\n' would swallow them all into this buffer.
+        // immediately - waiting for a '\n' would swallow them all into this buffer.
         if (b is (byte)'\r' or (byte)'\n')
         {
             if (buf.Count < FesMaxBufBytes && !FesHasAllFields(buf))
@@ -363,7 +363,7 @@ internal sealed class Mud2C1Decoder
     }
 
     // Returns true when the visible ASCII portion of the FES buffer contains at least 15
-    // space-separated fields — the minimum for a complete FES line.
+    // space-separated fields - the minimum for a complete FES line.
     private static bool FesHasAllFields(List<byte> buf)
     {
         bool skipNext = false;
@@ -390,7 +390,7 @@ internal sealed class Mud2C1Decoder
         return count >= FesExpectedFields;
     }
 
-    // ── FEW player-name data state (after WHO-list color code + C255) ────────
+    // -- FEW player-name data state (after WHO-list color code + C255) --------
 
     private ParserState OnFewPlayerData(byte b, List<byte> buf)
     {
@@ -407,7 +407,7 @@ internal sealed class Mud2C1Decoder
         // A C1 colour sequence inside the name (e.g. the C90 catch + per-letter C99
         // colours + C90 throw of a rainbow wiz name): hand the partial name to the
         // parser so the remaining segments accumulate across the colour codes via
-        // EmitChar; the name completes at the line's '\n'. 0xFF is NOT a continuation —
+        // EmitChar; the name completes at the line's '\n'. 0xFF is NOT a continuation -
         // a bare FF FF pop is the normal end-of-name terminator (handled below).
         if (b >= 0x9B && b <= 0xFE)
         {
@@ -429,10 +429,10 @@ internal sealed class Mud2C1Decoder
         return ParserState.Normal;
     }
 
-    // ── Presence-name data state (after a C05 presence code) ─────────────────
+    // -- Presence-name data state (after a C05 presence code) -----------------
     // The C05 presence variants (here/arriving/departing/visible/invisible/fleeing)
-    // bracket a player name who is demonstrably online. Capture it — passing the text
-    // through to the display unchanged — and hand it to the session so it can mark the
+    // bracket a player name who is demonstrably online. Capture it - passing the text
+    // through to the display unchanged - and hand it to the session so it can mark the
     // who list stale when the name is missing from its cache.
 
     private ParserState OnPresenceNameData(byte b, List<byte> buf)
@@ -444,7 +444,7 @@ internal sealed class Mud2C1Decoder
             return ParserState.PresenceNameData;
         }
         // An embedded C1 colour sequence (e.g. a rainbow wiz name): abandon the
-        // presence check — the text so far has already been displayed — and let the
+        // presence check - the text so far has already been displayed - and let the
         // colour code process normally.
         if (b >= 0x9B && b <= 0xFE)
         {
@@ -463,7 +463,7 @@ internal sealed class Mud2C1Decoder
         return ParserState.Normal;
     }
 
-    // ── Status-phrase data state (after a C11 enhance start/end code) ────────
+    // -- Status-phrase data state (after a C11 enhance start/end code) --------
     // Accumulate the bracketed effect phrase while still displaying it normally (the
     // message is player-visible), then resolve it to a StatusEffectChange at the code's
     // terminating C255 / line ending.
@@ -488,7 +488,7 @@ internal sealed class Mud2C1Decoder
         return ParserState.Normal;
     }
 
-    // ── Phrase tables (matched only inside a C11 bracket — bounded, never a stream scan) ──
+    // -- Phrase tables (matched only inside a C11 bracket - bounded, never a stream scan) --
 
     // 11 02 enhance START: comparative-adjective phrases. Full needles are mutually distinct.
     private static readonly (string Needle, StatusEffectKind Kind, EffectSign Sign)[] StartPhrases =
@@ -517,7 +517,7 @@ internal sealed class Mud2C1Decoder
     ];
 
     // Affliction START phrases (11 00, disabling), keyword-matched to supply a tooltip line.
-    // "gone deaf"/"gone blind" confirmed; dumb/cripple wording is a guess — a miss just falls
+    // "gone deaf"/"gone blind" confirmed; dumb/cripple wording is a guess - a miss just falls
     // back to the hardcoded tooltip, never mis-attributes.
     private static readonly (string Needle, StatusEffectKind Kind)[] AfflictionPhrases =
     [
@@ -535,8 +535,8 @@ internal sealed class Mud2C1Decoder
     {
         var msg = phrase.Trim();
 
-        // TARGET GATE. The C11 spell codes fire for an effect landing on ANYONE in the room —
-        // NPCs and other players, not just us — and the phrase is the only target signal. Every
+        // TARGET GATE. The C11 spell codes fire for an effect landing on ANYONE in the room -
+        // NPCs and other players, not just us - and the phrase is the only target signal. Every
         // status icon we track is about the LOCAL player, so a spell cast on a mob must not light
         // one up. Self-phrases always begin "You " / "Your " (partial wear-offs "Some of your ");
         // effects on others read "The zombie1 is now less adroit!", "Someone has gone blind!", or
@@ -547,7 +547,7 @@ internal sealed class Mud2C1Decoder
         switch (capture)
         {
             // Disabling family: glow + the afflictions (blind/deaf/dumb/cripple). Glow's on/off is
-            // ours ("glowing"); afflictions we surface ONLY as a tooltip line on start — their
+            // ours ("glowing"); afflictions we surface ONLY as a tooltip line on start - their
             // visibility is FES-driven, so their end (11 01) is ignored here.
             case C11Capture.DisableStart when phrase.Contains("glowing", StringComparison.Ordinal):
                 return new StatusEffectChange(StatusEffectKind.Glow, EffectSign.Buff, EffectTransition.Started, msg);
@@ -559,7 +559,7 @@ internal sealed class Mud2C1Decoder
                         return new StatusEffectChange(kind, EffectSign.Buff, EffectTransition.Started, msg);
                 return null;
             case C11Capture.DisableEnd:
-                return null;   // affliction cleared — FES flag hides the icon; no tooltip needed
+                return null;   // affliction cleared - FES flag hides the icon; no tooltip needed
 
             case C11Capture.EnhanceStart:
                 foreach (var (needle, kind, sign) in StartPhrases)
@@ -587,14 +587,14 @@ internal sealed class Mud2C1Decoder
     // The phrase describes an effect on the local player. Self-phrases begin "You " (starts:
     // "You have suddenly and magically become stronger!") or "Your " (wear-off: "Your magical
     // strength has worn off."); partial wear-offs begin "Some of your ". The trailing space
-    // anchors a word boundary so a player named e.g. "Youssef" ("Youssef is now …") is not
+    // anchors a word boundary so a player named e.g. "Youssef" ("Youssef is now ...") is not
     // mistaken for "You".
     private static bool IsSelfPhrase(string trimmed)
         => trimmed.StartsWith("You ", StringComparison.Ordinal)
         || trimmed.StartsWith("Your ", StringComparison.Ordinal)
         || trimmed.StartsWith("Some of your ", StringComparison.Ordinal);
 
-    // ── Dreamword data state (after C15+C00+C00+C255) ────────────────────────
+    // -- Dreamword data state (after C15+C00+C00+C255) ------------------------
 
     private ParserState OnDreamwordData(byte b, List<byte> buf)
     {
@@ -604,7 +604,7 @@ internal sealed class Mud2C1Decoder
             return ParserState.DreamwordData;
         }
 
-        // End of dreamword — emit and reprocess the terminating byte.
+        // End of dreamword - emit and reprocess the terminating byte.
         // C (BLACK/CYAN) was already pushed onto the stack when we entered DreamwordData;
         // do NOT call Apply again or the stack will have an extra entry that the server's
         // subsequent \xFF\xFF pop cannot balance, leaving CYAN active for the rest of the line.
@@ -620,7 +620,7 @@ internal sealed class Mud2C1Decoder
         return ParserState.Normal;
     }
 
-    // ── C95 client-mode data (after C95+C255) ─────────────────────────────────
+    // -- C95 client-mode data (after C95+C255) ---------------------------------
 
     private ParserState OnC95Data(byte b, List<byte> buf)
     {
@@ -649,7 +649,7 @@ internal sealed class Mud2C1Decoder
         return ParserState.C95Data;
     }
 
-    // ── C95 account-logout line (after C95+C03+C255) ─────────────────────────
+    // -- C95 account-logout line (after C95+C03+C255) -------------------------
 
     private ParserState OnC95LogoutLine(byte b)
     {
@@ -669,7 +669,7 @@ internal sealed class Mud2C1Decoder
         return ParserState.C95LogoutLine;
     }
 
-    // ── C1 dispatch ───────────────────────────────────────────────────────────
+    // -- C1 dispatch -----------------------------------------------------------
 
     /// <summary>
     /// Dispatch based on the C1 lead byte and accumulated payload.
@@ -686,26 +686,26 @@ internal sealed class Mud2C1Decoder
 
         switch (lead)
         {
-            // ── C00 (0x9B): init_stack → reset to WHITE/BLACK ─────────────────
+            // -- C00 (0x9B): init_stack -> reset to WHITE/BLACK -----------------
             // Clio sends C00+C255 at the start of every game-output frame (before the room
             // short description, text, etc.) as a color-stack reset. C1 sequences do not
             // advance the display column, so _atLineStart is untouched here and everywhere
-            // else in Dispatch — only text characters clear it.
+            // else in Dispatch - only text characters clear it.
             case 0x9B:
                 _colorStack.Clear();
                 Apply(WHITE, BLACK);
                 SettleScopes();   // the reset ends every open scope, with end-of-scope actions
                 return ParserState.Normal;
 
-            // ── C01 (0x9C): the prompt family — BLUE or LT_BLUE ──────────────
-            // Code 01 is "invisibility brackets around the prompt" (mud2_fe4 §codes):
-            // {C01}{C255}                 → BLUE/BLACK; in game mode this is the OUTER
+            // -- C01 (0x9C): the prompt family - BLUE or LT_BLUE --------------
+            // Code 01 is "invisibility brackets around the prompt" (mud2_fe4 section codes):
+            // {C01}{C255}                 -> BLUE/BLACK; in game mode this is the OUTER
             //                               container that wraps the ENTIRE prompt
-            // {C01}{C01..C03}{C255}       → LT_BLUE/BLACK + enter game mode; the inner
+            // {C01}{C01..C03}{C255}       -> LT_BLUE/BLACK + enter game mode; the inner
             //                               prompt core (01 01 wiz / 01 02 mortal / 01 03 wiz-set)
-            // {C01}{C04}{C255}|{C01}{C05}{C255} → BLUE/BLACK (snoop/aux prompt indicators)
+            // {C01}{C04}{C255}|{C01}{C05}{C255} -> BLUE/BLACK (snoop/aux prompt indicators)
             //
-            // "The prompt" is contextual — it is everything inside the outer container,
+            // "The prompt" is contextual - it is everything inside the outer container,
             // not just the '*': '(*)' when invisible, plus snoop/rank indicators. The
             // outer push therefore opens the C1Scope.Prompt scope on its own frame; when
             // that frame unwinds, OnC1ScopesClosed shows/discards the capture per Clio's
@@ -723,7 +723,7 @@ internal sealed class Mud2C1Decoder
                     {
                         // Bare {C01}{C255}: the outer prompt container. Capture until its frame
                         // pops. Re-entering while a container is still open means the previous
-                        // one lost its pop — MoveScopeToTop re-anchors the scope to this frame
+                        // one lost its pop - MoveScopeToTop re-anchors the scope to this frame
                         // and the parser restarts the capture.
                         MoveScopeToTop(C1Scope.Prompt);
                         _parser.EnterPromptContext();
@@ -739,10 +739,10 @@ internal sealed class Mud2C1Decoder
                 return ParserState.Normal;
             }
 
-            // ── C02 (0x9D): GREEN shades + game-mode entry ────────────────────
-            // {C02}{C00}{C255} → BLACK/GREEN
-            // {C02}{C01}{C255} → LT_GREEN/BLACK + enter game mode
-            // {C02}{C02}{C255} → GREEN/BLACK
+            // -- C02 (0x9D): GREEN shades + game-mode entry --------------------
+            // {C02}{C00}{C255} -> BLACK/GREEN
+            // {C02}{C01}{C255} -> LT_GREEN/BLACK + enter game mode
+            // {C02}{C02}{C255} -> GREEN/BLACK
             case 0x9D:
                 switch (b0)
                 {
@@ -753,17 +753,17 @@ internal sealed class Mud2C1Decoder
                         Apply(LT_GREEN, BLACK);
                         _parser.EnterGameMode();
                         // Fire RoomEntered if C02+C01 arrived at line start (column 0).
-                        // This applies on game-entry too — the first C02+C01 from the server
+                        // This applies on game-entry too - the first C02+C01 from the server
                         // is the room-short line for the room the player logged in to.
                         // ClearLineStart() prevents a second consecutive C02+C01 on the same
                         // line from double-firing. SetPendingRoomShort() is read at '\n' emission
-                        // to gate RoomShortReady — only fired for line-start room shorts.
+                        // to gate RoomShortReady - only fired for line-start room shorts.
                         if (_parser.AtLineStart)
                         {
                             _parser.ClearLineStart();
                             _parser.EmitRoomEntered();
                             _parser.SetPendingRoomShort();
-                            // A new room means new room contents — refresh the Here list without
+                            // A new room means new room contents - refresh the Here list without
                             // waiting for the next FEI-carrying beat.
                             Hint(StaleStats.Inventory);
                         }
@@ -779,10 +779,10 @@ internal sealed class Mud2C1Decoder
                 }
                 return ParserState.Normal;
 
-            // ── C03 (0x9E): CYAN / LT_CYAN (room/location variants) ──────────
-            // {C03}{C00..C03}{C255} → GREEN/BLACK
-            // {C03}{C01..C03}{C255} → CYAN/BLACK
-            // {C03}{C02..C03+variants}{C255} → LT_CYAN/BLACK
+            // -- C03 (0x9E): CYAN / LT_CYAN (room/location variants) ----------
+            // {C03}{C00..C03}{C255} -> GREEN/BLACK
+            // {C03}{C01..C03}{C255} -> CYAN/BLACK
+            // {C03}{C02..C03+variants}{C255} -> LT_CYAN/BLACK
             case 0x9E:
                 // C1Scope.ListedObject on every C03 variant: its only job is to mask an object's name
                 // out of an enclosing creature sentence (see C1Scope.ListedObject), and an object is an
@@ -796,11 +796,11 @@ internal sealed class Mud2C1Decoder
                     Hint(StaleStats.Inventory);
                 return ParserState.Normal;
 
-            // ── C04 (0x9F): MAGENTA / LT_MAGENTA ─────────────────────────────
-            // {C04}{C00}{C06}{C255} → MAGENTA/BLACK   + WHO-list creature name follows
-            // {C04}{C01}{C06}{C255} → LT_MAGENTA/BLACK + WHO-list wiz-creature name follows
-            // {C04}{C01}{C255} or {C04}{C01}..{C255} → LT_MAGENTA/BLACK
-            // everything else → MAGENTA/BLACK
+            // -- C04 (0x9F): MAGENTA / LT_MAGENTA -----------------------------
+            // {C04}{C00}{C06}{C255} -> MAGENTA/BLACK   + WHO-list creature name follows
+            // {C04}{C01}{C06}{C255} -> LT_MAGENTA/BLACK + WHO-list wiz-creature name follows
+            // {C04}{C01}{C255} or {C04}{C01}..{C255} -> LT_MAGENTA/BLACK
+            // everything else -> MAGENTA/BLACK
             case 0x9F:
                 // The presence variants (04 0x 01..05: here, arriving, departing, becoming visible,
                 // becoming invisible) bracket a sentence about a creature IN THE ROOM. Captured so the
@@ -816,11 +816,11 @@ internal sealed class Mud2C1Decoder
                     Hint(StaleStats.Inventory);
                 return count == 2 && b1 == 0xA1 ? ParserState.FewPlayerData : ParserState.Normal;
 
-            // ── C05 (0xA0): RED / LT_RED / LT_YELLOW (combat/damage) ─────────
-            // {C05}{C00}{C06}{C255} → RED/BLACK    + WHO-list mortal name follows
-            // {C05}{C01}{C06}{C255} → LT_RED/BLACK + WHO-list wiz name follows
-            // {C05}{C00+variants}{C255} → RED/BLACK (except C00+C09 → LT_YELLOW)
-            // {C05}{C01+variants}{C255} → LT_RED/BLACK (except C01+C09 → LT_YELLOW)
+            // -- C05 (0xA0): RED / LT_RED / LT_YELLOW (combat/damage) ---------
+            // {C05}{C00}{C06}{C255} -> RED/BLACK    + WHO-list mortal name follows
+            // {C05}{C01}{C06}{C255} -> LT_RED/BLACK + WHO-list wiz name follows
+            // {C05}{C00+variants}{C255} -> RED/BLACK (except C00+C09 -> LT_YELLOW)
+            // {C05}{C01+variants}{C255} -> LT_RED/BLACK (except C01+C09 -> LT_YELLOW)
             case 0xA0:
                 if (count == 2 && b1 == 0xA1)                    // C00/C01+C06: WHO-list player
                 {
@@ -833,7 +833,7 @@ internal sealed class Mud2C1Decoder
                 else Apply(RED, BLACK);
                 // Presence variants (05 0x: 01 here, 02 arriving, 03 departing, 04 visible,
                 // 05 invisible, 10 fleeing) bracket the name of a player who is demonstrably
-                // online — capture it for the who-list staleness check. All but "here" also
+                // online - capture it for the who-list staleness check. All but "here" also
                 // change the room's visible occupants, so the FEI room list is dirty too.
                 if (count == 2 && b0 is 0x9B or 0x9C && b1 is 0x9D or 0x9E or 0x9F or 0xA0 or 0xA5)
                     Hint(StaleStats.Inventory);
@@ -843,38 +843,38 @@ internal sealed class Mud2C1Decoder
                     return ParserState.PresenceNameData;
                 return ParserState.Normal;
 
-            // ── C06 (0xA1): LT_BLUE (magical/special) + txfes ───────────────
-            // Exception: {C06}{C06}{C255} ("Something magical") → LT_BLUE only, no txfes (Clio:581-584)
-            // All other variants → txfes (Clio:562-580)
-            // All variants → sound(6) (Clio sound.c)
+            // -- C06 (0xA1): LT_BLUE (magical/special) + txfes ---------------
+            // Exception: {C06}{C06}{C255} ("Something magical") -> LT_BLUE only, no txfes (Clio:581-584)
+            // All other variants -> txfes (Clio:562-580)
+            // All variants -> sound(6) (Clio sound.c)
             case 0xA1:
                 Apply(LT_BLUE, BLACK);
                 // No probe hint: C06 announcements (Clio txfes'd these) describe events that need
-                // no negation by polling — probe-noise policy, 2026-07-25.
+                // no negation by polling.
                 // C06 C04 = "Auto reset initiated, you have 120 seconds to finish up" (Bartle: 06 04).
-                // The reset is now precisely timed from this instant — signal the reset projection.
+                // The reset is now precisely timed from this instant - signal the reset projection.
                 if (count == 1 && b0 == 0x9F)
                     _parser.EmitAutoResetInitiated();
                 // C06 C06 = "Something magical is happening." (Bartle: 06 06). On the wire this is
                 // the reset LANDING, not another warning: in both timed captures it arrives at
-                // warning + 119.995 s / + 119.997 s — i.e. exactly the 120 s the C06 C04 message
-                // promised — as the last in-world line, immediately followed by "(Persona saved on
+                // warning + 119.995 s / + 119.997 s - i.e. exactly the 120 s the C06 C04 message
+                // promised - as the last in-world line, immediately followed by "(Persona saved on
                 // N)." and then, ~200 ms later, the "Option (H for help): " shell prompt. Two
                 // observations; there is no third and no counter-example in the corpus, and Bartle's
                 // own wording for the code is generic, so the consumer corroborates it against the
                 // reset countdown rather than trusting it alone (see MudSession.OnWorldResetLanded).
-                // Clio's own special-casing of this one C06 variant — the only one it does NOT
-                // txfes — agrees that there is nothing left to ask the server about here.
+                // Clio's own special-casing of this one C06 variant - the only one it does NOT
+                // txfes - agrees that there is nothing left to ask the server about here.
                 if (count == 1 && b0 == 0xA1)
                     _parser.EmitWorldResetLanded();
                 Sound(6);
                 return ParserState.Normal;
 
-            // ── C07 (0xA2): RED/BLACK + stamina hint (isolated hits) ────────
+            // -- C07 (0xA2): RED/BLACK + stamina hint (isolated hits) --------
             // All C07 variants trigger txfes in Clio (telnet.l:587-620); isolated hits
             // change stamina, and the server usually follows with an inline "(sta/max)"
-            // line — the debounced hint lets that update land before any probe.
-            // Sound payload: count==0 → 070000, count==1 → 07NN, count==2 → 07NNMM (Clio sound.c)
+            // line - the debounced hint lets that update land before any probe.
+            // Sound payload: count==0 -> 070000, count==1 -> 07NN, count==2 -> 07NNMM (Clio sound.c)
             case 0xA2:
                 Apply(RED, BLACK);
                 Hint(StaleStats.Stamina);
@@ -886,13 +886,13 @@ internal sealed class Mud2C1Decoder
                 }
                 return ParserState.Normal;
 
-            // ── C08 (0xA3): RED / WHITE / BLACK+RED (combat/death) ────────────
-            // {C08}{C01}{C255}|{C08}{C03}{C255} → LT_RED/BLACK + txfes
-            // {C08}{C00/C02/C04}{C255} → RED/BLACK  (plain, NO txfes — Clio:633-636)
-            // {C08}{C05..C07/C09}{C255} → WHITE/BLACK
-            // {C08}{C08}{C255} → BLACK/RED + txfes
-            // {C08}{C10..C12}{C255} → RED/BLACK + txfes
-            // {C08}{C13}{C255} → BLACK/RED
+            // -- C08 (0xA3): RED / WHITE / BLACK+RED (combat/death) ------------
+            // {C08}{C01}{C255}|{C08}{C03}{C255} -> LT_RED/BLACK + txfes
+            // {C08}{C00/C02/C04}{C255} -> RED/BLACK  (plain, NO txfes - Clio:633-636)
+            // {C08}{C05..C07/C09}{C255} -> WHITE/BLACK
+            // {C08}{C08}{C255} -> BLACK/RED + txfes
+            // {C08}{C10..C12}{C255} -> RED/BLACK + txfes
+            // {C08}{C13}{C255} -> BLACK/RED
             case 0xA3:
                 switch (b0)
                 {
@@ -913,12 +913,12 @@ internal sealed class Mud2C1Decoder
                 // LineKind.FightEnd.
                 if (count == 1 && b0 is 0xA5 or 0xA6 or 0xA7)
                     _parser.SetPendingKind(LineKind.FightEnd);
-                // Stamina hints: bare C08 (fight starts), C03 (they hit you — usually
+                // Stamina hints: bare C08 (fight starts), C03 (they hit you - usually
                 // followed by an inline "(sta/max)" that cancels the probe), C05 (weapon
                 // change), C08 (you killed them), C10/C11/C12 (fight ends).
                 // NOT C01/C02/C04 (your hits and misses either way don't change YOUR
-                // stats — Clio txfes'd C01 but that just spammed probes every swing).
-                // Inventory hints: C05 (weapon change), C06 (dropped guard) — the held
+                // stats - Clio txfes'd C01 but that just spammed probes every swing).
+                // Inventory hints: C05 (weapon change), C06 (dropped guard) - the held
                 // weapon shown in the FEI carry list may have changed.
                 {
                     var hint = StaleStats.None;
@@ -929,7 +929,7 @@ internal sealed class Mud2C1Decoder
                     if (hint != StaleStats.None)
                         Hint(hint);
                 }
-                // C13: persona not updated (wiped) — zero the persona stats locally;
+                // C13: persona not updated (wiped) - zero the persona stats locally;
                 // no probe will bring them back. Also fire the dedicated PersonaWiped event so
                 // consumers can react to the unambiguous protocol signal instead of pattern-matching
                 // the rendered "Not updating persona." text (which any player chat line could contain).
@@ -939,14 +939,14 @@ internal sealed class Mud2C1Decoder
                         Stamina: 0, Score: 0, Strength: 0, Dexterity: 0, CurrentMagic: 0));
                     _parser.EmitPersonaWiped();
                 }
-                // Sound: C01→0801, C03→0803 (Clio sound.c)
+                // Sound: C01->0801, C03->0803 (Clio sound.c)
                 if (b0 == 0x9C) Sound(8, 1);
                 else if (b0 == 0x9E) Sound(8, 3);
                 return ParserState.Normal;
 
-            // ── C09 (0xA4): YELLOW / LT_YELLOW ──────────────────────────────
-            // {C09}{C00}{C255} → YELLOW/BLACK
-            // everything else → LT_YELLOW/BLACK
+            // -- C09 (0xA4): YELLOW / LT_YELLOW ------------------------------
+            // {C09}{C00}{C255} -> YELLOW/BLACK
+            // everything else -> LT_YELLOW/BLACK
             // C09 is "speaker of a message" (fecodes.txt): shout/say/tell/act/emote/social.
             // Tag the line as Chat so the chat-view filter can show only these. To tighten the
             // filter to speech-only, gate on b0 (0x9C=shout, 0x9D=say, 0x9E=tell); to widen it to
@@ -964,17 +964,17 @@ internal sealed class Mud2C1Decoder
                     _parser.ArmPendingTellSound();
                 return ParserState.Normal;
 
-            // ── C10 (0xA5): BLACK+YELLOW / LT_RED+YELLOW ─────────────────────
-            // {C10}{C00/C03}{C255} → BLACK/YELLOW
-            // {C10}{C01/C02/C04}{C255} → LT_RED/YELLOW (non-wireplay)
+            // -- C10 (0xA5): BLACK+YELLOW / LT_RED+YELLOW ---------------------
+            // {C10}{C00/C03}{C255} -> BLACK/YELLOW
+            // {C10}{C01/C02/C04}{C255} -> LT_RED/YELLOW (non-wireplay)
             case 0xA5:
                 if (b0 == 0x9B || b0 == 0x9E) Apply(BLACK,  YELLOW);
                 else                           Apply(LT_RED, YELLOW);
                 return ParserState.Normal;
 
-            // ── C11 (0xA6): LT_RED (spells/abilities) ────────────────────────
-            // {C11}{C255}|{C11}{C06}{C255}|{C11}{C09}{C255}|{C11}{C14}{C255} → LT_RED, no txfes (Clio:675-685)
-            // All other single-byte payload variants → LT_RED + txfes + sound(11,NN) (Clio:687-713)
+            // -- C11 (0xA6): LT_RED (spells/abilities) ------------------------
+            // {C11}{C255}|{C11}{C06}{C255}|{C11}{C09}{C255}|{C11}{C14}{C255} -> LT_RED, no txfes (Clio:675-685)
+            // All other single-byte payload variants -> LT_RED + txfes + sound(11,NN) (Clio:687-713)
             case 0xA6:
                 Apply(LT_RED, BLACK);
                 if (count == 1 && b0 is not (0xA1 or 0xA4 or 0xA9))
@@ -983,16 +983,16 @@ internal sealed class Mud2C1Decoder
                     Hint(StaleStats.AllStats);
                     Sound(11, b0 - 0x9B);
                 }
-                // ── Status-effect tracking (status-icons) ────────────────────────
+                // -- Status-effect tracking (status-icons) ------------------------
                 // The C11 family brackets spell start/end. The sub-code gives WHEN + the CLASS
                 // of change but NOT the identity, so every case captures the bracketed phrase
                 // and MatchStatusPhrase resolves it:
-                //   11 00 (b0=0x9B) disabling starts │ 11 01 (b0=0x9C) disabling ends
-                //     — blind/deaf/dumb/cripple/glow all share these; only GLOW is ours, matched
+                //   11 00 (b0=0x9B) disabling starts | 11 01 (b0=0x9C) disabling ends
+                //     - blind/deaf/dumb/cripple/glow all share these; only GLOW is ours, matched
                 //       by phrase (FES flags cover the ailments). Without this gate, a deaf/etc.
                 //       ending ("regained your hearing") wrongly cleared the glow icon.
-                //   11 02 (b0=0x9D) enhancing starts │ 11 03 (b0=0x9E) enhancing ends (wear-off)
-                //     — all six stat spells collapse here; the phrase gives stat + direction.
+                //   11 02 (b0=0x9D) enhancing starts | 11 03 (b0=0x9E) enhancing ends (wear-off)
+                //     - all six stat spells collapse here; the phrase gives stat + direction.
                 if (count == 1)
                 {
                     switch (b0)
@@ -1005,14 +1005,14 @@ internal sealed class Mud2C1Decoder
                 }
                 return ParserState.Normal;
 
-            // ── C12 (0xA7): WHITE/GREEN/YELLOW shades + FES packet ────────────
-            // {C12}{C255}|{C12}{C01..C03+variants}{C255} → WHITE/BLACK
-            // {C12}{C04/C05}{C255} → GREEN/BLACK
-            // {C12}{C06}{C255} → YELLOW/BLACK
-            // {C12}{C07}{C255} → LT_YELLOW/BLACK
-            // {C12}{C08}{C01}{C255} → FES data line follows
-            // {C12}{C08}{C02..C04/C09/C10}{C255} → WHITE/BLACK
-            // {C12}{C08}{C05}{C255} → FEW response context: suppress display, capture names
+            // -- C12 (0xA7): WHITE/GREEN/YELLOW shades + FES packet ------------
+            // {C12}{C255}|{C12}{C01..C03+variants}{C255} -> WHITE/BLACK
+            // {C12}{C04/C05}{C255} -> GREEN/BLACK
+            // {C12}{C06}{C255} -> YELLOW/BLACK
+            // {C12}{C07}{C255} -> LT_YELLOW/BLACK
+            // {C12}{C08}{C01}{C255} -> FES data line follows
+            // {C12}{C08}{C02..C04/C09/C10}{C255} -> WHITE/BLACK
+            // {C12}{C08}{C05}{C255} -> FEW response context: suppress display, capture names
             case 0xA7:
                 if (count == 2 && b0 == 0xA3 && b1 == 0x9C)
                 {
@@ -1022,7 +1022,7 @@ internal sealed class Mud2C1Decoder
                 }
                 if (count == 2 && b0 == 0xA3 && b1 == 0xA0)
                 {
-                    // FEW response: C12+C08+C05+C255 — suppress display output; FewPlayerReady
+                    // FEW response: C12+C08+C05+C255 - suppress display output; FewPlayerReady
                     // still fires. The scope lasts until this frame unwinds.
                     Apply(WHITE, BLACK, opens: C1Scope.FewResponse);
                     _parser.BeginFewResponse();
@@ -1030,7 +1030,7 @@ internal sealed class Mud2C1Decoder
                 }
                 if (count == 2 && b0 == 0xA3 && b1 == 0x9D)
                 {
-                    // FEX response: C12+C08+C02+C255 — exit keyword lines follow while the scope
+                    // FEX response: C12+C08+C02+C255 - exit keyword lines follow while the scope
                     // is open. Each line is one direction keyword.
                     Apply(WHITE, BLACK, opens: C1Scope.FexResponse);
                     _parser.BeginFexResponse();
@@ -1038,7 +1038,7 @@ internal sealed class Mud2C1Decoder
                 }
                 if (count == 2 && b0 == 0xA3 && b1 == 0x9E)
                 {
-                    // FEI response: C12+C08+C03+C255 — item lines (plain text) follow while the
+                    // FEI response: C12+C08+C03+C255 - item lines (plain text) follow while the
                     // scope is open. "========" separates room items from carried items.
                     Apply(WHITE, BLACK, opens: C1Scope.FeiResponse);
                     _parser.BeginFeiResponse();
@@ -1053,16 +1053,16 @@ internal sealed class Mud2C1Decoder
                 }
                 return ParserState.Normal;
 
-            // ── C13 (0xA8): WHITE / BLACK+WHITE ──────────────────────────────
-            // {C13}{C255}|{C13}..{C255} → WHITE/BLACK  (except wireplay: BLACK/WHITE; skip wireplay)
-            // {C13}{CNi}{CNj}{C255} → sound(13,i) where i=buf[0]-0x9B (Clio sound.c)
+            // -- C13 (0xA8): WHITE / BLACK+WHITE ------------------------------
+            // {C13}{C255}|{C13}..{C255} -> WHITE/BLACK  (except wireplay: BLACK/WHITE; skip wireplay)
+            // {C13}{CNi}{CNj}{C255} -> sound(13,i) where i=buf[0]-0x9B (Clio sound.c)
             case 0xA8:
                 Apply(WHITE, BLACK);
                 if (count == 2) Sound(13, b0 - 0x9B);
                 return ParserState.Normal;
 
-            // ── C14 (0xA9): GREEN / BLACK+WHITE (weather/outdoor) + txfes ──────
-            // Most variants → GREEN/BLACK + txfes; snow/frost → BLACK/WHITE (non-wireplay)
+            // -- C14 (0xA9): GREEN / BLACK+WHITE (weather/outdoor) + txfes ------
+            // Most variants -> GREEN/BLACK + txfes; snow/frost -> BLACK/WHITE (non-wireplay)
             // C01 (snow): conditional txfes when weather changed from non-snow (Clio:833-843)
             // C02 (rain): conditional txfes when weather changed from non-rain (Clio:844-850)
             // C04 variants: NO txfes (sweather only, Clio:875-885)
@@ -1073,15 +1073,15 @@ internal sealed class Mud2C1Decoder
                 {
                     switch (b0)
                     {
-                        case 0x9B: // C00 → GREEN/BLACK + always txfes (Clio:832)
+                        case 0x9B: // C00 -> GREEN/BLACK + always txfes (Clio:832)
                             Apply(GREEN, BLACK);
                             emitTxFes = true;
                             break;
-                        case 0x9C: // C01 → snow BLACK/WHITE + conditional txfes (Clio:833-843)
+                        case 0x9C: // C01 -> snow BLACK/WHITE + conditional txfes (Clio:833-843)
                             Apply(BLACK, WHITE);
                             emitTxFes = _parser.CurrentWeather != 'S' && _parser.CurrentWeather != 'B';
                             break;
-                        case 0x9D: // C02 → rain GREEN/BLACK + conditional txfes (Clio:844-850)
+                        case 0x9D: // C02 -> rain GREEN/BLACK + conditional txfes (Clio:844-850)
                             Apply(GREEN, BLACK);
                             emitTxFes = _parser.CurrentWeather != 'R' && _parser.CurrentWeather != 'T';
                             break;
@@ -1092,21 +1092,21 @@ internal sealed class Mud2C1Decoder
                 }
                 else if (count == 2)
                 {
-                    bool isWhite = b1 == 0x9C || b1 == 0x9E; // C01 or C03 → BLACK/WHITE
+                    bool isWhite = b1 == 0x9C || b1 == 0x9E; // C01 or C03 -> BLACK/WHITE
                     switch (b0)
                     {
-                        case 0x9E: // C03+xx → always txfes (Clio:852-873)
+                        case 0x9E: // C03+xx -> always txfes (Clio:852-873)
                             Apply(isWhite ? BLACK : GREEN, isWhite ? WHITE : BLACK);
                             emitTxFes = true;
                             break;
-                        case 0x9F: // C04+xx → NO txfes (sweather, Clio:875-885)
+                        case 0x9F: // C04+xx -> NO txfes (sweather, Clio:875-885)
                             Apply(isWhite ? BLACK : GREEN, isWhite ? WHITE : BLACK);
                             break;
-                        case 0xA0: // C05+xx → always txfes (Clio:887-895)
+                        case 0xA0: // C05+xx -> always txfes (Clio:887-895)
                             Apply(b1 == 0x9C ? BLACK : GREEN, b1 == 0x9C ? WHITE : BLACK);
                             emitTxFes = true;
                             break;
-                        case 0xA1: // C06+xx → always txfes (Clio:897-899)
+                        case 0xA1: // C06+xx -> always txfes (Clio:897-899)
                             Apply(GREEN, BLACK);
                             emitTxFes = true;
                             break;
@@ -1121,16 +1121,16 @@ internal sealed class Mud2C1Decoder
                 }
                 if (emitTxFes)
                     Hint(StaleStats.AllStats);
-                // Sound: C14+C03+C02+C255 → rain on trees 140302 (Clio sound.c)
+                // Sound: C14+C03+C02+C255 -> rain on trees 140302 (Clio sound.c)
                 if (count == 2 && b0 == 0x9E && b1 == 0x9D)
                     Sound(14, 3, 2);
                 return ParserState.Normal;
             }
 
-            // ── C15 (0xAA): BLACK+CYAN (dreamword) ───────────────────────────
-            // {C15}{C00}{C00}{C255}[a-z]{1,14} → dreamword set
-            // {C15}{C00}{C01}{C255} → dreamword cleared
-            // everything else → BLACK/CYAN
+            // -- C15 (0xAA): BLACK+CYAN (dreamword) ---------------------------
+            // {C15}{C00}{C00}{C255}[a-z]{1,14} -> dreamword set
+            // {C15}{C00}{C01}{C255} -> dreamword cleared
+            // everything else -> BLACK/CYAN
             case 0xAA:
                 if (count == 2 && b0 == 0x9B && b1 == 0x9B)
                 {
@@ -1141,7 +1141,7 @@ internal sealed class Mud2C1Decoder
                 if (count == 2 && b0 == 0x9B && b1 == 0x9C)
                 {
                     // Dreamword cleared. No probe hint (Clio txfes'd this): the C15 code itself
-                    // carries the change — probe-noise policy, 2026-07-25.
+                    // carries the change.
                     Apply(BLACK, CYAN);
                     _parser.EmitDreamwordChanged(null);
                     return ParserState.Normal;
@@ -1149,18 +1149,18 @@ internal sealed class Mud2C1Decoder
                 Apply(BLACK, CYAN);
                 return ParserState.Normal;
 
-            // ── C16 (0xAB): LT_WHITE+BLUE (house messages) ───────────────────
+            // -- C16 (0xAB): LT_WHITE+BLUE (house messages) -------------------
             case 0xAB:
                 Apply(LT_WHITE, BLUE);
                 return ParserState.Normal;
 
-            // ── C17 (0xAC): not explicitly listed → catchall WHITE ────────────
+            // -- C17 (0xAC): not explicitly listed -> catchall WHITE ------------
             case 0xAC:
                 Apply(WHITE, BLACK);
                 return ParserState.Normal;
 
-            // ── C18 (0xAD): WHITE + txfes (misc system messages) ────────────
-            // {C18}{C00..C06}{C255} → WHITE/BLACK + txfes + sound(18,NN) (Clio telnet.l:944-957, sound.c)
+            // -- C18 (0xAD): WHITE + txfes (misc system messages) ------------
+            // {C18}{C00..C06}{C255} -> WHITE/BLACK + txfes + sound(18,NN) (Clio telnet.l:944-957, sound.c)
             case 0xAD:
                 Apply(WHITE, BLACK);
                 if (count == 1 && b0 >= 0x9B && b0 <= 0xA1) // C00..C06
@@ -1170,25 +1170,25 @@ internal sealed class Mud2C1Decoder
                 }
                 return ParserState.Normal;
 
-            // ── C19 (0xAE): LT_WHITE+BLUE ────────────────────────────────────
+            // -- C19 (0xAE): LT_WHITE+BLUE ------------------------------------
             case 0xAE:
                 Apply(LT_WHITE, BLUE);
                 return ParserState.Normal;
 
-            // ── C20–C21 (0xAF–0xB0): not listed → catchall ──────────────────
+            // -- C20-C21 (0xAF-0xB0): not listed -> catchall ------------------
             case 0xAF or 0xB0:
                 Apply(WHITE, BLACK);
                 return ParserState.Normal;
 
-            // ── C89 (0xF4): WHITE/BLACK (catch/display) ──────────────────────
+            // -- C89 (0xF4): WHITE/BLACK (catch/display) ----------------------
             case 0xF4:
                 Apply(WHITE, BLACK);
                 return ParserState.Normal;
 
-            // ── C90 (0xF5): catch()/throw() — color-stack save/restore ─────
-            // {C90}{C255}      → colour catch: snapshot the stack depth; NO colour change
-            //                    and NO push (fecodes: "90 — Colour catch. No colour change.")
-            // {C90}{C01}{C255} → colour throw: restore the stack to the last catch point,
+            // -- C90 (0xF5): catch()/throw() - color-stack save/restore -----
+            // {C90}{C255}      -> colour catch: snapshot the stack depth; NO colour change
+            //                    and NO push (fecodes: "90 - Colour catch. No colour change.")
+            // {C90}{C01}{C255} -> colour throw: restore the stack to the last catch point,
             //                    undoing multiply-deep colour changes in a single code
             //                    (e.g. the per-letter C99 colours in rainbow wiz names).
             case 0xF5:
@@ -1205,27 +1205,27 @@ internal sealed class Mud2C1Decoder
                 Apply(WHITE, BLACK);   // unrecognised C90 variant: legacy reset behaviour
                 return ParserState.Normal;
 
-            // ── C94 (0xF9): snoop starts → WHITE/BLACK ───────────────────────
+            // -- C94 (0xF9): snoop starts -> WHITE/BLACK -----------------------
             case 0xF9:
                 Apply(WHITE, BLACK);
                 return ParserState.Normal;
 
-            // ── C95 (0xFA): client-mode data block ───────────────────────────
-            // {C95}{C255}           → 5 lines: licence, min-level, max-level, account, privs
-            // {C95}{C02}{C255}      → account change; new 5-line Rule A block follows
-            // {C95}{C03}{C255}      → account-logout notice (1 trailing line, silent)
+            // -- C95 (0xFA): client-mode data block ---------------------------
+            // {C95}{C255}           -> 5 lines: licence, min-level, max-level, account, privs
+            // {C95}{C02}{C255}      -> account change; new 5-line Rule A block follows
+            // {C95}{C03}{C255}      -> account-logout notice (1 trailing line, silent)
             case 0xFA:
                 if (count == 0)
                 {
                     _c95LinesRemaining = 5;
                     return ParserState.C95Data;
                 }
-                if (count == 1 && b0 == 0x9D) // C02 → account change; collect new Rule A block
+                if (count == 1 && b0 == 0x9D) // C02 -> account change; collect new Rule A block
                 {
                     _c95LinesRemaining = 5;
                     return ParserState.C95Data;
                 }
-                if (count == 1 && b0 == 0x9E) // C03 → account logout, transition to Options menu
+                if (count == 1 && b0 == 0x9E) // C03 -> account logout, transition to Options menu
                 {
                     _parser.ExitGameMode();
                     return ParserState.C95LogoutLine;
@@ -1233,19 +1233,19 @@ internal sealed class Mud2C1Decoder
                 Apply(WHITE, BLACK);
                 return ParserState.Normal;
 
-            // ── C96 (0xFB): snoop ends → WHITE/BLACK ─────────────────────────
+            // -- C96 (0xFB): snoop ends -> WHITE/BLACK -------------------------
             case 0xFB:
                 Apply(WHITE, BLACK);
                 return ParserState.Normal;
 
-            // ── C97 (0xFC): not listed → catchall ────────────────────────────
+            // -- C97 (0xFC): not listed -> catchall ----------------------------
             case 0xFC:
                 Apply(WHITE, BLACK);
                 return ParserState.Normal;
 
-            // ── C98 (0xFD): BLACK+BLUE or BLACK+MAGENTA ──────────────────────
-            // {C98}.{C255}: even payload byte → BLACK/BLUE, odd → BLACK/MAGENTA
-            // Do NOT set PromptAllowed here — PromptAllowed must only be set by real game
+            // -- C98 (0xFD): BLACK+BLUE or BLACK+MAGENTA ----------------------
+            // {C98}.{C255}: even payload byte -> BLACK/BLUE, odd -> BLACK/MAGENTA
+            // Do NOT set PromptAllowed here - PromptAllowed must only be set by real game
             // '\n' bytes so that the C01 prompt gate can distinguish a real prompt (which
             // follows game content) from a FES heartbeat (which arrives with PromptAllowed=false
             // because no game '\n' has occurred since the last prompt was displayed).
@@ -1262,13 +1262,13 @@ internal sealed class Mud2C1Decoder
                 _parser.ShowPrompt();
                 return ParserState.Normal;
 
-            // ── C99 (0xFE): arbitrary color from payload bytes ───────────────
-            // {C99}{C99}{C255}    → WHITE/BLACK
-            // {C99}{fg}{bg}{C255} → color (fg−155, bg−155)
-            // {C99}{fg}{C255}     → color (fg−155, BLACK)
-            // Color bytes are offset by 0x9B (155); index clamped to 0–15.
+            // -- C99 (0xFE): arbitrary color from payload bytes ---------------
+            // {C99}{C99}{C255}    -> WHITE/BLACK
+            // {C99}{fg}{bg}{C255} -> color (fg-155, bg-155)
+            // {C99}{fg}{C255}     -> color (fg-155, BLACK)
+            // Color bytes are offset by 0x9B (155); index clamped to 0-15.
             case 0xFE:
-                if (count == 1 && b0 == 0xFE)       // FE FE FF FF → WHITE/BLACK (special reset)
+                if (count == 1 && b0 == 0xFE)       // FE FE FF FF -> WHITE/BLACK (special reset)
                     Apply(WHITE, BLACK);
                 else if (count == 2)
                     Apply(C99Color(b0), C99Color(b1));
@@ -1278,14 +1278,14 @@ internal sealed class Mud2C1Decoder
                     Apply(WHITE, BLACK);
                 return ParserState.Normal;
 
-            // ── Catchall: any unrecognised C1 lead byte → WHITE/BLACK ─────────
+            // -- Catchall: any unrecognised C1 lead byte -> WHITE/BLACK ---------
             default:
                 Apply(WHITE, BLACK);
                 return ParserState.Normal;
         }
     }
 
-    // ── FES parsing ───────────────────────────────────────────────────────────
+    // -- FES parsing -----------------------------------------------------------
 
     /// <summary>
     /// Parse the FES (Front-End Score) data line that follows C12+C08+C01+C255.
@@ -1314,9 +1314,9 @@ internal sealed class Mud2C1Decoder
             var b2 = rawBytes[i];
             if (b2 == 0xFE && i + 1 < rawBytes.Count)
             {
-                // C99 c marker — record first occurrence as the stamina c hint.
+                // C99 c marker - record first occurrence as the stamina c hint.
                 // The byte following 0xFE is a C1 byte (0x9B + ANSI index); subtract 0x9B
-                // to produce the 0–15 ANSI index expected by GameViewModel.AnsiToColor.
+                // to produce the 0-15 ANSI index expected by GameViewModel.AnsiToColor.
                 if (staColorHint is null)
                     staColorHint = (byte)Math.Clamp(rawBytes[i + 1] - 0x9B, 0, 15);
                 i++; // skip the color byte; do not emit either byte as text

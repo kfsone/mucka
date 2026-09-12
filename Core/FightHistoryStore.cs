@@ -11,22 +11,20 @@ namespace Mucka.Core;
 /// on demand, via a `diagnose` probe that needs a stethoscope and a typed command (see
 /// <see cref="MudSharp.Combat.CombatEventKind.NpcStaminaRead"/>) - prior kills are the more
 /// reliable route to a pool figure precisely because the probe is not always available or timely,
-/// not because the game never reports the figure at all. The figures themselves are also published,
-/// see tools/combat/MUD2-PUBLISHED-MECHANICS.md and tools/combat/STATS_DESIGN.md.
+/// not because the game never reports the figure at all. The figures themselves are also published -
+/// see docs/MUD2-published-mechanics.md.
 ///
-/// <para><b>SQLite rather than the fights.jsonl this used to write.</b> The original reasoning - no
-/// new dependency, no MAUI/Android packaging question, small enough to hold in memory - was sound
-/// while nothing needed to QUERY the data. A combat analysis view does, and splitting the corpus so
-/// that swings lived in SQL and fights in a text file would have meant joining them in app code. The
-/// rows are still small enough to hold in memory, and still are: the in-memory
-/// <see cref="HistoryIndex"/> below is unchanged, it is only its source that moved.</para>
+/// <para><b>SQLite, not a text file.</b> A combat analysis view needs to QUERY this alongside the
+/// swings table, and splitting the corpus so that swings lived in SQL and fights in a text file
+/// would mean joining them in app code. The rows are still small enough to hold in memory, which is
+/// what the in-memory <see cref="HistoryIndex"/> below relies on.</para>
 ///
 /// <para>Threading: <see cref="Append"/> is called from the session Feed thread (same contract as
 /// ClogWriter), <see cref="Snapshot"/> from the UI thread. Both take the same lock, which is only ever
 /// held for a list add or a copy-reference - never across the database write, so a slow disk cannot
 /// stall the UI thread (Invariant #1). The write itself runs on a single dedicated background task
 /// (<see cref="DrainAsync"/>) which owns the only write connection, so the Feed thread that parses
-/// incoming combat text never pays for the I/O (DESIGN_FINAL.md section 7.5). <see cref="Dispose"/>
+/// incoming combat text never pays for the I/O. <see cref="Dispose"/>
 /// blocks briefly to drain whatever is still queued, so an app exit mid-fight cannot lose the row for
 /// the fight that was open at that moment.</para>
 /// </summary>
@@ -47,7 +45,7 @@ public sealed class FightHistoryStore : IDisposable
     private List<FightRecord> _records = [];
 
     // The incremental replacement for "filter the whole corpus, then scan it three times" (see
-    // MudSharp.Combat.HistoryIndex's own remarks and DESIGN_FINAL.md section 7.3). Guarded by the
+    // MudSharp.Combat.HistoryIndex's own remarks and docs/combat-panel-design.md). Guarded by the
     // SAME _lock as _records - every mutation (LoadAsync's initial build, Append's per-fight insert)
     // and every read (GetHistoryContext) takes it, so this never needs its own synchronization.
     private readonly HistoryIndex _index = new();
@@ -87,7 +85,7 @@ public sealed class FightHistoryStore : IDisposable
             // Build the index from the freshly-read rows now, BEFORE merging in anything that was
             // appended concurrently while this method was reading (those already inserted themselves
             // via Append's own _index.Insert call - see there - so inserting them again here would
-            // double-count them). One-time cost, off the UI thread (DESIGN_FINAL.md 7.3's "startup").
+            // double-count them). One-time cost, off the UI thread.
             foreach (var record in loaded)
                 _index.Insert(record);
 
@@ -109,8 +107,8 @@ public sealed class FightHistoryStore : IDisposable
         {
             // CombatDb.Open rather than a bare SqliteConnection: it creates the directory (absent on a
             // fresh install, and SQLite will not create a file inside one that does not exist) and
-            // applies the same PRAGMAs every other connection uses. Skipping it made the whole load
-            // fail silently on first run, taking the one-time legacy import down with it.
+            // applies the same PRAGMAs every other connection uses. Skipping it would fail the whole
+            // load silently on first run, taking the one-time legacy import down with it.
             using var connection = CombatDb.Open(_dbPath);
 
             using var command = connection.CreateCommand();
@@ -189,7 +187,7 @@ public sealed class FightHistoryStore : IDisposable
             updated.Add(record);
             _records = updated;
 
-            // The incremental update DESIGN_FINAL.md 7.3 asks for: O(log bucket-size), never a
+            // The incremental update: O(log bucket-size), never a
             // rescan. This is also THE reason a live encounter can never compare against itself
             // (see HistoryIndex's class remarks) - Insert only ever runs from here, and this method
             // only ever runs once a fight has fully closed and been handed to FlushLocked.
@@ -367,7 +365,7 @@ public sealed class FightHistoryStore : IDisposable
 
     /// <summary>Blocks (briefly - just draining whatever is already queued in memory, typically a
     /// handful of rows at most) until every fight <see cref="Append"/>ed so far has actually been
-    /// written. This is the fix for fight rows being lost when the app exits mid-fight: without this
+    /// written. This prevents fight rows being lost when the app exits mid-fight: without this
     /// wait, an Append() immediately followed by process exit could beat the background writer to the
     /// punch, since Append only enqueues rather than writing directly.</summary>
     public void Dispose()

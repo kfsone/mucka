@@ -35,9 +35,9 @@ public sealed class FightHistoryTests
     [Fact]
     public void Summarize_UsesMediansNotMeansSoOneOutlierCannotDominate()
     {
-        // Medians are the whole presentation contract (STATS_DESIGN.md): at realistic sample sizes
-        // one fight where the player wandered off mid-encounter is a large fraction of the data and
-        // would drag a mean badly. 30/32/34 plus a 300 outlier: median 33, mean 99.
+        // Medians are the whole presentation contract: at realistic sample sizes one fight where
+        // the player wandered off mid-encounter is a large fraction of the data and would drag a
+        // mean badly. 30/32/34 plus a 300 outlier: median 33, mean 99.
         var records = new[]
         {
             Fight(damageDone: 30),
@@ -55,14 +55,10 @@ public sealed class FightHistoryTests
     [Fact]
     public void Summarize_CountsKillsWithoutInferringAPoolFromThem()
     {
-        // This record used to carry an EstimatedStaminaPool: the median total damage of fights that
-        // ended in a kill. It reads high because every sample includes the killing blow's overkill
-        // (stored measurement: rat medians 31.2 against a published 25 - the "21%" this comment used
-        // to quote is untraced, see StaminaPoolEstimator), and it was keyed on the NPC GROUP, which
-        // pools "large rat0" (about 100 stamina)
-        // with "rat0" (about 25). It is gone; StaminaPoolEstimator replaces it, keyed on NpcPoolKey and
-        // fed per-swing brackets a rollup like this one has already summed away. What remains here is
-        // the outcome tally, which was always sound.
+        // Kill damage totals include the killing blow's overkill and are keyed on NPC group (which
+        // pools "large rat0", about 100 stamina, with "rat0", about 25), so they are not a stamina-pool
+        // estimate. StaminaPoolEstimator handles pool estimation separately, keyed on NpcPoolKey with
+        // per-swing brackets. What remains here is the outcome tally.
         var records = new[]
         {
             Fight(outcome: FightOutcome.Kill, damageDone: 30),
@@ -97,7 +93,7 @@ public sealed class FightHistoryTests
     {
         // A character without MUD2's fightbrief produces no parseable per-swing lines at all, so a
         // narrative row carries zeroed counters. Averaging those in would drag every rate and damage
-        // figure toward zero — but the OUTCOME still happened and is real evidence, so the kill
+        // figure toward zero -- but the OUTCOME still happened and is real evidence, so the kill
         // tally must still count it.
         var records = new[]
         {

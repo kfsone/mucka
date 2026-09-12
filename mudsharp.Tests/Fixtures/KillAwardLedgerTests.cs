@@ -6,7 +6,7 @@ namespace mudsharp.Tests.Fixtures;
 /// Pairing each fight ending with the score MUD2 announced for it. The frame is the whole test
 /// surface: an ending still unpaired when its frame closes was never scored, and if it is allowed to
 /// wait it takes the next award that arrives and every row after it is wrong by one, permanently -
-/// <see cref="Replays_the_20260910_drift"/> is that failure, from the session that found it.
+/// <see cref="Replays_the_20260910_drift"/> pins that failure against a real capture.
 /// </summary>
 public sealed class KillAwardLedgerTests
 {
@@ -46,11 +46,10 @@ public sealed class KillAwardLedgerTests
     }
 
     /// <summary>
-    /// The 2026-09-10 session, from <c>fights</c> and <c>score_events</c> in mucka.db: five thief
-    /// endings in five consecutive frames, two billy goat endings, a zombie7 kill. Four thief flights
-    /// and the goat's flight scored nothing - the totals leave no room for an award between them
-    /// (<c>11,974 + 367 = 12,341</c>, <c>12,341 + 118 = 12,459</c>). Before the frame scoping the panel
-    /// drew +367 and +118 on thief FLED rows three and one endings early.
+    /// A real session, from <c>fights</c> and <c>score_events</c> in mucka.db: five thief endings in
+    /// five consecutive frames, two billy goat endings, a zombie7 kill. Four thief flights and the
+    /// goat's flight scored nothing - the totals leave no room for an award between them
+    /// (<c>11,974 + 367 = 12,341</c>, <c>12,341 + 118 = 12,459</c>).
     /// </summary>
     [Fact]
     public void Replays_the_20260910_drift()
@@ -151,9 +150,9 @@ public sealed class KillAwardLedgerTests
     [Fact]
     public void A_creature_killed_twice_keeps_both_awards()
     {
-        // Owner, 2026-09-07: kill rat8, take the +22, drink a vial, "The rat8 has been summoned.",
-        // kill it again next combat tick for another +22 - same instance name, same encounter, two
-        // awards. The kill timestamp is what separates them.
+        // Kill rat8, take the +22, drink a vial, "The rat8 has been summoned.", kill it again next
+        // combat tick for another +22 - same instance name, same encounter, two awards. The kill
+        // timestamp is what separates them.
         var ledger = new KillAwardLedger();
 
         ledger.NoteEnding(4, "rat8", At(0));

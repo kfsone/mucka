@@ -24,15 +24,15 @@ public class IntegrationTests
     public void OpeningHandshake_NegotiatesAndEntersGameMode()
     {
         // Simulate the standard MUD2 opening sequence:
-        //   server → WILL ECHO, DO TTYPE, DO NAWS, DO NEW_ENVIRON
-        //   server → game-mode entry signal (0x9D 0x9C 0xFF 0xFF)
+        //   server -> WILL ECHO, DO TTYPE, DO NAWS, DO NEW_ENVIRON
+        //   server -> game-mode entry signal (0x9D 0x9C 0xFF 0xFF)
         // Assert correct responses at each step, then exactly one GameModeEntered.
         var h = new ParserHarness();
 
-        h.Feed(IAC, WILL, OPT_ECHO);        // → (no response — Clio ignores WILL ECHO)
-        h.Feed(IAC, DO,   OPT_TTYPE);       // → IAC WILL TTYPE
-        h.Feed(IAC, DO,   OPT_NAWS);        // → IAC WILL NAWS + NAWS subneg
-        h.Feed(IAC, DO,   OPT_NEW_ENVIRON); // → IAC WONT NEW_ENVIRON (Clio telnet.l line 227–228)
+        h.Feed(IAC, WILL, OPT_ECHO);        // -> (no response -- Clio ignores WILL ECHO)
+        h.Feed(IAC, DO,   OPT_TTYPE);       // -> IAC WILL TTYPE
+        h.Feed(IAC, DO,   OPT_NAWS);        // -> IAC WILL NAWS + NAWS subneg
+        h.Feed(IAC, DO,   OPT_NEW_ENVIRON); // -> IAC WONT NEW_ENVIRON (Clio telnet.l line 227-228)
 
         // 4 outgoing packets: WILL TTYPE, WILL NAWS, NAWS-data, WONT NEW_ENVIRON
         Assert.Equal(4, h.Outgoing.Count);
@@ -54,7 +54,7 @@ public class IntegrationTests
     [Fact]
     public void TextLine_AfterColorCode_RendersWithCorrectStyle()
     {
-        // C03+C01 (0x9E 0x9C 0xFF 0xFF) → CYAN/BLACK, then a text line
+        // C03+C01 (0x9E 0x9C 0xFF 0xFF) -> CYAN/BLACK, then a text line
         var h = new ParserHarness();
         h.Feed(0x9E, 0x9C, 0xFF, 0xFF);
         h.Feed("Hello, MUD2!\n");

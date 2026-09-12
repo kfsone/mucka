@@ -7,9 +7,8 @@ namespace Mucka.ViewModels;
 /// currently about, the survivability projection behind it, and name shortening for a fixed-width
 /// surface.
 ///
-/// <para>Extracted from the deleted text formatter, which mixed these value computations in with
-/// line composition. Everything here computes a number or a name; nothing here decides layout,
-/// colour, or wording.</para>
+/// <para>Everything here computes a number or a name; nothing here decides layout, colour, or
+/// wording.</para>
 /// </summary>
 internal static class CombatComposition
 {
@@ -20,11 +19,8 @@ internal static class CombatComposition
 
     /// <summary>
     /// "Am I going to die before it does" - <see cref="CombatOutlook.Project"/> against the
-    /// encounter's primary fight. Extracted so the Combat Rail's tier resolver (DESIGN_FINAL.md 4.3)
-    /// can reuse the EXACT SAME projection <c>AppendSurvivability</c> renders (a method of the
-    /// long-deleted text formatter this class replaced - name kept here as the historical pointer),
-    /// rather than each computing their own and risking the outlook line and the tier disagreeing
-    /// about "how close is this fight".
+    /// encounter's primary fight. Shared with the Combat Rail's tier resolver so the outlook line
+    /// and the tier never disagree about "how close is this fight".
     /// </summary>
     internal static CombatOutlook ComputeOutlook(
         CombatEncounterSnapshot snapshot, CombatStatDeficits deficits, CombatHistoryContext history,
@@ -61,9 +57,9 @@ internal static class CombatComposition
     /// postcard, and guessing costs a dropped guard). The one in hand is excluded, since offering to
     /// swap to what you are already holding is noise.</para>
     ///
-    /// <para>Ranking is by this NPC group's own record: highest median damage per landed blow first,
-    /// which is the axis MUD2's hidden per-creature weapon modifiers show up on (dagger0 kills
-    /// zombies in 2.3 hits where axe0 needs 5.0). Weapons with no record against THIS group rank
+    /// <para>Ranking is by this NPC group's own record: highest median damage per landed blow first
+    /// - observed to vary sharply by weapon and NPC group (dagger0 kills zombies in 2.3 hits where
+    /// axe0 needs 5.0). Weapons with no record against THIS group rank
     /// after every weapon that has one, in inventory order - they are still real offers, just
     /// unevidenced ones. Deliberately NOT gated on beating the weapon in hand: the player asks for
     /// this key when their weapon has broken or been refused, and at that moment "worse than what

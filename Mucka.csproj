@@ -2,8 +2,8 @@
 
 	<PropertyGroup>
 		<!-- Each runner builds only its own target:
-		     Windows runner  → net10.0-windows
-		     Linux runner    → net10.0-android  -->
+		     Windows runner  -> net10.0-windows
+		     Linux runner    -> net10.0-android  -->
 		<TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('windows'))">net10.0-windows10.0.19041.0</TargetFrameworks>
 		<!-- Local Android build/deploy from a Windows dev box (opt-in so plain builds and CI
 		     don't require the android workload):
@@ -32,7 +32,7 @@
 		<!-- App Identifier -->
 		<ApplicationId>org.kfs.mucka</ApplicationId>
 
-		<!-- Versions — ApplicationDisplayVersion is set from $(Version) via Directory.Build.props
+		<!-- Versions - ApplicationDisplayVersion is set from $(Version) via Directory.Build.props
 		     (ComputeCustomVersion target, driven by scripts/Get-Version.ps1 and version.json).
 		     ApplicationVersion is the Android versionCode integer; override in CI with the run number. -->
 		<ApplicationVersion>1</ApplicationVersion>
@@ -47,7 +47,7 @@
 
 	<!-- Input-latency diagnostics: build with `dotnet build -p:InputDiag=true` (Windows) to
 	     compile in the INPUT_DIAG instrumentation (UI-thread stall probe, binding-mode self-check,
-	     per-keystroke timeline). Writes to %TEMP%\mucka-input.txt. Off by default → zero cost. -->
+	     per-keystroke timeline). Writes to %TEMP%\mucka-input.txt. Off by default -> zero cost. -->
 	<PropertyGroup Condition="'$(InputDiag)' == 'true'">
 		<DefineConstants>$(DefineConstants);INPUT_DIAG</DefineConstants>
 	</PropertyGroup>
@@ -63,7 +63,7 @@
 	<!-- Focus diagnostics: build with `dotnet build -p:FocusDiag=true` (Windows) to log every
 	     focus transition (app-wide FocusManager events plus our own veto/redirect decisions) to
 	     %TEMP%\mucka-focus.txt. Use it when something steals keyboard focus from the command box
-	     (Invariant #0). Off by default → compiled out entirely. -->
+	     (Invariant #0). Off by default -> compiled out entirely. -->
 	<PropertyGroup Condition="'$(FocusDiag)' == 'true'">
 		<DefineConstants>$(DefineConstants);FOCUS_DIAG</DefineConstants>
 	</PropertyGroup>
@@ -86,7 +86,7 @@
 
 		<!-- Images -->
 		<MauiImage Include="Resources\Images\*" />
-		<!-- Status-effect icons (rasterized from Resources\Raw\status\*.svg by tools\rasterize-status-icons.cs) -->
+		<!-- Status-effect icons (rasterized from Resources\Raw\status\*.svg) -->
 		<MauiImage Include="Resources\Images\Status\*" />
 		
 		<!-- Custom Fonts -->
@@ -99,8 +99,8 @@
 
 		<!-- Raw Assets (also remove the "Resources\Raw" prefix) -->
 		<MauiAsset Include="Resources\Raw\**" LogicalName="%(RecursiveDir)%(Filename)%(Extension)" />
-		<!-- status/*.svg are rasterizer source art (see tools\rasterize-status-icons.cs), not
-		     runtime assets — the generated PNGs ship via the MauiImage group above instead. -->
+		<!-- status/*.svg are rasterizer source art, not runtime assets - the generated PNGs ship
+		     via the MauiImage group above instead. -->
 		<MauiAsset Remove="Resources\Raw\status\**" />
 		<!-- sounds/README.md documents the sound set for editors; it has no runtime use. -->
 		<MauiAsset Remove="Resources\Raw\sounds\README.md" />

@@ -4,9 +4,9 @@ using MudSharp.Models;
 namespace Mucka.Terminal;
 
 /// <summary>
-/// Strips non-printable C0 control characters (0x00–0x1F) and DEL (0x7F) from line text
+/// Strips non-printable C0 control characters (0x00-0x1F) and DEL (0x7F) from line text
 /// before it reaches the renderer. These have no glyph in a monospace font and would draw
-/// as .notdef "tofu" boxes — e.g. a trailing carriage return from a CRLF line ending, or a
+/// as .notdef "tofu" boxes - e.g. a trailing carriage return from a CRLF line ending, or a
 /// stray backspace. (The old WebView silently ignored them; Skia does not.)
 ///
 /// Form-feed (0x0C) is preserved: <see cref="TerminalBuffer"/> consumes it as a clear-screen.

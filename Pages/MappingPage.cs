@@ -65,7 +65,7 @@ internal sealed class MappingPage : ContentPage
     private readonly MappingSession _session;
     private readonly Dictionary<string, Button> _dirButtons  = new();
     private readonly Dictionary<string, Button> _uturnButtons = new();
-    private readonly Dictionary<string, string> _dirBaseText = new();   // dir → bare compass label
+    private readonly Dictionary<string, string> _dirBaseText = new();   // dir -> bare compass label
     private readonly Button _hereBtn;
     private readonly Button _closeRoomBtn;
     private readonly Button _goToOpenBtn;
@@ -117,7 +117,7 @@ internal sealed class MappingPage : ContentPage
         _session = vm.MapSession;
         BackgroundColor = Color.FromArgb("#0C0C0C");
 
-        // ── Compass ──────────────────────────────────────────────────────────
+        // -- Compass ----------------------------------------------------------
         // Here = probe/refresh the room you are standing in.
         _hereBtn = new Button
         {
@@ -172,7 +172,7 @@ internal sealed class MappingPage : ContentPage
         var swampBtn = AddDir(compass, "swamp", 3, 2, "swamp");
         swampBtn.WidthRequest = 130;
 
-        // ── Status / actions ─────────────────────────────────────────────────
+        // -- Status / actions -------------------------------------------------
         _dirLabel = MonoLabel("#767676", 10);
         _summaryLabel = MonoLabel("#888888", 11);
         _statusLabel = MonoLabel("#F9F1A5", 11);
@@ -208,7 +208,7 @@ internal sealed class MappingPage : ContentPage
             Children          = { _goToOpenBtn },
         };
 
-        // ── Top region: global stats / delta (left) | controls (mid) | room (right) ──
+        // -- Top region: global stats / delta (left) | controls (mid) | room (right) --
         var leftColumn = new VerticalStackLayout
         {
             Spacing  = 6,
@@ -361,7 +361,7 @@ internal sealed class MappingPage : ContentPage
         topRegion.Add(controls,   column: 1, row: 0);
         topRegion.Add(roomColumn, column: 2, row: 0);
 
-        // ── History: capture summary + list + detail ──────────────────────────
+        // -- History: capture summary + list + detail --------------------------
         _list = new CollectionView
         {
             SelectionMode = SelectionMode.Single,
@@ -553,7 +553,7 @@ internal sealed class MappingPage : ContentPage
         b.Text = text; b.TextColor = fg; b.BackgroundColor = bg;
     }
 
-    // ── Lifecycle ────────────────────────────────────────────────────────────
+    // -- Lifecycle ------------------------------------------------------------
 
     protected override void OnAppearing()
     {
@@ -591,9 +591,9 @@ internal sealed class MappingPage : ContentPage
             _subscribedWindow = null;
         }
         _session.SetMappingFocus(false);
-        // Stop the guidance pulse — it's a repeating dispatcher-ticker animation on the
+        // Stop the guidance pulse - it's a repeating dispatcher-ticker animation on the
         // shared UI thread and would keep ticking against the closed window.
-        // OnAppearing → UpdateCompass re-arms it.
+        // OnAppearing -> UpdateCompass re-arms it.
         SetGuidance(null);
     }
 
@@ -610,11 +610,11 @@ internal sealed class MappingPage : ContentPage
         _session.SetMappingFocus(false);
         // Stop the guidance pulse while the game window has focus -- it's a repeating
         // dispatcher animation on the shared UI thread and must not tick against the
-        // input box. OnWindowActivated → UpdateCompass re-arms it on return.
+        // input box. OnWindowActivated -> UpdateCompass re-arms it on return.
         SetGuidance(null);
     }
 
-    // ── Session events (arbitrary thread) ────────────────────────────────────
+    // -- Session events (arbitrary thread) ------------------------------------
 
     private void OnSessionStateChanged()
         => MainThread.BeginInvokeOnMainThread(() =>
@@ -680,7 +680,7 @@ internal sealed class MappingPage : ContentPage
             RunOp(() => _session.TryStartGoToOpen(out var err) ? null : err);
     }
 
-    // ── Actions ──────────────────────────────────────────────────────────────
+    // -- Actions --------------------------------------------------------------
 
     private void RunOp(Func<string?> start)
     {
@@ -704,7 +704,7 @@ internal sealed class MappingPage : ContentPage
             : string.Empty;
     }
 
-    // ── Compass state ────────────────────────────────────────────────────────
+    // -- Compass state --------------------------------------------------------
 
     private void UpdateCompass()
     {
@@ -1054,7 +1054,7 @@ internal sealed class MappingPage : ContentPage
         pulse.Commit(btn, "guide", length: 1100, repeat: () => true);
     }
 
-    // ── Inventory scan ───────────────────────────────────────────────────────
+    // -- Inventory scan -------------------------------------------------------
 
     private async void Reload()
     {

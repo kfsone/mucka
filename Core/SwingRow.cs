@@ -123,9 +123,8 @@ public sealed record SwingRow : ICombatLedgerRow
     /// same gap FightRecord.CharacterName documents.</summary>
     public string? Persona { get; init; }
 
-    /// <summary>Persona sex, as the <c>score</c> sheet words it. SWING-LEDGER-SPEC.md section 3 says
-    /// this is unobtainable for an existing character and to ship it null; that note is now stale -
-    /// <see cref="GameStatsSnapshot.Sex"/> parses it straight off the sheet, so it is populated.</summary>
+    /// <summary>Persona sex, as the <c>score</c> sheet words it. <see cref="GameStatsSnapshot.Sex"/>
+    /// parses it straight off the sheet.</summary>
     public string? Sex { get; init; }
 
     /// <summary>Player stamina from the most recent stats snapshot. For <c>dir=in</c> this is the
@@ -163,12 +162,10 @@ public sealed record SwingRow : ICombatLedgerRow
     /// <summary>
     /// The player's running score at this swing.
     ///
-    /// <para><b>No reader, and a successor.</b> Score is not a combat stat - it is not earned per
-    /// swing, and one blow can finish several creatures with the game scoring them a line at a time -
-    /// so this column can only ever say what the total happened to be, never what anything was worth.
-    /// The <c>score_events</c> table now carries the real fact, signed delta and all. Nothing reads
-    /// this column; dropping it is a separate change from the one that added its replacement, and
-    /// this note is here so that change knows it is safe to make.</para>
+    /// <para>Not a combat stat: it is not earned per swing, and one blow can finish several creatures
+    /// with the game scoring them a line at a time, so this column can only ever say what the total
+    /// happened to be, never what anything was worth. The <c>score_events</c> table carries the signed
+    /// per-event delta instead.</para>
     /// </summary>
     public int? Score { get; init; }
     public int? ObjectsCarried { get; init; }
@@ -211,9 +208,8 @@ public sealed record SwingRow : ICombatLedgerRow
     /// spawn stays distinguishable from its group.</summary>
     public string? NpcName { get; init; }
 
-    /// <summary><see cref="NpcGroups.Normalize"/>d, the same normalisation reduce_combat.py applies -
-    /// live and offline rows must bucket identically or the two halves of the pipeline silently
-    /// disagree about history.</summary>
+    /// <summary><see cref="NpcGroups.Normalize"/>d, so rows bucket identically wherever they are
+    /// grouped by creature.</summary>
     public string NpcGroup { get; init; } = string.Empty;
 
     /// <summary>The creature's own weapon, which it arms independently of the player and which
@@ -242,8 +238,7 @@ public sealed record SwingRow : ICombatLedgerRow
     /// across a fight) can only narrow a bracket that is still stored as a bracket.</para>
     ///
     /// <para>That is a rule about STORAGE. What a display derives from these two numbers - a mean, a
-    /// midpoint, a shape - is the display's own call; see MudSharp.Combat.ExchangeLine's remarks
-    /// for why the blanket "never draw a midpoint" that used to sit here was not the owner's rule.</para></summary>
+    /// midpoint, a shape - is the display's own call, not fixed here.</para></summary>
     public int? DamageLow { get; init; }
     public int? DamageHigh { get; init; }
 

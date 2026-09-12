@@ -49,8 +49,7 @@ public sealed class PlayerNamePartsTests
         string wire, string prefix, string name, string suffix)
     {
         // The name span is rendered 2pt larger than its neighbours, so a paren that leaks into it
-        // is visibly wrong -- and an untitled invisible player used to get "((Ollie the warlock)"
-        // because the prefix and name spans both emitted the opening paren.
+        // is visibly wrong.
         var parts = PlayerNameParts.Parse(wire).DisplayParts(namesOnly: false);
 
         Assert.Equal(prefix, parts.Prefix);
@@ -61,8 +60,7 @@ public sealed class PlayerNamePartsTests
     }
 
     // The "is this line about my persona?" rule, shared by the self-chat colouring and the
-    // spoken-dreamword cancellation. Invisibility parenthesises the whole name-and-description,
-    // which the dreamword check used to miss entirely.
+    // spoken-dreamword cancellation. Invisibility parenthesises the whole name-and-description.
     [Theory]
     [InlineData("Ollie says \"x\".", true)]
     [InlineData("Ollie the necromancer says \"x\".", true)]

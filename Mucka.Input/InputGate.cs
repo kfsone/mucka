@@ -4,11 +4,11 @@ namespace Mucka.Input;
 /// The handoff. Everything the player initiates enters here, in order, and leaves here on a posted
 /// callback - so no consumer can ever run on the keystroke that caused it.
 ///
-/// <para><b>What this is for.</b> Pressing Enter and acting on a line are two different things
-/// (owner, 2026-08-20). The command box's only job is to capture what was typed, correctly and
-/// smoothly; interpreting it - client commands, alias expansion, the socket write, history - is work
-/// that must happen somewhere the input path cannot feel. This class is that somewhere, and it is
-/// built so that using it is easier than bypassing it.</para>
+/// <para><b>What this is for.</b> Pressing Enter and acting on a line are two different things. The
+/// command box's only job is to capture what was typed, correctly and smoothly; interpreting it -
+/// client commands, alias expansion, the socket write, history - is work that must happen somewhere
+/// the input path cannot feel. This class is that somewhere, and it is built so that using it is
+/// easier than bypassing it.</para>
 ///
 /// <para><b>One queue, so ordering is correct by construction.</b> Typed lines and every other
 /// player-initiated action (an F-key, a compass click, a Ctrl macro, flee) go through the SAME FIFO.
@@ -19,9 +19,8 @@ namespace Mucka.Input;
 ///
 /// <para><b>Posted, not idle-scheduled.</b> The drain yields the thread back to the input system and
 /// then runs promptly. It deliberately does not wait for idle: a MUD command is time-critical (combat
-/// ticks are 2 s and the player is racing them), so one dispatcher turn is the whole budget. The
-/// owner's own framing: conflicts on a 1-2 ms timescale are affordable, stalls on the typing path are
-/// not.</para>
+/// ticks are 2 s and the player is racing them), so one dispatcher turn is the whole budget. Conflicts
+/// on a 1-2 ms timescale are affordable; stalls on the typing path are not.</para>
 ///
 /// <para><b>Thread affinity.</b> Everything here runs on the UI thread - the input events arrive
 /// there, and the drain is posted back there. No locking, therefore, and no lock is wanted: a lock on

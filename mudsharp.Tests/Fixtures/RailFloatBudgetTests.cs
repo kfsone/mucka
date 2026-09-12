@@ -238,11 +238,9 @@ public sealed class RailFloatTextTests
     public void AZeroWidthRangePrintsAsOneFigure_NotAsSixToSix()
     {
         // "You hit the banshee (6)." - MUD2 occasionally prints a single figure instead of a bracket,
-        // and the tracker carries that as a range of width zero. WHY it does so is not known: the
-        // `identify` attribution this test's name used to assert was checked against every capture on
-        // disk (2026-09-01) and is wrong. Deliberately named for the INPUT rather than a cause, so the
-        // expectation stays true if the cause is ever found - and cannot re-seed a false one if it is
-        // not.
+        // and the tracker carries that as a range of width zero. WHY it does so is not known.
+        // Deliberately named for the INPUT rather than a cause, so the expectation stays true if
+        // the cause is ever found - and cannot re-seed a false one if it is not.
         Assert.Equal("6", RailFloatText.Outgoing(6, 6));
     }
 

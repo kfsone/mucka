@@ -28,7 +28,7 @@ public sealed class NpcRemainingStaminaTests
 
     private static DamageBracket Dealt(double low, double high) => new(low, high);
 
-    // ── Pool minus damage ────────────────────────────────────────────────────────
+    // -- Pool minus damage --------------------------------------------------------
 
     [Fact]
     public void SubtractingThisFightsDamageWidensTheBandByTheBracketsOwnWidth()
@@ -60,15 +60,9 @@ public sealed class NpcRemainingStaminaTests
         // 200-260 against a (90, 110] pool ages to (90-260, 110-200] = (-170, -90] - both ends
         // negative, so even the most generous end of the band already reads as "past dead" while
         // the creature is, by construction, still being observed alive (that is the only way this
-        // method gets called for it). Clamping only the floor to 0 here (the OLD behaviour this
-        // test used to assert) leaves the ceiling at -90 and returns an interval with
-        // Interval.IsEmpty == true (AtMost <= Above) alongside IsBounded == true - reported by the
-        // adversarial review, 2026-09-02, as a live creature rendering with a confident EMPTY
-        // ring: rule 5, "an unknown must never render as a measured state", violated in its worst
-        // direction. The old assertion (`Above == 0 && AtMost < 0`) was pinning that exact bug, not
-        // describing a real feature, so it is replaced here with the corrected contract: a
-        // contradiction between "damage dealt says dead" and "still standing" must discard the
-        // whole reading as UNKNOWN, never round it to a measured zero.
+        // method gets called for it). Rule 5, "an unknown must never render as a measured state",
+        // means a contradiction between "damage dealt says dead" and "still standing" must discard
+        // the whole reading as UNKNOWN, never round it to a measured zero.
         var band = NpcRemainingStamina.Compute(Pool(), Dealt(200, 260));
         Assert.Same(NpcStaminaBand.Unknown, band);
         Assert.False(band.HasEvidence);
@@ -104,7 +98,7 @@ public sealed class NpcRemainingStaminaTests
         Assert.Equal(76, band.Interval.Above, 6);   // 90 - 14
     }
 
-    // ── The rung ─────────────────────────────────────────────────────────────────
+    // -- The rung -----------------------------------------------------------------
 
     [Fact]
     public void ARungReadingNarrowsTheBandToItsSeventh()
@@ -190,7 +184,7 @@ public sealed class NpcRemainingStaminaTests
         Assert.False(band.HasEvidence);
     }
 
-    // ── Diagnose, the only direct measurement ────────────────────────────────────
+    // -- Diagnose, the only direct measurement ------------------------------------
 
     [Fact]
     public void ADiagnoseReadingIsStoredExactlyAsPrintedAndConvertedWithoutWidening()
@@ -268,7 +262,7 @@ public sealed class NpcRemainingStaminaTests
         Assert.Equal(120, band.Interval.AtMost!.Value, 6);
     }
 
-    // ── The species evidence state travels with the band ─────────────────────────
+    // -- The species evidence state travels with the band -------------------------
 
     [Fact]
     public void TheBandCarriesHowWellTheSpeciesPoolIsKnown()
@@ -298,7 +292,7 @@ public sealed class NpcRemainingStaminaTests
         Assert.True(band.HasEvidence);
     }
 
-    // ── The regeneration label travels with the band ─────────────────────────────
+    // -- The regeneration label travels with the band -----------------------------
 
     [Fact]
     public void ARegeneratingSpeciesBandIsLabelledAsDamageToKill()

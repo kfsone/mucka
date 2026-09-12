@@ -6,15 +6,15 @@ namespace MudSharp.Tests.Fixtures;
 
 /// <summary>
 /// End-to-end wiring of the status-effect feature through MudSession: a decoded C11 bracket
-/// flows parser → EffectTracker.Apply → EffectTracker.Changed → MudSession.StatusEffectsChanged,
+/// flows parser -> EffectTracker.Apply -> EffectTracker.Changed -> MudSession.StatusEffectsChanged,
 /// and exiting game mode resets the tracker (a relog/logout carries no effects). A slow FES
 /// heartbeat keeps the probe timer out of the way; no network or real timing is involved.
 /// </summary>
 public class MudSessionStatusEffectTests : IDisposable
 {
-    // C02+C01 game-mode prompt variant — the post-character-select entry trigger.
+    // C02+C01 game-mode prompt variant - the post-character-select entry trigger.
     private static readonly byte[] GameModeEntry = [0x9D, 0x9C, 0xFF, 0xFF];
-    // C95+C03 account-logout → exit game mode.
+    // C95+C03 account-logout -> exit game mode.
     private static readonly byte[] AccountLogout = [0xFA, 0x9E, 0xFF, 0xFF];
 
     // A C11 enhancing-start bracket (11 02): 0xA6 0x9D <FF FF> phrase <FF FF>.
@@ -41,7 +41,7 @@ public class MudSessionStatusEffectTests : IDisposable
     public void StatusBracket_RaisesStatusEffectsChanged_WithRightState()
     {
         _session.Feed(GameModeEntry);
-        Assert.Empty(_states);   // entry resets an already-empty tracker → no publish
+        Assert.Empty(_states);   // entry resets an already-empty tracker -> no publish
 
         _session.Feed(Start(StrongerLine));
 
@@ -58,7 +58,7 @@ public class MudSessionStatusEffectTests : IDisposable
         _session.Feed(Start(StrongerLine));
         _states.Clear();
 
-        _session.Feed(AccountLogout);   // exit game mode → EffectTracker.Reset publishes Empty
+        _session.Feed(AccountLogout);   // exit game mode -> EffectTracker.Reset publishes Empty
 
         var s = Assert.Single(_states);
         Assert.False(s.AnyActive);

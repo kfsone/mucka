@@ -20,7 +20,7 @@ public sealed class FleePillResolverTests
         => new(rows, LiveCount: rows.Count(r => r.IsLive), ResolvedCount: rows.Count(r => !r.IsLive),
             HiddenCount: 0, HiddenLiveCount: 0);
 
-    // ── The gate ────────────────────────────────────────────────────────────────
+    // -- The gate --
 
     [Fact]
     public void OutOfCombat_IsHidden()
@@ -40,7 +40,7 @@ public sealed class FleePillResolverTests
         Assert.Equal(FleePillStatus.Hidden, status);
     }
 
-    // ── Stamina bands ───────────────────────────────────────────────────────────
+    // -- Stamina bands --
 
     [Theory]
     [InlineData(6)]
@@ -92,7 +92,7 @@ public sealed class FleePillResolverTests
         Assert.Equal(FleePillStatus.Hidden, status);
     }
 
-    // ── The one-tick worst case ─────────────────────────────────────────────────
+    // -- The one-tick worst case --
 
     [Fact]
     public void OneTickCouldKill_IsCautionEvenWellAboveTheSurvivalThreshold()
@@ -132,7 +132,7 @@ public sealed class FleePillResolverTests
             FleePillResolver.Resolve(inCombat: true, staminaCurrent: 55, worst, hitsLeft: null));
     }
 
-    // ── hitsLeft: the count, not a forecast ─────────────────────────────────────
+    // -- hitsLeft: the count, not a forecast --
 
     [Fact]
     public void TwoHitsFromDeathAtFullHealth_IsCaution()
@@ -170,7 +170,7 @@ public sealed class FleePillResolverTests
         Assert.Equal(FleePillStatus.Hidden, status);
     }
 
-    // ── WorstCaseTickDamage ─────────────────────────────────────────────────────
+    // -- WorstCaseTickDamage --
 
     [Fact]
     public void WorstCase_SumsOnlyLiveOpponents()
@@ -195,8 +195,8 @@ public sealed class FleePillResolverTests
     [Fact]
     public void WorstCase_UnmeasuredOpponentCountsAsTheAssumedUnknownHit()
     {
-        // Owner's decision: an opponent nobody has been hit by is assumed to hit for the top of the
-        // published ordinary-NPC range, not for nothing. Silence about an unmeasured creature reads as a
+        // An opponent nobody has been hit by is assumed to hit for the top of the published
+        // ordinary-NPC range, not for nothing. Silence about an unmeasured creature reads as a
         // claim that it is harmless, which is the one direction this alarm must not fail in.
         var unknown = new RosterRow("stickleback0", IsLive: true, IsCurrentTarget: false, FightOutcome.Unresolved);
         Assert.Equal(FleePillResolver.AssumedUnknownHit, FleePillResolver.WorstCaseTickDamage(Plan(unknown)));
@@ -207,9 +207,9 @@ public sealed class FleePillResolverTests
     {
         // MUD2 lands blows that take nothing off, and DamageProfile counts them on purpose - so
         // Samples > 0 with Sum == 0 describes a creature that has demonstrably failed to hurt anyone over
-        // twelve landed blows. It must contribute 0, not the unknown assumption. This regressed once: the
-        // branch tested the resulting number rather than the sample count, which made a proven-harmless
-        // creature exactly as alarming as one never seen before.
+        // twelve landed blows. It must contribute 0, not the unknown assumption - the branch keys on the
+        // sample count, not the resulting number, so a proven-harmless creature is not treated as
+        // alarming as one never seen before.
         var harmless = new RosterRow("firefly0", IsLive: true, IsCurrentTarget: true, FightOutcome.Unresolved,
             FightDamage: new DamageProfile(12, 0, 0));
         Assert.Equal(0.0, FleePillResolver.WorstCaseTickDamage(Plan(harmless)));

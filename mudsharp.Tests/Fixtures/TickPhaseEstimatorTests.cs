@@ -3,12 +3,13 @@ using Mucka.Core;
 namespace MudSharp.Tests.Fixtures;
 
 /// <summary>
-/// The session-scoped tick-phase estimate that replaced a single per-encounter sample.
+/// The session-scoped tick-phase estimate: built from every swing across a session, not a single
+/// per-encounter sample.
 ///
-/// <para>Measured motivation, from <c>tools/combat/sessionlattice.py</c> over the live clog corpus: the
-/// old first-swing anchor was off by more than 150 ms in 18.9% of encounters and by up to 963 ms - half
-/// a tick - against a session-wide lattice that itself fits to a median 26.5 ms. These tests pin the
-/// properties that make the estimator better than that, not the arithmetic it uses to get there.</para>
+/// <para>Measured motivation, from the live clog corpus: a first-swing anchor is off by more than
+/// 150 ms in 18.9% of encounters and by up to 963 ms - half a tick - against a session-wide lattice
+/// that itself fits to a median 26.5 ms. These tests pin the properties that make the estimator
+/// handle that, not the arithmetic it uses to get there.</para>
 /// </summary>
 public class TickPhaseEstimatorTests
 {
@@ -39,7 +40,7 @@ public class TickPhaseEstimatorTests
     public void NoAnchorUntilEnoughSwingsHaveBeenSeen()
     {
         // Deliberately does not hard-code the threshold: what matters is that ONE swing is never enough
-        // (that was the old behaviour, tail and all) and that the estimate does eventually arrive.
+        // and that the estimate does eventually arrive.
         var phase = new TickPhase();
         Assert.Null(phase.Anchor);
         phase.Observe(T0);
@@ -94,8 +95,8 @@ public class TickPhaseEstimatorTests
     /// <summary>
     /// THE case this class exists for. A keystroke-phased opening swing - the player's own `kill` reply
     /// arriving in the same frame as the first swing, which the corpus shows is over 100 ms out 52.1% of
-    /// the time against 18.4% for later openers (tools/combat/opener_phase.py) - must be out-voted by the
-    /// swings that follow rather than defining the lattice for the whole fight.
+    /// the time against 18.4% for later openers - must be out-voted by the swings that follow rather than
+    /// defining the lattice for the whole fight.
     /// </summary>
     [Theory]
     [InlineData(900.0)]     // near the worst measured (963 ms)
@@ -116,8 +117,8 @@ public class TickPhaseEstimatorTests
     [Fact]
     public void SurvivesAnEncounterBoundary()
     {
-        // No Reset between fights - that was the bug. A second encounter starts with the phase the first
-        // one established rather than re-deriving it from one sample.
+        // No Reset between fights: a second encounter starts with the phase the first one established
+        // rather than re-deriving it from one sample.
         var phase = new TickPhase();
         for (var k = 0; k < 20; k++)
             phase.Observe(T0.AddMilliseconds(k * Tick));
@@ -195,8 +196,8 @@ public class TickPhaseEstimatorTests
     }
 
     /// <summary>The bar gets the estimate before the click does, and that split is deliberate - see
-    /// TickPhase.SettledSamples. Raising the bar to the click's threshold once left the ticker dark for
-    /// the opening of a fight, which the owner read as nothing happening.</summary>
+    /// TickPhase.SettledSamples. Raising the bar to the click's threshold would leave the ticker dark
+    /// for the opening of a fight, reading as nothing happening.</summary>
     [Fact]
     public void TheBarGetsThePhaseBeforeTheClickDoes()
     {

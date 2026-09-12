@@ -22,11 +22,9 @@ public readonly record struct Hotkey(int KeyCode, InputModifiers Modifiers);
 /// Declarative hotkey dispatch: bindings are registered up front, and a key press costs one
 /// dictionary probe.
 ///
-/// <para><b>Why this exists.</b> Hotkey handling used to be a chain of <c>if</c>s inside the command
-/// box's own key handler - which meant consumer logic ran ON the keystroke, and that every plain
-/// letter typed paid for the tests that decided it was not a hotkey. One of those tests was a
-/// <c>GetKeyState</c> P/Invoke, executed per character, purely to discover that Ctrl was not held.
-/// Here a plain letter costs a struct hash and a miss.</para>
+/// <para><b>Why this exists.</b> A key press must cost the same whether or not it turns out to be a
+/// hotkey: consumer logic must never run ON the keystroke, and a plain letter of ordinary typing must
+/// not pay for deciding it is not one. Here a plain letter costs a struct hash and a miss.</para>
 ///
 /// <para><b>Decide synchronously, act asynchronously.</b> <see cref="Handle"/> answers "is this key
 /// mine?" immediately - the caller needs that answer to suppress the control's own handling of the
@@ -103,9 +101,8 @@ public sealed class HotkeyRouter
     /// digit and punctuation mark of ordinary typing.
     ///
     /// <para>Exists so that reading the modifier state can be skipped for keys that could not match
-    /// anything. On Windows that state costs a <c>GetKeyState</c> P/Invoke per modifier, and the
-    /// previous hand-rolled handler paid one on EVERY character typed just to find out that Ctrl was
-    /// not held. Ask this first and plain typing costs a single hash lookup instead.</para>
+    /// anything. On Windows that state costs a <c>GetKeyState</c> P/Invoke per modifier, so asking this
+    /// first means plain typing costs a single hash lookup instead.</para>
     /// </summary>
     public bool IsBoundKey(int keyCode) => _boundKeyCodes.Contains(keyCode);
 

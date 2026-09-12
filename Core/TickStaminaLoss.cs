@@ -4,8 +4,7 @@ namespace Mucka.Core;
 /// How much stamina the player lost on the most recent combat tick, so the rail can tint the slice of
 /// their ring that has just gone.
 ///
-/// <para>The owner, 2026-09-01: "perhaps make the segment of player sta that's just been lost in the
-/// last tick tinted red? (the same gray but tinted)".</para>
+/// <para>The just-lost segment of the player's stamina ring is tinted red - the same gray, tinted.</para>
 ///
 /// <para><b>Grouped by arrival, not by wall-clock bucket - and that IS the server tick.</b> MUD2
 /// resolves combat on a 2000 ms tick (median residual 26 ms over 68 sessions), so every blow belonging
@@ -16,21 +15,19 @@ namespace Mucka.Core;
 /// <para>Bucketing on absolute 2000 ms boundaries instead would be worse, not better: a tick whose
 /// blows straddle a boundary would be split into two slices, which happens roughly 26/2000 of the
 /// time. Deliberately nothing here is keyed to a render frame - the canvas repaints on state change
-/// and never on a timer.</para></para>
+/// and never on a timer.</para>
 ///
 /// <para><b>Several blows in one tick make ONE slice.</b> They accumulate into the same burst, so a
 /// pack landing four hits shows a single combined segment rather than four stacked ones.</para>
 ///
-/// <para><b>It fades over one tick, then holds at zero until the next loss replaces it.</b> The
-/// owner, 2026-09-02, after living with the un-faded version: "it seems to stay red for multiple
-/// ticks; also, I'd like to reduce the *amount* of red. Too much red makes it look like you haven't
-/// lost it yet... I'd like it to fade red-&gt;final gray over the combat tick." This class still
-/// tracks only the ARC's magnitude (<see cref="LostThisTick"/>) and when it arrived
-/// (<see cref="LastLossUtc"/>) - <see cref="FadeFactor"/> is a pure function of those two values plus
-/// "now", sampled by the renderer at paint time, so nothing here becomes stateful or timer-driven.
-/// The render cadence that makes a 2000 ms fade visible at all (rather than one visible step) is a
-/// question for the caller, not for this class - see CombatRailView's own remarks on why no new timer
-/// was added for it.</para>
+/// <para><b>It fades over one tick, then holds at zero until the next loss replaces it.</b> The tint
+/// is not meant to signal an amount still outstanding, only the moment the loss happened, so it must
+/// not stand at full strength indefinitely. This class tracks only the ARC's magnitude
+/// (<see cref="LostThisTick"/>) and when it arrived (<see cref="LastLossUtc"/>) - <see cref="FadeFactor"/>
+/// is a pure function of those two values plus "now", sampled by the renderer at paint time, so
+/// nothing here becomes stateful or timer-driven. The render cadence that makes a 2000 ms fade visible
+/// at all (rather than one visible step) is a question for the caller, not for this class - see
+/// CombatRailView's own remarks on why no new timer was added for it.</para>
 ///
 /// <para>Pure and MAUI-free; linked into mudsharp.Tests.</para>
 /// </summary>
@@ -45,25 +42,15 @@ public sealed class TickStaminaLoss
     /// The just-lost slice's tint strength at the instant it arrives, before <see cref="FadeFactor"/>
     /// brings it down toward 0.
     ///
-    /// <para><b>0.35, then 0.18, then back to 0.35 - and the round trip is the point.</b> The owner's
-    /// original complaint (2026-09-02) was "I'd like to reduce the *amount* of red. Too much red makes
-    /// it look like you haven't lost it yet", which was read here as a saturation problem and answered
-    /// by cutting the peak to 0.18. He then could not see the slice at all: "The 'lost segment'
-    /// (redenning tint) that's supposed to last for the rest of the tick when it landed? I couldn't
-    /// make it out with the last build."</para>
+    /// <para><b>The slice persisting, not its peak brightness, is what reads as wrong.</b> Without
+    /// <see cref="FadeFactor"/> decaying it to nothing inside one tick, a bright red arc would sit on
+    /// the ring long after the moment it described, reading as a live part of the gauge rather than a
+    /// fading mark. Once brightness no longer implies permanence, the peak is free to stay high.</para>
     ///
-    /// <para><b>The two complaints had one cause, and it was not the peak.</b> "Looks like you haven't
-    /// lost it yet" is about the slice PERSISTING - it stood until the next blow replaced it, so a
-    /// bright red arc sat on the ring long after the moment it described, reading as a live part of the
-    /// gauge. <see cref="FadeFactor"/> fixed that by making it decay to nothing inside one tick. Once it
-    /// decays, brightness no longer implies permanence, so the peak is free to be visible again -
-    /// cutting it as well took away the only thing that made the slice readable at the one instant it
-    /// matters.</para>
-    ///
-    /// <para><b>Why 0.18 was not merely subtle but invisible.</b> <c>CombatRailView.SealTrack</c> is
-    /// #767676 dimmed to 30%, so about (35,35,35). Tinted 0.18 toward the hostile red that is
-    /// (70,42,44) - a dark colour on a #101618 panel, on a thin arc. At 0.35 it is about (104,48,53),
-    /// which is the value he had already confirmed he could see.</para>
+    /// <para><b>Why a lower peak reads as invisible rather than merely subtle.</b>
+    /// <c>CombatRailView.SealTrack</c> is #767676 dimmed to 30%, so about (35,35,35). Tinted toward the
+    /// hostile red (70,42,44) on a thin arc over a #101618 panel, a low tint strength is barely
+    /// distinguishable from the untinted track; 0.35 (about (104,48,53)) is.</para>
     /// </summary>
     public const float PeakTintStrength = 0.35f;
 

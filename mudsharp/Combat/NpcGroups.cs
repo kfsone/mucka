@@ -5,16 +5,12 @@ namespace MudSharp.Combat;
 /// MUD2 spawns numbered instances of the same creature, so the instance name answers "is THIS
 /// one tough" while the group name is what gives usable sample sizes for cross-fight comparison.
 ///
-/// <para>IMPORTANT: this is a deliberate port of <c>normalize_npc_group</c> in
-/// tools/combat/reduce_combat.py, and the two must stay in agreement — the offline sqlite
-/// pipeline and the live client would otherwise bucket the same fight under different groups and
-/// silently disagree about history. NpcGroupsTests pins the behaviour against a fixture of
-/// name/group pairs; if the Python side gains an irregular, add it here and to that fixture.</para>
+/// <para>NpcGroupsTests pins the behaviour against a fixture of name/group pairs; add a new
+/// irregular here and to that fixture together.</para>
 /// </summary>
 public static class NpcGroups
 {
-    /// <summary>Creatures whose plural the suffix rules below would get wrong. Mirrors
-    /// reduce_combat.py's IRREGULAR_GROUPS exactly.</summary>
+    /// <summary>Creatures whose plural the suffix rules below would get wrong.</summary>
     private static readonly Dictionary<string, string> Irregular = new(StringComparer.Ordinal)
     {
         ["dwarf"] = "dwarves",
@@ -33,10 +29,10 @@ public static class NpcGroups
         var trimmed = name.Trim().ToLowerInvariant();
         var baseName = TrimTrailingDigits(trimmed);
         var leaf = LastToken(baseName);
-        // Deliberate divergence from the Python, which pluralizes whatever survives stripping and
-        // so answers "s" for an all-digits or blank name. An empty group is rejected downstream by
-        // FightHistory's guard, whereas a literal "s" group would quietly accumulate a junk bucket.
-        // Unreachable for real names — callers reject blank NPC names first. See NpcGroupsTests.
+        // An empty leaf (all-digits or blank name) returns empty rather than pluralizing to a bare
+        // "s": an empty group is rejected downstream by FightHistory's guard, whereas a literal "s"
+        // group would quietly accumulate a junk bucket. Unreachable for real names - callers reject
+        // blank NPC names first. See NpcGroupsTests.
         if (leaf.Length == 0)
             return string.Empty;
 
@@ -69,8 +65,8 @@ public static class NpcGroups
 
     private static string LastToken(string value)
     {
-        // Direct translation of the Python's re.split(r"[\s-]+", base) with empties discarded,
-        // then tokens[-1]; falls back to the base itself when there are no tokens at all.
+        // Splits on whitespace or hyphen, discards empty tokens, and takes the last one; falls back
+        // to the base itself when there are no tokens at all.
         var tokens = value.Split(TokenSeparators, StringSplitOptions.RemoveEmptyEntries);
         return tokens.Length > 0 ? tokens[^1] : value;
     }

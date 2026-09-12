@@ -9,9 +9,9 @@ namespace Mucka.Core;
 ///   -password exposes credentials via process listings, shell history, and crash reports.
 ///   Prefer a saved profile or the interactive password prompt when possible.
 /// Windows only:
-///   mucka -logs &lt;path&gt;   — write trace/log output to the specified file (appended, auto-flushed)
+///   mucka -logs &lt;path&gt;   - write trace/log output to the specified file (appended, auto-flushed)
 /// Debug builds only:
-///   mucka [-record]   — arm session recording before connecting (also available via the in-game rec button on Windows)
+///   mucka [-record]   - arm session recording before connecting (also available via the in-game rec button on Windows)
 /// </summary>
 public sealed class CommandLineArgs
 {

@@ -8,10 +8,9 @@ namespace Mucka.ViewModels;
 /// a creature whether or not the room ever described it (see
 /// <see cref="MudSharp.Models.RoomCreatures"/> for the first answer and what it cannot cover).</para>
 ///
-/// <para><b>Extracted from <c>SidePanelViewModel</c> for the same reason
-/// <see cref="CombatHistoryCache"/> was</b>: the property below is load-bearing and not obvious, and
-/// it cannot be checked at all from inside a MAUI view model. This type deliberately references
-/// nothing but <see cref="FightSnapshot"/>, so mudsharp.Tests can link it.</para>
+/// <para>The property below is load-bearing and not obvious, and cannot be checked at all from
+/// inside a MAUI view model. This type deliberately references nothing but
+/// <see cref="FightSnapshot"/>, so mudsharp.Tests can link it.</para>
 ///
 /// <para><b>The property that matters: an unchanged refresh must report false.</b>
 /// <see cref="Update"/> runs on every combat event, every FES heartbeat and every 1 Hz tick, and the
@@ -55,13 +54,13 @@ public sealed class EngagedNpcSet
     /// the dead rat17. A set comparison cannot be wrong about that, and costs one pass either way.</para>
     ///
     /// <para><b>Each fight is indexed under its bare instance id as well as its full name, because the
-    /// two sides of this comparison do not always spell the creature the same way.</b> Observed by the
-    /// owner on screen, 2026-09-02: fighting the large rat0 in a room of four rats, the terminal and
-    /// the rail both said "large rat0" while the Here list said "rat0", so the exact-name lookup missed
-    /// and rat0 alone kept a grey swords icon while it was hitting him. The other three, whose names
-    /// carry no descriptor, matched and went red. Combat lines carry a creature's descriptor and FEI
-    /// prints the bare id - and the descriptor is not even reliably present on the combat side, since
-    /// "stocky dwarf" appears bare 653 times in the corpus.</para>
+    /// two sides of this comparison do not always spell the creature the same way.</b> Fighting the
+    /// large rat0 in a room of four rats, the terminal and the rail both said "large rat0" while the
+    /// Here list said "rat0", so the exact-name lookup missed and rat0 alone kept a grey swords icon
+    /// while it was hitting him. The other three, whose names carry no descriptor, matched and went
+    /// red. Combat lines carry a creature's descriptor and FEI prints the bare id - and the descriptor
+    /// is not even reliably present on the combat side, since "stocky dwarf" appears bare 653 times in
+    /// the corpus.</para>
     ///
     /// <para><b>Only a token ENDING IN DIGITS is treated as an id.</b> That is what makes the extra
     /// entry safe: an instance number is unique within a room, so "rat0" can only mean the one rat0,

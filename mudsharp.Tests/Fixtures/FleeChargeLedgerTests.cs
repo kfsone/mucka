@@ -30,8 +30,8 @@ public sealed class FleeChargeLedgerTests
     [Fact]
     public void Only_the_first_fall_of_a_frame_is_the_flight_cost()
     {
-        // The owner: "there are *some* rare cases where fleeing has two penalties - such as fleeing
-        // from a shark and then drowning (one for flight, one for a non-combat death)".
+        // Fleeing can trigger two score falls in one frame -- for example fleeing from a shark and
+        // then drowning (one for flight, one for a non-combat death). Only the first is the flight cost.
         var ledger = new FleeChargeLedger();
 
         ledger.NoteScoreFall(371);

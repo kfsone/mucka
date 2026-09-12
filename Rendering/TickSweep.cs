@@ -12,35 +12,31 @@ namespace Mucka.Rendering;
 ///
 /// <para><b>Linear, and it has to be said out loud.</b> Composition applies a cubic ease-in-out to
 /// keyframes that carry no easing function of their own, which makes a constant-rate countdown crawl
-/// at both ends and race through the middle. The owner caught it in play before this comment existed -
-/// "combat tick bar is not smooth - it seems to slow down towards the right" - and they are right that
-/// it disqualifies the thing: a clock that does not tick evenly is worse than no clock, because it is
-/// read as information. Every keyframe here takes an explicit linear easing and must keep doing so.</para>
+/// at both ends and race through the middle - in play the bar visibly slows toward the right instead
+/// of ticking evenly. A clock that does not tick evenly is worse than no clock, because it is read as
+/// information. Every keyframe here takes an explicit linear easing and must keep doing so.</para>
 ///
-/// <para><b>Why this is not drawn by the canvas.</b> The rail's <c>SKCanvasView</c> paints ON the UI
-/// thread on WinUI, so a timer repainting it 30 times a second would compete directly with typing
-/// (Invariant #1) - and a 2-second progress bar is the single most repaint-hungry thing on the panel.
-/// The whole motion therefore lives on the compositor, where it costs the UI thread nothing at all:
-/// one <c>Vector3KeyFrameAnimation</c> on a Visual's Scale, started once per fight and left alone.
-/// The canvas draws only the still parts (the track, the opponent count over it); this element is the
-/// fill inside that track, sitting behind the transparent canvas exactly as <see cref="PulseLayer"/>'s
-/// glow does.</para>
+/// <para><b>Why this is not drawn by the canvas.</b> A timer repainting the rail's canvas 30 times a
+/// second would compete directly with typing (Invariant #1) - and a 2-second progress bar is the
+/// single most repaint-hungry thing on the panel. The whole motion therefore lives on the
+/// compositor, where it costs the UI thread nothing at all: one <c>Vector3KeyFrameAnimation</c> on a
+/// Visual's Scale, started once per fight and left alone. The canvas draws only the still parts (the
+/// track, the opponent count over it); this element is the fill inside that track, sitting behind the
+/// transparent canvas exactly as <see cref="PulseLayer"/>'s glow does.</para>
 ///
 /// <para><b>Phase.</b> MUD2's combat tick is exactly 2.000 s and phase-locked - measured gaps are
 /// exact multiples of 2000 ms - so a sweep aligned to the fight's first swing stays in phase with the
 /// game for the whole fight without ever being resynced.</para>
 ///
 /// <para>Alignment is to an ANCHOR INSTANT, not to the moment <see cref="Restart"/> happens to be
-/// called. This is the whole reason the bar and the metronome ever disagreed: the click has always
-/// been armed from the swing's feed-thread timestamp, while this class used to start its animation
-/// wherever the call landed - after a <c>BeginInvokeOnMainThread</c> hop, a PropertyChanged fan-out
-/// and a wait for the next compositor frame. That latency is variable and is WORST during a swing
-/// burst, which is exactly when both instruments are being read, so the bar trailed the click by a
-/// different amount every fight. Taking the anchor makes the two genuinely one clock rather than two
-/// that were merely started near each other.</para>
+/// called: the click is armed from the swing's feed-thread timestamp, and starting the animation
+/// wherever the call lands instead - after a <c>BeginInvokeOnMainThread</c> hop, a PropertyChanged
+/// fan-out and a wait for the next compositor frame - adds latency that is variable and worst during
+/// a swing burst, which is exactly when both instruments are being read. Taking the anchor makes the
+/// two genuinely one clock rather than two that were merely started near each other.</para>
 ///
-/// <para>The sweep is still not a prediction of the next swing - the spec forbids labelling it or
-/// colouring it by judgement on those grounds, and that has not changed. A timer is not a verdict.</para>
+/// <para>The sweep is not a prediction of the next swing: it is never labelled or coloured by
+/// judgement on those grounds. A timer is not a verdict.</para>
 ///
 /// <para><b>Teardown is not optional</b> - see PulseLayer's remarks for the RO_E_CLOSED crash class
 /// this shares. <see cref="Stop"/> must run from the host's <c>OnHandlerChanged</c> when
@@ -104,8 +100,8 @@ internal sealed class TickSweep
         _visual.CenterPoint = Vector3.Zero;
         var generation = ++_generation;
 
-        // Shared with the metronome - see CombatTiming.MillisecondsToNextBoundary for why this is not
-        // computed here any more.
+        // Shared with the metronome - see CombatTiming.MillisecondsToNextBoundary, which owns this
+        // computation.
         var remaining = Mucka.Core.CombatTiming.MillisecondsToNextBoundary(anchorUtc, DateTime.UtcNow);
 
         // The number to compare against the metronome's own "boundary at +N ms" line: if the two
@@ -192,8 +188,8 @@ internal sealed class TickSweep
     }
 
     /// <summary>Stops the sweep and empties the bar. Out of combat there is no tick to show: the
-    /// spec's tick meter is a fight instrument, and one still ticking away in the tea room would
-    /// read as a fight that never ended.</summary>
+    /// tick meter is a fight instrument, and one still ticking away in the tea room would read as
+    /// a fight that never ended.</summary>
     public void Stop()
     {
         // Bump BEFORE stopping, and outside the guard below, so a handoff already queued for this

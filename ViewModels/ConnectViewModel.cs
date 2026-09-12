@@ -27,7 +27,7 @@ public sealed class ConnectViewModel : BaseViewModel
     private int _antiIdleSeconds = 0;
     private int _profileSelectionVersion;
     private int _profileLoadsInProgress;
-    // Mobile defaults on — matches Profile.KeepScreenOn (screen-lock mid-session gets you swamped).
+    // Mobile defaults on - matches Profile.KeepScreenOn (screen-lock mid-session gets you swamped).
     private bool _keepScreenOn =
 #if ANDROID || IOS
         true;
@@ -56,7 +56,7 @@ public sealed class ConnectViewModel : BaseViewModel
         }
     }
 
-    /// <summary>Display string for the MaxColumns entry — blank means "auto" (0).</summary>
+    /// <summary>Display string for the MaxColumns entry - blank means "auto" (0).</summary>
     public string MaxColumnsText => _maxColumns == 0 ? string.Empty : _maxColumns.ToString();
     public int AntiIdleSeconds { get => _antiIdleSeconds; set => Set(ref _antiIdleSeconds, Math.Clamp(value, 0, 3600)); }
     public bool KeepScreenOn { get => _keepScreenOn; set => Set(ref _keepScreenOn, value); }
@@ -155,7 +155,7 @@ public sealed class ConnectViewModel : BaseViewModel
                 {
                     RememberPassword = true;
                     // Password is persisted below via SaveCurrentProfileAsync,
-                    // which is skipped in direct-connect mode — intentionally.
+                    // which is skipped in direct-connect mode - intentionally.
                 }
             }
 
@@ -172,23 +172,20 @@ public sealed class ConnectViewModel : BaseViewModel
                 return;
             }
 
-            // Carry the persisted settings (fkeys, font, volume, …) over from the saved
-            // profile — they are not editable on this page but must not reset on connect.
+            // Carry the persisted settings (fkeys, font, volume, ...) over from the saved
+            // profile - they are not editable on this page but must not reset on connect.
             var saved = SavedProfiles.FirstOrDefault(p =>
                 string.Equals(p.Name, ProfileName, StringComparison.OrdinalIgnoreCase));
 
-            // The one-time global wire log. Read here rather than in GamePage because it must be
-            // running BEFORE the socket opens, or the login exchange - the part of a session most
-            // worth having a byte-exact record of - is the one part missing from it. Falling back to
-            // any loaded profile is not a guess: the key lives in the single global [settings]
-            // section, so every profile carries the same value; the fallback only matters for a
-            // brand-new profile name typed on this page, which has no SavedProfiles entry yet.
-            // Failure is reported but never blocks the connection - unlike the hand-armed capture
-            // above, nobody asked for this on this particular run. It IS reported where a human can see
-            // it, though: this branch is reachable (the sink opens the database in its constructor), and
-            // a wire log that silently never records is the worst outcome for a setting switched on once
-            // and never checked again. StatusText covers the case where the connection then fails too;
-            // MuckaConnection.WireLogFailure carries it into the terminal if the connection succeeds.
+            // The one-time global wire log. Started here rather than in GamePage because it must be
+            // running before the socket opens, or the login exchange - the part of a session most
+            // worth a byte-exact record of - is the one part missing from it. The key lives in the
+            // single global [settings] section, so every profile carries the same value; the
+            // fallback to any loaded profile only matters for a brand-new profile name typed on
+            // this page, which has no SavedProfiles entry yet. Failure here is reported but never
+            // blocks the connection, unlike the hand-armed capture above. StatusText covers the
+            // case where the connection then fails too; MuckaConnection.WireLogFailure carries it
+            // into the terminal if the connection succeeds.
             var wireLog = (saved ?? SavedProfiles.FirstOrDefault())?.LogWireSession ?? false;
             if (wireLog && !conn.TryStartWireLog(Host.Trim(), out var wireLogError))
                 StatusText = $"Wire log failed to start: {wireLogError}";
@@ -218,23 +215,16 @@ public sealed class ConnectViewModel : BaseViewModel
                 SettingsPerProfile = saved?.SettingsPerProfile ?? false,
                 FkeysPerProfile = saved?.FkeysPerProfile ?? false,
                 Fkeys = saved?.Fkeys ?? new string[36],
-                // Carried like the rest: omitting this handed the session an empty SoundSettings,
-                // so every per-sound/per-group volume override read from the ini was dropped on
-                // connect -- and the connect-time ini sync below then wrote that empty blob back,
-                // erasing the stored keys for good.
-                Sounds = saved?.Sounds ?? new SoundSettings(),
-                // Same class of bug as Sounds above: `saved` is already hydrated from mucka.ini by
-                // LoadProfilesAsync's ApplyTo overlay, but this fresh Profile does not inherit from it
-                // automatically - every settings field has to be carried across explicitly. Omitting
-                // this one would hand GameViewModel a `false` regardless of what was actually saved,
-                // and SaveCurrentProfileAsync below would then write that false straight back to disk.
-                ShowCombatRail = saved?.ShowCombatRail ?? false,
-                // Third time for this exact trap - see the two comments above. Omitting it meant the
-                // wire log switched itself off the first time the operator saved anything in-game:
-                // this fresh Profile carried false, SaveCurrentProfileAsync wrote that to mucka.ini,
-                // and the next connect read it back as the truth. Silent, and the symptom is an empty
-                // log rather than an error. Any new settings field has to be added HERE as well as to
+                // `saved` is already hydrated from mucka.ini by LoadProfilesAsync's ApplyTo overlay,
+                // but this fresh Profile does not inherit from it automatically - every settings
+                // field has to be carried across explicitly, or it silently reverts to its C#
+                // default here and the ini sync below (SaveCurrentProfileAsync) writes that default
+                // back to disk. Any new settings field must be added HERE as well as to
                 // ClientSettings, Profile and SettingsStore.
+                Sounds = saved?.Sounds ?? new SoundSettings(),
+                // Same as Sounds above.
+                ShowCombatRail = saved?.ShowCombatRail ?? false,
+                // Same as Sounds above.
                 LogWireSession = saved?.LogWireSession ?? false,
             };
             if (saved is null)
@@ -410,7 +400,7 @@ public sealed class ConnectViewModel : BaseViewModel
 
         SavedProfiles.Remove(existing);
         await ProfileStore.SetPasswordAsync(name, null);
-        // The profile's settings:/fkeys: ini sections are deliberately left behind —
+        // The profile's settings:/fkeys: ini sections are deliberately left behind -
         // SaveProfilesAsync only removes the [profile:] section and the order entry.
 
         if (SavedProfiles.Count == 0)
@@ -614,7 +604,7 @@ public sealed class ConnectViewModel : BaseViewModel
         await ProfileStore.SetPasswordAsync(incoming.Name, password);
         await SettingsStore.SaveProfilesAsync(SavedProfiles.ToList());
 
-        // Keep mucka.ini in sync — it is the authoritative settings store, so a column
+        // Keep mucka.ini in sync - it is the authoritative settings store, so a column
         // change made on this page must not be reverted by a stale ini section next launch.
         // The save lands in whichever scope the profile loaded from (global by default).
         var settings = new ClientSettings
@@ -630,21 +620,21 @@ public sealed class ConnectViewModel : BaseViewModel
             Sounds              = incoming.Sounds,
             // ShowCombatRail is a settingsSection field (per-profile like FontSize/Volume above via
             // SettingsPerProfile), NOT part of the "Display tab globals" block writeDisplayGlobals:
-            // false below skips - so it is always written here regardless of that flag, and has to be
-            // carried through explicitly for the same reason FontSize/Volume/Sounds already are:
-            // omitting it would hand SaveProfileAsync the C# default (false/hidden), silently wiping a
-            // player's saved "shown" preference on literally the next connect.
+            // false below skips - so it is always written here regardless of that flag, and has to
+            // be carried through explicitly for the same reason FontSize/Volume/Sounds already are:
+            // omitting it would hand SaveProfileAsync the C# default (false/hidden), silently
+            // wiping a player's saved "shown" preference on the next connect.
             ShowCombatRail      = incoming.ShowCombatRail,
         };
-        // fkeys: null — hotkeys are not editable on this page, so never rewrite their sections.
-        // writeSounds: false — nor are sounds, and rewriting them from a profile blob assembled
-        // here is exactly how the stored volume overrides got erased on every connect.
-        // writeDisplayGlobals: false — nor is anything in that block (default font/columns,
-        // dreamword offset, the Show* toggles, online display options, float defaults, "me" chat
-        // colours): this partial ClientSettings leaves every one of them at its C# default, and
-        // writing those unconditionally on every connect was silently resetting a player's saved
-        // globals back to default (DefaultFontSize -> 0, OnlineForgetWindow -> 0 killing the Recent
-        // list, MeNameColor/MeSpeechColor -> the built-in colours, etc.) every time this ran.
+        // fkeys: null - hotkeys are not editable on this page, so their sections are never rewritten.
+        // writeSounds: false - sounds are not editable here either; rewriting them from a profile
+        // blob assembled on this page would overwrite the stored per-sound volume overrides.
+        // writeDisplayGlobals: false - nothing in that block (default font/columns, dreamword
+        // offset, the Show* toggles, online display options, float defaults, "me" chat colours) is
+        // editable on this page; this partial ClientSettings leaves each of them at its C# default,
+        // so writing the block unconditionally would reset a player's saved globals to those
+        // defaults (DefaultFontSize -> 0, OnlineForgetWindow -> 0 killing the Recent list,
+        // MeNameColor/MeSpeechColor -> the built-in colours, etc.).
         await SettingsStore.SaveProfileAsync(incoming.Name, settings, fkeys: null,
             writeSounds: false, writeDisplayGlobals: false);
     }

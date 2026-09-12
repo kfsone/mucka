@@ -5,17 +5,15 @@ namespace mudsharp.Tests.Fixtures;
 /// <summary>
 /// The health-descriptor ladder - MUD2's only report of how hurt a creature is.
 ///
-/// <para>The ordering assertions here are transcribed from real fights in the capture corpus, not from
-/// intuition, and they exist because intuition got it wrong once already: a hand-written draft placed
-/// "covered in wounds" below "seriously injured", where the corpus (counted within reducer-segmented
-/// fights, so a reused instance name cannot splice two fights into one sequence) shows 4 transitions
-/// from "covered in wounds" to "seriously injured" and none the other way. Two rungs of error, in the
-/// direction that reads a dying creature as healthier than it is - so these sequences are the
-/// regression that keeps the scale honest.</para>
+/// <para>The ordering assertions here are transcribed from real fights in the capture corpus, not
+/// from intuition: counted within reducer-segmented fights (so a reused instance name cannot splice
+/// two fights into one sequence), the corpus shows 4 transitions from "covered in wounds" to
+/// "seriously injured" and none the other way. That is the direction of error that would read a
+/// dying creature as healthier than it is, so these sequences pin the ordering.</para>
 ///
 /// <para>No published source covers this. The MUD2 strategy guide gives damage formulas and per-
 /// creature stamina pools and says nothing at all about the wound descriptions - see
-/// tools/combat/MUD2-PUBLISHED-MECHANICS.md.</para>
+/// docs/MUD2-published-mechanics.md.</para>
 /// </summary>
 public sealed class NpcHealthRungTests
 {
@@ -87,10 +85,10 @@ public sealed class NpcHealthRungTests
         Assert.Equal(2, Rung("The banshee looks to be fading rapidly."));
     }
 
-    /// <summary>The banshee's seven words occupy seven distinct rungs, like every other vocabulary.
-    /// This is the assertion that would have caught the old table, which had two words at 6, nothing
-    /// at 5, an unobserved word at 2 and two words at 1 - so eight of the twenty-five word-changes
-    /// across seven recorded fights moved the creature's description without moving the rail.</summary>
+    /// <summary>The banshee's seven words occupy seven distinct rungs, like every other vocabulary -
+    /// a collision here would move the creature's description without moving the rail. Across seven
+    /// recorded fights, eight of the banshee's twenty-five word-changes did exactly that whenever two
+    /// words shared a rung.</summary>
     [Fact]
     public void TheBansheesSevenWords_OccupySevenDistinctRungs()
     {
@@ -103,9 +101,8 @@ public sealed class NpcHealthRungTests
         Assert.Equal([7, 6, 5, 4, 3, 2, 1], rungs);
     }
 
-    /// <summary>The at-max words parse, which "full of life" did not until now - it was in neither
-    /// table and has no severity adverb, so TryParse returned false and a `ql` on anything living
-    /// produced nothing at all.</summary>
+    /// <summary>The at-max words must parse: "full of life" has no severity adverb, so without an
+    /// explicit table entry a `ql` on anything living would return nothing at all.</summary>
     [Theory]
     [InlineData("The viper looks full of life.", 7)]
     [InlineData("The banshee looks full of energy.", 7)]
@@ -142,9 +139,7 @@ public sealed class NpcHealthRungTests
     /// them would mean rejecting the creature readings that share their words.
     ///
     /// <para>What contains them is the caller: CombatTracker only consults a reading for a name
-    /// already in its active set, so an object has to share an engaged creature's name to land.
-    /// Pinned so nobody "fixes" TryRung to reject these and silently blinds the rail to three
-    /// rungs of every undead vocabulary.</para></summary>
+    /// already in its active set, so an object has to share an engaged creature's name to land.</para></summary>
     [Theory]
     [InlineData("The broadsword looks to be seriously damaged.", 3)]
     [InlineData("The well-maintained pick2 looks to be superficially damaged.", 6)]
@@ -155,11 +150,8 @@ public sealed class NpcHealthRungTests
         Assert.Equal(expected, rung);
     }
 
-    /// <summary>Two entries were deleted as unobserved-and-invented ("critically drained",
-    /// "moderately injured" - both zero occurrences corpus-wide). This does NOT guard the deletion:
-    /// it passes against the old table too, because the explicit entries carried the same values the
-    /// fallback now supplies. That is the point being pinned - both deletions are behavioural
-    /// no-ops, so a phrase nobody has seen still degrades to its adverb rather than vanishing.</summary>
+    /// <summary>"critically drained" and "moderately injured" have zero occurrences corpus-wide. A
+    /// phrase nobody has seen still degrades to its adverb rather than vanishing.</summary>
     [Theory]
     [InlineData("The banshee looks critically drained.", 2)]
     [InlineData("The rat3 looks moderately injured.", 4)]
@@ -167,9 +159,8 @@ public sealed class NpcHealthRungTests
         => Assert.Equal(expected, Rung(line));
 
     /// <summary>The severity fallback must agree with the phrase table, or it generalises a value the
-    /// table has disproved. Both of these moved in the 2026-09-04 remap and the fallback moved with
-    /// them; "slightly weakened" and the banshee's "fading" phrase are the only observed users of
-    /// either adverb.</summary>
+    /// table has disproved. "slightly weakened" and the banshee's "fading" phrase are the only
+    /// observed users of either adverb.</summary>
     [Theory]
     [InlineData("The wraith2 looks slightly dimmed.", 5)]
     [InlineData("The spectre looks to be fading fast.", 2)]
@@ -177,9 +168,8 @@ public sealed class NpcHealthRungTests
         => Assert.Equal(expected, Rung(line));
 
     /// <summary>The banshee's terminal word, and the only descriptor in the corpus with no severity
-    /// adverb - so it missed the phrase table AND the severity fallback, and TryParse returned false.
-    /// The cost was invisible: every one of the 27 non-killing player hits in the whole corpus with no
-    /// descriptor after it was a banshee. Regression, not a nicety.</summary>
+    /// adverb - it matches neither the phrase table nor the severity fallback. Every one of the 27
+    /// non-killing player hits in the whole corpus with no descriptor after it was a banshee.</summary>
     [Fact]
     public void Faint_TheBansheesTerminalReading_IsRungOneAndNotSilence()
     {

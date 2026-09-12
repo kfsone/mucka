@@ -4,26 +4,22 @@ namespace Mucka.Core;
 /// The batch framing: how a run of <see cref="WireRecord"/>s becomes one byte buffer that decodes back
 /// to exactly the records that went in.
 ///
-/// <para><b>Nothing here compresses anything, deliberately.</b> This used to brotli every batch at
-/// <c>CompressionLevel.SmallestSize</c>, and the owner's instruction on 2026-09-09 was to take it out
-/// entirely: <i>"rip out the compression bullshit. Just the raw bytes from the server... the idea was
-/// to store it plain keep things simple, and possibly put together tools for exploding it out into
-/// other tables."</i> That is the whole rationale and it is a good one - the wire log's only job is to
-/// be the corpus that questions get asked of, and a blob you cannot look at without writing a decoder
-/// first is a corpus in name only. The immediate provocation was real: answering "what does a flee
-/// actually cost" needed a hand-written brotli-and-varint reader before a single frame could be read.
-/// See <c>Lab-spec.md</c> for the tool that is supposed to make that a query instead.</para>
+/// <para><b>Nothing here compresses anything, deliberately.</b> The wire log's only job is to be the
+/// corpus that questions get asked of, and a blob you cannot look at without writing a decoder first
+/// is a corpus in name only. The provocation was real: answering "what does a flee actually cost"
+/// needed a hand-written brotli-and-varint reader before a single frame could be read. See
+/// <c>docs/Lab-spec.md</c> for the tool that is meant to make that a query instead.</para>
 ///
 /// <para><b>What it costs, as arithmetic off the figures the compressed version measured</b> (MB = 10^6
-/// bytes here and in <see cref="SqliteWireLogSink"/>, not MiB). Those measurements were real: 40
-/// captures, 79,495 records, 6,144,190 bytes of payload over 8.91 play-hours, an average wire rate of
-/// 0.191 KB/s, and ~0.74 KB of SQLite page and index overhead per batch row. Plain, at the one-minute
-/// batch bound, that same corpus is 6.14 MB of payload plus 4.2% framing plus ~535 rows of overhead:
-/// about 6.8 MB, or <b>0.76 MB per play-hour, ~1.1 GB/year at the owner's four hours a day</b>. Brotli
-/// made it 0.174 MB/play-hour and ~0.25 GB/year. So legibility costs roughly 0.85 GB a year, which is
-/// a few pence of disk against a corpus that can now be grepped. It is still 2.5x smaller than the
-/// same traffic as <c>.jsonl</c> (1.924 MB/play-hour), because the framing does not repeat a
-/// timestamp and a direction as text on every line.</para>
+/// bytes here and in <see cref="SqliteWireLogSink"/>, not MiB). Measured over 40 captures: 79,495
+/// records, 6,144,190 bytes of payload over 8.91 play-hours, an average wire rate of 0.191 KB/s, and
+/// ~0.74 KB of SQLite page and index overhead per batch row. Plain, at the one-minute batch bound, that
+/// same corpus is 6.14 MB of payload plus 4.2% framing plus ~535 rows of overhead: about 6.8 MB, or
+/// <b>0.76 MB per play-hour, ~1.1 GB/year at four hours of daily play</b>. Brotli made it 0.174
+/// MB/play-hour and ~0.25 GB/year. So legibility costs roughly 0.85 GB a year, which is a few pence of
+/// disk against a corpus that can now be grepped. It is still 2.5x smaller than the same traffic as
+/// <c>.jsonl</c> (1.924 MB/play-hour), because the framing does not repeat a timestamp and a direction
+/// as text on every line.</para>
 ///
 /// <para><b>Why batch at all, now that it is not for the dictionary.</b> Purely SQLite row overhead:
 /// one row per record would pay ~0.74 KB of pages and index entries for a 77-byte average payload,
@@ -54,15 +50,13 @@ namespace Mucka.Core;
 /// measured consequence. Every byte is a varint or a payload byte, so damage that keeps the buffer
 /// parseable produces a different but entirely well-formed run of records - over 200,000 mutated
 /// batches, 39,789 decoded into silent garbage. What guards a batch is not the format but
-/// <c>batches.records</c> stored beside it, which <see cref="Decode"/> enforces. (There used to be a
-/// second such field, <c>raw_bytes</c>, holding the DECOMPRESSED length. With nothing compressed it is
-/// exactly <c>LENGTH(data)</c>, so it checked the blob against itself; it is gone with the codec.)</para>
+/// <c>batches.records</c> stored beside it, which <see cref="Decode"/> enforces.</para>
 /// </summary>
 public static class WireLogFraming
 {
-    /// <summary>"MWL1" - Mucka Wire Log, framing version 1. A version bump means a new magic.
-    /// Unchanged by the removal of compression: the bytes INSIDE a batch are the same bytes they always
-    /// were, and only the row that wraps one lost a column.</summary>
+    /// <summary>"MWL1" - Mucka Wire Log, framing version 1. A version bump means a new magic. The magic
+    /// reflects only the byte format INSIDE a batch; a storage-level change to the row that wraps one
+    /// does not by itself require a new magic.</summary>
     public static ReadOnlySpan<byte> Magic => "MWL1"u8;
 
     /// <summary>

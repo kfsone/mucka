@@ -8,7 +8,7 @@ namespace Mucka.ViewModels;
 /// <summary>
 /// Bindable status/splash state for <c>GuidedLoginPage</c>. Interactive decisions (persona
 /// pick/create, sex confirmation) are surfaced as awaitable hooks the page sets, matching the
-/// <c>ConnectViewModel.PasswordRequired</c> pattern — this view model stays UI-toolkit agnostic
+/// <c>ConnectViewModel.PasswordRequired</c> pattern - this view model stays UI-toolkit agnostic
 /// (no DisplayAlert/DisplayActionSheet calls here). Splash lines are forwarded as raw
 /// <see cref="StyledLine"/>s via <see cref="SplashLinesReady"/> for the page to feed straight into
 /// a <c>TerminalView</c> (real ANSI colours/font, same as the game screen) rather than being
@@ -24,7 +24,7 @@ public sealed class GuidedLoginViewModel : BaseViewModel
     public string Status { get => _status; set => Set(ref _status, value); }
     public bool HasSplash { get => _hasSplash; private set => Set(ref _hasSplash, value); }
 
-    // ── Why the player is looking at this overlay ──────────────────────────────────────────────
+    // -- Why the player is looking at this overlay ----------------------------------------------
     // Fixed for the whole life of the page: set once from the drop that opened it (null on the
     // initial connect, where there is no drop to explain) and never touched again, so it survives
     // every phase change, the picker sheet, a failure dialog, and the page's own teardown.
@@ -45,7 +45,7 @@ public sealed class GuidedLoginViewModel : BaseViewModel
     public bool HasDropTail => _drop?.ShowsTailLines == true;
 
     /// <summary>The server's own last words before the drop, for the page to feed into its
-    /// <c>TerminalView</c> — empty when the headline says it all (a reset).</summary>
+    /// <c>TerminalView</c> - empty when the headline says it all (a reset).</summary>
     public IReadOnlyList<StyledLine> DropTailLines
         => _drop?.ShowsTailLines == true ? _drop.TailLines : Array.Empty<StyledLine>();
 

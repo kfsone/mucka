@@ -24,20 +24,19 @@
 
     <Grid RowDefinitions="Auto,Auto,*">
 
-        <!-- ── Status bar ───────────────────────────────────────────── -->
+        <!-- - Status bar - -->
         <Border Grid.Row="0"
                 x:Name="StatusBar"
                 BackgroundColor="#101618"
                 Padding="6,4" StrokeThickness="0">
             <Grid ColumnDefinitions="Auto,*">
 
-                <!-- Top-left icons: a single "☰" overflow menu at every width. The old 3-up inline
-                     icon strip (wide) / hamburger (narrow) split meant landscape lost the menu — and
-                     with it the only way back to the Orientation switch. One menu, always present.
-                     The | separator is always present, outside the toggle so layout is stable. -->
+                <!-- Top-left icons: a single "hamburger" overflow menu at every width, so the Orientation
+                     switch stays reachable in every layout. The | separator is always present,
+                     outside the toggle so layout is stable. -->
                 <Grid Grid.Column="0" ColumnDefinitions="Auto,Auto" VerticalOptions="Center">
 
-                    <!-- Overflow menu — shown at all widths -->
+                    <!-- Overflow menu - shown at all widths -->
                     <Border x:Name="OverflowMenuButton"
                             Grid.Column="0"
                             VerticalOptions="Center" HorizontalOptions="Start"
@@ -121,20 +120,19 @@
                            Style="{StaticResource StatLabelStyle}" TextColor="#444444" Margin="8,0"/>
 
                     <!-- Status-effect cluster: | sta str dex | glow | ailments |  (Grid.Column 7)
-                         All icons render at 26px. Glow's art was normalized to a full opaque disc
-                         (bloom now fades to a dark-amber rim, not transparent) so it reads as the
-                         same solid circle as the stat/ailment discs — no per-icon size trim needed.
+                         All icons render at 26px. Glow's art is a full opaque disc (bloom fades to a
+                         dark-amber rim, not transparent) so it reads as the
+                         same solid circle as the stat/ailment discs - no per-icon size trim needed.
                          ABSOLUTE-width columns for sta/str/dex (36) and glow (30):
                          a fixed-width Grid column does NOT collapse when its icon is hidden, so the
-                         dividers and the left stats never shift as effects come and go (a WidthRequest-
-                         in-a-stacklayout collapsed, which caused the squish). HeightRequest reserves the
+                         dividers and the left stats never shift as effects come and go. HeightRequest reserves the
                          row so it can't jump vertically either. Per stat the buff sits behind the debuff
                          (bruised _neg icon, in front), offset +5px horizontally so ~5px of the buff peeks
-                         and the negative reads first, with a ±1px vertical split applied only when both
+                         and the negative reads first, with a +/-1px vertical split applied only when both
                          signs are present (lone icons stay centred). Ailments live in fixed 30px
                          columns too (matching glow's slot), so EVERY column in this grid is a fixed
-                         reserved slot: the whole cluster is constant-width and nothing — dividers,
-                         ailments, or the stats/weather to either side — moves as effects toggle. The
+                         reserved slot: the whole cluster is constant-width and nothing - dividers,
+                         ailments, or the stats/weather to either side - moves as effects toggle. The
                          icons behave like indicator lights lit in place, not an icon queue that packs.
                          Tooltips = the detected line (hardcoded fallback). -->
                     <Grid Grid.Column="7" VerticalOptions="Center" HeightRequest="28"
@@ -153,12 +151,12 @@
                         <BoxView Grid.Column="3" WidthRequest="1" HeightRequest="12" Color="#3a3f45" VerticalOptions="Center" Margin="4,0"/>
                         <!-- Glow -->
                         <Image Grid.Column="4" Source="glow.png" IsVisible="{Binding SidePanel.Glow}" ToolTipProperties.Text="{Binding SidePanel.GlowTip}" WidthRequest="26" HeightRequest="26" VerticalOptions="Center" HorizontalOptions="Center"/>
-                        <!-- Combat / clogging indicator (crossed swords) — lit while CombatTracker
+                        <!-- Combat / clogging indicator (crossed swords) - lit while CombatTracker
                              believes we're in a fight; tooltip distinguishes "recording" vs not. -->
                         <Image Grid.Column="5" Source="combat.png" IsVisible="{Binding SidePanel.InCombat}" Opacity="{Binding SidePanel.CombatIconOpacity}" ToolTipProperties.Text="{Binding SidePanel.CombatTip}" WidthRequest="26" HeightRequest="26" VerticalOptions="Center" HorizontalOptions="Center"/>
                         <!-- | separator before ailments -->
                         <BoxView Grid.Column="6" WidthRequest="1" HeightRequest="12" Color="#3a3f45" VerticalOptions="Center" Margin="4,0"/>
-                        <!-- Ailments — full-colour emoji-style icons (26px) centred in fixed 30px slots. -->
+                        <!-- Ailments - full-colour emoji-style icons (26px) centred in fixed 30px slots. -->
                         <Image Grid.Column="7" Source="deaf.png"     IsVisible="{Binding Deaf}"     ToolTipProperties.Text="{Binding SidePanel.DeafTip}"     WidthRequest="26" HeightRequest="26" VerticalOptions="Center" HorizontalOptions="Center"/>
                         <Image Grid.Column="8" Source="blind.png"    IsVisible="{Binding Blind}"    ToolTipProperties.Text="{Binding SidePanel.BlindTip}"    WidthRequest="26" HeightRequest="26" VerticalOptions="Center" HorizontalOptions="Center"/>
                         <Image Grid.Column="9" Source="dumb.png"     IsVisible="{Binding Dumb}"     ToolTipProperties.Text="{Binding SidePanel.DumbTip}"     WidthRequest="26" HeightRequest="26" VerticalOptions="Center" HorizontalOptions="Center"/>
@@ -168,7 +166,7 @@
                     <!-- Spacer -->
                     <BoxView Grid.Column="11" Color="Transparent"/>
 
-                    <!-- Rec capture indicator — Border+tap avoids WinUI's minimum button height.
+                    <!-- Rec capture indicator - Border+tap avoids WinUI's minimum button height.
                          Hollow chip when idle; red dot + lit text while capturing. -->
                     <Border Grid.Column="12"
                             x:Name="RecChip"
@@ -241,7 +239,7 @@
                       ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,*,Auto,Auto,Auto,Auto"
                       IsVisible="{Binding IsCompactStats}">
 
-                    <!-- ── Labels row (2pt smaller font) ── -->
+                    <!-- - Labels row (2pt smaller font) - -->
                     <Label Grid.Row="0" Grid.Column="0"
                            Text="Sta" TextColor="#58a6ff" FontSize="11"
                            VerticalOptions="End" HorizontalOptions="Center" Margin="0,0,4,0"/>
@@ -255,7 +253,7 @@
                     <Label Grid.Row="0" Grid.Column="3"
                            Text="Dex" TextColor="#58a6ff" FontSize="11"
                            VerticalOptions="End" HorizontalOptions="Center" Margin="0,0,4,0"/>
-                    <!-- col 4: | separator — label row spacer -->
+                    <!-- col 4: | separator - label row spacer -->
                     <Label Grid.Row="0" Grid.Column="5"
                            Text="Score" TextColor="#58a6ff" FontSize="11"
                            VerticalOptions="End" HorizontalOptions="Center" Margin="0,0,4,0"/>
@@ -269,7 +267,7 @@
                            IsVisible="{Binding TtrVisible}"
                            VerticalOptions="End" HorizontalOptions="Center" Margin="0,0,4,0"/>
 
-                    <!-- ── Values row ── -->
+                    <!-- - Values row - -->
                     <Label Grid.Row="1" Grid.Column="0"
                            Style="{StaticResource StatLabelStyle}"
                            HorizontalOptions="Center" Margin="0,0,4,0">
@@ -364,20 +362,20 @@
             </Grid>
         </Border>
 
-        <!-- ── White separator ──────────────────────────────────────── -->
+        <!-- - White separator - -->
         <BoxView Grid.Row="1" Color="White" HeightRequest="1" HorizontalOptions="Fill"/>
 
-        <!-- ── Body: side panel on the left; scrollback, toolbar and input stacked
-             on the right so the panel indents all three ── -->
-        <!-- Third column (Auto) added for the new Combat Rail panel on the right edge - see the
-             Border named CombatPanelBorder below. DESIGN_FINAL.md D3/2.2 (corrected): additive,
-             separate from the left SidePanelBorder, shown/hidden via IsCombatPanelVisible only. -->
+        <!-- - Body: side panel on the left; scrollback, toolbar and input stacked
+             on the right so the panel indents all three - -->
+        <!-- Third column (Auto) holds the Combat Rail panel on the right edge - see the Border
+             named CombatPanelBorder below. Separate from the left SidePanelBorder, shown/hidden
+             via IsCombatPanelVisible only. -->
         <Grid Grid.Row="2" ColumnDefinitions="Auto,*,Auto">
 
         <!-- Right-hand stack -->
         <Grid Grid.Column="1" RowDefinitions="*,Auto,Auto">
 
-        <!-- ── Scrollback ───────────────────────────────────────────── -->
+        <!-- - Scrollback - -->
         <Grid Grid.Row="0">
             <render:TerminalView Grid.Column="0"
                                  x:Name="Terminal"
@@ -441,8 +439,8 @@
                 </Label>
             </Border>
 
-            <!-- ── Floating online panel ─────────────────────────────────── -->
-            <!-- Visible when online is unpinned. Draggable. No title bar — looks
+            <!-- - Floating online panel - -->
+            <!-- Visible when online is unpinned. Draggable. No title bar - looks
                  like the side-panel section. -->
             <Border x:Name="FloatingOnlinePanel"
                     IsVisible="{Binding SidePanel.IsFloatingOnlineVisible}"
@@ -466,7 +464,7 @@
                 <Grid>
                 <VerticalStackLayout Padding="8,6,8,6" Spacing="2">
 
-                    <!-- Heading row: title · resize − / + · dock · fold. Shown only while unlocked;
+                    <!-- Heading row: title . resize - / + . dock . fold. Shown only while unlocked;
                          its controls also live in the side rail, so a locked windlet is content-only.
                          Right margin clears the corner lock overlay. -->
                     <Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto,Auto" Margin="0,0,20,0"
@@ -489,8 +487,8 @@
                                 <TapGestureRecognizer Command="{Binding SidePanel.OpenFloatingDisplaySettingsCommand}"/>
                             </Label.GestureRecognizers>
                         </Label>
-                        <!-- Resize: − shrinks, + grows. Bumped a point and spaced out to match the
-                             compass windlet — the glyphs were near-invisible and too tight to hit. -->
+                        <!-- Resize: - shrinks, + grows. Sized and spaced to match the compass
+                             windlet, for a reliable tap target. -->
                         <Label Grid.Column="2" Text="&#x2212;" TextColor="#888888" FontSize="14"
                                VerticalOptions="Center" Padding="7,0,0,0">
                             <Label.GestureRecognizers>
@@ -503,7 +501,7 @@
                                 <TapGestureRecognizer Command="{Binding SidePanel.IncreaseOnlineSizeCommand}"/>
                             </Label.GestureRecognizers>
                         </Label>
-                        <!-- Dock toggle: hollow □ = float me, filled ■ = dock me -->
+                        <!-- Dock toggle: hollow [ ] = float me, filled [x] = dock me -->
                         <Label Grid.Column="4"
                                Text="{Binding SidePanel.PinGlyph}"
                                TextColor="{Binding SidePanel.PinColor}"
@@ -523,7 +521,7 @@
                         </Label>
                     </Grid>
 
-                    <!-- Who-list body — hidden when folded -->
+                    <!-- Who-list body - hidden when folded -->
                     <ScrollView MaximumHeightRequest="180"
                                 IsVisible="{Binding SidePanel.IsFloatingOnlineFolded, Converter={StaticResource InvertBoolConverter}}">
                         <VerticalStackLayout Spacing="1"
@@ -569,9 +567,9 @@
                 </Grid>
             </Border>
 
-            <!-- ── Floating compass panel ────────────────────────────────── -->
+            <!-- - Floating compass panel - -->
             <!-- Visible when the compass is undocked. Draggable. Carries only the radar
-                 (and its swamp seam) — never the room trail. -->
+                 (and its swamp seam) - never the room trail. -->
             <Border x:Name="FloatingMapPanel"
                     IsVisible="{Binding SidePanel.IsFloatingMapVisible}"
                     BackgroundColor="#101618"
@@ -592,13 +590,13 @@
                 <Grid>
                 <VerticalStackLayout Padding="8,6,8,6" Spacing="2">
 
-                    <!-- Heading row: resize − / + · dock · fold. Shown only while unlocked; its
+                    <!-- Heading row: resize - / + . dock . fold. Shown only while unlocked; its
                          controls also live in the side rail, so a locked windlet is just the dial.
-                         No "Compass" label — it's obviously the compass. Right margin clears the lock. -->
+                         No "Compass" label - it's obviously the compass. Right margin clears the lock. -->
                     <Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto" Margin="0,0,20,0"
                           IsVisible="{Binding SidePanel.IsFloatingMapUnlocked}">
-                        <!-- Resize: − shrinks, + grows. Bumped a point and spaced out: the glyphs
-                             were near-invisible and too tight to hit reliably on a phone. -->
+                        <!-- Resize: - shrinks, + grows. Sized and spaced for a reliable tap target
+                             on a phone. -->
                         <Label Grid.Column="1" Text="&#x2212;" TextColor="#888888" FontSize="14"
                                VerticalOptions="Center" Padding="7,0,0,0">
                             <Label.GestureRecognizers>
@@ -611,7 +609,7 @@
                                 <TapGestureRecognizer Command="{Binding SidePanel.IncreaseMapSizeCommand}"/>
                             </Label.GestureRecognizers>
                         </Label>
-                        <!-- Dock toggle: hollow □ = float me, filled ■ = dock me -->
+                        <!-- Dock toggle: hollow [ ] = float me, filled [x] = dock me -->
                         <Label Grid.Column="3" Text="{Binding SidePanel.MapPinGlyph}"
                                TextColor="{Binding SidePanel.MapPinColor}"
                                FontSize="14" VerticalOptions="Center" Padding="7,0,0,0">
@@ -628,7 +626,7 @@
                         </Label>
                     </Grid>
 
-                    <!-- Body — hidden when folded -->
+                    <!-- Body - hidden when folded -->
                     <VerticalStackLayout Spacing="2"
                                          IsVisible="{Binding SidePanel.IsFloatingMapFolded, Converter={StaticResource InvertBoolConverter}}">
                         <render:RadarCompassView SidePanel="{Binding SidePanel}"
@@ -659,7 +657,7 @@
 
         </Grid>
 
-        <!-- ── Toolbar (collapsible, wraps to fit width) ──────────── -->
+        <!-- - Toolbar (collapsible, wraps to fit width) - -->
         <Grid Grid.Row="1"
               x:Name="FkeyBar"
               BackgroundColor="#161b22"
@@ -688,13 +686,13 @@
             </HorizontalStackLayout>
         </Grid>
 
-        <!-- ── Input row — indented by the side panel on its left ── -->
+        <!-- - Input row - indented by the side panel on its left - -->
         <Grid Grid.Row="2"
               ColumnDefinitions="*,Auto,Auto,Auto"
               BackgroundColor="#161b22"
               Padding="4,2">
 
-            <!-- Input frame — the yellow stroke lights up in chat mode as a mode cue (Invariant #0:
+            <!-- Input frame - the yellow stroke lights up in chat mode as a mode cue (Invariant #0:
                  the box itself still owns the keyboard and still sends normal commands). -->
             <Border Grid.Column="0"
                     x:Name="InputFrame"
@@ -819,7 +817,7 @@
 
         </Grid>
 
-        <!-- ── Side panel — left edge, runs scrollback through input row ── -->
+        <!-- - Side panel - left edge, runs scrollback through input row - -->
         <Border Grid.Column="0"
                 x:Name="SidePanelBorder"
                 IsVisible="{Binding SidePanel.IsPanelExpanded}"
@@ -827,8 +825,8 @@
                 BackgroundColor="#101618"
                 Stroke="#2d333b" StrokeThickness="1"
                 Padding="0">
-                <!-- ── Panel content: top-anchored online list, scrollable items,
-                     bottom-pinned room block sitting in the corner above the input ── -->
+                <!-- - Panel content: top-anchored online list, scrollable items,
+                     bottom-pinned room block sitting in the corner above the input - -->
                 <Grid RowDefinitions="Auto,*,Auto">
 
                             <!-- Row 0: the Online section plus the Recent tail beneath it. The Online
@@ -858,7 +856,7 @@
                                             </FormattedString>
                                         </Label.FormattedText>
                                     </Label>
-                                    <!-- Dock icon: gold ■ = docked, grey □ = floated free -->
+                                    <!-- Dock icon: gold [x] = docked, grey [ ] = floated free -->
                                     <Label Grid.Column="1"
                                            Text="{Binding SidePanel.PinGlyph}"
                                            TextColor="{Binding SidePanel.PinColor}"
@@ -926,7 +924,7 @@
                                         <BindableLayout.ItemTemplate>
                                             <DataTemplate x:DataType="vm:RecentGroup">
                                                 <VerticalStackLayout Spacing="1">
-                                                    <!-- Separator: hairline rule with the age at the right end ("──── ~1 min"). -->
+                                                    <!-- Separator: hairline rule with the age at the right end ("- ~1 min"). -->
                                                     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6" Margin="0,3,0,1">
                                                         <BoxView Grid.Column="0" Color="#2d333b" HeightRequest="1" VerticalOptions="Center"/>
                                                         <Label Grid.Column="1" Text="{Binding Header}" TextColor="#6e7681" FontSize="8"
@@ -976,7 +974,7 @@
                             </VerticalStackLayout>
                             </VerticalStackLayout>
 
-                            <!-- Middle: Carrying then Here (FEI), scrollable — fades when stale (>15 s without refresh).
+                            <!-- Middle: Carrying then Here (FEI), scrollable - fades when stale (>15 s without refresh).
                                  Docked to the bottom of the free space, growing upward toward the online list. -->
                             <ScrollView Grid.Row="1" Padding="8,4" VerticalOptions="End">
                                 <VerticalStackLayout Spacing="4">
@@ -1072,16 +1070,16 @@
                             </ScrollView>
 
                             <!-- Bottom: room block, pinned in the corner above the input row.
-                                 Trail reads downward into the present: last-but-1 → previous → compass → current. -->
+                                 Trail reads downward into the present: last-but-1 -> previous -> compass -> current. -->
                             <VerticalStackLayout Grid.Row="2" Padding="8,4,8,6" Spacing="1">
                                     <BoxView Color="#2d333b" HeightRequest="1" Margin="0,0,0,4"/>
 
-                                    <!-- Map heading: label · float toggle · fold toggle -->
+                                    <!-- Map heading: label . float toggle . fold toggle -->
                                     <Grid Margin="0,0,0,1" ColumnDefinitions="*,Auto,Auto">
                                         <Label Text="Map" TextColor="#58a6ff" FontSize="11"
                                                VerticalOptions="Center"
                                                HorizontalOptions="Fill" HorizontalTextAlignment="Start"/>
-                                        <!-- Float toggle: filled ■ = docked, hollow □ = floated free -->
+                                        <!-- Float toggle: filled [x] = docked, hollow [ ] = floated free -->
                                         <Label Grid.Column="1" Text="{Binding SidePanel.MapPinGlyph}"
                                                TextColor="{Binding SidePanel.MapPinColor}"
                                                FontSize="13" VerticalOptions="Center"
@@ -1147,23 +1145,21 @@
                 </Grid>
         </Border>
 
-        <!-- - Combat panel - NEW, additional panel on the RIGHT edge, off by default -
-             DESIGN_FINAL.md D3/2.2 (corrected). This is NOT the left SidePanelBorder above widened;
-             it is a wholly separate panel with its own width, shown/hidden by the overflow menu's
-             "Combat" entry (SidePanel.ToggleCombatPanelCommand -> IsCombatPanelVisible, whose
-             change drives GamePage's ResizeWindowForCombatPanel). The window never resizes itself for
-             any other reason - not combat start, not combat end.
+        <!-- Combat panel - additional panel on the right edge, off by default. This is NOT the
+             left SidePanelBorder above widened; it is a wholly separate panel with its own width,
+             shown/hidden by the overflow menu's "Combat" entry (SidePanel.ToggleCombatPanelCommand
+             -> IsCombatPanelVisible, whose change drives GamePage's ResizeWindowForCombatPanel).
+             The window never resizes itself for any other reason - not combat start, not combat end.
 
              WidthRequest=378, not 376: this Border's own StrokeThickness=1 insets its content by 1dp
              per side (MAUI's Border.CrossPlatformMeasure subtracts Padding+StrokeThickness on each
-             side, confirmed by decompiling Microsoft.Maui.Controls.dll - not assumed), so the canvas/
+             side, confirmed by decompiling Microsoft.Maui.Controls.dll), so the canvas/
              Composition-sibling content area inside is 376dp - exactly CombatRailView.RailWidth. That
              makes the rail's 376-unit design space map 1:1 onto this dp content area at every DPI (see
              GamePage.xaml.cs's CombatPanelContentWidthDp/CombatPanelWidthDp, which this must keep
              matching); OnPaintSurface's `scale` itself still carries the DPI factor on top of that,
              because SKCanvasView reports its surface in physical pixels, not dp (IgnorePixelScaling is
-             not set anywhere in this repo). Was 300 - the rail rendered at ~0.887x its designed size,
-             at every DPI, until this line and GamePage.xaml.cs's constant changed together. -->
+             not set anywhere in this repo). -->
         <Border Grid.Column="2"
                 x:Name="CombatPanelBorder"
                 IsVisible="{Binding SidePanel.IsCombatPanelVisible}"
@@ -1198,7 +1194,7 @@
                     <PointerGestureRecognizer PointerMoved="OnCombatPanelPointerMoved"
                                               PointerExited="OnCombatPanelPointerExited"/>
                 </Grid.GestureRecognizers>
-                <!-- Glow layer BEHIND the canvas (D9): opacity animated ONLY via WinUI Composition
+                <!-- Glow layer BEHIND the canvas: opacity animated ONLY via WinUI Composition
                      (PulseLayer, GamePage.xaml.cs), never via a UI-thread timer and never by
                      recolouring the canvas's own drawn text. Rests at Opacity 0 (invisible) whenever
                      no tier is pulsing. -->
@@ -1220,7 +1216,7 @@
                          VerticalOptions="End"
                          InputTransparent="True"/>
                 <!-- The render surface itself: a single SkiaSharp canvas, never a Label/
-                     FormattedString (D8) - see CombatPanelCanvasView's own remarks. Read-only: no
+                     FormattedString - see CombatPanelCanvasView's own remarks. Read-only: no
                      gesture recognizers, cannot take keyboard focus (Invariant #0). -->
                 <render:CombatRailView x:Name="CombatPanelCanvas"
                                        SidePanel="{Binding SidePanel}"
@@ -1290,7 +1286,7 @@
 
         </Grid>
 
-        <!-- ── About dialog — overlays the whole page; ⓘ in the status bar opens it ── -->
+        <!-- - About dialog - overlays the whole page; info in the status bar opens it - -->
         <Grid Grid.Row="0" Grid.RowSpan="3"
               IsVisible="{Binding SidePanel.IsAboutVisible}">
 
@@ -1484,8 +1480,8 @@
             </Border>
         </Grid>
 
-        <!-- ── Overflow menu overlay — dark themed dropdown, no scrim ── -->
-        <!-- Spans all rows so any tap outside the popup (including near ☰) dismisses it. -->
+        <!-- - Overflow menu overlay - dark themed dropdown, no scrim - -->
+        <!-- Spans all rows so any tap outside the popup (including near hamburger) dismisses it. -->
         <Grid Grid.Row="0" Grid.RowSpan="3"
               x:Name="OverflowMenuOverlay"
               IsVisible="False"
@@ -1502,10 +1498,10 @@
                     MinimumWidthRequest="170">
                 <Border.StrokeShape><RoundRectangle CornerRadius="6"/></Border.StrokeShape>
                 <VerticalStackLayout Spacing="0">
-                    <!-- Side Panel / Onlines / Compass are live-state toggles: the ✓ tracks the
+                    <!-- Side Panel / Onlines / Compass are live-state toggles: the OK tracks the
                          current visibility, and tapping flips it without touching saved settings.
-                         Bound straight to the toggle commands so the overlay stays open and the ✓
-                         updates in place — handy on phones where the tiny windlet buttons are fiddly. -->
+                         Bound straight to the toggle commands so the overlay stays open and the OK
+                         updates in place - handy on phones where the tiny windlet buttons are fiddly. -->
                     <Border Padding="16,14" BackgroundColor="Transparent">
                         <Border.GestureRecognizers>
                             <TapGestureRecognizer Command="{Binding SidePanel.TogglePanelCommand}"/>
@@ -1566,7 +1562,7 @@
                     <!-- "Damage floats": the rail's rising "5-9"/"-7"/"Miss". A checkable toggle the
                          player may well flip back and forth while watching the panel, so - unlike
                          the Combat row above and like Side Panel/Onlines/Compass - it binds straight
-                         to the command and leaves the menu open so the ✓ updates live. Session-only,
+                         to the command and leaves the menu open so the OK updates live. Session-only,
                          matching the metronome and the other three: saved settings are untouched.
                          Hidden wherever the rail itself is (Windows only). -->
                     <BoxView Color="#2d333b" HeightRequest="1"
@@ -1593,8 +1589,8 @@
                         </Grid>
                     </Border>
 
-                    <!-- Orientation sub-menu (Android only — desktop windows aren't rotated).
-                         Tapping the header expands the three choices in place; a ✓ marks the active
+                    <!-- Orientation sub-menu (Android only - desktop windows aren't rotated).
+                         Tapping the header expands the three choices in place; a OK marks the active
                          one. Session-only (does not touch saved settings). -->
                     <BoxView Color="#2d333b" HeightRequest="1"
                              IsVisible="{OnPlatform Default=false, Android=true}"/>

@@ -8,18 +8,18 @@ namespace MudSharp.Tests.Fixtures;
 /// bytes glued to the front of a frame's first line, which the death line is one of - and the
 /// room-change backstop behind it.
 ///
-/// <para>The lines here are the owner's own paste of an earlier occurrence (pitchfork, 5,201 points)
-/// re-fed through the byte path to test the prompt gluing; the wording is his, the framing is
-/// synthesised. For a fight that is real bytes end to end, see WyvernPoisonDeathReplayTests.</para>
+/// <para>The lines here replay an earlier occurrence (pitchfork, 5,201 points) through the byte
+/// path to test the prompt gluing; the framing is synthesised. For a fight that is real bytes end
+/// to end, see WyvernPoisonDeathReplayTests.</para>
 ///
-/// <para>The backstop: in MUD2 you cannot walk out of a fight (owner) — movement is refused
-/// while fighting, and leaving costs a flee, which prints its own line. So a room change proves the
+/// <para>The backstop: in MUD2 you cannot walk out of a fight - movement is refused while
+/// fighting, and leaving costs a flee, which prints its own line. So a room change proves the
 /// fight is over regardless of which sentences the parser managed to match, which makes it the
-/// backstop for the whole recurring class of bug in this area (a fight end phrased in a way nothing
-/// in <c>CombatTracker</c> recognises, leaving the client "in combat" until logout).</para>
+/// backstop for a fight end phrased in a way nothing in <c>CombatTracker</c> recognises, which
+/// would otherwise leave the client "in combat" until logout.</para>
 ///
 /// <para>These tests drive a real <see cref="MudSession"/> with protocol bytes, because the wiring
-/// under test IS the session's: <c>RoomShortReady</c> → compare with the last room short →
+/// under test IS the session's: <c>RoomShortReady</c> -> compare with the last room short ->
 /// <c>CombatTracker.NoteRoomChanged</c>. Testing the tracker method alone (CombatTrackerTests does
 /// that) would not catch the case that matters most here, which is a `look` closing a live fight.</para>
 /// </summary>
@@ -73,7 +73,7 @@ public class CombatSessionFightEndTests : IDisposable
     private void FeedRoomShort(string shortDescription)
     {
         Feed("\r\n");             // guarantee line start
-        Feed(RoomShortCode);      // C02+C01 at line start → this line is a room short
+        Feed(RoomShortCode);      // C02+C01 at line start -> this line is a room short
         Feed(shortDescription + "\r\n");
     }
 
@@ -86,8 +86,7 @@ public class CombatSessionFightEndTests : IDisposable
     /// <summary>
     /// The death line as the first line of its frame, which is where MUD2 glues the prompt on: this
     /// is the test that the prose matcher survives a prompt-prefixed frame rather than only matching
-    /// hand-typed strings. Wording from the owner's paste; the prompt bytes are real, taken from a
-    /// capture.
+    /// hand-typed strings. The wording and prompt bytes are both taken from a capture.
     /// </summary>
     [Fact]
     public void PoisonDeath_ArrivingBehindAFramePrompt_ClosesTheEncounter()
@@ -110,9 +109,9 @@ public class CombatSessionFightEndTests : IDisposable
     }
 
     /// <summary>
-    /// The fallback the whole LineKind.FightEnd change exists for, exercised through the REAL decoder
-    /// rather than a hand-built StyledLine: C08.12 on the wire, wrapped around a sentence no regex in
-    /// CombatTracker knows, with one creature engaged.
+    /// Exercises the C08.12 fight-end fallback through the REAL decoder rather than a hand-built
+    /// StyledLine: C08.12 on the wire, wrapped around a sentence no regex in CombatTracker knows,
+    /// with one creature engaged.
     ///
     /// <para>The code bytes are captured; the wording is invented, and has to be - the point is a
     /// phrasing nobody has observed, so there is nothing to quote. If MUD2 ever prints a real one it
@@ -159,7 +158,7 @@ public class CombatSessionFightEndTests : IDisposable
         FeedRoomShort("A dank cave");
         StartFight();
 
-        // No fight-end line at all — the poisoned-wyvern case, or any end phrased in a way nothing
+        // No fight-end line at all - the poisoned-wyvern case, or any end phrased in a way nothing
         // matches yet. The player walks out, which in MUD2 they could only do because the fight was
         // already over.
         FeedRoomShort("A dark forest");
@@ -175,7 +174,7 @@ public class CombatSessionFightEndTests : IDisposable
         StartFight();
 
         // `look` mid-fight reprints the room the player is already standing in. It is free, players
-        // do it constantly while fighting, and it must not be read as movement — which is why the
+        // do it constantly while fighting, and it must not be read as movement - which is why the
         // backstop triggers on the room short CHANGING rather than merely arriving.
         FeedRoomShort("A dank cave");
         FeedRoomShort("A dank cave");

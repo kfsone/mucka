@@ -5,7 +5,7 @@ using MudSharp.Session;
 namespace MudSharp.Tests.Fixtures;
 
 /// <summary>
-/// Full-sheet parse of MUD2's `sc` (score) output — the ONLY source for carried weight, objects
+/// Full-sheet parse of MUD2's `sc` (score) output - the ONLY source for carried weight, objects
 /// carried, persona value and sex (the FES heartbeat carries none of them).
 ///
 /// The three sheets below are real captures from three consecutive `sc` commands in one session,
@@ -20,10 +20,10 @@ namespace MudSharp.Tests.Fixtures;
 /// </summary>
 public class ScoreSheetTests : IDisposable
 {
-    // C02+C01 game-mode prompt variant — the post-character-select entry trigger.
+    // C02+C01 game-mode prompt variant - the post-character-select entry trigger.
     private static readonly byte[] GameModeEntry = [0x9D, 0x9C, 0xFF, 0xFF];
 
-    // ── The three captures, verbatim ────────────────────────────────────────────
+    // -- The three captures, verbatim --------------------------------------------
     private const string Sheet1 = """
         *sc
         name:           Ollie
@@ -106,7 +106,7 @@ public class ScoreSheetTests : IDisposable
         var s = Parse(Sheet1);
 
         Assert.Equal("male", s.Sex);
-        // No "effective strength:" clause — the server prints it only when it DIFFERS from the
+        // No "effective strength:" clause - the server prints it only when it DIFFERS from the
         // base, so absence means equal, not unknown.
         Assert.Equal(100, s.RawStrength);
         Assert.Equal(100, s.Strength);
@@ -133,7 +133,7 @@ public class ScoreSheetTests : IDisposable
         // A buff: effective is HIGHER than base. Nothing clamps it to the base value.
         Assert.Equal(100, s.RawStrength);
         Assert.Equal(105, s.Strength);
-        // No effective dexterity clause this time — equal to base.
+        // No effective dexterity clause this time - equal to base.
         Assert.Equal(100, s.RawDexterity);
         Assert.Equal(100, s.Dexterity);
         Assert.Equal(110, s.Stamina);
@@ -186,8 +186,8 @@ public class ScoreSheetTests : IDisposable
     public void ConsecutiveSheets_LaterReadingsReplaceEarlier()
     {
         // The three captures are consecutive: feeding them in order must leave the client holding
-        // the LAST one, including where a value went down (magic 110 → 70) or a carried pack
-        // emptied (75g → nothing).
+        // the LAST one, including where a value went down (magic 110 -> 70) or a carried pack
+        // emptied (75g -> nothing).
         Parse(Sheet1);
         Parse(Sheet2);
         var s = Parse(Sheet3);
@@ -196,7 +196,7 @@ public class ScoreSheetTests : IDisposable
         Assert.Equal(0,  s.ObjectsCarried);
         Assert.Equal(94, s.GamesPlayed);
         Assert.Equal(52_241, s.Score);
-        // The buff in sheet 2 is gone in sheet 3, whose strength line has no effective clause —
+        // The buff in sheet 2 is gone in sheet 3, whose strength line has no effective clause -
         // absence means "back to base", so the stale 105 must not survive.
         Assert.Equal(100, s.Strength);
     }
@@ -226,9 +226,8 @@ public class ScoreSheetTests : IDisposable
     [Fact]
     public void WrappedScoreLine_StillYieldsAllThreeFigures()
     {
-        // At narrow widths the ~70-column score line wraps and the tail arrives on its own line
-        // (see tools/combat/TEXT-WRAPPING-REVIEW.md). Each figure is matched independently, so the
-        // wrap costs nothing.
+        // At narrow widths the ~70-column score line wraps and the tail arrives on its own line.
+        // Each figure is matched independently, so the wrap costs nothing.
         var s = Parse(
             "score:  47,297 points   this game:      0\n" +
             "points        value:  9,534 points\n");

@@ -7,36 +7,13 @@ namespace mudsharp.Tests.Fixtures;
 /// Pins <see cref="CombatLiveView"/>'s equality contract - the property
 /// <c>Mucka.Rendering.CombatRailView.Live</c>'s setter relies on to decide whether to repaint.
 ///
-/// <para><b>Why this file exists (2026-09-02 review finding).</b> That setter used to guard with
-/// <c>ReferenceEquals</c> alone, and <c>SidePanelViewModel.RefreshCombatSignals</c> allocates a
-/// fresh <see cref="CombatLiveView"/> on every refresh - a <c>with</c>-expression in the idle
-/// branch, <c>new</c> in the two in-combat branches - including the 1 Hz anti-idle tick that runs
-/// whether or not anything actually changed. A reference check alone therefore never matched, and
-/// the rail repainted once a second for as long as a combat summary stayed on screen, contradicting
-/// <c>CombatRailView</c>'s own Invariant #1.</para>
-///
-/// <para><b>Why that fix was only half of one (2026-09-03).</b> Comparing by value fixed the IDLE
-/// branch and nothing else. <c>RosterPlan.Rows</c> is an <c>IReadOnlyList&lt;RosterRow&gt;</c>, and
-/// the synthesized record equality compares a reference-typed member of that shape with
+/// <para><c>RosterPlan.Rows</c> is an <c>IReadOnlyList&lt;RosterRow&gt;</c>, and the synthesized
+/// record equality compares a reference-typed member of that shape with
 /// <c>EqualityComparer&lt;T&gt;.Default</c> - i.e. by reference, since neither <c>List&lt;T&gt;</c>
 /// nor an array overrides <c>Object.Equals</c>. <c>ParticipantRoster.Build</c> allocates a fresh
-/// list on every refresh, so on the IN-COMBAT branch - the only branch reached while a fight is
-/// open, and the branch where a repaint actually costs something - the new comparison decided
-/// "different" every single time and the rail went on repainting at 1 Hz.
-/// <c>RosterPlan</c> now declares a hand-written element-wise <c>Equals</c>; the tests below that
-/// rebuild a roster from the same facts are what prove it.</para>
-///
-/// <para><b>A test used to assert the bug.</b> An earlier version of this file carried
-/// <c>ARosterRebuiltWithIdenticalRowValues_StillDoesNotCompareEqual</c>, which pinned the
-/// reference-equality behaviour as intentional on the reasoning that "fields like
-/// <c>RosterRow.HealthAgeSeconds</c> genuinely advance every second" so an unequal verdict was
-/// wanted anyway. That reasoning does not hold: those fields advance only while an encounter is
-/// live, the same rebuild happens on every refresh of a FINISHED encounter and every idle second
-/// with a dead strip on screen, and a comparison that answers "different" without looking is not a
-/// comparison. It is replaced by
-/// <c>ARosterRebuiltWithIdenticalRowValues_ComparesEqual_SoTheRailDoesNotRepaint</c> below, with
-/// <c>ARowFieldThatOnlyTheSealDraws_StillCountsAsAChange</c> covering the real-change direction it
-/// was worried about.</para>
+/// list on every refresh, so <c>RosterPlan</c> needs a hand-written element-wise <c>Equals</c> for
+/// two rebuilds of the same facts to compare equal and stop the rail repainting when nothing has
+/// changed.</para>
 ///
 /// <para><b>Why this pins the record rather than the setter.</b> <c>CombatRailView</c> is an
 /// <c>SKCanvasView</c> in the MAUI-only Mucka project and is not reachable from mudsharp.Tests, so
@@ -109,10 +86,10 @@ public sealed class CombatLiveViewEqualityTests
     [Fact]
     public void ARosterRebuiltWithIdenticalRowValues_ComparesEqual_SoTheRailDoesNotRepaint()
     {
-        // THE regression. This is the 1 Hz tick during a live fight in which nothing happened: the
-        // roster is rebuilt from the same facts into a new list, and the frame is otherwise
-        // identical. Before RosterPlan grew its own Equals this compared unequal and the rail
-        // repainted, every second, for the whole fight.
+        // This is the 1 Hz tick during a live fight in which nothing happened: the roster is
+        // rebuilt from the same facts into a new list, and the frame is otherwise identical. It
+        // must compare equal, or the rail repaints every second for the whole fight even though
+        // nothing changed.
         var deadStrip = Array.Empty<CombatEnding>();
         var fact = new ParticipantFact("rat0", IsResolved: false, FightOutcome.Unresolved);
 
@@ -143,9 +120,8 @@ public sealed class CombatLiveViewEqualityTests
     [Fact]
     public void ARowFieldThatOnlyTheSealDraws_StillCountsAsAChange()
     {
-        // The direction the deleted test was right to worry about. The health rung moves often and
-        // changes nothing else on the row, so if the comparison were made coarse - names and counts
-        // only - this is what would go stale on screen.
+        // The health rung moves often and changes nothing else on the row, so if the comparison
+        // were made coarse - names and counts only - this is what would go stale on screen.
         var deadStrip = Array.Empty<CombatEnding>();
         var before = ParticipantRoster.Build(
             [new ParticipantFact("rat0", IsResolved: false, FightOutcome.Unresolved) with { HealthRung = 6 }]);

@@ -6,7 +6,7 @@ namespace MudSharp.Tests.Fixtures;
 ///
 /// Two server behaviours only seen at narrow widths:
 ///   1. The FES data line (~51 visible chars) is hard-wrapped mid-line ("\r\0\r\n").
-///   2. The FES line ends with a bare CR ("\r\0", telnet CR-NUL) and NO newline — the
+///   2. The FES line ends with a bare CR ("\r\0", telnet CR-NUL) and NO newline - the
 ///      C255 pop, prompt container and FEW response follow immediately. Terminating
 ///      FES collection only at '\n' swallowed all of those into the FES buffer, so the
 ///      FEW context never opened: names leaked as display text (or, suppressed, their

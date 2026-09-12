@@ -8,7 +8,7 @@ namespace Mucka.Terminal;
 /// its terminating '\n' arrives).
 ///
 /// This is a faithful port of the line semantics that previously lived as JavaScript
-/// inside GamePage.BuildInjectionScript — moved into testable C# so the live Skia
+/// inside GamePage.BuildInjectionScript - moved into testable C# so the live Skia
 /// renderer and the frozen history snapshot consume one source of truth.
 ///
 /// Lines are stored as raw <em>logical</em> lines. Wrapping is a render-time concern
@@ -47,10 +47,10 @@ public sealed class TerminalBuffer
     /// <list type="bullet">
     /// <item>A line whose plain text contains form-feed (\f) clears everything.</item>
     /// <item>A partial line replaces the current partial.</item>
-    /// <item>A blank complete line (no spans) promotes a live partial to committed, or —
-    ///       if there is no partial — appends a blank committed line.</item>
+    /// <item>A blank complete line (no spans) promotes a live partial to committed, or -
+    ///       if there is no partial - appends a blank committed line.</item>
     /// <item>A non-empty complete line merges into a live partial (prompt + echo on one
-    ///       line) and commits it, or — if there is no partial — appends as a new line.</item>
+    ///       line) and commits it, or - if there is no partial - appends as a new line.</item>
     /// </list>
     /// </summary>
     public void Append(StyledLine line)
@@ -124,7 +124,7 @@ public sealed class TerminalBuffer
     /// <summary>
     /// An ordered, immutable copy of everything currently visible (committed lines
     /// followed by the live partial). Taken the instant the user enters history mode so
-    /// the frozen view — and selection coordinates over it — cannot shift underneath them.
+    /// the frozen view - and selection coordinates over it - cannot shift underneath them.
     /// </summary>
     public IReadOnlyList<StyledLine> Snapshot()
     {

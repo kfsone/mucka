@@ -9,7 +9,7 @@ public sealed record TextStyle(
     bool Reverse = false,
     bool Italic = false,
     // A packed 0xRRGGBB foreground override. When set, it wins over the ANSI palette slot
-    // (and the bold→bright promotion) — used for client-applied colours such as the "me"
+    // (and the bold->bright promotion) - used for client-applied colours such as the "me"
     // self-chat highlight that have no place in the 16-colour palette.
     int? ForegroundRgb = null
 )

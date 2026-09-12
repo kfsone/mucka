@@ -43,10 +43,10 @@ public sealed class MapGraph
         public HashSet<string> KnownExits { get; } = new(StringComparer.OrdinalIgnoreCase);
         // Directions that have been resolved (traversed or structural-refused) from this room.
         public HashSet<string> ResolvedDirs { get; } = new(StringComparer.OrdinalIgnoreCase);
-        // Resolved neighbors: dir → destination room name. Name-level (collapses
+        // Resolved neighbors: dir -> destination room name. Name-level (collapses
         // same-name rooms) -- used only for guidance heuristics, never for return proof.
         public Dictionary<string, string> Neighbors { get; } = new(StringComparer.OrdinalIgnoreCase);
-        // Fex-aware neighbors: "{fex}|{dir}" → destination. Disambiguates same-name rooms
+        // Fex-aware neighbors: "{fex}|{dir}" -> destination. Disambiguates same-name rooms
         // with different exit sets (two "Flower garden"s, one with sw and one without), so
         // return-routing can trust "this exact room's dir leads to origin".
         public Dictionary<string, string> NeighborsByKey { get; } = new(StringComparer.OrdinalIgnoreCase);
@@ -72,7 +72,7 @@ public sealed class MapGraph
 
     private MapGraph(Dictionary<string, RoomNode> nodes) => _nodes = nodes;
 
-    // ── Loading ────────────────────────────────────────────────────────────────
+    // -- Loading ----------------------------------------------------------------
 
     internal static MapGraph CreateEmpty()
         => new(new Dictionary<string, RoomNode>(StringComparer.OrdinalIgnoreCase));
@@ -108,7 +108,7 @@ public sealed class MapGraph
         }
     }
 
-    // ── Queries / live updates ─────────────────────────────────────────────────
+    // -- Queries / live updates -------------------------------------------------
 
     /// <summary>Fex-aware destination evidence: where dir leads from the room *with this
     /// exact exit set*, or null when that room-state's dir has never been traversed.
@@ -164,9 +164,9 @@ public sealed class MapGraph
     public string? ReportedDestination(string room, string fex, string dir)
         => _reported.TryGetValue($"{room}|{fex}|{dir}", out var d) ? d : null;
 
-    // ── Stats / panel queries ───────────────────────────────────────────────────
+    // -- Stats / panel queries ---------------------------------------------------
 
-    /// <summary>Current aggregate counts. Cheap O(rooms·exits) scan -- call on demand.</summary>
+    /// <summary>Current aggregate counts. Cheap O(rooms.exits) scan -- call on demand.</summary>
     public MapStats Snapshot()
     {
         int open = 0, closed = 0, edges = 0, dark = 0;
@@ -185,7 +185,7 @@ public sealed class MapGraph
     public IReadOnlyCollection<string> DarkExitsFrom(string room)
         => _nodes.TryGetValue(room, out var n) ? n.DarkExits : Array.Empty<string>();
 
-    // ── Guidance ───────────────────────────────────────────────────────────────
+    // -- Guidance ---------------------------------------------------------------
 
     /// <summary>
     /// Returns the direction the user should explore next from the given room, or null
@@ -240,9 +240,7 @@ public sealed class MapGraph
 
     // Guidance travel cap: BFS already prefers the NEAREST room with outstanding edges,
     // but past this many hops the suggestion costs more travel than it saves -- offer
-    // nothing and let the user pick. TODO: smarter tour planning -- minimize total
-    // travel time to close ALL outstanding edges/disambiguations (a routing problem,
-    // not nearest-target), and weight pending-edge closure over frontier expansion.
+    // nothing and let the user pick.
     private const int MaxPlanningDepth = 10;
 
     /// <summary>First-hop direction toward the nearest room (within the guidance cap) for

@@ -4,10 +4,9 @@ namespace mudsharp.Tests.Fixtures;
 
 /// <summary>
 /// Direct coverage of the stamina-delta relay extracted from SwingLedger/FightHistoryRecorder/
-/// CombatStatsAggregator, which each hand-copied this arithmetic until 2026-08-16 - see
-/// tools/combat/MECHANICS_NOTES.md's "Damage taken always showing 0.0" section for the bug this
-/// exists to prevent. None of the three consumers' own test fixtures isolate this arithmetic; they
-/// each prove it correct through their own class's event plumbing instead.
+/// CombatStatsAggregator, which each independently hand-copied this arithmetic. None of the three
+/// consumers' own test fixtures isolate this arithmetic; they each prove it correct through their
+/// own class's event plumbing instead.
 /// </summary>
 public sealed class StaminaDeltaRelayTests
 {

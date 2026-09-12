@@ -21,8 +21,8 @@ public sealed class RoomEntry : INotifyPropertyChanged
     /// <summary>Objects: the same grey every other list in the panel uses.</summary>
     private static readonly Color ObjectColor = Color.FromArgb("#cccccc");
 
-    /// <summary>Creatures. The owner's word is "red"; this is Campbell's bright red (#E74856), which
-    /// is what the combat rail already draws every fact about an enemy in.</summary>
+    /// <summary>Creatures: red - Campbell's bright red (#E74856), the color the combat rail already
+    /// draws every fact about an enemy in.</summary>
     private static readonly Color CreatureColor = Color.FromArgb("#E74856");
 
     /// <summary>The swords for a creature nothing is currently fighting. Grey rather than absent:
@@ -42,7 +42,7 @@ public sealed class RoomEntry : INotifyPropertyChanged
     /// (C04.00.02) is described AFTER the FEI list that already listed it, and the refresh that
     /// follows reports the same names and is skipped by the list diff. Promoting the row in place is
     /// what stops the newcomer being drawn as a vial until the player next moves. It only ever goes
-    /// false→true within a room; entering a room rebuilds the list from scratch.</para>
+    /// false->true within a room; entering a room rebuilds the list from scratch.</para>
     /// </summary>
     public bool IsCreature
     {

@@ -49,17 +49,12 @@ public readonly record struct DamageBand(double Low, double High)
 /// rDPT - relative damage per turn. Where the next blow, and the one after it, put the creature on its
 /// own ladder, and how confidently the panel may say so.
 ///
-/// <para><b>Why this replaced a time forecast.</b> The seal used to carry a haze projecting where the
-/// creature would be when the player died, extrapolated from the fight's rate clocks. Forecasting a
-/// fight's remaining rungs from its own observed rate misses by a median 53% (n=398 kill fights), and
-/// a flat per-species prior still misses by 41% - so that marker's width came from a borrowed
-/// uncertainty constant rather than from data, and no amount of caveat fixed it. These bands come from
-/// the player's OUTGOING DAMAGE BRACKETS, which MUD2 prints on every landed blow and which are solidly
-/// measured (6,147 hits across the observed buckets). Each band is therefore a genuine interval -
-/// bracket low to bracket high, over a pool interval - and inherits its width from evidence. Two
-/// projection languages on one ring would also be the duplicated-encoding problem that got the pip
-/// ladder and its overlaid phrase merged in the first place, so the haze is gone rather than beside
-/// it.</para>
+/// <para><b>Why damage-based bands rather than a time forecast.</b> Forecasting a fight's remaining
+/// rungs from its own observed rate misses by a median 53% (n=398 kill fights), and a flat
+/// per-species prior still misses by 41%. These bands come from the player's OUTGOING DAMAGE
+/// BRACKETS, which MUD2 prints on every landed blow and which are solidly measured (6,147 hits across
+/// the observed buckets). Each band is therefore a genuine interval - bracket low to bracket high,
+/// over a pool interval - and inherits its width from evidence.</para>
 ///
 /// <para><b>The ladder is the frame; the estimator sharpens it.</b> Same relationship the seal's fill
 /// already has. The band is drawn against the ring's seven rung notches, and how tightly it falls
@@ -102,9 +97,7 @@ public static class DamagePrediction
     /// 2026-08-07 to 2026-09-01, 5 personae, 23 weapons, 44+ species; afflicted swings are INCLUDED
     /// but number only 23 in total, so removing them moves the figure by &lt;0.0001.</para>
     ///
-    /// <para><b>Two honest caveats.</b> (1) An earlier version of this comment said "63.1% of 9,734
-    /// swings". The RATE reproduces exactly; the count 9,734 does not correspond to any stored result
-    /// or any database state - it is untraced, and is not the denominator above. Re-run on the live DB
+    /// <para><b>Two honest caveats.</b> (1) The RATE reproduces exactly; re-run on the live DB
     /// today the same query gives 0.6275 of 11,369, so the constant is a snapshot, not a fixed
     /// property. (2) The pooled figure hides a large spread by opponent - rats 0.5915 (n=3,121),
     /// zombies 0.7277 (n=1,924), foxes 0.4070 (n=86) - which is expected if the published hit model
@@ -113,16 +106,16 @@ public static class DamagePrediction
     /// drives - a dash density saying "is this fight going normally for me" - and would not be
     /// tolerable for anything predictive.</para>
     ///
-    /// <para><b>Not the 0.57 quoted elsewhere.</b> Several comments and COMBAT-RAIL-SPEC.md cite "the
-    /// player's hit rate is 0.57". That is a DIFFERENT QUANTITY: it is <c>100/175</c>, the published
-    /// guide's formula <c>Dy/(Dy+Do)</c> evaluated for a player at dexterity 100 against a rat at the
-    /// bestiary's dexterity 75 (MECHANICS-VERIFICATION.md:134). A formula prediction for one species
-    /// from a source the repo itself labels hypothesis - not a corpus measurement, and not a rival
-    /// figure for this constant.</para>
+    /// <para><b>Not the 0.57 quoted elsewhere.</b> Several comments and docs/combat-rail-spec.md cite
+    /// "the player's hit rate is 0.57". That is a DIFFERENT QUANTITY: it is <c>100/175</c>, the
+    /// published guide's formula <c>Dy/(Dy+Do)</c> evaluated for a player at dexterity 100 against a
+    /// rat at the bestiary's dexterity 75 (see docs/MUD2-mechanics-verification.md). A formula
+    /// prediction for one species from a source the repo itself labels hypothesis - not a corpus
+    /// measurement, and not a rival figure for this constant.</para>
     /// </summary>
     public const double FluentHitRate = 0.631;
 
-    /// <summary>Dash period at the whiffing end - the owner's "1 dot of color every 5 pixels". In the
+    /// <summary>Dash period at the whiffing end: one dot of color every 5 pixels. In the
     /// canvas's logical units, which are 1:1 with dp at the rail's design width.</summary>
     public const float SparsePeriod = 5f;
 
@@ -317,27 +310,23 @@ public static class DamagePrediction
     /// <summary>
     /// How to stroke an outline for this engagement's swing record.
     ///
-    /// <para>The owner's "how soon" cue: "if you're just not hitting the thing, then it decays to 1 dot
-    /// of color every 5 pixels; swinging like a pro, it's solid." Density is observed landing frequency
-    /// in THIS fight and nothing else - no borrowed constant, no time estimate.</para>
+    /// <para>The "how soon" cue: if the player is just not hitting the thing, it decays to one dot of
+    /// color every 5 pixels; swinging like a pro, it's solid. Density is observed landing frequency in
+    /// THIS fight and nothing else - no borrowed constant, no time estimate.</para>
     ///
-    /// <para><b>Nothing swung yet is its own state, not the sparse end of the dash.</b> An earlier
-    /// version mapped zero attempts to a hit rate of zero, so a row nobody had swung at drew identically
-    /// to a genuine whiff streak. "No blows are landing" is literally true at zero attempts, but it is a
-    /// stronger visual claim than the data supports.</para>
+    /// <para><b>Nothing swung yet is its own state, not the sparse end of the dash.</b> Mapping zero
+    /// attempts to a hit rate of zero would draw a row nobody had swung at identically to a genuine
+    /// whiff streak - a stronger visual claim than the data supports.</para>
     ///
     /// <para><b>Why it is durable rather than a one-tick corner, and why it must not be removed.</b>
     /// The player swings at ONE creature at a time, so in a pack every other live row has never been
     /// swung at - for the whole fight, not for a tick. Without this state all of them would draw as
     /// fights being lost.</para>
     ///
-    /// <para>An earlier version of this comment ALSO leaned on "39% of fights never print a wound
-    /// descriptor", which was an instrumentation artefact and is now known to be false: MUD2 prints a
-    /// descriptor after every landed blow that does not kill (3,559 against 3,561 such hits across
-    /// 1,197 fights, instrumented window from 2026-08-11). That correction cuts the other way from how
-    /// it first looks. Near-total descriptor coverage means a creature you HAVE hit will always have a
-    /// reading, which makes "never swung at" the ONLY route into this state - so it is now more sharply
-    /// defined than before, not less needed. Do not delete it on discovering the coverage rate.</para>
+    /// <para>MUD2 prints a wound descriptor after every landed blow that does not kill (3,559 against
+    /// 3,561 such hits across 1,197 fights, instrumented window from 2026-08-11), so near-total
+    /// descriptor coverage means a creature the player HAS hit will always have a reading, which makes
+    /// "never swung at" the ONLY route into this state.</para>
     ///
     /// <para>The renderer answers this state with brackets rather than an outline - see
     /// <c>CombatRailView.DrawTempoFrame</c> - which is a shape channel, not a density one, so it cannot

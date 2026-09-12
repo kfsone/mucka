@@ -4,8 +4,8 @@ namespace mudsharp.Tests.Fixtures;
 
 /// <summary>
 /// HistoryIndex is the incremental replacement for FightHistory's "filter then scan the whole
-/// corpus" approach (DESIGN_FINAL.md section 7.3). These tests mirror FightHistoryTests' own
-/// fixtures and assertions closely on purpose: the two must agree on every figure, since
+/// corpus" approach. These tests mirror FightHistoryTests' own fixtures and assertions closely on
+/// purpose: the two must agree on every figure, since
 /// IncrementalFightBucket.Insert is written to be a line-for-line match of FightHistory.Summarize's
 /// per-record logic - any drift between them would mean the live incremental path and the
 /// offline/test corpus-scan path silently disagree about the same data.
@@ -242,9 +242,9 @@ public sealed class HistoryIndexTests
     [Fact]
     public void Insert_TalliesOutcomesWithoutInferringAPool()
     {
-        // The pool estimate this index used to carry (median kill damage) is deleted - biased high by
-        // 21% and keyed on a group that pools creatures of very different sizes. See
-        // StaminaPoolEstimator. The outcome tallies are what the index still owes its callers.
+        // Kill damage totals are not used as a stamina-pool estimate here: they run high (killing-blow
+        // overkill) and are keyed on a group that pools creatures of very different sizes. See
+        // StaminaPoolEstimator. The outcome tallies are what the index owes its callers.
         var index = new HistoryIndex();
         index.Insert(Fight(outcome: FightOutcome.Kill, damageDone: 30));
         index.Insert(Fight(outcome: FightOutcome.Kill, damageDone: 36));

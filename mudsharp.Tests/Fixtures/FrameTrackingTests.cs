@@ -195,8 +195,8 @@ public class FrameTrackingTests
     [Fact]
     public void RoomShortReady_FiredAfterCommandEchoClearsLineStart()
     {
-        // Regression: command echo ('n\n') clears _atLineStart, but the '\n' restores
-        // it so the room short on the next line still fires.
+        // Command echo ('n\n') clears _atLineStart, but the '\n' restores it so the room short
+        // on the next line still fires.
         var h = InGameMode();
         h.Feed(WithPrompt("You go north.\n"));
         h.Feed("n\n");                           // echo: 'n' clears flag, '\n' restores it
@@ -396,7 +396,7 @@ public class FrameTrackingTests
     /// <summary>
     /// Wire bytes for a "rainbow" wiz name as captured from a live session:
     /// "Heiach the {catch}{c12}ch{c5}im{c15}er{c5}ic{c12}al{pop}{throw} wizard"
-    /// — C90 colour catch, per-letter C99 colours, one bare pop, C90+C01 colour throw.
+    /// -- C90 colour catch, per-letter C99 colours, one bare pop, C90+C01 colour throw.
     /// </summary>
     private static void FeedRainbowName(ParserHarness h)
     {
@@ -419,11 +419,11 @@ public class FrameTrackingTests
     public void ColourCatchThrow_RestoresStyle()
     {
         var h = InGameMode();
-        h.Feed(0xA0, 0x9B, 0xFF, 0xFF);        // C05+C00 → RED
+        h.Feed(0xA0, 0x9B, 0xFF, 0xFF);        // C05+C00 -> RED
         h.Feed("red");
         h.Feed(0xF5, 0xFF, 0xFF);              // catch: no colour change
         h.Feed("still");
-        h.Feed(0xFE, 0xA7, 0xFF, 0xFF);        // C99 → BrightBlue
+        h.Feed(0xFE, 0xA7, 0xFF, 0xFF);        // C99 -> BrightBlue
         h.Feed("blue");
         h.Feed(0xF5, 0x9C, 0xFF, 0xFF);        // throw: restore to catch point
         h.Feed("after\n");
@@ -446,7 +446,7 @@ public class FrameTrackingTests
         h.Feed("Folly the warlock");
         h.Feed(0xFF, 0xFF);
         h.Feed("\r\n");
-        h.Feed(0xFF, 0xFF);                    // closing pop → context must end here
+        h.Feed(0xFF, 0xFF);                    // closing pop -> context must end here
 
         Assert.Equal(1, h.FewListCompleteCount);
 

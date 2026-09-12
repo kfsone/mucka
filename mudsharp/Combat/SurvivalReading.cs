@@ -43,8 +43,8 @@ public enum SurvivalReading
 /// seconds because a tick is the unit the player actually acts in - MUD2 resolves combat every 2000
 /// ms, so a margin of one tick means one more exchange, not "two seconds".</para>
 ///
-/// <para><b>The bands are asymmetric and that is deliberate</b> (the owner's own shape, 2026-09-06):
-/// danger is called as soon as the margin is gone, safety not until there are several ticks of it. In
+/// <para><b>The bands are asymmetric and that is deliberate.</b>
+/// Danger is called as soon as the margin is gone, safety not until there are several ticks of it. In
 /// a game where death is deletion, being told early that you are in trouble and late that you are
 /// safe is the correct bias, and the reverse would be the one that gets a character killed.</para>
 /// </summary>

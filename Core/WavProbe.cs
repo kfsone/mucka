@@ -18,8 +18,7 @@ public readonly record struct ClipSpan(double TotalMs, double AudibleStartMs, do
 /// <para><b>Why this exists as its own class.</b> The combat metronome brackets a tick boundary with two
 /// clicks, and what a player perceives as the bracket is where the SOUND is, not where the FILE is. The
 /// click assets run 199.6 ms while their audible content spans 30-66 ms, so anything scheduling by file
-/// length is out by the ~134 ms of inaudible tail. Two shipped versions were wrong on exactly this - one
-/// compensating by nothing and one by the total length - and both were audible in play. It is separate
+/// length is out by the ~134 ms of inaudible tail. It is separate
 /// from <c>SoundService</c> because that class is Windows-only and full of WinRT, whereas this is pure
 /// byte arithmetic that the test project can link and exercise directly. The thing the metronome's
 /// timing now depends on ought to be testable.</para>
@@ -27,9 +26,8 @@ public readonly record struct ClipSpan(double TotalMs, double AudibleStartMs, do
 /// <para><b>The audible floor is a perceptual judgement, named as one:</b> -20 dB relative to the
 /// clip's OWN peak (<see cref="AudibleFloor"/>). Relative rather than absolute so it keeps its meaning
 /// if an asset is re-levelled. Deliberately not the digital-silence floor used to detect padding
-/// (<c>tools/combat/pad_click_samples.py</c> uses ~-54 dBFS for that): these clicks decay into a long
-/// tail that is present in the data and inaudible in a room, and counting that tail as content is the
-/// error above.</para>
+/// (~-54 dBFS): these clicks decay into a long tail that is present in the data and inaudible in a
+/// room, and counting that tail as content is the error above.</para>
 ///
 /// <para>File I/O, so call it once and off the UI thread. Deterministic and correct on the first call,
 /// unlike WinRT's <c>PlaybackSession.NaturalDuration</c>, which is null until an async media-open lands

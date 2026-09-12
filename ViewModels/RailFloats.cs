@@ -60,7 +60,7 @@ public sealed record RailFloat(
 ///
 /// <para>That is a rule about the FLOAT, whose whole job is to echo the one line the game just
 /// printed. It is NOT a rule about what the rail may derive elsewhere - see
-/// <see cref="MudSharp.Combat.ExchangeLine"/>, which owns that distinction now.</para>
+/// <see cref="MudSharp.Combat.ExchangeLine"/>, which owns that distinction.</para>
 /// </summary>
 public static class RailFloatText
 {
@@ -73,15 +73,13 @@ public static class RailFloatText
     /// prints as the bracket.
     ///
     /// <para>MUD2 usually brackets a blow ("You hit the rat (5-9).") and occasionally prints a single
-    /// figure instead ("You hit the banshee (6)."). <b>What selects between the two is not known.</b>
-    /// This comment first said it was the <c>identify</c> setting; that was checked against every
-    /// capture on disk (2026-09-01) and is wrong, and nothing has replaced it - see
-    /// <c>CombatTracker.YouHitExact</c>, which holds the evidence and declines to name a cause. The
-    /// corpus is roughly 6 single figures against 820 brackets.</para>
+    /// figure instead ("You hit the banshee (6)."). What selects between the two is not known - see
+    /// <c>CombatTracker.YouHitExact</c>, which holds the evidence. The corpus is roughly 6 single
+    /// figures against 820 brackets.</para>
     ///
-    /// <para>Nothing here depends on the answer, which is why the wrong cause was cheap to carry and
-    /// easy to miss: the tracker emits the single-figure form as a range of width zero, so "print the
-    /// bounds, collapsed when they are equal" is correct whatever is doing the selecting.</para>
+    /// <para>Nothing here depends on the answer: the tracker emits the single-figure form as a range
+    /// of width zero, so "print the bounds, collapsed when they are equal" is correct whatever is
+    /// doing the selecting.</para>
     ///
     /// <para>Null when the line carried no numbers at all, which no observed wording does - a float
     /// with nothing to say is not drawn rather than guessed at.</para>
@@ -155,9 +153,9 @@ public sealed class RailFloatBudget
     /// number over one 92dp seal is a smear rather than a reading.</summary>
     public const int MaxPerAnchor = 2;
 
-    /// <summary>How long one float lives. The owner's own figure ("~1.5s"). Also the expiry this
-    /// class falls back on: the host retires a slot from the animation's completion callback, but a
-    /// completion that never arrives (a torn-down compositor) must not strand a slot forever.</summary>
+    /// <summary>How long one float lives (~1.5s). Also the expiry this class falls back on: the
+    /// host retires a slot from the animation's completion callback, but a completion that never
+    /// arrives (a torn-down compositor) must not strand a slot forever.</summary>
     public static readonly TimeSpan Lifetime = TimeSpan.FromMilliseconds(1500);
 
     private readonly bool[] _busy = new bool[MaxInFlight];

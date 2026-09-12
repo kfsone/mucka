@@ -3,9 +3,9 @@ using MudSharp.Models;
 namespace MudSharp.Tests.Fixtures;
 
 /// <summary>
-/// Golden byte-stream tests for the MUD2 proprietary C1 protocol (lead bytes 0x9B–0xFE).
+/// Golden byte-stream tests for the MUD2 proprietary C1 protocol (lead bytes 0x9B-0xFE).
 /// All sequences end with the C255 terminator (0xFF 0xFF).
-/// Byte sequences derived from Clio telnet.l C00–C99 rules.
+/// Byte sequences derived from Clio telnet.l C00-C99 rules.
 ///
 /// Define our own indexes for color mapping:
 ///   BLACK=0  RED=1  GREEN=2  YELLOW=3  BLUE=4  MAGENTA=5  CYAN=6  WHITE=7
@@ -13,24 +13,24 @@ namespace MudSharp.Tests.Fixtures;
 /// </summary>
 public class Mud2C1Tests
 {
-    // ── Game-mode entry ────────────────────────────────────────────────────────
+    // -- Game-mode entry --------------------------------------------------------
 
     [Fact]
     public void GameModeEntrySignal_0x9D_0x9C_FiresGameModeEntered()
     {
-        // Clio telnet.l line 473–488: C02+C01+C255 (0x9D 0x9C 0xFF 0xFF)
-        // → push(LT_GREEN,BLACK) + mode=GAME + txfes()
+        // Clio telnet.l line 473-488: C02+C01+C255 (0x9D 0x9C 0xFF 0xFF)
+        // -> push(LT_GREEN,BLACK) + mode=GAME + txfes()
         var h = new ParserHarness();
         h.Feed(0x9D, 0x9C, 0xFF, 0xFF);
         Assert.Equal(1, h.GameModeEnteredCount);
     }
 
-    // ── FES packet ─────────────────────────────────────────────────────────────
+    // -- FES packet -------------------------------------------------------------
 
     [Fact]
     public void FesPacket_ParsesStamina()
     {
-        // Clio telnet.l line 728: C12+C08+C01+C255 (0xA7 0xA3 0x9C 0xFF 0xFF) → FES data line follows
+        // Clio telnet.l line 728: C12+C08+C01+C255 (0xA7 0xA3 0x9C 0xFF 0xFF) -> FES data line follows
         // Data format: sta msta str mstr dex mdex mag mmag score blind deaf crippled dumb reset weather
         var h = new ParserHarness();
         h.Feed(0xA7, 0xA3, 0x9C, 0xFF, 0xFF);
@@ -83,12 +83,12 @@ public class Mud2C1Tests
         Assert.Equal("sword", h.Stats.Last().DreamWord);
     }
 
-    // ── C1 color codes ────────────────────────────────────────────────────────
+    // -- C1 color codes --------------------------------------------------------
 
     [Fact]
     public void C1Color_0x9B_SetsExpectedStyle()
     {
-        // C00 (0x9B) + C255 → Clio init_stack(WHITE,BLACK)
+        // C00 (0x9B) + C255 -> Clio init_stack(WHITE,BLACK)
         var h = new ParserHarness();
         h.Feed(0x9B, 0xFF, 0xFF);
         h.Feed("text\n");
@@ -101,7 +101,7 @@ public class Mud2C1Tests
     [Fact]
     public void C1Color_0x9E_SetsExpectedStyle()
     {
-        // C03+C01 (0x9E 0x9C) + C255 → Clio push(CYAN,BLACK)
+        // C03+C01 (0x9E 0x9C) + C255 -> Clio push(CYAN,BLACK)
         var h = new ParserHarness();
         h.Feed(0x9E, 0x9C, 0xFF, 0xFF);
         h.Feed("text\n");
@@ -114,7 +114,7 @@ public class Mud2C1Tests
     [Fact]
     public void C1Color_0x9D_GameModeEntry_SetsLtGreen()
     {
-        // C02+C01 (0x9D 0x9C) + C255 → Clio push(LT_GREEN,BLACK) + mode=GAME
+        // C02+C01 (0x9D 0x9C) + C255 -> Clio push(LT_GREEN,BLACK) + mode=GAME
         var h = new ParserHarness();
         h.Feed(0x9D, 0x9C, 0xFF, 0xFF);
         h.Feed("text\n");
@@ -127,7 +127,7 @@ public class Mud2C1Tests
     [Fact]
     public void C1Color_0xA1_SetsLtBlue()
     {
-        // C06 (0xA1) + C255 → Clio push(LT_BLUE,BLACK)
+        // C06 (0xA1) + C255 -> Clio push(LT_BLUE,BLACK)
         var h = new ParserHarness();
         h.Feed(0xA1, 0xFF, 0xFF);
         h.Feed("text\n");
@@ -140,7 +140,7 @@ public class Mud2C1Tests
     [Fact]
     public void C1Color_0xA4_WithC00_SetsYellow()
     {
-        // C09+C00 (0xA4 0x9B) + C255 → Clio push(YELLOW,BLACK)
+        // C09+C00 (0xA4 0x9B) + C255 -> Clio push(YELLOW,BLACK)
         var h = new ParserHarness();
         h.Feed(0xA4, 0x9B, 0xFF, 0xFF);
         h.Feed("text\n");
@@ -153,7 +153,7 @@ public class Mud2C1Tests
     [Fact]
     public void C1Color_0xA4_WithOther_SetsLtYellow()
     {
-        // C09+C01 (0xA4 0x9C) + C255 → Clio push(LT_YELLOW,BLACK)
+        // C09+C01 (0xA4 0x9C) + C255 -> Clio push(LT_YELLOW,BLACK)
         var h = new ParserHarness();
         h.Feed(0xA4, 0x9C, 0xFF, 0xFF);
         h.Feed("text\n");
@@ -166,7 +166,7 @@ public class Mud2C1Tests
     [Fact]
     public void C1Color_0xA6_SetsLtRed()
     {
-        // C11 (0xA6) + C255 → Clio push(LT_RED,BLACK) (FOD/WHERE/SUMMON spells)
+        // C11 (0xA6) + C255 -> Clio push(LT_RED,BLACK) (FOD/WHERE/SUMMON spells)
         var h = new ParserHarness();
         h.Feed(0xA6, 0xFF, 0xFF);
         h.Feed("text\n");
@@ -179,7 +179,7 @@ public class Mud2C1Tests
     [Fact]
     public void C1Color_0xA7_WithC04_SetsGreen()
     {
-        // C12+C04 (0xA7 0x9F) + C255 → Clio push(GREEN,BLACK)
+        // C12+C04 (0xA7 0x9F) + C255 -> Clio push(GREEN,BLACK)
         var h = new ParserHarness();
         h.Feed(0xA7, 0x9F, 0xFF, 0xFF);
         h.Feed("text\n");
@@ -203,16 +203,16 @@ public class Mud2C1Tests
         Assert.Equal(AnsiColor.Black, style.Background);
     }
 
-    // ── C98 correctness ────────────────────────────────────────────────────────
+    // -- C98 correctness --------------------------------------------------------
 
     [Fact]
     public void C98_SetsColor_AndSetsPromptAllowed()
     {
-        // C98 (0xFD) + even payload byte → BLACK/BLUE; also fires ShowPrompt()
-        // 0x9C = 156, 156 % 2 == 0 → Apply(BLACK, BLUE)
+        // C98 (0xFD) + even payload byte -> BLACK/BLUE; also fires ShowPrompt()
+        // 0x9C = 156, 156 % 2 == 0 -> Apply(BLACK, BLUE)
         var h = new ParserHarness();
         h.Feed("prompt: ");           // accumulate text
-        h.Feed(0xFD, 0x9C, 0xFF, 0xFF); // C98 with even byte → BLACK/BLUE + ShowPrompt()
+        h.Feed(0xFD, 0x9C, 0xFF, 0xFF); // C98 with even byte -> BLACK/BLUE + ShowPrompt()
 
         // ShowPrompt() should have emitted the accumulated "prompt: " as a partial line
         Assert.Single(h.Lines);
@@ -227,12 +227,12 @@ public class Mud2C1Tests
         Assert.Equal(AnsiColor.Blue,  style.Background);
     }
 
-    // ── C14 weather colors ────────────────────────────────────────────────────
+    // -- C14 weather colors ----------------------------------------------------
 
     [Fact]
     public void C14_WithC03C01_SetsBlackWhite()
     {
-        // Clio telnet.l: {C14}{C03}{C01}{C255} → push(BLACK,WHITE) (snow)
+        // Clio telnet.l: {C14}{C03}{C01}{C255} -> push(BLACK,WHITE) (snow)
         // 0xA9 0x9E 0x9C 0xFF 0xFF
         var h = new ParserHarness();
         h.Feed(0xA9, 0x9E, 0x9C, 0xFF, 0xFF);
@@ -246,7 +246,7 @@ public class Mud2C1Tests
     [Fact]
     public void C14_WithC03C03_SetsBlackWhite()
     {
-        // Clio telnet.l: {C14}{C03}{C03}{C255} → push(BLACK,WHITE) (snow)
+        // Clio telnet.l: {C14}{C03}{C03}{C255} -> push(BLACK,WHITE) (snow)
         // 0xA9 0x9E 0x9E 0xFF 0xFF
         var h = new ParserHarness();
         h.Feed(0xA9, 0x9E, 0x9E, 0xFF, 0xFF);
@@ -260,7 +260,7 @@ public class Mud2C1Tests
     [Fact]
     public void C14_WithC05C01_SetsBlackWhite()
     {
-        // Clio telnet.l: {C14}{C05}{C01}{C255} → push(BLACK,WHITE) (snow)
+        // Clio telnet.l: {C14}{C05}{C01}{C255} -> push(BLACK,WHITE) (snow)
         // 0xA9 0xA0 0x9C 0xFF 0xFF
         var h = new ParserHarness();
         h.Feed(0xA9, 0xA0, 0x9C, 0xFF, 0xFF);
@@ -274,7 +274,7 @@ public class Mud2C1Tests
     [Fact]
     public void C14_WithC00_SetsGreenBlack()
     {
-        // Clio telnet.l: {C14}{C00}{C255} → push(GREEN,BLACK) (fine weather)
+        // Clio telnet.l: {C14}{C00}{C255} -> push(GREEN,BLACK) (fine weather)
         // 0xA9 0x9B 0xFF 0xFF
         var h = new ParserHarness();
         h.Feed(0xA9, 0x9B, 0xFF, 0xFF);
@@ -285,13 +285,13 @@ public class Mud2C1Tests
         Assert.Equal(AnsiColor.Black, style.Background);
     }
 
-    // ── Dreamword ─────────────────────────────────────────────────────────────
+    // -- Dreamword -------------------------------------------------------------
 
     [Fact]
     public void DreamwordSequence_EmitsDreamwordChanged()
     {
-        // Clio telnet.l line 904–915: C15+C00+C00+C255 followed by [a-z]{1,14}
-        // 0xAA 0x9B 0x9B 0xFF 0xFF → DreamwordData state; letters until non-[a-z]
+        // Clio telnet.l line 904-915: C15+C00+C00+C255 followed by [a-z]{1,14}
+        // 0xAA 0x9B 0x9B 0xFF 0xFF -> DreamwordData state; letters until non-[a-z]
         var h = new ParserHarness();
         h.Feed(0xAA, 0x9B, 0x9B, 0xFF, 0xFF);
         h.Feed("sword\n"); // '\n' terminates the dreamword and is replayed as newline
@@ -302,20 +302,20 @@ public class Mud2C1Tests
     [Fact]
     public void DreamwordClear_EmitsNullDreamword()
     {
-        // Clio telnet.l line 916–925: C15+C00+C01+C255 → dreamword cleared (memset to 0)
-        // 0xAA 0x9B 0x9C 0xFF 0xFF → EmitDreamwordChanged(null)
+        // Clio telnet.l line 916-925: C15+C00+C01+C255 -> dreamword cleared (memset to 0)
+        // 0xAA 0x9B 0x9C 0xFF 0xFF -> EmitDreamwordChanged(null)
         var h = new ParserHarness();
         h.Feed(0xAA, 0x9B, 0x9C, 0xFF, 0xFF);
         Assert.Single(h.Dreamwords);
         Assert.Null(h.Dreamwords[0]);
     }
 
-    // ── C95 client mode ────────────────────────────────────────────────────────
+    // -- C95 client mode --------------------------------------------------------
 
     [Fact]
     public void C95_EmitsClientModeData()
     {
-        // Clio telnet.l line 975–1015: C95+C255 → collect 5 newline-terminated lines
+        // Clio telnet.l line 975-1015: C95+C255 -> collect 5 newline-terminated lines
         // (licence, min-level, max-level, account, privs)
         var h = new ParserHarness();
         h.Feed(0xFA, 0xFF, 0xFF); // C95 (0xFA) + C255
@@ -327,7 +327,7 @@ public class Mud2C1Tests
     [Fact]
     public void C1Color_0x9C_NoPayload_SetsBlue()
     {
-        // C01 (0x9C) + C255 → b0==0, not in {0x9C,0x9D,0x9E} → BLUE/BLACK
+        // C01 (0x9C) + C255 -> b0==0, not in {0x9C,0x9D,0x9E} -> BLUE/BLACK
         var h = new ParserHarness();
         h.Feed(0x9C, 0xFF, 0xFF);
         h.Feed("text\n");
@@ -340,7 +340,7 @@ public class Mud2C1Tests
     [Fact]
     public void C1Color_0x9F_WithC01_SetsLtMagenta()
     {
-        // C04+C01 (0x9F 0x9C) + C255 → b0==0x9C → LT_MAGENTA/BLACK
+        // C04+C01 (0x9F 0x9C) + C255 -> b0==0x9C -> LT_MAGENTA/BLACK
         var h = new ParserHarness();
         h.Feed(0x9F, 0x9C, 0xFF, 0xFF);
         h.Feed("text\n");
@@ -353,7 +353,7 @@ public class Mud2C1Tests
     [Fact]
     public void C1Color_0x9F_NoC01_SetsMagenta()
     {
-        // C04+C00 (0x9F 0x9B) + C255 → b0!=0x9C → MAGENTA/BLACK
+        // C04+C00 (0x9F 0x9B) + C255 -> b0!=0x9C -> MAGENTA/BLACK
         var h = new ParserHarness();
         h.Feed(0x9F, 0x9B, 0xFF, 0xFF);
         h.Feed("text\n");
@@ -366,7 +366,7 @@ public class Mud2C1Tests
     [Fact]
     public void C1Color_0xA0_WithC01_SetsLtRed()
     {
-        // C05+C01 (0xA0 0x9C) + C255 → b0==0x9C, count==1 → LT_RED/BLACK
+        // C05+C01 (0xA0 0x9C) + C255 -> b0==0x9C, count==1 -> LT_RED/BLACK
         var h = new ParserHarness();
         h.Feed(0xA0, 0x9C, 0xFF, 0xFF);
         h.Feed("text\n");
@@ -379,7 +379,7 @@ public class Mud2C1Tests
     [Fact]
     public void C1Color_0xA0_WithC00_SetsRed()
     {
-        // C05+C00 (0xA0 0x9B) + C255 → b0==0x9B → RED/BLACK
+        // C05+C00 (0xA0 0x9B) + C255 -> b0==0x9B -> RED/BLACK
         var h = new ParserHarness();
         h.Feed(0xA0, 0x9B, 0xFF, 0xFF);
         h.Feed("text\n");
@@ -392,7 +392,7 @@ public class Mud2C1Tests
     [Fact]
     public void C1Color_0xA2_SetsRed()
     {
-        // C07 (0xA2) + C255 → RED/BLACK (important messages)
+        // C07 (0xA2) + C255 -> RED/BLACK (important messages)
         var h = new ParserHarness();
         h.Feed(0xA2, 0xFF, 0xFF);
         h.Feed("text\n");
@@ -405,7 +405,7 @@ public class Mud2C1Tests
     [Fact]
     public void C1Color_0xA3_WithC08_SetsBlackOnRed()
     {
-        // C08+C08 (0xA3 0xA3) + C255 → b0==0xA3 → BLACK/RED (death/combat)
+        // C08+C08 (0xA3 0xA3) + C255 -> b0==0xA3 -> BLACK/RED (death/combat)
         var h = new ParserHarness();
         h.Feed(0xA3, 0xA3, 0xFF, 0xFF);
         h.Feed("text\n");
@@ -418,7 +418,7 @@ public class Mud2C1Tests
     [Fact]
     public void C1Color_0xA5_WithC00_SetsBlackOnYellow()
     {
-        // C10+C00 (0xA5 0x9B) + C255 → b0==0x9B → BLACK/YELLOW
+        // C10+C00 (0xA5 0x9B) + C255 -> b0==0x9B -> BLACK/YELLOW
         var h = new ParserHarness();
         h.Feed(0xA5, 0x9B, 0xFF, 0xFF);
         h.Feed("text\n");
@@ -431,7 +431,7 @@ public class Mud2C1Tests
     [Fact]
     public void C1Color_0xA8_SetsWhite()
     {
-        // C13 (0xA8) + C255 → WHITE/BLACK (system messages)
+        // C13 (0xA8) + C255 -> WHITE/BLACK (system messages)
         var h = new ParserHarness();
         h.Feed(0xA8, 0xFF, 0xFF);
         h.Feed("text\n");
@@ -444,7 +444,7 @@ public class Mud2C1Tests
     [Fact]
     public void C1Color_0xAB_SetsLtWhiteOnBlue()
     {
-        // C16 (0xAB) + C255 → LT_WHITE/BLUE (house messages)
+        // C16 (0xAB) + C255 -> LT_WHITE/BLUE (house messages)
         var h = new ParserHarness();
         h.Feed(0xAB, 0xFF, 0xFF);
         h.Feed("text\n");
@@ -457,7 +457,7 @@ public class Mud2C1Tests
     [Fact]
     public void C1Color_0xA9_SetsGreenOnBlack()
     {
-        // C14 (0xA9) + C255 → GREEN/BLACK (weather/outdoor default)
+        // C14 (0xA9) + C255 -> GREEN/BLACK (weather/outdoor default)
         var h = new ParserHarness();
         h.Feed(0xA9, 0xFF, 0xFF);
         h.Feed("text\n");
@@ -467,7 +467,7 @@ public class Mud2C1Tests
         Assert.Equal(AnsiColor.Black, style.Background);
     }
 
-    // ── Reset ──────────────────────────────────────────────────────────────────
+    // -- Reset ------------------------------------------------------------------
 
     [Fact]
     public void Reset_ClearsGameMode_FiresGameModeExited()
@@ -482,7 +482,7 @@ public class Mud2C1Tests
         Assert.False(h.Parser.InGameMode);
     }
 
-    // ── FES 15-field parsing ───────────────────────────────────────────────────
+    // -- FES 15-field parsing ---------------------------------------------------
 
     [Fact]
     public void FesPacket_ParsesAllNewFields()
@@ -527,14 +527,14 @@ public class Mud2C1Tests
         Assert.Equal('S', s.Weather);
     }
 
-    // ── C08 stale-stats hints (debounced replacement for Clio's txfes) ────────
+    // -- C08 stale-stats hints (debounced replacement for Clio's txfes) --------
     // The parser no longer probes directly; it emits ProbeHintReceived and the
     // session schedules the probe. No C1 code may produce OutgoingBytes any more.
 
     [Fact]
     public void C08_Bare_HintsStamina()
     {
-        // 0xA3 0xFF 0xFF = C08 (fight starts) → stamina stale hint
+        // 0xA3 0xFF 0xFF = C08 (fight starts) -> stamina stale hint
         var h = new ParserHarness();
         h.Feed(0xA3, 0xFF, 0xFF);
         Assert.Equal([StaleStats.Stamina], h.ProbeHints);
@@ -544,7 +544,7 @@ public class Mud2C1Tests
     [Fact]
     public void C08_C00_DoesNotHint()
     {
-        // 0xA3 0x9B 0xFF 0xFF = C08+C00 (telnet.l:634) → plain RED, no hint
+        // 0xA3 0x9B 0xFF 0xFF = C08+C00 (telnet.l:634) -> plain RED, no hint
         var h = new ParserHarness();
         h.Feed(0xA3, 0x9B, 0xFF, 0xFF);
         Assert.Empty(h.ProbeHints);
@@ -554,7 +554,7 @@ public class Mud2C1Tests
     [Fact]
     public void C08_C01_YouHitThem_DoesNotHint()
     {
-        // 0xA3 0x9C 0xFF 0xFF = C08+C01, you hit them — YOUR stats are unchanged.
+        // 0xA3 0x9C 0xFF 0xFF = C08+C01, you hit them - YOUR stats are unchanged.
         // (Clio txfes'd this, which spammed a probe on every swing of a fight.)
         var h = new ParserHarness();
         h.Feed(0xA3, 0x9C, 0xFF, 0xFF);
@@ -565,7 +565,7 @@ public class Mud2C1Tests
     [Fact]
     public void C08_C02_DoesNotHint()
     {
-        // 0xA3 0x9D 0xFF 0xFF = C08+C02 (telnet.l:635) → plain RED, no hint
+        // 0xA3 0x9D 0xFF 0xFF = C08+C02 (telnet.l:635) -> plain RED, no hint
         var h = new ParserHarness();
         h.Feed(0xA3, 0x9D, 0xFF, 0xFF);
         Assert.Empty(h.ProbeHints);
@@ -583,7 +583,7 @@ public class Mud2C1Tests
     [Fact]
     public void C08_C04_DoesNotHint()
     {
-        // 0xA3 0x9F 0xFF 0xFF = C08+C04 (telnet.l:636) → plain RED, no hint
+        // 0xA3 0x9F 0xFF 0xFF = C08+C04 (telnet.l:636) -> plain RED, no hint
         var h = new ParserHarness();
         h.Feed(0xA3, 0x9F, 0xFF, 0xFF);
         Assert.Empty(h.ProbeHints);
@@ -592,7 +592,7 @@ public class Mud2C1Tests
     [Fact]
     public void C08_C05_WeaponChange_HintsStaminaAndInventory()
     {
-        // 0xA3 0xA0 0xFF 0xFF = C08+C05 (weapon change) → stamina + the carried-weapon
+        // 0xA3 0xA0 0xFF 0xFF = C08+C05 (weapon change) -> stamina + the carried-weapon
         // line in the FEI list may both have changed
         var h = new ParserHarness();
         h.Feed(0xA3, 0xA0, 0xFF, 0xFF);
@@ -602,7 +602,7 @@ public class Mud2C1Tests
     [Fact]
     public void C08_C06_DroppedGuard_HintsInventory()
     {
-        // 0xA3 0xA1 0xFF 0xFF = C08+C06 (dropped guard) → inventory stale
+        // 0xA3 0xA1 0xFF 0xFF = C08+C06 (dropped guard) -> inventory stale
         var h = new ParserHarness();
         h.Feed(0xA3, 0xA1, 0xFF, 0xFF);
         Assert.Equal([StaleStats.Inventory], h.ProbeHints);
@@ -620,7 +620,7 @@ public class Mud2C1Tests
     [Fact]
     public void C08_C13_PersonaWiped_ZeroesStatsWithoutHinting()
     {
-        // 0xA3 0xA8 0xFF 0xFF = C08+C13 ("Not updating persona") → score/sta/str/dex/mag
+        // 0xA3 0xA8 0xFF 0xFF = C08+C13 ("Not updating persona") -> score/sta/str/dex/mag
         // are zeroed locally; no probe can bring them back, so no hint.
         var h = new ParserHarness();
         h.Feed(0xA3, 0xA8, 0xFF, 0xFF);
@@ -637,14 +637,14 @@ public class Mud2C1Tests
     public void C08_C13_PersonaWiped_FiresPersonaWipedEvent()
     {
         // Same wire sequence as above (C08+C13, "Not updating persona") also fires the
-        // dedicated PersonaWiped event — the unambiguous protocol-level signal consumers should
+        // dedicated PersonaWiped event - the unambiguous protocol-level signal consumers should
         // key off instead of pattern-matching the rendered line text.
         var h = new ParserHarness();
         h.Feed(0xA3, 0xA8, 0xFF, 0xFF);
         Assert.Equal(1, h.PersonaWipedCount);
     }
 
-    // ── C95 Rule A: account block ─────────────────────────────────────────────
+    // -- C95 Rule A: account block ---------------------------------------------
 
     [Fact]
     public void C95_RuleA_PopulatesAccountIdAndPrivs_InSubsequentFesSnapshot()
@@ -681,7 +681,7 @@ public class Mud2C1Tests
         Assert.Equal(1, snapshot.Privs);
     }
 
-    // ── C95 Rule C: account logout ────────────────────────────────────────────
+    // -- C95 Rule C: account logout --------------------------------------------
 
     [Fact]
     public void C95_RuleC_IsConsumedWithoutError()
@@ -699,13 +699,13 @@ public class Mud2C1Tests
         Assert.Single(h.Lines);
     }
 
-    // ── Gap 1: bare FF FF pops color stack ───────────────────────────────────
+    // -- Gap 1: bare FF FF pops color stack -----------------------------------
 
     [Fact]
     public void BareC255_PopsColorStack()
     {
         // Push WHITE/BLACK (C00), then LT_BLUE (C06), then bare FF FF restores WHITE/BLACK
-        // Clio telnet.l:1040: {C255} → pop()
+        // Clio telnet.l:1040: {C255} -> pop()
         var h = new ParserHarness();
         h.Feed(0x9B, 0xFF, 0xFF);           // C00: push WHITE/BLACK
         h.Feed(0xA1, 0xFF, 0xFF);           // C06: push LT_BLUE/BLACK
@@ -736,21 +736,21 @@ public class Mud2C1Tests
     [Fact]
     public void BareC255_OnEmptyStack_IsIgnored()
     {
-        // Bare FF FF with no prior pushes — should not crash or emit junk
+        // Bare FF FF with no prior pushes - should not crash or emit junk
         var h = new ParserHarness();
         h.Feed(0xFF, 0xFF);
         h.Feed("text\n");
         Assert.Single(h.Lines);
     }
 
-    // ── Gap 2: C89 (0xF4) non-terminated wire format ─────────────────────────
+    // -- Gap 2: C89 (0xF4) non-terminated wire format -------------------------
 
     [Fact]
     public void C89_F4_9C_SetsWhiteBlack()
     {
-        // Clio telnet.l:968: {C89}{C01} → push(WHITE,BLACK); NO FF FF terminator
+        // Clio telnet.l:968: {C89}{C01} -> push(WHITE,BLACK); NO FF FF terminator
         var h = new ParserHarness();
-        h.Feed(0xF4, 0x9C);                 // F4 9C — no terminator
+        h.Feed(0xF4, 0x9C);                 // F4 9C - no terminator
         h.Feed("text\n");
         Assert.Single(h.Lines);
         var style = h.Lines[0].Spans[0].Style;
@@ -761,9 +761,9 @@ public class Mud2C1Tests
     [Fact]
     public void C89_F4_9B_9B_SetsWhiteBlack()
     {
-        // Clio telnet.l:966: {C89}{C00}{C00} → push(WHITE,BLACK); NO FF FF terminator
+        // Clio telnet.l:966: {C89}{C00}{C00} -> push(WHITE,BLACK); NO FF FF terminator
         var h = new ParserHarness();
-        h.Feed(0xF4, 0x9B, 0x9B);           // F4 9B 9B — no terminator
+        h.Feed(0xF4, 0x9B, 0x9B);           // F4 9B 9B - no terminator
         h.Feed("text\n");
         Assert.Single(h.Lines);
         var style = h.Lines[0].Spans[0].Style;
@@ -774,9 +774,9 @@ public class Mud2C1Tests
     [Fact]
     public void C89_F4_9B_9C_SetsWhiteBlack()
     {
-        // Clio telnet.l:967: {C89}{C00}{C01} → push(WHITE,BLACK); NO FF FF terminator
+        // Clio telnet.l:967: {C89}{C00}{C01} -> push(WHITE,BLACK); NO FF FF terminator
         var h = new ParserHarness();
-        h.Feed(0xF4, 0x9B, 0x9C);           // F4 9B 9C — no terminator
+        h.Feed(0xF4, 0x9B, 0x9C);           // F4 9B 9C - no terminator
         h.Feed("text\n");
         Assert.Single(h.Lines);
         var style = h.Lines[0].Spans[0].Style;
@@ -787,7 +787,7 @@ public class Mud2C1Tests
     [Fact]
     public void C89_F4_UnrecognisedPayload_WaitsForTerminator()
     {
-        // F4 9D xx FF FF — first payload byte is not 0x9B or 0x9C, so must wait for FF FF
+        // F4 9D xx FF FF - first payload byte is not 0x9B or 0x9C, so must wait for FF FF
         // The sequence should NOT dispatch early; text after FF FF should be in the applied color.
         var h = new ParserHarness();
         h.Feed(0xF4, 0x9D, 0x9B, 0xFF, 0xFF);  // unrecognised C89 variant, terminated normally
@@ -795,12 +795,12 @@ public class Mud2C1Tests
         Assert.Single(h.Lines);                 // parser recovered and emitted text
     }
 
-    // ── Gap 3: FE FE FF FF special reset ──────────────────────────────────────
+    // -- Gap 3: FE FE FF FF special reset --------------------------------------
 
     [Fact]
     public void C99_FE_FE_ResetsToWhiteBlack()
     {
-        // Clio telnet.l:1030: {C99}{C99}{C255} → push(WHITE,BLACK) (not LT_WHITE from clamped index 99)
+        // Clio telnet.l:1030: {C99}{C99}{C255} -> push(WHITE,BLACK) (not LT_WHITE from clamped index 99)
         var h = new ParserHarness();
         h.Feed(0xFE, 0xFE, 0xFF, 0xFF);
         h.Feed("text\n");
@@ -810,15 +810,15 @@ public class Mud2C1Tests
         Assert.Equal(AnsiColor.Black, style.Background);
     }
 
-    // ── Stale-stats hints from the Clio txfes trigger set ─────────────────────
+    // -- Stale-stats hints from the Clio txfes trigger set ---------------------
     // These codes previously sent an instant FES probe (txfes); they now emit
     // debounced ProbeHintReceived events instead, and never OutgoingBytes.
 
     [Fact]
     public void C06_Bare_DoesNotHint()
     {
-        // C06+C255 (0xA1 FF FF) → LT_BLUE. Clio txfes'd all C06 variants (telnet.l:562-580) but
-        // the probe-noise policy (2026-07-25) classifies C06 announcements as needing no probe.
+        // C06+C255 (0xA1 FF FF) -> LT_BLUE. Clio txfes'd all C06 variants (telnet.l:562-580) but
+        // the probe-noise policy classifies C06 announcements as needing no probe.
         var h = new ParserHarness();
         h.Feed(0xA1, 0xFF, 0xFF);
         Assert.Empty(h.ProbeHints);
@@ -828,7 +828,7 @@ public class Mud2C1Tests
     [Fact]
     public void C06_WithC00_DoesNotHint()
     {
-        // C06+C00+C255 (0xA1 0x9B FF FF) → LT_BLUE, no probe (probe-noise policy, 2026-07-25)
+        // C06+C00+C255 (0xA1 0x9B FF FF) -> LT_BLUE, no probe (probe-noise policy)
         var h = new ParserHarness();
         h.Feed(0xA1, 0x9B, 0xFF, 0xFF);
         Assert.Empty(h.ProbeHints);
@@ -837,7 +837,7 @@ public class Mud2C1Tests
     [Fact]
     public void C06_C06_DoesNotHint()
     {
-        // C06+C06+C255 (0xA1 0xA1 FF FF) → "Something magical" — sound only (Clio:581-584)
+        // C06+C06+C255 (0xA1 0xA1 FF FF) -> "Something magical" - sound only (Clio:581-584)
         var h = new ParserHarness();
         h.Feed(0xA1, 0xA1, 0xFF, 0xFF);
         Assert.Empty(h.ProbeHints);
@@ -846,7 +846,7 @@ public class Mud2C1Tests
     [Fact]
     public void C07_Bare_HintsStamina()
     {
-        // C07+C255 (0xA2 FF FF) → RED + stamina hint (Clio txfes, telnet.l:587-590)
+        // C07+C255 (0xA2 FF FF) -> RED + stamina hint (Clio txfes, telnet.l:587-590)
         var h = new ParserHarness();
         h.Feed(0xA2, 0xFF, 0xFF);
         Assert.Equal([StaleStats.Stamina], h.ProbeHints);
@@ -856,7 +856,7 @@ public class Mud2C1Tests
     [Fact]
     public void C07_WithPayload_HintsStamina()
     {
-        // C07+C00+C00+C255 → RED + stamina hint (all C07 variants, Clio:592-609)
+        // C07+C00+C00+C255 -> RED + stamina hint (all C07 variants, Clio:592-609)
         var h = new ParserHarness();
         h.Feed(0xA2, 0x9B, 0x9B, 0xFF, 0xFF);
         Assert.Equal([StaleStats.Stamina], h.ProbeHints);
@@ -865,7 +865,7 @@ public class Mud2C1Tests
     [Fact]
     public void C11_WithTxfesVariant_HintsAllStats()
     {
-        // C11+C00 (0xA6 0x9B FF FF) → LT_RED + hint (Clio txfes, telnet.l:687-713)
+        // C11+C00 (0xA6 0x9B FF FF) -> LT_RED + hint (Clio txfes, telnet.l:687-713)
         var h = new ParserHarness();
         h.Feed(0xA6, 0x9B, 0xFF, 0xFF);
         Assert.Equal([StaleStats.AllStats], h.ProbeHints);
@@ -874,7 +874,7 @@ public class Mud2C1Tests
     [Fact]
     public void C11_BareOrC06_DoesNotHint()
     {
-        // C11+C06 (0xA6 0xA1 FF FF) → LT_RED only — FOD/WHERE/SUMMON (Clio:675-685)
+        // C11+C06 (0xA6 0xA1 FF FF) -> LT_RED only - FOD/WHERE/SUMMON (Clio:675-685)
         var h = new ParserHarness();
         h.Feed(0xA6, 0xA1, 0xFF, 0xFF);
         Assert.Empty(h.ProbeHints);
@@ -883,7 +883,7 @@ public class Mud2C1Tests
     [Fact]
     public void C11_Bare_DoesNotHint()
     {
-        // C11+C255 (0xA6 FF FF) → LT_RED only (Clio:675)
+        // C11+C255 (0xA6 FF FF) -> LT_RED only (Clio:675)
         var h = new ParserHarness();
         h.Feed(0xA6, 0xFF, 0xFF);
         Assert.Empty(h.ProbeHints);
@@ -892,7 +892,7 @@ public class Mud2C1Tests
     [Fact]
     public void C14_WithC00_HintsAllStats()
     {
-        // C14+C00 (0xA9 0x9B FF FF) → GREEN/BLACK + hint (Clio txfes, telnet.l:832)
+        // C14+C00 (0xA9 0x9B FF FF) -> GREEN/BLACK + hint (Clio txfes, telnet.l:832)
         var h = new ParserHarness();
         h.Feed(0xA9, 0x9B, 0xFF, 0xFF);
         Assert.Equal([StaleStats.AllStats], h.ProbeHints);
@@ -901,7 +901,7 @@ public class Mud2C1Tests
     [Fact]
     public void C14_WithC04_DoesNotHint()
     {
-        // C14+C04+C00 (0xA9 0x9F 0x9B FF FF) → sweather only (Clio telnet.l:875-885)
+        // C14+C04+C00 (0xA9 0x9F 0x9B FF FF) -> sweather only (Clio telnet.l:875-885)
         var h = new ParserHarness();
         h.Feed(0xA9, 0x9F, 0x9B, 0xFF, 0xFF);
         Assert.Empty(h.ProbeHints);
@@ -910,7 +910,7 @@ public class Mud2C1Tests
     [Fact]
     public void C14_WithC03C00_HintsAllStats()
     {
-        // C14+C03+C00 (0xA9 0x9E 0x9B FF FF) → GREEN/BLACK + hint (Clio telnet.l:852)
+        // C14+C03+C00 (0xA9 0x9E 0x9B FF FF) -> GREEN/BLACK + hint (Clio telnet.l:852)
         var h = new ParserHarness();
         h.Feed(0xA9, 0x9E, 0x9B, 0xFF, 0xFF);
         Assert.Equal([StaleStats.AllStats], h.ProbeHints);
@@ -919,8 +919,8 @@ public class Mud2C1Tests
     [Fact]
     public void C15_DreamwordClear_DoesNotHint()
     {
-        // C15+C00+C01+C255 (0xAA 0x9B 0x9C FF FF) → dreamword cleared. The C15 code itself carries
-        // the change, so no probe (probe-noise policy, 2026-07-25; Clio txfes'd it).
+        // C15+C00+C01+C255 (0xAA 0x9B 0x9C FF FF) -> dreamword cleared. The C15 code itself carries
+        // the change, so no probe (probe-noise policy; Clio txfes'd it).
         var h = new ParserHarness();
         h.Feed(0xAA, 0x9B, 0x9C, 0xFF, 0xFF);
         Assert.Empty(h.ProbeHints);
@@ -929,7 +929,7 @@ public class Mud2C1Tests
     [Fact]
     public void C18_WithC00_HintsAllStats()
     {
-        // C18+C00+C255 (0xAD 0x9B FF FF) → WHITE/BLACK + hint (Clio telnet.l:944-957)
+        // C18+C00+C255 (0xAD 0x9B FF FF) -> WHITE/BLACK + hint (Clio telnet.l:944-957)
         var h = new ParserHarness();
         h.Feed(0xAD, 0x9B, 0xFF, 0xFF);
         Assert.Equal([StaleStats.AllStats], h.ProbeHints);
@@ -938,13 +938,13 @@ public class Mud2C1Tests
     [Fact]
     public void C18_Bare_DoesNotHint()
     {
-        // C18+C255 (0xAD FF FF) → WHITE/BLACK only, no payload → no hint
+        // C18+C255 (0xAD FF FF) -> WHITE/BLACK only, no payload -> no hint
         var h = new ParserHarness();
         h.Feed(0xAD, 0xFF, 0xFF);
         Assert.Empty(h.ProbeHints);
     }
 
-    // ── C03/C04 inventory hints (items/creatures changing the room contents) ──
+    // -- C03/C04 inventory hints (items/creatures changing the room contents) --
 
     [Fact]
     public void C03_ItemArriving_HintsInventory()
@@ -967,7 +967,7 @@ public class Mud2C1Tests
     [Fact]
     public void C03_ItemHere_DoesNotHint()
     {
-        // 03 01 01 (non-treasure here — part of a look, not a change): no hint
+        // 03 01 01 (non-treasure here - part of a look, not a change): no hint
         var h = new ParserHarness();
         h.Feed(0x9E, 0x9C, 0x9C, 0xFF, 0xFF);
         Assert.Empty(h.ProbeHints);
@@ -991,13 +991,13 @@ public class Mud2C1Tests
         Assert.Empty(h.ProbeHints);
     }
 
-    // ── C05 presence-name capture (who-list staleness check) ─────────────────
+    // -- C05 presence-name capture (who-list staleness check) -----------------
 
     [Fact]
     public void C05_MortalArriving_EmitsPresenceName_AndDisplaysText()
     {
         var h = new ParserHarness();
-        h.Feed(0x9D, 0x9C, 0xFF, 0xFF);   // C02+C01 → game mode
+        h.Feed(0x9D, 0x9C, 0xFF, 0xFF);   // C02+C01 -> game mode
         h.ClearCounters();
         // 05 00 02 (mortal arriving): 0xA0 0x9B 0x9D FF FF brackets the name
         h.Feed(0xA0, 0x9B, 0x9D, 0xFF, 0xFF);
@@ -1005,7 +1005,7 @@ public class Mud2C1Tests
         h.Feed(0xFF, 0xFF);               // pop closes the bracket
         h.Feed(" has just arrived.\r\n");
         Assert.Equal(["Polly the witch"], h.PresenceNames);
-        // An arrival changes the room's visible occupants → FEI dirty. The who-list membership
+        // An arrival changes the room's visible occupants -> FEI dirty. The who-list membership
         // check stays session policy, so no WhoList hint from the parser itself.
         Assert.Equal([StaleStats.Inventory], h.ProbeHints);
         var line = Assert.Single(h.Lines);
@@ -1037,15 +1037,15 @@ public class Mud2C1Tests
         Assert.Empty(h.PresenceNames);
     }
 
-    // ── C02.02 long-description context (LongDescLineReady) ──────────────────
+    // -- C02.02 long-description context (LongDescLineReady) ------------------
 
     [Fact]
     public void C02_02_SingleLine_FiresLongDescLineReady()
     {
-        // C02.02 = 0x9D 0x9D 0xFF 0xFF → GREEN/BLACK; text until pop fires LongDescLineReady.
+        // C02.02 = 0x9D 0x9D 0xFF 0xFF -> GREEN/BLACK; text until pop fires LongDescLineReady.
         var h = new ParserHarness();
         h.Feed(0x9D, 0x9C, 0xFF, 0xFF);          // enter game mode (C02.01)
-        h.Feed("Room Name\n");                    // room short — clears C02.01 push
+        h.Feed("Room Name\n");                    // room short - clears C02.01 push
         h.Feed(0xFF, 0xFF);                       // pop C02.01
         h.ClearCounters();
         h.Feed(0x9D, 0x9D, 0xFF, 0xFF);          // C02.02: enter long-desc context
@@ -1076,9 +1076,9 @@ public class Mud2C1Tests
     public void C02_02_InnerColourNest_DoesNotEndScopeEarly()
     {
         // An inner colour push/pop inside the description (e.g. a highlighted word) returns the
-        // stack to the C02.02 frame's depth — the scope must survive that and keep firing
+        // stack to the C02.02 frame's depth - the scope must survive that and keep firing
         // LongDescLineReady until the C02.02 frame ITSELF pops. Scope lifetime is frame lifetime
-        // (C1Scope); the old depth-compare closed here one level too early.
+        // (C1Scope), not stack depth.
         var h = new ParserHarness();
         h.Feed(0x9D, 0x9C, 0xFF, 0xFF);
         h.Feed("Room Name\n");
@@ -1088,10 +1088,10 @@ public class Mud2C1Tests
         h.Feed("A path past a ");
         h.Feed(0xFE, 0x9E, 0xFF, 0xFF);          // inner C99 colour (highlighted word)
         h.Feed("shrine");
-        h.Feed(0xFF, 0xFF);                       // inner pop — back to the C02.02 frame depth
+        h.Feed(0xFF, 0xFF);                       // inner pop - back to the C02.02 frame depth
         h.Feed(".\n");
         h.Feed("Second line after the nest.\n");
-        h.Feed(0xFF, 0xFF);                       // C02.02's own pop — scope ends
+        h.Feed(0xFF, 0xFF);                       // C02.02's own pop - scope ends
         h.Feed("Not part of the description.\n");
         Assert.Equal(2, h.LongDescLines.Count);
         Assert.Equal("A path past a shrine.",        h.LongDescLines[0]);
@@ -1139,19 +1139,19 @@ public class Mud2C1Tests
         Assert.Empty(h.LongDescLines);
     }
 
-    // ── ExitLineReady (exits-verb output parsing) ─────────────────────────────
+    // -- ExitLineReady (exits-verb output parsing) -----------------------------
 
     [Fact]
     public void ExitLine_NorthFormat_FiresExitLineReady()
     {
-        // Exits-verb line: "north: {C02.01}Foothills{/C02.01}." — direction word +
+        // Exits-verb line: "north: {C02.01}Foothills{/C02.01}." - direction word +
         // BrightGreen room name span.
         var h = new ParserHarness();
         h.Feed(0x9D, 0x9C, 0xFF, 0xFF);   // game mode
         h.ClearCounters();
         // Emit "north: " then C02.01 room name then ".\n"
         h.Feed("north: ");
-        h.Feed(0x9D, 0x9C, 0xFF, 0xFF);   // C02.01 → BrightGreen
+        h.Feed(0x9D, 0x9C, 0xFF, 0xFF);   // C02.01 -> BrightGreen
         h.Feed("Foothills");
         h.Feed(0xFF, 0xFF);                // pop C02.01
         h.Feed(".\n");
@@ -1228,7 +1228,7 @@ public class Mud2C1Tests
         Assert.Empty(h.ExitLines);
     }
 
-    // ── C09 speaker messages → LineKind.Chat (chat-view filter) ─────────────────
+    // -- C09 speaker messages -> LineKind.Chat (chat-view filter) -----------------
     // C1 codes are byte-0x9B: C09 (speaker) = 0xA4, sub-codes C00=0x9B..C01(shout)=0x9C,
     // C02(say)=0x9D, C03(tell)=0x9E. C255 terminator = 0xFF 0xFF; a bare 0xFF 0xFF pops colour.
 
@@ -1237,7 +1237,7 @@ public class Mud2C1Tests
     {
         // Faithful to a live capture: the line opens with C09+C00 (speaker) and the shouted word
         // is bracketed by C09+C01, each colour popped before the newline.
-        //   A4 9B FF FF "…shouts \"" A4 9C FF FF "Hello" FF FF "\"." FF FF \n
+        //   A4 9B FF FF "...shouts \"" A4 9C FF FF "Hello" FF FF "\"." FF FF \n
         var h = new ParserHarness();
         h.Feed(0xA4, 0x9B, 0xFF, 0xFF);
         h.Feed("A male voice in the distance shouts \"");
@@ -1286,7 +1286,7 @@ public class Mud2C1Tests
         h.Feed(0xA4, 0x9C, 0xFF, 0xFF);   // shouted colour pushed, not yet popped
         h.Feed("this is a very long shout that the server has\n");
         h.Feed("split across two lines without repeating the code\n");
-        h.Feed(0xFF, 0xFF);               // message ends — colour pops, chat context closes
+        h.Feed(0xFF, 0xFF);               // message ends - colour pops, chat context closes
         h.Feed("and now a normal room line.\n");
         Assert.Equal(3, h.Lines.Count);
         Assert.Equal(LineKind.Chat,   h.Lines[0].Kind);
@@ -1306,10 +1306,10 @@ public class Mud2C1Tests
         h.Feed("a long shout with a ");
         h.Feed(0xA4, 0x9C, 0xFF, 0xFF);          // inner nested colour (highlighted word)
         h.Feed("word");
-        h.Feed(0xFF, 0xFF);                       // inner pop — back to the C09 base depth
+        h.Feed(0xFF, 0xFF);                       // inner pop - back to the C09 base depth
         h.Feed(" and more that wraps\n");         // line 0
-        h.Feed("onto a second wrapped line\n");   // line 1 — after the inner pop; must stay Chat
-        h.Feed(0xFF, 0xFF);                       // outer pop — message ends
+        h.Feed("onto a second wrapped line\n");   // line 1 - after the inner pop; must stay Chat
+        h.Feed(0xFF, 0xFF);                       // outer pop - message ends
         h.Feed("a normal room line.\n");          // line 2
         Assert.Equal(3, h.Lines.Count);
         Assert.Equal(LineKind.Chat,   h.Lines[0].Kind);
@@ -1332,7 +1332,7 @@ public class Mud2C1Tests
         h.Feed(0xFF, 0xFF);
         h.Feed("a normal room line.\n");
         Assert.Equal(4, h.Lines.Count);
-        Assert.False(h.Lines[0].ContinuesChat);   // message start — C09 arrived on this line
+        Assert.False(h.Lines[0].ContinuesChat);   // message start - C09 arrived on this line
         Assert.True(h.Lines[1].ContinuesChat);
         Assert.True(h.Lines[2].ContinuesChat);
         Assert.False(h.Lines[3].ContinuesChat);   // scope popped before this line
@@ -1344,8 +1344,8 @@ public class Mud2C1Tests
         // Live `say` shape: the closing pop arrives BEFORE the final line's newline, exactly as
         // it does for single-line messages ("speaker messages pop their colour before their own
         // newline"). The last line's TEXT was emitted inside the scope, so it is still Chat and
-        // still a continuation. Regression: testing the scope only at the '\n' dropped exactly
-        // the final wrapped row out of Chat — "an N-line say loses the self colours on line N".
+        // still a continuation - checking the scope only at the '\n' would drop exactly the final
+        // wrapped row out of Chat, an N-line say losing the self colours on line N.
         var h = new ParserHarness();
         h.Feed(0xA4, 0x9B, 0xFF, 0xFF);
         h.Feed("Ollie says \"a long message that the server\n");
@@ -1388,16 +1388,16 @@ public class Mud2C1Tests
     public void C09WrappedMessage_WithInnerColour_StillMarksContinuation()
     {
         // Same shape as the inner-nest Kind regression: an inner C09 scope completing on line 0
-        // must not make line 1 look like a message start — it is still a continuation.
+        // must not make line 1 look like a message start - it is still a continuation.
         var h = new ParserHarness();
         h.Feed(0xA4, 0x9C, 0xFF, 0xFF);          // outer shout colour pushed
         h.Feed("a long shout with a ");
         h.Feed(0xA4, 0x9C, 0xFF, 0xFF);          // inner nested colour (highlighted word)
         h.Feed("word");
-        h.Feed(0xFF, 0xFF);                       // inner pop — back to the C09 base depth
+        h.Feed(0xFF, 0xFF);                       // inner pop - back to the C09 base depth
         h.Feed(" and more that wraps\n");         // line 0
         h.Feed("onto a second wrapped line\n");   // line 1
-        h.Feed(0xFF, 0xFF);                       // outer pop — message ends
+        h.Feed(0xFF, 0xFF);                       // outer pop - message ends
         Assert.Equal(2, h.Lines.Count);
         Assert.False(h.Lines[0].ContinuesChat);
         Assert.True(h.Lines[1].ContinuesChat);

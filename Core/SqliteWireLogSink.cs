@@ -27,11 +27,9 @@ namespace Mucka.Core;
 /// disconnect and the server drop alike - so a normal end of session loses nothing at all; only a hard
 /// kill or a power cut can reach the window.</para>
 ///
-/// <para>One minute rather than five used to be a paid-for trade - a longer batch shared a bigger
-/// compression dictionary, so the shorter window cost real disk. With nothing compressed the only
-/// thing batch length buys is amortising SQLite's ~0.74 KB of per-row overhead, which a minute of
-/// MUD2 (about 12 KB) already reduces to noise. So the minute is now free and there is no reason to
-/// revisit it.</para>
+/// <para>With nothing compressed, batch length only needs to amortise SQLite's ~0.74 KB of per-row
+/// overhead, which a minute of MUD2 (about 12 KB) already reduces to noise. One minute is therefore
+/// free, with no trade-off to weigh.</para>
 ///
 /// <para><b>Best-effort throughout.</b> Every failure path here swallows and reports; nothing in a
 /// diagnostic recorder may take the client down or stall the socket. Two failure modes are handled
@@ -92,12 +90,10 @@ public sealed class SqliteWireLogSink : IWireLogSink
     /// <paramref name="host"/>.
     ///
     /// <para><b>The database is opened here, on the caller's thread, and this throws if it cannot be.</b>
-    /// It used to open lazily on the first batch, which meant the only report of a broken wire log was a
-    /// line in the crash log some minutes later - and this is a feature whose whole design goal is that
-    /// the owner turns it on once and never looks at it again. A failure that is not reported at start
-    /// is a failure that is never reported. The cost of being eager is one empty <c>sessions</c> row and
-    /// a created file for a connection that records nothing, which is a fair price and arguably the more
-    /// honest record.</para>
+    /// A failure that is not reported at start is a failure that is never reported, and this is a
+    /// feature whose whole design goal is to be turned on once and never looked at again. The cost of
+    /// being eager is one empty <c>sessions</c> row and a created file for a connection that records
+    /// nothing, which is a fair price and arguably the more honest record.</para>
     /// </summary>
     /// <exception cref="SqliteException">The database cannot be opened or written.</exception>
     public SqliteWireLogSink(string dbPath, string host, string? clientVersion = null,
@@ -242,10 +238,10 @@ public sealed class SqliteWireLogSink : IWireLogSink
         catch (Exception ex)
         {
             // Abandoned rather than retried, matching SwingLedger: if the database cannot be written at
-            // all, retrying per batch turns one failure into one every minute, forever. But abandoning
-            // has to mean abandoning BOTH ends - before this flag existed, Record and Flush kept feeding
-            // a channel with no reader, and the wire log's failure mode was to eat memory for the rest
-            // of the session.
+            // all, retrying per batch turns one failure into one every minute, forever. Abandoning has
+            // to mean abandoning BOTH ends - without this flag, Record and Flush would keep feeding a
+            // channel with no reader, and the wire log's failure mode would be to eat memory for the
+            // rest of the session.
             _faulted = true;
             DiscardQueued(reader);
             _onError?.Invoke("SqliteWireLogSink.Drain (wire log stopped for this session)", ex);

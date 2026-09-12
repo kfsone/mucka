@@ -4,7 +4,7 @@ namespace Mucka.Core;
 
 /// <summary>
 /// SecureStorage-backed password store for connection profiles. The profiles themselves
-/// live in mucka.ini — see SettingsStore.LoadProfilesAsync/SaveProfilesAsync.
+/// live in mucka.ini - see SettingsStore.LoadProfilesAsync/SaveProfilesAsync.
 /// </summary>
 public static class ProfileStore
 {

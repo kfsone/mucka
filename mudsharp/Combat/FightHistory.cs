@@ -2,7 +2,7 @@ namespace MudSharp.Combat;
 
 /// <summary>
 /// Aggregate of prior fights matching some filter. Every field is null when there is no data to
-/// support it — callers must render "--" rather than 0, because "no samples" and "measured zero"
+/// support it - callers must render "--" rather than 0, because "no samples" and "measured zero"
 /// mean completely different things when the whole point is judging confidence.
 /// </summary>
 public sealed record FightHistorySummary
@@ -62,23 +62,9 @@ public sealed record FightHistorySummary
     public double? MedianYouHitRate { get; init; }
     public double? MedianTheyHitRate { get; init; }
 
-    /// <summary>Median damage per landed blow — the axis a hidden per-weapon modifier would show
+    /// <summary>Median damage per landed blow - the axis a hidden per-weapon modifier would show
     /// up on, and more comparable across fights than a total (which just tracks fight length).</summary>
     public double? MedianDamagePerHit { get; init; }
-
-    /// <summary><b>Deleted, not moved:</b> this record used to carry an <c>EstimatedStaminaPool</c> -
-    /// the median total damage of fights that ended in a kill. It reads high because every sample
-    /// includes the killing blow's overkill - the one stored measurement of the size is in
-    /// MECHANICS-VERIFICATION.md, where rat group medians "read 31.2 against a published 25", about
-    /// 25% high. (An earlier version of this comment said "biased high by 21%, measured across 48
-    /// instances against an independently published figure"; both the 21% and the 48 are untraceable
-    /// and the "published figure" is the GameFAQs bestiary, which the repo labels hypothesis - see
-    /// StaminaPoolEstimator's remarks.) It was also keyed wrong: an NPC group pools "large rat0"
-    /// (about 100 stamina) with "rat0" (about 25), so the figure it produced was a median over two
-    /// different
-    /// creatures. Its replacement is a censored-interval estimator keyed on
-    /// <see cref="NpcPoolKey"/> - see <see cref="StaminaPoolEstimator"/>, which needs per-swing
-    /// brackets and so cannot live on a fight rollup at all.</summary>
 
     /// <summary>Kills as a fraction of all matching fights, or null with no fights at all.</summary>
     public double? KillRate => FightCount == 0 ? null : Kills / (double)FightCount;
@@ -95,7 +81,7 @@ public sealed record WeaponHistorySummary(string Weapon, FightHistorySummary Sum
 /// loading and any locking (see Core/FightHistoryStore).
 ///
 /// <para>Medians, not means, throughout. One fight where the player wandered off mid-encounter
-/// (long duration, few swings) destroys a mean and barely moves a median — and at the sample sizes
+/// (long duration, few swings) destroys a mean and barely moves a median - and at the sample sizes
 /// realistically available, a single such outlier is a large fraction of the data.</para>
 ///
 /// <para>Deliberately NOT provided: significance tests, confidence intervals, or any single
@@ -111,14 +97,12 @@ public static class FightHistory
     /// before; a shared constant makes drifting apart a compile error instead.</summary>
     public const string NoWeaponKey = "(none)";
 
-    /// <summary>Aggregates the fights matching <paramref name="npcGroup"/>, optionally narrowed to
-    /// a single weapon. Pass <paramref name="weapon"/> null for "any weapon".</summary>
     /// <summary>
     /// Drops rows belonging to the encounter currently on screen.
     ///
     /// <para>Essential, not cosmetic: <c>FightHistoryRecorder</c> appends a finished encounter's rows
     /// to the store BEFORE the view model rebuilds its readout, so without this filter the panel
-    /// compares the fight the player just had against itself — which makes "now" and "usual"
+    /// compares the fight the player just had against itself - which makes "now" and "usual"
     /// identical by construction at one sample, and biases the baseline toward the current fight at
     /// any sample size.</para>
     /// </summary>
@@ -133,6 +117,8 @@ public static class FightHistory
         return records.Where(record => record.StartedAtMs < cutoffMs);
     }
 
+    /// <summary>Aggregates the fights matching <paramref name="npcGroup"/>, optionally narrowed to
+    /// a single weapon. Pass <paramref name="weapon"/> null for "any weapon".</summary>
     public static FightHistorySummary Summarize(
         IEnumerable<FightRecord> records,
         string npcGroup,
@@ -158,8 +144,8 @@ public static class FightHistory
     /// Aggregates prior fights against one specific NPC INSTANCE (e.g. "rat0", not "rats").
     ///
     /// <para>MUD2 instances of the same creature are not equivalent opponents: rat0 is far more
-    /// dangerous than the other rats, and dwarf48 harder than most dwarves. Difficulty figures —
-    /// damage, duration, outcomes, stamina pool — therefore belong to the instance once it has
+    /// dangerous than the other rats, and dwarf48 harder than most dwarves. Difficulty figures -
+    /// damage, duration, outcomes, stamina pool - therefore belong to the instance once it has
     /// samples of its own. Weapon susceptibility does NOT: dwarf48 is still a dwarf and still takes
     /// extra from a pick, so <see cref="SummarizeByWeapon"/> stays keyed on the group, which is also
     /// where sample counts actually accumulate.</para>
@@ -318,7 +304,7 @@ public static class FightHistory
         };
     }
 
-    /// <summary>Median of the values, or null when empty. Sorts a copy — callers pass short-lived
+    /// <summary>Median of the values, or null when empty. Sorts a copy - callers pass short-lived
     /// per-query lists, so this never mutates anything the store holds.</summary>
     internal static double? Median(List<double> values)
     {

@@ -64,11 +64,11 @@ public static class ShellText
     /// Guided login answers "y" to whichever of these actually appears.</summary>
     public static bool IsYesNoPrompt(string normalized) => ContainsPhrase(normalized, "(y/n)");
 
-    /// <summary>The "&lt;account&gt; logged in on &lt;tty&gt;." line — the splash/banner proper starts
+    /// <summary>The "&lt;account&gt; logged in on &lt;tty&gt;." line - the splash/banner proper starts
     /// immediately after this (skipping over any MOTD/notice text and y/n prompt in between).</summary>
     public static bool IsLoggedInLine(string normalized) => ContainsPhrase(normalized, "logged in on");
 
-    /// <summary>"[Checking mail...]" — the splash/banner ends immediately before this.</summary>
+    /// <summary>"[Checking mail...]" - the splash/banner ends immediately before this.</summary>
     public static bool IsCheckingMailLine(string normalized) => ContainsPhrase(normalized, "checking mail");
 
     /// <summary>The MUD Shell's top-level "Option (H for help):" prompt.</summary>
@@ -146,7 +146,7 @@ public static class ShellText
 
         var body = normalized[startIdx..endIdx];
         // Slot numbers like "(1)" are always sequential in the order listed, so strip them
-        // rather than parse them — simpler and immune to whitespace-mangled "( 1 )" variants.
+        // rather than parse them - simpler and immune to whitespace-mangled "( 1 )" variants.
         body = Regex.Replace(body, @"\(\s*\d+\s*\)", string.Empty);
 
         var slots = new List<PersonaSlot>();
@@ -235,7 +235,7 @@ public static class ShellText
 
     /// <summary>
     /// Parses persona summary lines out of the EXAMINE ("e") sub-shell listing (normalized text).
-    /// Safe to call incrementally on a growing buffer — returns whatever complete entries have
+    /// Safe to call incrementally on a growing buffer - returns whatever complete entries have
     /// arrived so far.
     /// </summary>
     public static IReadOnlyList<ExaminePersona> ParseExaminePersonae(string normalized)

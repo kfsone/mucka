@@ -43,9 +43,7 @@ public static class CombatRailResize
     // reference that one), so there is exactly one source of truth for the width itself - what is
     // hand-kept is GamePage.xaml's WidthRequest literal, which must be this plus two strokes.
     //
-    // 336 until 2026-09-06, when the tile's ring seal became a full-width bar. The extra 40 units are
-    // what the two damage rows and the exchange spark are drawn in; the owner set the budget ("I'm
-    // fine with widening the whole rail another 16-48 pixels").
+    // The two damage rows and the exchange spark are drawn in the 40 units beyond the base 336.
     public const double CombatPanelContentWidthDp = 376.0;
     // The outer Border's own WidthRequest (must match GamePage.xaml literally) - the amount of
     // window width the docked panel actually costs when reserved in the Grid.
@@ -78,9 +76,9 @@ public static class CombatRailResize
     /// T3/T4: the window resize driven by showing or hiding the combat rail itself
     /// (<c>GamePage.ResizeWindowForCombatPanel</c>).
     ///
-    /// <para><b>T3, on show - two regimes, per the user's own ruling.</b> With
-    /// <paramref name="maxColumns"/> == 0 ("auto", the default profile value): "In auto columns,
-    /// there's no slack. Ergo the window is always the size it needs to be" - every pixel the window
+    /// <para><b>T3, on show - two regimes.</b> With
+    /// <paramref name="maxColumns"/> == 0 ("auto", the default profile value): in auto columns there
+    /// is no slack, so the window is always the size it needs to be - every pixel the window
     /// has is already spoken for by columns, so the rail always costs its full reservation
     /// (<see cref="CombatPanelWidthDp"/>), with no slack computation at all. With a FIXED
     /// <paramref name="maxColumns"/>: the baseline the window would occupy WITHOUT the rail is what
@@ -161,8 +159,8 @@ public static class CombatRailResize
     /// a NEW GamePage while the OS window keeps the width the old one gave it. So the incoming page
     /// starts believing it has added nothing, and the first hide subtracts nothing: the window stays
     /// exactly one rail-width too wide. (In auto-columns the seed also re-adds the full width first,
-    /// reaching the same place by a longer route.) Reported by the owner, 2026-09-08: show the rail,
-    /// quit, relog, hide - window never shrinks.</para>
+    /// reaching the same place by a longer route.) Without this seeding: show the rail, quit, relog,
+    /// hide - the window never shrinks.</para>
     ///
     /// <para><b>It is an inference, and the honest one.</b> Nothing records why a window is the width
     /// it is. What is known is that the rail IS showing and that a rail costs its own width, so the

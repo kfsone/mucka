@@ -6,13 +6,11 @@ namespace Mucka.Core;
 /// The client's own combat database: ~/.mucka/combat/mucka.db, holding the per-swing stream and the
 /// per-fight rollups that used to live in two append-only JSONL files.
 ///
-/// <para><b>Why this replaced the JSONL pair.</b> SWING-LEDGER-SPEC.md section 1 chose flat files on
-/// an explicit condition - "a writer that only ever appends" - and named the trigger to revisit:
-/// "only if querying INSIDE the client turns out to be needed". A combat analysis view sitting
-/// alongside the profile page is exactly that, and the corpus is nowhere near the scale the original
-/// argument feared (hundreds of rows after months of play, not the millions a flat file would choke
-/// on). Two stores would also have meant the analysis view joining SQL to a text file in app code, or
-/// a second migration later; one store is one truth.</para>
+/// <para><b>SQLite rather than a flat file.</b> Querying inside the client, for a combat analysis
+/// view sitting alongside the profile page, wants it, and the corpus is nowhere near the scale that
+/// would make a flat file the better choice (hundreds of rows after months of play, not the millions
+/// a flat file would choke on). One store, rather than a store plus a text file joined to it in app
+/// code, is one truth.</para>
 ///
 /// <para><b>Why the raw brackets are kept unaggregated.</b> MUD2 only ever gives the player a range
 /// for their own blows. Storing a midpoint would be a one-way door: a later pass that can CONSTRAIN
@@ -94,17 +92,17 @@ public static class CombatDb
     /// Creates every table, index and view if absent. Idempotent by construction (every statement is
     /// IF NOT EXISTS) and cheap enough to run on every open.
     ///
-    /// <para><b>There is still no version-gated migration mechanism, deliberately.</b> A
-    /// <c>user_version</c> gate would only skip these statements, not perform an ALTER, so it could
-    /// never actually migrate anything - it would be a version number that looked like a plan.</para>
+    /// <para><b>There is no version-gated migration mechanism.</b> A <c>user_version</c> gate would
+    /// only skip these statements, not perform an ALTER, so it could never actually migrate anything -
+    /// it would be a version number that looked like a plan.</para>
     ///
-    /// <para><b>What replaced "delete the database file".</b> That instruction was cheap while the
-    /// file was a convenience. It is not any more: the corpus in it is months of play and is the only
-    /// evidence behind every stamina-pool figure the client shows, so a schema change may not cost it.
-    /// <see cref="AddMissingColumns"/> below is the whole migration story - additive columns only,
-    /// applied by reading the table's own shape rather than by trusting a stored version. A change
-    /// that CANNOT be expressed as an added column (a renamed or retyped column, a new NOT NULL) still
-    /// needs a real plan, and there is deliberately no machinery here pretending otherwise.</para>
+    /// <para><b>The database file is never deleted to reset the schema.</b> The corpus in it is months
+    /// of play and is the only evidence behind every stamina-pool figure the client shows, so a schema
+    /// change may not cost it. <see cref="AddMissingColumns"/> below is the whole migration story -
+    /// additive columns only, applied by reading the table's own shape rather than by trusting a
+    /// stored version. A change that CANNOT be expressed as an added column (a renamed or retyped
+    /// column, a new NOT NULL) still needs a real plan; there is no machinery here pretending
+    /// otherwise.</para>
     /// </summary>
     public static void ApplySchema(SqliteConnection connection)
     {
@@ -160,11 +158,6 @@ public static class CombatDb
 
     /// <summary>
     /// The whole schema.
-    ///
-    /// <para>Column names deliberately echo tools/combat/schema.sql where the same fact already has a
-    /// name there (npc_name, npc_group, weapon_used, approx_damage_done...), so a query written
-    /// against the offline reducer's database mostly transfers, and the two halves of the pipeline
-    /// stay legible as one system.</para>
     ///
     /// <para>Nothing is declared NOT NULL beyond the identity columns. Every stat here can genuinely be
     /// unknown - a swing landing before the first FES heartbeat has no strength reading, and recording
@@ -226,7 +219,7 @@ public static class CombatDb
             reset_epoch_ms      INTEGER,
 
             npc                 TEXT,               -- instance name as the game gave it ("rat0")
-            npc_group           TEXT,               -- NpcGroups.Normalize, matching reduce_combat.py
+            npc_group           TEXT,               -- NpcGroups.Normalize
             npc_weapon          TEXT,               -- the creature's own, which it arms independently
             rung                INTEGER,            -- creature health 1-7 BEFORE this swing
             rung_phrase         TEXT,
@@ -247,9 +240,7 @@ public static class CombatDb
         CREATE INDEX IF NOT EXISTS ix_swings_encounter ON swings(encounter_started_at_ms);
         CREATE INDEX IF NOT EXISTS ix_swings_reset     ON swings(reset_epoch_ms);
 
-        -- One row per per-NPC fight, as FightHistoryRecorder closes them. Column names follow
-        -- tools/combat/schema.sql's live_fights table, which was ingested from the JSONL this
-        -- replaces.
+        -- One row per per-NPC fight, as FightHistoryRecorder closes them.
         CREATE TABLE IF NOT EXISTS fights (
             id                  INTEGER PRIMARY KEY,
             character_name      TEXT,

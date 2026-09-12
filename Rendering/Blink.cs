@@ -1,8 +1,8 @@
 namespace Mucka.Rendering;
 
 /// <summary>
-/// <b>The client's blink and pulse doctrine. When someone says "make it blink", this is what they
-/// mean, and this file is the only place either period is written down.</b>
+/// <b>The client's blink and pulse doctrine: what "blink" and "pulse" mean in this client, and the
+/// only place either period is written down.</b>
 ///
 /// <para><b>Two mechanisms, deliberately not one.</b> They look similar and they are not
 /// interchangeable:</para>
@@ -25,12 +25,12 @@ namespace Mucka.Rendering;
 /// line Invariant #1 actually draws.</para>
 ///
 /// <para><b>The periods are harmonically related on purpose.</b> The pulse is 1200 ms and the blink
-/// 2000 ms, and neither is arbitrary: the pulse period is the one DESIGN_FINAL fixed and every
-/// pulsing element already shares (see <see cref="PulseLayer.PeriodMilliseconds"/>, whose remarks
-/// record that several elements on their own phases read as noise rather than as urgency), and the
-/// blink period is exactly ONE COMBAT TICK - MUD2 resolves combat every 2000 ms, so a combat alarm
-/// beats with the thing that is actually hitting you. The 1 Hz flush samples that at precisely twice
-/// per cycle, which is what makes it a clean second on, second off rather than a stutter.</para>
+/// 2000 ms, and neither is arbitrary: every pulsing element shares one period
+/// (see <see cref="PulseLayer.PeriodMilliseconds"/>, whose remarks record that several elements on
+/// their own phases read as noise rather than as urgency), and the blink period is exactly ONE
+/// COMBAT TICK - MUD2 resolves combat every 2000 ms, so a combat alarm beats with the thing that is
+/// actually hitting you. The 1 Hz flush samples that at precisely twice per cycle, which is what
+/// makes it a clean second on, second off rather than a stutter.</para>
 ///
 /// <para><b>Blink is the ESCALATION, not a third colour.</b> Where a readout already has a scale of
 /// tones, blinking is what the top of that scale does - so a ladder does not need "bad", "worse" and

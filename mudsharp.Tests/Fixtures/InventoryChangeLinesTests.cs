@@ -4,10 +4,9 @@ namespace mudsharp.Tests.Fixtures;
 
 /// <summary>
 /// The four wordings that mean the player's loadout just changed. Every positive here is a verbatim
-/// line from the session recordings under %LOCALAPPDATA%\Temp\mucka (swept 2026-09-02: 368
-/// "dropped", 370 "taken", ~70 each of "inserted in" / "removed from"); every negative is either a
-/// real line from the same corpus that must NOT fire a probe, or the specific near-miss the anchors
-/// exist to reject.
+/// line from the session recordings under %LOCALAPPDATA%\Temp\mucka (368 "dropped", 370 "taken",
+/// ~70 each of "inserted in" / "removed from"); every negative is either a real line from the same
+/// corpus that must NOT fire a probe, or the specific near-miss the anchors exist to reject.
 /// </summary>
 public sealed class InventoryChangeLinesTests
 {

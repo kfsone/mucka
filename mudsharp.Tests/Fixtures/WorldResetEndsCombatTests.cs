@@ -4,28 +4,26 @@ using MudSharp.Session;
 namespace MudSharp.Tests.Fixtures;
 
 /// <summary>
-/// What a MUD2 world reset actually does to an open fight — replayed from the wire, not reasoned
+/// What a MUD2 world reset actually does to an open fight - replayed from the wire, not reasoned
 /// about.
 ///
-/// <para><b>The evidence.</b> Three complete reset observations exist in the capture corpus
-/// (<c>G:\Source\mucka\RESEARCH\mud2-multi-combat.jsonl</c>, <c>game-reset.jsonl</c>, and
-/// <c>%LOCALAPPDATA%\Temp\mucka\session-rec.mud2.co.uk.20260825-020825.jsonl</c>). All three run the
-/// same way:</para>
+/// <para><b>The evidence.</b> Three complete reset observations exist in the capture corpus. All
+/// three run the same way:</para>
 /// <list type="number">
 /// <item>C06 C04 <c>"Auto-reset initiated, you have 120 seconds to finish up. No further warnings
-///   will be issued!"</c> — and the game means it: 120 seconds of completely ordinary play follow,
+///   will be issued!"</c> - and the game means it: 120 seconds of completely ordinary play follow,
 ///   with no second broadcast of any kind (0 occurrences across 3 full countdowns). This is why
-///   force-ending combat HERE was wrong and must stay removed.</item>
-/// <item>At warning + 119.995 s and + 119.997 s in the two captures that timed both — i.e. exactly
-///   +120 s — C06 C06 <c>"Something magical is happening."</c> arrives, followed in the same frame
+///   force-ending combat HERE is wrong.</item>
+/// <item>At warning + 119.995 s and + 119.997 s in the two captures that timed both - i.e. exactly
+///   +120 s - C06 C06 <c>"Something magical is happening."</c> arrives, followed in the same frame
 ///   by <c>(Persona saved on N).</c> and a prompt. That is the last in-world line, always.</item>
 /// <item>~200 ms later (measured: 197 ms and 200 ms) the server prints
-///   <c>Option (H for help): </c>. <b>The TCP connection is never dropped</b> — the socket simply
+///   <c>Option (H for help): </c>. <b>The TCP connection is never dropped</b> - the socket simply
 ///   carries the outer MUD-Shell menu from that point on.</item>
 /// </list>
 ///
-/// <para>So the reset IS observable, and the claim in <c>MudSession</c>'s auto-reset comment — that
-/// GameModeExited covers the real transition — is correct rather than assumed: the parser's
+/// <para>So the reset IS observable, and the claim in <c>MudSession</c>'s auto-reset comment - that
+/// GameModeExited covers the real transition - is correct rather than assumed: the parser's
 /// option-menu matcher fires on step 3, which force-ends the encounter. This test pins that chain
 /// against the verbatim bytes so it cannot rot, because nothing else in the client watches for a
 /// reset landing and the whole behaviour therefore rests on an incidental string match in a
@@ -33,7 +31,7 @@ namespace MudSharp.Tests.Fixtures;
 ///
 /// <para><b>Bytes below are transcribed literally from mud2-multi-combat.jsonl</b>, records
 /// ts=1785614794156 and ts=1785614794353. Do not "tidy" them: the stray leading space, the bare CR
-/// + NUL, and the C1 code 00 (0x9B, Bartle: "Initialise … whenever a program is forked or
+/// + NUL, and the C1 code 00 (0x9B, Bartle: "Initialise ... whenever a program is forked or
 /// terminated") sitting between the newline and the word "Option" are all really there, and the
 /// last of those is exactly the sort of thing that could stop the column-0 matcher arming.</para>
 /// </summary>
@@ -86,7 +84,7 @@ public class WorldResetEndsCombatTests : IDisposable
 
     public void Dispose() => _session.Dispose();
 
-    /// <summary>C06 C04 — the warning, verbatim wording from all 10 corpus occurrences (note the
+    /// <summary>C06 C04 - the warning, verbatim wording from all 10 corpus occurrences (note the
     /// HYPHEN: the string is "Auto-reset", never "Auto reset").</summary>
     private void FeedWarning()
     {
@@ -106,9 +104,9 @@ public class WorldResetEndsCombatTests : IDisposable
     [Fact]
     public void TheAutoResetWarning_DoesNotEndTheFight()
     {
-        // C06 C04. 120 seconds of play still to come; ending here is the regression that silently
-        // ate weapon equips for a whole fight, and the corpus is unambiguous that nothing else
-        // happens for two minutes.
+        // C06 C04. 120 seconds of play still to come; ending here would silently drop weapon-equip
+        // and other events for the rest of the fight, and the corpus is unambiguous that nothing
+        // else happens for two minutes.
         OpenAFight();
         FeedWarning();
         Assert.True(_session.InCombat);
@@ -158,7 +156,7 @@ public class WorldResetEndsCombatTests : IDisposable
     [Fact]
     public void SomethingMagical_WithNoResetDue_DoesNotEndTheFight()
     {
-        // The guard that keeps a thinly-observed signal from re-creating the premature-end bug.
+        // The guard that keeps a thinly-observed signal from ending a fight prematurely.
         // C06 C06 with no countdown anchored anywhere near now: the projection has nothing to
         // corroborate it with, so nothing happens and the fight stays open. Bartle's gloss for
         // 06 06 is generic ("Something magical is happening."), and the corpus has only two

@@ -4,7 +4,7 @@ namespace MudSharp.Combat;
 public enum OutlookVerdict
 {
     /// <summary>Not enough observed to say anything. The DEFAULT, and the honest answer most of the
-    /// time — see <see cref="CombatOutlook"/> for why an early guess is worse than silence.</summary>
+    /// time - see <see cref="CombatOutlook"/> for why an early guess is worse than silence.</summary>
     Unknown,
     /// <summary>Nothing has landed on the player yet, so there is no incoming rate to project.</summary>
     Unhurt,
@@ -14,7 +14,7 @@ public enum OutlookVerdict
 }
 
 /// <summary>
-/// "Do the numbers say I die before it does?" — projected from the current fight's observed rates
+/// "Do the numbers say I die before it does?" - projected from the current fight's observed rates
 /// against the opponent's historical stamina pool.
 ///
 /// <para>This is possible chiefly because of the swing ledger: MUD2 only reports an NPC's stamina on
@@ -25,7 +25,7 @@ public enum OutlookVerdict
 /// <para><b>Deliberate conservatism.</b> Three things make an early projection actively misleading,
 /// so it stays <see cref="OutlookVerdict.Unknown"/> until they are addressed:</para>
 /// <list type="bullet">
-/// <item>MUD2 has a third per-tick outcome besides hit and miss — a <i>pass</i>, which emits no text
+/// <item>MUD2 has a third per-tick outcome besides hit and miss - a <i>pass</i>, which emits no text
 /// at all. A fight can sit silent for a long stretch (a starfish went 90 seconds with nothing). So
 /// rates are computed over WALL-CLOCK elapsed, never per observed swing, or a lucky opening burst
 /// reads as a certain win.</item>
@@ -36,7 +36,7 @@ public enum OutlookVerdict
 /// projection deliberately errs toward "this is taking longer than you think".</item>
 /// </list>
 /// <para>Consequently the output is a three-state verdict plus the two projected times, never a
-/// percentage — a number here would imply precision that does not exist.</para>
+/// percentage - a number here would imply precision that does not exist.</para>
 /// </summary>
 public sealed record CombatOutlook(
     OutlookVerdict Verdict,
@@ -90,7 +90,7 @@ public sealed record CombatOutlook(
             || stamina <= 0)
             return Unknown;
 
-        // Rates over wall-clock, deliberately — see the class remarks on the silent pass tick.
+        // Rates over wall-clock, deliberately - see the class remarks on the silent pass tick.
         var outgoingRate = damageDealt / elapsedSeconds;
         if (outgoingRate <= 0)
             return Unknown;

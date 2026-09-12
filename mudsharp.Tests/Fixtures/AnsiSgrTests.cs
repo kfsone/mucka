@@ -23,7 +23,7 @@ public class AnsiSgrTests
     [Fact]
     public void Bold_SetsBold()
     {
-        // SGR 1 — ansi_bold = 1
+        // SGR 1 - ansi_bold = 1
         var h = new ParserHarness();
         h.Feed("\x1B[1m");
         h.Feed("text\n");
@@ -67,7 +67,7 @@ public class AnsiSgrTests
     [Fact]
     public void MultiParam_BoldRed()
     {
-        // ESC[1;31m — Bold + Red; MudSharp applies bold flag + Red fg independently (Bold=true, Foreground=Red)
+        // ESC[1;31m - Bold + Red; MudSharp applies bold flag + Red fg independently (Bold=true, Foreground=Red)
         var h = new ParserHarness();
         h.Feed("\x1B[1;31m");
         h.Feed("text\n");
@@ -139,7 +139,7 @@ public class AnsiSgrTests
     [Fact]
     public void TerminalWidth_TextLine_OnlyInPreGame()
     {
-        // In game mode the "[New terminal width is N]" pattern is not suppressed —
+        // In game mode the "[New terminal width is N]" pattern is not suppressed -
         // extremely unusual to receive in-game, and we must not silently eat game output.
         var h = new ParserHarness();
         // Enter game mode via C02+C01+C255

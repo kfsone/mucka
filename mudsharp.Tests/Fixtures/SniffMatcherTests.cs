@@ -5,13 +5,13 @@ using MudSharp.Session;
 namespace MudSharp.Tests.Fixtures;
 
 /// <summary>
-/// <c>MudSession.TryConsumeSniffLine</c> — the matcher that turns a <c>value &lt;persona&gt;</c>
+/// <c>MudSession.TryConsumeSniffLine</c> - the matcher that turns a <c>value &lt;persona&gt;</c>
 /// reply into an online/offline verdict about another player. In a permadeath game with PKers in
 /// it, both a fabricated sighting and a fabricated "they logged out" are safety-relevant, so this
 /// file pins BOTH directions.
 ///
 /// <para><b>Grammar, from captured wire traffic</b> (raw session recordings under
-/// <c>%LOCALAPPDATA%\Temp\mucka</c>, plus <c>~/.mucka/clogs</c>; 458 "The value of …" lines, 246
+/// <c>%LOCALAPPDATA%\Temp\mucka</c>, plus <c>~/.mucka/clogs</c>; 458 "The value of ..." lines, 246
 /// distinct; 46 "I don't know the word" lines, 40 distinct words). The two player replies below are
 /// verbatim corpus captures, each identified by its own <c>val &lt;name&gt;</c> echo on the
 /// preceding tx frame. Nothing here is an invented shape except where a comment says so.</para>
@@ -84,14 +84,12 @@ public class SniffMatcherTests
         }
     }
 
-    // ── Outcome 2: the vocabulary rejection ───────────────────────────────────────────────────
+    // -- Outcome 2: the vocabulary rejection ---------------------------------------------------
     //
     // Shape: I don't know the word "<word>".   Always ASCII quotes, always a trailing full stop;
     // no other variant observed in 46 captures. The words inside are overwhelmingly the PLAYER'S
-    // OWN TYPOS: "dro", "clsoe", "kep", "lioin", "krat11", "atomcibob", … The old matcher accepted
-    // any such line whose whole text merely CONTAINED the sniffed persona, so a mistyped command
-    // resolved an unrelated sniff to Offline - the exact mirror of the fabricated-sighting bug the
-    // Present branch was fixed for.
+    // OWN TYPOS: "dro", "clsoe", "kep", "lioin", "krat11", "atomcibob", ... A line whose whole text
+    // merely CONTAINS the sniffed persona must not resolve an unrelated sniff to Offline.
 
     [Fact]
     public void AVocabularyRejectionForSomeoneElsesTypo_DoesNotResolveTheSniff_AndIsNotSwallowed()
@@ -121,14 +119,14 @@ public class SniffMatcherTests
     {
         using var h = new Harness();
         h.ArmSniff("Polly");
-        // Lower-cased: the server canonicalises case (tx "val crispybob" → rx "…of Crispybob…"),
+        // Lower-cased: the server canonicalises case (tx "val crispybob" -> rx "...of Crispybob..."),
         // so the comparison must be case-insensitive.
         h.Feed("I don't know the word \"polly\".");
         Assert.True(h.Resolved("Polly", SniffOutcome.Offline));
         Assert.DoesNotContain(h.Visible(), v => v.Contains("don't know the word", StringComparison.Ordinal));
     }
 
-    // ── Outcome 1: the presence reply ─────────────────────────────────────────────────────────
+    // -- Outcome 1: the presence reply ---------------------------------------------------------
 
     [Fact]
     public void TheObservedPlayerReply_ResolvesPresent()
@@ -145,10 +143,9 @@ public class SniffMatcherTests
     {
         using var h = new Harness();
         h.ArmSniff("Polly");
-        // The false negative this fix closes. MUD2's own `levels` table (captured verbatim on the
-        // wire) makes "Lady" the level-10 normal title, and PlayerNameParts - this codebase's one
-        // name grammar - models "Sir "/"Lady " as prefixes. A fixed offset-13 anchor could not see
-        // past one, so a real sighting read as no reply at all and was then promoted to Invisible.
+        // MUD2's own `levels` table (captured verbatim on the wire) makes "Lady" the level-10
+        // normal title, and PlayerNameParts - this codebase's one name grammar - models
+        // "Sir "/"Lady " as prefixes, so a title-prefixed reply must still resolve Present.
         // NOTE: no "Lady <Name>" player reply exists in the corpus; the shape follows the game's
         // own rank table, not an observation, and is handled precisely because it cannot be ruled
         // out. The suffix form below is the observed one.

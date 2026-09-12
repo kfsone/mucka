@@ -5,9 +5,9 @@ namespace Mucka.Rendering;
 
 /// <summary>
 /// The single Campbell colour theme for the Skia terminal, mirroring AnsiPalette.cs.
-/// Index 0–15 are the ANSI slots; AnsiColor.Default (-1) resolves to slot 7 (light grey).
+/// Index 0-15 are the ANSI slots; AnsiColor.Default (-1) resolves to slot 7 (light grey).
 /// The classic "bold = bright" rule promotes a
-/// normal-intensity foreground (slots 0–7) to its bright variant (slots 8–15).
+/// normal-intensity foreground (slots 0-7) to its bright variant (slots 8-15).
 /// </summary>
 public static class TerminalTheme
 {
@@ -22,7 +22,7 @@ public static class TerminalTheme
     public static readonly SKColor Background = SKColor.Parse("#0C0C0C");
     public static readonly SKColor DefaultForeground = Palette[7];
 
-    /// <summary>Resolve a span's foreground colour, applying the bold→bright promotion.</summary>
+    /// <summary>Resolve a span's foreground colour, applying the bold-to-bright promotion.</summary>
     public static SKColor Foreground(TextStyle style)
     {
         // A client-applied RGB override (e.g. the "me" self-chat colours) wins over the palette.

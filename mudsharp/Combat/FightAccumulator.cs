@@ -1,15 +1,12 @@
 namespace MudSharp.Combat;
 
 /// <summary>
-/// How a single per-NPC fight ended. Mirrors combat_fights.outcome in tools/combat/schema.sql so
-/// live and offline rows are directly comparable - and since 2026-08-19 the two use the IDENTICAL
-/// spellings, where they previously disagreed in case and separator ("Killed" live vs "killed"
-/// offline) for no reason but drift.
+/// How a single per-NPC fight ended. Mirrors combat_fights.outcome so live and offline rows are
+/// directly comparable, using identical spellings.
 ///
-/// <para><b>The ends, per the owner (2026-08-19), plus one found since.</b> Every end prints inside a
-/// single frame (one prompt to the next) - always. That guarantee is why nothing here needs a timer or
-/// a "lull" window to decide a fight is over: the evidence is never split across frames, so the
-/// terminator line is the whole answer.</para>
+/// <para><b>Every end prints inside a single frame</b> (one prompt to the next) - always. That
+/// guarantee is why nothing here needs a timer or a "lull" window to decide a fight is over: the
+/// evidence is never split across frames, so the terminator line is the whole answer.</para>
 ///
 /// <para>Five are per-creature and leave any other fights running (<see cref="Kill"/>,
 /// <see cref="CFled"/>, <see cref="CFledFail"/>, <see cref="Withdraw"/>, <see cref="NoMore"/>); three
@@ -18,9 +15,8 @@ namespace MudSharp.Combat;
 /// player, "C" the creature - the player is itself a creature in MUD2's model, so the pairing is
 /// deliberate rather than cosmetic.</para>
 ///
-/// <para><see cref="NoMore"/> is the eighth, added 2026-08-26 after a wyvern died of poison and the
-/// client, having no line for it, stayed "in combat" for the rest of the session. Take "exactly
-/// seven" as "the seven observed by then", not as a closed set - see tools/combat/FIGHT-ENDS.md.</para>
+/// <para><see cref="NoMore"/> is the eighth end: a wyvern died of poison and the client, having no
+/// line for it, stayed "in combat" for the rest of the session. See docs/MUD2-fight-ends.md.</para>
 ///
 /// <para><see cref="Interrupted"/> is not one of the game's ends at all - it is the client saying the
 /// world the fight was in has gone (reset, logout, room change, app exit). Kept in this enum because
@@ -44,7 +40,7 @@ public enum FightOutcome
     /// All fights. "You have fled by trying to go &lt;dir&gt;." - the player's flee FAILED, so they
     /// are still in the room, but MUD2 has still zeroed the fight count.
     ///
-    /// <para>Nothing parsed this line until 2026-08-19; it was invisible to the client. Verbatim from
+    /// <para>Verbatim from
     /// session-rec.mud2.co.uk.20260819-000137, all one frame:
     /// <c>flee n / You cannot go north from here. / You have changed experience level from protector
     /// to novice. / (Persona saved on -102 = 98). / You have fled by trying to go north.</c></para>
@@ -61,21 +57,14 @@ public enum FightOutcome
     /// <summary>
     /// Per-creature. "The X has fled by trying to go &lt;dir&gt;." The creature's flee FAILED: it is
     /// still standing in the room - but it is NOT still fighting, and the player must attack again to
-    /// re-engage. The owner's description: snakes "often try to flee but almost never succeed, it just
-    /// breaks the fight sequence"; and the rule behind it (2026-09-01), "fleeing ends combat with all
-    /// creatures attacking you. so if a zombie flees, even if it fails, it is no-longer in combat with
-    /// you." An earlier version of this comment said "still hostile", which is wrong in the way that
-    /// matters: the creature has left combat, so anything that lands on it afterwards is a new
+    /// re-engage. Fleeing ends combat with all creatures attacking the player, even when the flee
+    /// fails: the creature has left combat, so anything that lands on it afterwards is a new
     /// engagement rather than a continuation. 128 NpcFleeFailed events in the clog corpus, not one
     /// followed by a swing from that creature before a fresh FightStart.
     ///
     /// <para>The distinction from <see cref="CFled"/> is one word ("trying to") and it must never
     /// blur: chasing a creature standing in front of you is nonsense, and counting a failed attempt
     /// as an escape corrupts the per-class flee rates.</para>
-    ///
-    /// <para>This outcome is also the direct fix for a real bug: the tracker used to treat the line
-    /// as not-an-ending at all, so a fight the player never re-opened stayed "in combat" until
-    /// logout. See CombatTracker's NpcFleeFailed handling.</para>
     /// </summary>
     CFledFail,
 
@@ -95,20 +84,18 @@ public enum FightOutcome
     /// and not by your hand - so MUD2 printed no "You have killed the X." and, on the evidence so
     /// far, credited nothing.
     ///
-    /// <para><b>The name is the owner's</b> (2026-08-26), and the reason for it is worth keeping:
-    /// this is not losing a fight. "Died" would be too narrow for the family and would collide with
-    /// <see cref="Died"/>, which is the PLAYER dying; "Lost" alone reads as having lost the fight,
-    /// which is the opposite of what happened. The creature is no more, and neither is your claim on
-    /// it. Not to be confused with <see cref="EndOther"/>, which comes from the same "no longer"
-    /// sentence but means only that MUD2 stopped a fight without saying why - there, the creature may
-    /// be standing right in front of you.</para>
+    /// <para>This is not losing a fight. "Died" would be too narrow for the family and would collide
+    /// with <see cref="Died"/>, which is the PLAYER dying; "Lost" alone reads as having lost the
+    /// fight, which is the opposite of what happened. The creature is no more, and neither is your
+    /// claim on it. Not to be confused with <see cref="EndOther"/>, which comes from the same "no
+    /// longer" sentence but means only that MUD2 stopped a fight without saying why - there, the
+    /// creature may be standing right in front of you.</para>
     ///
-    /// <para><b>An open family, one member observed.</b> The observed member is poison: captured
-    /// 2026-08-26 in session-rec.mud2.co.uk.20260826-134435.jsonl as <c>The wyvern drops dead,
+    /// <para><b>An open family, one member observed.</b> The observed member is poison: captured in
+    /// session-rec.mud2.co.uk.20260826-134435.jsonl as <c>The wyvern drops dead,
     /// poisoned... / The wyvern has just passed on. / {c08.12}You can fight the wyvern no
-    /// longer.</c>, the first two lines carrying no C1 code at all. The owner expects others - his
-    /// example is poisoning the ogre with alcohol, "a lot of juggling and luck" to reproduce - and
-    /// they are likely to be worded differently. That is why this outcome is named for what the
+    /// longer.</c>, the first two lines carrying no C1 code at all. Other causes are expected and are
+    /// likely to be worded differently. That is why this outcome is named for what the
     /// player lost rather than for how it happened, and why the pattern behind it
     /// (<c>The X drops dead, &lt;cause&gt;...</c>) matches any cause rather than the word "poisoned".
     /// A new wording is a new <see cref="CombatEventKind"/> at most; it maps to this same outcome.</para>
@@ -125,9 +112,7 @@ public enum FightOutcome
     /// bracket a creature's pool from above, and the damage that finished one of these was never on
     /// the wire, so counting it as a kill would drag every estimate for that creature down.</para>
     ///
-    /// <para>This is the EIGHTH end. The seven the rest of this file documents came from the owner in
-    /// 2026-08-19 and were complete as far as anything then observed; this one arrived as a stuck
-    /// "in combat" readout a week later. See tools/combat/FIGHT-ENDS.md.</para>
+    /// <para>This is the EIGHTH end. See docs/MUD2-fight-ends.md.</para>
     /// </summary>
     NoMore,
 
@@ -145,7 +130,7 @@ public enum FightOutcome
     /// <para>Expected to be RARE, and if it is not, that is itself the finding: in every frame observed
     /// so far the 08.12 line trails a real terminator (a kill, a flee, a failed flee, a poison death)
     /// which resolved the fight first, and a resolved fight keeps its first outcome. A run of these
-    /// means a terminator upstream is going unmatched - see tools/combat/FIGHT-ENDS.md.</para>
+    /// means a terminator upstream is going unmatched - see docs/MUD2-fight-ends.md.</para>
     /// </summary>
     EndOther,
 
@@ -234,12 +219,12 @@ public readonly record struct SwingMark(
 /// how it ended.
 ///
 /// <para>Exists because <see cref="CombatEvent"/> names its NPC on every kind that has one, but
-/// nothing was bucketing by it — encounter-wide totals cannot answer "how did this rat fight
+/// nothing was bucketing by it - encounter-wide totals cannot answer "how did this rat fight
 /// compare to previous rat fights" when a goat was also in the room. The offline pipeline already
 /// models this split (combat_sessions holding N combat_fights); this is the live half.</para>
 ///
 /// <para>Pure and thread-agnostic: one instance is driven from the UI thread for display, another
-/// from the session Feed thread for history persistence. They never share state — see
+/// from the session Feed thread for history persistence. They never share state - see
 /// CombatStatsAggregator and FightHistoryRecorder respectively.</para>
 /// </summary>
 public sealed class FightAccumulator
@@ -259,11 +244,10 @@ public sealed class FightAccumulator
         // despite the value being perfectly knowable. NoteStamina/NoteScore then refine these as
         // real readings arrive over the fight's lifetime.
         if (staminaAtStart is int sta) { MinStamina = sta; StaminaAtEnd = sta; }
-        // Score seeds BOTH ends, the same way stamina does. It used to seed only the start, so a fight
-        // during which MUD2 never announced a score change left ScoreAtEnd null despite the value
-        // being perfectly well known - and "the score did not change" is a fact, not an absence. The
-        // two differ exactly when a "(Persona saved on ...)" landed mid-fight, which is the only thing
-        // that CAN move a score, so the pair now says something true and specific.
+        // Score seeds BOTH ends, the same way stamina does: "the score did not change" is a fact,
+        // not an absence. The two differ exactly when a "(Persona saved on ...)" landed mid-fight,
+        // which is the only thing that CAN move a score, so the pair says something true and
+        // specific.
         ScoreAtStart = scoreAtStart;
         ScoreAtEnd = scoreAtStart;
     }
@@ -277,7 +261,7 @@ public sealed class FightAccumulator
     /// <summary>The weapon in use for THIS fight. Seeded from the encounter's current weapon at
     /// fight start rather than left null, because MUD2 does not re-arm you for a second
     /// attacker: a weapon equipped for fight A silently extends to fight B when B joins
-    /// mid-encounter, and there is no equip line for B. reduce_combat.py does the same.</summary>
+    /// mid-encounter, and there is no equip line for B.</summary>
     public string? WeaponUsed { get; private set; }
 
     /// <summary>The NPC's own weapon, once it has equipped one - e.g. a zombie that picked up a
@@ -303,12 +287,9 @@ public sealed class FightAccumulator
     /// <summary>When the health reading landed. The ladder only updates on a landed blow, and the
     /// player misses often enough that age is what separates "this is current" from "this is what it
     /// looked like four swings ago" - an unknown reading must never be drawn as a measured one.
-    /// <para>This used to say "the player's hit rate is 0.57". Corrected 2026-09-03: 0.57 is not a
-    /// measured player hit rate, it is <c>100/175</c> - the published guide's <c>Dy/(Dy+Do)</c> for a
-    /// player at dexterity 100 against the bestiary's rat. The measured rate over the swing ledger is
-    /// 0.6275 (5,118 of 8,156 player swings, 2026-08-14 to 2026-09-03), and it varies from 0.41 to
-    /// 0.74 by species. No exact figure is quoted here now because the argument does not need one:
-    /// roughly a third of swings miss whatever the opponent, so gaps are ordinary.</para></summary>
+    /// The measured player hit rate over the swing ledger is 0.6275 (5,118 of 8,156 player swings,
+    /// 2026-08-14 to 2026-09-03), and it varies from 0.41 to 0.74 by species: roughly a third of
+    /// swings miss whatever the opponent, so gaps are ordinary.</summary>
     public DateTime? HealthReadUtc { get; private set; }
 
     public int YouHits { get; private set; }
@@ -383,8 +364,8 @@ public sealed class FightAccumulator
 
     /// <summary>The smallest and largest UPPER bound the player has landed this fight. Uppers rather
     /// than midpoints because "the worst this blow could have been" is the only end of a bracket that
-    /// answers a danger question, and the owner's blow-shape readout asks for exactly these two
-    /// figures either side of the mean.</summary>
+    /// answers a danger question, and the blow-shape readout needs exactly these two figures either
+    /// side of the mean.</summary>
     public double DealtMinHigh { get; private set; }
     public double DealtMaxHigh { get; private set; }
 
@@ -412,13 +393,12 @@ public sealed class FightAccumulator
     /// True once the weapon left the player's hands during this fight - broken, refused, or dropped.
     /// Records that it happened WITHOUT erasing what the fight was fought with.
     ///
-    /// <para>This used to null <see cref="WeaponUsed"/>, which destroyed the one durable fact the
-    /// fight had to offer. MUD2 auto-drops your weapon when you flee and prints the drop in the same
-    /// tick, immediately BEFORE the flee line - so an 83-second fight, armed with an axe0 throughout
-    /// and 7 hits into it, was written to history as having been fought bare-handed. That silently
-    /// poisons <c>FightHistory.SummarizeByWeapon</c>, which is the table the alternate-weapon offer
-    /// and the whole weapon-vs-creature comparison are built on: the weapon gets no credit for its
-    /// own fight, and the unarmed bucket gets a fight it never had.</para>
+    /// <para>MUD2 auto-drops your weapon when you flee and prints the drop in the same tick,
+    /// immediately BEFORE the flee line - so nulling <see cref="WeaponUsed"/> here would write an
+    /// armed fight to history as having been fought bare-handed. That would silently poison
+    /// <c>FightHistory.SummarizeByWeapon</c>, which is the table the alternate-weapon offer and the
+    /// whole weapon-vs-creature comparison are built on: the weapon would get no credit for its own
+    /// fight, and the unarmed bucket would get a fight it never had.</para>
     ///
     /// <para>The LIVE "what is in my hands right now" answer is not this field's job - that is the
     /// encounter-level current weapon, which is cleared as it always was.</para>
@@ -568,8 +548,8 @@ public sealed class FightAccumulator
             NpcWeapon = weapon;
     }
 
-    /// <summary>The points a `value &lt;name&gt;` probe reported for killing this creature (operator,
-    /// 2026-09-02). Null means "never asked/answered" OR "unattributable" (see
+    /// <summary>The points a `value &lt;name&gt;` probe reported for killing this creature.
+    /// Null means "never asked/answered" OR "unattributable" (see
     /// <see cref="ValueIsAmbiguous"/>) - not zero, which is itself a legal value (the ox). See
     /// MudSession's creature-value probe for how this is learned.</summary>
     public int? Value { get; private set; }
@@ -647,7 +627,7 @@ public sealed class FightAccumulator
     }
 
     /// <summary>Records an incoming hit. <paramref name="damage"/> is the already-resolved stamina
-    /// delta for this blow (the caller owns baseline tracking — see
+    /// delta for this blow (the caller owns baseline tracking - see
     /// CombatStatsAggregator.ObserveDamageTaken for why the baseline cannot simply be read off the
     /// hit line itself), or null when it could not be determined.</summary>
     public void AddTheyHit(double? damage)

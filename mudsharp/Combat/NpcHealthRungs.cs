@@ -12,12 +12,10 @@ namespace MudSharp.Combat;
 ///
 /// <para><b>The ordering is measured, not assumed.</b> It comes from counting which phrase replaced
 /// which, within single fights as segmented by the offline reducer: 62 transitions to a worse rung
-/// against 4 to a better one, and not one transition contradicting the order below. That mattered - an
-/// earlier hand-written draft placed "covered in wounds" BELOW "seriously injured", which would have
-/// drawn a creature two rungs healthier than it was, in the direction that gets a character killed.</para>
+/// against 4 to a better one, and not one transition contradicting the order below.</para>
 ///
 /// <para><b>No published source corroborates this.</b> The MUD2 strategy guide documents damage
-/// formulas, per-creature stamina pools and flee costs (see tools/combat/MUD2-PUBLISHED-MECHANICS.md)
+/// formulas, per-creature stamina pools and flee costs (see docs/MUD2-published-mechanics.md)
 /// and says nothing whatever about the wound descriptions. This ladder is the best available reading
 /// of observed behaviour, not documented fact.</para>
 ///
@@ -58,7 +56,7 @@ public static class NpcHealthRungs
     /// every time it did. The descriptor match is lazy so the run-on clause is never absorbed into it,
     /// and it still has to survive <see cref="TryRung"/>, which is what actually keeps aggro poses out.
     ///
-    /// <para><b>It does NOT keep all object condition out, despite what this used to claim.</b> The
+    /// <para><b>It does NOT keep all object condition out.</b> The
     /// "in ... condition" family is rejected, but the BySeverity fallback matches an object's wear the
     /// same way it matches a creature's: "The broadsword looks to be seriously damaged." reads 3, the
     /// well-maintained pick reads 6, "The rolling-pin1 looks close to disintegration." reads 1 - eight
@@ -90,23 +88,15 @@ public static class NpcHealthRungs
         // 5.
         ["to have minor injuries"] = 5,
         ["to have minor damage"] = 5,
-        // The banshee's rung-5 word, in the slot the other families fill with "minor". It sat at 6
-        // until 2026-09-04 on the reasoning that it was "only seen at full or near-full health" -
-        // which was reading the word rather than the corpus. Across seven banshee fights the step
-        // superficially damaged -> slightly weakened happens five times and never reverses, and two
-        // phrases genuinely sharing a rung do not produce a one-way progression.
+        // The banshee's rung-5 word, in the slot the other families fill with "minor". Across seven
+        // banshee fights the step superficially damaged -> slightly weakened happens five times and
+        // never reverses, which places it here rather than at 6.
         ["slightly weakened"] = 5,
         // 4 - the rung where the vocabularies diverge: living creatures say "covered in wounds" here
         // and never "moderately"; undead say "moderately damaged" and never "wounds".
         ["covered in wounds"] = 4,
         ["moderately damaged"] = 4,
         ["moderately drained"] = 4,
-        // "moderately injured" was here and is gone for the same reason "critically drained" is:
-        // zero occurrences corpus-wide, invented by analogy. Living creatures say "covered in
-        // wounds" at 4 and never "moderately", which the line above already states. Keeping it gave
-        // the living vocabulary eight words and quietly contradicted the seven-words-per-family rule
-        // the rest of this table rests on. Both deletions are behavioural no-ops - the severity
-        // fallback reads "moderately" as 4 and "critically" as 2 regardless.
         // 3.
         ["seriously injured"] = 3,
         ["seriously damaged"] = 3,
@@ -114,53 +104,45 @@ public static class NpcHealthRungs
         // 2.
         ["critically injured"] = 2,
         ["critically damaged"] = 2,
-        // The banshee's rung-2 word, where the other families say "critically". Was 1 until
-        // 2026-09-04. "critically drained" used to sit here instead and has been deleted: it occurs
-        // ZERO times in the corpus and was an entry invented by analogy with the other two families,
-        // which is how the banshee ended up with no rung-2 word and two words at 1.
+        // The banshee's rung-2 word, where the other families say "critically".
         ["to be fading rapidly"] = 2,
         // 1 - one more hit. Never 0: a creature that reads at all is still standing.
         ["close to death"] = 1,
         ["close to expiry"] = 1,
         // The banshee's terminal reading, and the only descriptor in the corpus with no severity
-        // adverb - so it missed this table AND fell straight through the BySeverity fallback, and
-        // TryParse returned false. The cost: of the 3,484 non-killing player hits in clogs whose
-        // fight began after 2026-08-16 (the window matters - NpcHealth only emits from 2026-08-10,
-        // so an unwindowed count is 1,291 and meaningless), 27 have no descriptor before the next
-        // event naming that creature, and all 27 are banshee. Widening to 2026-08-11 gives 34 of
-        // 4,210, still 100% banshee. In the five fights whose raw wire is readable, every silent
-        // hit is exactly a "faint" line.
+        // adverb - so it misses the BySeverity fallback below and needs an explicit ByPhrase entry.
+        // Measured before this entry existed: of 3,484 non-killing player hits in clogs from fights
+        // begun after 2026-08-16, 27 had no descriptor before the next event naming that creature,
+        // and all 27 were banshee (34 of 4,210 from 2026-08-11, still all banshee).
         //
-        // It IS a health reading, and that is settled by the protocol rather than by the wording:
-        // the line arrives under FE code 12 (0xA7), byte-identical to every other descriptor and to
-        // `ql` output. A spirit turning see-through would be a visibility event, and visibility has
-        // its own codes (04 00 04/05) which are binary with no graded state - this is not one.
+        // It IS a health reading, settled by protocol rather than by wording: the line arrives under
+        // FE code 12 (0xA7), byte-identical to every other descriptor and to `ql` output. A spirit
+        // turning see-through would be a visibility event, and visibility has its own codes (04 00
+        // 04/05) which are binary with no graded state - this is not one.
         //
         // Rung 1 because it is TERMINAL: where it appears it is always the last reading, and a hit
-        // kills shortly after. It is not in every banshee fight - the 2026-09-04 one died out of
-        // "to be fading rapidly" without ever printing it - so absence says nothing. The "never 0"
-        // rule above sets the floor.
+        // kills shortly after. It is not in every banshee fight - one banshee died out of "to be
+        // fading rapidly" without ever printing it - so absence says nothing. The "never 0" rule
+        // above sets the floor.
         //
         // The banshee's seven COMBAT-DESCRIPTOR words map 1:1 onto 7..1, which is what every other
-        // vocabulary does and is why this one now reads strong / superficially damaged / slightly
-        // weakened / moderately drained / seriously drained / to be fading rapidly / faint.
+        // vocabulary does: strong / superficially damaged / slightly weakened / moderately drained /
+        // seriously drained / to be fading rapidly / faint.
         //
         // "Combat-descriptor" is load-bearing: the inspection commands phrase rung 7 differently.
-        // `ql banshee` on a healed banshee returned "full of energy" (owner, 2026-09-04), and the
-        // only other sighting of that phrase in the corpus is a zombie4 EXAMINE - never a descriptor
-        // line, where the same creatures say "strong". Both are rung 7 and both are in this table,
-        // so nothing is mis-scored; but do not count words across surfaces and conclude a species
-        // has eight. Settled 2026-09-04 on seven
-        // fights whose raw wire is readable, and confirmed on all 45 banshee fight-segments in the
-        // clogs: scoring every word-change, the old table gave 120 strict descents and 27 FLAT steps
-        // - the game saying the creature had changed while the rail showed the same rung - against
-        // 147 strict and ZERO flat under this one. One regen either way. All three words that moved
-        // are banshee-exclusive, so nothing else shifted.
+        // `ql banshee` on a healed banshee returned "full of energy", and the only other sighting of
+        // that phrase in the corpus is a zombie4 EXAMINE - never a descriptor line, where the same
+        // creatures say "strong". Both are rung 7 and both are in this table, so nothing is
+        // mis-scored; but do not count words across surfaces and conclude a species has eight.
+        //
+        // Scoring every word-change across all 45 banshee fight-segments in the clogs gives 147
+        // strict descents and zero flat steps (a flat step is the game saying the creature had
+        // changed while the rail showed the same rung). All three banshee-specific words are
+        // banshee-exclusive, so nothing else is affected.
         //
         // Independently, and on a different axis: summing bracket midpoints per fight puts the seven
         // words on an even staircase of ~11.7 damage per rung against a pool of ~82 (published STA
-        // 80). The four undisputed words land on their existing rungs, which validates the method,
-        // and both disputed words land on the NEW value, not the old.
+        // 80).
         //
         // Same-rung pairs never co-occur, which is what makes a flat step evidence of an error
         // rather than of two phrasings: across 1,315 clogs and 2,275 word-changes, no fight contains
@@ -180,8 +162,8 @@ public static class NpcHealthRungs
     [
         ("superficially", 6),
         // 5, not 6, and it must agree with ByPhrase above: the only "slightly" phrase anyone has
-        // ever seen is the banshee's "slightly weakened", which the 2026-09-04 remap put at 5. A
-        // fallback that generalises the value the table just disproved is worse than no fallback.
+        // ever seen is the banshee's "slightly weakened", which ByPhrase puts at 5. A fallback that
+        // generalises the value the table just disproved is worse than no fallback.
         ("slightly", 5),
         ("minor", 5),
         ("moderately", 4),
@@ -189,7 +171,7 @@ public static class NpcHealthRungs
         ("critically", 2),
         ("close to", 1),
         // Also 2, for the same reason "slightly" is 5: the sole observed "fading" phrase is the
-        // banshee's, and it is rung 2 as of the remap.
+        // banshee's, and it is rung 2 in ByPhrase.
         ("fading", 2),
     ];
 
@@ -327,15 +309,9 @@ public static class NpcHealthRungs
     /// Which rung a known cur/max lands on: <c>ceil(cur * 7 / max)</c>. Null when the inputs cannot
     /// support an answer.
     ///
-    /// <para><b>Provenance, honestly.</b> <see cref="IsAtMax"/>'s remarks describe this formula as
-    /// "fitted 328/328 against paired readings across six maxima". A 2026-09-06 audit could not
-    /// reproduce that: there is no script or stored query under <c>tools/</c> that produces it, the
-    /// sibling claim in <c>NpcHealthRungTests</c> states a DIFFERENT figure (218 readings, four
-    /// personae) for the same fact, and the corpus on this machine contains no player self-inspection
-    /// descriptor line at all - every "The X looks Y." line has an NPC subject. Treat the ladder
-    /// formula as a reasonable inference, not as a measurement someone took. It is used here only for
-    /// the player, whose maximum the game states outright, and only to choose a WORD; nothing decides
-    /// anything on it.</para>
+    /// <para><b>Provenance, honestly.</b> Treat the ladder formula as a reasonable inference, not as
+    /// a measurement someone took. It is used here only for the player, whose maximum the game
+    /// states outright, and only to choose a WORD; nothing decides anything on it.</para>
     ///
     /// <para><b>This is only ever asked about the PLAYER.</b> A creature's rung comes from the word
     /// MUD2 printed, never from arithmetic, because the client has no honest denominator for one - the
@@ -369,9 +345,9 @@ public static class NpcHealthRungs
     /// <para><b>Rung 7 is the shakiest entry and it is the resting state.</b> <see cref="IsAtMax"/>
     /// claims the game says "full of life" at exactly max and never "fit" - which would make the word
     /// this returns wrong for a player sitting at full stamina, the commonest thing the panel ever
-    /// shows. The 2026-09-06 audit could neither confirm nor refute it: "full of life" appears ten
-    /// times corpus-wide and every one describes an NPC, so there is no player evidence either way.
-    /// The word stays because it cannot be shown wrong, not because it has been shown right.</para>
+    /// shows. "Full of life" appears ten times corpus-wide and every one describes an NPC, so there
+    /// is no player evidence either way; the word stays because it cannot be shown wrong, not
+    /// because it has been shown right.</para>
     ///
     /// <para>If an at-max distinction is wanted, the evidence for one already exists and is not a
     /// descriptor: the C1 code on the stamina numerator is <c>99.10</c> if and only if

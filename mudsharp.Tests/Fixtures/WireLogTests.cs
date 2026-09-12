@@ -194,11 +194,9 @@ public sealed class WireLogTests : IDisposable
     [Fact]
     public void Sink_stores_real_mud2_traffic_as_bytes_you_can_grep_for()
     {
-        // The point of taking the compression out (owner, 2026-09-09: "Just the raw bytes from the
-        // server"), asserted rather than described: every payload the sink was handed is findable
-        // verbatim inside batches.data. That is what makes the log a corpus you can ask questions of
-        // without writing a decoder first - the thing that was missing when answering "what does a
-        // flee cost" needed a hand-rolled brotli-and-varint reader.
+        // Stores raw, uncompressed bytes, asserted rather than described: every payload the sink was
+        // handed is findable verbatim inside batches.data. That is what makes the log a corpus you can
+        // ask questions of without writing a decoder first.
         var records = ReadJsonl(WyvernFixturePath);
         using (var sink = new SqliteWireLogSink(DbPath, "mud2.co.uk"))
             foreach (var r in records) sink.Record(r.Direction, r.TimestampMs, r.Payload);
@@ -407,8 +405,7 @@ public sealed class WireLogTests : IDisposable
     {
         // Ten minutes of idle chatter: a few hundred bytes, nowhere near MaxBatchBytes. The age bound is
         // the only thing that can close these, and it is enforced on the RECORD's timestamp rather than
-        // by the housekeeping timer, so this is deterministic rather than a sleep. Before the age check
-        // moved into Record() this produced exactly one batch, and a crash at minute nine lost all of it.
+        // by the housekeeping timer, so this is deterministic rather than a sleep.
         var start = 1_787_000_000_000L;
         var records = new List<WireRecord>();
         for (var minute = 0; minute < 20; minute++)
@@ -433,8 +430,7 @@ public sealed class WireLogTests : IDisposable
     {
         // The wire log is switched on once and never checked again, so "did it open?" has to be
         // answerable at start. Nothing has been recorded here at all: the directory, the file and the
-        // sessions row must exist anyway. While it opened lazily, a broken log looked exactly like a
-        // quiet one.
+        // sessions row must exist anyway.
         var nested = Path.Combine(_dir, "does", "not", "exist", "yet");
         var path = Path.Combine(nested, "wire.db");
         Assert.False(Directory.Exists(nested));
@@ -453,8 +449,7 @@ public sealed class WireLogTests : IDisposable
     public void Sink_throws_at_construction_when_the_database_cannot_be_opened()
     {
         // A plain file where the directory has to go: Directory.CreateDirectory cannot make one, so the
-        // open fails. Before the constructor opened the database this call succeeded and the failure
-        // arrived - if at all - minutes later on a background thread.
+        // open fails.
         Assert.ThrowsAny<Exception>(() => new SqliteWireLogSink(BlockedDbPath(), "mud2.co.uk"));
     }
 
@@ -501,8 +496,8 @@ public sealed class WireLogTests : IDisposable
     public void A_dead_writer_stops_accepting_records_and_says_so()
     {
         // Kill the writer for real - drop the table out from under it - rather than mocking the failure.
-        // Before this, the writer died on the first SQLite error and Record()/Flush() went on feeding a
-        // channel with no reader for the rest of the session: an unbounded leak whose only trace was one
+        // A writer that dies on a SQLite error must not leave Record()/Flush() feeding a channel with no
+        // reader for the rest of the session: that is an unbounded leak whose only trace would be one
         // line in the crash log.
         var failures = new List<string>();
         using var sink = new SqliteWireLogSink(DbPath, "mud2.co.uk", null,
@@ -555,8 +550,8 @@ public sealed class WireLogTests : IDisposable
     {
         // The end-to-end version: a row damaged in the database is rejected on read rather than
         // decoded into records nobody ever sent. `records` is the only such column left - `raw_bytes`
-        // held the DECOMPRESSED length, which with nothing compressed is LENGTH(data), so it compared
-        // the blob against itself. It went out with the codec.
+        // held the DECOMPRESSED length, which with nothing compressed is LENGTH(data), so it only
+        // compared the blob against itself.
         var records = SampleRecords();
         using (var sink = new SqliteWireLogSink(DbPath, "mud2.co.uk"))
             foreach (var r in records) sink.Record(r.Direction, r.TimestampMs, r.Payload);

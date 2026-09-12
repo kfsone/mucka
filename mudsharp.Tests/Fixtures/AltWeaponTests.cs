@@ -6,11 +6,10 @@ namespace mudsharp.Tests.Fixtures;
 /// <summary>
 /// The Combat Rail's alternate-weapon offer (Ctrl+W).
 ///
-/// <para>Every rule here is a safety rule, not a preference. MUD2 charges for a wrong wield: switching
-/// weapons drops your guard and hands the opponent a free swing, and naming something you are not
-/// carrying wastes the attempt outright. So the offer must never name an item that is not in the pack,
-/// never name the weapon already in hand, and never name an object the client only GUESSES is a weapon
-/// - which is why candidacy is decided by the fight record rather than by any noun list.</para>
+/// <para>Switching weapons drops the fighter's guard, and naming something not carried wastes the
+/// attempt. The offer must never name an item outside the pack, the weapon already in hand, or an
+/// object the client only guesses is a weapon - candidacy is decided by the fight record, not a
+/// noun list.</para>
 /// </summary>
 public sealed class AltWeaponTests
 {

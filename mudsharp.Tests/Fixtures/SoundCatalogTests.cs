@@ -17,14 +17,13 @@ namespace MudSharp.Tests.Fixtures;
 public class SoundCatalogTests
 {
     /// <summary>Walks up from the test binary to the repo root (the directory holding Mucka.csproj).
-    /// Returns null when it cannot be found, so a checkout-shaped assumption degrades into a skip
-    /// rather than a spurious failure - the same courtesy CombatCaptureReplayTests extends to its
-    /// capture file.</summary>
-    private static DirectoryInfo? FindRepoRoot()
+    /// Tests run from a source checkout; not finding it is a failure, never a skip.</summary>
+    private static DirectoryInfo FindRepoRoot()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
         while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "Mucka.csproj")))
             dir = dir.Parent;
+        Assert.NotNull(dir);
         return dir;
     }
 
@@ -32,8 +31,6 @@ public class SoundCatalogTests
     public void EveryCataloguedSound_HasAFileOnDisk()
     {
         var root = FindRepoRoot();
-        if (root is null)
-            return;   // not a source checkout; nothing to verify against
 
         var missing = new List<string>();
         foreach (var group in SoundCatalog.Groups)
@@ -84,8 +81,8 @@ public class SoundCatalogTests
     /// <summary>
     /// The failed-flee buzzer specifically: it must be catalogued, because that is the only thing
     /// that gives it a volume slider and an off switch, and an alert the player cannot turn down is a
-    /// misfeature. Pinned by asset path as well as code, since the two have already drifted apart
-    /// once during a rename.
+    /// misfeature. Pinned by asset path as well as code, since a rename can let the two drift apart
+    /// independently.
     /// </summary>
     [Fact]
     public void FleeFailedAlert_IsCatalogued_SoItHasAVolumeControl()

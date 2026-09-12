@@ -143,7 +143,7 @@ public sealed class PoolObservationBuilderTests
         Assert.Equal(new DamageBracket(10, 14), observation.Blows[0]);
     }
 
-    // ── Matching fights to their swings ──────────────────────────────────────────
+    // -- Matching fights to their swings ------------------------------------------
 
     [Fact]
     public void SwingsAreMatchedByNameAndTimeWindowWithTheEndInclusive()

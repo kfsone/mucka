@@ -87,9 +87,8 @@ public class InventoryProbeTests : IDisposable
     [Fact]
     public void ABurstOfDrops_CostsOneProbeNotOnePerItem()
     {
-        // The owner's own case: a bulk command delivers every line in one server frame, three items
-        // inside the same millisecond. Each line restarts the quiet period, so one probe follows the
-        // last of them.
+        // A bulk command delivers every line in one server frame, three items inside the same
+        // millisecond. Each line restarts the quiet period, so one probe follows the last of them.
         EnterCombat();
         Feed("Clover dropped.\r\nBriefcase dropped.\r\nCarpet0 dropped.\r\nCoracle dropped.\r\n");
         Assert.True(WaitFor(() => CountContaining(InvProbe) >= 1));
@@ -152,8 +151,8 @@ public class InventoryProbeTests : IDisposable
     [Fact]
     public void ACommaComboIsNeverPrependedTo_SoItsFirstElementKeepsItsTick()
     {
-        // MUD2 drains a combo one element per tick; a probe in front of "e,feed coal to dragon"
-        // pushes every element back one, which is exactly how that combo is known to fail.
+        // A probe in front of "e,feed coal to dragon" pushes every element back one tick, which is
+        // exactly how that combo is known to fail.
         EnterCombat();
         Feed("Axe0 dropped.\r\n");
         _session.SendLine("e,feed coal to dragon");

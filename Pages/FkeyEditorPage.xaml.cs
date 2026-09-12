@@ -22,7 +22,7 @@ public partial class FkeyEditorPage : ContentPage
         base.OnAppearing();
         // Subscribed here (not the ctor) to pair with OnDisappearing's unsubscribe: on Android,
         // backgrounding the app fires OnDisappearing without popping the page, and a ctor-only
-        // subscription would be lost for good — Cancel/Apply/Save would silently stop closing.
+        // subscription would be lost for good - Cancel/Apply/Save would silently stop closing.
         _vm.CloseRequested -= OnCloseRequested;
         _vm.CloseRequested += OnCloseRequested;
         _vm.SaveFailed -= OnSaveFailed;
@@ -52,7 +52,7 @@ public partial class FkeyEditorPage : ContentPage
     /// <summary>
     /// Closes this page, at most once, and only while it is genuinely the top modal. Both guards
     /// matter because GamePage can close this page out from under the player (being dropped from
-    /// the game outranks editing settings) — a bare <c>PopModalAsync()</c> racing that would pop
+    /// the game outranks editing settings) - a bare <c>PopModalAsync()</c> racing that would pop
     /// whatever is on top instead, which is by then the persona-login overlay.
     /// </summary>
     public async Task CloseAsync()
@@ -69,7 +69,6 @@ public partial class FkeyEditorPage : ContentPage
     private void OnCloseRequested() =>
         MainThread.BeginInvokeOnMainThread(async () => await CloseAsync());
 
-    // Save failures used to be swallowed silently (the page just sat there) — surface them.
     private void OnSaveFailed(string message) =>
         MainThread.BeginInvokeOnMainThread(async () =>
             await DisplayAlertAsync("Save failed", message, "OK"));

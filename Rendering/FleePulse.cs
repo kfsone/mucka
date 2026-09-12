@@ -11,10 +11,10 @@ namespace Mucka.Rendering;
 /// <see cref="MudSharp.Combat.FleePillStatus.EscapeNow"/>.
 ///
 /// <para><b>Why this is not drawn by the canvas.</b> Same reason as <see cref="TickSweep"/> and
-/// <see cref="PulseLayer"/>: <c>SKXamlCanvas</c> paints ON the UI thread on WinUI, so anything
-/// repainting continuously there competes directly with typing (Invariant #1). The canvas draws the
-/// pill's still parts; this animates the opacity of a MAUI <c>Border</c> sitting behind it, sized onto
-/// the same rectangle by <see cref="CombatRailView.FleePillDp"/>.</para>
+/// <see cref="PulseLayer"/>: repainting the canvas continuously would compete directly with typing
+/// (Invariant #1). The canvas draws the pill's still parts; this animates the opacity of a MAUI
+/// <c>Border</c> sitting behind it, sized onto the same rectangle by
+/// <see cref="CombatRailView.FleePillDp"/>.</para>
 ///
 /// <para><b>One element carries both states, and the amplitude does the rest.</b> The border and the
 /// fill live on the same visual and therefore share one opacity animation - which is what makes the
@@ -25,8 +25,8 @@ namespace Mucka.Rendering;
 /// is animated, and only by the compositor.</para>
 ///
 /// <para><b>Period is shared with the panel glow</b> (<see cref="PulseLayer.PeriodMilliseconds"/>).
-/// At the stamina where this pill alarms, the whole-panel glow is already pulsing, and two rates would
-/// be the noise DESIGN_FINAL.md 4.2 forbids rather than two facts.</para>
+/// At the stamina where this pill alarms, the whole-panel glow is already pulsing, and two rates
+/// would read as noise rather than as two facts.</para>
 ///
 /// <para><b>Teardown is not optional</b> - see <see cref="PulseLayer"/>'s remarks for the RO_E_CLOSED
 /// crash class a live animation on a destroyed visual belongs to. <see cref="Stop"/> must run from the

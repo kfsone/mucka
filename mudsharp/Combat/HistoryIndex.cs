@@ -3,7 +3,7 @@ namespace MudSharp.Combat;
 /// <summary>
 /// Incremental replacement for scanning the WHOLE fight corpus on every history lookup.
 ///
-/// <para>The failure mode this exists to fix (DESIGN_FINAL.md section 7.3): the previous approach
+/// <para>The failure mode this exists to fix: the previous approach
 /// filtered <c>FightHistory.ExcludingEncounterFrom(...)</c> then ran three median-computing passes
 /// over the ENTIRE loaded corpus on every cache miss, and misses happen on every fight resolution -
 /// so the cost grew across a whole session. This index instead maintains a small SORTED list per
@@ -14,8 +14,8 @@ namespace MudSharp.Combat;
 /// which is what makes this genuinely O(1)-ish rather than just a smaller constant on the same
 /// O(corpus) shape.</para>
 ///
-/// <para><b>Self-comparison is structurally impossible, not filtered out</b> (7.3's own framing):
-/// nothing calls <see cref="Insert"/> except <c>Core.FightHistoryStore.Append</c>, which only ever
+/// <para><b>Self-comparison is structurally impossible, not filtered out.</b>
+/// Nothing calls <see cref="Insert"/> except <c>Core.FightHistoryStore.Append</c>, which only ever
 /// runs once a fight has fully closed and been flushed (see FightHistoryRecorder.FlushLocked). The
 /// still-open encounter currently on screen therefore cannot be in this index yet, by construction -
 /// there is no runtime exclusion check to get wrong or forget to call, because there is nothing to
@@ -29,7 +29,7 @@ namespace MudSharp.Combat;
 public sealed class HistoryIndex
 {
     // A plain printable ASCII character that cannot appear in an npc_group or weapon name (both are
-    // plain words - see NpcGroups.cs/reduce_combat.py's own naming), so concatenation can never
+    // plain words - see NpcGroups.cs), so concatenation can never
     // collide two different (group, weapon) pairs onto the same combined dictionary key.
     private const char KeySeparator = '|';
 
@@ -56,9 +56,6 @@ public sealed class HistoryIndex
     //     mark on the first large rat you meet.
     //   - npc_name is per instance. Keying there would mark every unmet instance number of a species
     //     you have killed twenty of as brand new, which is a claim the evidence does not support.
-    //     (This used to cite "rat3/rat7 measured indistinguishable, 17 instances, p=0.80". That
-    //     figure is untraceable and has been withdrawn - see NpcPoolKey's remarks. The argument
-    //     above never needed it.)
     // NpcPoolKey is exactly "species plus whatever adjectives the game printed", which is the level
     // the bestiary knowledge is actually held at. See NpcPoolKey's own remarks.
     //

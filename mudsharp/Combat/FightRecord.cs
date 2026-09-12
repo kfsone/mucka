@@ -6,12 +6,9 @@ namespace MudSharp.Combat;
 /// separate from the detailed per-encounter clogs, which stay as they are: those are the evidence,
 /// this is what the client can cheaply load and query at runtime.
 ///
-/// <para>Properties map one-to-one onto that table's columns, whose names in turn follow
-/// tools/combat/schema.sql - so a query written against the offline reducer's database mostly
-/// transfers.</para>
 ///
 /// <para>The context fields (room/weather/stats/afflictions) are snapshotted at ENCOUNTER start,
-/// not fight start — a fight that joins mid-encounter inherits the encounter's opening context.
+/// not fight start - a fight that joins mid-encounter inherits the encounter's opening context.
 /// That is the honest thing to record: we do not re-probe stats mid-fight, so pretending we have
 /// fight-start values for a joiner would be fabricating them.</para>
 /// </summary>
@@ -54,7 +51,7 @@ public sealed record FightRecord
     /// <summary>True when this fight produced a resolution but no per-swing hit/miss lines at all,
     /// which is the signature of a character without MUD2's <c>fightbrief</c> enabled: narrative
     /// mode replaces the fixed "You hit the X (A-B)." forms with a large flavour-text template set
-    /// we do not parse (see MECHANICS_NOTES.md). Such rows must be EXCLUDED from hit-rate and
+    /// we do not parse. Such rows must be EXCLUDED from hit-rate and
     /// damage aggregates or they drag every average toward zero. Kept rather than discarded
     /// because the outcome and duration are still real evidence.</summary>
     public bool NarrativeMode { get; init; }
@@ -83,14 +80,13 @@ public sealed record FightRecord
 
     /// <summary>
     /// The player's score when this fight began - score-at-risk, which is what a flee stands to cost.
-    /// Since 2026-09-04 this is the last total MUD2 itself stated in a <c>(Persona saved on ...)</c>
+    /// This is the last total MUD2 itself stated in a <c>(Persona saved on ...)</c>
     /// line, not a sample off the FES heartbeat, so it and <see cref="ScoreAtEnd"/> are the same kind
     /// of number and are comparable at all. Format v2+ only.
     ///
-    /// <para><b>Kept even though score_events now supersedes the pair.</b> It is derivable - the last
-    /// <c>total</c> before <c>started_at_ms</c> - but only for fights recorded after that table
-    /// existed, and 1,972 rows predate it. A column that keeps those rows answerable is worth more
-    /// than the duplication costs.</para>
+    /// <para><b>Why this duplicates score_events.</b> The value is derivable from that table - the
+    /// last <c>total</c> before <c>started_at_ms</c> - but only for fights recorded after that table
+    /// existed, and 1,972 rows predate it. This column keeps those rows answerable.</para>
     /// </summary>
     public int? ScoreAtStart { get; init; }
 
@@ -137,8 +133,8 @@ public sealed record FightRecord
     public string[] Effects { get; init; } = [];
 
     /// <summary>Whether the fight ended with the NPC dead. Only these fights bound an NPC's
-    /// stamina pool from ABOVE — a survivor only tells us its pool exceeds what we dealt, so
-    /// including non-kills in a pool estimate biases it downward (see STATS_DESIGN.md).</summary>
+    /// stamina pool from ABOVE - a survivor only tells us its pool exceeds what we dealt, so
+    /// including non-kills in a pool estimate biases it downward.</summary>
     public bool IsKill => Outcome == nameof(FightOutcome.Kill);
 
     /// <summary>Whether this row carries usable per-swing detail. False for narrative-mode rows

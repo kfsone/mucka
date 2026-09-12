@@ -7,9 +7,9 @@ namespace Mucka.Rendering;
 /// <summary>
 /// The marshy "swamp" seam: a low band of hummocks that doubles as the separator between the
 /// compass and the room block. It is faint at rest and rises to full ink when a swampward exit
-/// is open — the compass's thirteenth direction, rendered as ground rather than a wedge.
+/// is open - the compass's thirteenth direction, rendered as ground rather than a wedge.
 ///
-/// Authored in a 100×14 space and stretched to the control's box.
+/// Authored in a 100x14 space and stretched to the control's box.
 /// </summary>
 public sealed class SwampSeamView : SKCanvasView
 {
@@ -41,7 +41,7 @@ public sealed class SwampSeamView : SKCanvasView
         InvalidateSurface();
     }
 
-    /// <summary>True when a swampward exit is open — the seam paints at full opacity.</summary>
+    /// <summary>True when a swampward exit is open - the seam paints at full opacity.</summary>
     public static readonly BindableProperty IsLitProperty = BindableProperty.Create(
         nameof(IsLit), typeof(bool), typeof(SwampSeamView), false,
         propertyChanged: (o, _, _) => ((SwampSeamView)o).InvalidateSurface());
@@ -90,7 +90,7 @@ public sealed class SwampSeamView : SKCanvasView
             canvas.DrawPath(moss, _fill);
         }
 
-        // When a swampward exit is open, name it — a faint white "swamp" over the marsh.
+        // When a swampward exit is open, name it - a faint white "swamp" over the marsh.
         if (IsLit)
         {
             const string text = "swamp";
@@ -101,7 +101,7 @@ public sealed class SwampSeamView : SKCanvasView
             canvas.DrawText(text, 50f - w / 2f, baseY, _font, _fill);
         }
 
-        // Hover wash — the swamp is clickable, open or not.
+        // Hover wash - the swamp is clickable, open or not.
         if (_hover)
         {
             _fill.Color = Hover;

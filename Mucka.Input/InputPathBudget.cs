@@ -5,18 +5,16 @@ namespace Mucka.Input;
 /// <summary>
 /// A stopwatch around the code that runs on a keystroke, with a budget it is expected to keep.
 ///
-/// <para><b>Why measurement is part of the framework and not an afterthought.</b> The command box has
-/// been broken three times, and every time the offending code looked cheap to the person adding it -
-/// a binding round-trip, a notification chain, a layout pass. What they all had in common is that
-/// nothing measured them, so the cost was invisible until it reached the owner's hands at 120 wpm.
+/// <para><b>Why measurement is part of the framework and not an afterthought.</b> Cheap-looking code
+/// on the input path - a binding round-trip, a notification chain, a layout pass - is not cheap until
+/// it is measured; unmeasured cost stays invisible until it reaches the player's hands at 120 wpm.
 /// A wall that stops you reaching the control is worth little if the code you write on this side of
 /// it is allowed to be slow; this is the other half.</para>
 ///
 /// <para><b>Always compiled in.</b> Two <c>Stopwatch.GetTimestamp()</c> calls per keystroke - tens of
 /// nanoseconds against a budget measured in whole milliseconds - so there is no version of this the
-/// player runs without. That is the point: the previous diagnostics were behind a build flag, which
-/// meant the fault was only ever measurable by someone who already suspected it. A regression here
-/// now announces itself in the ordinary build.</para>
+/// player runs without. A build-flag-gated diagnostic is only ever measured by someone who already
+/// suspects the fault; this way a regression announces itself in the ordinary build.</para>
 ///
 /// <para>It reports and never intervenes. There is nothing useful to do about a slow keystroke after
 /// the fact, and a framework that started dropping or deferring input to defend a budget would be a
@@ -25,8 +23,8 @@ namespace Mucka.Input;
 public sealed class InputPathBudget
 {
     /// <summary>
-    /// What a keystroke's handling is allowed to cost. 1 ms, chosen from the owner's own tolerance -
-    /// conflicts on a 1-2 ms timescale are affordable, and anything approaching a frame is not. Note
+    /// What a keystroke's handling is allowed to cost. 1 ms: conflicts on a 1-2 ms timescale are
+    /// affordable, and anything approaching a frame is not. Note
     /// this budget covers only OUR code on the path (hotkey lookup, line accept); the control's own
     /// text handling is not ours to measure or to blame.
     /// </summary>

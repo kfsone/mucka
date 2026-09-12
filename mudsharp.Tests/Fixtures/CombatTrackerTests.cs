@@ -5,9 +5,8 @@ namespace MudSharp.Tests.Fixtures;
 
 /// <summary>
 /// CombatTracker classification and encounter/fight boundary detection, using literal lines
-/// observed in RESEARCH/mud2-multi-combat.jsonl (see tools/combat/NOTES.md for the full
-/// catalogue). CombatTracker consumes StyledLine.PlainText directly, so tests build lines
-/// straight from plain text — no protocol bytes/parser harness needed here.
+/// observed in the capture corpus. CombatTracker consumes StyledLine.PlainText directly, so tests
+/// build lines straight from plain text - no protocol bytes/parser harness needed here.
 /// </summary>
 public class CombatTrackerTests
 {
@@ -74,10 +73,10 @@ public class CombatTrackerTests
 
     /// <summary>
     /// The refusal is not a drop. "The starfish is embroiled in combat and can't be dropped." is the
-    /// one line in this family that means NOTHING moved, and the unbounded name pattern this replaced
-    /// matched it as a drop of an object called "The starfish is embroiled in combat and can't be" -
-    /// a phantom event in the clog, and one that would have forced a pointless probe once MudSession
-    /// started keying off the same wordings.
+    /// one line in this family that means NOTHING moved. An unbounded name pattern would match it as
+    /// a drop of an object called "The starfish is embroiled in combat and can't be" - a phantom
+    /// event in the clog, and one that would force a pointless probe once MudSession starts keying
+    /// off the same wordings.
     /// </summary>
     [Fact]
     public void ARefusedDrop_EmitsNothing()
@@ -91,11 +90,10 @@ public class CombatTrackerTests
                                                   or CombatEventKind.ItemStowed or CombatEventKind.ItemRetrieved);
     }
 
-    /// <summary>Reported live: a weapon broke mid-fight and the readout kept showing it equipped.
-    /// "You cannot use the X to fight now!" was parsed nowhere - the only reference in the project
-    /// was a dead regex in tools/combat/reduce_combat.py. It is also the wield-refusal line, the
-    /// sole direct evidence MUD2 emits of the hidden effective-strength gate, so it must be both
-    /// acted on (the player is now bare-handed) and recorded.</summary>
+    /// <summary>A weapon breaking mid-fight must update the readout. "You cannot use the X to fight
+    /// now!" is also the wield-refusal line, the sole direct evidence MUD2 emits of the hidden
+    /// effective-strength gate, so it must be both acted on (the player is now bare-handed) and
+    /// recorded.</summary>
     [Fact]
     public void WeaponBreakThenUnusable_EmitsBothEvents()
     {
@@ -127,8 +125,8 @@ public class CombatTrackerTests
         Assert.DoesNotContain(events, e => e.Kind == CombatEventKind.WeaponUnusable);
     }
 
-    /// <summary>Bare-handed openings have no weapon clause: "You attack the thief." Only the armed
-    /// form used to be matched, so an unarmed attack opened no encounter at all.</summary>
+    /// <summary>Bare-handed openings have no weapon clause: "You attack the thief." must still be
+    /// matched and open an encounter.</summary>
     [Fact]
     public void PlayerAttackUnarmed_StartsCombatWithNoWeapon()
     {
@@ -144,11 +142,9 @@ public class CombatTrackerTests
         Assert.Null(e.Weapon);
     }
 
-    /// <summary>Regression, reported live: attack bare-handed, then "use staff" mid-fight, and the
-    /// readout still said UNARMED. The unarmed attack line was unmatched, so no encounter existed
-    /// when the weapon-equip line arrived and the weapon was discarded. The npc name must also not
-    /// swallow the armed form's ", using the X as a weapon" clause - see the two-pattern comment on
-    /// PlayerAttackStart.</summary>
+    /// <summary>Attacking bare-handed, then equipping a weapon mid-fight ("use staff"), must
+    /// correctly show the weapon armed. The npc name must also not swallow the armed form's ",
+    /// using the X as a weapon" clause - see the two-pattern comment on PlayerAttackStart.</summary>
     [Fact]
     public void UnarmedAttackThenWeaponEquip_EmitsBothAndKeepsTheWeapon()
     {
@@ -225,11 +221,10 @@ public class CombatTrackerTests
     [Fact]
     public void Kill_EmitsBeforeInCombatFlipsFalse()
     {
-        // Regression: a real ClogWriter listens to InCombatChanged to close its file and to
-        // EventOccurred to write each line. If End() ran before Emit(), the closing Kill/Fled/
-        // Withdrawn/etc. line would land after the writer already closed and be silently
-        // dropped from the clog — exactly what was observed in a live clog missing its final
-        // "You have killed the X." line. Assert Emit fires strictly before the false transition.
+        // A real ClogWriter listens to InCombatChanged to close its file and to EventOccurred to
+        // write each line. If End() ran before Emit(), the closing Kill/Fled/Withdrawn/etc. line
+        // would land after the writer already closed and be silently dropped from the clog.
+        // Assert Emit fires strictly before the false transition.
         var t = new CombatTracker();
         var order = new List<string>();
         t.EventOccurred += e => order.Add($"event:{e.Kind}");
@@ -252,7 +247,7 @@ public class CombatTrackerTests
         t.Observe(Line("You attack the rat0, using the dagger0 as a weapon."), t0);
         t.Observe(Line("You have killed the rat0."), t0);
 
-        Assert.False(t.InCombat);   // closed the instant the last active NPC died — no window
+        Assert.False(t.InCombat);   // closed the instant the last active NPC died - no window
         Assert.Equal([true, false], inCombat);
         Assert.Equal(CombatEventKind.Kill, events.Last().Kind);
     }
@@ -260,13 +255,12 @@ public class CombatTrackerTests
     [Fact]
     public void Kill_ThenUnrelatedNpcEngagesMomentsLater_StartsANewEncounter()
     {
-        // The owner's exact worked scenario: a solo rat dies, and a completely different rat
-        // starts attacking a fraction of a second later — well within what used to be a
-        // 5-second "pack straggler" grace window. It is NOT the same pack fight (rat21 never
-        // engaged while rat17 was still alive), and per the owner, once the combatant count
-        // reaches 0 the fight is over, full stop: whatever attacks next opens a genuinely new
-        // encounter. Any need to keep capturing trailing prose after the close belongs to
-        // logging (ClogWriter's tail capture — see ClogWriterTests), never to this class.
+        // A solo rat dies, and a completely different rat starts attacking a fraction of a second
+        // later. It is NOT the same pack fight (rat21 never engaged while rat17 was still alive):
+        // once the combatant count reaches 0, the fight is over, full stop, and whatever attacks
+        // next opens a genuinely new encounter. Any need to keep capturing trailing prose after
+        // the close belongs to logging (ClogWriter's tail capture - see ClogWriterTests), never
+        // to this class.
         var (t, inCombat, events) = NewTracker();
         var t0 = DateTime.UtcNow;
 
@@ -275,7 +269,7 @@ public class CombatTrackerTests
 
         Assert.False(t.InCombat);   // rat17's encounter is already fully closed
 
-        // Pure trailing prose CombatTracker never classifies (score/death confirmation) — must
+        // Pure trailing prose CombatTracker never classifies (score/death confirmation) - must
         // not reopen or otherwise affect the now-closed encounter.
         t.Observe(Line("(Persona saved on +22 = 101,389)."), t0 + TimeSpan.FromMilliseconds(60));
         t.Observe(Line("The rat17 has just passed on."), t0 + TimeSpan.FromMilliseconds(70));
@@ -293,10 +287,10 @@ public class CombatTrackerTests
     [Fact]
     public void NpcKillsYou_ClosesTheWholeEncounterEvenWithOtherActiveParticipants()
     {
-        // Regression: player death must close the WHOLE encounter unconditionally — a dead
-        // player cannot keep fighting anyone else in the same room, even if other NPCs (besides
-        // the killer) are still active. Using the ordinary single-NPC End() here would leave the
-        // ram dangling in _active with nothing left to ever remove it.
+        // Player death must close the WHOLE encounter unconditionally - a dead player cannot
+        // keep fighting anyone else in the same room, even if other NPCs (besides the killer)
+        // are still active. Using the ordinary single-NPC End() here would leave the ram
+        // dangling in _active with nothing left to ever remove it.
         var (t, inCombat, events) = NewTracker();
         t.Observe(Line("The vampire is looking at you hatefully."), DateTime.UtcNow);
         t.Observe(Line("The ram is glaring at you madly."), DateTime.UtcNow);
@@ -313,7 +307,7 @@ public class CombatTrackerTests
     {
         // Non-fightbrief ("narrative") phrasing, confirmed live: a character that never enabled
         // fightbrief was killed by a vampire. CombatTracker.Observe never sees a single
-        // fightbrief-format Hit/Miss/HitByNpc line for the whole fight — this death line may be
+        // fightbrief-format Hit/Miss/HitByNpc line for the whole fight - this death line may be
         // the ONLY classifiable line in the entire encounter, so it must close things cleanly.
         var (t, inCombat, events) = NewTracker();
         t.Observe(Line("The vampire is looking at you hatefully."), DateTime.UtcNow);
@@ -329,7 +323,7 @@ public class CombatTrackerTests
     public void NarrativeDeath_AnonymizedBySleepAndBlindness_ResolvesSoleActiveNpc()
     {
         // Exact real-capture scenario: the vampire cast blindness mid-fight, then put the player
-        // to sleep, then landed the killing blow while blind — MUD2 anonymizes the killer to
+        // to sleep, then landed the killing blow while blind - MUD2 anonymizes the killer to
         // "someone" in narrative mode whenever the player is blind. With exactly one active
         // participant, best-effort resolve "someone" back to that NPC rather than losing
         // attribution entirely.
@@ -347,7 +341,7 @@ public class CombatTrackerTests
     public void NarrativeDeath_AnonymizedWithMultipleActiveNpcs_KeepsAnonymousName()
     {
         // With more than one active participant there's no safe way to guess which NPC actually
-        // landed the blow — keep the literal "someone" rather than guessing wrong.
+        // landed the blow - keep the literal "someone" rather than guessing wrong.
         var (t, _, events) = NewTracker();
         t.Observe(Line("The billy goat is glaring at you madly."), DateTime.UtcNow);
         t.Observe(Line("The ram is glaring at you madly."), DateTime.UtcNow);
@@ -360,12 +354,10 @@ public class CombatTrackerTests
     [Fact]
     public void NpcTriedToGo_IsNotAFlee_AndLeavesTheFightOpen()
     {
-        // Per the user: an NPC that cannot move reports that it TRIED to go somewhere, and is still
-        // in the room. Treating that as a flee would close a live fight and (once pursuit lands) walk
-        // the player out of it. The NpcFled regex requires the literal "has fled by going", so this
-        // already does not match — pinned here because that was correct by luck rather than by design,
-        // and pursuit work is about to depend on the distinction.
-        // See tools/combat/MECHANICS_NOTES.md "Fleeing NPCs and pursuit".
+        // An NPC that cannot move reports that it TRIED to go somewhere, and is still in the
+        // room. Treating that as a flee would close a live fight and (once pursuit lands) walk
+        // the player out of it. The NpcFled regex requires the literal "has fled by going", so
+        // this does not match.
         var (t, inCombat, events) = NewTracker();
         t.Observe(Line("You attack the billy goat, using the falchion as a weapon."), DateTime.UtcNow);
         t.Observe(Line("The billy goat has tried to go north."), DateTime.UtcNow);
@@ -416,8 +408,7 @@ public class CombatTrackerTests
     /// blow as well, and one of the three that run straight on to a kill.
     ///
     /// <para>Two things are being asserted and they are the whole point of the kind: the line is
-    /// classified and attributed to the creature that spoke it, and it does NOT end the fight. Prior
-    /// to this it matched nothing at all, so the offer was invisible to the clog corpus.</para>
+    /// classified and attributed to the creature that spoke it, and it does NOT end the fight.</para>
     /// </summary>
     [Fact]
     public void NpcWithdrawOffer_IsAttributed_AndDoesNotEndTheFight()
@@ -467,8 +458,8 @@ public class CombatTrackerTests
     [Fact]
     public void YouFlee_ClosesEveryActiveFightAtOnce()
     {
-        // User's worked scenario has a single-flee-closes-two-concurrent-fights precedent
-        // (confirmed offline: one "You have fled..." line ended two simultaneous rat fights).
+        // A single "You have fled..." line closes multiple simultaneous fights at once
+        // (confirmed offline: one such line ended two simultaneous rat fights).
         var (t, inCombat, events) = NewTracker();
         t.Observe(Line("The rat0 is rushing at you madly."), DateTime.UtcNow);
         t.Observe(Line("The rat1 is rushing at you madly."), DateTime.UtcNow);
@@ -483,10 +474,9 @@ public class CombatTrackerTests
     [Fact]
     public void MultiNpcEncounter_GoatAndRam_StaysInCombatUntilBothResolved()
     {
-        // User's exact worked example: goat + ram attack together, goat flees, ram is killed,
-        // goat is followed and re-engaged, then killed — 3 encounters/4 fights in the FULL
-        // analytical model (tools/combat), but CombatTracker only needs to get InCombat right
-        // across the whole sequence, which this asserts end-to-end.
+        // Goat + ram attack together, goat flees, ram is killed, goat is followed and
+        // re-engaged, then killed. CombatTracker only needs to get InCombat right across the
+        // whole sequence, which this asserts end-to-end.
         var (t, inCombat, _) = NewTracker();
         var t0 = DateTime.UtcNow;
         t.Observe(Line("The billy goat is glaring at you madly."), t0);
@@ -494,12 +484,12 @@ public class CombatTrackerTests
         Assert.True(t.InCombat);   // encounter 1 open (goat + ram both active)
 
         t.Observe(Line("The billy goat has fled by going west."), t0);
-        Assert.True(t.InCombat);   // ram still active — goat fleeing must NOT end combat
+        Assert.True(t.InCombat);   // ram still active - goat fleeing must NOT end combat
 
         t.Observe(Line("You have killed the ram."), t0);
-        Assert.False(t.InCombat);   // ram was the last one active — encounter 1 closes immediately
+        Assert.False(t.InCombat);   // ram was the last one active - encounter 1 closes immediately
 
-        // Re-engaging the fled goat — any time later, even moments after — opens a genuinely new
+        // Re-engaging the fled goat - any time later, even moments after - opens a genuinely new
         // encounter, the same behaviour a real "follow the fled goat, then re-attack" produces.
         var t1 = t0 + TimeSpan.FromSeconds(10);
         t.Observe(Line("You attack the billy goat, using the falchion as a weapon."), t1);
@@ -513,7 +503,7 @@ public class CombatTrackerTests
     [Fact]
     public void WeaponSwitchAndBreak_ClassifiedAsPlainTextEvents()
     {
-        // Confirmed offline these carry NO C1 wrapper at all — plain narrative text only.
+        // Confirmed offline these carry NO C1 wrapper at all - plain narrative text only.
         var (t, _, events) = NewTracker();
         t.Observe(Line("You attack the rat0, using the falchion as a weapon."), DateTime.UtcNow);
         t.Observe(Line("You drop your guard as you switch from using the falchion to the dagger0."), DateTime.UtcNow);
@@ -555,7 +545,7 @@ public class CombatTrackerTests
     public void FightEndOther_IsInformationalOnly_DoesNotCloseCombat()
     {
         // Verified against the full research capture: this line (108/108... 27 in the smaller
-        // sample) always trails "The X has fled by going <dir>." for the SAME npc — NpcFled
+        // sample) always trails "The X has fled by going <dir>." for the SAME npc - NpcFled
         // already ends that fight. It carries no NPC name, so it must NOT itself force-close
         // combat (that would wrongly end OTHER still-active fights in a multi-NPC encounter).
         var (t, inCombat, events) = NewTracker();
@@ -572,7 +562,7 @@ public class CombatTrackerTests
     public void ForceEnd_ClosesOpenEncounterAndIsANoOpWhenNotInCombat()
     {
         var (t, inCombat, events) = NewTracker();
-        // Not in combat yet — force-end must be a silent no-op (e.g. reset outside any fight).
+        // Not in combat yet - force-end must be a silent no-op (e.g. reset outside any fight).
         t.ForceEnd(DateTime.UtcNow);
         Assert.Empty(inCombat);
         Assert.Empty(events);
@@ -585,11 +575,11 @@ public class CombatTrackerTests
 
     /// <summary>
     /// Every force-end reason emits <see cref="CombatEventKind.EncounterForceEnded"/>, never
-    /// <see cref="CombatEventKind.FightEndOther"/>. It used to emit the latter with a null name, which
-    /// is byte-identical to MUD2's own pronoun form ("You can fight it no longer.") - and that form has
-    /// to stay a no-op at every consumer, so the client's own "the whole encounter is over" was ignored
-    /// with it and a reset left the rail drawing the pack (owner: "a reset doesn't cancel open
-    /// fights"). The reason string is carried in the raw text for the clog and nothing branches on it.
+    /// <see cref="CombatEventKind.FightEndOther"/>, which is byte-identical to MUD2's own pronoun
+    /// form ("You can fight it no longer.") and must stay a no-op at every consumer. A reset does
+    /// not cancel open fights, so sharing that event kind would leave the rail drawing the pack
+    /// after a reset. The reason string is carried in the raw text for the clog and nothing
+    /// branches on it.
     /// </summary>
     [Theory]
     [InlineData("world reset")]       // MudSession.OnWorldResetLanded
@@ -608,11 +598,10 @@ public class CombatTrackerTests
     }
 
     /// <summary>
-    /// The wyvern frame as the OWNER PASTED IT (2026-08-26) — his own report of an earlier fight at
-    /// 5,201 points, with a pitchfork that broke; no capture holds it. The separate captured
-    /// occurrence, which used a dagger, is replayed from its real bytes in
-    /// <c>WyvernPoisonDeathReplayTests</c>. Two different fights, same three closing lines, and worth
-    /// keeping straight: the first write-up of this fix merged them into one "verbatim" transcript.
+    /// This wyvern frame is a reported fight at 5,201 points, with a pitchfork that broke; no
+    /// capture holds it. The separate captured occurrence, which used a dagger, is replayed from
+    /// its real bytes in <c>WyvernPoisonDeathReplayTests</c>. Two different fights, with the same
+    /// three closing lines.
     ///
     /// <para>Either way MUD2 printed no "You have killed the X." at all, and the client matched none
     /// of the three lines that announce the end, so it claimed combat for the rest of the session.</para>
@@ -667,7 +656,7 @@ public class CombatTrackerTests
     /// <summary>
     /// Something else in the room dying of poison is not this fight's business. Mirrors the
     /// NpcHealth rule: a line about a creature the player never engaged must not open a fight
-    /// against it — a phantom opponent on the panel is worse than a missing one in a permadeath game.
+    /// against it - a phantom opponent on the panel is worse than a missing one in a permadeath game.
     /// </summary>
     [Fact]
     public void PoisonDeath_OfAnUnengagedCreature_IsIgnored()
@@ -702,7 +691,7 @@ public class CombatTrackerTests
 
     /// <summary>
     /// The named form of the case-3 trailing line carries a creature name, so it can close that one
-    /// fight — and only that one.
+    /// fight - and only that one.
     /// </summary>
     [Fact]
     public void FightEndOther_NamedForm_ClosesTheFightItNames()
@@ -724,8 +713,8 @@ public class CombatTrackerTests
     }
 
     /// <summary>
-    /// A named fight-end for a creature we are not fighting reports no name. Per the owner: we ignore
-    /// it if we are not fighting that npc - simple.
+    /// A named fight-end for a creature we are not fighting reports no name: we ignore it if we
+    /// are not fighting that npc.
     ///
     /// <para>The case is a frame stacking several end messages where this one lands after another has
     /// already closed the fight - the captured wyvern frame exactly, where the poison death closes it
@@ -754,9 +743,8 @@ public class CombatTrackerTests
     }
 
     /// <summary>
-    /// The gendered pronoun forms appear in the captures (him 4, her 1) and only "it" was matched,
-    /// so they were unrecognised lines. They name nobody, so they stay informational exactly as "it"
-    /// does — but they must at least be classified.
+    /// The gendered pronoun forms appear in the captures (him 4, her 1). They name nobody, so they
+    /// stay informational exactly as "it" does - but they must at least be classified.
     /// </summary>
     [Theory]
     [InlineData("You can fight it no longer.")]
@@ -777,8 +765,8 @@ public class CombatTrackerTests
 
     /// <summary>
     /// The backstop for every fight-end phrasing nobody has found yet: in MUD2 you cannot walk out
-    /// of a fight (owner), so a room change proves the fight is over. It announces itself in the
-    /// event's raw text, because each time it fires there is an unmatched line to go and find.
+    /// of a fight, so a room change proves the fight is over. It announces itself in the event's
+    /// raw text, because each time it fires there is an unmatched line to go and find.
     /// </summary>
     [Fact]
     public void NoteRoomChanged_ClosesAnOpenEncounter_AndSaysThatIsWhatHappened()
@@ -876,15 +864,10 @@ public class CombatTrackerTests
     }
 
     /// <summary>
-    /// Regression, reported in play: the combat metronome fell silent for most of a fight, because a
-    /// pack fight's encounter was being closed and reopened on every kill.
-    ///
-    /// <para>MUD2 prints the trailing "You can fight it no longer." for the fight that just ended, in
-    /// the same frame. SoleActiveOnFightEnd read "exactly one creature still active" as "so this line
-    /// must mean that one" - but the other had been removed moments earlier by the kill, so the line
-    /// was about the corpse and the survivor got closed while it was still swinging. The encounter
-    /// then reopened on its next blow, and since the tick phase is only known from an encounter's
-    /// first swing, the metronome restarted each time and clicked a handful of times in two minutes.</para>
+    /// MUD2 prints the trailing "You can fight it no longer." for the fight that just ended, in the
+    /// same frame. Once a kill has already resolved one participant, "exactly one creature still
+    /// active" no longer identifies which fight a trailing pronoun line is about, so it must not be
+    /// read as closing the survivor.
     /// </summary>
     [Fact]
     public void PackKill_ThenTrailingPronounEnd_LeavesTheSurvivorFighting()
@@ -907,10 +890,10 @@ public class CombatTrackerTests
     }
 
     /// <summary>
-    /// The suppression lasts one FRAME, not the whole encounter. A review traced the over-broad
-    /// version: a pack where one creature died early meant the last survivor's genuinely unmatched
-    /// end - frames later, with nothing else nearby - went unrescued for the rest of the encounter,
-    /// which is exactly the case SoleActiveOnFightEnd exists for.
+    /// The suppression lasts one FRAME, not the whole encounter: scoping it to the whole encounter
+    /// would leave a later, genuinely unmatched end for the last survivor - frames later, with
+    /// nothing else nearby - unrescued for the rest of the encounter, which is exactly the case
+    /// SoleActiveOnFightEnd exists for.
     ///
     /// <para>The prompt is the boundary that lapses it, and MUD2's guarantee that every end prints
     /// inside a single frame is what makes that the right scope: an echo cannot be separated from the
@@ -942,7 +925,7 @@ public class CombatTrackerTests
     }
 
     /// <summary>The same trailing line for a creature that fled rather than died - the frame from
-    /// FIGHT-ENDS.md's water-snake case, with a second creature present.</summary>
+    /// docs/MUD2-fight-ends.md's water-snake case, with a second creature present.</summary>
     [Fact]
     public void PackFleeFailed_ThenTrailingPronounEnd_LeavesTheSurvivorFighting()
     {

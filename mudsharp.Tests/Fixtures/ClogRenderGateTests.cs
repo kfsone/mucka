@@ -3,10 +3,10 @@ using Mucka.ViewModels;
 namespace mudsharp.Tests.Fixtures;
 
 /// <summary>
-/// Coverage for the coalescing gate behind the clog window's pack-fight fix (see
-/// SidePanelViewModel.OnCombatEvent/OnStatsUpdated/TickCombatDisplay). The gate is what stops a
-/// burst of combat events from rebuilding the native FormattedString (ClogPage.Render) far faster
-/// than anyone can read it, while guaranteeing the eventual state is never lost.
+/// Coverage for the coalescing gate behind the clog window's render throttling (see
+/// SidePanelViewModel.OnCombatEvent/OnStatsUpdated/TickCombatDisplay). The gate stops a burst of
+/// combat events from rebuilding the native FormattedString (ClogPage.Render) far faster than
+/// anyone can read it, while guaranteeing the eventual state is never lost.
 /// </summary>
 public sealed class ClogRenderGateTests
 {

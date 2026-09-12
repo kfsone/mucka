@@ -1,7 +1,7 @@
 # Mucka.Input — the command box's sandbox
 
 This project exists because the command-input box has been broken three times, by three different
-well-meant changes, each made by someone who did not realise they were standing in the typing path:
+well-meant changes that did not realise they were standing in the typing path:
 
 1. a TwoWay binding round-trip, so a type-then-Enter faster than ~10 ms stranded the last character;
 2. a clear that depended on a PropertyChanged chain, which raises nothing when the value is
@@ -16,7 +16,7 @@ well-meant changes, each made by someone who did not realise they were standing 
 Each was individually reasonable-looking. Comments did not prevent any of them. So the rules are now
 **mechanical**.
 
-Note that (2) and (4) are the *same* mistake a year apart in different clothes: treating "has this
+Note that (2) and (4) are the *same* mistake in different clothes: treating "has this
 value changed?" as a proxy for "does the box need updating?". They are not the same question. The
 framework therefore never compares — `RequestSetText` and `RequestClear` deliver unconditionally, and
 `CommandInputTests` pins that.
@@ -28,8 +28,8 @@ control. Everything else in this project is platform-free, which means:
 
 - App code on the far side **cannot reach a `TextBox`** — not "should not", *cannot*. There is no
   `using` that gets you there from here.
-- Every rule below is unit-testable off-device, and is tested (`CommandInputTests`). They used to be
-  discoverable only by the owner, live, at 120 wpm.
+- Every rule below is unit-testable off-device, and is tested (`CommandInputTests`), rather than
+  discoverable only through live use at typing speed.
 
 Same mechanism, same reason, as `mudsharp` (pure protocol, no MAUI) and `Mucka.Terminal`
 (presentation logic, no MAUI). Assembly boundaries are how this codebase already enforces
@@ -52,8 +52,8 @@ architecture.
 ## What does *not* belong here
 
 Autocomplete, expansion, history, command parsing, anything that inspects a line as it is typed. The
-owner's standing position: the box has one job — capture and enqueue user input correctly and
-smoothly. All of those live on the far side of `InputGate`, where they can take as long as they like.
+box has one job — capture and enqueue user input correctly and smoothly. All of those live on the far
+side of `InputGate`, where they can take as long as they like.
 
 If a change appears to need a fifth method on `IInputSurface`, that is the signal to ask whether the
 feature belongs in the input path at all. So far the answer has always been no.

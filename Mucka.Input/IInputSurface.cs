@@ -30,8 +30,7 @@ public interface IInputSurface
     /// <para>The caret is a parameter rather than always-at-the-end because the two real callers want
     /// different things: history recall continues at the end of the recalled command, while inserting
     /// a clicked name or a reply prefix leaves the caret just after the prefix so the player types the
-    /// rest. Expressing that here is what stops a feature reaching for the control to do it itself -
-    /// which is how the last direct writer survived the first pass of this boundary.</para>
+    /// rest. Expressing that here is what stops a feature reaching for the control to do it itself.</para>
     /// </summary>
     void SetText(string text, int caretPosition);
 

@@ -4,7 +4,7 @@ namespace MudSharp.Models;
 /// Semantic classification of a completed output line, derived from the MUD2 C1 code that
 /// introduced it (see fecodes.txt). Used by the chat-view filter: chat mode shows only
 /// <see cref="Chat"/> lines, so everything else (room text, combat, prompts, echoes) is hidden.
-/// Room to grow — add Combat (codes 07/08), Wiz (code 10), etc. as filters need them.
+/// Room to grow - add Combat (codes 07/08), Wiz (code 10), etc. as filters need them.
 ///
 /// <para><see cref="Chat"/> wins over any other kind when both apply, because it is the one that
 /// drives a filter the player can see; the rest are evidence for consumers.</para>
@@ -14,11 +14,11 @@ public enum LineKind
     /// <summary>Anything without a more specific classification: room text, combat, echoes, prompts.</summary>
     Normal = 0,
 
-    /// <summary>A "speaker of a message" line — C1 code 09 (shout/say/tell/act/emote/social).</summary>
+    /// <summary>A "speaker of a message" line - C1 code 09 (shout/say/tell/act/emote/social).</summary>
     Chat,
 
     /// <summary>
-    /// A fight-end line — C1 codes 08.10 (withdraw), 08.11 (flee) and 08.12 (other). The server
+    /// A fight-end line - C1 codes 08.10 (withdraw), 08.11 (flee) and 08.12 (other). The server
     /// itself is stating that a fight ended, which is worth far more than the sentence it says it
     /// with: the prose has turned out three times now to have wordings nothing here matched
     /// (a creature's failed flee, the player's failed flee, and "You can fight the wyvern no
@@ -26,7 +26,7 @@ public enum LineKind
     /// closed. The code was correct in all three frames.
     ///
     /// <para>The prose is still parsed, because the code says only THAT a fight ended and never
-    /// WHICH creature — see CombatTracker's FightEndOther handling, which takes the name from the
+    /// WHICH creature - see CombatTracker's FightEndOther handling, which takes the name from the
     /// text and the authority from this.</para>
     ///
     /// <para><b>What the code says is WHY a fight ended, never what happened.</b> Bartle's own list

@@ -7,9 +7,8 @@ namespace MudSharp.Tests.Fixtures;
 ///
 /// <para>Worth pinning because the dependency is invisible from the audio code: if
 /// <see cref="WavProbe.Parse"/> returns null, the metronome silently falls back to scheduling by the
-/// bracket offset alone, which is the doubled-hit overlap two shipped versions already had. A parser
-/// that fails quietly is the worst shape for this, so these tests cover the refusals as carefully as the
-/// successes.</para>
+/// bracket offset alone, producing a doubled-hit overlap. A parser that fails quietly is the worst
+/// shape for this, so these tests cover the refusals as carefully as the successes.</para>
 /// </summary>
 public class WavProbeTests
 {
@@ -76,7 +75,7 @@ public class WavProbeTests
     }
 
     /// <summary>A run of silence, then a short loud body, then a long quiet tail - the shape of the real
-    /// Perc_Stick assets after padding, and the shape that broke two versions of the scheduler.</summary>
+    /// Perc_Stick assets after padding.</summary>
     private static IReadOnlyList<double> ClickEnvelope(
         int silenceFrames, int bodyFrames, int tailFrames, double tailLevel = 0.02)
     {
@@ -103,8 +102,8 @@ public class WavProbeTests
     [Fact]
     public void TheTailIsWhatMattered_SoAssertItIsExcluded()
     {
-        // The bug this class exists to prevent: scheduling by TotalMs put the audible content a whole
-        // tail-length earlier than intended. The span must not be the file.
+        // Scheduling by TotalMs would put the audible content a whole tail-length earlier than
+        // intended. The span must not be the file.
         var span = WavProbe.Parse(Wav(ClickEnvelope(30 * 48, 36 * 48, 134 * 48)))!.Value;
         Assert.True(span.TotalMs - span.AudibleEndMs > 100,
             "the test envelope is supposed to have a long inaudible tail, or it is not testing anything");
@@ -119,8 +118,7 @@ public class WavProbeTests
 
         Assert.NotNull(span);
         // 220 frames at 22.05 kHz. The END is the LAST audible frame (index 439), not the first silent
-        // one, so it is 19.9 ms rather than a round 20 - an off-by-one-frame the first version of this
-        // test got wrong, in the test rather than the code.
+        // one, so it is 19.9 ms rather than a round 20.
         Assert.Equal(10.0, span!.Value.AudibleStartMs, 1);
         Assert.Equal(19.9, span.Value.AudibleEndMs, 1);
     }
@@ -139,8 +137,8 @@ public class WavProbeTests
     ///
     /// <para>Deliberately does NOT test a level of exactly 0.1 (the floor). At 16-bit,
     /// <c>0.1 * 32767</c> rounds to 3277, which is a hair ABOVE a floor derived from a peak of
-    /// 32767/32768 - so an exactly-at-floor test asserts a property of the builder's rounding rather
-    /// than of the probe. The first version of this test did that and failed for that reason.</para>
+    /// 32767/32768 - so an exactly-at-floor test would assert a property of the builder's rounding
+    /// rather than of the probe.</para>
     /// </summary>
     [Theory]
     [InlineData(0.09)]
@@ -157,7 +155,7 @@ public class WavProbeTests
         Assert.Equal(0.0, span.AudibleEndMs, 1);
     }
 
-    // ── Refusals. Each of these silently degrades the metronome if it returns a wrong answer. ──
+    // -- Refusals. Each of these silently degrades the metronome if it returns a wrong answer. --
 
     [Fact]
     public void RefusesNonPcm()
@@ -195,13 +193,12 @@ public class WavProbeTests
     public void ReadReturnsNullForAMissingFile()
         => Assert.Null(WavProbe.Read(Path.Combine(Path.GetTempPath(), "mucka-no-such-file-9d3f.wav")));
 
-    // ── The arithmetic the metronome does with the result ──────────────────────────────────────
+    // -- The arithmetic the metronome does with the result --------------------------------------
 
     /// <summary>
-    /// The bracket the owner specified: 100 ms of silence between the END of the first sound and the
-    /// START of the second, centred on the tick boundary. This reproduces CombatMetronome's two offset
-    /// calculations against a real-shaped clip and checks the perceived result, which is the thing that
-    /// was wrong in play twice.
+    /// The required bracket: 100 ms of silence between the END of the first sound and the START of
+    /// the second, centred on the tick boundary. This reproduces CombatMetronome's two offset
+    /// calculations against a real-shaped clip and checks the perceived result.
     /// </summary>
     [Fact]
     public void ScheduledFromTheSpan_ThePerceivedGapIsExactlyTwoN_CentredOnTheBoundary()

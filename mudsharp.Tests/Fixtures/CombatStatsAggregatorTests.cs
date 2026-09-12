@@ -36,9 +36,9 @@ public sealed class CombatStatsAggregatorTests
         var start = new DateTime(2026, 8, 1, 12, 0, 0, DateTimeKind.Utc);
         var aggregator = new CombatStatsAggregator();
 
-        // Pre-fight stamina must be known BEFORE BeginEncounter — that's the only reading
-        // BeginEncounter can safely seed its combat baseline from (see the regression test
-        // below for why mid-fight ObserveStamina calls must NOT be used for this).
+        // Pre-fight stamina must be known BEFORE BeginEncounter - that's the only reading
+        // BeginEncounter can safely seed its combat baseline from (see the test below for why
+        // mid-fight ObserveStamina calls must NOT be used for this).
         aggregator.ObserveStamina(100);
         aggregator.BeginEncounter(start);
         aggregator.Observe(new CombatEvent(start.AddSeconds(1), CombatEventKind.HitByNpc, CombatActor.Npc, "rat0", null, 94, 100, ""));
@@ -46,7 +46,8 @@ public sealed class CombatStatsAggregatorTests
         // Simulates MudStreamParser's real firing order: GameLineAnalyzer's own stamina scan
         // fires StatsUpdated -> ObserveStamina with a hit line's OWN embedded (cur/max) BEFORE
         // CombatTracker's matching HitByNpc event reaches here for that same line. Must have
-        // zero effect on the delta chain (see next test for the bug this used to cause).
+        // zero effect on the delta chain (see the next test, which exercises this ordering's
+        // failure mode directly).
         aggregator.ObserveStamina(91);
         aggregator.Observe(new CombatEvent(start.AddSeconds(3), CombatEventKind.HitByNpc, CombatActor.Npc, "rat0", null, 91, 100, ""));
         aggregator.ObserveStamina(93);
@@ -62,15 +63,13 @@ public sealed class CombatStatsAggregatorTests
     [Fact]
     public void Snapshot_SingleHitFight_StillComputesDamageDespiteSameLineStatsRace()
     {
-        // Regression: reported live as "damage taken always shows 0.0". Root cause: a hit line
-        // like "The zombie0 hits you (95/100)." is parsed TWICE — once generically by
+        // A hit line like "The zombie0 hits you (95/100)." is parsed TWICE - once generically by
         // GameLineAnalyzer (which fires StatsUpdated -> ObserveStamina(95)) and once by
-        // CombatTracker's HitByNpc regex (RangeLow=95) — and MudStreamParser fires StatsUpdated
-        // for a line strictly BEFORE LineReady/_combat.Observe for that SAME line. The old code
-        // read _lastKnownStamina directly inside ObserveDamageTaken, so it had ALREADY been
-        // overwritten with this exact hit's OWN value by the time the delta was computed,
-        // making every delta exactly 0 — most visible on a single-hit fight (the common case:
-        // most NPC swings miss), which is exactly what a real live zombie fight looked like.
+        // CombatTracker's HitByNpc regex (RangeLow=95) - and MudStreamParser fires StatsUpdated
+        // for a line strictly BEFORE LineReady/_combat.Observe for that SAME line.
+        // ObserveDamageTaken must diff against the pre-hit baseline, not the value this exact
+        // hit's own line just wrote, or every delta on a single-hit fight computes as 0 - most
+        // visible on a single-hit fight, the common case since most NPC swings miss.
         var start = new DateTime(2026, 8, 1, 12, 0, 0, DateTimeKind.Utc);
         var aggregator = new CombatStatsAggregator();
 
@@ -94,9 +93,9 @@ public sealed class CombatStatsAggregatorTests
     [Fact]
     public void Snapshot_RegenerationBetweenHits_RevisesBaselineSoNextHitIsNotOverOrUnderCounted()
     {
-        // Player-requested behaviour: stamina can rise mid-fight (natural 1-point regen ticks,
-        // the dreamword's stamina recovery, the temporary-heal spell, eating a wafer) via a line
-        // that carries NO accompanying combat event of its own — basing damage-taken on a fixed
+        // Stamina can rise mid-fight (natural 1-point regen ticks, the dreamword's stamina
+        // recovery, the temporary-heal spell, eating a wafer) via a line
+        // that carries NO accompanying combat event of its own - basing damage-taken on a fixed
         // pre-fight baseline would misattribute that recovery as "the NPC hit for less" on the
         // NEXT blow. The running _lastKnownStamina chain must instead revise the baseline as each
         // regen/heal reading arrives, so a later hit's delta is diffed against the truly-current
@@ -111,7 +110,7 @@ public sealed class CombatStatsAggregatorTests
         aggregator.ObserveStamina(95);   // same-line relay ahead of the matching hit
         aggregator.Observe(new CombatEvent(start.AddSeconds(1), CombatEventKind.HitByNpc, CombatActor.Npc, "rat0", null, 95, 100, ""));
 
-        // A natural regen tick (or heal/wafer/dreamword) recovers 2 points — no combat event at
+        // A natural regen tick (or heal/wafer/dreamword) recovers 2 points - no combat event at
         // all accompanies this line, just a bare stat update.
         aggregator.ObserveStamina(97);
 
@@ -170,10 +169,9 @@ public sealed class CombatStatsAggregatorTests
     [Fact]
     public void FightEndOther_DoesNotClearOtherActiveParticipants()
     {
-        // Regression: mirrors the exact CombatTracker fix — "You can fight it no longer." is a
-        // trailing acknowledgment (or, for aquatic NPCs, a dive/submerge re-engagement cycle),
-        // never an authoritative close. In a multi-NPC fight it must not drop OTHER still-active
-        // participants from the live HUD's target list.
+        // "You can fight it no longer." is a trailing acknowledgment (or, for aquatic NPCs, a
+        // dive/submerge re-engagement cycle), never an authoritative close. In a multi-NPC fight
+        // it must not drop OTHER still-active participants from the live HUD's target list.
         var start = new DateTime(2026, 8, 1, 12, 0, 0, DateTimeKind.Utc);
         var aggregator = new CombatStatsAggregator();
 

@@ -6,11 +6,10 @@ namespace mudsharp.Tests.Fixtures;
 /// Coverage for the encounter table's one coloured cell.
 ///
 /// <para>Worth pinning even though it is four lines of switch, because it is the readout that says
-/// "run" on a permadeath character and because the version it replaced was wrong in a way no test
-/// could have caught: a second ladder derived from the raw projections, which painted green inside
-/// the band where <see cref="CombatOutlook"/> itself was reporting Even. These tests exist mostly to
-/// hold the relationship between the two - the verdict decides the side, the margin decides the
-/// distance, and neither is re-derived here.</para>
+/// "run" on a permadeath character, and because a second ladder derived from the raw projections
+/// would paint green inside the band where <see cref="CombatOutlook"/> itself is reporting Even.
+/// These tests exist mostly to hold the relationship between the two - the verdict decides the
+/// side, the margin decides the distance, and neither is re-derived here.</para>
 /// </summary>
 public sealed class SurvivalReadingTests
 {

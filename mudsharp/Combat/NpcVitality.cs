@@ -28,8 +28,7 @@ public enum VitalityBasis
 /// creature is in - a whole rung wide, and on a 280-stamina giant that is 40 stamina of ignorance. A
 /// CROSSING says it just passed a specific line, and the blow that pushed it over bounds how far past:
 /// land a 1-4 and it is now within 4 stamina of that line; land a 20-29 and it could be anywhere in a
-/// 29-wide window. The owner's framing, 2026-09-01: "on another fight, if we keep doing 1-5 damage
-/// repeatedly, we have a finer grained read on when we cross those boundaries against that."</para>
+/// 29-wide window.</para>
 ///
 /// <para>So many small blows resolve the ladder far better than few large ones do, at the SAME total
 /// damage. That is the mechanism by which the reading sharpens with familiarity, and it costs nothing
@@ -80,8 +79,8 @@ public readonly record struct VitalityBand(double Low, double High, VitalityBasi
 /// <para><b>A LADDER POSITION, not a stamina figure.</b> Every creature has the same seven rungs; a
 /// bigger creature does not get more of them, its rungs are simply worth more stamina and it labels
 /// them with different words. So this returns where on that ladder the creature stands, as a fraction
-/// of its own full, and every absolute figure the estimator produces stays under the hood. The owner's
-/// instruction, 2026-09-01: "We're not asking the player to do math."</para>
+/// of its own full, and every absolute figure the estimator produces stays under the hood - the
+/// player is never asked to do math.</para>
 ///
 /// <para><b>The rung is the source; the estimator only narrows it.</b> A descriptor puts the creature
 /// inside one seventh and nothing else is needed to draw that. What <see cref="StaminaPoolEstimator"/>

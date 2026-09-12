@@ -33,7 +33,7 @@ public class Profile
     public bool DefaultHotkeys { get; set; } = true;
     /// <summary>Terminal font size in pixels. 0 = use the built-in default (15px).</summary>
     public int FontSize { get; set; } = 0;
-    /// <summary>Sound volume, 0–100. Default 75.</summary>
+    /// <summary>Sound volume, 0-100. Default 75.</summary>
     public int Volume { get; set; } = 75;
     /// <summary>FES stats-update heartbeat interval in seconds. 0 = disabled. Default 10.</summary>
     public int StatUpdateFrequency { get; set; } = 10;
@@ -67,7 +67,7 @@ public class Profile
     /// rather than the global [fkeys]. Derived from mucka.ini at load; not persisted here.</summary>
     public bool FkeysPerProfile { get; set; }
 
-    // ── Display tab settings (global, loaded from [settings] section at connect time) ──
+    // -- Display tab settings (global, loaded from [settings] section at connect time) --
     public int DefaultFontSize { get; set; }
     public int DefaultMaxColumns { get; set; }
     public int DreamwordSizeOffset { get; set; }
@@ -82,7 +82,7 @@ public class Profile
     public int MaxOnlineDisplay { get; set; }
     public bool OnlineNamesOnly { get; set; }
     /// <summary>Minutes a player lingers in the "Recent" list after fading off Online before
-    /// being forgotten. 0 = disabled (forget immediately). Range 0–10, default 5.</summary>
+    /// being forgotten. 0 = disabled (forget immediately). Range 0-10, default 5.</summary>
     public int OnlineForgetWindow { get; set; } = 5;
     /// <summary>Global default for floating (unpinning) the Online list. False = pinned in the side panel.</summary>
     public bool FloatOnline { get; set; }

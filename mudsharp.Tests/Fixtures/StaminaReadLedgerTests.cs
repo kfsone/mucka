@@ -9,11 +9,10 @@ namespace mudsharp.Tests.Fixtures;
 /// Persisting the <c>diagnose</c> probe, and warming the pool and reach indexes back off the
 /// database.
 ///
-/// <para>The probe line - "The water-snake5 has a stamina lying between 90 and 99." - has been parsed
-/// since 2026-08-26 and, until now, dropped on the floor. It is the only direct measurement of NPC
-/// stamina MUD2 gives, four observations exist in the whole corpus, and none of them was written
-/// down. These tests drive it through the real tracker and read the DATABASE back, so the column
-/// names are under test too.</para>
+/// <para>The probe line - "The water-snake5 has a stamina lying between 90 and 99." - is the only
+/// direct measurement of NPC stamina MUD2 gives; four observations exist in the whole corpus. These
+/// tests drive it through the real tracker and read the DATABASE back, so the column names are under
+/// test too.</para>
 /// </summary>
 public sealed class StaminaReadLedgerTests : IDisposable
 {
@@ -174,7 +173,7 @@ public sealed class StaminaReadLedgerTests : IDisposable
         Assert.Equal(2L, command.ExecuteScalar());
     }
 
-    // ── Warming the indexes back off the database ────────────────────────────────
+    // -- Warming the indexes back off the database --------------------------------
 
     [Fact]
     public async Task WarmRebuildsThePoolBandFromTheStoredSwingsAndFightRows()
@@ -242,7 +241,7 @@ public sealed class StaminaReadLedgerTests : IDisposable
     {
         // SwingLedger maps fights.outcome to PoolFightRow.EndedInKill with an exact ordinal match on
         // "Kill", and that single comparison is what decides whether a row can bound the pool from
-        // ABOVE. Nothing tested it.
+        // ABOVE.
         //
         // NoMore is the case that matters: the creature died of poison, so the damage that finished it
         // never crossed the wire. Reading it as a kill would hand the estimator a ceiling built from a

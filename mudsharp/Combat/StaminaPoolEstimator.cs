@@ -183,42 +183,14 @@ public sealed record StaminaPoolEstimate(
 /// it was still standing after a known amount of damage, and that it stopped being so on a known
 /// blow.
 ///
-/// <para><b>What this replaced, and why.</b> The previous estimator took the MEDIAN TOTAL DAMAGE of
+/// <para><b>What this replaced, and why.</b> A prior estimator took the median total damage of
 /// fights that ended in a kill. Every such sample includes the killing blow's overkill, so it reads
-/// high. That much is a matter of arithmetic and is not in doubt; the old figure is not a worse
-/// version of this one, it is a different quantity (how much damage a kill costs) wearing this one's
-/// name.</para>
+/// high - a different quantity (how much damage a kill costs), not a worse version of this one.</para>
 ///
-/// <para><b>What the validation is actually worth - read this before quoting it (audit,
-/// 2026-09-03).</b> An earlier version of this comment said the old estimator was "biased high by
-/// 21% - measured across 48 instances against an independently published figure", and that this one
-/// "scores median 0.0% error and 4.3% mean absolute error, with the published value inside the
-/// reported interval for 39 of 41 non-zombie instances". Two problems, both material.</para>
-///
-/// <para>First, the "independently published figure" is <c>tools/combat/bestiary.tsv</c> - the mobile
-/// table transcribed from TheMudWiz's MUD2 Strategy Guide v0.42 on GameFAQs, which
-/// <c>verify_mechanics.py</c> loads as its ground truth. <c>MUD2-PUBLISHED-MECHANICS.md:5</c>, the
-/// header of the document that data belongs to, says of it: "These are HYPOTHESES, not ground truth.
-/// The guide is player-derived and years old." Calling it "independently published" made a
-/// player-derived FAQ sound like an authority. It is a second guess, and agreeing with it is
-/// corroboration between two estimates, not accuracy against a measurement. There is no measurement
-/// to be accurate against: MUD2 never prints a creature's stamina (see the rung item below).</para>
-///
-/// <para>Second, none of the four numbers is traceable. 21%, 48 instances, median 0.0%, 4.3% MAE and
-/// 39-of-41 appear in no script, no document, and no stored result anywhere in the repo - only in
-/// this comment and in the ones that cite it. The only stored run of this method is
-/// <c>MECHANICS-VERIFICATION.md</c>, whose corpus was "two captures, about 69 wall-clock minutes …
-/// 25 fights, 23 kills", which returned INCONCLUSIVE with "22 of 23 kills put the published STA
-/// inside that bracket" - a different unit, a different n, and a corpus far too small to contain 48
-/// instances. The live corpus today has 106 killed instances (94 non-zombie), which is not 48 or 41
-/// either. The one stored figure that does corroborate the DIRECTION is in the same file: group
-/// medians "are systematically high for small creatures - rats read 31.2 against a published 25",
-/// i.e. 25% high by the overkill mechanism described above.</para>
-///
-/// <para>So: the mechanism is sound and the replacement is the right shape. The error figures are
-/// not evidence and must not be requoted. Recovering them means writing the comparison as a script
-/// under <c>tools/combat/</c> and storing its output beside it - the standing rule for findings in
-/// this project, and precisely the rule whose absence is why they cannot be checked now.</para>
+/// <para><b>What the published figures are worth.</b> MUD2 never prints a creature's stamina
+/// directly (see the rung item below); the only outside figures are docs/bestiary.tsv, documented in
+/// docs/MUD2-published-mechanics.md as hypotheses, not ground truth. Agreement with that guide is
+/// corroboration between two estimates, not accuracy against a measurement.</para>
 ///
 /// <para><b>The two constraint families.</b></para>
 /// <list type="number">
@@ -227,33 +199,19 @@ public sealed record StaminaPoolEstimate(
 /// <item><b>Rung.</b> Still reading rung k after cumulative damage D means the pool exceeds
 /// <c>D x 7 / (8 - k)</c>. D is the LOW end of the cumulative bracket and the reading must be the one
 /// printed AFTER the blow.
-/// <para><b>Equal sevenths is an ASSUMPTION, not a measurement, and this whole bound rests on it
-/// (audit, 2026-09-03).</b> There is no observation anywhere in the corpus mapping a rung to a
-/// stamina number or a fraction, and there cannot be one from what MUD2 prints: a rung reading is a
-/// bare adjectival phrase with no digit in it ("The zombie9 looks to have minor damage."). Counted:
-/// 3,130 distinct rung readings across all 7 rungs in the swing ledger, 4,373 raw descriptor lines in
-/// the clogs, and not one of them carries a number. The ONLY numeric NPC-stamina data MUD2 gives is
-/// the stethoscope <c>diagnose</c> bracket ("The viper has a stamina lying between 18 and 27."), of
-/// which the entire corpus holds FOUR - all pre-combat probes on undamaged creatures, none of them
-/// beside a wound descriptor - and <c>npc_stamina_reads</c>, the table that would hold them, has 0
-/// rows. The published guide is no help either: <c>MUD2-PUBLISHED-MECHANICS.md:359</c> records that
-/// the wound descriptors are absent from it entirely, with "no ordering or percentage mapping between
-/// them".</para>
-/// <para>What IS measured is the rungs' ORDER - 1,980 transitions to a worse rung against 47 to a
-/// better one - which fixes the ladder's sequence and says nothing about its spacing. Equal spacing
-/// is the simplest choice consistent with that order, and it is chosen for that reason, not because
-/// anything observed it.</para>
-/// <para>An earlier version of this comment claimed the assumption "was tested against the
-/// alternatives on 1,978 readings: equal sevenths is contradicted by 6.6% … against 9.6% … 17.7% …
-/// 25.9%", and "violated in 3 of 199 rung-7 readings". Those figures are untraceable - no script,
-/// document or stored result in the repo produces them. And even taken at face value they would not
-/// be what they sound like: a "contradiction" here means the rung bound demands a pool larger than
-/// the fight's own KILL BRACKET permits, so the test is a relative consistency ranking of four
-/// candidate spacings against another estimate, never against a stamina value. It also inherits that
-/// estimate's assumptions - that every printed damage band is right, that fight boundaries are
-/// segmented correctly, and that the creature started undamaged - and the last of those is the same
-/// confound the old comment used to explain the violations away ("all of them pre-damaged unnumbered
-/// mobs"), which makes that part unfalsifiable as stated.</para>
+/// <para><b>Equal sevenths is an ASSUMPTION, not a measurement.</b> There is no observation anywhere
+/// in the corpus mapping a rung to a stamina number or a fraction, and there cannot be one from what
+/// MUD2 prints: a rung reading is a bare adjectival phrase with no digit in it ("The zombie9 looks to
+/// have minor damage."). Counted: 3,130 distinct rung readings across all 7 rungs in the swing
+/// ledger and 4,373 raw descriptor lines in the clogs, none carrying a number. The ONLY numeric
+/// NPC-stamina data MUD2 gives is the stethoscope <c>diagnose</c> bracket ("The viper has a stamina
+/// lying between 18 and 27."), of which the whole corpus holds four, all pre-combat probes on
+/// undamaged creatures - far too sparse to map a rung to a stamina fraction. The published guide is no help either: it records that
+/// wound descriptors are absent from it entirely, with no ordering or percentage mapping between
+/// them.</para>
+/// <para>What IS measured is the rungs' ORDER - transitions to a worse rung far outnumber transitions
+/// to a better one - which fixes the ladder's sequence and says nothing about its spacing. Equal
+/// spacing is the simplest choice consistent with that order, not a measured fact.</para>
 /// <para>The practical consequence is already handled and should stay handled: where the rung bound
 /// and the kill bracket disagree, the KILL BRACKET WINS and the rung bounds are dropped (see the
 /// Contradicted path below). That ordering is right precisely because the kill bracket has no model
@@ -278,13 +236,10 @@ public sealed record StaminaPoolEstimate(
 ///
 /// <para><b>Re-engagement is LINKED, not excluded.</b> Among kills that read as pre-damaged the
 /// probability of a prior fight against the same name inside two minutes is 0.80 against a 0.05
-/// baseline, so it is the mechanism rather than a subtle confound. It used to be handled by dropping
-/// every later link and keeping the first, which cost the terminal kill: the opening fight is a floor
-/// only, and the short fight that finished the creature carries the only two-sided constraint there is.
-/// <see cref="ChaseLinker"/> joins the chain into one observation against one pool instead, which is
-/// sound because the chain IS one creature - chain totals reproduce isolated kill totals within a few
-/// points across eight species, and the rung does not move across a disengagement under ten
-/// seconds.</para>
+/// baseline, so it is the mechanism rather than a subtle confound. <see cref="ChaseLinker"/> joins
+/// the chain into one observation against one pool, which is sound because the chain IS one
+/// creature - chain totals reproduce isolated kill totals within a few points across eight species,
+/// and the rung does not move across a disengagement under ten seconds.</para>
 ///
 /// <para><b>Nothing is decayed.</b> The process is stationary across 2026-08-14 to 2026-08-30 on every
 /// well-sampled species, so old observations are worth exactly as much as new ones and weighting them
@@ -413,15 +368,10 @@ public static class StaminaPoolEstimator
     /// descriptor after every landed blow that does not kill - 3,559 descriptors against 3,561 such
     /// hits across 1,197 fights in the instrumented window from 2026-08-11, with no species deviating
     /// (36 tested, all ratios 0.99-1.03). So rung crossings are near-universally observable and this
-    /// family fires on essentially every fight that drove a creature down two or more rungs, rather
-    /// than on the handful an earlier reading of the corpus suggested. That earlier reading - "39% of
-    /// fights print no descriptor" - was an instrumentation artefact: the fight table predates the
-    /// health logger, so every pre-instrumentation fight joined to nothing and scored as silent.</para>
+    /// family fires on essentially every fight that drove a creature down two or more rungs.</para>
     ///
-    /// <para><b>Nothing here was loosened on the strength of that correction.</b> Better coverage makes
-    /// the constraint fire more often; it does not make a short measurement safe. The span form below
-    /// is kept precisely because it still degrades correctly on the cases that remain - a killing blow
-    /// prints no descriptor at all, and a parser miss is always possible.</para>
+    /// <para>The span form below is kept because it still degrades correctly on the cases that
+    /// remain: a killing blow prints no descriptor at all, and a parser miss is always possible.</para>
     ///
     /// <para><b>A missed descriptor cannot break it.</b> The span runs between two OBSERVED readings
     /// and uses the damage between those two points, so a reading the client never saw simply makes
@@ -445,13 +395,11 @@ public static class StaminaPoolEstimator
             .OrderBy(r => r.LandedBlowsBefore)
             .ToList();
 
-        // EVERY ordered pair, not just adjacent ones. An earlier version swept adjacent readings only,
-        // on the reasoning that a wider pair spans the same drop over more damage and so can never
-        // bind. That is false whenever a single-rung reading interrupts a longer fall: a 5-damage step
-        // down one rung followed by a 50-damage step down three gives 7 x 50 / 2 = 175 adjacent, where
-        // the pair straddling both is four rungs over 55 and gives 7 x 55 / 3 = 128.3 - strictly
-        // tighter. Both are sound, so nothing was wrong on screen; the tightening was simply left
-        // unclaimed.
+        // EVERY ordered pair, not just adjacent ones: a wider pair can bind tighter than any adjacent
+        // pair whenever a single-rung reading interrupts a longer fall. Example: a 5-damage step down
+        // one rung followed by a 50-damage step down three gives 7 x 50 / 2 = 175 for the adjacent
+        // pair, where the pair straddling both is four rungs over 55 and gives 7 x 55 / 3 = 128.3 -
+        // strictly tighter.
         //
         // Quadratic, and deliberately so: readings are recorded only when the rung CHANGES, and the
         // rung has seven values, so a fight holds a handful of them and a hundred pairs is the

@@ -3,9 +3,9 @@ using Mucka.Core.GuidedLogin;
 namespace MudSharp.Tests.Fixtures;
 
 /// <summary>
-/// Fixtures below are literal text fragments (whitespace/wrap artifacts included) lifted from the
-/// two RESEARCH/mud-option-menu.*.jsonl captures, to keep the whitespace-agnostic parsing honest
-/// against real server output rather than hand-tidied test strings.
+/// Fixtures below are literal text fragments (whitespace/wrap artifacts included) lifted from real
+/// captures, to keep the whitespace-agnostic parsing honest against real server output rather than
+/// hand-tidied test strings.
 /// </summary>
 public class ShellTextTests
 {
@@ -81,7 +81,7 @@ public class ShellTextTests
     [Fact]
     public void ParsesPersonaSlots_DotComCapture_WithUnusedSlot()
     {
-        // Verbatim (minus ANSI) from mud-option-menu.dotcom.jsonl: an existing account with an
+        // Verbatim (minus ANSI) from a dotcom-account capture: an existing account with an
         // unused middle slot ("(1) Ollie, **Unused**, (2) Awlie.").
         var raw = "The personae available to you are:\r\u0000\r\n(1)     Ollie,\r\u0000\r\n" +
                   "        **Unused**,\r\u0000\r\n(2)     Awlie.\r\u0000\r\n" +
@@ -99,7 +99,7 @@ public class ShellTextTests
     [Fact]
     public void ParsesPersonaSlots_AfterGameReset_SkipsTheReprintedBanner()
     {
-        // Verbatim (minus ANSI) from RESEARCH/game-reset.jsonl: once the rebuilt database is up,
+        // Verbatim (minus ANSI) from a game-reset capture: once the rebuilt database is up,
         // "p" replies with the whole login banner again before the persona list. The dated
         // "MUD last reset on 2-AUG-2026 at 20:19:05." line sits above the start landmark and must
         // not be mistaken for a slot.
@@ -141,9 +141,8 @@ public class ShellTextTests
     {
         // The shell echoes what we type onto the prompt line itself, and a partial line is
         // re-published every time it grows, so this lands in a freshly cleared buffer the instant
-        // we send "p". Guided login must not read it as "the shell answered": it once did, threw
-        // away the persona list arriving behind it, and re-sent "p" into the name prompt, which the
-        // shell answered with 'Sorry, I can't call you "P".'
+        // we send "p". Guided login must not read it as "the shell answered", or it throws away
+        // the persona list arriving behind it and re-sends "p" into the name prompt.
         var n = ShellText.NormalizeWhitespace("Option (H for help): p");
 
         Assert.True(ShellText.IsShellOptionPrompt(n));
@@ -175,8 +174,8 @@ public class ShellTextTests
         // Simulates our "p" getting eaten by stale input already sitting in the shell's buffer
         // (an in-flight FES probe splice): the shell answers "Option unavailable." instead of
         // showing the persona-name prompt, and no persona list ever arrives. Guided login's
-        // SendPlayAndGetSlotsAsync landmark predicate must wake on this -- previously it wasn't
-        // included, so this rode the full outer deadline instead of being recognised and retried.
+        // SendPlayAndGetSlotsAsync landmark predicate must wake on this and trigger an immediate
+        // retry rather than riding out the full outer deadline.
         var n = ShellText.NormalizeWhitespace(
             "Option (H for help): p\r\nOption unavailable.\r\nOption (H for help): ");
 
@@ -256,7 +255,7 @@ public class ShellTextTests
     [Fact]
     public void ParsesPersonaSlots_DotUkCapture_AllSlotsUsed()
     {
-        // Verbatim (minus ANSI) from mud-option-menu.dotuk.jsonl: three full slots, no creation room.
+        // Verbatim (minus ANSI) from a dotuk-account capture: three full slots, no creation room.
         var raw = "The personae available to you are:\r\u0000\r\n(1)     Ollie,\r\u0000\r\n" +
                   "(2)     Flibble,\r\u0000\r\n(3)     Nessa.\r\u0000\r\n" +
                   "By what name shall I call you (Q to quit)?\r\n";

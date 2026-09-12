@@ -9,7 +9,7 @@ namespace Mucka.Pages;
 /// Windows-only diagnostic window opened by the $con command.
 ///
 /// Top half: read-only scrolling Editor showing raw bytes to/from the server,
-/// shown as escaped text (← for RX, → for TX). Text is selectable and copyable.
+/// shown as escaped text (<- for RX, -> for TX). Text is selectable and copyable.
 ///
 /// Bottom half: accumulated outgoing sequence built by raw keypresses.
 /// Every key appends its byte(s) to the sequence; Backspace removes the last
@@ -51,7 +51,7 @@ internal sealed class RawConsolePage : ContentPage
         _vm = vm;
         BackgroundColor = Color.FromArgb("#0C0C0C");
 
-        // Read-only Editor: maps to WinUI3 TextBox — supports selection and copy natively.
+        // Read-only Editor: maps to WinUI3 TextBox - supports selection and copy natively.
         _outputEditor = new Editor
         {
             FontFamily      = "Cascadia Mono",
@@ -91,7 +91,7 @@ internal sealed class RawConsolePage : ContentPage
             VerticalOptions = LayoutOptions.Center,
         };
 
-        // ── Cancel (✕) tap target — inline label, sizes to text height ──────
+        // -- Cancel (close) tap target - inline label, sizes to text height ------
         _cancelLabel = new Label
         {
             Text                    = "✕",
@@ -109,7 +109,7 @@ internal sealed class RawConsolePage : ContentPage
             Command = new Command(OnCancelTapped),
         });
 
-        // Sequence row: label fills the space, ✕ sits at the right end
+        // Sequence row: label fills the space, close sits at the right end
         var inputRow = new Grid
         {
             ColumnDefinitions =
@@ -121,7 +121,7 @@ internal sealed class RawConsolePage : ContentPage
         inputRow.Add(_seqLabel,    column: 0, row: 0);
         inputRow.Add(_cancelLabel, column: 1, row: 0);
 
-        // ── Output-area buttons ───────────────────────────────────────────
+        // -- Output-area buttons -------------------------------------------
         var sendBtn = new Button
         {
             Text            = "Send",
@@ -212,7 +212,7 @@ internal sealed class RawConsolePage : ContentPage
         Content = grid;
     }
 
-    // ── Lifecycle ────────────────────────────────────────────────────────────
+    // -- Lifecycle ------------------------------------------------------------
 
     protected override void OnAppearing()
     {
@@ -234,7 +234,7 @@ internal sealed class RawConsolePage : ContentPage
         base.OnDisappearing();
         _vm.RawBytesReceived -= OnRawBytesReceived;
         _vm.RawBytesSent     -= OnRawBytesSent;
-        // Resume probes on close — the only control lives in this window, so we must not leave
+        // Resume probes on close - the only control lives in this window, so we must not leave
         // the side panel silently starved once it's gone.
         _vm.SetStatusProbesBlocked(false);
 
@@ -263,7 +263,7 @@ internal sealed class RawConsolePage : ContentPage
         return false;
     }
 
-    // ── Incoming byte stream (background threads) ─────────────────────────
+    // -- Incoming byte stream (background threads) -------------------------
 
     private void OnRawBytesReceived(byte[] bytes)
     {
@@ -285,7 +285,7 @@ internal sealed class RawConsolePage : ContentPage
         }
     }
 
-    // ── UI timer (50 ms, main thread) ────────────────────────────────────
+    // -- UI timer (50 ms, main thread) ------------------------------------
 
     private void OnUpdateTick(object? sender, EventArgs e)
     {
@@ -311,13 +311,12 @@ internal sealed class RawConsolePage : ContentPage
 
     /// <summary>
     /// Scrolls the output editor to the end, but only when the user has no active
-    /// text selection — so selecting text to copy isn't disrupted by incoming traffic.
+    /// text selection - so selecting text to copy isn't disrupted by incoming traffic.
     ///
     /// Drives the TextBox's inner ScrollViewer directly rather than Select(end) caret
     /// tracking: Select() only scrolls a TextBox that has keyboard focus (this one never
-    /// does under the main window's focus pinning), and the Win32 caret is a per-thread
-    /// singleton — repositioning it from this window every 50ms broke caret-follow in
-    /// the main window's input box.
+    /// does under the main window's focus pinning), and repositioning the Win32 caret
+    /// from this window every 50ms broke caret-follow in the main window's input box.
     /// </summary>
     private void ScrollOutputToEnd()
     {
@@ -346,7 +345,7 @@ internal sealed class RawConsolePage : ContentPage
         return null;
     }
 
-    // ── Byte escape formatting ────────────────────────────────────────────
+    // -- Byte escape formatting --------------------------------------------
 
     private static string TimestampPrefix(double elapsed) => $"+{elapsed,8:F3}|";
 
@@ -380,7 +379,7 @@ internal sealed class RawConsolePage : ContentPage
         _ => $@"\x{b:X2}",
     };
 
-    // ── Accumulated sequence ─────────────────────────────────────────────
+    // -- Accumulated sequence ---------------------------------------------
 
     private void AppendByte(byte b)
     {
@@ -412,7 +411,7 @@ internal sealed class RawConsolePage : ContentPage
         _hexLabel.Text = string.Join(' ', _sequence.Select(b => $"{b:X2}"));
     }
 
-    // ── Button handlers ───────────────────────────────────────────────────
+    // -- Button handlers ---------------------------------------------------
 
     private void OnSendClicked(object? sender, EventArgs e)
     {
@@ -475,7 +474,7 @@ internal sealed class RawConsolePage : ContentPage
         _outputEditor.Text = string.Empty;
     }
 
-    // ── Key capture (WinUI PreviewKeyDown on the window root) ─────────────
+    // -- Key capture (WinUI PreviewKeyDown on the window root) -------------
 
     [DllImport("user32.dll")]
     private static extern short GetKeyState(int nVirtKey);
@@ -519,7 +518,7 @@ internal sealed class RawConsolePage : ContentPage
 
         if (ctrl)
         {
-            // Ctrl+A…Z → SOH…SUB (0x01…0x1A)
+            // Ctrl+A...Z -> SOH...SUB (0x01...0x1A)
             if (e.Key >= Windows.System.VirtualKey.A && e.Key <= Windows.System.VirtualKey.Z)
             {
                 AppendByte((byte)((int)e.Key - (int)Windows.System.VirtualKey.A + 1));

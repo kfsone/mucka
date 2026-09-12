@@ -8,7 +8,7 @@ namespace MudSharp.Tests.Fixtures;
 /// prompt as plain text. The parser must detect "Option (H for help)" in the text
 /// stream and call ExitGameMode() before the FES heartbeat misfires into the menu.
 ///
-/// Contrast with the {C95}{C03}{C255} path which handles account-level logout — that
+/// Contrast with the {C95}{C03}{C255} path which handles account-level logout -- that
 /// path is tested via C95 dispatch tests. This tests the qq-to-option-menu path where
 /// no C95 signal is present.
 /// </summary>
@@ -61,8 +61,8 @@ public class GameModeExitTests
     [Fact]
     public void QuitSequence_ExitsGameModeBeforeOptionMenuTextIsComplete()
     {
-        // ExitGameMode should fire as soon as "Option (H for help)" is matched —
-        // before the trailing ": " arrives — so the FES timer stops immediately.
+        // ExitGameMode should fire as soon as "Option (H for help)" is matched --
+        // before the trailing ": " arrives -- so the FES timer stops immediately.
         var h = InGameMode();
 
         // Feed only up through "Option (H for help)" (without ": ")
@@ -87,7 +87,7 @@ public class GameModeExitTests
     [Fact]
     public void GameMode_NotExitedOnUnrelatedText()
     {
-        // "Options are available" should not trigger the exit — only the exact prefix matters.
+        // "Options are available" should not trigger the exit -- only the exact prefix matters.
         var h = InGameMode();
         h.Feed("Options are available.\n");
         Assert.Equal(0, h.GameModeExitedCount);
@@ -108,8 +108,8 @@ public class GameModeExitTests
     public void GameMode_NotExitedByMidLineSpeech()
     {
         // The real menu prompt always starts its line. A player quoting it mid-line
-        // ('say Option (H for help)') must not kick the client out of game mode —
-        // that stopped the heartbeat and sent a stray 'auto fex' on re-entry.
+        // ('say Option (H for help)') must not kick the client out of game mode --
+        // that stops the heartbeat and sends a stray 'auto fex' on re-entry.
         var h = InGameMode();
         h.Feed("Ollie says \"Option (H for help)\".\n");
         Assert.Equal(0, h.GameModeExitedCount);

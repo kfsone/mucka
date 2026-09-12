@@ -18,11 +18,11 @@ namespace MudSharp.Tests.Fixtures;
 /// So a setup frame is recognised from its FIRST content line (echo / FEEXITS / "name:", all at
 /// column 0) and then swallowed whole up to the next prompt. This is width-independent: at narrow
 /// widths the server wraps a reply into extra content lines WITHIN the same frame, and they are all
-/// swallowed — the frame prompt, not the line content, marks the boundary.
+/// swallowed - the frame prompt, not the line content, marks the boundary.
 /// </summary>
 public class PostSelectSetupTests : IDisposable
 {
-    // C02+C01 game-mode prompt variant — the post-character-select entry trigger.
+    // C02+C01 game-mode prompt variant - the post-character-select entry trigger.
     private static readonly byte[] GameModeEntry = [0x9D, 0x9C, 0xFF, 0xFF];
 
     // The frame prompt that leads every server frame: an IsPartial '*' (C28/C29 container around
@@ -65,9 +65,9 @@ public class PostSelectSetupTests : IDisposable
 
     // The `identify` / `fightbrief` confirmations, each its own frame. Two wordings apiece: MUD2 says
     // "You'll now get ..." the first time and "You're already getting ..." when the setting was already
-    // on. Both verbatim - the first pair from session-rec.mud2.co.uk.20260819-134737, the second from
-    // the owner's 2026-08-19 paste. The "already" pair is the ORDINARY case from the second login
-    // onward, since the commands are sets and the batch re-sends them every entry.
+    // on. Both verbatim - the first pair from session-rec.mud2.co.uk.20260819-134737, the second from a
+    // 2026-08-19 capture. The "already" pair is the ORDINARY case from the second login onward, since
+    // the commands are sets and the batch re-sends them every entry.
     private const string IdentifyReplyFirst = "You'll now get object identification numbers where applicable.\r\n";
     private const string IdentifyReplyAgain = "You're already getting object identification numbers where applicable.\r\n";
     private const string FightBriefReplyFirst = "You'll now get brief descriptions of fights.\r\n";
@@ -78,7 +78,7 @@ public class PostSelectSetupTests : IDisposable
         "You will now get an automatic FEEXITS command performed every time you issue a movement command.\r\n" +
         "To cancel it, use UNAUTO FEEXITS.\r\n";
 
-    // The `score` sheet (its own frame; name line has no '*' here — a stripped colour code
+    // The `score` sheet (its own frame; name line has no '*' here - a stripped colour code
     // prefixes it live).
     private const string ScoreSheet =
         "name:          Ollie\r\n" +
@@ -121,7 +121,7 @@ public class PostSelectSetupTests : IDisposable
         Prompt(); Feed(Echoes);
         Prompt(); Feed(AutoFexReply);
         Prompt(); Feed(ScoreSheet);
-        Prompt(); Feed("You warm your hands by the fire.\r\n");   // next frame — shown
+        Prompt(); Feed("You warm your hands by the fire.\r\n");   // next frame - shown
 
         Assert.Equal(["You warm your hands by the fire."], _visible);
         Assert.Equal(["Ollie"], _identified);
@@ -130,9 +130,9 @@ public class PostSelectSetupTests : IDisposable
     [Fact]
     public void WrappedScoreSheet_IsFullySwallowed()
     {
-        // Narrow width: the server wraps long sheet lines into extra content lines inside the
-        // score frame. The old per-line label match closed the window on the first wrapped
-        // continuation ("points value: ...") and leaked the rest — this is the reported bug.
+        // Narrow width: the server wraps long sheet lines into extra content lines inside the score
+        // frame, so the window must close on the frame prompt, not on matching each line's label -
+        // otherwise a wrapped continuation ("points value: ...") leaks through.
         Enter();
         Prompt(); Feed(Echoes);
         Prompt(); Feed(AutoFexReply);
@@ -144,7 +144,7 @@ public class PostSelectSetupTests : IDisposable
         Feed("level:  8       necromancer\r\n");
         Feed("No. of Tasks completed: 7 - #0 #1 #2\r\n");        // wrapped line 1
         Feed("#3 #4 #5 #6\r\n");                                 // wrapped continuation
-        Prompt(); Feed("A raven caws overhead.\r\n");            // next frame — shown
+        Prompt(); Feed("A raven caws overhead.\r\n");            // next frame - shown
 
         Assert.Equal(["A raven caws overhead."], _visible);
         Assert.Equal(["Ollie"], _identified);
@@ -209,7 +209,7 @@ public class PostSelectSetupTests : IDisposable
         // Chatter arrives as its own frame (own prompt), so it is not claimed and still shows.
         Enter();
         Prompt(); Feed(Echoes);
-        Prompt(); Feed("Someone shouts \"oi!\".\r\n");   // real output mid-window — must show
+        Prompt(); Feed("Someone shouts \"oi!\".\r\n");   // real output mid-window - must show
         Prompt(); Feed(AutoFexReply);                     // swallowed
         Prompt(); Feed(ScoreSheet);
         Prompt(); Feed("The fire crackles.\r\n");         // shows
@@ -242,8 +242,8 @@ public class PostSelectSetupTests : IDisposable
         Prompt(); Feed("The fire crackles.\r\n");
         Assert.Equal(["Ollie"], _identified);
 
-        // Log out to the option menu (C95+C03) and back in — the setup batch fires again.
-        _session.Feed([0xFA, 0x9E, 0xFF, 0xFF]);   // C95+C03 account-logout → ExitGameMode
+        // Log out to the option menu (C95+C03) and back in - the setup batch fires again.
+        _session.Feed([0xFA, 0x9E, 0xFF, 0xFF]);   // C95+C03 account-logout -> ExitGameMode
         Feed("Some option menu text\r\n");
         _outgoing.Clear();
         _visible.Clear();

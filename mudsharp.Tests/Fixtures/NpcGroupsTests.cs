@@ -7,12 +7,10 @@ public sealed class NpcGroupsTests
     [Fact]
     public void Normalize_MatchesThePythonPipelineForEveryFixturePair()
     {
-        // The whole point of this test: mudsharp/Combat/NpcGroups.cs is a hand port of
-        // reduce_combat.normalize_npc_group, and the offline sqlite pipeline plus the live client
-        // MUST bucket a fight under the same npc_group or accumulated history silently splits in
-        // two and every cross-fight comparison quietly loses half its samples. The fixture is
-        // generated from the Python side (tools/combat/gen_npc_group_fixture.py), so a change to
-        // either implementation fails here instead of corrupting the dataset.
+        // The npc_group is the bucket key for accumulated history: if Normalize's answer for a name
+        // drifts, history silently splits in two and every cross-fight comparison quietly loses half
+        // its samples. The fixture pins the answer for every name seen so far, so a change to the rule
+        // fails here instead of corrupting the dataset.
         var pairs = LoadFixture();
         Assert.NotEmpty(pairs);
 
@@ -34,9 +32,8 @@ public sealed class NpcGroupsTests
     [InlineData("0", "")]
     public void Normalize_YieldsEmptyForDegenerateNames_ADeliberateDivergenceFromPython(string? name, string expected)
     {
-        // KNOWN, INTENTIONAL divergence from reduce_combat.normalize_npc_group, which pluralizes
-        // whatever is left after stripping and so answers "s" for "", "   " and "0" (and "---s"
-        // for "---"). Returning empty instead is the safer behaviour on this side: an empty group
+        // A naive pluralise-whatever-is-left rule answers "s" for "", "   " and "0" (and "---s" for
+        // "---"). Returning empty instead is the safer behaviour: an empty group
         // is rejected by FightHistory.Summarize's IsNullOrWhiteSpace guard, whereas a literal "s"
         // group would create a junk history bucket that silently accumulates rows.
         //

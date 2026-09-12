@@ -5,15 +5,15 @@ namespace MudSharp.Tests.Fixtures;
 /// <summary>
 /// Tests for the game-prompt preamble suppression:
 /// all-asterisk lines (prompt preamble separators) that arrive with a trailing newline
-/// in game mode must be fully suppressed — no LineReady event fires. This mirrors
+/// in game mode must be fully suppressed -- no LineReady event fires. This mirrors
 /// Clio's prompt_allowed state machine (telnet.l:438-444).
 ///
-/// Also tests the wire-format C01-based prompt preamble — which arrives WITHOUT a
-/// trailing newline — so its text must never accumulate in the span buffer and leak
+/// Also tests the wire-format C01-based prompt preamble -- which arrives WITHOUT a
+/// trailing newline -- so its text must never accumulate in the span buffer and leak
 /// into the next real game line. "The prompt" is the ENTIRE outer C01 container
-/// ("invisibility brackets around the prompt", mud2_fe4 §codes), and is contextual:
-///   visible:    {C01}{C255}{C01}{C02}{C255}*{C255}{C255}          → "*"
-///   invisible:  {C01}{C255}({C01}{C02}{C255}*{C255}){C255}        → "(*)"
+/// ("invisibility brackets around the prompt", mud2_fe4 codes section), and is contextual:
+///   visible:    {C01}{C255}{C01}{C02}{C255}*{C255}{C255}          -> "*"
+///   invisible:  {C01}{C255}({C01}{C02}{C255}*{C255}){C255}        -> "(*)"
 /// The whole container is shown or suppressed atomically.
 ///
 /// The emission rule: a wire prompt is shown only when the same received TCP packet
@@ -36,26 +36,25 @@ public class GamePromptTests
     //   0x9C 0xFF 0xFF  0x9C 0x9D 0xFF 0xFF  *  0xFF 0xFF  0xFF 0xFF
     private static readonly byte[] WirePromptPreamble =
     [
-        0x9C, 0xFF, 0xFF,        // C01+C255  → BLUE push
-        0x9C, 0x9D, 0xFF, 0xFF, // C01+C02+C255 → LT_BLUE push, game-mode
+        0x9C, 0xFF, 0xFF,        // C01+C255  -> BLUE push
+        0x9C, 0x9D, 0xFF, 0xFF, // C01+C02+C255 -> LT_BLUE push, game-mode
         (byte)'*',              // prompt char
-        0xFF, 0xFF,             // C255 → pop LT_BLUE
-        0xFF, 0xFF,             // C255 → pop BLUE
+        0xFF, 0xFF,             // C255 -> pop LT_BLUE
+        0xFF, 0xFF,             // C255 -> pop BLUE
     ];
 
     // Invisible-player prompt: the '(' ')' invisibility brackets are TEXT inside the
-    // outer C01 container, outside the inner C01+C02 core. Observed in session capture
-    // session-rec.mud2.co.uk.20260603-180212.jsonl:
+    // outer C01 container, outside the inner C01+C02 core. Observed in a session capture:
     //   0x9C 0xFF 0xFF  (  0x9C 0x9D 0xFF 0xFF  *  0xFF 0xFF  )  0xFF 0xFF
     private static readonly byte[] WireInvisiblePromptPreamble =
     [
-        0x9C, 0xFF, 0xFF,        // C01+C255  → outer prompt container (BLUE push)
-        (byte)'(',              // invisibility bracket — part of the prompt
-        0x9C, 0x9D, 0xFF, 0xFF, // C01+C02+C255 → inner mortal prompt core (LT_BLUE push)
+        0x9C, 0xFF, 0xFF,        // C01+C255  -> outer prompt container (BLUE push)
+        (byte)'(',              // invisibility bracket -- part of the prompt
+        0x9C, 0x9D, 0xFF, 0xFF, // C01+C02+C255 -> inner mortal prompt core (LT_BLUE push)
         (byte)'*',              // prompt char
-        0xFF, 0xFF,             // C255 → pop LT_BLUE
-        (byte)')',              // invisibility bracket — part of the prompt
-        0xFF, 0xFF,             // C255 → pop BLUE, closes the container
+        0xFF, 0xFF,             // C255 -> pop LT_BLUE
+        (byte)')',              // invisibility bracket -- part of the prompt
+        0xFF, 0xFF,             // C255 -> pop BLUE, closes the container
     ];
 
     private static byte[] WithInvisiblePrompt(string text)
@@ -97,7 +96,7 @@ public class GamePromptTests
     [Fact]
     public void AsterisksNewline_NotInGameMode_EmittedAsComplete()
     {
-        // Before game mode is entered the * lines are NOT game prompts — display normally.
+        // Before game mode is entered the * lines are NOT game prompts -- display normally.
         var h = new ParserHarness();
         h.Feed("*\n");
         Assert.Single(h.Lines);
@@ -134,7 +133,7 @@ public class GamePromptTests
     [Fact]
     public void EmptyLineNewline_InGameMode_EmittedAsComplete()
     {
-        // An empty line (just \n) has no spans — SpansAreAllAsterisks returns false.
+        // An empty line (just \n) has no spans -- SpansAreAllAsterisks returns false.
         var h = InGameMode();
         h.Feed("\n");
         Assert.Single(h.Lines);
@@ -151,12 +150,12 @@ public class GamePromptTests
         Assert.False(h.Lines[0].IsPartial);
     }
 
-    // ── Wire-format C01-based prompt preamble tests ───────────────────────────
+    // -- Wire-format C01-based prompt preamble tests --
 
     [Fact]
     public void WirePrompt_FirstAfterNewline_EmittedAsPartial()
     {
-        // Newline and wire prompt arrive in the same TCP packet — the prompt is shown.
+        // Newline and wire prompt arrive in the same TCP packet -- the prompt is shown.
         var h = InGameMode();
         h.Feed(WithPrompt("You arrive in the tearoom.\n"));
         var line = Assert.Single(h.Lines, l => l.IsPartial);
@@ -168,17 +167,16 @@ public class GamePromptTests
     {
         // After the first wire prompt, PromptAllowed=false; subsequent ones must be swallowed.
         var h = InGameMode();
-        h.Feed(WithPrompt("You arrive in the tearoom.\n")); // first → partial '*' emitted
+        h.Feed(WithPrompt("You arrive in the tearoom.\n")); // first -> partial '*' emitted
         h.Lines.Clear();
-        h.Feed(WirePromptPreamble); // second (bare, no '\n') → suppress
+        h.Feed(WirePromptPreamble); // second (bare, no '\n') -> suppress
         Assert.Empty(h.Lines);
     }
 
     [Fact]
     public void WirePrompt_DoesNotLeakIntoNextRealLine()
     {
-        // Core regression: '*' from the wire prompt must NOT appear at the start of the
-        // next game line.  Before this fix, spans accumulated and were prepended.
+        // '*' from the wire prompt must NOT appear at the start of the next game line.
         var h = InGameMode();
         h.Feed(WithPrompt("You arrive in the tearoom.\n")); // emit '*' as partial, clear spans
         h.Lines.Clear();
@@ -195,7 +193,7 @@ public class GamePromptTests
         // Same regression check but via the suppressed (second) prompt path.
         var h = InGameMode();
         h.Feed(WithPrompt("You arrive in the tearoom.\n")); // first
-        h.Feed(WirePromptPreamble); // second → suppressed
+        h.Feed(WirePromptPreamble); // second -> suppressed
         h.Lines.Clear();
         h.Feed("Drizzle the wobbly mage arrives.\n");
         Assert.Single(h.Lines);
@@ -210,15 +208,15 @@ public class GamePromptTests
         // After a real game line (which emits \n and resets PromptAllowed), the next
         // wire prompt in the same packet must again be shown as a partial.
         var h = InGameMode();
-        h.Feed(WithPrompt("You arrive in the tearoom.\n")); // first → partial
-        h.Feed(WirePromptPreamble); // second → suppressed
+        h.Feed(WithPrompt("You arrive in the tearoom.\n")); // first -> partial
+        h.Feed(WirePromptPreamble); // second -> suppressed
         h.Lines.Clear();
-        h.Feed(WithPrompt("OK, you wave.\n")); // newline + prompt in same packet → partial again
+        h.Feed(WithPrompt("OK, you wave.\n")); // newline + prompt in same packet -> partial again
         var line = Assert.Single(h.Lines, l => l.IsPartial);
         Assert.Equal("*", string.Concat(line.Spans.Select(s => s.Text)));
     }
 
-    // ── Frame boundary (MudStreamParser.FrameClosed) ─────────────────────────
+    // -- Frame boundary (MudStreamParser.FrameClosed) --
 
     /// <summary>
     /// A shown prompt ends a frame. This is the signal Mucka.ViewModels.KillAwardLedger uses to
@@ -262,8 +260,8 @@ public class GamePromptTests
     /// The boundary falls AFTER every line of the frame it closes, which is what lets a consumer
     /// process a frame's endings and its awards before being told the frame ended.
     ///
-    /// <para>This is the exact shape of the 2026-09-10 goat kill: the ending line, the award, then the
-    /// prompt. Had the close arrived between the two, the pairing would drop every award it has.</para>
+    /// <para>This is the exact shape of a goat kill: the ending line, the award, then the prompt. Had
+    /// the close arrived between the two, the pairing would drop every award it has.</para>
     /// </summary>
     [Fact]
     public void FrameCloses_AfterTheScoreLineItCarries()
@@ -312,32 +310,32 @@ public class GamePromptTests
         Assert.Equal(1, h.FrameClosedCount);
     }
 
-    // ── FES heartbeat suppression tests ──────────────────────────────────────
+    // -- FES heartbeat suppression tests --
 
     [Fact]
     public void WirePrompt_FesHeartbeat_BarePromptPacket_Suppressed()
     {
         // FES heartbeat scenario: the last wire prompt was shown (PromptAllowed=false).
-        // A subsequent bare wire prompt preamble — no preceding '\n' in this packet — must
+        // A subsequent bare wire prompt preamble -- no preceding '\n' in this packet -- must
         // be suppressed because PromptAllowed is still false from the last shown prompt.
         var h = InGameMode();
-        h.Feed(WithPrompt("You arrive in the tearoom.\n")); // first prompt → shown, PromptAllowed=false
+        h.Feed(WithPrompt("You arrive in the tearoom.\n")); // first prompt -> shown, PromptAllowed=false
         h.Lines.Clear();
-        h.Feed(WirePromptPreamble); // FES heartbeat: no '\n' before preamble → suppress
+        h.Feed(WirePromptPreamble); // FES heartbeat: no '\n' before preamble -> suppress
         Assert.DoesNotContain(h.Lines, l => l.IsPartial);
     }
 
     [Fact]
     public void WirePrompt_FesHeartbeat_DoesNotConsumePromptAllowed()
     {
-        // A suppressed FES heartbeat must not consume PromptAllowed — the next real game
+        // A suppressed FES heartbeat must not consume PromptAllowed -- the next real game
         // packet containing '\n' and a wire prompt in the same segment must still show the prompt.
         var h = InGameMode();
-        h.Feed(WithPrompt("You arrive in the tearoom.\n")); // first prompt → shown, PromptAllowed=false
+        h.Feed(WithPrompt("You arrive in the tearoom.\n")); // first prompt -> shown, PromptAllowed=false
         h.Lines.Clear();
-        h.Feed(WirePromptPreamble); // FES heartbeat → suppressed
+        h.Feed(WirePromptPreamble); // FES heartbeat -> suppressed
         h.Lines.Clear();
-        h.Feed(WithPrompt("You scored 42 points.\n")); // '\n' re-allows; prompt in same packet → shown
+        h.Feed(WithPrompt("You scored 42 points.\n")); // '\n' re-allows; prompt in same packet -> shown
         var line = Assert.Single(h.Lines, l => l.IsPartial);
         Assert.Equal("*", string.Concat(line.Spans.Select(s => s.Text)));
     }
@@ -349,7 +347,7 @@ public class GamePromptTests
         var h = InGameMode();
         h.Feed(WithPrompt("You arrive in the tearoom.\n")); // first prompt
         h.Lines.Clear();
-        h.Feed(WirePromptPreamble); // FES heartbeat → suppressed
+        h.Feed(WirePromptPreamble); // FES heartbeat -> suppressed
         h.Lines.Clear();
         h.Feed("You scored 42 points.\n");
         Assert.Single(h.Lines);
@@ -358,12 +356,12 @@ public class GamePromptTests
         Assert.Contains("42 points", text);
     }
 
-    // ── Invisible-player prompt: '(*)' is THE prompt, not '(' + prompt + ')' ─
+    // -- Invisible-player prompt: '(*)' is THE prompt, not '(' + prompt + ')' --
 
     [Fact]
     public void InvisiblePrompt_FirstAfterNewline_EmittedAsPartialWithBrackets()
     {
-        // The whole outer C01 container is the prompt — brackets included.
+        // The whole outer C01 container is the prompt -- brackets included.
         var h = InGameMode();
         h.Feed(WithInvisiblePrompt("ZZZzzz...\n"));
         var line = Assert.Single(h.Lines, l => l.IsPartial);
@@ -373,13 +371,13 @@ public class GamePromptTests
     [Fact]
     public void InvisiblePrompt_FesHeartbeat_Suppressed_NoParenLeak()
     {
-        // Regression for the '()()()()...' spam: while invisible, every suppressed FES
-        // heartbeat used to leak its '(' ')' container text into the display stream.
+        // While invisible, every suppressed FES heartbeat must not leak its '(' ')' container
+        // text into the display stream (the '()()()()...' spam case).
         var h = InGameMode();
         h.Feed(WithInvisiblePrompt("ZZZzzz...\n")); // prompt shown, PromptAllowed=false
         h.Lines.Clear();
         for (int i = 0; i < 30; i++)
-            h.Feed(WireInvisiblePromptPreamble);    // FES heartbeats → all swallowed whole
+            h.Feed(WireInvisiblePromptPreamble);    // FES heartbeats -> all swallowed whole
         Assert.Empty(h.Lines);
         h.Feed("You have just woken up!\n");
         var line = Assert.Single(h.Lines);
@@ -418,7 +416,7 @@ public class GamePromptTests
         // visibility returns and the next prompt is the plain '*' form again.
         var h = InGameMode();
         h.Feed(WithInvisiblePrompt("ZZZzzz...\n"));
-        h.Feed(WireInvisiblePromptPreamble);  // heartbeat → suppressed
+        h.Feed(WireInvisiblePromptPreamble);  // heartbeat -> suppressed
         h.Lines.Clear();
         h.Feed(WithPrompt("You have suddenly and magically regained your visibleness!\n"));
         var prompt = Assert.Single(h.Lines, l => l.IsPartial);

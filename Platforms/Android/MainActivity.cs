@@ -6,7 +6,7 @@ using Android.Views;
 namespace Mucka;
 
 // WindowSoftInputMode: the implicit default resolves to adjustPan, which slides the whole window
-// up when the keyboard opens — pushing the in-game status bar off the top of the screen. Resize
+// up when the keyboard opens - pushing the in-game status bar off the top of the screen. Resize
 // keeps the top anchored and shrinks the content instead (the pages' SafeAreaEdges="All" handles
 // keyboard padding on API 35+ edge-to-edge, where adjustResize alone is ignored).
 // Keyboard | KeyboardHidden | Navigation: connecting/disconnecting a hardware (USB/Bluetooth)

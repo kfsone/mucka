@@ -8,8 +8,7 @@ using SkiaSharp.Views.Maui.Controls;
 namespace Mucka.Rendering;
 
 /// <summary>
-/// The Combat Rail's render surface. Built to tools/combat/COMBAT-RAIL-SPEC.md - read that
-/// before changing anything here; most of what looks arbitrary below is a settled decision.
+/// The Combat Rail's render surface. Built to docs/combat-rail-spec.md.
 ///
 /// <para><b>Bottom-focused.</b> The player's gaze rests at the bottom-center of the window, on
 /// the input box and the newest game text. So live content is laid out from the BOTTOM edge
@@ -36,48 +35,35 @@ public sealed class CombatRailView : SKCanvasView
     // ---- Geometry (logical units; the canvas is scaled to these at paint time) -------------
     // Internal (not private): GamePage.xaml.cs sizes the host Border's WidthRequest off this value so
     // the rail's 376-unit design space maps 1:1 onto the Border's dp content area (WidthRequest minus
-    // its own stroke inset) at every DPI - the rail was previously hosted in a panel narrower than
-    // this by more than the Border's own stroke inset, so every glyph drew at ~0.887x its designed
-    // size REGARDLESS of DPI. That is distinct from OnPaintSurface's own `scale` below, which still
-    // carries the DPI factor on top of this fix: e.Info.Width is the SKCanvasView surface in PHYSICAL
-    // pixels (IgnorePixelScaling is not set anywhere in this repo), so scale == 1.0 only at 100% OS
-    // scaling - at 150% it is 1.5, etc.
+    // its own stroke inset) at every DPI - a panel narrower than this by more than the Border's own
+    // stroke inset draws every glyph at the wrong size regardless of DPI. That is distinct from
+    // OnPaintSurface's own `scale` below, which still carries the DPI factor on top of this:
+    // e.Info.Width is the SKCanvasView surface in PHYSICAL pixels (IgnorePixelScaling is not set
+    // anywhere in this repo), so scale == 1.0 only at 100% OS scaling - at 150% it is 1.5, etc.
     //
     // Derived from CombatRailResize.CombatPanelContentWidthDp (Mucka.Terminal), not the other way
     // round: that project is plain net10.0 with no dependency on this one, so it cannot reference
     // this constant - this project (Mucka, Windows-only) DOES already depend on Mucka.Terminal, so
     // the dependency has to run this direction for there to be exactly one source of truth instead of
     // two hand-kept copies. GamePage.xaml.cs's window-resize arithmetic reads the SAME
-    // CombatRailResize constant, so the two sides genuinely cannot drift apart any more.
+    // CombatRailResize constant, so the two sides cannot drift apart.
     internal const float RailWidth = (float)CombatRailResize.CombatPanelContentWidthDp;
     private const float Pad = 10f;
     private const float Content = RailWidth - (Pad * 2);
 
     /// <summary>
-    /// A LIVE opponent's slot. 46 until the resolved rows moved out of this stack (2026-09-01) - seven
-    /// corpses were eating seven full-height slots for one word each, which is where the room for a
-    /// badge worth reading came from. Sized so five live slots still fit the shortest realistic rail:
-    /// at a 560-unit rail the available height is 408 and five slots at 81 pitch is 405. Five covers
-    /// 99.45% of encounters in the clog corpus (1268 of 1275, tools/combat/concurrency.py against the
-    /// whole clog corpus, 2026-09-02 - see tools/combat/README.md's own stored result for that run),
-    /// so the sizing is bought against the case that actually happens rather than against the one
-    /// that happened once.
+    /// A LIVE opponent's slot, sized so five live slots still fit the shortest realistic rail: at a
+    /// 560-unit rail the available height is 408 and five slots at 81 pitch is 405. Five covers 99.45%
+    /// of encounters in the clog corpus (1268 of 1275), so the sizing is bought against the case that
+    /// actually happens rather than against the one that happened once.
     /// </summary>
     private const float SlotHeight = 76f;
     private const float SlotGap = 5f;
 
-    // ---- the tile, 2026-09-06 ----
+    // ---- the tile ----
     //
-    // The ring seal used to sit on the left of every tile and every text line began to the right of
-    // it, at x=91. Replacing it with a full-width bar gave all four lines the whole 356 units back -
-    // 81 more than they had - which is what let the two damage rows and the spark fit at a size worth
-    // reading. The tile height did not move: four lines and a bar still land inside the original 76.
-    //
-    // The PANEL's capacity did change, though, and not because of the tile: the encounter table added
-    // 17 units to BottomRowHeight, which RailSlotGeometry.SlotsBottom subtracts before it divides. Five
-    // live slots needed a rail of 552 units and now need 569. Five covered 99.45% of encounters in the
-    // corpus, so this is a real trade and it is the owner's to accept - it is recorded here rather
-    // than left for someone to rediscover from the arithmetic.
+    // The tile draws a full-width bar rather than a left-side ring seal, so all four text lines get
+    // the tile's whole width. The tile height stays 76: four lines and a bar land inside it.
     //
     // Every offset below is from the tile's own top. They are constants rather than a measured flow
     // because a line that moves when its neighbour's text grows is the re-find-it-on-every-glance
@@ -97,18 +83,9 @@ public sealed class CombatRailView : SKCanvasView
 
     /// <summary>
     /// The spark's own baseline, and the whole reason it is a constant rather than an offset from a
-    /// text baseline.
-    ///
-    /// <para><b>It was <c>TileUpperBaseline - 9</c> and that overdrew the ladder.</b> Marks grow up to
-    /// <see cref="SparkMaxBar"/> either side of this line, so a centre at 47 put a player-side bar's
-    /// top at 33 - through the prediction lane at 41-43 for any blow over ~1.8, and into the ladder
-    /// fill at 34-40 for anything over ~7.3, which is the midpoint of an ordinary
-    /// <c>You hit the rat (5-9)</c>. The spark occupies x 264-366 where the ladder spans the full
-    /// width, so the collision was real and took out the last two rungs of the health readout.</para>
-    ///
-    /// <para>Sits below the bar's band (34-43) with the full bar height clear above it, and the tile's
-    /// own bottom edge clear below. There is no clip anywhere on this canvas; the geometry has to be
-    /// right rather than contained.</para>
+    /// text baseline: it sits below the bar's band (34-43) with the full bar height clear above it,
+    /// and the tile's own bottom edge clear below. There is no clip anywhere on this canvas; the
+    /// geometry has to be right rather than contained.
     /// </summary>
     private const float TileSparkCentre = 59f;
 
@@ -127,8 +104,7 @@ public sealed class CombatRailView : SKCanvasView
     private const float PlayerTileHeight = 81f;
 
     // The stat row's four fixed columns and the spark that follows them. Fixed centres, so the two
-    // rows of a tile line up with each other and with every other tile's - the owner's requirement
-    // when the sizes inside the blow-shape group stopped them lining up on their own.
+    // rows of a tile line up with each other and with every other tile's.
     private const float StatMarkWidth = 14f;
     private const float StatTotalWidth = 88f;
     private const float StatShapeWidth = 96f;
@@ -163,44 +139,25 @@ public sealed class CombatRailView : SKCanvasView
     private const double SparkDamageCap = 20.0;
 
     /// <summary>
-    /// One line of the top-anchored dead strip.
+    /// One ending's row in the top-anchored dead strip. The strip is top-anchored and grows downward:
+    /// new rows append at the bottom, one row per ending, ordered chronologically by
+    /// <c>EndedUtc</c> (see <see cref="Mucka.ViewModels.CombatEndingOrder"/>) so two rows never swap
+    /// position after the fact. The live stack stays bottom-anchored and never moves.
     ///
-    /// <para><b>Why the dead move and the living do not.</b> The owner, 2026-09-01: "the dead npcs
-    /// should be in a separate horizontal grid/list, which is top anchored. we have a block on
-    /// shuffling, but when an npc dies, the adjustment is genuinely valuable - its information."</para>
+    /// <para>Each row carries the exchange summary and the kill award as well as the name and the
+    /// outcome, across two lines. Named "line" because <c>RailSlotGeometry.PlanDeadStrip</c> budgets in
+    /// these units and does not care what is drawn inside one - it is the strip's row PITCH, and the
+    /// two sub-lines are <see cref="DeadSubLineHeight"/> apart within it.</para>
     ///
-    /// <para>That is the flight-instrumentation rule applied correctly rather than suspended. The rule
-    /// exists so the eye never has to re-find something that has NOT changed. A death has changed
-    /// something, and the strip growing by a line is the panel saying so - signal, not noise. The live
-    /// stack stays bottom-anchored and never moves, because the fight is what the eye is trained on.
-    /// Do not "fix" this back into a fixed grid.</para>
-    ///
-    /// <para><b>2026-09-02: one row per ending, appended at the BOTTOM, chronological.</b> The strip
-    /// used to group resolved participants by outcome ("KILLED rat3, rat7, rat9"), which collapsed the
-    /// one thing the owner actually wanted - "I'd like each kill to be its own row, a history...
-    /// otherwise just shows as many as the window size allows". New rows go at the bottom of the
-    /// strip, not the top: the strip is top-anchored and grows downward, and the "nothing moves" rule
-    /// above applies to EVERY row already drawn, including the ones from a fight that finished minutes
-    /// ago - prepending would shift the whole history down by one line on every death, which is
-    /// exactly the re-find-it-on-every-glance failure this section exists to prevent. This was also
-    /// true in intent but NOT in fact for one release: the fold and the live tail both iterated their
-    /// source in first-engaged order rather than resolution order, so two rows could still swap
-    /// relative position (and move) the moment the earlier-engaged one resolved - fixed by sorting
-    /// both by EndedUtc; see <see cref="Mucka.ViewModels.CombatEndingOrder"/>. See
-    /// <see cref="DrawDeadStrip"/> and <c>SidePanelViewModel.BuildDeadStripHistory</c>.</para>
+    /// <para>See <see cref="DrawDeadStrip"/> and <c>SidePanelViewModel.BuildDeadStripHistory</c>.</para>
     /// </summary>
-    /// <summary>One ending's whole block, which is now TWO lines rather than one (owner, 2026-09-06:
-    /// the strip carries the exchange summary and the kill award as well as the name and the outcome).
-    /// Named "line" because RailSlotGeometry.PlanDeadStrip budgets in these units and does not care
-    /// what is drawn inside one - it is the strip's row PITCH, and the two sub-lines are
-    /// DeadSubLineHeight apart within it.</summary>
     private const float DeadLineHeight = 24f;
 
     /// <summary>
-    /// The dead strip's two grouping separators' own vertical allowance - 2026-09-02, the owner
-    /// verbatim: "put a 1px yellow dotted separator between encounters... put a 2px white solid line
-    /// between resets (I run the client for long times)". This is the EXTRA space reserved between two
-    /// rows for the line and its clearance, not the stroke width itself: <see cref="DeadLineHeight"/>'s
+    /// The dead strip's two grouping separators' own vertical allowance. A 1px yellow dotted separator
+    /// marks a boundary between encounters; a 2px white solid line marks a boundary between resets.
+    /// This is the EXTRA space reserved between two rows for the line and its clearance, not the stroke
+    /// width itself: <see cref="DeadLineHeight"/>'s
     /// own ~3f of slack around a 10f font is not enough room for even a 1px stroke to sit in without
     /// touching the glyphs on either side of it, so a separator gets its own budget rather than
     /// borrowing that gap. Equal for both kinds on purpose - the allowance's job is clearance, not
@@ -216,9 +173,8 @@ public sealed class CombatRailView : SKCanvasView
     private const float DeadStripResetSeparatorHeight = 6f;
 
     /// <summary>The encounter table above the tick gauge: a heading row that is RESERVED always and
-    /// painted only on hover, and the value row under it. Reserved rather than inserted because the
-    /// owner's standing preference is against dynamic positioning - headings that appeared on hover
-    /// would push the whole rail down every time the pointer crossed it.</summary>
+    /// painted only on hover, and the value row under it. Reserved rather than inserted: headings that
+    /// appeared on hover would push the whole rail down every time the pointer crossed it.</summary>
     private const float EncounterHeadingHeight = 13f;
     private const float EncounterValueHeight = 15f;
     private const float EncounterRowHeight = EncounterHeadingHeight + EncounterValueHeight;
@@ -231,21 +187,17 @@ public sealed class CombatRailView : SKCanvasView
     private const float BottomRowHeight = PlayerTileHeight + EncounterRowGap + EncounterRowHeight;
     private const float TickRowHeight = 30f;
 
-    // ---- the bottom-up chain, 2026-09-07 ----
+    // ---- the bottom-up chain ----
     //
     // Order from the panel's bottom edge upward: the PLAYER'S TILE, then the tick gauge, then the
-    // encounter table, then the opponent stack. The player used to sit above both of those; the owner
-    // asked to try it at the very bottom, with the encounter chrome between him and the creatures.
+    // encounter table, then the opponent stack.
     //
     // Everything below is an offset of a row's BOTTOM edge above the panel's, so it can be read in the
-    // same direction the layout is built. The total is unchanged (Pad + tick + BottomRowHeight = 153),
-    // which is why RailSlotMetrics needs no adjustment and the opponent capacity does not move: only
-    // the order inside that block changed, not its size.
+    // same direction the layout is built. The total is Pad + tick + BottomRowHeight = 153.
     //
-    // One reason to prefer this order beyond the owner's ask: the flee pill rides the tick gauge and
-    // carries the stamina reading and what leaving costs at it, so it now sits directly against the
-    // player's own stamina bar - the numbers the leaving decision turns on, next to the gauge they
-    // came off.
+    // The flee pill rides the tick gauge and carries the stamina reading and what leaving costs at it,
+    // so it sits directly against the player's own stamina bar - the numbers the leaving decision turns
+    // on, next to the gauge they came off.
     private const float PlayerTileBottomOffset = Pad;
     private const float TickRowBottomOffset = PlayerTileBottomOffset + PlayerTileHeight;
     private const float EncounterBottomOffset = TickRowBottomOffset + TickRowHeight + EncounterRowGap;
@@ -270,36 +222,35 @@ public sealed class CombatRailView : SKCanvasView
     /// nothing else in the column moves when it lights up.</summary>
     private const float PillHeight = 20f;
     /// <summary>4, not 5: the pill sits inside the tick row and the row's contents are dropped
-    /// <see cref="TickRowDrop"/>, so 5 + 6 + 20 put its lower edge one unit past the row. It landed in
-    /// the panel's bottom padding and was invisible, which is exactly the kind of off-by-one that stops
-    /// being invisible the next time the row's height changes.</summary>
+    /// <see cref="TickRowDrop"/>, so 5 + 6 + 20 would put its lower edge one unit past the row, into
+    /// the panel's bottom padding.</summary>
     private const float PillTopInset = 4f;
 
     /// <summary>The pill is WIDER than the middle column the weapon lines use, and centred on the panel
-    /// rather than on that column. It has to be: the chip now carries stamina and a price as well as the
-    /// word and the key, and 116dp could not hold them.
+    /// rather than on that column: the chip carries stamina and a price as well as the word and the
+    /// key, and 116dp could not hold them.
     ///
     /// <para>The extra width is taken over the seals' bounding BOXES without touching their drawn rings.
     /// A seal is a circle of radius 39 centred 46dp down its 92dp box, so at the pill's vertical centre
     /// (~15dp from the row's top) the ring has narrowed to cx +/- 23.7 - the left ring reaches x=83 at
     /// most, the right no further left than x=253. 92..244 clears both by roughly 9dp. Do not widen
-    /// further without redoing that arithmetic; the rings bulge fast further down.</para></summary>
-    /// <summary>Centred over the tick gauge, where the pill now lives (owner, 2026-09-06). It covers
-    /// the gauge only while it is showing, which is the point: between fights the tick bar is
-    /// unobstructed, and when there is a reason to leave the alarm sits on top of the one instrument
-    /// the eye is already returning to every two seconds.</summary>
+    /// further without redoing that arithmetic; the rings bulge fast further down.</para>
+    ///
+    /// <para>Centred over the tick gauge. It covers the gauge only while it is showing, which is the
+    /// point: between fights the tick bar is unobstructed, and when there is a reason to leave the
+    /// alarm sits on top of the one instrument the eye is already returning to every two seconds.</para>
+    /// </summary>
     private const float PillWidth = 220f;
     private const float PillLeft = Pad + ((Content - PillWidth) / 2f);
 
     /// <summary>The pill is the floating dreamword chip's treatment in reds - a FILLED chip with a
     /// bright 2dp border and white bold text, not the thin dim outline the rest of this panel favours.
-    /// Owner's call, 2026-08-28. Geometry matched to that chip: corner radius 10, 2dp stroke, the same
-    /// roughly-10dp horizontal breathing room its Padding gives.
+    /// Geometry matched to that chip: corner radius 10, 2dp stroke, the same roughly-10dp horizontal
+    /// breathing room its Padding gives.
     ///
     /// <para>Note these are the panel's only colours NOT derived from <c>TerminalTheme.Palette</c>
     /// (section 11) - <c>#FF0000</c> is a pure red the Campbell palette does not contain (its bright red
-    /// is <c>#E74856</c>), and the owner named it directly. Recorded as an explicit override rather than
-    /// left looking like drift.</para></summary>
+    /// is <c>#E74856</c>). Recorded as an explicit override rather than left looking like drift.</para></summary>
     private static readonly SKColor PillFill = new(0x3E, 0x18, 0x1C);
     private static readonly SKColor PillEdge = new(0xFF, 0x00, 0x00);
     private static readonly SKColor PillText = new(0xFF, 0xFF, 0xFF);
@@ -314,15 +265,10 @@ public sealed class CombatRailView : SKCanvasView
     private const float PillQuietWash = 0.55f;
 
     /// <summary>Upper bound on opponent slots. The measured maximum simultaneously-engaged opponents
-    /// is 13 (2026-08-29, one encounter; tools/combat/concurrency.py against the whole clog corpus,
-    /// 1275 encounters, re-run 2026-09-02 - see tools/combat/README.md's own stored result for that
-    /// run, which superseded an earlier 984-encounter/max-7 figure this comment used to cite).
+    /// is 13, one encounter out of 1275 in the clog corpus.
     ///
-    /// <para>This comment used to say 4, then 7, and call the cap a guard for "the pathological case,
-    /// not the normal one" - all three readings wrong, or at least each stale the moment the corpus
-    /// grew past it. The peak has moved twice already and there is no reason to expect it has finished
-    /// moving, so the cap deliberately does NOT chase it: live opponents already exceed MaxSlots by a
-    /// comfortable margin in the worst observed cases, and the overflow row
+    /// <para>The cap deliberately does NOT chase that measured peak: live opponents already exceed
+    /// MaxSlots by a comfortable margin in the worst observed cases, and the overflow row
     /// (<see cref="DrawOverflowRow"/>) exists precisely to carry whatever that excess is, live or dead
     /// alike - see its own remarks for the pack-of-fourteen case that forced it to count properly.
     /// Raising MaxSlots to match whatever the corpus says today would only have to be redone the next
@@ -352,12 +298,9 @@ public sealed class CombatRailView : SKCanvasView
     /// seals use for theirs, so the two read as the same instrument.</summary>
     private static readonly SKColor SealTrack = Dim(TerminalTheme.Palette[8], 0.30f);
 
-    // The spent slice that has just gone lived here as a fixed-strength static field
-    // (SealTrackJustLost, Tint(SealTrack, Hostile, 0.35f)) until 2026-09-02. The owner: "it seems to
-    // stay red for multiple ticks; also, I'd like to reduce the *amount* of red... I'd like it to fade
-    // red->final gray over the combat tick." A tint that fades cannot be a compile-time constant, so
-    // it is now computed at paint time in DrawPlayerBar from Mucka.Core.TickStaminaLoss.FadeFactor - see
-    // that method's own remarks for the peak (down to 0.18) and the one-tick linear fade.
+    // The spent slice's fade cannot be a compile-time constant, so it is computed at paint time in
+    // DrawPlayerBar from Mucka.Core.TickStaminaLoss.FadeFactor - see that method's own remarks for the
+    // peak (down to 0.18) and the one-tick linear fade.
 
     /// <summary>The ring drawn for a species nothing is known about. Deliberately bright enough to
     /// read (3.8:1 on the panel's #101618) rather than the near-invisible greys the rest of the
@@ -377,12 +320,8 @@ public sealed class CombatRailView : SKCanvasView
     /// this panel - the creature's weapon and its damage figures are drawn in it. Here red marks the
     /// player's own progress, which is good news. The rule that makes both readable is POSITIONAL, not
     /// chromatic: everything in the lane outside a ring is where the NEXT BLOW lands, whoever throws
-    /// it - drawn in the same two-lane grammar on every ring the panel has, opponent and player alike
-    /// (the player's own device used to be the one exception, carrying a reach chevron instead; that
-    /// is gone as of 2026-09-02, an "indicator too many" on the owner's own reading once these bands
-    /// existed - see MudSharp.Combat.StaminaSeal's remarks on ReachAggregate). Every other red on the
-    /// panel is text inside a slot. The owner has explicitly not settled colour coding here ("The next
-    /// cue would be color coding that or something"), so this is the working rule and not a finding.</para>
+    /// it - drawn in the same two-lane grammar on every ring the panel has, opponent and player alike.
+    /// Every other red on the panel is text inside a slot.</para>
     /// </summary>
     private static readonly SKColor PredictNext = TerminalTheme.Palette[9];
     private static readonly SKColor PredictAfter = TerminalTheme.Palette[3];
@@ -397,7 +336,7 @@ public sealed class CombatRailView : SKCanvasView
     /// The same frame, brighter. Worn by exactly two widgets at once: the player's own device, and the
     /// single live opponent <see cref="MudSharp.Combat.ReachAggregate.GreatestThreatForAccent"/> names.
     ///
-    /// <para><b>What it means, as of the 2026-09-02 rewrite.</b> <c>ReachAggregate.GreatestThreat</c>
+    /// <para><b>What it means.</b> <c>ReachAggregate.GreatestThreat</c>
     /// picks the ONE live opponent the player's own prediction lanes (<c>CombatLiveView.YourNextBlow</c>/
     /// <c>YourBlowAfter</c>) project their damage bracket from - that selection runs on every refresh
     /// whether or not anything marks it. This accent is the ONLY on-screen indication that it is
@@ -405,16 +344,6 @@ public sealed class CombatRailView : SKCanvasView
     /// show it - the prediction lanes would just be quietly wrong about which opponent they describe,
     /// with no way to notice from the screen. <b>Do not delete this as decoration without moving that
     /// visibility somewhere else first.</b></para>
-    ///
-    /// <para><b>This field was deleted 2026-09-02 and restored the SAME day.</b> It used to be
-    /// justified as a pairing with the reach chevron on the player's own seal ("the single opponent
-    /// whose measured reach is the one the player's chevron was drawn from") - when the chevron was
-    /// deleted (an owner-requested "indicator too many"), that reading went with it and the accent was
-    /// deleted too, on the reasoning that a pairing with a now-nonexistent mark could not mean anything.
-    /// That reasoning was wrong: it is not a pairing with the chevron, it never was one in substance,
-    /// and the selection it reflects is a real, currently-running piece of state
-    /// (<c>SidePanelViewModel.IncomingPerBlowOf</c>) that has nothing to do with the chevron's own
-    /// existence. The accent was restored the same day once that was noticed.</para>
     ///
     /// <para><b>Brightness, not hue.</b> Cyan already means "the creature I am hitting" (the target bar)
     /// and that is a genuinely different question from "the creature whose damage profile is feeding my
@@ -510,19 +439,12 @@ public sealed class CombatRailView : SKCanvasView
     /// Mixes a colour toward another and then rescales it back to the ORIGINAL's brightness, so only
     /// the hue changes - the dead strip's outcome tint.
     ///
-    /// <para><b>Why brightness is held and only hue moves.</b> The owner asked for "some distinction
-    /// between the results with a bit of color -- but light, so it's not drawing the eye too much".
-    /// Those two wants pull against each other under a plain mix: pushing a grey toward yellow
-    /// brightens it, and brightness is the channel that actually pulls the eye. Holding luminance
-    /// constant and moving only the hue gives a difference the eye can read once it looks at the strip,
-    /// without giving the strip a reason to be looked at. The rail is glance instrumentation and the
-    /// live stack below it is what the eye is trained on; a settled ending must never outrank a live
-    /// opponent.</para>
-    ///
-    /// <para><b>This replaced an absolute per-channel nudge that was invisible on screen.</b> The first
-    /// attempt took the owner's "(0x0a in rgb)" literally as a magnitude - 10/255 against
-    /// <see cref="InkDim"/>'s #767676, a shift of under 9% - and he confirmed from a screenshot that it
-    /// read as no colour at all. The instruction was about restraint, not about that arithmetic.</para>
+    /// <para><b>Why brightness is held and only hue moves.</b> Pushing a grey toward yellow under a
+    /// plain mix brightens it, and brightness is the channel that actually pulls the eye. Holding
+    /// luminance constant and moving only the hue gives a difference the eye can read once it looks at
+    /// the strip, without giving the strip a reason to be looked at. The rail is glance instrumentation
+    /// and the live stack below it is what the eye is trained on; a settled ending must never outrank a
+    /// live opponent.</para>
     ///
     /// <para>Rec.601 luma, so this panel has one brightness model rather than a second one alongside
     /// <see cref="Dim"/>.</para>
@@ -581,25 +503,25 @@ public sealed class CombatRailView : SKCanvasView
     private readonly SKPaint _stroke = new() { IsAntialias = true, Style = SKPaintStyle.Stroke, StrokeWidth = 1f };
     private readonly SKPaint _text = new() { IsAntialias = true };
     /// <summary>Scratch path for <see cref="DrawDirectionMark"/> - built once and <c>Reset()</c>
-    /// before every mark rather than <c>new SKPath()</c>'d per call (2026-09-02 review finding, then
-    /// against the ring arcs this replaced: it runs twice per tile, so ~12 times per paint). Never held
-    /// past the <c>DrawPath</c> call that consumes it, so reusing it across draws is safe - Skia has
-    /// already copied whatever it needs onto the canvas by the time the next caller resets it.</summary>
+    /// before every mark rather than <c>new SKPath()</c>'d per call: it runs twice per tile, so ~12
+    /// times per paint. Never held past the <c>DrawPath</c> call that consumes it, so reusing it across
+    /// draws is safe - Skia has already copied whatever it needs onto the canvas by the time the next
+    /// caller resets it.</summary>
     private readonly SKPath _arcPath = new();
     /// <summary>Scratch path for <see cref="DrawMetronomeToggle"/> - same reasoning as
     /// <see cref="_arcPath"/>, and safe for the same reason: consumed by <c>DrawPath</c>/fill before
     /// the next paint ever touches it again.</summary>
     private readonly SKPath _metronomeBodyPath = new();
     private readonly SKFont _nameFont = new(SKTypeface.Default, 13.5f);
-    /// <summary>A live creature's name, bold (owner, 2026-09-06). Falls back to the regular cut where
+    /// <summary>A live creature's name, bold. Falls back to the regular cut where
     /// the platform has no bold face, exactly as <see cref="_pillFont"/> does - the name loses its
     /// emphasis rather than going missing. A RESOLVED row keeps <see cref="_nameFont"/>: the dead
     /// strip is a record, not a thing to be watched.</summary>
     private readonly SKFont _nameBoldFont = new(
         SKTypeface.FromFamilyName(SKTypeface.Default.FamilyName, SKFontStyle.Bold) ?? SKTypeface.Default, 13.5f);
     private readonly SKFont _phraseFont = new(SKTypeface.FromFamilyName("Cascadia Mono") ?? SKTypeface.Default, 13f);
-    /// <summary>The wound phrase and the stat rows, a point down from <see cref="_phraseFont"/>
-    /// (owner, 2026-09-06). Monospace and tabular, which is what actually holds the two stat rows in
+    /// <summary>The wound phrase and the stat rows, a point down from <see cref="_phraseFont"/>.
+    /// Monospace and tabular, which is what actually holds the two stat rows in
     /// register: the fixed column origins place the groups, and equal digit advances line the figures
     /// up inside them.</summary>
     private readonly SKFont _rungFont = new(SKTypeface.FromFamilyName("Cascadia Mono") ?? SKTypeface.Default, 12f);
@@ -609,9 +531,9 @@ public sealed class CombatRailView : SKCanvasView
     private readonly SKFont _statSmallFont = new(
         SKTypeface.FromFamilyName("Cascadia Mono") ?? SKTypeface.Default, 10f);
 
-    /// <summary>The swap mark on the alternate-weapon line, U+1F5D8 (owner's choice, 2026-09-06).
-    /// Written as an escape because this codebase rejects non-ASCII characters in source; the escape
-    /// is the same character either way.</summary>
+    /// <summary>The swap mark on the alternate-weapon line, U+1F5D8. Written as an escape because this
+    /// codebase rejects non-ASCII characters in source; the escape is the same character either
+    /// way.</summary>
     private const string SwapGlyph = "\U0001F5D8";
 
     /// <summary>
@@ -649,12 +571,10 @@ public sealed class CombatRailView : SKCanvasView
 
     // ---- Dash effects, built on first use and reused. Invariant #1. -----------------------
     //
-    // Every one of these used to be an SKPathEffect.CreateDash() INSIDE the paint handler, run on
-    // every paint and never disposed - five sites, two of them inside the per-opponent loop, so a
-    // busy pack fight allocated (and leaked the native handle of) well over a dozen per frame. A
-    // dash effect is a native Skia object behind a finalizable wrapper; churning them on the render
-    // path is exactly the allocation storm Invariant #1 forbids, and dropping the reference without
-    // Dispose leaves the native side to the finalizer queue.
+    // A dash effect is a native Skia object behind a finalizable wrapper. Creating one with
+    // SKPathEffect.CreateDash() INSIDE the paint handler on every paint - five sites, two of them
+    // inside the per-opponent loop - is exactly the allocation storm Invariant #1 forbids, and
+    // dropping the reference without Dispose leaves the native side to the finalizer queue.
     //
     // Built lazily rather than in the field initialiser, and nulled rather than merely disposed in
     // ReleaseDashEffects, so a view whose handler is torn down and later rebuilt simply recreates
@@ -742,20 +662,16 @@ public sealed class CombatRailView : SKCanvasView
     /// idle branch's <c>with</c>-expression reuses the same instance often enough for that to pay
     /// for itself.</para>
     ///
-    /// <para><b>Member-wise equality is NOT automatically structural, and adding this compare was
-    /// once mistaken for the whole fix (2026-09-02).</b> <see cref="CombatLiveView"/> is a record
-    /// and <c>RosterPlan</c> a record struct, so both get synthesized member-wise equality - but
-    /// <c>RosterPlan.Rows</c> is an <c>IReadOnlyList&lt;RosterRow&gt;</c>, and the synthesized
-    /// compare for a reference-typed member of that shape is REFERENCE equality.
-    /// <c>ParticipantRoster.Build</c> allocates a fresh list every refresh, so on the in-combat
-    /// branch - the only branch reached while a fight is open - the compare below decided
-    /// "different" every time and the rail still repainted at 1 Hz. <c>RosterPlan</c> now declares
-    /// its own element-wise <c>Equals</c>, which is what actually makes this setter's check bite;
-    /// see that method's remarks. If a collection-typed member is ever added to
-    /// <see cref="CombatLiveView"/> itself, it needs the same treatment or it will silently
-    /// reintroduce this - the record's synthesized equality will not tell you.
-    /// (<c>DeadStripHistory</c> is safe today only because the view model publishes a CACHED
-    /// instance and reallocates it only when the archive actually grows.)</para>
+    /// <para><b>Member-wise equality is NOT automatically structural.</b> <see cref="CombatLiveView"/>
+    /// is a record and <c>RosterPlan</c> a record struct, so both get synthesized member-wise equality
+    /// - but <c>RosterPlan.Rows</c> is an <c>IReadOnlyList&lt;RosterRow&gt;</c>, and the synthesized
+    /// compare for a reference-typed member of that shape is REFERENCE equality: a freshly allocated
+    /// list of otherwise-identical rows compares unequal. <c>RosterPlan</c> declares its own
+    /// element-wise <c>Equals</c> for this reason; see that method's remarks. If a collection-typed
+    /// member is ever added to <see cref="CombatLiveView"/> itself, it needs the same treatment, or the
+    /// rail will repaint every refresh again with no compiler warning to say so. (<c>DeadStripHistory</c>
+    /// is safe today only because the view model publishes a CACHED instance and reallocates it only
+    /// when the archive actually grows.)</para>
     /// </summary>
     public CombatLiveView Live
     {
@@ -880,7 +796,7 @@ public sealed class CombatRailView : SKCanvasView
 
         // The overflow row is a tail of the LIVE roster, so it belongs with the live region - directly
         // above the last live slot, not up with the dead. Compact for the same reason the dead strip is:
-        // it is one line of text and used to reserve a whole slot for it.
+        // one line of text does not need a whole slot's height.
         if (overflow)
         {
             y += SlotHeight - OverflowRowHeight;
@@ -915,35 +831,30 @@ public sealed class CombatRailView : SKCanvasView
     /// The settled dead: every combat ENDING this session, one row each, in a compact top-anchored
     /// strip.
     ///
-    /// <para><b>Why the dead move and the living do not.</b> The owner, 2026-09-01: "the dead npcs
-    /// should be in a separate horizontal grid/list, which is top anchored. we have a block on
-    /// shuffling, but when an npc dies, the adjustment is genuinely valuable - its information."</para>
+    /// <para><b>Why the dead move and the living do not.</b> The strip is top-anchored: when an NPC
+    /// dies, the adjustment carries information worth showing, unlike the live stack, which is under a
+    /// standing block on shuffling.</para>
     ///
-    /// <para>That is the flight-instrumentation rule applied, not suspended. The rule exists so the eye
-    /// never has to re-find something that has NOT changed; a death HAS changed something, and the
-    /// strip growing a line is the panel saying so. The live stack below stays bottom-anchored and is
-    /// sized from the full rail height, so a death can never move it. The two regions grow toward the
-    /// gap between them, and when they meet it is the DEAD that gives - which is the region where
-    /// movement is acceptable. Do not "fix" this back into a fixed grid.</para>
+    /// <para>The rule exists so the eye never has to re-find something that has NOT changed; a death HAS
+    /// changed something, and the strip growing a line is the panel saying so. The live stack below
+    /// stays bottom-anchored and is sized from the full rail height, so a death can never move it. The
+    /// two regions grow toward the gap between them, and when they meet it is the DEAD that gives -
+    /// which is the region where movement is acceptable.</para>
     ///
-    /// <para><b>One row per ending, session-scoped, not grouped and not per-encounter.</b> The owner,
-    /// 2026-09-02: "I'd like each kill to be its own row, a history, for this session, the recent ones
-    /// (last 3-4 ticks) with bold text... otherwise just shows as many as the window size allows
-    /// without intruding over live npcs." <paramref name="history"/> already IS that history,
-    /// chronological oldest-first - <see cref="SidePanelViewModel.BuildDeadStripHistory"/> owns
-    /// stitching the session archive to the current encounter's own endings, so this method only lays
-    /// rows out and truncates from the front when there are more than fit.</para>
+    /// <para><b>One row per ending, session-scoped, not grouped and not per-encounter.</b>
+    /// <paramref name="history"/> already IS that history, chronological oldest-first -
+    /// <see cref="SidePanelViewModel.BuildDeadStripHistory"/> owns stitching the session archive to the
+    /// current encounter's own endings, so this method only lays rows out and truncates from the front
+    /// when there are more than fit.</para>
     ///
-    /// <para><b>Combat ENDINGS, not just kills</b> - the owner's own distinction: "that way you can
-    /// *tell* the dwarf13 fled instead of died." Every <see cref="FightOutcome"/> a fight can resolve
-    /// to gets its own row and its own word (<see cref="OutcomeWord"/>); a slight tint on the word
-    /// marks the off-nominal endings (<see cref="OutcomeTint"/>) without ever replacing the word
-    /// itself.</para>
+    /// <para><b>Combat ENDINGS, not just kills</b> - so a row can tell a flee from a death. Every
+    /// <see cref="FightOutcome"/> a fight can resolve to gets its own row and its own word
+    /// (<see cref="OutcomeWord"/>); a slight tint on the word marks the off-nominal endings
+    /// (<see cref="OutcomeTint"/>) without ever replacing the word itself.</para>
     ///
     /// <para><b>Truncation drops the OLDEST, newest always wins.</b> When more endings exist than the
     /// available height can show, the top row becomes a dimmed "+N earlier" marker and the newest
-    /// entries fill the rest - the reverse of the old grouped strip's trailing "...", which said
-    /// nothing about which endings were missing.</para>
+    /// entries fill the rest.</para>
     /// </summary>
     private void DrawDeadStrip(SKCanvas canvas, float floor, IReadOnlyList<CombatEnding> history)
     {
@@ -951,14 +862,12 @@ public sealed class CombatRailView : SKCanvasView
             return;
 
         var startY = Pad + DeadLineHeight;
-        // Row-count/truncation arithmetic lives in RailSlotGeometry (2026-09-02) so mudsharp.Tests can
-        // pin it directly - this class is an SKCanvasView and unreachable from a unit test. See
+        // Row-count/truncation arithmetic lives in RailSlotGeometry so mudsharp.Tests can pin it
+        // directly - this class is an SKCanvasView and unreachable from a unit test. See
         // RailSlotGeometry.PlanDeadStrip for the capacity-1 rule (show the newest ending rather than a
-        // marker with nothing under it) that replaced this method's own off-by-one: the marker used to
-        // be reserved a row before ShownStart accounted for it, so the printed "+N" always undercounted
-        // by exactly the row it had just taken. The two separator heights are the SAME constants this
-        // method draws with, below - PlanDeadStrip needs them to plan around, and passing anything else
-        // would let the plan and the paint disagree about how much room a boundary takes.
+        // marker with nothing under it). The two separator heights are the SAME constants this method
+        // draws with, below - PlanDeadStrip needs them to plan around, and passing anything else would
+        // let the plan and the paint disagree about how much room a boundary takes.
         var plan = RailSlotGeometry.PlanDeadStrip(
             floor, startY, DeadLineHeight,
             DeadStripEncounterSeparatorHeight, DeadStripResetSeparatorHeight, history);
@@ -985,9 +894,9 @@ public sealed class CombatRailView : SKCanvasView
             var isRecent = age >= 0 && age < DeadStripRecentWindowMs;
             var font = isRecent ? _smallFontBold : _smallFont;
 
-            // Two lines per ending (owner, 2026-09-06): the creature and what it cost above, how it
-            // ended and what it cost the player below. The exchange summary is the only place a
-            // finished fight's figures survive - its tile is gone.
+            // Two lines per ending: the creature and what it cost above, how it ended and what it cost
+            // the player below. The exchange summary is the only place a finished fight's figures
+            // survive - its tile is gone.
             var nameBaseline = y - DeadSubLineHeight;
 
             _text.Color = Ink;
@@ -1004,7 +913,7 @@ public sealed class CombatRailView : SKCanvasView
             // see CombatEnding.ScoreAwarded for why the pairing is an inference and null means "no
             // announcement", not "worth nothing".
             //
-            // Three tones, because the figure means three different things (owner, 2026-09-09):
+            // Three tones, because the figure means three different things:
             //   a kill      +205   amber, the panel's existing award colour
             //   it fled     +158   green - it got away AND paid you, which is the only outcome on this
             //                      strip that is unambiguously good news
@@ -1063,14 +972,8 @@ public sealed class CombatRailView : SKCanvasView
         SKCanvas canvas, float rowY, float allowance, DeadStripSeparatorKind kind)
     {
         // In the ALLOWANCE, which is the space reserved for exactly this - just below the row that
-        // has finished, well above the next row's first line.
-        //
-        // It used to be rowY + (lineHeight + allowance) / 2, which put it half a row DOWN from the
-        // baseline. That worked while a row was one line and the pitch ran downward from it; a row is
-        // two lines now and extends UPWARD from rowY, so the old figure landed inside the next row's
-        // name and struck it through. The row's own height does not enter this at all any more, which
-        // is why the parameter is gone: the separator's place is defined by the gap, not by what is
-        // above it.
+        // has finished, well above the next row's first line. A row is two lines and extends UPWARD
+        // from rowY; the separator's place is defined by the gap, not by what is above it.
         var lineY = rowY + DeadRowDescent + (allowance / 2f);
         if (kind == DeadStripSeparatorKind.Reset)
         {
@@ -1093,44 +996,38 @@ public sealed class CombatRailView : SKCanvasView
 
     /// <summary>How long an ending stays drawn in bold: four combat ticks, derived from
     /// <see cref="Mucka.Core.CombatTiming.TickMilliseconds"/> rather than hardcoded so the two can
-    /// never drift apart. The owner asked for "the recent ones (last 3-4 ticks)"; four is the generous end of that
-    /// range rather than the stingy one; on this rail, missing a recent ending reads as it having
-    /// already faded from notice, which is worse than it staying bold one tick longer than strictly
-    /// necessary.</summary>
+    /// never drift apart. Four is the generous end of the range rather than the stingy one: on this
+    /// rail, missing a recent ending reads as it having already faded from notice, which is worse than
+    /// it staying bold one tick longer than strictly necessary.</summary>
     private static readonly double DeadStripRecentWindowMs = Mucka.Core.CombatTiming.TickMilliseconds * 4.0;
 
     /// <summary>
-    /// The dead strip's tint mapping over <see cref="FightOutcome"/> - the owner's own words, 2026-09-01:
-    /// "perhaps we use a *slight* yellow tint to the off-nominal kill endings, and a slight red if you
-    /// fled (0x0a in rgb)", and after seeing the first attempt on screen, 2026-09-02: "definitely want
-    /// some distinction between the results with a bit of color -- but light, so it's not drawing the
-    /// eye too much". "Slight" and "light" are doing real work: this recolours the OUTCOME WORD only,
-    /// never the name beside it, and never replaces the word - the word is MUD2's own vocabulary and is
-    /// what actually says how the fight ended. <see cref="HueOnly"/> is what keeps "a bit of color" from
-    /// turning into "brighter", and its remarks record why the literal 0x0a reading failed.
+    /// The dead strip's tint mapping over <see cref="FightOutcome"/>: a slight yellow tint marks the
+    /// off-nominal kill endings, and a slight red marks a player flee - light, so it does not draw the
+    /// eye. This recolours the OUTCOME WORD only, never the name beside it, and never replaces the word
+    /// - the word is MUD2's own vocabulary and is what actually says how the fight ended.
+    /// <see cref="HueOnly"/> is what keeps the tint from turning into brightness.
     ///
     /// <para><b>Yellow: endings where the creature was not cleanly killed.</b> <see cref="FightOutcome.CFled"/>
     /// and <see cref="FightOutcome.CFledFail"/> both leave it alive (fled clean, or broke off still
     /// standing in the room); <see cref="FightOutcome.Withdraw"/> is a mutual accepted withdraw, not a
     /// kill either; <see cref="FightOutcome.NoMore"/> is explicitly NOT a kill by its own doc comment -
-    /// "MUD2 printed no 'You have killed the X.' and... credited nothing" - which is exactly "lost to
-    /// something that was not your blow"; <see cref="FightOutcome.EndOther"/> is the game closing a
-    /// fight without saying why, which is not a kill claim either; <see cref="FightOutcome.Interrupted"/>
-    /// is the client ending the encounter because the world went away (reset/logout/room change/exit),
-    /// where the creature is not merely un-killed but was never finished with. None of these belongs anywhere near
+    /// MUD2 printed no kill line and credited nothing - which is exactly "lost to something that was
+    /// not your blow"; <see cref="FightOutcome.EndOther"/> is the game closing a fight without saying
+    /// why, which is not a kill claim either; <see cref="FightOutcome.Interrupted"/> is the client
+    /// ending the encounter because the world went away (reset/logout/room change/exit), where the
+    /// creature is not merely un-killed but was never finished with. None of these belongs anywhere near
     /// <see cref="FightOutcome.Kill"/>'s own doc comment, which is unambiguous about what a genuine kill
     /// looks like on the wire.</para>
     ///
     /// <para><b>Red: endings that cost the PLAYER.</b> <see cref="FightOutcome.UFled"/> and
     /// <see cref="FightOutcome.UFledFail"/> are the player's own flee, successful or not - and per
     /// UFledFail's own doc comment, a failed attempt is not free either (102 points and a whole
-    /// experience level in the captured example). Both are the player paying to leave, which is the
-    /// "if you fled" the owner named.</para>
+    /// experience level in the captured example). Both are the player paying to leave.</para>
     ///
     /// <para><see cref="FightOutcome.Kill"/> gets no tint - the nominal ending. <see cref="FightOutcome.Died"/>
     /// (the player's own permadeath) is excluded from this mapping entirely and stays drawn in full
-    /// <see cref="Hostile"/> at the call site, per the owner's instruction not to reduce it to a
-    /// tint.</para>
+    /// <see cref="Hostile"/> at the call site rather than reduced to a tint.</para>
     /// </summary>
     private static SKColor OutcomeTint(SKColor baseColor, FightOutcome outcome) => outcome switch
     {
@@ -1193,14 +1090,7 @@ public sealed class CombatRailView : SKCanvasView
 
     /// <summary>One opponent: the ladder bar, the name, and the game's own wound phrase. The phrase is
     /// verbatim from the MUD and set in the terminal's own monospace, because echoing what the player
-    /// just read in the scroll is what anchors the panel to it.
-    ///
-    /// <para>The seal replaced a seven-pip ladder with the phrase laid over it. Same ladder, same seven
-    /// rungs, bent into the same ring the player's own stamina is drawn on - the owner's call, because
-    /// the shape is what makes two of them comparable at a glance where two bars are not. What the ring
-    /// adds over the pips is a position INSIDE the current rung, which is where the estimator's
-    /// under-the-hood arithmetic goes, and a lane for the race projection. What it does not add is a
-    /// number.</para></summary>
+    /// just read in the scroll is what anchors the panel to it.</summary>
     private void DrawOpponentSlot(SKCanvas canvas, float y, RosterRow row, bool isGreatestThreat)
     {
         _fill.Color = row.IsCurrentTarget
@@ -1227,10 +1117,7 @@ public sealed class CombatRailView : SKCanvasView
 
         // Line 1: the creature and what it is holding.
         //
-        // Bold ONLY on a tick this creature took a blow on (owner, 2026-09-09). It used to be bold for
-        // as long as the creature was alive, which spent the panel's strongest typographic signal on
-        // the one fact every other part of the tile already carried - a live row has a frame, a ladder
-        // and a stat pair, and a dead one is in the strip. Tied to damage instead, the weight means
+        // Bold ONLY on a tick this creature took a blow on. Tied to damage, the weight means
         // something that changes: in a pack, which of them is actually being worked on. See
         // Mucka.Core.TickDamageEmphasis for the rule and the carry-forward behind the flag.
         var nameFont = row.TookDamageThisTick ? _nameBoldFont : _nameFont;
@@ -1289,15 +1176,12 @@ public sealed class CombatRailView : SKCanvasView
     /// Room for the creature's name and for the weapon opposite it. Both fixed rather than measured off
     /// the content: a name allowed to grow into the weapon's space would move the weapon.
     ///
-    /// <para>Both grew when the four per-row damage figures were removed. The owner had reported them
-    /// twice - "they're not readable, and I had no idea what the numbers were because they're so tiny
-    /// and the labels are unreadable" - and they were the last descendant of the numeric table the
-    /// whole panel was a reaction to. What each was for now lives somewhere it reads better: how hard
-    /// this creature hits is the two rDPT lanes on the player's own ring, positioned against the
-    /// player's actual stamina rather than stated as a bare figure (this used to be a single reach
-    /// chevron, deleted 2026-09-02 once the two per-blow lanes made it redundant - see
-    /// MudSharp.Combat.StaminaSeal's remarks on ReachAggregate); how fast the fight is going is the
-    /// tempo frame; and how much of the creature is left is the badge itself.</para></summary>
+    /// <para>Both grew when the four per-row damage figures were removed: they were unreadable at this
+    /// size, and were the last descendant of the numeric table the whole panel was a reaction to. What
+    /// each was for now lives somewhere it reads better: how hard this creature hits is the two rDPT
+    /// lanes on the player's own ring, positioned against the player's actual stamina rather than stated
+    /// as a bare figure; how fast the fight is going is the tempo frame; and how much of the creature is
+    /// left is the badge itself.</para></summary>
     private const float SlotNameWidth = 168f;
     private const float SlotWeaponWidth = 152f;
     private const float TileInset = 6f;
@@ -1318,12 +1202,11 @@ public sealed class CombatRailView : SKCanvasView
     /// reading when the seal has none. It is MUD2's own vocabulary - the words the player just read in
     /// the scroll - and it is per-INDIVIDUAL where the seal's track is per-species.</para>
     ///
-    /// <para><b>It is never blanked.</b> Owner's instruction, 2026-09-01: "also don't stop displaying
-    /// the health read on npcs". A ten-second cutoff used to erase it; that is gone. The evidence backs
-    /// him: MUD2 prints a descriptor after every landed blow that does not kill, so silence between
-    /// descriptors is not a missing observation but positive evidence that nothing of the player's
-    /// landed - which means the creature has taken nothing from them and the last reading very probably
-    /// still holds. Fading it after three ticks is the whole of the staleness treatment, and it carries
+    /// <para><b>It is never blanked.</b> MUD2 prints a descriptor after every landed blow that does not
+    /// kill, so silence between descriptors is not a missing observation but positive evidence that
+    /// nothing of the player's landed - which means the creature has taken nothing from them and the
+    /// last reading very probably still holds. Fading it after three ticks is the whole of the
+    /// staleness treatment, and it carries
     /// the residual honestly: a creature CAN change untouched (NPC-versus-NPC combat is in the corpus,
     /// and zombies regenerate), so dim says "this is what it last said" without hiding it or
     /// overclaiming it. No timestamp, no duration, no words about age - see
@@ -1348,16 +1231,15 @@ public sealed class CombatRailView : SKCanvasView
         }
 
         // What killing it is worth, after the rung word - the slot the player's own tile uses for
-        // their stamina figure (owner, 2026-09-08). Its own fixed origin, so it does not move as the
-        // phrase beside it changes length.
+        // their stamina figure. Its own fixed origin, so it does not move as the phrase beside it
+        // changes length.
         //
         // THE RISK, and how it is answered: a bare number in the position where the player's badge
         // shows "(61/105)" invites being read as the CREATURE's stamina, which is the one figure this
-        // panel may never imply it knows. Four things separate them now - it is never a fraction, it
-        // is gold rather than the condition's own tone, it carries its own UNIT, and it has a hover
-        // readout that says the whole sentence. The unit is the owner's own fix (2026-09-09: "make it
-        // '{value}pts' and give it a tooltip that says '{id} is worth {value} points if killed'"),
-        // and it is the one that does the work: "205pts" cannot be a stamina reading.
+        // panel may never imply it knows. Four things separate them: it is never a fraction, it
+        // is gold rather than the condition's own tone, it carries its own UNIT ("{value}pts", with a
+        // tooltip that says "{id} is worth {value} points if killed"), and it has a hover readout that
+        // says the whole sentence. "205pts" cannot be a stamina reading.
         //
         // Null is "never probed" and draws nothing; ZERO is a legal answer (the ox) and draws. See
         // FightAccumulator.Value for why the two must stay distinguishable.
@@ -1421,17 +1303,11 @@ public sealed class CombatRailView : SKCanvasView
     /// <summary>
     /// The seven-rung ladder as a horizontal bar, filling from the left with what is LEFT.
     ///
-    /// <para><b>This was a ring until 2026-09-06</b>, on the left of every tile, pushing all four
-    /// text lines to x=91. Unrolling it gave them the full width back, which is what the two damage
-    /// rows and the exchange spark are drawn in. Only the SHAPE changed; everything below survived
-    /// the move and none of it is negotiable.</para>
-    ///
     /// <para><b>A ladder, not a stamina bar.</b> Every creature has exactly seven rungs. A giant does
     /// not get more rungs - its rungs are worth more stamina and it labels them with different words.
     /// So the bar is notched into sevenths and the boundary is how far up that ladder the creature has
     /// been driven. The estimator's absolute figures stay under the hood, placing the boundary more
-    /// finely INSIDE the seventh the descriptor gave; none of them is drawn. Owner's call: "We're not
-    /// asking the player to do math."</para>
+    /// finely INSIDE the seventh the descriptor gave; none of them is drawn.</para>
     ///
     /// <para><b>The boundary's two sides differ on purpose.</b> Hard on the near side - the creature
     /// certainly still has that much - and a fade beyond it. Averaging them into one edge would turn
@@ -1556,33 +1432,26 @@ public sealed class CombatRailView : SKCanvasView
     /// the two are visually the same thing and one of them does not have to be composited.</summary>
     private static readonly SKColor HostileDim = Dim(Hostile, 0.72f);
 
-    /// <summary>How far a cell that has nothing to say is pushed back. The owner asked for 0.8 alpha;
-    /// on this ground a 0.8 dim is the same reading and matches the rest of the file.</summary>
+    /// <summary>How far a cell that has nothing to say is pushed back. On this ground a 0.8 dim is the
+    /// same reading as 0.8 alpha and matches the rest of the file.</summary>
     private const float GhostDim = 0.8f;
 
     /// <summary>
     /// One direction of the exchange: mark, running total, blow shape, drain rate.
     ///
-    /// <para><b>Four fixed columns, so the tile's two rows lock to each other.</b> The owner's
-    /// requirement, 2026-09-06, when the blow-shape group's mixed point sizes stopped the rows lining
-    /// up on their own: the answer is that the columns are POSITIONS, not a measured flow, so the
-    /// sizes inside a group cannot move the group.</para>
+    /// <para><b>Four fixed columns, so the tile's two rows lock to each other.</b> The columns are
+    /// POSITIONS, not a measured flow, so the sizes inside a group cannot move the group.</para>
     ///
-    /// <para><b>An empty row names its own cells</b> rather than printing dashes - the owner's
-    /// suggestion, and a better one: the tile teaches its layout while it has nothing to report and
-    /// goes quiet the moment a figure lands. Either way rule 5 holds, because a word can no more be
-    /// read as a measurement than a dash can.</para>
+    /// <para><b>An empty row names its own cells</b> rather than printing dashes: the tile teaches its
+    /// layout while it has nothing to report and goes quiet the moment a figure lands. Either way rule
+    /// 5 holds, because a word can no more be read as a measurement than a dash can.</para>
     ///
-    /// <para><b>Row POSITION and row COLOUR answer different questions, and conflating them was the
-    /// bug.</b> Every badge is about its own subject: the UPPER row is what that subject is TAKING and
-    /// the lower row is what it is DEALING, so an opponent's tile leads with the damage the player put
-    /// into it and the player's tile leads with the damage coming back. The COLOUR says who threw the
-    /// blow - white for the player, red for a creature - which is why the two tiles do not simply
-    /// invert into each other's colours.
-    ///
-    /// <para>Until 2026-09-07 both tiles were drawn from the player's point of view, which made the
-    /// player's tile a verbatim copy of the opponent's in any one-on-one fight. The owner spotted it
-    /// as transposition; it was worse than that - it was the same row twice.</para></para>
+    /// <para><b>Row POSITION and row COLOUR answer different questions.</b> Every badge is about its
+    /// own subject: the UPPER row is what that subject is TAKING and the lower row is what it is
+    /// DEALING, so an opponent's tile leads with the damage the player put into it and the player's
+    /// tile leads with the damage coming back. The COLOUR says who threw the blow - white for the
+    /// player, red for a creature - which is why the two tiles do not simply invert into each other's
+    /// colours.</para>
     /// </summary>
     /// <param name="inbound">Which mark to draw: the upper row of a tile takes the inward mark, the
     /// lower row the outward one, regardless of whose blow the row describes.</param>
@@ -1604,8 +1473,8 @@ public sealed class CombatRailView : SKCanvasView
                 byPlayer ? "dmg done by" : "dmg done to",
                 StatTotalLeft + (StatTotalWidth / 2f), baseline, SKTextAlign.Center, _statSmallFont, _text);
             // "low/high/avg", not "min/max/avg". On the outgoing side the outer two are the UPPER
-            // bounds of the smallest and largest blows (the owner's spec, with his worked example),
-            // while the mean pools both ends - so three identical (5-9) blows read 9 / 9 / 7, and a
+            // bounds of the smallest and largest blows, while the mean pools both ends - so three
+            // identical (5-9) blows read 9 / 9 / 7, and a
             // label promising a minimum below the average would be contradicted by the commonest case
             // of all. "low" and "high" describe WHICH BLOW, which is what these actually are.
             canvas.DrawText(
@@ -1616,8 +1485,8 @@ public sealed class CombatRailView : SKCanvasView
             return;
         }
 
-        // Centred (owner, 2026-09-06) so a wide outgoing bracket and a bare incoming figure share an
-        // axis instead of drifting apart against a right edge.
+        // Centred so a wide outgoing bracket and a bare incoming figure share an axis instead of
+        // drifting apart against a right edge.
         var total = byPlayer && line.Total.High > line.Total.Low
             ? line.Total.Low.ToString("0.#", culture) + "-" + line.Total.High.ToString("0.#", culture)
             : line.Total.High.ToString("0.#", culture);
@@ -1651,7 +1520,7 @@ public sealed class CombatRailView : SKCanvasView
     /// separators so the mixed sizes cannot shift the group between rows.
     ///
     /// <para>On the outgoing side the outer two are UPPER bounds of brackets, and the mean pools both
-    /// ends of every bracket - the owner's own definition. On the incoming side all three are exact.
+    /// ends of every bracket. On the incoming side all three are exact.
     /// See <see cref="ExchangeLine"/>.</para>
     /// </summary>
     private void DrawShapeGroup(
@@ -1659,8 +1528,8 @@ public sealed class CombatRailView : SKCanvasView
     {
         var culture = System.Globalization.CultureInfo.InvariantCulture;
         // One measured blow means the three figures cannot differ yet, so the outer two are pushed
-        // back (owner, 2026-09-06) - the eye is told there is nothing to compare rather than left to
-        // work out why it is reading the same number three times.
+        // back - the eye is told there is nothing to compare rather than left to work out why it is
+        // reading the same number three times.
         var outer = line.AllAlike ? Dim(dim, GhostDim) : dim;
 
         // Every figure BOUNDED to its own slot. Nothing here was, which made this the one group on the
@@ -1705,12 +1574,11 @@ public sealed class CombatRailView : SKCanvasView
     /// what separates a creature that keeps missing from one that is not swinging at all.</para>
     ///
     /// <para>Incoming bars carry severity twice, in height and in hue, both saturating at
-    /// <see cref="SparkDamageCap"/> - the owner's ramp, 2026-09-06.</para>
+    /// <see cref="SparkDamageCap"/>.</para>
     ///
     /// <para><b>It mirrors between the two kinds of tile</b>, for the same reason the stat rows do:
     /// UP is what the badge's subject is TAKING. On an opponent's tile the player's blows rise; on the
-    /// player's own tile the creatures' blows rise. Drawn the same way on both until 2026-09-07, which
-    /// left the player's tile saying the opposite of what its rows said.</para>
+    /// player's own tile the creatures' blows rise.</para>
     ///
     /// <para><b>The newest mark is at the RIGHT EDGE, always.</b> Marks are laid out backwards from
     /// the right rather than forwards from the left, so a fight three swings old has its three marks
@@ -1766,8 +1634,8 @@ public sealed class CombatRailView : SKCanvasView
     private static float SparkBarHeight(double damage)
         => SparkMinBar + (float)(Math.Clamp(damage / SparkDamageCap, 0.0, 1.0) * (SparkMaxBar - SparkMinBar));
 
-    /// <summary>Yellow through to bright red, saturating at <see cref="SparkDamageCap"/> - the owner's
-    /// ramp. A blow of unknown size gets the bottom of it rather than a colour of its own: the height
+    /// <summary>Yellow through to bright red, saturating at <see cref="SparkDamageCap"/>. A blow of
+    /// unknown size gets the bottom of it rather than a colour of its own: the height
     /// already says "unknown" by sitting at the minimum, and a fourth colour on a three-unit mark
     /// would be a distinction nobody can see.</summary>
     private static SKColor IncomingRamp(double damage)
@@ -1778,10 +1646,9 @@ public sealed class CombatRailView : SKCanvasView
             : Tint(NoveltyUnfought, Hostile, (float)((t - 0.5) * 2.0));
     }
 
-    /// <summary>The direction mark: a small filled triangle, DRAWN rather than typed. The owner ruled
-    /// out an arrow character (2026-09-06, "MUD2 is a text game, and we're a text-focused UI, we're
-    /// not a TUI") - a glyph would also have put a non-ASCII literal in the source, which this
-    /// codebase rejects, so the vector settles both at once.</summary>
+    /// <summary>The direction mark: a small filled triangle, DRAWN rather than typed. An arrow
+    /// character would put a non-ASCII literal in the source, which this codebase rejects, so the
+    /// vector settles both at once.</summary>
     private void DrawDirectionMark(SKCanvas canvas, float x, float top, bool outgoing, SKColor color)
     {
         const float w = 6f;
@@ -1809,11 +1676,10 @@ public sealed class CombatRailView : SKCanvasView
     /// The tempo frame: a border around an engaged widget whose DASH DENSITY is how often blows are
     /// landing in it.
     ///
-    /// <para>The owner's "how soon" cue, applied at widget level: "if you're just not hitting the
-    /// thing, then it decays to 1 dot of color every 5 pixels; swinging like a pro, it's solid." An
-    /// opponent's slot carries the player's rate against that creature; the player's own two-seal
-    /// device carries the pooled incoming rate. Same language on both, so the pair reads as one
-    /// exchange.</para>
+    /// <para>Dash density reads as how soon: not hitting the thing decays it to 1 dot of color every 5
+    /// pixels; swinging like a pro, it is solid. An opponent's slot carries the player's rate against
+    /// that creature; the player's own two-seal device carries the pooled incoming rate. Same language
+    /// on both, so the pair reads as one exchange.</para>
     ///
     /// <para><b>Three states, on two channels, and the third one matters.</b> Density alone cannot
     /// carry them, because a hit rate of zero and no swings at all are different claims:</para>
@@ -1821,10 +1687,9 @@ public sealed class CombatRailView : SKCanvasView
     /// <item><b>Nothing swung yet</b> - four CORNER BRACKETS, no sides. A shape, not a density, so it
     /// cannot be read as a position on the dash scale. This is not a one-tick corner case: the player
     /// swings at ONE creature at a time, so in a pack every other live row sits here for the whole
-    /// fight, and the previous version drew all of them as if the player were whiffing at them. It is
-    /// also the only route into the state, since MUD2 prints a descriptor after every non-killing
-    /// landed hit - see <c>DamagePrediction.Tempo</c>, which records why near-total coverage is a
-    /// reason to keep this state rather than to drop it.</item>
+    /// fight. It is also the only route into the state, since MUD2 prints a descriptor after every
+    /// non-killing landed hit - see <c>DamagePrediction.Tempo</c>, which records why near-total
+    /// coverage is a reason to keep this state rather than to drop it.</item>
     /// <item><b>Blows landing below the corpus rate</b> - a dashed frame, density carrying how far
     /// below.</item>
     /// <item><b>At or above it</b> - solid.</item>
@@ -1888,14 +1753,12 @@ public sealed class CombatRailView : SKCanvasView
     /// <summary>
     /// The opponent row to pair with the player's device, or -1 for none.
     ///
-    /// <para><b>Restored 2026-09-02, the same day it was deleted.</b> It was cut along with the reach
-    /// chevron on the reasoning that the pairing existed only to point at what the chevron drew, and
-    /// with the chevron gone there was nothing left to point at. That reasoning was wrong: this row is
-    /// the one <c>MudSharp.Combat.ReachAggregate.GreatestThreat</c> picks for the player's own
-    /// prediction lanes (<c>CombatLiveView.YourNextBlow</c>/<c>YourBlowAfter</c>) to project from, a
-    /// selection that runs on every refresh regardless of the chevron, and the accent this drives is
-    /// the ONLY on-screen sign that a selection is happening at all - see <see cref="FrameAccent"/>'s
-    /// own remarks for what breaks if this is deleted again without replacing what it shows.</para>
+    /// <para>This row is the one <c>MudSharp.Combat.ReachAggregate.GreatestThreat</c> picks for the
+    /// player's own prediction lanes (<c>CombatLiveView.YourNextBlow</c>/<c>YourBlowAfter</c>) to
+    /// project from - that selection runs on every refresh whether or not anything marks it, and the
+    /// accent this drives is the ONLY on-screen sign that a selection is happening at all - see
+    /// <see cref="FrameAccent"/>'s own remarks for what breaks if this is deleted again without
+    /// replacing what it shows.</para>
     ///
     /// <para>Gated on being in combat and out of the grace window here (needs <see cref="CombatLiveView"/>,
     /// so cannot move to <c>ReachAggregate</c>); the two-live-opponent threshold and the actual row
@@ -1917,13 +1780,10 @@ public sealed class CombatRailView : SKCanvasView
     /// farthest from the gaze, because it is the least actionable thing on the panel - you cannot do
     /// anything about the sixth rat.
     ///
-    /// <para><b>This row was effectively dead and its count was wrong.</b> It only ran when the roster's
-    /// published ROW list outgrew the visible capacity, and the roster caps that list at
-    /// ParticipantRoster.MaxRows == the rail's own MaxSlots, so at any rail height from 560dp up - every
-    /// ordinary window - eight rows could never outgrow eight slots and the row never drew. A
-    /// fourteen-rat fight showed eight rats and nothing whatever about the other six. The counts here
-    /// are now taken from the PLAN, which knows about participants the row list never carried; the
-    /// caller's overflow test moved to the same figure.</para>
+    /// <para>The counts are taken from the PLAN, which knows about participants the row list never
+    /// carried - the roster caps its published ROW list at ParticipantRoster.MaxRows == the rail's own
+    /// MaxSlots, so counting from the row list alone would undercount whenever the live roster exceeds
+    /// that cap.</para>
     ///
     /// <para>The names are still only the ones the roster published. That is the honest limit: past
     /// MaxRows the plan carries counts and not identities, so the list ends in an ellipsis rather than
@@ -1970,9 +1830,8 @@ public sealed class CombatRailView : SKCanvasView
     /// <summary>The overflow row's names string, ellipsized and ready to draw - cached, because
     /// <see cref="DrawOverflowRow"/> ran a LINQ <c>Skip</c>/<c>OrderByDescending</c>/<c>Select</c>
     /// chain plus a <c>string.Join</c> and an <see cref="Ellipsize"/> pass on every single paint with
-    /// no caching at all (2026-09-02 review finding), against this codebase's own discipline
-    /// elsewhere - see <c>SidePanelViewModel._historyCache</c>, which exists for exactly this
-    /// reason.
+    /// no caching at all, against this codebase's own discipline elsewhere - see
+    /// <c>SidePanelViewModel._historyCache</c>, which exists for exactly this reason.
     ///
     /// <para><b>Keyed on the overflow tail's own composition, not on the roster's identity.</b> The
     /// roster is rebuilt fresh on every refresh (<c>ParticipantRoster.Build</c>), including refreshes
@@ -2024,20 +1883,16 @@ public sealed class CombatRailView : SKCanvasView
     }
 
     /// <summary>
-    /// Stamina seal, weapon, magic seal - one row, three fixed columns.
+    /// The player's own tile: the same four lines every opponent carries, in the same order, at the
+    /// same sizes - the stamina seal drawn with the same size and treatment as an NPC's, just a
+    /// different colour, which is the whole reason the panel can be read as a comparison at all. Two
+    /// identically-shaped things, one blue and one coloured by how much trouble you are in.
     ///
     /// <para>Out of combat both seals go grey. The numbers are still true (they ride the FES
     /// heartbeat, and the top status strip keeps showing them in full colour), but a lit alarm
     /// colour on this panel means "this is what is happening to you in this fight" - leaving the
     /// seals hot after a fight ends would keep raising an alarm about a fight that is over. They are
     /// dimmed rather than removed so the row never changes shape.</para>
-    /// </summary>
-    /// <summary>
-    /// The player's own tile: the same four lines every opponent carries, in the same order, at the
-    /// same sizes. The owner's instruction, 2026-09-06 - "give our stamina seal the same size and
-    /// treatment as the npcs ones, it's just a different color" - and it is the whole reason the
-    /// panel can be read as a comparison at all. Two identically-shaped things, one blue and one
-    /// coloured by how much trouble you are in.
     ///
     /// <para><b>The one asymmetry is the numbers, and it is the honest one.</b> Line two carries the
     /// rung word AND the exact figure, where a creature's carries the word alone. The player is the
@@ -2059,10 +1914,7 @@ public sealed class CombatRailView : SKCanvasView
                 accent: GreatestThreatRow(live) >= 0);
 
         // The persona's own name, exactly as an opponent tile carries the creature's - including the
-        // emphasis rule, which the owner extended here in the same breath ("unbold the id/name field
-        // (including player)"). Bold means the player took a blow on the tick being drawn and nothing
-        // else; it was unconditionally bold before, which made it the one name on the panel whose
-        // weight could not mean anything.
+        // emphasis rule. Bold means the player took a blow on the tick being drawn and nothing else.
         //
         // Blank until the login handshake names them - never a stand-in word, which is what "you" was.
         if (live.PlayerName is { Length: > 0 } persona)
@@ -2091,9 +1943,7 @@ public sealed class CombatRailView : SKCanvasView
         DrawMagLine(canvas, y + PlayerMagTop, live, wash);
 
         // The player's tile, MIRRORED against an opponent's: what the player is taking on top (the
-        // creatures' blows, red), what they are dealing underneath (their own, white). Both tiles were
-        // drawn player-first until 2026-09-07, which made this one a verbatim copy of the opponent's
-        // tile in any one-on-one fight.
+        // creatures' blows, red), what they are dealing underneath (their own, white).
         DrawStatRow(canvas, y + PlayerUpperBaseline, live.YourTaken, inbound: true, byPlayer: false);
         DrawStatRow(canvas, y + PlayerLowerBaseline, live.YourDealt, inbound: false, byPlayer: true);
         DrawSpark(canvas, y + PlayerSparkCentre, live.YourExchange, subjectIsPlayer: true);
@@ -2101,8 +1951,8 @@ public sealed class CombatRailView : SKCanvasView
 
     /// <summary>
     /// What is in the player's hands, opposite "you" exactly as a creature's weapon sits opposite its
-    /// name. Bold, because it is the current one (owner, 2026-09-06) - the ALTERNATIVE on the line
-    /// below is the plain one, which is the way round it had been drawn before and read as backwards.
+    /// name. Bold, because it is the current one - the ALTERNATIVE on the line below is the plain
+    /// one.
     ///
     /// <para><b>Empty hands are an alarm only when they are a PROBLEM</b>, which takes two gates.
     /// Stamina below maximum, because every fight begins with the weapon unknown - the aggregator
@@ -2127,8 +1977,8 @@ public sealed class CombatRailView : SKCanvasView
             const string unarmed = "UNARMED";
             var hurt = live.StaminaCurrent is int sta && live.StaminaMax is int max && sta < max;
             var width = _nameBoldFont.MeasureText(unarmed);
-            // Yellow on the quiet half of the cycle, white on the loud one - the owner's pairing. The
-            // underline stays put through both, so the word never appears to move.
+            // Yellow on the quiet half of the cycle, white on the loud one. The underline stays put
+            // through both, so the word never appears to move.
             _text.Color = hurt ? (live.BlinkOffPhase ? InkBright : Caution) : InkDim;
             canvas.DrawText(unarmed, TileTextRight, baseline, SKTextAlign.Right, _nameBoldFont, _text);
             if (hurt)
@@ -2139,11 +1989,9 @@ public sealed class CombatRailView : SKCanvasView
             return;
         }
 
-        // Carries its novelty mark, exactly as an opponent's name does. This was lost when the ring
-        // seal's DrawWeapon was deleted - CombatLiveView.WeaponNovelty went on being computed with
-        // nothing reading it, so "you have never finished anything with this weapon" silently stopped
-        // being a thing the panel said. See CombatNovelty.WeaponRollup: it is a rollup over everything
-        // currently engaged, which is why it belongs on the weapon rather than on any one tile.
+        // Carries its novelty mark, exactly as an opponent's name does. See CombatNovelty.WeaponRollup:
+        // it is a rollup over everything currently engaged, which is why it belongs on the weapon
+        // rather than on any one tile.
         DrawMarkedText(
             canvas, Ellipsize(live.WeaponText, SlotWeaponWidth, _nameBoldFont),
             TileTextRight, baseline, SKTextAlign.Right, _nameBoldFont, Ink, live.WeaponNovelty);
@@ -2179,8 +2027,8 @@ public sealed class CombatRailView : SKCanvasView
 
         var tone = StaminaTone(live, cur, max);
 
-        // The word, a size down (owner, 2026-09-07) - it is the adjective, and it is what gives when
-        // the two cannot both fit.
+        // The word, a size down - it is the adjective, and it is what gives when the two cannot both
+        // fit.
         if (NpcHealthRungs.LivingLabel(NpcHealthRungs.RungFor(cur, max)) is { } label)
         {
             _text.Color = Dim(tone, 0.82f);
@@ -2200,25 +2048,23 @@ public sealed class CombatRailView : SKCanvasView
     ///
     /// <para><b>Sized backwards from the figure, not forwards from the word.</b> The alt-weapon group
     /// shares this line, right-aligned, and at its widest starts at about x=182; the figure needs
-    /// <see cref="ConditionFigureWidth"/> and must never be clipped (owner, 2026-09-07), so the word
-    /// gets whatever is left - which is why 118 was wrong: an ordinary "(85/120)" then ran to 194 and
-    /// straight into the weapon name.</para>
+    /// <see cref="ConditionFigureWidth"/> and must never be clipped, so the word gets whatever is left
+    /// - which is why 118 was wrong: an ordinary "(85/120)" then ran to 194 and straight into the
+    /// weapon name.</para>
     ///
     /// <para>The longest living-family label, "superficially injured", does not fit and is not meant
     /// to. It ellipsizes; the figure stays put.</para>
     ///
     /// <para><b>Derived, not chosen.</b> Whatever is left of the line once the alt-weapon group and
-    /// the figure have taken theirs. Written down as a number, it silently became wrong the moment
-    /// either of the other two changed - which is how the 3dp collision got in.</para>
+    /// the figure have taken theirs. Written down as a number, it would silently go wrong the moment
+    /// either of the other two changed.</para>
     /// </summary>
     private const float ConditionWordWidth =
         AltGroupWorstCaseLeft - TileTextLeft - ConditionFigureWidth - 4f;
 
     /// <summary>Reserved for the stamina figure, never ellipsized against. "(999/999)" is nine
-    /// characters of Cascadia Mono at <see cref="_rungFont"/>'s 12f - which is what draws the figure,
-    /// NOT the 10f stat size beside it that this comment used to name. The reservation was right and
-    /// the reason given for it was wrong; a persona whose maximum runs to four digits would overflow
-    /// it, and MUD2 has no such persona.</summary>
+    /// characters of Cascadia Mono at <see cref="_rungFont"/>'s 12f. A persona whose maximum runs to
+    /// four digits would overflow it, and MUD2 has no such persona.</summary>
     private const float ConditionFigureWidth = 66f;
 
     /// <summary>
@@ -2260,9 +2106,8 @@ public sealed class CombatRailView : SKCanvasView
 
     /// <summary>
     /// The alternative weapon and the key that reaches it: <c>[swap] a rune axe ^W</c>, together or
-    /// not at all (owner, 2026-09-06). Naming the alternative without the key leaves the player
-    /// nothing to do about it, and offering the key without naming what it swaps to is the version he
-    /// called clouded.
+    /// not at all. Naming the alternative without the key leaves the player nothing to do about it,
+    /// and offering the key without naming what it swaps to is unclear.
     /// </summary>
     private void DrawAltWeapon(SKCanvas canvas, float baseline, CombatLiveView live)
     {
@@ -2297,9 +2142,8 @@ public sealed class CombatRailView : SKCanvasView
     /// <para><b>The just-lost slice rides here</b>, immediately past the fill's edge: the stamina this
     /// tick took, drawn where it used to be. It fades to nothing across one tick
     /// (<see cref="Mucka.Core.TickStaminaLoss.FadeFactor"/>, a pure function of the loss timestamp and now,
-    /// sampled at paint time - no timer, Invariant #1). Both halves of that are the owner's, from
-    /// living with the un-faded version: a slice that persisted read as a live part of the gauge, and
-    /// one dimmed instead of faded could not be seen at all.</para>
+    /// sampled at paint time - no timer, Invariant #1). A slice that simply persisted would read as a
+    /// live part of the gauge, and one dimmed instead of faded could not be seen at all.</para>
     /// </summary>
     private void DrawPlayerBar(
         SKCanvas canvas, float top, int? current, int? max,
@@ -2337,15 +2181,12 @@ public sealed class CombatRailView : SKCanvasView
         DrawPredictionLane(canvas, StaminaSeal.BandArc(nextBlow), Pad, top, Content, PredictNext);
     }
 
-    /// <summary>Magic, as a two-unit strip notched at the quarters (owner, 2026-09-06). It answers
-    /// "roughly how much is left" and nothing more. A persona with no magic gets the empty track,
-    /// which is a measurement (max is zero, and the game said so) rather than an unknown.
+    /// <summary>Magic, as a two-unit strip notched at the quarters. It answers "roughly how much is
+    /// left" and nothing more. A persona with no magic gets the empty track, which is a measurement
+    /// (max is zero, and the game said so) rather than an unknown.
     ///
-    /// <para><b>The magic FIGURE is not on the panel at all any more.</b> The deleted MAG seal drew it
-    /// at 25f; nothing replaced it, and two comments here claimed otherwise until 2026-09-06 - one
-    /// pointing at a "seal slot" that no longer exists, one at the condition line, which prints
-    /// stamina only. If the number is wanted back it needs a slot of its own; do not assume it is
-    /// somewhere else on the tile, because it is not.</para></summary>
+    /// <para><b>The magic FIGURE is not on the panel at all.</b> If it is wanted, it needs a slot of
+    /// its own; it is not drawn anywhere else on the tile.</para></summary>
     private void DrawMagLine(SKCanvas canvas, float top, CombatLiveView live, float wash)
     {
         _fill.Color = SealTrack;
@@ -2364,12 +2205,11 @@ public sealed class CombatRailView : SKCanvasView
     }
 
     /// <summary>
-    /// The encounter table's five columns, in the owner's order (2026-09-06), as WHOLE WORDS.
+    /// The encounter table's five columns, as WHOLE WORDS.
     ///
-    /// <para>They were three-letter abbreviations because the values used to carry a <c>/t</c> suffix
-    /// in the heading. Moving the <c>t</c> onto the values freed the room, and a column nobody can
-    /// name is a column nobody can use - the headings only appear on hover anyway, which is exactly
-    /// when the reader wants the word rather than the crossword clue.</para>
+    /// <para>Whole words rather than abbreviations: a column nobody can name is a column nobody can
+    /// use, and the headings only appear on hover anyway, which is exactly when the reader wants the
+    /// word rather than the crossword clue.</para>
     ///
     /// <para>"Participants" is the widest at 12 characters, which is what the 71-unit column takes at
     /// the heading size. Do not lengthen one without checking the others still fit.</para>
@@ -2380,7 +2220,7 @@ public sealed class CombatRailView : SKCanvasView
     /// <summary>
     /// What each column means, shown when the pointer is on that column.
     ///
-    /// <para>The owner asked for these back as "(i) mouse-overs". There is no (i) glyph: a full word
+    /// <para>There is no (i) glyph: a full word
     /// plus a marker does not fit a 71-unit column, and this codebase already has an idiom for "there
     /// is more here if you ask" - the half link (see <see cref="HalfLinkInk"/>). So the hovered
     /// heading takes the dotted blue underline and its description appears above the row. Same
@@ -2401,8 +2241,7 @@ public sealed class CombatRailView : SKCanvasView
     /// <para>A mark in this blue under a DOTTED underline means: hovering reveals more, and one day
     /// clicking may open more still. It is deliberately a broken hyperlink rather than a whole one -
     /// the thing is not a link, it does not navigate, and a solid underline would promise that it
-    /// does. Owner's decision and his own words, 2026-09-06: "hovers should have a dotted blue
-    /// underline, 'half link'".</para>
+    /// does.</para>
     ///
     /// <para><b>This is a client-wide style decision, not a combat-rail one.</b> It lives here
     /// because the rail is the first surface to need it; any other affordance of the same kind - the
@@ -2422,8 +2261,7 @@ public sealed class CombatRailView : SKCanvasView
     ///
     /// <para><b>Quiet by default, explained on demand.</b> At rest it is five numbers and nothing
     /// else. Pointing at it paints the headings and the separators that were reserved all along - the
-    /// row's height never changes, which is the owner's standing objection to dynamic positioning
-    /// answered by reserving the space rather than by doing without the headings.</para>
+    /// row's height never changes, because the space is reserved rather than inserted.</para>
     ///
     /// <para><b>Die is the only coloured cell</b>, and it carries the verdict for the pair: green when
     /// the fight is won with ticks to spare, through orange when it is level, to red when the creature
@@ -2484,20 +2322,18 @@ public sealed class CombatRailView : SKCanvasView
             DrawHalfLinkAnchor(canvas, headingBaseline);
         }
 
-        // Par and Op are counts; Dur, Vic and Die are ticks and say so on the VALUE (owner,
-        // 2026-09-06), which is what lets the headings stay three letters wide.
+        // Par and Op are counts; Dur, Vic and Die are ticks and say so on the VALUE, not the heading.
         //
-        // Par and Op go BLANK while the encounter has produced at most one creature (owner,
-        // 2026-09-06). "1" and "1" is the overwhelmingly common case and says nothing anyone needs;
+        // Par and Op go BLANK while the encounter has produced at most one creature.
+        // "1" and "1" is the overwhelmingly common case and says nothing anyone needs;
         // the pair earns its ink the moment either becomes a fight worth counting. Blank rather than
         // a dash here because this is not an unknown - it is known and uninteresting, which is a
         // different thing and rule 5 has no opinion about it.
         var countsWorthStating = live.LiveOpponents > 1 || live.OpponentsFaced > 1;
 
-        // Stack-allocated rather than `new[] { ... }`: this runs on every paint of a docked panel, and
-        // a 2026-09-02 review finding removed exactly this allocation from the band drawing a few
-        // hundred lines away. The strings themselves are unavoidable (Skia takes strings), but the
-        // array they sit in is not.
+        // Stack-allocated rather than `new[] { ... }`: this runs on every paint of a docked panel. The
+        // strings themselves are unavoidable (Skia takes strings), but the array they sit in is
+        // not.
         Span<string> values =
         [
             countsWorthStating ? live.LiveOpponents.ToString(culture) : string.Empty,
@@ -2510,10 +2346,10 @@ public sealed class CombatRailView : SKCanvasView
         for (var i = 0; i < values.Length; i++)
         {
             // A count that is deliberately not stated draws nothing at all; a PROJECTION that cannot
-            // be made yet draws a dimmed dash (owner, 2026-09-06). The two look different because
-            // they are different: one is a column with nothing to say, the other is the panel
-            // declining to guess - and Vic and Die decline for the opening ticks of every fight, by
-            // CombatOutlook's own refusal to project off one lucky blow.
+            // be made yet draws a dimmed dash. The two look different because they are different: one
+            // is a column with nothing to say, the other is the panel declining to guess - and Vic and
+            // Die decline for the opening ticks of every fight, by CombatOutlook's own refusal to
+            // project off one lucky blow.
             if (values[i].Length == 0)
             {
                 if (i < 2)
@@ -2860,13 +2696,13 @@ public sealed class CombatRailView : SKCanvasView
             _stroke.StrokeWidth = 1f;
         }
 
-        // One centred string in the owner's own wording, 2026-09-06:
+        // One centred string:
         //     ^F:  FLEE  sta:23
         // Bold at every state, like the dreamword chip's own word: the escalation is the chip's
         // brightness and the pulse, never the letterforms changing under the eye.
         //
         // The key leads, because it is the only thing that can be DONE about any of it - "^F", not
-        // "Ctrl+F", the owner's shorthand for a player whose hand is already on the keyboard.
+        // "Ctrl+F", for a player whose hand is already on the keyboard.
         //
         // The STAMINA is on the pill rather than left to the bar above it because this is the number
         // the decision is actually about, and at the moment of deciding the eye is on the chip.
@@ -2875,8 +2711,8 @@ public sealed class CombatRailView : SKCanvasView
         // exactly against every recorded flight), so the rule is right or absent: null (an input is
         // missing) prints nothing, and an estimate is never printed - the estimator this replaced
         // disagreed with every flee observed after it. Zero prints "free" rather than "-0", because it
-        // is a known answer and "-0" reads as a rounding artefact. A plain word, NOT a highlight: section
-        // 10 of COMBAT-RAIL-SPEC.md bans framing the cheap band as an achievement.
+        // is a known answer and "-0" reads as a rounding artefact. A plain word, NOT a highlight: a
+        // price tag never frames the cheap band as an achievement.
         var baseline = top + (PillHeight / 2f) + 4f;
         var label = "^F:  FLEE";
         if (live.StaminaCurrent is int sta)
@@ -2925,13 +2761,6 @@ public sealed class CombatRailView : SKCanvasView
     /// <summary>
     /// The tick meter. Pale and grey - it is a timer, not a judgement, so it carries no colour coding
     /// and no label. It turns red at 30 stamina and glows at 20, and those are the only exceptions.
-    ///
-    /// <para><b>The crossed-swords opponent gauge that used to sit over it is gone.</b> It centred
-    /// itself on a width computed from the live opponent count, so every death and every joiner slid
-    /// the whole row of marks sideways - the one thing this panel is laid out never to do (see the
-    /// class remarks: a critical readout that shifts under the eye has to be re-found on every glance).
-    /// It was also the third place the same count appeared: the slots themselves are one per opponent,
-    /// and the overflow row states the tail. Nothing was lost by deleting it.</para>
     /// </summary>
     private void DrawTickRow(SKCanvas canvas, float y, CombatLiveView live)
     {
@@ -2955,8 +2784,8 @@ public sealed class CombatRailView : SKCanvasView
         _fill.Color = new SKColor(0xff, 0xff, 0xff, 0x10);
         canvas.DrawRoundRect(Pad, TrackTopIn(y), TickTrackWidth, TickTrackHeight, 3f, 3f, _fill);
 
-        // The flee pill sits OVER the gauge (owner, 2026-09-06). Drawn last so it covers the track,
-        // and only while there is a reason to leave - between fights the gauge is unobstructed.
+        // The flee pill sits OVER the gauge. Drawn last so it covers the track, and only while there
+        // is a reason to leave - between fights the gauge is unobstructed.
         //
         // Grace counts as not fighting here too, and is already handled by the early return above:
         // nothing is attacking, so an instrument telling the player to run would be charging them for
@@ -2982,8 +2811,8 @@ public sealed class CombatRailView : SKCanvasView
 
         // A metronome: tapered body, and a pendulum arm that leans when armed and stands upright
         // when it is not - the lean is what reads as "running" at a glance, with no motion needed.
-        // _metronomeBodyPath is reused rather than `new SKPath()`'d every paint (2026-09-02 review
-        // finding) - see its own remarks; Reset() clears it before this call rebuilds it.
+        // _metronomeBodyPath is reused rather than `new SKPath()`'d every paint - see its own remarks;
+        // Reset() clears it before this call rebuilds it.
         _metronomeBodyPath.Reset();
         _metronomeBodyPath.MoveTo(cx - 5.5f, cy + 6f);
         _metronomeBodyPath.LineTo(cx + 5.5f, cy + 6f);
@@ -3010,8 +2839,7 @@ public sealed class CombatRailView : SKCanvasView
     }
 
     /// <summary>
-    /// How far the tick row's CONTENTS sit below the row's own centre line (owner, 2026-09-06: "we
-    /// can afford to move the combat ticker down 6px").
+    /// How far the tick row's CONTENTS sit below the row's own centre line.
     ///
     /// <para>Applied to the contents rather than to the row's top edge on purpose. The row's position
     /// is the last link in the bottom-up chain that RailSlotGeometry divides against to decide how
@@ -3097,7 +2925,7 @@ public sealed class CombatRailView : SKCanvasView
         FightOutcome.UFledFail => "flee failed",
         FightOutcome.Withdraw => "withdrew",
         // The outcome's own word rather than the observed cause: NoMore is an open family (poison so
-        // far, the owner expects others) and the label has to cover the ones not yet seen. Not
+        // far, with more expected) and the label has to cover the ones not yet seen. Not
         // "killed" - nothing in these frames says the player's blow finished it - and not "died",
         // which on a roster row beside "KILLED YOU" invites exactly the wrong reading.
         FightOutcome.NoMore => "no more",

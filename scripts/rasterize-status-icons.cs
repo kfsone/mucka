@@ -2,15 +2,15 @@
 // Rasterize the Status/*.svg source art to PNGs with the SAME engine the app draws with
 // (SkiaSharp), so the shipped bitmaps match on-canvas rendering exactly.
 //
-// Reads SVGs from  Resources/Raw/status/      (the source of truth — raw art, not shipped as images)
-// Writes PNGs to   Resources/Images/Status/   (build action MauiImage — the shipped icon assets,
+// Reads SVGs from  Resources/Raw/status/      (the source of truth - raw art, not shipped as images)
+// Writes PNGs to   Resources/Images/Status/   (build action MauiImage - the shipped icon assets,
 //                                               referenced in XAML by filename e.g. "strength.png")
 //
 // Run from the repo root:
-//   dotnet run --file tools/rasterize-status-icons.cs
+//   dotnet run --file scripts/rasterize-status-icons.cs
 // Optionally pass a comma-separated size list (square, px). Default: a single 128px master named
 // "<stat>.png" (MAUI generates the density buckets; the panel displays it at 16/24/32).
-//   dotnet run --file tools/rasterize-status-icons.cs -- 128,256
+//   dotnet run --file scripts/rasterize-status-icons.cs -- 128,256
 //
 // SVGs stay the source of truth; re-run this whenever they change or you want new sizes.
 
@@ -48,7 +48,7 @@ foreach (var svgPath in Directory.EnumerateFiles(svgDir, "*.svg").OrderBy(p => p
         // Normal (buff) icon.
         Emit(picture, src, size, name, colorFilter: null, suffix: "");
         // Debuff variant: monochrome + bruised tint, so a lone negative icon can't be mistaken
-        // for its positive twin. Only the ±stats have a debuff form — glow/invis and the full-colour
+        // for its positive twin. Only the +/-stats have a debuff form - glow/invis and the full-colour
         // afflictions (deaf/blind/dumb/crippled) are single-state and ship as-is.
         if (name is not ("glow" or "invis" or "deaf" or "blind" or "dumb" or "crippled" or "combat"))
             Emit(picture, src, size, name, colorFilter: SicklyFilter(), suffix: "_neg");
@@ -58,7 +58,7 @@ foreach (var svgPath in Directory.EnumerateFiles(svgDir, "*.svg").OrderBy(p => p
 Console.WriteLine($"Done — {written} PNG(s) written to {outDir}");
 return 0;
 
-// Desaturate to luma, then colorize toward a bruised purple-brown — a distinct "afflicted/bad"
+// Desaturate to luma, then colorize toward a bruised purple-brown - a distinct "afflicted/bad"
 // look that reads clearly even as the only icon in a stack.
 static SKColorFilter SicklyFilter()
 {

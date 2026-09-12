@@ -95,14 +95,13 @@ public sealed class StaminaPoolEstimatorTests
     [Fact]
     public void BlowGranularityDoesNotChangeThePoolCeiling_OnlyTheLadderPosition()
     {
-        // Recorded because an earlier version of this fixture claimed the opposite, and the claim was an
-        // artefact of sweeping adjacent readings only. One blow carrying the creature down three rungs
-        // and three blows carrying it down one each reach the same place for the same damage, and the
-        // pair spanning the whole fall says exactly the same thing in both - 7 x 29 / 2 = 101.5.
+        // One blow carrying the creature down three rungs and three blows carrying it down one each
+        // reach the same place for the same damage, and the pair spanning the whole fall says exactly
+        // the same thing in both - 7 x 29 / 2 = 101.5.
         //
         // Fine-grained blows DO buy something, but it is position rather than size: see
         // NpcVitality's crossing constraint, where a 1-4 span pins the creature to a fifth of a rung and
-        // a 20-29 span pins it to most of one. Do not reinstate the pool claim.
+        // a 20-29 span pins it to most of one.
         var oneBigBlow = StaminaPoolEstimator.BoundFor(DownThreeRungsNoKill()).Bound;
         var threeSmallBlows = StaminaPoolEstimator.BoundFor(Fight(
             blows: [(1, 1), (7, 10), (7, 10), (6, 9)],
@@ -226,7 +225,7 @@ public sealed class StaminaPoolEstimatorTests
         Assert.Equal(98.0, estimate.Interval.AtMost!.Value, 6);
     }
 
-    // ── Family 2: the rung constraint ────────────────────────────────────────────
+    // -- Family 2: the rung constraint --------------------------------------------
 
     [Fact]
     public void RungSevenAfterTwoBlowsFloorsThePoolAtSevenTimesTheBracketLow()
@@ -281,7 +280,7 @@ public sealed class StaminaPoolEstimatorTests
         Assert.Equal(10, bound!.Value.Above, 6);
     }
 
-    // ── Family 1: the kill constraint ────────────────────────────────────────────
+    // -- Family 1: the kill constraint --------------------------------------------
 
     [Fact]
     public void AKillBracketsThePoolBetweenTheSurvivedLowsAndEveryHigh()
@@ -346,8 +345,8 @@ public sealed class StaminaPoolEstimatorTests
     [Fact]
     public void AChaseIsLinkedIntoOneObservation_NotDropped()
     {
-        // The whole point of the change. The old filter kept the first link and threw away the one that
-        // finished the creature, which is the only two-sided constraint a fight can produce.
+        // Linking must preserve both fights: the finishing link is the only two-sided constraint
+        // a fight can produce, so it must not be the one dropped.
         var (chains, linked, dropped) = ChaseLinker.Link(new[]
         {
             Chased(0, 10_000, blows: [(4, 8), (4, 8)]),
@@ -421,8 +420,8 @@ public sealed class StaminaPoolEstimatorTests
     [Fact]
     public void RecoveringSubstantiallyBetweenFightsIsAFreshAttempt_NotAChase()
     {
-        // The owner's own case: too low on stamina, leave, sleep, come back. The gap can be short and it
-        // is still not a chase, because the player's state reset.
+        // Too low on stamina, leave, sleep, come back: the gap can be short and it is still not a
+        // chase, because the player's state reset.
         var (chains, linked, _) = ChaseLinker.Link(new[]
         {
             Fight("banshee", 0, 10_000, staStart: 90, staEnd: 20, staMax: 100, weapon: "axe0"),
@@ -515,7 +514,7 @@ public sealed class StaminaPoolEstimatorTests
     {
         // Several creatures printed under one name inside one encounter. The first row absorbed every
         // blow landed on every one of them before the first died, which makes it the worst row in the
-        // group - and the row the old filter kept. No blow can be attributed, so none of them counts.
+        // group. No blow can be attributed, so none of them counts.
         //
         // The discriminator is that an EARLIER fight in the same encounter ended in a kill: the creature
         // carrying the name is dead, so whatever answers to it next is a different one.
@@ -560,7 +559,7 @@ public sealed class StaminaPoolEstimatorTests
         Assert.Equal(500_000, Assert.Single(chains).StartedAtMs);
     }
 
-    // ── Max-depth intersection ───────────────────────────────────────────────────
+    // -- Max-depth intersection ---------------------------------------------------
 
     [Fact]
     public void AgreeingKillsIntersectToTheTightestBandTheyAllContain()
@@ -806,10 +805,10 @@ public sealed class StaminaPoolEstimatorTests
     /// <summary>
     /// A kill followed by the same name is two creatures, and both are evidence.
     ///
-    /// <para>The mechanism, from the operator (2026-09-02): "there's a potion in-game that summons
-    /// creatures, and can draw from the full pool including dead ones. that's how we'd have the
-    /// occasional killed-twice-in-one-reset." A wizard can resummon too, so it is repeatable - and
-    /// capped, since "there can't be more than two of the same id'd cre at the same time".</para>
+    /// <para>A potion in the game summons creatures and can draw from the full pool including dead
+    /// ones, which is how the same name can be killed twice in one reset. A wizard can resummon too,
+    /// so this is repeatable - and capped, since no more than two of the same id'd creature can exist
+    /// at once.</para>
     ///
     /// <para>The second life is CLEAN data rather than contamination, which is why both observations
     /// stand instead of the later one being dropped. Measured: successors of a same-reset kill reproduce
@@ -819,7 +818,8 @@ public sealed class StaminaPoolEstimatorTests
     [Fact]
     public void AKillFollowedByTheSameNameIsTwoObservations_NotAChain()
     {
-        // The old exclusion model dropped the second fight here on the clock alone.
+        // The clock alone does not merge these two kills; a kill ends the chain absolutely, so
+        // each is its own observation.
         var estimate = StaminaPoolEstimator.Estimate("rat", new[]
         {
             Fight(name: "rat0", startedAtMs: 0, endedAtMs: 1_000, kill: true, blows: [(10, 14), (10, 14)]),
@@ -830,7 +830,7 @@ public sealed class StaminaPoolEstimatorTests
         Assert.Equal(2, estimate.ContributingFights);
     }
 
-    // ── Width, which is how a caller tells a tight band from a useless one ───────
+    // -- Width, which is how a caller tells a tight band from a useless one -------
 
     [Fact]
     public void WidthAndRelativeWidthDescribeHowWellTheBandIsKnown()
@@ -849,7 +849,7 @@ public sealed class StaminaPoolEstimatorTests
         Assert.True(wide.Interval.RelativeWidth > tight.Interval.RelativeWidth);
     }
 
-    // ── Regeneration labelling ───────────────────────────────────────────────────
+    // -- Regeneration labelling ---------------------------------------------------
 
     [Theory]
     [InlineData("zombie", PoolQuantity.DamageToKill)]
@@ -868,7 +868,7 @@ public sealed class StaminaPoolEstimatorTests
         Assert.Equal(PoolQuantity.DamageToKill, estimate.Quantity);
     }
 
-    // ── The pessimistic end, which is the only single number this offers ────────
+    // -- The pessimistic end, which is the only single number this offers --------
 
     [Fact]
     public void PessimisticPoolIsTheTopOfTheBandNotItsMiddle()

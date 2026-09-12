@@ -124,11 +124,11 @@ public class StaleProbeTests : IDisposable
     [Fact]
     public void PlainUncodedLine_MarksInventoryStale_SendsFesFeiProbe()
     {
-        // Item-moving commands answer in plain un-coded text ("You drop the sword.") — no C1
-        // code accompanies them, so the plain line itself is the FEI hint (probe-noise policy,
-        // 2026-07-25: any non-coded output may have moved items).
+        // Item-moving commands answer in plain un-coded text ("You drop the sword.") - no C1
+        // code accompanies them, so the plain line itself is the FEI hint (probe-noise policy:
+        // any non-coded output may have moved items).
         EnterGameModeAndSettle();
-        Feed(Pop);           // close the entry code's colour frame — the live server always pops
+        Feed(Pop);           // close the entry code's colour frame - the live server always pops
         Thread.Sleep(200);   // drain the entry room-enter hint's own FEI probe
         var baseline = CountSent(FesFeiProbe);
         Feed("You drop the ancient scroll.\r\n");
@@ -139,7 +139,7 @@ public class StaleProbeTests : IDisposable
     [Fact]
     public void CodedText_InsideColourFrame_NeverPlainHints()
     {
-        // Text inside any C1 colour frame is coded output — its own code's classification
+        // Text inside any C1 colour frame is coded output - its own code's classification
         // governs. C07 (combat hit) is stats-advisory, so no reactive probe fires at all.
         EnterGameModeAndSettle();
         Feed(Pop);
@@ -164,7 +164,7 @@ public class StaleProbeTests : IDisposable
         Thread.Sleep(150);
         Feed(C06Magical);                  // no hint (probe-noise policy)
         Feed(C03ItemArriving);             // inventory stale
-        FeedArrivalLine("Bob the warrior"); // unknown player → who list stale (+ inventory)
+        FeedArrivalLine("Bob the warrior"); // unknown player -> who list stale (+ inventory)
         Assert.True(WaitForProbe(FullProbe, atLeast: 2), "expected a combined FES,FEW,FEI probe");
     }
 
@@ -184,7 +184,7 @@ public class StaleProbeTests : IDisposable
     public void UnknownPlayerArrival_ProbesWhoListAndRoomContents()
     {
         // The C05 arrival marks the room contents dirty (FEI) and the missing name marks the
-        // who list stale (FEW) → one combined reactive probe.
+        // who list stale (FEW) -> one combined reactive probe.
         EnterGameModeAndSettle();
         EstablishWhoListBaseline();
         Thread.Sleep(150);

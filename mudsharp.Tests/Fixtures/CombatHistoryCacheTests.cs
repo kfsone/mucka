@@ -5,13 +5,10 @@ using MudSharp.Combat;
 namespace mudsharp.Tests.Fixtures;
 
 /// <summary>
-/// The single most important regression this whole redesign phase exists to keep passing:
-/// DESIGN_FINAL.md's own review flagged self-comparison exclusion as "the single easiest thing to
-/// break" when replacing the old <c>FightHistory.ExcludingEncounterFrom</c> runtime filter with the
-/// incremental HistoryIndex. These tests reproduce the EXACT sequence that made the bug possible in
-/// the first place: FightHistoryRecorder flushes a closed encounter's rows to the store BEFORE the
-/// view model gets a chance to render, so without protection "now" and "usual" become identical the
-/// moment a fight resolves.
+/// HistoryIndex must never let a fight's own row leak into its own comparison figures. These
+/// tests reproduce the sequence that makes that possible: FightHistoryRecorder flushes a closed
+/// encounter's rows to the store BEFORE the view model gets a chance to render, so without
+/// protection "now" and "usual" become identical the moment a fight resolves.
 /// </summary>
 public sealed class CombatHistoryCacheTests : IDisposable
 {
@@ -56,7 +53,7 @@ public sealed class CombatHistoryCacheTests : IDisposable
 
         // The fight resolves. FightHistoryRecorder.FlushLocked appends the JUST-FINISHED fight's own
         // row to the SAME store, for the SAME encounter, BEFORE the view model's post-combat summary
-        // render runs - reproducing the exact ordering that made the original bug possible.
+        // render runs.
         store.Append(Fight("rat0", 999));   // a wildly different value - would visibly shift the
                                              // median if it leaked into the comparison
 

@@ -13,17 +13,12 @@ namespace MudSharp.Combat;
 /// knowing does.</para>
 ///
 /// <para><b><see cref="Mean"/> is a midpoint on the outgoing side</b>, pooling both ends of every
-/// bracket - the owner's own definition, given 2026-09-05. That is a display figure and it is allowed
-/// to be one; what may never happen is a bracket being STORED collapsed, because a later constraint
-/// pass can only narrow a range that is still a range. See SwingRow.DamageLow.</para>
+/// bracket. That is a display figure and it is allowed to be one; what may never happen is a bracket
+/// being STORED collapsed, because a later constraint pass can only narrow a range that is still a
+/// range. See SwingRow.DamageLow.</para>
 ///
-/// <para><b>This type is where that rule now lives.</b> It used to be written out at length on
-/// CombatLiveView.TargetDealtBracket, which drove the old "dealt 15-19" line; the stat row replaced
-/// that line and the field went with it. The version there also carried a blanket ban on ever DRAWING
-/// a midpoint, which was never the owner's rule - it was generalised out of something he said during
-/// the ladder-seal work and quoted back as doctrine until he was finally asked (2026-09-06): "it
-/// sounds like something a model decided to codify as gods word when I asked it not to do
-/// something". The storage half is real and is stated above; the display half is not a rule.</para>
+/// <para>There is no rule against DRAWING a midpoint - only against storing one. This type is where
+/// the storage rule lives.</para>
 /// </summary>
 /// <param name="Samples">Landed blows that actually produced numbers. The honest denominator for
 /// <see cref="Mean"/>, and the test for whether anything here is a measurement at all - never read a
@@ -65,9 +60,7 @@ public readonly record struct ExchangeLine(
 /// and the player misses roughly a third of swings (measured 0.6275 hit rate, 5,118 of 8,156 player
 /// swings in the ledger, 2026-08-14 to 2026-09-03; 0.41-0.74 by species), so a reading with no age
 /// attached cannot be told apart from a current one - and the panel is required never to draw an
-/// unknown as a measurement. (Previously cited as "57%", which is not a measurement at all: it is
-/// <c>100/175</c> from the published guide's hit formula against a rat. See
-/// DamagePrediction.FluentHitRate.)</param>
+/// unknown as a measurement.</param>
 /// <param name="DamageTakenFrom">Damage this participant has dealt the player this encounter. Orders
 /// the overflow row: with more opponents than slots, "who is actually hurting me" is the only question
 /// a names-only row can usefully answer.</param>
@@ -114,7 +107,7 @@ public readonly record struct ExchangeLine(
 /// per participant because the weapon's own mark is a rollup over everything engaged, and a rollup
 /// needs each contribution separately.</param>
 /// <param name="Value">The points a `value &lt;name&gt;` probe reported this creature is worth
-/// killing (operator, 2026-09-02), or null if it has never been asked/answered. Deliberately
+/// killing, or null if it has never been asked/answered. Deliberately
 /// nullable rather than defaulting to zero: 0 is itself a legal answer (the ox), so the two must
 /// stay distinguishable all the way to the row - an absent probe must never render as a measured
 /// zero.</param>
@@ -183,13 +176,9 @@ public readonly record struct RosterRow(
     // The game's own diagnose reading, kept for the fight - see ParticipantFact.
     NpcStaminaReading? StaminaRead = null,
     // The `value <name>` points, or null if never learned - see ParticipantFact.Value. Drawn on the
-    // creature's own tile as of 2026-09-08, after the rung word, in the slot the player's tile uses
+    // creature's own tile after the rung word, in the slot the player's tile uses
     // for their stamina figure; see CombatRailView.DrawWoundPhrase for the layout and for why a bare
     // number in that position needs distinguishing from a stamina reading.
-    //
-    // (For one revision this comment claimed it "reaches the hover readout" - a surface that did not
-    // exist - and was then corrected to say it was drawn nowhere. Now it is genuinely drawn, and this
-    // is the third thing this line has said; the code is the check, not the comment.)
     int? Value = null,
     // The tile's two stat rows: what the player has dealt this creature, and what it has dealt back.
     // See ExchangeLine for why the two are not symmetrical.
@@ -200,10 +189,8 @@ public readonly record struct RosterRow(
     // fight in which nobody has swung" stay distinguishable.
     IReadOnlyList<SwingMark>? Exchange = null,
     // Whether this creature took a blow on the tick being drawn - the ONLY thing that emboldens its
-    // name. The name used to be bold for as long as the creature was alive, which meant "bold" said
-    // nothing an empty slot did not already say; the owner replaced it with this on 2026-09-09. See
-    // Mucka.Core.TickDamageEmphasis for the rule, and ParticipantFact.TookDamageThisTick for why the
-    // answer is resolved before it gets here.
+    // name. See Mucka.Core.TickDamageEmphasis for the rule, and ParticipantFact.TookDamageThisTick
+    // for why the answer is resolved before it gets here.
     bool TookDamageThisTick = false)
 {
     /// <summary>
@@ -211,11 +198,9 @@ public readonly record struct RosterRow(
     /// tick is ordinary, so fading any sooner would have the readout flickering through every normal
     /// fight.
     ///
-    /// <para><b>This is the only staleness threshold, and it changes TONE only.</b> There used to be a
-    /// second - <c>UnknownAfterSeconds</c>, ten seconds - after which the reading was discarded and the
-    /// row drew as though nothing were known. That is deleted, on the owner's instruction ("also don't
-    /// stop displaying the health read on npcs") and because the evidence turned out to point the other
-    /// way.</para>
+    /// <para><b>This is the only staleness threshold, and it changes TONE only.</b> A reading is never
+    /// discarded regardless of age; the row must not be drawn as though nothing were known just
+    /// because a reading is old.</para>
     ///
     /// <para><b>Why an old reading here is not degraded information.</b> MUD2 prints a wound descriptor
     /// after every landed blow that does not kill - 3,559 descriptors against 3,561 such hits across
@@ -280,9 +265,8 @@ public readonly record struct RosterPlan(
     /// which for a list or array is REFERENCE equality. <see cref="ParticipantRoster.Build"/>
     /// allocates a fresh list on every refresh, so the two references never matched and the
     /// comparison decided "different" on every single 1 Hz tick - i.e. it was a no-op on the only
-    /// branch that is reached while a fight is open, which is the branch that matters. The
-    /// commit that added the comparison to the setter fixed nothing here; the fix has to be at this
-    /// level, because this is where the reference lives.</para>
+    /// branch that is reached while a fight is open, which is the branch that matters. The fix
+    /// belongs at this level, because this is where the reference lives.</para>
     ///
     /// <para><see cref="RosterRow"/> is a readonly record struct of primitives and other readonly
     /// record structs, so its own equality is already by value and the loop below is a real content
@@ -317,16 +301,15 @@ public readonly record struct RosterPlan(
 }
 
 /// <summary>
-/// Builds the roster plan: DESIGN_FINAL.md's "make the count and the live/dead split immediately
-/// readable" requirement, replacing the previous implementation's truncated name list with no
-/// breakdown at all.
+/// Builds the roster plan: makes the count and the live/dead split immediately readable, even when
+/// the row cap hides part of a large pack.
 /// </summary>
 public static class ParticipantRoster
 {
-    /// <summary>Row cap. Bounds the draw-call count regardless of pack size (the performance contract
-    /// in DESIGN_FINAL.md section 7), and sits at the rail's own maximum slot count so the renderer's
-    /// height-derived capacity is what actually decides how many rows appear - a lower cap here would
-    /// silently overrule a tall window and hide opponents that had room to be drawn.</summary>
+    /// <summary>Row cap. Bounds the draw-call count regardless of pack size, and sits at the rail's
+    /// own maximum slot count so the renderer's height-derived capacity is what actually decides how
+    /// many rows appear - a lower cap here would silently overrule a tall window and hide opponents
+    /// that had room to be drawn.</summary>
     public const int MaxRows = 8;
 
     /// <summary>

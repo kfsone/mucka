@@ -40,7 +40,7 @@ public sealed class MappingSession : IDisposable
 
     private enum Op { None, Probe, Move }
 
-    // ── Close-room state ───────────────────────────────────────────────────────
+    // -- Close-room state -------------------------------------------------------
     // Set while a "close room" cycle is running (visit every unresolved exit from
     // home, return after each one). Cleared on completion, failure, or cancel.
     private string? _closeHomeRoom;            // home room name at cycle start
@@ -48,7 +48,7 @@ public sealed class MappingSession : IDisposable
     private Queue<string>? _closePendingExits; // exits still to visit (dequeued before each outbound)
     private bool _closeReturning;              // true while on the return leg of one iteration
 
-    // ── Go-to-open state ───────────────────────────────────────────────────────
+    // -- Go-to-open state -------------------------------------------------------
     // Set while auto-walking toward the nearest room that needs closing. Re-plans from
     // the room actually reached after each hop (never follows a precomputed name-keyed
     // path -- it could thread the wrong same-name instance). Stops on arrival, dead end,
@@ -136,7 +136,7 @@ public sealed class MappingSession : IDisposable
             {
                 if (!_enabledExits.Contains(dir)) continue;
 
-                // Unwalked → somewhere new to find. Walked → only interesting if the far
+                // Unwalked -> somewhere new to find. Walked -> only interesting if the far
                 // room still has open exits (more to capture out there).
                 if (!_resolved.Contains(EdgeKey(_currentRoom, fex, dir))
                     || _graph.ExitLeadsToOpenRoom(_currentRoom, fex, dir))
@@ -271,7 +271,7 @@ public sealed class MappingSession : IDisposable
         _conn.SetMappingFocus(focused);
     }
 
-    // ── Operations ─────────────────────────────────────────────────────────────
+    // -- Operations -------------------------------------------------------------
 
     /// <summary>Probe the current room (full verb battery, one command interrupt).</summary>
     public bool TryStartProbe(out string? error)
@@ -479,7 +479,7 @@ public sealed class MappingSession : IDisposable
         _reportedScratch.Clear();
     }
 
-    // ── Connection event taps ──────────────────────────────────────────────────
+    // -- Connection event taps --------------------------------------------------
 
     private void OnRawBytesReceived(byte[] bytes)
     {
@@ -491,8 +491,7 @@ public sealed class MappingSession : IDisposable
             // A FEW (online list) response is not part of the capture -- it is the focus-mode
             // heartbeat keeping the PKer watch alive. Keep its bytes out of the walk file and
             // the probe-end scan. (RawBytesReceived fires before the parser emits the FEW
-            // boundary events, so a response delivered in one packet can still slip through;
-            // decode_probe's async pre-classification handles that residual case.)
+            // boundary events, so a response delivered in one packet can still slip through.)
             if (_fewContextActive) return;
             var text = Encoding.Latin1.GetString(bytes);
             WriteEntryLocked("rx", text);
@@ -654,7 +653,7 @@ public sealed class MappingSession : IDisposable
         }
     }
 
-    // ── Completion ─────────────────────────────────────────────────────────────
+    // -- Completion -------------------------------------------------------------
 
     private (string?, bool) CompleteProbeLocked(bool timedOut)
     {
@@ -916,8 +915,7 @@ public sealed class MappingSession : IDisposable
         // The reciprocal VETO uses the REPORTED dest only -- fresh evidence for THIS room's exit
         // from the exits verb. The traversed KnownDestination is fex-keyed, so a same-name +
         // same-fex sibling (the five "Badly-paved road"s) can contaminate it; it must never veto
-        // the reciprocal. That is why the old geometric fallback trusted the reciprocal
-        // unconditionally -- preserved here by keying the veto on reported names alone.
+        // the reciprocal.
         bool ReportedElsewhere(string dir)
             => _graph.ReportedDestination(_currentRoom, fex, dir) is { } n
                && !string.Equals(n, origin, StringComparison.Ordinal);
@@ -944,8 +942,7 @@ public sealed class MappingSession : IDisposable
         // 3. Geometric fallback: trust the reciprocal and let the arrival probe verify -- unless
         //    the exits verb REPORTED it leads elsewhere. A wrong guess blocks safely on the
         //    home-verification mismatch; it never loops. Traversed same-name+same-fex siblings
-        //    (the five "Badly-paved road"s) never veto here, so this stays as robust as the old
-        //    unconditional fallback when no reported dest contradicts it.
+        //    (the five "Badly-paved road"s) never veto here.
         if (_enabledExits.Contains(reciprocal) && !ReportedElsewhere(reciprocal))
             return reciprocal;
 
@@ -994,7 +991,7 @@ public sealed class MappingSession : IDisposable
         if (changed) StateChanged?.Invoke();
     }
 
-    // ── Helpers ────────────────────────────────────────────────────────────────
+    // -- Helpers ----------------------------------------------------------------
 
     internal static string EdgeKey(string room, string fex, string dir) => $"{room}|{fex}|{dir}";
 

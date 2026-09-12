@@ -2,13 +2,13 @@ namespace MudSharp.Protocol;
 
 /// <summary>
 /// Handles IAC telnet option negotiation for the MUD2 protocol.
-/// Derived from MudCPP, see also Clio telnet.l (lines 206–275).
+/// Derived from MudCPP, see also Clio telnet.l (lines 206-275).
 /// </summary>
 internal sealed class TelnetNegotiator
 {
     private readonly Action<byte[]> _send;
 
-    // One-shot guards (cf Clio's telnet.l lines 210–219)
+    // One-shot guards (cf Clio's telnet.l lines 210-219)
     private bool _ttypeSent;
     private volatile bool _nawsSent;
     private bool _newEnvironSent;
@@ -16,7 +16,7 @@ internal sealed class TelnetNegotiator
     // Login username advertised via NEW-ENVIRON USER when the server opts in (RFC 1572).
     internal string? LoginUser { get; set; }
 
-    // Configured window size — set before connect; updated on resize; preserved across Reset().
+    // Configured window size - set before connect; updated on resize; preserved across Reset().
     private int _nawsCols = 80;
     private int _nawsRows = 21;
 
@@ -67,8 +67,8 @@ internal sealed class TelnetNegotiator
         _ttypeSent      = false;
         _nawsSent       = false;
         _newEnvironSent = false;
-        // _nawsCols / _nawsRows intentionally preserved — configured size survives reconnect.
-        // LoginUser intentionally preserved — caller re-sets it only on profile change.
+        // _nawsCols / _nawsRows intentionally preserved - configured size survives reconnect.
+        // LoginUser intentionally preserved - caller re-sets it only on profile change.
     }
 
     /// <summary>
@@ -83,7 +83,7 @@ internal sealed class TelnetNegotiator
             SendNaws((ushort)cols, (ushort)rows);
     }
 
-    // ── IAC dispatch ──────────────────────────────────────────────────────────
+    // -- IAC dispatch ----------------------------------------------------------
 
     private static ParserState HandleIac(byte b) => b switch
     {
@@ -92,12 +92,12 @@ internal sealed class TelnetNegotiator
         WILL => ParserState.IacWill,
         WONT => ParserState.IacWont,
         SB   => ParserState.IacSb,
-        // IAC IAC = escaped literal 0xFF — MUD2 C1 layer handles this separately; consume here
+        // IAC IAC = escaped literal 0xFF - MUD2 C1 layer handles this separately; consume here
         IAC  => ParserState.Normal,
         _    => ParserState.Normal,
     };
 
-    // ── Option handlers ───────────────────────────────────────────────────────
+    // -- Option handlers -------------------------------------------------------
 
     /// <summary>Server asked us (client) to DO something.</summary>
     private ParserState HandleDo(byte opt)
@@ -149,7 +149,7 @@ internal sealed class TelnetNegotiator
         return ParserState.Normal;
     }
 
-    /// <summary>Server told us DONT do something — silently accept.</summary>
+    /// <summary>Server told us DONT do something - silently accept.</summary>
     private static ParserState HandleDont(byte _) => ParserState.Normal;
 
     /// <summary>Server offered to WILL do something.</summary>
@@ -158,26 +158,26 @@ internal sealed class TelnetNegotiator
         switch (opt)
         {
             case OPT_ECHO:
-                // Clio telnet.l line 248–249: silently ignore WILL ECHO (break — no response)
+                // Clio telnet.l line 248-249: silently ignore WILL ECHO (break - no response)
                 break;
 
             case OPT_SGA:
-                // Suppress Go-Ahead — Clio telnet.l line 250–254
+                // Suppress Go-Ahead - Clio telnet.l line 250-254
                 Send(IAC, DO, OPT_SGA);
                 break;
 
             default:
-                // Refuse all other offers — Clio telnet.l line 259–261
+                // Refuse all other offers - Clio telnet.l line 259-261
                 Send(IAC, DONT, opt);
                 break;
         }
         return ParserState.Normal;
     }
 
-    /// <summary>Server said WONT do something — silently ignore (Clio telnet.l line 265–267).</summary>
+    /// <summary>Server said WONT do something - silently ignore (Clio telnet.l line 265-267).</summary>
     private static ParserState HandleWont(byte _) => ParserState.Normal;
 
-    // ── Subnegotiation accumulation ───────────────────────────────────────────
+    // -- Subnegotiation accumulation -------------------------------------------
 
     private const int IacSbMaxBufBytes = 1024;
 
@@ -217,7 +217,7 @@ internal sealed class TelnetNegotiator
         return ParserState.Normal;
     }
 
-    // ── Subnegotiation dispatch ───────────────────────────────────────────────
+    // -- Subnegotiation dispatch -----------------------------------------------
 
     private void HandleSubnegotiation(List<byte> buf)
     {
@@ -244,8 +244,8 @@ internal sealed class TelnetNegotiator
     {
         var user = LoginUser;
         if (string.IsNullOrEmpty(user)) return;
-        // IAC SB NEW-ENVIRON IS VAR "USER" VALUE <user> IAC SE  (RFC 1572 §3)
-        // VAR=0, VALUE=1 — bytes 0–3 inside values must be ESC-prefixed, but login
+        // IAC SB NEW-ENVIRON IS VAR "USER" VALUE <user> IAC SE  (RFC 1572 section 3)
+        // VAR=0, VALUE=1 - bytes 0-3 inside values must be ESC-prefixed, but login
         // names are alphanumeric so no escaping is needed in practice.
         var buf = new List<byte> { IAC, SB, OPT_NEW_ENVIRON, ENV_IS,
                                    0,                                          // VAR
@@ -258,7 +258,7 @@ internal sealed class TelnetNegotiator
         Send(buf.ToArray());
     }
 
-    // ── Send helpers ──────────────────────────────────────────────────────────
+    // -- Send helpers ----------------------------------------------------------
 
     private void Send(params byte[] bytes) => _send(bytes);
 

@@ -8,73 +8,70 @@ namespace Mucka.Core;
 
 /// <summary>
 /// Records one JSONL "clog" (combat log) per encounter under ~/.mucka/clogs/, so real fights can
-/// be analyzed offline with the same tooling used on RESEARCH/mud2-multi-combat.jsonl
-/// (tools/combat/). Driven entirely by MudSession/MuckaConnection events — see MuckaConnection's
+/// be analyzed offline. Driven entirely by MudSession/MuckaConnection events - see MuckaConnection's
 /// wiring for CombatTracker's InCombatChanged/CombatEventOccurred.
 ///
 /// <para>Each file has one header line (type "encounter_start": the previous ~30 non-combat
-/// lines plus a snapshot of stats/status-effects/room/room-contents at the moment combat began —
+/// lines plus a snapshot of stats/status-effects/room/room-contents at the moment combat began -
 /// everything a later analysis pass needs to answer "was the player invisible / what was the
 /// weather / what were their stats / what was in the room and in the pack" without replaying the
 /// whole session), one line per classified CombatEvent (type "event"), zero or more trailing plain
-/// lines (type "line" — see the tail-capture remarks below), and one footer line
+/// lines (type "line" - see the tail-capture remarks below), and one footer line
 /// (type "encounter_end").</para>
 ///
 /// <para>Two further row types record state that MOVES during a fight, because a header-only
 /// reading of either was found to be useless for the questions the corpus is kept to answer:</para>
 /// <list type="bullet">
-/// <item><b>"contents"</b> — the structured FEI list (room contents + carried inventory), emitted
+/// <item><b>"contents"</b> - the structured FEI list (room contents + carried inventory), emitted
 /// whenever it differs from the last one written. The header's <c>preroll</c> holds the room
 /// description as prose, which is not a substitute: it cannot be diffed, it omits the pack
 /// entirely, and it is silent about anything that walked in afterwards. Re-emitting on change is
 /// what makes a chase across rooms reconstructible.</item>
-/// <item><b>"stats"</b> — an absolute stats snapshot, emitted whenever a load-relevant value
-/// changes (see <see cref="OnStatsUpdated"/>). Stats used to appear exactly once, in the header,
-/// which meant a fight could drop four items and the file would carry no reading after any of
-/// them. Each drop or take with a fresh reading either side yields that object's dexterity cost
-/// (keyed on item COUNT) and its strength cost (keyed on WEIGHT) — two numbers per object, from
-/// observation alone.</item>
+/// <item><b>"stats"</b> - an absolute stats snapshot, emitted whenever a load-relevant value
+/// changes (see <see cref="OnStatsUpdated"/>), so a fight that drops several items still carries a
+/// reading after each one. Each drop or take with a fresh reading either side yields that object's
+/// dexterity cost (keyed on item COUNT) and its strength cost (keyed on WEIGHT) - two numbers per
+/// object, from observation alone.</item>
 /// </list>
 ///
 /// <para><b>Tail capture.</b> CombatTracker closes an encounter the instant its last active NPC
-/// dies/flees — a decisive combat-state fact. But the server's own cleanup for that (score,
+/// dies/flees - a decisive combat-state fact. But the server's own cleanup for that (score,
 /// "The X has just passed on.", dropped items, level-up) routinely PRINTS after the death line
 /// that closed it, and always before the next prompt. Rather than end the clog exactly on
 /// InCombatChanged(false), <see cref="Stop"/> only marks the encounter's entry "closing": every
 /// subsequent plain line is still appended to it (type "line") until the next <c>IsPartial</c>
-/// prompt line arrives (the frame boundary — see MudSession's setup-swallow remarks for the same
+/// prompt line arrives (the frame boundary - see MudSession's setup-swallow remarks for the same
 /// signal used the same way), at which point <see cref="OnLineReady"/> writes the real
-/// "encounter_end" footer and finalizes the file. This is a LOGGING concern only — MUD2 has no
+/// "encounter_end" footer and finalizes the file. This is a LOGGING concern only - MUD2 has no
 /// such mechanic, and it never delays InCombatChanged/IsInCombatGracePeriod's UI-visible flip.</para>
 ///
 /// <para><b>Overlapping clogs.</b> A new encounter can legitimately start (Start()) while the
-/// previous one is still draining its tail — e.g. one rat dies and a second, unrelated rat
-/// attacks before the next prompt (this is a NEW encounter, not a continuation — see
+/// previous one is still draining its tail - e.g. one rat dies and a second, unrelated rat
+/// attacks before the next prompt (this is a NEW encounter, not a continuation - see
 /// CombatTracker's remarks). Both are kept open simultaneously in <see cref="_open"/>, each with
 /// its own file, queue, and drain task; classified CombatEvents route to whichever entry is still
 /// actively live (there is at most one), while a plain line during the overlap is appended to
 /// every entry still draining its tail.</para>
 ///
 /// <para>Deliberately partial: this is not a full raw capture (SessionCapture already covers
-/// that, opt-in, for debugging). A clog is intentionally reduced to what tools/combat's analysis
-/// needs, per the user's request to keep these lightweight enough to accumulate over many
-/// sessions.</para>
+/// that, opt-in, for debugging). A clog is intentionally reduced to keep these lightweight enough
+/// to accumulate over many sessions.</para>
 ///
-/// <para>Always on. It used to be opt-in behind a "$clog on" command, which meant the evidence was
-/// missing precisely when something interesting had just happened and the player had not thought to
-/// arm it beforehand - the same argument the fight history and the swing ledger already settle the
-/// same way. A clog is small and the pre-roll buffer costs a bounded queue per line.</para>
+/// <para>Always on: arming after the fact is too late, since the evidence would be missing
+/// precisely when something interesting had just happened - the same argument the fight history
+/// and the swing ledger already settle the same way. A clog is small and the pre-roll buffer costs
+/// a bounded queue per line.</para>
 ///
 /// <para>Threading: all On* methods are called from MudSession's Feed thread (same contract as
-/// EffectTracker/CombatTracker — see MudSession's class doc comment). Does not touch UI types.</para>
+/// EffectTracker/CombatTracker - see MudSession's class doc comment). Does not touch UI types.</para>
 ///
 /// <para>File I/O runs off the Feed thread entirely: <see cref="WriteEntryLocked"/> only serializes
 /// the entry (cheap, in-memory) and enqueues the line; a per-encounter background task
 /// (<see cref="DrainAsync"/>) owns the actual <see cref="StreamWriter"/> and does the blocking disk
-/// write. Before this, every clog line paid a synchronous open/flush on the SAME thread that parses
-/// incoming combat text - stalling that thread delays the combat text itself, which no UI-side
-/// throttle can fix (DESIGN_FINAL.md section 7.5). <see cref="Dispose"/> waits (briefly - just
-/// draining whatever is already queued in memory) for every still-open encounter's drain to finish,
+/// write - a synchronous open/flush on the same thread that parses incoming combat text would stall
+/// that thread and delay the combat text itself, which no UI-side throttle can fix.
+/// <see cref="Dispose"/> waits (briefly - just draining whatever is already queued in memory) for
+/// every still-open encounter's drain to finish,
 /// so an app exit mid-fight (or mid-tail) cannot lose the encounter_end line or anything queued just
 /// before it.</para>
 /// </summary>
@@ -83,9 +80,8 @@ public sealed class ClogWriter : IDisposable
     private const int PreBufferLines = 30;
 
     /// <summary>One still-open clog. "Closing" means the encounter itself has ended (Stop() was
-    /// called) but the file is not finalized yet — it is still draining its tail, waiting for the
-    /// next prompt (see the class remarks). Owns its StreamWriter's lifetime via WriterTask, the
-    /// same handoff the single-encounter version used to do with a bare Task field.</summary>
+    /// called) but the file is not finalized yet - it is still draining its tail, waiting for the
+    /// next prompt (see the class remarks). Owns its StreamWriter's lifetime via WriterTask.</summary>
     private sealed class OpenEncounter
     {
         public required string FilePath;
@@ -122,7 +118,7 @@ public sealed class ClogWriter : IDisposable
     private StatusEffectState _lastEffects = StatusEffectState.Empty;
     private string? _lastRoom;
 
-    // ── FEI room contents / carried inventory ─────────────────────────────────
+    // -- FEI room contents / carried inventory ---------------------------------
     // The structured room-contents list the Here panel is built from. The pre-roll captures the
     // room description as PROSE, which is not the same thing: it names nothing that arrived after
     // the description was printed, it cannot be diffed, and it does not carry the carried-items
@@ -144,7 +140,7 @@ public sealed class ClogWriter : IDisposable
     private string[]? _carried;
     private string? _contentsRoom;
 
-    // ── Stat-change snapshots ─────────────────────────────────────────────────
+    // -- Stat-change snapshots -------------------------------------------------
     // Last values actually WRITTEN (encounter_start counts as a write - see Start), so a "stats"
     // row is only emitted when something moved. See OnStatsUpdated for the trigger rules and
     // StatsBlock for why these are absolute snapshots rather than deltas.
@@ -156,15 +152,15 @@ public sealed class ClogWriter : IDisposable
     private bool _statsRowDue;
 
     /// <summary>True while an encounter is being actively recorded (CombatEvents still arriving).
-    /// False during tail-only draining — see <see cref="IsTailOnly"/> for that state.</summary>
+    /// False during tail-only draining - see <see cref="IsTailOnly"/> for that state.</summary>
     public bool IsRecording { get; private set; }
     /// <summary>The actively-recording encounter's file, or null when none is live (even if a
-    /// previous encounter's tail is still draining — see <see cref="IsTailOnly"/>).</summary>
+    /// previous encounter's tail is still draining - see <see cref="IsTailOnly"/>).</summary>
     public string? FilePath { get; private set; }
 
     /// <summary>True while at least one encounter's tail is still draining (waiting for the next
     /// prompt to finalize) and no encounter is actively live. Drives the UI's "winding down"
-    /// cosmetic (see MuckaConnection.IsInCombatGracePeriod) — the fight really is over
+    /// cosmetic (see MuckaConnection.IsInCombatGracePeriod) - the fight really is over
     /// (InCombat is already false), but the clog for it has not been finalized yet.</summary>
     public bool IsTailOnly { get; private set; }
     /// <summary>Fires whenever <see cref="IsTailOnly"/> flips.</summary>
@@ -206,7 +202,7 @@ public sealed class ClogWriter : IDisposable
         }
     }
 
-    /// <summary>Feed every line — prompts included — so the pre-roll buffer stays fresh and any
+    /// <summary>Feed every line - prompts included - so the pre-roll buffer stays fresh and any
     /// encounter still draining its tail gets its trailing prose captured (see the class
     /// remarks).</summary>
     public void OnLineReady(StyledLine line)
@@ -287,7 +283,7 @@ public sealed class ClogWriter : IDisposable
         }
     }
 
-    /// <summary>Which FES fields warrant a new "stats" row. Stamina is deliberately absent — see
+    /// <summary>Which FES fields warrant a new "stats" row. Stamina is deliberately absent - see
     /// <see cref="OnStatsUpdated"/>.</summary>
     private static bool LoadRelevantChange(GameStatsSnapshot a, GameStatsSnapshot b)
         => a.Strength != b.Strength || a.RawStrength != b.RawStrength || a.MaxStrength != b.MaxStrength
@@ -300,15 +296,15 @@ public sealed class ClogWriter : IDisposable
         || a.Weather != b.Weather;
 
     /// <summary>The seven independent buff/debuff/glow slots, without the tooltip messages that
-    /// ride with them — a boolean flip is the whole of what a stats row needs.</summary>
+    /// ride with them - a boolean flip is the whole of what a stats row needs.</summary>
     private static bool EffectFlagsEqual(StatusEffectState a, StatusEffectState b)
         => a.StrengthBuff == b.StrengthBuff && a.StrengthDebuff == b.StrengthDebuff
         && a.DexterityBuff == b.DexterityBuff && a.DexterityDebuff == b.DexterityDebuff
         && a.StaminaBuff == b.StaminaBuff && a.StaminaDebuff == b.StaminaDebuff
         && a.Glow == b.Glow;
 
-    /// <summary>Writes one "stats" row to every open encounter — active or still draining its tail
-    /// — and re-baselines what counts as "changed". Caller holds <see cref="_lock"/>.</summary>
+    /// <summary>Writes one "stats" row to every open encounter - active or still draining its tail
+    /// - and re-baselines what counts as "changed". Caller holds <see cref="_lock"/>.</summary>
     private void WriteStatsLocked(long ts, string reason)
     {
         var payload = new
@@ -410,10 +406,10 @@ public sealed class ClogWriter : IDisposable
             _lastRoom = room;
     }
 
-    // ── FEI room contents / carried inventory ─────────────────────────────────
+    // -- FEI room contents / carried inventory ---------------------------------
 
     /// <summary>A new room. Forgets the previous room's creature sentences, exactly as the side
-    /// panel's own index does — a name that was a creature there says nothing about here.</summary>
+    /// panel's own index does - a name that was a creature there says nothing about here.</summary>
     public void OnRoomEntered()
     {
         lock (_lock)
@@ -421,7 +417,7 @@ public sealed class ClogWriter : IDisposable
     }
 
     /// <summary>One creature-presence sentence, in the game's own words. The only evidence MUD2
-    /// gives about which FEI names are alive — see <see cref="RoomCreatures"/>.</summary>
+    /// gives about which FEI names are alive - see <see cref="RoomCreatures"/>.</summary>
     public void OnCreatureTextReady(string text)
     {
         lock (_lock)
@@ -456,8 +452,8 @@ public sealed class ClogWriter : IDisposable
 
     /// <summary>
     /// The FEI list is complete. Writes a "contents" row to every open encounter when it differs
-    /// from the last one — by room, by the room's names, by their creature classification, or by
-    /// the pack — and nothing at all when it does not, which is the common case at the ~1 Hz rate
+    /// from the last one - by room, by the room's names, by their creature classification, or by
+    /// the pack - and nothing at all when it does not, which is the common case at the ~1 Hz rate
     /// FEI actually arrives at.
     ///
     /// <para>When the CARRIED half changed, a "stats" row follows immediately. FES leads every
@@ -506,7 +502,7 @@ public sealed class ClogWriter : IDisposable
     }
 
     /// <summary>The structured room-contents block, shared by "encounter_start" and every
-    /// "contents" row. Null until a FEI list has completed — the honest state when the client has
+    /// "contents" row. Null until a FEI list has completed - the honest state when the client has
     /// attached mid-room and the game has not yet said what is here.</summary>
     private object? ContentsBlock() => _roomItems is null ? null : new
     {
@@ -530,7 +526,7 @@ public sealed class ClogWriter : IDisposable
     {
         lock (_lock)
         {
-            // At most one entry is ever actively recording — a closing (tail-only) entry gets no
+            // At most one entry is ever actively recording - a closing (tail-only) entry gets no
             // more CombatEvents, since its own NPC(s) are already resolved by the time it closes.
             // Any of the four loadout lines changes what the player is carrying, so the next stats
             // reading must be written even if it turns out identical - "this object cost nothing" is
@@ -540,7 +536,7 @@ public sealed class ClogWriter : IDisposable
             if (e.Kind is CombatEventKind.ItemDropped or CombatEventKind.ItemTaken
                        or CombatEventKind.ItemStowed or CombatEventKind.ItemRetrieved)
                 _statsRowDue = true;
-            // At most one entry is ever actively recording — a closing (tail-only) entry gets no
+            // At most one entry is ever actively recording - a closing (tail-only) entry gets no
             // more CombatEvents, since its own NPC(s) are already resolved by the time it closes.
             var active = _open.FirstOrDefault(entry => !entry.Closing);
             if (active is null)
@@ -607,7 +603,7 @@ public sealed class ClogWriter : IDisposable
     {
         lock (_lock)
         {
-            // Defensive: CombatTracker only fires InCombatChanged(true) on a false→true
+            // Defensive: CombatTracker only fires InCombatChanged(true) on a false->true
             // transition, so a second Start() while one is already active should never happen.
             if (_open.Any(e => !e.Closing))
                 return;
@@ -684,11 +680,9 @@ public sealed class ClogWriter : IDisposable
     /// same name is a different opponent at different points in the cycle; the <c>swings</c> table has
     /// carried <c>reset_epoch_ms</c> as its grouping key for exactly that reason (CombatDb), but the
     /// clogs - the corpus every offline query actually runs against - carried no reset context at all.
-    /// Added 2026-08-28 at the owner's request, prompted by a measurement that could not be finished
-    /// without it: 2.4% of encounters have a tick phase more than half a second off the session's
-    /// best-fit lattice, and the leading explanation is a session that SPANS a reset, where the server's
-    /// lattice genuinely moves and one estimate cannot describe both halves. Untestable while nothing
-    /// records which side of a reset an encounter sat on.</para>
+    /// 2.4% of encounters have a tick phase more than half a second off the session's best-fit lattice,
+    /// which a session spanning a reset would explain but could not be tested for while nothing
+    /// recorded which side of a reset an encounter sat on.</para>
     ///
     /// <para><b>Two fields, because they are different in kind and the better one can be absent.</b></para>
     /// <list type="bullet">
@@ -771,8 +765,8 @@ public sealed class ClogWriter : IDisposable
     }
 
     /// <summary>Drains one encounter's queued lines to disk and closes its writer. Runs entirely
-    /// off the Feed thread (Task.Run from Start()) - this is the actual fix for AutoFlush-per-line
-    /// blocking the thread that parses incoming combat text (DESIGN_FINAL.md section 7.5).
+    /// off the Feed thread (Task.Run from Start()), so AutoFlush-per-line disk writes never block
+    /// the thread that parses incoming combat text.
     /// ReadAllAsync completes normally (no exception) once the channel is both completed
     /// (FinalizeLocked's TryComplete) AND fully drained, so every queued line - including
     /// encounter_end - is written before the writer is flushed and disposed.</summary>
@@ -802,7 +796,7 @@ public sealed class ClogWriter : IDisposable
     private static void WriteEntryLocked(OpenEncounter entry, object payload)
         => entry.Queue.Writer.TryWrite(JsonSerializer.Serialize(payload));
 
-    /// <summary>Finalizes whatever is still open — active or mid-tail — then blocks (briefly -
+    /// <summary>Finalizes whatever is still open - active or mid-tail - then blocks (briefly -
     /// just draining whatever is already queued in memory, typically a handful of lines) until
     /// every background writer has actually flushed to disk. This is the fix for fight/clog rows
     /// being lost when the app exits mid-fight or mid-tail: without this wait, FinalizeLocked's

@@ -21,7 +21,7 @@ public sealed class TerminalFont : IDisposable
     /// <summary>Advance width of one character cell, in pixels.</summary>
     public float CellWidth { get; }
 
-    /// <summary>Height of one line box, in pixels (font extent × line-height factor).</summary>
+    /// <summary>Height of one line box, in pixels (font extent x line-height factor).</summary>
     public float CellHeight { get; }
 
     /// <summary>Y offset from a line box's top to the text baseline, in pixels.</summary>
@@ -54,7 +54,7 @@ public sealed class TerminalFont : IDisposable
         };
         BoldStrokeWidth = sizePx / 24f;
 
-        // Measure the advance over a run and divide — robust against per-glyph side bearings.
+        // Measure the advance over a run and divide - robust against per-glyph side bearings.
         CellWidth = Font.MeasureText("0000000000") / 10f;
 
         var m = Font.Metrics;                 // Ascent is negative, Descent positive.

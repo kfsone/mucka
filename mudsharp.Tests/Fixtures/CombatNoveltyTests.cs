@@ -8,8 +8,8 @@ namespace mudsharp.Tests.Fixtures;
 /// <para>Two things are pinned here that a reader would otherwise be free to "fix":</para>
 /// <list type="bullet">
 /// <item>The severity order. Orange is "no evidence"; red is "evidence, and you could not finish
-/// it". Red therefore outranks orange in the weapon rollup, which is the owner's own reading and
-/// the opposite of a conventional unknown-is-scariest ramp.</item>
+/// it". Red therefore outranks orange in the weapon rollup - the opposite of a conventional
+/// unknown-is-scariest ramp.</item>
 /// <item>The bucketing. Novelty is per pool key - species plus the adjectives the game printed -
 /// so "large rat0" is a different creature from "rat0" and rat3 is the same creature as rat7.</item>
 /// </list>
@@ -35,7 +35,7 @@ public sealed class CombatNoveltyTests
             DurationMs = 60_000,
         };
 
-    // ── Classify ──────────────────────────────────────────────────────────────
+    // -- Classify --------------------------------------------------------------
 
     [Fact]
     public void Classify_NeverFought_IsUnfought()
@@ -49,7 +49,7 @@ public sealed class CombatNoveltyTests
     public void Classify_Killed_IsNone()
         => Assert.Equal(NoveltyMark.None, CombatNovelty.Classify(fought: true, defeated: true));
 
-    // ── WeaponRollup: the precedence rule, over the engaged only ──────────────
+    // -- WeaponRollup: the precedence rule, over the engaged only --------------
 
     private static ParticipantFact Live(NoveltyMark weaponMark)
         => new("rat0", IsResolved: false, FightOutcome.Unresolved, WeaponNovelty: weaponMark);
@@ -91,7 +91,7 @@ public sealed class CombatNoveltyTests
         => Assert.Equal(NoveltyMark.None,
             CombatNovelty.WeaponRollup([Resolved(NoveltyMark.Unfought), Resolved(NoveltyMark.Undefeated)]));
 
-    // ── HistoryIndex: what the corpus actually answers ────────────────────────
+    // -- HistoryIndex: what the corpus actually answers ------------------------
 
     [Fact]
     public void Novelty_NothingOnFile_IsUnfought()
@@ -143,8 +143,8 @@ public sealed class CombatNoveltyTests
     [Theory]
     [InlineData(FightOutcome.Kill)]
     // NoMore is a DEAD creature - "The X drops dead, poisoned...", or the dragon that dies from the
-    // coal you fed it ten minutes ago (operator, 2026-09-02). The red mark claims "you fought this
-    // and could not finish it", which is false of something lying dead in front of you, so this is
+    // coal you fed it ten minutes ago. The red mark claims "you fought this and could not finish
+    // it", which is false of something lying dead in front of you, so this is
     // deliberately NOT record.IsKill. See CombatNovelty.CountsAsDefeated - and note the pool
     // estimator reads the same row and must reach the OPPOSITE conclusion, because it is asking
     // whether we watched what killed it.
@@ -214,7 +214,7 @@ public sealed class CombatNoveltyTests
         Assert.Equal(NoveltyMark.None, index.GetNovelty("rat0"));
     }
 
-    // ── HistoryIndex: the per-weapon question ─────────────────────────────────
+    // -- HistoryIndex: the per-weapon question ---------------------------------
 
     [Fact]
     public void WeaponNovelty_NeverUsedAgainstThisKind_IsUnfought()

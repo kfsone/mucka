@@ -13,10 +13,7 @@ public enum SealShape
     /// landed blow that does not kill - 3,559 descriptors against 3,561 such hits across 1,197 fights
     /// in the instrumented window from 2026-08-11, and none of the 988 fights that landed one produced
     /// no descriptor. So it means the player has not LANDED on this creature yet, which in a pack is
-    /// most of the rows for most of the fight because you swing at one thing at a time. An earlier version of
-    /// this comment blamed a 39% descriptor-less rate that turned out to be an instrumentation
-    /// artefact (the fight table predates the health logger, so every pre-instrumentation fight
-    /// scored as silent).</para>
+    /// most of the rows for most of the fight because you swing at one thing at a time.</para>
     ///
     /// <para>Drawn as a FULL ring in the unknown treatment - never empty, never absent.</para>
     /// </summary>
@@ -72,9 +69,9 @@ public sealed record SealPlan(
 /// <summary>
 /// The seals' geometry: fraction to arc, and the marks that go on a ring.
 ///
-/// <para><b>The ring is a LADDER that drains, from 6 o'clock, ANTICLOCKWISE.</b> The owner's
-/// specification, 2026-09-01: "the sta seals should decay counter clockwise from the bottom middle. so
-/// 'C' is kinda what 50% looks like with the top right of the C being the leading edge."</para>
+/// <para><b>The ring is a LADDER that drains, from 6 o'clock, ANTICLOCKWISE.</b> The sta seals decay
+/// counter-clockwise from the bottom middle, so "C" is roughly what 50% looks like, with the top
+/// right of the C being the leading edge.</para>
 ///
 /// <para>So logical 0 is bottom-middle and the angle grows anticlockwise: the spent run climbs the
 /// RIGHT side of the face (6, 5, 4, 3, 2, 1, 12 in clock terms) and what is left is the lit run
@@ -95,8 +92,8 @@ public sealed record SealPlan(
 /// rungs are worth more stamina, and it labels them with different words (MUD2's measured
 /// <c>injured</c> / <c>damaged</c> / <c>drained</c> families; a banshee's words are not a rat's). So
 /// the ring is notched into sevenths, and how far up the ladder the creature stands is the fill. The
-/// owner's framing: "The ladder has the same rungs, they're just labelled differently. Also, the
-/// ladder doesn't gain rungs - the stamina bar does."</para>
+/// ladder has the same rungs regardless of species, just labelled differently; the ladder does not
+/// gain rungs - the stamina bar does.</para>
 ///
 /// <para><b>The estimator's job is sub-rung precision and nothing else.</b> The descriptor says which
 /// seventh. The damage landed since it printed says roughly where inside that seventh. No absolute
@@ -105,8 +102,8 @@ public sealed record SealPlan(
 ///
 /// <para><b>The wound phrase is not decoration and does not get traded away for space.</b> It is the
 /// bind between the ring and the words MUD2 actually printed - without it the seal is an invented
-/// abstraction, with it the seal is an annotation on the game's own vocabulary. Owner's instruction,
-/// 2026-09-01. If the slot ever runs short of room, the phrase is the last thing to go.</para>
+/// abstraction, with it the seal is an annotation on the game's own vocabulary. If the slot ever
+/// runs short of room, the phrase is the last thing to go.</para>
 ///
 /// <para><b>The rings share a SHAPE, not a scale.</b> The player's seal and an opponent's are the same
 /// instrument, drain the same direction, and each is a proportion of its own full. No comparison of
@@ -190,19 +187,9 @@ public static class StaminaSeal
 /// <see cref="GreatestThreatForAccent"/>, the same opponent <c>CombatRailView</c> highlights with a
 /// brighter tempo-frame accent so that selection is not entirely invisible.
 ///
-/// <para><b>2026-09-02: this class used to carry a second figure, <c>WorstSingleBlow</c>, deleted
-/// with the player seal's reach chevron.</b> It folded every live opponent's <see cref="ReachMark"/>
-/// down to the single largest one (deliberately the max, not a sum - a mark is a floor under one
-/// creature's worst single blow, and summing floors bounds nothing real; the summed model predicted
-/// 33.4 against an observed worst tick of 14 in a thirteen-rat fight). Its only consumer was
-/// <c>StaminaSeal.PlayerReach</c>, which placed the chevron the owner asked removed ("We also have
-/// the residual arrow on the players' stamina seal from before we added the same guide ring around
-/// the outside. thats an indicator too many") - the two prediction lanes now answer "where does the
-/// next blow leave me" directly and per-blow, which is what the chevron was approximating from this
-/// worst-single-blow floor. <c>GreatestThreat</c> survived that same deletion because it has a
-/// SECOND, unrelated consumer - see its own remarks - and on 2026-09-02, the SAME day, the accent
-/// frame this class also drives was restored on top of it: deleting the chevron does not mean the
-/// selection stopped mattering, only that it stopped being drawn on the ring itself.</para>
+/// <para><see cref="GreatestThreat"/> has two consumers: the player's own prediction lanes above, and
+/// <see cref="GreatestThreatForAccent"/> below, which is the on-screen accent that makes the
+/// selection visible at all.</para>
 /// </summary>
 public static class ReachAggregate
 {
@@ -212,9 +199,7 @@ public static class ReachAggregate
     ///
     /// <para><b>One creature, never the pack summed.</b> The player's two prediction lanes
     /// (<c>CombatLiveView.YourNextBlow</c>/<c>YourBlowAfter</c>) need ONE opponent's damage profile to
-    /// project forward, and this is which one: the same single-worst-known-blow ranking the deleted
-    /// reach chevron used to draw on the seal directly (see this class's own remarks), now used only to
-    /// choose an opponent rather than to place a mark.</para>
+    /// project forward, and this is which one, ranked by single-worst-known-blow.</para>
     ///
     /// <para><b>Ranked on the reach floor first, damage actually taken second.</b> Reach is what CAN
     /// kill you in one blow, which is the question worth asking first; but reach is per-SPECIES, so
@@ -224,12 +209,12 @@ public static class ReachAggregate
     /// so the incumbent is never displaced by an equal challenger) - an arbitrary but STABLE choice,
     /// which is what a caller re-running this every refresh actually needs.</para>
     ///
-    /// <para><b>This selection has a visible consequence again as of 2026-09-02.</b> With the reach
-    /// chevron gone, this method's return value drives nothing on screen by itself - see
-    /// <see cref="GreatestThreatForAccent"/> and <c>CombatRailView.GreatestThreatRow</c>, which is the
-    /// ONLY on-screen indication that a selection is even happening. Do not treat this as a purely
-    /// internal computation with no rendering consumer; it has one, and deleting that consumer again
-    /// would make a live selection un-auditable from the screen.</para>
+    /// <para><b>This selection has a visible consequence.</b> This method's return value drives
+    /// nothing on screen by itself - see <see cref="GreatestThreatForAccent"/> and
+    /// <c>CombatRailView.GreatestThreatRow</c>, which is the ONLY on-screen indication that a
+    /// selection is even happening. Do not treat this as a purely internal computation with no
+    /// rendering consumer; it has one, and deleting that consumer again would make a live selection
+    /// un-auditable from the screen.</para>
     /// </summary>
     public static int GreatestThreat(RosterPlan plan)
     {
@@ -257,8 +242,8 @@ public static class ReachAggregate
     }
 
     /// <summary>
-    /// <see cref="GreatestThreat"/>, but -1 below TWO live opponents - restored 2026-09-02, same day
-    /// it was deleted, on the owner's request. <c>CombatRailView.GreatestThreatRow</c> is the actual
+    /// <see cref="GreatestThreat"/>, but -1 below TWO live opponents.
+    /// <c>CombatRailView.GreatestThreatRow</c> is the actual
     /// call site (it also gates on being in combat and out of the post-kill grace window, which need
     /// CombatLiveView and so cannot live here); this exists so the roster-side half of that gate -
     /// the part that does not need a live frame to test - is pinned by a test rather than only visible

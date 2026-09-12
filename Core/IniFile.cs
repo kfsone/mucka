@@ -2,7 +2,7 @@ namespace Mucka.Core;
 
 /// <summary>
 /// Line-preserving INI document. The file is held as raw lines and only the specific
-/// key lines touched by <see cref="Set"/>/<see cref="Remove"/> are rewritten — comments,
+/// key lines touched by <see cref="Set"/>/<see cref="Remove"/> are rewritten - comments,
 /// blank lines, unknown sections (e.g. the hand-edited [watch] rules) and key order all
 /// survive a round-trip. Section and key lookups are case-insensitive.
 /// Not thread-safe; callers serialize access (see SettingsStore).
@@ -90,7 +90,7 @@ public sealed class IniFile
         File.Move(tmpPath, path, overwrite: true);
     }
 
-    // ── Private ────────────────────────────────────────────────────────────────
+    // -- Private ----------------------------------------------------------------
 
     private static bool IsComment(string trimmed)
         => trimmed.Length > 0 && (trimmed[0] == ';' || trimmed[0] == '#');

@@ -5,14 +5,14 @@ namespace MudSharp.Models;
 /// <summary>Which way an object moved, and across which boundary.</summary>
 public enum InventoryChangeKind
 {
-    /// <summary>"X dropped." — out of the pack and onto the floor. Count down, weight down.</summary>
+    /// <summary>"X dropped." - out of the pack and onto the floor. Count down, weight down.</summary>
     Dropped,
-    /// <summary>"X taken." — off the floor and into the pack. Count up, weight up.</summary>
+    /// <summary>"X taken." - off the floor and into the pack. Count up, weight up.</summary>
     Taken,
-    /// <summary>"X inserted in Y." — out of the pack and into a container. Count down; the weight
+    /// <summary>"X inserted in Y." - out of the pack and into a container. Count down; the weight
     /// depends on where Y is, which this line does not say (see the class remarks).</summary>
     Stowed,
-    /// <summary>"X removed from Y." — out of a container and into the pack. Count up; same weight
+    /// <summary>"X removed from Y." - out of a container and into the pack. Count up; same weight
     /// caveat as <see cref="Stowed"/>.</summary>
     Retrieved,
 }
@@ -22,17 +22,16 @@ public enum InventoryChangeKind
 ///
 /// <para><b>One owner for the patterns.</b> Two callers need these: CombatTracker, which turns them
 /// into <c>CombatEvent</c>s naming the object, and MudSession, which uses them to fire the in-combat
-/// FES,FEI probe. They used to be a proxy in one place and a private regex in the other. Kept here,
-/// in the model layer, so neither the session nor the combat layer has to depend on the other and
-/// the wordings cannot drift apart - the same reason CombatTiming exists.</para>
+/// FES,FEI probe. Kept here, in the model layer, so neither the session nor the combat layer has to
+/// depend on the other and the wordings cannot drift apart - the same reason CombatTiming exists.</para>
 ///
-/// <para><b>The wordings, and only the wordings that were observed.</b> Swept from the 36 session
-/// recordings under %LOCALAPPDATA%\Temp\mucka (2026-09-02): "X dropped." (368), "X taken." (370),
+/// <para><b>The wordings, and only the wordings that were observed.</b> Swept from 36 session
+/// recordings under %LOCALAPPDATA%\Temp\mucka: "X dropped." (368), "X taken." (370),
 /// "X inserted in Y." and "X removed from Y." (~70 each across a dozen containers). "You drop
 /// everything you're carrying!" is deliberately absent - it is always followed by one "X dropped."
 /// line per item, so it is already covered and matching it too would only double-count.</para>
 ///
-/// <para><b>The container pair is not a drop and not a take.</b> Per the owner, a container decouples
+/// <para><b>The container pair is not a drop and not a take.</b> A container decouples
 /// the two burdens: an object inside one does not levy its own dexterity cost (which is keyed on item
 /// COUNT) but you still pay its weight (which is what strength is keyed on). So
 /// "Baton inserted in glass bottle6." changes the count without changing the weight - the cleanest

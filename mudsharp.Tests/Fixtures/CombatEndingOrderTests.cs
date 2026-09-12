@@ -15,10 +15,10 @@ public sealed class CombatEndingOrderTests
     [Fact]
     public void EngagementOrderIsIgnored_ResolutionOrderWins()
     {
-        // The reviewer's regression case: rat0 engaged first, rat1 engaged second (so this is the
-        // ENGAGEMENT order CombatStatsAggregator.Fights actually produces), but rat1 was killed at
-        // +10s and rat0 at +30s. The dead strip must show rat1 above rat0 - oldest ending first - not
-        // the engagement order, or rat1's row would move down a line the moment rat0 died.
+        // rat0 engaged first, rat1 engaged second (so this is the ENGAGEMENT order
+        // CombatStatsAggregator.Fights actually produces), but rat1 was killed at +10s and rat0 at
+        // +30s. The dead strip must show rat1 above rat0 - oldest ending first - not the
+        // engagement order, or rat1's row would move down a line the moment rat0 died.
         var engagementOrder = new[]
         {
             new CombatEnding("rat0", FightOutcome.Kill, T0.AddSeconds(30)),

@@ -139,11 +139,9 @@ public sealed class NpcHealthTrackingTests
     }
 
     /// <summary>
-    /// Replaces RosterRow_DiscardsTheReadingAtFiveTicks, which asserted the old ten-second cutoff.
-    /// Changed to match a deliberate spec change, not to make a suite pass: the owner's instruction is
-    /// "also don't stop displaying the health read on npcs", and the evidence agrees - MUD2 prints a
-    /// descriptor after every non-killing landed hit, so a gap is positive evidence that nothing of the
-    /// player's landed and the reading still holds. It fades and stays; it never disappears.
+    /// The health read is never discarded, however old it gets. MUD2 prints a descriptor after every
+    /// non-killing landed hit, so a gap is positive evidence that nothing of the player's landed and
+    /// the reading still holds. It fades and stays; it never disappears.
     /// </summary>
     [Fact]
     public void RosterRow_NeverDiscardsAReading_HoweverOldItGets()
