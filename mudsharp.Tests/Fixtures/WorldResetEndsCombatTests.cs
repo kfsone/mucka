@@ -97,7 +97,7 @@ public class WorldResetEndsCombatTests : IDisposable
     {
         _session.Feed(GameModeEntry);
         _session.Feed(Encoding.Latin1.GetBytes("You attack the zombie5, using the axe0 as a weapon.\r\n"));
-        Assert.True(_session.InCombat, "the fight did not open — fixture problem, not a reset problem");
+        Assert.True(_session.InCombat, "the fight did not open - fixture problem, not a reset problem");
         Assert.True(_session.InGameMode);
     }
 

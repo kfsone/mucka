@@ -167,7 +167,7 @@
                     <Grid ColumnDefinitions="140,*" ColumnSpacing="12">
                         <Label Grid.Column="0" Text="Font Size" TextColor="#888888" FontSize="13" VerticalOptions="Center"/>
                         <HorizontalStackLayout Grid.Column="1" Spacing="6" VerticalOptions="Center">
-                            <Button Text="−" Command="{Binding DecrFontSizeCommand}"
+                            <Button Text="&#x2212;" Command="{Binding DecrFontSizeCommand}"
                                     BackgroundColor="#2d333b" TextColor="#cccccc"
                                     FontSize="15" WidthRequest="34" HeightRequest="30"
                                     CornerRadius="4" Padding="0"/>
@@ -183,7 +183,7 @@
                     <Grid ColumnDefinitions="140,*" ColumnSpacing="12">
                         <Label Grid.Column="0" Text="Columns" TextColor="#888888" FontSize="13" VerticalOptions="Center"/>
                         <HorizontalStackLayout Grid.Column="1" Spacing="6" VerticalOptions="Center">
-                            <Button Text="−" Command="{Binding DecrColumnsCommand}"
+                            <Button Text="&#x2212;" Command="{Binding DecrColumnsCommand}"
                                     BackgroundColor="#2d333b" TextColor="#cccccc"
                                     FontSize="15" WidthRequest="34" HeightRequest="30"
                                     CornerRadius="4" Padding="0"/>
@@ -209,7 +209,7 @@
                     <Grid ColumnDefinitions="140,*" ColumnSpacing="12">
                         <Label Grid.Column="0" Text="Stat Update (FES)" TextColor="#888888" FontSize="13" VerticalOptions="Center"/>
                         <HorizontalStackLayout Grid.Column="1" Spacing="6" VerticalOptions="Center">
-                            <Button Text="−" Command="{Binding DecrStatFreqCommand}"
+                            <Button Text="&#x2212;" Command="{Binding DecrStatFreqCommand}"
                                     BackgroundColor="#2d333b" TextColor="#cccccc"
                                     FontSize="15" WidthRequest="34" HeightRequest="30"
                                     CornerRadius="4" Padding="0"/>
@@ -294,7 +294,7 @@
                                           Color="#1f6feb"
                                           VerticalOptions="Center"/>
                                 <Label Grid.Column="1"
-                                       Text="Log reset-timer (TTR) diagnostics — requires session recording"
+                                       Text="Log reset-timer (TTR) diagnostics - requires session recording"
                                        TextColor="#888888" FontSize="12"
                                        VerticalOptions="Center"/>
                             </Grid>
@@ -430,7 +430,7 @@
                 </Grid>
 
                 <Label Grid.Row="1"
-                       Text="Tap a heading to expand its group; ♪ previews a sound. A group's Default plays when the game triggers a sound in that group that has no sound file of its own."
+                       Text="Tap a heading to expand its group; &#x266A; previews a sound. A group's Default plays when the game triggers a sound in that group that has no sound file of its own."
                        TextColor="#888888" FontSize="12"/>
 
                 <!-- The tree: collapsible groups of individual sounds.
@@ -465,7 +465,7 @@
                                             <Border.GestureRecognizers>
                                                 <TapGestureRecognizer Command="{Binding PlayCommand}"/>
                                             </Border.GestureRecognizers>
-                                            <Label Text="♪" TextColor="#1f6feb" FontSize="13"/>
+                                            <Label Text="&#x266A;" TextColor="#1f6feb" FontSize="13"/>
                                         </Border>
                                         <Label Grid.Column="3" Text="{Binding Name}"
                                                TextColor="White" FontSize="13" FontAttributes="Bold"
@@ -478,7 +478,7 @@
                                                TextColor="#888888" FontSize="11" WidthRequest="26"
                                                HorizontalTextAlignment="End" VerticalOptions="Center"/>
                                         <Slider Grid.Column="5" Minimum="0" Maximum="100" WidthRequest="110"
-                                                ToolTipProperties.Text="Group volume — follows the master slider until moved; drag back onto the master value to re-attach"
+                                                ToolTipProperties.Text="Group volume - follows the master slider until moved; drag back onto the master value to re-attach"
                                                 Value="{Binding Volume, Mode=TwoWay}"
                                                 VerticalOptions="Center"/>
                                         <Picker Grid.Column="6"
@@ -512,7 +512,7 @@
                                                         <Border.GestureRecognizers>
                                                             <TapGestureRecognizer Command="{Binding PlayCommand}"/>
                                                         </Border.GestureRecognizers>
-                                                        <Label Text="♪" TextColor="#1f6feb" FontSize="13"/>
+                                                        <Label Text="&#x266A;" TextColor="#1f6feb" FontSize="13"/>
                                                     </Border>
                                                     <Label Grid.Column="2" Text="{Binding Name}"
                                                            TextColor="#cccccc" FontSize="12"
@@ -521,7 +521,7 @@
                                                            TextColor="#888888" FontSize="11" WidthRequest="26"
                                                            HorizontalTextAlignment="End" VerticalOptions="Center"/>
                                                     <Slider Grid.Column="4" Minimum="0" Maximum="100" WidthRequest="110"
-                                                            ToolTipProperties.Text="Sound volume — follows the group slider until moved; drag back onto the group value to re-attach"
+                                                            ToolTipProperties.Text="Sound volume - follows the group slider until moved; drag back onto the group value to re-attach"
                                                             Value="{Binding Volume, Mode=TwoWay}"
                                                             VerticalOptions="Center"/>
                                                 </Grid>

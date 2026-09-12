@@ -83,7 +83,7 @@ public sealed class ConnectViewModel : BaseViewModel
         }
     }
 
-    public string AdvancedChevron => AdvancedVisible ? "▼  Advanced" : "▶  Advanced";
+    public string AdvancedChevron => (AdvancedVisible ? Glyph.TriangleDown : Glyph.TriangleRight) + "  Advanced";
     public bool CanConnect => !_isConnecting && Volatile.Read(ref _profileLoadsInProgress) == 0;
     public bool IsDirectConnectMode => _cmdArgs.Error == null && _cmdArgs.HasDirectConnectOptions;
     public Task LoadProfilesTask => _loadProfilesTask;

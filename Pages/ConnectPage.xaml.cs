@@ -42,7 +42,7 @@ public partial class ConnectPage : ContentPage
                 SizeLogo(wide, info.Height / info.Density);
             }
         }
-        catch { /* no display info (unit tests, headless) — OnSizeAllocated will decide */ }
+        catch { /* no display info (unit tests, headless) - OnSizeAllocated will decide */ }
     }
 
     // The logo only gets its natural size when there's room for the list below it (tall, wide

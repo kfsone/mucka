@@ -475,7 +475,7 @@ internal sealed class MappingPage : ContentPage
             // otherwise swallow an icon this small.
             var uturn = new Button
             {
-                Text                  = "↩",
+                Text                  = Mucka.Core.Glyph.UTurn,
                 FontSize              = 10,
                 Padding               = new Thickness(0),
                 CornerRadius          = 3,

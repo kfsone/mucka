@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
   <defs>
     <!-- Full-disc bloom: opaque from centre to edge so the icon reads as the same
-         solid circle (r=256) as the stat/ailment discs. Bright core → dark-amber rim
+         solid circle (r=256) as the stat/ailment discs. Bright core -> dark-amber rim
          keeps the fiery-glow character while contrasting the #101618 status bar.
          (Was: outer stop faded to opacity 0, which made glow present ~15% opaque area
          vs ~78% for every other icon.) -->

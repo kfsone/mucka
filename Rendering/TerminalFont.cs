@@ -69,7 +69,7 @@ public sealed class TerminalFont : IDisposable
         var asm = typeof(TerminalFont).Assembly;
         using var stream = asm.GetManifestResourceStream(ResourceName)
             ?? throw new InvalidOperationException(
-                $"Embedded font resource '{ResourceName}' not found — check the EmbeddedResource LogicalName in Mucka.csproj.");
+                $"Embedded font resource '{ResourceName}' not found - check the EmbeddedResource LogicalName in Mucka.csproj.");
         return SKTypeface.FromStream(stream)
             ?? throw new InvalidOperationException($"SKTypeface.FromStream returned null for '{ResourceName}'.");
     }

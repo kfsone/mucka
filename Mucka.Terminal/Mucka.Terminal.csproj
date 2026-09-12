@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!-- Terminal/display layer: buffering, wrapping, control-char sanitising and selection.
-       Depends only on mudsharp's StyledLine model (the parser's output contract) — NOT on the
+       Depends only on mudsharp's StyledLine model (the parser's output contract) - NOT on the
        protocol/transport internals, and NOT on MAUI. Kept separate so mudsharp stays a pure
        protocol/transport library and this presentation logic remains unit-testable. -->
   <PropertyGroup>

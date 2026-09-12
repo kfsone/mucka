@@ -2,17 +2,17 @@
   <!--
     Version is computed from version.json (stage + baseVersion) + git depth + Conventional Commits.
     See scripts/Get-Version.ps1 for the algorithm.
-    Stage → pre-release number range:
-      alpha   :       depth  (0–499)
-      beta    : 500 + depth  (500–999)
-      rc      : 1000+ depth  (1000–9998)
+    Stage -> pre-release number range:
+      alpha   :       depth  (0-499)
+      beta    : 500 + depth  (500-999)
+      rc      : 1000+ depth  (1000-9998)
       release : no pre-release suffix (clean M.m.P)
     To promote a stage, run the "Promote Stage" workflow_dispatch workflow on main.
   -->
   <!-- _GetAndroidPackageName is where the .NET Android SDK snapshots $(ApplicationDisplayVersion)
-       into _AndroidVersionName (→ manifest versionName → AppInfo.VersionString), so the version
+       into _AndroidVersionName (-> manifest versionName -> AppInfo.VersionString), so the version
        must be computed before it. NOTE: names in BeforeTargets that don't exist in a given TFM
-       are silently ignored — guessing wrong fails without a warning. -->
+       are silently ignored - guessing wrong fails without a warning. -->
   <Target Name="ComputeCustomVersion" BeforeTargets="GetAssemblyVersion;GetAssemblyAttributes;GenerateAssemblyInfo;PrepareForBuild;MauiGeneratePackageAppxManifest;_GetAndroidPackageName">
     <PropertyGroup>
       <_VersionScript>$([MSBuild]::NormalizePath('$(MSBuildThisFileDirectory)scripts/Get-Version.ps1'))</_VersionScript>
@@ -37,9 +37,9 @@
       <ApplicationDisplayVersion>$([System.Text.RegularExpressions.Regex]::Match('$(Version)', '^\d+\.\d+\.\d+').Value)</ApplicationDisplayVersion>
     </PropertyGroup>
     <Message Text="[mucka] Version: $(Version)" Importance="high" />
-    <!-- MauiGeneratePackageAppxManifest is incremental on file timestamps only — it cannot
+    <!-- MauiGeneratePackageAppxManifest is incremental on file timestamps only - it cannot
          see $(Version) change, so its obj output goes stale on version bumps. That manifest
-         is what the AppInfo assembly metadata (and thus AppInfo.VersionString — the Windows
+         is what the AppInfo assembly metadata (and thus AppInfo.VersionString - the Windows
          title bar / About version) derives from. Stamp the version into obj and delete the
          stale manifest whenever it changes so the whole chain regenerates. -->
     <PropertyGroup>

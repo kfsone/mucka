@@ -179,7 +179,11 @@ typing?" If maybe, get it off the UI thread.
 - `Mucka.Input/` -- the command box's logic. No MAUI. Tested from `mudsharp.Tests/`.
 - `Core/`, `ViewModels/`, `Pages/`, `Rendering/`, `Behaviors/`, `Audio/` -- the MAUI app.
 - `docs/` -- governing prose and evidence. `scripts/` -- tracked helper scripts.
-- No non-ASCII characters in source code.
+- Everything in the repo is ASCII: code, comments, XAML, documentation. A glyph the UI needs is
+  a named constant in `Core/Glyph.cs`, defined by its escape (`"\uXXXX"` with XXXX the code
+  point), or an XML entity (`&#xXXXX;`) in XAML, never the literal character. Punctuation is
+  plain ASCII (`-`, `...`, `+/-`). `RepoIsAsciiTests` in `mudsharp.Tests` fails `dotnet test`
+  on any other byte, tracked or not.
 
 ## Build
 

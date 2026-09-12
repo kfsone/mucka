@@ -1,4 +1,4 @@
-# MUD2 Cartography — Session Handoff
+# MUD2 Cartography - Session Handoff
 
 > **Archived.** Mapping is parked (see INTERNAL.md). The `tools/mapping` scripts this document
 > names no longer exist; the capture format they read is in `mapping-capture-format.md` beside
@@ -6,7 +6,7 @@
 
 **Last updated: 2026-07-09. Read this first when resuming mapping work.**
 
-> **2026-07-09 correction — the live model is C#, not the DB.** The derived map
+> **2026-07-09 correction - the live model is C#, not the DB.** The derived map
 > that `$map` actually uses is `Core/Mapping/MapGraph.cs`: an in-memory,
 > name+fex-keyed directed multigraph, rebuilt from the walk files on every
 > load/reload and **never persisted**. `~/.mucka/mapping/mapdb.sqlite` is a
@@ -14,7 +14,7 @@
 > `ingest_walk.py` was never written**. The walk files (`walk.*.jsonl`) are the
 > sole source of truth. The SQLite event-source model described below (and in
 > `MUD-Mapping-Design.md`) is a *possible future* offline / re-ingest path, not
-> live infrastructure — treat the "Next concrete task: ingest script" section
+> live infrastructure - treat the "Next concrete task: ingest script" section
 > below as **superseded**. Current live priorities: surfacing edges / doors /
 > conditions in the console UI, and richer identity + robustness reporting driven
 > from MapGraph.
@@ -25,12 +25,12 @@
   `~/.mucka/mapping/walk.*.jsonl`. 7 walk files captured to date covering
   ~120 distinct room observations across the Land, mine, graveyard, swamp, and
   cliff/coastal outer loop.
-- Analysis tooling: `tools/mapping/reduce_walk.py` (JSONL → compact digest),
+- Analysis tooling: `tools/mapping/reduce_walk.py` (JSONL -> compact digest),
   `tools/mapping/decode_probe.py` (raw C1 decode + probe segment labeling).
   See `tools/mapping/README.md` for formats and sub-agent policy.
 - **Database**: `tools/mapping/schema.sql` + `tools/mapping/init_db.py`.
   DB lives at `~/.mucka/mapping/mapdb.sqlite`. Schema is defined and initialized;
-  **no ingest script exists yet** — walk files are not yet loaded into the DB.
+  **no ingest script exists yet** - walk files are not yet loaded into the DB.
   The ingest layer is the next concrete code task.
 - Design doc: `MUD-Mapping-Design.md` (DRAFT, accepted as direction).
 - This file: domain model reference + session state. Do not overwrite the domain
@@ -50,12 +50,12 @@ Write `tools/mapping/ingest_walk.py`:
 Observation kinds to handle: `full`, `dark`, `partial`, `mist_occluded`, `corrupt`.
 `mist_occluded` = exits hidden by fog/fumes (room visible, exits not).
 `dark` = no room info at all.
-`sequence_context` on impressions: `"<predecessor_impression_id>/<direction>"` —
+`sequence_context` on impressions: `"<predecessor_impression_id>/<direction>"` -
 required for graveyard/maze rooms where content-hash is not unique.
 
 ## Key open questions
 
-- **Subsumption**: same `short+long+fex`, exits A ⊂ exits B → same room, conditional
+- **Subsumption**: same `short+long+fex`, exits A subset of exits B -> same room, conditional
   edge. Ingest should flag the conflict, not silently merge. Neither observation is
   wrong; the door/condition state explains the difference.
 - **Sequence-context impressions**: graveyard has 11 observation-identical rooms.
@@ -77,15 +77,15 @@ class: **using aggregate, name-keyed destination history to veto the reciprocal.
   `MapGraph.KnownDestination` was name-only, so a sibling room's `ne` masqueraded as this
   room's. Fixed by a **fex-aware destination map** (`NeighborsByKey`, keyed `"{fex}|{dir}"`).
 - *Same-fex collision* (the five "Badly-paved road"s, all fex
-  `e in n ne nw out s se sw swamp up w` — one's `s`→Entrance hall, another's `s`→Briar
-  patch): short+fex **still collides**, exactly the tier-3 identification limit in §3.
+  `e in n ne nw out s se sw swamp up w` - one's `s`->Entrance hall, another's `s`->Briar
+  patch): short+fex **still collides**, exactly the tier-3 identification limit in section 3.
   Fex-awareness can't fix this. Fixed by a **geometric reciprocal fallback**: after the
   evidence-based tiers fail, trust the reciprocal of the move that just arrived and let
   the arrival/home-verification probe confirm. A wrong guess blocks safely; it never loops.
 
 **Principle for any auto-navigation built on this graph**: aggregate edge history cannot
-establish *instance* identity for same-name (±same-fex) rooms — only traversal-in-sequence
-or breadcrumbs (§6) can. Routing must therefore (a) trust the just-walked reciprocal as the
+establish *instance* identity for same-name (+/-same-fex) rooms - only traversal-in-sequence
+or breadcrumbs (section 6) can. Routing must therefore (a) trust the just-walked reciprocal as the
 canonical return, and (b) **re-plan from where you actually landed after every hop**, never
 blindly follow a precomputed name-keyed path. Verify each arrival; stop on mismatch.
 
@@ -273,21 +273,21 @@ Cautions:
 ### 6.1 Within-capture content differential (distinguish-only)
 
 There is a second, subtler use of contents that does NOT require a breadcrumb and
-does NOT decay — because it never depends on an object staying put over time.
+does NOT decay - because it never depends on an object staying put over time.
 
 Within a **single** `look around` / `quickscan` (one atomic observation), the
 portable contents of two adjacent rooms are seen *simultaneously*. So if, in the
 same capture, direction A shows a room named "Dense forest" containing an object
 that the "Dense forest" seen down direction B does not, then **A and B are
-provably distinct instances** — nothing could have moved between two sightings
+provably distinct instances** - nothing could have moved between two sightings
 that happened at the same instant. Three "Dense forest" neighbors, one holding
 something the others lack, splits that one off with hard evidence.
 
 Crucially this is **distinguish-only, and single-capture-only**:
 
 - It can prove two same-named neighbors are *different* (a split / "Distinguished"
-  in §3.3). It can NEVER merge two rooms, and it says nothing about whether a room
-  seen in *this* capture is the same instance as one seen in *another* capture —
+  in section 3.3). It can NEVER merge two rooms, and it says nothing about whether a room
+  seen in *this* capture is the same instance as one seen in *another* capture -
   that is the cross-capture "things move" trap (see the caution above), still
   inadmissible.
 - The evidence is the *difference*, not the identity of the object: we are not
@@ -330,10 +330,10 @@ standard input for analysis agents -- never paste raw JSONL).
 `tools/mapping/README.md` covers formats and sub-agent policy.
 
 **Database** (`tools/mapping/schema.sql`): event-sourcing model.
-- `raw_captures` → `observations` + `edge_events` (immutable source layer)
-- `impressions` → `locations` (hypothesis + identity anchor layer)
+- `raw_captures` -> `observations` + `edge_events` (immutable source layer)
+- `impressions` -> `locations` (hypothesis + identity anchor layer)
 - `observation_assignments` + `impression_assignments` (append-only, supersedable)
-- `derivations` (algorithm decision log — enables full replay)
+- `derivations` (algorithm decision log - enables full replay)
 - `edges` (canonical, derived from edge_events via resolution)
 
 The DB is at `~/.mucka/mapping/mapdb.sqlite`. The **ingest script does not exist yet**;

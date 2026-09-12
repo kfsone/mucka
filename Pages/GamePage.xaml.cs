@@ -845,13 +845,13 @@ public partial class GamePage : ContentPage
         // The panel is centre-anchored horizontally, so TranslationX is its offset from centre.
         double bandX = parent.Width * 0.15;
         if (panel.TranslationX > bandX)        panel.TranslationX -= dW;        // right edge fixed
-        else if (panel.TranslationX < -bandX)  { /* left edge fixed — no change */ }
+        else if (panel.TranslationX < -bandX)  { /* left edge fixed - no change */ }
         else                                   panel.TranslationX -= dW / 2;    // stays centred
 
         double panelCentreY = panel.Y + panel.TranslationY + cur.Height / 2;
         double bandY = parent.Height * 0.15;
         if (panelCentreY > parent.Height / 2 + bandY)      panel.TranslationY -= dH;      // bottom -> grow up
-        else if (panelCentreY < parent.Height / 2 - bandY) { /* top → grow down */ }
+        else if (panelCentreY < parent.Height / 2 - bandY) { /* top -> grow down */ }
         else                                               panel.TranslationY -= dH / 2;  // vertically centred
     }
 
@@ -1096,7 +1096,7 @@ public partial class GamePage : ContentPage
     {
         bool show = !OrientationSubmenu.IsVisible;
         OrientationSubmenu.IsVisible = show;
-        OrientationChevron.Text = show ? "▾" : "▸";
+        OrientationChevron.Text = show ? Glyph.ChevronDown : Glyph.ChevronRight;
     }
 
     private void OnOrientationSystem(object? sender, EventArgs e)    => ApplyOrientation(OrientationMode.System);
@@ -1110,7 +1110,7 @@ public partial class GamePage : ContentPage
     private void ApplyOrientation(OrientationMode mode)
     {
         OrientationSubmenu.IsVisible = false;
-        OrientationChevron.Text = "▸";
+        OrientationChevron.Text = Glyph.ChevronRight;
         OverflowMenuOverlay.IsVisible = false;
         // Mark the active choice (session-only - no saved-settings change).
         OrientCheckSystem.IsVisible    = mode == OrientationMode.System;
@@ -3045,7 +3045,7 @@ public partial class GamePage : ContentPage
             return;
         _rawConsoleWindow = new Window(new RawConsolePage(_vm))
         {
-            Title  = "Mucka — Raw Console",
+            Title  = "Mucka - Raw Console",
             Width  = 900,
             Height = 550,
         };
@@ -3061,7 +3061,7 @@ public partial class GamePage : ContentPage
             return;
         _mapWindow = new Window(new MappingPage(_vm))
         {
-            Title  = "Mucka — Mapping",
+            Title  = "Mucka - Mapping",
             Width  = 900,
             Height = 550,
         };

@@ -18,7 +18,7 @@ public sealed class GuidedLoginViewModel : BaseViewModel
 {
     private readonly GuidedLoginController _controller;
     private readonly SessionDropContext? _drop;
-    private string _status = "Connecting…";
+    private string _status = "Connecting...";
     private bool _hasSplash;
 
     public string Status { get => _status; set => Set(ref _status, value); }
@@ -118,17 +118,17 @@ public sealed class GuidedLoginViewModel : BaseViewModel
 
     private static string Describe(GuidedLoginPhase phase) => phase switch
     {
-        GuidedLoginPhase.Connecting => "Connecting…",
-        GuidedLoginPhase.NegotiatingShell => "Negotiating terminal…",
-        GuidedLoginPhase.QueryingPersonae => "Checking your personae…",
-        GuidedLoginPhase.AwaitingPersonaChoice => "Waiting for you to choose a persona…",
-        GuidedLoginPhase.AwaitingCreateConfirmation => "Waiting for you to confirm persona creation…",
-        GuidedLoginPhase.AwaitingSexChoice => "Waiting for you to choose a sex for the new persona…",
-        GuidedLoginPhase.SelectingPersona => "Selecting persona…",
-        GuidedLoginPhase.WaitingForGameMode => "Entering the game…",
+        GuidedLoginPhase.Connecting => "Connecting...",
+        GuidedLoginPhase.NegotiatingShell => "Negotiating terminal...",
+        GuidedLoginPhase.QueryingPersonae => "Checking your personae...",
+        GuidedLoginPhase.AwaitingPersonaChoice => "Waiting for you to choose a persona...",
+        GuidedLoginPhase.AwaitingCreateConfirmation => "Waiting for you to confirm persona creation...",
+        GuidedLoginPhase.AwaitingSexChoice => "Waiting for you to choose a sex for the new persona...",
+        GuidedLoginPhase.SelectingPersona => "Selecting persona...",
+        GuidedLoginPhase.WaitingForGameMode => "Entering the game...",
         GuidedLoginPhase.Succeeded => "Connected.",
         GuidedLoginPhase.Failed => "Persona login failed.",
         GuidedLoginPhase.Cancelled => "Cancelled.",
-        _ => "Working…",
+        _ => "Working...",
     };
 }

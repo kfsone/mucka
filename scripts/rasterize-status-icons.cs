@@ -55,7 +55,7 @@ foreach (var svgPath in Directory.EnumerateFiles(svgDir, "*.svg").OrderBy(p => p
     }
 }
 
-Console.WriteLine($"Done — {written} PNG(s) written to {outDir}");
+Console.WriteLine($"Done - {written} PNG(s) written to {outDir}");
 return 0;
 
 // Desaturate to luma, then colorize toward a bruised purple-brown - a distinct "afflicted/bad"

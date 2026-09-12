@@ -10,7 +10,7 @@ permissions:
   contents: write
 
 jobs:
-  # ── Windows ──────────────────────────────────────────────────────────────
+  # -- Windows --------------------------------------------------------------
   windows:
     name: Windows (zip + installer)
     runs-on: windows-latest
@@ -86,7 +86,7 @@ jobs:
             & $tool sign /f $pfxPath /p $env:CERT_PFX_PASS `
               /tr http://timestamp.digicert.com /td sha256 /fd sha256 $exe.FullName
             if ($LASTEXITCODE -ne 0) { throw "signtool exited $LASTEXITCODE" }
-            Write-Host "Signed → $($exe.FullName)"
+            Write-Host "Signed -> $($exe.FullName)"
             echo "APP_DIR=$($exe.DirectoryName)" >> $env:GITHUB_ENV
           } finally {
             Remove-Item $pfxPath -Force -ErrorAction SilentlyContinue
@@ -97,7 +97,7 @@ jobs:
         run: |
           $zip = "mucka-windows-${{ github.ref_name }}.zip"
           Compress-Archive -Path "$env:APP_DIR\*" -DestinationPath $zip
-          Write-Host "Zipped $env:APP_DIR → $zip"
+          Write-Host "Zipped $env:APP_DIR -> $zip"
 
       - name: Download Windows App Runtime installer
         shell: pwsh
@@ -142,7 +142,7 @@ jobs:
             & $tool sign /f $pfxPath /p $env:CERT_PFX_PASS `
               /tr http://timestamp.digicert.com /td sha256 /fd sha256 $dest
             if ($LASTEXITCODE -ne 0) { throw "signtool exited $LASTEXITCODE" }
-            Write-Host "Signed → $dest"
+            Write-Host "Signed -> $dest"
           } finally {
             Remove-Item $pfxPath -Force -ErrorAction SilentlyContinue
           }
@@ -157,7 +157,7 @@ jobs:
           name: windows-installer
           path: mucka-windows-${{ github.ref_name }}-setup.exe
 
-  # ── Android ──────────────────────────────────────────────────────────────
+  # -- Android --------------------------------------------------------------
   android-apk:
     name: Android (APK)
     runs-on: ubuntu-latest
@@ -236,7 +236,7 @@ jobs:
           name: android-apk
           path: mucka-android-${{ github.ref_name }}.apk
 
-  # ── GitHub Release ────────────────────────────────────────────────────────
+  # -- GitHub Release --------------------------------------------------------
   create-release:
     name: Create GitHub Release
     needs: [windows, android-apk]

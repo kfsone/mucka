@@ -128,7 +128,7 @@ public sealed class SoundGroupEditorItem : BaseViewModel
         get => _expanded;
         set => SetAndNotify(ref _expanded, value, [nameof(Chevron)]);
     }
-    public string Chevron => HasChildren ? (_expanded ? "▼" : "▶") : " ";
+    public string Chevron => HasChildren ? (_expanded ? Mucka.Core.Glyph.TriangleDown : Mucka.Core.Glyph.TriangleRight) : " ";
 
     /// <summary>Index into <see cref="DefaultChoices"/>; 0 = no fallback.</summary>
     public int SelectedDefaultIndex { get => _selectedDefaultIndex; set => Set(ref _selectedDefaultIndex, value); }

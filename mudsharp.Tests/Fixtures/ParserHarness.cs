@@ -1,4 +1,4 @@
-﻿using MudSharp.Models;
+using MudSharp.Models;
 using MudSharp.Protocol;
 
 namespace MudSharp.Tests.Fixtures;

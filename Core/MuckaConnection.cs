@@ -1,4 +1,4 @@
-﻿using MudSharp.Combat;
+using MudSharp.Combat;
 using MudSharp.Models;
 using MudSharp.Session;
 using System.Net.Sockets;
@@ -752,7 +752,7 @@ public sealed class MuckaConnection : IAsyncDisposable
         if (!LogResetDiagnostics) return;
         _capture.Annotate(
             $"reset {o.Phase} v={o.Minutes}{(o.Sample ? " sample" : "")} rtt={o.RttMs:F0}ms " +
-            $"win=[{o.WindowLoSecFromNow:F2},{o.WindowHiSecFromNow:F2})s ±{o.UncertaintySec:F2}s");
+            $"win=[{o.WindowLoSecFromNow:F2},{o.WindowHiSecFromNow:F2})s +/-{o.UncertaintySec:F2}s");
     }
 
     private void OnTerminalWidthConfirmed(int confirmedWidth)

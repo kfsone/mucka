@@ -1,4 +1,4 @@
-; Mucka installer script — built by CI via:
+; Mucka installer script - built by CI via:
 ;   ISCC.exe /DMyAppVersion=0.4.3 /DMyAppDir=path\to\publish installer.iss
 
 #define MyAppName      "Mucka"
@@ -35,7 +35,7 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 
 [Files]
 Source: "{#MyAppDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
-; Windows App Runtime — required by MAUI/WinUI 3. Silent install; no-ops if already present.
+; Windows App Runtime - required by MAUI/WinUI 3. Silent install; no-ops if already present.
 Source: "windowsappruntimeinstall-x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 
 [Icons]

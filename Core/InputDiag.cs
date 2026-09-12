@@ -43,7 +43,7 @@ public static class InputDiag
                     FlushLocked();
             }
         }
-        catch { /* diagnostics only — never throw into the input path */ }
+        catch { /* diagnostics only - never throw into the input path */ }
     }
 
     /// <summary>Write any buffered lines to disk now (call on teardown so nothing is lost).</summary>

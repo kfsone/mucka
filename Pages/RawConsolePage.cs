@@ -68,7 +68,7 @@ internal sealed class RawConsolePage : ContentPage
             FontFamily           = "Cascadia Mono",
             FontSize             = 13,
             TextColor            = Color.FromArgb("#F9F1A5"),
-            Text                 = "(press keys to build sequence — Backspace removes last byte)",
+            Text                 = "(press keys to build sequence - Backspace removes last byte)",
             MinimumHeightRequest = 22,
             Padding              = new Thickness(4, 2),
             BackgroundColor      = Color.FromArgb("#1A1A1A"),
@@ -94,7 +94,7 @@ internal sealed class RawConsolePage : ContentPage
         // -- Cancel (close) tap target - inline label, sizes to text height ------
         _cancelLabel = new Label
         {
-            Text                    = "✕",
+            Text                    = Mucka.Core.Glyph.Close,
             FontFamily              = "Cascadia Mono",
             FontSize                = 12,
             TextColor               = Color.FromArgb("#666666"),
@@ -267,7 +267,7 @@ internal sealed class RawConsolePage : ContentPage
 
     private void OnRawBytesReceived(byte[] bytes)
     {
-        var text = FormatChunk("←", bytes);
+        var text = FormatChunk(Mucka.Core.Glyph.ArrowLeft, bytes);
         lock (_pendingLock)
         {
             _pendingOutput.Append(text);
@@ -277,7 +277,7 @@ internal sealed class RawConsolePage : ContentPage
 
     private void OnRawBytesSent(byte[] bytes)
     {
-        var text = FormatChunk("→", bytes);
+        var text = FormatChunk(Mucka.Core.Glyph.ArrowRight, bytes);
         lock (_pendingLock)
         {
             _pendingOutput.Append(text);
@@ -400,7 +400,7 @@ internal sealed class RawConsolePage : ContentPage
     {
         if (_sequence.Count == 0)
         {
-            _seqLabel.Text = "(press keys to build sequence — Backspace removes last byte)";
+            _seqLabel.Text = "(press keys to build sequence - Backspace removes last byte)";
             _hexLabel.Text = string.Empty;
             return;
         }

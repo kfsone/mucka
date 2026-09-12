@@ -168,7 +168,7 @@ public class ResetClockTests
     {
         var h = LockedViaDiscovery();
         Assert.Equal(ResetPhase.Locked, h.Snap.Phase);
-        Assert.True(h.Snap.UncertaintySec <= 0.5, $"expected ≤±0.5 s lock, got ±{h.Snap.UncertaintySec:F2}s");
+        Assert.True(h.Snap.UncertaintySec <= 0.5, $"expected a lock within +/-0.5 s, got +/-{h.Snap.UncertaintySec:F2}s");
         Assert.False(h.DiscoveryHold, "routine heartbeat must be resumed after locking");
         double secsToTarget = (h.Snap.TargetUtc!.Value - DateTime.UtcNow).TotalSeconds;
         double estTargetMs = h.NowMs + secsToTarget * 1000;

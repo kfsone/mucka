@@ -1329,7 +1329,7 @@
                     <Label FontSize="11" Margin="0,2,0,0">
                         <Label.FormattedText>
                             <FormattedString>
-                                <Span Text="© " TextColor="#888888"/>
+                                <Span Text="&#xA9; " TextColor="#888888"/>
                                 <Span Text="Oliver 'kfsone' Smith" TextColor="#58a6ff" TextDecorations="Underline"/>
                             </FormattedString>
                         </Label.FormattedText>
@@ -1366,7 +1366,7 @@
                         </Label.GestureRecognizers>
                     </Label>
 
-                    <Label Text="Clio © Ian Peattie" TextColor="#888888" FontSize="11"/>
+                    <Label Text="Clio &#xA9; Ian Peattie" TextColor="#888888" FontSize="11"/>
 
                     <BoxView Color="#2d333b" HeightRequest="1" Margin="0,8"/>
 

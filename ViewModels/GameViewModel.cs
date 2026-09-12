@@ -1,4 +1,4 @@
-﻿using System.Collections.Concurrent;
+using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Windows.Input;
@@ -226,7 +226,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public bool ChatMode { get => _chatMode; private set => Set(ref _chatMode, value); }
 
     /// <summary>Command-box placeholder - swaps to a "chat" cue while the chat filter is on.</summary>
-    public string InputPlaceholder => _chatMode ? "chat…" : "enter command…";
+    public string InputPlaceholder => _chatMode ? "chat..." : "enter command...";
     public bool IsCapturing { get => _isCapturing; private set => Set(ref _isCapturing, value); }
     public int MaxColumns => _maxColumns;
     public int EffCols => _effCols;
@@ -268,13 +268,13 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public string DexMaxValue => (_effCols < 50 && _maxDexterity >= 100) ? string.Empty : $"/{MaxDexterity}";
     // Score number and reset-delta are separate spans so the score proper can render bold
     // while the delta stays regular weight.
-    public string ScoreValue => Score <= 0 ? "—" : $"{Score}";
+    public string ScoreValue => Score <= 0 ? "-" : $"{Score}";
     public string ScoreDeltaValue => Score <= 0 || _baseScore < 0 ? string.Empty
         : $" ({ScoreDeltaStr(Score - _baseScore)})";
 
     /// <summary>Score value for the compact bar - always carries the reset-delta suffix (rendered
     /// one point smaller via <see cref="ScoreCompactFontSize"/> so it fits in narrow layouts).</summary>
-    public string ScoreDisplayValue => Score <= 0 ? "—"
+    public string ScoreDisplayValue => Score <= 0 ? "-"
         : _baseScore < 0 ? $"{Score}"
         : $"{Score} ({ScoreDeltaStr(Score - _baseScore)})";
 
@@ -311,7 +311,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     // "Time until reset" plus our current +/- confidence, so hovering reveals how much to trust it.
     public string TtrTooltip  => _reset.TargetUtc is null
         ? "Time until reset"
-        : $"Time until reset (±{(int)Math.Ceiling(_reset.UncertaintySec)}s)";
+        : $"Time until reset (+/-{(int)Math.Ceiling(_reset.UncertaintySec)}s)";
     public bool   WeatherVisible => _weather is not (' ' or '\0' or (char)0);
     public bool   AnyRightStatVisible => WeatherVisible || TtrVisible;
 
@@ -1271,7 +1271,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     /// driving the shell by hand - otherwise the overlay just disappears and they are looking at a
     /// prompt with no idea why.</summary>
     public void NoteLeftAtOptionMenu()
-        => AddSystemLine("[persona] Persona login stopped — you are at the MUD Shell's Option menu. Type P to choose a persona.", 14);
+        => AddSystemLine("[persona] Persona login stopped - you are at the MUD Shell's Option menu. Type P to choose a persona.", 14);
 
     /// <summary>Client-initiated clean disconnect. Unlike a server-side drop, this does NOT raise
     /// <see cref="Disconnected"/> (that event only fires from the read loop's own unexpected-EOF/
@@ -1545,7 +1545,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         int found = 0;
         foreach (var (slotName, answer) in _watchwords.ScanAll(sb.ToString()))
         {
-            AddSystemLine($"[watchword] queued \"{answer}\" → ${slotName}", 14);
+            AddSystemLine($"[watchword] queued \"{answer}\" -> ${slotName}", 14);
             found++;
         }
 
@@ -1706,7 +1706,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         }
         if (_itemEvalRunning)
         {
-            AddSystemLine("[eval] an evaluation is already in progress — wait for it to finish.", 9);
+            AddSystemLine("[eval] an evaluation is already in progress - wait for it to finish.", 9);
             return;
         }
         // FEI lines are the item's display name/label, not necessarily the bare id you type
@@ -1717,11 +1717,11 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
                 i.Contains(itemId, StringComparison.OrdinalIgnoreCase) ||
                 itemId.Contains(i, StringComparison.OrdinalIgnoreCase)))
         {
-            AddSystemLine($"[eval] '{itemId}' doesn't obviously match the last FEI carried-items snapshot — trying anyway via 'identify'.", 9);
+            AddSystemLine($"[eval] '{itemId}' doesn't obviously match the last FEI carried-items snapshot - trying anyway via 'identify'.", 9);
         }
 
         _itemEvalRunning = true;
-        AddSystemLine($"[eval] evaluating '{itemId}' — avoid sending other commands until this finishes.", 14);
+        AddSystemLine($"[eval] evaluating '{itemId}' - avoid sending other commands until this finishes.", 14);
         try
         {
             _itemEval ??= new ItemEvalSession(_conn, msg => AddSystemLine(msg, 14));

@@ -1,4 +1,4 @@
-﻿using MudSharp.Combat;
+using MudSharp.Combat;
 using MudSharp.Models;
 using MudSharp.Protocol;
 
