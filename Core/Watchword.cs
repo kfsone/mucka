@@ -7,7 +7,10 @@ namespace Mucka.Core;
 /// Parses watchword rules from mucka.ini and matches incoming game lines,
 /// queuing answers that can be retrieved via $slotname expansion in outgoing text.
 ///
-/// Config format (./mucka.ini or ~/mucka.ini):
+/// The rules are hand-written; nothing in the app emits a [watch] section. On Android
+/// mucka.ini sits in private app storage, so there are no slots there in practice.
+///
+/// Config format (mucka.ini, at SettingsStore.ResolvePath):
 ///
 ///   [watch]
 ///   slotname = trigger prefix...trigger suffix
@@ -73,19 +76,10 @@ internal sealed class WatchwordStore
     public static WatchwordStore Load()
     {
         var store = new WatchwordStore();
-        var paths = new[]
-        {
-            Path.Combine(AppContext.BaseDirectory, "mucka.ini"),
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "mucka.ini"),
-        };
-        foreach (var path in paths)
-        {
-            if (File.Exists(path))
-            {
-                store.LoadFile(path);
-                break;
-            }
-        }
+        // The same mucka.ini the settings come from.
+        var path = SettingsStore.ResolvePath();
+        if (File.Exists(path))
+            store.LoadFile(path);
         return store;
     }
 

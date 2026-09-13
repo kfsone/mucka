@@ -13,6 +13,17 @@
 - Combat rail: CombatTierResolver.CriticalStaminaFloorTier (the "no lower than T2 at or below
   6.5 stamina" floor in docs/combat-panel-design.md) exists and is tested but nothing calls it;
   SidePanelViewModel feeds the stamina tier straight to ResolvePulseTier.
+- $eval (Core/ItemEvalSession.cs): its Handler mutates state/description/weighLine/results/names
+  from the connection's raise thread while the awaiting code reads them from the UI thread, with
+  no synchronization. Now reachable on Android, where ARM's weaker memory model makes the
+  unsynchronized read a worse bet than it was on x86. The poll loop (:264) also has no
+  ConfigureAwait(false), so ~27 continuations bounce onto the UI thread per identify.
+- $eval on Android writes items.jsonl into the cache directory (ClogPaths.GetClogDirectory),
+  which the OS evicts under pressure, so measurements do not accumulate there. Stage 5's
+  one-database design should give it a durable home.
+- Any "$" or "^" line is client-local on both platforms, including at MUD2's persona password
+  prompt, where it is echoed into scrollback and history and never sent. There is no escape
+  hatch for sending one to the MUD.
 - Mapping: MappingStore.IsTransientRefusal matches only "blocked by". Movement refusals come in
   three families - hard no-exit ("You cannot go north from here."), blocked by an entity
   (transient), and terrain/conditional ("The forest becomes too dense...", "Rain has swollen the

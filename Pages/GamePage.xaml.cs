@@ -266,9 +266,7 @@ public partial class GamePage : ContentPage
                 Terminal.SpanInsertTextRequested += OnTerminalSpanInsertTextRequested;
                 // Re-negotiate columns when the display rotates (see OnMainDisplayInfoChanged).
                 DeviceDisplay.Current.MainDisplayInfoChanged += OnMainDisplayInfoChanged;
-#if WINDOWS
                 _vm.AnnotationReady += OnAnnotationReady;
-#endif
                 _eventsSubscribed = true;
             }
 
@@ -497,9 +495,7 @@ public partial class GamePage : ContentPage
         Terminal.FocusInputRequested -= OnFocusInputRequested;
         Terminal.SpanInsertTextRequested -= OnTerminalSpanInsertTextRequested;
         DeviceDisplay.Current.MainDisplayInfoChanged -= OnMainDisplayInfoChanged;
-#if WINDOWS
         _vm.AnnotationReady -= OnAnnotationReady;
-#endif
         _eventsSubscribed = false;
         if (Window is not null)
         {
@@ -981,10 +977,8 @@ public partial class GamePage : ContentPage
         });
     }
 
-#if WINDOWS
     // $f<n> annotation: drop the "// ..." note above the live prompt, restoring the prompt below it.
     private void OnAnnotationReady(StyledLine line) => Terminal.InjectAnnotation(line);
-#endif
 
     // Reacts to settings applied from the config dialog: font size changes re-style the
     // terminal; column changes re-fit the window (Windows) and re-wrap the view. The window

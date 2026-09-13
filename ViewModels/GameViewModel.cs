@@ -32,12 +32,12 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private readonly string _profileName;
     private readonly bool _guidedLoginEnabled;
     private readonly string _profileHost;
-#if WINDOWS
     private readonly WatchwordStore _watchwords;
     private readonly SessionCommandAliases _sessionAliases;
-    private Mucka.Core.Mapping.MappingSession? _mapSession;
     private ItemEvalSession? _itemEval;
     private bool _itemEvalRunning;
+#if WINDOWS
+    private Mucka.Core.Mapping.MappingSession? _mapSession;
 #endif
     private int _historyIndex = -1;
 
@@ -610,10 +610,8 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _profileName = profile.Name;
         _guidedLoginEnabled = profile.GuidedLogin;
         _profileHost = profile.Host;
-#if WINDOWS
         _watchwords = WatchwordStore.Load();
         _sessionAliases = new SessionCommandAliases(AppInfo.VersionString);
-#endif
         _maxColumns = Math.Clamp(profile.MaxColumns, 0, 160);  // 0 = auto
         _effCols = _maxColumns > 0 ? _maxColumns : 80;  // sensible until OnSizeAllocated fires
         _antiIdleSeconds = Math.Clamp(profile.AntiIdleSeconds, 0, 3600);
@@ -935,9 +933,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             var autoRelogAfterReset = drop.Reason == SessionDropReason.Reset
                 && !string.IsNullOrWhiteSpace(exitedPersona);
             _inGameMode = false;
-#if WINDOWS
             _sessionAliases.Clear();
-#endif
             // Back at the option menu: no current character. Drop the live baseline (the
             // per-character history in _baseScoreByChar is kept, so returning restores it) and
             // fall the title back to the profile-only form.
@@ -1252,9 +1248,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private void ResetSessionState()
     {
         _inGameMode = false;
-#if WINDOWS
         _sessionAliases.Clear();
-#endif
         IsConnected = false;
         ClearResetProjection();   // stop the countdown; a stale target would keep ticking down
         OnPropertiesChanged(nameof(IsInGameMode), nameof(IsRecordingButtonVisible),
@@ -1392,13 +1386,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
 
         var trimmed = text.Trim();
         if (!HandleCommand(trimmed))
-        {
-#if WINDOWS
             _conn.SendLine(ExpandOutgoingCommand(trimmed));
-#else
-            _conn.SendLine(trimmed);
-#endif
-        }
 
         _lastSentUtc = DateTime.UtcNow;
 
@@ -1412,7 +1400,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
 
     private bool HandleCommand(string text)
     {
-#if WINDOWS
         // ^1=command / ^2=command / ^3=command (or bare ^1..^3, with optional
         // whitespace around "=") - bind/send the three Ctrl-1..Ctrl-3 control-macro slots.
         // Three, not five: reaching Ctrl-4/Ctrl-5 without looking is a stretch mid-fight, and a
@@ -1467,7 +1454,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             else if (name == "<")
                 ScanHistory();
             else if (name == "con")
-                OpenRawConsoleRequested?.Invoke();
+                OpenRawConsole();
             else if (name == "map" || name.StartsWith("map ", StringComparison.OrdinalIgnoreCase))
                 HandleMapCommand(name.Length > 3 ? name[4..].Trim() : string.Empty);
             else if (name == "eval" || name.StartsWith("eval ", StringComparison.OrdinalIgnoreCase))
@@ -1492,12 +1479,10 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
                 SpeakWatchword(name);
             return true;
         }
-#endif
 
         return false;
     }
 
-#if WINDOWS
     // "^N" (bare, length 2 - caller already checked) or "^N" followed by optional
     // whitespace then "=" (the rest, including whitespace after "=", is trimmed by
     // SessionCommandAliases.TryDefine itself). Anything else ("^Nfoo" with no "=",
@@ -1579,15 +1564,25 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         AddSystemLine("  $help                 list these commands", 14);
         AddSystemLine("  $?                    list loaded watchword slots", 14);
         AddSystemLine("  $<                    scan recent output for watchword answers", 14);
+#if WINDOWS
         AddSystemLine("  $con                  open the raw protocol console", 14);
         AddSystemLine("  $map [arg]            open the map panel (or probe / dir / ...)", 14);
+#else
+        AddSystemLine("  $con                  (Windows only)", 14);
+        AddSystemLine("  $map                  (Windows only)", 14);
+#endif
         AddSystemLine("  $eval <itemid>        weigh/look/drop+get an item to measure its str/dex cost", 14);
         AddSystemLine("  $fkeys [shift|ctrl]   list your function-key macros", 14);
         AddSystemLine("  $f<n>                 annotate output with fkey n's text (1-36)", 14);
         AddSystemLine("  $VER                  expands to the current Mucka version", 14);
         AddSystemLine("  $name=command         define a command until you exit the gameworld", 14);
         AddSystemLine("  $name                 run a command defined above", 14);
+#if WINDOWS
         AddSystemLine("  ^1/^2/^3=command  bind Ctrl-1..Ctrl-3", 14);
+#else
+        // No Ctrl-digit on a phone keyboard; the slots still run by typing "^1".
+        AddSystemLine("  ^1/^2/^3=command  bind a slot; type ^1 to run it", 14);
+#endif
     }
 
     // $fkeys [shift|ctrl] - list the 12 macros on the requested layer, echoing each line into the
@@ -1648,6 +1643,13 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _conn.Annotate(annotation);      // capture: as an annotation
     }
 
+    // $con and $map are Windows-only: the console and map panel are separate desktop windows,
+    // and Core/Mapping is a whole-file #if WINDOWS, so $map probe/dir/reload have no Android
+    // half either. Both stay recognized on Android and report themselves, because a "$" line
+    // that falls through to the MUD is a line the player did not mean to send.
+#if WINDOWS
+    private void OpenRawConsole() => OpenRawConsoleRequested?.Invoke();
+
     /// <summary>The mapping data directory for this profile (mucka.ini mappingdir, or default).</summary>
     public string MappingDirectory => Mucka.Core.Mapping.MappingStore.ResolveDirectory(_profileName);
 
@@ -1696,6 +1698,13 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
                 break;
         }
     }
+#else
+    private void OpenRawConsole()
+        => AddSystemLine("[command] $con is Windows only.", 9);
+
+    private void HandleMapCommand(string arg)
+        => AddSystemLine("[map] the map panel is Windows only.", 9);
+#endif
 
     // -- $eval: item weigh/look/drop+get measurement (see ItemEvalSession) --------------------
 
@@ -1738,7 +1747,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             _itemEvalRunning = false;
         }
     }
-#endif
 
     private void SendFkey(string indexStr)
     {
@@ -1755,7 +1763,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
 
     /// <summary>
     /// Send the fkey macro at the given absolute index (0-11=None, 12-23=Shift, 24-35=Ctrl).
-    /// Called by the keyboard handler in GamePage on Windows.
+    /// Called by GamePage's keyboard handlers on both platforms.
     /// </summary>
     public void SendFkeyAbsolute(int absoluteIndex)
     {
@@ -1775,7 +1783,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         if (!string.IsNullOrWhiteSpace(cmd))
         {
             cmd = cmd.TrimEnd('\r', '\n');
-#if WINDOWS
             if (cmd.StartsWith('$'))
                 SpeakWatchword(cmd[1..]);
             else
@@ -1783,10 +1790,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
                 _conn.SendLine(ExpandOutgoingCommand(cmd));
                 _lastSentUtc = DateTime.UtcNow;
             }
-#else
-            _conn.SendLine(cmd);
-            _lastSentUtc = DateTime.UtcNow;
-#endif
         }
     }
 

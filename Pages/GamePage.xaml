@@ -1444,7 +1444,7 @@
                         </Label.FormattedText>
                     </Label>
 
-                    <Label FontSize="11" IsVisible="{OnPlatform WinUI=true, Default=false}">
+                    <Label FontSize="11">
                         <Label.FormattedText>
                             <FormattedString>
                                 <Span Text="$help" TextColor="#58a6ff"/>
@@ -1453,7 +1453,7 @@
                         </Label.FormattedText>
                     </Label>
 
-                    <Label FontSize="11" IsVisible="{OnPlatform WinUI=true, Default=false}">
+                    <Label FontSize="11">
                         <Label.FormattedText>
                             <FormattedString>
                                 <Span Text="$name=command" TextColor="#58a6ff"/>
@@ -1462,11 +1462,11 @@
                         </Label.FormattedText>
                     </Label>
 
-                    <Label FontSize="11" IsVisible="{OnPlatform WinUI=true, Default=false}">
+                    <Label FontSize="11">
                         <Label.FormattedText>
                             <FormattedString>
                                 <Span Text="^1 / ^2 / ^3" TextColor="#58a6ff"/>
-                                <Span Text="  Bind commands to Ctrl-1..Ctrl-3" TextColor="#888888"/>
+                                <Span Text="  Bind commands to Ctrl-1..Ctrl-3, or type the slot to run it" TextColor="#888888"/>
                             </FormattedString>
                         </Label.FormattedText>
                     </Label>

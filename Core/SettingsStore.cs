@@ -32,9 +32,9 @@ namespace Mucka.Core;
 ///   host=mud2.co.uk       ; in SecureStorage (ProfileStore)
 ///   port=23
 ///
-/// Windows: same lookup order as WatchwordStore (./mucka.ini beside the exe, then
-/// ~/mucka.ini); new files are created in the user profile. Android: the app-data
-/// directory (no shared home directory to put an ini in, but the format is the same).
+/// Windows: ./mucka.ini beside the exe, then ~/mucka.ini; new files are created in the
+/// user profile. Android: the app-data directory (no shared home directory to put an ini
+/// in, but the format is the same).
 /// All writes go through one gate and are atomic (tmp + rename).
 /// </summary>
 public static class SettingsStore
@@ -115,9 +115,9 @@ public static class SettingsStore
     }
 
     /// <summary>
-    /// The mucka.ini path: first existing of (./mucka.ini, ~/mucka.ini) on Windows -
-    /// mirroring WatchwordStore.Load - defaulting to ~/mucka.ini for new files.
-    /// On Android (and others) the app-data directory.
+    /// The mucka.ini path: first existing of (./mucka.ini, ~/mucka.ini) on Windows,
+    /// defaulting to ~/mucka.ini for new files. On Android (and others) the app-data
+    /// directory. The one resolver for that file, whoever is reading it.
     /// </summary>
     public static string ResolvePath()
     {
