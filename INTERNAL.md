@@ -37,10 +37,10 @@ to reduce context burden on agents for long sessions, or
 
 # Mapping
 
-Parked. Live map use pulls the player off the scroll, which is the opposite of what this client
-is for; the code (`Core/Mapping`, `Pages/MappingPage.cs`, the Windows-only `$map` window) stays
-for possible offline use. The domain model and design are in `docs/archive/mapping/`. Any future
-mapping work starts from `MUD-Cartography.md` there: MUD2's world is a directed labeled multigraph
+Removed. Live map use pulls the player off the scroll, which is the opposite of what this client
+is for. The capture layer, the map graph, the `$map` window and the archived design docs are all
+gone; git history has them. If mapping is ever wanted again it gets rebuilt from the session log
+rather than revived. What survives of the domain: MUD2's world is a directed labeled multigraph
 of named places, not a grid.
 
 # Notes:

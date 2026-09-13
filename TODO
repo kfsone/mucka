@@ -16,8 +16,3 @@
 - Any "$" or "^" line is client-local on both platforms, including at MUD2's persona password
   prompt, where it is echoed into scrollback and history and never sent. There is no escape
   hatch for sending one to the MUD.
-- Mapping: MappingStore.IsTransientRefusal matches only "blocked by". Movement refusals come in
-  three families - hard no-exit ("You cannot go north from here."), blocked by an entity
-  (transient), and terrain/conditional ("The forest becomes too dense...", "Rain has swollen the
-  river...", "The gap is too narrow... without dropping everything") which are weather- or
-  encumbrance-gated and can succeed on retry. The third family is recorded as no-edge.

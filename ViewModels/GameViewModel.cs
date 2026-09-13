@@ -34,9 +34,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private readonly string _profileHost;
     private readonly WatchwordStore _watchwords;
     private readonly SessionCommandAliases _sessionAliases;
-#if WINDOWS
-    private Mucka.Core.Mapping.MappingSession? _mapSession;
-#endif
     private int _historyIndex = -1;
 
     private string _inputText = string.Empty;
@@ -580,8 +577,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public event Action<string>? ToastRequested;
 #if WINDOWS
     public event Action? OpenRawConsoleRequested;
-    /// <summary>Raised by $map - GamePage opens (or surfaces) the mapping panel window.</summary>
-    public event Action? MapPanelRequested;
     public event Action<byte[]>? RawBytesReceived
     {
         add    => _conn.RawBytesReceived += value;
@@ -1453,8 +1448,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
                 ScanHistory();
             else if (name == "con")
                 OpenRawConsole();
-            else if (name == "map" || name.StartsWith("map ", StringComparison.OrdinalIgnoreCase))
-                HandleMapCommand(name.Length > 3 ? name[4..].Trim() : string.Empty);
             else if (name == "fkeys" || name.StartsWith("fkeys ", StringComparison.OrdinalIgnoreCase))
                 PrintFkeys(name.Length > 5 ? name[6..].Trim() : string.Empty);
             // $f<n>: annotate with fkey n's macro (absolute 1-36). Checked after "fkeys" so it
@@ -1562,10 +1555,8 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         AddSystemLine("  $<                    scan recent output for watchword answers", 14);
 #if WINDOWS
         AddSystemLine("  $con                  open the raw protocol console", 14);
-        AddSystemLine("  $map [arg]            open the map panel (or probe / dir / ...)", 14);
 #else
         AddSystemLine("  $con                  (Windows only)", 14);
-        AddSystemLine("  $map                  (Windows only)", 14);
 #endif
         AddSystemLine("  $fkeys [shift|ctrl]   list your function-key macros", 14);
         AddSystemLine("  $f<n>                 annotate output with fkey n's text (1-36)", 14);
@@ -1638,67 +1629,14 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _conn.Annotate(annotation);      // capture: as an annotation
     }
 
-    // $con and $map are Windows-only: the console and map panel are separate desktop windows,
-    // and Core/Mapping is a whole-file #if WINDOWS, so $map probe/dir/reload have no Android
-    // half either. Both stay recognized on Android and report themselves, because a "$" line
-    // that falls through to the MUD is a line the player did not mean to send.
+    // $con is Windows-only: the console is a separate desktop window. It stays recognized on
+    // Android and reports itself, because a "$" line that falls through to the MUD is a line
+    // the player did not mean to send.
 #if WINDOWS
     private void OpenRawConsole() => OpenRawConsoleRequested?.Invoke();
-
-    /// <summary>The mapping data directory for this profile (mucka.ini mappingdir, or default).</summary>
-    public string MappingDirectory => Mucka.Core.Mapping.MappingStore.ResolveDirectory(_profileName);
-
-    /// <summary>The mapping operation console (created on first use; lives until dispose).
-    /// All map capture goes through its operations -- see MappingSession.</summary>
-    public Mucka.Core.Mapping.MappingSession MapSession
-    {
-        get
-        {
-            if (_mapSession is null)
-            {
-                _mapSession = new Mucka.Core.Mapping.MappingSession(_conn, MappingDirectory, _profileHost);
-                _mapSession.Status += s =>
-                    MainThread.BeginInvokeOnMainThread(() => AddSystemLine($"[map] {s}", 14));
-            }
-            return _mapSession;
-        }
-    }
-
-    private void HandleMapCommand(string arg)
-    {
-        switch (arg)
-        {
-            case "":
-                MapPanelRequested?.Invoke();
-                break;
-
-            case "probe":
-                if (!MapSession.TryStartProbe(out var probeError))
-                    AddSystemLine($"[map] {probeError}", 9);
-                break;
-
-            case "dir":
-                AddSystemLine($"[map] directory: {MappingDirectory}", 14);
-                break;
-
-            case "reload":
-                var summary = Mucka.Core.Mapping.MappingStore.Reload(MappingDirectory);
-                AddSystemLine(summary.FileCount == 0
-                    ? $"[map] no captures in {MappingDirectory}"
-                    : $"[map] {summary.FileCount} file(s), {summary.EntryCount} entries; newest: {summary.NewestFile}", 14);
-                break;
-
-            default:
-                AddSystemLine("[map] usage: $map (panel) | $map probe | $map dir | $map reload", 14);
-                break;
-        }
-    }
 #else
     private void OpenRawConsole()
         => AddSystemLine("[command] $con is Windows only.", 9);
-
-    private void HandleMapCommand(string arg)
-        => AddSystemLine("[map] the map panel is Windows only.", 9);
 #endif
 
     private void SendFkey(string indexStr)
@@ -2136,9 +2074,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     {
         SidePanel.Dispose();
         UnsubscribeConnectionEvents();
-#if WINDOWS
-        _mapSession?.Dispose();
-#endif
         await _conn.DisposeAsync();
     }
 }

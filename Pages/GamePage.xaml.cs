@@ -109,7 +109,6 @@ public partial class GamePage : ContentPage
     // line that reached the MUD - see OnInputTextChanged.
     private int _lateTextAfterSendCount;
     private Window? _rawConsoleWindow;
-    private Window? _mapWindow;
     private PulseLayer? _combatPanelPulse;
     private TickSweep? _combatTickSweep;
     private FleePulse? _combatFleePulse;
@@ -355,7 +354,6 @@ public partial class GamePage : ContentPage
                 SendButton.Clicked -= OnSendButtonClicked;
                 SendButton.Clicked += OnSendButtonClicked;
                 _vm.OpenRawConsoleRequested += OnOpenRawConsoleRequested;
-                _vm.MapPanelRequested += OnMapPanelRequested;
                 // Enforce minimum window width based on the configured terminal columns, and
                 // (same handler) drive the Combat Rail's shared pulse layer on tier changes.
                 _vm.SidePanel.PropertyChanged += OnSidePanelPropertyChanged;
@@ -544,7 +542,6 @@ public partial class GamePage : ContentPage
             _terminalElement = null;
         }
         _vm.OpenRawConsoleRequested -= OnOpenRawConsoleRequested;
-        _vm.MapPanelRequested -= OnMapPanelRequested;
         _vm.SidePanel.PropertyChanged -= OnSidePanelPropertyChanged;
         CombatPanelGlow.HandlerChanged -= OnCombatPanelGlowHandlerChanged;
         CombatTickSweep.HandlerChanged -= OnCombatTickSweepHandlerChanged;
@@ -3089,22 +3086,6 @@ public partial class GamePage : ContentPage
             Height = 550,
         };
         Application.Current?.OpenWindow(_rawConsoleWindow);
-    }
-
-    private void OnMapPanelRequested()
-    {
-        _auxiliaryWindowOpened = true;
-        // Reuse existing window if it is still open.
-        if (_mapWindow != null &&
-            Application.Current?.Windows.Contains(_mapWindow) == true)
-            return;
-        _mapWindow = new Window(new MappingPage(_vm))
-        {
-            Title  = "Mucka - Mapping",
-            Width  = 900,
-            Height = 550,
-        };
-        Application.Current?.OpenWindow(_mapWindow);
     }
 
     /// <summary>True exactly while the window is currently carrying the rail's extra width.</summary>

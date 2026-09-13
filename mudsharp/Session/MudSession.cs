@@ -227,9 +227,6 @@ public sealed class MudSession : IDisposable
     // dirty by a C1 hint. FEW and FEI are omitted when those side-panel sections are disabled.
     private bool _includeFew = true;
     private bool _includeFei = true;
-    // While the mapping window has focus the heartbeat omits FEI, but retains FES+FEW so the
-    // online list remains reliable and an arriving PKer is visible.
-    private bool _mappingFocus;
     private readonly EffectTracker _effects = new();
     private readonly CombatTracker _combat = new();
 
@@ -431,27 +428,17 @@ public sealed class MudSession : IDisposable
         }
     }
 
-    /// <summary>Mapping window focus gained (true) / lost (false). While focused the
-    /// periodic heartbeat omits FEI but retains FES+FEW so the online list refreshes reliably.
-    /// May be called from any thread.</summary>
-    public void SetMappingFocus(bool focused)
-    {
-        lock (_fesLock)
-            _mappingFocus = focused;
-    }
-
     /// <summary>
     /// Compose one heartbeat's probe. FES always leads: in practice the server does not reliably
     /// update FEW or FEI when either is queried without FES. FEW remains the every-beat component
     /// for who-list vigilance; FEI remains event-driven and is included only when marked dirty.
-    /// Mapping focus suppresses FEI but keeps the reliable FES+FEW pair.
     /// Caller holds _fesLock. Returns the parts for flag bookkeeping.
     /// </summary>
     private byte[] ComposeBeatLocked(out bool fes, out bool few, out bool fei)
     {
         fes = true;
-        few = _includeFew || _mappingFocus;
-        fei = !_mappingFocus && _includeFei && (_staleFlags & StaleStats.Inventory) != 0;
+        few = _includeFew;
+        fei = _includeFei && (_staleFlags & StaleStats.Inventory) != 0;
         var cmds = new List<string>(3);
         if (fes) cmds.Add("FES");
         if (few) cmds.Add("FEW");
@@ -527,9 +514,6 @@ public sealed class MudSession : IDisposable
             StopRoomFexProbeLocked();
             StopInventoryProbeLocked();
             StopCreatureValueProbeLocked();
-            // Drop mapping focus so the next game-mode entry includes FEI again. The session is
-            // reused across reconnects/relogs, so stale focus would starve inventory updates.
-            _mappingFocus = false;
             _pendingSniff = null;
             _sniffInFlight = null;
         }
@@ -867,9 +851,6 @@ public sealed class MudSession : IDisposable
             StopRoomFexProbeLocked();
             StopInventoryProbeLocked();
             StopCreatureValueProbeLocked();
-            // Drop mapping focus so the next game-mode entry includes FEI again. The session is
-            // reused across reconnects/relogs, so stale focus would starve inventory updates.
-            _mappingFocus = false;
             _pendingSniff = null;
             _sniffInFlight = null;
         }
@@ -1734,8 +1715,8 @@ public sealed class MudSession : IDisposable
                 return;
             // Off-cadence probes are triggered only by who-list / inventory staleness, but FES
             // must lead every query so the server reliably refreshes the requested sections.
-            bool few = (_staleFlags & StaleStats.WhoList)   != 0 && (_includeFew || _mappingFocus);
-            bool fei = (_staleFlags & StaleStats.Inventory) != 0 && _includeFei && !_mappingFocus;
+            bool few = (_staleFlags & StaleStats.WhoList)   != 0 && _includeFew;
+            bool fei = (_staleFlags & StaleStats.Inventory) != 0 && _includeFei;
             if (!few && !fei)
                 return;
             var carried = StaleStats.AllStats;

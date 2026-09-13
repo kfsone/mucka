@@ -333,7 +333,7 @@ internal sealed class CombatMetronome : IDisposable
     }
 
     /// <summary>Master mute wins over the toggle, matching how every other client-initiated sound in
-    /// the app behaves (see MappingSession's own guard). Not gated on the per-sound catalogue though:
+    /// the app behaves. Not gated on the per-sound catalogue though:
     /// this is a client instrument the player armed deliberately, not a server-triggered effect, so
     /// the switch beside the tick bar is its own enablement.</summary>
     private static void Play(string asset)
