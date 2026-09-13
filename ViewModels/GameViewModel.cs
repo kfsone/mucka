@@ -34,8 +34,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private readonly string _profileHost;
     private readonly WatchwordStore _watchwords;
     private readonly SessionCommandAliases _sessionAliases;
-    private ItemEvalSession? _itemEval;
-    private bool _itemEvalRunning;
 #if WINDOWS
     private Mucka.Core.Mapping.MappingSession? _mapSession;
 #endif
@@ -1457,8 +1455,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
                 OpenRawConsole();
             else if (name == "map" || name.StartsWith("map ", StringComparison.OrdinalIgnoreCase))
                 HandleMapCommand(name.Length > 3 ? name[4..].Trim() : string.Empty);
-            else if (name == "eval" || name.StartsWith("eval ", StringComparison.OrdinalIgnoreCase))
-                _ = RunItemEvalAsync(name.Length > 4 ? name[5..].Trim() : string.Empty);
             else if (name == "fkeys" || name.StartsWith("fkeys ", StringComparison.OrdinalIgnoreCase))
                 PrintFkeys(name.Length > 5 ? name[6..].Trim() : string.Empty);
             // $f<n>: annotate with fkey n's macro (absolute 1-36). Checked after "fkeys" so it
@@ -1571,7 +1567,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         AddSystemLine("  $con                  (Windows only)", 14);
         AddSystemLine("  $map                  (Windows only)", 14);
 #endif
-        AddSystemLine("  $eval <itemid>        weigh/look/drop+get an item to measure its str/dex cost", 14);
         AddSystemLine("  $fkeys [shift|ctrl]   list your function-key macros", 14);
         AddSystemLine("  $f<n>                 annotate output with fkey n's text (1-36)", 14);
         AddSystemLine("  $VER                  expands to the current Mucka version", 14);
@@ -1705,48 +1700,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private void HandleMapCommand(string arg)
         => AddSystemLine("[map] the map panel is Windows only.", 9);
 #endif
-
-    // -- $eval: item weigh/look/drop+get measurement (see ItemEvalSession) --------------------
-
-    private async Task RunItemEvalAsync(string itemId)
-    {
-        if (string.IsNullOrWhiteSpace(itemId))
-        {
-            AddSystemLine("[eval] usage: $eval <itemid>", 9);
-            return;
-        }
-        if (_itemEvalRunning)
-        {
-            AddSystemLine("[eval] an evaluation is already in progress - wait for it to finish.", 9);
-            return;
-        }
-        // FEI lines are the item's display name/label, not necessarily the bare id you type
-        // ("croquet mallet" in FEI vs "mallet" as a valid short id for the same object) - so this
-        // is only a cheap local sanity check (substring match either way), not authoritative.
-        // ItemEvalSession resolves the real name via 'identify' before doing anything else.
-        if (!SidePanel.InventoryList.Any(i =>
-                i.Contains(itemId, StringComparison.OrdinalIgnoreCase) ||
-                itemId.Contains(i, StringComparison.OrdinalIgnoreCase)))
-        {
-            AddSystemLine($"[eval] '{itemId}' doesn't obviously match the last FEI carried-items snapshot - trying anyway via 'identify'.", 9);
-        }
-
-        _itemEvalRunning = true;
-        AddSystemLine($"[eval] evaluating '{itemId}' - avoid sending other commands until this finishes.", 14);
-        try
-        {
-            _itemEval ??= new ItemEvalSession(_conn, msg => AddSystemLine(msg, 14));
-            await _itemEval.RunAsync(itemId);
-        }
-        catch (Exception ex)
-        {
-            AddSystemLine($"[eval] failed: {ex.Message}", 9);
-        }
-        finally
-        {
-            _itemEvalRunning = false;
-        }
-    }
 
     private void SendFkey(string indexStr)
     {
