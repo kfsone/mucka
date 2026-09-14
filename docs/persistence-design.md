@@ -78,9 +78,38 @@ buffer parseable decodes into a well-formed run of records that is not what was 
 mutated batches, 39,789 decoded into silent garbage. `batches.records` existed as the only guard
 against that, and the guard is unnecessary once damaged bytes are just damaged bytes in one row.
 
-The price is storage: one row per record costs about 48 bytes of SQLite page and index overhead, so
-the same measured corpus is 17.1 MB rather than 11.4 MB - 0.94 MB per play-hour against 0.63. That is
+The price is storage: unindexed, one row per record costs about 23.5 bytes of SQLite page overhead, so
+the same measured corpus is 13.4 MB rather than 11.4 MB - 0.74 MB per play-hour against 0.63. That is
 the trade, made deliberately and in that direction.
+
+### Why `wire` carries no indexes
+
+Measured on the 123,933-row corpus with `dbstat`: the table was 13.76 MB and its two indexes,
+`(session_id, seq)` and `(ts_ms)`, were 2.09 MB and 1.80 MB - **3.51 MB between them, 54% of
+everything a row cost above its payload**. Nothing queried either one. Dropping both takes the file
+from 17.2 MB to 13.4 MB, a 20.4% cut for no loss of information at all.
+
+The two reads that exist are covered without them. `ReadSession` walks `id`, which is the rowid, so
+it is the table's own order - no index and no sort. A time-range question scans 13 MB, tens of
+milliseconds, on no path a human waits for. The schema policy is additive, so `CREATE INDEX` is
+there the day something needs one, justified on that day's corpus.
+
+Two things were measured and NOT done:
+
+- **`WITHOUT ROWID` keyed on `(session_id, seq)`** is *worse* - 13.86 MB against 13.77 MB for a plain
+  rowid table - because SQLite's own guidance is that it suits rows below about 1/20 of a page (204
+  bytes here) and the wire log's p90 is 187 with a 3,464-byte maximum. It fragments. This was expected
+  to win and did not; the measurement is recorded so it is not re-attempted from first principles.
+- **Dropping `seq`** saves a further 299 KB, and is refused. `seq` is per-session and assigned by that
+  session's own writer, so it stays gapless however many clients run; `id` is global and interleaves,
+  because the operator runs two Muckas side by side. That makes `seq` the only thing that can show a
+  record went missing, and 299 KB is not worth the only integrity signal the table has.
+
+`seq` order and `id` order are the same order, and that is load-bearing now that a reader walks `id`.
+`WireLogWriter.Emit` takes the `seq` and hands the row to the store under one lock for exactly that
+reason: with the two split, a thread preempted between them lets a later `seq` reach the queue first.
+It did - reproducibly, a few records per ten thousand, with the read and write loops both tapping.
+`Seq_order_and_id_order_agree_even_under_concurrent_taps` is the test, and it fails without the lock.
 
 ## Why one file
 
@@ -89,7 +118,7 @@ The argument is summarised here so nothing rediscovers it as new:
 
 - **Growth.** Measured over 13 sessions, 18.11 play-hours, 10-13 Sep 2026: 119,921 records,
   10,141,176 bytes of payload, an average wire rate of 0.156 KB/s. One row per record stores that in
-  about 17.1 MB - 0.94 MB per play-hour, or about 1.4 GB a year at four hours of daily play. Against
+  about 13.4 MB - 0.74 MB per play-hour, or about 1.1 GB a year at four hours of daily play. Against
   that, the combat tables are thousands of small rows.
 - **Blast radius.** Deleting the wire log must never be an operation that can touch the combat corpus.
 - **Writer contention.** A third writer on a file that already needed `PRAGMA busy_timeout=5000`
@@ -416,7 +445,7 @@ is not survivable for the corpus, so the mobile arm of `MuckaPaths.GetDataDirect
 (`CrashLog.cs`) already use.
 
 The consequence that remains, recorded rather than solved: the wire log is always-on on Android too,
-so 0.94 MB per play-hour is now unconditional in app data. Retention is a later stage.
+so 0.74 MB per play-hour is now unconditional in app data. Retention is a later stage.
 
 ### One consequence the operator has already accepted
 
@@ -465,11 +494,20 @@ until the new build has been played.
 
    Result: **13 sessions, 1,074 batches decoded, 119,921 records, 10,141,176 bytes of payload** - the
    record count the old file reported, so nothing was lost or invented.
-3. **Checked.** `~/.mucka/mucka.db` is 23,228,416 bytes: the 6.1 MB corpus plus about 17.1 MB of wire
-   log. 76,633 Rx rows (9,668,270 bytes), 42,946 Tx rows (465,243 bytes - a typed command is about 11
-   bytes), 342 annotations. Over 18.11 play-hours that is 0.156 KB/s and 0.94 MB per play-hour.
-   `SELECT data FROM wire` prints MUD2 text.
-4. **Still to delete**, once the new build has been played: `~/.mucka/combat/` (now empty - the stale
+3. **Checked.** `~/.mucka/mucka.db` held the 6.1 MB corpus plus the wire log: 76,633 Rx rows
+   (9,668,270 bytes), 42,946 Tx rows (465,243 bytes - a typed command is about 11 bytes), 342
+   annotations. Over 18.11 play-hours that is 0.156 KB/s. `SELECT data FROM wire` prints MUD2 text.
+4. **The two `wire` indexes were dropped by hand**, since the schema policy is additive and the code
+   no longer creates them but cannot remove what is already there:
+
+   ```sql
+   DROP INDEX IF EXISTS ix_wire_session;
+   DROP INDEX IF EXISTS ix_wire_ts;
+   VACUUM;
+   ```
+
+   `VACUUM` is what returns the pages; without it the file keeps its size and reuses the space later.
+5. **Still to delete**, once the new build has been played: `~/.mucka/combat/` (now empty - the stale
    `combat.db` the operator deleted, and the moved `mucka.db`), `~/.mucka/wire/`, `~/.mucka/clogs/`
    (21 files), and the 40 JSONL captures in `%LOCALAPPDATA%\Temp\mucka`. A full copy of all three
    databases as they were sits in `~/.mucka/backup-20260914-100508/`.

@@ -156,6 +156,37 @@ public sealed class WireLogTests : IDisposable
         Assert.Equal(records.Count, reader.GetInt32(3));
     }
 
+    [Fact]
+    public void Seq_order_and_id_order_agree_even_under_concurrent_taps()
+    {
+        // The read loop and the write loop call the writer at the same time. A reader walks `id`
+        // (the rowid, so no index and no sort), and `seq` is what proves nothing was lost - so the
+        // two have to be the same order. They are only the same order if taking a seq and handing
+        // the row over is one step; split them and a thread preempted in between lets a later seq
+        // reach the queue first. Two threads hammering both taps is what shakes that out.
+        const int PerThread = 4000;
+        using (var store = NewStore())
+        using (var writer = new WireLogWriter(store))
+        {
+            var rx = new Thread(() => { for (var i = 0; i < PerThread; i++) writer.RecordRx(Wire("rx%0D%0A")); });
+            var tx = new Thread(() => { for (var i = 0; i < PerThread; i++) writer.RecordTx(Wire("tx%0D%0A")); });
+            rx.Start(); tx.Start();
+            rx.Join(); tx.Join();
+        }
+
+        using var connection = MuckaDb.OpenRead(DbPath);
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT seq FROM wire ORDER BY id;";
+        using var reader = command.ExecuteReader();
+        var seqs = new List<int>();
+        while (reader.Read()) seqs.Add(reader.GetInt32(0));
+
+        Assert.Equal(PerThread * 2, seqs.Count);
+        for (var i = 0; i < seqs.Count; i++)
+            Assert.True(seqs[i] == i,
+                $"row {i} in id order carries seq {seqs[i]}: id order and seq order have diverged");
+    }
+
     // -- The writer and the store, end to end ----------------------------------
 
     [Fact]

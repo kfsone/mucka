@@ -32,6 +32,7 @@ namespace Mucka.WireLog;
 /// </summary>
 public sealed class WireLogWriter : IDisposable
 {
+    private readonly object _lock = new();
     private readonly MuckaStore _store;
     private int _seq = -1;
     private volatile bool _disposed;
@@ -61,12 +62,24 @@ public sealed class WireLogWriter : IDisposable
     private void Emit(WireDirection direction, ReadOnlySpan<byte> payload)
     {
         if (_disposed) return;
-        // Interlocked rather than a lock: the read and write loops are different threads and the only
-        // shared state is this counter. `seq` is the order records were handed over, which is what a
-        // replay needs - the store preserves it because there is one queue and one writer.
-        var seq = Interlocked.Increment(ref _seq);
-        _store.Enqueue(new WireRow(_store.SessionId, seq,
-            DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), direction, payload.ToArray()));
+        // The payload is copied outside the lock: it is the only part of this that is not O(1), and
+        // the read loop's buffer is reused the moment this returns, so the copy has to happen anyway.
+        var row = new WireRow(_store.SessionId, 0,
+            DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), direction, payload.ToArray());
+        // Taking `seq` and handing the row over must be ONE step. The read loop and the write loop
+        // call this concurrently, and with the two split a thread preempted between them lets a later
+        // `seq` reach the queue first - so `seq` order and insertion order disagree by a record or
+        // two. Nothing caught that while an index made ORDER BY seq free; with no index a reader
+        // walks `id`, and the two orders have to be the same order. Cross-stream ordering is the
+        // evidence a swing, a diagnose reading and an award are attributed by, so a couple of records
+        // is not a rounding error.
+        //
+        // The lock holds for an increment and a TryWrite onto an unbounded channel - no I/O, no
+        // allocation, no contention with the store's writer, which never takes this lock.
+        lock (_lock)
+        {
+            _store.Enqueue(row with { Seq = ++_seq });
+        }
     }
 }
 

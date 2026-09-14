@@ -361,9 +361,10 @@ public static class MuckaDb
         --
         -- Measured over 13 sessions, 18.11 play-hours, 10-13 Sep 2026: 119,921 records, 10,141,176
         -- bytes of payload, 84 bytes average. Rx is 64% of rows and 95% of bytes; Tx is 36% of rows
-        -- and 4.6%, because a typed command is about 11 bytes. A row costs ~48 bytes of SQLite page
-        -- and index overhead, so the per-record shape stores that corpus in about 17.1 MB against the
-        -- framed form's 11.4 MB: 0.94 MB per play-hour rather than 0.63.
+        -- and 4.6%, because a typed command is about 11 bytes. Unindexed, a row costs ~23.5 bytes of
+        -- SQLite page overhead above its payload, so that corpus stores in about 13.4 MB against the
+        -- framed form's 11.4 MB: 0.74 MB per play-hour rather than 0.63. Legibility costs 0.11 MB an
+        -- hour, which is the whole of what the framing bought.
         CREATE TABLE IF NOT EXISTS wire (
             id          INTEGER PRIMARY KEY,
             session_id  INTEGER NOT NULL REFERENCES sessions(id),
@@ -374,8 +375,14 @@ public static class MuckaDb
             data        BLOB    NOT NULL    -- the bytes, verbatim
         );
 
-        CREATE INDEX IF NOT EXISTS ix_wire_session ON wire(session_id, seq);
-        CREATE INDEX IF NOT EXISTS ix_wire_ts      ON wire(ts_ms);
+        -- No indexes on `wire`, deliberately. Measured on the 123,933-row corpus: the table is
+        -- 13.76 MB and the two indexes it used to carry - (session_id, seq) and (ts_ms) - were
+        -- another 3.51 MB between them, 54% of everything the rows cost above their payload.
+        -- Nothing queried either. A session read walks the table in `id` order, which is already
+        -- arrival order within a session, so it needs no index and no sort; a time-range question
+        -- scans 13 MB, which is tens of milliseconds and is not on any path a human waits for.
+        -- The schema policy is additive, so `CREATE INDEX` is available the day something actually
+        -- needs one - and the arithmetic to justify it will be on that day's corpus, not this one's.
 
         -- =========================================================== encounter logs ==
 

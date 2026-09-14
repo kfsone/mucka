@@ -52,8 +52,13 @@ public static class WireLogExport
     }
 
     /// <summary>
-    /// The complete record sequence of one session, in the order it was captured - read in <c>seq</c>
-    /// order, which is the order the socket loops handed the records over.
+    /// The complete record sequence of one session, in the order it was captured.
+    ///
+    /// <para>Ordered by <c>id</c> rather than <c>seq</c>, and they are the same order: the writer
+    /// takes a record's <c>seq</c> and hands it to the store under one lock, so nothing can reach the
+    /// queue out of turn. <c>id</c> is the rowid, so walking it is the table's own order - no index
+    /// and no sort. <c>seq</c> is still the one that PROVES the order is whole, because it is
+    /// per-session and gapless where <c>id</c> is global and interleaves when two clients run.</para>
     ///
     /// <para>There is no decode step and no integrity check, because the rows are the records: the
     /// timestamp and the direction are columns and <c>data</c> is the bytes. Damage to a row is
@@ -65,7 +70,7 @@ public static class WireLogExport
         using var command = connection.CreateCommand();
         command.CommandText = """
             SELECT ts_ms, direction, data
-            FROM wire WHERE session_id = $session ORDER BY seq;
+            FROM wire WHERE session_id = $session ORDER BY id;
             """;
         command.Parameters.AddWithValue("$session", sessionId);
         using var reader = command.ExecuteReader();
