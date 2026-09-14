@@ -1,8 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <!-- The wire log: framing, the sqlite and jsonl sinks, the wire database, the decoder/exporter
-       and session capture. No MAUI and no game model, so a command-line tool can read a recording
-       with this alone. The platform directory lookup stays in the app (Core/ClogPaths.cs). -->
+  <!-- The wire log: the framing, the always-on writer that batches raw socket traffic into the
+       store, and the reader that decodes it back. No MAUI and no game model, so a command-line tool
+       can read a session with this alone. The platform directory lookup stays in the app
+       (Core/MuckaPaths.cs). -->
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -12,6 +13,10 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.11" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Mucka.Store\Mucka.Store.csproj" />
   </ItemGroup>
 
   <ItemGroup>

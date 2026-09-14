@@ -20,7 +20,6 @@ public sealed class ConnectViewModel : BaseViewModel
     private bool _telnetLoginEnabled = true;
     private string _telnetLoginName = "mud";
     private bool _advancedVisible;
-    private bool _captureRequested;
     private bool _guidedLogin;
     private string _guidedLoginPersona = string.Empty;
     private int _maxColumns = 80;
@@ -60,17 +59,12 @@ public sealed class ConnectViewModel : BaseViewModel
     public string MaxColumnsText => _maxColumns == 0 ? string.Empty : _maxColumns.ToString();
     public int AntiIdleSeconds { get => _antiIdleSeconds; set => Set(ref _antiIdleSeconds, Math.Clamp(value, 0, 3600)); }
     public bool KeepScreenOn { get => _keepScreenOn; set => Set(ref _keepScreenOn, value); }
-    public bool IsCaptureRequested { get => _captureRequested; set => Set(ref _captureRequested, value); }
 
     /// <summary>Advanced feature: automate the MUD Shell (login through persona select/create)
     /// instead of requiring the player to drive it by hand after connecting.</summary>
     public bool GuidedLogin { get => _guidedLogin; set => Set(ref _guidedLogin, value); }
     public string GuidedLoginPersona { get => _guidedLoginPersona; set => Set(ref _guidedLoginPersona, value); }
 
-    /// <summary>Advanced feature: pre-connect capture arming is available on all builds/platforms.</summary>
-    public bool IsCaptureFacilityAvailable { get; } = true;
-
-    public string CaptureButtonText => IsCaptureRequested ? "Capture: Armed" : "Capture: Off";
     public bool AdvancedVisible
     {
         get => _advancedVisible;
@@ -94,7 +88,6 @@ public sealed class ConnectViewModel : BaseViewModel
     public ICommand SelectProfileCommand { get; }
     public ICommand ToggleAdvancedCommand { get; }
     public ICommand ShowTelnetHelpCommand { get; }
-    public ICommand ToggleCaptureCommand { get; }
     public ICommand DeleteProfileCommand { get; }
 
     public Func<PasswordPromptArgs, Task<PasswordResult?>>? PasswordRequired;
@@ -106,11 +99,6 @@ public sealed class ConnectViewModel : BaseViewModel
         ConnectCommand = new AsyncCommand(ConnectAsync);
         SelectProfileCommand = new Command<Profile>(SelectProfile);
         ToggleAdvancedCommand = new Command(() => AdvancedVisible = !AdvancedVisible);
-        ToggleCaptureCommand = new Command(() =>
-        {
-            IsCaptureRequested = !IsCaptureRequested;
-            OnPropertyChanged(nameof(CaptureButtonText));
-        });
         DeleteProfileCommand = new AsyncCommand(DeleteProfileAsync);
         ShowTelnetHelpCommand = new Command(async () =>
         {
@@ -160,35 +148,21 @@ public sealed class ConnectViewModel : BaseViewModel
             }
 
             var autoLogin = TelnetLoginEnabled && !string.IsNullOrEmpty(accountId) && !string.IsNullOrEmpty(resolvedPassword);
+            // The host goes in here rather than only into ConnectAsync because the store - and with
+            // it the wire log - opens with the connection, so the login exchange, the part of a
+            // session most worth a byte-exact record of, is in the log like everything else. A store
+            // that cannot be opened reports itself into the terminal and never blocks the connection.
             var conn = new MuckaConnection(
                 autoLogin ? accountId : null,
                 autoLogin ? resolvedPassword : null,
                 MaxColumns,
-                loginName);
-            if (IsCaptureRequested && !conn.TryStartCapture(Host.Trim(), out var captureError))
-            {
-                StatusText = $"Capture start failed: {captureError}";
-                HasError = true;
-                return;
-            }
+                loginName,
+                Host.Trim());
 
             // Carry the persisted settings (fkeys, font, volume, ...) over from the saved
             // profile - they are not editable on this page but must not reset on connect.
             var saved = SavedProfiles.FirstOrDefault(p =>
                 string.Equals(p.Name, ProfileName, StringComparison.OrdinalIgnoreCase));
-
-            // The one-time global wire log. Started here rather than in GamePage because it must be
-            // running before the socket opens, or the login exchange - the part of a session most
-            // worth a byte-exact record of - is the one part missing from it. The key lives in the
-            // single global [settings] section, so every profile carries the same value; the
-            // fallback to any loaded profile only matters for a brand-new profile name typed on
-            // this page, which has no SavedProfiles entry yet. Failure here is reported but never
-            // blocks the connection, unlike the hand-armed capture above. StatusText covers the
-            // case where the connection then fails too; MuckaConnection.WireLogFailure carries it
-            // into the terminal if the connection succeeds.
-            var wireLog = (saved ?? SavedProfiles.FirstOrDefault())?.LogWireSession ?? false;
-            if (wireLog && !conn.TryStartWireLog(Host.Trim(), out var wireLogError))
-                StatusText = $"Wire log failed to start: {wireLogError}";
 
             await conn.ConnectAsync(Host.Trim(), Port);
 
@@ -224,8 +198,6 @@ public sealed class ConnectViewModel : BaseViewModel
                 Sounds = saved?.Sounds ?? new SoundSettings(),
                 // Same as Sounds above.
                 ShowCombatRail = saved?.ShowCombatRail ?? false,
-                // Same as Sounds above.
-                LogWireSession = saved?.LogWireSession ?? false,
             };
             if (saved is null)
             {
@@ -474,14 +446,6 @@ public sealed class ConnectViewModel : BaseViewModel
         if (_cmdArgs.User != null) TelnetLoginName = _cmdArgs.User;
         if (_cmdArgs.Account != null) AccountId = _cmdArgs.Account;
         if (_cmdArgs.Password != null) Password = _cmdArgs.Password;
-
-#if DEBUG
-        if (_cmdArgs.Record)
-        {
-            IsCaptureRequested = true;
-            OnPropertyChanged(nameof(CaptureButtonText));
-        }
-#endif
     }
 
     /// <summary>
@@ -515,12 +479,6 @@ public sealed class ConnectViewModel : BaseViewModel
             if (string.Equals(existing.Name, ProfileName, StringComparison.OrdinalIgnoreCase))
                 MaxColumns = settings.MaxColumns;
         }
-        // The wire-log switch is GLOBAL - one key in the one [settings] section - so it is mirrored
-        // onto every loaded profile, not just the one being saved. Same in-memory-staleness reasoning
-        // as ShowCombatRail above: SavedProfiles is never re-read from disk for the life of the run,
-        // and a reconnect to any OTHER profile would otherwise still see the pre-toggle value.
-        foreach (var p in SavedProfiles)
-            p.LogWireSession = settings.LogWireSession;
         await SettingsStore.SaveProfileAsync(profileName, settings, fkeys);
     }
 

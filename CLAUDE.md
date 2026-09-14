@@ -177,12 +177,14 @@ typing?" If maybe, get it off the UI thread.
 - `mudsharp/` -- protocol, transport, session and combat model. No MAUI. Tested by `mudsharp.Tests/`.
 - `Mucka.Terminal/` -- output buffer, wrapping, selection. No MAUI. Tested by `Mucka.Terminal.Tests/`.
 - `Mucka.Input/` -- the command box's logic. No MAUI. Tested from `mudsharp.Tests/`.
-- `Mucka.Util/` -- four small libraries, no MAUI, tested by `Mucka.Util/Mucka.Util.Tests/`:
-  `Mucka.WireLog` (framing, sinks, wire database, export, capture; readable by a CLI on its own),
-  `Mucka.Combat` (combat database, ledgers, fight history, clog writer, tick timing, the panel's
-  aggregator, geometry, floats and window arithmetic), `Mucka.Commands` (aliases, shell text,
-  session-drop classification), `Mucka.Sounds` (sound catalogue, WAV probe). Anything MAUI-free
-  the app grows belongs in one of these, not linked file-by-file into a test project.
+- `Mucka.Util/` -- five small libraries, no MAUI, tested by `Mucka.Util/Mucka.Util.Tests/`:
+  `Mucka.Store` (the one database, `~/.mucka/mucka.db`: schema, the single background writer, the row
+  seam -- `docs/persistence-design.md` governs it), `Mucka.WireLog` (framing, the always-on wire
+  writer, the reader; readable by a CLI on its own), `Mucka.Combat` (ledgers, fight history,
+  encounter-log writer, tick timing, the panel's aggregator, geometry, floats and window arithmetic),
+  `Mucka.Commands` (aliases, shell text, session-drop classification), `Mucka.Sounds` (sound
+  catalogue, WAV probe). Anything MAUI-free the app grows belongs in one of these, not linked
+  file-by-file into a test project.
 - `Core/`, `ViewModels/`, `Pages/`, `Rendering/`, `Behaviors/`, `Audio/` -- the MAUI app.
 - `docs/` -- governing prose and evidence. `scripts/` -- tracked helper scripts.
 - Everything in the repo is ASCII: code, comments, XAML, documentation. A glyph the UI needs is

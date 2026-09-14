@@ -1,29 +1,24 @@
-using System.Threading.Channels;
 using Microsoft.Data.Sqlite;
 using MudSharp.Combat;
 using MudSharp.Models;
+using Mucka.Store;
 
 namespace Mucka.Combat;
 
 /// <summary>
-/// Records one <see cref="SwingRow"/> per swing, both directions, into the <c>swings</c> table of the
-/// client combat database (see <see cref="CombatDb"/>). This is the per-swing evidence base: the
-/// fight rollup answers "how did that fight go", but could never answer "how hard does this thing
-/// hit at rung 3 while I am below the stamina knee", because the individual swings were never kept.
-///
-/// <para><b>SQLite, not a flat file.</b> Querying inside the client wants it, and beyond that the
-/// swap buys crash safety - WAL rolls back a torn write, where a plain append-only text file can
-/// leave a truncated final line that every reader has to tolerate.</para>
+/// Records one <see cref="SwingRow"/> per swing, both directions, into the <c>swings</c> table (see
+/// <see cref="MuckaDb"/>). This is the per-swing evidence base: the fight rollup answers "how did that
+/// fight go", but could never answer "how hard does this thing hit at rung 3 while I am below the
+/// stamina knee", because the individual swings were never kept.
 ///
 /// <para>Always on: a switch means missing data precisely when something interesting happened, and
 /// everything downstream is built on this stream being continuous.</para>
 ///
 /// <para>Threading: every On* method is called from the session Feed thread (same contract as
 /// ClogWriter and FightHistoryRecorder) and does nothing but cheap in-memory bookkeeping plus an
-/// enqueue. The database write happens on a single background task (<see cref="DrainAsync"/>) which
-/// owns the only write connection, so the thread parsing incoming combat text never pays for it -
-/// stalling that thread delays the combat text itself, which no UI-side throttle can fix
-/// (Invariant #1).</para>
+/// enqueue onto <see cref="MuckaStore"/>, whose single background task owns the only write
+/// connection. The thread parsing incoming combat text never pays for the write - stalling it delays
+/// the combat text itself, which no UI-side throttle can fix (Invariant #1).</para>
 ///
 /// <para>Never throws on the caller: a failed write loses a row, it must not lose a fight.</para>
 ///
@@ -33,26 +28,13 @@ namespace Mucka.Combat;
 /// accumulators here are used only as per-NPC memory; the tallies they also keep are the other two
 /// consumers' business.</para>
 /// </summary>
-public sealed class SwingLedger : IDisposable
+public sealed class SwingLedger
 {
-    /// <summary>How many rows one transaction may cover. A batch bounds how much a crash can lose to
-    /// the work of at most this many swings, while still collapsing a burst (a pack fight can produce
-    /// half a dozen rows from one tick) into a single commit. Never a reason to wait: the drain
-    /// commits whatever is available and loops, so a lone swing is written immediately.</summary>
-    private const int MaxBatch = 256;
-
     private readonly object _lock = new();
-    private readonly string _dbPath;
+    private readonly MuckaStore _store;
     // Injected rather than calling CrashLog directly so this type stays free of MAUI references and
-    // can be exercised against a temp directory in mudsharp.Tests.
+    // can be exercised against a temp directory from Mucka.Util.Tests.
     private readonly Action<string, Exception>? _onError;
-
-    // One dedicated writer for this ledger's whole lifetime. Unbounded: a swing arrives at most once
-    // per tick per participant, so there is no realistic burst worth backpressuring, and dropping a
-    // row to save a few bytes of queue would defeat the point of keeping the stream.
-    private readonly Channel<ICombatLedgerRow> _writeQueue =
-        Channel.CreateUnbounded<ICombatLedgerRow>(new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });
-    private readonly Task _writerTask;
 
     // Per-NPC memory for the CURRENT encounter, keyed by instance name. Cleared at encounter end so a
     // later fight against a respawned "rat0" cannot inherit the dead one's health reading.
@@ -130,14 +112,13 @@ public sealed class SwingLedger : IDisposable
     /// </summary>
     public StaminaPoolIndex Pool => _pool;
 
-    public SwingLedger(string dbPath, Action<string, Exception>? onError = null)
+    public SwingLedger(MuckaStore store, Action<string, Exception>? onError = null)
     {
-        _dbPath = dbPath;
+        _store = store;
         _onError = onError;
-        _writerTask = Task.Run(DrainAsync);
     }
 
-    public string DatabasePath => _dbPath;
+    public string DatabasePath => _store.Path;
 
     /// <summary>
     /// Fills <see cref="Damage"/> from the database's own GROUP BY views. Call once at startup, OFF the
@@ -159,9 +140,10 @@ public sealed class SwingLedger : IDisposable
     {
         try
         {
-            // CombatDb.Open creates the directory and applies the shared PRAGMAs - see
-            // FightHistoryStore.LoadCore for what skipping it costs.
-            using var connection = CombatDb.Open(_dbPath);
+            // Its own short-lived connection, never the writer's: a warm-up is a read, and WAL lets it
+            // run alongside whatever the writer is doing. MuckaDb.Open creates the directory and
+            // applies the shared PRAGMAs - see FightHistoryStore.LoadCore for what skipping it costs.
+            using var connection = MuckaDb.Open(_store.Path);
 
             var incomingByNpc = ReadDamage(connection, "v_incoming_by_npc");
             var incomingByGroup = ReadDamage(connection, "v_incoming_by_group");
@@ -306,7 +288,7 @@ public sealed class SwingLedger : IDisposable
     /// <summary>
     /// MUD2 announced a score change - <c>(Persona saved on +38 = 19,214).</c> Written as its own row,
     /// unattributed, exactly as printed. See the <c>score_events</c> table comment in
-    /// <see cref="CombatDb"/> and <see cref="MudSharp.Models.ScoreSave"/>.
+    /// <see cref="MuckaDb"/> and <see cref="MudSharp.Models.ScoreSave"/>.
     ///
     /// <para><b>Recorded whether or not a fight is in progress.</b> Treasure deposits, the reset save
     /// and the shell-exit save all come through here, and a table that held only the combat ones could
@@ -653,231 +635,10 @@ public sealed class SwingLedger : IDisposable
         return (delta, delta is null ? null : baseline);
     }
 
-    /// <summary>Enqueues. TryWrite on an unbounded channel never blocks and only fails after
-    /// Complete(), which only <see cref="Dispose"/> calls.</summary>
-    private void AppendLocked(ICombatLedgerRow row) => _writeQueue.Writer.TryWrite(row);
-
-    private const string InsertSql = """
-        INSERT INTO swings (
-            ts, dir, encounter_started_at_ms, persona, sex,
-            sta, sta_before, sta_max,
-            str, str_raw, str_max, dex, dex_raw, dex_max,
-            level, score, objects_carried, weather,
-            blind, deaf, crippled, dumb,
-            str_buff, str_debuff, dex_buff, dex_debuff, sta_buff, sta_debuff, glow,
-            time_to_reset, reset_epoch_ms,
-            npc, npc_group, npc_weapon, rung, rung_phrase,
-            weapon, hit, dmg_low, dmg_high, dmg
-        ) VALUES (
-            $ts, $dir, $encounter, $persona, $sex,
-            $sta, $sta_before, $sta_max,
-            $str, $str_raw, $str_max, $dex, $dex_raw, $dex_max,
-            $level, $score, $objects, $weather,
-            $blind, $deaf, $crippled, $dumb,
-            $str_buff, $str_debuff, $dex_buff, $dex_debuff, $sta_buff, $sta_debuff, $glow,
-            $ttr, $reset_epoch,
-            $npc, $npc_group, $npc_weapon, $rung, $rung_phrase,
-            $weapon, $hit, $dmg_low, $dmg_high, $dmg
-        );
-        """;
-
-    /// <summary>The single background writer for this ledger's whole lifetime. Owns the only write
-    /// connection and drains in the order rows were enqueued, batching whatever is already waiting into
-    /// one transaction. <c>ReadAllAsync</c> completes normally only once the queue is both closed and
-    /// fully drained, which is the "nothing queued is lost on shutdown" property
-    /// <see cref="Dispose"/> relies on.</summary>
-    private async Task DrainAsync()
-    {
-        SqliteConnection? connection = null;
-        var reader = _writeQueue.Reader;
-
-        try
-        {
-            while (await reader.WaitToReadAsync().ConfigureAwait(false))
-            {
-                // Opened lazily, on the first row that actually arrives, so a session with no combat
-                // in it never creates a database file at all.
-                connection ??= CombatDb.Open(_dbPath);
-                WriteBatch(connection, reader);
-            }
-        }
-        catch (Exception ex)
-        {
-            // Best-effort by design: a failed write loses rows, it must not take the app with it. The
-            // loop is abandoned rather than retried - if the database cannot be opened or written at
-            // all, retrying per swing would turn one failure into one per tick, forever.
-            _onError?.Invoke("SwingLedger.Drain", ex);
-        }
-        finally
-        {
-            connection?.Dispose();
-        }
-    }
-
-    private const string InsertStaminaReadSql = """
-        INSERT INTO npc_stamina_reads (
-            ts, encounter_started_at_ms, persona, npc, npc_group, pool_key,
-            printed_low, printed_high, raw_text
-        ) VALUES (
-            $ts, $encounter, $persona, $npc, $npc_group, $pool_key,
-            $printed_low, $printed_high, $raw_text
-        );
-        """;
-
-    private const string InsertScoreEventSql = """
-        INSERT INTO score_events (
-            ts, encounter_started_at_ms, encounter_open, persona, delta, total, after_task_line, raw_text
-        ) VALUES (
-            $ts, $encounter, $encounter_open, $persona, $delta, $total, $after_task_line, $raw_text
-        );
-        """;
-
-    /// <summary>Drains up to <see cref="MaxBatch"/> rows into one transaction, dispatching each to the
-    /// statement for its own table. Prepared commands rather than a channel each: the ordering between
-    /// a swing, a diagnose reading and a score announcement made in the same breath is real evidence -
-    /// it is the whole basis on which an award is later attributed to a kill - and separate queues
-    /// would lose it.</summary>
-    private void WriteBatch(SqliteConnection connection, ChannelReader<ICombatLedgerRow> reader)
-    {
-        using var transaction = connection.BeginTransaction();
-        using var swingCommand = connection.CreateCommand();
-        swingCommand.Transaction = transaction;
-        swingCommand.CommandText = InsertSql;
-        using var staminaCommand = connection.CreateCommand();
-        staminaCommand.Transaction = transaction;
-        staminaCommand.CommandText = InsertStaminaReadSql;
-        using var scoreCommand = connection.CreateCommand();
-        scoreCommand.Transaction = transaction;
-        scoreCommand.CommandText = InsertScoreEventSql;
-
-        var written = 0;
-        while (written < MaxBatch && reader.TryRead(out var row))
-        {
-            try
-            {
-                switch (row)
-                {
-                    case SwingRow swing:
-                        Bind(swingCommand, swing);
-                        swingCommand.ExecuteNonQuery();
-                        break;
-                    case NpcStaminaReadRow read:
-                        Bind(staminaCommand, read);
-                        staminaCommand.ExecuteNonQuery();
-                        break;
-                    case ScoreEventRow score:
-                        Bind(scoreCommand, score);
-                        scoreCommand.ExecuteNonQuery();
-                        break;
-                    default:
-                        continue;
-                }
-                written++;
-            }
-            catch (SqliteException ex)
-            {
-                // One malformed row must not abort the batch behind it. Counted as handled and skipped,
-                // the same discipline the JSONL reader used for a truncated line.
-                _onError?.Invoke("SwingLedger.Insert", ex);
-            }
-        }
-
-        if (written > 0)
-            transaction.Commit();
-    }
-
-    private static void Bind(SqliteCommand command, ScoreEventRow row)
-    {
-        command.Parameters.Clear();
-        command.Parameters.AddWithValue("$ts", row.TimestampMs);
-        command.Parameters.AddWithValue("$encounter", Value(row.EncounterStartedAtMs));
-        command.Parameters.AddWithValue("$encounter_open", row.EncounterOpen ? 1 : 0);
-        command.Parameters.AddWithValue("$persona", Value(row.Persona));
-        command.Parameters.AddWithValue("$delta", Value(row.Delta));
-        command.Parameters.AddWithValue("$total", row.Total);
-        command.Parameters.AddWithValue("$after_task_line", row.AfterTaskLine ? 1 : 0);
-        command.Parameters.AddWithValue("$raw_text", Value(row.RawText));
-    }
-
-    private static void Bind(SqliteCommand command, NpcStaminaReadRow row)
-    {
-        command.Parameters.Clear();
-        command.Parameters.AddWithValue("$ts", row.TimestampMs);
-        command.Parameters.AddWithValue("$encounter", Value(row.EncounterStartedAtMs));
-        command.Parameters.AddWithValue("$persona", Value(row.Persona));
-        command.Parameters.AddWithValue("$npc", row.NpcName);
-        command.Parameters.AddWithValue("$npc_group", row.NpcGroup);
-        command.Parameters.AddWithValue("$pool_key", row.PoolKey);
-        command.Parameters.AddWithValue("$printed_low", row.PrintedLow);
-        command.Parameters.AddWithValue("$printed_high", row.PrintedHigh);
-        command.Parameters.AddWithValue("$raw_text", Value(row.RawText));
-    }
-
-    private static void Bind(SqliteCommand command, SwingRow row)
-    {
-        command.Parameters.Clear();
-        command.Parameters.AddWithValue("$ts", row.TimestampMs);
-        command.Parameters.AddWithValue("$dir", row.Direction);
-        command.Parameters.AddWithValue("$encounter", Value(row.EncounterStartedAtMs));
-        command.Parameters.AddWithValue("$persona", Value(row.Persona));
-        command.Parameters.AddWithValue("$sex", Value(row.Sex));
-        command.Parameters.AddWithValue("$sta", Value(row.Stamina));
-        command.Parameters.AddWithValue("$sta_before", Value(row.StaminaBefore));
-        command.Parameters.AddWithValue("$sta_max", Value(row.MaxStamina));
-        command.Parameters.AddWithValue("$str", Value(row.Strength));
-        command.Parameters.AddWithValue("$str_raw", Value(row.RawStrength));
-        command.Parameters.AddWithValue("$str_max", Value(row.MaxStrength));
-        command.Parameters.AddWithValue("$dex", Value(row.Dexterity));
-        command.Parameters.AddWithValue("$dex_raw", Value(row.RawDexterity));
-        command.Parameters.AddWithValue("$dex_max", Value(row.MaxDexterity));
-        command.Parameters.AddWithValue("$level", Value(row.Level));
-        command.Parameters.AddWithValue("$score", Value(row.Score));
-        command.Parameters.AddWithValue("$objects", Value(row.ObjectsCarried));
-        command.Parameters.AddWithValue("$weather", Value(row.Weather));
-        command.Parameters.AddWithValue("$blind", row.IsBlind ? 1 : 0);
-        command.Parameters.AddWithValue("$deaf", row.IsDeaf ? 1 : 0);
-        command.Parameters.AddWithValue("$crippled", row.IsCrippled ? 1 : 0);
-        command.Parameters.AddWithValue("$dumb", row.IsDumb ? 1 : 0);
-        command.Parameters.AddWithValue("$str_buff", row.StrengthBuff ? 1 : 0);
-        command.Parameters.AddWithValue("$str_debuff", row.StrengthDebuff ? 1 : 0);
-        command.Parameters.AddWithValue("$dex_buff", row.DexterityBuff ? 1 : 0);
-        command.Parameters.AddWithValue("$dex_debuff", row.DexterityDebuff ? 1 : 0);
-        command.Parameters.AddWithValue("$sta_buff", row.StaminaBuff ? 1 : 0);
-        command.Parameters.AddWithValue("$sta_debuff", row.StaminaDebuff ? 1 : 0);
-        command.Parameters.AddWithValue("$glow", row.Glow ? 1 : 0);
-        command.Parameters.AddWithValue("$ttr", Value(row.TimeToReset));
-        command.Parameters.AddWithValue("$reset_epoch", Value(row.ResetEpochMs));
-        command.Parameters.AddWithValue("$npc", Value(row.NpcName));
-        command.Parameters.AddWithValue("$npc_group", row.NpcGroup);
-        command.Parameters.AddWithValue("$npc_weapon", Value(row.NpcWeapon));
-        command.Parameters.AddWithValue("$rung", Value(row.HealthRung));
-        command.Parameters.AddWithValue("$rung_phrase", Value(row.HealthPhrase));
-        command.Parameters.AddWithValue("$weapon", Value(row.Weapon));
-        command.Parameters.AddWithValue("$hit", row.Hit ? 1 : 0);
-        command.Parameters.AddWithValue("$dmg_low", Value(row.DamageLow));
-        command.Parameters.AddWithValue("$dmg_high", Value(row.DamageHigh));
-        command.Parameters.AddWithValue("$dmg", Value(row.Damage));
-    }
-
-    /// <summary>Null becomes SQL NULL, not a default. Every stat here can genuinely be unknown, and a
-    /// zero standing in for "never reported" is a fabricated measurement that outlives the session that
-    /// invented it.</summary>
-    private static object Value(object? value) => value ?? DBNull.Value;
-
-    /// <summary>Blocks briefly - just draining whatever is already queued in memory - so an app exit
-    /// mid-fight cannot lose the swings enqueued moments before it. Same shutdown contract as
-    /// FightHistoryStore.Dispose.</summary>
-    public void Dispose()
-    {
-        _writeQueue.Writer.TryComplete();
-        try
-        {
-            _writerTask.Wait(TimeSpan.FromSeconds(5));
-        }
-        catch
-        {
-            // Best-effort: Dispose must never throw during shutdown. Whatever did not get written in
-            // time is lost, same as any other best-effort I/O failure in this class.
-        }
-    }
+    /// <summary>Hands one row to the store. Cheap, never blocks, never throws; the write happens on
+    /// the store's single background task. Three shapes go down that one queue - the per-swing
+    /// stream, the rare `diagnose` reading and the score announcements - and one ordered channel is
+    /// what keeps the order between them, which is the whole basis on which an award is later
+    /// attributed to a kill.</summary>
+    private void AppendLocked(IStoreRow row) => _store.Enqueue(row);
 }

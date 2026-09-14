@@ -19,16 +19,15 @@ Senior Producer (Oliver "kfsone" Smith) notes:
 
 # Session Capture
 
-mucka can log raw session transcripts in jsonl format:
+mucka logs every byte of every session into `~/.mucka/mucka.db`, always, with nothing to arm and no
+setting to forget. `batches.data` holds the server's own bytes verbatim and uncompressed, so a
+`strings` pass over it reads as MUD2 text. See `docs/persistence-design.md` for the whole store and
+`Mucka.WireLog/WireLogFraming.cs` for the byte layout.
 
-either:
-`["...elided..."]`
-to reduce context burden on agents for long sessions, or
-
-`[{timestamp},{mode},{json-escaped-data}]`
-- timestamp int in ms,
-- mode "tx" (we sent), "rx" (we recv), "an" (higher-level code annotation by us)
-- json-escaped-data is string
+The `.jsonl` transcripts this used to write are gone. The committed
+`mudsharp.Tests/Fixtures/Data/wyvern-poison-death.jsonl` is test data in that older shape - one line
+per record, `[{timestamp_ms},{"tx"|"rx"|"an"},{json-escaped-data}]` - and is the only thing in the
+repo that still reads it:
 
 ```
 [1779464113440,"an","capture started: mud2.co.uk"]

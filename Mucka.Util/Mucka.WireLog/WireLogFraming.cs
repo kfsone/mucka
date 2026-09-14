@@ -11,7 +11,7 @@ namespace Mucka.WireLog;
 /// <c>docs/Lab-spec.md</c> for the tool that is meant to make that a query instead.</para>
 ///
 /// <para><b>What it costs, as arithmetic off the figures the compressed version measured</b> (MB = 10^6
-/// bytes here and in <see cref="SqliteWireLogSink"/>, not MiB). Measured over 40 captures: 79,495
+/// bytes here and in <see cref="WireLogWriter"/>, not MiB). Measured over 40 captures: 79,495
 /// records, 6,144,190 bytes of payload over 8.91 play-hours, an average wire rate of 0.191 KB/s, and
 /// ~0.74 KB of SQLite page and index overhead per batch row. Plain, at the one-minute batch bound, that
 /// same corpus is 6.14 MB of payload plus 4.2% framing plus ~535 rows of overhead: about 6.8 MB, or
@@ -149,7 +149,7 @@ public static class WireLogFraming
 
 /// <summary>
 /// Accumulates records into one framed batch buffer. Not thread-safe by itself - the owning sink
-/// holds a lock around it (see <see cref="SqliteWireLogSink"/>).
+/// holds a lock around it (see <see cref="WireLogWriter"/>).
 /// </summary>
 public sealed class WireLogBatchBuilder
 {

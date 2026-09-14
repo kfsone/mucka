@@ -2,6 +2,7 @@ using Microsoft.Data.Sqlite;
 using MudSharp.Combat;
 using MudSharp.Models;
 using Mucka.Combat;
+using Mucka.Store;
 
 namespace Mucka.Util.Tests;
 
@@ -42,6 +43,7 @@ public sealed class SwingLedgerTests : IDisposable
     private sealed class Session : IDisposable
     {
         private readonly CombatTracker _tracker = new();
+        private readonly MuckaStore _db;
         private readonly SwingLedger _ledger;
         private readonly string _path;
         private int _second;
@@ -49,8 +51,10 @@ public sealed class SwingLedgerTests : IDisposable
 
         public Session(string directory)
         {
-            _path = Path.Combine(directory, CombatDb.DefaultFileName);
-            _ledger = new SwingLedger(_path);
+            _path = Path.Combine(directory, MuckaDb.DefaultFileName);
+            // The store is what drains, so it is what these tests close before reading rows back.
+            _db = new MuckaStore(_path, "test");
+            _ledger = new SwingLedger(_db);
             _tracker.EventOccurred += _ledger.OnCombatEvent;
             // Wrapped rather than assigned directly: OnInCombatChanged takes the shared encounter id
             // too, which the tracker's own event does not carry. MuckaConnection stamps one per
@@ -120,12 +124,12 @@ public sealed class SwingLedgerTests : IDisposable
 
         private IReadOnlyList<Dictionary<string, object?>> Read(string table)
         {
-            _ledger.Dispose();
+            _db.Dispose();
             if (!File.Exists(_path))
                 return [];
 
             var rows = new List<Dictionary<string, object?>>();
-            using var connection = new SqliteConnection(CombatDb.ConnectionString(_path));
+            using var connection = new SqliteConnection(MuckaDb.ConnectionString(_path));
             connection.Open();
             using var command = connection.CreateCommand();
             command.CommandText = $"SELECT * FROM {table} ORDER BY id;";
@@ -145,8 +149,8 @@ public sealed class SwingLedgerTests : IDisposable
         /// test.</summary>
         public IReadOnlyList<string> Columns()
         {
-            _ledger.Dispose();
-            using var connection = CombatDb.Open(_path);
+            _db.Dispose();
+            using var connection = MuckaDb.Open(_path);
             using var command = connection.CreateCommand();
             command.CommandText = "SELECT * FROM swings LIMIT 0;";
             using var reader = command.ExecuteReader();
@@ -157,7 +161,7 @@ public sealed class SwingLedgerTests : IDisposable
         /// the file. Reading it does NOT drain the writer, unlike <see cref="Rows"/>.</summary>
         public SwingLedger Ledger => _ledger;
 
-        public void Dispose() => _ledger.Dispose();
+        public void Dispose() => _db.Dispose();
     }
 
     private static int? Int(Dictionary<string, object?> row, string name)
@@ -457,19 +461,13 @@ public sealed class SwingLedgerTests : IDisposable
         Assert.Equal(3, live.Samples);
         session.Rows();   // drains the writer, so every row is actually on disk
 
-        var reloaded = new SwingLedger(Path.Combine(_directory, CombatDb.DefaultFileName));
-        try
-        {
-            await reloaded.WarmDamageIndexAsync();
-            var rebuilt = reloaded.Damage.Lookup("zombie2").Incoming;
-            Assert.Equal(live.Samples, rebuilt.Samples);
-            Assert.Equal(live.Max, rebuilt.Max);
-            Assert.Equal(live.Average, rebuilt.Average);
-        }
-        finally
-        {
-            reloaded.Dispose();
-        }
+        using var reloadedDb = new MuckaStore(Path.Combine(_directory, MuckaDb.DefaultFileName), "test");
+        var reloaded = new SwingLedger(reloadedDb);
+        await reloaded.WarmDamageIndexAsync();
+        var rebuilt = reloaded.Damage.Lookup("zombie2").Incoming;
+        Assert.Equal(live.Samples, rebuilt.Samples);
+        Assert.Equal(live.Max, rebuilt.Max);
+        Assert.Equal(live.Average, rebuilt.Average);
     }
 
     /// <summary>Regen between blows revises the baseline; the delta must be measured against what

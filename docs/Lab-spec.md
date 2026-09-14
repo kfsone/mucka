@@ -46,21 +46,33 @@ fitting. Those are disposable by design.
 
 ## Input
 
-`wire.db`, which as of 2026-09-09 stores payloads **uncompressed and verbatim** - `batches.data` is the
-server's own bytes with a couple of varint header bytes between records. Read it with
-`WireLogFraming.Decode` over `SELECT base_ts_ms, data, records FROM batches ORDER BY seq`, or with
-`strings` if you are in a hurry. Also reads the `.jsonl` captures, which are the same records in the
-older shape.
+**One file: `~/.mucka/mucka.db`.** Everything the client writes is in it - see
+`docs/persistence-design.md`, which governs the schema. Two halves matter here:
+
+- **Raw traffic.** `batches.data` is the server's own bytes with a couple of varint header bytes
+  between records, **uncompressed and verbatim**. Read it with `WireLogFraming.Decode` over
+  `SELECT base_ts_ms, data, records FROM batches ORDER BY seq`, or with `strings` if you are in a
+  hurry. This is the ground truth, and running the client's own parsers over it is how the parsers
+  get found to be wrong.
+- **Classified encounter rows.** `encounter_events`, `encounter_stats`, `encounter_contents`,
+  `encounter_lines` and `creature_values`, all keyed on `encounter_started_at_ms` - the same key
+  `swings` and `fights` carry. Anything that used to mean re-reading `~/.mucka/clogs/*.jsonl` is SQL
+  now. There are no `.jsonl` files any more, in either shape.
+
+There is no `lines` table: `StyledLine` does not carry the C1 code that introduced a line, so a
+code-level question still goes through `MudStreamParser`. See `TODO`.
 
 ## Output
 
-Stdout as TSV for a one-off question, **and its own tables in `mucka.db`** for anything worth keeping.
-Writing there is wanted, not merely tolerated: derived tables sitting beside `swings` and `fights` are
-what let a finding be a stored query plus its result rather than a paragraph of prose. Table names are
-prefixed `lab_` so what is exploratory stays visibly exploratory, and lab never writes to a table the
-client reads.
+Stdout as TSV for a one-off question, **and its own tables in the same file** for anything worth
+keeping. Writing there is wanted, not merely tolerated: derived tables sitting beside `swings` and
+`fights` are what let a finding be a stored query plus its result rather than a paragraph of prose.
+Table names are prefixed `lab_` so what is exploratory stays visibly exploratory, and lab never writes
+to a table the client reads.
 
 ## Pipeline
+
+For a question about classified facts, the pipeline is a query. For a question about the raw stream:
 
 1. `sessions` -> `batches` -> `WireRecord`s in capture order.
 2. `rx` payloads into `MudStreamParser.Feed`; collect `LineReady`, `ScoreSaved`, and whatever else the
@@ -131,7 +143,7 @@ whole corpus rather than the handful of flights in `FleeWorthTests`.
 ### Observations to reproduce first
 
 Hand-transcribed from the owner's scroll, so the first job is to recover these same events from
-`wire.db` and check the tool agrees with the transcription. The two full-stamina rows match the
+the store and check the tool agrees with the transcription. The two full-stamina rows match the
 formula with zero bounties (371.7 and 438.9 predicted).
 
 | fight | score before | sta | max | cost | cost/score |

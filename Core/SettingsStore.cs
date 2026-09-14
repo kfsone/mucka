@@ -75,7 +75,6 @@ public static class SettingsStore
         int? OnlineForgetWindow = null,
         bool? FloatOnline       = null,
         bool? FloatCompass      = null,
-        bool? LogWireSession    = null,
         bool? LogResetDiagnostics = null,
         string? MeNameColor     = null,
         string? MeSpeechColor   = null,
@@ -107,7 +106,6 @@ public static class SettingsStore
             if (OnlineForgetWindow is int ofw) profile.OnlineForgetWindow = ofw;
             if (FloatOnline      is bool fo)  profile.FloatOnline      = fo;
             if (FloatCompass     is bool fc)  profile.FloatCompass     = fc;
-            if (LogWireSession   is bool lws) profile.LogWireSession   = lws;
             if (MeNameColor   is { Length: > 0 } mnc) profile.MeNameColor   = mnc;
             if (MeSpeechColor is { Length: > 0 } msc) profile.MeSpeechColor = msc;
             if (ShowCombatRail is bool scr) profile.ShowCombatRail = scr;
@@ -194,7 +192,6 @@ public static class SettingsStore
                 FloatCompass:       ini.HasSection("settings") ? GetBool(ini, "settings", "floatcompass")       : null,
                 // Global and one-time - absent means off, which is the default for a feature that
                 // silently records everything.
-                LogWireSession:     ini.HasSection("settings") ? GetBool(ini, "settings", "logwiresession")    : null,
                 MeNameColor:        ini.HasSection("settings") ? ini.Get("settings", "menamecolor")   : null,
                 MeSpeechColor:      ini.HasSection("settings") ? ini.Get("settings", "mespeechcolor") : null);
         }
@@ -266,7 +263,6 @@ public static class SettingsStore
                 ini.Set("settings", "onlineforgetwindow", settings.OnlineForgetWindow.ToString());
                 ini.Set("settings", "floatonline",        settings.FloatOnline     ? "yes" : "no");
                 ini.Set("settings", "floatcompass",       settings.FloatCompass    ? "yes" : "no");
-                ini.Set("settings", "logwiresession",     settings.LogWireSession  ? "yes" : "no");
                 ini.Set("settings", "menamecolor",        settings.MeNameColor);
                 ini.Set("settings", "mespeechcolor",      settings.MeSpeechColor);
             }

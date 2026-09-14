@@ -1,28 +1,38 @@
-using System.Text.Json;
+using Microsoft.Data.Sqlite;
 using MudSharp.Combat;
 using MudSharp.Models;
 using Mucka.Combat;
+using Mucka.Store;
 
 namespace Mucka.Util.Tests;
 
 /// <summary>
-/// ClogWriter's tail-capture and overlapping-clog behaviour: an encounter closes (Stop()) the
-/// instant CombatTracker says so, but its file stays open, draining trailing prose, until the
-/// next prompt (IsPartial line) actually arrives - and a brand new encounter can legitimately
-/// open its own file while the previous one is still draining that tail. See ClogWriter's own
-/// class remarks for the full rationale; this drives the "rat17 dies, rat21 attacks before the
-/// next prompt" scenario directly against ClogWriter rather than through CombatTracker
-/// (CombatTrackerTests already covers CombatTracker's own boundary detection in isolation).
+/// ClogWriter's tail-capture and overlapping-encounter behaviour: an encounter closes (Stop()) the
+/// instant CombatTracker says so, but it keeps collecting trailing prose until the next prompt
+/// (IsPartial line) actually arrives - and a brand new encounter can legitimately open while the
+/// previous one is still draining that tail. See ClogWriter's own class remarks for the full
+/// rationale; this drives the "rat17 dies, rat21 attacks before the next prompt" scenario directly
+/// against ClogWriter rather than through CombatTracker (CombatTrackerTests already covers
+/// CombatTracker's own boundary detection in isolation).
+///
+/// <para>Assertions read the TABLES back rather than an in-memory projection, so the column names and
+/// the encounter key are under test too - they are what the offline tooling consumes.</para>
 /// </summary>
 public sealed class ClogWriterTests : IDisposable
 {
     private readonly string _directory =
         Path.Combine(Path.GetTempPath(), "mucka-clogwriter-tests", Guid.NewGuid().ToString("N"));
 
+    private readonly List<MuckaStore> _opened = [];
+
     public void Dispose()
     {
+        foreach (var db in _opened) db.Dispose();
+        SqliteConnection.ClearAllPools();
         try { Directory.Delete(_directory, recursive: true); } catch { /* best-effort cleanup */ }
     }
+
+    private string DbPath => Path.Combine(_directory, MuckaDb.DefaultFileName);
 
     private static StyledLine Line(string text, bool isPartial = false) => new([new StyledSpan(text, TextStyle.Default)], isPartial);
 
@@ -30,29 +40,56 @@ public sealed class ClogWriterTests : IDisposable
         string? container = null)
         => new(DateTime.UtcNow, kind, CombatActor.Player, npc, weapon, null, null, "", Container: container);
 
+    // Encounter keys, supplied the way MuckaConnection supplies them: one value stamped per encounter
+    // and handed to every writer. Fixed rather than read off a clock, since the tests assert on them.
+    private const long First = 1_787_000_000_000L;
+    private const long Second = 1_787_000_060_000L;
+
+    private MuckaStore _db = null!;
+
     private ClogWriter NewWriter()
     {
-        Directory.CreateDirectory(_directory);
-        return new ClogWriter(_directory);
+        _db = new MuckaStore(DbPath, "test");
+        _opened.Add(_db);
+        return new ClogWriter(_db);
     }
 
-    private IReadOnlyList<JsonElement> ReadEntries(string path)
-        => File.ReadAllLines(path).Where(l => l.Length > 0).Select(l => JsonDocument.Parse(l).RootElement).ToList();
+    /// <summary>Closes the store so everything queued is on disk, then reads a table back in insertion
+    /// order as column-name to value maps.</summary>
+    private IReadOnlyList<Dictionary<string, object?>> Rows(string table, string? where = null)
+    {
+        _db.Dispose();
+        if (!File.Exists(DbPath))
+            return [];
 
-    private static string TypeOf(JsonElement e) => e.GetProperty("type").GetString()!;
+        var rows = new List<Dictionary<string, object?>>();
+        using var connection = new SqliteConnection(MuckaDb.ConnectionString(DbPath));
+        connection.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = $"SELECT * FROM {table}{(where is null ? "" : " WHERE " + where)} ORDER BY id;";
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            var row = new Dictionary<string, object?>(StringComparer.Ordinal);
+            for (var i = 0; i < reader.FieldCount; i++)
+                row[reader.GetName(i)] = reader.IsDBNull(i) ? null : reader.GetValue(i);
+            rows.Add(row);
+        }
+        return rows;
+    }
 
     [Fact]
     public void Stop_DoesNotFinalizeImmediately_TailKeepsDrainingUntilTheNextPrompt()
     {
-        using var writer = NewWriter();
+        var writer = NewWriter();
 
-        writer.OnInCombatChanged(true);
+        writer.OnInCombatChanged(true, First);
         writer.OnCombatEvent(Event(CombatEventKind.FightStart, "rat17", weapon: "dagger0"));
         writer.OnCombatEvent(Event(CombatEventKind.Kill, "rat17"));
         writer.OnInCombatChanged(false);
 
         Assert.False(writer.IsRecording);
-        Assert.True(writer.IsTailOnly);   // closed, but the clog is still draining its tail
+        Assert.True(writer.IsTailOnly);   // closed, but still draining its tail
 
         // Pure trailing prose - the death confirmation and score line MUD2 prints right after the
         // kill line, before the next prompt. Must be captured, not silently dropped.
@@ -65,42 +102,42 @@ public sealed class ClogWriterTests : IDisposable
 
         Assert.False(writer.IsTailOnly);
 
-        writer.WaitForDrainsToSettle_TestOnly(TimeSpan.FromSeconds(5));
-
-        var files = Directory.GetFiles(_directory, "*.jsonl");
-        var entries = ReadEntries(Assert.Single(files));
-
+        var tail = Rows("encounter_lines", "phase = 'tail'");
         Assert.Equal(
-            ["encounter_start", "event", "event", "line", "line", "encounter_end"],
-            entries.Select(TypeOf));
-        Assert.Equal("(Persona saved on +22 = 101,389).", entries[3].GetProperty("text").GetString());
-        Assert.Equal("The rat17 has just passed on.", entries[4].GetProperty("text").GetString());
+            ["(Persona saved on +22 = 101,389).", "The rat17 has just passed on."],
+            tail.Select(r => r["text"]));
+        Assert.Equal([0L, 1L], tail.Select(r => r["ord"]));
+        Assert.All(tail, r => Assert.Equal(First, r["encounter_started_at_ms"]));
+
+        var encounter = Assert.Single(Rows("encounters"));
+        Assert.Equal(First, encounter["encounter_started_at_ms"]);
+        Assert.NotNull(encounter["ended_at_ms"]);
+        Assert.Equal(2, Rows("encounter_events").Count);
     }
 
     [Fact]
-    public void NewEncounter_WhilePreviousIsStillDrainingItsTail_OpensASeparateOverlappingFile()
+    public void NewEncounter_WhilePreviousIsStillDrainingItsTail_IsKeyedSeparately()
     {
         // rat17 dies, and before the next prompt an unrelated rat21 starts a genuinely new
-        // encounter. Both clogs must exist independently, and neither may leak the other's
-        // content.
-        using var writer = NewWriter();
+        // encounter. Both must be recorded independently, and neither may take the other's rows.
+        var writer = NewWriter();
 
-        writer.OnInCombatChanged(true);
+        writer.OnInCombatChanged(true, First);
         writer.OnCombatEvent(Event(CombatEventKind.FightStart, "rat17", weapon: "dagger0"));
         writer.OnCombatEvent(Event(CombatEventKind.Kill, "rat17"));
-        writer.OnInCombatChanged(false);   // rat17's clog starts draining its tail
+        writer.OnInCombatChanged(false);   // rat17 starts draining its tail
 
         writer.OnLineReady(Line("(Persona saved on +22 = 101,389)."));
         writer.OnLineReady(Line("The rat17 has just passed on."));
-        // The join line MUD2 prints before the aggro line that actually opens the new encounter -
-        // it arrives while rat17's clog is the only one open, so it belongs to rat17's tail.
+        // The join line MUD2 prints before the aggro line that actually opens the new encounter - it
+        // arrives while rat17 is the only entry open, so it belongs to rat17's tail.
         writer.OnLineReady(Line("An evil, black rat (rat21) bares its razor-sharp incisors at you."));
 
         Assert.True(writer.IsTailOnly);
 
         // rat21 engages - a brand new encounter, opened while rat17's tail is STILL draining
         // (no prompt has arrived yet).
-        writer.OnInCombatChanged(true);
+        writer.OnInCombatChanged(true, Second);
         writer.OnCombatEvent(Event(CombatEventKind.FightStart, "rat21"));
 
         Assert.True(writer.IsRecording);    // rat21 is now the actively-recording encounter
@@ -112,29 +149,18 @@ public sealed class ClogWriterTests : IDisposable
         writer.OnInCombatChanged(false);   // rat21 ends too
         writer.OnLineReady(Line("*", isPartial: true));   // finalizes rat21's tail
 
-        writer.WaitForDrainsToSettle_TestOnly(TimeSpan.FromSeconds(5));
+        Assert.Equal([First, Second], Rows("encounters").Select(r => r["encounter_started_at_ms"]));
 
-        var files = Directory.GetFiles(_directory, "*.jsonl").OrderBy(f => f).ToList();
-        Assert.Equal(2, files.Count);   // two independent files - never merged into one
-
-        var rat17File = files.Single(f => ReadEntries(f)[1].GetProperty("npc").GetString() == "rat17");
-        var rat21File = files.Single(f => f != rat17File);
-
-        var rat17Entries = ReadEntries(rat17File);
+        var events = Rows("encounter_events");
         Assert.Equal(
-            ["encounter_start", "event", "event", "line", "line", "line", "encounter_end"],
-            rat17Entries.Select(TypeOf));
-        Assert.Equal(
-            "An evil, black rat (rat21) bares its razor-sharp incisors at you.",
-            rat17Entries[5].GetProperty("text").GetString());
+            [(First, "rat17"), (First, "rat17"), (Second, "rat21"), (Second, "rat21")],
+            events.Select(e => ((long)e["encounter_started_at_ms"]!, (string?)e["npc"])));
 
-        var rat21Entries = ReadEntries(rat21File);
-        Assert.Equal(
-            ["encounter_start", "event", "event", "encounter_end"],
-            rat21Entries.Select(TypeOf));
-        Assert.Equal("rat21", rat21Entries[1].GetProperty("npc").GetString());
-        // rat17's tail lines must never leak into rat21's file.
-        Assert.DoesNotContain(rat21Entries, e => TypeOf(e) == "line");
+        // rat17's tail lines are keyed to rat17 and to nothing else.
+        var tail = Rows("encounter_lines", "phase = 'tail'");
+        Assert.All(tail, r => Assert.Equal(First, r["encounter_started_at_ms"]));
+        Assert.Equal(3, tail.Count);
+        Assert.Equal("An evil, black rat (rat21) bares its razor-sharp incisors at you.", tail[2]["text"]);
     }
 
     [Fact]
@@ -142,43 +168,13 @@ public sealed class ClogWriterTests : IDisposable
     {
         // Defensive only: CombatTracker never fires InCombatChanged(true) twice in a row without
         // a false in between, but ClogWriter must not corrupt state if it somehow did.
-        using var writer = NewWriter();
+        var writer = NewWriter();
 
-        writer.OnInCombatChanged(true);
-        var firstPath = writer.FilePath;
-        writer.OnInCombatChanged(true);
+        writer.OnInCombatChanged(true, First);
+        writer.OnInCombatChanged(true, Second);
 
-        Assert.Equal(firstPath, writer.FilePath);
-        Assert.Single(Directory.GetFiles(_directory, "*.jsonl"));
-    }
-
-    [Fact]
-    public void ManyEncounters_DoNotGrowTheTestOnlyWriterTaskTrackingListWithoutBound()
-    {
-        // Verifies the in-flight-drain tracking list does not grow unbounded across many
-        // encounters (see ClogWriter's _writerTasksForTests remarks). Runs far more encounters
-        // than any single fight would need and asserts the tracking list stays bounded by
-        // "currently draining", not by "total encounters this session has ever had".
-        using var writer = NewWriter();
-
-        const int encounterCount = 200;
-        for (var i = 0; i < encounterCount; i++)
-        {
-            writer.OnInCombatChanged(true);
-            writer.OnCombatEvent(Event(CombatEventKind.FightStart, $"rat{i}"));
-            writer.OnCombatEvent(Event(CombatEventKind.Kill, $"rat{i}"));
-            writer.OnInCombatChanged(false);
-            writer.OnLineReady(Line("*", isPartial: true));   // finalizes this encounter's tail
-
-            // Let this encounter's drain actually finish before starting the next one, so the
-            // pruning in Start() has something completed to remove - without this, the assertion
-            // below would only be testing timing luck rather than the pruning itself.
-            writer.WaitForDrainsToSettle_TestOnly(TimeSpan.FromSeconds(5));
-
-            // Never proportional to i: a leak would show this climbing toward encounterCount.
-            Assert.True(writer.WriterTaskTrackingCount_TestOnly <= 2,
-                $"tracking list grew to {writer.WriterTaskTrackingCount_TestOnly} after {i + 1} encounters");
-        }
+        Assert.Equal(First, writer.CurrentEncounterKey);
+        Assert.Single(Rows("encounters"));
     }
 
     // -- Room contents (FEI) and stat-change snapshots -------------------------
@@ -199,13 +195,16 @@ public sealed class ClogWriterTests : IDisposable
         => new(Stamina: stamina, MaxStamina: 120, Strength: strength, RawStrength: 100, MaxStrength: 100,
                Dexterity: dexterity, RawDexterity: 100, MaxDexterity: 100) { HasFesStats = true };
 
-    private static IReadOnlyList<JsonElement> Rows(IReadOnlyList<JsonElement> entries, string type)
-        => entries.Where(e => TypeOf(e) == type).ToList();
+    /// <summary>The items of one contents row, in order, as (name, isCreature, isCarried).</summary>
+    private IReadOnlyList<(string Name, bool Creature, bool Carried)> ItemsOf(long contentsId)
+        => Rows("encounter_contents_items", $"contents_id = {contentsId}")
+            .Select(r => ((string)r["name"]!, (long)r["is_creature"]! == 1, (long)r["is_carried"]! == 1))
+            .ToList();
 
     [Fact]
-    public void EncounterStart_CarriesTheStructuredFeiList_RoomAndPack()
+    public void AnEncounterOpens_WithTheStructuredFeiList_RoomAndPack()
     {
-        using var writer = NewWriter();
+        var writer = NewWriter();
 
         writer.OnRoomEntered();
         writer.OnRoomShortReady("Damp cave");
@@ -214,62 +213,62 @@ public sealed class ClogWriterTests : IDisposable
         writer.OnCreatureTextReady("An evil, black rat (rat17) bares its razor-sharp incisors at you.");
         Fei(writer, ["rat17", "key1"], ["axe0", "coracle"]);
 
-        writer.OnInCombatChanged(true);
+        writer.OnInCombatChanged(true, First);
         writer.OnCombatEvent(Event(CombatEventKind.FightStart, "rat17"));
         writer.OnInCombatChanged(false);
         writer.OnLineReady(Line("*", isPartial: true));
-        writer.WaitForDrainsToSettle_TestOnly(TimeSpan.FromSeconds(5));
 
-        var entries = ReadEntries(Assert.Single(Directory.GetFiles(_directory, "*.jsonl")));
-        var contents = entries[0].GetProperty("contents");
+        var contents = Assert.Single(Rows("encounter_contents"));
+        Assert.Equal("Damp cave", contents["room"]);
+        Assert.Equal(2L, contents["carried_count"]);
+        Assert.Equal(
+            [("rat17", true, false), ("key1", false, false), ("axe0", false, true), ("coracle", false, true)],
+            ItemsOf((long)contents["id"]!));
 
-        Assert.Equal("Damp cave", contents.GetProperty("room").GetString());
-        var here = contents.GetProperty("here").EnumerateArray().ToList();
-        Assert.Equal(["rat17", "key1"], here.Select(h => h.GetProperty("name").GetString()));
-        Assert.True(here[0].GetProperty("creature").GetBoolean());
-        Assert.False(here[1].GetProperty("creature").GetBoolean());
-        Assert.Equal(["axe0", "coracle"], contents.GetProperty("carried").EnumerateArray().Select(c => c.GetString()));
-        Assert.Equal(2, contents.GetProperty("carriedCount").GetInt32());
-        // The count the dexterity burden is keyed on, which `objectsCarried` (score-sheet only,
-        // frozen at character select) cannot supply.
-        Assert.Equal(2, entries[0].GetProperty("stats").GetProperty("carriedCount").GetInt32());
+        // The count the dexterity burden is keyed on, which objects_carried (score-sheet only, frozen
+        // at character select) cannot supply.
+        var opening = Assert.Single(Rows("encounter_stats", "reason = 'start'"));
+        Assert.Equal(2L, opening["carried_count"]);
     }
 
     [Fact]
-    public void RoomContents_AreReEmittedOnChangeAndOnlyOnChange()
+    public void RoomContents_AreReWrittenOnChangeAndOnlyOnChange()
     {
-        using var writer = NewWriter();
+        var writer = NewWriter();
 
         writer.OnRoomShortReady("Damp cave");
         Fei(writer, ["key1"], ["axe0"]);
-        writer.OnInCombatChanged(true);
+        writer.OnInCombatChanged(true, First);
         writer.OnCombatEvent(Event(CombatEventKind.FightStart, "rat17"));
 
-        // Same list again - the ~1 Hz case. Nothing may be written for it; the single-row
-        // assertion at the end of this test is what proves it.
+        // Same list again - the ~1 Hz case. Nothing may be written for it; the row count below is
+        // what proves it.
         Fei(writer, ["key1"], ["axe0"]);
 
-        // The chase: a new room with different contents must be reconstructible from the file.
+        // The chase: a new room with different contents must be reconstructible from the table.
         writer.OnRoomShortReady("Narrow ledge");
         Fei(writer, ["key1", "rat17"], ["axe0"]);
 
         writer.OnInCombatChanged(false);
         writer.OnLineReady(Line("*", isPartial: true));
-        writer.WaitForDrainsToSettle_TestOnly(TimeSpan.FromSeconds(5));
 
-        var contents = Rows(ReadEntries(Assert.Single(Directory.GetFiles(_directory, "*.jsonl"))), "contents");
-        var row = Assert.Single(contents).GetProperty("contents");
-        Assert.Equal("Narrow ledge", row.GetProperty("room").GetString());
-        Assert.Equal(["key1", "rat17"], row.GetProperty("here").EnumerateArray().Select(h => h.GetProperty("name").GetString()));
+        // Two: the one the encounter opened with, and the one the move produced.
+        var contents = Rows("encounter_contents");
+        Assert.Equal(2, contents.Count);
+        Assert.Equal("Damp cave", contents[0]["room"]);
+        Assert.Equal("Narrow ledge", contents[1]["room"]);
+        Assert.Equal(
+            [("key1", false, false), ("rat17", false, false), ("axe0", false, true)],
+            ItemsOf((long)contents[1]["id"]!));
     }
 
     [Fact]
     public void StatsRow_IsWrittenWhenStrengthOrDexterityMoves_ButNotForStaminaAlone()
     {
-        using var writer = NewWriter();
+        var writer = NewWriter();
 
         writer.OnStatsUpdated(Stats(strength: 50, dexterity: 90, stamina: 100));
-        writer.OnInCombatChanged(true);
+        writer.OnInCombatChanged(true, First);
         writer.OnCombatEvent(Event(CombatEventKind.FightStart, "rat17"));
 
         // Every incoming blow refreshes stamina. That is already recorded blow by blow in the event
@@ -282,13 +281,12 @@ public sealed class ClogWriterTests : IDisposable
 
         writer.OnInCombatChanged(false);
         writer.OnLineReady(Line("*", isPartial: true));
-        writer.WaitForDrainsToSettle_TestOnly(TimeSpan.FromSeconds(5));
 
-        var stats = Rows(ReadEntries(Assert.Single(Directory.GetFiles(_directory, "*.jsonl"))), "stats");
-        var row = Assert.Single(stats);
-        Assert.Equal("change", row.GetProperty("reason").GetString());
-        Assert.Equal(100, row.GetProperty("stats").GetProperty("strength").GetInt32());
-        Assert.Equal(88, row.GetProperty("stats").GetProperty("stamina").GetInt32());   // rides along
+        var stats = Rows("encounter_stats");
+        Assert.Equal(["start", "change"], stats.Select(r => r["reason"]));
+        Assert.Equal(50L, stats[0]["strength"]);
+        Assert.Equal(100L, stats[1]["strength"]);
+        Assert.Equal(88L, stats[1]["stamina"]);   // rides along
     }
 
     [Fact]
@@ -296,22 +294,20 @@ public sealed class ClogWriterTests : IDisposable
     {
         // A zero-cost object is still a RESULT. Without a forced row it is indistinguishable from
         // a reading that never arrived.
-        using var writer = NewWriter();
+        var writer = NewWriter();
 
         writer.OnStatsUpdated(Stats(strength: 100, dexterity: 100));
-        writer.OnInCombatChanged(true);
+        writer.OnInCombatChanged(true, First);
         writer.OnCombatEvent(Event(CombatEventKind.FightStart, "rat17"));
         writer.OnCombatEvent(Event(CombatEventKind.ItemDropped, weapon: "Locket"));
         writer.OnStatsUpdated(Stats(strength: 100, dexterity: 100));   // identical - the locket was free
 
         writer.OnInCombatChanged(false);
         writer.OnLineReady(Line("*", isPartial: true));
-        writer.WaitForDrainsToSettle_TestOnly(TimeSpan.FromSeconds(5));
 
-        var entries = ReadEntries(Assert.Single(Directory.GetFiles(_directory, "*.jsonl")));
-        var row = Assert.Single(Rows(entries, "stats"));
-        Assert.Equal("post_inventory", row.GetProperty("reason").GetString());
-        Assert.Equal(100, row.GetProperty("stats").GetProperty("strength").GetInt32());
+        var stats = Rows("encounter_stats");
+        Assert.Equal(["start", "post_inventory"], stats.Select(r => r["reason"]));
+        Assert.Equal(100L, stats[1]["strength"]);
     }
 
     [Fact]
@@ -320,11 +316,11 @@ public sealed class ClogWriterTests : IDisposable
         // The measurement is a drop/take cycle on the SAME object, so the take half must be named
         // too - the carry list alone says something arrived, not what. And a container move records
         // which container, because whether its weight left the player depends on where that
-        // container was, which the nearest "contents" row answers and the event line does not.
-        using var writer = NewWriter();
+        // container was, which the nearest contents row answers and the event row does not.
+        var writer = NewWriter();
 
         writer.OnStatsUpdated(Stats(strength: 100, dexterity: 100));
-        writer.OnInCombatChanged(true);
+        writer.OnInCombatChanged(true, First);
         writer.OnCombatEvent(Event(CombatEventKind.FightStart, "rat17"));
 
         writer.OnCombatEvent(Event(CombatEventKind.ItemTaken, weapon: "Staff"));
@@ -334,41 +330,34 @@ public sealed class ClogWriterTests : IDisposable
 
         writer.OnInCombatChanged(false);
         writer.OnLineReady(Line("*", isPartial: true));
-        writer.WaitForDrainsToSettle_TestOnly(TimeSpan.FromSeconds(5));
 
-        var entries = ReadEntries(Assert.Single(Directory.GetFiles(_directory, "*.jsonl")));
-        Assert.Equal(
-            ["encounter_start", "event", "event", "stats", "event", "stats", "encounter_end"],
-            entries.Select(TypeOf));
-
-        Assert.Equal("ItemTaken", entries[2].GetProperty("kind").GetString());
-        Assert.Equal("Staff", entries[2].GetProperty("weapon").GetString());
-        Assert.Equal(JsonValueKind.Null, entries[2].GetProperty("container").ValueKind);
-
-        Assert.Equal("ItemStowed", entries[4].GetProperty("kind").GetString());
-        Assert.Equal("Baton", entries[4].GetProperty("weapon").GetString());
-        Assert.Equal("glass bottle6", entries[4].GetProperty("container").GetString());
+        var events = Rows("encounter_events");
+        Assert.Equal(["FightStart", "ItemTaken", "ItemStowed"], events.Select(e => e["kind"]));
+        Assert.Equal("Staff", events[1]["weapon"]);
+        Assert.Null(events[1]["container"]);
+        Assert.Equal("Baton", events[2]["weapon"]);
+        Assert.Equal("glass bottle6", events[2]["container"]);
 
         // Both readings are forced by the move, not by the size of the change: the stow moved only
         // dexterity, which is exactly the count-without-weight signature it exists to capture.
-        Assert.Equal("post_inventory", entries[3].GetProperty("reason").GetString());
-        Assert.Equal("post_inventory", entries[5].GetProperty("reason").GetString());
-        Assert.Equal(96, entries[5].GetProperty("stats").GetProperty("strength").GetInt32());
-        Assert.Equal(100, entries[5].GetProperty("stats").GetProperty("dexterity").GetInt32());
+        var stats = Rows("encounter_stats");
+        Assert.Equal(["start", "post_inventory", "post_inventory"], stats.Select(r => r["reason"]));
+        Assert.Equal(96L, stats[2]["strength"]);
+        Assert.Equal(100L, stats[2]["dexterity"]);
     }
 
     [Fact]
-    public void AChangedCarryList_EmitsContentsAndThenAStatsRowPairedWithTheNewCount()
+    public void AChangedCarryList_WritesContentsAndThenAStatsRowPairedWithTheNewCount()
     {
         // FES leads every probe, so the reading for a drop lands BEFORE the FEI list that reflects
-        // it. Without the trailing stats row, the freshest strength figure in the file would be
-        // paired with the pre-drop carry count - the one pairing the measurement must not get wrong.
-        using var writer = NewWriter();
+        // it. Without the trailing stats row, the freshest strength figure on file would be paired
+        // with the pre-drop carry count - the one pairing the measurement must not get wrong.
+        var writer = NewWriter();
 
         writer.OnRoomShortReady("Damp cave");
         writer.OnStatsUpdated(Stats(strength: 50, dexterity: 90));
         Fei(writer, [], ["axe0", "coracle"]);
-        writer.OnInCombatChanged(true);
+        writer.OnInCombatChanged(true, First);
         writer.OnCombatEvent(Event(CombatEventKind.FightStart, "rat17"));
 
         writer.OnStatsUpdated(Stats(strength: 100, dexterity: 90));   // the FES half of the probe
@@ -376,45 +365,79 @@ public sealed class ClogWriterTests : IDisposable
 
         writer.OnInCombatChanged(false);
         writer.OnLineReady(Line("*", isPartial: true));
-        writer.WaitForDrainsToSettle_TestOnly(TimeSpan.FromSeconds(5));
 
-        var entries = ReadEntries(Assert.Single(Directory.GetFiles(_directory, "*.jsonl")));
-        Assert.Equal(
-            ["encounter_start", "event", "stats", "contents", "stats", "encounter_end"],
-            entries.Select(TypeOf));
+        var stats = Rows("encounter_stats");
+        Assert.Equal(["start", "change", "post_inventory"], stats.Select(r => r["reason"]));
 
-        var final = entries[4];
-        Assert.Equal("post_inventory", final.GetProperty("reason").GetString());
-        Assert.Equal(100, final.GetProperty("stats").GetProperty("strength").GetInt32());
-        Assert.Equal(1, final.GetProperty("stats").GetProperty("carriedCount").GetInt32());
+        var final = stats[^1];
+        Assert.Equal(100L, final["strength"]);
+        Assert.Equal(1L, final["carried_count"]);
+        Assert.Equal(2, Rows("encounter_contents").Count);
     }
 
     [Fact]
     public void ContentsAndStatsRows_AreNotWrittenWhenNoEncounterIsOpen()
     {
-        using var writer = NewWriter();
+        var writer = NewWriter();
 
         writer.OnRoomShortReady("Damp cave");
         Fei(writer, ["key1"], ["axe0"]);
         writer.OnStatsUpdated(Stats(strength: 40, dexterity: 40));
 
-        Assert.Empty(Directory.GetFiles(_directory, "*.jsonl"));
+        Assert.Empty(Rows("encounters"));
+        Assert.Empty(Rows("encounter_stats"));
+        Assert.Empty(Rows("encounter_contents"));
     }
 
     [Fact]
     public void Dispose_FinalizesWhateverIsStillOpen_IncludingATailThatNeverSawAPrompt()
     {
         var writer = NewWriter();
-        writer.OnInCombatChanged(true);
+        writer.OnInCombatChanged(true, First);
         writer.OnCombatEvent(Event(CombatEventKind.FightStart, "rat0"));
         writer.OnCombatEvent(Event(CombatEventKind.Kill, "rat0"));
         writer.OnInCombatChanged(false);   // tail opens; no prompt ever arrives
 
         writer.Dispose();   // app exit mid-tail - best-effort finalize anyway
 
-        var files = Directory.GetFiles(_directory, "*.jsonl");
-        var entries = ReadEntries(Assert.Single(files));
-        Assert.Equal("encounter_end", TypeOf(entries[^1]));
+        var encounter = Assert.Single(Rows("encounters"));
+        Assert.NotNull(encounter["ended_at_ms"]);
+    }
+
+    [Fact]
+    public void AnEncounterStillOpenAtStoreClose_IsStampedEndedRatherThanLeftHanging()
+    {
+        // The other half of the shutdown path: the encounter was never even closed by the tracker.
+        var writer = NewWriter();
+        writer.OnInCombatChanged(true, First);
+        writer.OnCombatEvent(Event(CombatEventKind.FightStart, "rat0"));
+
+        writer.Dispose();
+
+        var encounter = Assert.Single(Rows("encounters"));
+        Assert.NotNull(encounter["ended_at_ms"]);
+        Assert.False(writer.IsRecording);
+    }
+
+    // -- Pre-roll ----------------------------------------------------------------
+
+    [Fact]
+    public void ThePreRoll_CarriesTheLinesBeforeCombatBeganInOrderAndWithNoTimestamp()
+    {
+        var writer = NewWriter();
+
+        writer.OnLineReady(Line("You are in a damp cave."));
+        writer.OnLineReady(Line("There is a rat here."));
+        writer.OnInCombatChanged(true, First);
+        writer.OnCombatEvent(Event(CombatEventKind.FightStart, "rat17"));
+        writer.OnInCombatChanged(false);
+        writer.OnLineReady(Line("*", isPartial: true));
+
+        var preroll = Rows("encounter_lines", "phase = 'preroll'");
+        Assert.Equal(["You are in a damp cave.", "There is a rat here."], preroll.Select(r => r["text"]));
+        Assert.Equal([0L, 1L], preroll.Select(r => r["ord"]));
+        // Buffered before the encounter existed, so there is no honest stamp for them.
+        Assert.All(preroll, r => Assert.Null(r["ts"]));
     }
 
     // -- Creature-value probe rows ----------------------------------------------
@@ -422,21 +445,20 @@ public sealed class ClogWriterTests : IDisposable
     [Fact]
     public void OnCreatureValueResolved_WritesAConfidentRowForANameSeenOnce()
     {
-        using var writer = NewWriter();
-        writer.OnInCombatChanged(true);
+        var writer = NewWriter();
+        writer.OnInCombatChanged(true, First);
         writer.OnCombatEvent(Event(CombatEventKind.FightStart, "thief"));
 
         writer.OnCreatureValueResolved("thief", 1419);
 
         writer.OnInCombatChanged(false);
-        writer.OnLineReady(Line("*", isPartial: true));   // finalize so the file is readable
-        writer.WaitForDrainsToSettle_TestOnly(TimeSpan.FromSeconds(5));
+        writer.OnLineReady(Line("*", isPartial: true));
 
-        var entry = ReadEntries(Assert.Single(Directory.GetFiles(_directory, "*.jsonl")))
-            .Single(e => TypeOf(e) == "creature_value");
-        Assert.Equal("thief", entry.GetProperty("npc").GetString());
-        Assert.Equal(1419, entry.GetProperty("value").GetInt32());
-        Assert.False(entry.GetProperty("ambiguous").GetBoolean());
+        var row = Assert.Single(Rows("creature_values"));
+        Assert.Equal("thief", row["npc"]);
+        Assert.Equal(1419L, row["value"]);
+        Assert.Equal(0L, row["ambiguous"]);
+        Assert.Equal(First, row["encounter_started_at_ms"]);
     }
 
     /// <summary>
@@ -448,33 +470,31 @@ public sealed class ClogWriterTests : IDisposable
     [Fact]
     public void OnCreatureValueResolved_ASecondRowForTheSameNameThisEncounter_IsFlaggedAmbiguous()
     {
-        using var writer = NewWriter();
-        writer.OnInCombatChanged(true);
+        var writer = NewWriter();
+        writer.OnInCombatChanged(true, First);
         writer.OnCombatEvent(Event(CombatEventKind.FightStart, "thief"));
 
         writer.OnCreatureValueResolved("thief", 1419);
         writer.OnCreatureValueResolved("thief", 87);
 
         writer.OnInCombatChanged(false);
-        writer.OnLineReady(Line("*", isPartial: true));   // finalize so the file is readable
-        writer.WaitForDrainsToSettle_TestOnly(TimeSpan.FromSeconds(5));
+        writer.OnLineReady(Line("*", isPartial: true));
 
-        var rows = ReadEntries(Assert.Single(Directory.GetFiles(_directory, "*.jsonl")))
-            .Where(e => TypeOf(e) == "creature_value").ToList();
+        var rows = Rows("creature_values");
         Assert.Equal(2, rows.Count);
-        Assert.False(rows[0].GetProperty("ambiguous").GetBoolean());
-        Assert.True(rows[1].GetProperty("ambiguous").GetBoolean());
+        Assert.Equal(0L, rows[0]["ambiguous"]);
+        Assert.Equal(1L, rows[1]["ambiguous"]);
         // Both raw readings are still on record - the flag is what marks them unattributable, not
         // a silent drop of the evidence itself.
-        Assert.Equal(1419, rows[0].GetProperty("value").GetInt32());
-        Assert.Equal(87, rows[1].GetProperty("value").GetInt32());
+        Assert.Equal(1419L, rows[0]["value"]);
+        Assert.Equal(87L, rows[1]["value"]);
     }
 
     [Fact]
     public void OnCreatureValueResolved_TwoDifferentNames_NeitherIsFlaggedAmbiguous()
     {
-        using var writer = NewWriter();
-        writer.OnInCombatChanged(true);
+        var writer = NewWriter();
+        writer.OnInCombatChanged(true, First);
         writer.OnCombatEvent(Event(CombatEventKind.FightStart, "gargoyle0"));
         writer.OnCombatEvent(Event(CombatEventKind.FightStart, "gargoyle1"));
 
@@ -482,12 +502,10 @@ public sealed class ClogWriterTests : IDisposable
         writer.OnCreatureValueResolved("gargoyle0", 150);
 
         writer.OnInCombatChanged(false);
-        writer.OnLineReady(Line("*", isPartial: true));   // finalize so the file is readable
-        writer.WaitForDrainsToSettle_TestOnly(TimeSpan.FromSeconds(5));
+        writer.OnLineReady(Line("*", isPartial: true));
 
-        var rows = ReadEntries(Assert.Single(Directory.GetFiles(_directory, "*.jsonl")))
-            .Where(e => TypeOf(e) == "creature_value").ToList();
+        var rows = Rows("creature_values");
         Assert.Equal(2, rows.Count);
-        Assert.All(rows, r => Assert.False(r.GetProperty("ambiguous").GetBoolean()));
+        Assert.All(rows, r => Assert.Equal(0L, r["ambiguous"]));
     }
 }

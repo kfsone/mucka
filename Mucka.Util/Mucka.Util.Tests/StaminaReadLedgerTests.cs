@@ -2,6 +2,7 @@ using Microsoft.Data.Sqlite;
 using MudSharp.Combat;
 using MudSharp.Models;
 using Mucka.Combat;
+using Mucka.Store;
 
 namespace Mucka.Util.Tests;
 
@@ -27,20 +28,23 @@ public sealed class StaminaReadLedgerTests : IDisposable
         try { Directory.Delete(_directory, recursive: true); } catch { /* best-effort cleanup */ }
     }
 
-    private string DbPath => Path.Combine(_directory, CombatDb.DefaultFileName);
+    private string DbPath => Path.Combine(_directory, MuckaDb.DefaultFileName);
 
     private static StyledLine Line(string text) => new([new StyledSpan(text, TextStyle.Default)]);
 
     private sealed class Session : IDisposable
     {
         private readonly CombatTracker _tracker = new();
+        private readonly MuckaStore _db;
         private readonly string _path;
         private int _second;
 
         public Session(string path)
         {
             _path = path;
-            Ledger = new SwingLedger(path);
+            // The store is what drains, so it is what this closes before reading rows back.
+            _db = new MuckaStore(path, "test");
+            Ledger = new SwingLedger(_db);
             _tracker.EventOccurred += Ledger.OnCombatEvent;
             _tracker.InCombatChanged += inCombat => Ledger.OnInCombatChanged(inCombat);
         }
@@ -69,12 +73,12 @@ public sealed class StaminaReadLedgerTests : IDisposable
         /// <summary>Drains the writer and reads every stamina-read row back as column-name maps.</summary>
         public IReadOnlyList<Dictionary<string, object?>> Reads()
         {
-            Ledger.Dispose();
+            _db.Dispose();
             if (!File.Exists(_path))
                 return [];
 
             var rows = new List<Dictionary<string, object?>>();
-            using var connection = new SqliteConnection(CombatDb.ConnectionString(_path));
+            using var connection = new SqliteConnection(MuckaDb.ConnectionString(_path));
             connection.Open();
             using var command = connection.CreateCommand();
             command.CommandText = "SELECT * FROM npc_stamina_reads ORDER BY id;";
@@ -89,7 +93,7 @@ public sealed class StaminaReadLedgerTests : IDisposable
             return rows;
         }
 
-        public void Dispose() => Ledger.Dispose();
+        public void Dispose() => _db.Dispose();
     }
 
     [Fact]
@@ -166,7 +170,7 @@ public sealed class StaminaReadLedgerTests : IDisposable
 
         Assert.Single(session.Reads());
 
-        using var connection = new SqliteConnection(CombatDb.ConnectionString(DbPath));
+        using var connection = new SqliteConnection(MuckaDb.ConnectionString(DbPath));
         connection.Open();
         using var command = connection.CreateCommand();
         command.CommandText = "SELECT COUNT(*) FROM swings WHERE dir = 'out' AND hit = 1;";
@@ -194,21 +198,21 @@ public sealed class StaminaReadLedgerTests : IDisposable
             session.Reads();   // drains the writer
         }
 
-        using (var fights = new FightHistoryStore(DbPath))
+        var fightsDb = new MuckaStore(DbPath, "test");
+        new FightHistoryStore(fightsDb).Append(new FightRecord
         {
-            fights.Append(new FightRecord
-            {
-                StartedAtMs = startedAt,
-                EndedAtMs = startedAt + 10_000,
-                DurationMs = 10_000,
-                NpcName = "rat0",
-                NpcGroup = "rats",
-                Outcome = nameof(FightOutcome.Kill),
-                YouHits = 3,
-            });
-        }
+            StartedAtMs = startedAt,
+            EndedAtMs = startedAt + 10_000,
+            DurationMs = 10_000,
+            NpcName = "rat0",
+            NpcGroup = "rats",
+            Outcome = nameof(FightOutcome.Kill),
+            YouHits = 3,
+        });
+        fightsDb.Dispose();
 
-        var reloaded = new SwingLedger(DbPath);
+        var reloadedDb = new MuckaStore(DbPath, "test");
+        var reloaded = new SwingLedger(reloadedDb);
         try
         {
             await reloaded.WarmDamageIndexAsync();
@@ -223,7 +227,7 @@ public sealed class StaminaReadLedgerTests : IDisposable
         }
         finally
         {
-            reloaded.Dispose();
+            reloadedDb.Dispose();
         }
     }
 
@@ -259,21 +263,21 @@ public sealed class StaminaReadLedgerTests : IDisposable
             session.Reads();
         }
 
-        using (var fights = new FightHistoryStore(DbPath))
+        var fightsDb = new MuckaStore(DbPath, "test");
+        new FightHistoryStore(fightsDb).Append(new FightRecord
         {
-            fights.Append(new FightRecord
-            {
-                StartedAtMs = startedAt,
-                EndedAtMs = startedAt + 10_000,
-                DurationMs = 10_000,
-                NpcName = "rat0",
-                NpcGroup = "rats",
-                Outcome = outcome,
-                YouHits = 3,
-            });
-        }
+            StartedAtMs = startedAt,
+            EndedAtMs = startedAt + 10_000,
+            DurationMs = 10_000,
+            NpcName = "rat0",
+            NpcGroup = "rats",
+            Outcome = outcome,
+            YouHits = 3,
+        });
+        fightsDb.Dispose();
 
-        var reloaded = new SwingLedger(DbPath);
+        var reloadedDb = new MuckaStore(DbPath, "test");
+        var reloaded = new SwingLedger(reloadedDb);
         try
         {
             await reloaded.WarmDamageIndexAsync();
@@ -295,7 +299,7 @@ public sealed class StaminaReadLedgerTests : IDisposable
         }
         finally
         {
-            reloaded.Dispose();
+            reloadedDb.Dispose();
         }
     }
 
@@ -313,7 +317,8 @@ public sealed class StaminaReadLedgerTests : IDisposable
             session.Reads();
         }
 
-        var reloaded = new SwingLedger(DbPath);
+        var reloadedDb = new MuckaStore(DbPath, "test");
+        var reloaded = new SwingLedger(reloadedDb);
         try
         {
             await reloaded.WarmDamageIndexAsync();
@@ -328,14 +333,15 @@ public sealed class StaminaReadLedgerTests : IDisposable
         }
         finally
         {
-            reloaded.Dispose();
+            reloadedDb.Dispose();
         }
     }
 
     [Fact]
     public async Task WarmingAnEmptyDatabaseLeavesTheIndexesEmptyRatherThanThrowing()
     {
-        var ledger = new SwingLedger(DbPath);
+        var ledgerDb = new MuckaStore(DbPath, "test");
+        var ledger = new SwingLedger(ledgerDb);
         try
         {
             await ledger.WarmDamageIndexAsync();
@@ -344,7 +350,7 @@ public sealed class StaminaReadLedgerTests : IDisposable
         }
         finally
         {
-            ledger.Dispose();
+            ledgerDb.Dispose();
         }
     }
 }

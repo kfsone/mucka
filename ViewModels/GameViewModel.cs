@@ -87,7 +87,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private string _dreamword = string.Empty;
     private bool _isConnected = true;
     private bool _fkeysVisible;
-    private bool _isCapturing;
     private int _maxColumns;
     private int _effCols = 80;
     private double _widthDp;
@@ -123,7 +122,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     // The global wire-log switch, carried through so the settings dialog round-trips it instead of
     // saving its C# default back over the player's choice. Nothing in this class acts on it: the log
     // is started at connect time (ConnectViewModel), so a change here takes effect next session.
-    private bool _logWireSession;
     private SoundSettings _sounds = new();
     private bool _settingsPerProfile;
     private bool _fkeysPerProfile;
@@ -224,7 +222,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
 
     /// <summary>Command-box placeholder - swaps to a "chat" cue while the chat filter is on.</summary>
     public string InputPlaceholder => _chatMode ? "chat..." : "enter command...";
-    public bool IsCapturing { get => _isCapturing; private set => Set(ref _isCapturing, value); }
     public int MaxColumns => _maxColumns;
     public int EffCols => _effCols;
     public bool KeepScreenOn => _keepScreenOn;
@@ -243,14 +240,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public bool MuteBeepSession     { get => _muteBeepSession;     set => _muteBeepSession = value; }
     public bool MuteBeepPermanently => _muteBeepPermanently;
 
-    /// <summary>Advanced feature: session recording is available on all builds/platforms.</summary>
-    public bool IsCaptureFacilityAvailable { get; } = true;
-
     public bool IsInGameMode => _inGameMode;
-
-    /// <summary>True when the capture button should be shown - an advanced feature, only surfaced once in game.</summary>
-    public bool IsRecordingButtonVisible =>
-        IsCaptureFacilityAvailable && _inGameMode;
 
     // Value-only strings (no label prefix) for FormattedString spans in the status bar.
     // Current and "/max" are separate spans so the max half renders one font point smaller.
@@ -545,7 +535,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         FloatOnline      = _floatOnline,
         FloatCompass     = _floatCompass,
         ShowCombatRail   = SidePanel.IsCombatPanelVisible,
-        LogWireSession   = _logWireSession,
     };
 
     public ICommand SendCommand { get; }
@@ -555,7 +544,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public ICommand HistoryUpCommand { get; }
     public ICommand HistoryDownCommand { get; }
     public ICommand ToggleFkeysCommand { get; }
-    public ICommand ToggleCaptureCommand { get; }
     public ICommand ConfigCommand { get; }
     /// <summary>Toggles the chat-view filter (latching). GamePage rebuilds the terminal on <see cref="ChatModeChanged"/>.</summary>
     public ICommand ToggleChatModeCommand { get; }
@@ -599,7 +587,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _conn = conn;
         _saveSettingsAsync = saveSettingsAsync;
         _persistCombatRailVisibilityAsync = persistCombatRailVisibilityAsync;
-        IsCapturing = _conn.IsCapturing;
         _profileName = profile.Name;
         _guidedLoginEnabled = profile.GuidedLogin;
         _profileHost = profile.Host;
@@ -619,7 +606,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _muteBeepSession     = profile.MuteBeepPermanently;
         _logResetDiagnostics = profile.LogResetDiagnostics;
         _conn.LogResetDiagnostics = _logResetDiagnostics;
-        _logWireSession      = profile.LogWireSession;
         _settingsPerProfile  = profile.SettingsPerProfile;
         _fkeysPerProfile     = profile.FkeysPerProfile;
         _sounds              = profile.Sounds;
@@ -698,7 +684,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         HistoryUpCommand      = new Command(HistoryUp);
         HistoryDownCommand    = new Command(HistoryDown);
         ToggleFkeysCommand    = new Command(() => { FkeysVisible = !FkeysVisible; RequestFocus?.Invoke(); });
-        ToggleCaptureCommand  = new Command(ToggleCapture);
         ConfigCommand         = new Command(() => ConfigRequested?.Invoke());
         ToggleChatModeCommand = new Command(() => SetChatMode(!ChatMode));
     }
@@ -740,7 +725,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         // Stored, not acted on: the wire log is started at connect time, so flipping it here takes
         // effect on the next connection. Not applied live on purpose - starting a log mid-session
         // would produce a recording that silently begins in the middle of a conversation.
-        _logWireSession      = settings.LogWireSession;
         _settingsPerProfile  = settings.SettingsPerProfile;
         _fkeysPerProfile     = settings.FkeysPerProfile;
         _sounds              = settings.Sounds;
@@ -905,7 +889,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             Interlocked.Exchange(ref _autoResetInitiatedTicks, 0);
             ClearRecentLines();
             _lastSentUtc = DateTime.UtcNow;
-            OnPropertiesChanged(nameof(IsInGameMode), nameof(IsRecordingButtonVisible));
+            OnPropertyChanged(nameof(IsInGameMode));
         });
 
     private void OnGameModeExited()
@@ -933,7 +917,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             _currentChar = null;
             _baseScore   = -1;
             ClearResetProjection();   // no live world once back at the option menu
-            OnPropertiesChanged(nameof(IsInGameMode), nameof(IsRecordingButtonVisible),
+            OnPropertiesChanged(nameof(IsInGameMode),
                 nameof(WindowTitle),
                 nameof(ScoreDeltaValue), nameof(ScoreDisplayValue), nameof(ScoreColor),
                 nameof(TtrText), nameof(TtrVisible), nameof(TtrTooltip), nameof(AnyRightStatVisible));
@@ -1244,7 +1228,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _sessionAliases.Clear();
         IsConnected = false;
         ClearResetProjection();   // stop the countdown; a stale target would keep ticking down
-        OnPropertiesChanged(nameof(IsInGameMode), nameof(IsRecordingButtonVisible),
+        OnPropertiesChanged(nameof(IsInGameMode),
             nameof(TtrText), nameof(TtrVisible), nameof(TtrTooltip), nameof(AnyRightStatVisible));
         _personaInvalidated = false;
         _deliberateQuit = false;
@@ -1832,30 +1816,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         InputText = _history[_historyIndex];
     }
 
-    private void ToggleCapture()
-    {
-        if (_conn.IsCapturing)
-        {
-            var path = _conn.CaptureFilePath;
-            _conn.StopCapture();
-            IsCapturing = false;
-            AddSystemLine($"Capture stopped. File: {path}", 14);
-        }
-        else
-        {
-            if (_conn.TryStartCapture(null, out var error))
-            {
-                IsCapturing = true;
-                AddSystemLine($"Capture started. File: {_conn.CaptureFilePath}", 10);
-            }
-            else
-            {
-                AddSystemLine($"Capture failed: {error}", 9);
-            }
-        }
-        RequestFocus?.Invoke();
-    }
-
     private static string ScoreDeltaStr(int delta) =>
         delta >= 0 ? $"+{delta}" : $"{delta}";
 
@@ -2015,19 +1975,19 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _conn.FexItemReady     += SidePanel.OnFexItemReady;
         _conn.FexListComplete  += SidePanel.OnFexListComplete;
 
-        // The wire log is switched on once and then trusted for months, so its failures have to be
+        // The store is switched on once and then trusted for months, so its failures have to be
         // somewhere the owner will actually pass by - the crash log is not. Same treatment as
-        // InputGate.Faulted above, and for the same reason. WireLogFailure is drained as well as
+        // InputGate.Faulted above, and for the same reason. StoreFailure is drained as well as
         // subscribed because a failure to OPEN the database happens on the connect page, before this
         // view model exists; OnLineReady queues into _pendingLines, so a line emitted here survives
         // until the terminal attaches.
-        _conn.WireLogFailed += OnWireLogFailed;
-        if (_conn.WireLogFailure is { Length: > 0 } wireLogFailure)
-            OnWireLogFailed(wireLogFailure);
+        _conn.StoreFailed += OnStoreFailed;
+        if (_conn.StoreFailure is { Length: > 0 } storeFailure)
+            OnStoreFailed(storeFailure);
     }
 
-    private void OnWireLogFailed(string message)
-        => AddSystemLine($"[wire log] stopped recording this session: {message}", 12);
+    private void OnStoreFailed(string message)
+        => AddSystemLine($"[store] stopped recording this session: {message}", 12);
 
     private void UnsubscribeConnectionEvents()
     {
@@ -2067,7 +2027,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _conn.FexListStarting  -= SidePanel.OnFexListStarting;
         _conn.FexItemReady     -= SidePanel.OnFexItemReady;
         _conn.FexListComplete  -= SidePanel.OnFexListComplete;
-        _conn.WireLogFailed    -= OnWireLogFailed;
+        _conn.StoreFailed      -= OnStoreFailed;
     }
 
     public async ValueTask DisposeAsync()

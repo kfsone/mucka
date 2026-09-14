@@ -1,10 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <!-- The client's combat record and the combat panel's model: the combat database, swing ledger,
-       fight history store and recorder, clog writer, tick timing, the aggregator and its contracts,
-       the ledgers, the rail's slot geometry, floats and window arithmetic, and Blink. Built on
-       mudsharp's combat model; no MAUI, so all of it is tested from Mucka.Util.Tests and readable
-       by an offline analysis tool. -->
+  <!-- The client's combat record and the combat panel's model: the swing ledger, fight history store
+       and recorder, the encounter-log writer, tick timing, the aggregator and its contracts, the
+       ledgers, the rail's slot geometry, floats and window arithmetic, and Blink. Built on mudsharp's
+       combat model and writing through Mucka.Store; no MAUI, so all of it is tested from
+       Mucka.Util.Tests and readable by an offline analysis tool. -->
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -24,7 +24,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\mudsharp\mudsharp.csproj" />
-    <ProjectReference Include="..\Mucka.WireLog\Mucka.WireLog.csproj" />
+    <ProjectReference Include="..\Mucka.Store\Mucka.Store.csproj" />
   </ItemGroup>
 
 </Project>

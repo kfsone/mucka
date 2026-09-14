@@ -1,6 +1,7 @@
 using MudSharp.Combat;
 using MudSharp.Models;
 using Mucka.Combat;
+using Mucka.Store;
 
 namespace Mucka.Util.Tests;
 
@@ -13,11 +14,21 @@ public sealed class FightHistoryRecorderTests : IDisposable
     private readonly string _directory =
         Path.Combine(Path.GetTempPath(), "mucka-fighthistoryrecorder-tests", Guid.NewGuid().ToString("N"));
 
+    // Every FightHistoryStore here writes through a MuckaStore the fixture owns and drains at the end
+    // of the test. These tests all assert against the in-memory snapshot, so nothing depends on the
+    // drain having happened - see FightHistoryStoreTests for the ones that read the table back.
+    private readonly List<MuckaStore> _db = [];
+
     private FightHistoryStore MakeStore()
-        => new(Path.Combine(_directory, CombatDb.DefaultFileName));
+    {
+        var db = new MuckaStore(Path.Combine(_directory, MuckaDb.DefaultFileName), "test");
+        _db.Add(db);
+        return new FightHistoryStore(db);
+    }
 
     public void Dispose()
     {
+        foreach (var db in _db) db.Dispose();
         try { Directory.Delete(_directory, recursive: true); } catch { /* best-effort cleanup */ }
     }
 
@@ -38,7 +49,7 @@ public sealed class FightHistoryRecorderTests : IDisposable
     [Fact]
     public void FlushedRecord_CarriesTheIdentifiedCharacterName()
     {
-        using var store = MakeStore();
+        var store = MakeStore();
         var recorder = new FightHistoryRecorder(store);
 
         recorder.OnCharacterIdentified("Ollie");
@@ -66,7 +77,7 @@ public sealed class FightHistoryRecorderTests : IDisposable
     [InlineData(CombatEventKind.FightEndOther, FightOutcome.EndOther)]
     public void FlushedRecord_PersistsTheNewFightEnds(CombatEventKind kind, FightOutcome expected)
     {
-        using var store = MakeStore();
+        var store = MakeStore();
         var recorder = new FightHistoryRecorder(store);
 
         recorder.OnInCombatChanged(true);
@@ -84,7 +95,7 @@ public sealed class FightHistoryRecorderTests : IDisposable
     [Fact]
     public void FlushedRecord_UnnamedFightEndStaysUnresolved()
     {
-        using var store = MakeStore();
+        var store = MakeStore();
         var recorder = new FightHistoryRecorder(store);
 
         recorder.OnInCombatChanged(true);
@@ -110,7 +121,7 @@ public sealed class FightHistoryRecorderTests : IDisposable
     [Fact]
     public void TrailingFightEndAfterTheEncounterClosed_WritesNoSecondRow()
     {
-        using var store = MakeStore();
+        var store = MakeStore();
         var recorder = new FightHistoryRecorder(store);
 
         recorder.OnInCombatChanged(true);
@@ -131,7 +142,7 @@ public sealed class FightHistoryRecorderTests : IDisposable
     [Fact]
     public void FlushedRecords_InAPackFight_ShareTheSameEncounterId()
     {
-        using var store = MakeStore();
+        var store = MakeStore();
         var recorder = new FightHistoryRecorder(store);
 
         recorder.OnInCombatChanged(true);
@@ -150,7 +161,7 @@ public sealed class FightHistoryRecorderTests : IDisposable
     [Fact]
     public void FlushedRecords_AcrossTwoEncounters_HaveDifferentEncounterIds()
     {
-        using var store = MakeStore();
+        var store = MakeStore();
         var recorder = new FightHistoryRecorder(store);
 
         recorder.OnInCombatChanged(true);
@@ -184,7 +195,7 @@ public sealed class FightHistoryRecorderTests : IDisposable
         // flushes it) the instant the first rat dies, BEFORE the second rat's own encounter opens, so
         // the second fight's WeaponUsed must come up empty rather than inheriting the first fight's
         // dagger.
-        using var store = MakeStore();
+        var store = MakeStore();
         var recorder = new FightHistoryRecorder(store);
 
         recorder.OnInCombatChanged(true);
@@ -209,7 +220,7 @@ public sealed class FightHistoryRecorderTests : IDisposable
     [Fact]
     public void FlushedRecord_TracksMinimumAndEndOfFightStamina()
     {
-        using var store = MakeStore();
+        var store = MakeStore();
         var recorder = new FightHistoryRecorder(store);
 
         recorder.OnInCombatChanged(true);
@@ -232,7 +243,7 @@ public sealed class FightHistoryRecorderTests : IDisposable
         // Honesty rule (mirrors Room/Weather): once a fight has resolved, its StaminaAtEnd must not
         // keep drifting from readings that arrived AFTER it closed but before the whole encounter
         // did (e.g. a second NPC still fighting in the same pack).
-        using var store = MakeStore();
+        var store = MakeStore();
         var recorder = new FightHistoryRecorder(store);
 
         recorder.OnInCombatChanged(true);
@@ -258,7 +269,7 @@ public sealed class FightHistoryRecorderTests : IDisposable
     {
         // A one-sided kill that never triggers an inline "(cur/max)" line or a FES heartbeat before
         // resolving must still get a min/end reading from whatever was already known.
-        using var store = MakeStore();
+        var store = MakeStore();
         var recorder = new FightHistoryRecorder(store);
 
         recorder.OnStatsUpdated(new GameStatsSnapshot(Stamina: 88));   // known before combat starts
@@ -280,7 +291,7 @@ public sealed class FightHistoryRecorderTests : IDisposable
     [Fact]
     public void FlushedRecord_TracksScoreAtStartAndEnd()
     {
-        using var store = MakeStore();
+        var store = MakeStore();
         var recorder = new FightHistoryRecorder(store);
 
         Saved(recorder, 26_000);
@@ -302,7 +313,7 @@ public sealed class FightHistoryRecorderTests : IDisposable
     [Fact]
     public void FlushedRecord_UsesTheEncounterIdItWasGiven()
     {
-        using var store = MakeStore();
+        var store = MakeStore();
         var recorder = new FightHistoryRecorder(store);
         const long encounterId = 1_786_800_000_000;
 
@@ -329,7 +340,7 @@ public sealed class FightHistoryRecorderTests : IDisposable
     [Fact]
     public void ReEngagingAClosedFight_PersistsTwoRows_NotOneCorruptedOne()
     {
-        using var store = MakeStore();
+        var store = MakeStore();
         var recorder = new FightHistoryRecorder(store);
 
         recorder.OnInCombatChanged(true);
@@ -362,7 +373,7 @@ public sealed class FightHistoryRecorderTests : IDisposable
     {
         // The guard keys on the bucket being CLOSED, not on the event kind, so nothing about an ordinary
         // fight is split.
-        using var store = MakeStore();
+        var store = MakeStore();
         var recorder = new FightHistoryRecorder(store);
 
         recorder.OnInCombatChanged(true);
@@ -382,7 +393,7 @@ public sealed class FightHistoryRecorderTests : IDisposable
     {
         // ResolveFight keeps the whatever-state lookup for exactly this reason. MUD2 stacks several end
         // messages and one can land after another has closed the fight.
-        using var store = MakeStore();
+        var store = MakeStore();
         var recorder = new FightHistoryRecorder(store);
 
         recorder.OnInCombatChanged(true);
@@ -409,7 +420,7 @@ public sealed class FightHistoryRecorderTests : IDisposable
     [Fact]
     public void TheKillAfterAFailedFlee_RecordsWhenTheEngagementBeforeItEnded()
     {
-        using var store = MakeStore();
+        var store = MakeStore();
         var recorder = new FightHistoryRecorder(store);
 
         recorder.OnInCombatChanged(true);
@@ -443,7 +454,7 @@ public sealed class FightHistoryRecorderTests : IDisposable
     [Fact]
     public void TheKillAfterAChaseIntoTheNextEncounter_StillRecordsTheEngagementBeforeIt()
     {
-        using var store = MakeStore();
+        var store = MakeStore();
         var recorder = new FightHistoryRecorder(store);
 
         recorder.OnInCombatChanged(true, 1_786_850_304_235);
@@ -473,7 +484,7 @@ public sealed class FightHistoryRecorderTests : IDisposable
     [Fact]
     public void AGenuineOneHitKill_CarriesNoPredecessor()
     {
-        using var store = MakeStore();
+        var store = MakeStore();
         var recorder = new FightHistoryRecorder(store);
 
         recorder.OnInCombatChanged(true);
@@ -499,7 +510,7 @@ public sealed class FightHistoryRecorderTests : IDisposable
     [Fact]
     public void AnFesHeartbeatsScore_DoesNotReachTheRow()
     {
-        using var store = MakeStore();
+        var store = MakeStore();
         var recorder = new FightHistoryRecorder(store);
 
         recorder.OnInCombatChanged(true);
@@ -523,7 +534,7 @@ public sealed class FightHistoryRecorderTests : IDisposable
     [Fact]
     public void AKillsOwnAward_ArrivesAfterTheRowIsWritten_AndIsNotInIt()
     {
-        using var store = MakeStore();
+        var store = MakeStore();
         var recorder = new FightHistoryRecorder(store);
 
         Saved(recorder, 85_291);

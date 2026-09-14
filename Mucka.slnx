@@ -3,6 +3,7 @@
   <Project Path="Mucka.Input/Mucka.Input.csproj" />
   <Project Path="Mucka.Terminal/Mucka.Terminal.csproj" />
   <Project Path="Mucka.Terminal.Tests/Mucka.Terminal.Tests.csproj" />
+  <Project Path="Mucka.Util/Mucka.Store/Mucka.Store.csproj" />
   <Project Path="Mucka.Util/Mucka.WireLog/Mucka.WireLog.csproj" />
   <Project Path="Mucka.Util/Mucka.Combat/Mucka.Combat.csproj" />
   <Project Path="Mucka.Util/Mucka.Commands/Mucka.Commands.csproj" />

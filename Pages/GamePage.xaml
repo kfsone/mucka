@@ -166,44 +166,6 @@
                     <!-- Spacer -->
                     <BoxView Grid.Column="11" Color="Transparent"/>
 
-                    <!-- Rec capture indicator - Border+tap avoids WinUI's minimum button height.
-                         Hollow chip when idle; red dot + lit text while capturing. -->
-                    <Border Grid.Column="12"
-                            x:Name="RecChip"
-                            IsVisible="{Binding IsRecordingButtonVisible}"
-                            BackgroundColor="Transparent"
-                            Stroke="#2d333b" StrokeThickness="1"
-                            Padding="5,1" Margin="0,0,4,0"
-                            VerticalOptions="Center"
-                            SemanticProperties.Description="Toggle capture"
-                            SemanticProperties.Hint="Starts or stops capture">
-                        <ToolTipProperties.Text>Toggle capture</ToolTipProperties.Text>
-                        <Border.StrokeShape><RoundRectangle CornerRadius="3"/></Border.StrokeShape>
-                        <Border.GestureRecognizers>
-                            <TapGestureRecognizer Command="{Binding ToggleCaptureCommand}"/>
-                        </Border.GestureRecognizers>
-                        <Border.Triggers>
-                            <DataTrigger TargetType="Border" Binding="{Binding IsCapturing}" Value="True">
-                                <Setter Property="Stroke" Value="#c02020"/>
-                            </DataTrigger>
-                        </Border.Triggers>
-                        <HorizontalStackLayout Spacing="3">
-                            <Label Text="&#x25CF;" FontSize="9" TextColor="#E74856"
-                                   IsVisible="{Binding IsCapturing}"
-                                   VerticalOptions="Center"/>
-                            <Label Text="rec" FontSize="10" HorizontalOptions="Center" VerticalOptions="Center">
-                                <Label.Triggers>
-                                    <DataTrigger TargetType="Label" Binding="{Binding IsCapturing}" Value="True">
-                                        <Setter Property="TextColor" Value="White"/>
-                                    </DataTrigger>
-                                    <DataTrigger TargetType="Label" Binding="{Binding IsCapturing}" Value="False">
-                                        <Setter Property="TextColor" Value="#666666"/>
-                                    </DataTrigger>
-                                </Label.Triggers>
-                            </Label>
-                        </HorizontalStackLayout>
-                    </Border>
-
                     <!-- Separator before weather/TTR group -->
                     <Label Grid.Column="14" Text="|"
                            Style="{StaticResource StatLabelStyle}" TextColor="#444444"

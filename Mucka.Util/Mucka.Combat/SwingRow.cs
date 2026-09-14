@@ -1,12 +1,13 @@
 using MudSharp.Combat;
 using MudSharp.Models;
+using Mucka.Store;
 
 namespace Mucka.Combat;
 
 /// <summary>
-/// One swing, either direction, as stored in the <c>swings</c> table (see <see cref="CombatDb"/>).
-/// Property names map one-to-one onto columns; the table is the schema of record now, so adding a
-/// property means adding a column - see CombatDb.ApplySchema on how schema changes are made.
+/// One swing, either direction, as stored in the <c>swings</c> table (see <see cref="MuckaDb"/>).
+/// Property names map one-to-one onto columns; the table is the schema of record, so adding a
+/// property means adding a column - see MuckaDb on how schema changes are made.
 ///
 /// <para><b>Everything knowable is recorded, not just what today's reader wants.</b> That is not
 /// hoarding: MUD2's creatures level up within a reset, take buffs and debuffs, get drunk, and respond
@@ -23,18 +24,11 @@ namespace Mucka.Combat;
 /// invented it.</para>
 /// </summary>
 /// <summary>
-/// A row this ledger can write. Three shapes go down the one queue - the per-swing stream, the rare
-/// <c>diagnose</c> reading and the score announcements - and one ordered channel is what keeps them on
-/// a single writer thread and a single connection. See <see cref="SwingLedger"/>.
-/// </summary>
-public interface ICombatLedgerRow;
-
-/// <summary>
 /// One <c>(Persona saved on +38 = 19,214).</c> line, as stored in the <c>score_events</c> table. See
 /// <see cref="MudSharp.Models.ScoreSave"/> for the three forms the game prints, and the table's own
-/// comment in <see cref="CombatDb"/> for why this is a row rather than a column on a swing.
+/// comment in <see cref="MuckaDb"/> for why this is a row rather than a column on a swing.
 /// </summary>
-public sealed record ScoreEventRow : ICombatLedgerRow
+public sealed record ScoreEventRow : IStoreRow
 {
     public long TimestampMs { get; init; }
 
@@ -63,6 +57,28 @@ public sealed record ScoreEventRow : ICombatLedgerRow
     /// <summary>The line verbatim, so a later pass can re-read the wording instead of trusting this
     /// row's parse.</summary>
     public string? RawText { get; init; }
+
+    private const string Sql = """
+        INSERT INTO score_events (
+            ts, encounter_started_at_ms, encounter_open, persona, delta, total, after_task_line, raw_text
+        ) VALUES (
+            $ts, $encounter, $encounter_open, $persona, $delta, $total, $after_task_line, $raw_text
+        );
+        """;
+
+    public void Write(StoreWrite write)
+    {
+        var command = write.Prepared(Sql);
+        command.Parameters.AddWithValue("$ts", TimestampMs);
+        command.Parameters.AddWithValue("$encounter", StoreWrite.Value(EncounterStartedAtMs));
+        command.Parameters.AddWithValue("$encounter_open", EncounterOpen ? 1 : 0);
+        command.Parameters.AddWithValue("$persona", StoreWrite.Value(Persona));
+        command.Parameters.AddWithValue("$delta", StoreWrite.Value(Delta));
+        command.Parameters.AddWithValue("$total", Total);
+        command.Parameters.AddWithValue("$after_task_line", AfterTaskLine ? 1 : 0);
+        command.Parameters.AddWithValue("$raw_text", StoreWrite.Value(RawText));
+        command.ExecuteNonQuery();
+    }
 }
 
 /// <summary>
@@ -73,7 +89,7 @@ public sealed record ScoreEventRow : ICombatLedgerRow
 /// a tenth of the pool, or to something else is unresolved at four observations, and snapping them to
 /// an assumed grid would turn those four into a rule.</para>
 /// </summary>
-public sealed record NpcStaminaReadRow : ICombatLedgerRow
+public sealed record NpcStaminaReadRow : IStoreRow
 {
     public long TimestampMs { get; init; }
     public long? EncounterStartedAtMs { get; init; }
@@ -94,9 +110,34 @@ public sealed record NpcStaminaReadRow : ICombatLedgerRow
     /// <summary>The line verbatim, so a later pass can re-read the wording instead of trusting this
     /// row's parse.</summary>
     public string? RawText { get; init; }
+
+    private const string Sql = """
+        INSERT INTO npc_stamina_reads (
+            ts, encounter_started_at_ms, persona, npc, npc_group, pool_key,
+            printed_low, printed_high, raw_text
+        ) VALUES (
+            $ts, $encounter, $persona, $npc, $npc_group, $pool_key,
+            $printed_low, $printed_high, $raw_text
+        );
+        """;
+
+    public void Write(StoreWrite write)
+    {
+        var command = write.Prepared(Sql);
+        command.Parameters.AddWithValue("$ts", TimestampMs);
+        command.Parameters.AddWithValue("$encounter", StoreWrite.Value(EncounterStartedAtMs));
+        command.Parameters.AddWithValue("$persona", StoreWrite.Value(Persona));
+        command.Parameters.AddWithValue("$npc", NpcName);
+        command.Parameters.AddWithValue("$npc_group", NpcGroup);
+        command.Parameters.AddWithValue("$pool_key", PoolKey);
+        command.Parameters.AddWithValue("$printed_low", PrintedLow);
+        command.Parameters.AddWithValue("$printed_high", PrintedHigh);
+        command.Parameters.AddWithValue("$raw_text", StoreWrite.Value(RawText));
+        command.ExecuteNonQuery();
+    }
 }
 
-public sealed record SwingRow : ICombatLedgerRow
+public sealed record SwingRow : IStoreRow
 {
     /// <summary>"out" - the player swinging.</summary>
     public const string DirectionOut = "out";
@@ -246,4 +287,75 @@ public sealed record SwingRow : ICombatLedgerRow
     /// was available - see <see cref="SwingLedger"/>'s stamina relay, which exists because the naive
     /// delta computes to zero every time.</summary>
     public int? Damage { get; init; }
+
+    private const string Sql = """
+        INSERT INTO swings (
+            ts, dir, encounter_started_at_ms, persona, sex,
+            sta, sta_before, sta_max,
+            str, str_raw, str_max, dex, dex_raw, dex_max,
+            level, score, objects_carried, weather,
+            blind, deaf, crippled, dumb,
+            str_buff, str_debuff, dex_buff, dex_debuff, sta_buff, sta_debuff, glow,
+            time_to_reset, reset_epoch_ms,
+            npc, npc_group, npc_weapon, rung, rung_phrase,
+            weapon, hit, dmg_low, dmg_high, dmg
+        ) VALUES (
+            $ts, $dir, $encounter, $persona, $sex,
+            $sta, $sta_before, $sta_max,
+            $str, $str_raw, $str_max, $dex, $dex_raw, $dex_max,
+            $level, $score, $objects, $weather,
+            $blind, $deaf, $crippled, $dumb,
+            $str_buff, $str_debuff, $dex_buff, $dex_debuff, $sta_buff, $sta_debuff, $glow,
+            $ttr, $reset_epoch,
+            $npc, $npc_group, $npc_weapon, $rung, $rung_phrase,
+            $weapon, $hit, $dmg_low, $dmg_high, $dmg
+        );
+        """;
+
+    public void Write(StoreWrite write)
+    {
+        var command = write.Prepared(Sql);
+        command.Parameters.AddWithValue("$ts", TimestampMs);
+        command.Parameters.AddWithValue("$dir", Direction);
+        command.Parameters.AddWithValue("$encounter", StoreWrite.Value(EncounterStartedAtMs));
+        command.Parameters.AddWithValue("$persona", StoreWrite.Value(Persona));
+        command.Parameters.AddWithValue("$sex", StoreWrite.Value(Sex));
+        command.Parameters.AddWithValue("$sta", StoreWrite.Value(Stamina));
+        command.Parameters.AddWithValue("$sta_before", StoreWrite.Value(StaminaBefore));
+        command.Parameters.AddWithValue("$sta_max", StoreWrite.Value(MaxStamina));
+        command.Parameters.AddWithValue("$str", StoreWrite.Value(Strength));
+        command.Parameters.AddWithValue("$str_raw", StoreWrite.Value(RawStrength));
+        command.Parameters.AddWithValue("$str_max", StoreWrite.Value(MaxStrength));
+        command.Parameters.AddWithValue("$dex", StoreWrite.Value(Dexterity));
+        command.Parameters.AddWithValue("$dex_raw", StoreWrite.Value(RawDexterity));
+        command.Parameters.AddWithValue("$dex_max", StoreWrite.Value(MaxDexterity));
+        command.Parameters.AddWithValue("$level", StoreWrite.Value(Level));
+        command.Parameters.AddWithValue("$score", StoreWrite.Value(Score));
+        command.Parameters.AddWithValue("$objects", StoreWrite.Value(ObjectsCarried));
+        command.Parameters.AddWithValue("$weather", StoreWrite.Value(Weather));
+        command.Parameters.AddWithValue("$blind", IsBlind ? 1 : 0);
+        command.Parameters.AddWithValue("$deaf", IsDeaf ? 1 : 0);
+        command.Parameters.AddWithValue("$crippled", IsCrippled ? 1 : 0);
+        command.Parameters.AddWithValue("$dumb", IsDumb ? 1 : 0);
+        command.Parameters.AddWithValue("$str_buff", StrengthBuff ? 1 : 0);
+        command.Parameters.AddWithValue("$str_debuff", StrengthDebuff ? 1 : 0);
+        command.Parameters.AddWithValue("$dex_buff", DexterityBuff ? 1 : 0);
+        command.Parameters.AddWithValue("$dex_debuff", DexterityDebuff ? 1 : 0);
+        command.Parameters.AddWithValue("$sta_buff", StaminaBuff ? 1 : 0);
+        command.Parameters.AddWithValue("$sta_debuff", StaminaDebuff ? 1 : 0);
+        command.Parameters.AddWithValue("$glow", Glow ? 1 : 0);
+        command.Parameters.AddWithValue("$ttr", StoreWrite.Value(TimeToReset));
+        command.Parameters.AddWithValue("$reset_epoch", StoreWrite.Value(ResetEpochMs));
+        command.Parameters.AddWithValue("$npc", StoreWrite.Value(NpcName));
+        command.Parameters.AddWithValue("$npc_group", NpcGroup);
+        command.Parameters.AddWithValue("$npc_weapon", StoreWrite.Value(NpcWeapon));
+        command.Parameters.AddWithValue("$rung", StoreWrite.Value(HealthRung));
+        command.Parameters.AddWithValue("$rung_phrase", StoreWrite.Value(HealthPhrase));
+        command.Parameters.AddWithValue("$weapon", StoreWrite.Value(Weapon));
+        command.Parameters.AddWithValue("$hit", Hit ? 1 : 0);
+        command.Parameters.AddWithValue("$dmg_low", StoreWrite.Value(DamageLow));
+        command.Parameters.AddWithValue("$dmg_high", StoreWrite.Value(DamageHigh));
+        command.Parameters.AddWithValue("$dmg", StoreWrite.Value(Damage));
+        command.ExecuteNonQuery();
+    }
 }

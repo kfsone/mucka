@@ -5,13 +5,15 @@ using System.Net.Sockets;
 using System.Text;
 using System.Threading.Channels;
 using Mucka.Combat;
+using Mucka.Store;
 using Mucka.WireLog;
 
 namespace Mucka.Core;
 
 /// <summary>
-/// Mucka's TCP connection layer. Owns the socket and read loop, wraps MudSession,
-/// and intercepts raw RX/TX bytes before they reach the parser for optional session capture.
+/// Mucka's TCP connection layer. Owns the socket and read loop, wraps MudSession, and taps raw RX/TX
+/// bytes into the always-on wire log before they reach the parser. Also the single owner of
+/// <see cref="MuckaStore"/> and of every writer that feeds it - see docs/persistence-design.md.
 ///
 /// THREADING:
 /// - ConnectAsync/DisconnectAsync are called from any thread.
@@ -39,18 +41,16 @@ public sealed class MuckaConnection : IAsyncDisposable
     // fires normally.
     private volatile bool _deliberateDisconnect;
 
-    private readonly SessionCapture _capture = new();
-    private readonly ClogWriter _clog = new(ClogPaths.GetClogDirectory());
-    // Both write into the SAME database file (see CombatDb), each owning its own table and its own
-    // background write connection. One file, so the analysis view can join a swing to the fight it
-    // belonged to; separate connections, so neither writer can ever be blocked by the other.
-    private static readonly string CombatDbPath =
-        Path.Combine(ClogPaths.GetCombatDirectory(), CombatDb.DefaultFileName);
-
-    private readonly FightHistoryStore _fightHistory = new(CombatDbPath, CrashLog.Write);
+    // The one store, for the life of this connection - see docs/persistence-design.md. Every writer
+    // below hands it rows; it owns the only write connection and the single background task that
+    // drains them. A store that could not be opened reports the failure and then accepts nothing,
+    // so nothing here has to check.
+    private readonly MuckaStore _store;
+    private readonly WireLogWriter _wireLog;
+    private readonly ClogWriter _clog;
+    private readonly FightHistoryStore _fightHistory;
     private readonly FightHistoryRecorder _fightRecorder;
-    // Always on, like the fight history and unlike clogging - see SwingLedger's remarks.
-    private readonly SwingLedger _swingLedger = new(CombatDbPath, CrashLog.Write);
+    private readonly SwingLedger _swingLedger;
 
     // -- Public events (forwarded from MudSession) -----------------------------
     public event Action<StyledLine>? LineReady;
@@ -154,39 +154,35 @@ public sealed class MuckaConnection : IAsyncDisposable
     public bool IsConnected => _client?.Connected ?? false;
     public bool InGameMode => _session.InGameMode;
 
-    /// <summary>True when the manual JSONL file capture is running - what the capture button shows.
-    /// Deliberately NOT "anything is recording": the always-on wire log must not make the button
-    /// read as armed, nor the button's Stop switch the wire log off.</summary>
-    public bool IsCapturing => _capture.IsFileRecording;
-    public string? CaptureFilePath => _capture.FilePath;
-    /// <summary>Path of the wire-log database when the global setting turned it on, else null.</summary>
-    public string? WireLogPath => _capture.DatabasePath;
+    /// <summary>Where the store is writing - shown to the player.</summary>
+    public string DatabasePath => _store.Path;
 
     /// <summary>
-    /// Raised when the wire log fails - at start, or later if its writer dies. The crash log is not a
-    /// place the owner ever looks, and this is a feature switched on once and then trusted forever, so
-    /// its failures go to the terminal like every other client-side fault (see GameViewModel's handling
-    /// of <c>InputGate.Faulted</c>, which exists for the same reason).
+    /// Raised when the store fails - at open, or later if its writer dies. The crash log is not a
+    /// place the owner ever looks, and this is a store that is switched on once and then trusted
+    /// forever, so its failures go to the terminal like every other client-side fault (see
+    /// GameViewModel's handling of <c>InputGate.Faulted</c>, which exists for the same reason).
     /// </summary>
-    public event Action<string>? WireLogFailed;
+    public event Action<string>? StoreFailed;
 
-    /// <summary>The wire log's last failure, or null. Held as well as raised so a failure that happens
+    /// <summary>The store's last failure, or null. Held as well as raised so a failure that happens
     /// during connect - before anything is subscribed - is not lost.</summary>
-    public string? WireLogFailure { get; private set; }
+    public string? StoreFailure { get; private set; }
 
-    private void ReportWireLogFailure(string context, Exception ex)
+    private void ReportStoreFailure(string context, Exception ex)
     {
         CrashLog.Write(context, ex);
-        WireLogFailure = ex.Message;
-        WireLogFailed?.Invoke(ex.Message);
+        StoreFailure = ex.Message;
+        StoreFailed?.Invoke(ex.Message);
     }
-    /// <summary>Write a free-text annotation into the active capture log.</summary>
-    public void Annotate(string message) => _capture.Annotate(message);
+
+    /// <summary>Write a free-text annotation into the wire log.</summary>
+    public void Annotate(string message) => _wireLog.Annotate(message);
 
     public bool InCombat => _session.InCombat;
-    /// <summary>See <see cref="ClogWriter.IsTailOnly"/> - a clog is still draining its tail
-    /// (trailing prose captured up to the next prompt) even though no encounter is actively
-    /// live any more.</summary>
+    /// <summary>See <see cref="ClogWriter.IsTailOnly"/> - an encounter is still draining its tail
+    /// (trailing prose captured up to the next prompt) even though none is actively live any
+    /// more.</summary>
     public bool IsInCombatGracePeriod => _clog.IsTailOnly;
 
     /// <summary>The current merged stats snapshot - see <see cref="MudSharp.Session.MudSession.CurrentStats"/>.
@@ -194,10 +190,9 @@ public sealed class MuckaConnection : IAsyncDisposable
     /// <see cref="StatsUpdated"/> and wait for the next event when a synchronous read will do, since
     /// that races the FES heartbeat's own cadence.</summary>
     public GameStatsSnapshot CurrentStats => _session.CurrentStats;
-    public string? ClogFilePath => _clog.FilePath;
 
     /// <summary>The accumulated per-fight history index, for contrasting the current fight against
-    /// prior ones. Unlike clogging this always records - see FightHistoryRecorder's remarks.</summary>
+    /// prior ones - see FightHistoryRecorder's remarks.</summary>
     public FightHistoryStore FightHistory => _fightHistory;
 
     /// <summary>Loads the fight-history index. Fire-and-forget from startup; must not be awaited on
@@ -227,9 +222,23 @@ public sealed class MuckaConnection : IAsyncDisposable
 
     private int _windowCols;
 
-    public MuckaConnection(string? accountId = null, string? password = null, int maxCols = 80, string loginName = "mud")
+    /// <param name="host">The server this connection is for. Taken here rather than at
+    /// <see cref="ConnectAsync"/> because the store opens with the connection, so the login exchange -
+    /// the part of a session most worth a byte-exact record of - is in the wire log like everything
+    /// else.</param>
+    public MuckaConnection(string? accountId = null, string? password = null, int maxCols = 80,
+        string loginName = "mud", string host = "unknown")
     {
         _windowCols = Math.Clamp(maxCols, 20, 160);
+        _store = new MuckaStore(
+            MuckaPaths.GetDatabasePath(),
+            string.IsNullOrWhiteSpace(host) ? "unknown" : host.Trim(),
+            typeof(MuckaConnection).Assembly.GetName().Version?.ToString(),
+            ReportStoreFailure);
+        _wireLog = new WireLogWriter(_store);
+        _clog = new ClogWriter(_store);
+        _fightHistory = new FightHistoryStore(_store, CrashLog.Write);
+        _swingLedger = new SwingLedger(_store, CrashLog.Write);
         _fightRecorder = new FightHistoryRecorder(_fightHistory);
         _session = new MudSession();
         _session.SetWindowSize(_windowCols, 21);
@@ -320,48 +329,9 @@ public sealed class MuckaConnection : IAsyncDisposable
         // MuckaConnection simply opens a new batch. The read loop's own finally has usually done this
         // already; what is left for here is anything the WRITE loop recorded after it - and the case
         // where a connect attempt failed before the read loop ever started.
-        _capture.Flush();
+        _wireLog.Flush();
         _session.Reset();
         _loginHandler?.Reset();
-    }
-
-    /// <summary>Arms the manual JSONL file capture (the capture button / --record).</summary>
-    public bool TryStartCapture(string? hostOverride, out string? error)
-        => _capture.TryStartFile(ClogPaths.GetCaptureDirectory(), ResolveHost(hostOverride), out error);
-
-    public void StopCapture() => _capture.StopFile();
-
-    /// <summary>
-    /// Starts the always-on wire log into <c>~/.mucka/wire/wire.db</c>. Driven by the global
-    /// <c>logwiresession</c> setting - the caller reads the setting, this does the work - and started
-    /// BEFORE <see cref="ConnectAsync"/> so the login exchange is in the log like everything else.
-    /// Independent of <see cref="TryStartCapture"/>; both may run at once.
-    ///
-    /// <para>This really can fail, and the caller really must report it: the sink opens the database in
-    /// its constructor precisely so that a wire log which cannot be written says so here, at the one
-    /// moment a human is watching, rather than dying quietly on a background thread. Directory creation
-    /// is part of the open (<see cref="WireLogDb.Open"/>), so a first-ever run with no
-    /// <c>~/.mucka/wire</c> is not a failure case.</para>
-    /// </summary>
-    public bool TryStartWireLog(string? hostOverride, out string? error)
-    {
-        var host = ResolveHost(hostOverride);
-        var started = _capture.TryStartDatabase(
-            () => new SqliteWireLogSink(
-                Path.Combine(ClogPaths.GetWireLogDirectory(), WireLogDb.DefaultFileName),
-                host,
-                typeof(MuckaConnection).Assembly.GetName().Version?.ToString(),
-                ReportWireLogFailure),
-            out error);
-        if (!started)
-            WireLogFailure = error;
-        return started;
-    }
-
-    private string ResolveHost(string? hostOverride)
-    {
-        var host = string.IsNullOrWhiteSpace(hostOverride) ? _host : hostOverride!.Trim();
-        return string.IsNullOrWhiteSpace(host) ? "unknown" : host;
     }
 
     /// <summary>Send a line of text to the server (appends \r\n).</summary>
@@ -503,23 +473,19 @@ public sealed class MuckaConnection : IAsyncDisposable
     {
         await DisconnectAsync().ConfigureAwait(false);
         _loginHandler?.Detach();
-        // Order matters: _session.Dispose() force-closes any open encounter (MudSession.Dispose ->
-        // CombatTracker.ForceEnd), and that cascades through the events wired in WireSessionEvents
-        // to _fightRecorder.OnCombatEvent/OnInCombatChanged, which calls _store.Append(...) for every
-        // fight that was still open. _fightRecorder.Dispose() right after is a belt-and-braces flush
-        // (idempotent, see its remarks) in case that cascade is ever bypassed. Only once both have
-        // had the chance to enqueue their rows does _fightHistory.Dispose() drain the store's
-        // background writer to disk - disposing it any earlier could lose exactly the rows this
-        // whole ordering exists to save.
+        // Order matters, and the store is LAST. _session.Dispose() force-closes any open encounter
+        // (MudSession.Dispose -> CombatTracker.ForceEnd), and that cascades through the events wired
+        // in WireSessionEvents to _fightRecorder.OnCombatEvent/OnInCombatChanged, which appends a row
+        // for every fight that was still open. _fightRecorder.Dispose() right after is a
+        // belt-and-braces flush (idempotent, see its remarks) in case that cascade is ever bypassed,
+        // and _clog.Dispose() stamps the end of whatever encounter was still draining. Only once
+        // every producer has had its chance to enqueue does _store.Dispose() drain the writer to disk
+        // - disposing it any earlier would lose exactly the rows this ordering exists to save.
         _session.Dispose();
         _fightRecorder.Dispose();
-        _fightHistory.Dispose();
-        // After _session.Dispose() for the same reason: the ledger enqueues a row per swing as the
-        // event arrives (nothing is held back to flush at fight end), so the only rows still at risk
-        // here are the ones already in its queue - which is exactly what this drains.
-        _swingLedger.Dispose();
-        _capture.Dispose();
         _clog.Dispose();
+        _wireLog.Dispose();
+        _store.Dispose();
     }
 
     // -- Private ----------------------------------------------------------------
@@ -534,7 +500,7 @@ public sealed class MuckaConnection : IAsyncDisposable
             {
                 int read = await stream.ReadAsync(buf, ct).ConfigureAwait(false);
                 if (read == 0) break; // server closed connection
-                _capture.RecordRx(buf.AsSpan(0, read));
+                _wireLog.RecordRx(buf.AsSpan(0, read));
 #if WINDOWS
                 RawBytesReceived?.Invoke(buf[..read]);
 #endif
@@ -557,7 +523,7 @@ public sealed class MuckaConnection : IAsyncDisposable
             // exactly the session you would want to read back afterwards. Once per connection, so it
             // costs the batching nothing; the flush in DisconnectAsync (which runs after this, and after
             // any last write) then finds nothing to do unless the write loop got a byte out in between.
-            _capture.Flush();
+            _wireLog.Flush();
             if (!_deliberateDisconnect)
                 Disconnected?.Invoke(error);
         }
@@ -570,7 +536,7 @@ public sealed class MuckaConnection : IAsyncDisposable
             while (true)
             {
                 var bytes = await reader.ReadAsync(ct).ConfigureAwait(false);
-                _capture.RecordTx(bytes);
+                _wireLog.RecordTx(bytes);
 #if WINDOWS
                 RawBytesSent?.Invoke(bytes);
 #endif
@@ -647,7 +613,7 @@ public sealed class MuckaConnection : IAsyncDisposable
         // effectively the same instant anyway.
         _encounterId = inCombat ? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() : _encounterId;
 
-        _clog.OnInCombatChanged(inCombat);
+        _clog.OnInCombatChanged(inCombat, _encounterId);
         _fightRecorder.OnInCombatChanged(inCombat, _encounterId);
         _swingLedger.OnInCombatChanged(inCombat, _encounterId);
         InCombatChanged?.Invoke(inCombat);
@@ -698,9 +664,9 @@ public sealed class MuckaConnection : IAsyncDisposable
         _session.DreamwordChanged   += w =>
         {
             if (w != null)
-                _capture.Annotate($"dreamword detected: {w}");
+                _wireLog.Annotate($"dreamword detected: {w}");
             else
-                _capture.Annotate("dreamword cleared");
+                _wireLog.Annotate("dreamword cleared");
             DreamwordChanged?.Invoke(w);
         };
         _session.SoundRequested     += s => SoundRequested?.Invoke(s);
@@ -741,7 +707,7 @@ public sealed class MuckaConnection : IAsyncDisposable
     private void OnResetDiagnostic(string note)
     {
         if (LogResetDiagnostics)
-            _capture.Annotate($"reset! {note}");
+            _wireLog.Annotate($"reset! {note}");
     }
 
     // Reset-projection diagnostics: append each folded reading to the capture log when the per-profile
@@ -749,7 +715,7 @@ public sealed class MuckaConnection : IAsyncDisposable
     private void OnResetObservation(ResetObservation o)
     {
         if (!LogResetDiagnostics) return;
-        _capture.Annotate(
+        _wireLog.Annotate(
             $"reset {o.Phase} v={o.Minutes}{(o.Sample ? " sample" : "")} rtt={o.RttMs:F0}ms " +
             $"win=[{o.WindowLoSecFromNow:F2},{o.WindowHiSecFromNow:F2})s +/-{o.UncertaintySec:F2}s");
     }
@@ -759,6 +725,6 @@ public sealed class MuckaConnection : IAsyncDisposable
         if (confirmedWidth != _windowCols)
             System.Diagnostics.Debug.WriteLine(
                 $"[MuckaConnection] Terminal width mismatch: requested {_windowCols}, confirmed {confirmedWidth}");
-        _capture.Annotate($"terminal width confirmed: {confirmedWidth}");
+        _wireLog.Annotate($"terminal width confirmed: {confirmedWidth}");
     }
 }

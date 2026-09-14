@@ -1,11 +1,11 @@
-using System.Threading.Channels;
 using Microsoft.Data.Sqlite;
 using MudSharp.Combat;
+using Mucka.Store;
 
 namespace Mucka.Combat;
 
 /// <summary>
-/// Owns the <c>fights</c> table of the client combat database (see <see cref="CombatDb"/>): the
+/// Owns the <c>fights</c> table (see <see cref="MuckaDb"/>): the
 /// per-fight history the live HUD contrasts the current fight against, and the source of the NPC
 /// stamina-pool estimates any "are you winning" projection needs. MUD2 only reports NPC stamina
 /// on demand, via a `diagnose` probe that needs a stethoscope and a typed command (see
@@ -14,31 +14,24 @@ namespace Mucka.Combat;
 /// not because the game never reports the figure at all. The figures themselves are also published -
 /// see docs/MUD2-published-mechanics.md.
 ///
-/// <para><b>SQLite, not a text file.</b> A combat analysis view needs to QUERY this alongside the
-/// swings table, and splitting the corpus so that swings lived in SQL and fights in a text file
-/// would mean joining them in app code. The rows are still small enough to hold in memory, which is
-/// what the in-memory <see cref="HistoryIndex"/> below relies on.</para>
+/// <para>The rows are small enough to hold in memory, which is what the in-memory
+/// <see cref="HistoryIndex"/> below relies on.</para>
 ///
 /// <para>Threading: <see cref="Append"/> is called from the session Feed thread (same contract as
 /// ClogWriter), <see cref="Snapshot"/> from the UI thread. Both take the same lock, which is only ever
 /// held for a list add or a copy-reference - never across the database write, so a slow disk cannot
-/// stall the UI thread (Invariant #1). The write itself runs on a single dedicated background task
-/// (<see cref="DrainAsync"/>) which owns the only write connection, so the Feed thread that parses
-/// incoming combat text never pays for the I/O. <see cref="Dispose"/>
-/// blocks briefly to drain whatever is still queued, so an app exit mid-fight cannot lose the row for
-/// the fight that was open at that moment.</para>
+/// stall the UI thread (Invariant #1). The write itself happens on <see cref="MuckaStore"/>'s single
+/// background task, so the Feed thread that parses incoming combat text never pays for the I/O; the
+/// store's own Dispose drains whatever is still queued, so an app exit mid-fight cannot lose the row
+/// for the fight that was open at that moment.</para>
 /// </summary>
-public sealed class FightHistoryStore : IDisposable
+public sealed class FightHistoryStore
 {
     private readonly object _lock = new();
-    private readonly string _dbPath;
+    private readonly MuckaStore _store;
     // Injected rather than calling CrashLog directly so this type stays free of MAUI references
-    // and can be exercised against a temp directory in mudsharp.Tests.
+    // and can be exercised against a temp directory from Mucka.Util.Tests.
     private readonly Action<string, Exception>? _onError;
-
-    private readonly Channel<FightRecord> _writeQueue =
-        Channel.CreateUnbounded<FightRecord>(new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });
-    private readonly Task _writerTask;
 
     // Copy-on-write: readers take a reference under the lock and then enumerate freely, so a UI
     // thread query can never see a torn list mid-append and never blocks the Feed thread.
@@ -50,14 +43,13 @@ public sealed class FightHistoryStore : IDisposable
     // and every read (GetHistoryContext) takes it, so this never needs its own synchronization.
     private readonly HistoryIndex _index = new();
 
-    public FightHistoryStore(string dbPath, Action<string, Exception>? onError = null)
+    public FightHistoryStore(MuckaStore store, Action<string, Exception>? onError = null)
     {
-        _dbPath = dbPath;
+        _store = store;
         _onError = onError;
-        _writerTask = Task.Run(DrainAsync);
     }
 
-    public string DatabasePath => _dbPath;
+    public string DatabasePath => _store.Path;
 
 
     /// <summary>Rows loaded so far. Cheap: returns the current immutable-by-convention list.</summary>
@@ -105,11 +97,11 @@ public sealed class FightHistoryStore : IDisposable
         var loaded = new List<FightRecord>();
         try
         {
-            // CombatDb.Open rather than a bare SqliteConnection: it creates the directory (absent on a
+            // MuckaDb.Open rather than a bare SqliteConnection: it creates the directory (absent on a
             // fresh install, and SQLite will not create a file inside one that does not exist) and
             // applies the same PRAGMAs every other connection uses. Skipping it would fail the whole
-            // load silently on first run, taking the one-time legacy import down with it.
-            using var connection = CombatDb.Open(_dbPath);
+            // load silently on first run.
+            using var connection = MuckaDb.Open(_store.Path);
 
             using var command = connection.CreateCommand();
             command.CommandText = SelectSql;
@@ -175,9 +167,8 @@ public sealed class FightHistoryStore : IDisposable
 
     /// <summary>Appends one completed fight: updates the in-memory snapshot immediately (so a
     /// same-thread Snapshot() right after this call sees it - Invariant #1 does not apply to the
-    /// Feed thread doing its own cheap bookkeeping) and enqueues the database write for
-    /// <see cref="DrainAsync"/> to perform off-thread. Never throws: losing a history row is
-    /// strictly less bad than disrupting play.</summary>
+    /// Feed thread doing its own cheap bookkeeping) and hands the database write to the store.
+    /// Never throws: losing a history row is strictly less bad than disrupting play.</summary>
     public void Append(FightRecord record)
     {
         lock (_lock)
@@ -194,7 +185,7 @@ public sealed class FightHistoryStore : IDisposable
             _index.Insert(record);
         }
 
-        _writeQueue.Writer.TryWrite(record);
+        _store.Enqueue(new FightRow(record));
     }
 
     internal const string Columns =
@@ -207,18 +198,6 @@ public sealed class FightHistoryStore : IDisposable
         "prev_same_name_ended_ms";
 
     private const string SelectSql = $"SELECT {Columns} FROM fights ORDER BY started_at_ms;";
-
-    private const string InsertSql = $"""
-        INSERT INTO fights ({Columns}) VALUES (
-            $character_name, $encounter, $started, $ended, $duration,
-            $npc_name, $npc_group, $weapon_used, $outcome,
-            $you_hits, $you_misses, $they_hits, $they_misses, $dmg_done, $dmg_taken,
-            $narrative, $room, $weather, $strength, $raw_strength, $dexterity, $raw_dexterity,
-            $sta_start, $sta_max, $sta_min, $sta_end, $score_start, $score_end,
-            $objects, $level, $blind, $deaf, $crippled, $dumb, $effects,
-            $prev_same_name
-        );
-        """;
 
     private static FightRecord ReadRecord(SqliteDataReader reader) => new()
     {
@@ -268,15 +247,31 @@ public sealed class FightHistoryStore : IDisposable
     /// only ever read back as a whole set for one fight - nothing groups or joins on an individual
     /// effect at the FIGHT level, because the per-SWING columns answer that question far better (see
     /// the swings table's own flags). A join table here would be structure with no query behind it.</summary>
-    private static string JoinEffects(string[] effects) => string.Join(",", effects);
+    internal static string JoinEffects(string[] effects) => string.Join(",", effects);
 
     private static string[] SplitEffects(string? stored)
         => string.IsNullOrEmpty(stored) ? [] : stored.Split(',', StringSplitOptions.RemoveEmptyEntries);
+}
 
-    /// <summary>Binds one record onto a command using <see cref="InsertSql"/>'s parameter names.</summary>
-    private static void Bind(SqliteCommand command, FightRecord record)
+/// <summary>One completed fight on its way to the <c>fights</c> table.</summary>
+internal sealed record FightRow(FightRecord Record) : IStoreRow
+{
+    private const string Sql = $"""
+        INSERT INTO fights ({FightHistoryStore.Columns}) VALUES (
+            $character_name, $encounter, $started, $ended, $duration,
+            $npc_name, $npc_group, $weapon_used, $outcome,
+            $you_hits, $you_misses, $they_hits, $they_misses, $dmg_done, $dmg_taken,
+            $narrative, $room, $weather, $strength, $raw_strength, $dexterity, $raw_dexterity,
+            $sta_start, $sta_max, $sta_min, $sta_end, $score_start, $score_end,
+            $objects, $level, $blind, $deaf, $crippled, $dumb, $effects,
+            $prev_same_name
+        );
+        """;
+
+    public void Write(StoreWrite write)
     {
-        command.Parameters.Clear();
+        var record = Record;
+        var command = write.Prepared(Sql);
         command.Parameters.AddWithValue("$character_name", Value(record.CharacterName));
         command.Parameters.AddWithValue("$encounter", Value(record.EncounterStartedAtMs));
         command.Parameters.AddWithValue("$started", record.StartedAtMs);
@@ -311,74 +306,10 @@ public sealed class FightHistoryStore : IDisposable
         command.Parameters.AddWithValue("$deaf", record.IsDeaf ? 1 : 0);
         command.Parameters.AddWithValue("$crippled", record.IsCrippled ? 1 : 0);
         command.Parameters.AddWithValue("$dumb", record.IsDumb ? 1 : 0);
-        command.Parameters.AddWithValue("$effects", JoinEffects(record.Effects));
+        command.Parameters.AddWithValue("$effects", FightHistoryStore.JoinEffects(record.Effects));
         command.Parameters.AddWithValue("$prev_same_name", Value(record.PrevSameNameEndedMs));
+        command.ExecuteNonQuery();
     }
 
-    private static object Value(object? value) => value ?? DBNull.Value;
-
-    /// <summary>The single background writer for this store's whole lifetime.</summary>
-    private async Task DrainAsync()
-    {
-        SqliteConnection? connection = null;
-        var reader = _writeQueue.Reader;
-
-        try
-        {
-            while (await reader.WaitToReadAsync().ConfigureAwait(false))
-            {
-                connection ??= CombatDb.Open(_dbPath);
-
-                using var transaction = connection.BeginTransaction();
-                using var command = connection.CreateCommand();
-                command.Transaction = transaction;
-                command.CommandText = InsertSql;
-
-                var written = 0;
-                while (reader.TryRead(out var record))
-                {
-                    try
-                    {
-                        Bind(command, record);
-                        command.ExecuteNonQuery();
-                        written++;
-                    }
-                    catch (SqliteException ex)
-                    {
-                        _onError?.Invoke("FightHistoryStore.Insert", ex);
-                    }
-                }
-
-                if (written > 0)
-                    transaction.Commit();
-            }
-        }
-        catch (Exception ex)
-        {
-            _onError?.Invoke("FightHistoryStore.Drain", ex);
-        }
-        finally
-        {
-            connection?.Dispose();
-        }
-    }
-
-    /// <summary>Blocks (briefly - just draining whatever is already queued in memory, typically a
-    /// handful of rows at most) until every fight <see cref="Append"/>ed so far has actually been
-    /// written. This prevents fight rows being lost when the app exits mid-fight: without this
-    /// wait, an Append() immediately followed by process exit could beat the background writer to the
-    /// punch, since Append only enqueues rather than writing directly.</summary>
-    public void Dispose()
-    {
-        _writeQueue.Writer.TryComplete();
-        try
-        {
-            _writerTask.Wait(TimeSpan.FromSeconds(5));
-        }
-        catch
-        {
-            // Best-effort: Dispose must never throw during shutdown. Whatever did not get written
-            // in time is lost, same as any other best-effort I/O failure in this class.
-        }
-    }
+    private static object Value(object? value) => StoreWrite.Value(value);
 }

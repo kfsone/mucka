@@ -439,8 +439,7 @@ internal sealed class RawConsolePage : ContentPage
         _outputSb.Append(line);
         _outputEditor.Text = _outputSb.ToString();
         ScrollOutputToEnd();
-        if (_vm.IsCapturing)
-            _vm.Annotate($"Mark {_markCount}");
+        _vm.Annotate($"Mark {_markCount}");
     }
 
     private void OnStopStartClicked(object? sender, EventArgs e)

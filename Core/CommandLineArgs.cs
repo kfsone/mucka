@@ -10,8 +10,6 @@ namespace Mucka.Core;
 ///   Prefer a saved profile or the interactive password prompt when possible.
 /// Windows only:
 ///   mucka -logs &lt;path&gt;   - write trace/log output to the specified file (appended, auto-flushed)
-/// Debug builds only:
-///   mucka [-record]   - arm session recording before connecting (also available via the in-game rec button on Windows)
 /// </summary>
 public sealed class CommandLineArgs
 {
@@ -45,11 +43,6 @@ public sealed class CommandLineArgs
     public bool HasDirectConnectOptions =>
         Profile != null || Host != null || Port.HasValue || User != null || Account != null || Password != null;
 
-#if DEBUG
-    /// <summary>Arm session recording before connecting (debug builds only).</summary>
-    public bool Record { get; private set; }
-#endif
-
     private CommandLineArgs() { }
 
     /// <summary>
@@ -77,9 +70,6 @@ public sealed class CommandLineArgs
 #if WINDOWS
                 "logs" => true,
 #endif
-#if DEBUG
-                "record" => true,
-#endif
                 _ => false
             };
         }
@@ -91,14 +81,6 @@ public sealed class CommandLineArgs
                 continue;
 
             var name = flag.TrimStart('-').ToLowerInvariant();
-
-#if DEBUG
-            if (name == "record")
-            {
-                result.Record = true;
-                continue;
-            }
-#endif
 
             string? TakeValue()
             {

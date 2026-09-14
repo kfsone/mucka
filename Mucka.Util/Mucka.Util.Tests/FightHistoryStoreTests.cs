@@ -1,6 +1,7 @@
 using Microsoft.Data.Sqlite;
 using MudSharp.Combat;
 using Mucka.Combat;
+using Mucka.Store;
 
 namespace Mucka.Util.Tests;
 
@@ -9,10 +10,22 @@ public sealed class FightHistoryStoreTests : IDisposable
     private readonly string _root =
         Path.Combine(Path.GetTempPath(), "mucka-fighthistory-tests", Guid.NewGuid().ToString("N"));
 
-    private string DbPath => Path.Combine(_root, "combat", CombatDb.DefaultFileName);
+    private string DbPath => Path.Combine(_root, "data", MuckaDb.DefaultFileName);
+
+    // The store under each FightHistoryStore. Disposing IT is what drains the background writer, so
+    // these tests dispose the store rather than the history to prove an Append actually landed.
+    private readonly List<MuckaStore> _opened = [];
+
+    private MuckaStore Db(string? path = null, Action<string, Exception>? onError = null)
+    {
+        var db = new MuckaStore(path ?? DbPath, "test", null, onError);
+        _opened.Add(db);
+        return db;
+    }
 
     public void Dispose()
     {
+        foreach (var db in _opened) db.Dispose();
         // Pooled connections keep the file handle open, which on Windows blocks the delete below.
         SqliteConnection.ClearAllPools();
         try { Directory.Delete(_root, recursive: true); } catch { /* temp cleanup is best-effort */ }
@@ -20,7 +33,7 @@ public sealed class FightHistoryStoreTests : IDisposable
 
     private int CountRows(string table)
     {
-        using var connection = new SqliteConnection(CombatDb.ConnectionString(DbPath));
+        using var connection = new SqliteConnection(MuckaDb.ConnectionString(DbPath));
         connection.Open();
         using var command = connection.CreateCommand();
         command.CommandText = $"SELECT COUNT(*) FROM {table};";
@@ -45,12 +58,14 @@ public sealed class FightHistoryStoreTests : IDisposable
         // Append only ENQUEUES the write (see FightHistoryStore's remarks - the actual write runs on a
         // background task so the Feed thread never pays for it); Dispose is what proves the write
         // actually landed, exactly as it must at real app shutdown.
-        var writer = new FightHistoryStore(DbPath);
+        var writerDb = Db();
+        var writer = new FightHistoryStore(writerDb);
         writer.Append(Fight("rat0", 30));
         writer.Append(Fight("rat1", 34));
-        writer.Dispose();
+        writerDb.Dispose();
 
-        var reader = new FightHistoryStore(DbPath);
+        var readerDb = Db();
+        var reader = new FightHistoryStore(readerDb);
         await reader.LoadAsync();
 
         var records = reader.Snapshot();
@@ -60,17 +75,19 @@ public sealed class FightHistoryStoreTests : IDisposable
     }
 
     [Fact]
-    public void Append_CreatesTheDirectoryAndDatabaseOnFirstWrite()
+    public void OpeningTheStore_CreatesTheDirectoryAndDatabaseBeforeAnyFight()
     {
-        // ~/.mucka/combat may not exist yet on a fresh install, and the first fight must not be lost
-        // to that.
+        // ~/.mucka may not exist yet on a fresh install, and the first fight must not be lost to that.
+        // The store opens eagerly, so the directory and file are there before anything is appended.
         Assert.False(Directory.Exists(Path.GetDirectoryName(DbPath)!));
 
-        var store = new FightHistoryStore(DbPath);
-        store.Append(Fight("rat0"));
-        store.Dispose();   // proves the background write actually landed - see Dispose's remarks
-
+        var storeDb = Db();
         Assert.True(File.Exists(DbPath));
+
+        var store = new FightHistoryStore(storeDb);
+        store.Append(Fight("rat0"));
+        storeDb.Dispose();   // proves the background write actually landed
+
         Assert.Equal(1, CountRows("fights"));
     }
 
@@ -79,7 +96,8 @@ public sealed class FightHistoryStoreTests : IDisposable
     {
         // The live HUD queries the in-memory snapshot straight after a fight closes; it must not
         // have to wait for a reload to see the row it just wrote.
-        var store = new FightHistoryStore(DbPath);
+        var storeDb = Db();
+        var store = new FightHistoryStore(storeDb);
         store.Append(Fight("rat0"));
 
         Assert.Single(store.Snapshot());
@@ -88,7 +106,8 @@ public sealed class FightHistoryStoreTests : IDisposable
     [Fact]
     public async Task Load_ToleratesAMissingDatabase()
     {
-        var missing = new FightHistoryStore(DbPath);
+        var missingDb = Db();
+        var missing = new FightHistoryStore(missingDb);
         await missing.LoadAsync();
         Assert.Empty(missing.Snapshot());
     }
@@ -98,11 +117,13 @@ public sealed class FightHistoryStoreTests : IDisposable
     {
         // Startup fires LoadAsync off-thread while play continues, so a fight can close and append
         // mid-load. A blind assignment of the loaded list would silently drop it.
-        var seed = new FightHistoryStore(DbPath);
+        var seedDb = Db();
+        var seed = new FightHistoryStore(seedDb);
         seed.Append(Fight("rat0"));
-        seed.Dispose();
+        seedDb.Dispose();
 
-        var store = new FightHistoryStore(DbPath);
+        var storeDb = Db();
+        var store = new FightHistoryStore(storeDb);
         store.Append(Fight("goat0"));   // stands in for the concurrent append
         await store.LoadAsync();
 
@@ -120,11 +141,11 @@ public sealed class FightHistoryStoreTests : IDisposable
         File.WriteAllText(blocker, "not a directory");
 
         var errors = new List<string>();
-        var store = new FightHistoryStore(Path.Combine(blocker, CombatDb.DefaultFileName),
-            (context, _) => errors.Add(context));
+        var storeDb = Db(Path.Combine(blocker, MuckaDb.DefaultFileName), (context, _) => errors.Add(context));
+        var store = new FightHistoryStore(storeDb, (context, _) => errors.Add(context));
 
         var exception = Record.Exception(() => store.Append(Fight("rat0")));
-        store.Dispose();   // the I/O failure happens on the background writer - wait for it to surface
+        storeDb.Dispose();   // the I/O failure happens on the background writer - wait for it to surface
 
         Assert.Null(exception);
         Assert.NotEmpty(errors);
@@ -141,10 +162,11 @@ public sealed class FightHistoryStoreTests : IDisposable
         // returns immediately (it does not block on I/O - see Append's remarks), so without Dispose
         // actually waiting for the background writer, a process exit right here would beat it to the
         // punch and the row would never be persisted at all.
-        var store = new FightHistoryStore(DbPath);
+        var storeDb = Db();
+        var store = new FightHistoryStore(storeDb);
         store.Append(Fight("rat0"));
 
-        store.Dispose();
+        storeDb.Dispose();
 
         Assert.Equal(1, CountRows("fights"));
     }
@@ -152,14 +174,16 @@ public sealed class FightHistoryStoreTests : IDisposable
     [Fact]
     public async Task Dispose_AfterSeveralAppends_WritesEveryRowInOrder()
     {
-        var store = new FightHistoryStore(DbPath);
+        var storeDb = Db();
+        var store = new FightHistoryStore(storeDb);
         store.Append(Fight("rat0", 10));
         store.Append(Fight("rat1", 20));
         store.Append(Fight("rat2", 30));
 
-        store.Dispose();
+        storeDb.Dispose();
 
-        var reader = new FightHistoryStore(DbPath);
+        var readerDb = Db();
+        var reader = new FightHistoryStore(readerDb);
         await reader.LoadAsync();
         var names = reader.Snapshot().Select(r => r.NpcName).ToList();
         Assert.Equal(["rat0", "rat1", "rat2"], names);
@@ -168,13 +192,14 @@ public sealed class FightHistoryStoreTests : IDisposable
     [Fact]
     public void Dispose_IsSafeToCallTwice()
     {
-        // MuckaConnection.DisposeAsync disposes FightHistoryRecorder (belt-and-braces) and then
-        // FightHistoryStore - neither call should throw regardless of ordering or repetition.
-        var store = new FightHistoryStore(DbPath);
+        // MuckaConnection.DisposeAsync walks a chain of producers before disposing the store, and
+        // GameViewModel can dispose the connection twice - the drain must not throw on a repeat.
+        var storeDb = Db();
+        var store = new FightHistoryStore(storeDb);
         store.Append(Fight("rat0"));
 
-        store.Dispose();
-        var exception = Record.Exception(store.Dispose);
+        storeDb.Dispose();
+        var exception = Record.Exception(storeDb.Dispose);
 
         Assert.Null(exception);
     }
@@ -184,7 +209,8 @@ public sealed class FightHistoryStoreTests : IDisposable
     [Fact]
     public void GetHistoryContext_ReflectsFightsAppendedSoFar()
     {
-        var store = new FightHistoryStore(DbPath);
+        var storeDb = Db();
+        var store = new FightHistoryStore(storeDb);
         store.Append(Fight("rat0", 20));
         store.Append(Fight("rat0", 40));
 
@@ -199,7 +225,8 @@ public sealed class FightHistoryStoreTests : IDisposable
     [Fact]
     public void NoveltyFor_ReflectsFightsAppendedSoFar()
     {
-        var store = new FightHistoryStore(DbPath);
+        var storeDb = Db();
+        var store = new FightHistoryStore(storeDb);
 
         // Nothing on file: new creature, and a weapon that has never met it.
         Assert.Equal((NoveltyMark.Unfought, NoveltyMark.Unfought), store.NoveltyFor("rat0", "axe0"));
@@ -212,7 +239,7 @@ public sealed class FightHistoryStoreTests : IDisposable
         // A different creature entirely - the pool key keeps "large rat" apart from "rat".
         Assert.Equal((NoveltyMark.Unfought, NoveltyMark.Unfought), store.NoveltyFor("large rat0", "axe0"));
 
-        store.Dispose();
+        storeDb.Dispose();
     }
 
     [Fact]
@@ -220,15 +247,17 @@ public sealed class FightHistoryStoreTests : IDisposable
     {
         // The novelty buckets are built by HistoryIndex.Insert, which LoadAsync drives for every row
         // it reads - so a mark earned last session has to still be there on the next launch.
-        var writer = new FightHistoryStore(DbPath);
+        var writerDb = Db();
+        var writer = new FightHistoryStore(writerDb);
         writer.Append(Fight("rat0") with { Outcome = nameof(FightOutcome.UFled) });
-        writer.Dispose();
+        writerDb.Dispose();
 
-        var reader = new FightHistoryStore(DbPath);
+        var readerDb = Db();
+        var reader = new FightHistoryStore(readerDb);
         await reader.LoadAsync();
 
         Assert.Equal((NoveltyMark.Undefeated, NoveltyMark.Undefeated), reader.NoveltyFor("rat0", "axe0"));
-        reader.Dispose();
+        readerDb.Dispose();
     }
 
     /// <summary>
@@ -241,11 +270,12 @@ public sealed class FightHistoryStoreTests : IDisposable
     {
         // Build the file, then take the column back out to make it an "old" one. SQLite has DROP
         // COLUMN, which is exactly the pre-migration shape rather than an approximation of it.
-        var seed = new FightHistoryStore(DbPath);
+        var seedDb = Db();
+        var seed = new FightHistoryStore(seedDb);
         seed.Append(Fight("zombie5"));
-        seed.Dispose();
+        seedDb.Dispose();
 
-        using (var connection = new SqliteConnection(CombatDb.ConnectionString(DbPath)))
+        using (var connection = new SqliteConnection(MuckaDb.ConnectionString(DbPath)))
         {
             connection.Open();
             using var drop = connection.CreateCommand();
@@ -253,7 +283,8 @@ public sealed class FightHistoryStoreTests : IDisposable
             drop.ExecuteNonQuery();
         }
 
-        var reopened = new FightHistoryStore(DbPath);
+        var reopenedDb = Db();
+        var reopened = new FightHistoryStore(reopenedDb);
         await reopened.LoadAsync();
 
         var old = Assert.Single(reopened.Snapshot());
@@ -262,13 +293,14 @@ public sealed class FightHistoryStoreTests : IDisposable
 
         // And the migrated file can carry the new fact from here on.
         reopened.Append(Fight("zombie5") with { PrevSameNameEndedMs = 1_788_290_125_490 });
-        reopened.Dispose();
+        reopenedDb.Dispose();
 
-        var next = new FightHistoryStore(DbPath);
+        var nextDb = Db();
+        var next = new FightHistoryStore(nextDb);
         await next.LoadAsync();
         Assert.Equal(
             [null, 1_788_290_125_490L],
             next.Snapshot().Select(r => r.PrevSameNameEndedMs).ToArray());
-        next.Dispose();
+        nextDb.Dispose();
     }
 }

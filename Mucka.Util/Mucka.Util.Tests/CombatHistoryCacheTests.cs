@@ -1,5 +1,6 @@
 using MudSharp.Combat;
 using Mucka.Combat;
+using Mucka.Store;
 
 namespace Mucka.Util.Tests;
 
@@ -14,10 +15,22 @@ public sealed class CombatHistoryCacheTests : IDisposable
     private readonly string _directory =
         Path.Combine(Path.GetTempPath(), "mucka-historycache-tests", Guid.NewGuid().ToString("N"));
 
-    private string FilePath => Path.Combine(_directory, CombatDb.DefaultFileName);
+    private string FilePath => Path.Combine(_directory, MuckaDb.DefaultFileName);
+
+    // Nothing here reads the table back - the invariant under test is about the in-memory index - so
+    // the store only needs to exist and be drained at the end.
+    private readonly List<MuckaStore> _opened = [];
+
+    private FightHistoryStore NewStore()
+    {
+        var db = new MuckaStore(FilePath, "test");
+        _opened.Add(db);
+        return new FightHistoryStore(db);
+    }
 
     public void Dispose()
     {
+        foreach (var db in _opened) db.Dispose();
         try { Directory.Delete(_directory, recursive: true); } catch { /* best-effort cleanup */ }
     }
 
@@ -37,7 +50,7 @@ public sealed class CombatHistoryCacheTests : IDisposable
     public void Resolve_CalledDuringTheFight_NeverSeesThatSameFightsOwnRowEvenAfterItIsAppended()
     {
         // Prior history exists (rat0 fought twice before, median damage 30).
-        var store = new FightHistoryStore(FilePath);
+        var store = NewStore();
         store.Append(Fight("rat0", 20));
         store.Append(Fight("rat0", 40));
 
@@ -69,7 +82,7 @@ public sealed class CombatHistoryCacheTests : IDisposable
     {
         // The flip side of the guarantee above: once the encounter genuinely changes, the
         // PREVIOUS encounter's now-resolved fight is legitimate history and must show up.
-        var store = new FightHistoryStore(FilePath);
+        var store = NewStore();
         var cache = new CombatHistoryCache();
 
         var firstEncounter = DateTime.UtcNow;
@@ -88,7 +101,7 @@ public sealed class CombatHistoryCacheTests : IDisposable
     [Fact]
     public void Resolve_AWeaponSwitchMidEncounter_RefreshesTheCurrentWeaponGlobalFigure()
     {
-        var store = new FightHistoryStore(FilePath);
+        var store = NewStore();
         store.Append(new FightRecord
         {
             NpcName = "rat9", NpcGroup = "rats", WeaponUsed = "axe0",

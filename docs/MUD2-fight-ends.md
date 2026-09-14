@@ -309,10 +309,9 @@ unarmed" half is handled. **Neither reason line is parsed**, and nothing yet dis
 
 ## Outcome vocabulary
 
-The live client (`mucka.db.fights.outcome`) and the offline reducer
-(`combat.db.combat_fights.outcome`) now use **identical** spellings, being the `FightOutcome` member
-names. They previously disagreed in case and separator (`Killed` vs `killed`) despite `schema.sql`
-claiming they were directly comparable. Existing rows were migrated in place (1106 rows).
+`mucka.db.fights.outcome` holds the `FightOutcome` member names verbatim. An offline reducer that
+predates this used a different case and separator (`Killed` vs `killed`) while claiming the two were
+directly comparable; the spellings here are the ones the client writes.
 
 `CFledFail` and `UFledFail` were **not** back-filled and cannot be. No rollup row records which line
 ended the fight, and the rows that should have been `CFledFail` were written as `Unresolved` or never

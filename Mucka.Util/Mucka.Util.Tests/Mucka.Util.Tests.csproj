@@ -19,6 +19,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\Mucka.Store\Mucka.Store.csproj" />
     <ProjectReference Include="..\Mucka.WireLog\Mucka.WireLog.csproj" />
     <ProjectReference Include="..\Mucka.Combat\Mucka.Combat.csproj" />
     <ProjectReference Include="..\Mucka.Commands\Mucka.Commands.csproj" />
