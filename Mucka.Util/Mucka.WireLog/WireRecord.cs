@@ -2,8 +2,7 @@ namespace Mucka.WireLog;
 
 /// <summary>
 /// Which side of the socket a wire record came from, or that it is not wire traffic at all.
-/// The numeric values are STORED (they are packed into the batch framing - see
-/// <see cref="WireLogFraming"/>) so they may never be renumbered.
+/// The numeric values are STORED - they are <c>wire.direction</c> - so they may never be renumbered.
 /// </summary>
 public enum WireDirection : byte
 {

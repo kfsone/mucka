@@ -20,9 +20,9 @@ Senior Producer (Oliver "kfsone" Smith) notes:
 # Session Capture
 
 mucka logs every byte of every session into `~/.mucka/mucka.db`, always, with nothing to arm and no
-setting to forget. `batches.data` holds the server's own bytes verbatim and uncompressed, so a
-`strings` pass over it reads as MUD2 text. See `docs/persistence-design.md` for the whole store and
-`Mucka.WireLog/WireLogFraming.cs` for the byte layout.
+setting to forget. One row per record in `wire`: when, which direction, and `data` - the server's own
+bytes, verbatim and uncompressed, with nothing wrapped around them. `SELECT data FROM wire` prints
+the line, and a `strings` pass over the file reads as MUD2 text. See `docs/persistence-design.md`.
 
 The `.jsonl` transcripts this used to write are gone. The committed
 `mudsharp.Tests/Fixtures/Data/wyvern-poison-death.jsonl` is test data in that older shape - one line

@@ -20,8 +20,8 @@ namespace Mucka.Store;
 /// <para><b>The queue is unbounded.</b> The bound it used to have defended against a writer wedged
 /// behind SQLite's own lock, which was a real failure when four writers shared the file; with one
 /// writer there is no such lock to lose. What is left is a stalled disk, and at the measured average
-/// wire rate of 0.191 KB/s (see WireLogFraming for the corpus that was measured) an hour of total
-/// write stall is under a megabyte of backlog.</para>
+/// wire rate of 0.156 KB/s (13 sessions, 18.11 play-hours, 10-13 Sep 2026) an hour of total write
+/// stall is about half a megabyte of backlog.</para>
 ///
 /// <para><b>A dead writer stops accepting.</b> If the task falls over - the disk fills, the file is
 /// deleted underneath it - <see cref="IsFaulted"/> is set, whatever is queued is discarded and
@@ -89,7 +89,7 @@ public sealed class MuckaStore : IDisposable
     /// <summary>Where this store is writing. Shown to the player.</summary>
     public string Path => _path;
 
-    /// <summary>This store's row in <c>sessions</c>; what <c>batches.session_id</c> points at.</summary>
+    /// <summary>This store's row in <c>sessions</c>; what <c>wire.session_id</c> points at.</summary>
     public long SessionId { get; }
 
     /// <summary>True once the background writer has died. Nothing more is recorded after this; the

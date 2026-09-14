@@ -49,11 +49,11 @@ fitting. Those are disposable by design.
 **One file: `~/.mucka/mucka.db`.** Everything the client writes is in it - see
 `docs/persistence-design.md`, which governs the schema. Two halves matter here:
 
-- **Raw traffic.** `batches.data` is the server's own bytes with a couple of varint header bytes
-  between records, **uncompressed and verbatim**. Read it with `WireLogFraming.Decode` over
-  `SELECT base_ts_ms, data, records FROM batches ORDER BY seq`, or with `strings` if you are in a
-  hurry. This is the ground truth, and running the client's own parsers over it is how the parsers
-  get found to be wrong.
+- **Raw traffic.** One row per record in `wire`: `ts_ms`, `direction`, and `data`, which is the
+  server's own bytes, **uncompressed and verbatim, with nothing wrapped around them**. Read it with
+  `SELECT ts_ms, direction, data FROM wire WHERE session_id = ? ORDER BY seq` - there is no decode
+  step - or with `strings` over the file if you are in a hurry. This is the ground truth, and running
+  the client's own parsers over it is how the parsers get found to be wrong.
 - **Classified encounter rows.** `encounter_events`, `encounter_stats`, `encounter_contents`,
   `encounter_lines` and `creature_values`, all keyed on `encounter_started_at_ms` - the same key
   `swings` and `fights` carry. Anything that used to mean re-reading `~/.mucka/clogs/*.jsonl` is SQL
@@ -74,7 +74,7 @@ to a table the client reads.
 
 For a question about classified facts, the pipeline is a query. For a question about the raw stream:
 
-1. `sessions` -> `batches` -> `WireRecord`s in capture order.
+1. `sessions` -> `wire` -> `WireRecord`s in capture order (`seq` is that order).
 2. `rx` payloads into `MudStreamParser.Feed`; collect `LineReady`, `ScoreSaved`, and whatever else the
    question needs.
 3. Cut into **frames** on the prompt. Everything the server says about one event is inside one frame.

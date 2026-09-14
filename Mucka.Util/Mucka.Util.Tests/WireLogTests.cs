@@ -103,73 +103,70 @@ public sealed class WireLogTests : IDisposable
         }
     }
 
-    // -- Framing ---------------------------------------------------------------
+    // -- The row is the record --------------------------------------------------
 
     [Fact]
-    public void Framing_round_trips_every_byte_value_and_all_three_directions()
+    public void A_row_holds_the_payload_and_nothing_else()
     {
+        // The whole storage rule in one assertion: `data` is the bytes that went past, byte for byte,
+        // with no magic, no length prefix and no encoded timestamp in front of them. `SELECT data`
+        // prints the line. Everything else about a record - when, which way - is a column.
         var records = SampleRecords();
-        var builder = new WireLogBatchBuilder();
-        foreach (var r in records) builder.Append(r.Direction, r.TimestampMs, r.Payload);
+        using (var store = NewStore())
+        using (var writer = new WireLogWriter(store))
+            Feed(writer, records);
 
-        AssertSame(records, WireLogFraming.Decode(builder.ToArray(), builder.BaseTimestampMs));
-    }
-
-    [Fact]
-    public void Framing_round_trips_a_backwards_clock_step()
-    {
-        // Zigzag deltas exist for exactly this: an NTP step mid-session must round-trip as the
-        // timestamp that was actually recorded, not be clamped into a plausible lie.
-        var records = new List<WireRecord>
+        var stored = new List<(long Ts, int Direction, byte[] Data)>();
+        using (var connection = MuckaDb.OpenRead(DbPath))
         {
-            new(2_000_000_000_000, WireDirection.Rx, Wire("before")),
-            new(1_999_999_995_000, WireDirection.Rx, Wire("after the step back")),
-            new(2_000_000_000_001, WireDirection.Rx, Wire("and forward again")),
-        };
-        var builder = new WireLogBatchBuilder();
-        foreach (var r in records) builder.Append(r.Direction, r.TimestampMs, r.Payload);
+            using var command = connection.CreateCommand();
+            command.CommandText = "SELECT ts_ms, direction, data FROM wire ORDER BY seq;";
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+                stored.Add((reader.GetInt64(0), reader.GetInt32(1), (byte[])reader.GetValue(2)));
+        }
 
-        AssertSame(records, WireLogFraming.Decode(builder.ToArray(), builder.BaseTimestampMs));
+        Assert.Equal(records.Count, stored.Count);
+        for (var i = 0; i < records.Count; i++)
+        {
+            Assert.Equal(records[i].Payload, stored[i].Data);
+            Assert.Equal((int)records[i].Direction, stored[i].Direction);
+            Assert.True(stored[i].Ts > 0, "every row carries its own timestamp");
+        }
     }
 
     [Fact]
-    public void Framing_rejects_a_truncated_batch_rather_than_inventing_records()
+    public void Seq_is_gapless_and_zero_based_within_the_session()
     {
-        var builder = new WireLogBatchBuilder();
-        foreach (var r in SampleRecords()) builder.Append(r.Direction, r.TimestampMs, r.Payload);
-        var framed = builder.ToArray();
+        // seq is the order the socket loops handed records over, and a replay walks it. A gap would
+        // mean a record was lost between the tap and the commit.
+        var records = SampleRecords();
+        using (var store = NewStore())
+        using (var writer = new WireLogWriter(store))
+            Feed(writer, records);
 
-        Assert.Throws<InvalidDataException>(() => WireLogFraming.Decode(framed.AsSpan(0, framed.Length - 5), 0));
-        Assert.Throws<InvalidDataException>(() => WireLogFraming.Decode("nope"u8, 0));
-    }
-
-    [Fact]
-    public void Framing_rejects_a_batch_that_does_not_hold_the_record_count_the_row_claims()
-    {
-        var builder = new WireLogBatchBuilder();
-        foreach (var r in SampleRecords()) builder.Append(r.Direction, r.TimestampMs, r.Payload);
-        var framed = builder.ToArray();
-
-        Assert.Equal(6, WireLogFraming.Decode(framed, 0, expectedRecords: 6).Count);
-        Assert.Throws<InvalidDataException>(() => WireLogFraming.Decode(framed, 0, expectedRecords: 5));
-        Assert.Throws<InvalidDataException>(() => WireLogFraming.Decode(framed, 0, expectedRecords: 7));
+        using var connection = MuckaDb.OpenRead(DbPath);
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT MIN(seq), MAX(seq), COUNT(*), COUNT(DISTINCT seq) FROM wire;";
+        using var reader = command.ExecuteReader();
+        Assert.True(reader.Read());
+        Assert.Equal(0, reader.GetInt32(0));
+        Assert.Equal(records.Count - 1, reader.GetInt32(1));
+        Assert.Equal(records.Count, reader.GetInt32(2));
+        Assert.Equal(records.Count, reader.GetInt32(3));
     }
 
     // -- The writer and the store, end to end ----------------------------------
 
     [Fact]
-    public void The_log_round_trips_a_partial_batch_closed_at_dispose()
+    public void The_log_round_trips_what_was_recorded_when_the_store_closes()
     {
-        // Six small records is nowhere near the 64 KB bound, so the ONLY thing that gets them to disk
-        // is the writer's Dispose closing the open batch and the store's draining it. That pair is what
-        // a normal end of session uses.
         var records = SampleRecords();
         using (var store = NewStore())
         using (var writer = new WireLogWriter(store))
             Feed(writer, records);
 
         var session = Assert.Single(WireLogExport.ListSessions(DbPath));
-        Assert.Equal(1, session.Batches);
         Assert.Equal(records.Count, session.Records);
         Assert.Equal("mud2.co.uk", session.Host);
         Assert.NotNull(session.EndedMs);
@@ -177,14 +174,14 @@ public sealed class WireLogTests : IDisposable
     }
 
     [Fact]
-    public void The_log_round_trips_across_several_batches_when_the_size_bound_fires()
+    public void The_log_round_trips_a_volume_of_traffic_that_spans_many_drains()
     {
-        // Enough traffic to cross MaxBatchBytes several times, so the sequence has to be
-        // reassembled from multiple rows in seq order rather than read out of one blob.
+        // Far more than one drain pass can carry, so the sequence has to come back out of hundreds of
+        // rows in seq order rather than out of whatever one transaction happened to commit.
         var rng = new Random(20260904);
         var records = new List<WireRecord>();
         var written = 0;
-        while (written < WireLogWriter.MaxBatchBytes * 3)
+        while (written < 192 * 1024)
         {
             var payload = new byte[rng.Next(20, 400)];
             rng.NextBytes(payload);
@@ -197,21 +194,20 @@ public sealed class WireLogTests : IDisposable
             Feed(writer, records);
 
         var session = Assert.Single(WireLogExport.ListSessions(DbPath));
-        Assert.True(session.Batches >= 3, $"expected the size bound to fire, got {session.Batches} batch(es)");
         Assert.Equal(records.Count, session.Records);
         AssertRecordShapes(records, WireLogExport.ReadSession(DbPath, session.Id).ToList());
     }
 
     [Fact]
-    public void Flush_makes_records_readable_without_closing_the_session()
+    public void Records_become_readable_without_closing_the_session()
     {
+        // Nothing is held back by the writer, so records reach the file as fast as the store's task
+        // drains them - no flush needed, and the session stays open while they do.
         var records = SampleRecords();
         using var store = NewStore();
         using var writer = new WireLogWriter(store);
         Feed(writer, records);
-        writer.Flush();
 
-        // Flush hands the batch to the store's background writer; give it a moment to commit.
         var session = WaitForRecords(DbPath, records.Count);
         AssertRecordShapes(records, WireLogExport.ReadSession(DbPath, session.Id).ToList());
         Assert.Null(session.EndedMs);   // still open - only the store's Dispose stamps the end
@@ -221,7 +217,7 @@ public sealed class WireLogTests : IDisposable
     public void The_log_stores_real_mud2_traffic_as_bytes_you_can_grep_for()
     {
         // Stores raw, uncompressed bytes, asserted rather than described: every payload the writer was
-        // handed is findable verbatim inside batches.data. That is what makes the log a corpus you can
+        // handed is a row of wire.data, verbatim and whole. That is what makes the log a corpus you can
         // ask questions of without writing a decoder first.
         var records = ReadJsonl(WyvernFixturePath);
         using (var store = NewStore())
@@ -232,7 +228,7 @@ public sealed class WireLogTests : IDisposable
         using (var connection = MuckaDb.OpenRead(DbPath))
         {
             using var command = connection.CreateCommand();
-            command.CommandText = "SELECT data FROM batches ORDER BY seq;";
+            command.CommandText = "SELECT data FROM wire ORDER BY seq;";
             using var reader = command.ExecuteReader();
             while (reader.Read())
                 blobs.Add((byte[])reader.GetValue(0));
@@ -243,7 +239,7 @@ public sealed class WireLogTests : IDisposable
         {
             Assert.True(
                 blobs.Exists(blob => Contains(blob, record.Payload)),
-                $"payload of {record.Payload.Length} bytes is not present verbatim in any stored batch");
+                $"payload of {record.Payload.Length} bytes is not present verbatim in any stored row");
         }
     }
 
@@ -270,35 +266,6 @@ public sealed class WireLogTests : IDisposable
     private static bool Contains(byte[] haystack, byte[] needle)
         => needle.Length == 0 || haystack.AsSpan().IndexOf(needle.AsSpan()) >= 0;
 
-    // -- The batch bounds -------------------------------------------------------
-
-    [Fact]
-    public void A_batch_closes_at_the_age_bound_and_not_only_at_the_size_bound()
-    {
-        // Twenty minutes of idle chatter, a few hundred bytes in total - nowhere near MaxBatchBytes. The
-        // age bound is the only thing that can close these. It is enforced on the RECORD's own
-        // timestamp, so this drives the builder directly rather than sleeping for twenty minutes.
-        var start = 1_787_000_000_000L;
-        var builder = new WireLogBatchBuilder();
-        var closed = 0;
-        for (var minute = 0; minute < 20; minute++)
-        {
-            var ts = start + minute * 60_000L;
-            builder.Append(WireDirection.Rx, ts, Wire("tick%0D%0A"));
-            if (builder.Length >= WireLogWriter.MaxBatchBytes ||
-                ts - builder.BaseTimestampMs >= (long)WireLogWriter.MaxBatchAge.TotalMilliseconds)
-            {
-                closed++;
-                builder.Reset();
-            }
-        }
-
-        // The bound is checked after the append, so a batch SPANS at most MaxBatchAge rather than
-        // ending just before it: these pair up two ticks per batch, ten batches for twenty minutes.
-        Assert.True(closed >= 9,
-            $"the {WireLogWriter.MaxBatchAge.TotalSeconds}s age bound should close a batch a minute, got {closed}");
-    }
-
     // -- Opening the database: eagerly, and loudly when it fails -----------------
 
     [Fact]
@@ -318,7 +285,7 @@ public sealed class WireLogTests : IDisposable
             Assert.True(File.Exists(path));
             var open = Assert.Single(WireLogExport.ListSessions(path));
             Assert.Equal("mud2.co.uk", open.Host);
-            Assert.Equal(0L, open.Batches);
+            Assert.Equal(0L, open.Records);
         }
     }
 
@@ -357,7 +324,7 @@ public sealed class WireLogTests : IDisposable
         using (var saboteur = MuckaDb.Open(DbPath))
         {
             using var drop = saboteur.CreateCommand();
-            drop.CommandText = "DROP TABLE batches;";
+            drop.CommandText = "DROP TABLE wire;";
             drop.ExecuteNonQuery();
         }
 
@@ -374,31 +341,6 @@ public sealed class WireLogTests : IDisposable
             writer.RecordRx(Wire("ignored%0D%0A"));
         writer.Flush();
         Assert.True(store.IsFaulted);
-    }
-
-    // -- Integrity: the field that is stored and checked -------------------------
-
-    [Fact]
-    public void Export_refuses_a_batch_row_whose_record_count_no_longer_matches()
-    {
-        // The end-to-end version: a row damaged in the database is rejected on read rather than
-        // decoded into records nobody ever sent.
-        var records = SampleRecords();
-        using (var store = NewStore())
-        using (var writer = new WireLogWriter(store))
-            Feed(writer, records);
-
-        var session = Assert.Single(WireLogExport.ListSessions(DbPath));
-        Assert.Equal(records.Count, WireLogExport.ReadSession(DbPath, session.Id).Count());   // healthy first
-
-        using (var connection = MuckaDb.Open(DbPath))
-        {
-            using var damage = connection.CreateCommand();
-            damage.CommandText = "UPDATE batches SET records = records + 1;";
-            Assert.Equal(1, damage.ExecuteNonQuery());
-        }
-
-        Assert.Throws<InvalidDataException>(() => WireLogExport.ReadSession(DbPath, session.Id).ToList());
     }
 
     // -- Helpers ----------------------------------------------------------------

@@ -39,7 +39,7 @@ So the parse-once layer in this design is the *clog* content - encounter events,
 room contents, creature values - which is already parsed at capture time and today is thrown into
 JSONL files that every analysis pass has to re-read and re-interpret. Those become tables.
 
-The wire log stays raw framed bytes (`batches.data`), unchanged in shape. It is the ground truth, and
+The wire log stays raw bytes (`wire.data`), one row per record. It is the ground truth, and
 running the client's own parsers over it offline is how the parsers get found to be wrong
 (`docs/Lab-spec.md`). A raw line is recoverable from it by decode.
 
@@ -52,31 +52,61 @@ dispatch sites onto `StyledLine`, and per CLAUDE.md the code is the authority wh
 so a `lines` table without it would be the weaker artifact sitting next to the stronger one. That is a
 stage of its own.
 
+### Why the wire log has no framing
+
+The wire log used to pack runs of records into one blob behind a varint framing: a `MWL1` magic, then
+per record a zigzag timestamp delta and a length-plus-direction varint, then the payload. That is
+gone. `wire` has one row per record, `ts_ms` and `direction` are columns, and `data` is the bytes and
+nothing else.
+
+The framing's own rationale was legibility - it argued against compression on the grounds that "a blob
+you cannot look at without writing a decoder first is a corpus in name only" - and then defeated the
+same property itself. The demonstration is one line: `SELECT data FROM batches` printed `MWL1` and
+stopped, because the fifth byte of every batch is the first record's zero timestamp delta and sqlite3
+renders a blob as a C string. Every batch in the corpus looked identical.
+
+What the framing bought, weighed honestly:
+
+- **Direction** - real, and now a column, which is strictly better than two bits inside a varint.
+- **Per-record arrival time** - real, and now a column. It was never the reason for the framing.
+- **Read boundaries** - where one socket read ended. That is TCP segmentation, not protocol structure;
+  `MudStreamParser` handles arbitrary splits, so a replay never needed them. `seq` preserves the order
+  the records were handed over, which is the part that is evidence.
+
+What it cost, beyond legibility: the framing carries no redundancy at all, so damage that leaves the
+buffer parseable decodes into a well-formed run of records that is not what was written - over 200,000
+mutated batches, 39,789 decoded into silent garbage. `batches.records` existed as the only guard
+against that, and the guard is unnecessary once damaged bytes are just damaged bytes in one row.
+
+The price is storage: one row per record costs about 48 bytes of SQLite page and index overhead, so
+the same measured corpus is 17.1 MB rather than 11.4 MB - 0.94 MB per play-hour against 0.63. That is
+the trade, made deliberately and in that direction.
+
 ## Why one file
 
 `WireLogDb.cs` argues at length that the wire log must be its own file. The operator has overruled it.
 The argument is summarised here so nothing rediscovers it as new:
 
-- **Growth.** Measured over 40 captures (79,495 records, 6,144,190 bytes of payload, 8.91 play-hours):
-  an average wire rate of 0.191 KB/s, which stored plain at the one-minute batch bound is 0.76 MB per
-  play-hour, or about 1.1 GB a year at four hours of daily play (`WireLogFraming.cs`). Against that,
-  the combat tables are thousands of small rows.
+- **Growth.** Measured over 13 sessions, 18.11 play-hours, 10-13 Sep 2026: 119,921 records,
+  10,141,176 bytes of payload, an average wire rate of 0.156 KB/s. One row per record stores that in
+  about 17.1 MB - 0.94 MB per play-hour, or about 1.4 GB a year at four hours of daily play. Against
+  that, the combat tables are thousands of small rows.
 - **Blast radius.** Deleting the wire log must never be an operation that can touch the combat corpus.
 - **Writer contention.** A third writer on a file that already needed `PRAGMA busy_timeout=5000`
-  (`CombatDb.cs`) to stop two writers dropping each other's batches.
+  (`CombatDb.cs`) to stop two writers dropping each other's rows.
 
 What actually decides it:
 
 1. The volume does not justify the split. MUD2 is a small, frozen, 32-bit game and the operator's is
    the only installation. The four stores measured on 2026-09-14 were: `mucka.db` 6.1 MB (24,402
    swings, 2,790 fights, 2,285 score events and no `diagnose` readings at all, spanning 14 Aug to
-   13 Sep), `wire.db` 11.4 MB (13 sessions, 10 Sep to 13 Sep, 1,074 batches, 119,921 records), 21
+   13 Sep), `wire.db` 11.4 MB (13 sessions, 10 Sep to 13 Sep, 1,074 framed batches, 119,921 records), 21
    clog files, and 40 JSONL captures totalling 17 MB.
 2. **The contention argument is an argument against the current writer design, not against one file.**
    This design replaces four independent writers with one, which removes the collision the busy
    timeout exists for rather than adding to it. See "One writer" below.
 3. **Blast radius is per-table, not per-file** - once the schema policy is one policy (below), nothing
-   in the code drops anything, and clearing the wire log is `DELETE FROM batches` run by hand.
+   in the code drops anything, and clearing the wire log is `DELETE FROM wire` run by hand.
 
 One claim in the tree is NOT carried forward, because it is not true: `MuckaConnection.cs:44-46`
 justifies the existing shared file by saying it lets "the analysis view join a swing to the fight it
@@ -145,13 +175,13 @@ notes that the order between a swing, a diagnose reading and a score announcemen
 breath is the whole basis on which an award is later attributed to a kill. Separate queues lose it, and with
 the clog and wire streams joining, more of it is worth keeping.
 
-**Unbounded, not bounded.** `SqliteWireLogSink` bounds its queue at 256 batches with
+**Unbounded, not bounded.** `SqliteWireLogSink` bounded its queue at 256 batches with
 `FullMode.DropOldest` (`SqliteWireLogSink.cs`), defending against a writer that is wedged rather than
 dead - and the wedge cause it names is SQLite lock contention, which one arbiter removes. What is left
-is a stalled disk, and the arithmetic says that is not worth machinery: at the measured 0.191 KB/s a
-batch is about 12 KB, so an hour of total write stall is under a megabyte of backlog. The
-`DroppedBatches` counter, the drop report and the `batches.seq` gap-as-evidence argument all go with
-the bound; a gapless `seq` is still worth keeping as a per-session ordinal.
+is a stalled disk, and the arithmetic says that is not worth machinery: at the measured 0.156 KB/s an
+hour of total write stall is about half a megabyte of backlog. The `DroppedBatches` counter and the
+drop report go with the bound; a gapless `seq` is still worth keeping as a per-session ordinal,
+because it is the order things happened and a replay walks it.
 
 **A dead writer still stops accepting.** `SqliteWireLogSink`'s `_faulted` flag is kept and widened to
 the store: if the background task falls over, it sets the flag, discards what is queued, and every
@@ -164,7 +194,7 @@ reported it and carried on with the batch; the wire sink faulted on anything. Th
 dropped and a row that throws faults the store. It reads as resilience and is not: with one arbiter,
 the only two things that make a row throw are a dead database and a schema bug, and swallowing either
 produces an error per row forever with nothing that ever says the recording has stopped being
-trustworthy. This is testable and tested - drop `batches` out from under a live writer and the store
+trustworthy. This is testable and tested - drop `wire` out from under a live writer and the store
 must go faulted rather than writing an error line per record for the rest of the session.
 
 ### What the per-encounter drains become
@@ -230,7 +260,7 @@ disposable (`DiscardOnSchemaChange`). Both are argued as correct in their own fi
 - What the discard policy actually bought was a guard against a NOT NULL insert failing against an old
   file and faulting the log out for the session with a swallowed exception. Additive-only gets the
   same protection differently: a change that cannot be expressed as a nullable added column is not
-  made by the code at all. The operator runs `DELETE FROM batches` (or drops the table) by hand and
+  made by the code at all. The operator runs `DELETE FROM wire` (or drops the table) by hand and
   the next open recreates it.
 - There is still no `PRAGMA user_version`. A version gate would only skip `IF NOT EXISTS` statements,
   never perform an ALTER, so it could not migrate anything - it would be a version number that looked
@@ -247,7 +277,7 @@ Verbatim from today, unchanged in shape:
 | `npc_stamina_reads` | the combat database | every `diagnose` reading |
 | `score_events` | the combat database | every `(Persona saved on ...)` line |
 | `sessions` | the wire log | one row per connection |
-| `batches` | the wire log | framed raw records, payloads verbatim |
+| `wire` | the wire log | one row per record: `ts_ms`, `direction`, and the bytes |
 
 Plus the combat database's six views and the wire log's `v_session_sizes`, all unchanged. Everything
 above now lives in `MuckaDb.SchemaSql`, which is the whole schema in one place.
@@ -386,7 +416,7 @@ is not survivable for the corpus, so the mobile arm of `MuckaPaths.GetDataDirect
 (`CrashLog.cs`) already use.
 
 The consequence that remains, recorded rather than solved: the wire log is always-on on Android too,
-so 0.76 MB per play-hour is now unconditional in app data. Retention is a later stage.
+so 0.94 MB per play-hour is now unconditional in app data. Retention is a later stage.
 
 ### One consequence the operator has already accepted
 
@@ -403,8 +433,9 @@ the same file the client reads.
 
 Almost all of that survives. What changes:
 
-- **One path.** `~/.mucka/mucka.db` instead of `wire.db` plus `mucka.db`. The `batches` query is
-  unchanged; `ATTACH` is no longer needed for a cross-store question.
+- **One path, and no decode step.** `~/.mucka/mucka.db` instead of `wire.db` plus `mucka.db`, and the
+  traffic query is `SELECT ts_ms, direction, data FROM wire ORDER BY seq` - the rows are the records,
+  so nothing has to be unframed first. `ATTACH` is no longer needed for a cross-store question.
 - **The clog corpus is queryable.** Every question Lab would previously have answered by re-reading
   `~/.mucka/clogs/*.jsonl` is now SQL against `encounter_events`, `encounter_stats` and their
   siblings. The `flees --scan` pipeline still goes through the raw bytes, because it needs frames and
@@ -415,50 +446,33 @@ Almost all of that survives. What changes:
 
 ## Landing it
 
-The code change and the data move are separate, and the data move is last: nothing is deleted until
-the new build has been played.
+Done on 2026-09-14, recorded because the result has to be checkable and because nothing is deleted
+until the new build has been played.
 
-1. Build both TFMs, run all three suites, commit.
-2. **Move the combat corpus, before playing the new build.** With Mucka closed:
-   `~/.mucka/combat/mucka.db` -> `~/.mucka/mucka.db`, taking any `mucka.db-wal` / `mucka.db-shm`
-   beside it at the same time. The additive schema picks the file up on the next open with zero code:
-   the four combat tables are already exactly right, and the wire and encounter tables are created
-   into it by `CREATE TABLE IF NOT EXISTS`. Doing this before the first run saves having to overwrite
-   a freshly created empty one. From this point the new build is the one to launch: an older build
-   still reads `~/.mucka/combat/mucka.db`, would create an empty one there, and would record that
-   session into a file nothing reads afterwards.
-3. **Integrate the wire data.** Also with Mucka closed, and after at least one run of the new build
-   (so `sessions` and `batches` exist with their indexes and foreign key):
+1. **The combat corpus moved.** With Mucka closed: `~/.mucka/combat/mucka.db` (6,123,520 bytes) ->
+   `~/.mucka/mucka.db`; there was no `-wal` or `-shm` beside it. The additive schema picks the file up
+   on the next open with zero code - the four combat tables were already exactly right, and the wire
+   and encounter tables are created into it by `CREATE TABLE IF NOT EXISTS`. Doing this before the
+   first run saves having to overwrite a freshly created empty one. From this point the new build is
+   the one to launch: an older build still reads `~/.mucka/combat/mucka.db`, would create an empty one
+   there, and would record that session into a file nothing reads afterwards.
+2. **The wire data was decoded in, not copied in.** The old `wire.db` holds `MWL1`-framed batches and
+   the new table holds records, so `ATTACH` plus `INSERT ... SELECT` could not do it: every batch had
+   to pass through `WireLogFraming.Decode` on the way. That is why the framing code was deleted
+   *after* this step and not before. `seq` was renumbered per session across the session's whole record
+   sequence, replacing the old per-batch ordinal. The session id offset was read once, before any
+   insert, so the two id spaces shift together.
 
-   Read the offset FIRST, then substitute it as a literal. A sub-select would be re-evaluated after
-   the sessions insert and give the batches the wrong parent.
-
-   ```sql
-   -- sqlite3 ~/.mucka/mucka.db, with OFF read from this before anything is inserted:
-   SELECT COALESCE(MAX(id), 0) FROM sessions;
-   ```
-
-   ```sql
-   -- ATTACH does not expand '~'; give it the absolute path.
-   ATTACH 'C:/Users/<you>/.mucka/wire/wire.db' AS old;
-   BEGIN;
-   INSERT INTO main.sessions (id, started_ms, ended_ms, host, client_version)
-   SELECT id + OFF, started_ms, ended_ms, host, client_version FROM old.sessions;
-   INSERT INTO main.batches (session_id, seq, base_ts_ms, last_ts_ms, records, data)
-   SELECT session_id + OFF, seq, base_ts_ms, last_ts_ms, records, data FROM old.batches;
-   COMMIT;
-   DETACH old;
-   ```
-
-   Sessions before batches, because the foreign key is on. This is a one-time hand operation; it is
-   not a migration path in the client, and no code reads the old file.
-4. **Check it.** `SELECT COUNT(*) FROM sessions;` and `SELECT SUM(records) FROM v_session_sizes;`
-   against the 13 sessions / 119,921 records measured on 2026-09-14, plus whatever the new build has
-   added since.
-5. **Delete the old data**, once the new build has been played and step 4 agrees. `~/.mucka/combat/`
-   entire (both the stale `combat.db` - 18.7 MB, untouched since 19 Aug, referenced by no code - and
-   the now-moved `mucka.db`), `~/.mucka/wire/`, `~/.mucka/clogs/`, and the 40 JSONL captures in
-   `%LOCALAPPDATA%\Temp\mucka`.
+   Result: **13 sessions, 1,074 batches decoded, 119,921 records, 10,141,176 bytes of payload** - the
+   record count the old file reported, so nothing was lost or invented.
+3. **Checked.** `~/.mucka/mucka.db` is 23,228,416 bytes: the 6.1 MB corpus plus about 17.1 MB of wire
+   log. 76,633 Rx rows (9,668,270 bytes), 42,946 Tx rows (465,243 bytes - a typed command is about 11
+   bytes), 342 annotations. Over 18.11 play-hours that is 0.156 KB/s and 0.94 MB per play-hour.
+   `SELECT data FROM wire` prints MUD2 text.
+4. **Still to delete**, once the new build has been played: `~/.mucka/combat/` (now empty - the stale
+   `combat.db` the operator deleted, and the moved `mucka.db`), `~/.mucka/wire/`, `~/.mucka/clogs/`
+   (21 files), and the 40 JSONL captures in `%LOCALAPPDATA%\Temp\mucka`. A full copy of all three
+   databases as they were sits in `~/.mucka/backup-20260914-100508/`.
 
 If a file is locked at any of these steps, Mucka is running. Ask the operator to close it; never kill
 it.

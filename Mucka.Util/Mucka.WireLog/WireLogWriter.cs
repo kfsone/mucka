@@ -5,58 +5,38 @@ using Mucka.Store;
 namespace Mucka.WireLog;
 
 /// <summary>
-/// The wire log: every byte of every session, raw, into <c>batches</c>. Always on - there is no
-/// setting and nothing to arm.
+/// The wire log: every byte of every session, raw, into <c>wire</c>. Always on - there is no setting
+/// and nothing to arm.
 ///
-/// <para><b>The tap and the batcher in one.</b> <see cref="RecordRx"/> is called from the socket read
-/// loop and <see cref="RecordTx"/> from the write loop, concurrently; each stamps the time, tags the
-/// direction, takes a lock, memcpies the payload into the open batch buffer and compares two longs.
-/// When that buffer crosses <see cref="MaxBatchBytes"/>, or the record just appended is
-/// <see cref="MaxBatchAge"/> past the batch's first, the batch is swapped out and handed to
-/// <see cref="MuckaStore"/>. Nothing on the caller's thread ever touches SQLite.</para>
+/// <para><b>The tap, and nothing else.</b> <see cref="RecordRx"/> is called from the socket read loop
+/// and <see cref="RecordTx"/> from the write loop, concurrently. Each stamps the time, tags the
+/// direction, copies the payload and hands one row to <see cref="MuckaStore"/>. That hand-off is a
+/// <c>TryWrite</c> onto an unbounded channel; nothing on the caller's thread touches SQLite, allocates
+/// a batch, or takes a lock that another socket thread holds (Invariant #1).</para>
 ///
-/// <para>The age bound is enforced <i>on the record's own timestamp</i>, in <see cref="Emit"/>, so it
-/// fires exactly at the bound rather than at the next tick of a timer. The housekeeping timer below
-/// exists only for the case that cannot see: a batch that has some records in it and then goes
-/// completely quiet. That batch is by definition small, so the timer's coarseness costs nothing.</para>
+/// <para><b>One row per record, and the arithmetic that says it is affordable.</b> Measured over 13
+/// sessions, 18.11 play-hours, 10-13 Sep 2026: 119,921 records, 10,141,176 bytes of payload, 84 bytes
+/// average, about 1.8 records a second. SQLite's per-row overhead is ~48 bytes there, so the corpus
+/// stores in ~17.1 MB - 0.94 MB per play-hour, about 1.4 GB a year at four hours of daily play. The
+/// alternative was packing runs of records into one blob behind a varint framing, which cost 0.63 MB
+/// per play-hour and made <c>SELECT data</c> print the magic number instead of the line. See the
+/// <c>wire</c> table's comment in MuckaDb for why legibility wins that trade.</para>
 ///
-/// <para><b>What a crash costs.</b> At most the open batch: everything already handed to the store is
-/// in a committed WAL transaction, and everything still in the builder is in memory only. That is
-/// bounded by the two constants below - 64 KB of traffic or one minute of it, whichever comes first,
-/// and at MUD2's measured 0.191 KB/s the minute is what fires. <see cref="Flush"/> closes the open
-/// batch and is called on every path that ends a connection - the graceful disconnect and the server
-/// drop alike - so a normal end of session loses nothing at all; only a hard kill or a power cut can
-/// reach the window.</para>
+/// <para>The writes themselves are not per row: the store's single background task drains whatever has
+/// queued and commits it as one transaction, so a busy second is one commit, not a hundred.</para>
 ///
-/// <para>With nothing compressed, batch length only needs to amortise SQLite's ~0.74 KB of per-row
-/// overhead, which a minute of MUD2 (about 12 KB) already reduces to noise.</para>
+/// <para><b>What a crash costs.</b> Whatever has not yet drained, which is bounded by how fast the
+/// store's task gets to it rather than by any buffer here - there is no buffer here.
+/// <see cref="Flush"/> exists for the shape of the call sites that end a connection and has nothing to
+/// do; draining is <see cref="MuckaStore.Dispose"/>'s job.</para>
 /// </summary>
 public sealed class WireLogWriter : IDisposable
 {
-    /// <summary>Close the batch once the framed buffer reaches this. At MUD2's measured 0.191 KB/s this
-    /// takes about 5.6 minutes to reach, so in ordinary play <see cref="MaxBatchAge"/> is the bound that
-    /// fires; this one catches a busy fight, where a minute's traffic is far above the average.</summary>
-    public const int MaxBatchBytes = 64 * 1024;
-
-    /// <summary>Close the batch once the record being appended is this far past the batch's first.</summary>
-    public static readonly TimeSpan MaxBatchAge = TimeSpan.FromMinutes(1);
-
-    private static readonly long MaxBatchAgeMs = (long)MaxBatchAge.TotalMilliseconds;
-    private static readonly TimeSpan HousekeepingPeriod = TimeSpan.FromSeconds(30);
-
-    private readonly object _lock = new();
-    private readonly WireLogBatchBuilder _builder = new();
     private readonly MuckaStore _store;
-    private readonly Timer _housekeeping;
-
-    private int _seq;
+    private int _seq = -1;
     private volatile bool _disposed;
 
-    public WireLogWriter(MuckaStore store)
-    {
-        _store = store;
-        _housekeeping = new Timer(_ => CloseIfStale(), null, HousekeepingPeriod, HousekeepingPeriod);
-    }
+    public WireLogWriter(MuckaStore store) => _store = store;
 
     public void RecordRx(ReadOnlySpan<byte> data) => Emit(WireDirection.Rx, data);
 
@@ -71,78 +51,33 @@ public sealed class WireLogWriter : IDisposable
         Emit(WireDirection.Annotation, Encoding.UTF8.GetBytes(message));
     }
 
-    /// <summary>Closes the open batch. Called on disconnect and on dispose; a no-op when the batch is
-    /// empty. Never throws - a recorder must not break the session.</summary>
-    public void Flush()
-    {
-        WireBatchRow? ready;
-        lock (_lock) ready = TakeBatchLocked();
-        if (ready is not null)
-            _store.Enqueue(ready);
-    }
+    /// <summary>Nothing is held back, so there is nothing to flush. Kept because every path that ends
+    /// a connection calls it, and because a recorder that grows a buffer later should have one place
+    /// to empty it.</summary>
+    public void Flush() { }
 
-    public void Dispose()
-    {
-        if (_disposed) return;
-        _disposed = true;
-        _housekeeping.Dispose();
-        Flush();
-    }
+    public void Dispose() => _disposed = true;
 
     private void Emit(WireDirection direction, ReadOnlySpan<byte> payload)
     {
         if (_disposed) return;
-        var timestampMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        WireBatchRow? ready = null;
-        lock (_lock)
-        {
-            _builder.Append(direction, timestampMs, payload);
-            if (_builder.Length >= MaxBatchBytes ||
-                timestampMs - _builder.BaseTimestampMs >= MaxBatchAgeMs)
-                ready = TakeBatchLocked();
-        }
-        // Outside the lock: the caller here is a socket loop and there is no reason to hold the buffer
-        // lock across the handover.
-        if (ready is not null)
-            _store.Enqueue(ready);
-    }
-
-    /// <summary>Swaps the open batch out if it has anything in it. Caller holds <see cref="_lock"/>.</summary>
-    private WireBatchRow? TakeBatchLocked()
-    {
-        if (_builder.IsEmpty) return null;
-        var batch = new WireBatchRow(_store.SessionId, _seq++, _builder.BaseTimestampMs,
-            _builder.LastTimestampMs, _builder.Count, _builder.ToArray());
-        _builder.Reset();
-        return batch;
-    }
-
-    /// <summary>The idle case the age check in <see cref="Emit"/> cannot reach: a batch with records in
-    /// it and no traffic since. Its age is against the wall clock, because there is no next record to
-    /// take a timestamp from.</summary>
-    private void CloseIfStale()
-    {
-        if (_disposed) return;
-        WireBatchRow? ready = null;
-        lock (_lock)
-        {
-            if (!_builder.IsEmpty &&
-                DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - _builder.BaseTimestampMs >= MaxBatchAgeMs)
-                ready = TakeBatchLocked();
-        }
-        if (ready is not null)
-            _store.Enqueue(ready);
+        // Interlocked rather than a lock: the read and write loops are different threads and the only
+        // shared state is this counter. `seq` is the order records were handed over, which is what a
+        // replay needs - the store preserves it because there is one queue and one writer.
+        var seq = Interlocked.Increment(ref _seq);
+        _store.Enqueue(new WireRow(_store.SessionId, seq,
+            DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), direction, payload.ToArray()));
     }
 }
 
-/// <summary>One closed batch, on its way to <c>batches</c>. The framed buffer goes in as-is: the
-/// payloads inside it are the server's own bytes and nothing here transforms them.</summary>
-internal sealed record WireBatchRow(long SessionId, int Seq, long BaseTsMs, long LastTsMs,
-    int Records, byte[] Framed) : IStoreRow
+/// <summary>One record on its way to <c>wire</c>. The payload goes in as-is: these are the server's
+/// own bytes and nothing here transforms them.</summary>
+internal sealed record WireRow(long SessionId, int Seq, long TimestampMs, WireDirection Direction,
+    byte[] Payload) : IStoreRow
 {
     private const string Sql = """
-        INSERT INTO batches (session_id, seq, base_ts_ms, last_ts_ms, records, data)
-        VALUES ($session, $seq, $base, $last, $records, $data);
+        INSERT INTO wire (session_id, seq, ts_ms, direction, data)
+        VALUES ($session, $seq, $ts, $direction, $data);
         """;
 
     public void Write(StoreWrite write)
@@ -150,10 +85,9 @@ internal sealed record WireBatchRow(long SessionId, int Seq, long BaseTsMs, long
         var command = write.Prepared(Sql);
         command.Parameters.AddWithValue("$session", SessionId);
         command.Parameters.AddWithValue("$seq", Seq);
-        command.Parameters.AddWithValue("$base", BaseTsMs);
-        command.Parameters.AddWithValue("$last", LastTsMs);
-        command.Parameters.AddWithValue("$records", Records);
-        command.Parameters.Add("$data", SqliteType.Blob).Value = Framed;
+        command.Parameters.AddWithValue("$ts", TimestampMs);
+        command.Parameters.AddWithValue("$direction", (int)Direction);
+        command.Parameters.Add("$data", SqliteType.Blob).Value = Payload;
         command.ExecuteNonQuery();
     }
 }

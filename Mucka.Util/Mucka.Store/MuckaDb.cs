@@ -345,26 +345,37 @@ public static class MuckaDb
             client_version TEXT                -- Mucka's version, so a decode can be told which client wrote it
         );
 
-        -- The traffic, as runs of framed records (see WireLogFraming for the byte layout inside
-        -- `data` - the server's own bytes with a couple of header bytes between them, and nothing
-        -- compressed).
+        -- The traffic. One row per record - one read off the socket, one write onto it, or one
+        -- client-side note.
         --
-        -- `records` earns its space twice: it makes "what is this costing me" arithmetic on two
-        -- columns rather than a decode pass, and - since the framing itself carries no redundancy
-        -- whatever - it is the ONLY thing that can tell a damaged batch from a plausible one. It is
-        -- enforced on every read; see WireLogExport.ReadSession. `seq` is per-session and gapless.
-        CREATE TABLE IF NOT EXISTS batches (
+        -- `data` is the bytes and NOTHING ELSE: no magic, no length prefix, no encoded timestamp, not
+        -- compressed. `SELECT data FROM wire` prints the line. That is the whole design rule for this
+        -- table, and it is why `ts_ms` and `direction` are columns: a fact encoded into the blob is a
+        -- fact that costs a decoder to read, and a corpus that needs a decoder before the first
+        -- question is a corpus in name only.
+        --
+        -- It is also what removes the one failure mode the framed form had. Varint framing carries no
+        -- redundancy, so damage that leaves the buffer parseable decodes into a well-formed run of
+        -- records that is simply not what was written - silently. Damaged bytes in a blob are visibly
+        -- damaged bytes.
+        --
+        -- Measured over 13 sessions, 18.11 play-hours, 10-13 Sep 2026: 119,921 records, 10,141,176
+        -- bytes of payload, 84 bytes average. Rx is 64% of rows and 95% of bytes; Tx is 36% of rows
+        -- and 4.6%, because a typed command is about 11 bytes. A row costs ~48 bytes of SQLite page
+        -- and index overhead, so the per-record shape stores that corpus in about 17.1 MB against the
+        -- framed form's 11.4 MB: 0.94 MB per play-hour rather than 0.63.
+        CREATE TABLE IF NOT EXISTS wire (
             id          INTEGER PRIMARY KEY,
             session_id  INTEGER NOT NULL REFERENCES sessions(id),
-            seq         INTEGER NOT NULL,   -- 0-based within the session
-            base_ts_ms  INTEGER NOT NULL,   -- absolute timestamp of the batch's FIRST record
-            last_ts_ms  INTEGER NOT NULL,   -- absolute timestamp of its last, for range queries
-            records     INTEGER NOT NULL,
-            data        BLOB    NOT NULL    -- framed records; payloads verbatim, uncompressed
+            seq         INTEGER NOT NULL,   -- 0-based within the session, gapless; the order things happened
+            ts_ms       INTEGER NOT NULL,   -- unix ms, stamped as the record was handed to the writer
+            -- WireDirection: 0 Rx, 1 Tx, 2 Annotation. STORED - never renumber.
+            direction   INTEGER NOT NULL,
+            data        BLOB    NOT NULL    -- the bytes, verbatim
         );
 
-        CREATE INDEX IF NOT EXISTS ix_batches_session ON batches(session_id, seq);
-        CREATE INDEX IF NOT EXISTS ix_batches_ts      ON batches(base_ts_ms);
+        CREATE INDEX IF NOT EXISTS ix_wire_session ON wire(session_id, seq);
+        CREATE INDEX IF NOT EXISTS ix_wire_ts      ON wire(ts_ms);
 
         -- =========================================================== encounter logs ==
 
@@ -630,10 +641,9 @@ public static class MuckaDb
         -- What the wire log is costing, per session, without decoding anything.
         CREATE VIEW IF NOT EXISTS v_session_sizes AS
         SELECT s.id, s.started_ms, s.ended_ms, s.host,
-               COUNT(b.id)          AS batches,
-               SUM(b.records)       AS records,
-               SUM(LENGTH(b.data))  AS stored_bytes
-        FROM sessions s LEFT JOIN batches b ON b.session_id = s.id
+               COUNT(w.id)          AS records,
+               SUM(LENGTH(w.data))  AS payload_bytes
+        FROM sessions s LEFT JOIN wire w ON w.session_id = s.id
         GROUP BY s.id;
         """;
 }
