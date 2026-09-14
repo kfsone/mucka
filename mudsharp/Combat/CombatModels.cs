@@ -167,6 +167,25 @@ public enum CombatEventKind
     /// weapon identity - track it, since NPC weapon choice presumably affects their damage output
     /// the same way it does the player's.</summary>
     NpcWeaponEquip,
+
+    /// <summary>
+    /// "The man fades from view." - the creature turned invisible, under C1 code 04.00.05 ("Normal
+    /// creatures becoming invisible"; see <see cref="MudSharp.Models.LineKind.CreatureInvisible"/>).
+    ///
+    /// <para>Not a combat state change - the fight runs on exactly as it was - but it is the line
+    /// that explains every line after it. From here MUD2 stops putting the creature's name in its
+    /// sentences and writes "someone" instead ("Someone hits you (103/105).", "You miss someone.",
+    /// "Someone offers to withdraw from your fight if you do likewise."), and the weapon it picks
+    /// up becomes "something". The codes are unchanged - each anonymous line carries the same C08
+    /// sub-code as its named counterpart, confirmed byte for byte on the wire - so only the name is
+    /// lost, and only this line says where it went.</para>
+    ///
+    /// <para>Reported for an engaged creature only. Something across the room turning invisible is
+    /// not this fight's business, and in the capture that produced this kind the man first faded
+    /// while fighting a fox rather than the player.</para>
+    /// </summary>
+    NpcTurnedInvisible,
+
     /// <summary>"The X breaks to bits." - the weapon in use broke mid-fight, forcing a guard drop.</summary>
     WeaponBroke,
     /// <summary>"Your guard drops..." (weapon switch or post-break confusion) - no C1 wrapper observed.</summary>

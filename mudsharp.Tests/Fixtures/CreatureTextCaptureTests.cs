@@ -121,4 +121,44 @@ public sealed class CreatureTextCaptureTests
         Pop(h);
         Assert.Empty(h.CreatureTexts);
     }
+
+    /// <summary>
+    /// 04.00.05, "Normal creatures becoming invisible", is tagged onto the line as well as captured.
+    /// Bytes verbatim from wire.db session 12: <c>[9F][9B][A0][FF][FF]The man fades from view.</c>
+    ///
+    /// <para>The tag is what CombatTracker reads, and it matters far beyond this sentence. MUD2 does
+    /// not stop reporting a creature it has made invisible - it stops NAMING it, writing "someone"
+    /// into every line about it for the rest of the fight, including the line that ends the fight.
+    /// So this one code changes the wording of everything after it, and without it a fight can be
+    /// left open against an opponent the client never saw agree to stop.</para>
+    /// </summary>
+    [Fact]
+    public void CreatureBecomingInvisible_TagsTheLine()
+    {
+        var h = new ParserHarness();
+        h.Feed(0x9F, 0x9B, 0xA0, 0xFF, 0xFF);
+        h.Feed("The man fades from view.");
+        h.Feed("\r\n");
+
+        var line = Assert.Single(h.Lines, l => l.PlainText == "The man fades from view.");
+        Assert.Equal(MudSharp.Models.LineKind.CreatureInvisible, line.Kind);
+    }
+
+    /// <summary>
+    /// The other presence variants share the code class and must NOT carry the tag. A creature
+    /// merely standing in the room has not gone anonymous, and tagging it would have CombatTracker
+    /// resolving "someone" to whatever was last described.
+    /// </summary>
+    [Fact]
+    public void CreaturePresence_ThatIsNotAVanishing_IsNotTagged()
+    {
+        var h = new ParserHarness();
+        OpenCreatureHere(h);
+        h.Feed("An evil, black rat (rat17) bares its razor-sharp incisors at you.");
+        Pop(h);
+        h.Feed("\r\n");
+
+        var line = Assert.Single(h.Lines, l => l.PlainText.Contains("rat17"));
+        Assert.Equal(MudSharp.Models.LineKind.Normal, line.Kind);
+    }
 }

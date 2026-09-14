@@ -814,6 +814,13 @@ internal sealed class Mud2C1Decoder
                 // room contents of the FEI inventory list.
                 if (count == 2 && b0 is 0x9B or 0x9C && b1 is >= 0x9D and <= 0xA3)
                     Hint(StaleStats.Inventory);
+                // 04 0x 05 - "Normal creatures becoming invisible". Tag the line, because MUD2 does
+                // not stop reporting a creature it has made invisible, it stops NAMING it: every
+                // subsequent combat line about it says "someone" instead. CombatTracker needs to
+                // know this arrived to put the name back, and the code says so whatever the
+                // sentence turns out to be. See LineKind.CreatureInvisible.
+                if (count == 2 && b0 is 0x9B or 0x9C && b1 == 0xA0)
+                    _parser.SetPendingKind(LineKind.CreatureInvisible);
                 return count == 2 && b1 == 0xA1 ? ParserState.FewPlayerData : ParserState.Normal;
 
             // -- C05 (0xA0): RED / LT_RED / LT_YELLOW (combat/damage) ---------

@@ -13,6 +13,15 @@
 - Combat rail: CombatTierResolver.CriticalStaminaFloorTier (the "no lower than T2 at or below
   6.5 stamina" floor in docs/combat-panel-design.md) exists and is tested but nothing calls it;
   SidePanelViewModel feeds the stamina tier straight to ResolvePulseTier.
+- Invisible opponents: a creature that fades BEFORE the player engages it has no name to recover, so
+  the fight opens against "someone" (on the wire: a man faded while fighting a fox, and `k man` a
+  minute later answered "You attack someone."). CombatTracker's _faded set is encounter-scoped and
+  cannot see it. Naming it needs a registry of which invisible creatures are in THIS room, which
+  belongs with RoomCreatures rather than with the tracker. Mortal invisibility (C1 05.00.05) is
+  untagged for the same reason it is unhandled: no capture of a player doing it mid-fight.
+- Combat: "The thief takes back his offer to withdraw from your fight." (verbatim) is unparsed. It
+  retracts a NpcWithdrawOffer, which is not an end either, so nothing is currently wrong - but a
+  panel that ever draws a standing offer would keep drawing it after it was withdrawn.
 - Any "$" or "^" line is client-local on both platforms, including at MUD2's persona password
   prompt, where it is echoed into scrollback and history and never sent. There is no escape
   hatch for sending one to the MUD.

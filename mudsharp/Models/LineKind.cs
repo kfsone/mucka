@@ -45,4 +45,28 @@ public enum LineKind
     /// workaround for these lines; it is the only thing there will ever be.</para>
     /// </summary>
     FightEnd,
+
+    /// <summary>
+    /// A creature turned invisible - C1 code 04.00.05, which fecodes.txt names "Normal creatures
+    /// becoming invisible". Confirmed on the wire: <c>[9F][9B][A0]</c> introduces "The man fades
+    /// from view."
+    ///
+    /// <para>Worth a kind of its own because of what happens AFTER it. MUD2 does not stop reporting
+    /// an invisible creature - it stops NAMING it, substituting "someone" into every sentence that
+    /// would have carried the name, and "something" for the weapon it picks up. So one unremarkable
+    /// line silently changes the wording of every combat line for the rest of the fight, and the
+    /// only thing that can put the name back on those lines is knowing this one arrived. See
+    /// CombatTracker's anonymous-participant handling.</para>
+    ///
+    /// <para>The code is tagged rather than the sentence for the reason <see cref="FightEnd"/>
+    /// gives: the code states the fact, the prose only says which creature. Here the prose matters
+    /// more than usual, since the whole point is to learn a name - but a wording we do not know
+    /// still tells us the fight has gone anonymous, and with one creature engaged that is enough.
+    /// </para>
+    ///
+    /// <para>Creatures only. The mortal equivalent (05.00.05, "Mortals becoming invisible") is the
+    /// obvious sibling and is deliberately not tagged: a player has never been observed doing this
+    /// mid-fight, and the substitution it would produce is unverified.</para>
+    /// </summary>
+    CreatureInvisible,
 }

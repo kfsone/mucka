@@ -15,6 +15,21 @@ public sealed class ParserGapTests
 
     private static StyledLine Line(string text) => new([new StyledSpan(text, TextStyle.Default)]);
 
+    /// <summary>The frame prompt as the parser delivers it - a PARTIAL line, and in game mode the
+    /// only one. It is how CombatTracker sees a frame boundary at all.</summary>
+    private static StyledLine PromptLine() =>
+        new([new StyledSpan("*", TextStyle.Default)], isPartial: true);
+
+    /// <summary>A line the server tagged C08.10/11/12 - "a fight ended", whatever the sentence
+    /// says. See LineKind.FightEnd.</summary>
+    private static StyledLine FightEndLine(string text) =>
+        new([new StyledSpan(text, TextStyle.Default)], kind: LineKind.FightEnd);
+
+    /// <summary>A line the server tagged C04.00.05 - "Normal creatures becoming invisible". On the
+    /// wire: <c>[9F][9B][A0]</c> in front of "The man fades from view."</summary>
+    private static StyledLine InvisibleLine(string text) =>
+        new([new StyledSpan(text, TextStyle.Default)], kind: LineKind.CreatureInvisible);
+
     private static List<CombatEvent> Observe(params string[] lines)
     {
         var tracker = new CombatTracker();
@@ -638,4 +653,327 @@ public sealed class ParserGapTests
         Assert.Null(fight.WeaponUsed);
     }
 
+    // ---- an opponent with no name --------------------------------------------------------------
+    //
+    // MUD2 writes "someone" wherever it would have written a creature's name, for as long as the
+    // player cannot identify it. Two causes, both on the wire in one session: the CREATURE turned
+    // invisible (C1 04.00.05, "The man fades from view.") and only it goes anonymous, or the PLAYER
+    // was blinded and everything does. Nothing else about the sentence changes, and nothing about
+    // its C1 code changes either.
+    //
+    // Every line below is verbatim - from a live fight's scrollback, or from the bytes of
+    // session 12 in wire.db, which recorded the same man in the same condition on the same day.
+
+    /// <summary>
+    /// The whole fight, as it was played: a man turns invisible mid-combat and every line about him
+    /// afterwards says "someone". It ends with the player accepting his withdraw offer.
+    ///
+    /// <para>The client that met this stayed in combat. None of the anonymous lines matched, so the
+    /// swings never reached the panel and - the part that mattered - neither did the end, leaving a
+    /// fight open against a creature that had agreed to stop fighting.</para>
+    ///
+    /// <para>The name is recovered rather than lost: the fade line says which creature went
+    /// anonymous, so every later line is attributed to the man, and the encounter that closes is
+    /// his.</para>
+    /// </summary>
+    [Fact]
+    public void InvisibleOpponent_IsStillTheCreatureItWas_AndItsWithdrawStillEndsTheFight()
+    {
+        var tracker = new CombatTracker();
+        var seen = new List<CombatEvent>();
+        tracker.EventOccurred += seen.Add;
+        var at = 0;
+        void Observe(StyledLine line) => tracker.Observe(line, T0.AddSeconds(at++));
+
+        Observe(Line("The man is moving towards you ferociously."));
+        Observe(Line("The man misses you."));
+        Observe(Line("You hit the man (1-4)."));
+        Observe(PromptLine());
+
+        Observe(Line("The man makes some magical gestures."));
+        Observe(InvisibleLine("The man fades from view."));
+        Observe(Line("Someone has started to use something to fight!"));
+        Observe(PromptLine());
+
+        // From here MUD2 has stopped naming him. The fight is unchanged.
+        Assert.True(tracker.InCombat);
+        Observe(Line("Someone hits you (103/105)."));
+        Observe(Line("You miss someone."));
+        Observe(Line("You hit someone (1-4)."));
+        Observe(Line("Someone misses you."));
+        Observe(PromptLine());
+
+        Observe(Line("Someone offers to withdraw from your fight if you do likewise."));
+        Assert.True(tracker.InCombat);   // an offer is not an end, anonymous or not
+        Observe(PromptLine());
+
+        Observe(Line("You withdraw from your fight with someone, and that person does too."));
+        Assert.False(tracker.InCombat);
+
+        // Every anonymous line lands on the man, because the fade line said which creature he was.
+        Assert.All(seen.Where(e => e.NpcName is not null), e => Assert.Equal("man", e.NpcName));
+        Assert.Contains(seen, e => e.Kind == CombatEventKind.NpcTurnedInvisible);
+        var hurt = Assert.Single(seen, e => e.Kind == CombatEventKind.HitByNpc);
+        Assert.Equal(103, hurt.RangeLow);
+        Assert.Equal(105, hurt.RangeHigh);
+        var ended = Assert.Single(seen, e => e.Kind == CombatEventKind.Withdrawn);
+        Assert.Equal("You withdraw from your fight with someone, and that person does too.", ended.RawText);
+    }
+
+    /// <summary>
+    /// The end itself, in isolation: the withdraw written from the PLAYER's side, which is what MUD2
+    /// says when the player is the one who accepted. The creature-side wording ("The banshee
+    /// withdraws from your fight, and so do you.") was matched from the start and this one was not,
+    /// which is the whole of the bug - the same event, the same code, a different subject.
+    /// </summary>
+    [Fact]
+    public void PlayerSideWithdraw_EndsTheFight()
+    {
+        var tracker = new CombatTracker();
+        tracker.Observe(Line("You attack the thief, using the broadsword as a weapon."), T0);
+        tracker.Observe(Line("You withdraw from your fight with the thief, and he does too."), T0.AddSeconds(1));
+
+        Assert.False(tracker.InCombat);
+    }
+
+    /// <summary>
+    /// Turning invisible is not an end, and it is not a start. The fight carries on exactly as it
+    /// was - which is why the client could not simply treat the anonymous lines that follow as some
+    /// other creature's.
+    ///
+    /// <para>Reported only for a creature already engaged. The capture that produced this line has
+    /// the man fading while fighting a FOX, well before the player attacked him, and a fight the
+    /// player is not in must not open one.</para>
+    /// </summary>
+    [Fact]
+    public void FadingFromView_EndsNothing_AndOpensNothing()
+    {
+        var idle = new CombatTracker();
+        var idleSeen = new List<CombatEvent>();
+        idle.EventOccurred += idleSeen.Add;
+        idle.Observe(InvisibleLine("The man fades from view."), T0);
+        Assert.False(idle.InCombat);
+        Assert.Empty(idleSeen);
+
+        var tracker = new CombatTracker();
+        var seen = new List<CombatEvent>();
+        tracker.EventOccurred += seen.Add;
+        tracker.Observe(Line("You attack the man, using the broadsword as a weapon."), T0);
+        tracker.Observe(InvisibleLine("The man fades from view."), T0.AddSeconds(1));
+
+        Assert.True(tracker.InCombat);
+        var vanished = Assert.Single(seen, e => e.Kind == CombatEventKind.NpcTurnedInvisible);
+        Assert.Equal("man", vanished.NpcName);
+    }
+
+    /// <summary>
+    /// The prose is not what detects it. C1 04.00.05 is ("Normal creatures becoming invisible",
+    /// fecodes.txt), so a wording nobody has seen still costs only the name - and with one creature
+    /// engaged, not even that.
+    /// </summary>
+    [Fact]
+    public void CodedInvisibility_WithAnUnknownWording_StillAnonymisesTheSoleOpponent()
+    {
+        var tracker = new CombatTracker();
+        var seen = new List<CombatEvent>();
+        tracker.EventOccurred += seen.Add;
+
+        tracker.Observe(Line("You attack the man, using the broadsword as a weapon."), T0);
+        tracker.Observe(InvisibleLine("The man melts into the shadows."), T0.AddSeconds(1));
+        tracker.Observe(Line("Someone hits you (103/105)."), T0.AddSeconds(2));
+
+        Assert.Equal("man", Assert.Single(seen, e => e.Kind == CombatEventKind.HitByNpc).NpcName);
+    }
+
+    /// <summary>
+    /// Getting the name back. "The man has regained his visibleness!" is verbatim, and after it MUD2
+    /// names him again - so he stops being what a later "someone" means, and a second unseen
+    /// attacker is not silently filed under him.
+    /// </summary>
+    [Fact]
+    public void RegainingVisibility_StopsBeingWhatSomeoneMeans()
+    {
+        var tracker = new CombatTracker();
+        var seen = new List<CombatEvent>();
+        tracker.EventOccurred += seen.Add;
+
+        tracker.Observe(Line("You attack the man, using the broadsword as a weapon."), T0);
+        tracker.Observe(Line("The rat0 is glaring at you madly."), T0.AddSeconds(1));
+        tracker.Observe(InvisibleLine("The man fades from view."), T0.AddSeconds(2));
+
+        // Two engaged, one of them invisible: "someone" can only be the invisible one.
+        tracker.Observe(Line("Someone hits you (103/105)."), T0.AddSeconds(3));
+        Assert.Equal("man", seen.Last(e => e.Kind == CombatEventKind.HitByNpc).NpcName);
+
+        tracker.Observe(Line("The man has regained his visibleness!"), T0.AddSeconds(4));
+        tracker.Observe(Line("Someone hits you (100/105)."), T0.AddSeconds(5));
+
+        // Nothing is invisible now and two creatures are engaged, so the line says nothing about
+        // which - and nothing is invented.
+        Assert.Equal("someone", seen.Last(e => e.Kind == CombatEventKind.HitByNpc).NpcName);
+    }
+
+    /// <summary>
+    /// Two invisible opponents: an anonymous line names neither, and nothing is guessed. The costs
+    /// of abstaining are deliberately different at the two ends of a fight - a swing opens a roster
+    /// entry called "someone", which is true and worth drawing, while an END closes a fight nobody
+    /// is having and leaves the encounter to the backstops, which is the only safe direction in a
+    /// pack.
+    /// </summary>
+    [Fact]
+    public void TwoInvisibleOpponents_AreNotToldApart_AndNeitherIsClosedByAnAnonymousEnd()
+    {
+        var tracker = new CombatTracker();
+        var seen = new List<CombatEvent>();
+        tracker.EventOccurred += seen.Add;
+
+        tracker.Observe(Line("You attack the man, using the broadsword as a weapon."), T0);
+        tracker.Observe(Line("The thief is glaring at you madly."), T0.AddSeconds(1));
+        tracker.Observe(InvisibleLine("The man fades from view."), T0.AddSeconds(2));
+        tracker.Observe(InvisibleLine("The thief fades from view."), T0.AddSeconds(3));
+
+        tracker.Observe(Line("Someone hits you (103/105)."), T0.AddSeconds(4));
+        Assert.Equal("someone", Assert.Single(seen, e => e.Kind == CombatEventKind.HitByNpc).NpcName);
+
+        // An end that cannot say who closes nobody: the man and the thief are both still swinging.
+        tracker.Observe(Line("You withdraw from your fight with someone, and that person does too."), T0.AddSeconds(5));
+        Assert.True(tracker.InCombat);
+    }
+
+    /// <summary>
+    /// The anonymous opponent's WEAPON is anonymous too, and unlike the creature it cannot be
+    /// recovered - no line in the frame names it. So the equip is reported with no weapon rather
+    /// than with the word "something", which would file a real NPC weapon statistic against an
+    /// object that does not exist.
+    /// </summary>
+    [Fact]
+    public void AnonymousWeaponEquip_ReportsNoWeaponRatherThanSomething()
+    {
+        var events = Observe(
+            "You attack the man, using the broadsword as a weapon.",
+            "Someone has started to use something to fight!");
+
+        var equip = Assert.Single(events, e => e.Kind == CombatEventKind.NpcWeaponEquip);
+        Assert.Null(equip.Weapon);
+    }
+
+    /// <summary>
+    /// "You attack someone." - verbatim from the wire, answering <c>k man</c> against a man who had
+    /// already turned invisible, and carrying the ordinary fight-start code <c>[A3][9B]</c>.
+    ///
+    /// <para>It is the ONLY line that opens that encounter, so unmatched the entire fight happens
+    /// with the client believing there is no fight at all - no panel, no clog, and nothing for any
+    /// end to close. The creature faded before it was engaged, so there is no name to recover and
+    /// the roster says "someone", which is the truth.</para>
+    /// </summary>
+    [Fact]
+    public void AttackingSomethingYouCannotSee_StillOpensTheEncounter()
+    {
+        var events = Observe("You attack someone.");
+
+        var start = Assert.Single(events, e => e.Kind == CombatEventKind.FightStart);
+        Assert.Equal("someone", start.NpcName);
+    }
+
+    /// <summary>
+    /// Combat between two OTHER creatures, overheard. Verbatim from the wire, where the man fought a
+    /// fox in front of the player - including after he turned invisible, so these sentences carry
+    /// "someone" too.
+    ///
+    /// <para>None of it is the player's fight, and none of it may open one. The defence is that
+    /// every pattern in CombatTracker is anchored at both ends; this pins it, because widening that
+    /// family is exactly what this whole section did.</para>
+    /// </summary>
+    [Fact]
+    public void OverheardCombat_BetweenTwoOtherCreatures_IsNotOurFight()
+    {
+        var events = Observe(
+            "You hear a grinding noise, as the man hits the fox.",
+            "You hear a swish, as the fox misses the man.",
+            "You hear a swishing sound, as someone misses the fox.",
+            "You hear a parried blow, as the fox misses someone.");
+
+        Assert.Empty(events);
+    }
+
+    /// <summary>
+    /// "The thief takes back his offer to withdraw from your fight." - verbatim from the wire, and
+    /// the opposite of an end. It is matched by nothing and must stay that way: the offer it
+    /// retracts was never an end either, so there is no state to undo.
+    ///
+    /// <para>Worth pinning rather than leaving to chance - it is the sentence a careless widening of
+    /// the withdraw family would swallow, and swallowing it would close a fight that has just been
+    /// declared to be continuing.</para>
+    /// </summary>
+    [Fact]
+    public void TakingBackAWithdrawOffer_EndsNothing()
+    {
+        var tracker = new CombatTracker();
+        var seen = new List<CombatEvent>();
+        tracker.EventOccurred += seen.Add;
+
+        tracker.Observe(Line("You attack the thief, using the broadsword as a weapon."), T0);
+        tracker.Observe(Line("The thief offers to withdraw from your fight if you do likewise."), T0.AddSeconds(1));
+        tracker.Observe(Line("The thief takes back his offer to withdraw from your fight."), T0.AddSeconds(2));
+
+        Assert.True(tracker.InCombat);
+        Assert.DoesNotContain(seen, e => e.Kind == CombatEventKind.Withdrawn);
+    }
+
+    // ---- and if the wording is wrong again, twice more ----------------------------------------
+
+    /// <summary>
+    /// The second way out, and the one the client that met this fight did not have: the server codes
+    /// its fight ends, so an end nothing recognises still closes the fight it can only be about.
+    ///
+    /// <para>Asserted with a sentence deliberately unlike any real one. The point is not this
+    /// wording, it is that the prose is not load-bearing here.</para>
+    /// </summary>
+    [Fact]
+    public void CodedFightEnd_ClosesAnInvisibleFight_WhateverTheSentenceSays()
+    {
+        var tracker = new CombatTracker();
+        var seen = new List<CombatEvent>();
+        tracker.EventOccurred += seen.Add;
+
+        tracker.Observe(Line("You attack the man, using the broadsword as a weapon."), T0);
+        tracker.Observe(InvisibleLine("The man fades from view."), T0.AddSeconds(1));
+        tracker.Observe(Line("Someone hits you (103/105)."), T0.AddSeconds(2));
+        tracker.Observe(PromptLine(), T0.AddSeconds(3));
+        tracker.Observe(FightEndLine("Someone stops bothering with you."), T0.AddSeconds(4));
+
+        Assert.False(tracker.InCombat);
+        // Still his fight: the code says one ended, the fade line says whose.
+        Assert.Equal("man", Assert.Single(seen, e => e.Kind == CombatEventKind.FightEndOther).NpcName);
+    }
+
+    /// <summary>
+    /// The third way out, and the floor under both the others: in MUD2 you cannot walk out of a
+    /// fight. Movement is refused while fighting - "You can't just leave in the middle of a fight!
+    /// You have to flee!", verbatim from the same session - and leaving costs a flee, which prints
+    /// its own line. So standing somewhere else is proof the fight is over, whatever any sentence
+    /// did or did not say, and it holds for an end nobody has thought of, including a wiz moving the
+    /// player.
+    ///
+    /// <para>It announces itself, because every time it fires there is an unmatched line to go and
+    /// find.</para>
+    /// </summary>
+    [Fact]
+    public void RoomChange_ClosesAnInvisibleFight_NoMatterWhatEndedIt()
+    {
+        var tracker = new CombatTracker();
+        var seen = new List<CombatEvent>();
+        tracker.EventOccurred += seen.Add;
+
+        tracker.Observe(Line("You attack the man, using the broadsword as a weapon."), T0);
+        tracker.Observe(InvisibleLine("The man fades from view."), T0.AddSeconds(1));
+        tracker.Observe(Line("Someone hits you (103/105)."), T0.AddSeconds(2));
+        Assert.True(tracker.InCombat);
+
+        tracker.NoteRoomChanged(T0.AddSeconds(3));
+
+        Assert.False(tracker.InCombat);
+        var forced = Assert.Single(seen, e => e.Kind == CombatEventKind.EncounterForceEnded);
+        Assert.Equal("(forced end: room changed)", forced.RawText);
+    }
 }

@@ -33,7 +33,7 @@ namespace MudSharp.Combat;
 /// <item><term>3. Creature flee failed</term><description>"The X has fled by trying to go &lt;dir&gt;." - per-creature; it did NOT leave, but the fight is over.</description></item>
 /// <item><term>4. Player fled</term><description>"You have fled by going &lt;dir&gt;." - zeroes the fight count.</description></item>
 /// <item><term>5. Player flee failed</term><description>"You have fled by trying to go &lt;dir&gt;." - zeroes the fight count anyway.</description></item>
-/// <item><term>6. Withdraw</term><description>"The X withdraws from your fight, and so do you." - per-creature; an agreement with ONE creature.</description></item>
+/// <item><term>6. Withdraw</term><description>"The X withdraws from your fight, and so do you." / "You withdraw from your fight with someone, and that person does too." - per-creature; an agreement with ONE creature, worded from whichever side accepted.</description></item>
 /// <item><term>7. Player died</term><description>"The X has killed you." / "You have been killed by ..." - zeroes the fight count. Permadeath.</description></item>
 /// <item><term>8. You lose the creature</term><description>"The X drops dead, poisoned..." - per-creature; it died without the player landing the last blow, so no kill line is printed at all. An OPEN family (see <see cref="FightOutcome.NoMore"/>): poison is the member observed, other causes are expected to be worded differently.</description></item>
 /// </list>
@@ -44,6 +44,13 @@ namespace MudSharp.Combat;
 ///
 /// <para><see cref="NoteRoomChanged"/> is the backstop for an end whose wording this class does not
 /// yet recognise, and it is deliberately loud when it fires.</para>
+///
+/// <para><b>An opponent need not have a name.</b> MUD2 writes "someone" in place of the creature in
+/// every sentence it would otherwise have named - because the creature turned invisible, or because
+/// the player was blinded - and it does so without changing anything else about the sentence or its
+/// C1 code. The whole family is matched in both forms and resolved back to a participant by
+/// <see cref="ResolveAnonymous"/>; <see cref="NpcObject"/> carries the evidence. An unnamed fight is
+/// a fight, and the ends of one still have to close it.</para>
 ///
 /// <para><b>A new encounter can begin in the same frame.</b> Nothing here waits for a frame to end
 /// before opening the next encounter, and it must not: MUD2 will happily kill the last creature of one
@@ -75,8 +82,36 @@ public sealed class CombatTracker
 {
     private readonly object _gate = new();
 
+    /// <summary>
+    /// The creature as the OBJECT of a sentence ("... the man." / "... someone.") and as its
+    /// SUBJECT ("The man ..." / "Someone ..."). Every combat line that names a creature is built
+    /// from one of these two, so they are written once here rather than eleven times below.
+    ///
+    /// <para><b>"someone" is MUD2's name for a creature the player cannot identify</b>, and it is
+    /// not an occasional curiosity - it replaces the name in EVERY sentence for as long as the
+    /// condition lasts. Two causes are confirmed, and they are different things: the CREATURE
+    /// turned invisible (C1 04.00.05, "The man fades from view."), in which case only that one goes
+    /// anonymous and anything else in the room is still named; or the PLAYER was blinded, in which
+    /// case everything is. Both are on the wire in the same session.</para>
+    ///
+    /// <para>What is NOT different is the protocol. An anonymous line carries the same C08 sub-code
+    /// as its named counterpart, byte for byte: <c>[A3][9B]</c> "You attack someone.",
+    /// <c>[A3][9C]</c> "You hit someone (5-9).", <c>[A3][9D]</c> "You miss someone.",
+    /// <c>[A3][9E]</c> "Someone hits you (115/120).", <c>[A3][9F]</c> "Someone misses you." So the
+    /// substitution is a naming rule applied to sentences the server was going to send anyway, and
+    /// the whole family is widened as a family rather than one wording at a time - which is the
+    /// failure this file keeps having.</para>
+    ///
+    /// <para>The <c>anon</c> group exists to be tested for, never read: see
+    /// <see cref="ResolveAnonymous"/> for what the name becomes.</para>
+    /// </summary>
+    private const string NpcObject  = @"(?:the (?<npc>.+?)|(?<anon>someone))";
+    private const string NpcSubject = @"(?:The (?<npc>.+?)|(?<anon>Someone))";
+
     // NPC-initiated aggro lines never name a weapon and use one of a handful of verb phrases
     // observed in the research capture. Best-effort: MUD2 may use aggro phrasing not yet seen.
+    // Deliberately NOT given an anonymous form: every wording here describes watching a creature
+    // move, and an invisible one has never been seen announcing itself this way.
     private static readonly Regex NpcAggroStart = new(
         @"^The (?<npc>.+?) is (?:looking at|glaring at|snarling at|moving towards|rushing at|advancing towards|approaching|staring at) you \w+\.*$",
         RegexOptions.Compiled);
@@ -90,11 +125,11 @@ public sealed class CombatTracker
     // clause optional, the engine prefers skipping the optional group and swallows ", using the X
     // as a weapon" into the npc name itself. Matched armed-first so the specific form wins.
     private static readonly Regex PlayerAttackStart = new(
-        @"^You attack the (?<npc>.+?), using the (?<weapon>.+?) as a weapon\.$", RegexOptions.Compiled);
+        $@"^You attack {NpcObject}, using the (?<weapon>.+?) as a weapon\.$", RegexOptions.Compiled);
     private static readonly Regex PlayerAttackStartUnarmed = new(
-        @"^You attack the (?<npc>.+?)\.$", RegexOptions.Compiled);
+        $@"^You attack {NpcObject}\.$", RegexOptions.Compiled);
     private static readonly Regex YouHit = new(
-        @"^You hit the (?<npc>.+?) \((?<lo>\d+)-(?<hi>\d+)\)\.$", RegexOptions.Compiled);
+        $@"^You hit {NpcObject} \((?<lo>\d+)-(?<hi>\d+)\)\.$", RegexOptions.Compiled);
 
     /// <summary>
     /// "You hit the banshee (6)." - the EXACT damage of a blow, instead of the bracket
@@ -107,35 +142,41 @@ public sealed class CombatTracker
     /// consumers that average the pair need no special case for it.</para>
     /// </summary>
     private static readonly Regex YouHitExact = new(
-        @"^You hit the (?<npc>.+?) \((?<dmg>\d+)\)\.$", RegexOptions.Compiled);
-    private static readonly Regex YouMiss = new(@"^You miss the (?<npc>.+?)\.$", RegexOptions.Compiled);
+        $@"^You hit {NpcObject} \((?<dmg>\d+)\)\.$", RegexOptions.Compiled);
+    private static readonly Regex YouMiss = new($@"^You miss {NpcObject}\.$", RegexOptions.Compiled);
     private static readonly Regex NpcHitsYou = new(
-        @"^The (?<npc>.+?) hits you \((?<cur>\d+)/(?<max>\d+)\)\.$", RegexOptions.Compiled);
+        $@"^{NpcSubject} hits you \((?<cur>\d+)/(?<max>\d+)\)\.$", RegexOptions.Compiled);
     /// <summary>
     /// "The rat18 hits you." - a landed blow with NO stamina parenthetical. This is the KILLING blow:
     /// there is no surviving stamina to report, so MUD2 omits the "(cur/max)" that
     /// <see cref="NpcHitsYou"/> requires. Verbatim from session-rec.mud2.co.uk.20260819-001608's death
     /// frame: <c>The rat18 hits you. / You feel your life concluding... / The rat18 has killed you.</c>
     /// </summary>
-    private static readonly Regex NpcHitsYouBare = new(@"^The (?<npc>.+?) hits you\.$", RegexOptions.Compiled);
-    private static readonly Regex NpcMissesYou = new(@"^The (?<npc>.+?) misses you\.$", RegexOptions.Compiled);
+    private static readonly Regex NpcHitsYouBare = new($@"^{NpcSubject} hits you\.$", RegexOptions.Compiled);
+    private static readonly Regex NpcMissesYou = new($@"^{NpcSubject} misses you\.$", RegexOptions.Compiled);
     private static readonly Regex WithdrawOffer = new(
-        @"^You offer to withdraw from your fight with the (?<npc>.+?)\.$", RegexOptions.Compiled);
+        $@"^You offer to withdraw from your fight with {NpcObject}\.$", RegexOptions.Compiled);
 
     /// <summary>
     /// "The zombie1 offers to withdraw from your fight if you do likewise." - the creature's own half
     /// of the handshake, and NOT an end; see <see cref="CombatEventKind.NpcWithdrawOffer"/> for the
-    /// code-level and prose-level evidence, and for all 5 occurrences on disk. One wording, exactly
-    /// as written here - nothing plural, titled or pronominal has ever been observed, so nothing
-    /// wider is guessed at.
+    /// code-level and prose-level evidence, and for all 5 occurrences on disk. One sentence, exactly
+    /// as written here apart from the subject - nothing plural, titled or pronominal has ever been
+    /// observed - plus the anonymous subject, seen verbatim from an invisible opponent: "Someone
+    /// offers to withdraw from your fight if you do likewise."
     ///
     /// <para>Cannot collide with <see cref="MutualWithdraw"/> ("... withdraws from your fight, and so
     /// do you.") in either direction: the verbs differ and both patterns are anchored at both ends.</para>
+    ///
+    /// <para>Nor with "The thief takes back his offer to withdraw from your fight." (verbatim, on the
+    /// wire), which is the OPPOSITE of an end and is deliberately matched by nothing: it changes no
+    /// state this class holds, since the offer it retracts was never treated as one either. It is
+    /// named here because it is the line a careless widening of this family would swallow.</para>
     /// </summary>
     private static readonly Regex NpcWithdrawOffer = new(
-        @"^The (?<npc>.+?) offers to withdraw from your fight if you do likewise\.$", RegexOptions.Compiled);
-    private static readonly Regex YouKilled = new(@"^You have killed the (?<npc>.+?)\.$", RegexOptions.Compiled);
-    private static readonly Regex NpcKilledYou = new(@"^The (?<npc>.+?) has killed you\.$", RegexOptions.Compiled);
+        $@"^{NpcSubject} offers to withdraw from your fight if you do likewise\.$", RegexOptions.Compiled);
+    private static readonly Regex YouKilled = new($@"^You have killed {NpcObject}\.$", RegexOptions.Compiled);
+    private static readonly Regex NpcKilledYou = new($@"^{NpcSubject} has killed you\.$", RegexOptions.Compiled);
 
     // Non-fightbrief ("narrative") death line - confirmed live against a real capture where the
     // player never enabled fightbrief for that character. "someone" replaces the NPC's name
@@ -145,9 +186,27 @@ public sealed class CombatTracker
     private static readonly Regex NpcKilledYouNarrative = new(
         @"^You have been killed by (?:the (?<npc>.+?)|(?<anon>someone))\.$", RegexOptions.Compiled);
     private static readonly Regex MutualWithdraw = new(
-        @"^The (?<npc>.+?) withdraws from your fight, and so do you\.$", RegexOptions.Compiled);
+        $@"^{NpcSubject} withdraws from your fight, and so do you\.$", RegexOptions.Compiled);
+
+    /// <summary>
+    /// The same mutual withdraw written from the other side: "You withdraw from your fight with
+    /// someone, and that person does too." Verbatim from the scrollback of the fight that produced
+    /// this whole anonymous family - the player typed `withdraw` to accept the creature's standing
+    /// offer, and MUD2 answered with the player as the subject rather than the creature.
+    ///
+    /// <para>It ends the fight exactly as <see cref="MutualWithdraw"/> does, and it is the line that
+    /// went unmatched while the client sat in combat with an opponent it could not see leave.</para>
+    ///
+    /// <para>The trailing clause is left loose. "that person" is what MUD2 says about someone the
+    /// player cannot identify; what it says about a creature it CAN name has never been captured,
+    /// and it plainly varies with the target, so pinning a pronoun here would lose the named form
+    /// the same way the named form of this sentence was lost in the first place.</para>
+    /// </summary>
+    private static readonly Regex PlayerMutualWithdraw = new(
+        $@"^You withdraw from your fight with {NpcObject}, and .+? does too\.$", RegexOptions.Compiled);
+
     private static readonly Regex NpcFled = new(
-        @"^The (?<npc>.+?) has fled by going \w+\.$", RegexOptions.Compiled);
+        $@"^{NpcSubject} has fled by going \w+\.$", RegexOptions.Compiled);
 
     /// <summary>
     /// "The water-snake5 has fled by trying to go over." - a flee ATTEMPT that failed. One word of
@@ -166,7 +225,7 @@ public sealed class CombatTracker
     /// sees an unexplained fight end instead.</para>
     /// </summary>
     private static readonly Regex NpcFleeFailed = new(
-        @"^The (?<npc>.+?) has fled by trying to go \w+\.$", RegexOptions.Compiled);
+        $@"^{NpcSubject} has fled by trying to go \w+\.$", RegexOptions.Compiled);
     private static readonly Regex YouFled = new(@"^You have fled by going \w+\.$", RegexOptions.Compiled);
 
     /// <summary>
@@ -250,8 +309,39 @@ public sealed class CombatTracker
     /// </summary>
     private static readonly Regex WeaponAlreadyInUse = new(
         @"^You're using the (?<weapon>.+?) anyway\.\.\.$", RegexOptions.Compiled);
+    /// <summary>
+    /// "The zombie has started to use the fork to fight!", and from an opponent the player cannot
+    /// see, "Someone has started to use something to fight!" (verbatim).
+    ///
+    /// <para>The anonymous form loses the weapon as well as the creature, and unlike the creature
+    /// the weapon cannot be recovered - nothing else in the frame names it. So it is reported with a
+    /// null weapon rather than with the word "something", which would file a real NPC weapon
+    /// statistic under an object that does not exist.</para>
+    /// </summary>
     private static readonly Regex NpcWeaponEquip = new(
-        @"^The (?<npc>.+?) has started to use the (?<weapon>.+?) to fight!$", RegexOptions.Compiled);
+        $@"^{NpcSubject} has started to use (?:the (?<weapon>.+?)|something) to fight!$", RegexOptions.Compiled);
+
+    /// <summary>
+    /// "The man fades from view." - the creature turned invisible. Under C1 code 04.00.05, which is
+    /// what actually detects it (<see cref="LineKind.CreatureInvisible"/>); this pattern is only
+    /// here to read the name out of the sentence, and the code carries the line when the wording is
+    /// one we do not know.
+    /// </summary>
+    private static readonly Regex NpcFadedFromView = new(
+        @"^The (?<npc>.+?) fades from view\.$", RegexOptions.Compiled);
+
+    /// <summary>
+    /// "The man has regained his visibleness!" - verbatim, and the end of the anonymity. Observed
+    /// under C1 11.01 ("disabling spell ends"), which is shared with blind/deaf/dumb/cripple/glow
+    /// and so cannot identify this on its own: here the prose is the discriminator and the code is
+    /// not read, which is the reverse of <see cref="NpcFadedFromView"/> and of every other pairing
+    /// in this file.
+    ///
+    /// <para>The possessive varies with the creature, so it is left loose. Nothing else in the
+    /// sentence is.</para>
+    /// </summary>
+    private static readonly Regex NpcRegainedVisibility = new(
+        @"^The (?<npc>.+?) has regained \w+ visibleness!$", RegexOptions.Compiled);
     private static readonly Regex WeaponSwitch = new(
         @"^You drop your guard as you switch from using the (?<from>.+?) to the (?<to>.+?)\.$", RegexOptions.Compiled);
     private static readonly Regex WeaponBroke = new(@"^The (?<weapon>.+?) breaks to bits\.$", RegexOptions.Compiled);
@@ -315,6 +405,28 @@ public sealed class CombatTracker
 
     // NPC instance names currently engaged (case-insensitive) - non-empty implies InCombat.
     private readonly HashSet<string> _active = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Engaged creatures MUD2 has stopped naming because they turned invisible. Written only by the
+    /// <see cref="LineKind.CreatureInvisible"/> branch, read only by <see cref="ResolveAnonymous"/>,
+    /// and cleared with the encounter.
+    ///
+    /// <para>Encounter-scoped on purpose, and it costs a case we have on the wire: the man there
+    /// first faded while fighting a FOX, and the player attacked him a minute later with
+    /// <c>k man</c>, so the only line that could have taught us his name arrived before there was an
+    /// encounter to hang it on, and that fight opens against "someone". Recording every creature
+    /// that has ever faded would name it - and would also name the wrong one after the player had
+    /// walked two rooms away. A registry that knows which invisible creatures are in THIS room is
+    /// the thing that fixes it, and that belongs with the room's own creature tracking, not here.
+    /// </para>
+    /// </summary>
+    private readonly HashSet<string> _faded = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The name MUD2 uses for a creature the player cannot identify, and the name this
+    /// class reports when it cannot work out which creature that is. Never a guess dressed up as a
+    /// creature: a roster entry reading "someone" is the honest statement that something is fighting
+    /// the player and nothing has said what.</summary>
+    private const string Anonymous = "someone";
 
     // The encounter closes the instant _active empties, whether that was a kill, a flee, or a
     // withdrawal - see End(). Begin() keeps the SAME encounter open for as long as _active is
@@ -399,15 +511,22 @@ public sealed class CombatTracker
         Match m;
         if ((m = PlayerAttackStart.Match(text)).Success)
         {
-            Begin(m.Groups["npc"].Value);
-            Emit(timestampUtc, CombatEventKind.FightStart, CombatActor.Player, m.Groups["npc"].Value, m.Groups["weapon"].Value, null, null, text);
+            var npc = NameFrom(m);
+            Begin(npc);
+            Emit(timestampUtc, CombatEventKind.FightStart, CombatActor.Player, npc, m.Groups["weapon"].Value, null, null, text);
         }
         else if ((m = PlayerAttackStartUnarmed.Match(text)).Success)
         {
             // Bare-handed opening. Weapon is deliberately null: the fight really did start unarmed,
             // and a "use <weapon>" issued a moment later arrives as its own WeaponEquip event.
-            Begin(m.Groups["npc"].Value);
-            Emit(timestampUtc, CombatEventKind.FightStart, CombatActor.Player, m.Groups["npc"].Value, null, null, null, text);
+            //
+            // The anonymous form is the one that hurts if it is missed: "You attack someone." is
+            // verbatim from the wire, answering `k man` against a man who had turned invisible, and
+            // it is the ONLY line opening that encounter. Unmatched, the whole fight happens with
+            // the client believing there is no fight.
+            var npc = NameFrom(m);
+            Begin(npc);
+            Emit(timestampUtc, CombatEventKind.FightStart, CombatActor.Player, npc, null, null, null, text);
         }
         else if ((m = NpcAggroStart.Match(text)).Success)
         {
@@ -422,8 +541,9 @@ public sealed class CombatTracker
             // Any hit/miss line is itself proof that NPC is an active combat participant, so it
             // must (re)join _active here - otherwise killing the one NPC that DID get an explicit
             // Begin() empties _active and spuriously closes/reopens the encounter mid-pack-fight.
-            Begin(m.Groups["npc"].Value);
-            Emit(timestampUtc, CombatEventKind.Hit, CombatActor.Player, m.Groups["npc"].Value, null,
+            var npc = NameFrom(m);
+            Begin(npc);
+            Emit(timestampUtc, CombatEventKind.Hit, CombatActor.Player, npc, null,
                 int.Parse(m.Groups["lo"].Value), int.Parse(m.Groups["hi"].Value), text);
         }
         else if ((m = YouHitExact.Match(text)).Success)
@@ -433,20 +553,23 @@ public sealed class CombatTracker
             // that every consumer averaging RangeLow/RangeHigh lands on the exact value unchanged -
             // see YouHitExact. Matched AFTER YouHit only for readability; the two cannot collide,
             // since "(5-9)" cannot satisfy a pattern demanding digits-then-close-paren.
-            Begin(m.Groups["npc"].Value);
+            var npc = NameFrom(m);
+            Begin(npc);
             var exact = int.Parse(m.Groups["dmg"].Value);
-            Emit(timestampUtc, CombatEventKind.Hit, CombatActor.Player, m.Groups["npc"].Value, null,
+            Emit(timestampUtc, CombatEventKind.Hit, CombatActor.Player, npc, null,
                 exact, exact, text);
         }
         else if ((m = YouMiss.Match(text)).Success)
         {
-            Begin(m.Groups["npc"].Value);
-            Emit(timestampUtc, CombatEventKind.Miss, CombatActor.Player, m.Groups["npc"].Value, null, null, null, text);
+            var npc = NameFrom(m);
+            Begin(npc);
+            Emit(timestampUtc, CombatEventKind.Miss, CombatActor.Player, npc, null, null, null, text);
         }
         else if ((m = NpcHitsYou.Match(text)).Success)
         {
-            Begin(m.Groups["npc"].Value);
-            Emit(timestampUtc, CombatEventKind.HitByNpc, CombatActor.Npc, m.Groups["npc"].Value, null,
+            var npc = NameFrom(m);
+            Begin(npc);
+            Emit(timestampUtc, CombatEventKind.HitByNpc, CombatActor.Npc, npc, null,
                 int.Parse(m.Groups["cur"].Value), int.Parse(m.Groups["max"].Value), text);
         }
         else if ((m = NpcHitsYouBare.Match(text)).Success)
@@ -455,19 +578,21 @@ public sealed class CombatTracker
             // ranges: the consumers treat a missing stamina reading as "no reading", which is the
             // truth here - inventing 0 would look like a measurement and would poison the running
             // stamina baseline the damage-taken deltas are derived from.
-            Begin(m.Groups["npc"].Value);
-            Emit(timestampUtc, CombatEventKind.HitByNpc, CombatActor.Npc, m.Groups["npc"].Value, null,
+            var npc = NameFrom(m);
+            Begin(npc);
+            Emit(timestampUtc, CombatEventKind.HitByNpc, CombatActor.Npc, npc, null,
                 null, null, text);
         }
         else if ((m = NpcMissesYou.Match(text)).Success)
         {
-            Begin(m.Groups["npc"].Value);
-            Emit(timestampUtc, CombatEventKind.MissByNpc, CombatActor.Npc, m.Groups["npc"].Value, null, null, null, text);
+            var npc = NameFrom(m);
+            Begin(npc);
+            Emit(timestampUtc, CombatEventKind.MissByNpc, CombatActor.Npc, npc, null, null, null, text);
         }
         else if ((m = WithdrawOffer.Match(text)).Success)
         {
             // An offer only - does not end the fight until the NPC's own line accepts it.
-            Emit(timestampUtc, CombatEventKind.WithdrawOffer, CombatActor.Player, m.Groups["npc"].Value, null, null, null, text);
+            Emit(timestampUtc, CombatEventKind.WithdrawOffer, CombatActor.Player, NameFrom(m), null, null, null, text);
         }
         else if ((m = NpcWithdrawOffer.Match(text)).Success)
         {
@@ -478,15 +603,16 @@ public sealed class CombatTracker
             // not a swing open an encounter, and every creature that has ever printed this was already
             // trading blows on the lines immediately above it, so there is nothing for it to rescue.
             // Actor is the NPC: it is the creature making the offer.
-            Emit(timestampUtc, CombatEventKind.NpcWithdrawOffer, CombatActor.Npc, m.Groups["npc"].Value, null, null, null, text);
+            Emit(timestampUtc, CombatEventKind.NpcWithdrawOffer, CombatActor.Npc, NameFrom(m), null, null, null, text);
         }
         else if ((m = YouKilled.Match(text)).Success)
         {
             // Emit BEFORE End: End can flip InCombat to false and close out the encounter
             // (e.g. a ClogWriter listening to InCombatChanged) - the closing line itself must
             // still land inside that encounter's record, not be dropped after it's already shut.
-            Emit(timestampUtc, CombatEventKind.Kill, CombatActor.Player, m.Groups["npc"].Value, null, null, null, text);
-            End(m.Groups["npc"].Value);
+            var npc = NameFrom(m);
+            Emit(timestampUtc, CombatEventKind.Kill, CombatActor.Player, npc, null, null, null, text);
+            End(npc);
         }
         else if ((m = NpcDroppedDead.Match(text)).Success)
         {
@@ -517,7 +643,7 @@ public sealed class CombatTracker
         }
         else if ((m = NpcKilledYou.Match(text)).Success)
         {
-            Emit(timestampUtc, CombatEventKind.KilledByNpc, CombatActor.Npc, m.Groups["npc"].Value, null, null, null, text);
+            Emit(timestampUtc, CombatEventKind.KilledByNpc, CombatActor.Npc, NameFrom(m), null, null, null, text);
             // Player death ends the WHOLE encounter unconditionally - a dead player cannot keep
             // fighting anyone else in the same room, regardless of how many other NPCs are still
             // engaged. Using the ordinary single-NPC End() here would leave the rest of _active
@@ -531,30 +657,29 @@ public sealed class CombatTracker
         {
             // Non-fightbrief phrasing carries no per-line C1 hit/miss detail at all, so this may
             // be the ONLY combat line we can classify in an entire narrative-mode fight - treat
-            // it as authoritative regardless. When blind, the game says "someone" instead of
-            // naming the killer; best-effort resolve that back to the sole active participant
-            // (this is exactly the live scenario that surfaced this gap: fighting a single
-            // vampire that blinded then slept the player before landing the killing blow).
-            //
-            // CAUTION: "sole active participant" is a best-effort label, not a verified fact.
-            // A blind player cannot see room arrivals/departures or other NPCs fleeing, so
-            // _active.Count == 1 by our bookkeeping doesn't rule out an unseen second attacker
-            // (another NPC, or another player) landing the actual blow. Callers/analysis should
-            // treat this resolution as "most likely" whenever blindness was active, never as
-            // ground truth.
-            var npc = m.Groups["npc"].Success
-                ? m.Groups["npc"].Value
-                : _active.Count == 1 ? _active.First() : "someone";
+            // it as authoritative regardless. When blind, the game says "someone" instead of naming
+            // the killer - the live scenario that surfaced this gap was a single vampire that
+            // blinded then slept the player before landing the killing blow - and that is the same
+            // substitution an invisible opponent produces, so it resolves through the same rule as
+            // every other anonymous line, cautions included. See ResolveAnonymous.
+            var npc = NameFrom(m);
             Emit(timestampUtc, CombatEventKind.KilledByNpc, CombatActor.Npc, npc, null, null, null, text);
             EndAll();
         }
-        else if ((m = MutualWithdraw.Match(text)).Success)
+        else if ((m = MutualWithdraw.Match(text)).Success || (m = PlayerMutualWithdraw.Match(text)).Success)
         {
             // Per-creature: a withdraw zeroes only the fight it names. It reads
             // like a player-side terminator - the player agreed to it - but it is an agreement with
             // ONE creature, and anything else in a pack goes on swinging.
-            Emit(timestampUtc, CombatEventKind.Withdrawn, CombatActor.Npc, m.Groups["npc"].Value, null, null, null, text);
-            End(m.Groups["npc"].Value);
+            //
+            // Two sentences for one event, differing in which side is the subject: the creature
+            // accepted ("The banshee withdraws from your fight, and so do you.") or the player did
+            // ("You withdraw from your fight with someone, and that person does too."). They mean
+            // the same thing and are reported as one kind. Actor stays the NPC in both, because
+            // Withdrawn is an agreement rather than an act by either side.
+            var npc = NameFrom(m);
+            Emit(timestampUtc, CombatEventKind.Withdrawn, CombatActor.Npc, npc, null, null, null, text);
+            End(npc);
         }
         else if ((m = NpcFleeFailed.Match(text)).Success)
         {
@@ -574,13 +699,15 @@ public sealed class CombatTracker
             //
             // Per-creature, not EndAll: only this creature's fight ended, and anything else in a pack
             // is still swinging.
-            Emit(timestampUtc, CombatEventKind.NpcFleeFailed, CombatActor.Npc, m.Groups["npc"].Value, null, null, null, text);
-            End(m.Groups["npc"].Value);
+            var npc = NameFrom(m);
+            Emit(timestampUtc, CombatEventKind.NpcFleeFailed, CombatActor.Npc, npc, null, null, null, text);
+            End(npc);
         }
         else if ((m = NpcFled.Match(text)).Success)
         {
-            Emit(timestampUtc, CombatEventKind.NpcFled, CombatActor.Npc, m.Groups["npc"].Value, null, null, null, text);
-            End(m.Groups["npc"].Value);
+            var npc = NameFrom(m);
+            Emit(timestampUtc, CombatEventKind.NpcFled, CombatActor.Npc, npc, null, null, null, text);
+            End(npc);
         }
         else if (YouFleeFailed.IsMatch(text))
         {
@@ -684,8 +811,14 @@ public sealed class CombatTracker
             // following ordinary miss/miss lines that named it, so it's already an active
             // participant - but Begin() defensively in case this is somehow the first line
             // naming that NPC (mirrors YouHit's own defensive Begin() for the same reason).
-            Begin(m.Groups["npc"].Value);
-            Emit(timestampUtc, CombatEventKind.NpcWeaponEquip, CombatActor.Npc, m.Groups["npc"].Value, m.Groups["weapon"].Value, null, null, text);
+            //
+            // An invisible opponent's weapon is anonymous too ("Someone has started to use something
+            // to fight!"), and unlike the creature it cannot be recovered - so the weapon is null
+            // rather than the word "something". See this pattern's own remarks.
+            var npc = NameFrom(m);
+            Begin(npc);
+            Emit(timestampUtc, CombatEventKind.NpcWeaponEquip, CombatActor.Npc, npc,
+                m.Groups["weapon"].Success ? m.Groups["weapon"].Value : null, null, null, text);
         }
         else if ((m = NpcStaminaRead.Match(text)).Success)
         {
@@ -696,6 +829,39 @@ public sealed class CombatTracker
             Emit(timestampUtc, CombatEventKind.NpcStaminaRead, CombatActor.Npc, m.Groups["npc"].Value, null,
                 int.Parse(m.Groups["lo"].Value, System.Globalization.CultureInfo.InvariantCulture),
                 int.Parse(m.Groups["hi"].Value, System.Globalization.CultureInfo.InvariantCulture), text);
+        }
+        else if (line.Kind == LineKind.CreatureInvisible || NpcFadedFromView.IsMatch(text))
+        {
+            // The creature turned invisible. Not a state change to the fight - it runs on exactly as
+            // it was - but from here MUD2 stops naming this one and writes "someone" instead, so
+            // this is what lets every later line be attributed to it. See ResolveAnonymous.
+            //
+            // The code (04.00.05) is what detects it and the prose only reads the name out, which is
+            // the arrangement LineKind.FightEnd already uses. With a wording we do not know and one
+            // creature engaged there is no ambiguity about which one went; with several there is,
+            // and marking the wrong one would misattribute the rest of the fight, so it abstains.
+            //
+            // Engaged creatures only, for the reason the health-rung lines give: something across
+            // the room turning invisible is not this fight's business. It costs the case on the wire
+            // where the man faded while fighting a FOX and the player attacked him afterwards - see
+            // _faded for why that is not fixed here.
+            var named = NpcFadedFromView.Match(text);
+            var gone = named.Success ? named.Groups["npc"].Value
+                     : _active.Count == 1 ? _active.First()
+                     : null;
+            if (gone is not null && _active.Contains(gone))
+            {
+                _faded.Add(gone);
+                Emit(timestampUtc, CombatEventKind.NpcTurnedInvisible, CombatActor.Npc, gone, null, null, null, text);
+            }
+        }
+        else if ((m = NpcRegainedVisibility.Match(text)).Success)
+        {
+            // "The man has regained his visibleness!" - the anonymity is over and MUD2 is naming him
+            // again, so he stops being what "someone" resolves to. Silent: nothing about the fight
+            // changed, and the line names the creature itself, so there is nothing here a consumer
+            // could not read off the next ordinary combat line.
+            _faded.Remove(m.Groups["npc"].Value);
         }
         else if (InventoryChangeLines.TryParse(text, out var moveKind, out var movedItem, out var movedInto))
         {
@@ -781,6 +947,52 @@ public sealed class CombatTracker
             ? _active.First()
             : null;
 
+    /// <summary>The creature a matched line names, with MUD2's "someone" resolved back to a real
+    /// participant where it can only mean one. Every widened pattern goes through here, so the rule
+    /// is stated once - see <see cref="ResolveAnonymous"/> for what it is.</summary>
+    private string NameFrom(Match m)
+        => m.Groups["npc"].Success ? m.Groups["npc"].Value : ResolveAnonymous();
+
+    /// <summary>
+    /// Which creature "someone" is.
+    ///
+    /// <para>An invisible participant is the strongest answer available: MUD2 anonymises the
+    /// creature it made invisible and goes on naming everything else, so with exactly one faded
+    /// creature still engaged, an anonymous line can only be about that one - even in a pack where
+    /// the others are named on the lines either side of it.</para>
+    ///
+    /// <para>Failing that, a single engaged creature. This is the other cause of anonymity - the
+    /// PLAYER was blinded, which anonymises everything rather than one creature - and it is the rule
+    /// the narrative death line has always used.</para>
+    ///
+    /// <para><b>Where it cannot tell, it abstains rather than guesses</b>, and the cost of that is
+    /// deliberately asymmetric. An anonymous SWING opens a roster entry literally called "someone",
+    /// which is true and is worth drawing: something is hitting the player. An anonymous END closes
+    /// a fight against a name no roster holds, i.e. nothing, which leaves the encounter open for the
+    /// coded fight-end and the room-change backstop behind it - the same direction those two already
+    /// err in, and the only safe one in a pack.</para>
+    ///
+    /// <para><b>Best-effort by nature</b>, with the caution the narrative death line has carried
+    /// since a vampire blinded the player before killing them: our roster is what we managed to
+    /// observe, not what is in the room, and a player who cannot see cannot see arrivals either. Any
+    /// analysis that cares should treat a name resolved this way as the likeliest reading, never as
+    /// ground truth.</para>
+    /// </summary>
+    private string ResolveAnonymous()
+    {
+        string? onlyFaded = null;
+        foreach (var npc in _active)
+        {
+            if (!_faded.Contains(npc))
+                continue;
+            if (onlyFaded is not null)
+                return Anonymous;   // two invisible opponents: the line says nothing about which
+            onlyFaded = npc;
+        }
+
+        return onlyFaded ?? (_active.Count == 1 ? _active.First() : Anonymous);
+    }
+
     /// <summary>Force-close any open encounter without a matching end line (e.g. an auto-reset
     /// wiping the game state mid-fight, or logout/relog). <paramref name="reason"/> is recorded
     /// verbatim as the synthetic event's raw text, so a clog says which backstop fired.</summary>
@@ -865,6 +1077,8 @@ public sealed class CombatTracker
         if (!_encounterOpen)
             return;
         _encounterOpen = false;
+        // Who was invisible is a fact about this encounter, not about the next one - see _faded.
+        _faded.Clear();
         InCombatChanged?.Invoke(false);
     }
 

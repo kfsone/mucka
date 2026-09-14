@@ -36,6 +36,9 @@ public class CombatSessionFightEndTests : IDisposable
     // in session-rec.mud2.co.uk.20260826-134435 in front of "You can fight the wyvern no
     // longer.", and in the older captures in front of the "him"/"her"/"it" forms.
     private static readonly byte[] FightEndOtherCode = [0xA3, 0xA7, 0xFF, 0xFF];
+    // C04+C00+C05 = "Normal creatures becoming invisible", verbatim from wire.db session 12 in front
+    // of "The man fades from view."
+    private static readonly byte[] CreatureInvisibleCode = [0x9F, 0x9B, 0xA0, 0xFF, 0xFF];
     private static readonly byte[] Pop = [0xFF, 0xFF];
 
     private const string Echoes = "auto fex\r\nscore\r\n";
@@ -192,5 +195,72 @@ public class CombatSessionFightEndTests : IDisposable
 
         Assert.False(_session.InCombat);
         Assert.Empty(_inCombat);   // the player walks between rooms all day; none of it is combat news
+    }
+
+    /// <summary>
+    /// The fight that produced all of this, through the real decoder: a man turns invisible under
+    /// C04.00.05 and MUD2 stops naming him, so every line to the end of the fight - the end included
+    /// - says "someone" instead. The client that met it never closed the encounter.
+    ///
+    /// <para>Driven end to end rather than at the tracker, because the wiring is the point: code
+    /// bytes through the decoder, SetPendingKind, StyledLine.Kind, the tracker's anonymous
+    /// resolution, out to the session's InCombat. The withdraw is fed as plain text on purpose -
+    /// this is the PROSE path, the one that was missing, and if it ever passes on the strength of
+    /// the fight-end code instead the test has stopped testing what it says it does.</para>
+    /// </summary>
+    [Fact]
+    public void AnInvisibleOpponentsWithdraw_ClosesTheEncounter()
+    {
+        FeedRoomShort("Badly-paved road");
+
+        Feed("The man is moving towards you ferociously.\r\n");
+        Feed("The man misses you.\r\n");
+        Feed("You hit the man (1-4).\r\n");
+        Assert.True(_session.InCombat);
+
+        Prompt();
+        Feed("The man makes some magical gestures.\r\n");
+        Feed(CreatureInvisibleCode);
+        Feed("The man fades from view.");
+        Feed(Pop);
+        Feed("\r\n");
+
+        // Same fight, same creature, no name.
+        Prompt();
+        Feed("Someone hits you (103/105).\r\n");
+        Feed("You miss someone.\r\n");
+        Feed("Someone offers to withdraw from your fight if you do likewise.\r\n");
+        Assert.True(_session.InCombat);
+
+        Prompt();
+        Feed("You withdraw from your fight with someone, and that person does too.\r\n");
+
+        Assert.False(_session.InCombat);
+        Assert.Equal([true, false], _inCombat);
+    }
+
+    /// <summary>
+    /// And the floor under it. Whatever ended an anonymous fight - a wording nobody has seen, a wiz
+    /// moving the player, anything - the player standing somewhere else is proof it ended, because
+    /// in MUD2 you cannot walk out of a fight: "You can't just leave in the middle of a fight! You
+    /// have to flee!" is what trying earns, verbatim from the same session.
+    /// </summary>
+    [Fact]
+    public void WalkingOutOfAnInvisibleFight_ClosesIt_WhateverEndedIt()
+    {
+        FeedRoomShort("Badly-paved road");
+
+        Feed("The man is moving towards you ferociously.\r\n");
+        Feed(CreatureInvisibleCode);
+        Feed("The man fades from view.");
+        Feed(Pop);
+        Feed("\r\n");
+        Feed("Someone hits you (103/105).\r\n");
+        Assert.True(_session.InCombat);
+
+        FeedRoomShort("Entrance to badger's sett");
+
+        Assert.False(_session.InCombat);
+        Assert.Equal([true, false], _inCombat);
     }
 }
