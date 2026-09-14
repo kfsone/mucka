@@ -103,10 +103,9 @@ public sealed class MuckaStore : IDisposable
         _queue.Writer.TryWrite(row);
     }
 
-    /// <summary>Drains what is queued and stamps the session's end time. Blocks up to
-    /// <see cref="DrainTimeout"/> so an app exit cannot lose what is already buffered.</summary>
-    /// <summary>Stops accepting, then waits <see cref="DrainTimeout"/> for what is already queued to
-    /// be committed.
+    /// <summary>Stops accepting, drains what is queued and stamps the session's end time. Blocks up
+    /// to <see cref="DrainTimeout"/>, so an app exit cannot lose what is buffered and cannot hang on
+    /// it either.
     ///
     /// <para>What that does NOT cover: a producer that passed the <c>_disposed</c> check just before
     /// this ran can call <c>TryWrite</c> after the channel is completed, and that row is dropped
