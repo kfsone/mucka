@@ -84,10 +84,13 @@ the trade, made deliberately and in that direction.
 
 ### Why `wire` carries no indexes
 
-Measured on the 123,933-row corpus with `dbstat`: the table was 13.76 MB and its two indexes,
-`(session_id, seq)` and `(ts_ms)`, were 2.09 MB and 1.80 MB - **3.51 MB between them, 54% of
-everything a row cost above its payload**. Nothing queried either one. Dropping both takes the file
-from 17.2 MB to 13.4 MB, a 20.4% cut for no loss of information at all.
+Two measurements, kept apart because they answer different questions. Rebuilt and vacuumed over the
+123,933-row corpus, the `wire` table is **13,783,040 bytes with no indexes and 17,207,296 with the
+two it used to carry** - `(session_id, seq)` and `(ts_ms)`. They cost **3,424,256 bytes, 19.9%**, and
+took a row from 26.7 bytes of overhead above its payload to 54.3. Separately, `dbstat` on the live
+file before the drop put those two indexes at 2,093,056 and 1,798,144 bytes of pages - 3,891,200
+between them, higher than the rebuilt figure because a live file carries free space the rebuild does
+not. Nothing queried either index.
 
 The two reads that exist are covered without them. `ReadSession` walks `id`, which is the rowid, so
 it is the table's own order - no index and no sort. A time-range question scans 13 MB, tens of
@@ -96,20 +99,31 @@ there the day something needs one, justified on that day's corpus.
 
 Two things were measured and NOT done:
 
-- **`WITHOUT ROWID` keyed on `(session_id, seq)`** is *worse* - 13.86 MB against 13.77 MB for a plain
-  rowid table - because SQLite's own guidance is that it suits rows below about 1/20 of a page (204
-  bytes here) and the wire log's p90 is 187 with a 3,464-byte maximum. It fragments. This was expected
-  to win and did not; the measurement is recorded so it is not re-attempted from first principles.
+- **`WITHOUT ROWID` keyed on `(session_id, seq)`** is *worse* - 13,869,056 bytes against 13,783,040
+  for a plain rowid table, both rebuilt and vacuumed over the same rows - because SQLite's own
+  guidance is that it suits rows below about 1/20 of a page (204 bytes here) and the wire log's p90
+  is 187 with a 3,464-byte maximum. It fragments. This was expected to win and did not; the
+  measurement is recorded so it is not re-attempted from first principles.
 - **Dropping `seq`** saves a further 299 KB, and is refused. `seq` is per-session and assigned by that
   session's own writer, so it stays gapless however many clients run; `id` is global and interleaves,
   because the operator runs two Muckas side by side. That makes `seq` the only thing that can show a
   record went missing, and 299 KB is not worth the only integrity signal the table has.
 
-`seq` order and `id` order are the same order, and that is load-bearing now that a reader walks `id`.
-`WireLogWriter.Emit` takes the `seq` and hands the row to the store under one lock for exactly that
-reason: with the two split, a thread preempted between them lets a later `seq` reach the queue first.
-It did - reproducibly, a few records per ten thousand, with the read and write loops both tapping.
-`Seq_order_and_id_order_agree_even_under_concurrent_taps` is the test, and it fails without the lock.
+`id`, `seq` and `ts_ms` are all the same order, and that is load-bearing now that a reader walks `id`.
+`WireLogWriter.Emit` reads the clock, takes the `seq` and hands the row to the store under one lock
+for exactly that reason. Both halves of that were wrong before it:
+
+- With the increment outside the lock, a thread preempted between it and the hand-over lets a later
+  `seq` reach the queue first. Reproducible on every run, a few records per ten thousand.
+- With the clock reading outside the lock, an earlier `seq` can carry a later timestamp. Reproducible
+  on about half of runs. Nothing would have caught this one: no index ever covered `ts_ms` ordering
+  and no test looked at it.
+
+So all three come from one serialization point and describe the same moment - when the record entered
+the log, a few microseconds after the byte arrived rather than at it. That is the right trade: an
+order that disagrees with itself is worse than one that is uniformly a hair late, and cross-stream
+ordering is the evidence a swing, a diagnose reading and an award are attributed by.
+`Seq_id_and_timestamp_all_agree_even_under_concurrent_taps` is the test; it fails without the lock.
 
 ## Why one file
 

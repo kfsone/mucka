@@ -1,10 +1,10 @@
 namespace MudSharp.Combat;
 
 /// <summary>
-/// One completed per-NPC fight, as stored in the <c>fights</c> table of the combat database (see
-/// Mucka.Core.CombatDb), written when the fight closes. This is a compact rollup, deliberately
-/// separate from the detailed per-encounter clogs, which stay as they are: those are the evidence,
-/// this is what the client can cheaply load and query at runtime.
+/// One completed per-NPC fight, as stored in the <c>fights</c> table (see <c>Mucka.Store.MuckaDb</c>),
+/// written when the fight closes. This is a compact rollup, deliberately separate from the detailed
+/// per-encounter rows, which stay as they are: those are the evidence, this is what the client can
+/// cheaply load and query at runtime.
 ///
 ///
 /// <para>The context fields (room/weather/stats/afflictions) are snapshotted at ENCOUNTER start,

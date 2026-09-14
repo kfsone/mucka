@@ -64,21 +64,26 @@ public sealed class WireLogWriter : IDisposable
         if (_disposed) return;
         // The payload is copied outside the lock: it is the only part of this that is not O(1), and
         // the read loop's buffer is reused the moment this returns, so the copy has to happen anyway.
-        var row = new WireRow(_store.SessionId, 0,
-            DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), direction, payload.ToArray());
-        // Taking `seq` and handing the row over must be ONE step. The read loop and the write loop
-        // call this concurrently, and with the two split a thread preempted between them lets a later
-        // `seq` reach the queue first - so `seq` order and insertion order disagree by a record or
-        // two. Nothing caught that while an index made ORDER BY seq free; with no index a reader
-        // walks `id`, and the two orders have to be the same order. Cross-stream ordering is the
-        // evidence a swing, a diagnose reading and an award are attributed by, so a couple of records
-        // is not a rounding error.
+        var bytes = payload.ToArray();
+        // `seq`, `ts_ms` and the hand-over are ONE step. The read loop and the write loop call this
+        // concurrently, and anything split out of the lock can be taken in a different order from the
+        // lock itself: with the increment outside, a thread preempted in between lets a later `seq`
+        // reach the queue first; with the clock reading outside, an earlier `seq` can carry a later
+        // timestamp. Both were true here. Nothing caught the first while an index made ORDER BY seq
+        // free, and nothing would have caught the second at all.
         //
-        // The lock holds for an increment and a TryWrite onto an unbounded channel - no I/O, no
-        // allocation, no contention with the store's writer, which never takes this lock.
+        // So all three come from one serialization point, and `id`, `seq` and `ts_ms` describe the
+        // same moment: when the record entered the log. That is a few microseconds after the byte
+        // arrived rather than at it, which is the right trade - cross-stream ordering is the evidence
+        // a swing, a diagnose reading and an award are attributed by, and an order that disagrees
+        // with itself is worse than one that is uniformly a hair late.
+        //
+        // The lock holds for a clock read, an increment and a TryWrite onto an unbounded channel - no
+        // I/O, no allocation, and no contention with the store's writer, which never takes this lock.
         lock (_lock)
         {
-            _store.Enqueue(row with { Seq = ++_seq });
+            _store.Enqueue(new WireRow(_store.SessionId, ++_seq,
+                DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), direction, bytes));
         }
     }
 }

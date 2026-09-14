@@ -324,11 +324,9 @@ public sealed class MuckaConnection : IAsyncDisposable
         stream?.Dispose();
         client?.Dispose();
         cts?.Dispose();
-        // Both loops have ended, so nothing more will be recorded for this connection: close the open
-        // wire-log batch now rather than leaving it exposed until dispose. A reconnect on the same
-        // MuckaConnection simply opens a new batch. The read loop's own finally has usually done this
-        // already; what is left for here is anything the WRITE loop recorded after it - and the case
-        // where a connect attempt failed before the read loop ever started.
+        // Both loops have ended, so nothing more will be recorded for this connection. The wire log
+        // holds nothing back, so this has nothing to do; it stays because every path that ends a
+        // connection calls it, and a recorder that grows a buffer later needs one place to empty it.
         _wireLog.Flush();
         _session.Reset();
         _loginHandler?.Reset();
@@ -518,11 +516,9 @@ public sealed class MuckaConnection : IAsyncDisposable
         finally
         {
             // The read loop ending IS the end of the session's incoming traffic, however it ended:
-            // cancelled by DisconnectAsync, the server closing the socket, or the socket throwing. Close
-            // the open wire-log batch here rather than only on the graceful path, since a server drop is
-            // exactly the session you would want to read back afterwards. Once per connection, so it
-            // costs the batching nothing; the flush in DisconnectAsync (which runs after this, and after
-            // any last write) then finds nothing to do unless the write loop got a byte out in between.
+            // cancelled by DisconnectAsync, the server closing the socket, or the socket throwing. A
+            // server drop is exactly the session you would want to read back afterwards, and nothing
+            // is held back on any of those paths - what reaches the store is committed by the store.
             _wireLog.Flush();
             if (!_deliberateDisconnect)
                 Disconnected?.Invoke(error);

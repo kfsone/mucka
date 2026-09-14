@@ -157,13 +157,14 @@ public sealed class WireLogTests : IDisposable
     }
 
     [Fact]
-    public void Seq_order_and_id_order_agree_even_under_concurrent_taps()
+    public void Seq_id_and_timestamp_all_agree_even_under_concurrent_taps()
     {
         // The read loop and the write loop call the writer at the same time. A reader walks `id`
-        // (the rowid, so no index and no sort), and `seq` is what proves nothing was lost - so the
-        // two have to be the same order. They are only the same order if taking a seq and handing
-        // the row over is one step; split them and a thread preempted in between lets a later seq
-        // reach the queue first. Two threads hammering both taps is what shakes that out.
+        // (the rowid, so no index and no sort), `seq` is what proves nothing was lost, and `ts_ms`
+        // is what a cross-stream question compares - so all three have to be the same order. They
+        // only are if the clock reading, the seq and the hand-over happen at one serialization
+        // point; split any of them out and a thread preempted in between lets a later record win.
+        // Two threads hammering both taps is what shakes that out.
         const int PerThread = 4000;
         using (var store = NewStore())
         using (var writer = new WireLogWriter(store))
@@ -176,15 +177,21 @@ public sealed class WireLogTests : IDisposable
 
         using var connection = MuckaDb.OpenRead(DbPath);
         using var command = connection.CreateCommand();
-        command.CommandText = "SELECT seq FROM wire ORDER BY id;";
+        command.CommandText = "SELECT seq, ts_ms FROM wire ORDER BY id;";
         using var reader = command.ExecuteReader();
-        var seqs = new List<int>();
-        while (reader.Read()) seqs.Add(reader.GetInt32(0));
+        var walked = new List<(int Seq, long Ts)>();
+        while (reader.Read()) walked.Add((reader.GetInt32(0), reader.GetInt64(1)));
 
-        Assert.Equal(PerThread * 2, seqs.Count);
-        for (var i = 0; i < seqs.Count; i++)
-            Assert.True(seqs[i] == i,
-                $"row {i} in id order carries seq {seqs[i]}: id order and seq order have diverged");
+        Assert.Equal(PerThread * 2, walked.Count);
+        for (var i = 0; i < walked.Count; i++)
+        {
+            Assert.True(walked[i].Seq == i,
+                $"row {i} in id order carries seq {walked[i].Seq}: id order and seq order have diverged");
+            if (i > 0)
+                Assert.True(walked[i].Ts >= walked[i - 1].Ts,
+                    $"row {i} is stamped {walked[i].Ts}, before row {i - 1}'s {walked[i - 1].Ts}: "
+                    + "id order and timestamp order have diverged");
+        }
     }
 
     // -- The writer and the store, end to end ----------------------------------

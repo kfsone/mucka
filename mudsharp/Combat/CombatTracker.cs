@@ -364,7 +364,7 @@ public sealed class CombatTracker
     /// <para><b>MUD2 does report NPC stamina after all.</b> It is a probe rather than free
     /// telemetry - it needs a stethoscope and a typed command - but it is a direct, bracketed
     /// reading of the number everything else was approximating, and it is now recorded
-    /// (Core.CombatDb's <c>npc_stamina_reads</c>) and consumed as the strongest constraint the
+    /// (the store's <c>npc_stamina_reads</c> table) and consumed as the strongest constraint the
     /// remaining-stamina model has (see MudSharp.Combat.NpcRemainingStamina).</para>
     ///
     /// <para>Worth parsing chiefly as an instrument: it is the only way to CHECK a published creature

@@ -105,6 +105,16 @@ public sealed class MuckaStore : IDisposable
 
     /// <summary>Drains what is queued and stamps the session's end time. Blocks up to
     /// <see cref="DrainTimeout"/> so an app exit cannot lose what is already buffered.</summary>
+    /// <summary>Stops accepting, then waits <see cref="DrainTimeout"/> for what is already queued to
+    /// be committed.
+    ///
+    /// <para>What that does NOT cover: a producer that passed the <c>_disposed</c> check just before
+    /// this ran can call <c>TryWrite</c> after the channel is completed, and that row is dropped
+    /// silently. It is bounded to whatever one producer emits in the instant of shutdown, and
+    /// <c>MuckaConnection</c> disposes every writer before the store precisely so the producers have
+    /// stopped first. Closing the hole properly means a lock on the enqueue path, which is a lock on
+    /// the socket threads' path, and that is a worse trade than losing a record at disconnect.</para>
+    /// </summary>
     public void Dispose()
     {
         if (_disposed) return;

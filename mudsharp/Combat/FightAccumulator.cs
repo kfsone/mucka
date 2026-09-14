@@ -593,7 +593,7 @@ public sealed class FightAccumulator
             // "how much have I done" for the outlook and the history rows, and a bracket sum answers
             // "what could the creature have left", which is a different question and the only one a
             // remaining-stamina band can be built from. Collapsing to the midpoint here is the one-way
-            // door CombatDb's own remarks warn about.
+            // door the <c>swings</c> table's own remarks warn about.
             DamageDealt = DamageDealt.Plus(new DamageBracket(low, high));
             RecordSwing(_yourRecent, ref _yourRecentHead, ref _yourRecentCount, SwingOutcome.Hit(midpoint));
 
