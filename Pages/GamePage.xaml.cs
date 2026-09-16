@@ -85,6 +85,23 @@ public partial class GamePage : ContentPage
     private double _floatMapTransY;
     private Size _onlineLastSize;
     private Size _mapLastSize;
+    // -- The Combat Rail's live width ----------------------------------------
+    // Outside every #if WINDOWS region on purpose: the rail itself is Windows-only, but the pointer
+    // handler that hit-tests its encounter table is shared code and has to scale by the same width
+    // the canvas drew at.
+
+    /// <summary>The rail's live content width - narrower with the stat rows off. Every overlay
+    /// positioned over the canvas scales off this, and it must be the same number the canvas is
+    /// drawing at.</summary>
+    private double RailContentWidthDp
+        => CombatRailResize.ContentWidthDp(_vm.SidePanel.IsCombatStatsEnabled);
+
+    /// <summary>What the docked panel costs the window at its current stats setting.</summary>
+    private double RailPanelWidthDp
+        => CombatRailResize.PanelWidthDp(_vm.SidePanel.IsCombatStatsEnabled);
+
+    private bool RailShowStats => _vm.SidePanel.IsCombatStatsEnabled;
+
 #if WINDOWS
     // True once an auxiliary window (raw console, map) has been opened. WinUI's native
     // caret-follow breaks after focus leaves to another app window, so the UpdateLayout
@@ -359,6 +376,13 @@ public partial class GamePage : ContentPage
                 _vm.SidePanel.PropertyChanged += OnSidePanelPropertyChanged;
                 CombatPanelGlow.HandlerChanged += OnCombatPanelGlowHandlerChanged;
                 OnCombatPanelGlowHandlerChanged(CombatPanelGlow, EventArgs.Empty);
+                // The stats setting is restored from mucka.ini before this page exists, so the width
+                // it implies has to be applied once here - nothing will raise the change event for a
+                // value that was already false when the panel was built. Before the handler wiring
+                // below, so those handlers position their overlays against the right width first time.
+                CombatPanelCanvas.ShowStats = RailShowStats;
+                CombatPanelBorder.WidthRequest = RailPanelWidthDp;
+                _vm.SidePanel.CombatStatsChanged += OnCombatStatsChanged;
                 CombatTickSweep.HandlerChanged += OnCombatTickSweepHandlerChanged;
                 OnCombatTickSweepHandlerChanged(CombatTickSweep, EventArgs.Empty);
                 CombatFleePill.HandlerChanged += OnCombatFleePillHandlerChanged;
@@ -543,6 +567,7 @@ public partial class GamePage : ContentPage
         }
         _vm.OpenRawConsoleRequested -= OnOpenRawConsoleRequested;
         _vm.SidePanel.PropertyChanged -= OnSidePanelPropertyChanged;
+        _vm.SidePanel.CombatStatsChanged -= OnCombatStatsChanged;
         CombatPanelGlow.HandlerChanged -= OnCombatPanelGlowHandlerChanged;
         CombatTickSweep.HandlerChanged -= OnCombatTickSweepHandlerChanged;
         CombatFleePill.HandlerChanged -= OnCombatFleePillHandlerChanged;
@@ -1321,7 +1346,7 @@ public partial class GamePage : ContentPage
         var resyncedDeltaDp = _railDeltaAppliedDp;
         if (_railWidthApplied)
         {
-            var reserved = CombatRailResize.ReserveRailWidth(floorPx, dpi);
+            var reserved = CombatRailResize.ReserveRailWidth(floorPx, dpi, RailPanelWidthDp);
             floorPx = reserved.TargetWidthPx;
             resyncedDeltaDp = reserved.AppliedDeltaDp;
         }
@@ -1368,7 +1393,7 @@ public partial class GamePage : ContentPage
         var railShown = _vm.SidePanel.IsCombatPanelVisible;
         var initial = CombatRailResize.ComputeInitialWidth(
             _minWindowWidthPx, dpi, _vm.MaxColumns, CharWidthDp,
-            _vm.SidePanel.IsPanelExpanded, railShown);
+            _vm.SidePanel.IsPanelExpanded, railShown, RailPanelWidthDp);
 
         _railWidthApplied = railShown;
         _railDeltaAppliedDp = initial.AppliedDeltaDp;
@@ -1411,7 +1436,7 @@ public partial class GamePage : ContentPage
         // subtract the wrong quantity and leave orphaned or missing width behind.
         if (_railWidthApplied)
         {
-            var reserved = CombatRailResize.ReserveRailWidth(targetPx, dpi);
+            var reserved = CombatRailResize.ReserveRailWidth(targetPx, dpi, RailPanelWidthDp);
             targetPx = reserved.TargetWidthPx;
             _railDeltaAppliedDp = reserved.AppliedDeltaDp;
         }
@@ -1452,7 +1477,7 @@ public partial class GamePage : ContentPage
         if (msg == WM_GETMINMAXINFO && lParam != IntPtr.Zero && _minWindowWidthPx > 0)
         {
             var minTrackPx = CombatRailResize.MinTrackWidthPx(
-                _minWindowWidthPx, GetDpiForWindow(hwnd), _railWidthApplied);
+                _minWindowWidthPx, GetDpiForWindow(hwnd), _railWidthApplied, RailPanelWidthDp);
             var info = Marshal.PtrToStructure<MinMaxInfo>(lParam);
             if (info.ptMinTrackSize.x < minTrackPx)
             {
@@ -2008,7 +2033,7 @@ public partial class GamePage : ContentPage
         RailRect anchor;
         if (floatEvent.IsPlayerAnchored)
         {
-            anchor = CombatRailView.PlayerTileDp(_railContentWidthDp, _railContentHeightDp);
+            anchor = CombatRailView.PlayerTileDp(_railContentWidthDp, _railContentHeightDp, RailShowStats);
         }
         else
         {
@@ -2016,7 +2041,7 @@ public partial class GamePage : ContentPage
             // pane of its own. Nothing to float over.
             var slotRect = CombatRailView.OpponentSlotDp(
                 _railContentWidthDp, _railContentHeightDp,
-                floatEvent.RosterIndex, floatEvent.LiveCount);
+                floatEvent.RosterIndex, floatEvent.LiveCount, RailShowStats);
             if (slotRect is null)
                 return;
             anchor = slotRect.Value;
@@ -2141,7 +2166,7 @@ public partial class GamePage : ContentPage
         _combatTickSweep = null;
         previousSweep?.Stop();
 
-        var (left, right, bottom, height) = CombatRailView.TickTrackDp(CombatPanelContentWidthDp);
+        var (left, right, bottom, height) = CombatRailView.TickTrackDp(RailContentWidthDp, RailShowStats);
         CombatTickSweep.Margin = new Thickness(left, 0, right, bottom);
         CombatTickSweep.HeightRequest = height;
 
@@ -2174,7 +2199,7 @@ public partial class GamePage : ContentPage
         _combatFleePillStatus = null;
         previousPulse?.Stop();
 
-        var (left, right, bottom, height, radius) = CombatRailView.FleePillDp(CombatPanelContentWidthDp);
+        var (left, right, bottom, height, radius) = CombatRailView.FleePillDp(RailContentWidthDp, RailShowStats);
         CombatFleePill.Margin = new Thickness(left, 0, right, bottom);
         CombatFleePill.HeightRequest = height;
 
@@ -2275,12 +2300,12 @@ public partial class GamePage : ContentPage
     /// </summary>
     private void OnCombatFleePillHitHandlerChanged(object? sender, EventArgs e)
     {
-        var (left, right, bottom, height, _) = CombatRailView.FleePillDp(CombatPanelContentWidthDp);
+        var (left, right, bottom, height, _) = CombatRailView.FleePillDp(RailContentWidthDp, RailShowStats);
         // Width stated explicitly rather than taken from Fill + a right margin, because this one is
         // HorizontalOptions="Start": a Fill button would stretch the full panel width and make a flee
         // reachable from anywhere along the row.
         CombatFleePillHit.Margin = new Thickness(left, 0, 0, bottom);
-        CombatFleePillHit.WidthRequest = CombatPanelContentWidthDp - left - right;
+        CombatFleePillHit.WidthRequest = RailContentWidthDp - left - right;
         CombatFleePillHit.HeightRequest = height;
         CombatFleePillHit.Clicked -= OnCombatFleePillClicked;
         CombatFleePillHit.Clicked += OnCombatFleePillClicked;
@@ -2321,7 +2346,7 @@ public partial class GamePage : ContentPage
             return;
 
         CombatPanelCanvas.EncounterHoverColumn = CombatRailView.EncounterColumnAt(
-            point.X, point.Y, CombatPanelLayers.Width, CombatPanelLayers.Height);
+            point.X, point.Y, CombatPanelLayers.Width, CombatPanelLayers.Height, RailShowStats);
         CombatPanelCanvas.NpcValueHoverRow = CombatPanelCanvas.NpcValueRowAt(
             point.X, point.Y, CombatPanelLayers.Width, CombatPanelLayers.Height);
     }
@@ -2371,7 +2396,7 @@ public partial class GamePage : ContentPage
     private void OnCombatMetronomeHandlerChanged(object? sender, EventArgs e)
     {
         // Same reserved block the canvas draws the switch in, so the target cannot drift off it.
-        var (_, _, bottom, _) = CombatRailView.TickTrackDp(CombatPanelContentWidthDp);
+        var (_, _, bottom, _) = CombatRailView.TickTrackDp(RailContentWidthDp, RailShowStats);
         const double sizeDp = 24.0;
         CombatMetronomeHit.WidthRequest = sizeDp;
         CombatMetronomeHit.HeightRequest = sizeDp;
@@ -3098,6 +3123,53 @@ public partial class GamePage : ContentPage
     /// would be the wrong amount to remove at a different DPI on hide.</summary>
     private double _railDeltaAppliedDp;
 
+
+    /// <summary>Pushes the stats setting into the canvas and the Border's width. The window's own
+    /// resize is separate - see <see cref="OnCombatStatsChanged"/>.</summary>
+    private void ApplyCombatPanelWidth()
+    {
+        CombatPanelCanvas.ShowStats = RailShowStats;
+        CombatPanelBorder.WidthRequest = RailPanelWidthDp;
+        // Every overlay positioned over the canvas, without exception. The metronome's own numbers
+        // happen to be width-independent today, but leaving it out of this list is how the next
+        // width-dependent term in TickTrackDp would silently strand it.
+        OnCombatTickSweepHandlerChanged(null, EventArgs.Empty);
+        OnCombatFleePillHandlerChanged(null, EventArgs.Empty);
+        OnCombatFleePillHitHandlerChanged(null, EventArgs.Empty);
+        OnCombatMetronomeHandlerChanged(null, EventArgs.Empty);
+    }
+
+    /// <summary>
+    /// The stat rows were switched on or off. The panel's width changes with them, so the window has
+    /// to give back the reservation it made at the old width and take one at the new - done as a
+    /// hide/show pair through <see cref="ResizeWindowForCombatPanel"/> rather than a second piece of
+    /// resize arithmetic, so the applied-delta bookkeeping cannot drift from the tested path.
+    /// </summary>
+    private void OnCombatStatsChanged(bool showStats)
+    {
+        ApplyCombatPanelWidth();
+        if (_vm.SidePanel.IsCombatPanelVisible)
+        {
+            ResizeWindowForCombatPanel(showing: false);
+            ResizeWindowForCombatPanel(showing: true);
+        }
+        _ = PersistCombatStatsAsync(showStats);
+    }
+
+    private static async Task PersistCombatStatsAsync(bool showStats)
+    {
+        try
+        {
+            await SettingsStore.SetGlobalFlagAsync("showcombatstats", showStats);
+        }
+        catch (Exception ex)
+        {
+            // Same policy as the rail's own visibility write: a missed write costs one relog's worth
+            // of the toggle's memory, never gameplay.
+            CrashLog.Write("PersistCombatStats", ex);
+        }
+    }
+
     /// <summary>
     /// Grows or shrinks the window for the rail's own space, without the terminal's column count or
     /// the left panel's width changing as a side effect. This is the ONLY place
@@ -3138,7 +3210,8 @@ public partial class GamePage : ContentPage
         {
             _railDeltaAppliedDp = showing
                 ? CombatRailResize.SeedAppliedDeltaDp(
-                    appWindow.Size.Width, dpi, _vm.MaxColumns, CharWidthDp, panelExpanded)
+                    appWindow.Size.Width, dpi, _vm.MaxColumns, CharWidthDp, panelExpanded,
+                    RailPanelWidthDp)
                 : 0.0;
             _railWidthApplied = showing;
             return;
@@ -3152,7 +3225,7 @@ public partial class GamePage : ContentPage
         // apply the one real side effect (Resize), remember the new delta.
         var result = CombatRailResize.ComputeToggle(
             showing, appWindow.Size.Width, dpi, _vm.MaxColumns, CharWidthDp, panelExpanded,
-            _railDeltaAppliedDp);
+            _railDeltaAppliedDp, RailPanelWidthDp);
         var targetWidth = result.TargetWidthPx;
         _railDeltaAppliedDp = result.NewAppliedDeltaDp;
         _railWidthApplied = showing;

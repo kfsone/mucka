@@ -421,6 +421,33 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     }
 
     /// <summary>
+    /// Whether the Combat Rail draws its two stat rows and the exchange spark. Unlike the floats and
+    /// the metronome beside it, this one is PERSISTED (mucka.ini, global) and it changes the panel's
+    /// WIDTH - the host re-sizes the Border and the window from <see cref="CombatStatsChanged"/>.
+    /// </summary>
+    public bool IsCombatStatsEnabled
+    {
+        get => _isCombatStatsEnabled;
+        set
+        {
+            if (!Set(ref _isCombatStatsEnabled, value)) return;
+            CombatStatsChanged?.Invoke(value);
+        }
+    }
+    private bool _isCombatStatsEnabled = true;
+
+    /// <summary>Raised after <see cref="IsCombatStatsEnabled"/> changes. The host re-sizes the panel
+    /// and the window, and writes the new value to mucka.ini.</summary>
+    public event Action<bool>? CombatStatsChanged;
+
+    /// <summary>Toggles the stat rows and hands focus back to the command box (Invariant #0).</summary>
+    public void ToggleCombatStats()
+    {
+        IsCombatStatsEnabled = !IsCombatStatsEnabled;
+        RequestFocus?.Invoke();
+    }
+
+    /// <summary>
     /// Raised once per combat event that earns a damage float, already resolved to the pane it
     /// belongs over. The host (GamePage) owns the pooled elements, the motion budget and the
     /// animation; this side owns only "what happened, and to whom".
@@ -1804,6 +1831,8 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     public ICommand ProbeRecentCommand { get; }
     public ICommand ToggleCombatMetronomeCommand { get; }
     public ICommand ToggleCombatFloatsCommand { get; }
+    /// <summary>Toggles the Combat Rail's stat rows - the hamburger's "Stats" row.</summary>
+    public ICommand ToggleCombatStatsCommand { get; }
 
     /// <summary>Raised when an interaction should hand keyboard focus back to the input box.
     /// Opening the About dialog deliberately does not raise it - focus belongs to the dialog.</summary>
@@ -1826,6 +1855,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         ToggleCombatPanelCommand = new Command(() => { IsCombatPanelVisible = !IsCombatPanelVisible; RequestFocus?.Invoke(); });
         ToggleCombatMetronomeCommand = new Command(ToggleCombatMetronome);
         ToggleCombatFloatsCommand = new Command(ToggleCombatFloats);
+        ToggleCombatStatsCommand  = new Command(ToggleCombatStats);
         ToggleMapCommand       = new Command(() => IsMapExpanded       = !IsMapExpanded);
         ToggleOnlinePinnedCommand = new Command(() => { IsOnlinePinned = !IsOnlinePinned; RequestFocus?.Invoke(); });
         ToggleFloatingFoldCommand = new Command(() => IsFloatingOnlineFolded = !IsFloatingOnlineFolded);

@@ -45,9 +45,32 @@ public static class CombatRailResize
     //
     // The two damage rows and the exchange spark are drawn in the 40 units beyond the base 336.
     public const double CombatPanelContentWidthDp = 376.0;
+    /// <summary>The content width with the stat rows and the exchange spark switched off. The
+    /// operator set it: the rail was too wide for a Surface, and the stats are what the width is
+    /// mostly spent on.
+    ///
+    /// <para>Note against the line above - the stats were the 40 units beyond a base of 336, so this
+    /// takes a further 40 out of the layout that base was sized for. The flee pill is the floor at a
+    /// drawn 220, and the encounter table's headings ellipsize (they already do at 376). One
+    /// constant: widen it here if anything reads cramped.</para></summary>
+    public const double CombatPanelNarrowContentWidthDp = 296.0;
     // The outer Border's own WidthRequest (must match GamePage.xaml literally) - the amount of
     // window width the docked panel actually costs when reserved in the Grid.
     public const double CombatPanelWidthDp = CombatPanelContentWidthDp + (CombatPanelBorderStrokeDp * 2.0);
+    /// <summary>The same for the stats-off width.</summary>
+    public const double CombatPanelNarrowWidthDp =
+        CombatPanelNarrowContentWidthDp + (CombatPanelBorderStrokeDp * 2.0);
+
+    /// <summary>The content width the rail draws at, for a given stats setting. The one place that
+    /// decides it, so the renderer, the Border's WidthRequest and the window arithmetic cannot
+    /// disagree.</summary>
+    public static double ContentWidthDp(bool showStats)
+        => showStats ? CombatPanelContentWidthDp : CombatPanelNarrowContentWidthDp;
+
+    /// <summary>The outer Border's width for a given stats setting - what the docked panel costs the
+    /// window.</summary>
+    public static double PanelWidthDp(bool showStats)
+        => showStats ? CombatPanelWidthDp : CombatPanelNarrowWidthDp;
 
     /// <summary>
     /// Window width (in DIPs) that fits <paramref name="viewColumns"/> terminal columns plus the
@@ -101,6 +124,9 @@ public static class CombatRailResize
     /// forgets whatever width it could not remove (e.g. hiding on an already-floor-pinned window)
     /// rather than trying to claw it back on a later resize.</para>
     /// </summary>
+    /// <param name="panelWidthDp">What the rail costs at its current stats setting - see
+    /// <see cref="PanelWidthDp"/>. Defaulted so callers that predate the stats toggle read
+    /// unchanged.</param>
     public static ToggleResult ComputeToggle(
         bool showing,
         int currentWidthPx,
@@ -108,14 +134,15 @@ public static class CombatRailResize
         int maxColumns,
         double charWidthDp,
         bool panelExpanded,
-        double appliedDeltaDp)
+        double appliedDeltaDp,
+        double panelWidthDp)
     {
         var floorPx = DpToPxCeil(PreferredWindowWidthDp(charWidthDp, panelExpanded, maxColumns), dpi);
 
         int targetWidth;
         if (showing)
         {
-            var neededPx = DpToPxRound(CombatPanelWidthDp, dpi);
+            var neededPx = DpToPxRound(panelWidthDp, dpi);
             int deltaPx;
             if (maxColumns <= 0)
             {
@@ -170,14 +197,15 @@ public static class CombatRailResize
     /// the bug.</para>
     /// </summary>
     public static double SeedAppliedDeltaDp(
-        int currentWidthPx, double dpi, int maxColumns, double charWidthDp, bool panelExpanded)
+        int currentWidthPx, double dpi, int maxColumns, double charWidthDp, bool panelExpanded,
+        double panelWidthDp)
     {
         var naturalPx = maxColumns <= 0
             ? DpToPxCeil(PreferredWindowWidthDp(charWidthDp, panelExpanded, maxColumns), dpi)
             : DpToPxCeil(PreferredWindowWidthDp(charWidthDp, panelExpanded, maxColumns + 2.0), dpi);
 
         var slackPx = Math.Max(0, currentWidthPx - naturalPx);
-        var railPx = DpToPxRound(CombatPanelWidthDp, dpi);
+        var railPx = DpToPxRound(panelWidthDp, dpi);
         return Math.Min(slackPx, railPx) * 96.0 / dpi;
     }
 
@@ -209,16 +237,20 @@ public static class CombatRailResize
     /// seeds its applied-delta with, in place of <see cref="SeedAppliedDeltaDp"/> - that one reads a
     /// window whose history is unknown, which is not this case.</para>
     /// </summary>
+    /// <param name="panelWidthDp">What the rail costs at the stats setting the page is about to draw
+    /// with - see <see cref="PanelWidthDp"/>. A launch that restores "rail shown, stats off" reserves
+    /// the NARROW width here; reserving the wide one would hand the difference to the terminal column
+    /// and leave the window too wide from the first frame, with no later event to correct it.</param>
     public static InitialSize ComputeInitialWidth(
         int minWidthPx, double dpi, int maxColumns, double charWidthDp,
-        bool panelExpanded, bool railShown)
+        bool panelExpanded, bool railShown, double panelWidthDp)
     {
         var columns = maxColumns > 0 ? maxColumns + 2.0 : DefaultViewColumns;
         var targetPx = DpToPxCeil(PreferredWindowWidthDp(charWidthDp, panelExpanded, columns), dpi);
         if (targetPx < minWidthPx) targetPx = minWidthPx;
 
         if (!railShown) return new InitialSize(targetPx, 0.0);
-        var reserved = ReserveRailWidth(targetPx, dpi);
+        var reserved = ReserveRailWidth(targetPx, dpi, panelWidthDp);
         return new InitialSize(reserved.TargetWidthPx, reserved.AppliedDeltaDp);
     }
 
@@ -232,8 +264,9 @@ public static class CombatRailResize
     /// puts the window exactly here and there is nothing left to give back. Hiding drops the floor to
     /// the column width again, which is the only width a hide is allowed to shrink to.</para>
     /// </summary>
-    public static int MinTrackWidthPx(int floorPx, double dpi, bool railShown)
-        => railShown ? floorPx + DpToPxRound(CombatPanelWidthDp, dpi) : floorPx;
+    public static int MinTrackWidthPx(int floorPx, double dpi, bool railShown,
+        double panelWidthDp)
+        => railShown ? floorPx + DpToPxRound(panelWidthDp, dpi) : floorPx;
 
     /// <summary>Result of <see cref="ReserveRailWidth"/>.</summary>
     public readonly record struct RailReservation(int TargetWidthPx, double AppliedDeltaDp);
@@ -252,8 +285,9 @@ public static class CombatRailResize
     /// absorption last computed. Leaving that delta stale would make a later hide subtract the wrong
     /// quantity and leave orphaned or missing width behind.</para>
     /// </summary>
-    public static RailReservation ReserveRailWidth(int targetWidthPxWithoutRail, double dpi)
+    public static RailReservation ReserveRailWidth(int targetWidthPxWithoutRail, double dpi,
+        double panelWidthDp)
         => new(
-            targetWidthPxWithoutRail + DpToPxRound(CombatPanelWidthDp, dpi),
-            CombatPanelWidthDp);
+            targetWidthPxWithoutRail + DpToPxRound(panelWidthDp, dpi),
+            panelWidthDp);
 }

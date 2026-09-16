@@ -1175,12 +1175,17 @@
              WidthRequest=378, not 376: this Border's own StrokeThickness=1 insets its content by 1dp
              per side (MAUI's Border.CrossPlatformMeasure subtracts Padding+StrokeThickness on each
              side, confirmed by decompiling Microsoft.Maui.Controls.dll), so the canvas/
-             Composition-sibling content area inside is 376dp - exactly CombatRailView.RailWidth. That
-             makes the rail's 376-unit design space map 1:1 onto this dp content area at every DPI (see
+             Composition-sibling content area inside is 376dp - exactly the rail's design width with
+             stats on (296 with them off, and this WidthRequest is rewritten to match). That makes the
+             design space map 1:1 onto this dp content area at every DPI (see
              GamePage.xaml.cs's CombatPanelContentWidthDp/CombatPanelWidthDp, which this must keep
              matching); OnPaintSurface's `scale` itself still carries the DPI factor on top of that,
              because SKCanvasView reports its surface in physical pixels, not dp (IgnorePixelScaling is
-             not set anywhere in this repo). -->
+             not set anywhere in this repo).
+
+             WidthRequest below is the WIDE value. GamePage overwrites it from
+             CombatRailResize.PanelWidthDp at load and on every "Stats" toggle, because the panel
+             narrows when the stat rows are off. -->
         <Border Grid.Column="2"
                 x:Name="CombatPanelBorder"
                 IsVisible="{Binding SidePanel.IsCombatPanelVisible}"
@@ -1580,26 +1585,103 @@
                             <Label Grid.Column="1" Text="Combat" TextColor="White" FontSize="14"/>
                         </Grid>
                     </Border>
+                    <!-- Combat's two dependants below are drawn as a SUB-GROUP: indented into the
+                         check column, on the submenu's darker ground, in its smaller dimmer type -
+                         the same visual language the Orientation submenu further down already uses.
+                         No separator above Stats, so the pair reads as hanging off Combat instead of
+                         as three peers.
+
+                         Both are meaningless with the rail hidden, so both grey out and stop
+                         responding when Combat is unchecked. IsEnabled=false takes the Border's
+                         gesture recognizer with it; the DataTriggers do the dimming, because MAUI
+                         does not dim a disabled Label on its own. The OK stays visible while
+                         dimmed, so the setting is still readable when it is unavailable. -->
+
+                    <!-- "Stats": the rail's two per-tile damage rows and the exchange spark. Turning
+                         it off NARROWS the panel - the stats are most of what its width is spent on -
+                         which is the reason it exists: the rail was too wide on a Surface. Unlike
+                         every other row in this menu this one is PERSISTED (mucka.ini, global), since
+                         the reason to turn it off is the size of the screen and no persona changes
+                         that. Hidden with the rail itself (Windows only). -->
+                    <Border Padding="16,12,16,12" BackgroundColor="#161c22"
+                            IsVisible="{Binding SidePanel.IsCombatRailSupported}"
+                            IsEnabled="{Binding SidePanel.IsCombatPanelVisible}">
+                        <Border.GestureRecognizers>
+                            <TapGestureRecognizer Command="{Binding SidePanel.ToggleCombatStatsCommand}"/>
+                        </Border.GestureRecognizers>
+                        <Grid ColumnDefinitions="34,*">
+                            <Label Grid.Column="0" Text="&#x2713;" FontSize="13"
+                                   VerticalOptions="Center" Margin="10,0,0,0"
+                                   IsVisible="{Binding SidePanel.IsCombatStatsEnabled}">
+                                <Label.Triggers>
+                                    <DataTrigger TargetType="Label"
+                                                 Binding="{Binding SidePanel.IsCombatPanelVisible}" Value="True">
+                                        <Setter Property="TextColor" Value="#3fb950"/>
+                                    </DataTrigger>
+                                    <DataTrigger TargetType="Label"
+                                                 Binding="{Binding SidePanel.IsCombatPanelVisible}" Value="False">
+                                        <Setter Property="TextColor" Value="#2f5136"/>
+                                    </DataTrigger>
+                                </Label.Triggers>
+                            </Label>
+                            <Label Grid.Column="1" Text="Stats" FontSize="13">
+                                <Label.Triggers>
+                                    <DataTrigger TargetType="Label"
+                                                 Binding="{Binding SidePanel.IsCombatPanelVisible}" Value="True">
+                                        <Setter Property="TextColor" Value="#d0d0d0"/>
+                                    </DataTrigger>
+                                    <DataTrigger TargetType="Label"
+                                                 Binding="{Binding SidePanel.IsCombatPanelVisible}" Value="False">
+                                        <Setter Property="TextColor" Value="#5a6068"/>
+                                    </DataTrigger>
+                                </Label.Triggers>
+                            </Label>
+                        </Grid>
+                    </Border>
+
                     <!-- "Damage floats": the rail's rising "5-9"/"-7"/"Miss". A checkable toggle the
                          player may well flip back and forth while watching the panel, so - unlike
                          the Combat row above and like Side Panel/Onlines/Compass - it binds straight
                          to the command and leaves the menu open so the OK updates live. Session-only,
                          matching the metronome and the other three: saved settings are untouched.
                          Hidden wherever the rail itself is (Windows only). -->
-                    <BoxView Color="#2d333b" HeightRequest="1"
-                             IsVisible="{Binding SidePanel.IsCombatRailSupported}"/>
-                    <Border Padding="16,14" BackgroundColor="Transparent"
-                            IsVisible="{Binding SidePanel.IsCombatRailSupported}">
+                    <Border Padding="16,12,16,12" BackgroundColor="#161c22"
+                            IsVisible="{Binding SidePanel.IsCombatRailSupported}"
+                            IsEnabled="{Binding SidePanel.IsCombatPanelVisible}">
                         <Border.GestureRecognizers>
                             <TapGestureRecognizer Command="{Binding SidePanel.ToggleCombatFloatsCommand}"/>
                         </Border.GestureRecognizers>
-                        <Grid ColumnDefinitions="24,*">
-                            <Label Grid.Column="0" Text="&#x2713;" TextColor="#3fb950" FontSize="14"
-                                   VerticalOptions="Center"
-                                   IsVisible="{Binding SidePanel.IsCombatFloatsEnabled}"/>
-                            <Label Grid.Column="1" Text="Damage floats" TextColor="White" FontSize="14"/>
+                        <Grid ColumnDefinitions="34,*">
+                            <Label Grid.Column="0" Text="&#x2713;" FontSize="13"
+                                   VerticalOptions="Center" Margin="10,0,0,0"
+                                   IsVisible="{Binding SidePanel.IsCombatFloatsEnabled}">
+                                <Label.Triggers>
+                                    <DataTrigger TargetType="Label"
+                                                 Binding="{Binding SidePanel.IsCombatPanelVisible}" Value="True">
+                                        <Setter Property="TextColor" Value="#3fb950"/>
+                                    </DataTrigger>
+                                    <DataTrigger TargetType="Label"
+                                                 Binding="{Binding SidePanel.IsCombatPanelVisible}" Value="False">
+                                        <Setter Property="TextColor" Value="#2f5136"/>
+                                    </DataTrigger>
+                                </Label.Triggers>
+                            </Label>
+                            <Label Grid.Column="1" Text="Damage floats" FontSize="13">
+                                <Label.Triggers>
+                                    <DataTrigger TargetType="Label"
+                                                 Binding="{Binding SidePanel.IsCombatPanelVisible}" Value="True">
+                                        <Setter Property="TextColor" Value="#d0d0d0"/>
+                                    </DataTrigger>
+                                    <DataTrigger TargetType="Label"
+                                                 Binding="{Binding SidePanel.IsCombatPanelVisible}" Value="False">
+                                        <Setter Property="TextColor" Value="#5a6068"/>
+                                    </DataTrigger>
+                                </Label.Triggers>
+                            </Label>
                         </Grid>
                     </Border>
+                    <BoxView Color="#2d333b" HeightRequest="1"
+                             IsVisible="{Binding SidePanel.IsCombatRailSupported}"/>
                     <!-- "Log Recording": the plain-text session transcript, the same toggle as the
                          "rec" chip in the status bar (docs/session-rec-design.md). Here as well as
                          on the bar because the bar's chip is the wide layout's, and the compact one

@@ -75,6 +75,7 @@ public static class SettingsStore
         int? OnlineForgetWindow = null,
         bool? FloatOnline       = null,
         bool? FloatCompass      = null,
+        bool? ShowCombatStats   = null,
         bool? LogResetDiagnostics = null,
         string? MeNameColor     = null,
         string? MeSpeechColor   = null,
@@ -106,6 +107,9 @@ public static class SettingsStore
             if (OnlineForgetWindow is int ofw) profile.OnlineForgetWindow = ofw;
             if (FloatOnline      is bool fo)  profile.FloatOnline      = fo;
             if (FloatCompass     is bool fc)  profile.FloatCompass     = fc;
+            // Absent leaves Profile's own `= true`. Every other bool here defaults false when the key
+            // is missing; this one does not, because the rail is meant to arrive complete.
+            if (ShowCombatStats  is bool scs) profile.ShowCombatStats  = scs;
             if (MeNameColor   is { Length: > 0 } mnc) profile.MeNameColor   = mnc;
             if (MeSpeechColor is { Length: > 0 } msc) profile.MeSpeechColor = msc;
             if (ShowCombatRail is bool scr) profile.ShowCombatRail = scr;
@@ -190,6 +194,7 @@ public static class SettingsStore
                 OnlineForgetWindow: ini.HasSection("settings") ? GetInt (ini, "settings", "onlineforgetwindow") : null,
                 FloatOnline:        ini.HasSection("settings") ? GetBool(ini, "settings", "floatonline")        : null,
                 FloatCompass:       ini.HasSection("settings") ? GetBool(ini, "settings", "floatcompass")       : null,
+                ShowCombatStats:    ini.HasSection("settings") ? GetBool(ini, "settings", "showcombatstats")    : null,
                 // Global and one-time - absent means off, which is the default for a feature that
                 // silently records everything.
                 MeNameColor:        ini.HasSection("settings") ? ini.Get("settings", "menamecolor")   : null,
@@ -263,6 +268,7 @@ public static class SettingsStore
                 ini.Set("settings", "onlineforgetwindow", settings.OnlineForgetWindow.ToString());
                 ini.Set("settings", "floatonline",        settings.FloatOnline     ? "yes" : "no");
                 ini.Set("settings", "floatcompass",       settings.FloatCompass    ? "yes" : "no");
+                ini.Set("settings", "showcombatstats",    settings.ShowCombatStats ? "yes" : "no");
                 ini.Set("settings", "menamecolor",        settings.MeNameColor);
                 ini.Set("settings", "mespeechcolor",      settings.MeSpeechColor);
             }
@@ -282,6 +288,32 @@ public static class SettingsStore
                 }
             }
 
+            await ini.SaveAsync(path).ConfigureAwait(false);
+        }
+        finally
+        {
+            s_gate.Release();
+        }
+    }
+
+    /// <summary>
+    /// Writes ONE key in the global <c>[settings]</c> section and leaves every other key in the file
+    /// alone.
+    ///
+    /// <para>For a global that a one-click control changes outside the settings dialog - the Combat
+    /// Rail's "Stats" row is the first. <see cref="SaveProfileAsync"/> cannot serve that: its globals
+    /// block is all-or-nothing, so a caller would have to reconstruct every other global from memory
+    /// and would silently reset any it got wrong. Nothing here reads the rest of the file, so nothing
+    /// here can clobber it.</para>
+    /// </summary>
+    public static async Task SetGlobalFlagAsync(string key, bool value)
+    {
+        await s_gate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            var path = ResolvePath();
+            var ini  = IniFile.Load(path);
+            ini.Set("settings", key, value ? "yes" : "no");
             await ini.SaveAsync(path).ConfigureAwait(false);
         }
         finally

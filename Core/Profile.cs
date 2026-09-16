@@ -88,6 +88,12 @@ public class Profile
     public bool FloatOnline { get; set; }
     /// <summary>Global default for floating (unpinning) the compass. False = pinned in the side panel.</summary>
     public bool FloatCompass { get; set; }
+    /// <summary>Global: whether the Combat Rail draws its two stat rows and the exchange spark.
+    /// Default TRUE - the rail is meant to arrive complete the first time it is switched on. Off
+    /// narrows the panel, which is the point: it is what the width is mostly spent on. Global rather
+    /// than per-profile because the reason to turn it off is the size of the screen, which no persona
+    /// changes.</summary>
+    public bool ShowCombatStats { get; set; } = true;
 
     private static readonly Dictionary<int, string> s_defaultFkeys = new()
     {

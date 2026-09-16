@@ -35,7 +35,7 @@ public sealed class CombatRailView : SKCanvasView
 {
     // ---- Geometry (logical units; the canvas is scaled to these at paint time) -------------
     // Internal (not private): GamePage.xaml.cs sizes the host Border's WidthRequest off this value so
-    // the rail's 376-unit design space maps 1:1 onto the Border's dp content area (WidthRequest minus
+    // the rail's design space maps 1:1 onto the Border's dp content area (WidthRequest minus
     // its own stroke inset) at every DPI - a panel narrower than this by more than the Border's own
     // stroke inset draws every glyph at the wrong size regardless of DPI. That is distinct from
     // OnPaintSurface's own `scale` below, which still carries the DPI factor on top of this:
@@ -48,9 +48,29 @@ public sealed class CombatRailView : SKCanvasView
     // the dependency has to run this direction for there to be exactly one source of truth instead of
     // two hand-kept copies. GamePage.xaml.cs's window-resize arithmetic reads the SAME
     // CombatRailResize constant, so the two sides cannot drift apart.
-    internal const float RailWidth = (float)CombatRailResize.CombatPanelContentWidthDp;
+    /// <summary>The design width for a given stats setting. Not a constant any more: the stat rows
+    /// and the spark can be switched off and the panel narrows when they are, so every width below is
+    /// derived from this rather than baked in. <see cref="CombatRailResize"/> owns both numbers, so
+    /// the renderer, the Border's WidthRequest and the window arithmetic cannot disagree.</summary>
+    internal static float RailWidthFor(bool showStats) => (float)CombatRailResize.ContentWidthDp(showStats);
     private const float Pad = 10f;
-    private const float Content = RailWidth - (Pad * 2);
+
+    /// <summary>Whether the two stat rows and the exchange spark are drawn. False also narrows the
+    /// panel - the host re-sizes the Border and the window off the same setting.</summary>
+    public bool ShowStats
+    {
+        get => _showStats;
+        set
+        {
+            if (_showStats == value) return;
+            _showStats = value;
+            InvalidateSurface();
+        }
+    }
+    private bool _showStats = true;
+
+    private float RailWidth => RailWidthFor(_showStats);
+    private float Content => RailWidth - (Pad * 2);
 
     /// <summary>
     /// A LIVE opponent's slot, sized so five live slots still fit the shortest realistic rail: at a
@@ -115,7 +135,7 @@ public sealed class CombatRailView : SKCanvasView
     private const float StatShapeLeft = StatTotalLeft + StatTotalWidth;
     private const float StatDptLeft = StatShapeLeft + StatShapeWidth;
     private const float SparkLeft = StatDptLeft + StatDptWidth + 4f;
-    private const float SparkWidth = Pad + Content - SparkLeft;
+    private float SparkWidth => Pad + Content - SparkLeft;
 
     // Inside the blow-shape group: three slots and two separators, all fixed. The outer two figures
     // are drawn a size down, which is exactly why the slots have to be positioned rather than laid
@@ -209,7 +229,7 @@ public sealed class CombatRailView : SKCanvasView
     /// toggle occupies space that is reserved whether or not it is switched on (spec rule 3).</summary>
     private const float MetronomeReserve = 26f;
 
-    private const float TickTrackWidth = Content - MetronomeReserve;
+    private float TickTrackWidth => Content - MetronomeReserve;
     private const float SealSize = 92f;
 
     /// <summary>The tempo border's inset inside an opponent slot and around the player's device, and
@@ -242,7 +262,7 @@ public sealed class CombatRailView : SKCanvasView
     /// alarm sits on top of the one instrument the eye is already returning to every two seconds.</para>
     /// </summary>
     private const float PillWidth = 220f;
-    private const float PillLeft = Pad + ((Content - PillWidth) / 2f);
+    private float PillLeft => Pad + ((Content - PillWidth) / 2f);
 
     /// <summary>The pill is the floating dreamword chip's treatment in reds - a FILLED chip with a
     /// bright 2dp border and white bold text, not the thin dim outline the rest of this panel favours.
@@ -1068,26 +1088,31 @@ public sealed class CombatRailView : SKCanvasView
     /// arithmetic but deliberately owns none of the numbers, so the constants stay in the class that
     /// draws with them and there is still exactly one copy.
     /// </summary>
-    public static readonly RailSlotMetrics SlotMetrics = new(
-        RailWidth: RailWidth, Pad: Pad, SlotHeight: SlotHeight, SlotGap: SlotGap,
+    public static RailSlotMetrics SlotMetricsFor(bool showStats) => new(
+        RailWidth: RailWidthFor(showStats), Pad: Pad, SlotHeight: SlotHeight, SlotGap: SlotGap,
         SlotsGap: SlotsGap, BottomRowHeight: BottomRowHeight, TickRowHeight: TickRowHeight,
         PlayerTileHeight: PlayerTileHeight, MaxSlots: MaxSlots);
+
+    private RailSlotMetrics SlotMetrics => SlotMetricsFor(_showStats);
 
     /// <summary>
     /// Where roster row <paramref name="rosterIndex"/> is actually drawn, in dp from the panel
     /// content box's top-left, or null when that row has no slot of its own (it is in the overflow
     /// tail, or the panel has not been measured). Same contract and same reason as
-    /// <see cref="TickTrackDp"/>: this canvas lays itself out in a fixed 376-unit space and scales
+    /// <see cref="TickTrackDp"/>: this canvas lays itself out in its design space (376 units, or 296
+    /// with the stat rows off - <see cref="RailWidthFor"/>) and scales
     /// it, so anything positioned in real dp needs the same factor and must not re-derive it.
     /// </summary>
     public static RailRect? OpponentSlotDp(
-        double panelWidthDp, double panelHeightDp, int rosterIndex, int participantCount)
-        => RailSlotGeometry.OpponentSlotDp(SlotMetrics, panelWidthDp, panelHeightDp, rosterIndex, participantCount);
+        double panelWidthDp, double panelHeightDp, int rosterIndex, int participantCount,
+        bool showStats)
+        => RailSlotGeometry.OpponentSlotDp(
+            SlotMetricsFor(showStats), panelWidthDp, panelHeightDp, rosterIndex, participantCount);
 
     /// <summary>Where the player's own tile is drawn, in dp from the panel content box's top-left -
     /// what a player-anchored damage float centres on.</summary>
-    public static RailRect PlayerTileDp(double panelWidthDp, double panelHeightDp)
-        => RailSlotGeometry.PlayerTileDp(SlotMetrics, panelWidthDp, panelHeightDp);
+    public static RailRect PlayerTileDp(double panelWidthDp, double panelHeightDp, bool showStats)
+        => RailSlotGeometry.PlayerTileDp(SlotMetricsFor(showStats), panelWidthDp, panelHeightDp);
 
     /// <summary>One opponent: the ladder bar, the name, and the game's own wound phrase. The phrase is
     /// verbatim from the MUD and set in the terminal's own monospace, because echoing what the player
@@ -1159,9 +1184,12 @@ public sealed class CombatRailView : SKCanvasView
         // An opponent's tile: what IT is taking on top (the player's blows, white), what it is dealing
         // underneath (its own, red). See DrawStatRow for why position and colour answer different
         // questions.
-        DrawStatRow(canvas, y + TileUpperBaseline, row.Dealt, inbound: true, byPlayer: true);
-        DrawStatRow(canvas, y + TileLowerBaseline, row.Taken, inbound: false, byPlayer: false);
-        DrawSpark(canvas, y + TileSparkCentre, row.Exchange, subjectIsPlayer: false);
+        if (_showStats)
+        {
+            DrawStatRow(canvas, y + TileUpperBaseline, row.Dealt, inbound: true, byPlayer: true);
+            DrawStatRow(canvas, y + TileLowerBaseline, row.Taken, inbound: false, byPlayer: false);
+            DrawSpark(canvas, y + TileSparkCentre, row.Exchange, subjectIsPlayer: false);
+        }
 
         // The current-target stripe is redrawn LAST, over the ladder. The bar spans the tile's full
         // width from x=Pad, which is the same three units the stripe occupies - drawn in the other
@@ -1187,13 +1215,13 @@ public sealed class CombatRailView : SKCanvasView
     private const float SlotWeaponWidth = 152f;
     private const float TileInset = 6f;
     private const float TileTextLeft = Pad + TileInset;
-    private const float TileTextRight = Pad + Content - TileInset;
+    private float TileTextRight => Pad + Content - TileInset;
 
     /// <summary>Room for the game's wound phrase on the row below. Wider than the name's, because the
     /// only thing to its right on that row is the damage pair, which starts further over than the
     /// weapon does. The longest phrase in NpcHealthRungs ("superficially injured") is 21 monospace
     /// characters, about 139 units at 11f.</summary>
-    private const float SlotPhraseWidth = Content - (TileInset * 2f);
+    private float SlotPhraseWidth => Content - (TileInset * 2f);
 
     /// <summary>
     /// The game's own words about this creature, verbatim, under its name: the wound phrase, and the
@@ -1945,9 +1973,12 @@ public sealed class CombatRailView : SKCanvasView
 
         // The player's tile, MIRRORED against an opponent's: what the player is taking on top (the
         // creatures' blows, red), what they are dealing underneath (their own, white).
-        DrawStatRow(canvas, y + PlayerUpperBaseline, live.YourTaken, inbound: true, byPlayer: false);
-        DrawStatRow(canvas, y + PlayerLowerBaseline, live.YourDealt, inbound: false, byPlayer: true);
-        DrawSpark(canvas, y + PlayerSparkCentre, live.YourExchange, subjectIsPlayer: true);
+        if (_showStats)
+        {
+            DrawStatRow(canvas, y + PlayerUpperBaseline, live.YourTaken, inbound: true, byPlayer: false);
+            DrawStatRow(canvas, y + PlayerLowerBaseline, live.YourDealt, inbound: false, byPlayer: true);
+            DrawSpark(canvas, y + PlayerSparkCentre, live.YourExchange, subjectIsPlayer: true);
+        }
     }
 
     /// <summary>
@@ -2060,7 +2091,7 @@ public sealed class CombatRailView : SKCanvasView
     /// the figure have taken theirs. Written down as a number, it would silently go wrong the moment
     /// either of the other two changed.</para>
     /// </summary>
-    private const float ConditionWordWidth =
+    private float ConditionWordWidth =>
         AltGroupWorstCaseLeft - TileTextLeft - ConditionFigureWidth - 4f;
 
     /// <summary>Reserved for the stamina figure, never ellipsized against. "(999/999)" is nine
@@ -2087,7 +2118,7 @@ public sealed class CombatRailView : SKCanvasView
 
     /// <summary>The leftmost x the alt-weapon group can reach, with the longest name it will draw.
     /// The condition line opposite it must end before here.</summary>
-    private const float AltGroupWorstCaseLeft =
+    private float AltGroupWorstCaseLeft =>
         TileTextRight - AltHotkeyReserve - AltWeaponWidth - AltMarkReserve;
 
     /// <summary>MUD2's own colour for the stamina figure, or the client's ratio colour when the game
@@ -2573,22 +2604,24 @@ public sealed class CombatRailView : SKCanvasView
     /// properly.</para>
     /// </summary>
     public static int EncounterColumnAt(
-        double xDp, double yDp, double panelWidthDp, double panelHeightDp)
+        double xDp, double yDp, double panelWidthDp, double panelHeightDp, bool showStats)
     {
         if (panelWidthDp <= 0 || panelHeightDp <= 0)
             return -1;
 
-        var k = panelWidthDp / RailWidth;
+        var design = RailWidthFor(showStats);
+        var content = design - (Pad * 2f);
+        var k = panelWidthDp / design;
         var x = xDp / k;
         var y = yDp / k;
         var height = panelHeightDp / k;
 
         var tableTop = height - EncounterBottomOffset - EncounterRowHeight;
 
-        if (x < Pad || x > Pad + Content || y < tableTop || y > tableTop + EncounterRowHeight)
+        if (x < Pad || x > Pad + content || y < tableTop || y > tableTop + EncounterRowHeight)
             return -1;
 
-        var column = (int)((x - Pad) / (Content / EncounterHeadings.Length));
+        var column = (int)((x - Pad) / (content / EncounterHeadings.Length));
         return Math.Clamp(column, 0, EncounterHeadings.Length - 1);
     }
 
@@ -2735,7 +2768,8 @@ public sealed class CombatRailView : SKCanvasView
     /// Where the flee pill sits, in device-independent units, for a rail rendered at
     /// <paramref name="panelWidthDp"/> wide - the geometry the Composition border/background behind this
     /// canvas has to match exactly. Same contract and same reason as <see cref="TickTrackDp"/>: the rail
-    /// lays itself out in a fixed 376-unit space and scales it, so a sibling in real dp needs the same
+    /// lays itself out in its design space (376 units, or 296 with the stat rows off) and scales it,
+    /// so a sibling in real dp needs the same
     /// factor, and two copies of the arithmetic would silently disagree the first time this row's height
     /// or padding changed.
     /// </summary>
@@ -2744,12 +2778,14 @@ public sealed class CombatRailView : SKCanvasView
     /// chip it copies), so <c>height / 2</c> would be a visibly different curve on the ring than on the
     /// fill it is supposed to trace.</para>
     public static (double Left, double Right, double Bottom, double Height, double Radius) FleePillDp(
-        double panelWidthDp)
+        double panelWidthDp, bool showStats)
     {
-        var k = panelWidthDp / RailWidth;
+        var design = RailWidthFor(showStats);
+        var pillLeft = Pad + ((design - (Pad * 2f) - PillWidth) / 2f);
+        var k = panelWidthDp / design;
         return (
-            PillLeft * k,
-            (RailWidth - PillLeft - PillWidth) * k,
+            pillLeft * k,
+            (design - pillLeft - PillWidth) * k,
             // Measured up from the panel's bottom edge, off the same offsets OnPaintSurface uses. The
             // pill lives INSIDE the tick row, which now sits above the player's tile - so that tile's
             // height is part of the chain. TickRowDrop subtracts, because a drop measured downward
@@ -2860,15 +2896,17 @@ public sealed class CombatRailView : SKCanvasView
     /// <paramref name="panelWidthDp"/> wide - the geometry the Composition sweep behind this canvas
     /// has to match exactly.
     ///
-    /// <para>The rail lays itself out in a fixed 376-unit coordinate space and scales that space to
+    /// <para>The rail lays itself out in a design coordinate space - 376 units, or 296 with the stat
+    /// rows off - and scales that space to
     /// whatever width it is given (see OnPaintSurface), so a sibling element positioned in real dp
     /// has to have the same scale factor applied to it. Exposing it from here rather than restating
     /// the numbers in XAML is deliberate: two copies of this arithmetic would silently disagree the
     /// first time the row's height or padding changed.</para>
     /// </summary>
-    public static (double Left, double Right, double Bottom, double Height) TickTrackDp(double panelWidthDp)
+    public static (double Left, double Right, double Bottom, double Height) TickTrackDp(
+        double panelWidthDp, bool showStats)
     {
-        var k = panelWidthDp / RailWidth;
+        var k = panelWidthDp / RailWidthFor(showStats);
         return (
             Pad * k,
             (Pad + MetronomeReserve) * k,

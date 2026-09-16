@@ -552,6 +552,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         FloatOnline      = _floatOnline,
         FloatCompass     = _floatCompass,
         ShowCombatRail   = SidePanel.IsCombatPanelVisible,
+        ShowCombatStats  = SidePanel.IsCombatStatsEnabled,
     };
 
     public ICommand SendCommand { get; }
@@ -669,6 +670,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         // T2: restore the Combat Rail's shown/hidden state for this persona. The setter itself gates
         // to IsCombatRailSupported (Windows only), so a Windows-saved "true" is silently ignored on
         // Android rather than needing a platform check here too.
+        SidePanel.IsCombatStatsEnabled = profile.ShowCombatStats;
         SidePanel.IsCombatPanelVisible = profile.ShowCombatRail;
         WhoEntry.NamesOnlyMode        = profile.OnlineNamesOnly;
         SidePanel.SubscriptionOptionsChanged += (few, fei) => _conn.UpdateSubscriptionOptions(few, fei);

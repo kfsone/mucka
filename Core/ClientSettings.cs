@@ -83,4 +83,7 @@ public sealed record ClientSettings
     /// <summary>Global default for whether the compass floats (unpinned from the side panel)
     /// rather than living in the side panel. False (pinned) matches the historical behaviour.</summary>
     public bool FloatCompass { get; init; }
+    /// <summary>Global: whether the Combat Rail draws its stat rows and exchange spark. True by
+    /// default; false also narrows the panel. See <see cref="Profile.ShowCombatStats"/>.</summary>
+    public bool ShowCombatStats { get; init; }
 }
