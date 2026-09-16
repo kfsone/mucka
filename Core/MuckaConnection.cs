@@ -157,6 +157,10 @@ public sealed class MuckaConnection : IAsyncDisposable
     /// <summary>Where the store is writing - shown to the player.</summary>
     public string DatabasePath => _store.Path;
 
+    /// <summary>The server this connection is to, as the session transcript names its file. Empty
+    /// until <see cref="ConnectAsync"/> has been called, so it answers "unknown" rather than "".</summary>
+    public string Host => string.IsNullOrWhiteSpace(_host) ? "unknown" : _host;
+
     /// <summary>
     /// Raised when the store fails - at open, or later if its writer dies. The crash log is not a
     /// place the owner ever looks, and this is a store that is switched on once and then trusted

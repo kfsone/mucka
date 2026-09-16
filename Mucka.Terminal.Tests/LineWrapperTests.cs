@@ -103,6 +103,53 @@ public class LineWrapperTests
         Assert.Equal(new[] { "abc", "def", "gh" }, rows.Select(r => r.PlainText));
     }
 
+    // -- Soft-break flags ---------------------------------------------------------
+    //
+    // A row that CONTINUES the one above came from the pane being narrow, not from the text. The
+    // copy path strips those breaks, so these flags are what keeps a wrapped path or URL one string.
+
+    [Fact]
+    public void WrappedLine_MarksEveryRowAfterTheFirstAsAContinuation()
+    {
+        var continues = new List<bool>();
+        var rows = LineWrapper.WrapAll([Line(Span(new string('x', 100)))], columns: 40, continues);
+
+        Assert.Equal(3, rows.Count);
+        Assert.Equal([false, true, true], continues);
+    }
+
+    [Fact]
+    public void SeparateLogicalLines_EachStartFresh()
+    {
+        var continues = new List<bool>();
+        var rows = LineWrapper.WrapAll([Line(Span("abcdef")), Line(Span("gh"))], columns: 3, continues);
+
+        Assert.Equal(3, rows.Count);
+        Assert.Equal([false, true, false], continues);
+    }
+
+    [Fact]
+    public void ALineExactlyOneColumnWide_IsOneRowAndNoContinuation()
+    {
+        // The case that rules out inferring softness from "the row above was full": this line fills
+        // the width exactly, and the break after it is still hard.
+        var continues = new List<bool>();
+        var rows = LineWrapper.WrapAll([Line(Span("abcd")), Line(Span("ef"))], columns: 4, continues);
+
+        Assert.Equal(["abcd", "ef"], rows.Select(r => r.PlainText));
+        Assert.Equal([false, false], continues);
+    }
+
+    [Fact]
+    public void ABlankLine_IsOneRowAndNoContinuation()
+    {
+        var continues = new List<bool>();
+        var rows = LineWrapper.WrapAll([Line(), Line(Span("x"))], columns: 4, continues);
+
+        Assert.Equal(2, rows.Count);
+        Assert.Equal([false, false], continues);
+    }
+
     // -- Guard -------------------------------------------------------------------
 
     [Theory]

@@ -11,6 +11,7 @@ using MudSharp.Models;
 using MudSharp.Session;
 using Mucka.Combat;
 using Mucka.Commands;
+using Mucka.Terminal;
 
 namespace Mucka.ViewModels;
 
@@ -241,6 +242,22 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public bool MuteBeepPermanently => _muteBeepPermanently;
 
     public bool IsInGameMode => _inGameMode;
+
+    /// <summary>The live transcript, or null when nothing is being recorded. Read from the TCP read
+    /// loop (<see cref="OnLineReady(StyledLine, bool)"/>), and assigned from either the UI thread or
+    /// that same read loop when <c>-record</c> arms it. Volatile for the release on the write; the
+    /// read-modify-write in <see cref="ToggleRecording"/> is UI-thread-only and needs nothing
+    /// stronger, and <see cref="StartRecording"/> guards its own re-entry.</summary>
+    private volatile SessionRecorder? _recorder;
+
+    /// <summary>True while a transcript is being written - lights the "rec" chip.</summary>
+    public bool IsRecording { get => _isRecording; private set => Set(ref _isRecording, value); }
+    private bool _isRecording;
+
+    // -record arms the transcript at the first game-mode entry, which is the first moment the host
+    // is known and there is anything to record. One-shot: stopping it by hand is a decision, and a
+    // later re-entry (after a reset, say) must not overrule it with a second file.
+    private bool _autoRecordPending = CommandLineArgs.Current.Record;
 
     // Value-only strings (no label prefix) for FormattedString spans in the status bar.
     // Current and "/max" are separate spans so the max half renders one font point smaller.
@@ -547,6 +564,8 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public ICommand ConfigCommand { get; }
     /// <summary>Toggles the chat-view filter (latching). GamePage rebuilds the terminal on <see cref="ChatModeChanged"/>.</summary>
     public ICommand ToggleChatModeCommand { get; }
+    /// <summary>Starts or stops the plain-text session transcript - the "rec" chip.</summary>
+    public ICommand ToggleRecordingCommand { get; }
 
     public event Action? Disconnected;
     public event Action? RequestFocus;
@@ -686,6 +705,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         ToggleFkeysCommand    = new Command(() => { FkeysVisible = !FkeysVisible; RequestFocus?.Invoke(); });
         ConfigCommand         = new Command(() => ConfigRequested?.Invoke());
         ToggleChatModeCommand = new Command(() => SetChatMode(!ChatMode));
+        ToggleRecordingCommand = new Command(ToggleRecording);
     }
 
     public string[] GetAllFkeys()
@@ -810,9 +830,19 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     /// </summary>
     public event Action? OutputAvailable;
 
-    private void OnLineReady(StyledLine line)
+    private void OnLineReady(StyledLine line) => OnLineReady(line, transcribe: true);
+
+    /// <param name="transcribe">False for the handful of client notes that announce the transcript
+    /// itself. Carried as a flag rather than by attaching the recorder late: the field has to be live
+    /// from the instant the file opens, because the read loop keeps delivering lines throughout.</param>
+    private void OnLineReady(StyledLine line, bool transcribe)
     {
         _pendingLines.Enqueue(line);
+        // The transcript taps here and not at the terminal: the chat filter sits downstream and
+        // replays its whole snapshot every time it is toggled, so a recorder behind it would write a
+        // filtered session and write it again on each toggle. This is the one point every line
+        // passes exactly once - the server's, and AddSystemLine's.
+        if (transcribe) _recorder?.Append(line);
         RememberRecentLine(line);
         // "Cheerio!" is the shell's last word on a deliberate qq, and the ONLY signal that
         // distinguishes one from a reset-timed drop - ClassifyDrop's own docs admit the timing test
@@ -879,7 +909,17 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     // MudSession owns the FES heartbeat - nothing to do in GameViewModel on mode transitions
     // beyond tracking game mode for anti-idle. Events fire on the TCP thread; marshal to UI.
     private void OnGameModeEntered()
-        => MainThread.BeginInvokeOnMainThread(() =>
+    {
+        // Armed HERE, on the read-loop thread, before the marshalled body below. That body waits for
+        // a dispatcher turn while the read loop carries on delivering the entry banner and the first
+        // room - which is exactly the stretch -record was asked for. Arming costs a file open off the
+        // UI thread, which is the right side of Invariant #1 anyway.
+        if (_autoRecordPending)
+        {
+            _autoRecordPending = false;
+            StartRecording();   // arm, never toggle - he may already have armed it by hand
+        }
+        MainThread.BeginInvokeOnMainThread(() =>
         {
             _inGameMode = true;
             _personaInvalidated = false;
@@ -891,6 +931,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             _lastSentUtc = DateTime.UtcNow;
             OnPropertyChanged(nameof(IsInGameMode));
         });
+    }
 
     private void OnGameModeExited()
     {
@@ -1610,8 +1651,85 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         var annotation = $"// {macro}";
         var line = new StyledLine(new[] { new StyledSpan(annotation, new TextStyle(Foreground: (AnsiColor)10)) });
         AnnotationReady?.Invoke(line);   // display: above the prompt, prompt restored below
-        _conn.Annotate(annotation);      // capture: as an annotation
+        _recorder?.Inject(line);         // transcript: the same way, since it is on screen
+        _conn.Annotate(annotation);      // wire log: as an annotation
     }
+
+    /// <summary>
+    /// The "rec" chip, the compact bar's (R) and the hamburger's "Log Recording" - all three land
+    /// here. Starts a plain-text transcript of the screen, or ends the running one;
+    /// docs/session-rec-design.md. Hand-armed deliberately: the wire log is the always-on record and
+    /// this is the readable one, taken when he wants it.
+    /// </summary>
+    private void ToggleRecording()
+    {
+        if (_recorder is null) StartRecording(); else StopRecording();
+        RequestFocus?.Invoke();
+    }
+
+    /// <summary>Arms the transcript. Separate from the toggle because <c>-record</c> must ARM, not
+    /// flip: recording can be started by hand at the shell, and a toggle reaching game mode would
+    /// switch off the recording the operator had just switched on.</summary>
+    /// <summary>May be called from the read-loop thread - see <see cref="OnGameModeEntered"/>. The
+    /// only UI-thread-only step is <see cref="IsRecording"/>, which <see cref="SetIsRecording"/>
+    /// marshals.</summary>
+    private void StartRecording()
+    {
+        if (_recorder is not null) return;
+        var path = Path.Combine(MuckaPaths.GetDataDirectory(),
+            SessionRecorder.BuildFileName(_conn.Host, DateTime.Now));
+        try
+        {
+            SessionRecorder? created = null;
+            created = new SessionRecorder(path, _conn.Host, DateTime.Now,
+                message => OnRecordingFailed(created!, message));
+            // Attached the instant it exists. Lines keep arriving on the read loop while this runs,
+            // and every one between the file opening and this assignment is a line the transcript
+            // never sees - so nothing may be put between them. The start note stays out of the file
+            // by being marked untranscribed, not by being sequenced around this.
+            _recorder = created;
+            SetIsRecording(true);
+            AddSystemLine($"Recording started. File: {path}", 10, transcribe: false);
+        }
+        catch (Exception ex)
+        {
+            // The one moment a human is watching this feature, so the failure goes to the terminal
+            // rather than the crash log.
+            AddSystemLine($"Recording failed: {ex.Message}", 9, transcribe: false);
+        }
+    }
+
+    private void StopRecording()
+    {
+        var running = _recorder;
+        if (running is null) return;
+        _recorder = null;
+        SetIsRecording(false);
+        running.Stop();
+        AddSystemLine($"Recording stopped. File: {running.Location}", 14, transcribe: false);
+    }
+
+    // IsRecording is bound, so it is set on the UI thread even when the arm came off the read loop.
+    private void SetIsRecording(bool value)
+    {
+        if (MainThread.IsMainThread) IsRecording = value;
+        else MainThread.BeginInvokeOnMainThread(() => IsRecording = value);
+    }
+
+    /// <summary>A write failed after the transcript was armed. Fires on the recorder's writer task.
+    /// Unlit and reported, because a chip that stays red over a file that stopped growing is worse
+    /// than no chip at all.</summary>
+    private void OnRecordingFailed(SessionRecorder source, string message)
+        => MainThread.BeginInvokeOnMainThread(() =>
+        {
+            // Only if that recorder is still the live one. The failure is marshalled, so a stop by
+            // hand can land first - and then he has already had his "Recording stopped", and telling
+            // him it failed afterwards would be reporting a fault in something he did correctly.
+            if (!ReferenceEquals(_recorder, source)) return;
+            _recorder = null;
+            IsRecording = false;
+            AddSystemLine($"Recording failed and has stopped: {message}", 9, transcribe: false);
+        });
 
     // $con is Windows-only: the console is a separate desktop window. It stays recognized on
     // Android and reports itself, because a "$" line that falls through to the MUD is a line
@@ -1916,11 +2034,11 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
 
     public void Annotate(string message) => _conn.Annotate(message);
 
-    private void AddSystemLine(string msg, byte fg = 14)
+    private void AddSystemLine(string msg, byte fg = 14, bool transcribe = true)
     {
         var style = new TextStyle(Foreground: (AnsiColor)fg);
         var line = new StyledLine(new[] { new StyledSpan($"|mucka| {msg}", style) });
-        OnLineReady(line);
+        OnLineReady(line, transcribe);
     }
 
     /// <summary>Loads the per-fight history and warms the per-swing damage cache, both off the UI
@@ -2034,6 +2152,14 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     {
         SidePanel.Dispose();
         UnsubscribeConnectionEvents();
+        // The connection goes first. It owns the store and the always-on wire log, which outrank a
+        // hand-armed transcript: nothing here may end up as the reason they were not closed.
         await _conn.DisposeAsync();
+        // Then the footer and the handle. SessionRecorder.Completion is documented never to fault,
+        // so this cannot throw past here either.
+        var recorder = _recorder;
+        _recorder = null;
+        if (recorder != null)
+            await recorder.DisposeAsync();
     }
 }

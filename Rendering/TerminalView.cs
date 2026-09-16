@@ -70,6 +70,9 @@ public sealed class TerminalView : SKCanvasView
     private (int Row, int Col) _selCaret;
     // Geometry cached from the last paint, so pointer events can hit-test rows/columns.
     private List<StyledLine>? _lastRows;
+    // Which of _lastRows continue the row above (a soft wrap) rather than starting a logical line.
+    // Built with _lastRows and assigned with it; the copy path is the only reader.
+    private List<bool>? _lastRowContinues;
     private int _lastFirst, _lastBottomIndex;
     private float _lastTop, _lastCellW, _lastCellH, _lastLeftPad;
     private float _lastScale = 1f;   // canvas pixels per device-independent pixel (for pointer hit-testing)
@@ -346,12 +349,14 @@ public sealed class TerminalView : SKCanvasView
         return (row, col);
     }
 
-    /// <summary>Copy the current selection (plain text, rows joined by '\n') to the clipboard.
+    /// <summary>Copy the current selection to the clipboard as plain text. Rows are joined with a
+    /// newline only across a hard break - a soft wrap does not survive the copy, so a long line the
+    /// client printed pastes as one string. See <see cref="TerminalSelection"/>.
     /// Returns true if non-empty text was copied.</summary>
     public bool CopySelectionToClipboard()
     {
         if (!_hasSelection || _lastRows is null) return false;
-        var str = TerminalSelection.Extract(_lastRows, _selAnchor, _selCaret);
+        var str = TerminalSelection.Extract(_lastRows, _selAnchor, _selCaret, _lastRowContinues);
         if (str.Length == 0) return false;
         _ = Microsoft.Maui.ApplicationModel.DataTransfer.Clipboard.SetTextAsync(str);
         return true;
@@ -398,7 +403,8 @@ public sealed class TerminalView : SKCanvasView
         int colsFit = Math.Max(1, (int)((pxW - leftPad) / cellW));
         int n = Columns > 0 ? Columns : colsFit;
 
-        var rows = BuildVisualRows(n);
+        var continues = new List<bool>();
+        var rows = BuildVisualRows(n, continues);
 
         int viewportRows = Math.Max(1, (int)(pxH / cellH));
         _lastViewportRows = viewportRows;
@@ -414,7 +420,7 @@ public sealed class TerminalView : SKCanvasView
             float top = pxH - drawn * cellH;                      // bottom-pinned window (may be slightly negative)
 
             // Cache geometry so pointer events can hit-test rows/columns for selection.
-            _lastRows = rows; _lastFirst = first; _lastBottomIndex = bottomIndex;
+            _lastRows = rows; _lastRowContinues = continues; _lastFirst = first; _lastBottomIndex = bottomIndex;
             _lastTop = top; _lastCellW = cellW; _lastCellH = cellH; _lastLeftPad = leftPad;
 
             // Normalize the selection range (only meaningful while reviewing history).
@@ -484,7 +490,7 @@ public sealed class TerminalView : SKCanvasView
         }
         else
         {
-            _lastRows = null;
+            _lastRows = null; _lastRowContinues = null;
         }
 
         if (_historyMode)
@@ -499,15 +505,16 @@ public sealed class TerminalView : SKCanvasView
 #endif
     }
 
-    // Wrap the active source (frozen snapshot in history, else live buffer) into visual rows.
-    private List<StyledLine> BuildVisualRows(int n)
+    // Wrap the active source (frozen snapshot in history, else live buffer) into visual rows, and
+    // record which of them are soft-wrap continuations - the copy path strips those breaks.
+    private List<StyledLine> BuildVisualRows(int n, List<bool>? continues = null)
     {
         if (_historyMode && _frozen is not null)
-            return LineWrapper.WrapAll(_frozen, n);
+            return LineWrapper.WrapAll(_frozen, n, continues);
 
-        var rows = LineWrapper.WrapAll(_buffer.Committed, n);
+        var rows = LineWrapper.WrapAll(_buffer.Committed, n, continues);
         if (_buffer.Partial is { } partial)
-            LineWrapper.Wrap(partial, n, rows);
+            LineWrapper.Wrap(partial, n, rows, continues);
         return rows;
     }
 

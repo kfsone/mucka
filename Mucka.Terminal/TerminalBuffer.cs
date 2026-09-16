@@ -14,8 +14,9 @@ namespace Mucka.Terminal;
 /// Lines are stored as raw <em>logical</em> lines. Wrapping is a render-time concern
 /// (the renderer wraps to the negotiated column count); the buffer never wraps.
 ///
-/// Not thread-safe: all access (Append from the flush tick, reads from paint) happens
-/// on the UI thread.
+/// Not thread-safe. The renderer's instance is touched only on the UI thread (Append from
+/// the flush tick, reads from paint); <see cref="SessionRecorder"/> keeps its own instance
+/// and serialises its own access to it.
 /// </summary>
 public sealed class TerminalBuffer
 {
@@ -35,6 +36,14 @@ public sealed class TerminalBuffer
 
     /// <summary>The live partial line (a prompt awaiting its newline), or null.</summary>
     public StyledLine? Partial => _partial;
+
+    /// <summary>
+    /// Raised as a line is committed - the moment it stops being replaceable and becomes a finished
+    /// line of screen. <see cref="SessionRecorder"/> writes the transcript from this, so the file and
+    /// the screen cannot disagree about where one line ends: a prompt replaced five times before its
+    /// echo completes it raises this once.
+    /// </summary>
+    public event Action<StyledLine>? LineCommitted;
 
     /// <summary>Total visible lines = committed + (partial ? 1 : 0).</summary>
     public int Count => _committed.Count + (_partial is null ? 0 : 1);
@@ -142,6 +151,7 @@ public sealed class TerminalBuffer
         // Trim oldest beyond the cap. RemoveRange is O(n) once rather than repeated shifts.
         if (_committed.Count > _cap)
             _committed.RemoveRange(0, _committed.Count - _cap);
+        LineCommitted?.Invoke(line);
     }
 
     // Promote a partial to a committed line, clearing the partial flag so downstream

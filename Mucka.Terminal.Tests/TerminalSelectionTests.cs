@@ -61,4 +61,39 @@ public class TerminalSelectionTests
     {
         Assert.Equal(string.Empty, TerminalSelection.Extract(Rows, (1, 3), (1, 3)));
     }
+
+    // -- Soft breaks ---------------------------------------------------------------
+    //
+    // One long client line ("Recording started. File: C:\...") wrapped over three rows, then a
+    // separate line under it. Copying must give back the path unbroken - a wrap is a property of
+    // the pane, and pasting it into a shell with a newline through it is the bug this prevents.
+
+    private static readonly IReadOnlyList<StyledLine> Wrapped =
+    [
+        Row("aaaa"),
+        Row("bbbb"),
+        Row("cc"),
+        Row("next"),
+    ];
+    private static readonly IReadOnlyList<bool> WrappedContinues = [false, true, true, false];
+
+    [Fact]
+    public void SoftBreaks_AreNotNewlines_ButHardBreaksStillAre()
+    {
+        Assert.Equal("aaaabbbbcc\nnext",
+            TerminalSelection.Extract(Wrapped, (0, 0), (3, 4), WrappedContinues));
+    }
+
+    [Fact]
+    public void SelectionStartingMidContinuation_HasNoLeadingNewline()
+    {
+        Assert.Equal("bbcc", TerminalSelection.Extract(Wrapped, (1, 2), (2, 2), WrappedContinues));
+    }
+
+    [Fact]
+    public void WithoutFlags_EveryRowBoundaryIsStillHard()
+    {
+        // The old behaviour, kept for any caller that has no wrap information.
+        Assert.Equal("aaaa\nbbbb\ncc\nnext", TerminalSelection.Extract(Wrapped, (0, 0), (3, 4)));
+    }
 }

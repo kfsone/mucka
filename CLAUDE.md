@@ -175,7 +175,9 @@ typing?" If maybe, get it off the UI thread.
 ## Layout
 
 - `mudsharp/` -- protocol, transport, session and combat model. No MAUI. Tested by `mudsharp.Tests/`.
-- `Mucka.Terminal/` -- output buffer, wrapping, selection. No MAUI. Tested by `Mucka.Terminal.Tests/`.
+- `Mucka.Terminal/` -- output buffer, wrapping, selection, and the plain-text session transcript
+  (`docs/session-rec-design.md`), which is there because it answers to the buffer's idea of what one
+  line is. No MAUI. Tested by `Mucka.Terminal.Tests/`.
 - `Mucka.Input/` -- the command box's logic. No MAUI. Tested from `mudsharp.Tests/`.
 - `Mucka.Util/` -- five small libraries, no MAUI, tested by `Mucka.Util/Mucka.Util.Tests/`:
   `Mucka.Store` (the one database, `~/.mucka/mucka.db`: schema, the single background writer, the row

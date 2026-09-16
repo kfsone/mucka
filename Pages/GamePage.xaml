@@ -166,6 +166,42 @@
                     <!-- Spacer -->
                     <BoxView Grid.Column="11" Color="Transparent"/>
 
+                    <!-- Session transcript indicator - Border+tap avoids WinUI's minimum button
+                         height. Hollow chip when idle; red dot + lit text while recording. -->
+                    <Border Grid.Column="12"
+                            BackgroundColor="Transparent"
+                            Stroke="#2d333b" StrokeThickness="1"
+                            Padding="5,1" Margin="0,0,4,0"
+                            VerticalOptions="Center"
+                            SemanticProperties.Description="Toggle session recording"
+                            SemanticProperties.Hint="Starts or stops the plain-text session transcript">
+                        <ToolTipProperties.Text>Toggle session recording</ToolTipProperties.Text>
+                        <Border.StrokeShape><RoundRectangle CornerRadius="3"/></Border.StrokeShape>
+                        <Border.GestureRecognizers>
+                            <TapGestureRecognizer Command="{Binding ToggleRecordingCommand}"/>
+                        </Border.GestureRecognizers>
+                        <Border.Triggers>
+                            <DataTrigger TargetType="Border" Binding="{Binding IsRecording}" Value="True">
+                                <Setter Property="Stroke" Value="#c02020"/>
+                            </DataTrigger>
+                        </Border.Triggers>
+                        <HorizontalStackLayout Spacing="3">
+                            <Label Text="&#x25CF;" FontSize="9" TextColor="#E74856"
+                                   IsVisible="{Binding IsRecording}"
+                                   VerticalOptions="Center"/>
+                            <Label Text="rec" FontSize="10" HorizontalOptions="Center" VerticalOptions="Center">
+                                <Label.Triggers>
+                                    <DataTrigger TargetType="Label" Binding="{Binding IsRecording}" Value="True">
+                                        <Setter Property="TextColor" Value="White"/>
+                                    </DataTrigger>
+                                    <DataTrigger TargetType="Label" Binding="{Binding IsRecording}" Value="False">
+                                        <Setter Property="TextColor" Value="#666666"/>
+                                    </DataTrigger>
+                                </Label.Triggers>
+                            </Label>
+                        </HorizontalStackLayout>
+                    </Border>
+
                     <!-- Separator before weather/TTR group -->
                     <Label Grid.Column="14" Text="|"
                            Style="{StaticResource StatLabelStyle}" TextColor="#444444"
@@ -295,7 +331,30 @@
                            IsVisible="{Binding AnyEffectVisible}"
                            HorizontalOptions="Center" Margin="0,0,4,0"/>
 
-                    <!-- col 8: * spacer -->
+                    <!-- col 8: * spacer, and the recording control rides in it. The compact bar has
+                         no room for the wide bar's labelled "rec" chip, so this is the same toggle
+                         as a single glyph: grey (R) when idle, red when recording. Right-aligned in
+                         the elastic column, so it neither widens the bar nor moves anything when it
+                         appears. The hamburger's "Log Recording" row does the same job with a name
+                         on it. -->
+                    <Label Grid.Row="1" Grid.Column="8"
+                           Text="(R)"
+                           Style="{StaticResource StatLabelStyle}"
+                           HorizontalOptions="End" Margin="0,0,4,0"
+                           SemanticProperties.Description="Toggle session recording"
+                           ToolTipProperties.Text="Toggle session recording">
+                        <Label.Triggers>
+                            <DataTrigger TargetType="Label" Binding="{Binding IsRecording}" Value="True">
+                                <Setter Property="TextColor" Value="#E74856"/>
+                            </DataTrigger>
+                            <DataTrigger TargetType="Label" Binding="{Binding IsRecording}" Value="False">
+                                <Setter Property="TextColor" Value="#666666"/>
+                            </DataTrigger>
+                        </Label.Triggers>
+                        <Label.GestureRecognizers>
+                            <TapGestureRecognizer Command="{Binding ToggleRecordingCommand}"/>
+                        </Label.GestureRecognizers>
+                    </Label>
 
                     <Label Grid.Row="1" Grid.Column="9" Text="|"
                            Style="{StaticResource StatLabelStyle}" TextColor="#444444"
@@ -1541,6 +1600,26 @@
                             <Label Grid.Column="1" Text="Damage floats" TextColor="White" FontSize="14"/>
                         </Grid>
                     </Border>
+                    <!-- "Log Recording": the plain-text session transcript, the same toggle as the
+                         "rec" chip in the status bar (docs/session-rec-design.md). Here as well as
+                         on the bar because the bar's chip is the wide layout's, and the compact one
+                         has room for an indicator rather than a labelled control. A live toggle like
+                         Side Panel and the rest above - bound straight to the command so the menu
+                         stays open and the OK tracks the recording. Always available, including at
+                         the shell before login. -->
+                    <BoxView Color="#2d333b" HeightRequest="1"/>
+                    <Border Padding="16,14" BackgroundColor="Transparent">
+                        <Border.GestureRecognizers>
+                            <TapGestureRecognizer Command="{Binding ToggleRecordingCommand}"/>
+                        </Border.GestureRecognizers>
+                        <Grid ColumnDefinitions="24,*">
+                            <Label Grid.Column="0" Text="&#x2713;" TextColor="#3fb950" FontSize="14"
+                                   VerticalOptions="Center"
+                                   IsVisible="{Binding IsRecording}"/>
+                            <Label Grid.Column="1" Text="Log Recording" TextColor="White" FontSize="14"/>
+                        </Grid>
+                    </Border>
+
                     <BoxView Color="#2d333b" HeightRequest="1"/>
                     <Border Padding="16,14" BackgroundColor="Transparent">
                         <Border.GestureRecognizers>

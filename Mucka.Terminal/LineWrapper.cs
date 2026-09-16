@@ -25,22 +25,44 @@ public static class LineWrapper
 
     /// <summary>Wrap a sequence of logical lines into one flat list of visual rows.</summary>
     public static List<StyledLine> WrapAll(IReadOnlyList<StyledLine> lines, int columns)
+        => WrapAll(lines, columns, null);
+
+    /// <summary>
+    /// Wrap a sequence of logical lines, and record for each visual row whether it CONTINUES the
+    /// row above it rather than starting a logical line of its own.
+    ///
+    /// <para>That distinction is the difference between a hard break and a soft one, and only this
+    /// class knows it. The copy path needs it: a soft break is an artifact of the pane's width and
+    /// must not survive into the clipboard - see <see cref="TerminalSelection.Extract"/>.</para>
+    /// </summary>
+    /// <param name="continuesPrevious">Filled in step with the returned rows, or null if not wanted.</param>
+    public static List<StyledLine> WrapAll(IReadOnlyList<StyledLine> lines, int columns,
+        List<bool>? continuesPrevious)
     {
         if (columns < 1) throw new ArgumentOutOfRangeException(nameof(columns));
         var rows = new List<StyledLine>();
         for (int i = 0; i < lines.Count; i++)
-            Wrap(lines[i], columns, rows);
+            Wrap(lines[i], columns, rows, continuesPrevious);
         return rows;
     }
 
     /// <summary>Wrap one logical line, appending its visual rows to <paramref name="rows"/>.</summary>
     public static void Wrap(StyledLine line, int columns, List<StyledLine> rows)
+        => Wrap(line, columns, rows, null);
+
+    /// <summary>Wrap one logical line, appending its visual rows and their continuation flags. The
+    /// line's FIRST row is never a continuation - it begins a logical line - and every row the wrap
+    /// produces after it is.</summary>
+    public static void Wrap(StyledLine line, int columns, List<StyledLine> rows,
+        List<bool>? continuesPrevious)
     {
         if (columns < 1) throw new ArgumentOutOfRangeException(nameof(columns));
+        int firstRow = rows.Count;
 
         if (line.Spans.Count == 0)
         {
             rows.Add(new StyledLine(Array.Empty<StyledSpan>(), isPartial: false));
+            MarkFrom(continuesPrevious, firstRow, rows.Count);
             return;
         }
 
@@ -67,5 +89,15 @@ public static class LineWrapper
             }
         }
         rows.Add(new StyledLine(current, isPartial: false));
+        MarkFrom(continuesPrevious, firstRow, rows.Count);
+    }
+
+    // One logical line occupies rows [firstRow, endExclusive): the first starts it, the rest
+    // continue it. Written here rather than at each Add so the two lists cannot drift apart.
+    private static void MarkFrom(List<bool>? continuesPrevious, int firstRow, int endExclusive)
+    {
+        if (continuesPrevious is null) return;
+        for (int r = firstRow; r < endExclusive; r++)
+            continuesPrevious.Add(r > firstRow);
     }
 }

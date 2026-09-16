@@ -5,6 +5,7 @@ namespace Mucka.Core;
 /// Usage:
 ///   mucka -profile &lt;name&gt;
 ///   mucka [-host &lt;host&gt;] [-port &lt;port&gt;] [-user &lt;name&gt;] [-account &lt;id&gt;] [-password &lt;pwd&gt;]
+///   mucka [-record]      - arm the session transcript on entering the game (also the in-game rec chip)
 /// Warning:
 ///   -password exposes credentials via process listings, shell history, and crash reports.
 ///   Prefer a saved profile or the interactive password prompt when possible.
@@ -33,6 +34,10 @@ public sealed class CommandLineArgs
 
     /// <summary>Override the password.</summary>
     public string? Password { get; private set; }
+
+    /// <summary>Arm the session transcript as soon as there is a session to record - see
+    /// docs/session-rec-design.md. A flag, so it takes no value.</summary>
+    public bool Record { get; private set; }
 
 #if WINDOWS
     /// <summary>If set, trace/log output is written to this file (Windows only).</summary>
@@ -67,6 +72,7 @@ public sealed class CommandLineArgs
                 "user" => true,
                 "account" => true,
                 "password" => true,
+                "record" => true,
 #if WINDOWS
                 "logs" => true,
 #endif
@@ -122,6 +128,9 @@ public sealed class CommandLineArgs
                 case "password":
                     if (TakeValue() is { } password)
                         result.Password = password;
+                    break;
+                case "record":
+                    result.Record = true;
                     break;
 #if WINDOWS
                 case "logs":
