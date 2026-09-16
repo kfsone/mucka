@@ -16,9 +16,11 @@ namespace MudSharp.Tests.Fixtures;
 /// </summary>
 public class SchemaDdlLivesInMigrationsOnlyTests
 {
-    /// <summary>What counts as changing the shape of the database. DML (INSERT/UPDATE/DELETE) is
-    /// absent on purpose: writers exist to do that, and 0003 does its own row pruning inside a
-    /// script.</summary>
+    /// <summary>What counts as changing the SHAPE of the database. DML is absent on purpose - writers
+    /// exist to insert and update rows, and sweeping for DELETE would flag every one of them. Row
+    /// destruction is guarded by where it is allowed to live instead: no migration script deletes
+    /// anything, and the one pruning path is <c>PersonaSessionBackfill.PruneUnattributable</c>, which
+    /// runs only after the wire log has been given its chance to claim the rows.</summary>
     private static readonly string[] DdlTokens =
     [
         "CREATE TABLE", "CREATE INDEX", "CREATE VIEW", "CREATE TRIGGER",
@@ -31,14 +33,15 @@ public class SchemaDdlLivesInMigrationsOnlyTests
     ///
     /// <para><c>LegacySchemaAdopter</c> is the one production exception and is frozen: SQLite has no
     /// ADD COLUMN IF NOT EXISTS, so the two columns v0.20.0 added by probe cannot be expressed as an
-    /// idempotent script. The two test files build old database shapes to migrate FROM, which is the
-    /// one honest way to test a migration.</para>
+    /// idempotent script. The test files build old database shapes to migrate FROM, which is the one
+    /// honest way to test a migration.</para>
     /// </summary>
     private static readonly HashSet<string> Allowed = new(StringComparer.OrdinalIgnoreCase)
     {
         Path.Combine("Mucka.Util", "Mucka.Store", "LegacySchemaAdopter.cs"),
         Path.Combine("Mucka.Util", "Mucka.Util.Tests", "FightHistoryStoreTests.cs"),
         Path.Combine("Mucka.Util", "Mucka.Util.Tests", "WireLogTests.cs"),
+        Path.Combine("Mucka.Util", "Mucka.Util.Tests", "MigrationScriptsAreFrozenTests.cs"),
         Path.Combine("mudsharp.Tests", "Fixtures", "SchemaDdlLivesInMigrationsOnlyTests.cs"),
     };
 

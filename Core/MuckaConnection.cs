@@ -5,6 +5,7 @@ using System.Net.Sockets;
 using System.Text;
 using System.Threading.Channels;
 using Mucka.Combat;
+using Mucka.Commands;
 using Mucka.Store;
 using Mucka.WireLog;
 
@@ -210,7 +211,7 @@ public sealed class MuckaConnection : IAsyncDisposable
     /// a client that will not start.</para></summary>
     public async Task LoadFightHistoryAsync(CancellationToken cancellationToken = default)
     {
-        await Task.Run(() => PersonaSessionBackfill.Run(_store.Path, CrashLog.Write), cancellationToken)
+        await Task.Run(() => PersonaSessionBackfill.Run(_store.Path, _store.SessionId, CrashLog.Write), cancellationToken)
                   .ConfigureAwait(false);
         await _fightHistory.LoadAsync(cancellationToken).ConfigureAwait(false);
     }
@@ -640,38 +641,10 @@ public sealed class MuckaConnection : IAsyncDisposable
     /// game-mode and character event arrives on it.</summary>
     private long? _personaSessionId;
 
-    /// <summary>Why the open login is about to end, when something knows before the exit does. A world
-    /// reset sets it; anything else leaves it null and the exit is recorded as an ordinary logout. The
-    /// column it lands in is advisory - see 0003_persona_sessions.sql - because the cases this cannot
-    /// see (a crash, a logout timed just before a reset) are indistinguishable from the ones it can.
-    /// </summary>
-    private string? _personaSessionEndNote;
-
-    /// <summary>
-    /// Classifies how this login is ending, from the lines MUD2 prints on the way out. Runs on the
-    /// Feed thread for every line, so it is two ordinal comparisons and nothing else.
-    ///
-    /// <para>The exit summary and the game-mode exit arrive in that order - the summary, then the
-    /// option-menu prompt that closes the session - so the note is always set before
-    /// <see cref="EndPersonaSession"/> reads it. See <see cref="PersonaSessionEnd"/> for why
-    /// <c>Cheerio!</c> is the discriminator and the scored/lost verb is not.</para>
-    ///
-    /// <para>First writer wins: <c>Cheerio!</c> precedes the summary in a quit, so the quit is
-    /// recorded and the summary does not overwrite it. A reset or a persona wipe, both of which come
-    /// from a C1 code rather than prose, are set elsewhere and outrank nothing here because they
-    /// arrive first too.</para>
-    /// </summary>
-    private void NotePersonaSessionEnd(string text)
-    {
-        if (_personaSessionId is null || _personaSessionEndNote is not null)
-            return;
-
-        if (text.Contains("Cheerio!", StringComparison.Ordinal))
-            _personaSessionEndNote = PersonaSessionEnd.Quit;
-        else if (text.Contains("Overall, you ", StringComparison.Ordinal)
-              && text.Contains(" points this game.", StringComparison.Ordinal))
-            _personaSessionEndNote = PersonaSessionEnd.Died;
-    }
+    /// <summary>How the open login is ending. The SAME classifier the guided-login overlay and the
+    /// wire-log backfill use - see <see cref="SessionEndWatcher"/>, which exists because three copies
+    /// of these rules had already grown and one of them got the match wrong.</summary>
+    private readonly SessionEndWatcher _sessionEnd = new();
 
     private void BeginPersonaSession()
     {
@@ -680,6 +653,7 @@ public sealed class MuckaConnection : IAsyncDisposable
         if (_personaSessionId is not null)
             EndPersonaSession();
 
+        _sessionEnd.Begin();
         _personaSessionId = _store.BeginPersonaSession(
             DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), _host);
         _swingLedger.OnPersonaSessionChanged(_personaSessionId);
@@ -691,10 +665,10 @@ public sealed class MuckaConnection : IAsyncDisposable
     {
         if (_personaSessionId is long id)
             _store.EndPersonaSession(id, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                _personaSessionEndNote);
+                PersonaSessionEndNote.For(_sessionEnd.Reason));
 
         _personaSessionId = null;
-        _personaSessionEndNote = null;
+        _sessionEnd.Begin();
         // Rows recorded at the shell belong to no login, and saying so is better than attributing them
         // to the character who just left.
         _swingLedger.OnPersonaSessionChanged(null);
@@ -714,12 +688,12 @@ public sealed class MuckaConnection : IAsyncDisposable
         _session.AutoResetInitiated += () => AutoResetInitiated?.Invoke();
         // The reset takes the world down and logs everyone out, so the game-mode exit that follows it
         // milliseconds later is the one that closes the session. Leave a note for it to pick up.
-        _session.WorldResetLanded += () => { _personaSessionEndNote = PersonaSessionEnd.Reset; WorldResetLanded?.Invoke(); };
+        _session.WorldResetLanded += () => { _sessionEnd.NoteWorldResetLanded(); WorldResetLanded?.Invoke(); };
         // Permadeath has a code of its own (C08+C13), so it is taken from the code rather than from
         // the "Not updating persona." line that accompanies it.
-        _session.PersonaWiped += () => _personaSessionEndNote = PersonaSessionEnd.Permadeath;
+        _session.PersonaWiped += _sessionEnd.NotePersonaWiped;
         _session.FrameClosed      += () => FrameClosed?.Invoke();
-        _session.LineReady          += l => { NotePersonaSessionEnd(l.PlainText); _clog.OnLineReady(l); LineReady?.Invoke(l); };
+        _session.LineReady          += l => { _sessionEnd.NoteLine(l.PlainText); _clog.OnLineReady(l); LineReady?.Invoke(l); };
         _session.StatsUpdated       += s => { _clog.OnStatsUpdated(s); _fightRecorder.OnStatsUpdated(s); _swingLedger.OnStatsUpdated(s); StatsUpdated?.Invoke(s); };
         _session.StatusEffectsChanged += s => { _clog.OnStatusEffectsChanged(s); _fightRecorder.OnStatusEffectsChanged(s); _swingLedger.OnStatusEffectsChanged(s); StatusEffectsChanged?.Invoke(s); };
         _session.InCombatChanged     += OnSessionInCombatChanged;

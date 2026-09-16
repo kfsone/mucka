@@ -25,6 +25,9 @@
   <ItemGroup>
     <ProjectReference Include="..\..\mudsharp\mudsharp.csproj" />
     <ProjectReference Include="..\Mucka.Store\Mucka.Store.csproj" />
+    <!-- Session-end classification lives in Mucka.Commands (CLAUDE.md, Layout). The backfill reads
+         the same watcher the live path does, so the two cannot disagree about one event. -->
+    <ProjectReference Include="..\Mucka.Commands\Mucka.Commands.csproj" />
   </ItemGroup>
 
 </Project>

@@ -22,6 +22,18 @@ public enum SessionDropReason
     /// <summary>Permadeath: the decoder saw C08+C13 ("Not updating persona.") - the persona we were
     /// playing is gone.</summary>
     Permadeath,
+    /// <summary>
+    /// An ordinary death: points lost, transient bonuses gone, a relog needed - but the persona
+    /// survives and is still in the list at the next login.
+    ///
+    /// <para>Detected as an end-of-game summary with no farewell. MUD2 prints the summary on the way
+    /// out whether you quit or died; the "Cheerio!" is what only a quit gets. Over the whole wire
+    /// corpus every summary is paired with a farewell except two, and those two are known deaths.
+    /// There is no C1 code for it - the one code near a death narrative also precedes a lever trap
+    /// and a chute ride across fourteen runs - so unlike <see cref="Reset"/> and
+    /// <see cref="Permadeath"/> this one rests on prose.</para>
+    /// </summary>
+    Died,
 }
 
 /// <summary>

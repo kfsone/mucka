@@ -38,9 +38,16 @@ public static class MuckaDb
     public static string ConnectionString(string path)
         => new SqliteConnectionStringBuilder { DataSource = path, Mode = SqliteOpenMode.ReadWriteCreate }.ToString();
 
-    /// <summary>Opens a connection, creating the file and directory if needed, and guarantees the
-    /// schema is present and current. Safe to call concurrently from several threads: schema creation
-    /// is idempotent (every statement is IF NOT EXISTS) and runs inside a transaction.</summary>
+    /// <summary>Opens a connection, creating the file and directory if needed, and brings the schema
+    /// up to date - see <see cref="ApplySchema"/>.
+    ///
+    /// <para><b>Not safe against a second process opening the same file at the same moment</b>, on a
+    /// file that still has migrations to run. Migrations are no longer all IF NOT EXISTS - they drop
+    /// columns and rename tables - so two clients that both read the journal before either writes it
+    /// would both try, and the loser throws. <see cref="MuckaStore"/> catches that and comes up
+    /// faulted, so the client still plays but records nothing for that run. It is a one-instant window
+    /// on the first launch after an update; a second instance started later finds the work done.</para>
+    /// </summary>
     public static SqliteConnection Open(string path)
     {
         var directory = Path.GetDirectoryName(path);
@@ -87,9 +94,14 @@ public static class MuckaDb
     /// Brings <paramref name="connection"/> to the current schema: the legacy adopter first if this
     /// file has never seen the journal, then every forward script it has not already run.
     ///
-    /// <para>Safe to call on a file at any released shape, including one several versions behind -
-    /// skipping versions is the ordinary path, not a special case. Safe to call repeatedly; a file
-    /// already current does no work beyond reading its journal.</para>
+    /// <para>Safe to call repeatedly: a file already current does no work beyond reading its journal.
+    /// Skipping forward several scripts at once is the ordinary path, not a special case.</para>
+    ///
+    /// <para>What it does NOT cover is a file older than the adopter's two shapes - fresh, or v0.20.0.
+    /// Anything earlier gets the baseline's CREATE IF NOT EXISTS as no-ops and then fails at its first
+    /// INSERT against a column it never gained. Nothing older than v0.20.0 was supported before the
+    /// journal either, so this narrows nothing; it is stated because the alternative is a reader
+    /// assuming otherwise.</para>
     /// </summary>
     public static void ApplySchema(SqliteConnection connection)
     {

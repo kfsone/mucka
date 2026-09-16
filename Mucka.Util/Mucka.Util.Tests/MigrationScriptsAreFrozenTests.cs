@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
+using Microsoft.Data.Sqlite;
 using Mucka.Store;
 
 namespace Mucka.Util.Tests;
@@ -32,7 +33,7 @@ public sealed class MigrationScriptsAreFrozenTests
     [
         ("0001_baseline.sql",         "8D2BF1E57C100DD9CE6924CEC773B8F526E623D1CC83E7898B535B0C38644AA8"),
         ("0002_drop_level.sql",       "904775539E681EC4C46B9A7D8629B7716C50F25FC267527A0417FBA6DEE777D4"),
-        ("0003_persona_sessions.sql", "D92CBE784893CF88F0D6F26E5421242E3BCA4BDEB5BA8079EA431EE7EAF29F79"),
+        ("0003_persona_sessions.sql", "5F4B291843751A6C530452FB82C39D0C363B74A782A57C6212250566430DA753"),
     ];
 
     private static string HashOf(string contents)
@@ -122,6 +123,74 @@ public sealed class MigrationScriptsAreFrozenTests
     }
 
     /// <summary>
+    /// A brand-new file and an adopted v0.20.0 file end up with the SAME schema.
+    ///
+    /// <para>This is the entire promise of the adopter seam, and until now it was checked by hand and
+    /// asserted in a commit message. Without it, script N+1 can make the two paths diverge - a fresh
+    /// install getting a shape no existing install ever reaches - and every other test stays green.
+    /// </para>
+    ///
+    /// <para>Compared as column SETS and index/view NAMES, not as raw <c>sqlite_master</c> text.
+    /// Column ORDER legitimately differs: SQLite appends an ALTER-added column where a CREATE declares
+    /// it inline, so a migrated file carries persona_session_id last and a fresh one does not. Nothing
+    /// reads these tables by ordinal, and pinning order would fail on a difference that is not one.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void AFreshFileAndAnAdoptedV0200File_ReachTheSameSchema()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "mucka-converge", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        var fresh = Path.Combine(directory, "fresh.db");
+        var legacy = Path.Combine(directory, "legacy.db");
+
+        try
+        {
+            using (MuckaDb.Open(fresh)) { }
+
+            // A real pre-v0.20.0 file: the baseline alone, no journal, with BOTH columns that release
+            // added by probe taken back out. Both, deliberately - the adopter's whole job is to
+            // restore exactly that set, and a fixture missing only one of them would still converge
+            // with an adopter that had dropped the other, which is the failure this is here to catch.
+            using (var connection = new SqliteConnection(MuckaDb.ConnectionString(legacy)))
+            {
+                connection.Open();
+                using var build = connection.CreateCommand();
+                build.CommandText = MigrationScripts.All[0].Contents
+                    + "ALTER TABLE fights DROP COLUMN prev_same_name_ended_ms;"
+                    + "ALTER TABLE score_events DROP COLUMN after_task_line;";
+                build.ExecuteNonQuery();
+            }
+            using (MuckaDb.Open(legacy)) { }
+
+            Assert.Equal(Shape(fresh), Shape(legacy));
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            try { Directory.Delete(directory, recursive: true); } catch { /* best-effort */ }
+        }
+    }
+
+    /// <summary>Every table with its columns sorted, plus every index and view name - the whole
+    /// schema, in a form where a difference reads as a difference.</summary>
+    private static string Shape(string path)
+    {
+        using var connection = MuckaDb.OpenRead(path);
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT group_concat(line, char(10)) FROM (
+              SELECT m.type || ' ' || m.name || ': ' ||
+                     COALESCE((SELECT group_concat(c.name, ',') FROM (
+                         SELECT name FROM pragma_table_info(m.name) ORDER BY name) c), '') AS line
+              FROM sqlite_master m
+              WHERE m.name NOT LIKE 'sqlite_%'
+              ORDER BY m.type, m.name);
+            """;
+        return Convert.ToString(command.ExecuteScalar()) ?? string.Empty;
+    }
+
+    /// <summary>
     /// The legacy adopter is sealed at the shape it had when the journal was adopted.
     ///
     /// <para>It exists so every database in the world enters the journaled era at ONE known shape.
@@ -131,7 +200,7 @@ public sealed class MigrationScriptsAreFrozenTests
     /// </summary>
     [Fact]
     public void TheLegacyAdopterIsSealed()
-        => Assert.Equal(LegacySchemaAdopter.AddedColumnCountAtAdoption, LegacySchemaAdopter.AddedColumnCount);
+        => Assert.Equal(LegacySchemaAdopter.AddedColumnsAtAdoption, LegacySchemaAdopter.AddedColumnsNow);
 
     private static string FindRepoRoot()
     {

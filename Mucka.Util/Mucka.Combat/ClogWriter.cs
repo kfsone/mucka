@@ -325,10 +325,6 @@ public sealed class ClogWriter : IDisposable
     /// the moment an encounter opens gets the best answer available then.</para>
     /// </summary>
     public Func<MudSharp.Session.ResetEstimate>? ResetEstimateProvider { get; set; }
-    /// <summary>A buff/debuff/glow slot flipped. Worth a "stats" row of its own: a strength or
-    /// dexterity buff landing mid-fight moves the exact numbers an object-cost measurement is
-    /// differencing, and without a row saying so the movement would be attributed to the loadout.
-    /// </summary>
     /// <summary>A persona session opened or closed - one login. Every encounter opened from here on
     /// belongs to it; null at the shell.</summary>
     public void OnPersonaSessionChanged(long? personaSessionId)
@@ -337,6 +333,10 @@ public sealed class ClogWriter : IDisposable
             _personaSessionId = personaSessionId;
     }
 
+    /// <summary>A buff/debuff/glow slot flipped. Worth a "stats" row of its own: a strength or
+    /// dexterity buff landing mid-fight moves the exact numbers an object-cost measurement is
+    /// differencing, and without a row saying so the movement would be attributed to the loadout.
+    /// </summary>
     public void OnStatusEffectsChanged(StatusEffectState effects)
     {
         lock (_lock)

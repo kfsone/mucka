@@ -128,6 +128,22 @@ public static class ShellText
         => string.Equals(normalized, "Cheerio!", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
+    /// MUD2's end-of-game summary: "Overall, you scored 2,126 points this game." It is printed on the
+    /// way out of the game whether the player quit or died, so on its own it says only that the game
+    /// ended - pair it with <see cref="IsQuitFarewellLine"/> to tell which.
+    ///
+    /// <para>The verb is deliberately not matched. "scored" and "lost" track whether the session
+    /// netted a gain, not how it ended: the corpus has quits printing each. Keying on the verb was
+    /// tried and the wire log disproved it.</para>
+    ///
+    /// <para>Whole-line shape rather than <c>ContainsPhrase</c>, for the same reason the farewell is:
+    /// this is tested against in-game lines, where another player can say anything.</para>
+    /// </summary>
+    public static bool IsGameSummaryLine(string normalized)
+        => normalized.StartsWith("Overall, you ", StringComparison.OrdinalIgnoreCase)
+        && normalized.EndsWith(" points this game.", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
     /// Parses the numbered persona list out of the "personae available to you" block
     /// (normalized text, between "are:" and "by what name..."). Returns null if the landmark
     /// text isn't present yet (e.g. more output is still arriving).

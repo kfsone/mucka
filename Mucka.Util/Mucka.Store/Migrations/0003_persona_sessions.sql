@@ -46,7 +46,8 @@ CREATE TABLE IF NOT EXISTS persona_sessions (
     started_ms      INTEGER NOT NULL,   -- game mode entered (C1-sourced, not prose)
     ended_ms        INTEGER,            -- game mode exited; NULL if the client died without one
 
-    -- Free text, advisory, and NEVER load-bearing: 'reset', 'logout', 'died', 'drop'. A missing note
+    -- Free text, advisory, and NEVER load-bearing: 'reset', 'quit', 'died', 'permadeath' - the
+    -- vocabulary is Mucka.Store.PersonaSessionEnd, which is where it is documented. A missing note
     -- does NOT mean none of those happened - a crash leaves both this and ended_ms empty, and a
     -- deliberate logout shortly before a reset looks identical to one unrelated to it. Do not
     -- reconstruct world boundaries from this column.
@@ -71,30 +72,20 @@ CREATE INDEX IF NOT EXISTS ix_swings_session       ON swings(persona_session_id)
 CREATE INDEX IF NOT EXISTS ix_fights_session       ON fights(persona_session_id);
 CREATE INDEX IF NOT EXISTS ix_score_events_session ON score_events(persona_session_id);
 CREATE INDEX IF NOT EXISTS ix_encounters_session   ON encounters(persona_session_id);
+CREATE INDEX IF NOT EXISTS ix_stamina_reads_session ON npc_stamina_reads(persona_session_id);
 
 -- ------------------------------------------------------- rows that cannot be placed ----
 
--- Everything before the wire log begins cannot be attributed to a session: the wire bytes it would be
--- reconstructed from were deleted, and mucka_runs starts at the same instant, so there is no coarser
--- attribution either. These rows are dropped rather than left with a null key - a table where the
--- session is sometimes absent is a table every query has to special-case forever, and the operator's
--- judgement is that well-structured data beats more of the badly-structured kind.
+-- Rows recorded before there was a session to attribute them to keep a NULL key here, and are
+-- pruned later by PersonaSessionBackfill - AFTER it has replayed the wire log and claimed everything
+-- the bytes can account for.
 --
--- The cut is the first wire record. Stated as a subquery rather than a literal so the script is the
--- same statement on every database it runs against.
-
-DELETE FROM encounter_contents_items WHERE contents_id IN (
-    SELECT id FROM encounter_contents WHERE ts < (SELECT MIN(ts_ms) FROM wire));
-DELETE FROM encounter_contents  WHERE ts < (SELECT MIN(ts_ms) FROM wire);
-DELETE FROM encounter_lines     WHERE encounter_started_at_ms < (SELECT MIN(ts_ms) FROM wire);
-DELETE FROM encounter_events    WHERE ts < (SELECT MIN(ts_ms) FROM wire);
-DELETE FROM encounter_stats     WHERE ts < (SELECT MIN(ts_ms) FROM wire);
-DELETE FROM creature_values     WHERE ts < (SELECT MIN(ts_ms) FROM wire);
-DELETE FROM encounters          WHERE encounter_started_at_ms < (SELECT MIN(ts_ms) FROM wire);
-DELETE FROM npc_stamina_reads   WHERE ts < (SELECT MIN(ts_ms) FROM wire);
-DELETE FROM score_events        WHERE ts < (SELECT MIN(ts_ms) FROM wire);
-DELETE FROM fights              WHERE started_at_ms < (SELECT MIN(ts_ms) FROM wire);
-DELETE FROM swings              WHERE ts < (SELECT MIN(ts_ms) FROM wire);
+-- This script deliberately deletes nothing. A migration is the wrong place to decide what is
+-- unattributable: it runs before anything has attempted attribution, and it is frozen, so whatever
+-- it destroys it destroys on every machine for ever. An earlier draft cut at
+-- `(SELECT MIN(ts_ms) FROM wire)`, which made the amount of history destroyed depend on the state of
+-- a table this project's own documentation tells people to clear by hand to reclaim space. On a
+-- stranger's machine that is unrecoverable and there is no way to reach them.
 
 -- --------------------------------------------------------------------- dead weight ----
 

@@ -295,26 +295,31 @@ check.
 
 ## Schema
 
-One file cannot run two migration policies, and there were two: the combat store was
-additive-columns-only and never dropped data (`AddedColumns` + a `pragma_table_info` probe +
-`ALTER TABLE ADD COLUMN`), while the wire log dropped and recreated its tables and view on any
-column mismatch, on the grounds that a wire log is disposable.
+**Every schema change is a numbered, forward-only script** in `Mucka.Util/Mucka.Store/Migrations/`,
+run once per database and recorded in DbUp's journal. `MuckaDb.ApplySchema` is the whole entry point.
+There is no second description of the current shape anywhere - see `MigrationScripts` for why, and
+for the rule that a script which has already been released is never edited.
 
-**The policy is additive-only, everywhere.** Discard-on-schema-change is deleted.
+- **Why a journal rather than converging on the file's own shape.** Releases go out on GitHub, so
+  databases created by this client live on machines nobody here can inspect. Converging is a standing
+  instruction re-evaluated at every open: a rule that drops a dead column keeps dropping it, on a
+  stranger's file, unprompted and with no backup. Ordered replay runs a change once and then stops
+  being a rule at all.
+- **A file predating the journal is brought to one known shape by `LegacySchemaAdopter`**, once, and
+  never again. It does only the thing no idempotent script can express - the two columns v0.20.0
+  added by probe, because SQLite has no ADD COLUMN IF NOT EXISTS - and is frozen at that. Every
+  database in the world therefore enters the journaled era at the same rung.
+- **No migration deletes rows.** Deciding what is unattributable is not a migration's business: a
+  script runs before anything has tried to attribute, and it is frozen, so what it destroys it
+  destroys on every machine for ever. The one pruning path is
+  `PersonaSessionBackfill.PruneUnattributable`, after the wire log has had its chance.
+- **No `PRAGMA user_version`.** The journal is the version, and it records what actually ran rather
+  than what someone asserted.
 
-- It is the policy that cannot lose the irreplaceable half, and there is no mechanism that can be
-  told which half a table belongs to without a migration framework, which the project now has (DbUp -
-  see MuckaDb).
-- Two regimes in one file is the sediment CLAUDE.md names: a rule that has to be remembered per table
-  is a rule that rots.
-- What the discard policy actually bought was a guard against a NOT NULL insert failing against an old
-  file and faulting the log out for the session with a swallowed exception. Additive-only gets the
-  same protection differently: a change that cannot be expressed as a nullable added column is not
-  made by the code at all. The operator runs `DELETE FROM wire` (or drops the table) by hand and
-  the next open recreates it.
-- There is still no `PRAGMA user_version`. A version gate would only skip `IF NOT EXISTS` statements,
-  never perform an ALTER, so it could not migrate anything - it would be a version number that looked
-  like a plan. `AddedColumns` reads the table's own shape instead.
+The guards are build failures, not policy: DDL outside `Migrations/` fails the build, released
+scripts are SHA-256 pinned, script names must sort into execution order, the registered set must
+equal the files on disk, the adopter's list is content-pinned, and a fresh file must reach the same
+schema as an adopted one.
 
 ### Tables
 
@@ -326,7 +331,8 @@ Verbatim from today, unchanged in shape:
 | `fights` | the combat database | one row per per-NPC fight |
 | `npc_stamina_reads` | the combat database | every `diagnose` reading |
 | `score_events` | the combat database | every `(Persona saved on ...)` line |
-| `mucka_runs` | the wire log | one row per run of the client |
+| `mucka_runs` | the wire log | one row per run of the client - every login, logout and world reset inside one process |
+| `persona_sessions` | added with the session key | one row per LOGIN, with its persona, host and how it ended; what every fact table above points at |
 | `wire` | the wire log | one row per record: `ts_ms`, `direction`, and the bytes |
 
 Plus the combat database's six views and the wire log's `v_mucka_run_sizes`. Everything

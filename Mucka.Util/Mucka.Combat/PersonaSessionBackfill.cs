@@ -1,5 +1,6 @@
 using Microsoft.Data.Sqlite;
 using MudSharp.Session;
+using Mucka.Commands;
 using Mucka.Store;
 
 namespace Mucka.Combat;
@@ -35,7 +36,14 @@ public static class PersonaSessionBackfill
     /// <c>persona_sessions</c> rows were created; zero when there is nothing left to do, which is the
     /// steady state.
     /// </summary>
-    public static int Run(string databasePath, Action<string, Exception>? onError = null)
+    /// <param name="liveRunId">The run this client is recording into right now, excluded from the
+    /// replay. Without it there is a race: this runs fire-and-forget at start-up while the connection
+    /// is already feeding bytes, so a login can complete in the wire log before the live path's own
+    /// INSERT lands - at which point the current run looks exactly like an un-backfilled one and gets
+    /// a duplicate session row. Nothing is corrupted (attribution only fills nulls), but the ghost row
+    /// is permanent, because afterwards the run "has sessions" and is skipped for ever.</param>
+    public static int Run(string databasePath, long? liveRunId = null,
+        Action<string, Exception>? onError = null)
     {
         try
         {
@@ -43,8 +51,10 @@ public static class PersonaSessionBackfill
             Execute(connection, "PRAGMA busy_timeout=5000;");
 
             var created = 0;
-            foreach (var runId in RunsNeedingBackfill(connection))
+            foreach (var runId in RunsNeedingBackfill(connection, liveRunId))
                 created += BackfillRun(connection, runId);
+
+            PruneUnattributable(connection);
             return created;
         }
         catch (Exception ex)
@@ -57,21 +67,26 @@ public static class PersonaSessionBackfill
     }
 
     /// <summary>
-    /// Runs that still have wire bytes and no logins recorded against them.
+    /// Runs that still have wire bytes and no logins recorded against them, excluding the live one.
     ///
-    /// <para>"No logins" is the whole idempotence guard, and it is sound because the two ways a run
-    /// gets them are exclusive: a run from before this table existed has none until this fills them,
-    /// and a run recorded since opens its own at game-mode entry. A run can never be both.</para>
+    /// <para>"No logins" is the idempotence guard. It holds for every FINISHED run: one from before
+    /// the table existed has none until this fills them, one recorded since opened its own at
+    /// game-mode entry, and neither changes afterwards. It does NOT hold for the run in progress,
+    /// which passes through "has wire, has no sessions yet" on its way to the first login - hence
+    /// <paramref name="liveRunId"/>. An earlier version of this comment claimed the guard was sound
+    /// because a run "can never be both", which was simply wrong about the current one.</para>
     /// </summary>
-    private static List<long> RunsNeedingBackfill(SqliteConnection connection)
+    private static List<long> RunsNeedingBackfill(SqliteConnection connection, long? liveRunId)
     {
         using var command = connection.CreateCommand();
         command.CommandText = """
             SELECT DISTINCT w.mucka_run_id
             FROM wire w
-            WHERE NOT EXISTS (SELECT 1 FROM persona_sessions p WHERE p.mucka_run_id = w.mucka_run_id)
+            WHERE w.mucka_run_id IS NOT $live
+              AND NOT EXISTS (SELECT 1 FROM persona_sessions p WHERE p.mucka_run_id = w.mucka_run_id)
             ORDER BY w.mucka_run_id;
             """;
+        command.Parameters.AddWithValue("$live", (object?)liveRunId ?? DBNull.Value);
         var runs = new List<long>();
         using var reader = command.ExecuteReader();
         while (reader.Read())
@@ -116,7 +131,7 @@ public static class PersonaSessionBackfill
         var logins = new List<Login>();
         long? openedAt = null;
         string? persona = null;
-        string? endNote = null;
+        var watcher = new SessionEndWatcher();
         var ts = 0L;   // the wire record being fed; every instant recorded comes from this
 
         using var session = new MudSession(new MudSessionOptions
@@ -129,33 +144,27 @@ public static class PersonaSessionBackfill
         // The combat clock is left alone - it is internal to mudsharp, and nothing here reads a combat
         // event. Game mode and character identity come off the C1 stream and the score sheet, neither
         // of which consults a clock. Every instant recorded below is the WIRE record's own ts.
-        session.GameModeEntered += () => { openedAt = ts; persona = null; endNote = null; };
+        session.GameModeEntered += () => { openedAt = ts; persona = null; watcher.Begin(); };
         session.CharacterIdentified += name => persona = name;
 
-        // The same classification the live path applies, against the same signals - see
-        // MuckaConnection.NotePersonaSessionEnd and PersonaSessionEnd. A world reset is deliberately
-        // NOT reconstructed here: the live path takes it from the C06 C06 landing, and a replay would
-        // have to guess whether an exit that merely happened near one was caused by it.
-        session.PersonaWiped += () => endNote = PersonaSessionEnd.Permadeath;
+        // The one classifier, the same instance type the live path drives - see SessionEndWatcher.
+        // A world reset is deliberately not reconstructed: live it comes from the C06 C06 landing,
+        // and a replay would have to guess whether an exit that merely happened near one was caused
+        // by it.
+        session.PersonaWiped += watcher.NotePersonaWiped;
         session.LineReady += line =>
         {
-            if (openedAt is null || endNote is not null)
-                return;
-            var text = line.PlainText;
-            if (text.Contains("Cheerio!", StringComparison.Ordinal))
-                endNote = PersonaSessionEnd.Quit;
-            else if (text.Contains("Overall, you ", StringComparison.Ordinal)
-                  && text.Contains(" points this game.", StringComparison.Ordinal))
-                endNote = PersonaSessionEnd.Died;
+            if (openedAt is not null)
+                watcher.NoteLine(line.PlainText);
         };
 
         session.GameModeExited += () =>
         {
             if (openedAt is long started)
-                logins.Add(new Login(started, ts, persona, endNote));
+                logins.Add(new Login(started, ts, persona, PersonaSessionEndNote.For(watcher.Reason)));
             openedAt = null;
             persona = null;
-            endNote = null;
+            watcher.Begin();
         };
 
         using (var command = connection.CreateCommand())
@@ -173,9 +182,69 @@ public static class PersonaSessionBackfill
 
         // A run whose log ends mid-game - the client was killed, or the capture was truncated.
         if (openedAt is long stillOpen)
-            logins.Add(new Login(stillOpen, null, persona, endNote));
+            logins.Add(new Login(stillOpen, null, persona, PersonaSessionEndNote.For(watcher.Reason)));
 
         return logins;
+    }
+
+    /// <summary>
+    /// Deletes the fact rows no login can ever account for, so "every row has a session" is true
+    /// rather than aspirational and no query has to special-case a null key forever.
+    ///
+    /// <para><b>After attribution, never before.</b> A row is unattributable only once the wire log
+    /// has been replayed and declined to claim it. The migration used to do this cut, before anything
+    /// had tried - which is the wrong order and, being frozen, permanent.</para>
+    ///
+    /// <para><b>Only older than the oldest wire record.</b> Anything inside the log's reach that is
+    /// still unattributed is a gap in reconstruction, not a row from before sessions existed, and
+    /// deleting it would hide the bug. The cut is read once per run here rather than embedded in a
+    /// frozen script, so pruning the wire log shrinks what can be RECONSTRUCTED without silently
+    /// enlarging what gets DESTROYED. With no wire at all there is no cut and nothing is deleted.</para>
+    /// </summary>
+    private static void PruneUnattributable(SqliteConnection connection)
+    {
+        long cut;
+        using (var probe = connection.CreateCommand())
+        {
+            probe.CommandText = "SELECT MIN(ts_ms) FROM wire;";
+            if (probe.ExecuteScalar() is not long min)
+                return;
+            cut = min;
+        }
+
+        using var transaction = connection.BeginTransaction();
+        foreach (var (table, column) in FactTables)
+        {
+            using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            // Identifiers are compile-time literals from FactTables. Both halves matter: unattributed
+            // AND older than any wire record.
+            command.CommandText =
+                $"DELETE FROM {table} WHERE persona_session_id IS NULL AND {column} < $cut;";
+            command.Parameters.AddWithValue("$cut", cut);
+            command.ExecuteNonQuery();
+        }
+
+        // The encounter children have no session key of their own - they reach it through encounters,
+        // so they follow whatever their parent did.
+        foreach (var sql in new[]
+        {
+            "DELETE FROM encounter_contents_items WHERE contents_id IN (SELECT id FROM encounter_contents "
+            + "WHERE encounter_started_at_ms NOT IN (SELECT encounter_started_at_ms FROM encounters));",
+            "DELETE FROM encounter_contents WHERE encounter_started_at_ms NOT IN (SELECT encounter_started_at_ms FROM encounters);",
+            "DELETE FROM encounter_lines    WHERE encounter_started_at_ms NOT IN (SELECT encounter_started_at_ms FROM encounters);",
+            "DELETE FROM encounter_events   WHERE encounter_started_at_ms NOT IN (SELECT encounter_started_at_ms FROM encounters);",
+            "DELETE FROM encounter_stats    WHERE encounter_started_at_ms NOT IN (SELECT encounter_started_at_ms FROM encounters);",
+            "DELETE FROM creature_values    WHERE encounter_started_at_ms NOT IN (SELECT encounter_started_at_ms FROM encounters);",
+        })
+        {
+            using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = sql;
+            command.ExecuteNonQuery();
+        }
+
+        transaction.Commit();
     }
 
     private static string? HostOf(SqliteConnection connection, long runId)

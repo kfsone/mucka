@@ -31,14 +31,23 @@ internal static class LegacySchemaAdopter
         ("score_events", "after_task_line", "INTEGER"),
     ];
 
-    /// <summary>How many entries <see cref="AddedColumns"/> had at adoption, and how many it must
-    /// still have. A guard test compares this against <see cref="AddedColumnCount"/>, so a model that
-    /// "solves" tomorrow's change by appending to the frozen list fails the build instead.</summary>
-    internal const int AddedColumnCountAtAdoption = 2;
+    /// <summary>
+    /// What <see cref="AddedColumns"/> held at adoption, and must still hold. A guard test compares
+    /// this against <see cref="AddedColumnsNow"/>, so a model that "solves" tomorrow's change by
+    /// editing the frozen list fails the build instead.
+    ///
+    /// <para>The CONTENT, not the count. A length check would pass a change that retargets an entry
+    /// to a different table, column or declaration - silently altering the one shape every legacy
+    /// database in the world converges to, which is the single thing this class exists to hold
+    /// still.</para>
+    /// </summary>
+    internal const string AddedColumnsAtAdoption =
+        "fights.prev_same_name_ended_ms INTEGER;score_events.after_task_line INTEGER";
 
-    /// <summary>How many entries it has NOW. Exposed only so the guard test has both numbers -
-    /// comparing the constant against itself would be a test that cannot fail.</summary>
-    internal static int AddedColumnCount => AddedColumns.Length;
+    /// <summary>The same list as it stands now, in the same form. Exposed only so the guard test has
+    /// both sides - comparing the constant against itself would be a test that cannot fail.</summary>
+    internal static string AddedColumnsNow =>
+        string.Join(";", AddedColumns.Select(c => $"{c.Table}.{c.Column} {c.Declaration}"));
 
     /// <summary>
     /// Converges <paramref name="connection"/> to the v0.20.0 shape in one transaction. Does NOT write

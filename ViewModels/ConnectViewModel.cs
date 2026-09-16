@@ -152,12 +152,19 @@ public sealed class ConnectViewModel : BaseViewModel
             // it the wire log - opens with the connection, so the login exchange, the part of a
             // session most worth a byte-exact record of, is in the log like everything else. A store
             // that cannot be opened reports itself into the terminal and never blocks the connection.
-            var conn = new MuckaConnection(
+            // Off the UI thread, because constructing this opens the database, and opening the
+            // database runs any schema migration the file still needs (MuckaDb.ApplySchema). That is
+            // synchronous SQLite work whose cost is unbounded in principle and measured in hundreds
+            // of milliseconds in practice - the migration that introduced persona_sessions took over
+            // half a second on the operator's own file, rewriting eleven tables. On the UI thread
+            // that is Invariant #1 broken by an order of magnitude, and it happens exactly once, on
+            // the first launch after an update, which is the worst moment to freeze.
+            var conn = await Task.Run(() => new MuckaConnection(
                 autoLogin ? accountId : null,
                 autoLogin ? resolvedPassword : null,
                 MaxColumns,
                 loginName,
-                Host.Trim());
+                Host.Trim())).ConfigureAwait(true);
 
             // Carry the persisted settings (fkeys, font, volume, ...) over from the saved
             // profile - they are not editable on this page but must not reset on connect.
