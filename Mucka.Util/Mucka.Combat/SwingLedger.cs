@@ -42,10 +42,9 @@ public sealed class SwingLedger
 
     private GameStatsSnapshot _lastStats = GameStatsSnapshot.Empty;
     private StatusEffectState _lastEffects = StatusEffectState.Empty;
-    // The client's clock at the last reset landing this ledger was told about. Null until one lands,
-    // which is the honest reading: a session that joins a world already running never saw its start.
-    private long? _resetLandedAtMs;
-    private string? _persona;
+    // The login every row written from here belongs to - persona_sessions.id. Null before the first
+    // one opens, which is the honest reading rather than a guess.
+    private long? _personaSessionId;
     private long? _encounterStartedAtMs;
     // The last encounter key this ledger saw, kept after the encounter closes. Only score_events uses
     // it, and only because a kill's award is printed after the line that closed the encounter - see
@@ -278,27 +277,14 @@ public sealed class SwingLedger
             _lastEffects = effects;
     }
 
-    /// <summary>A world reset LANDED - the server's own C06 C06, corroborated in
-    /// MudSession.OnWorldResetLanded. Stamps the client's clock as the key every later swing carries
-    /// until the next one lands.
-    ///
-    /// <para>The stamp is taken here rather than passed in because this is the moment the event
-    /// reached us, and a reset is only ever observed live; there is no replay path that would want an
-    /// older instant. A caller that has a better stamp can pass one.</para></summary>
-    public void OnWorldResetLanded(long? timestampMs = null)
+    /// <summary>A persona session opened or closed - one login, from game mode entered/exited. Every
+    /// row written after this carries <paramref name="personaSessionId"/>; null when no login is
+    /// current, so rows recorded at the shell are unattributed rather than attributed to the last
+    /// character to have played.</summary>
+    public void OnPersonaSessionChanged(long? personaSessionId)
     {
         lock (_lock)
-            _resetLandedAtMs = timestampMs ?? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-    }
-
-    /// <summary>The character occupying this session was identified (MudSession.CharacterIdentified,
-    /// from the post-login <c>score</c> reply). Session-scoped, not encounter-scoped.</summary>
-    public void OnCharacterIdentified(string name)
-    {
-        if (string.IsNullOrWhiteSpace(name))
-            return;
-        lock (_lock)
-            _persona = name;
+            _personaSessionId = personaSessionId;
     }
 
     /// <summary>
@@ -328,7 +314,7 @@ public sealed class SwingLedger
                 TimestampMs = new DateTimeOffset(DateTime.UtcNow, TimeSpan.Zero).ToUnixTimeMilliseconds(),
                 EncounterStartedAtMs = _encounterStartedAtMs ?? _lastEncounterStartedAtMs,
                 EncounterOpen = _encounterOpen,
-                Persona = _persona,
+                PersonaSessionId = _personaSessionId,
                 Delta = save.Delta,
                 Total = save.Total,
                 AfterTaskLine = _taskLineJustSeen,
@@ -475,7 +461,7 @@ public sealed class SwingLedger
                             TimestampMs = new DateTimeOffset(combatEvent.TimestampUtc, TimeSpan.Zero)
                                 .ToUnixTimeMilliseconds(),
                             EncounterStartedAtMs = _encounterStartedAtMs,
-                            Persona = _persona,
+                            PersonaSessionId = _personaSessionId,
                             NpcName = combatEvent.NpcName,
                             NpcGroup = NpcGroups.Normalize(combatEvent.NpcName),
                             PoolKey = NpcPoolKey.For(combatEvent.NpcName),
@@ -551,7 +537,7 @@ public sealed class SwingLedger
             TimestampMs = timestampMs,
             Direction = direction,
             EncounterStartedAtMs = _encounterStartedAtMs,
-            Persona = _persona,
+            PersonaSessionId = _personaSessionId,
             Sex = _lastStats.Sex,
 
             Stamina = _lastStats.Stamina,
@@ -564,7 +550,6 @@ public sealed class SwingLedger
             Dexterity = _lastStats.Dexterity,
             RawDexterity = _lastStats.RawDexterity,
             MaxDexterity = _lastStats.MaxDexterity,
-            Level = _lastStats.Level,
             Score = _lastStats.Score,
             ObjectsCarried = _lastStats.ObjectsCarried,
             // Space is the parser's "nothing reported"; stored as null rather than as a blank string
@@ -585,10 +570,6 @@ public sealed class SwingLedger
 
             // The countdown as the game gave it, raw and unconverted - a reading, not a key.
             TimeToReset = _lastStats.TimeToReset,
-            // The key is a stamp of an event this client watched, never arithmetic on the countdown:
-            // wizards move the reset, so ts + ttr is not an identity. See SwingRow.ResetLandedAtMs.
-            ResetLandedAtMs = _resetLandedAtMs,
-
             NpcName = combatEvent.NpcName,
             NpcGroup = NpcGroups.Normalize(combatEvent.NpcName),
             NpcWeapon = fight?.NpcWeapon,

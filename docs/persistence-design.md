@@ -6,7 +6,7 @@ store; the code answers to it.
 Read `CLAUDE.md` first. Two things from it are load-bearing here and are not restated in every
 section: the AI-written corpus is not evidence (every claim below that came off a code comment has
 been re-read against the code, and the ones that are measurements carry their conditions), and there
-is one operator with one installation, so there is no migration path and no compatibility shim.
+is no shared database - each install has its own local file, and only code travels between machines.
 
 ## The shape, in one paragraph
 
@@ -170,7 +170,9 @@ already is, made explicit:
 
 - `MuckaConnection` is `new`ed per connection attempt (in `ConnectViewModel`), and `ConnectAsync`
   has exactly one call site, on a freshly constructed instance. So one
-  `MuckaConnection` is one `sessions` row, and store lifetime is one connection - not one app run.
+  `MuckaConnection` is one `mucka_runs` row, and store lifetime is one connection - not one app run.
+  A LOGIN is a separate thing again: `persona_sessions`, opened on game-mode entry, and what every
+  fact table keys to.
 - Nothing reads the database outside that lifetime. The two readers are
   `FightHistoryStore.LoadAsync` and the swing ledger's warm-up (`SwingLedger.WarmCore`), both fired
   from `MuckaConnection` and both opening their own short-lived connection.
@@ -301,7 +303,8 @@ column mismatch, on the grounds that a wire log is disposable.
 **The policy is additive-only, everywhere.** Discard-on-schema-change is deleted.
 
 - It is the policy that cannot lose the irreplaceable half, and there is no mechanism that can be
-  told which half a table belongs to without becoming the migration framework CLAUDE.md forbids.
+  told which half a table belongs to without a migration framework, which the project now has (DbUp -
+  see MuckaDb).
 - Two regimes in one file is the sediment CLAUDE.md names: a rule that has to be remembered per table
   is a rule that rots.
 - What the discard policy actually bought was a guard against a NOT NULL insert failing against an old
@@ -323,11 +326,12 @@ Verbatim from today, unchanged in shape:
 | `fights` | the combat database | one row per per-NPC fight |
 | `npc_stamina_reads` | the combat database | every `diagnose` reading |
 | `score_events` | the combat database | every `(Persona saved on ...)` line |
-| `sessions` | the wire log | one row per connection |
+| `mucka_runs` | the wire log | one row per run of the client |
 | `wire` | the wire log | one row per record: `ts_ms`, `direction`, and the bytes |
 
-Plus the combat database's six views and the wire log's `v_session_sizes`, all unchanged. Everything
-above now lives in `MuckaDb.SchemaSql`, which is the whole schema in one place.
+Plus the combat database's six views and the wire log's `v_mucka_run_sizes`. Everything
+above is created by the baseline migration script, `Migrations/0001_baseline.sql`; later scripts in
+that directory carry every change since. See `MuckaDb.ApplySchema`.
 
 New, replacing the clog files:
 

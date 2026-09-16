@@ -94,7 +94,7 @@ internal sealed record WireRow(long SessionId, int Seq, long TimestampMs, WireDi
     byte[] Payload) : IStoreRow
 {
     private const string Sql = """
-        INSERT INTO wire (session_id, seq, ts_ms, direction, data)
+        INSERT INTO wire (mucka_run_id, seq, ts_ms, direction, data)
         VALUES ($session, $seq, $ts, $direction, $data);
         """;
 

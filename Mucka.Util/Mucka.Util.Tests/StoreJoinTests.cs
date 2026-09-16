@@ -56,7 +56,10 @@ public sealed class StoreJoinTests : IDisposable
             clog.OnInCombatChanged(inCombat, inCombat ? Key : null);
         };
 
-        ledger.OnCharacterIdentified("Ollie");
+        // A real login row: the fact tables carry a foreign key to it, so a fabricated id is
+        // rejected outright rather than stored.
+        var personaSession = store.BeginPersonaSession(Key, "test");
+        ledger.OnPersonaSessionChanged(personaSession);
 
         var second = 0;
         foreach (var text in new[]
@@ -74,7 +77,7 @@ public sealed class StoreJoinTests : IDisposable
             StartedAtMs = Key,
             EndedAtMs = Key + 5_000,
             DurationMs = 5_000,
-            CharacterName = "Ollie",
+            PersonaSessionId = personaSession,
             EncounterStartedAtMs = Key,
             NpcName = "rat0",
             NpcGroup = "rat",
@@ -83,6 +86,7 @@ public sealed class StoreJoinTests : IDisposable
 
         clog.Dispose();
     }
+
 
     private static IReadOnlyList<Dictionary<string, object?>> Query(string path, string sql)
     {

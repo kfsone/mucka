@@ -2,7 +2,7 @@ using Mucka.Store;
 
 namespace Mucka.WireLog;
 
-/// <summary>One row of <c>sessions</c>, plus the rollup the <c>v_session_sizes</c> view computes.
+/// <summary>One row of <c>mucka_runs</c>, plus the rollup the <c>v_mucka_run_sizes</c> view computes.
 /// <para><c>PayloadBytes</c> is <c>SUM(LENGTH(data))</c> - the traffic itself. The file costs more
 /// than that: about 48 bytes of SQLite page and index overhead per row on top.</para></summary>
 public sealed record WireLogSessionInfo(
@@ -10,7 +10,7 @@ public sealed record WireLogSessionInfo(
     long Records, long PayloadBytes);
 
 /// <summary>
-/// Reads the wire log back: sessions, and the exact records that were captured.
+/// Reads the wire log back: runs, and the exact records that were captured.
 ///
 /// <para><see cref="ReadSession"/> reconstructs the original sequence - same bytes, same directions,
 /// same timestamps, same order - by selecting it. The rows ARE the records.</para>
@@ -31,9 +31,9 @@ public static class WireLogExport
         using var command = connection.CreateCommand();
         command.CommandText = """
             SELECT id, started_ms, ended_ms, host,
-                   (SELECT client_version FROM sessions s2 WHERE s2.id = v.id),
+                   (SELECT client_version FROM mucka_runs r2 WHERE r2.id = v.id),
                    COALESCE(records, 0), COALESCE(payload_bytes, 0)
-            FROM v_session_sizes v
+            FROM v_mucka_run_sizes v
             ORDER BY started_ms DESC;
             """;
         using var reader = command.ExecuteReader();
@@ -70,7 +70,7 @@ public static class WireLogExport
         using var command = connection.CreateCommand();
         command.CommandText = """
             SELECT ts_ms, direction, data
-            FROM wire WHERE session_id = $session ORDER BY id;
+            FROM wire WHERE mucka_run_id = $session ORDER BY id;
             """;
         command.Parameters.AddWithValue("$session", sessionId);
         using var reader = command.ExecuteReader();

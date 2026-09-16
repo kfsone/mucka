@@ -261,26 +261,36 @@ public sealed class FightHistoryStoreTests : IDisposable
     }
 
     /// <summary>
-    /// A column added after a database file already exists. There is one database and it holds months
-    /// of play, so the schema must be able to migrate in place - this is the test that an old file
-    /// comes up to the new shape with its rows intact.
+    /// A real v0.20.0 file - the shape every install in the wild is at - comes up to the current
+    /// schema with its rows intact.
+    ///
+    /// <para>Built the way one actually exists rather than by faking it: the baseline script alone,
+    /// no journal, with the one column v0.20.0 added by probe taken back out. Deleting the journal
+    /// from an ALREADY-upgraded file would not be the same thing - it would replay the baseline over
+    /// a schema three migrations ahead of it, which nothing in production ever does.</para>
     /// </summary>
     [Fact]
-    public async Task AFileWrittenBeforeAColumnExisted_GainsItWithoutLosingItsRows()
+    public async Task AV0200FileComesUpToTheCurrentSchema_WithItsRowsIntact()
     {
-        // Build the file, then take the column back out to make it an "old" one. SQLite has DROP
-        // COLUMN, which is exactly the pre-migration shape rather than an approximation of it.
-        var seedDb = Db();
-        var seed = new FightHistoryStore(seedDb);
-        seed.Append(Fight("zombie5"));
-        seedDb.Dispose();
+        // MuckaDb.Open would create this; a bare connection will not, and SQLite cannot make a file
+        // inside a directory that does not exist.
+        Directory.CreateDirectory(Path.GetDirectoryName(DbPath)!);
 
         using (var connection = new SqliteConnection(MuckaDb.ConnectionString(DbPath)))
         {
             connection.Open();
-            using var drop = connection.CreateCommand();
-            drop.CommandText = "ALTER TABLE fights DROP COLUMN prev_same_name_ended_ms;";
-            drop.ExecuteNonQuery();
+            using var build = connection.CreateCommand();
+            build.CommandText =
+                MigrationScripts.All[0].Contents +
+                // v0.20.0 carried this as a probed ALTER, so a file from before that probe ran does
+                // not have it. That gap is the whole reason LegacySchemaAdopter exists.
+                "ALTER TABLE fights DROP COLUMN prev_same_name_ended_ms;" +
+                // One row, written before any of this - it has to survive.
+                "INSERT INTO fights (npc_name, npc_group, outcome, started_at_ms, ended_at_ms, " +
+                "duration_ms, you_hits, you_misses, they_hits, they_misses, approx_damage_done, " +
+                "approx_damage_taken, narrative_mode, is_blind, is_deaf, is_crippled, is_dumb, effects) " +
+                "VALUES ('zombie5', 'zombies', 'Kill', 1, 2, 1, 0,0,0,0, 0,0, 0, 0,0,0,0, '');";
+            build.ExecuteNonQuery();
         }
 
         var reopenedDb = Db();
@@ -298,9 +308,12 @@ public sealed class FightHistoryStoreTests : IDisposable
         var nextDb = Db();
         var next = new FightHistoryStore(nextDb);
         await next.LoadAsync();
+        // As a set, not a sequence: the rows are ordered by started_at_ms and the pre-migration row's
+        // stamp is fixed by the seed above, so asserting an order here would be asserting that seed's
+        // arithmetic rather than the migration's behaviour.
         Assert.Equal(
             [null, 1_788_290_125_490L],
-            next.Snapshot().Select(r => r.PrevSameNameEndedMs).ToArray());
+            next.Snapshot().Select(r => r.PrevSameNameEndedMs).OrderBy(v => v).ToArray());
         nextDb.Dispose();
     }
 }

@@ -49,11 +49,10 @@ public sealed class FightHistoryRecorder : IDisposable
     // "(cur/max)" stamina delta does, so a plain carried-forward value is honest as-is.
     private int? _lastKnownScore;
 
-    // The character occupying this session, from MudSession.CharacterIdentified (the post-login
-    // "score" reply). Threaded through so every alt's fights stop pooling into one undifferentiated
-    // history (see FightRecord.CharacterName's remarks). Session-scoped, not encounter-scoped: it
-    // does not reset on BeginEncounter/FlushLocked, only on a fresh CharacterIdentified.
-    private string? _characterName;
+    // The login these fights belong to - persona_sessions.id. Threaded through so every alt's fights
+    // stop pooling into one undifferentiated history (see FightRecord.PersonaSessionId). Login-scoped,
+    // not encounter-scoped: it does not reset on BeginEncounter/FlushLocked.
+    private long? _personaSessionId;
 
     // Unix-ms of the instant THIS encounter began (CombatTracker.InCombatChanged -> true), shared by
     // every fight opened within it so per-fight rows can be regrouped back into their encounter. Set
@@ -102,15 +101,13 @@ public sealed class FightHistoryRecorder : IDisposable
     public void OnStatusEffectsChanged(StatusEffectState effects) => _lastEffects = effects;
     public void OnRoomShortReady(string room) => _lastRoom = room;
 
-    /// <summary>The character occupying this session was identified (MudSession.CharacterIdentified,
-    /// fired once per game-mode entry from the post-login "score" reply). Stamped onto every fight
-    /// row from here on - see FightRecord.CharacterName's remarks for why this matters.</summary>
-    public void OnCharacterIdentified(string name)
+    /// <summary>A persona session opened or closed - one login. Stamped onto every fight row from
+    /// here on; null at the shell, so a fight resolving there is unattributed rather than credited to
+    /// the character who just left.</summary>
+    public void OnPersonaSessionChanged(long? personaSessionId)
     {
-        if (string.IsNullOrWhiteSpace(name))
-            return;
         lock (_lock)
-            _characterName = name;
+            _personaSessionId = personaSessionId;
     }
 
     /// <param name="encounterStartedAtMs">The shared encounter id, stamped once by MuckaConnection and
@@ -382,7 +379,7 @@ public sealed class FightHistoryRecorder : IDisposable
 
         return new FightRecord
         {
-            CharacterName = _characterName,
+            PersonaSessionId = _personaSessionId,
             EncounterStartedAtMs = _encounterStartedAtMs,
             StartedAtMs = new DateTimeOffset(fight.StartedUtc, TimeSpan.Zero).ToUnixTimeMilliseconds(),
             EndedAtMs = new DateTimeOffset(endedUtc, TimeSpan.Zero).ToUnixTimeMilliseconds(),
@@ -416,7 +413,6 @@ public sealed class FightHistoryRecorder : IDisposable
             StaminaAtStart = _encounterStats.Stamina,
             MaxStamina = _encounterStats.MaxStamina,
             ObjectsCarried = _encounterStats.ObjectsCarried,
-            Level = _encounterStats.Level,
             IsBlind = _encounterStats.IsBlind,
             IsDeaf = _encounterStats.IsDeaf,
             IsCrippled = _encounterStats.IsCrippled,

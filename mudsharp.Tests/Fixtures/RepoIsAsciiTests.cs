@@ -13,6 +13,7 @@ public class RepoIsAsciiTests
     {
         ".cs", ".xaml", ".md", ".csproj", ".props", ".targets", ".slnx", ".yml", ".yaml", ".json",
         ".xml", ".ps1", ".txt", ".tsv", ".iss", ".svg", ".manifest", ".appxmanifest", ".editorconfig",
+        ".sql",
         ".gitignore", ".gitattributes", ".ini", ".sh", ".cmd",
     };
 

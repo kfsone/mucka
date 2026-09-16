@@ -36,7 +36,7 @@ public sealed class MuckaStoreTests : IDisposable
         public void Write(StoreWrite write)
         {
             var command = write.Prepared(
-                "INSERT INTO wire (session_id, seq, ts_ms, direction, data) VALUES ($s,$q,$t,0,$d);");
+                "INSERT INTO wire (mucka_run_id, seq, ts_ms, direction, data) VALUES ($s,$q,$t,0,$d);");
             command.Parameters.AddWithValue("$s", SessionId);
             command.Parameters.AddWithValue("$q", Seq);
             command.Parameters.AddWithValue("$t", 1_787_000_000_000L + Seq);
@@ -124,6 +124,47 @@ public sealed class MuckaStoreTests : IDisposable
         // The two good rows shared the poison row's transaction, so they must have rolled back with
         // it. A partial batch would be worse than none: the log would look whole and not be.
         Assert.Equal(0, CountWire());
+    }
+
+    /// <summary>The one error this store ever reports has to be diagnosable on its own, because it is
+    /// the only thing anyone will see. A row throws for two reasons - a dead database, or a schema bug
+    /// - and for a schema bug the row TYPE is the answer. It must also say how much recording went
+    /// with it: the rows queued behind the bad one are unrelated to it and are dropped regardless, and
+    /// a silent drop of four hundred rows reads exactly like a silent drop of none.</summary>
+    [Fact]
+    public void The_fault_report_names_the_row_that_failed_and_how_much_was_dropped()
+    {
+        var entered = new ManualResetEventSlim();
+        var release = new ManualResetEventSlim();
+        var reports = new List<string>();
+
+        var store = new MuckaStore(DbPath, "test", null, (context, ex) => reports.Add(context + " :: " + ex.Message));
+        try
+        {
+            // Hold the writer inside a transaction so the rows below are all queued behind it, then
+            // release: the poison row faults, and everything after it is discarded unwritten.
+            store.Enqueue(new GateRow(entered, release));
+            Assert.True(entered.Wait(TimeSpan.FromSeconds(10)),
+                "the writer never entered the gate row's transaction");
+
+            store.Enqueue(new PoisonRow());
+            store.Enqueue(new GoodRow(store.SessionId, 1));
+            store.Enqueue(new GoodRow(store.SessionId, 2));
+            store.Enqueue(new GoodRow(store.SessionId, 3));
+            release.Set();
+
+            WaitUntil(() => store.IsFaulted, "the poison row should have faulted the store");
+        }
+        finally
+        {
+            release.Set();
+            store.Dispose();
+        }
+
+        var report = Assert.Single(reports);
+        Assert.Contains(nameof(PoisonRow), report);
+        Assert.Contains("poisoned row", report);   // the original cause survives the wrapping
+        Assert.Contains("3 queued rows dropped", report);
     }
 
     [Fact]
@@ -227,7 +268,7 @@ public sealed class MuckaStoreTests : IDisposable
             // starts, so nothing has to reach into the connection behind the writer's back.
             using var live = MuckaDb.OpenRead(DbPath);
             using var probe = live.CreateCommand();
-            probe.CommandText = "SELECT host, client_version, started_ms, ended_ms FROM sessions WHERE id = $id;";
+            probe.CommandText = "SELECT host, client_version, started_ms, ended_ms FROM mucka_runs WHERE id = $id;";
             probe.Parameters.AddWithValue("$id", id);
             using var reader = probe.ExecuteReader();
             Assert.True(reader.Read());
@@ -239,7 +280,7 @@ public sealed class MuckaStoreTests : IDisposable
 
         using var connection = MuckaDb.OpenRead(DbPath);
         using var command = connection.CreateCommand();
-        command.CommandText = "SELECT COUNT(*), SUM(ended_ms IS NOT NULL) FROM sessions;";
+        command.CommandText = "SELECT COUNT(*), SUM(ended_ms IS NOT NULL) FROM mucka_runs;";
         using var after = command.ExecuteReader();
         Assert.True(after.Read());
         Assert.Equal(1, after.GetInt32(0));

@@ -19,15 +19,13 @@ public sealed record FightRecord
     public long EndedAtMs { get; init; }
     public long DurationMs { get; init; }
 
-    /// <summary>The persona fighting this fight (MudSession.CharacterIdentified, from the
-    /// post-login "score" reply). Null only for rows recorded before the character was identified
-    /// (a fight resolving in the brief window right after game-mode entry) - see
-    /// FightHistoryRecorder.OnCharacterIdentified. Format v2+ only.
-    /// <para>Why this matters: every alt previously pooled into one shared file, silently
-    /// contaminating medians across characters with very different stats/gear. Filtering/grouping
-    /// by this field is left to callers (Foundation adds the capture, not the UI that reads it).</para>
-    /// </summary>
-    public string? CharacterName { get; init; }
+    /// <summary>Which login this fight happened in - <c>persona_sessions.id</c>. The character name
+    /// and the MUD2 it was played on live on that row, once, rather than repeated on every fight.
+    ///
+    /// <para>Null only for a fight that resolved between game-mode entry and the session row being
+    /// opened. Grouping by it is what stops one alt's medians contaminating another's - the two can
+    /// have very different stats and gear.</para></summary>
+    public long? PersonaSessionId { get; init; }
 
     /// <summary>Unix-ms timestamp of the ENCOUNTER this fight belongs to (the instant
     /// CombatTracker.InCombatChanged flipped true) - shared by every fight opened within the same
@@ -122,7 +120,6 @@ public sealed record FightRecord
     /// </summary>
     public long? PrevSameNameEndedMs { get; init; }
     public int? ObjectsCarried { get; init; }
-    public int? Level { get; init; }
     public bool IsBlind { get; init; }
     public bool IsDeaf { get; init; }
     public bool IsCrippled { get; init; }

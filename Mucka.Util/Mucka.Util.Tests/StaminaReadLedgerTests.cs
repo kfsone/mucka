@@ -51,11 +51,16 @@ public sealed class StaminaReadLedgerTests : IDisposable
 
         public SwingLedger Ledger { get; }
 
-        public Session Persona(string name)
+        /// <summary>Opens a login the way MuckaConnection does - a real persona_sessions row, because
+        /// the fact tables carry a foreign key to it and an invented id is rejected.</summary>
+        public Session PersonaSession()
         {
-            Ledger.OnCharacterIdentified(name);
+            PersonaSessionId = _db.BeginPersonaSession(1, "test");
+            Ledger.OnPersonaSessionChanged(PersonaSessionId);
             return this;
         }
+
+        public long? PersonaSessionId { get; private set; }
 
         public Session Stats(GameStatsSnapshot stats)
         {
@@ -100,7 +105,7 @@ public sealed class StaminaReadLedgerTests : IDisposable
     public void ADiagnoseReadingIsPersistedWithBothPrintedNumbersAndTheRawLine()
     {
         using var session = new Session(DbPath);
-        session.Persona("Ollie")
+        session.PersonaSession()
                .Say("You attack the water-snake5, using the falchion as a weapon.",
                     "The water-snake5 has a stamina lying between 90 and 99.");
 
@@ -117,7 +122,7 @@ public sealed class StaminaReadLedgerTests : IDisposable
         Assert.Equal("water-snake", read["pool_key"]);
         Assert.Equal(90L, read["printed_low"]);
         Assert.Equal(99L, read["printed_high"]);
-        Assert.Equal("Ollie", read["persona"]);
+        Assert.Equal(session.PersonaSessionId, read["persona_session_id"]);
         Assert.Equal("The water-snake5 has a stamina lying between 90 and 99.", read["raw_text"]);
     }
 

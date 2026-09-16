@@ -189,19 +189,19 @@ public sealed class FightHistoryStore
     }
 
     internal const string Columns =
-        "character_name, encounter_started_at_ms, started_at_ms, ended_at_ms, duration_ms, " +
+        "persona_session_id, encounter_started_at_ms, started_at_ms, ended_at_ms, duration_ms, " +
         "npc_name, npc_group, weapon_used, outcome, " +
         "you_hits, you_misses, they_hits, they_misses, approx_damage_done, approx_damage_taken, " +
         "narrative_mode, room, weather, strength, raw_strength, dexterity, raw_dexterity, " +
         "stamina_at_start, max_stamina, min_stamina, stamina_at_end, score_at_start, score_at_end, " +
-        "objects_carried, level, is_blind, is_deaf, is_crippled, is_dumb, effects, " +
+        "objects_carried, is_blind, is_deaf, is_crippled, is_dumb, effects, " +
         "prev_same_name_ended_ms";
 
     private const string SelectSql = $"SELECT {Columns} FROM fights ORDER BY started_at_ms;";
 
     private static FightRecord ReadRecord(SqliteDataReader reader) => new()
     {
-        CharacterName = Str(reader, 0),
+        PersonaSessionId = Long(reader, 0),
         EncounterStartedAtMs = Long(reader, 1),
         StartedAtMs = reader.GetInt64(2),
         EndedAtMs = reader.GetInt64(3),
@@ -230,13 +230,12 @@ public sealed class FightHistoryStore
         ScoreAtStart = Int(reader, 26),
         ScoreAtEnd = Int(reader, 27),
         ObjectsCarried = Int(reader, 28),
-        Level = Int(reader, 29),
-        IsBlind = reader.GetInt64(30) != 0,
-        IsDeaf = reader.GetInt64(31) != 0,
-        IsCrippled = reader.GetInt64(32) != 0,
-        IsDumb = reader.GetInt64(33) != 0,
-        Effects = SplitEffects(reader.IsDBNull(34) ? null : reader.GetString(34)),
-        PrevSameNameEndedMs = Long(reader, 35),
+        IsBlind = reader.GetInt64(29) != 0,
+        IsDeaf = reader.GetInt64(30) != 0,
+        IsCrippled = reader.GetInt64(31) != 0,
+        IsDumb = reader.GetInt64(32) != 0,
+        Effects = SplitEffects(reader.IsDBNull(33) ? null : reader.GetString(33)),
+        PrevSameNameEndedMs = Long(reader, 34),
     };
 
     private static string? Str(SqliteDataReader reader, int i) => reader.IsDBNull(i) ? null : reader.GetString(i);
@@ -258,12 +257,12 @@ internal sealed record FightRow(FightRecord Record) : IStoreRow
 {
     private const string Sql = $"""
         INSERT INTO fights ({FightHistoryStore.Columns}) VALUES (
-            $character_name, $encounter, $started, $ended, $duration,
+            $psid, $encounter, $started, $ended, $duration,
             $npc_name, $npc_group, $weapon_used, $outcome,
             $you_hits, $you_misses, $they_hits, $they_misses, $dmg_done, $dmg_taken,
             $narrative, $room, $weather, $strength, $raw_strength, $dexterity, $raw_dexterity,
             $sta_start, $sta_max, $sta_min, $sta_end, $score_start, $score_end,
-            $objects, $level, $blind, $deaf, $crippled, $dumb, $effects,
+            $objects, $blind, $deaf, $crippled, $dumb, $effects,
             $prev_same_name
         );
         """;
@@ -272,7 +271,7 @@ internal sealed record FightRow(FightRecord Record) : IStoreRow
     {
         var record = Record;
         var command = write.Prepared(Sql);
-        command.Parameters.AddWithValue("$character_name", Value(record.CharacterName));
+        command.Parameters.AddWithValue("$psid", Value(record.PersonaSessionId));
         command.Parameters.AddWithValue("$encounter", Value(record.EncounterStartedAtMs));
         command.Parameters.AddWithValue("$started", record.StartedAtMs);
         command.Parameters.AddWithValue("$ended", record.EndedAtMs);
@@ -301,7 +300,6 @@ internal sealed record FightRow(FightRecord Record) : IStoreRow
         command.Parameters.AddWithValue("$score_start", Value(record.ScoreAtStart));
         command.Parameters.AddWithValue("$score_end", Value(record.ScoreAtEnd));
         command.Parameters.AddWithValue("$objects", Value(record.ObjectsCarried));
-        command.Parameters.AddWithValue("$level", Value(record.Level));
         command.Parameters.AddWithValue("$blind", record.IsBlind ? 1 : 0);
         command.Parameters.AddWithValue("$deaf", record.IsDeaf ? 1 : 0);
         command.Parameters.AddWithValue("$crippled", record.IsCrippled ? 1 : 0);

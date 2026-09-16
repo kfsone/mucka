@@ -143,17 +143,31 @@ confident readout built on one is how a character dies while its owner trusts th
 The test a restated value fails: **could this sentence become false because somebody edited a number
 somewhere else?** If yes, name the owner.
 
-## One operator, five installs, all his
+## One operator, no reviewer, and installs that are not his
 
-There is one human here and he is the producer and lead, not a coder on this project. He is also
-essentially the entire userbase. So: no staged rollout, no unknown client states, no backward
-compatibility, and no keeping code "in case it is needed again." A migration written for a
-mistake made last week is not compatibility, it is sediment. Delete it, and delete the old data
-rather than reading it.
+There is one human here and he is the producer and lead, not a coder. An AI does all the
+engineering, every line, and nobody reviews it. Releases go out on GitHub and strangers run them.
 
-The acceptance gate is whether it plays right in his hands. Anything that never reaches his hands
--- tooling, analysis output, documentation -- has no gate at all unless you give it one, which is
-precisely how the corpus above rotted.
+For code that changes nothing: no staged rollout, no keeping code "in case it is needed again," and
+a migration written for last week's mistake is sediment. Delete it, and delete the old data rather
+than reading it.
+
+The database is the exception. There is no central database and no data is ever shipped. Each
+install creates and owns its own `~/.mucka/mucka.db` on its own machine; the only thing that travels
+is code, which then runs against a file we cannot see, shaped by whichever release that machine last
+installed. So a schema change must be forward-compatible and must not assume the file it opens is
+the operator's own. On his file a destructive step costs a table he can recreate; on a stranger's it
+destroys records nobody can recover - no backup, and no way to reach them. "The operator clears the
+table by hand" is not a migration path for a machine he will never sit at.
+
+Three reviews of the migration tooling each concluded "no framework needed" by quoting the old
+version of this section, and would have shipped column drops onto those machines. A model reads a
+policy and talks itself past it, and no human reads the schema change after it. So the guard on the
+schema has to be structural - a test that fails the build - and not a sentence here.
+
+The acceptance gate is whether it plays right in his hands. Anything that never reaches his hands -
+tooling, analysis output, documentation, and every install that is not his - has no gate unless you
+give it one, which is precisely how the corpus above rotted.
 
 ## Invariant #0 -- the command box owns the keyboard
 

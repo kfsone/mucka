@@ -52,14 +52,14 @@ public sealed class FightHistoryRecorderTests : IDisposable
         var store = MakeStore();
         var recorder = new FightHistoryRecorder(store);
 
-        recorder.OnCharacterIdentified("Ollie");
+        recorder.OnPersonaSessionChanged(7);
         recorder.OnInCombatChanged(true);
         recorder.OnCombatEvent(Event(CombatEventKind.FightStart, "rat0"));
         recorder.OnCombatEvent(Event(CombatEventKind.Kill, "rat0", atSecond: 5));
         recorder.OnInCombatChanged(false);
 
         var row = Assert.Single(store.Snapshot());
-        Assert.Equal("Ollie", row.CharacterName);
+        Assert.Equal(7, row.PersonaSessionId);
     }
 
     /// <summary>

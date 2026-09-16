@@ -64,11 +64,20 @@ public sealed class SwingLedgerTests : IDisposable
                 _ledger.OnInCombatChanged(inCombat, inCombat ? ++_encounters * 1000L : null);
         }
 
-        public Session Persona(string name)
+        /// <summary>Opens a login, exactly as MuckaConnection does on game-mode entry: a real
+        /// persona_sessions row, whose id the ledger then stamps on everything. Inserted rather than
+        /// invented because the fact tables carry a foreign key to it - a made-up id is rejected, and
+        /// that rejection is the schema working.</summary>
+        public Session PersonaSession()
         {
-            _ledger.OnCharacterIdentified(name);
+            PersonaSessionId = _db.BeginPersonaSession(
+                new DateTimeOffset(T0, TimeSpan.Zero).ToUnixTimeMilliseconds(), "test");
+            _ledger.OnPersonaSessionChanged(PersonaSessionId);
             return this;
         }
+
+        /// <summary>The open login's id, once <see cref="PersonaSession"/> has run.</summary>
+        public long? PersonaSessionId { get; private set; }
 
         /// <summary>A stats reading, as the FES heartbeat or an inline "(cur/max)" would deliver it.
         /// Call this immediately BEFORE the line that carried it: MudStreamParser raises StatsUpdated
@@ -83,14 +92,6 @@ public sealed class SwingLedgerTests : IDisposable
         public Session Effects(StatusEffectState effects)
         {
             _ledger.OnStatusEffectsChanged(effects);
-            return this;
-        }
-
-        /// <summary>A world reset landing - MudSession.WorldResetLanded, off the server's C06 C06.
-        /// Takes an explicit instant so the test can assert the exact stamp.</summary>
-        public Session WorldResetLanded(DateTime at)
-        {
-            _ledger.OnWorldResetLanded(new DateTimeOffset(at, TimeSpan.Zero).ToUnixTimeMilliseconds());
             return this;
         }
 
@@ -191,118 +192,41 @@ public sealed class SwingLedgerTests : IDisposable
         using var session = new Session(_directory);
 
         Assert.Equal(
-            ["id", "ts", "dir", "encounter_started_at_ms", "persona", "sex",
+            ["id", "ts", "dir", "encounter_started_at_ms", "sex",
              "sta", "sta_before", "sta_max",
              "str", "str_raw", "str_max", "dex", "dex_raw", "dex_max",
-             "level", "score", "objects_carried", "weather",
+             "score", "objects_carried", "weather",
              "blind", "deaf", "crippled", "dumb",
              "str_buff", "str_debuff", "dex_buff", "dex_debuff", "sta_buff", "sta_debuff", "glow",
-             "time_to_reset", "reset_landed_at_ms",
+             "time_to_reset",
              "npc", "npc_group", "npc_weapon", "rung", "rung_phrase",
-             "weapon", "hit", "dmg_low", "dmg_high", "dmg"],
+             "weapon", "hit", "dmg_low", "dmg_high", "dmg",
+             // Last, not where the baseline would have declared it: SQLite appends an ALTER-added
+             // column, and persona_session_id arrives in migration 0003. Position is not a property
+             // anything should depend on - nothing reads this table by ordinal - but pinning the
+             // ORDER as well as the set is what makes an accidental re-creation of the table visible.
+             "persona_session_id"],
             session.Columns());
     }
 
     [Fact]
     public void Row_CarriesTheIdentifyingContext()
     {
-        using var session = new Session(_directory).Persona("Ollie");
+        using var session = new Session(_directory).PersonaSession();
         session.Stats(new GameStatsSnapshot(
                     Stamina: 81, MaxStamina: 105, Strength: 94, Dexterity: 99, Sex: "male"))
                .Say("You attack the rat0, using the axe0 as a weapon.",
                     "You hit the rat0 (15-19).");
 
         var row = Assert.Single(session.Rows());
-        Assert.Equal("Ollie", Str(row, "persona"));
+        // The login, not the character's name: the name lives on persona_sessions, once.
+        Assert.Equal(session.PersonaSessionId, Int(row, "persona_session_id"));
         Assert.Equal("rat0", Str(row, "npc"));
         Assert.Equal("rats", Str(row, "npc_group"));
         // GameStatsSnapshot.Sex parses it off the score sheet, so it is recorded rather than left
-        // blank.
+        // blank. It stays on the swing rather than moving to the session row because MUD2 has magic
+        // that changes it mid-login.
         Assert.Equal("male", Str(row, "sex"));
-    }
-
-    /// <summary>The operator's file has tens of thousands of swings in it and is not thrown away to
-    /// change a column, so the new key has to arrive on an existing file with its rows intact. The
-    /// dead reset_epoch_ms is deliberately left in place on old files - nullable, unread, and not
-    /// worth rewriting a 26k-row table to remove.</summary>
-    [Fact]
-    public void AFileWrittenBeforeTheWorldKeyExisted_GainsItWithoutLosingItsRows()
-    {
-        using (var seed = new Session(_directory))
-        {
-            seed.Stats(new GameStatsSnapshot(Stamina: 81, TimeToReset: 47))
-                .Say("You attack the rat0, using the axe0 as a weapon.", "You hit the rat0 (15-19).");
-        }
-
-        var path = Path.Combine(_directory, MuckaDb.DefaultFileName);
-        using (var connection = new SqliteConnection(MuckaDb.ConnectionString(path)))
-        {
-            connection.Open();
-            using var drop = connection.CreateCommand();
-            // Reproduce the operator's actual old file, not an approximation of it: the world key
-            // absent, the column it replaced present, and ix_swings_reset pointing at THAT. The index
-            // must go first - SQLite refuses to drop a column an index still names, which is also
-            // why the live index needed a new name rather than the old one.
-            drop.CommandText =
-                "DROP INDEX IF EXISTS ix_swings_reset_landed;" +
-                "ALTER TABLE swings DROP COLUMN reset_landed_at_ms;" +
-                "ALTER TABLE swings ADD COLUMN reset_epoch_ms INTEGER;" +
-                "CREATE INDEX ix_swings_reset ON swings(reset_epoch_ms);";
-            drop.ExecuteNonQuery();
-        }
-
-        using var reopened = new Session(_directory);
-        reopened.WorldResetLanded(T0.AddSeconds(5))
-                .Stats(new GameStatsSnapshot(Stamina: 81, TimeToReset: 47))
-                .Say("You attack the rat0, using the axe0 as a weapon.", "You hit the rat0 (15-19).");
-
-        var rows = reopened.Rows();
-        Assert.Equal(2, rows.Count);
-        // The row written before anyone was recording it, kept.
-        Assert.True(rows[0]["reset_landed_at_ms"] is null or DBNull);
-        // And the migrated file carries the new fact from here on.
-        Assert.Equal(
-            new DateTimeOffset(T0.AddSeconds(5), TimeSpan.Zero).ToUnixTimeMilliseconds(),
-            Convert.ToInt64(rows[1]["reset_landed_at_ms"]));
-
-        // The world key is indexed - the point of the rename. Reusing ix_swings_reset would have left
-        // this index on the dead column and the live one unindexed, with nothing raising a word.
-        using var check = new SqliteConnection(MuckaDb.ConnectionString(path));
-        check.Open();
-        using var indexes = check.CreateCommand();
-        indexes.CommandText =
-            "SELECT i.name || '->' || c.name FROM pragma_index_list('swings') i " +
-            "JOIN pragma_index_info(i.name) c WHERE i.name LIKE 'ix_swings_reset%';";
-        using var reader = indexes.ExecuteReader();
-        var found = new List<string>();
-        while (reader.Read())
-            found.Add(reader.GetString(0));
-        Assert.Equal(["ix_swings_reset_landed->reset_landed_at_ms"], found);
-    }
-
-    /// <summary>A reset destroys and recreates every creature in the game, so the key that says which
-    /// world a swing happened in has to be an observed EVENT. It is stamped from the landing and stays
-    /// put across later swings whatever the countdown does - the countdown is mutable, because wizards
-    /// delay and accelerate resets, and a key derived from it moves under the rows it keys.</summary>
-    [Fact]
-    public void Row_KeysTheWorldOnTheObservedLanding_NotTheCountdown()
-    {
-        using var session = new Session(_directory);
-        var landed = T0.AddSeconds(5);
-
-        session.WorldResetLanded(landed)
-               // A countdown that moves - and, as wizards can do, moves the WRONG way - must not
-               // disturb the key. Both swings belong to the world that landed at `landed`.
-               .Stats(new GameStatsSnapshot(Stamina: 81, TimeToReset: 40))
-               .Say("You attack the rat0, using the axe0 as a weapon.", "You hit the rat0 (15-19).")
-               .Stats(new GameStatsSnapshot(Stamina: 81, TimeToReset: 105))
-               .Say("You hit the rat0 (15-19).");
-
-        var expected = new DateTimeOffset(landed, TimeSpan.Zero).ToUnixTimeMilliseconds();
-        var stamps = session.Rows().Select(r => Convert.ToInt64(r["reset_landed_at_ms"])).ToList();
-
-        Assert.Equal(2, stamps.Count);
-        Assert.All(stamps, s => Assert.Equal(expected, s));
     }
 
     /// <summary>The dimensions that make a baseline sliceable: which reset this happened in, and what
@@ -314,7 +238,7 @@ public sealed class SwingLedgerTests : IDisposable
     {
         using var session = new Session(_directory);
         session.Effects(new StatusEffectState(StrengthDebuff: true, DexterityBuff: true))
-               .Stats(new GameStatsSnapshot(Stamina: 81, Level: 4, Score: 1200, TimeToReset: 47))
+               .Stats(new GameStatsSnapshot(Stamina: 81, Score: 1200, TimeToReset: 47))
                .Say("You attack the rat0, using the axe0 as a weapon.",
                     "You hit the rat0 (15-19).");
 
@@ -322,11 +246,13 @@ public sealed class SwingLedgerTests : IDisposable
         // The countdown is kept RAW, as the game gave it, and nothing is derived from it: wizards
         // delay and accelerate resets, so ts+ttr is not an identity for anything.
         Assert.Equal(47, Int(row, "time_to_reset"));
-        // No landing has been observed in this session, so the key is null rather than a guess. A
-        // countdown of 47 must NOT conjure one.
-        Assert.True(row["reset_landed_at_ms"] is null or DBNull);
-        Assert.Equal(4, Int(row, "level"));
+        // And nothing keys a row to the countdown: no column is derived from it at all.
+        Assert.DoesNotContain("reset_epoch_ms", row.Keys);
+        // Score, and no level: level is bit-length(score/200) and carries nothing score does not.
+        // The game prints it on the score sheet, so recording it stored a snapshot that went stale
+        // the moment score moved - 12.2% of the old corpus disagreed with its own score row.
         Assert.Equal(1200, Int(row, "score"));
+        Assert.DoesNotContain("level", row.Keys);
         Assert.True(Flag(row, "str_debuff"));
         Assert.True(Flag(row, "dex_buff"));
         Assert.False(Flag(row, "str_buff"));
@@ -696,7 +622,7 @@ public sealed class SwingLedgerTests : IDisposable
         Assert.Null(Int(row, "str"));
         Assert.Null(Int(row, "dex"));
         Assert.Null(Int(row, "sta_max"));
-        Assert.Null(Str(row, "persona"));
+        Assert.Null(Int(row, "persona_session_id"));
         // The swing itself is intact - that is the whole point of keeping the row.
         Assert.Equal(15, Int(row, "dmg_low"));
         Assert.Equal("rat0", Str(row, "npc"));
@@ -777,7 +703,7 @@ public sealed class SwingLedgerTests : IDisposable
     public void ScoreSaves_AreRecordedAsEventsWithTheirSignedDelta()
     {
         using var session = new Session(_directory);
-        session.Persona("Ollie")
+        session.PersonaSession()
                .ScoreSaved(+38, 19_214)     // a kill award
                .ScoreSaved(-872, 18_382)    // a flee cost - the reason this table exists
                .ScoreSaved(null, 45_691);   // a reset save: no delta at all
@@ -787,7 +713,7 @@ public sealed class SwingLedgerTests : IDisposable
 
         Assert.Equal(38, Int(rows[0], "delta"));
         Assert.Equal(19_214, Int(rows[0], "total"));
-        Assert.Equal("Ollie", Str(rows[0], "persona"));
+        Assert.Equal(session.PersonaSessionId, Int(rows[0], "persona_session_id"));
         Assert.Equal("(Persona saved on +38 = 19,214).", Str(rows[0], "raw_text"));
 
         Assert.Equal(-872, Int(rows[1], "delta"));

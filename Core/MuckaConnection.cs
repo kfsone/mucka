@@ -199,10 +199,21 @@ public sealed class MuckaConnection : IAsyncDisposable
     /// prior ones - see FightHistoryRecorder's remarks.</summary>
     public FightHistoryStore FightHistory => _fightHistory;
 
-    /// <summary>Loads the fight-history index. Fire-and-forget from startup; must not be awaited on
-    /// the UI thread (Invariant #1). Safe to call before any fight has been recorded.</summary>
-    public Task LoadFightHistoryAsync(CancellationToken cancellationToken = default)
-        => _fightHistory.LoadAsync(cancellationToken);
+    /// <summary>Loads the fight-history index, and first gives any rows recorded before
+    /// <c>persona_sessions</c> existed the login they happened in - see
+    /// <see cref="PersonaSessionBackfill"/>. Fire-and-forget from startup; must not be awaited on
+    /// the UI thread (Invariant #1). Safe to call before any fight has been recorded.
+    ///
+    /// <para>The backfill runs first because the index it builds is what gets filtered by login, and
+    /// it is idempotent - on every start-up after the first it finds nothing to do and costs one
+    /// query. It never throws: unattributed history is worse than attributed history and better than
+    /// a client that will not start.</para></summary>
+    public async Task LoadFightHistoryAsync(CancellationToken cancellationToken = default)
+    {
+        await Task.Run(() => PersonaSessionBackfill.Run(_store.Path, CrashLog.Write), cancellationToken)
+                  .ConfigureAwait(false);
+        await _fightHistory.LoadAsync(cancellationToken).ConfigureAwait(false);
+    }
 
     /// <summary>The accumulated per-creature incoming-damage record, for the rail's "how hard does
     /// this thing hit" column. Fed by the swing ledger, which sees every blow already.</summary>
@@ -625,13 +636,90 @@ public sealed class MuckaConnection : IAsyncDisposable
             _encounterId = null;
     }
 
+    /// <summary>The open login, or null at the shell. Only the Feed thread touches these - every
+    /// game-mode and character event arrives on it.</summary>
+    private long? _personaSessionId;
+
+    /// <summary>Why the open login is about to end, when something knows before the exit does. A world
+    /// reset sets it; anything else leaves it null and the exit is recorded as an ordinary logout. The
+    /// column it lands in is advisory - see 0003_persona_sessions.sql - because the cases this cannot
+    /// see (a crash, a logout timed just before a reset) are indistinguishable from the ones it can.
+    /// </summary>
+    private string? _personaSessionEndNote;
+
+    /// <summary>
+    /// Classifies how this login is ending, from the lines MUD2 prints on the way out. Runs on the
+    /// Feed thread for every line, so it is two ordinal comparisons and nothing else.
+    ///
+    /// <para>The exit summary and the game-mode exit arrive in that order - the summary, then the
+    /// option-menu prompt that closes the session - so the note is always set before
+    /// <see cref="EndPersonaSession"/> reads it. See <see cref="PersonaSessionEnd"/> for why
+    /// <c>Cheerio!</c> is the discriminator and the scored/lost verb is not.</para>
+    ///
+    /// <para>First writer wins: <c>Cheerio!</c> precedes the summary in a quit, so the quit is
+    /// recorded and the summary does not overwrite it. A reset or a persona wipe, both of which come
+    /// from a C1 code rather than prose, are set elsewhere and outrank nothing here because they
+    /// arrive first too.</para>
+    /// </summary>
+    private void NotePersonaSessionEnd(string text)
+    {
+        if (_personaSessionId is null || _personaSessionEndNote is not null)
+            return;
+
+        if (text.Contains("Cheerio!", StringComparison.Ordinal))
+            _personaSessionEndNote = PersonaSessionEnd.Quit;
+        else if (text.Contains("Overall, you ", StringComparison.Ordinal)
+              && text.Contains(" points this game.", StringComparison.Ordinal))
+            _personaSessionEndNote = PersonaSessionEnd.Died;
+    }
+
+    private void BeginPersonaSession()
+    {
+        // Defensive: two entries with no exit between them would otherwise strand the first row with
+        // no end. Closing it here keeps every row's span meaningful even when the parser hiccups.
+        if (_personaSessionId is not null)
+            EndPersonaSession();
+
+        _personaSessionId = _store.BeginPersonaSession(
+            DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), _host);
+        _swingLedger.OnPersonaSessionChanged(_personaSessionId);
+        _fightRecorder.OnPersonaSessionChanged(_personaSessionId);
+        _clog.OnPersonaSessionChanged(_personaSessionId);
+    }
+
+    private void EndPersonaSession()
+    {
+        if (_personaSessionId is long id)
+            _store.EndPersonaSession(id, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                _personaSessionEndNote);
+
+        _personaSessionId = null;
+        _personaSessionEndNote = null;
+        // Rows recorded at the shell belong to no login, and saying so is better than attributing them
+        // to the character who just left.
+        _swingLedger.OnPersonaSessionChanged(null);
+        _fightRecorder.OnPersonaSessionChanged(null);
+        _clog.OnPersonaSessionChanged(null);
+    }
+
+    private void NamePersonaSession(string name)
+    {
+        if (_personaSessionId is long id && !string.IsNullOrWhiteSpace(name))
+            _store.NamePersonaSession(id, name);
+    }
+
     private void WireSessionEvents()
     {
         _session.PersonaWiped       += () => PersonaWiped?.Invoke();
         _session.AutoResetInitiated += () => AutoResetInitiated?.Invoke();
-        _session.WorldResetLanded += () => { _swingLedger.OnWorldResetLanded(); WorldResetLanded?.Invoke(); };
+        // The reset takes the world down and logs everyone out, so the game-mode exit that follows it
+        // milliseconds later is the one that closes the session. Leave a note for it to pick up.
+        _session.WorldResetLanded += () => { _personaSessionEndNote = PersonaSessionEnd.Reset; WorldResetLanded?.Invoke(); };
+        // Permadeath has a code of its own (C08+C13), so it is taken from the code rather than from
+        // the "Not updating persona." line that accompanies it.
+        _session.PersonaWiped += () => _personaSessionEndNote = PersonaSessionEnd.Permadeath;
         _session.FrameClosed      += () => FrameClosed?.Invoke();
-        _session.LineReady          += l => { _clog.OnLineReady(l); LineReady?.Invoke(l); };
+        _session.LineReady          += l => { NotePersonaSessionEnd(l.PlainText); _clog.OnLineReady(l); LineReady?.Invoke(l); };
         _session.StatsUpdated       += s => { _clog.OnStatsUpdated(s); _fightRecorder.OnStatsUpdated(s); _swingLedger.OnStatsUpdated(s); StatsUpdated?.Invoke(s); };
         _session.StatusEffectsChanged += s => { _clog.OnStatusEffectsChanged(s); _fightRecorder.OnStatusEffectsChanged(s); _swingLedger.OnStatusEffectsChanged(s); StatusEffectsChanged?.Invoke(s); };
         _session.InCombatChanged     += OnSessionInCombatChanged;
@@ -643,9 +731,14 @@ public sealed class MuckaConnection : IAsyncDisposable
             CombatEventOccurred?.Invoke(e);
         };
         _session.BellReceived       += () => BellReceived?.Invoke();
-        _session.GameModeEntered    += () => GameModeEntered?.Invoke();
-        _session.GameModeExited     += () => GameModeExited?.Invoke();
-        _session.CharacterIdentified += n => { _fightRecorder.OnCharacterIdentified(n); _swingLedger.OnCharacterIdentified(n); CharacterIdentified?.Invoke(n); };
+        _session.GameModeEntered    += () => { BeginPersonaSession(); GameModeEntered?.Invoke(); };
+        _session.GameModeExited     += () => { EndPersonaSession(); GameModeExited?.Invoke(); };
+        _session.CharacterIdentified += n =>
+        {
+            NamePersonaSession(n);
+
+            CharacterIdentified?.Invoke(n);
+        };
         // The ledger writes the event row; the recorder takes the total as the authoritative score for
         // any fight still open. Ledger first, so the row exists even if a consumer downstream throws.
         _session.ScoreSaved         += save =>

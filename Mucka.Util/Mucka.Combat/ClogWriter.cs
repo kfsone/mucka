@@ -98,6 +98,9 @@ public sealed class ClogWriter : IDisposable
     private readonly List<OpenEncounter> _open = [];
 
     private GameStatsSnapshot _lastStats = GameStatsSnapshot.Empty;
+
+    // The login these encounters belong to - persona_sessions.id. Null at the shell.
+    private long? _personaSessionId;
     private StatusEffectState _lastEffects = StatusEffectState.Empty;
     private string? _lastRoom;
 
@@ -236,7 +239,9 @@ public sealed class ClogWriter : IDisposable
         || a.Dexterity != b.Dexterity || a.RawDexterity != b.RawDexterity || a.MaxDexterity != b.MaxDexterity
         || a.ObjectsCarried != b.ObjectsCarried || a.MaxObjectsCarried != b.MaxObjectsCarried
         || a.CurrentMagic != b.CurrentMagic || a.MaxMagic != b.MaxMagic
-        || a.MaxStamina != b.MaxStamina || a.Level != b.Level
+        // Not level: it is a function of score, and the only thing it changes that a reader of this
+        // file could act on is the stat maxima, which are already three of the tests above.
+        || a.MaxStamina != b.MaxStamina
         || a.IsBlind != b.IsBlind || a.IsDeaf != b.IsDeaf
         || a.IsCrippled != b.IsCrippled || a.IsDumb != b.IsDumb
         || a.Weather != b.Weather;
@@ -294,7 +299,6 @@ public sealed class ClogWriter : IDisposable
         ObjectsCarried = _lastStats.ObjectsCarried,
         MaxObjectsCarried = _lastStats.MaxObjectsCarried,
         CarriedCount = _carried?.Length,
-        Level = _lastStats.Level,
         GamesPlayed = _lastStats.GamesPlayed,
         Weather = _lastStats.Weather.ToString(),
         IsBlind = _lastStats.IsBlind,
@@ -325,6 +329,14 @@ public sealed class ClogWriter : IDisposable
     /// dexterity buff landing mid-fight moves the exact numbers an object-cost measurement is
     /// differencing, and without a row saying so the movement would be attributed to the loadout.
     /// </summary>
+    /// <summary>A persona session opened or closed - one login. Every encounter opened from here on
+    /// belongs to it; null at the shell.</summary>
+    public void OnPersonaSessionChanged(long? personaSessionId)
+    {
+        lock (_lock)
+            _personaSessionId = personaSessionId;
+    }
+
     public void OnStatusEffectsChanged(StatusEffectState effects)
     {
         lock (_lock)
@@ -544,18 +556,12 @@ public sealed class ClogWriter : IDisposable
             CurrentEncounterKey = startedMs;
             UpdateTailOnlyLocked();
 
-            var estimate = ResetEstimateProvider?.Invoke();
             _store.Enqueue(new EncounterRow(
                 startedMs,
                 _lastRoom,
                 _lastStats.Weather.ToString(),
-                estimate?.TargetUtc is DateTime t
-                    ? new DateTimeOffset(t, TimeSpan.Zero).ToUnixTimeMilliseconds()
-                    : null,
-                estimate?.UncertaintySec,
-                estimate?.Phase.ToString(),
                 _lastStats.TimeToReset,
-                _lastStats.TimeToReset is int ttr ? startedMs + (ttr * 60_000L) : null));
+                _personaSessionId));
 
             var ord = 0;
             foreach (var text in _recentLines)

@@ -13,17 +13,15 @@ namespace Mucka.Combat;
 /// <c>fights</c>.</para>
 /// </summary>
 internal sealed record EncounterRow(
-    long Key, string? Room, string? Weather,
-    long? ResetTargetUtcMs, double? ResetUncertaintySec, string? ResetPhase,
-    int? TimeToReset, long? ResetDerivedEpochMs) : IStoreRow
+    long Key, string? Room, string? Weather, int? TimeToReset, long? PersonaSessionId) : IStoreRow
 {
+    // No estimate of when the reset will land. Every one of those was arithmetic on TimeToReset, and
+    // wizards move it - see 0003_persona_sessions.sql. The countdown itself stays, raw, as a reading.
     private const string Sql = """
         INSERT INTO encounters (
-            encounter_started_at_ms, room, weather,
-            reset_target_utc_ms, reset_uncertainty_sec, reset_phase,
-            time_to_reset, reset_derived_epoch_ms
+            encounter_started_at_ms, room, weather, time_to_reset, persona_session_id
         ) VALUES (
-            $key, $room, $weather, $target, $uncertainty, $phase, $ttr, $derived
+            $key, $room, $weather, $ttr, $psid
         );
         """;
 
@@ -33,11 +31,8 @@ internal sealed record EncounterRow(
         command.Parameters.AddWithValue("$key", Key);
         command.Parameters.AddWithValue("$room", StoreWrite.Value(Room));
         command.Parameters.AddWithValue("$weather", StoreWrite.Value(Weather));
-        command.Parameters.AddWithValue("$target", StoreWrite.Value(ResetTargetUtcMs));
-        command.Parameters.AddWithValue("$uncertainty", StoreWrite.Value(ResetUncertaintySec));
-        command.Parameters.AddWithValue("$phase", StoreWrite.Value(ResetPhase));
         command.Parameters.AddWithValue("$ttr", StoreWrite.Value(TimeToReset));
-        command.Parameters.AddWithValue("$derived", StoreWrite.Value(ResetDerivedEpochMs));
+        command.Parameters.AddWithValue("$psid", StoreWrite.Value(PersonaSessionId));
         command.ExecuteNonQuery();
     }
 }
@@ -102,7 +97,6 @@ internal sealed record EncounterStatsRow : IStoreRow
     public int? ObjectsCarried { get; init; }
     public int? MaxObjectsCarried { get; init; }
     public int? CarriedCount { get; init; }
-    public int? Level { get; init; }
     public int? GamesPlayed { get; init; }
     public string? Weather { get; init; }
     public bool IsBlind { get; init; }
@@ -123,7 +117,7 @@ internal sealed record EncounterStatsRow : IStoreRow
             stamina, max_stamina, strength, raw_strength, max_strength,
             dexterity, raw_dexterity, max_dexterity, magic, max_magic,
             objects_carried, max_objects_carried, carried_count,
-            level, games_played, weather,
+            games_played, weather,
             is_blind, is_deaf, is_crippled, is_dumb,
             str_buff, str_debuff, dex_buff, dex_debuff, sta_buff, sta_debuff, glow
         ) VALUES (
@@ -131,7 +125,7 @@ internal sealed record EncounterStatsRow : IStoreRow
             $sta, $sta_max, $str, $str_raw, $str_max,
             $dex, $dex_raw, $dex_max, $magic, $magic_max,
             $objects, $objects_max, $carried,
-            $level, $games, $weather,
+            $games, $weather,
             $blind, $deaf, $crippled, $dumb,
             $str_buff, $str_debuff, $dex_buff, $dex_debuff, $sta_buff, $sta_debuff, $glow
         );
@@ -156,7 +150,6 @@ internal sealed record EncounterStatsRow : IStoreRow
         command.Parameters.AddWithValue("$objects", StoreWrite.Value(ObjectsCarried));
         command.Parameters.AddWithValue("$objects_max", StoreWrite.Value(MaxObjectsCarried));
         command.Parameters.AddWithValue("$carried", StoreWrite.Value(CarriedCount));
-        command.Parameters.AddWithValue("$level", StoreWrite.Value(Level));
         command.Parameters.AddWithValue("$games", StoreWrite.Value(GamesPlayed));
         command.Parameters.AddWithValue("$weather", StoreWrite.Value(Weather));
         command.Parameters.AddWithValue("$blind", IsBlind ? 1 : 0);

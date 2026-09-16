@@ -41,7 +41,9 @@ public sealed record ScoreEventRow : IStoreRow
     /// printed on the line after it.</summary>
     public bool EncounterOpen { get; init; }
 
-    public string? Persona { get; init; }
+    /// <summary>Which login this happened in. The character's name lives on that row, once, rather
+    /// than on every row of every fact table.</summary>
+    public long? PersonaSessionId { get; init; }
 
     /// <summary>Signed, exactly as printed; null when the line carried no delta.</summary>
     public int? Delta { get; init; }
@@ -60,9 +62,9 @@ public sealed record ScoreEventRow : IStoreRow
 
     private const string Sql = """
         INSERT INTO score_events (
-            ts, encounter_started_at_ms, encounter_open, persona, delta, total, after_task_line, raw_text
+            ts, encounter_started_at_ms, encounter_open, persona_session_id, delta, total, after_task_line, raw_text
         ) VALUES (
-            $ts, $encounter, $encounter_open, $persona, $delta, $total, $after_task_line, $raw_text
+            $ts, $encounter, $encounter_open, $psid, $delta, $total, $after_task_line, $raw_text
         );
         """;
 
@@ -72,7 +74,7 @@ public sealed record ScoreEventRow : IStoreRow
         command.Parameters.AddWithValue("$ts", TimestampMs);
         command.Parameters.AddWithValue("$encounter", StoreWrite.Value(EncounterStartedAtMs));
         command.Parameters.AddWithValue("$encounter_open", EncounterOpen ? 1 : 0);
-        command.Parameters.AddWithValue("$persona", StoreWrite.Value(Persona));
+        command.Parameters.AddWithValue("$psid", StoreWrite.Value(PersonaSessionId));
         command.Parameters.AddWithValue("$delta", StoreWrite.Value(Delta));
         command.Parameters.AddWithValue("$total", Total);
         command.Parameters.AddWithValue("$after_task_line", AfterTaskLine ? 1 : 0);
@@ -93,7 +95,7 @@ public sealed record NpcStaminaReadRow : IStoreRow
 {
     public long TimestampMs { get; init; }
     public long? EncounterStartedAtMs { get; init; }
-    public string? Persona { get; init; }
+    public long? PersonaSessionId { get; init; }
 
     /// <summary>Instance name as the game gave it ("water-snake5").</summary>
     public string NpcName { get; init; } = string.Empty;
@@ -113,10 +115,10 @@ public sealed record NpcStaminaReadRow : IStoreRow
 
     private const string Sql = """
         INSERT INTO npc_stamina_reads (
-            ts, encounter_started_at_ms, persona, npc, npc_group, pool_key,
+            ts, encounter_started_at_ms, persona_session_id, npc, npc_group, pool_key,
             printed_low, printed_high, raw_text
         ) VALUES (
-            $ts, $encounter, $persona, $npc, $npc_group, $pool_key,
+            $ts, $encounter, $psid, $npc, $npc_group, $pool_key,
             $printed_low, $printed_high, $raw_text
         );
         """;
@@ -126,7 +128,7 @@ public sealed record NpcStaminaReadRow : IStoreRow
         var command = write.Prepared(Sql);
         command.Parameters.AddWithValue("$ts", TimestampMs);
         command.Parameters.AddWithValue("$encounter", StoreWrite.Value(EncounterStartedAtMs));
-        command.Parameters.AddWithValue("$persona", StoreWrite.Value(Persona));
+        command.Parameters.AddWithValue("$psid", StoreWrite.Value(PersonaSessionId));
         command.Parameters.AddWithValue("$npc", NpcName);
         command.Parameters.AddWithValue("$npc_group", NpcGroup);
         command.Parameters.AddWithValue("$pool_key", PoolKey);
@@ -158,11 +160,6 @@ public sealed record SwingRow : IStoreRow
     /// rather than computed here: two consumers each calling UtcNow would produce two ids a few
     /// microseconds apart and the join would silently match nothing.</summary>
     public long? EncounterStartedAtMs { get; init; }
-
-    /// <summary>The character swinging/being swung at (MudSession.CharacterIdentified). Null only for
-    /// swings landing in the window between game-mode entry and the setup <c>score</c> reply - the
-    /// same gap FightRecord.CharacterName documents.</summary>
-    public string? Persona { get; init; }
 
     /// <summary>Persona sex, as the <c>score</c> sheet words it. <see cref="GameStatsSnapshot.Sex"/>
     /// parses it straight off the sheet.</summary>
@@ -198,8 +195,6 @@ public sealed record SwingRow : IStoreRow
     public int? RawDexterity { get; init; }
     public int? MaxDexterity { get; init; }
 
-    public int? Level { get; init; }
-
     /// <summary>
     /// The player's running score at this swing.
     ///
@@ -232,25 +227,20 @@ public sealed record SwingRow : IStoreRow
     /// heartbeat (field [13] - see Mud2C1Decoder.ParseAndEmitFes).</summary>
     public int? TimeToReset { get; init; }
 
-    /// <summary>The client's own clock at the instant the last reset LANDED - the C06 C06 the server
-    /// sends as it goes down ("Something magical is happening."), corroborated in
-    /// MudSession.OnWorldResetLanded. Null until this client has watched one land.
+    /// <summary>Which login this swing happened in - <c>persona_sessions.id</c>. The character's name
+    /// and the MUD2 it was played on live on that row, once, rather than on every swing.
     ///
-    /// <para><b>Never derived from <see cref="TimeToReset"/>.</b> A reset is the server terminating
-    /// and reloading the world from scratch, and wizards can delay or accelerate it, so the countdown
-    /// is a mutable quantity and <c>ts + ttr</c> is not an identity for anything. Measured on the
-    /// corpus that proved it: one 113-second encounter of 189 swings produced 118 distinct values of
-    /// the old derived column, and the countdown was seen RISING 38 times within a ten-minute window,
-    /// by as much as 105 minutes. A local stamp of an observed event cannot drift.</para>
+    /// <para><b>This is the grouping key, and nothing about it is derived from the game's clock.</b>
+    /// What stood here before was <c>ts + time_to_reset*60000</c>, an estimate of when the world would
+    /// end - a server-relative figure built on a countdown wizards move, which was never an identity
+    /// (one 113-second encounter produced 118 distinct values) and could not tell two clients apart.
+    /// A player may run several Muckas at once, on different MUD2s or different personas of the same
+    /// one, whose resets have nothing to do with each other.</para>
     ///
-    /// <para>Nor is a session a substitute: one wire session has been seen containing three landings
-    /// 107 minutes apart, so grouping by session would MERGE distinct worlds.</para>
-    ///
-    /// <para>It matters because a reset destroys and recreates every creature and object in the game.
-    /// "rat16" either side of one is two different animals with different rolls, and creatures level
-    /// WITHIN a reset by scoring, uncapped, so a lifetime average for "zombies" blends a fresh spawn
-    /// with one that has been levelling for hours.</para></summary>
-    public long? ResetLandedAtMs { get; init; }
+    /// <para>A world reset terminates the server and logs everyone out, so a session can never span
+    /// one. Creature identity therefore holds inside a session and nowhere wider: "rat16" in two
+    /// different sessions is two different animals.</para></summary>
+    public long? PersonaSessionId { get; init; }
 
     /// <summary>The instance name exactly as the game gave it ("rat0"), so a single unusually tough
     /// spawn stays distinguishable from its group.</summary>
@@ -297,23 +287,23 @@ public sealed record SwingRow : IStoreRow
 
     private const string Sql = """
         INSERT INTO swings (
-            ts, dir, encounter_started_at_ms, persona, sex,
+            ts, dir, encounter_started_at_ms, persona_session_id, sex,
             sta, sta_before, sta_max,
             str, str_raw, str_max, dex, dex_raw, dex_max,
-            level, score, objects_carried, weather,
+            score, objects_carried, weather,
             blind, deaf, crippled, dumb,
             str_buff, str_debuff, dex_buff, dex_debuff, sta_buff, sta_debuff, glow,
-            time_to_reset, reset_landed_at_ms,
+            time_to_reset,
             npc, npc_group, npc_weapon, rung, rung_phrase,
             weapon, hit, dmg_low, dmg_high, dmg
         ) VALUES (
-            $ts, $dir, $encounter, $persona, $sex,
+            $ts, $dir, $encounter, $psid, $sex,
             $sta, $sta_before, $sta_max,
             $str, $str_raw, $str_max, $dex, $dex_raw, $dex_max,
-            $level, $score, $objects, $weather,
+            $score, $objects, $weather,
             $blind, $deaf, $crippled, $dumb,
             $str_buff, $str_debuff, $dex_buff, $dex_debuff, $sta_buff, $sta_debuff, $glow,
-            $ttr, $reset_landed,
+            $ttr,
             $npc, $npc_group, $npc_weapon, $rung, $rung_phrase,
             $weapon, $hit, $dmg_low, $dmg_high, $dmg
         );
@@ -325,7 +315,7 @@ public sealed record SwingRow : IStoreRow
         command.Parameters.AddWithValue("$ts", TimestampMs);
         command.Parameters.AddWithValue("$dir", Direction);
         command.Parameters.AddWithValue("$encounter", StoreWrite.Value(EncounterStartedAtMs));
-        command.Parameters.AddWithValue("$persona", StoreWrite.Value(Persona));
+        command.Parameters.AddWithValue("$psid", StoreWrite.Value(PersonaSessionId));
         command.Parameters.AddWithValue("$sex", StoreWrite.Value(Sex));
         command.Parameters.AddWithValue("$sta", StoreWrite.Value(Stamina));
         command.Parameters.AddWithValue("$sta_before", StoreWrite.Value(StaminaBefore));
@@ -336,7 +326,6 @@ public sealed record SwingRow : IStoreRow
         command.Parameters.AddWithValue("$dex", StoreWrite.Value(Dexterity));
         command.Parameters.AddWithValue("$dex_raw", StoreWrite.Value(RawDexterity));
         command.Parameters.AddWithValue("$dex_max", StoreWrite.Value(MaxDexterity));
-        command.Parameters.AddWithValue("$level", StoreWrite.Value(Level));
         command.Parameters.AddWithValue("$score", StoreWrite.Value(Score));
         command.Parameters.AddWithValue("$objects", StoreWrite.Value(ObjectsCarried));
         command.Parameters.AddWithValue("$weather", StoreWrite.Value(Weather));
@@ -352,7 +341,6 @@ public sealed record SwingRow : IStoreRow
         command.Parameters.AddWithValue("$sta_debuff", StaminaDebuff ? 1 : 0);
         command.Parameters.AddWithValue("$glow", Glow ? 1 : 0);
         command.Parameters.AddWithValue("$ttr", StoreWrite.Value(TimeToReset));
-        command.Parameters.AddWithValue("$reset_landed", StoreWrite.Value(ResetLandedAtMs));
         command.Parameters.AddWithValue("$npc", StoreWrite.Value(NpcName));
         command.Parameters.AddWithValue("$npc_group", NpcGroup);
         command.Parameters.AddWithValue("$npc_weapon", StoreWrite.Value(NpcWeapon));
