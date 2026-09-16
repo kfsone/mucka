@@ -89,6 +89,40 @@ public sealed class StaminaSealTests
         Assert.Null(NpcVitality.Estimate(rung: 9, pool: null, remaining: null));
     }
 
+    /// <summary>"full of life" is cur == max EXACTLY (328/328 paired readings, and the C1 colour code
+    /// on the stamina value is 99.10 only and exactly at max), not merely the top seventh. Rung 7
+    /// alone says the creature may be up to a seventh down, so a seal fed only the rung can never
+    /// draw full - which is why an untouched opponent always looked slightly wounded.</summary>
+    [Fact]
+    public void AtMax_FillsTheSeal_WhereRungSevenAloneCannot()
+    {
+        var atMax = NpcVitality.Estimate(7, null, null, atMax: true)!.Value;
+        Assert.Equal(1.0, atMax.Low);
+        Assert.Equal(1.0, atMax.High);
+        // The whole ring is CERTAIN, so there is no soft arc to fade and the fill reaches the end.
+        Assert.Equal(0f, StaminaSeal.BoundaryFor(atMax.Low));
+
+        // The same descriptor's rung, without the at-max point, floors the certain fill at 6/7 - the
+        // defect this closes. Pinned so the two cannot silently converge.
+        var rungOnly = NpcVitality.Estimate(7, null, null)!.Value;
+        Assert.Equal(6 / 7.0, rungOnly.Low, 6);
+        Assert.True(StaminaSeal.BoundaryFor(rungOnly.Low) > 0f);
+    }
+
+    /// <summary>An exact equality cannot be narrowed, so a pool and a remaining band - which would
+    /// otherwise merge and could only make the answer WORSE than the truth - must not touch it.</summary>
+    [Fact]
+    public void AtMax_OutranksEveryNarrowingSource()
+    {
+        var pool = Pool(above: 10, atMost: 12);
+        var narrowed = NpcVitality.Estimate(
+            7, pool, NpcRemainingStamina.Compute(pool, new DamageBracket(5, 9)), atMax: true)!.Value;
+
+        Assert.Equal(1.0, narrowed.Low);
+        Assert.Equal(1.0, narrowed.High);
+        Assert.Equal(VitalityBasis.None, narrowed.Basis & VitalityBasis.Narrowed);
+    }
+
     [Fact]
     public void APoolWithNoEvidence_IsNoDenominator_EvenWithARealRemainingBand()
     {

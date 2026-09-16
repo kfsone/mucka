@@ -86,6 +86,14 @@ public sealed class SwingLedgerTests : IDisposable
             return this;
         }
 
+        /// <summary>A world reset landing - MudSession.WorldResetLanded, off the server's C06 C06.
+        /// Takes an explicit instant so the test can assert the exact stamp.</summary>
+        public Session WorldResetLanded(DateTime at)
+        {
+            _ledger.OnWorldResetLanded(new DateTimeOffset(at, TimeSpan.Zero).ToUnixTimeMilliseconds());
+            return this;
+        }
+
         /// <summary>MUD2 announcing a score change. Delivered the way MudStreamParser delivers it -
         /// as its own signal, not folded into a stats snapshot.</summary>
         public Session ScoreSaved(int? delta, int total)
@@ -189,7 +197,7 @@ public sealed class SwingLedgerTests : IDisposable
              "level", "score", "objects_carried", "weather",
              "blind", "deaf", "crippled", "dumb",
              "str_buff", "str_debuff", "dex_buff", "dex_debuff", "sta_buff", "sta_debuff", "glow",
-             "time_to_reset", "reset_epoch_ms",
+             "time_to_reset", "reset_landed_at_ms",
              "npc", "npc_group", "npc_weapon", "rung", "rung_phrase",
              "weapon", "hit", "dmg_low", "dmg_high", "dmg"],
             session.Columns());
@@ -213,6 +221,90 @@ public sealed class SwingLedgerTests : IDisposable
         Assert.Equal("male", Str(row, "sex"));
     }
 
+    /// <summary>The operator's file has tens of thousands of swings in it and is not thrown away to
+    /// change a column, so the new key has to arrive on an existing file with its rows intact. The
+    /// dead reset_epoch_ms is deliberately left in place on old files - nullable, unread, and not
+    /// worth rewriting a 26k-row table to remove.</summary>
+    [Fact]
+    public void AFileWrittenBeforeTheWorldKeyExisted_GainsItWithoutLosingItsRows()
+    {
+        using (var seed = new Session(_directory))
+        {
+            seed.Stats(new GameStatsSnapshot(Stamina: 81, TimeToReset: 47))
+                .Say("You attack the rat0, using the axe0 as a weapon.", "You hit the rat0 (15-19).");
+        }
+
+        var path = Path.Combine(_directory, MuckaDb.DefaultFileName);
+        using (var connection = new SqliteConnection(MuckaDb.ConnectionString(path)))
+        {
+            connection.Open();
+            using var drop = connection.CreateCommand();
+            // Reproduce the operator's actual old file, not an approximation of it: the world key
+            // absent, the column it replaced present, and ix_swings_reset pointing at THAT. The index
+            // must go first - SQLite refuses to drop a column an index still names, which is also
+            // why the live index needed a new name rather than the old one.
+            drop.CommandText =
+                "DROP INDEX IF EXISTS ix_swings_reset_landed;" +
+                "ALTER TABLE swings DROP COLUMN reset_landed_at_ms;" +
+                "ALTER TABLE swings ADD COLUMN reset_epoch_ms INTEGER;" +
+                "CREATE INDEX ix_swings_reset ON swings(reset_epoch_ms);";
+            drop.ExecuteNonQuery();
+        }
+
+        using var reopened = new Session(_directory);
+        reopened.WorldResetLanded(T0.AddSeconds(5))
+                .Stats(new GameStatsSnapshot(Stamina: 81, TimeToReset: 47))
+                .Say("You attack the rat0, using the axe0 as a weapon.", "You hit the rat0 (15-19).");
+
+        var rows = reopened.Rows();
+        Assert.Equal(2, rows.Count);
+        // The row written before anyone was recording it, kept.
+        Assert.True(rows[0]["reset_landed_at_ms"] is null or DBNull);
+        // And the migrated file carries the new fact from here on.
+        Assert.Equal(
+            new DateTimeOffset(T0.AddSeconds(5), TimeSpan.Zero).ToUnixTimeMilliseconds(),
+            Convert.ToInt64(rows[1]["reset_landed_at_ms"]));
+
+        // The world key is indexed - the point of the rename. Reusing ix_swings_reset would have left
+        // this index on the dead column and the live one unindexed, with nothing raising a word.
+        using var check = new SqliteConnection(MuckaDb.ConnectionString(path));
+        check.Open();
+        using var indexes = check.CreateCommand();
+        indexes.CommandText =
+            "SELECT i.name || '->' || c.name FROM pragma_index_list('swings') i " +
+            "JOIN pragma_index_info(i.name) c WHERE i.name LIKE 'ix_swings_reset%';";
+        using var reader = indexes.ExecuteReader();
+        var found = new List<string>();
+        while (reader.Read())
+            found.Add(reader.GetString(0));
+        Assert.Equal(["ix_swings_reset_landed->reset_landed_at_ms"], found);
+    }
+
+    /// <summary>A reset destroys and recreates every creature in the game, so the key that says which
+    /// world a swing happened in has to be an observed EVENT. It is stamped from the landing and stays
+    /// put across later swings whatever the countdown does - the countdown is mutable, because wizards
+    /// delay and accelerate resets, and a key derived from it moves under the rows it keys.</summary>
+    [Fact]
+    public void Row_KeysTheWorldOnTheObservedLanding_NotTheCountdown()
+    {
+        using var session = new Session(_directory);
+        var landed = T0.AddSeconds(5);
+
+        session.WorldResetLanded(landed)
+               // A countdown that moves - and, as wizards can do, moves the WRONG way - must not
+               // disturb the key. Both swings belong to the world that landed at `landed`.
+               .Stats(new GameStatsSnapshot(Stamina: 81, TimeToReset: 40))
+               .Say("You attack the rat0, using the axe0 as a weapon.", "You hit the rat0 (15-19).")
+               .Stats(new GameStatsSnapshot(Stamina: 81, TimeToReset: 105))
+               .Say("You hit the rat0 (15-19).");
+
+        var expected = new DateTimeOffset(landed, TimeSpan.Zero).ToUnixTimeMilliseconds();
+        var stamps = session.Rows().Select(r => Convert.ToInt64(r["reset_landed_at_ms"])).ToList();
+
+        Assert.Equal(2, stamps.Count);
+        Assert.All(stamps, s => Assert.Equal(expected, s));
+    }
+
     /// <summary>The dimensions that make a baseline sliceable: which reset this happened in, and what
     /// was buffing or debuffing the player at the time. MUD2's creatures level up within a reset and
     /// the player's own effects move both damage and hit chance, so a corpus that cannot separate
@@ -227,12 +319,12 @@ public sealed class SwingLedgerTests : IDisposable
                     "You hit the rat0 (15-19).");
 
         var row = Assert.Single(session.Rows());
+        // The countdown is kept RAW, as the game gave it, and nothing is derived from it: wizards
+        // delay and accelerate resets, so ts+ttr is not an identity for anything.
         Assert.Equal(47, Int(row, "time_to_reset"));
-        // The reset's END instant, to within the reading's granularity. ts is T0+1s here, and the
-        // countdown is in MINUTES (FES field [13]) - 47 minutes, so 47 * 60_000 ms, NOT 47_000.
-        Assert.Equal(
-            new DateTimeOffset(T0.AddSeconds(1), TimeSpan.Zero).ToUnixTimeMilliseconds() + 47 * 60_000L,
-            Convert.ToInt64(row["reset_epoch_ms"]));
+        // No landing has been observed in this session, so the key is null rather than a guess. A
+        // countdown of 47 must NOT conjure one.
+        Assert.True(row["reset_landed_at_ms"] is null or DBNull);
         Assert.Equal(4, Int(row, "level"));
         Assert.Equal(1200, Int(row, "score"));
         Assert.True(Flag(row, "str_debuff"));

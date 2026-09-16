@@ -93,11 +93,9 @@ public sealed record SessionCombatTotals(
 /// row-capped roster - see <c>SidePanelViewModel.BuildDeadStripHistory</c>.</para>
 ///
 /// <para><see cref="EncounterOrdinal"/> and <see cref="ResetOrdinal"/> are simple monotonic
-/// session-scoped counters, not timestamps or epochs - <c>SwingLedger.ResetEpochMs</c> is derived
-/// from the FES <c>TimeToReset</c>, which is in whole MINUTES, and is noisy row-to-row within one
-/// reset cycle (on the swing ledger corpus, 13.2% of rows sat within +-30s of their cycle median
-/// before that column was repaired, 93.9% after) - equality on it would draw spurious lines
-/// mid-session.
+/// session-scoped counters, not timestamps or epochs. They share their source with
+/// <c>SwingRow.ResetLandedAtMs</c> - the observed C06 C06 landing - and neither is ever derived from
+/// the FES <c>TimeToReset</c>, which wizards can delay or accelerate.
 /// See <see cref="SidePanelViewModel"/>'s own fields for where each counter is advanced.</para>
 /// </summary>
 /// <param name="EncounterOrdinal">Which encounter this ending belongs to. Incremented once per
@@ -106,7 +104,7 @@ public sealed record SessionCombatTotals(
 /// <param name="ResetOrdinal">Which reset cycle this ending belongs to. Incremented when the reset
 /// LANDS - the server's own C06 C06, corroborated against the reset countdown
 /// (<c>SidePanelViewModel.OnWorldResetLanded</c>, wired to <c>MuckaConnection.WorldResetLanded</c>),
-/// with the shell prompt as a backstop. Never inferred from <c>ResetEpochMs</c> or from prose, and
+/// with the shell prompt as a backstop. Never inferred from the countdown or from prose, and
 /// never from the C06 C04 WARNING - anything ending in the 120-second finish-up window (a fight cut
 /// short BY the reset, most obviously) must land on the pre-reset side of the separator.</param>
 /// <param name="Dealt">What the player did to this creature over the whole fight, and at what rate -

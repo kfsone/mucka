@@ -232,18 +232,25 @@ public sealed record SwingRow : IStoreRow
     /// heartbeat (field [13] - see Mud2C1Decoder.ParseAndEmitFes).</summary>
     public int? TimeToReset { get; init; }
 
-    /// <summary>An ESTIMATE of when the reset this swing happened in will END - <see
-    /// cref="TimestampMs"/> plus the countdown in minutes (<c>ttr * 60_000</c>). Derived rather than
-    /// raw because the countdown changes on every swing while this stays put - but only to within a
-    /// minute: the reading is whole minutes, so successive swings in one reset scatter across a 60s
-    /// bucket. <b>Bucket before grouping</b> (ResetClock's MinuteUncertaintySec is the same +/-30s);
-    /// raw equality is not an identity and splits one reset into many.
+    /// <summary>The client's own clock at the instant the last reset LANDED - the C06 C06 the server
+    /// sends as it goes down ("Something magical is happening."), corroborated in
+    /// MudSession.OnWorldResetLanded. Null until this client has watched one land.
     ///
-    /// <para>It matters because MUD2's creatures are not constants: within a reset they earn points
-    /// and level up, hitting harder and surviving longer. A lifetime average for "zombies" silently
-    /// blends a freshly-spawned one with one that has been levelling for hours, and a risk assessment
-    /// built on that baseline would be confidently wrong in both directions.</para></summary>
-    public long? ResetEpochMs { get; init; }
+    /// <para><b>Never derived from <see cref="TimeToReset"/>.</b> A reset is the server terminating
+    /// and reloading the world from scratch, and wizards can delay or accelerate it, so the countdown
+    /// is a mutable quantity and <c>ts + ttr</c> is not an identity for anything. Measured on the
+    /// corpus that proved it: one 113-second encounter of 189 swings produced 118 distinct values of
+    /// the old derived column, and the countdown was seen RISING 38 times within a ten-minute window,
+    /// by as much as 105 minutes. A local stamp of an observed event cannot drift.</para>
+    ///
+    /// <para>Nor is a session a substitute: one wire session has been seen containing three landings
+    /// 107 minutes apart, so grouping by session would MERGE distinct worlds.</para>
+    ///
+    /// <para>It matters because a reset destroys and recreates every creature and object in the game.
+    /// "rat16" either side of one is two different animals with different rolls, and creatures level
+    /// WITHIN a reset by scoring, uncapped, so a lifetime average for "zombies" blends a fresh spawn
+    /// with one that has been levelling for hours.</para></summary>
+    public long? ResetLandedAtMs { get; init; }
 
     /// <summary>The instance name exactly as the game gave it ("rat0"), so a single unusually tough
     /// spawn stays distinguishable from its group.</summary>
@@ -296,7 +303,7 @@ public sealed record SwingRow : IStoreRow
             level, score, objects_carried, weather,
             blind, deaf, crippled, dumb,
             str_buff, str_debuff, dex_buff, dex_debuff, sta_buff, sta_debuff, glow,
-            time_to_reset, reset_epoch_ms,
+            time_to_reset, reset_landed_at_ms,
             npc, npc_group, npc_weapon, rung, rung_phrase,
             weapon, hit, dmg_low, dmg_high, dmg
         ) VALUES (
@@ -306,7 +313,7 @@ public sealed record SwingRow : IStoreRow
             $level, $score, $objects, $weather,
             $blind, $deaf, $crippled, $dumb,
             $str_buff, $str_debuff, $dex_buff, $dex_debuff, $sta_buff, $sta_debuff, $glow,
-            $ttr, $reset_epoch,
+            $ttr, $reset_landed,
             $npc, $npc_group, $npc_weapon, $rung, $rung_phrase,
             $weapon, $hit, $dmg_low, $dmg_high, $dmg
         );
@@ -345,7 +352,7 @@ public sealed record SwingRow : IStoreRow
         command.Parameters.AddWithValue("$sta_debuff", StaminaDebuff ? 1 : 0);
         command.Parameters.AddWithValue("$glow", Glow ? 1 : 0);
         command.Parameters.AddWithValue("$ttr", StoreWrite.Value(TimeToReset));
-        command.Parameters.AddWithValue("$reset_epoch", StoreWrite.Value(ResetEpochMs));
+        command.Parameters.AddWithValue("$reset_landed", StoreWrite.Value(ResetLandedAtMs));
         command.Parameters.AddWithValue("$npc", StoreWrite.Value(NpcName));
         command.Parameters.AddWithValue("$npc_group", NpcGroup);
         command.Parameters.AddWithValue("$npc_weapon", StoreWrite.Value(NpcWeapon));

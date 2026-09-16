@@ -122,15 +122,28 @@ public static class NpcVitality
     /// <param name="dealtThisFight">Everything dealt this fight. Its LOW end is a live floor under the
     /// pool, because the creature is still standing, and on a first encounter it is the only
     /// denominator a crossing has.</param>
+    /// <param name="atMax">The descriptor was one of the at-max words - see
+    /// <see cref="NpcHealthRungs.IsAtMax"/>. An exact equality, not a band, so it settles the whole
+    /// estimate on its own and nothing may narrow it afterwards: there is nothing left to narrow.
+    /// Only ql and examine can produce it, never a combat line, because combat describes a creature
+    /// only after damage.</param>
     public static VitalityBand? Estimate(
         int? rung,
         StaminaPoolEstimate? pool,
         NpcStaminaBand? remaining,
         NpcRungCrossing? crossing = null,
-        DamageBracket dealtThisFight = default)
+        DamageBracket dealtThisFight = default,
+        bool atMax = false)
     {
         double low, high;
         var basis = VitalityBasis.None;
+
+        // cur == max, measured 328/328 and agreed by the protocol (the C1 code on the stamina value is
+        // 99.10 only and exactly at max). Taken before the rung so it cannot be widened back into a
+        // seventh by the descriptor that carried it - "full of life" IS rung 7, and rung 7 alone would
+        // say the creature might be a seventh down when the game has just said it is untouched.
+        if (atMax)
+            return new VitalityBand(1.0, 1.0, VitalityBasis.Rung);
 
         if (rung is int k && k >= 1 && k <= NpcHealthRungs.Rungs)
         {

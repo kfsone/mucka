@@ -85,8 +85,32 @@ public static class MuckaDb
             command.ExecuteNonQuery();
         }
         AddMissingColumns(connection, transaction);
+        using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = PostColumnSql;
+            command.ExecuteNonQuery();
+        }
         transaction.Commit();
     }
+
+    /// <summary>
+    /// Schema that can only run once <see cref="AddMissingColumns"/> has been: an index over a column
+    /// added to an existing file, and the retirement of the index it replaces.
+    ///
+    /// <para>It is a separate step because the ordering is load-bearing rather than tidy. Creating an
+    /// index on a column an old file does not have yet throws, inside the schema transaction, so the
+    /// store fails to open at all - Mucka would not start against the operator's own database.</para>
+    /// </summary>
+    private const string PostColumnSql = """
+        -- A NEW name, not the old ix_swings_reset. IF NOT EXISTS matches on the NAME, so reusing it
+        -- would leave an existing file indexed on the dead reset_epoch_ms and the live column with
+        -- no index at all - silently, since nothing errors.
+        CREATE INDEX IF NOT EXISTS ix_swings_reset_landed ON swings(reset_landed_at_ms);
+        -- The index that keyed the world on ts + ttr. Dropped rather than left: it is the one piece
+        -- of the old scheme that costs something to keep, since every swing insert maintains it.
+        DROP INDEX IF EXISTS ix_swings_reset;
+        """;
 
     /// <summary>
     /// Columns added to a table after rows already existed in it, as (table, column, declaration).
@@ -97,6 +121,10 @@ public static class MuckaDb
     [
         ("fights", "prev_same_name_ended_ms", "INTEGER"),
         ("score_events", "after_task_line", "INTEGER"),
+        // Replaced reset_epoch_ms, which was ts + ttr*60000 and therefore keyed rows to a quantity
+        // wizards can move. The dead column is left on existing files rather than dropped: it is
+        // nullable, nothing reads it, and dropping it would rewrite a 26k-row table to no purpose.
+        ("swings", "reset_landed_at_ms", "INTEGER"),
     ];
 
     /// <summary>
@@ -181,15 +209,22 @@ public static class MuckaDb
             sta_debuff          INTEGER,
             glow                INTEGER,
 
-            -- Reset context. MUD2 creatures earn points and level up WITHIN a reset, so the same name
-            -- is a different opponent at different points in the cycle. time_to_reset is the reading
-            -- as the game gave it, in MINUTES (FES field [13]); reset_epoch_ms is ts + ttr*60000, an
-            -- ESTIMATE of the instant this reset ends. It is NOT constant across a reset: the reading
-            -- is whole minutes, so successive swings land anywhere in a 60s-wide bucket around the
-            -- true instant. Group on it BUCKETED (+/-30s, ResetClock's MinuteUncertaintySec) - raw
-            -- equality splits one reset into many.
+            -- Reset context. A reset is the server TERMINATING and reloading the world from scratch:
+            -- every creature and object is destroyed and remade, so "rat16" either side of one is two
+            -- different animals. Creatures also level WITHIN a reset by scoring, uncapped, so the same
+            -- instance is a different opponent early and late. Both make this the grouping key.
+            --
+            -- time_to_reset is the countdown as the game gave it, in MINUTES (FES field [13]) - a
+            -- reading, kept raw. reset_landed_at_ms is the client's clock at the last C06 C06 landing
+            -- it watched, and is the only one of the two that is an IDENTITY.
+            --
+            -- Never derive a key from the countdown. Wizards delay and accelerate resets, so ts+ttr
+            -- moves under you: the column that did this produced 118 distinct values inside one
+            -- 113-second encounter, and the countdown was seen RISING 38 times inside ten minutes, by
+            -- up to 105 minutes. Nor is session_id a substitute - one session has held three landings
+            -- 107 minutes apart, so it MERGES worlds.
             time_to_reset       INTEGER,
-            reset_epoch_ms      INTEGER,
+            reset_landed_at_ms  INTEGER,
 
             npc                 TEXT,               -- instance name as the game gave it ("rat0")
             npc_group           TEXT,               -- NpcGroups.Normalize
@@ -213,7 +248,9 @@ public static class MuckaDb
         CREATE INDEX IF NOT EXISTS ix_swings_npc_dir   ON swings(npc, dir);
         CREATE INDEX IF NOT EXISTS ix_swings_ts        ON swings(ts);
         CREATE INDEX IF NOT EXISTS ix_swings_encounter ON swings(encounter_started_at_ms);
-        CREATE INDEX IF NOT EXISTS ix_swings_reset     ON swings(reset_epoch_ms);
+        -- ix_swings_reset_landed is NOT here - see PostColumnSql. An index on a column that
+        -- AddMissingColumns has not added yet cannot be created, and the attempt takes the whole
+        -- schema transaction down with it.
 
         -- One row per per-NPC fight, as FightHistoryRecorder closes them.
         CREATE TABLE IF NOT EXISTS fights (

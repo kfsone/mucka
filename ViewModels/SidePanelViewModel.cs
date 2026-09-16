@@ -1378,7 +1378,11 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
                 // The crossing is the sharpest constraint of the three on a large creature, and it needs
                 // this fight's cumulative bracket because on a first encounter that is the only floor
                 // under the pool there is.
-                fight.RungCrossing, fight.YourDamage);
+                fight.RungCrossing, fight.YourDamage,
+                // "full of life" / "full of energy" is cur == max exactly, not merely the top band, so
+                // it is the one reading that can fill the seal. Without it the hard fill tops out at
+                // the rung floor - 6/7 - and an untouched creature never draws full.
+                atMax: fight.HealthPhrase is { } phrase && NpcHealthRungs.IsAtMax(phrase));
             // One probe, three answers. Narrowed by the creature's CURRENT weapon so the armed-as-now
             // profile comes back alongside the species-wide one; both are dictionary lookups under a
             // single lock (SwingDamageIndex's own remarks), and taking them together rather than in

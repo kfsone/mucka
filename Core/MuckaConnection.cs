@@ -629,7 +629,7 @@ public sealed class MuckaConnection : IAsyncDisposable
     {
         _session.PersonaWiped       += () => PersonaWiped?.Invoke();
         _session.AutoResetInitiated += () => AutoResetInitiated?.Invoke();
-        _session.WorldResetLanded += () => WorldResetLanded?.Invoke();
+        _session.WorldResetLanded += () => { _swingLedger.OnWorldResetLanded(); WorldResetLanded?.Invoke(); };
         _session.FrameClosed      += () => FrameClosed?.Invoke();
         _session.LineReady          += l => { _clog.OnLineReady(l); LineReady?.Invoke(l); };
         _session.StatsUpdated       += s => { _clog.OnStatsUpdated(s); _fightRecorder.OnStatsUpdated(s); _swingLedger.OnStatsUpdated(s); StatsUpdated?.Invoke(s); };

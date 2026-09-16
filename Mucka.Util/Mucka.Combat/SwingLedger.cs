@@ -42,6 +42,9 @@ public sealed class SwingLedger
 
     private GameStatsSnapshot _lastStats = GameStatsSnapshot.Empty;
     private StatusEffectState _lastEffects = StatusEffectState.Empty;
+    // The client's clock at the last reset landing this ledger was told about. Null until one lands,
+    // which is the honest reading: a session that joins a world already running never saw its start.
+    private long? _resetLandedAtMs;
     private string? _persona;
     private long? _encounterStartedAtMs;
     // The last encounter key this ledger saw, kept after the encounter closes. Only score_events uses
@@ -273,6 +276,19 @@ public sealed class SwingLedger
     {
         lock (_lock)
             _lastEffects = effects;
+    }
+
+    /// <summary>A world reset LANDED - the server's own C06 C06, corroborated in
+    /// MudSession.OnWorldResetLanded. Stamps the client's clock as the key every later swing carries
+    /// until the next one lands.
+    ///
+    /// <para>The stamp is taken here rather than passed in because this is the moment the event
+    /// reached us, and a reset is only ever observed live; there is no replay path that would want an
+    /// older instant. A caller that has a better stamp can pass one.</para></summary>
+    public void OnWorldResetLanded(long? timestampMs = null)
+    {
+        lock (_lock)
+            _resetLandedAtMs = timestampMs ?? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
     }
 
     /// <summary>The character occupying this session was identified (MudSession.CharacterIdentified,
@@ -567,12 +583,11 @@ public sealed class SwingLedger
             StaminaDebuff = _lastEffects.StaminaDebuff,
             Glow = _lastEffects.Glow,
 
+            // The countdown as the game gave it, raw and unconverted - a reading, not a key.
             TimeToReset = _lastStats.TimeToReset,
-            // The reset's END instant - see SwingRow.ResetEpochMs. TimeToReset is MINUTES, as FES
-            // field [13] reports it (Mud2C1Decoder.ParseAndEmitFes), so the multiplier is 60_000.
-            // The reading is whole minutes, so this lands inside a 60s bucket, not on an identity:
-            // bucket it before grouping (ResetClock's MinuteUncertaintySec is the same +/-30s).
-            ResetEpochMs = _lastStats.TimeToReset is int ttr ? timestampMs + (ttr * 60_000L) : null,
+            // The key is a stamp of an event this client watched, never arithmetic on the countdown:
+            // wizards move the reset, so ts + ttr is not an identity. See SwingRow.ResetLandedAtMs.
+            ResetLandedAtMs = _resetLandedAtMs,
 
             NpcName = combatEvent.NpcName,
             NpcGroup = NpcGroups.Normalize(combatEvent.NpcName),
