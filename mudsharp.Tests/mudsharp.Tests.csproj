@@ -27,14 +27,14 @@
     <!-- Instance-name to species-group pairs that pin NpcGroups.Normalize. See NpcGroupsTests. -->
     <None Include="Fixtures\Data\npc_group_fixture.txt" Link="Fixtures\Data\npc_group_fixture.txt"
           CopyToOutputDirectory="PreserveNewest" />
-    <!-- The poisoned-wyvern death, as five verbatim wire frames cut out of the owner's 2026-08-26
+    <!-- The poisoned-wyvern death, as six verbatim wire frames cut out of the owner's 2026-08-26
          session - see WyvernPoisonDeathReplayTests for what was kept and what was thrown away. It
-         is committed (with a matching negation in .gitignore, which ignores *.jsonl wholesale) and
+         is committed and
          has no Exists() condition on purpose: this replays protocol facts that no transcript can
          carry, and the previous arrangement - gitignored file, test skipping when absent - meant a
          fresh clone ran three tests that silently proved nothing. Mucka.Util.Tests links the same
          file for WireLogTests. -->
-    <None Include="Fixtures\Data\wyvern-poison-death.jsonl" Link="Fixtures\Data\wyvern-poison-death.jsonl"
+    <None Include="Fixtures\Data\wyvern-poison-death.c1" Link="Fixtures\Data\wyvern-poison-death.c1"
           CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 

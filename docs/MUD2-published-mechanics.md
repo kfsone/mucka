@@ -358,12 +358,12 @@ latter exactly one rung), with zero transitions contradicting the rung order.
 
 Not built, deliberately - each is a scope decision for the owner:
 
-1. **Replace `EstimatedStaminaPool` with the published `STA`.** The client currently estimates
+1. **Replace the client's own stamina-pool estimate with the published `STA`.** The client currently estimates
    an NPC's pool as the median damage of fights that ended in a kill, because "MUD2 never
    reports NPC stamina" - which is true of the protocol but not of the world. A lookup would
    be exact, available on the first ever encounter, and would make "how close is this thing to
    dropping" a real number instead of a thin-sample guess. The comments in
-   `FightHistory.EstimatedStaminaPool` and `CombatContracts.CombatLiveView` assert the
+   `SwingLedger.Pool` and `CombatLiveView` assert the
    estimate is "the only route"; that is now false and they say so.
 2. **Anchor the health ladder to real health.** With a known pool and exact damage dealt, the
    pips could show measured remaining stamina rather than an ordinal descriptor rung - or

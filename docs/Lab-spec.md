@@ -56,8 +56,8 @@ fitting. Those are disposable by design.
   the client's own parsers over it is how the parsers get found to be wrong.
 - **Classified encounter rows.** `encounter_events`, `encounter_stats`, `encounter_contents`,
   `encounter_lines` and `creature_values`, all keyed on `encounter_started_at_ms` - the same key
-  `swings` and `fights` carry. Anything that used to mean re-reading `~/.mucka/clogs/*.jsonl` is SQL
-  now. There are no `.jsonl` files any more, in either shape.
+  `swings` and `fights` carry. Anything that used to mean re-reading the loose clog files is SQL
+  now. Nothing on disk needs re-parsing.
 
 There is no `lines` table: `StyledLine` does not carry the C1 code that introduced a line, so a
 code-level question still goes through `MudStreamParser`. See `TODO`.

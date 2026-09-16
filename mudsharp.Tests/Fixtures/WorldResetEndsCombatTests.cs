@@ -29,7 +29,7 @@ namespace MudSharp.Tests.Fixtures;
 /// reset landing and the whole behaviour therefore rests on an incidental string match in a
 /// different subsystem.</para>
 ///
-/// <para><b>Bytes below are transcribed literally from mud2-multi-combat.jsonl</b>, records
+/// <para><b>Bytes below are transcribed literally from the mud2-multi-combat capture</b>, records
 /// ts=1785614794156 and ts=1785614794353. Do not "tidy" them: the stray leading space, the bare CR
 /// + NUL, and the C1 code 00 (0x9B, Bartle: "Initialise ... whenever a program is forked or
 /// terminated") sitting between the newline and the word "Option" are all really there, and the

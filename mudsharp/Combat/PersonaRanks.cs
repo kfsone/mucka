@@ -41,7 +41,7 @@ internal readonly record struct PersonaRank(
 /// this into a runtime fetch.</para>
 ///
 /// <para><b>Source.</b> Captured verbatim in
-/// <c>session-rec.mud2.co.uk.20260902-160323.jsonl</c> (all four persona tables, dumped by `levels`
+/// <c>session-rec.mud2.co.uk.20260902-160323</c> (all four persona tables, dumped by `levels`
 /// followed by `nx` three times); the male unprotected table appears again in
 /// <c>session-rec.mud2.co.uk.20260827-170629</c>, <c>www.mud2.com.20260822-151859</c> and
 /// <c>www.mud2.com.20260824-231526</c>. Independently corroborated by 22 level-crossing events across

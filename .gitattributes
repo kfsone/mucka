@@ -1,0 +1,5 @@
+# Captured MUD2 wire frames. A .c1 file holds the server's own bytes - about a third of them are
+# C1 codes above 0x7F - so it is the one thing in this repo that is NOT ASCII, and git must not
+# touch it. core.autocrlf is true here, and an end-of-line conversion applied to captured evidence
+# would silently rewrite the frames these fixtures exist to pin.
+*.c1 -text

@@ -11,10 +11,22 @@ public class RepoIsAsciiTests
 {
     private static readonly HashSet<string> TextExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
-        ".cs", ".xaml", ".md", ".csproj", ".props", ".targets", ".slnx", ".yml", ".yaml", ".json", ".jsonl",
+        ".cs", ".xaml", ".md", ".csproj", ".props", ".targets", ".slnx", ".yml", ".yaml", ".json",
         ".xml", ".ps1", ".txt", ".tsv", ".iss", ".svg", ".manifest", ".appxmanifest", ".editorconfig",
         ".gitignore", ".gitattributes", ".ini", ".sh", ".cmd",
     };
+
+    /// <summary>NOT a text extension, deliberately: a <c>.c1</c> file holds captured MUD2 frames, and
+    /// about a third of their bytes are C1 codes above 0x7F. It is the one shape in this repo that is
+    /// allowed to be non-ASCII, which is why it has an extension of its own, a <c>-text</c> rule in
+    /// .gitattributes and an override in .editorconfig.</summary>
+    private const string CaptureExtension = ".c1";
+
+    /// <summary>The exemption above, asserted rather than left as a comment somebody could undo by
+    /// adding one entry to the list. A <c>.c1</c> in the sweep would fail on its first C1 code.</summary>
+    [Fact]
+    public void TheCaptureExtensionIsOutsideTheSweep()
+        => Assert.DoesNotContain(CaptureExtension, TextExtensions);
 
     private static readonly HashSet<string> TextNamesWithoutExtension = new(StringComparer.Ordinal)
     {

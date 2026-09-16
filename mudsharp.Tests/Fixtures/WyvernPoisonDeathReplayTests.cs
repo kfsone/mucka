@@ -10,7 +10,7 @@ namespace MudSharp.Tests.Fixtures;
 /// The poisoned-wyvern fight replayed from its own wire bytes, through the production
 /// <see cref="MudSession"/> (real parser, real tracker, real wiring).
 ///
-/// <para>Origin: session-rec.mud2.co.uk.20260826-134435.jsonl, records 2905-3034, from a 2026-08-26
+/// <para>Origin: session-rec.mud2.co.uk.20260826-134435, records 2905-3034, from a 2026-08-26
 /// session. The wyvern turns on the player after a herb is fed to it, they trade blows for ninety
 /// seconds, and then it dies of the poison with no kill line at all - so a fight-end detector relying
 /// on a kill line alone would leave the client "in combat" for the rest of the session.</para>
@@ -52,7 +52,7 @@ namespace MudSharp.Tests.Fixtures;
 public sealed class WyvernPoisonDeathReplayTests
 {
     private static readonly string CaptureFile =
-        Path.Combine(AppContext.BaseDirectory, "Fixtures", "Data", "wyvern-poison-death.jsonl");
+        Path.Combine(AppContext.BaseDirectory, "Fixtures", "Data", "wyvern-poison-death.c1");
 
     private static (List<bool> inCombat, List<CombatEvent> events, List<StyledLine> lines) Replay()
     {
@@ -73,19 +73,34 @@ public sealed class WyvernPoisonDeathReplayTests
         session.CombatEventOccurred += events.Add;
         session.LineReady += lines.Add;
 
-        foreach (var rawLine in File.ReadLines(CaptureFile))
+        // One record per line: ts_ms, direction, then the server's own bytes - see CaptureBytes.
+        foreach (var rawLine in File.ReadLines(CaptureFile, Encoding.Latin1))
         {
             if (string.IsNullOrWhiteSpace(rawLine))
                 continue;
-            using var doc = JsonDocument.Parse(rawLine);
-            var arr = doc.RootElement;
-            if (arr.ValueKind != JsonValueKind.Array || arr.GetArrayLength() < 3 || arr[1].GetString() != "rx")
+            var parts = rawLine.Split(' ', 3);
+            if (parts.Length < 3 || parts[1] != "rx")
                 continue;
-            captureTs = arr[0].GetInt64();
-            session.Feed(Encoding.Latin1.GetBytes(arr[2].GetString() ?? string.Empty));
+            captureTs = long.Parse(parts[0]);
+            session.Feed(CaptureBytes(parts[2]));
         }
 
         return (inCombat, events, lines);
+    }
+
+    /// <summary>Undoes the three escapes a <c>.c1</c> payload carries: a backslash, and the CR and
+    /// LF that would otherwise split a record. Latin-1, so a char IS its byte.</summary>
+    private static byte[] CaptureBytes(string payload)
+    {
+        var bytes = new List<byte>(payload.Length);
+        for (var i = 0; i < payload.Length; i++)
+        {
+            if (payload[i] == '\\' && i + 1 < payload.Length)
+                bytes.Add(payload[++i] switch { 'r' => (byte)0x0D, 'n' => (byte)0x0A, _ => (byte)0x5C });
+            else
+                bytes.Add((byte)payload[i]);
+        }
+        return bytes.ToArray();
     }
 
     [Fact]

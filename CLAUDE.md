@@ -97,6 +97,52 @@ that forbids is a fossilised opinion that will be mistaken for an instruction.
 
 Prefer findings that are a stored query plus its result over findings that are prose.
 
+### What a doc may say
+
+The same rule as a comment, one level up. A doc in `docs/` carries **rules and decisions**, **what
+was observed** (a wire fact, a captured frame, a measured value with its conditions), and the
+**reasoning behind a choice we made**. Reasoning about the SERVER is a mechanism claim and needs
+evidence like any other - see the section above.
+
+**A number travels with the name that owns it.** `CombatRailView.SlotHeight` rather than a bare
+"46dp", and `SidePanelWidthDp = 228dp` is fine because a reader who doubts it knows where to look. A
+naked value is the thing that rots: the geometry that went stale here was `46dp`, `96dp` and
+`92 / 1fr / 92`, none of which named anything. Numbers that are the point in themselves - a
+measurement, a corpus size, a figure from Bartle - carry their conditions instead, and that is
+evidence rather than a restatement.
+
+**Name a symbol that exists.** `DocsCitedSymbolsExistTests` fails the build on a dotted symbol in
+`docs/` that appears nowhere in the code. A dangling name is worse than a stale number, because a
+wrong number looks wrong and a wrong name reads exactly like a right one.
+
+**Never a code line number.** `DocsCiteSymbolsNotLinesTests` fails the build on `Foo.cs:123` inside
+`docs/`. These rot faster than anything else in the tree: one design document shipped with six
+citations that were all wrong the day it was written, and another's pointer came to land on a line
+added later for an unrelated feature.
+
+**A doc states the SHAPE of a thing, and when the shape changes the doc is part of the change.**
+This is the failure the value rules do not catch and the most expensive one seen here: a spec that
+described a left seal, a right seal and weapon text between them, long after the rebuild replaced
+all three with one full-width bar. No number, no constant, no line reference - just a structure that
+had stopped existing. Redrawing something means rewriting the prose that describes it, in the same
+commit.
+
+**A design doc is future-tense until its code lands, then present-tense forever.** Writing the doc
+first is how work is done here, so "what this will do" is correct while it is a plan. The commit
+that lands the work rewrites it to what the system now does and deletes the work order - the
+migration steps, the "still to delete" list, the "not in this stage" notes. A doc still written in
+the future tense after its stage shipped is the defect. Git history is the changelog; a decision the
+work order recorded is not history and stays.
+
+**Evidence is immutable and outranks the code.** Bartle's words, captured frames, recorded
+measurements: if the implementation disagrees with one of these, the implementation is what is
+wrong. Never edit evidence to agree with code. Note what is NOT on that list - the published
+GameFAQs guide and the bestiary transcribed from it are hypothesis, exactly as ranked above, and a
+confident readout built on one is how a character dies while its owner trusts the panel.
+
+The test a restated value fails: **could this sentence become false because somebody edited a number
+somewhere else?** If yes, name the owner.
+
 ## One operator, five installs, all his
 
 There is one human here and he is the producer and lead, not a coder on this project. He is also
@@ -202,6 +248,31 @@ typing?" If maybe, get it off the UI thread.
 - Tests: `dotnet test Mucka.slnx`
 - **Never kill a running Mucka.** It is the operator's live game session. He runs the Release
   build; a Debug build does not lock it, so build Debug.
+
+## A test that cannot fail is not a test
+
+**Break the thing on purpose, watch the test fail, then restore it.** A test written alongside a fix
+passes for two different reasons - because the fix works, or because the test never touched it - and
+a green run cannot tell them apart. The only way to know which you have is to take the fix out.
+
+This is not a formality; it keeps catching things:
+
+- A concurrency test written to pin a lock passed with the lock's guard deleted. The channel's own
+  completion covered the case it exercised, so it proved nothing about the lock. What it was really
+  asserting had to be closed by construction instead, and the test kept as a smoke test, labelled as
+  one.
+- Two tests in the persistence work turned out to be catching nothing until they were rewritten.
+- Where a fix IS load-bearing the break says so loudly: removing the transcript's partial-line hold
+  failed five tests at once.
+
+**Confirm the break actually applied.** A `sed` that silently matches nothing, or a script that
+aborts before it writes, leaves the code untouched - and then "it still passes" is not evidence of a
+weak test, it is evidence of nothing at all. Re-read the line, or watch the compiler reject it,
+before believing a passing run. This has produced a false result twice.
+
+Some things cannot be tested from here at all: nothing reaches the MAUI assembly, and a XAML binding
+path is checked by neither the compiler nor any suite. Say so plainly rather than implying the gate
+covers them - the acceptance gate for those is the operator's hands.
 
 ## Branches and worktrees
 

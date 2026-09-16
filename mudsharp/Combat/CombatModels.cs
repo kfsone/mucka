@@ -263,8 +263,8 @@ public enum CombatEventKind
     /// not deliver the killing damage - the poison did.</para>
     ///
     /// <para><b>Two occurrences, of different evidentiary weight.</b> The one that is BYTES is
-    /// session-rec.mud2.co.uk.20260826-134435.jsonl, records 2905-3034, extracted to
-    /// mudsharp.Tests/Fixtures/Data/wyvern-poison-death.jsonl - dagger0 in hand, no weapon break,
+    /// session-rec.mud2.co.uk.20260826-134435, records 2905-3034, extracted to
+    /// mudsharp.Tests/Fixtures/Data/wyvern-poison-death.c1 - dagger0 in hand, no weapon break,
     /// stamina 57/99, score a flat 6,209 with no persona save in the death frame:</para>
     /// <code>
     /// The wyvern drops dead, poisoned...        &lt;- no C1 code at all

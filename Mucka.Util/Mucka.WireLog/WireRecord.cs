@@ -19,7 +19,7 @@ public enum WireDirection : byte
 ///
 /// <para><b>The payload is bytes, not a string, and that is the whole point.</b> MUD2's C1 codes are
 /// high bytes; the moment a record becomes a .NET string it has picked an encoding. Measured over 40
-/// session recordings: 6.1 MB of actual payload became 17.2 MB of .jsonl, a 2.8x tax paid entirely on
+/// session recordings: 6.1 MB of actual payload became 17.2 MB once JSON-escaped, a 2.8x tax paid on
 /// escaping. Consumers that need text decode at the edge; storage never does.</para>
 ///
 /// <para>The encoding contract, for a consumer that must produce text: <see cref="WireDirection.Rx"/>

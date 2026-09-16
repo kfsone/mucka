@@ -23,7 +23,7 @@ public sealed record FightRecord
     /// post-login "score" reply). Null only for rows recorded before the character was identified
     /// (a fight resolving in the brief window right after game-mode entry) - see
     /// FightHistoryRecorder.OnCharacterIdentified. Format v2+ only.
-    /// <para>Why this matters: every alt previously pooled into one fights.jsonl, silently
+    /// <para>Why this matters: every alt previously pooled into one shared file, silently
     /// contaminating medians across characters with very different stats/gear. Filtering/grouping
     /// by this field is left to callers (Foundation adds the capture, not the UI that reads it).</para>
     /// </summary>

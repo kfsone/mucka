@@ -73,7 +73,7 @@ populates and updates as combat happens; it does not appear, grow, or shrink on 
   alone exceeds the cap, no resolved row appears; the header count and the hidden-tail line are the
   only things that still convey the dead.
 - The hidden-tail line always distinguishes "more, still fighting" from "more, already down"
-  (`HiddenLiveCount` / `HiddenResolvedCount`).
+  (`RosterPlan.HiddenLiveCount`).
 - The current target row is brightest and bold; other live rows bright, normal weight; resolved
   rows dim and struck through.
 - Bold is used for exactly: the urgency headline, `UNARMED` when no weapon is in hand, the roster

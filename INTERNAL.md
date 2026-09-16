@@ -24,14 +24,16 @@ setting to forget. One row per record in `wire`: when, which direction, and `dat
 bytes, verbatim and uncompressed, with nothing wrapped around them. `SELECT data FROM wire` prints
 the line, and a `strings` pass over the file reads as MUD2 text. See `docs/persistence-design.md`.
 
-The `.jsonl` transcripts this used to write are gone. The committed
-`mudsharp.Tests/Fixtures/Data/wyvern-poison-death.jsonl` is test data in that older shape - one line
-per record, `[{timestamp_ms},{"tx"|"rx"|"an"},{json-escaped-data}]` - and is the only thing in the
-repo that still reads it:
+The loose transcripts this used to write are gone. What remains is one committed capture,
+`mudsharp.Tests/Fixtures/Data/wyvern-poison-death.c1`, replayed by three test projects through the
+production parser. One record per line - `{timestamp_ms} {rx|tx|an} {payload}` - where the payload is
+the server's own bytes, read as Latin-1, with only a backslash, a CR and an LF escaped because those
+would split a record. The C1 codes sit in it raw, which is why it has an extension of its own, a
+`-text` rule in `.gitattributes` and an override in `.editorconfig`: it is the one file in this repo
+that is allowed not to be ASCII, and the one nothing may reformat.
 
 ```
-[1779464113440,"an","capture started: mud2.co.uk"]
-[1779464113757,"rx","\u00FF\u00FD\u0018\u00FF\u00FD \u00FF\u00FD#\u00FF\u00FD\u0027"]
+1787778044300 rx <a3><9b><ff><ff>The wyvern is staring at you ferociously.<ff><ff>\r<00>\r\n...
 ```
 
 # Mapping

@@ -85,8 +85,8 @@ You can fight the wyvern no longer.
 (Persona saved on +26 = 5,201).
 ```
 
-**B -- captured.** `session-rec.mud2.co.uk.20260826-134435.jsonl`, records 2905-3034, extracted as
-`mudsharp.Tests/Fixtures/Data/wyvern-poison-death.jsonl` and replayed through the production session
+**B -- captured.** `session-rec.mud2.co.uk.20260826-134435`, records 2905-3034, extracted as
+`mudsharp.Tests/Fixtures/Data/wyvern-poison-death.c1` and replayed through the production session
 by `WyvernPoisonDeathReplayTests`. A different fight: `dagger0` in hand throughout, no weapon break,
 stamina 57/99 at the death, score a stable 6,209, and **no `(Persona saved ...)` line in the death
 frame at all.** Decoded, with the tags the decoder shows -- the elision is marked because roughly
@@ -115,7 +115,7 @@ Two independent occurrences of the same wording is a better evidence position th
 the whole reason to be careful with the labels: A is a recollection, B is bytes.
 
 `NoMore`, not `Kill`, and the distinction is not pedantry. The damage that ended these fights never
-crossed the wire, so `FightHistory.EstimatedStaminaPool` -- which infers a creature's stamina pool
+crossed the wire, so `SwingLedger.Pool` -- which infers a creature's stamina pool
 from the damage dealt across fights that ended in a kill -- would read B as a wyvern killed by 10-14
 points of dagger.
 

@@ -92,7 +92,7 @@ public enum FightOutcome
     /// creature may be standing right in front of you.</para>
     ///
     /// <para><b>An open family, one member observed.</b> The observed member is poison: captured in
-    /// session-rec.mud2.co.uk.20260826-134435.jsonl as <c>The wyvern drops dead,
+    /// session-rec.mud2.co.uk.20260826-134435 as <c>The wyvern drops dead,
     /// poisoned... / The wyvern has just passed on. / {c08.12}You can fight the wyvern no
     /// longer.</c>, the first two lines carrying no C1 code at all. Other causes are expected and are
     /// likely to be worded differently. That is why this outcome is named for what the

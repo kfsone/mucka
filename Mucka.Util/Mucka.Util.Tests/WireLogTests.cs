@@ -257,7 +257,7 @@ public sealed class WireLogTests : IDisposable
         // Stores raw, uncompressed bytes, asserted rather than described: every payload the writer was
         // handed is a row of wire.data, verbatim and whole. That is what makes the log a corpus you can
         // ask questions of without writing a decoder first.
-        var records = ReadJsonl(WyvernFixturePath);
+        var records = ReadCapture(WyvernFixturePath);
         using (var store = NewStore())
         using (var writer = new WireLogWriter(store))
             Feed(writer, records);
@@ -287,7 +287,7 @@ public sealed class WireLogTests : IDisposable
         // The strongest statement available that the storage layer is lossless: take a capture from the
         // committed wyvern fixture, push its records through the writer, the framing and SQLite, read
         // them back, and require the same records in the same order.
-        var records = ReadJsonl(WyvernFixturePath);
+        var records = ReadCapture(WyvernFixturePath);
         Assert.Equal(6, records.Count);
 
         using (var store = NewStore())
@@ -384,7 +384,7 @@ public sealed class WireLogTests : IDisposable
     // -- Helpers ----------------------------------------------------------------
 
     private static string WyvernFixturePath =>
-        Path.Combine(AppContext.BaseDirectory, "Fixtures", "Data", "wyvern-poison-death.jsonl");
+        Path.Combine(AppContext.BaseDirectory, "Fixtures", "Data", "wyvern-poison-death.c1");
 
     /// <summary>Same as <see cref="AssertSame"/> minus the timestamps, for records that went through the
     /// live writer: it stamps each one with its own <c>UtcNow</c> reading, so only the payload, the
@@ -408,32 +408,46 @@ public sealed class WireLogTests : IDisposable
         return Path.Combine(blocker, MuckaDb.DefaultFileName);
     }
 
-    /// <summary>Parses a capture file in the old <c>[ts,"rx"|"tx"|"an",text]</c> format back into
-    /// records, applying the encoding contract on <see cref="WireRecord"/> in reverse. The fixture is
-    /// committed test data; nothing writes this format any more.</summary>
-    private static List<WireRecord> ReadJsonl(string path)
+    /// <summary>
+    /// Reads a <c>.c1</c> capture: one record per line, <c>ts_ms direction payload</c>, the payload
+    /// being the server's own bytes. Only three are escaped - a backslash, and the CR and LF that
+    /// would otherwise split a record - so the C1 codes sit in the file raw and the frame is legible
+    /// beside its text. Latin-1 throughout, which is the identity map for a byte-oriented protocol.
+    /// </summary>
+    private static List<WireRecord> ReadCapture(string path)
     {
         var records = new List<WireRecord>();
-        foreach (var line in File.ReadAllLines(path))
+        foreach (var line in File.ReadAllLines(path, Encoding.Latin1))
         {
             if (line.Length == 0) continue;
-            using var document = JsonDocument.Parse(line);
-            var array = document.RootElement;
-            var ts = array[0].GetInt64();
-            var mode = array[1].GetString();
-            var text = array[2].GetString() ?? string.Empty;
-            var direction = mode switch
+            var parts = line.Split(' ', 3);
+            var direction = parts[1] switch
             {
                 "rx" => WireDirection.Rx,
                 "tx" => WireDirection.Tx,
                 _ => WireDirection.Annotation,
             };
-            var payload = direction == WireDirection.Annotation
-                ? Encoding.UTF8.GetBytes(text)
-                : Encoding.Latin1.GetBytes(text);
-            records.Add(new WireRecord(ts, direction, payload));
+            records.Add(new WireRecord(long.Parse(parts[0]), direction, CaptureBytes(parts[2])));
         }
         return records;
+    }
+
+    /// <summary>Undoes the three escapes a <c>.c1</c> payload carries.</summary>
+    private static byte[] CaptureBytes(string payload)
+    {
+        var bytes = new List<byte>(payload.Length);
+        for (var i = 0; i < payload.Length; i++)
+        {
+            if (payload[i] == '\\' && i + 1 < payload.Length)
+            {
+                bytes.Add(payload[++i] switch { 'r' => (byte)0x0D, 'n' => (byte)0x0A, _ => (byte)0x5C });
+            }
+            else
+            {
+                bytes.Add((byte)payload[i]);   // Latin-1: char and byte are the same value
+            }
+        }
+        return bytes.ToArray();
     }
 
     /// <summary>Polls until the background writer has committed at least <paramref name="expected"/>

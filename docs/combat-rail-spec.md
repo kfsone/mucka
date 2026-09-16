@@ -18,29 +18,32 @@ ASCII only in code. Every glyph is drawn as an `SKPath`, never a font character.
 
 ## 2. Geometry
 
-- Width `CombatRailResize.CombatPanelContentWidthDp` (376dp) plus border. Left panel stays 228dp,
-  untouched.
-- Bottom-up order (nearest gaze last):
+The numbers live in the code and are named here rather than copied: `CombatRailResize.ContentWidthDp`
+(the rail's width, which narrows when the stat rows are switched off) and `SidePanelWidthDp` (the left
+panel, untouched by anything here); `CombatRailView.SlotHeight`, `PlayerTileHeight` and
+`TickRowHeight` for the bands below. A value restated here is a value free to drift from the one that
+draws.
+
+What this section fixes is the ORDER, which no constant states. Bottom-up, nearest gaze last:
 
 ```
    (empty - top of rail)
    overflow row          (only when opponents exceed slot capacity)
    opponent slots        (N slots, N computed from window height - see 3)
-   [STA seal] weapon/alt-weapon [MAG seal]     96dp
-   tick meter + encounter gauge                30dp
+   the player's own tile
+   tick meter + encounter gauge
    (bottom edge)
 ```
 
-- Opponent slots are **46dp** each, identical size, no primary/secondary distinction.
-- Bottom row grid: `92 / 1fr / 92`.
+- Opponent slots are identical in size, with no primary/secondary distinction.
+- Empty space goes at the TOP, per rule 2. Nothing in the bottom bands moves when the count above
+  them changes.
 
 ## 3. Opponent slots - count is derived from window height
 
-**Slot count is computed from available rail height**, filling from the bottom up:
-
-```
-slots = clamp(floor(availableHeight / 46dp), 1, someSaneMax)
-```
+**Slot count is computed from available rail height**, filling from the bottom up.
+`RailSlotGeometry.Capacity` owns that arithmetic and `Mucka.Util.Tests/RailSlotGeometryTests` pins it;
+what matters here is the rule, not the divisor.
 
 Recompute only on **panel resize**, never on a combat event. Within a session the count is
 fixed, so rule 3 (nothing moves) holds during a fight.
@@ -132,21 +135,22 @@ a fact about that participant, so it lives on that participant's row.
 Current target: marked by emphasis **within its own slot** (border, brightness) - never by
 size.
 
-## 5. The bottom row
+## 5. The player's own tile
 
-**Stamina seal (left)** and **magic seal (right)**, weapon text between them.
+Built like an opponent's and read the same way: the persona's name, the weapon lines, then the
+player's stamina as a full-width bar with the magic strip immediately beneath it
+(`CombatRailView.DrawPlayerTile`).
 
-- `STA` / `MAG` as **dim text inside the ring**. Never underneath.
-- **No status dot** anywhere near the seals - the seal carries its own state.
+- **No status dot** anywhere on it - the bar carries its own state.
 - Stamina colour follows the `colorcode()` ladder, identical to the top status strip:
   `>=100` bright green, `>=76` green, `>=36` bright yellow, `>=16` yellow, `>=6` red,
   else bright red. The rail and the strip must never disagree about the same number.
-- **Magic** is purple shading blue (around `#8F84EE`), turning **red below 20**. When
-  `maxMag == 0` the seal is **greyed and inert but still present**.
-- **Out of combat both seals go grey** (colour knocked back ~45%, hue kept). The numbers stay
-  true - they ride the FES heartbeat and the top strip still shows them in full colour.
+- **Magic** is purple shading blue, turning **red below 20**. When `maxMag == 0` the strip is
+  **greyed and inert but still present**.
+- **Out of combat the readouts go grey** (hue kept). The numbers stay true - they ride the FES
+  heartbeat and the top strip still shows them in full colour.
 
-**Weapon (centre). In-combat only.**
+**Weapon. In-combat only.**
 - Sword icon + weapon name, or open-hand icon + `UNARMED`. **Never the word "armed"** - the
   weapon name already says it.
 - **Nothing is drawn here between fights.** MUD2 has no equipment slots and no default weapon:
@@ -165,20 +169,21 @@ accelerator so the event is marked handled and never reaches a default close-win
   record rank after every weapon that has one, but are still offered.
 - Recomputed every refresh, never latched.
 
-**The flee pill.** `FLEE` and `Ctrl+F`, at the **top of the middle column** - the band above the
-weapon line, level with the upper arc of both seal rings. Reserved whether drawn or not; nothing
-in the column moves when it lights up.
+**The flee pill.** `FLEE` and `Ctrl+F`, centred at the **top of the tick row**, above the player's
+own tile. Reserved whether drawn or not; nothing in the row moves when it lights up. Its drawn width
+is the floor on how narrow the panel can be - see `CombatRailView.PillWidth`.
 
 **Content:** `^F:  FLEE  sta:{sta}  -{cost}` - e.g. `^F:  FLEE  sta:23  -573`. The key leads
 because it is the only thing that can be DONE; stamina because that is the number the decision
 is actually about; the price last, **omitted when any input is missing** and `free` when MUD2
 charges nothing.
 
-**Treatment:** a **filled** chip, dark red fill `#3E181C`, a **2dp `#FF0000` border**, **white
-bold** text, corner radius **10**. It is **220dp wide** (`CombatRailView.PillWidth`), centred on
-the panel.
-`#FF0000` and the fill are the panel's only colours not derived from `TerminalTheme.Palette`
-(section 11) - Campbell has no pure red.
+**Treatment:** a **filled** chip - dark red fill, a bright red border, white bold text, a corner
+radius that leaves it not fully rounded - centred on the panel. `CombatRailView` owns the values
+(`PillWidth`, `PillRadius`, `PillStroke` and the two colours beside them).
+
+Those two colours are the panel's only ones not derived from `TerminalTheme.Palette` (section 11),
+because Campbell has no pure red. That exception is the part worth writing down; the hex is not.
 
 - **Four states**, resolved by `FleePillResolver` (pure, in mudsharp, unit-tested):
 
@@ -256,8 +261,9 @@ amber only **after damage has landed**, and never straight to red.
   and by the overflow row; a third copy centred on a width that changed with every death slid
   under the eye and was removed.
 
-**The metronome toggle** sits at the right end of the tick row, in 26dp taken out of the track
-rather than added beside it, so the row's overall geometry is unchanged.
+**The metronome toggle** sits at the right end of the tick row, in width taken OUT of the track
+(`CombatRailView.MetronomeReserve`) rather than added beside it, so the row's overall geometry is
+unchanged whether the toggle is lit or not.
 
 - Drawn **always**, in and out of combat: it is a control, not a readout.
 - Armed: lit, with the pendulum leaning. Idle: outline, pendulum upright.

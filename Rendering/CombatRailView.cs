@@ -116,8 +116,8 @@ public sealed class CombatRailView : SKCanvasView
 
     /// <summary>The magic line's own strip, drawn on the player's tile only, immediately under the
     /// stamina bar. Two units high with notches at the quarters - it answers "roughly how much is
-    /// left" and nothing more, because a caster who needs the exact figure has it in the seal slot
-    /// above.</summary>
+    /// left" and nothing more, because a caster who needs the exact figure has it in the status strip
+    /// at the top of the window.</summary>
     private const float PlayerMagTop = 45f;
     private const float PlayerMagHeight = 2f;
     private const float PlayerUpperBaseline = 61f;
@@ -230,32 +230,28 @@ public sealed class CombatRailView : SKCanvasView
     private const float MetronomeReserve = 26f;
 
     private float TickTrackWidth => Content - MetronomeReserve;
-    private const float SealSize = 92f;
 
     /// <summary>The tempo border's inset inside an opponent slot and around the player's device, and
     /// its stroke. Both fixed: the border is a frame on a rectangle whose bounds never change, so
     /// nothing here can reflow when a fight's rate does (only the DASH changes).</summary>
     private const float FrameStroke = 1.2f;
 
-    /// <summary>The flee pill, at the TOP of the middle column - the band above the weapon line, level
-    /// with the upper arc of both seal rings, so the pill sits visually between the two stamina-shaped
-    /// readouts the flee decision is actually about. Reserved whether or not the pill is drawn (rule 3);
-    /// nothing else in the column moves when it lights up.</summary>
+    /// <summary>The flee pill, at the top of the tick row above the player's tile. Reserved whether or
+    /// not the pill is drawn (rule 3); nothing else in the row moves when it lights up.</summary>
     private const float PillHeight = 20f;
     /// <summary>4, not 5: the pill sits inside the tick row and the row's contents are dropped
     /// <see cref="TickRowDrop"/>, so 5 + 6 + 20 would put its lower edge one unit past the row, into
     /// the panel's bottom padding.</summary>
     private const float PillTopInset = 4f;
 
-    /// <summary>The pill is WIDER than the middle column the weapon lines use, and centred on the panel
-    /// rather than on that column: the chip carries stamina and a price as well as the word and the
-    /// key, and 116dp could not hold them.
+    /// <summary>The pill's fixed width: the chip carries a stamina figure and a price as well as the
+    /// word and the key, which is what rules out anything much narrower.
     ///
-    /// <para>The extra width is taken over the seals' bounding BOXES without touching their drawn rings.
-    /// A seal is a circle of radius 39 centred 46dp down its 92dp box, so at the pill's vertical centre
-    /// (~15dp from the row's top) the ring has narrowed to cx +/- 23.7 - the left ring reaches x=83 at
-    /// most, the right no further left than x=253. 92..244 clears both by roughly 9dp. Do not widen
-    /// further without redoing that arithmetic; the rings bulge fast further down.</para>
+    /// <para>It is the FLOOR on how narrow the panel can be. Centred in <see cref="Content"/>, which
+    /// at the stats-off width is 276 (296 less the two <see cref="Pad"/>s), leaving the pill 28dp a
+    /// side. No other SINGLE fixed width in the rail is this large - the stat row's columns come to
+    /// more, but they are only drawn when stats are on, which is never when the panel is narrow.
+    /// Narrow it further and this is what runs out first.</para>
     ///
     /// <para>Centred over the tick gauge. It covers the gauge only while it is showing, which is the
     /// point: between fights the tick bar is unobstructed, and when there is a reason to leave the
@@ -308,30 +304,30 @@ public sealed class CombatRailView : SKCanvasView
     /// second.</summary>
     private static readonly SKColor Reward = TerminalTheme.Palette[10];
     /// <summary>How far up its ladder an opponent still is. ONE hue for every creature and every rung:
-    /// the arc carries the position and the notches carry the steps, and colouring the fill by the rung
-    /// would say the same thing twice in a channel the player would then have to learn. The player's own
-    /// seal IS ratio-coloured, because it agrees with the status strip at the top of the window about a
-    /// number the game prints them; nothing prints an opponent's.</summary>
+    /// the fill's length carries the position and the notches carry the steps, and colouring the fill by
+    /// the rung would say the same thing twice in a channel the player would then have to learn. The
+    /// player's own bar IS ratio-coloured, because it agrees with the status strip at the top of the
+    /// window about a number the game prints them; nothing prints an opponent's.</summary>
     private static readonly SKColor Vitality = TerminalTheme.Palette[6];   // #3A96DD
     private static readonly SKColor VitalityStale = new(0x3d, 0x55, 0x59);
 
-    /// <summary>The seal's unfilled track - the whole ladder, unclimbed. Same value the player's own
-    /// seals use for theirs, so the two read as the same instrument.</summary>
+    /// <summary>The bar's unfilled track - the whole ladder, unclimbed. Same value the player's own
+    /// bar uses for its track, so the two read as the same instrument.</summary>
     private static readonly SKColor SealTrack = Dim(TerminalTheme.Palette[8], 0.30f);
 
     // The spent slice's fade cannot be a compile-time constant, so it is computed at paint time in
     // DrawPlayerBar from Mucka.Combat.TickStaminaLoss.FadeFactor - see that method's own remarks for the
     // peak (down to 0.18) and the one-tick linear fade.
 
-    /// <summary>The ring drawn for a species nothing is known about. Deliberately bright enough to
+    /// <summary>The track drawn for a species nothing is known about. Deliberately bright enough to
     /// read (3.8:1 on the panel's #101618) rather than the near-invisible greys the rest of the
     /// panel's chrome uses: this is the MOST dangerous state on the slot and it may not be the
     /// quietest thing in it.</summary>
     private static readonly SKColor SealUnknown = Dim(TerminalTheme.Palette[7], 0.55f);
 
-    /// <summary>The panel's own ground, for the notches that cut a ring into MUD2's seven rung steps.
+    /// <summary>The panel's own ground, for the notches that cut the bar into MUD2's seven rung steps.
     /// Matches GamePage.xaml's Border background - the canvas clears to transparent and composites over
-    /// it, so a notch in this colour reads as a gap in the ring.</summary>
+    /// it, so a notch in this colour reads as a gap in the bar.</summary>
     private static readonly SKColor PanelGround = new(0x10, 0x16, 0x18);
 
     /// <summary>
@@ -340,8 +336,8 @@ public sealed class CombatRailView : SKCanvasView
     /// <para><b>The colour clash, and the rule that resolves it.</b> Red already means "the enemy" on
     /// this panel - the creature's weapon and its damage figures are drawn in it. Here red marks the
     /// player's own progress, which is good news. The rule that makes both readable is POSITIONAL, not
-    /// chromatic: everything in the lane outside a ring is where the NEXT BLOW lands, whoever throws
-    /// it - drawn in the same two-lane grammar on every ring the panel has, opponent and player alike.
+    /// chromatic: everything in the lane beyond the fill is where the NEXT BLOW lands, whoever throws
+    /// it - drawn in the same two-lane grammar on every bar the panel has, opponent and player alike.
     /// Every other red on the panel is text inside a slot.</para>
     /// </summary>
     private static readonly SKColor PredictNext = TerminalTheme.Palette[9];
@@ -501,7 +497,7 @@ public sealed class CombatRailView : SKCanvasView
     private const float SpentWash = 0.45f;
 
     /// <summary>
-    /// Clio's colorcode() ladder, ported so the stamina seal agrees with the status strip at
+    /// Clio's colorcode() ladder, ported so the stamina bar agrees with the status strip at
     /// the top of the window - two readouts of one number must never disagree about its
     /// colour. Deliberately NOT the player's own flee doctrine: the 40/20 thresholds they act
     /// on drive the ALARM, never the readout's colour. A readout reports; an alarm interprets.
@@ -1227,9 +1223,9 @@ public sealed class CombatRailView : SKCanvasView
     /// The game's own words about this creature, verbatim, under its name: the wound phrase, and the
     /// <c>diagnose</c> band beside it when one has been taken.
     ///
-    /// <para><b>It stays even now the seal carries a number-shaped reading</b>, and it is the ONLY
-    /// reading when the seal has none. It is MUD2's own vocabulary - the words the player just read in
-    /// the scroll - and it is per-INDIVIDUAL where the seal's track is per-species.</para>
+    /// <para><b>It stays even now the bar carries a number-shaped reading</b>, and it is the ONLY
+    /// reading when the bar has none. It is MUD2's own vocabulary - the words the player just read in
+    /// the scroll - and it is per-INDIVIDUAL where the bar's track is per-species.</para>
     ///
     /// <para><b>It is never blanked.</b> MUD2 prints a descriptor after every landed blow that does not
     /// kill, so silence between descriptors is not a missing observation but positive evidence that
@@ -1707,7 +1703,7 @@ public sealed class CombatRailView : SKCanvasView
     ///
     /// <para>Dash density reads as how soon: not hitting the thing decays it to 1 dot of color every 5
     /// pixels; swinging like a pro, it is solid. An opponent's slot carries the player's rate against
-    /// that creature; the player's own two-seal device carries the pooled incoming rate. Same language
+    /// that creature; the player's own tile carries the pooled incoming rate. Same language
     /// on both, so the pair reads as one exchange.</para>
     ///
     /// <para><b>Three states, on two channels, and the third one matters.</b> Density alone cannot
@@ -1913,14 +1909,14 @@ public sealed class CombatRailView : SKCanvasView
 
     /// <summary>
     /// The player's own tile: the same four lines every opponent carries, in the same order, at the
-    /// same sizes - the stamina seal drawn with the same size and treatment as an NPC's, just a
+    /// same sizes - the stamina bar drawn with the same size and treatment as an NPC's, just a
     /// different colour, which is the whole reason the panel can be read as a comparison at all. Two
     /// identically-shaped things, one blue and one coloured by how much trouble you are in.
     ///
-    /// <para>Out of combat both seals go grey. The numbers are still true (they ride the FES
+    /// <para>Out of combat the readouts go grey. The numbers are still true (they ride the FES
     /// heartbeat, and the top status strip keeps showing them in full colour), but a lit alarm
     /// colour on this panel means "this is what is happening to you in this fight" - leaving the
-    /// seals hot after a fight ends would keep raising an alarm about a fight that is over. They are
+    /// them hot after a fight ends would keep raising an alarm about a fight that is over. They are
     /// dimmed rather than removed so the row never changes shape.</para>
     ///
     /// <para><b>The one asymmetry is the numbers, and it is the honest one.</b> Line two carries the
@@ -2683,7 +2679,7 @@ public sealed class CombatRailView : SKCanvasView
     }
 
     /// <summary>
-    /// The flee pill: <c>FLEE</c> and the key that sends it, at the top of the middle column.
+    /// The flee pill: <c>FLEE</c> and the key that sends it, centred at the top of the tick row.
     ///
     /// <para><b>Not a button.</b> The metronome toggle next door has a real (invisible) hit target over
     /// it, and this deliberately does not. An accidental flee is one of the most expensive single
@@ -2768,15 +2764,15 @@ public sealed class CombatRailView : SKCanvasView
     /// Where the flee pill sits, in device-independent units, for a rail rendered at
     /// <paramref name="panelWidthDp"/> wide - the geometry the Composition border/background behind this
     /// canvas has to match exactly. Same contract and same reason as <see cref="TickTrackDp"/>: the rail
-    /// lays itself out in its design space (376 units, or 296 with the stat rows off) and scales it,
-    /// so a sibling in real dp needs the same
-    /// factor, and two copies of the arithmetic would silently disagree the first time this row's height
-    /// or padding changed.
+    /// lays itself out in its design space (376 units, or 296 with the stat rows off) and scales it, so
+    /// a sibling in real dp needs the same factor, and two copies of the arithmetic would silently
+    /// disagree the first time this row's height or padding changed.
+    ///
+    /// <para>The corner radius travels with the bounds for that same reason - it has to carry the same
+    /// scale factor. It happens to equal <c>height / 2</c> today (<see cref="PillRadius"/> 10 on
+    /// <see cref="PillHeight"/> 20), so re-deriving it at the call site would currently agree; that
+    /// agreement is a coincidence of the two numbers, not a property to rely on.</para>
     /// </summary>
-    /// <para>The corner radius travels with the bounds rather than being re-derived from the height at
-    /// the call site: the chip is not fully rounded (radius 10 on a 24dp chip, matching the dreamword
-    /// chip it copies), so <c>height / 2</c> would be a visibly different curve on the ring than on the
-    /// fill it is supposed to trace.</para>
     public static (double Left, double Right, double Bottom, double Height, double Radius) FleePillDp(
         double panelWidthDp, bool showStats)
     {

@@ -14,7 +14,12 @@ One SQLite file, `~/.mucka/mucka.db`. It holds the combat corpus, the raw wire l
 per-encounter combat logs. Everything is always on; nothing is armed by hand and no setting turns
 anything off. One background task owns the only write connection; every producer thread does nothing
 but build a row and hand it over. Readers open their own short-lived connections and never run on the
-UI thread. There is no JSONL anywhere.
+UI thread.
+
+Nothing writes a text-file log of any kind. The one capture file left in the tree is the committed
+wyvern fixture under `mudsharp.Tests/Fixtures/Data/` - six verbatim rx frames that three test
+projects replay through the production parser. It is evidence, and the only reason its format
+survives.
 
 ## The decisions this implements
 
@@ -24,9 +29,8 @@ These came from the operator and are decisions, not options.
   `~/.mucka/combat/mucka.db` to `~/.mucka/mucka.db`.
 - Logging stops being optional. The `logwiresession` setting, the hand-armed capture, and their UI
   all go away.
-- JSONL is eliminated.
 - The existing combat corpus is kept (moved, not re-read by code). The existing wire data is
-  integrated into the new file by hand. The 40 JSONL captures go.
+  integrated into the new file by hand. The 40 loose capture files go.
 - Retention, pruning and text consolidation are explicitly NOT in this stage.
 
 ### What "parse-once" means here, and what it does not
@@ -37,7 +41,7 @@ table comes later.**
 
 So the parse-once layer in this design is the *clog* content - encounter events, stats snapshots,
 room contents, creature values - which is already parsed at capture time and today is thrown into
-JSONL files that every analysis pass has to re-read and re-interpret. Those become tables.
+loose text files that every analysis pass has to re-read and re-interpret. Those become tables.
 
 The wire log stays raw bytes (`wire.data`), one row per record. It is the ground truth, and
 running the client's own parsers over it offline is how the parsers get found to be wrong
@@ -127,48 +131,45 @@ ordering is the evidence a swing, a diagnose reading and an award are attributed
 
 ## Why one file
 
-`WireLogDb.cs` argues at length that the wire log must be its own file. The operator has overruled it.
-The argument is summarised here so nothing rediscovers it as new:
+One database, because the logging and the combat data are one corpus and are most useful together.
+The wire log lived in a file of its own while it was being developed, which was a scaffold for that
+work and never an architectural position.
 
-- **Growth.** Measured over 13 sessions, 18.11 play-hours, 10-13 Sep 2026: 119,921 records,
-  10,141,176 bytes of payload, an average wire rate of 0.156 KB/s. One row per record stores that in
-  about 13.4 MB - 0.74 MB per play-hour, or about 1.1 GB a year at four hours of daily play. Against
-  that, the combat tables are thousands of small rows.
-- **Blast radius.** Deleting the wire log must never be an operation that can touch the combat corpus.
-- **Writer contention.** A third writer on a file that already needed `PRAGMA busy_timeout=5000`
-  (`CombatDb.cs`) to stop two writers dropping each other's rows.
+The figures that bound the decision, measured 2026-09-14:
 
-What actually decides it:
+- **Volume.** Over 13 sessions, 18.11 play-hours, 10-13 Sep 2026: 119,921 records, 10,141,176 bytes
+  of payload, an average wire rate of 0.156 KB/s. One row per record stores that in about 13.4 MB -
+  0.74 MB per play-hour, or about 1.1 GB a year at four hours of daily play. Against that, the combat
+  tables are thousands of small rows. MUD2 is a small, frozen, 32-bit game and this is the only
+  installation.
+- **The four stores as they stood:** `mucka.db` 6.1 MB (24,402 swings, 2,790 fights, 2,285 score
+  events and no `diagnose` readings at all, spanning 14 Aug to 13 Sep), `wire.db` 11.4 MB (13
+  sessions, 10 Sep to 13 Sep, 1,074 framed batches, 119,921 records), 21 clog files, and 40 loose
+  captures totalling 17 MB.
+- **Writer contention** was a property of four independent writers, not of one file. This design
+  replaces them with one, which removes the collision `PRAGMA busy_timeout=5000` exists for rather
+  than adding to it. See "One writer" below.
+- **Blast radius is per-table, not per-file.** With one schema policy (below) nothing in the code
+  drops anything, and clearing the wire log is `DELETE FROM wire` run by hand.
 
-1. The volume does not justify the split. MUD2 is a small, frozen, 32-bit game and the operator's is
-   the only installation. The four stores measured on 2026-09-14 were: `mucka.db` 6.1 MB (24,402
-   swings, 2,790 fights, 2,285 score events and no `diagnose` readings at all, spanning 14 Aug to
-   13 Sep), `wire.db` 11.4 MB (13 sessions, 10 Sep to 13 Sep, 1,074 framed batches, 119,921 records), 21
-   clog files, and 40 JSONL captures totalling 17 MB.
-2. **The contention argument is an argument against the current writer design, not against one file.**
-   This design replaces four independent writers with one, which removes the collision the busy
-   timeout exists for rather than adding to it. See "One writer" below.
-3. **Blast radius is per-table, not per-file** - once the schema policy is one policy (below), nothing
-   in the code drops anything, and clearing the wire log is `DELETE FROM wire` run by hand.
-
-One claim in the tree is NOT carried forward, because it is not true: `MuckaConnection.cs:44-46`
-justifies the existing shared file by saying it lets "the analysis view join a swing to the fight it
-belonged to". Nothing in `CombatDb.cs` joins `swings` to `fights` - all six views aggregate `swings`
-alone, and `encounter_started_at_ms` is a column comment and an index, not a join anyone runs. The
-join is *possible*, and after this stage it is possible across six more tables; that is the honest
-statement of the benefit.
+One claim in the tree is NOT carried forward, because it is not true: `MuckaConnection`'s own header
+justifies the shared file by saying it lets "the analysis view join a swing to the fight it belonged
+to". Nothing in the combat store joins `swings` to `fights` - all six views aggregate `swings` alone,
+and `encounter_started_at_ms` is a column comment and an index, not a join anyone runs. The join is
+*possible*, and after this stage it is possible across six more tables; that is the honest statement
+of the benefit.
 
 ## One owner
 
 There was no single owner. `MuckaConnection` field-initialised three stores and lazily constructed a
-fourth in `TryStartWireLog`. Nothing persistence-related is in the DI container; `MauiProgram.cs`
-registers only `ConnectViewModel` and `ConnectPage`.
+fourth, which started the wire log separately from the connection. Nothing persistence-related is
+in the DI container; `MauiProgram.cs` registers only `ConnectViewModel` and `ConnectPage`.
 
 **`MuckaConnection` owns one store instance, for the life of one connection.** That is what it
 already is, made explicit:
 
-- `MuckaConnection` is `new`ed per connection attempt (`ViewModels/ConnectViewModel.cs:155`), and
-  `ConnectAsync` has exactly one call site (`:167`) on a freshly constructed instance. So one
+- `MuckaConnection` is `new`ed per connection attempt (in `ConnectViewModel`), and `ConnectAsync`
+  has exactly one call site, on a freshly constructed instance. So one
   `MuckaConnection` is one `sessions` row, and store lifetime is one connection - not one app run.
 - Nothing reads the database outside that lifetime. The two readers are
   `FightHistoryStore.LoadAsync` and the swing ledger's warm-up (`SwingLedger.WarmCore`), both fired
@@ -198,7 +199,7 @@ Every store but one already follows the same discipline, and it is Invariant #1 
 
 That discipline is kept. What changes is that there is now **one** such task instead of four.
 
-The exception today is `JsonlWireLogSink`, the only synchronous unbatched writer left (`WriteLine`
+The exception was the old text sink, the only synchronous unbatched writer (`WriteLine`
 under a lock with `AutoFlush = true`). It is on the socket thread rather than the UI thread, so it
 does not breach Invariant #1, and it is deleted by this stage anyway.
 
@@ -218,15 +219,15 @@ notes that the order between a swing, a diagnose reading and a score announcemen
 breath is the whole basis on which an award is later attributed to a kill. Separate queues lose it, and with
 the clog and wire streams joining, more of it is worth keeping.
 
-**Unbounded, not bounded.** `SqliteWireLogSink` bounded its queue at 256 batches with
-`FullMode.DropOldest` (`SqliteWireLogSink.cs`), defending against a writer that is wedged rather than
+**Unbounded, not bounded.** The previous sink bounded its queue at 256 batches and dropped the
+oldest on overflow, defending against a writer that is wedged rather than
 dead - and the wedge cause it names is SQLite lock contention, which one arbiter removes. What is left
 is a stalled disk, and the arithmetic says that is not worth machinery: at the measured 0.156 KB/s an
-hour of total write stall is about half a megabyte of backlog. The `DroppedBatches` counter and the
+hour of total write stall is about half a megabyte of backlog. Its dropped-batch counter and the
 drop report go with the bound; a gapless `seq` is still worth keeping as a per-session ordinal,
 because it is the order things happened and a replay walks it.
 
-**A dead writer still stops accepting.** `SqliteWireLogSink`'s `_faulted` flag is kept and widened to
+**A dead writer still stops accepting.** The old sink's faulted flag is kept and widened to
 the store: if the background task falls over, it sets the flag, discards what is queued, and every
 producer's enqueue becomes a no-op. Without that, an unbounded channel with no reader is a memory leak
 whose size is the rest of the session. Retrying is not done, for the reason the existing code gives:
@@ -245,7 +246,8 @@ must go faulted rather than writing an error line per record for the rest of the
 `ClogWriter` currently runs one `Channel<string>` and one `DrainAsync` task per open encounter, each
 owning its own `StreamWriter`, because each encounter was its own file (`ClogWriter.DrainAsync`). With
 tables there are no files, so `OpenEncounter` keeps `Closing`, `EndedUtc` and `ValuedNames` and loses
-`FilePath`, `Queue` and `WriterTask`; `_writerTasksForTests` goes. The overlapping-clog machinery
+its file path, its queue and its writer task; the test-only
+writer-task list goes. The overlapping-clog machinery
 survives as what it always meant - at most two encounter keys in flight, one live and one draining its
 tail - but it is now two keys in a list rather than two files with two background tasks.
 
@@ -254,7 +256,8 @@ than forced.
 
 ### Connection pragmas
 
-Unchanged from `CombatDb.Open`, and for the reasons it gives: `journal_mode=WAL` (readers and the one
+Unchanged from the combat store's own open, and for the reasons
+it gave: `journal_mode=WAL` (readers and the one
 writer never block each other; a crash mid-write rolls back to the last commit),
 `synchronous=NORMAL` (one fsync per checkpoint rather than per commit; the exposure is the last
 transaction or two), `foreign_keys=ON`.
@@ -270,12 +273,13 @@ start.
 session with no combat in it never creates a database file at all". That
 property is gone regardless: the wire log is always on, so the file exists from the first byte of
 every session. The store therefore opens its connection in its constructor, which is what
-`SqliteWireLogSink` already does and for the right reason - a database that cannot be written says so
+the old sink already did, and for the right reason - a database that cannot be written says so
 at the one moment a human is watching, rather than dying quietly on a background thread.
 
 ### Failure reporting
 
-`MuckaConnection.WireLogFailed` / `WireLogFailure` exist because the wire log was a feature switched
+The connection's wire-log failure event and its held message existed because the wire log was a
+feature switched
 on once and trusted forever, and the crash log is not somewhere the operator looks. Under one arbiter
 that is true of the whole store, so the pair is generalized to `StoreFailed` / `StoreFailure` and
 reports to the terminal exactly as it does now.
@@ -289,12 +293,12 @@ check.
 
 ## Schema
 
-One file cannot run two migration policies. Today `CombatDb` is additive-columns-only and never drops
-data (`AddedColumns` + a `pragma_table_info` probe + `ALTER TABLE ADD COLUMN`), while `WireLogDb`
-drops and recreates both tables and the view on any column mismatch because the wire log is
-disposable (`DiscardOnSchemaChange`). Both are argued as correct in their own file.
+One file cannot run two migration policies, and there were two: the combat store was
+additive-columns-only and never dropped data (`AddedColumns` + a `pragma_table_info` probe +
+`ALTER TABLE ADD COLUMN`), while the wire log dropped and recreated its tables and view on any
+column mismatch, on the grounds that a wire log is disposable.
 
-**The policy is additive-only, everywhere.** `DiscardOnSchemaChange` is deleted.
+**The policy is additive-only, everywhere.** Discard-on-schema-change is deleted.
 
 - It is the policy that cannot lose the irreplaceable half, and there is no mechanism that can be
   told which half a table belongs to without becoming the migration framework CLAUDE.md forbids.
@@ -349,7 +353,7 @@ would turn that ambiguity into a dropped row; a duplicate is at least visible.
 
 Five shape decisions, each of which had a real alternative:
 
-- **`encounters` carries no stats or contents snapshot of its own.** The JSONL header inlined both,
+- **`encounters` carries no stats or contents snapshot of its own.** The old header inlined both,
   which meant one shape for the opening reading and a different one for every later reading of the
   same thing. Instead the writer emits an ordinary `encounter_stats` row with `reason = 'start'` and
   an ordinary `encounter_contents` row when an encounter opens, so "the stats at encounter start" is
@@ -370,9 +374,9 @@ Five shape decisions, each of which had a real alternative:
   question the merge is for, and it is a query against a child table and a string scan against a blob.
   One row per item, with `is_creature` (from the game's own C04 presence sentences) and `is_carried`
   (the FEI list's `========` split).
-- **`encounter_stats` stores the seven effect booleans, not the tooltip messages.** The JSONL header
+- **`encounter_stats` stores the seven effect booleans, not the tooltip messages.** The old header
   serialized the whole `StatusEffectState`, which carries eleven `string?` message fields
-  (`mudsharp/Models/StatusEffect.cs:66-77`). `ClogWriter`'s own remark on its effect-flags block
+  (`MudSharp.Models.StatusEffectState`). `ClogWriter`'s own remark on its effect-flags block
   already says a boolean flip is the whole of what a stats row needs; the same holds here.
 
 ### The encounter key, and the one bug the merge exposes
@@ -384,7 +388,7 @@ It did **not** pass it to the clog writer, which stamped its own `DateTimeOffset
 `Start()` instead. While clogs were files that nobody joined, that cost nothing. The moment they are
 tables keyed for the join, two clocks a few microseconds apart join to nothing. **`ClogWriter` takes
 the encounter key from its caller, exactly as the other two do,** and falls back to a local reading
-only on the unit-test and design-time path - the same shape `FightHistoryRecorder.cs:134` already uses
+only on the unit-test and design-time path - the same shape `FightHistoryRecorder` already uses
 and for the same stated reason.
 
 `ClogWriter._startSequence` exists to keep two encounters that start in the same millisecond from
@@ -396,58 +400,17 @@ colliding on a filename. With no filenames it goes, and each table gets its own
 
 Everything is unix milliseconds UTC. The clog writer stamps `DateTimeOffset.UtcNow` on the Feed
 thread; the wire capture stamps `DateTimeOffset.UtcNow` on the socket read and write loops
-(`SessionCapture.Emit`); the ledger stamps on the Feed thread. Same clock, different threads - so a
+(`WireLogWriter`'s own emit path); the ledger stamps on the Feed
+thread. Same clock, different threads - so a
 wire record and the swing parsed out of it are comparable to within the parse, which is what any
 cross-stream question needs.
 
-## What is removed
+## Paths, and what the store is allowed to assume
 
-The whole hand-armed and opt-in apparatus goes. Enumerated, because a half-removed setting is worse
-than the setting:
-
-**JSONL and the sink fan-out**
-- `Mucka.Util/Mucka.WireLog/JsonlWireLogSink.cs` - deleted.
-- `IWireLogSink` - deleted. It existed so the backend could be swapped between the JSONL sink and the
-  SQLite one; with one sink there is nothing to swap.
-- `SessionCapture` - deleted, and its job folded into `WireLogWriter`, which is now the tap and the
-  batcher in one: it stamps the time, tags the direction, and owns `Annotate`. The class existed to
-  fan one record out to several sinks and to keep the two arming decisions apart; with one always-on
-  destination it was a layer with nothing in it. The annotations themselves stay - the dreamword,
-  reset and terminal-width notes are cheap and are in the log where they are useful.
-- `WireLogExport.ExportSessionToJsonl` and `SuggestFileName` - deleted. `ListSessions` and
-  `ReadSession` are kept: they have no production call site today, and they are the seed of the CLI
-  that the `TODO` entry names.
-
-**The setting**
-- `logwiresession` in `Core/SettingsStore.cs:197,269`, `ClientSettings.LogWireSession` (`:93`),
-  `Profile.LogWireSession` (`:94`), `FkeyEditorViewModel.LogWireSession` (`:147,336,487`), the
-  checkbox in `Pages/FkeyEditorPage.xaml:275`, and the reads in `ConnectViewModel.cs:189,228,523` and
-  `GameViewModel.cs:548,622,743`.
-
-**The capture button and its plumbing**
-- `ConnectViewModel.IsCaptureRequested`, `CaptureButtonText`, `ToggleCaptureCommand` and the
-  `TryStartCapture` call; the `DataTrigger` in `Pages/ConnectPage.xaml:357,367`.
-- `GameViewModel.IsCapturing`, `ToggleCaptureCommand`, `ToggleCapture`; the badge in
-  `Pages/GamePage.xaml:183-199`; the branch in `Pages/RawConsolePage.cs:442`.
-- `MuckaConnection.IsCapturing`, `CaptureFilePath`, `TryStartCapture`, `StopCapture`,
-  `TryStartWireLog` (the store is no longer started separately from the connection).
-- The `--record` command-line argument and its `#if DEBUG` block at `ConnectViewModel.cs:478-484`.
-
-**Paths**
-- `Core/ClogPaths.cs` becomes `Core/MuckaPaths.cs`, a single data-directory resolver: one method
-  returning `~/.mucka` on Windows and `FileSystem.AppDataDirectory` elsewhere, and one
-  giving the database path inside it. `GetCombatDirectory`, `GetWireLogDirectory`,
-  `GetCaptureDirectory` and `GetClogDirectory` all go, and with them the two dangling comments
-  referring to an `items.jsonl` "$eval" log (deleted in `72c6ebe`) and a `~/.mucka/mapping` store
-  (removed in `5a72a6d`).
-- The two `DefaultFileName` constants collapse to one, on `MuckaDb`. Nothing hardcodes a Windows path
-  today and nothing may start.
-
-**Schema machinery**
-- `WireLogDb.DiscardOnSchemaChange`, `ExpectedBatchColumns` and `ColumnsOf` - deleted with the policy.
-- `CombatDb.cs` and `WireLogDb.cs` merge into `MuckaDb.cs`. It keeps the observations from both (why
-  brackets are unaggregated, why there are so many state columns, what `records` is for) and drops the
-  "why this is its own file" argument, which this document has now superseded.
+`MuckaPaths` is the single data-directory resolver: `~/.mucka` on Windows,
+`FileSystem.AppDataDirectory` elsewhere, plus the database path inside it. **Nothing hardcodes a
+Windows path, and nothing may start.** `MuckaDb` is the one schema file, and there is one
+`DefaultFileName`.
 
 ### Android writes to app data, not to the cache
 
@@ -455,17 +418,24 @@ The clogs and the wire log both used `FileSystem.Current.CacheDirectory` on mobi
 a store: Android reclaims a cache directory under storage pressure without asking and without telling
 the app, and "Clear cache" in the settings app empties it. It was survivable for a hand-armed log and
 is not survivable for the corpus, so the mobile arm of `MuckaPaths.GetDataDirectory` is
-`FileSystem.AppDataDirectory` - the same directory `mucka.ini` (`SettingsStore.cs`) and the crash log
-(`CrashLog.cs`) already use.
+`FileSystem.AppDataDirectory` - the same directory `mucka.ini` (`SettingsStore`) and the crash log
+(`CrashLog`) already use.
 
 The consequence that remains, recorded rather than solved: the wire log is always-on on Android too,
 so 0.74 MB per play-hour is now unconditional in app data. Retention is a later stage.
 
-### One consequence the operator has already accepted
+### The two recordings, and which is which
 
-The hand-armed `rec` capture is the reason the JSONL sink exists, and stage 7 rebuilds it as plain
-text. Between this stage and that one there is no session recording at all beyond the wire log
-itself. A JSONL sink is not kept alive to cover the gap.
+There are two, and confusing them is the trap this section exists to prevent.
+
+- The **wire log** is the always-on, byte-exact record: every byte of every session into `wire`,
+  nothing to arm and no setting. It is what evidence questions are answered from.
+- **`rec`** is the hand-armed, human-readable one: a plain-text transcript of the screen, governed by
+  `docs/session-rec-design.md`. It is lossy by design and answers to the wire log, never the reverse.
+
+Both are current. A `-record` switch and an on-screen chip belong to `rec`; the old text sink and the
+opt-in wire-log setting that once shared those names are gone, and nothing should be reintroduced to
+cover for them.
 
 ## What Lab reads
 
@@ -480,10 +450,10 @@ Almost all of that survives. What changes:
   traffic query is `SELECT ts_ms, direction, data FROM wire ORDER BY seq` - the rows are the records,
   so nothing has to be unframed first. `ATTACH` is no longer needed for a cross-store question.
 - **The clog corpus is queryable.** Every question Lab would previously have answered by re-reading
-  `~/.mucka/clogs/*.jsonl` is now SQL against `encounter_events`, `encounter_stats` and their
+  the loose clog files is now SQL against `encounter_events`, `encounter_stats` and their
   siblings. The `flees --scan` pipeline still goes through the raw bytes, because it needs frames and
   frames come from the parser.
-- **Also reads the `.jsonl` captures** comes out of the Input section. There will be none.
+- **Also reads the loose captures** comes out of the Input section. There are none.
 - `lab_` stays the prefix, and Lab still never writes to a table the client reads.
 - `MudStreamParser` and `MudSession` stay public. That is decided, not open.
 
@@ -501,7 +471,7 @@ until the new build has been played.
    there, and would record that session into a file nothing reads afterwards.
 2. **The wire data was decoded in, not copied in.** The old `wire.db` holds `MWL1`-framed batches and
    the new table holds records, so `ATTACH` plus `INSERT ... SELECT` could not do it: every batch had
-   to pass through `WireLogFraming.Decode` on the way. That is why the framing code was deleted
+   to pass through a decode step on the way. That is why the framing code was deleted
    *after* this step and not before. `seq` was renumbered per session across the session's whole record
    sequence, replacing the old per-batch ordinal. The session id offset was read once, before any
    insert, so the two id spaces shift together.
@@ -523,7 +493,7 @@ until the new build has been played.
    `VACUUM` is what returns the pages; without it the file keeps its size and reuses the space later.
 5. **Still to delete**, once the new build has been played: `~/.mucka/combat/` (now empty - the stale
    `combat.db` the operator deleted, and the moved `mucka.db`), `~/.mucka/wire/`, `~/.mucka/clogs/`
-   (21 files), and the 40 JSONL captures in `%LOCALAPPDATA%\Temp\mucka`. A full copy of all three
+   (21 files), and the 40 loose captures in `%LOCALAPPDATA%\Temp\mucka`. A full copy of all three
    databases as they were sits in `~/.mucka/backup-20260914-100508/`.
 
 If a file is locked at any of these steps, Mucka is running. Ask the operator to close it; never kill

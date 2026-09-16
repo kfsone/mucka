@@ -50,5 +50,15 @@ indent_size = 4
 [*.{json,yml,yaml}]
 indent_size = 2
 
+# Captured MUD2 frames. The payload is the server's own bytes - a third of them above 0x7F - so
+# every [*] default here would rewrite evidence. trim_trailing_whitespace is the dangerous one: a
+# frame ending in 0x20 would lose it on an IDE save, the decode would still succeed and every test
+# would stay green. .gitattributes stops git touching these; this stops the editor.
+[*.c1]
+charset                  = unset
+end_of_line              = unset
+trim_trailing_whitespace = false
+insert_final_newline     = false
+
 [*.md]
 trim_trailing_whitespace = false

@@ -27,7 +27,7 @@
     <!-- The poisoned-wyvern death recording, shared with mudsharp.Tests and Mucka.Util.Tests;
          SessionRecorderTests replays it through the production parser so the transcript's line model
          is measured against real traffic rather than hand-built lines. -->
-    <None Include="..\mudsharp.Tests\Fixtures\Data\wyvern-poison-death.jsonl" Link="Fixtures\Data\wyvern-poison-death.jsonl"
+    <None Include="..\mudsharp.Tests\Fixtures\Data\wyvern-poison-death.c1" Link="Fixtures\Data\wyvern-poison-death.c1"
           CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 

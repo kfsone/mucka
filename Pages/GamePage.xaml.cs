@@ -1807,8 +1807,11 @@ public partial class GamePage : ContentPage
     /// <summary>Each pooled element's fixed box, in dp. Fixed so the element is ARRANGED once and
     /// never again: a float's whole position is a Composition Translation off that one arranged
     /// rectangle, which is what keeps a combat event out of MAUI layout entirely. The widest string
-    /// any float can carry is a five-character bracket, and 92 is the stamina seal's own width, so a
-    /// float centred on the seal cannot overhang the panel either.</summary>
+    /// any float can carry is a five-character bracket, and this holds it.
+    ///
+    /// <para>The width answers to that string and to nothing else. A float centres on the whole tile
+    /// (see RailSlotGeometry.PlayerTileDp), which is wider than this at either panel width, so the box
+    /// cannot overhang whatever it is anchored to.</para></summary>
     private const double CombatFloatWidthDp = 92.0;
     private const double CombatFloatHeightDp = 18.0;
 

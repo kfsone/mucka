@@ -29,7 +29,7 @@
   <ItemGroup>
     <!-- The poisoned-wyvern death recording, shared with mudsharp.Tests (which replays its protocol
          facts); WireLogTests pushes the same records through framing and the sqlite sink. -->
-    <None Include="..\..\mudsharp.Tests\Fixtures\Data\wyvern-poison-death.jsonl" Link="Fixtures\Data\wyvern-poison-death.jsonl"
+    <None Include="..\..\mudsharp.Tests\Fixtures\Data\wyvern-poison-death.c1" Link="Fixtures\Data\wyvern-poison-death.c1"
           CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 

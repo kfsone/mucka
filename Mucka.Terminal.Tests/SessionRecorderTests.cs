@@ -257,8 +257,24 @@ public sealed class SessionRecorderTests : IDisposable
 
     // -- Against real traffic -------------------------------------------------
 
+
+    /// <summary>Undoes the three escapes a <c>.c1</c> payload carries: a backslash, and the CR and
+    /// LF that would otherwise split a record. Latin-1, so a char IS its byte.</summary>
+    private static byte[] CaptureBytes(string payload)
+    {
+        var bytes = new List<byte>(payload.Length);
+        for (var i = 0; i < payload.Length; i++)
+        {
+            if (payload[i] == '\\' && i + 1 < payload.Length)
+                bytes.Add(payload[++i] switch { 'r' => (byte)0x0D, 'n' => (byte)0x0A, _ => (byte)0x5C });
+            else
+                bytes.Add((byte)payload[i]);
+        }
+        return bytes.ToArray();
+    }
+
     private static readonly string CaptureFile =
-        Path.Combine(AppContext.BaseDirectory, "Fixtures", "Data", "wyvern-poison-death.jsonl");
+        Path.Combine(AppContext.BaseDirectory, "Fixtures", "Data", "wyvern-poison-death.c1");
 
     [Fact]
     public async Task A_real_capture_replays_into_a_transcript_of_the_screen()
@@ -276,14 +292,13 @@ public sealed class SessionRecorderTests : IDisposable
         }))
         {
             session.LineReady += line => { streamed.Add(line); recorder.Append(line); };
-            foreach (var rawLine in File.ReadLines(CaptureFile))
+            // One record per line: ts_ms, direction, then the server's own bytes - see CaptureBytes.
+            foreach (var rawLine in File.ReadLines(CaptureFile, Encoding.Latin1))
             {
                 if (string.IsNullOrWhiteSpace(rawLine)) continue;
-                using var doc = JsonDocument.Parse(rawLine);
-                var arr = doc.RootElement;
-                if (arr.ValueKind != JsonValueKind.Array || arr.GetArrayLength() < 3 ||
-                    arr[1].GetString() != "rx") continue;
-                session.Feed(Encoding.Latin1.GetBytes(arr[2].GetString() ?? string.Empty));
+                var parts = rawLine.Split(' ', 3);
+                if (parts.Length < 3 || parts[1] != "rx") continue;
+                session.Feed(CaptureBytes(parts[2]));
             }
         }
 
