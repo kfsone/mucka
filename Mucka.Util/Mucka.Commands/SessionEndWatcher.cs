@@ -57,6 +57,12 @@ public sealed class SessionEndWatcher
         var normalized = ShellText.NormalizeWhitespace(text);
         if (ShellText.IsQuitFarewellLine(normalized))
             Set(SessionDropReason.Quit);
+        // Before the summary check, and it has to be: a reset prints the same end-of-game summary a
+        // death does, so whichever is seen first wins and the reset landing precedes it. Live this is
+        // redundant - NoteWorldResetLanded has already fired from the C06 C06 code by now - and it
+        // carries a replay, where that event cannot fire at all.
+        else if (ShellText.IsWorldResetLandingLine(normalized))
+            Set(SessionDropReason.Reset);
         else if (ShellText.IsGameSummaryLine(normalized))
             Set(SessionDropReason.Died);
     }

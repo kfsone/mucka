@@ -72,10 +72,19 @@ public static class PersonaSessionBackfill
     ///
     /// <para>"No logins" is the idempotence guard. It holds for every FINISHED run: one from before
     /// the table existed has none until this fills them, one recorded since opened its own at
-    /// game-mode entry, and neither changes afterwards. It does NOT hold for the run in progress,
-    /// which passes through "has wire, has no sessions yet" on its way to the first login - hence
-    /// <paramref name="liveRunId"/>. An earlier version of this comment claimed the guard was sound
-    /// because a run "can never be both", which was simply wrong about the current one.</para>
+    /// game-mode entry, and neither changes afterwards. It does NOT hold for a run still going, which
+    /// passes through "has wire, has no sessions yet" on its way to its first login. Replaying one
+    /// then invents a session for a login the live path is about to record, and the ghost is
+    /// permanent, because afterwards the run "has sessions" and is skipped for ever.</para>
+    ///
+    /// <para><b>Every unfinished run is excluded, not just this client's.</b> A <c>mucka_runs</c> row
+    /// gets its <c>ended_ms</c> when that store is disposed, so a null one is a run whose process may
+    /// still be alive - and the operator runs several Muckas at once, on different MUD2s or different
+    /// personas, which 0003 records as a design fact. An earlier version excluded only
+    /// <paramref name="liveRunId"/>, which is a one-instance fix to a multi-instance problem: a second
+    /// client starting eighteen seconds after the first would happily replay the first's open run.
+    /// The cost of the wider rule is that a run left unfinished by a crash is never backfilled, which
+    /// is the safe direction - it keeps its rows unattributed rather than gaining invented ones.</para>
     /// </summary>
     private static List<long> RunsNeedingBackfill(SqliteConnection connection, long? liveRunId)
     {
@@ -83,7 +92,9 @@ public static class PersonaSessionBackfill
         command.CommandText = """
             SELECT DISTINCT w.mucka_run_id
             FROM wire w
-            WHERE w.mucka_run_id IS NOT $live
+            JOIN mucka_runs r ON r.id = w.mucka_run_id
+            WHERE r.ended_ms IS NOT NULL
+              AND w.mucka_run_id IS NOT $live
               AND NOT EXISTS (SELECT 1 FROM persona_sessions p WHERE p.mucka_run_id = w.mucka_run_id)
             ORDER BY w.mucka_run_id;
             """;
@@ -148,10 +159,14 @@ public static class PersonaSessionBackfill
         session.GameModeEntered += () => { openedAt = ts; persona = null; watcher.Begin(); };
         session.CharacterIdentified += name => persona = name;
 
-        // The one classifier, the same instance type the live path drives - see SessionEndWatcher.
-        // A world reset is deliberately not reconstructed: live it comes from the C06 C06 landing,
-        // and a replay would have to guess whether an exit that merely happened near one was caused
-        // by it.
+        // The one classifier, driven from what a replay can actually observe.
+        //
+        // WorldResetLanded is deliberately NOT subscribed, and subscribing it would be dead code:
+        // MudSession corroborates that event against DateTime.UtcNow before raising it, so on bytes
+        // recorded days ago the check never passes. The watcher picks the reset up from its own line
+        // instead - see ShellText.IsWorldResetLandingLine. Without that it recorded a reset-ended
+        // login as `died`, because the summary a reset prints on the way out is the same one a death
+        // prints, and the live path recorded `reset` for the same event.
         session.PersonaWiped += watcher.NotePersonaWiped;
         session.LineReady += line =>
         {

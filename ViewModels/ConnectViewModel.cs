@@ -156,9 +156,11 @@ public sealed class ConnectViewModel : BaseViewModel
             // database runs any schema migration the file still needs (MuckaDb.ApplySchema). That is
             // synchronous SQLite work whose cost is unbounded in principle and measured in hundreds
             // of milliseconds in practice - the migration that introduced persona_sessions took over
-            // half a second on the operator's own file, rewriting eleven tables. On the UI thread
-            // that is Invariant #1 broken by an order of magnitude, and it happens exactly once, on
-            // the first launch after an update, which is the worst moment to freeze.
+            // half a second on the operator's own file, rewriting eleven tables.
+            //
+            // Not Invariant #1, which is about the command box and there is none on this page: this
+            // is a frozen Connect button on the first launch after an update, which is a bad first
+            // impression rather than a broken one. Worth fixing on its own merits.
             var conn = await Task.Run(() => new MuckaConnection(
                 autoLogin ? accountId : null,
                 autoLogin ? resolvedPassword : null,

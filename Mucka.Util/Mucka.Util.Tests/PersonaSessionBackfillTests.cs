@@ -40,7 +40,10 @@ public sealed class PersonaSessionBackfillTests : IDisposable
     {
         using var command = connection.CreateCommand();
         command.CommandText =
-            "INSERT INTO mucka_runs (started_ms, host) VALUES (1, $host); SELECT last_insert_rowid();";
+            // ended_ms set, because only a FINISHED run is backfilled - a null one is a process that
+            // may still be alive, and replaying it would invent sessions the live path is recording.
+            "INSERT INTO mucka_runs (started_ms, ended_ms, host) VALUES (1, 99999, $host); "
+            + "SELECT last_insert_rowid();";
         command.Parameters.AddWithValue("$host", host);
         return Convert.ToInt64(command.ExecuteScalar());
     }
@@ -128,6 +131,33 @@ public sealed class PersonaSessionBackfillTests : IDisposable
 
         Assert.Equal(1, PersonaSessionBackfill.Run(DbPath));
         Assert.Equal(expected, ScalarString(DbPath, "SELECT ended_note FROM persona_sessions"));
+    }
+
+    /// <summary>
+    /// A world reset ends the login as `reset`, not `died`.
+    ///
+    /// <para>The replay used to skip <c>WorldResetLanded</c>, so the end-of-game summary that follows
+    /// a reset - identical to the one a death prints - was all the classifier saw, and the backfill
+    /// recorded `died` where the live path recorded `reset`. Two answers for one event, and being
+    /// idempotent, the wrong one was permanent.</para>
+    /// </summary>
+    [Fact]
+    public void AResetEndedLogin_IsNotRecordedAsADeath()
+    {
+        using (var connection = MuckaDb.Open(DbPath))
+        {
+            var run = NewRun(connection, "mud2.co.uk");
+            Wire(connection, run, 1, 1_000, EntersGameMode);
+            // C06 C06 - "Something magical is happening." - then the summary the shell prints on the
+            // way out, which on its own looks exactly like an ordinary death.
+            Wire(connection, run, 2, 5_000,
+                [0xA1, 0xA1, 0xFF, 0xFF, .. Encoding.Latin1.GetBytes(
+                    "Something magical is happening.\r\nOverall, you scored 1,263 points this game.\r\n")]);
+            Wire(connection, run, 3, 9_000, LeavesGameMode);
+        }
+
+        Assert.Equal(1, PersonaSessionBackfill.Run(DbPath));
+        Assert.Equal("reset", ScalarString(DbPath, "SELECT ended_note FROM persona_sessions"));
     }
 
     /// <summary>It runs on every start-up, so doing nothing the second time is not a nicety. A run

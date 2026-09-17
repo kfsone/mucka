@@ -139,6 +139,21 @@ public static class ShellText
     /// <para>Whole-line shape rather than <c>ContainsPhrase</c>, for the same reason the farewell is:
     /// this is tested against in-game lines, where another player can say anything.</para>
     /// </summary>
+    /// <summary>
+    /// The world reset landing, in words: MUD2's last in-world line before the server goes down
+    /// (Mud2C1Decoder's C06 C06, which carries exactly this text).
+    ///
+    /// <para><b>Live code should use the C06 C06 signal, not this.</b> It exists for replaying a
+    /// recorded wire log, where the code-sourced event is unavailable - MudSession corroborates that
+    /// event against <c>DateTime.UtcNow</c>, so on historical bytes the check always fails and the
+    /// event never fires. Without this, a reset-ended login reads as an ordinary death: the
+    /// end-of-game summary that follows a reset is identical to the one a death prints.</para>
+    ///
+    /// <para>Whole-line, like the farewell: a player can say anything.</para>
+    /// </summary>
+    public static bool IsWorldResetLandingLine(string normalized)
+        => string.Equals(normalized, "Something magical is happening.", StringComparison.OrdinalIgnoreCase);
+
     public static bool IsGameSummaryLine(string normalized)
         => normalized.StartsWith("Overall, you ", StringComparison.OrdinalIgnoreCase)
         && normalized.EndsWith(" points this game.", StringComparison.OrdinalIgnoreCase);
