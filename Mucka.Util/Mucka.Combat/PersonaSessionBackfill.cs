@@ -7,7 +7,12 @@ namespace Mucka.Combat;
 
 /// <summary>
 /// Reconstructs <c>persona_sessions</c> for rows recorded before the table existed, by replaying the
-/// wire log through the same parser that produced them.
+/// wire log through the same parser that produced them, and then hands every unclaimed fact row to
+/// the login it happened in.
+///
+/// <para>Those are two phases on purpose. Reconstruction is skipped for a run that already has
+/// sessions; attribution is not, because the live path records sessions of its own and can still
+/// leave rows unclaimed behind them.</para>
 ///
 /// <para><b>Why a replay and not a query.</b> A login boundary is not in any column: it is the
 /// server's own game-mode transition, which only the C1 decoder can see. The wire log kept the bytes,
@@ -18,10 +23,16 @@ namespace Mucka.Combat;
 /// DbUp script cannot reach the parser. Instead this is idempotent and runs after migration: it fills
 /// only what is empty, so a second run does nothing and an interrupted first run heals itself.</para>
 ///
-/// <para>It cannot reach further back than the wire log does - a reconstructed login is stamped with
-/// a wire record's own timestamp and claims only rows at or after it, so nothing older than the FIRST
-/// wire record is reachable by construction. Those rows are deleted by 0004, which is what makes
-/// "every fact row has a login" true rather than aspirational.</para>
+/// <para><b>It cannot reach further than the wire log does, and "every fact row has a login" is not
+/// true.</b> A login is only recoverable where the bytes that announced it survive, and two ordinary
+/// things break that. A run may have had its wire pruned out from under it while it was still
+/// playing - run 1 of the operator's store has 8,905 wire records ending an hour in and kept
+/// recording swings for two more days. And a run that was killed rather than closed never wrote
+/// <c>mucka_runs.ended_ms</c>, so it is permanently ineligible for replay, because a run that may
+/// still be alive must never be replayed; five of the operator's 38 runs are in that state. Together
+/// those leave 1,762 of 9,732 swings with no login, and no amount of re-running will change it. 0004
+/// deleted what predates the wire log entirely, which is a smaller claim than it used to make
+/// here.</para>
 ///
 /// <para>Threading: opens its own short-lived connections and must run OFF the UI thread
 /// (Invariant #1). Safe alongside the live writer - WAL, plus the busy timeout every connection
@@ -34,9 +45,10 @@ public static class PersonaSessionBackfill
     private readonly record struct Login(long StartedMs, long? EndedMs, string? Persona, string? EndNote);
 
     /// <summary>
-    /// Fills in every login the wire log can still account for. Returns how many
-    /// <c>persona_sessions</c> rows were created; zero when there is nothing left to do, which is the
-    /// steady state.
+    /// Fills in every login the wire log can still account for, then attributes whatever fact rows
+    /// are still unclaimed. Returns how many <c>persona_sessions</c> rows were created; zero when
+    /// there is nothing left to reconstruct, which is the steady state - and note that zero does not
+    /// mean nothing happened, because attribution runs either way.
     /// </summary>
     /// <param name="liveRunId">The run this client is recording into right now, excluded from the
     /// replay. Without it there is a race: this runs fire-and-forget at start-up while the connection
@@ -54,7 +66,14 @@ public static class PersonaSessionBackfill
 
             var created = 0;
             foreach (var runId in RunsNeedingBackfill(connection, liveRunId))
-                created += BackfillRun(connection, runId);
+                created += ReconstructSessions(connection, runId);
+
+            // Separate phase, and deliberately not folded back into the one above. Reconstruction is
+            // guarded by "this run has no sessions", which is right for creating them and wrong for
+            // attribution: a run whose sessions the LIVE path recorded is skipped entirely, so rows it
+            // left unclaimed would never be reachable. Attribution keyed on the sessions themselves
+            // reaches those too, and having one rule instead of two is the point.
+            AttributeUnclaimedRows(connection, liveRunId);
 
             return created;
         }
@@ -106,7 +125,7 @@ public static class PersonaSessionBackfill
         return runs;
     }
 
-    private static int BackfillRun(SqliteConnection connection, long runId)
+    private static int ReconstructSessions(SqliteConnection connection, long runId)
     {
         var logins = ReplayLogins(connection, runId);
         if (logins.Count == 0)
@@ -115,21 +134,96 @@ public static class PersonaSessionBackfill
         var host = HostOf(connection, runId);
         using var transaction = connection.BeginTransaction();
 
-        for (var i = 0; i < logins.Count; i++)
-        {
-            var login = logins[i];
-            // A login with no recorded exit runs until the next one starts, or to the end of time for
-            // the last. The client was killed rather than logging out, so there is no honest end - but
-            // the rows in between still belong to it.
-            var endsAt = login.EndedMs
-                ?? (i + 1 < logins.Count ? logins[i + 1].StartedMs - 1 : (long?)null);
-
-            var id = InsertSession(connection, transaction, runId, host, login);
-            AttributeRows(connection, transaction, id, login.StartedMs, endsAt);
-        }
+        foreach (var login in logins)
+            InsertSession(connection, transaction, runId, host, login);
 
         transaction.Commit();
         return logins.Count;
+    }
+
+    /// <summary>One login's span: the rows it may claim.</summary>
+    private readonly record struct Window(long Id, long From, long To);
+
+    /// <summary>
+    /// Hands every still-unclaimed fact row to the login it happened in.
+    ///
+    /// <para>Idempotent: it fills only nulls, so a second run over the same rows does nothing.</para>
+    ///
+    /// <para>The <see cref="AnythingUnattributed"/> guard bounds the cost, it does not reach zero.
+    /// Rows that no login can ever claim stay null for ever - see the note on this class - so on a
+    /// store that holds any, the guard passes on every start-up and the full pass runs every time.
+    /// That is five short UPDATEs per login against an indexed column, which is cheap; the guard is
+    /// there for the store that has none, not as a promise that work eventually stops.</para>
+    /// </summary>
+    private static void AttributeUnclaimedRows(SqliteConnection connection, long? liveRunId)
+    {
+        if (!AnythingUnattributed(connection))
+            return;
+
+        var windows = BoundedSessions(connection, liveRunId);
+        if (windows.Count == 0)
+            return;
+
+        using var transaction = connection.BeginTransaction();
+        foreach (var window in windows)
+            AttributeRows(connection, transaction, window);
+        transaction.Commit();
+    }
+
+    private static bool AnythingUnattributed(SqliteConnection connection)
+    {
+        foreach (var (table, _) in FactTables)
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText =
+                $"SELECT EXISTS(SELECT 1 FROM {table} WHERE persona_session_id IS NULL);";
+            if (Convert.ToInt64(command.ExecuteScalar()) != 0)
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Every login that has a definite end, oldest first.
+    ///
+    /// <para><b>A login cannot outlive the process that recorded it.</b> One with no recorded exit -
+    /// the operator closed Mucka while still logged in, which is ordinary, not a crash - ends where
+    /// the next login in the same run begins, or failing that where the RUN ended. It used to end
+    /// nowhere, and since runs are replayed oldest first, the earliest such login claimed every fact
+    /// row written afterwards, for ever, across other runs and other personas.</para>
+    ///
+    /// <para>Unfinished runs are excluded, so <c>r.ended_ms</c> is never null and a window always has
+    /// an upper bound. That is why <see cref="AttributeRows"/> takes a <c>long</c> rather than a
+    /// nullable one: an unbounded claim is now unsayable rather than merely unsaid.</para>
+    ///
+    /// <para><b>Concurrent runs are not resolvable here.</b> The operator runs several Muckas at once,
+    /// and the fact tables carry no run of their own - only the login - so where two runs overlap, a
+    /// row inside both windows goes to whichever login started first. In the operator's store that is
+    /// 81 swings of 9,461. Fixing it properly means stamping the run on every fact row; ordering by
+    /// <c>started_ms</c> at least makes the wrong answer the same wrong answer every time.</para>
+    /// </summary>
+    private static List<Window> BoundedSessions(SqliteConnection connection, long? liveRunId)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT p.id, p.started_ms,
+                   COALESCE(
+                       p.ended_ms,
+                       (SELECT MIN(q.started_ms) - 1 FROM persona_sessions q
+                         WHERE q.mucka_run_id = p.mucka_run_id AND q.started_ms > p.started_ms),
+                       r.ended_ms) AS ends
+            FROM persona_sessions p
+            JOIN mucka_runs r ON r.id = p.mucka_run_id
+            WHERE r.ended_ms IS NOT NULL
+              AND p.mucka_run_id IS NOT $live
+            ORDER BY p.started_ms, p.id;
+            """;
+        command.Parameters.AddWithValue("$live", (object?)liveRunId ?? DBNull.Value);
+        var windows = new List<Window>();
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+            windows.Add(new Window(reader.GetInt64(0), reader.GetInt64(1), reader.GetInt64(2)));
+        return windows;
     }
 
     /// <summary>
@@ -241,7 +335,7 @@ public static class PersonaSessionBackfill
     ];
 
     private static void AttributeRows(SqliteConnection connection, SqliteTransaction transaction,
-        long personaSessionId, long startedMs, long? endedMs)
+        Window window)
     {
         foreach (var (table, column) in FactTables)
         {
@@ -251,11 +345,10 @@ public static class PersonaSessionBackfill
             // already claimed. Identifiers are compile-time literals from FactTables above.
             command.CommandText =
                 $"UPDATE {table} SET persona_session_id = $id " +
-                $"WHERE persona_session_id IS NULL AND {column} >= $from " +
-                $"  AND ($to IS NULL OR {column} <= $to);";
-            command.Parameters.AddWithValue("$id", personaSessionId);
-            command.Parameters.AddWithValue("$from", startedMs);
-            command.Parameters.AddWithValue("$to", (object?)endedMs ?? DBNull.Value);
+                $"WHERE persona_session_id IS NULL AND {column} BETWEEN $from AND $to;";
+            command.Parameters.AddWithValue("$id", window.Id);
+            command.Parameters.AddWithValue("$from", window.From);
+            command.Parameters.AddWithValue("$to", window.To);
             command.ExecuteNonQuery();
         }
     }

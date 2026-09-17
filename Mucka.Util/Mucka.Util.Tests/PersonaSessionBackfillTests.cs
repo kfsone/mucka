@@ -36,14 +36,17 @@ public sealed class PersonaSessionBackfillTests : IDisposable
     /// <summary>The MUD Shell's own prompt, which is what leaving the game lands on.</summary>
     private static byte[] LeavesGameMode => Encoding.Latin1.GetBytes("\r\nOption (H for help): ");
 
-    private long NewRun(SqliteConnection connection, string host)
+    private long NewRun(SqliteConnection connection, string host,
+        long startedMs = 1, long endedMs = 99999)
     {
         using var command = connection.CreateCommand();
         command.CommandText =
             // ended_ms set, because only a FINISHED run is backfilled - a null one is a process that
             // may still be alive, and replaying it would invent sessions the live path is recording.
-            "INSERT INTO mucka_runs (started_ms, ended_ms, host) VALUES (1, 99999, $host); "
+            "INSERT INTO mucka_runs (started_ms, ended_ms, host) VALUES ($started, $ended, $host); "
             + "SELECT last_insert_rowid();";
+        command.Parameters.AddWithValue("$started", startedMs);
+        command.Parameters.AddWithValue("$ended", endedMs);
         command.Parameters.AddWithValue("$host", host);
         return Convert.ToInt64(command.ExecuteScalar());
     }
@@ -180,9 +183,53 @@ public sealed class PersonaSessionBackfillTests : IDisposable
         Assert.Equal(1, Count(DbPath, "SELECT COUNT(*) FROM persona_sessions"));
     }
 
+    /// <summary>
+    /// A login whose close the log never saw does not reach past the process that recorded it.
+    ///
+    /// <para>It used to. An unclosed last login was attributed with no upper bound at all, and runs
+    /// are replayed oldest first, so the earliest such login claimed every fact row in the database
+    /// from its start to the end of time - including rows written by later runs, days afterwards, by
+    /// other personas. In the operator's own store that was 8,598 of 8,652 swings on one session, and
+    /// it was permanent: afterwards every later run "has sessions" and is skipped for ever. The
+    /// single-run tests around this one could not see it by construction.</para>
+    ///
+    /// <para>"The client was killed mid-game" is not the rare case it sounds like - it is what closing
+    /// Mucka while still logged in looks like. Twelve of the operator's finished runs end that
+    /// way.</para>
+    /// </summary>
+    [Fact]
+    public void AnUnclosedLogin_DoesNotClaimALaterRunsRows()
+    {
+        long runA, runB;
+        using (var connection = MuckaDb.Open(DbPath))
+        {
+            // Enters game mode and never leaves: the process went away with the persona still in.
+            runA = NewRun(connection, "mud2.co.uk", startedMs: 1_000, endedMs: 10_000);
+            Wire(connection, runA, 1, 2_000, EntersGameMode);
+
+            // A separate, later run that logs in and out cleanly.
+            runB = NewRun(connection, "mud2.co.uk", startedMs: 20_000, endedMs: 40_000);
+            Wire(connection, runB, 1, 21_000, EntersGameMode);
+            Wire(connection, runB, 2, 39_000, LeavesGameMode);
+
+            Swing(connection, 5_000);    // run A, inside its unclosed login
+            Swing(connection, 30_000);   // run B, and A must not reach it
+        }
+
+        Assert.Equal(2, PersonaSessionBackfill.Run(DbPath));
+
+        var aSession = Count(DbPath, $"SELECT id FROM persona_sessions WHERE mucka_run_id = {runA}");
+        var bSession = Count(DbPath, $"SELECT id FROM persona_sessions WHERE mucka_run_id = {runB}");
+
+        Assert.Equal(aSession, Count(DbPath, "SELECT persona_session_id FROM swings WHERE ts = 5000"));
+        Assert.Equal(bSession, Count(DbPath, "SELECT persona_session_id FROM swings WHERE ts = 30000"));
+    }
+
     /// <summary>A login the log never saw close - the client was killed mid-game. The session is still
-    /// recorded, with no end, and still claims the rows after it: an open span is the honest reading,
-    /// and the alternative is throwing away every row of the last session before a crash.</summary>
+    /// recorded, with no end, and still claims the rows after it up to the point the RUN ended: an
+    /// open span is the honest reading of the login, and the alternative is throwing away every row of
+    /// the last session before a crash. What it cannot do is outlive its own process - see
+    /// <see cref="AnUnclosedLogin_DoesNotClaimALaterRunsRows"/>.</summary>
     [Fact]
     public void ALoginTheLogNeverSawClose_IsStillRecorded_AndStillClaimsItsRows()
     {
@@ -196,6 +243,39 @@ public sealed class PersonaSessionBackfillTests : IDisposable
         Assert.Equal(1, PersonaSessionBackfill.Run(DbPath));
         Assert.Equal(1, Count(DbPath, "SELECT COUNT(*) FROM persona_sessions WHERE ended_ms IS NULL"));
         Assert.Equal(1, Count(DbPath, "SELECT COUNT(*) FROM swings WHERE persona_session_id IS NOT NULL"));
+    }
+
+    /// <summary>
+    /// A run whose logins the LIVE path already recorded still gets its unclaimed rows attributed.
+    ///
+    /// <para>Reconstruction skips such a run - it has sessions, so there is nothing to rebuild - and
+    /// while attribution was a side effect of reconstruction, that skip took the rows with it. Rows
+    /// the live path left null were then unreachable for ever. Here there is no wire log at all, which
+    /// is the sharpest form of the case: nothing to replay, and the row still finds its login.</para>
+    /// </summary>
+    [Fact]
+    public void ARunWhoseSessionsAlreadyExist_StillGetsItsUnclaimedRowsAttributed()
+    {
+        long sessionId;
+        using (var connection = MuckaDb.Open(DbPath))
+        {
+            var run = NewRun(connection, "mud2.co.uk", startedMs: 1_000, endedMs: 40_000);
+            using var command = connection.CreateCommand();
+            command.CommandText =
+                "INSERT INTO persona_sessions (mucka_run_id, persona, host, started_ms, ended_ms) "
+                + "VALUES ($run, 'Ollie', 'mud2.co.uk', 2000, 30000); SELECT last_insert_rowid();";
+            command.Parameters.AddWithValue("$run", run);
+            sessionId = Convert.ToInt64(command.ExecuteScalar());
+
+            Swing(connection, 5_000);    // inside the login
+            Swing(connection, 35_000);   // after it, so still nobody's
+        }
+
+        Assert.Equal(0, PersonaSessionBackfill.Run(DbPath));   // nothing reconstructed
+
+        Assert.Equal(sessionId, Count(DbPath, "SELECT persona_session_id FROM swings WHERE ts = 5000"));
+        Assert.Equal(1,
+            Count(DbPath, "SELECT COUNT(*) FROM swings WHERE persona_session_id IS NULL"));
     }
 
     /// <summary>Nothing on the wire, nothing to reconstruct. The rows stay unattributed rather than
