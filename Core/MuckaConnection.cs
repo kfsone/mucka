@@ -646,6 +646,16 @@ public sealed class MuckaConnection : IAsyncDisposable
     /// of these rules had already grown and one of them got the match wrong.</summary>
     private readonly SessionEndWatcher _sessionEnd = new();
 
+    /// <summary>
+    /// How the login that just ended finished, for the guided-login overlay - which reads it rather
+    /// than classifying the same drop a second way.
+    ///
+    /// <para>Held past the end of the login on purpose: <c>GameModeExited</c> marshals to the UI
+    /// thread, and by the time the overlay asks, the next login may already have called
+    /// <c>Begin()</c>. Captured at the exit instead, so what the overlay shows is what ended.</para>
+    /// </summary>
+    public SessionDropReason LastSessionEndReason { get; private set; } = SessionDropReason.Unknown;
+
     private void BeginPersonaSession()
     {
         // Defensive: two entries with no exit between them would otherwise strand the first row with
@@ -663,9 +673,11 @@ public sealed class MuckaConnection : IAsyncDisposable
 
     private void EndPersonaSession()
     {
+        LastSessionEndReason = _sessionEnd.Reason;
+
         if (_personaSessionId is long id)
             _store.EndPersonaSession(id, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                PersonaSessionEndNote.For(_sessionEnd.Reason));
+                PersonaSessionEndNote.For(LastSessionEndReason));
 
         _personaSessionId = null;
         _sessionEnd.Begin();

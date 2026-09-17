@@ -18,8 +18,10 @@ namespace Mucka.Combat;
 /// DbUp script cannot reach the parser. Instead this is idempotent and runs after migration: it fills
 /// only what is empty, so a second run does nothing and an interrupted first run heals itself.</para>
 ///
-/// <para>It cannot reach further back than the wire log does. Everything older was already dropped by
-/// 0003, which is what makes "every fact row has a login" true rather than aspirational.</para>
+/// <para>It cannot reach further back than the wire log does - a reconstructed login is stamped with
+/// a wire record's own timestamp and claims only rows at or after it, so nothing older than the FIRST
+/// wire record is reachable by construction. Those rows are deleted by 0004, which is what makes
+/// "every fact row has a login" true rather than aspirational.</para>
 ///
 /// <para>Threading: opens its own short-lived connections and must run OFF the UI thread
 /// (Invariant #1). Safe alongside the live writer - WAL, plus the busy timeout every connection
@@ -54,7 +56,6 @@ public static class PersonaSessionBackfill
             foreach (var runId in RunsNeedingBackfill(connection, liveRunId))
                 created += BackfillRun(connection, runId);
 
-            PruneUnattributable(connection);
             return created;
         }
         catch (Exception ex)
@@ -185,66 +186,6 @@ public static class PersonaSessionBackfill
             logins.Add(new Login(stillOpen, null, persona, PersonaSessionEndNote.For(watcher.Reason)));
 
         return logins;
-    }
-
-    /// <summary>
-    /// Deletes the fact rows no login can ever account for, so "every row has a session" is true
-    /// rather than aspirational and no query has to special-case a null key forever.
-    ///
-    /// <para><b>After attribution, never before.</b> A row is unattributable only once the wire log
-    /// has been replayed and declined to claim it. The migration used to do this cut, before anything
-    /// had tried - which is the wrong order and, being frozen, permanent.</para>
-    ///
-    /// <para><b>Only older than the oldest wire record.</b> Anything inside the log's reach that is
-    /// still unattributed is a gap in reconstruction, not a row from before sessions existed, and
-    /// deleting it would hide the bug. The cut is read once per run here rather than embedded in a
-    /// frozen script, so pruning the wire log shrinks what can be RECONSTRUCTED without silently
-    /// enlarging what gets DESTROYED. With no wire at all there is no cut and nothing is deleted.</para>
-    /// </summary>
-    private static void PruneUnattributable(SqliteConnection connection)
-    {
-        long cut;
-        using (var probe = connection.CreateCommand())
-        {
-            probe.CommandText = "SELECT MIN(ts_ms) FROM wire;";
-            if (probe.ExecuteScalar() is not long min)
-                return;
-            cut = min;
-        }
-
-        using var transaction = connection.BeginTransaction();
-        foreach (var (table, column) in FactTables)
-        {
-            using var command = connection.CreateCommand();
-            command.Transaction = transaction;
-            // Identifiers are compile-time literals from FactTables. Both halves matter: unattributed
-            // AND older than any wire record.
-            command.CommandText =
-                $"DELETE FROM {table} WHERE persona_session_id IS NULL AND {column} < $cut;";
-            command.Parameters.AddWithValue("$cut", cut);
-            command.ExecuteNonQuery();
-        }
-
-        // The encounter children have no session key of their own - they reach it through encounters,
-        // so they follow whatever their parent did.
-        foreach (var sql in new[]
-        {
-            "DELETE FROM encounter_contents_items WHERE contents_id IN (SELECT id FROM encounter_contents "
-            + "WHERE encounter_started_at_ms NOT IN (SELECT encounter_started_at_ms FROM encounters));",
-            "DELETE FROM encounter_contents WHERE encounter_started_at_ms NOT IN (SELECT encounter_started_at_ms FROM encounters);",
-            "DELETE FROM encounter_lines    WHERE encounter_started_at_ms NOT IN (SELECT encounter_started_at_ms FROM encounters);",
-            "DELETE FROM encounter_events   WHERE encounter_started_at_ms NOT IN (SELECT encounter_started_at_ms FROM encounters);",
-            "DELETE FROM encounter_stats    WHERE encounter_started_at_ms NOT IN (SELECT encounter_started_at_ms FROM encounters);",
-            "DELETE FROM creature_values    WHERE encounter_started_at_ms NOT IN (SELECT encounter_started_at_ms FROM encounters);",
-        })
-        {
-            using var command = connection.CreateCommand();
-            command.Transaction = transaction;
-            command.CommandText = sql;
-            command.ExecuteNonQuery();
-        }
-
-        transaction.Commit();
     }
 
     private static string? HostOf(SqliteConnection connection, long runId)

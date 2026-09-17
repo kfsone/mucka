@@ -1004,13 +1004,29 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     /// is what shrinks the false-positive span. Without the announcement (we connected mid-finish-up,
     /// say) we fall back to the looser projection-proximity windows.</para>
     /// </summary>
+    /// <summary>
+    /// Why the shell dropped us, for the overlay. Asks <see cref="MuckaConnection.LastSessionEndReason"/>
+    /// first - the same answer the database records - so the two cannot name one event differently.
+    /// Before this, an ordinary death showed as "Oops!" on screen while the session row said "died".
+    ///
+    /// <para>The watcher is the better-sourced half of every answer it gives: its Reset is the
+    /// server's own C06 C06 landing rather than a timing proximity test, and its Quit is MUD2's
+    /// farewell rather than a flag set from the input path - which cannot see a qq sent by an fkey,
+    /// an alias or a comma batch. Only it can say <see cref="SessionDropReason.Died"/> at all.</para>
+    ///
+    /// <para>The local signals remain as a fallback for when the watcher saw nothing, so this can
+    /// only add answers, never lose one. Their order is preserved and still matters: a qq during the
+    /// finish-up period lands inside the reset window, and calling that a Reset would auto-relog the
+    /// player straight back into the persona they had just chosen to leave.</para>
+    /// </summary>
     private SessionDropContext ClassifyDrop(string? exitedPersona, IReadOnlyList<StyledLine> tail)
     {
+        var observed = _conn.LastSessionEndReason;
+        if (observed != SessionDropReason.Unknown)
+            return new SessionDropContext(observed, exitedPersona, tail);
+
         if (_personaInvalidated)
             return new SessionDropContext(SessionDropReason.Permadeath, exitedPersona, tail);
-        // Before IsResetDrop, deliberately: a qq during the finish-up period lands inside the reset
-        // window, and classifying that as Reset would auto-relog the player straight back into the
-        // persona they had just chosen to leave.
         if (_deliberateQuit)
             return new SessionDropContext(SessionDropReason.Quit, exitedPersona, tail);
         if (IsResetDrop())

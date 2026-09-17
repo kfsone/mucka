@@ -34,6 +34,7 @@ public sealed class MigrationScriptsAreFrozenTests
         ("0001_baseline.sql",         "8D2BF1E57C100DD9CE6924CEC773B8F526E623D1CC83E7898B535B0C38644AA8"),
         ("0002_drop_level.sql",       "904775539E681EC4C46B9A7D8629B7716C50F25FC267527A0417FBA6DEE777D4"),
         ("0003_persona_sessions.sql", "5F4B291843751A6C530452FB82C39D0C363B74A782A57C6212250566430DA753"),
+        ("0004_prune_unattributable.sql", "F925F6EB5C6F72D4795FCAF47EC790EBB22C86322E9A9FEDEF8C0BCA08ECE24A"),
     ];
 
     private static string HashOf(string contents)
@@ -59,9 +60,13 @@ public sealed class MigrationScriptsAreFrozenTests
 
         Assert.True(drifted.Count == 0,
             "A migration that has already run on databases we cannot reach was edited. Editing it "
-            + "changes what a FRESH install gets and leaves every existing one behind, permanently. "
-            + "Add the next numbered script instead. (If this is a brand-new script, add its hash to "
-            + "Frozen.)\n  " + string.Join("\n  ", drifted));
+            + "changes what a FRESH install gets and leaves every existing one behind, permanently - "
+            + "and no test can see that divergence afterwards, because both convergence fixtures "
+            + "replay from scratch. Add the NEXT numbered script instead.\n\n"
+            + "Do NOT resolve this by pasting the new hash. A brand-new script does not reach this "
+            + "test at all; it is caught by EveryRegisteredScriptIsFrozen, which prints the hash to "
+            + "add. If you are here, the script already ran somewhere.\n  "
+            + string.Join("\n  ", drifted));
     }
 
     /// <summary>The counterpart: a script that exists but nobody froze. Without this, adding a

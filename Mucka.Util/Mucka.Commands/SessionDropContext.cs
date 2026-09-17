@@ -59,6 +59,12 @@ public sealed record SessionDropContext(
         SessionDropReason.Permadeath => string.IsNullOrWhiteSpace(PersonaName)
             ? "Rest In Peace"
             : $"Rest In Peace {PersonaName}",
+        // An ordinary death: the persona survives, so this is not an epitaph. It says what happened
+        // rather than commiserating, because the player's next question is what it cost them - and
+        // the tail lines below carry the server's own account of that.
+        SessionDropReason.Died => string.IsNullOrWhiteSpace(PersonaName)
+            ? "You Died"
+            : $"{PersonaName} Died",
         _ => "Oops!",
     };
 

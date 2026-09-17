@@ -1,14 +1,16 @@
 namespace Mucka.Commands;
 
 /// <summary>
-/// Watches one login and decides how it ended. The single answer to that question: the guided-login
-/// overlay, the swing ledger's session row and the wire-log backfill all read it, so they cannot
-/// disagree about an event there is only one of.
+/// Watches one login and decides how it ended. The single answer to that question: the session row
+/// takes it directly, and the guided-login overlay asks for it through
+/// <c>MuckaConnection.LastSessionEndReason</c> before falling back to its own older signals - so the
+/// two cannot name one event differently.
 ///
-/// <para>They did disagree. The overlay classified a drop while the store wrote its own note from a
-/// separate copy of the same rules, and a third copy lived in a test - so a death showed as
-/// "Unknown" on screen and "died" in the database, and the copies were free to drift. CLAUDE.md
-/// names this module as the home for session-drop classification; this is that.</para>
+/// <para>They did disagree, and for a while afterwards a comment here said they did not. The overlay
+/// classified a drop from its own flags while the store wrote a note from a second copy of the rules
+/// and a third copy sat in a test, so an ordinary death read "Oops!" on screen and "died" in the
+/// database. CLAUDE.md names this module as the home for session-drop classification; this is
+/// that.</para>
 ///
 /// <para><b>Code beats prose where a code exists.</b> A world reset and a permadeath are announced
 /// by the server (C06 C06 and C08+C13 respectively) and are taken from those signals. A quit and an

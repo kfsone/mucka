@@ -6,7 +6,7 @@ namespace Mucka.Util.Tests;
 
 /// <summary>
 /// How a login ended, as decided by the one classifier the live path, the guided-login overlay and
-/// the wire-log backfill all share.
+/// the wire-log backfill all read.
 ///
 /// <para>Every line quoted is verbatim from the operator's wire log - two real deaths, a real
 /// permadeath, real quits, and a real in-game chat line containing the farewell word. None is
@@ -128,6 +128,25 @@ public sealed class SessionEndWatcherTests
 
         watcher.Begin();
         Assert.Equal(SessionDropReason.Unknown, watcher.Reason);
+    }
+
+    /// <summary>
+    /// The overlay says a death is a death. Before the classifier was shared, an ordinary death had
+    /// no branch on either side of the drop path and fell through to "Oops!" while the database
+    /// recorded "died" - two answers for one event, and the vaguer one was the one the player saw.
+    /// </summary>
+    [Fact]
+    public void TheOverlayAnnouncesADeath_RatherThanShrugging()
+    {
+        var died = new SessionDropContext(SessionDropReason.Died, "Awlie", []);
+        Assert.Equal("Awlie Died", died.Headline);
+        Assert.NotEqual("Oops!", died.Headline);
+
+        // The persona survives an ordinary death, so this must not read as an epitaph - that wording
+        // belongs to permadeath and means something different and worse.
+        Assert.NotEqual(
+            new SessionDropContext(SessionDropReason.Permadeath, "Awlie", []).Headline,
+            died.Headline);
     }
 
     /// <summary>The stored vocabulary is derived from the one classification, so the column and the

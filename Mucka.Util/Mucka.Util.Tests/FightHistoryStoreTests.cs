@@ -289,7 +289,11 @@ public sealed class FightHistoryStoreTests : IDisposable
                 "INSERT INTO fights (npc_name, npc_group, outcome, started_at_ms, ended_at_ms, " +
                 "duration_ms, you_hits, you_misses, they_hits, they_misses, approx_damage_done, " +
                 "approx_damage_taken, narrative_mode, is_blind, is_deaf, is_crippled, is_dumb, effects) " +
-                "VALUES ('zombie5', 'zombies', 'Kill', 1, 2, 1, 0,0,0,0, 0,0, 0, 0,0,0,0, '');";
+                // Timestamps after 0004's prune cut - a row older than that is unattributable by
+                // construction and 0004 deletes it, which is correct behaviour and not what this
+                // test is about.
+                "VALUES ('zombie5', 'zombies', 'Kill', 1789100000000, 1789100005000, 5000, " +
+                "0,0,0,0, 0,0, 0, 0,0,0,0, '');";
             build.ExecuteNonQuery();
         }
 
