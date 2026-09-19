@@ -339,6 +339,12 @@ Plus the combat database's six views and the wire log's `v_mucka_run_sizes`. Eve
 above is created by the baseline migration script, `Migrations/0001_baseline.sql`; later scripts in
 that directory carry every change since. See `MuckaDb.ApplySchema`.
 
+Added by later scripts:
+
+| Table | Script | Notes |
+|---|---|---|
+| `some_kinds` | `0005_some_kinds.sql` | one row per species: whether MUD2 calls it "someone" or "something" when unseen; learned per install by `Mucka.Combat.SomeKindStore`, upserted on every reveal |
+
 New, replacing the clog files:
 
 ```

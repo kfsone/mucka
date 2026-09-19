@@ -44,6 +44,7 @@ internal static class MigrationScripts
         Load("0002_drop_level.sql"),
         Load("0003_persona_sessions.sql"),
         Load("0004_prune_unattributable.sql"),
+        Load("0005_some_kinds.sql"),
     ];
 
     /// <summary>Script names, for the guard tests.</summary>

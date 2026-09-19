@@ -52,6 +52,7 @@ public sealed class MuckaConnection : IAsyncDisposable
     private readonly FightHistoryStore _fightHistory;
     private readonly FightHistoryRecorder _fightRecorder;
     private readonly SwingLedger _swingLedger;
+    private readonly SomeKindStore _someKinds;
 
     // -- Public events (forwarded from MudSession) -----------------------------
     public event Action<StyledLine>? LineReady;
@@ -214,6 +215,9 @@ public sealed class MuckaConnection : IAsyncDisposable
         await Task.Run(() => PersonaSessionBackfill.Run(_store.Path, _store.SessionId, CrashLog.Write), cancellationToken)
                   .ConfigureAwait(false);
         await _fightHistory.LoadAsync(cancellationToken).ConfigureAwait(false);
+        // Which species are "someone" and which "something" - the tracker attributes unseen blows
+        // with it from the first fight, so it rides the same startup load.
+        await _someKinds.LoadAsync(cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>The accumulated per-creature incoming-damage record, for the rail's "how hard does
@@ -227,6 +231,14 @@ public sealed class MuckaConnection : IAsyncDisposable
     /// <summary>Per-species reach marks - how far each creature has been SEEN to hit, which is a floor
     /// under its true maximum and never the maximum. Warmed with the rest.</summary>
     public MudSharp.Combat.ReachMarkIndex ReachMarks => _swingLedger.Reach;
+
+    /// <summary>Which anonymous word each species gets when Unseen, as this install has learned it.
+    /// Loaded with the rest of the combat history and written back on every reveal.</summary>
+    public MudSharp.Combat.SomeKindKnowledge SomeKinds => _session.SomeKindKnowledge;
+
+    /// <summary>The combat tracker's Unseen state right now - open anonymous opponents per word, and
+    /// whether the player can see. Read by the rail's roster on every refresh.</summary>
+    public MudSharp.Combat.UnseenState Unseen => _session.Unseen;
 
     /// <summary>Warms the damage cache from the database's own aggregate views. Fire-and-forget from
     /// startup, alongside <see cref="LoadFightHistoryAsync"/> and under the same rule: never awaited
@@ -257,6 +269,7 @@ public sealed class MuckaConnection : IAsyncDisposable
         _swingLedger = new SwingLedger(_store, CrashLog.Write);
         _fightRecorder = new FightHistoryRecorder(_fightHistory);
         _session = new MudSession();
+        _someKinds = new SomeKindStore(_store, _session.SomeKindKnowledge, CrashLog.Write);
         _session.SetWindowSize(_windowCols, 21);
         _session.SetLoginUser(loginName);
         WireSessionEvents();
