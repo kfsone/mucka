@@ -262,6 +262,71 @@ public sealed class NpcRemainingStaminaTests
         Assert.Equal(120, band.Interval.AtMost!.Value, 6);
     }
 
+    // -- The figure the rail actually draws ---------------------------------------
+
+    [Fact]
+    public void AnUntouchedReadingDrawsTheNumbersTheGamePrinted()
+    {
+        var read = new NpcStaminaReading(90, 99, DamageBracket.Zero);
+
+        Assert.True(read.TryCurrent(out var low, out var high));
+        Assert.Equal(90, low);
+        Assert.Equal(99, high);
+    }
+
+    [Fact]
+    public void TheDrawnFigureFallsByTheDamageLandedSinceTheProbe()
+    {
+        // Read at 90-99, then hit twice for 10-14 each: the creature now has between 90-28 and 99-20.
+        // The band widens by the bracket's own width, which is the honest cost of not being told the
+        // exact figure - and it is the same arithmetic the seal beside it is filling to.
+        var read = new NpcStaminaReading(90, 99, Dealt(20, 28));
+
+        Assert.True(read.TryCurrent(out var low, out var high));
+        Assert.Equal(62, low);
+        Assert.Equal(79, high);
+    }
+
+    [Fact]
+    public void AFigureDrivenBelowZeroKeepsAFloorOfOneRatherThanReadingEmpty()
+    {
+        // Out-dealt at the bottom end only: the creature may have nothing measurable left, but it is
+        // still standing, and a standing creature has more than zero. The floor clamps; the ceiling is
+        // real information and is left alone.
+        var read = new NpcStaminaReading(90, 99, Dealt(40, 120));
+
+        Assert.True(read.TryCurrent(out var low, out var high));
+        Assert.Equal(1, low);
+        Assert.Equal(59, high);
+    }
+
+    [Fact]
+    public void AFigureTheFightHasAlreadyOutDealtEntirelyIsRefusedRatherThanDrawnAsZero()
+    {
+        // The player has dealt more than even the probe's upper end, and the creature is demonstrably
+        // still alive - that is the only way this is being asked at all. Arithmetic and observation
+        // contradict each other, so the arithmetic produces nothing. A confident 0-0 on a creature that
+        // is still swinging is the worst lie this panel can tell; the caller falls back to the sentence
+        // MUD2 actually printed.
+        var read = new NpcStaminaReading(90, 99, Dealt(120, 140));
+
+        Assert.False(read.TryCurrent(out _, out _));
+        Assert.Null(read.Current);
+    }
+
+    [Fact]
+    public void TheDrawnFigureAndTheSealAgreeBecauseTheyShareTheSameAgeing()
+    {
+        // The row's number and the ring's fill must never describe different creatures, so both go
+        // through NpcRemainingStamina.Age. With no species pool on file, Compute's band IS the diagnose
+        // leg, and the two must land on the same interval.
+        var read = new NpcStaminaReading(90, 99, Dealt(20, 28));
+        var band = NpcRemainingStamina.Compute(StaminaPoolEstimate.None, Dealt(20, 28), diagnose: read);
+
+        Assert.Equal(band.Interval.Above, read.Current!.Value.Above, 6);
+        Assert.Equal(band.Interval.AtMost!.Value, read.Current!.Value.AtMost!.Value, 6);
+    }
+
     // -- The species evidence state travels with the band -------------------------
 
     [Fact]

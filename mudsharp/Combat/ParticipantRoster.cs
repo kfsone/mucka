@@ -96,10 +96,14 @@ public readonly record struct ExchangeLine(
 /// <param name="Reach">How far this creature has been SEEN to reach with one blow. A floor that may
 /// only rise, never a cap - see <see cref="ReachMark"/>. Default is "no evidence", which must never be
 /// drawn as "harmless".</param>
-/// <param name="StaminaRead">The latest <c>diagnose</c> probe against this creature, exactly as MUD2
-/// printed it, or null if none has been taken. Surfaced verbatim and kept for the rest of the fight: it
-/// is the game's own words and the only direct measurement it offers, so it falls under the same
-/// never-blank rule as the wound phrase.</param>
+/// <param name="StaminaRead">The latest <c>diagnose</c> probe against this creature, carrying the
+/// damage dealt since it was taken, or null if none has been taken. Kept for the rest of the fight: it
+/// is the only direct measurement MUD2 offers, so it falls under the same never-blank rule as the
+/// wound phrase. What is drawn is <see cref="NpcStaminaReading.TryCurrent"/> - the game's number less
+/// what has landed on the creature since - rather than the printed pair, which stops being true the
+/// moment the next blow lands.</param>
+/// <param name="StaminaReadAgeSeconds">How long ago that probe was taken, in seconds. Drives the fade
+/// and nothing else - see <see cref="RosterRow.StaminaReadStaleAfterSeconds"/>.</param>
 /// <param name="Novelty">Whether this creature's KIND has ever been fought, and ever killed - see
 /// <see cref="NoveltyMark"/>. Keyed on the pool key, so it is a statement about "large rats" and not
 /// about this one numbered instance.</param>
@@ -136,6 +140,7 @@ public readonly record struct ParticipantFact(
     NoveltyMark Novelty = NoveltyMark.None,
     NoveltyMark WeaponNovelty = NoveltyMark.None,
     NpcStaminaReading? StaminaRead = null,
+    double? StaminaReadAgeSeconds = null,
     int? Value = null,
     ExchangeLine Dealt = default,
     ExchangeLine Taken = default,
@@ -173,8 +178,11 @@ public readonly record struct RosterRow(
     // Whether this creature's KIND is new to the player, or known-and-never-finished. Drawn as the
     // name's colour; see NoveltyMark for why red outranks orange here.
     NoveltyMark Novelty = NoveltyMark.None,
-    // The game's own diagnose reading, kept for the fight - see ParticipantFact.
+    // The game's own diagnose reading, kept for the fight, and how long ago it was taken - see
+    // ParticipantFact. The reading carries the damage dealt since it, so the figure drawn from it
+    // moves with the fight; the age only dims it.
     NpcStaminaReading? StaminaRead = null,
+    double? StaminaReadAgeSeconds = null,
     // The `value <name>` points, or null if never learned - see ParticipantFact.Value. Drawn on the
     // creature's own tile after the rung word, in the slot the player's tile uses
     // for their stamina figure; see CombatRailView.DrawWoundPhrase for the layout and for why a bare
@@ -227,6 +235,28 @@ public readonly record struct RosterRow(
     /// stop drawing one - see <see cref="StaleAfterSeconds"/>.</summary>
     public bool IsHealthStale
         => HealthRung is not null && HealthAgeSeconds is double age && age >= StaleAfterSeconds;
+
+    /// <summary>
+    /// Age past which the <c>diagnose</c> figure is drawn faded. The same six seconds as
+    /// <see cref="StaleAfterSeconds"/> and deliberately a separate constant, because the argument
+    /// behind that one does not reach this far: silence corroborates a wound descriptor (no descriptor
+    /// means no blow landed), and it corroborates nothing about a number that drifts on its own. A
+    /// creature regenerates unannounced, MUD2 prints nothing when it does, and the client has no way to
+    /// gauge the rate - so the figure's confidence decays with the clock and not with the exchange.
+    ///
+    /// <para>Landing a blow does not restore it. The blow is already subtracted from the figure (see
+    /// <see cref="NpcStaminaReading.Current"/>); what has not been restored is knowledge of how much
+    /// the creature put back while nobody was looking, and that only grows. Probes are rare, so in
+    /// practice the figure fades once and stays faded for the rest of the fight. That is the reading
+    /// being honest about its age, not a defect.</para>
+    /// </summary>
+    public const double StaminaReadStaleAfterSeconds = 6.0;
+
+    /// <summary>True when there IS a <c>diagnose</c> figure and it is old enough to draw faded. As with
+    /// the wound phrase, never a reason to stop drawing it.</summary>
+    public bool IsStaminaReadStale
+        => StaminaRead is not null && StaminaReadAgeSeconds is double age
+            && age >= StaminaReadStaleAfterSeconds;
 }
 
 /// <summary>
@@ -345,7 +375,7 @@ public static class ParticipantRoster
                 fact.HealthRung, fact.HealthPhrase, fact.HealthAgeSeconds, fact.DamageTakenFrom,
                 fact.NpcWeapon, fact.FightDamage, fact.EverDamage,
                 fact.Vitality, fact.NextBlow, fact.BlowAfter, fact.YourTempo, fact.Reach,
-                fact.Novelty, fact.StaminaRead, fact.Value,
+                fact.Novelty, fact.StaminaRead, fact.StaminaReadAgeSeconds, fact.Value,
                 fact.Dealt, fact.Taken, fact.Exchange, fact.TookDamageThisTick));
         }
 

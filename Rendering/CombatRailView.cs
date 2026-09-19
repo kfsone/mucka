@@ -297,6 +297,12 @@ public sealed class CombatRailView : SKCanvasView
     private static readonly SKColor InkBright = TerminalTheme.Palette[15];
     private static readonly SKColor InkDim = TerminalTheme.Palette[8];
     private static readonly SKColor Hostile = TerminalTheme.Palette[9];
+
+    /// <summary>What a `diagnose` figure dims to once it is older than
+    /// <see cref="RosterRow.StaminaReadStaleAfterSeconds"/>: 0.7 of full. Alpha rather than a step down
+    /// the palette, because the figure is still the brightest thing on its row when fresh and a palette
+    /// step would land it on the tone the wound phrase beside it already uses.</summary>
+    private const byte StaleReadAlpha = 0xB2;
     private static readonly SKColor Caution = TerminalTheme.Palette[11];
     /// <summary>Score gained on a dead-strip row where the gain is the whole story - a creature that
     /// broke off and paid for the privilege. The SAME green <see cref="SurvivalTone"/> gives a
@@ -1311,10 +1317,20 @@ public sealed class CombatRailView : SKCanvasView
     ///
     /// <para><b>The diagnose band is an exception to the no-absolute-figures rule, and the only one.</b>
     /// Every stamina figure the ESTIMATOR produces stays under the hood, because the player has no way
-    /// to check it. A diagnose probe is the opposite case: it is a number MUD2 printed to them in so
-    /// many words, so echoing it is the same act as echoing the wound phrase. Drawn brighter than the
-    /// phrase because it is a measurement rather than an adjective, right-aligned so a long phrase
-    /// ellipsizes into the gap instead of pushing it off the row.</para>
+    /// to check it. A diagnose probe is the opposite case: MUD2 printed the number to them in so many
+    /// words. What is drawn is that number carried forward by the damage landed since - still a
+    /// statement about this individual, with no species model in it, and the same arithmetic the seal
+    /// beside it is already filling to. The printed pair on its own stops being true on the very next
+    /// blow, which is the whole reason it moves. Drawn brighter than the phrase because it is a
+    /// measurement rather than an adjective, right-aligned so a long phrase ellipsizes into the gap
+    /// instead of pushing it off the row.</para>
+    ///
+    /// <para><b>The figure has its own fade, on its own clock.</b> Damage is subtracted from it, so a
+    /// landed blow keeps it current; what nothing here can account for is regeneration, which MUD2
+    /// never announces and this client cannot gauge. That uncertainty grows with the wall clock alone,
+    /// so the figure dims to <see cref="StaleReadAlpha"/> once the probe is older than
+    /// <see cref="RosterRow.StaminaReadStaleAfterSeconds"/> and stays there - see that constant for why
+    /// it does not key on the wound phrase's staleness, which is a different claim.</para>
     /// </summary>
     private void DrawWoundPhrase(SKCanvas canvas, float x, float baseline, RosterRow row)
     {
@@ -1322,8 +1338,15 @@ public sealed class CombatRailView : SKCanvasView
 
         if (row.StaminaRead is { } read)
         {
-            var band = read.PrintedLow.ToString(culture) + "-" + read.PrintedHigh.ToString(culture);
-            _text.Color = row.IsHealthStale ? Ink : InkBright;
+            // The printed pair is the fallback for the one case the arithmetic refuses: the player has
+            // out-dealt even the probe's upper end and the Creature is demonstrably still standing, so
+            // the aged band contradicts itself. The game's own sentence is what survives there - never a
+            // zero, which would render a live Creature as a measured empty (NpcStaminaReading.Current).
+            var (low, high) = read.TryCurrent(out var agedLow, out var agedHigh)
+                ? (agedLow, agedHigh)
+                : (read.PrintedLow, read.PrintedHigh);
+            var band = low.ToString(culture) + "-" + high.ToString(culture);
+            _text.Color = row.IsStaminaReadStale ? InkBright.WithAlpha(StaleReadAlpha) : InkBright;
             canvas.DrawText(band, x + SlotPhraseWidth, baseline, SKTextAlign.Right, _rungFont, _text);
         }
 

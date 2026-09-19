@@ -85,6 +85,10 @@ public sealed record FightSnapshot(
     // lands. See MudSharp.Combat.NpcRemainingStamina.
     NpcRungAnchor? RungAnchor = null,
     NpcStaminaReading? StaminaReading = null,
+    // When that `diagnose` probe landed. The damage above carries the reading forward; this is what
+    // nothing carries it forward through, because a creature regenerates unannounced. See
+    // FightAccumulator.StaminaReadUtc.
+    DateTime? StaminaReadUtc = null,
     // The latest rung boundary this creature was driven across, and the blow that did it. Worth far
     // more than the descriptor alone: the crossing blow's bracket says how tightly the boundary is
     // pinned. See MudSharp.Combat.NpcRungCrossing.
@@ -343,7 +347,7 @@ public sealed class CombatStatsAggregator
                     && _fights.TryGetValue(combatEvent.NpcName, out var diagnosed)
                     && !diagnosed.IsResolved)
                 {
-                    diagnosed.NoteStaminaRead(staLow, staHigh);
+                    diagnosed.NoteStaminaRead(staLow, staHigh, combatEvent.TimestampUtc);
                 }
                 break;
 
@@ -577,6 +581,7 @@ public sealed class CombatStatsAggregator
                 fight.DamageDealt,
                 fight.RungAnchor,
                 fight.StaminaReading,
+                fight.StaminaReadUtc,
                 fight.RungCrossing,
                 fight.Value,
                 fight.RecentExchange,

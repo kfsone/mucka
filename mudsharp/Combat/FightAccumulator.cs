@@ -292,6 +292,12 @@ public sealed class FightAccumulator
     /// swings miss whatever the opponent, so gaps are ordinary.</summary>
     public DateTime? HealthReadUtc { get; private set; }
 
+    /// <summary>When the <c>diagnose</c> probe landed. Kept separately from
+    /// <see cref="HealthReadUtc"/> because the two age for different reasons: a wound descriptor goes
+    /// stale when a blow lands unseen, and silence corroborates it; a probe's number goes stale as the
+    /// creature regenerates, which silence says nothing about. Null until a probe has answered.</summary>
+    public DateTime? StaminaReadUtc { get; private set; }
+
     public int YouHits { get; private set; }
     public int YouMisses { get; private set; }
     public int TheyHits { get; private set; }
@@ -465,12 +471,19 @@ public sealed class FightAccumulator
     /// tenth of the pool, or to something else is unresolved at four observations in the whole corpus.
     /// The damage dealt so far is snapshotted with it, so the reading can be aged forward as the fight
     /// continues rather than going quietly stale.</para>
+    ///
+    /// <para>The WALL CLOCK is snapshotted alongside it, and it answers a different question from the
+    /// damage: damage carries the reading forward, and time is what nothing can carry it forward
+    /// through. A creature regenerates whether or not the player touches it, and MUD2 prints nothing
+    /// when it does - so the age of the probe is the only handle there is on how far the number may
+    /// have drifted since. See <c>RosterRow.StaminaReadStaleAfterSeconds</c>.</para>
     /// </summary>
-    public void NoteStaminaRead(int printedLow, int printedHigh)
+    public void NoteStaminaRead(int printedLow, int printedHigh, DateTime timestampUtc)
     {
         _staminaReadLow = printedLow;
         _staminaReadHigh = printedHigh;
         _dealtAtStaminaRead = DamageDealt;
+        StaminaReadUtc = timestampUtc;
     }
 
     /// <summary>The player's cumulative damage this fight as a BRACKET - the sum of the lows and the

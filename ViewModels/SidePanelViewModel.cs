@@ -1368,6 +1368,11 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             double? healthAge = fight.HealthReadUtc is DateTime read
                 ? Math.Max(0.0, (nowUtc - read).TotalSeconds)
                 : null;
+            // The diagnose probe's own age, resolved the same way and kept separate from the
+            // descriptor's: the two fade for different reasons - see RosterRow.StaminaReadStaleAfterSeconds.
+            double? staminaReadAge = fight.StaminaReadUtc is DateTime probed
+                ? Math.Max(0.0, (nowUtc - probed).TotalSeconds)
+                : null;
             // Null (not StaminaPoolEstimate.None) with no index attached, so the narrowing step can
             // tell "no pool index in this context" from "an index with nothing on file for this
             // creature" - the second is a real answer about a species and the first is not an answer
@@ -1438,10 +1443,13 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
                 // marks hold still: a creature met for the first time stays orange for the whole of the
                 // fight that is teaching you about it, and only stops being new on the NEXT one.
                 novelty.Name, novelty.Weapon,
-                // The diagnose probe, carried verbatim so the slot can show what the game actually
-                // printed. Kept for the rest of the fight rather than expiring - see
-                // RosterRow.StaleAfterSeconds for why silence corroborates a reading here.
+                // The diagnose probe, with the damage dealt since it so the slot can show what the
+                // Creature has left NOW rather than what it had when the probe was taken. Kept for the
+                // rest of the fight rather than expiring; the probe's own age rides alongside and dims
+                // it - see RosterRow.StaminaReadStaleAfterSeconds for what time costs a reading that
+                // damage cannot.
                 fight.StaminaReading,
+                staminaReadAge,
                 fight.Value,
                 DealtLine(fight),
                 TakenLine(fight),

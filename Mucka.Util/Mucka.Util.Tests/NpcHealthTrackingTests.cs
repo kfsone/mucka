@@ -106,6 +106,29 @@ public sealed class NpcHealthTrackingTests
         Assert.Equal(T0.AddSeconds(20), fight.HealthReadUtc);
     }
 
+    /// <summary>A probe is timestamped and anchored to the damage standing at the moment it landed, so
+    /// the reading it produces both ages forward with the fight and knows how old it is. The two are
+    /// separate answers - damage moves the number, time only dims it.</summary>
+    [Fact]
+    public void Accumulator_TimestampsADiagnoseProbeAndAnchorsItToTheDamageSoFar()
+    {
+        var fight = new FightAccumulator("water-snake5", T0, weaponAtStart: null);
+
+        fight.AddYouHit(5, 9);
+        fight.NoteStaminaRead(90, 99, T0.AddSeconds(4));
+        fight.AddYouHit(10, 14);
+
+        Assert.Equal(T0.AddSeconds(4), fight.StaminaReadUtc);
+
+        // Only the blow AFTER the probe counts against it; the one before is already in the number.
+        var read = fight.StaminaReading!.Value;
+        Assert.Equal(10, read.DealtSince.Low, 6);
+        Assert.Equal(14, read.DealtSince.High, 6);
+        Assert.True(read.TryCurrent(out var low, out var high));
+        Assert.Equal(76, low);
+        Assert.Equal(89, high);
+    }
+
     // ---- Staleness: the rules that stop an old reading being drawn as a current one ----------
 
     private static RosterRow Row(int? rung, double? ageSeconds)
@@ -387,11 +410,13 @@ public sealed class NpcHealthTrackingTests
     }
 
     [Fact]
-    public void ADiagnoseReadingReachesTheRow_AndIsKeptVerbatim()
+    public void ADiagnoseReadingReachesTheRow_AndIsStoredExactlyAsPrinted()
     {
         // The one absolute stamina figure allowed on an NPC row, because MUD2 printed it to the player
-        // in so many words - "has a stamina lying between 90 and 99". Echoing it is the same act as
-        // echoing the wound phrase, and it is kept for the fight under the same never-blank rule.
+        // in so many words - "has a stamina lying between 90 and 99". STORED as printed and nothing
+        // rounds or re-derives it; what the row DRAWS is NpcStaminaReading.TryCurrent, that number less
+        // the damage landed since. It is kept for the fight under the same never-blank rule as the
+        // wound phrase.
         var plan = ParticipantRoster.Build(
         [
             new ParticipantFact("water-snake5", false, FightOutcome.Unresolved, 5, "to have minor injuries", 30.0)
@@ -408,6 +433,38 @@ public sealed class NpcHealthTrackingTests
         // Nothing rounds or re-derives it, and age does not remove it.
         Assert.True(plan.Rows[0].IsHealthStale);
         Assert.NotNull(plan.Rows[0].StaminaRead);
+    }
+
+    [Fact]
+    public void ADiagnoseReadingCarriesItsOwnAge_AndFadesOnThatAndNotOnTheWoundPhrases()
+    {
+        // The two readings go stale for different reasons: a wound descriptor is corroborated by
+        // silence (no descriptor means no blow landed), and a probe's number is not, because a creature
+        // regenerates unannounced. So a fresh probe under an old descriptor must draw bright, and an
+        // old probe under a fresh descriptor must draw faded.
+        var freshProbe = ParticipantRoster.Build(
+        [
+            new ParticipantFact("water-snake5", false, FightOutcome.Unresolved, 5, "to have minor injuries", 30.0)
+            {
+                StaminaRead = new NpcStaminaReading(90, 99, DamageBracket.Zero),
+                StaminaReadAgeSeconds = 1.0,
+            },
+        ]).Rows[0];
+
+        Assert.True(freshProbe.IsHealthStale);
+        Assert.False(freshProbe.IsStaminaReadStale);
+
+        var oldProbe = ParticipantRoster.Build(
+        [
+            new ParticipantFact("water-snake5", false, FightOutcome.Unresolved, 5, "to have minor injuries", 1.0)
+            {
+                StaminaRead = new NpcStaminaReading(90, 99, DamageBracket.Zero),
+                StaminaReadAgeSeconds = RosterRow.StaminaReadStaleAfterSeconds,
+            },
+        ]).Rows[0];
+
+        Assert.False(oldProbe.IsHealthStale);
+        Assert.True(oldProbe.IsStaminaReadStale);
     }
 
     [Fact]

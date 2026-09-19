@@ -32,7 +32,58 @@ public enum RemainingBasis
 /// <param name="PrintedHigh">The upper number, inclusive.</param>
 /// <param name="DealtSince">The player's cumulative damage bracket since the reading was printed.
 /// <see cref="DamageBracket.Zero"/> when the reading is the latest thing that happened.</param>
-public readonly record struct NpcStaminaReading(int PrintedLow, int PrintedHigh, DamageBracket DealtSince);
+public readonly record struct NpcStaminaReading(int PrintedLow, int PrintedHigh, DamageBracket DealtSince)
+{
+    /// <summary>The reading exactly as the game printed it, in this project's half-open form.</summary>
+    public StaminaInterval AsPrinted => StaminaInterval.FromInclusive(PrintedLow, PrintedHigh);
+
+    /// <summary>
+    /// The reading carried forward by <see cref="DealtSince"/> - what the creature has left NOW, given
+    /// what the probe read and what has landed on it since.
+    ///
+    /// <para>Shares <see cref="NpcRemainingStamina.Age"/> with the seal's own arithmetic, so the number
+    /// on the row and the fill of the ring beside it cannot describe different creatures. This is the
+    /// diagnose leg ALONE: the intersected band <see cref="NpcRemainingStamina.Compute"/> produces
+    /// folds in the species pool, and a figure that moved because some other fight taught the corpus
+    /// something is not a statement about the creature in front of the player.</para>
+    ///
+    /// <para>Null when the arithmetic contradicts itself - the player has out-dealt even the probe's
+    /// upper end and the creature is still standing. The same shape <see cref="NpcRemainingStamina"/>
+    /// discards rather than rounding to zero, and for the same reason: a creature still swinging must
+    /// never render as a measured empty.</para>
+    /// </summary>
+    public StaminaInterval? Current
+    {
+        get
+        {
+            var aged = NpcRemainingStamina.Age(AsPrinted, DealtSince);
+            if (aged.Above < 0)
+                aged = aged with { Above = 0 };
+            return aged.IsEmpty ? null : aged;
+        }
+    }
+
+    /// <summary>
+    /// <see cref="Current"/> as the pair of whole numbers a reader would say out loud, inclusive at
+    /// both ends - the same form the game's own sentence takes.
+    ///
+    /// <para>MUD2 stamina is integral, so the half-open band converts exactly: the smallest value it
+    /// admits is the first whole number above its floor, the largest is the last whole number at or
+    /// under its ceiling. False when <see cref="Current"/> is null, or when no whole number lies
+    /// between the two ends at all.</para>
+    /// </summary>
+    public bool TryCurrent(out int low, out int high)
+    {
+        low = 0;
+        high = 0;
+        if (Current is not { AtMost: double top } band)
+            return false;
+
+        low = (int)Math.Floor(band.Above) + 1;
+        high = (int)Math.Floor(top);
+        return low <= high;
+    }
+}
 
 /// <summary>A live health-descriptor reading and the damage dealt since it was printed.</summary>
 /// <param name="Rung">1 to <see cref="NpcHealthRungs.Rungs"/>.</param>
