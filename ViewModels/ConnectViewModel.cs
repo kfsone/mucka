@@ -205,27 +205,50 @@ public sealed class ConnectViewModel : BaseViewModel
                 // back to disk. Any new settings field must be added HERE as well as to
                 // ClientSettings, Profile and SettingsStore.
                 Sounds = saved?.Sounds ?? new SoundSettings(),
-                // Same as Sounds above.
+                // The Combat Rail's two flags. These come from `saved`'s own [profile:Name] section
+                // and are NOT touched by the ini overlay below, whose scope is [settings].
                 ShowCombatRail = saved?.ShowCombatRail ?? false,
+                ShowCombatStats = saved?.ShowCombatStats ?? true,
+                // The always-global Display block. Carried across for exactly the reason above, and
+                // each fallback is the matching Profile default - a wrong fallback here is
+                // indistinguishable from the field being missing altogether. What this failing
+                // looks like in the hands: a value saved in [settings] is read into `saved` at
+                // startup, dropped here, and the live default is what the session runs on, so the
+                // ini keeps the player's answer and the client keeps ignoring it.
+                DefaultFontSize = saved?.DefaultFontSize ?? 0,
+                DefaultMaxColumns = saved?.DefaultMaxColumns ?? 0,
+                DreamwordSizeOffset = saved?.DreamwordSizeOffset ?? 0,
+                MeNameColor = saved?.MeNameColor ?? MudSharp.Models.SelfChatColorizer.DefaultNameHex,
+                MeSpeechColor = saved?.MeSpeechColor ?? MudSharp.Models.SelfChatColorizer.DefaultSpeechHex,
+                ShowOnline = saved?.ShowOnline ?? true,
+                ShowInventory = saved?.ShowInventory ?? true,
+                ShowItemsHere = saved?.ShowItemsHere ?? true,
+                ShowMapCompass = saved?.ShowMapCompass ?? true,
+                MaxOnlineDisplay = saved?.MaxOnlineDisplay ?? 0,
+                OnlineNamesOnly = saved?.OnlineNamesOnly ?? false,
+                OnlineForgetWindow = saved?.OnlineForgetWindow ?? 5,
+                FloatOnline = saved?.FloatOnline ?? false,
+                FloatCompass = saved?.FloatCompass ?? false,
             };
-            if (saved is null)
+            // Overlay mucka.ini over the block above, on EVERY connect and not only for a brand-new
+            // profile. The ini is the authoritative store; `saved` is a cache read once at app start
+            // and never re-read for the life of the run, so a value the settings dialog's Save wrote
+            // to the file after that is on disk while the cache still holds the old one, and a relog
+            // inside one run restores what the player turned off. The fields above stay: ApplyTo only writes the
+            // keys the file actually has, so they are the defaults for the ones it does not.
+            // The page-edited column count wins over the stored one.
+            try
             {
-                // Brand-new profile: seed from the stored globals so the connect-time ini
-                // sync below writes them back unchanged instead of clobbering them with
-                // defaults. The page-edited column count wins over the stored one.
-                try
+                var stored = await SettingsStore.LoadProfileAsync(profile.Name);
+                if (stored is not null)
                 {
-                    var stored = await SettingsStore.LoadProfileAsync(profile.Name);
-                    if (stored is not null)
-                    {
-                        stored.ApplyTo(profile);
-                        profile.MaxColumns = MaxColumns;
-                    }
+                    stored.ApplyTo(profile);
+                    profile.MaxColumns = MaxColumns;
                 }
-                catch (Exception ex)
-                {
-                    System.Diagnostics.Debug.WriteLine($"[ConnectViewModel] mucka.ini seed failed for '{profile.Name}': {ex}");
-                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[ConnectViewModel] mucka.ini seed failed for '{profile.Name}': {ex}");
             }
             if (!IsDirectConnectMode)
             {
@@ -478,13 +501,6 @@ public sealed class ConnectViewModel : BaseViewModel
             existing.FkeysPerProfile     = settings.FkeysPerProfile;
             existing.Fkeys               = fkeys;
             existing.Sounds              = settings.Sounds;
-            // Same reasoning as Sounds above (and the settingsSection carve-out this field gets in
-            // SettingsStore): ConnectPage builds GamePage once and never re-reads SavedProfiles from
-            // disk for the life of the run (App.xaml.cs's single ConnectPage root, GamePage returning
-            // via PopAsync), so if this in-memory mirror does not pick up a live toggle, the NEXT
-            // SaveCurrentProfileAsync on reconnect writes the stale in-memory value straight back over
-            // the ini's freshly-toggled one.
-            existing.ShowCombatRail      = settings.ShowCombatRail;
             if (string.Equals(existing.Name, ProfileName, StringComparison.OrdinalIgnoreCase))
                 MaxColumns = settings.MaxColumns;
         }
@@ -501,13 +517,13 @@ public sealed class ConnectViewModel : BaseViewModel
     /// sources that block's Show* fields from LIVE <c>SidePanel</c> fold/pin state - correct when the
     /// player explicitly hit Save in the settings dialog, wrong for a one-click rail toggle, which must
     /// not promote whatever the Onlines section happens to be folded to this session into every
-    /// profile's shared global default. So this method writes <c>writeDisplayGlobals: false</c> and
-    /// <c>writeSounds: false</c>, and sources every OTHER settingsSection field (FontSize, Volume, ...)
-    /// from the in-memory profile's own already-correct values rather than from GameViewModel's live
-    /// state, so nothing outside ShowCombatRail can drift through this path. <c>fkeys: null</c> for the
-    /// same reason <see cref="SaveCurrentProfileAsync"/> uses it - a rail toggle does not edit hotkeys,
-    /// so their section is left untouched rather than rewritten from a value not being changed here.
-    /// </para>
+    /// profile's shared global default. A single-key write into the profile's own section cannot reach
+    /// any of that.</para>
+    ///
+    /// <para>The in-memory mirror is updated as well as the file. ConnectPage builds GamePage once and
+    /// never re-reads SavedProfiles from disk for the life of the run, so a relog would otherwise
+    /// re-save the pre-toggle value over the file from <see cref="SaveCurrentProfileAsync"/>'s own
+    /// profiles write.</para>
     /// </summary>
     public async Task PersistCombatRailVisibilityAsync(string profileName, bool showCombatRail)
     {
@@ -517,21 +533,20 @@ public sealed class ConnectViewModel : BaseViewModel
             return;
 
         existing.ShowCombatRail = showCombatRail;
+        await SettingsStore.SetProfileFlagAsync(profileName, "showcombatrail", showCombatRail);
+    }
 
-        var settings = new ClientSettings
-        {
-            FontSize            = existing.FontSize,
-            MaxColumns          = existing.MaxColumns,
-            Volume              = existing.Volume,
-            StatUpdateFrequency = existing.StatUpdateFrequency,
-            MuteBeepPermanently = existing.MuteBeepPermanently,
-            LogResetDiagnostics = existing.LogResetDiagnostics,
-            SettingsPerProfile  = existing.SettingsPerProfile,
-            FkeysPerProfile     = existing.FkeysPerProfile,
-            ShowCombatRail      = showCombatRail,
-        };
-        await SettingsStore.SaveProfileAsync(profileName, settings, fkeys: null,
-            writeSounds: false, writeDisplayGlobals: false);
+    /// <summary>Persists ONLY the Combat Rail's stat rows, from the same kind of live overflow-menu
+    /// toggle and for the same reasons as <see cref="PersistCombatRailVisibilityAsync"/> above.</summary>
+    public async Task PersistCombatStatsAsync(string profileName, bool showCombatStats)
+    {
+        var existing = SavedProfiles.FirstOrDefault(p =>
+            string.Equals(p.Name, profileName, StringComparison.OrdinalIgnoreCase));
+        if (existing is null)
+            return;
+
+        existing.ShowCombatStats = showCombatStats;
+        await SettingsStore.SetProfileFlagAsync(profileName, "showcombatstats", showCombatStats);
     }
 
     private async Task SaveCurrentProfileAsync(Profile incoming, string? password)
@@ -540,10 +555,11 @@ public sealed class ConnectViewModel : BaseViewModel
             string.Equals(p.Name, incoming.Name, StringComparison.OrdinalIgnoreCase));
         if (existing != null)
         {
-            // Settings fields (FontSize/Volume/StatUpdateFrequency/mutes/scope flags) are not
-            // copied here: incoming was built FROM existing for those, so they already match.
-            // If ConnectAsync ever diverges them, copy them here too or the in-memory profile
-            // and the ini sync below will disagree.
+            // Settings fields (FontSize/Volume/StatUpdateFrequency/mutes/scope flags, the Display
+            // globals) are not copied here. They can differ from `existing` - ConnectAsync overlays
+            // mucka.ini over the cached profile - but the file is the authoritative side of that
+            // difference and every connect re-reads it, so the cache going stale changes nothing.
+            // The ini sync below writes `incoming`, which is the file's own values.
             existing.Name = incoming.Name;
             existing.Host = incoming.Host;
             existing.Port = incoming.Port;
@@ -585,13 +601,8 @@ public sealed class ConnectViewModel : BaseViewModel
             SettingsPerProfile  = incoming.SettingsPerProfile,
             FkeysPerProfile     = incoming.FkeysPerProfile,
             Sounds              = incoming.Sounds,
-            // ShowCombatRail is a settingsSection field (per-profile like FontSize/Volume above via
-            // SettingsPerProfile), NOT part of the "Display tab globals" block writeDisplayGlobals:
-            // false below skips - so it is always written here regardless of that flag, and has to
-            // be carried through explicitly for the same reason FontSize/Volume/Sounds already are:
-            // omitting it would hand SaveProfileAsync the C# default (false/hidden), silently
-            // wiping a player's saved "shown" preference on the next connect.
-            ShowCombatRail      = incoming.ShowCombatRail,
+            // The Combat Rail's two flags are not here and cannot be: they are [profile:Name] keys,
+            // written by the SaveProfilesAsync call above from `existing`'s own values.
         };
         // fkeys: null - hotkeys are not editable on this page, so their sections are never rewritten.
         // writeSounds: false - sounds are not editable here either; rewriting them from a profile

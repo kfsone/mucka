@@ -44,20 +44,25 @@ public class Profile
     public bool LogResetDiagnostics { get; set; }
     /// <summary>Per-sound enablement and group fallbacks. Defaults to everything on.</summary>
     public SoundSettings Sounds { get; set; } = new();
-    /// <summary>Whether the Combat Rail (right-edge combat panel) is shown. Declared here, beside
-    /// <see cref="Sounds"/> rather than in the Display-tab-settings group below, because it is
-    /// persisted to the per-profile-CAPABLE <c>settingsSection</c> (honours
-    /// <see cref="SettingsPerProfile"/>) exactly like FontSize/Volume/Sounds above - see
-    /// <see cref="ClientSettings.ShowCombatRail"/>'s own remarks for what that scoping actually gives
-    /// you: with <see cref="SettingsPerProfile"/> off (the default), it is a shared global default
-    /// across every persona, same as FontSize/Volume already are; true per-persona isolation needs
-    /// that profile's "Save to profile only" checkbox turned on. NOT one of the always-global Display
-    /// tab fields below - those cannot be isolated per persona at all, even with that checkbox.
-    /// Restored on connect and re-saved immediately whenever the player toggles it - see
-    /// GameViewModel.PersistCombatRailVisibilityAsync - rather than only through the settings
-    /// dialog's Save button, since a menu toggle should not require a separate save step to
-    /// survive a relog.</summary>
+    /// <summary>Whether the Combat Rail (right-edge combat panel) is shown. Per profile always, with
+    /// no checkbox to turn that on: it is stored in this profile's own <c>[profile:Name]</c> section
+    /// beside the identity fields, not in <c>[settings]</c>, so one persona's rail is never another's
+    /// - see <see cref="SettingsStore.SetProfileFlagAsync"/> for why that section and not a
+    /// <c>[settings:Name]</c> one. Restored on connect and re-saved immediately whenever the player
+    /// toggles it (GameViewModel.PersistCombatRailVisibilityAsync) rather than only through the
+    /// settings dialog's Save button, since a menu toggle should not require a separate save step to
+    /// survive a relog.
+    ///
+    /// <para>False (hidden) is the default - the panel is additive and does not appear for a profile
+    /// that has never touched the toggle.</para></summary>
     public bool ShowCombatRail { get; set; }
+    /// <summary>Whether the Combat Rail draws its two stat rows and the exchange spark. Off narrows
+    /// the panel, which is the point: it is what the width is mostly spent on. Stored and restored
+    /// exactly like <see cref="ShowCombatRail"/> above, in <c>[profile:Name]</c>.
+    ///
+    /// <para>Default TRUE, unlike the rail beside it - the rail is additive and arrives hidden, and
+    /// the stat rows are part of it arriving complete once it is switched on.</para></summary>
+    public bool ShowCombatStats { get; set; } = true;
     public string[] Fkeys { get => _fkeys; set => _fkeys = NormalizeFkeys(value); }
 
     /// <summary>True when the settings came from a per-profile [settings:Name] ini section
@@ -88,12 +93,6 @@ public class Profile
     public bool FloatOnline { get; set; }
     /// <summary>Global default for floating (unpinning) the compass. False = pinned in the side panel.</summary>
     public bool FloatCompass { get; set; }
-    /// <summary>Global: whether the Combat Rail draws its two stat rows and the exchange spark.
-    /// Default TRUE - the rail is meant to arrive complete the first time it is switched on. Off
-    /// narrows the panel, which is the point: it is what the width is mostly spent on. Global rather
-    /// than per-profile because the reason to turn it off is the size of the screen, which no persona
-    /// changes.</summary>
-    public bool ShowCombatStats { get; set; } = true;
 
     private static readonly Dictionary<int, string> s_defaultFkeys = new()
     {

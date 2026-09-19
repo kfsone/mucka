@@ -227,6 +227,9 @@ public partial class ConnectPage : ContentPage
                 Func<bool, Task>? persistCombatRailVisibility = _vm.IsDirectConnectMode
                     ? null
                     : showCombatRail => vm.PersistCombatRailVisibilityAsync(profile.Name, showCombatRail);
+                Func<bool, Task>? persistCombatStats = _vm.IsDirectConnectMode
+                    ? null
+                    : showCombatStats => vm.PersistCombatStatsAsync(profile.Name, showCombatStats);
 
                 // GameViewModel subscribes to conn.LineReady/etc immediately, BEFORE GamePage is
                 // pushed, so nothing is lost while guided login runs -- pushing GamePage now (or
@@ -234,7 +237,8 @@ public partial class ConnectPage : ContentPage
                 // OnDisappearing, which disposes the connection (see GamePage.OnDisappearing ->
                 // GameViewModel.DisposeAsync -> conn.DisposeAsync). GamePage is only pushed once
                 // guided login has actually finished (or immediately, for non-guided profiles).
-                var gameVm = new GameViewModel(conn, profile, saveSettings, persistCombatRailVisibility);
+                var gameVm = new GameViewModel(conn, profile, saveSettings, persistCombatRailVisibility,
+                    persistCombatStats);
 
                 if (profile.GuidedLogin)
                 {

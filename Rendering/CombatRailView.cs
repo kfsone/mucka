@@ -1105,10 +1105,79 @@ public sealed class CombatRailView : SKCanvasView
         => RailSlotGeometry.OpponentSlotDp(
             SlotMetricsFor(showStats), panelWidthDp, panelHeightDp, rosterIndex, participantCount);
 
-    /// <summary>Where the player's own tile is drawn, in dp from the panel content box's top-left -
-    /// what a player-anchored damage float centres on.</summary>
+    /// <summary>Where the player's own tile is drawn, in dp from the panel content box's top-left.</summary>
     public static RailRect PlayerTileDp(double panelWidthDp, double panelHeightDp, bool showStats)
         => RailSlotGeometry.PlayerTileDp(SlotMetricsFor(showStats), panelWidthDp, panelHeightDp);
+
+    /// <summary>
+    /// The TOP-LEFT corner a damage float starts from, in dp - not a pane to centre on. The float
+    /// rises out of the badge from here.
+    ///
+    /// <para>Just right of the NAME AS DRAWN, level with it:</para>
+    /// <code>
+    ///   Fred  -1
+    ///   Jabberwocky427 -2
+    /// </code>
+    /// <para>so the number sits against the name it belongs to rather than at a fixed x. That
+    /// deliberately gives up a straight column - floats step in and out with the length of each
+    /// Creature's name - and it is the trade the operator chose, because beside the name is the only
+    /// reliably empty space a badge has. Centring on the pane put the number on the wound phrase and
+    /// the ladder bar; the pane's left edge put it straight on the name's own glyphs; a fixed column
+    /// past the widest possible name stranded it out by the weapon.</para>
+    ///
+    /// <para><b>An instance method, and it has to be.</b> The x depends on the measured width of a
+    /// particular string in a particular font, and both the font and the roster live here - the same
+    /// <see cref="Ellipsize"/> call and the same bold-on-damage rule the name is actually drawn with,
+    /// so the measurement cannot drift from the drawing.</para>
+    ///
+    /// <para>Null when the row has no pane of its own. Returns a zero-size rect: this is a point,
+    /// and the caller's own box goes at it.</para>
+    /// </summary>
+    /// <param name="rosterIndex"><see cref="Mucka.Combat.RailFloat.PlayerAnchor"/> for the player's
+    /// own tile, which carries the persona name in the same place under the same rules.</param>
+    public RailRect? FloatOriginDp(
+        double panelWidthDp, double panelHeightDp, int rosterIndex, int participantCount)
+    {
+        if (panelWidthDp <= 0 || panelHeightDp <= 0)
+            return null;
+
+        float top;
+        string name;
+        bool tookDamage;
+        if (rosterIndex == Mucka.Combat.RailFloat.PlayerAnchor)
+        {
+            top = (float)PlayerTileDp(panelWidthDp, panelHeightDp, _showStats).Top;
+            name = _live.PlayerName ?? string.Empty;
+            tookDamage = _live.PlayerTookDamageThisTick;
+        }
+        else
+        {
+            if (OpponentSlotDp(panelWidthDp, panelHeightDp, rosterIndex, participantCount, _showStats)
+                is not RailRect slot)
+                return null;
+            var rows = _live.Roster.Rows;
+            if (rosterIndex >= rows.Count)
+                return null;
+            top = (float)slot.Top;
+            name = rows[rosterIndex].Name;
+            tookDamage = rows[rosterIndex].TookDamageThisTick;
+        }
+
+        var k = panelWidthDp / RailWidthFor(_showStats);
+        var font = tookDamage ? _nameBoldFont : _nameFont;
+        // Ellipsized first, exactly as DrawOpponentSlot and the player tile do: past SlotNameWidth
+        // the name stops growing and so must this.
+        var drawn = font.MeasureText(Ellipsize(name, SlotNameWidth, font));
+        return new RailRect(
+            (TileTextLeft + drawn + FloatNameGap) * k, top + (FloatOriginTop * k), 0, 0);
+    }
+
+    /// <summary>The breathing room between the name and the number beside it.</summary>
+    private const float FloatNameGap = 8f;
+
+    /// <summary>A float's top edge within its pane: the name row, so the rise carries it up and out
+    /// of the badge rather than across the rest of it.</summary>
+    private const float FloatOriginTop = 2f;
 
     /// <summary>One opponent: the ladder bar, the name, and the game's own wound phrase. The phrase is
     /// verbatim from the MUD and set in the terminal's own monospace, because echoing what the player
@@ -1180,12 +1249,15 @@ public sealed class CombatRailView : SKCanvasView
         // An opponent's tile: what IT is taking on top (the player's blows, white), what it is dealing
         // underneath (its own, red). See DrawStatRow for why position and colour answer different
         // questions.
+        DrawStatRow(canvas, y + TileUpperBaseline, row.Dealt, inbound: true, byPlayer: true);
+        DrawStatRow(canvas, y + TileLowerBaseline, row.Taken, inbound: false, byPlayer: false);
+        // ONLY the spark answers to the stats switch. The two damage rows above are the badge's own
+        // figures and stay whatever the switch says: they run from StatMarkLeft to
+        // StatDptLeft + StatDptWidth (260 units), inside the narrow content width (296) as well as
+        // the wide one, so nothing about hiding the spark makes them not fit. The spark, from
+        // SparkLeft to the right edge, is the part the extra 80dp buys.
         if (_showStats)
-        {
-            DrawStatRow(canvas, y + TileUpperBaseline, row.Dealt, inbound: true, byPlayer: true);
-            DrawStatRow(canvas, y + TileLowerBaseline, row.Taken, inbound: false, byPlayer: false);
             DrawSpark(canvas, y + TileSparkCentre, row.Exchange, subjectIsPlayer: false);
-        }
 
         // The current-target stripe is redrawn LAST, over the ladder. The bar spans the tile's full
         // width from x=Pad, which is the same three units the stripe occupies - drawn in the other
@@ -1969,12 +2041,11 @@ public sealed class CombatRailView : SKCanvasView
 
         // The player's tile, MIRRORED against an opponent's: what the player is taking on top (the
         // creatures' blows, red), what they are dealing underneath (their own, white).
+        DrawStatRow(canvas, y + PlayerUpperBaseline, live.YourTaken, inbound: true, byPlayer: false);
+        DrawStatRow(canvas, y + PlayerLowerBaseline, live.YourDealt, inbound: false, byPlayer: true);
+        // Only the spark, mirroring the opponent badge above.
         if (_showStats)
-        {
-            DrawStatRow(canvas, y + PlayerUpperBaseline, live.YourTaken, inbound: true, byPlayer: false);
-            DrawStatRow(canvas, y + PlayerLowerBaseline, live.YourDealt, inbound: false, byPlayer: true);
             DrawSpark(canvas, y + PlayerSparkCentre, live.YourExchange, subjectIsPlayer: true);
-        }
     }
 
     /// <summary>

@@ -222,7 +222,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     // Show/hide only - driven by ToggleCombatPanelCommand from the overflow menu, with GamePage
     // resizing the window on the change. GameViewModel's constructor is the one exception to "an
     // explicit toggle is the only way this becomes true": it seeds this from the connecting profile's
-    // persisted ClientSettings.ShowCombatRail (T2), so the panel restores to whatever a given persona
+    // persisted Profile.ShowCombatRail, so the panel restores to whatever a given profile
     // last left it at on relog. The window never resizes itself on any other change - see
     // GamePage.OnAppearing's own remarks on applying that first state.
     private bool _isCombatPanelVisible;
@@ -422,8 +422,9 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
 
     /// <summary>
     /// Whether the Combat Rail draws its two stat rows and the exchange spark. Unlike the floats and
-    /// the metronome beside it, this one is PERSISTED (mucka.ini, global) and it changes the panel's
-    /// WIDTH - the host re-sizes the Border and the window from <see cref="CombatStatsChanged"/>.
+    /// the metronome beside it, this one is PERSISTED (mucka.ini, per profile - see
+    /// <c>Mucka.Core.Profile.ShowCombatStats</c>) and it changes the panel's WIDTH - the host
+    /// re-sizes the Border and the window from <see cref="CombatStatsChanged"/>.
     /// </summary>
     public bool IsCombatStatsEnabled
     {
@@ -750,15 +751,17 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         if (!_live.InCombat)
             return;
 
-        RaisePlayerFloat(RailFloatKind.StaminaGain, RailFloatText.Gain(stamina.Value - was), DateTime.UtcNow);
+        var gained = stamina.Value - was;
+        RaisePlayerFloat(RailFloatKind.StaminaGain, RailFloatText.Gain(gained), DateTime.UtcNow, gained);
     }
 
     /// <summary>
     /// Turns one classified combat line into a float, or into nothing.
     ///
-    /// <para>Only the four swing kinds qualify. Everything else the rail reports - health phrases,
-    /// weapon changes, fight ends - is a state the canvas already draws in place, and a rising copy
-    /// of it would be the second telling of the same fact.</para>
+    /// <para>Only the two LANDED swing kinds qualify - see the misses' own case below for why they
+    /// do not. Everything else the rail reports - health phrases, weapon changes, fight ends - is a
+    /// state the canvas already draws in place, and a rising copy of it would be the second telling
+    /// of the same fact.</para>
     ///
     /// <para><b>NPC heals are not rendered at all.</b> Creatures demonstrably regenerate, but MUD2
     /// emits no signal for it, so there is nothing to report and no honest number to report it
@@ -771,12 +774,21 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             case CombatEventKind.Hit:
                 // The BRACKET the game printed, never a midpoint - see RailFloatText for why the
                 // outgoing and incoming sides are formatted differently on purpose.
+                // Sized off the bracket's LOW bound, never its high one and never a midpoint: the
+                // floor is what MUD2 committed to, so the emphasis cannot claim a blow was bigger
+                // than the wire said. See RailFloat.Magnitude.
                 RaiseOpponentFloat(combatEvent, RailFloatKind.OutgoingHit,
-                    RailFloatText.Outgoing(combatEvent.RangeLow, combatEvent.RangeHigh));
+                    RailFloatText.Outgoing(combatEvent.RangeLow, combatEvent.RangeHigh),
+                    combatEvent.RangeLow ?? 0);
                 break;
 
+            // Misses raise no float, either direction. Operator's rule, set in play: a miss is the
+            // most frequent thing in a fight and the least consequential, so it was most of the
+            // motion on the panel and none of the news. The kinds and the budget's shed policy for
+            // them are left standing - the rule is about what is worth showing, not about what the
+            // rail can express.
             case CombatEventKind.Miss:
-                RaiseOpponentFloat(combatEvent, RailFloatKind.OutgoingMiss, RailFloatText.Miss);
+            case CombatEventKind.MissByNpc:
                 break;
 
             case CombatEventKind.HitByNpc:
@@ -789,13 +801,9 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
                 // number is the honest rendering of no reading; a "-0" would be a measurement.
                 if (delta is int taken && taken > 0)
                     RaisePlayerFloat(RailFloatKind.IncomingHit, RailFloatText.Incoming(taken),
-                        combatEvent.TimestampUtc);
+                        combatEvent.TimestampUtc, taken);
                 break;
             }
-
-            case CombatEventKind.MissByNpc:
-                RaisePlayerFloat(RailFloatKind.IncomingMiss, RailFloatText.Miss, combatEvent.TimestampUtc);
-                break;
         }
     }
 
@@ -807,7 +815,8 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     /// without a row there is no pane, and defaulting to a nearby slot would attribute the blow to
     /// whatever creature happens to be sitting there.</para>
     /// </summary>
-    private void RaiseOpponentFloat(CombatEvent combatEvent, RailFloatKind kind, string? text)
+    private void RaiseOpponentFloat(CombatEvent combatEvent, RailFloatKind kind, string? text,
+        int magnitude)
     {
         if (text is null || !_isCombatFloatsEnabled || CombatFloatRaised is null)
             return;
@@ -827,16 +836,17 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             // roster's own row cap. A float placed against either other number would land on a slot
             // the canvas gave to something else.
             CombatFloatRaised.Invoke(new RailFloat(
-                kind, text, i, _live.Roster.LiveCount, combatEvent.TimestampUtc));
+                kind, text, i, _live.Roster.LiveCount, combatEvent.TimestampUtc, magnitude));
             return;
         }
     }
 
-    private void RaisePlayerFloat(RailFloatKind kind, string text, DateTime atUtc)
+    private void RaisePlayerFloat(RailFloatKind kind, string text, DateTime atUtc, int magnitude)
     {
         if (!_isCombatFloatsEnabled || CombatFloatRaised is null)
             return;
-        CombatFloatRaised.Invoke(new RailFloat(kind, text, RailFloat.PlayerAnchor, 0, atUtc));
+        CombatFloatRaised.Invoke(
+            new RailFloat(kind, text, RailFloat.PlayerAnchor, 0, atUtc, magnitude));
     }
 
     public void TickCombatDisplay()

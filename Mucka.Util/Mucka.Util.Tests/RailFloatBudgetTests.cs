@@ -18,6 +18,11 @@ public sealed class RailFloatBudgetTests
     private static readonly DateTime T0 = new(2026, 8, 30, 12, 0, 0, DateTimeKind.Utc);
     private static DateTime At(int ms) => T0.AddMilliseconds(ms);
 
+    /// <summary>A moment far enough past <paramref name="ms"/> to be a different exchange. Expressed
+    /// against the window rather than as a literal, so moving the window moves these with it.</summary>
+    private static DateTime AfterTheWindow(int ms)
+        => At(ms) + RailFloatBudget.SameExchangeWindow + TimeSpan.FromMilliseconds(1);
+
     private const int Player = RailFloat.PlayerAnchor;
 
     // -- the cap ------------------------------------------------------------------
@@ -84,56 +89,93 @@ public sealed class RailFloatBudgetTests
         Assert.Equal(oldest.PoolSlot, arriving!.Value.PoolSlot);
     }
 
-    // -- lanes, and the one-anchor smear -----------------------------------------
+    // -- clustering one tick, replacing the next ---------------------------------
 
+    /// <summary>Two blows from the same tick are one event with two parts, and the host zig-zags
+    /// them off the cluster index so the pane reads as a flurry.</summary>
     [Fact]
-    public void TwoFloatsAtOneAnchor_GetDifferentLanes()
+    public void BlowsInOneExchange_ClusterAtTheAnchor()
     {
         var budget = new RailFloatBudget();
         var first = budget.Admit(RailFloatKind.IncomingHit, Player, At(0))!.Value;
         var second = budget.Admit(RailFloatKind.IncomingHit, Player, At(5))!.Value;
+        var third = budget.Admit(RailFloatKind.IncomingHit, Player, At(30))!.Value;
 
-        // Every incoming blow in a pack fight lands on the SAME anchor in the same tick, so without
-        // lanes the stamina seal would carry two numbers on the same pixels.
-        Assert.Equal(0, first.Lane);
-        Assert.Equal(1, second.Lane);
-        Assert.NotEqual(first.PoolSlot, second.PoolSlot);
+        Assert.Equal(0, first.Cluster);
+        Assert.Equal(1, second.Cluster);
+        Assert.Equal(2, third.Cluster);
+        Assert.Equal(3, budget.InFlight(At(30)));
     }
 
+    /// <summary>
+    /// The next tick's exchange replaces the WHOLE of the previous one at its anchor, not just its
+    /// oldest member. With a 3000 ms lifetime against a 2000 ms tick the previous cluster is still in
+    /// the air when the next opens; freeing one slot and leaving the rest let the new tick's second
+    /// and third blows be granted cluster indices stale floats still held - two floats drawn on the
+    /// same pixels - and let one anchor hold four floats against a cap of three.
+    /// </summary>
     [Fact]
-    public void AThirdFloatAtOneAnchor_ReplacesTheOldestThere_AndKeepsItsLane()
+    public void TheNextExchange_ReplacesTheWholeOfThePreviousOne()
+    {
+        var budget = new RailFloatBudget();
+        budget.Admit(RailFloatKind.IncomingHit, Player, At(0));
+        budget.Admit(RailFloatKind.IncomingHit, Player, At(10));
+        budget.Admit(RailFloatKind.IncomingHit, Player, At(20));
+        Assert.Equal(3, budget.InFlight(At(20)));
+
+        var tick = 2000;
+        var a = budget.Admit(RailFloatKind.IncomingHit, Player, At(tick))!.Value;
+        var b = budget.Admit(RailFloatKind.IncomingHit, Player, At(tick + 10))!.Value;
+        var c = budget.Admit(RailFloatKind.IncomingHit, Player, At(tick + 20))!.Value;
+
+        // The per-anchor cap holds across the boundary...
+        Assert.Equal(RailFloatBudget.MaxPerAnchor, budget.InFlight(At(tick + 20)));
+        // ...and the new exchange's cluster indices are its own, 0-1-2, on three distinct elements.
+        Assert.Equal(new[] { 0, 1, 2 }, new[] { a.Cluster, b.Cluster, c.Cluster });
+        Assert.Equal(3, new HashSet<int> { a.PoolSlot, b.PoolSlot, c.PoolSlot }.Count);
+    }
+
+    /// <summary>
+    /// The distinction the whole rule turns on: a blow a TICK later is a new event and belongs
+    /// exactly where the eye last saw one, so it displaces rather than stacking. Getting this wrong
+    /// is what made a second hit on one Creature print at a different height each time.
+    /// </summary>
+    [Fact]
+    public void ABlowInTheNextExchange_TakesThePlaceOfTheLastOne()
     {
         var budget = new RailFloatBudget();
         var first = budget.Admit(RailFloatKind.IncomingHit, Player, At(0))!.Value;
-        budget.Admit(RailFloatKind.IncomingHit, Player, At(5));
 
-        var third = budget.Admit(RailFloatKind.IncomingHit, Player, At(10));
+        var next = budget.Admit(RailFloatKind.IncomingHit, Player, AfterTheWindow(0));
 
-        Assert.NotNull(third);
-        Assert.Equal(first.PoolSlot, third!.Value.PoolSlot);
-        Assert.Equal(first.Lane, third.Value.Lane);
-        // Still two over the seal, never three.
-        Assert.Equal(2, budget.InFlight(At(10)));
+        Assert.NotNull(next);
+        Assert.Equal(0, next!.Value.Cluster);            // back to the base position
+        Assert.Equal(first.PoolSlot, next.Value.PoolSlot);
+        Assert.NotEqual(first.Token, next.Value.Token);
+        Assert.Equal(1, budget.InFlight(AfterTheWindow(0)));
     }
 
     [Fact]
     public void ThePerAnchorCapDoesNotStarveOtherAnchors()
     {
         var budget = new RailFloatBudget();
-        budget.Admit(RailFloatKind.IncomingHit, Player, At(0));
-        budget.Admit(RailFloatKind.IncomingHit, Player, At(5));
+        for (var i = 0; i < RailFloatBudget.MaxPerAnchor; i++)
+            budget.Admit(RailFloatKind.IncomingHit, Player, At(i));
 
-        // Two blows on the player must not stop a hit on an opponent's own slot being drawn.
+        // A pack filling the player's own pane must not stop a hit on an opponent's slot being
+        // drawn: the cap is per anchor, and eviction for it only ever looks inside the anchor that
+        // is full.
         Assert.NotNull(budget.Admit(RailFloatKind.OutgoingHit, anchor: 0, At(10)));
-        Assert.Equal(3, budget.InFlight(At(10)));
+        // And the pane really is capped: MaxPerAnchor on the player plus the one opponent float.
+        Assert.Equal(RailFloatBudget.MaxPerAnchor + 1, budget.InFlight(At(10)));
     }
 
     [Fact]
     public void AnArrivingMissAtAFullAnchor_IsDroppedRatherThanDisplacingAHitThere()
     {
         var budget = new RailFloatBudget();
-        budget.Admit(RailFloatKind.IncomingHit, Player, At(0));
-        budget.Admit(RailFloatKind.IncomingHit, Player, At(5));
+        for (var i = 0; i < RailFloatBudget.MaxPerAnchor; i++)
+            budget.Admit(RailFloatKind.IncomingHit, Player, At(i));
 
         Assert.Null(budget.Admit(RailFloatKind.IncomingMiss, Player, At(10)));
     }
@@ -161,13 +203,15 @@ public sealed class RailFloatBudgetTests
         // counter exists for.
         var budget = new RailFloatBudget();
         var shed = budget.Admit(RailFloatKind.IncomingMiss, Player, At(0))!.Value;
-        budget.Admit(RailFloatKind.IncomingMiss, Player, At(5));
+        // A whole exchange of misses, so the anchor is full and the hit below has to displace one.
+        for (var i = 1; i < RailFloatBudget.MaxPerAnchor; i++)
+            budget.Admit(RailFloatKind.IncomingMiss, Player, At(i));
         var replacement = budget.Admit(RailFloatKind.IncomingHit, Player, At(10))!.Value;
         Assert.Equal(shed.PoolSlot, replacement.PoolSlot);
 
         budget.Retire(shed.PoolSlot, shed.Token);
 
-        Assert.Equal(2, budget.InFlight(At(10)));
+        Assert.Equal(RailFloatBudget.MaxPerAnchor, budget.InFlight(At(10)));
     }
 
     [Fact]

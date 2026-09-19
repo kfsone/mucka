@@ -1224,9 +1224,11 @@
                      (PulseLayer, GamePage.xaml.cs), never via a UI-thread timer and never by
                      recolouring the canvas's own drawn text. Rests at Opacity 0 (invisible) whenever
                      no tier is pulsing. -->
+                <!-- No Opacity here: XAML owns UIElement.Opacity on the very visual PulseLayer
+                     animates, and at 0 it wins - the animation runs and nothing is ever drawn. The
+                     rest state is asserted in PulseLayer's constructor instead. -->
                 <BoxView x:Name="CombatPanelGlow"
                          Color="#C50F1F"
-                         Opacity="0"
                          InputTransparent="True"/>
                 <!-- The tick meter's moving fill, also behind the canvas and also driven purely by
                      Composition (TickSweep, GamePage.xaml.cs) - the canvas draws the empty track and
@@ -1268,11 +1270,12 @@
                      Bounds, corner radius and colours are set in code - the geometry from
                      CombatRailView.FleePillDp, so the ring and the chip it outlines cannot drift apart.
                      Rests at Opacity 0; only ever visible while a fight is live and the pill alarms. -->
+                <!-- No Opacity here, for the reason given on CombatPanelGlow above. FleePulse's
+                     constructor already zeroes the visual, which is the rest state that works. -->
                 <Border x:Name="CombatFleePill"
                         Stroke="Transparent"
                         StrokeThickness="2"
                         BackgroundColor="Transparent"
-                        Opacity="0"
                         HorizontalOptions="Fill"
                         VerticalOptions="End"
                         InputTransparent="True"/>

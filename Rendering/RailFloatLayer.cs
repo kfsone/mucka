@@ -8,7 +8,7 @@ namespace Mucka.Rendering;
 
 /// <summary>
 /// One pooled damage float, animated on WinUI Composition: a small word or number that appears over
-/// a pane of the Combat Rail, drifts upward and fades out over about a second and a half.
+/// a pane of the Combat Rail, drifts upward and fades out over <c>RailFloatBudget.Lifetime</c>.
 ///
 /// <para><b>Why this is not drawn by the canvas.</b> The same Invariant #1 that put the tick
 /// meter's fill and the flee pill's pulse on the compositor: a float is by definition continuous
@@ -28,8 +28,16 @@ namespace Mucka.Rendering;
 ///
 /// <para><b>Teardown is not optional</b> - see <see cref="PulseLayer"/> and <see cref="TickSweep"/>
 /// for the RO_E_CLOSED crash class a live animation on a destroyed visual belongs to.
-/// <see cref="Stop"/> must run from the host's <c>HandlerChanged</c> when <c>Handler is null</c>,
-/// and the <c>Unloaded</c> hook below is belt-and-braces beside it.</para>
+/// <see cref="Stop"/> must run from the host's <c>HandlerChanged</c> when <c>Handler is null</c>.</para>
+///
+/// <para><b>Unloaded is not teardown.</b> WinUI raises it whenever the element leaves the live tree,
+/// which for a pooled float means every time the combat panel's Border is collapsed - the panel is
+/// hidden, a modal covers the page - and the platform view survives all of it. So the hook below
+/// rests the layer (which is what actually answers the crash class: no animation is left running)
+/// and does NOT mark it detached. A detached layer is permanent and nothing re-attaches it, because
+/// the host only re-attaches on <c>HandlerChanged</c> and a collapse never recreates the handler:
+/// one hidden panel would kill every float for the rest of the session, silently, with
+/// <see cref="Play"/> returning false and no exception anywhere.</para>
 /// </summary>
 internal sealed class RailFloatLayer
 {
@@ -38,6 +46,15 @@ internal sealed class RailFloatLayer
     /// never leaves the neighbourhood of the pane it is reporting on - a float that travelled the
     /// height of the panel would be a number the eye has to chase to attribute.</summary>
     public const double RiseDp = 22.0;
+
+    /// <summary>How long a float holds full opacity before it starts going out. Absolute rather
+    /// than a fraction, so it does not have to be re-derived by hand whenever the lifetime moves.</summary>
+    private const double FadeStartMs = 1000.0;
+
+    /// <summary>How far past each end of <see cref="RiseDp"/> the travel actually runs. The float
+    /// is already moving when it becomes legible and still moving when it goes, which is what makes
+    /// the rise read as motion rather than as a step.</summary>
+    private const double OvertravelDp = 4.0;
 
     private readonly FrameworkElement _host;
     private readonly Visual _visual;
@@ -65,7 +82,9 @@ internal sealed class RailFloatLayer
         // the visual and StartAnimation is a silent no-op.
         ElementCompositionPreview.SetIsTranslationEnabled(host, true);
         _visual = ElementCompositionPreview.GetElementVisual(host);
-        _host.Unloaded += (_, _) => Stop();
+        // Rest, not Stop - see the class remarks. Stopping the animations is the whole of the crash
+        // guard; the permanent flag Stop adds is what killed the feature.
+        _host.Unloaded += (_, _) => Rest();
         Rest();
     }
 
@@ -92,20 +111,34 @@ internal sealed class RailFloatLayer
             // Decelerating rise: quick off the mark, easing to a near stop as it fades. The
             // acceleration is doing real work - it makes the float legible in its first frames,
             // which is when it is at full opacity, instead of spending them barely moving.
+            // Starts BELOW the origin and ends above the nominal rise, so the travel is longer than
+            // the distance the eye is meant to read the float moving through - it arrives already
+            // moving and leaves still moving, instead of springing into existence at rest.
             var move = compositor.CreateVector3KeyFrameAnimation();
-            move.InsertKeyFrame(0f, new Vector3((float)xDp, (float)yDp, 0f), linear);
+            move.InsertKeyFrame(0f, new Vector3((float)xDp, (float)(yDp + OvertravelDp), 0f), linear);
             move.InsertKeyFrame(
-                1f, new Vector3((float)xDp, (float)(yDp - RiseDp), 0f),
-                compositor.CreateCubicBezierEasingFunction(new Vector2(0.1f, 0.9f), new Vector2(0.2f, 1f)));
+                1f, new Vector3((float)xDp, (float)(yDp - RiseDp - OvertravelDp), 0f),
+                // Ease-out cubic. The previous curve put nearly all the travel in the first fifth
+                // and then stopped dead, which read as a jump rather than a rise; this spreads the
+                // motion and decelerates into the end.
+                compositor.CreateCubicBezierEasingFunction(new Vector2(0.33f, 1f), new Vector2(0.68f, 1f)));
             move.Duration = duration;
 
-            // Full opacity for the first two thirds, then out. A float that starts fading
-            // immediately is unreadable at exactly the moment it is worth reading; the fade is how
-            // it leaves, not how it arrives.
+            // In at once, hold full for the first second, then a long fade over the remaining two -
+            // so the float is legible immediately, stays plainly readable while the blow it reports
+            // is the current one, and spends most of its life on the way out rather than snapping
+            // off. A float that starts fading immediately is unreadable at exactly the moment it is
+            // worth reading; the fade is how it leaves, not how it arrives.
+            //
+            // The hold is derived from the duration actually being played, not from the budget's
+            // constant: these keyframes are fractions of THIS animation, so reading the lifetime
+            // instead would silently misplace the hold the moment the two stopped agreeing. Clamped
+            // so a short duration cannot produce keyframes out of order.
+            var holdFraction = (float)Math.Clamp(FadeStartMs / duration.TotalMilliseconds, 0.1, 0.9);
             var fade = compositor.CreateScalarKeyFrameAnimation();
             fade.InsertKeyFrame(0f, 0f, linear);
-            fade.InsertKeyFrame(0.08f, 1f, linear);
-            fade.InsertKeyFrame(0.62f, 1f, linear);
+            fade.InsertKeyFrame(0.04f, 1f, linear);
+            fade.InsertKeyFrame(holdFraction, 1f, linear);
             fade.InsertKeyFrame(1f, 0f, linear);
             fade.Duration = duration;
 
@@ -162,8 +195,8 @@ internal sealed class RailFloatLayer
         }
     }
 
-    /// <summary>Permanent teardown. Called from the host's HandlerChanged and from Unloaded; after
-    /// this the instance is dead and the host creates a fresh one on re-attach.</summary>
+    /// <summary>Permanent teardown, for the host's HandlerChanged and page teardown only - both
+    /// replace or null the instance straight after. NOT for Unloaded: see the class remarks.</summary>
     public void Stop()
     {
         Rest();

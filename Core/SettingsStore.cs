@@ -75,11 +75,9 @@ public static class SettingsStore
         int? OnlineForgetWindow = null,
         bool? FloatOnline       = null,
         bool? FloatCompass      = null,
-        bool? ShowCombatStats   = null,
         bool? LogResetDiagnostics = null,
         string? MeNameColor     = null,
-        string? MeSpeechColor   = null,
-        bool? ShowCombatRail    = null)
+        string? MeSpeechColor   = null)
     {
         /// <summary>Overlays the stored (ini) values onto a profile - ini wins when present.</summary>
         public void ApplyTo(Profile profile)
@@ -107,12 +105,12 @@ public static class SettingsStore
             if (OnlineForgetWindow is int ofw) profile.OnlineForgetWindow = ofw;
             if (FloatOnline      is bool fo)  profile.FloatOnline      = fo;
             if (FloatCompass     is bool fc)  profile.FloatCompass     = fc;
-            // Absent leaves Profile's own `= true`. Every other bool here defaults false when the key
-            // is missing; this one does not, because the rail is meant to arrive complete.
-            if (ShowCombatStats  is bool scs) profile.ShowCombatStats  = scs;
             if (MeNameColor   is { Length: > 0 } mnc) profile.MeNameColor   = mnc;
             if (MeSpeechColor is { Length: > 0 } msc) profile.MeSpeechColor = msc;
-            if (ShowCombatRail is bool scr) profile.ShowCombatRail = scr;
+            // The two Combat Rail flags are NOT here. They live in [profile:Name] and are read by
+            // ReadProfiles, because this overlay's scope is the thing they must not have: it
+            // resolves to the shared global [settings] for every profile that has not turned on
+            // "Save to profile only", so one persona's rail would be every persona's.
         }
     }
 
@@ -174,10 +172,6 @@ public static class SettingsStore
                 MuteBeepPermanently: settingsSection is null ? null : GetBool(ini, settingsSection, "mutebeep"),
                 LogResetDiagnostics: settingsSection is null ? null : GetBool(ini, settingsSection, "logttr"),
                 Sounds:              settingsSection is null ? null : ReadSoundSettings(ini, settingsSection),
-                // Per-profile like fontsize/columns/volume above (via settingsSection, which honours
-                // SettingsPerProfile) - NOT a Display tab global. The rail's shown/hidden state is a
-                // per-persona preference, not a shared default across every profile.
-                ShowCombatRail:      settingsSection is null ? null : GetBool(ini, settingsSection, "showcombatrail"),
                 Fkeys:               fkeys,
                 SettingsPerProfile:  settingsPerProfile,
                 FkeysPerProfile:     fkeysPerProfile,
@@ -194,9 +188,6 @@ public static class SettingsStore
                 OnlineForgetWindow: ini.HasSection("settings") ? GetInt (ini, "settings", "onlineforgetwindow") : null,
                 FloatOnline:        ini.HasSection("settings") ? GetBool(ini, "settings", "floatonline")        : null,
                 FloatCompass:       ini.HasSection("settings") ? GetBool(ini, "settings", "floatcompass")       : null,
-                ShowCombatStats:    ini.HasSection("settings") ? GetBool(ini, "settings", "showcombatstats")    : null,
-                // Global and one-time - absent means off, which is the default for a feature that
-                // silently records everything.
                 MeNameColor:        ini.HasSection("settings") ? ini.Get("settings", "menamecolor")   : null,
                 MeSpeechColor:      ini.HasSection("settings") ? ini.Get("settings", "mespeechcolor") : null);
         }
@@ -244,12 +235,6 @@ public static class SettingsStore
             ini.Set(settingsSection, "statupdate", settings.StatUpdateFrequency.ToString());
             ini.Set(settingsSection, "mutebeep",   settings.MuteBeepPermanently ? "yes" : "no");
             ini.Set(settingsSection, "logttr",     settings.LogResetDiagnostics ? "yes" : "no");
-            // Per-profile like fontsize/columns/volume above, NOT a Display tab global - see the
-            // matching remark in LoadProfileAsync. Always written (no writeDisplayGlobals gate),
-            // exactly like fontsize/columns/volume above: the connect page's partial ClientSettings
-            // (ConnectViewModel.SaveCurrentProfileAsync) already has to carry this field forward
-            // deliberately, the same way it already does for FontSize/Volume/Sounds.
-            ini.Set(settingsSection, "showcombatrail", settings.ShowCombatRail ? "yes" : "no");
             if (writeSounds)
                 WriteSoundSettings(ini, settingsSection, settings.Sounds);
 
@@ -268,7 +253,6 @@ public static class SettingsStore
                 ini.Set("settings", "onlineforgetwindow", settings.OnlineForgetWindow.ToString());
                 ini.Set("settings", "floatonline",        settings.FloatOnline     ? "yes" : "no");
                 ini.Set("settings", "floatcompass",       settings.FloatCompass    ? "yes" : "no");
-                ini.Set("settings", "showcombatstats",    settings.ShowCombatStats ? "yes" : "no");
                 ini.Set("settings", "menamecolor",        settings.MeNameColor);
                 ini.Set("settings", "mespeechcolor",      settings.MeSpeechColor);
             }
@@ -297,23 +281,23 @@ public static class SettingsStore
     }
 
     /// <summary>
-    /// Writes ONE key in the global <c>[settings]</c> section and leaves every other key in the file
-    /// alone.
+    /// Writes ONE key in a profile's own <c>[profile:Name]</c> section and leaves every other key in
+    /// the file alone.
     ///
-    /// <para>For a global that a one-click control changes outside the settings dialog - the Combat
-    /// Rail's "Stats" row is the first. <see cref="SaveProfileAsync"/> cannot serve that: its globals
-    /// block is all-or-nothing, so a caller would have to reconstruct every other global from memory
-    /// and would silently reset any it got wrong. Nothing here reads the rest of the file, so nothing
-    /// here can clobber it.</para>
+    /// <para>For a per-profile flag a one-click control changes outside the settings dialog - the
+    /// Combat Rail's shown/hidden state and its "Stats" row. <see cref="SaveProfileAsync"/> cannot
+    /// serve those: its blocks are all-or-nothing, so a caller would have to reconstruct every other
+    /// key from memory and would silently reset any it got wrong. Nothing here reads the rest of the
+    /// file, so nothing here can clobber it.</para>
     /// </summary>
-    public static async Task SetGlobalFlagAsync(string key, bool value)
+    public static async Task SetProfileFlagAsync(string profileName, string key, bool value)
     {
         await s_gate.WaitAsync().ConfigureAwait(false);
         try
         {
             var path = ResolvePath();
             var ini  = IniFile.Load(path);
-            ini.Set("settings", key, value ? "yes" : "no");
+            ini.Set(ProfileSectionPrefix + profileName, key, value ? "yes" : "no");
             await ini.SaveAsync(path).ConfigureAwait(false);
         }
         finally
@@ -406,6 +390,15 @@ public static class SettingsStore
             if (GetBool(ini, section, "keepscreenon")     is bool keep)  p.KeepScreenOn       = keep;
             if (GetBool(ini, section, "defaulthotkeys")   is bool defs)  p.DefaultHotkeys     = defs;
             if (GetBool(ini, section, "guidedlogin")      is bool gl)    p.GuidedLogin        = gl;
+            // The Combat Rail's two flags. Here rather than in [settings] because this section is
+            // the only one that is per profile unconditionally - a [settings:Name] section would
+            // have to be created to hold them, and its mere existence switches that profile's WHOLE
+            // settings block to per-profile, so every key the new section lacked would silently fall
+            // back to a built-in default.
+            if (GetBool(ini, section, "showcombatrail")   is bool rail)  p.ShowCombatRail     = rail;
+            // Absent leaves Profile's own `= true`, unlike the rail beside it: the rail is additive
+            // and arrives hidden, the stat rows are part of the rail arriving complete.
+            if (GetBool(ini, section, "showcombatstats")  is bool stats) p.ShowCombatStats    = stats;
             p.GuidedLoginPersona = ini.Get(section, "guidedloginpersona") ?? string.Empty;
             profiles.Add(p);
         }
@@ -434,6 +427,19 @@ public static class SettingsStore
         foreach (var section in staleSections)
             ini.RemoveSection(section);
 
+        // The two Combat Rail keys below used to live in [settings] / [settings:Name]. This is the
+        // writer that owns them now, so it is also what clears the copies nothing reads any more -
+        // a key left where a reader would look for it is a file that lies about its own state.
+        ini.Remove("settings", "showcombatrail");
+        ini.Remove("settings", "showcombatstats");
+        foreach (var section in ini.SectionNames()
+                     .Where(s => s.StartsWith("settings:", StringComparison.OrdinalIgnoreCase))
+                     .ToList())
+        {
+            ini.Remove(section, "showcombatrail");
+            ini.Remove(section, "showcombatstats");
+        }
+
         foreach (var p in profiles)
         {
             var section = ProfileSectionPrefix + p.Name;
@@ -449,6 +455,8 @@ public static class SettingsStore
             ini.Set(section, "defaulthotkeys",   p.DefaultHotkeys     ? "yes" : "no");
             ini.Set(section, "guidedlogin",       p.GuidedLogin        ? "yes" : "no");
             ini.Set(section, "guidedloginpersona", p.GuidedLoginPersona);
+            ini.Set(section, "showcombatrail",   p.ShowCombatRail     ? "yes" : "no");
+            ini.Set(section, "showcombatstats",  p.ShowCombatStats    ? "yes" : "no");
         }
     }
 

@@ -45,6 +45,15 @@ internal sealed class PulseLayer
     {
         _host = host;
         _host.Unloaded += (_, _) => Stop();   // belt-and-braces alongside OnHandlerChanged
+        // The rest state, asserted here and NOT as an Opacity="0" on the MAUI element. XAML owns
+        // UIElement.Opacity on the same visual this class animates, and at 0 it wins outright - that
+        // is measured, not inferred: it is what made the Combat Rail's damage floats run their full
+        // animation over an element nothing ever drew. So the glow's own element carries no opacity
+        // in XAML, which leaves an untouched visual sitting at FULL opacity - a solid red panel the
+        // instant the rail opens, with no fight anywhere - unless it is zeroed before it can be
+        // shown. Stop() cannot do it: it returns early while _visual is still null.
+        _visual = ElementCompositionPreview.GetElementVisual(host);
+        _visual.Opacity = 0f;
     }
 
     public static PulseLayer Attach(FrameworkElement host) => new(host);

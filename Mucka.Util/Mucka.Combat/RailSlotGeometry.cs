@@ -316,10 +316,7 @@ public static class RailSlotGeometry
     }
 
     /// <summary>
-    /// The PLAYER'S TILE - what a player-anchored damage float centres itself on.
-    ///
-    /// <para>Centres on the whole tile, not a sub-region within it: the float represents "this
-    /// happened to you", not "this happened to that widget".</para>
+    /// The PLAYER'S TILE.
     ///
     /// <para>The tile sits at the very BOTTOM of the panel - the tick gauge and the encounter table
     /// are above it, between the player and the creatures - so it is one pad up from the bottom edge

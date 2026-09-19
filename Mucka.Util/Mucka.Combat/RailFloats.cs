@@ -34,12 +34,18 @@ public enum RailFloatKind
 /// including any past the roster's own row cap. Needed as well
 /// as the index because the rail surrenders one slot to the overflow row once the opposition outgrows
 /// the visible capacity, so whether a given index has a pane of its own depends on the total.</param>
+/// <param name="Magnitude">How big the thing being reported is, for
+/// <see cref="RailFloatEmphasis"/> to size the text from. For an outgoing hit this is the LOW bound
+/// of the bracket MUD2 printed - the floor the game actually committed to - so the emphasis can
+/// never claim a blow was bigger than the wire said. Incoming damage and stamina gains are exact
+/// readings and carry themselves. Zero where there is no number.</param>
 public sealed record RailFloat(
     RailFloatKind Kind,
     string Text,
     int RosterIndex,
     int LiveCount,
-    DateTime AtUtc)
+    DateTime AtUtc,
+    int Magnitude = 0)
 {
     /// <summary>The roster index that means "the player's own stamina seal, not an opponent".</summary>
     public const int PlayerAnchor = -1;
@@ -107,14 +113,53 @@ public static class RailFloatText
         => "+" + amount.ToString(System.Globalization.CultureInfo.InvariantCulture);
 }
 
+/// <summary>
+/// How loud a float is allowed to be about its own size: bigger numbers are drawn bigger, and the
+/// biggest are drawn heavier as well.
+///
+/// <para><b>The ladder is cumulative and its steps are whole points.</b> A float is read at a
+/// glance and out of the corner of the eye, so the signal has to survive not being looked at -
+/// which a size difference does and a colour difference already spent (colour carries DIRECTION,
+/// see <see cref="RailFloatKind"/>). Whole points rather than a smooth curve because the eye is
+/// being asked to bucket, not to measure: "that was a big one" is the whole message.</para>
+///
+/// <para>Here rather than in the host so the ladder is one table a test can pin, and so the two
+/// numbers the host needs - a size and a weight - are never derived twice.</para>
+/// </summary>
+public static class RailFloatEmphasis
+{
+    /// <summary>The size a float with nothing remarkable about it is drawn at.</summary>
+    public const double BaseFontSize = 11.0;
+
+    /// <summary>The magnitude at and above which a float is also drawn HEAVIER than the bold every
+    /// float already carries. The top of the ladder, and the only step that changes weight.</summary>
+    public const int HeavyThreshold = 30;
+
+    /// <summary>Points added to <see cref="BaseFontSize"/>, 0-4. Cumulative: each threshold passed
+    /// adds one, so a 30 carries all four.</summary>
+    public static int StepsFor(int magnitude)
+        => (magnitude > 5 ? 1 : 0)
+         + (magnitude >= 10 ? 1 : 0)
+         + (magnitude >= 20 ? 1 : 0)
+         + (magnitude >= HeavyThreshold ? 1 : 0);
+
+    /// <summary>The point size to draw a float of this magnitude at.</summary>
+    public static double FontSizeFor(int magnitude) => BaseFontSize + StepsFor(magnitude);
+
+    /// <summary>Whether this magnitude earns the heavier weight as well as the fourth point.</summary>
+    public static bool IsHeavy(int magnitude) => magnitude >= HeavyThreshold;
+}
+
 /// <summary>The pool slot a float was granted, plus the lane it sits in and the token that
 /// identifies THIS use of the slot.</summary>
-/// <param name="Lane">0 for the first float at an anchor, 1 for a second one still in flight -
-/// offset upward so two blows in the same tick do not print on top of each other.</param>
+/// <param name="Cluster">Which member of the current exchange this is at its anchor: 0 for the
+/// first, 1 and 2 for further blows landing in the SAME tick. The host zig-zags them off that
+/// index - see <see cref="RailFloatBudget.SameExchangeWindow"/>. Always 0 for a float that opens a
+/// new exchange, so a blow arriving a tick later lands exactly where the last one did.</param>
 /// <param name="Token">Increments on every grant. A completion callback carrying a stale token is
 /// a float that was shed and its slot re-let; retiring on it would free the float now using the
 /// slot. Same hazard, and the same fix, as TickSweep's generation counter.</param>
-public readonly record struct RailFloatGrant(int PoolSlot, int Lane, int Token);
+public readonly record struct RailFloatGrant(int PoolSlot, int Cluster, int Token);
 
 /// <summary>
 /// The Combat Rail's motion budget: how many floats may be in the air at once, and what gets shed
@@ -143,24 +188,48 @@ public sealed class RailFloatBudget
 {
     /// <summary>How many floats may be in the air at once - and therefore how many pooled elements
     /// the host creates, since a float that cannot be granted a slot is never drawn. Four: at the
-    /// 2000 ms tick and a ~1500 ms lifetime, this is roughly two ticks' worth of the events a
-    /// player can actually read, and it leaves the panel empty of motion for a visible beat between
-    /// exchanges. See the class remarks for the rule.</summary>
+    /// 2000 ms tick and the lifetime below, this is about one tick's exchange plus the tail of the
+    /// one before it. See the class remarks for the rule.</summary>
     public const int MaxInFlight = 4;
 
-    /// <summary>How many floats may share one anchor. Two, because every incoming blow in a pack
-    /// fight lands on the SAME anchor (the stamina seal) in the same tick, and a third stacked
-    /// number over one 92dp seal is a smear rather than a reading.</summary>
-    public const int MaxPerAnchor = 2;
+    /// <summary>
+    /// How many blows from ONE TICK may share an anchor. Three: a pack lands several on the player
+    /// in the same tick, and the panel is trying to convey that several landed - not to be a legible
+    /// table of each. The rail is not the primary combat readout; the encounter table is.
+    /// </summary>
+    public const int MaxPerAnchor = 3;
 
-    /// <summary>How long one float lives (~1.5s). Also the expiry this class falls back on: the
-    /// host retires a slot from the animation's completion callback, but a completion that never
-    /// arrives (a torn-down compositor) must not strand a slot forever.</summary>
-    public static readonly TimeSpan Lifetime = TimeSpan.FromMilliseconds(1500);
+    /// <summary>
+    /// How close two floats at one anchor have to be to count as the SAME exchange.
+    ///
+    /// <para>This is the whole of the rule the operator set, and it turns on a distinction the
+    /// budget would otherwise be blind to. Two blows in one tick are one event with two parts, and
+    /// they cluster (see <see cref="Cluster"/>). A blow landing a tick later is a NEW event, and it
+    /// belongs exactly where the last one was - the eye has learned that spot and must not have to
+    /// find it again. Stacking those was what made a second hit on one Creature read as a different
+    /// number in a different place.</para>
+    ///
+    /// <para>500 ms sits between the two by a wide margin either way: MUD2's tick is 2000 ms, and
+    /// the blows within one tick arrive together - in the recorded sessions, in ONE socket read
+    /// under one wire timestamp; the 1-30 ms spread between them is the client's own parse clock,
+    /// not the server's.</para>
+    /// </summary>
+    public static readonly TimeSpan SameExchangeWindow = TimeSpan.FromMilliseconds(500);
+
+    /// <summary>How long one float lives, measured against MUD2's 2000 ms combat tick rather than
+    /// chosen for its own sake: a float is legible for its whole tick and only leaves partway
+    /// through the next one, so the number the player is reading is never taken away while the
+    /// exchange it describes is still the current one. <c>RailFloatLayer</c> owns the fade's shape
+    /// (<c>FadeStartMs</c>): full for the first second, then out over the remaining two.
+    ///
+    /// <para>Also the expiry this class falls back on: the host retires a slot from the animation's
+    /// completion callback, but a completion that never arrives (a torn-down compositor) must not
+    /// strand a slot forever.</para></summary>
+    public static readonly TimeSpan Lifetime = TimeSpan.FromMilliseconds(3000);
 
     private readonly bool[] _busy = new bool[MaxInFlight];
     private readonly int[] _anchor = new int[MaxInFlight];
-    private readonly int[] _lane = new int[MaxInFlight];
+    private readonly int[] _cluster = new int[MaxInFlight];
     private readonly bool[] _sheddable = new bool[MaxInFlight];
     private readonly DateTime[] _startedUtc = new DateTime[MaxInFlight];
     private readonly int[] _token = new int[MaxInFlight];
@@ -193,43 +262,63 @@ public sealed class RailFloatBudget
 
         var arrivingIsSheddable = IsSheddable(kind);
 
-        // Per-anchor cap first: it is the tighter of the two, and when it bites the eviction has to
-        // come from THIS anchor - freeing a float over a different pane would leave the smear here
-        // and blank the pane that had room.
-        var atAnchor = 0;
+        // Anything at this anchor older than the window belongs to a PREVIOUS exchange. A new one
+        // does not join it, it replaces it - ALL of it, not just its oldest member. Freeing only one
+        // left the rest in the air with their cluster indices, so a new tick's second and third
+        // blows were granted indices stale floats still held and two floats drew on the same pixels;
+        // it also let one anchor hold four floats against a cap of three. A freed slot keeps its
+        // token, so a completion arriving for a float that was not re-let retires a slot that is
+        // already free, and one for a float that WAS re-let finds its token stale. The base-position
+        // slot is remembered so the new exchange's first blow lands in it and the old figure is
+        // replaced where it stood rather than fading out beside the new one.
+        var inExchange = 0;
+        var highestCluster = -1;
+        var reuse = -1;
         for (var i = 0; i < MaxInFlight; i++)
-            if (_busy[i] && _anchor[i] == anchor) atAnchor++;
+        {
+            if (!_busy[i] || _anchor[i] != anchor) continue;
+            if (nowUtc - _startedUtc[i] > SameExchangeWindow)
+            {
+                _busy[i] = false;
+                if (_cluster[i] == 0 || reuse < 0) reuse = i;
+                continue;
+            }
+            inExchange++;
+            if (_cluster[i] > highestCluster) highestCluster = _cluster[i];
+        }
 
         int slot;
-        int lane;
-        if (atAnchor >= MaxPerAnchor)
+        int cluster;
+        if (inExchange >= MaxPerAnchor)
         {
             var victim = PickVictim(arrivingIsSheddable, anchor);
             if (victim < 0)
                 return null;
-            lane = _lane[victim];
             slot = victim;
+            cluster = _cluster[victim];
         }
         else
         {
-            slot = FreeSlot();
+            slot = reuse >= 0 ? reuse : FreeSlot();
             if (slot < 0)
             {
+                // Out of elements altogether. The eviction may come from a different anchor, so this
+                // float still opens its own position there rather than inheriting the victim's.
                 var victim = PickVictim(arrivingIsSheddable, anchor: null);
                 if (victim < 0)
                     return null;
                 slot = victim;
             }
-            lane = FreeLane(anchor, excluding: slot);
+            cluster = highestCluster + 1;
         }
 
         _busy[slot] = true;
         _anchor[slot] = anchor;
-        _lane[slot] = lane;
+        _cluster[slot] = cluster;
         _sheddable[slot] = arrivingIsSheddable;
         _startedUtc[slot] = nowUtc;
         _token[slot] = ++_nextToken;
-        return new RailFloatGrant(slot, lane, _token[slot]);
+        return new RailFloatGrant(slot, cluster, _token[slot]);
     }
 
     /// <summary>Frees a slot once its animation has finished. Ignored when the token is stale - the
@@ -284,21 +373,6 @@ public sealed class RailFloatBudget
         for (var i = 0; i < MaxInFlight; i++)
             if (!_busy[i]) return i;
         return -1;
-    }
-
-    /// <summary>The lowest lane not already taken at this anchor. Lanes stack the float upward so
-    /// two events at one anchor in one tick stay separately readable.</summary>
-    private int FreeLane(int anchor, int excluding)
-    {
-        for (var lane = 0; lane < MaxPerAnchor; lane++)
-        {
-            var taken = false;
-            for (var i = 0; i < MaxInFlight && !taken; i++)
-                taken = i != excluding && _busy[i] && _anchor[i] == anchor && _lane[i] == lane;
-            if (!taken)
-                return lane;
-        }
-        return 0;
     }
 
     /// <summary>

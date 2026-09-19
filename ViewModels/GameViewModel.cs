@@ -28,6 +28,11 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     /// happens to be folded to this session into every profile's shared global default. See
     /// <see cref="PersistCombatRailVisibilityAsync"/>.</summary>
     private readonly Func<bool, Task>? _persistCombatRailVisibilityAsync;
+    /// <summary>Persists ONLY the Combat Rail's stat rows, for the same reason
+    /// <see cref="_persistCombatRailVisibilityAsync"/> is its own delegate: both are one-click
+    /// overflow-menu toggles on a per-profile flag, and neither may travel in the settings dialog's
+    /// whole-block snapshot.</summary>
+    private readonly Func<bool, Task>? _persistCombatStatsAsync;
     private readonly List<string> _history = new();
     private readonly string[] _allFkeys = new string[36];
     private readonly string _profileName;
@@ -551,8 +556,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         OnlineForgetWindow = SidePanel.ForgetWindowMinutes,
         FloatOnline      = _floatOnline,
         FloatCompass     = _floatCompass,
-        ShowCombatRail   = SidePanel.IsCombatPanelVisible,
-        ShowCombatStats  = SidePanel.IsCombatStatsEnabled,
     };
 
     public ICommand SendCommand { get; }
@@ -602,11 +605,13 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
 #endif
 
     public GameViewModel(MuckaConnection conn, Profile profile, Func<ClientSettings, string[], Task>? saveSettingsAsync = null,
-        Func<bool, Task>? persistCombatRailVisibilityAsync = null)
+        Func<bool, Task>? persistCombatRailVisibilityAsync = null,
+        Func<bool, Task>? persistCombatStatsAsync = null)
     {
         _conn = conn;
         _saveSettingsAsync = saveSettingsAsync;
         _persistCombatRailVisibilityAsync = persistCombatRailVisibilityAsync;
+        _persistCombatStatsAsync = persistCombatStatsAsync;
         _profileName = profile.Name;
         _guidedLoginEnabled = profile.GuidedLogin;
         _profileHost = profile.Host;
@@ -821,6 +826,23 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         catch (Exception ex)
         {
             CrashLog.Write("PersistCombatRailVisibility", ex);
+        }
+    }
+
+    /// <summary>Persists the Combat Rail's stat rows (<c>SidePanel.IsCombatStatsEnabled</c>), on the
+    /// same terms as <see cref="PersistCombatRailVisibilityAsync"/> above - no re-apply, no toast,
+    /// failures logged and swallowed.</summary>
+    public async Task PersistCombatStatsAsync()
+    {
+        if (_persistCombatStatsAsync is null)
+            return;
+        try
+        {
+            await _persistCombatStatsAsync(SidePanel.IsCombatStatsEnabled);
+        }
+        catch (Exception ex)
+        {
+            CrashLog.Write("PersistCombatStats", ex);
         }
     }
 

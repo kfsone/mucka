@@ -398,7 +398,7 @@ public partial class GamePage : ContentPage
                 SetPreferredInitialWindowSize();
                 // A persisted "show combat rail" preference (SidePanelViewModel.IsCombatPanelVisible,
                 // restored from the connecting profile in GameViewModel's constructor via
-                // ClientSettings.ShowCombatRail) can already be true here, before this page ever sets
+                // Profile.ShowCombatRail) can already be true here, before this page ever sets
                 // it - so nothing will raise the PropertyChanged that normally drives this resize.
                 // Apply the current state once, directly, so the very first frame already has room
                 // for the rail if it starts shown. This is the one exception to "the window never
@@ -1555,7 +1555,7 @@ public partial class GamePage : ContentPage
                 // rising over a panel that has moved out from under it.
                 CancelCombatFloats();
                 ResizeWindowForCombatPanel(_vm.SidePanel.IsCombatPanelVisible);
-                // Remembered per persona so it comes back on relog - see ClientSettings.ShowCombatRail
+                // Remembered per profile so it comes back on relog - see Profile.ShowCombatRail
                 // and GameViewModel.PersistCombatRailVisibilityAsync. Fire-and-forget, like the other
                 // startup-time I/O in this file (e.g. LoadCombatHistoryAsync in GameViewModel's own
                 // constructor); the method swallows and logs its own failures.
@@ -1809,15 +1809,26 @@ public partial class GamePage : ContentPage
     /// rectangle, which is what keeps a combat event out of MAUI layout entirely. The widest string
     /// any float can carry is a five-character bracket, and this holds it.
     ///
-    /// <para>The width answers to that string and to nothing else. A float centres on the whole tile
-    /// (see RailSlotGeometry.PlayerTileDp), which is wider than this at either panel width, so the box
-    /// cannot overhang whatever it is anchored to.</para></summary>
+    /// <para>The width answers to that string and to nothing else. It still has to fit: the box is
+    /// placed left-edge-first at <c>CombatRailView.OpponentFloatOriginDp</c>, which is clear of the
+    /// name column, and 92 from there stays inside the panel at the narrow width as well as the
+    /// wide one.</para></summary>
     private const double CombatFloatWidthDp = 92.0;
-    private const double CombatFloatHeightDp = 18.0;
+    /// <summary>The box every float is drawn in, sized for the BIGGEST one the emphasis ladder can
+    /// produce (<see cref="RailFloatEmphasis.BaseFontSize"/> plus its four steps). The box is
+    /// asserted natively and does not grow with the text, so a height fitted to the base size would
+    /// clip exactly the numbers worth reading.</summary>
+    private const double CombatFloatHeightDp = 24.0;
 
-    /// <summary>How far a second float at the SAME anchor is lifted, so two blows in one tick do not
-    /// print on top of each other. One line's worth.</summary>
-    private const double CombatFloatLaneStepDp = 15.0;
+
+    /// <summary>How far sideways a clustered float steps, alternating each way. Small: the cluster
+    /// should read as one flurry over one pane, not as numbers walking off it.</summary>
+    private const double CombatFloatZigDp = 11.0;
+
+    /// <summary>How far up each further blow of the same tick sits. Deliberately LESS than
+    /// <see cref="CombatFloatHeightDp"/>, so a cluster overlaps rather than stacking clear - see
+    /// OnCombatFloatRaised.</summary>
+    private const double CombatFloatClusterStepDp = 13.0;
 
     /// <summary>A float's whole life, read from RailFloatBudget's expiry rather than restated, so
     /// the animation and the budget cannot disagree about when a slot is free again.</summary>
@@ -1858,12 +1869,14 @@ public partial class GamePage : ContentPage
                 // (see the brushes above). Setting it here too would leave two writers for one
                 // property, and MAUI's would win on any handler rebuild.
                 //
-                // Font, alignment and box size DO stay on the MAUI side - they are set once at
-                // construction and never touched again, so they cost nothing per event and MAUI's
-                // font resolution is worth having for them.
+                // Font stays on the MAUI side - set once at construction, never touched again, so
+                // it costs nothing per event and MAUI's font resolution is worth having. The BOX
+                // does not: these requests never reach the element (its layout is native - see
+                // OnCombatFloatHandlerChanged), and they are kept only as the single place the two
+                // numbers are written down.
                 //
-                // Fixed box, arranged once at the panel's top-left. Everything after this is
-                // Composition Translation - see the section remarks on why layout is off limits.
+                // Everything after construction is Composition Translation - see the section
+                // remarks on why layout is off limits.
                 WidthRequest = CombatFloatWidthDp,
                 HeightRequest = CombatFloatHeightDp,
                 HorizontalOptions = LayoutOptions.Start,
@@ -1872,12 +1885,28 @@ public partial class GamePage : ContentPage
                 VerticalTextAlignment = TextAlignment.Center,
                 LineBreakMode = LineBreakMode.NoWrap,
                 InputTransparent = true,
-                // Invisible until Composition raises it, asserted on the MAUI element as well as on
-                // the visual (RailFloatLayer.Rest) for the same belt-and-braces reason
-                // CombatFleePill carries Opacity="0" in XAML: the element exists from load, and an
-                // untouched visual sits at full opacity - which would print the previous float's
-                // text permanently over the rail if the animation's rest state were ever missed.
-                Opacity = 0,
+                // Legibility over the rail's own text, which a float crosses on its way up. A
+                // shadow rather than a backing plate: the plate would be a solid shape moving over
+                // the panel, which is a second piece of motion the rail did not ask for, while this
+                // only darkens what is already behind the glyphs.
+                //
+                // Shadow is a property mapper, not layout - which is the distinction that matters
+                // for these four elements, since MAUI's measure/arrange demonstrably does not reach
+                // them (see the native Width/Height asserted in OnCombatFloatHandlerChanged) while
+                // its mappers plainly do: the font and weight below are applied.
+                Shadow = new Shadow
+                {
+                    Brush = Brush.Black,
+                    Offset = new Point(1, 1),
+                    Radius = 3,
+                    Opacity = 0.9f,
+                },
+                // Opacity is deliberately NOT set to 0 here. UIElement.Opacity is a property XAML
+                // owns on the same visual RailFloatLayer animates, and at 0 it wins: measured in
+                // play, every float ran its full animation over an element that stayed at opacity 0
+                // and nothing was ever drawn. The rest state is the animation's own
+                // (RailFloatLayer.Rest asserts the visual's opacity) plus the empty text a retired
+                // slot is left with below, which XAML cannot undo.
             };
             _combatFloatLabels[i] = label;
             var slot = i;
@@ -1942,6 +1971,15 @@ public partial class GamePage : ContentPage
         // it would swallow their clicks for a second and a half at a time.
         fe.IsHitTestVisible = false;
         fe.AllowFocusOnInteraction = false;
+        // The box, asserted natively. The Label's WidthRequest/HeightRequest do not reach this
+        // element - measured in play when the request was 92x18, it was arranged at the natural size
+        // of whatever text it last held (heights of 16.34, widths tracking the string), because these
+        // four are added to the Grid in code rather than declared in XAML. The placement arithmetic
+        // in OnCombatFloatRaised centres a 92dp box on the anchor, so without this the float lands
+        // about half its width to the left of the pane it is reporting on, and the centred text
+        // alignment has nothing to centre within.
+        fe.Width = CombatFloatWidthDp;
+        fe.Height = CombatFloatHeightDp;
 
         // The handle spawning writes through. MAUI's LabelHandler creates a plain TextBlock
         // (decompiled: LabelHandler.CreatePlatformView, and MapText/MapTextColor go straight to
@@ -1952,7 +1990,14 @@ public partial class GamePage : ContentPage
         // the air is cancelled, and the next spawn writes afresh.
         _combatFloatText[slot] = fe as Microsoft.UI.Xaml.Controls.TextBlock;
         if (_combatFloatText[slot] is { } textBlock)
+        {
             textBlock.Foreground = _floatBrushMiss;
+            // Left, to match the single left column every float is placed in. Asserted natively
+            // beside the box above rather than left to the Label's HorizontalTextAlignment, for the
+            // same reason the box is: centred text in a 92dp box would start the number half a box
+            // in from the edge the placement just put it against.
+            textBlock.TextAlignment = Microsoft.UI.Xaml.TextAlignment.Left;
+        }
 
         _combatFloatLayers[slot] = RailFloatLayer.Attach(fe);
     }
@@ -2033,22 +2078,16 @@ public partial class GamePage : ContentPage
         if (_railContentWidthDp <= 0 || _railContentHeightDp <= 0)
             return;
 
-        RailRect anchor;
-        if (floatEvent.IsPlayerAnchored)
-        {
-            anchor = CombatRailView.PlayerTileDp(_railContentWidthDp, _railContentHeightDp, RailShowStats);
-        }
-        else
-        {
-            // Null means the row is in the overflow tail - drawn as a name in a shared line, with no
-            // pane of its own. Nothing to float over.
-            var slotRect = CombatRailView.OpponentSlotDp(
+        // The float's own top-left, not a pane to centre on. Asked of the canvas rather than
+        // computed here: it lands just right of the name AS DRAWN, which is a measurement of a
+        // string in a font, and both of those belong to the renderer.
+        //
+        // Null means there is nowhere honest to put it - the row is in the overflow tail, drawn as a
+        // name in a shared line with no pane of its own, or the roster has already moved on.
+        if (CombatPanelCanvas.FloatOriginDp(
                 _railContentWidthDp, _railContentHeightDp,
-                floatEvent.RosterIndex, floatEvent.LiveCount, RailShowStats);
-            if (slotRect is null)
-                return;
-            anchor = slotRect.Value;
-        }
+                floatEvent.RosterIndex, floatEvent.LiveCount) is not RailRect origin)
+            return;
 
         if (_combatFloatBudget.Admit(floatEvent.Kind, floatEvent.RosterIndex, floatEvent.AtUtc)
             is not RailFloatGrant grant)
@@ -2099,11 +2138,50 @@ public partial class GamePage : ContentPage
         if (!ReferenceEquals(textBlock.Foreground, tone))
             textBlock.Foreground = tone;
 
-        var x = anchor.CenterX - (CombatFloatWidthDp / 2.0);
-        var y = anchor.CenterY - (CombatFloatHeightDp / 2.0) - (grant.Lane * CombatFloatLaneStepDp);
+        // Size and weight by how big the number is - see RailFloatEmphasis for the ladder. Written
+        // here rather than left on the MAUI Label because it changes per float, and because the
+        // Label's own font properties are set once at construction and never touched again.
+        //
+        // Both of these invalidate WinUI's measure, exactly as the Text write above does, and are
+        // bounded by the same budget. Guarded against a same-value write for the same reason.
+        var size = RailFloatEmphasis.FontSizeFor(floatEvent.Magnitude);
+        if (textBlock.FontSize != size)
+            textBlock.FontSize = size;
+        // Every float is already bold; the top of the ladder goes heavier still rather than
+        // arriving at a weight the others are also using.
+        var weight = RailFloatEmphasis.IsHeavy(floatEvent.Magnitude)
+            ? Microsoft.UI.Text.FontWeights.Black
+            : Microsoft.UI.Text.FontWeights.Bold;
+        if (textBlock.FontWeight.Weight != weight.Weight)
+            textBlock.FontWeight = weight;
+
+        // ONE column for every float, whatever its direction and whatever pane it sits on -
+        // CombatRailView.OpponentFloatOriginDp and its player twin return the same x. Splitting the
+        // two directions to opposite edges was tried in play and is worse: the rail is scanned down
+        // its badges, and numbers alternating between the left and right margins cut across that
+        // scan instead of riding it. Which direction a float is remains legible from its colour and
+        // from the pane it rises off, neither of which costs a second sweep of the eye. Do not
+        // re-split them.
+        // Cluster 0 - a new exchange - starts exactly beside the name it belongs to, every time.
+        // Further blows from the SAME tick zig-zag off it: alternating sideways, stepping up by less
+        // than a box height so they deliberately overlap. The overlap is the point. Several numbers
+        // piling over one pane is the sense of being hit by a pack, which is what the rail owes the
+        // player; reading each figure is the encounter table's job, not this one's.
+        var zig = grant.Cluster == 0 ? 0.0
+            : (grant.Cluster % 2 == 1 ? CombatFloatZigDp : -CombatFloatZigDp);
+        var x = origin.Left + zig;
+        var y = origin.Top - (grant.Cluster * CombatFloatClusterStepDp);
 
         if (!layer.Play(x, y, CombatFloatDuration,
-                () => _combatFloatBudget.Retire(grant.PoolSlot, grant.Token)))
+                () =>
+                {
+                    _combatFloatBudget.Retire(grant.PoolSlot, grant.Token);
+                    // The rest state XAML cannot override. The visual's own opacity is asserted by
+                    // RailFloatLayer.Rest, but that property belongs to the XAML framework as much
+                    // as to us; empty text belongs to nobody else, and an empty TextBlock draws
+                    // nothing whatever its opacity turns out to be.
+                    textBlock.Text = string.Empty;
+                }))
         {
             // The compositor behind that element is gone. The slot is useless until its handler is
             // rebuilt, so hand it back now instead of stranding it for the budget's expiry.
@@ -3156,21 +3234,10 @@ public partial class GamePage : ContentPage
             ResizeWindowForCombatPanel(showing: false);
             ResizeWindowForCombatPanel(showing: true);
         }
-        _ = PersistCombatStatsAsync(showStats);
-    }
-
-    private static async Task PersistCombatStatsAsync(bool showStats)
-    {
-        try
-        {
-            await SettingsStore.SetGlobalFlagAsync("showcombatstats", showStats);
-        }
-        catch (Exception ex)
-        {
-            // Same policy as the rail's own visibility write: a missed write costs one relog's worth
-            // of the toggle's memory, never gameplay.
-            CrashLog.Write("PersistCombatStats", ex);
-        }
+        // Remembered per profile, like the rail's own visibility beside it. Fire-and-forget; the
+        // method swallows and logs its own failures, and a missed write costs one relog's worth of
+        // the toggle's memory, never gameplay.
+        _ = _vm.PersistCombatStatsAsync();
     }
 
     /// <summary>
