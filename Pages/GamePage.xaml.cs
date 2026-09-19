@@ -1960,8 +1960,16 @@ public partial class GamePage : ContentPage
         _combatFloatText[slot] = null;
         previous?.Stop();
 
-        if (_combatFloatLabels[slot].Handler?.PlatformView is not Microsoft.UI.Xaml.FrameworkElement fe)
+        // The element animated is the WRAPPER, not the TextBlock inside it. MAUI implements Shadow
+        // on Windows by wrapping the native TextBlock in a WrapperView and hanging the shadow sprite
+        // off the wrapper; animating the inner TextBlock left the shadow behind - measured as four
+        // shadow-shaped numbers parked at the panel's top-left, never moving and never fading, while
+        // the floats themselves flew without one. Composition Opacity and Translation on the wrapper
+        // carry its whole subtree, shadow included, and Rest()'s opacity zero hides both.
+        var handler = _combatFloatLabels[slot].Handler;
+        if (handler?.PlatformView is not Microsoft.UI.Xaml.Controls.TextBlock textBlock)
             return;
+        var fe = handler.ContainerView as Microsoft.UI.Xaml.FrameworkElement ?? textBlock;
 
         // Decoration only, and over a panel that already owns two real hit targets. InputTransparent
         // on a MAUI element was NOT enough to keep the flee pill out of the pointer path in play (a
@@ -1988,16 +1996,13 @@ public partial class GamePage : ContentPage
         // BindableProperty round trip. A rebuilt handler re-runs MAUI's own mappers and blanks the
         // text, which is why this is re-cached and why the layer is Rest() as well: whatever was in
         // the air is cancelled, and the next spawn writes afresh.
-        _combatFloatText[slot] = fe as Microsoft.UI.Xaml.Controls.TextBlock;
-        if (_combatFloatText[slot] is { } textBlock)
-        {
-            textBlock.Foreground = _floatBrushMiss;
-            // Left, to match the single left column every float is placed in. Asserted natively
-            // beside the box above rather than left to the Label's HorizontalTextAlignment, for the
-            // same reason the box is: centred text in a 92dp box would start the number half a box
-            // in from the edge the placement just put it against.
-            textBlock.TextAlignment = Microsoft.UI.Xaml.TextAlignment.Left;
-        }
+        _combatFloatText[slot] = textBlock;
+        textBlock.Foreground = _floatBrushMiss;
+        // Left, to match the single left column every float is placed in. Asserted natively
+        // beside the box above rather than left to the Label's HorizontalTextAlignment, for the
+        // same reason the box is: centred text in a 92dp box would start the number half a box
+        // in from the edge the placement just put it against.
+        textBlock.TextAlignment = Microsoft.UI.Xaml.TextAlignment.Left;
 
         _combatFloatLayers[slot] = RailFloatLayer.Attach(fe);
     }
