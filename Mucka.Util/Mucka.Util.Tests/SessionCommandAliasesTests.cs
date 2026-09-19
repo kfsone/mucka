@@ -210,6 +210,108 @@ public class SessionCommandAliasesTests
         Assert.Equal("k rat0 wi $weap", aliases.Expand("$k rat0 $weap"));
     }
 
+    // Doubling the prefix escapes an interpolation. Expand() alone does not collapse the escape
+    // to a literal character - it leaves a private marker so a later pass (Watchword's $slotname
+    // expansion, in GameViewModel.ExpandOutgoingCommand) cannot mistake the escaped text for a
+    // fresh reference of its own. CollapseEscapes is the step that turns the marker back into
+    // "$"/"^", and GameViewModel calls it once, after every pass has run - these tests do the same
+    // two calls, in the same order, to exercise the escape exactly as the app sends it.
+    [Fact]
+    public void DoubledDollarEscapesTheBuiltIn()
+    {
+        var aliases = CreateAliases();
+
+        Assert.Equal("$VER", SessionCommandAliases.CollapseEscapes(aliases.Expand("$$VER")));
+    }
+
+    [Fact]
+    public void DoubledCaretEscapesAControlAlias()
+    {
+        var aliases = CreateAliases();
+        Define(aliases, "^1=look");
+
+        // Inline, not the leading "^1" GameViewModel.HandleCommand intercepts on its own -
+        // that path is plumbing and is covered by the GameViewModel escape decision, not here.
+        Assert.Equal("say ^1 now",
+            SessionCommandAliases.CollapseEscapes(aliases.Expand("say ^^1 now")));
+    }
+
+    [Fact]
+    public void DoubledDollarEscapesAUserAlias()
+    {
+        var aliases = CreateAliases();
+        Define(aliases, "g=get sword");
+
+        Assert.Equal("$g", SessionCommandAliases.CollapseEscapes(aliases.Expand("$$g")));
+    }
+
+    /// <summary>Odd run: the first pair escapes, and the leftover single "$" is a fresh
+    /// interpolation point - "$$$VER" reads as an escaped "$" followed by an interpolated $VER,
+    /// the way a shell's "$$" or SQL's "''" trained a user to expect, not as a literal "$$VER".</summary>
+    [Fact]
+    public void TripleDollarEscapesOneAndInterpolatesTheRest()
+    {
+        var aliases = CreateAliases();
+
+        Assert.Equal("$Mucka v0.14.0.98",
+            SessionCommandAliases.CollapseEscapes(aliases.Expand("$$$VER")));
+    }
+
+    [Fact]
+    public void DoubledDollarAloneSendsALiteralDollar()
+    {
+        var aliases = CreateAliases();
+
+        Assert.Equal("$", SessionCommandAliases.CollapseEscapes(aliases.Expand("$$")));
+    }
+
+    [Fact]
+    public void DoubledCaretAloneSendsALiteralCaret()
+    {
+        var aliases = CreateAliases();
+
+        Assert.Equal("^", SessionCommandAliases.CollapseEscapes(aliases.Expand("^^")));
+    }
+
+    /// <summary>A token that was never an interpolation in the first place - an undefined name, or
+    /// "^9" outside the 1-3 macro range - is sent unchanged today, and doubling its sigil changes
+    /// nothing about that: there is no real reference underneath to protect.</summary>
+    [Theory]
+    [InlineData("$nosuchalias", "$nosuchalias")]
+    [InlineData("^9", "^9")]
+    public void UndefinedTokensPassThroughUnchanged(string input, string expected)
+        => Assert.Equal(expected, SessionCommandAliases.CollapseEscapes(CreateAliases().Expand(input)));
+
+    /// <summary>Escaping a slot in a definition body happens once, at definition time - by the
+    /// time the alias is invoked there is no "$$" left in the stored body at all, so a real,
+    /// un-escaped slot elsewhere in the same body still fills normally.</summary>
+    [Fact]
+    public void EscapedSlotInABody_SendsLiterallyAndLeavesOtherSlotsFilling()
+    {
+        var aliases = CreateAliases();
+        Define(aliases, "k=say $$1 wi $2");
+
+        Assert.True(aliases.TryGet("k", out var stored));
+        Assert.DoesNotContain("$1", stored); // sanity: no live "$1" survived definition
+
+        Assert.Equal("say $1 wi axe",
+            SessionCommandAliases.CollapseEscapes(aliases.Expand("$k rat0 axe")));
+    }
+
+    /// <summary>The definition echo shows the body as typed - the escape doubled again - so the
+    /// literal slot and the live slot read differently, and the marker byte never reaches the
+    /// terminal.</summary>
+    [Fact]
+    public void DisplayForm_ShowsAStoredEscapeAsTheDoubledSigil()
+    {
+        var aliases = CreateAliases();
+        Define(aliases, "k=say $$1 wi $2 ^^1");
+
+        Assert.True(aliases.TryGet("k", out var stored));
+        Assert.Equal("say $$1 wi $2 ^^1", SessionCommandAliases.DisplayForm(stored));
+        Assert.DoesNotContain((char)1, SessionCommandAliases.DisplayForm(stored));
+    }
+
     private static SessionCommandAliases CreateAliases() => new("0.14.0.98");
 
     private static void Define(SessionCommandAliases aliases, string definition)

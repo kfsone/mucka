@@ -5,8 +5,30 @@ namespace Mucka.Commands;
 /// <summary>Stores client commands whose lifetime is the current gameworld visit.</summary>
 public sealed class SessionCommandAliases
 {
+    /// <summary>
+    /// Doubling the prefix character escapes an interpolation: "$$VER" sends the literal text
+    /// "$VER" rather than the version string, "^^1" sends "^1" rather than running slot 1. The
+    /// "esc" branch is tried first and unconditionally - it does not care what follows, so an
+    /// escaped pair in front of a name nobody defined ("$$nosuchalias") collapses the same way
+    /// an escaped pair in front of a real one does. Reading left to right, an odd run collapses
+    /// pairs and interpolates the leftover single: "$$$VER" is an escaped "$" followed by an
+    /// interpolated "$VER" (the reading a shell's "$$" or SQL's "''" trained a user to expect),
+    /// not a literal "$$VER".
+    ///
+    /// The match is NOT collapsed to a literal character here - it is turned into a private
+    /// marker instead (see <see cref="EscapedDollarMarker"/>/<see cref="EscapedCaretMarker"/>)
+    /// and only <see cref="CollapseEscapes"/> turns the marker back into "$"/"^". This matters
+    /// because outgoing text goes through a SECOND interpolation pass after this one -
+    /// GameViewModel.ExpandOutgoingCommand runs Watchword's $slotname expansion on this class's
+    /// output. If "$$gold" collapsed to "$gold" right here, that second pass would see an
+    /// ordinary "$gold" and expand it as a live watchword slot, defeating the escape. Deferring
+    /// the collapse until after every pass has run is what keeps the escape honest.
+    /// </summary>
+    private const char EscapedDollarMarker = (char)1;
+    private const char EscapedCaretMarker = (char)2;
+
     private static readonly Regex AliasRefRegex = new(
-        @"\$(\^[1-3]|[A-Za-z][A-Za-z0-9_]*|[?<])|(\^[1-3])",
+        @"(?<esc>\$\$|\^\^)|\$(?<name>\^[1-3]|[A-Za-z][A-Za-z0-9_]*|[?<])|(?<bare>\^[1-3])",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
     /// <summary>Argument slots in a definition body - see <see cref="TryExpandPositional"/>. These
@@ -14,7 +36,14 @@ public sealed class SessionCommandAliases
     /// letter, so <c>$1</c> has always passed through that pattern untouched, and keeping it that
     /// way means a slot is inert everywhere except the one place that fills it. In particular
     /// <see cref="TryDefine"/> still stores the body with its slots intact rather than trying to
-    /// resolve them at definition time, when there are no arguments yet.</summary>
+    /// resolve them at definition time, when there are no arguments yet.
+    ///
+    /// "$$1" escapes a slot the same way "$$VER" escapes the built-in - but that happens in
+    /// <see cref="TryDefine"/>, at DEFINITION time, via the escape-aware <see cref="AliasRefRegex"/>
+    /// running over the raw body before this regex ever sees it. By the time an alias is invoked
+    /// there is no "$$" left in the stored body for this regex to find, so it needs no escape
+    /// handling of its own - an escaped slot has already become a literal digit with no leading
+    /// "$", and simply does not match <c>\$([1-9])</c> at all.</summary>
     private static readonly Regex PositionalRegex = new(
         @"\$([1-9])", RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
@@ -62,24 +91,16 @@ public sealed class SessionCommandAliases
 
         foreach (Match match in AliasRefRegex.Matches(command))
         {
+            // An escape match ("$$"/"^^") carries no reference - nothing to validate.
             var reference = ReferenceOf(match);
-            if (IsReservedClientCommand(reference) && reference != "VER")
+            if (reference != null && IsReservedClientCommand(reference) && reference != "VER")
             {
                 error = $"cannot use built-in ${reference} in a command definition";
                 return true;
             }
         }
 
-        command = AliasRefRegex.Replace(command, match =>
-        {
-            var reference = ReferenceOf(match);
-            if (reference == "VER")
-                return _versionExpansion;
-
-            return _commands.TryGetValue(reference, out var expansion)
-                ? expansion
-                : match.Value;
-        });
+        command = ExpandReferences(command);
 
         _commands[name] = command;
         return true;
@@ -105,9 +126,21 @@ public sealed class SessionCommandAliases
         if (TryExpandPositional(text, out var positional))
             return positional;
 
-        return AliasRefRegex.Replace(text, match =>
+        return ExpandReferences(text);
+    }
+
+    /// <summary>Shared by <see cref="TryDefine"/> (which snapshots references into a stored body)
+    /// and <see cref="Expand"/> (which resolves them in outgoing text): replace every reference
+    /// <see cref="AliasRefRegex"/> finds, and turn every escape it finds into the matching
+    /// private marker rather than a literal character - see the regex's own doc comment for why
+    /// the collapse to a literal has to wait until <see cref="CollapseEscapes"/>.</summary>
+    private string ExpandReferences(string text)
+        => AliasRefRegex.Replace(text, match =>
         {
-            var reference = ReferenceOf(match);
+            if (match.Groups["esc"].Success)
+                return (match.Value[0] == '$' ? EscapedDollarMarker : EscapedCaretMarker).ToString();
+
+            var reference = ReferenceOf(match)!;
             if (reference == "VER")
                 return _versionExpansion;
 
@@ -115,7 +148,28 @@ public sealed class SessionCommandAliases
                 ? expansion
                 : match.Value;
         });
-    }
+
+    /// <summary>
+    /// Turns a "$$"/"^^" escape marker left by <see cref="ExpandReferences"/> back into the
+    /// literal "$"/"^" it stands for. Called exactly once, in GameViewModel.ExpandOutgoingCommand,
+    /// after EVERY interpolation pass over the outgoing text has run (this class's, then
+    /// Watchword's $slotname expansion) - see <see cref="AliasRefRegex"/>'s doc comment for why
+    /// collapsing any earlier would let a later pass re-interpret an escaped token.
+    /// </summary>
+    public static string CollapseEscapes(string text)
+        => text.IndexOf(EscapedDollarMarker) < 0 && text.IndexOf(EscapedCaretMarker) < 0
+            ? text
+            : text.Replace(EscapedDollarMarker, '$').Replace(EscapedCaretMarker, '^');
+
+    /// <summary>
+    /// A stored body as the player would type it back: every escape marker shown as the doubled
+    /// sigil it came from, so "say $$1 wi $2" echoes as exactly that - the literal slot and the live
+    /// one stay distinguishable, and the marker byte never reaches the terminal.
+    /// </summary>
+    public static string DisplayForm(string stored)
+        => stored.IndexOf(EscapedDollarMarker) < 0 && stored.IndexOf(EscapedCaretMarker) < 0
+            ? stored
+            : stored.Replace(EscapedDollarMarker.ToString(), "$$").Replace(EscapedCaretMarker.ToString(), "^^");
 
     /// <summary>
     /// The positional form: <c>$k=ql $1,k $1 wi $2</c> then <c>$k rat0 axe</c> sends
@@ -172,9 +226,12 @@ public sealed class SessionCommandAliases
         return true;
     }
 
-    // Group 1 covers "$name"/"$^n" references; group 2 covers bare "^n" control-macro references.
-    private static string ReferenceOf(Match match)
-        => match.Groups[1].Success ? match.Groups[1].Value : match.Groups[2].Value;
+    // "name" covers "$name"/"$^n" references; "bare" covers bare "^n" control-macro references.
+    // Neither is set for an "esc" match ("$$"/"^^") - it is not a reference at all.
+    private static string? ReferenceOf(Match match)
+        => match.Groups["name"].Success ? match.Groups["name"].Value
+         : match.Groups["bare"].Success ? match.Groups["bare"].Value
+         : null;
 
     public void Clear() => _commands.Clear();
 

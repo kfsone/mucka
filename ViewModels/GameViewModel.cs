@@ -1460,15 +1460,27 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
 
     private bool HandleCommand(string text)
     {
+        // "$$"/"^^" - a doubled client sigil escapes it, same as inline in ordinary text (see
+        // SessionCommandAliases.AliasRefRegex's doc comment). A doubled leading sigil is
+        // therefore not a client command at all: fall through (false) to have the line sent as
+        // ordinary game text, and ExpandOutgoingCommand's escape handling
+        // (SessionCommandAliases.Expand marks the pair, CollapseEscapes turns the mark back into
+        // the single literal character once every interpolation pass has had its turn) takes it
+        // from there. This is what makes "^^1=foo" send literally instead of defining slot 1,
+        // and "$$VER" send literally instead of running the $VER built-in.
+        if (text.StartsWith("$$", StringComparison.Ordinal) || text.StartsWith("^^", StringComparison.Ordinal))
+            return false;
+
         // ^1=command / ^2=command / ^3=command (or bare ^1..^3, with optional
         // whitespace around "=") - bind/send the three Ctrl-1..Ctrl-3 control-macro slots.
         // Three, not five: reaching Ctrl-4/Ctrl-5 without looking is a stretch mid-fight, and a
         // macro you have to look down for is a macro that gets you killed.
         // No "$" prefix: this is the one command family typed with a bare "^" lead,
         // matching the physical Ctrl+<digit> shortcut.
-        // "^" is a client-local sigil, same as "$": ANY "^"-prefixed input is owned by
-        // this block and must never fall through to the MUD, even when it fails to parse
-        // (e.g. "^6=foo", "^=foo", bare "^") - report a local error instead.
+        // "^" is a client-local sigil, same as "$": a SINGLE leading "^" is owned by this block
+        // and must never fall through to the MUD, even when it fails to parse (e.g. "^6=foo",
+        // "^=foo", bare "^") - report a local error instead. A DOUBLED leading "^" is the escape
+        // above and has already returned before reaching here.
         if (text.Length > 0 && text[0] == '^')
         {
             if (text.Length >= 2 && text[1] is >= '1' and <= '3' && IsCtrlMacroShape(text))
@@ -1478,7 +1490,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
                     if (ctrlError != null)
                         AddSystemLine($"[command] cannot define {ctrlAliasName}: {ctrlError}", 9);
                     else
-                        AddSystemLine($"[command] {ctrlAliasName} = {ctrlAliasCommand}", 14);
+                        AddSystemLine($"[command] {ctrlAliasName} = {SessionCommandAliases.DisplayForm(ctrlAliasCommand)}", 14);
                 }
                 else if (_sessionAliases.TryGet(text, out var ctrlCommand))
                 {
@@ -1500,7 +1512,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
                 if (error != null)
                     AddSystemLine($"[command] cannot define ${aliasName}: {error}", 9);
                 else
-                    AddSystemLine($"[command] ${aliasName} = {aliasCommand}", 14);
+                    AddSystemLine($"[command] ${aliasName} = {SessionCommandAliases.DisplayForm(aliasCommand)}", 14);
             }
             else if (name == "help")
                 PrintHelp();
@@ -1553,8 +1565,13 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         return i < text.Length && text[i] == '=';
     }
 
+    // Two interpolation passes (session aliases, then watchwords), then one collapse. The
+    // collapse MUST run last, after both passes: SessionCommandAliases.Expand does not resolve
+    // "$$"/"^^" to a literal character itself, only to a private marker, so that this second
+    // pass (Watchword's $slotname expansion) cannot mistake an escaped "$gold" for a live one -
+    // see SessionCommandAliases.AliasRefRegex's doc comment.
     private string ExpandOutgoingCommand(string command)
-        => _watchwords.ExpandSlots(_sessionAliases.Expand(command));
+        => SessionCommandAliases.CollapseEscapes(_watchwords.ExpandSlots(_sessionAliases.Expand(command)));
 
     /// <summary>Send the control-macro bound to Ctrl+&lt;slot&gt; (slot 1-3, see "^1".."^3" definitions).</summary>
     public void SendControlAlias(int slot)
@@ -1636,6 +1653,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         // No Ctrl-digit on a phone keyboard; the slots still run by typing "^1".
         AddSystemLine("  ^1/^2/^3=command  bind a slot; type ^1 to run it", 14);
 #endif
+        AddSystemLine("  $$ / ^^               doubled sigil sends a literal $ or ^ (no interpolation)", 14);
     }
 
     // $fkeys [shift|ctrl] - list the 12 macros on the requested layer, echoing each line into the

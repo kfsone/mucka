@@ -233,6 +233,11 @@ internal sealed class WatchwordStore
     /// Each recognised slot whose queued answer is non-null has its $token replaced
     /// and its queue cleared. Unrecognised tokens or empty slots are left as-is.
     /// Thread-safe - called from the UI thread.
+    ///
+    /// Runs second in GameViewModel.ExpandOutgoingCommand, after SessionCommandAliases.Expand, and
+    /// sees no "$$": Expand has already replaced each escaped pair with a private marker, so an
+    /// escaped "$$gold" reaches this regex without a "$" and is left alone. The marker becomes a
+    /// literal "$" only in SessionCommandAliases.CollapseEscapes, after this method returns.
     /// </summary>
     public string ExpandSlots(string text)
     {
