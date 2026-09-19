@@ -31,9 +31,10 @@ public enum RailFloatKind
 /// moment the event lands, because the roster reorders as a pack fight resolves and a name looked
 /// up later would find a different row.</param>
 /// <param name="LiveCount">How many LIVE opponents that roster covered - RosterPlan.LiveCount,
-/// including any past the roster's own row cap. Needed as well
-/// as the index because the rail surrenders one slot to the overflow row once the opposition outgrows
-/// the visible capacity, so whether a given index has a pane of its own depends on the total.</param>
+/// including any past the roster's own row cap and every opponent an unknown badge stands for, one
+/// slot each. Needed as well as the index because the rail surrenders one slot to the overflow row
+/// once the opposition outgrows the visible capacity, so whether a given index has a pane of its own
+/// depends on the total.</param>
 /// <param name="Magnitude">How big the thing being reported is, for
 /// <see cref="RailFloatEmphasis"/> to size the text from. For an outgoing hit this is the LOW bound
 /// of the bracket MUD2 printed - the floor the game actually committed to - so the emphasis can

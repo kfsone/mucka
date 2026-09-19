@@ -504,6 +504,21 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     /// the answer.</summary>
     public void AttachReachMarks(ReachMarkIndex index) => _reachMarks = index;
 
+    // Both set once at startup; null in unit/design contexts, where no Creature has a known kind and
+    // nothing is Unseen, so the roster builds as it always did.
+    private SomeKindKnowledge? _someKinds;
+    private Func<UnseenState>? _readUnseen;
+
+    /// <summary>Attaches what this install knows about which anonymous word each species gets
+    /// (MudSharp.Combat.SomeKindKnowledge), so a named Creature can be told apart from - or folded
+    /// into - an unknown badge of the other word.</summary>
+    public void AttachSomeKinds(SomeKindKnowledge knowledge) => _someKinds = knowledge;
+
+    /// <summary>Attaches a read of the combat tracker's Unseen state - how many opponents of each
+    /// word are open and whether the player can see - read once per refresh for the roster's unknown
+    /// badges. A delegate rather than the value, because it changes with every line.</summary>
+    public void AttachUnseen(Func<UnseenState> read) => _readUnseen = read;
+
     public void OnInCombatChanged(bool inCombat)
     {
         MainThread.BeginInvokeOnMainThread(() =>
@@ -833,8 +848,8 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             // LiveCount, not rows.Count and not TotalCount: only LIVE opponents get a vertical slot
             // now - the resolved ones are in the top-anchored dead strip and have no pane to float
             // over - and the overflow row is surrendered on that same count, which can exceed the
-            // roster's own row cap. A float placed against either other number would land on a slot
-            // the canvas gave to something else.
+            // roster's own row cap and of which an unknown badge takes several. A float placed
+            // against either other number would land on a slot the canvas gave to something else.
             CombatFloatRaised.Invoke(new RailFloat(
                 kind, text, i, _live.Roster.LiveCount, combatEvent.TimestampUtc, magnitude));
             return;
@@ -978,7 +993,9 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         // bare, once against what is actually in hand - and the second question has no answer until
         // the line above has run.
         var facts = ToParticipantFacts(snapshot.Fights, nowUtc, liveWeapon);
-        var roster = ParticipantRoster.Build(facts);
+        // The Unseen state rides in beside the facts: the badges are derived from what is open NOW,
+        // on every refresh, never accumulated - see ParticipantRoster.Build.
+        var roster = ParticipantRoster.Build(facts, _readUnseen?.Invoke() ?? default);
         // The weapon's own mark: the worst thing the corpus says about this weapon against anything
         // still engaged. Over the FACTS, not the roster rows, so a pack past the row cap still counts.
         var weaponNovelty = CombatNovelty.WeaponRollup(facts);
@@ -1462,7 +1479,10 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
                 // include is damage the player did not deal: NPC-versus-NPC combat is in the corpus,
                 // and a creature being hurt by something else is still a creature being hurt, which is
                 // what the cue claims.
-                TickDamageEmphasis.IsOn(fight.HealthReadUtc, nowUtc, _tickPhase.Anchor));
+                TickDamageEmphasis.IsOn(fight.HealthReadUtc, nowUtc, _tickPhase.Anchor),
+                // Which word this species gets when Unseen, if learned. Null for the anonymous words
+                // themselves (they are not a species) and for anything never fought unseen.
+                _someKinds?.Known(fight.NpcName));
         }
         return facts;
     }

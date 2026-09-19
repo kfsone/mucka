@@ -655,6 +655,8 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         SidePanel.AttachSwingDamage(_conn.SwingDamage);
         SidePanel.AttachStaminaPool(_conn.StaminaPool);
         SidePanel.AttachReachMarks(_conn.ReachMarks);
+        SidePanel.AttachSomeKinds(_conn.SomeKinds);
+        SidePanel.AttachUnseen(() => _conn.Unseen);
         // The combat-tick phase, for the in-combat inventory probe's tick guard (see
         // MudSession.ScheduleInventoryProbeLocked). The panel owns the only lattice estimate in the
         // client; this hands the session a read of it rather than letting a second one grow. Gated

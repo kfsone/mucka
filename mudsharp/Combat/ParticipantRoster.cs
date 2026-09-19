@@ -121,6 +121,9 @@ public readonly record struct ExchangeLine(
 /// timestamp the renderer would have to re-interpret - see that class for the rule, for what "we took
 /// damage" means on a per-badge cue, and for the carry-forward that stops an early frame producing a
 /// 50 ms flash.</param>
+/// <param name="Kind">Which anonymous word this Creature's species gets when Unseen, if this install
+/// has learned it (<see cref="SomeKindKnowledge"/>). Null when unknown. Decides which unknown badge a
+/// named Creature folds into while the player cannot see - see <see cref="ParticipantRoster.Build"/>.</param>
 public readonly record struct ParticipantFact(
     string Name,
     bool IsResolved,
@@ -145,7 +148,8 @@ public readonly record struct ParticipantFact(
     ExchangeLine Dealt = default,
     ExchangeLine Taken = default,
     IReadOnlyList<SwingMark>? Exchange = null,
-    bool TookDamageThisTick = false);
+    bool TookDamageThisTick = false,
+    SomeKind? Kind = null);
 
 /// <summary>
 /// One row of the opposition list as actually drawn. <see cref="IsCurrentTarget"/> marks the ONE live
@@ -199,8 +203,21 @@ public readonly record struct RosterRow(
     // Whether this creature took a blow on the tick being drawn - the ONLY thing that emboldens its
     // name. See Mucka.Core.TickDamageEmphasis for the rule, and ParticipantFact.TookDamageThisTick
     // for why the answer is resolved before it gets here.
-    bool TookDamageThisTick = false)
+    bool TookDamageThisTick = false,
+    // How many opponent slots this row occupies. 1 for a Creature; for an unknown badge, the number
+    // of Unseen opponents it stands for - the operator's rule that the badge's SIZE is the count, so
+    // three unseen attackers read as three slots of trouble. See ParticipantRoster.Build.
+    int SlotSpan = 1,
+    // Set ONLY on an unknown badge: who it stands for, as a list - the named Creatures that folded
+    // into it while the player could not see, then one "???" per Unseen opponent that announced
+    // itself and was never named: "rat3, ???, ???". A string rather than a list so the row keeps
+    // value equality (RosterPlan.Equals relies on it to skip repaints).
+    string? UnseenLabel = null)
 {
+    /// <summary>True for the row that stands for every Unseen opponent of one word - the rail draws
+    /// it as the unknown badge. See <see cref="ParticipantRoster.Build"/>.</summary>
+    public bool IsUnseen => UnseenLabel is not null;
+
     /// <summary>
     /// Age past which a reading is drawn as faded rather than current: three combat ticks. One missed
     /// tick is ordinary, so fading any sooner would have the readout flickering through every normal
@@ -273,6 +290,11 @@ public readonly record struct RosterRow(
 /// </summary>
 public readonly record struct RosterPlan(
     IReadOnlyList<RosterRow> Rows,
+    // Live OPPONENTS, which is also the number of opponent slots the live rows ask for: one per
+    // named Creature (shown, hidden past the row cap, or folded into an unknown badge) and one per
+    // Unseen opponent a badge stands for - so two Unseen sharing one word count as two, and an
+    // unknown badge three deep asks for three slots. The rail's capacity and overflow arithmetic runs
+    // on this number.
     int LiveCount,
     int ResolvedCount,
     int HiddenCount,
@@ -342,16 +364,39 @@ public static class ParticipantRoster
     /// that had room to be drawn.</summary>
     public const int MaxRows = 8;
 
+    /// <summary>What the unknown badge lists for an Unseen opponent nobody has named.</summary>
+    public const string UnknownMark = "???";
+
     /// <summary>
-    /// Live participants first (in their original first-engaged order), then resolved ones, capped at
-    /// <see cref="MaxRows"/> - the same ordering <c>CombatHistoryFormatter.OrderedTargets</c> already
-    /// uses, so a truncated pack fight always keeps whoever is still swinging and drops finished
-    /// fights first. The very first row is marked <see cref="RosterRow.IsCurrentTarget"/> exactly when
-    /// it is live - mirroring <c>CombatHistoryFormatter.PrimaryFight</c>'s own "first still-unresolved
-    /// fight in original order" rule, so the roster's bolded row and the outlook/threat projection can
-    /// never describe two different fights.
+    /// Live participants first (in their original first-engaged order), then the unknown badges, then
+    /// resolved ones, capped at <see cref="MaxRows"/> - the same ordering
+    /// <c>CombatHistoryFormatter.OrderedTargets</c> already uses, so a truncated pack fight always
+    /// keeps whoever is still swinging and drops finished fights first. The very first row is marked
+    /// <see cref="RosterRow.IsCurrentTarget"/> exactly when it is live - mirroring
+    /// <c>CombatHistoryFormatter.PrimaryFight</c>'s own "first still-unresolved fight in original
+    /// order" rule, so the roster's bolded row and the outlook/threat projection can never describe
+    /// two different fights.
+    ///
+    /// <para><b>The unknown badges</b> (the operator's rules). One row per <see cref="SomeKind"/>,
+    /// standing for every opponent of that word the client cannot attribute, and drawn at the TOP of
+    /// the live stack. It exists when Unseen opponents of the word are open
+    /// (<see cref="UnseenState.Count"/>), or when swings have landed on the word's own row. Its
+    /// <see cref="RosterRow.SlotSpan"/> is the count of what it lists, and its
+    /// <see cref="RosterRow.UnseenLabel"/> lists them: one <see cref="UnknownMark"/> per Unseen
+    /// opponent that announced itself, and - while the player cannot see and there is more than one
+    /// candidate for the word - the NAMED Creatures of that word's kind (or of unknown kind), which
+    /// fold into the badge instead of keeping rows of their own: "rat3, ???, ???". Sighted, a named
+    /// Creature is self-evidently not the unknown, so it keeps its row and the badge lists only the
+    /// unnamed. A word's row with no announced opponent and nobody to fold in - an unexplained line -
+    /// is a badge of one unknown. Derived fresh on every build from what is open now, never
+    /// accumulated: the tracker retires an announced opponent when sight returns and a Creature is
+    /// named (CombatEventKind.UnseenNamed), folded names un-fold as sight returns, and the badge
+    /// shrinks by itself. A Creature of unknown kind is a candidate for either word; with both words
+    /// open it folds into the <see cref="SomeKinds.Default"/> word's badge, the one prose would already
+    /// call it by. Badges are never the rows the cap drops - they are the opponents the client cannot
+    /// name, the last thing to hide - so named live rows take the room the badges leave.</para>
     /// </summary>
-    public static RosterPlan Build(IReadOnlyList<ParticipantFact> fights)
+    public static RosterPlan Build(IReadOnlyList<ParticipantFact> fights, UnseenState unseen = default)
     {
         if (fights.Count == 0)
             return RosterPlan.Empty;
@@ -361,32 +406,77 @@ public static class ParticipantRoster
         foreach (var fact in fights)
             (fact.IsResolved ? resolved : live).Add(fact);
 
-        var ordered = new List<ParticipantFact>(fights.Count);
-        ordered.AddRange(live);
-        ordered.AddRange(resolved);
-
-        var shownCount = Math.Min(ordered.Count, MaxRows);
-        var rows = new List<RosterRow>(shownCount);
-        for (var i = 0; i < shownCount; i++)
+        var badges = new List<RosterRow>(2);
+        foreach (var kind in new[] { SomeKinds.Default, SomeKinds.Other(SomeKinds.Default) })
         {
-            var fact = ordered[i];
-            rows.Add(new RosterRow(
-                fact.Name, !fact.IsResolved, IsCurrentTarget: i == 0 && !fact.IsResolved, fact.Outcome,
-                fact.HealthRung, fact.HealthPhrase, fact.HealthAgeSeconds, fact.DamageTakenFrom,
-                fact.NpcWeapon, fact.FightDamage, fact.EverDamage,
-                fact.Vitality, fact.NextBlow, fact.BlowAfter, fact.YourTempo, fact.Reach,
-                fact.Novelty, fact.StaminaRead, fact.StaminaReadAgeSeconds, fact.Value,
-                fact.Dealt, fact.Taken, fact.Exchange, fact.TookDamageThisTick));
+            var word = SomeKinds.Word(kind);
+            var wordAt = live.FindIndex(f => string.Equals(f.Name, word, StringComparison.OrdinalIgnoreCase));
+            var announced = unseen.Count(kind);
+            if (announced == 0 && wordAt < 0)
+                continue;
+
+            var fact = wordAt >= 0 ? live[wordAt] : new ParticipantFact(word, IsResolved: false, FightOutcome.Unresolved);
+            if (wordAt >= 0)
+                live.RemoveAt(wordAt);
+
+            var listed = new List<string>();
+            if (unseen.CannotSee)
+            {
+                var candidates = live.Where(f => !AnonymousOpponent.IsAnonymous(f.Name)
+                                                 && (f.Kind is null || f.Kind == kind)).ToList();
+                if (announced + candidates.Count > 1)
+                {
+                    foreach (var candidate in candidates)
+                    {
+                        listed.Add(candidate.Name);
+                        live.Remove(candidate);
+                    }
+                }
+            }
+            var unnamed = announced;
+            if (unnamed == 0 && listed.Count == 0)
+                unnamed = 1;   // the word's row alone: one opponent nobody can name
+            for (var i = 0; i < unnamed; i++)
+                listed.Add(UnknownMark);
+
+            badges.Add(Row(fact, isLive: true, isCurrentTarget: false) with
+            {
+                SlotSpan = listed.Count,
+                UnseenLabel = string.Join(", ", listed),
+            });
         }
 
-        var hiddenCount = ordered.Count - shownCount;
-        var hiddenLiveCount = 0;
-        for (var i = shownCount; i < ordered.Count; i++)
+        var rows = new List<RosterRow>(Math.Min(fights.Count, MaxRows));
+        var namedRoom = MaxRows - badges.Count;
+        for (var i = 0; i < live.Count && i < namedRoom; i++)
+            rows.Add(Row(live[i], isLive: true, isCurrentTarget: i == 0));
+        // Named live rows the cap left out. Each is one slot's worth and one live opponent.
+        var hiddenLiveCount = Math.Max(0, live.Count - namedRoom);
+        foreach (var badge in badges)
+            rows.Add(rows.Count == 0 ? badge with { IsCurrentTarget = true } : badge);
+        foreach (var fact in resolved)
         {
-            if (!ordered[i].IsResolved)
-                hiddenLiveCount++;
+            if (rows.Count == MaxRows) break;
+            rows.Add(Row(fact, isLive: false, isCurrentTarget: false));
+        }
+        var hiddenCount = live.Count + badges.Count + resolved.Count - rows.Count;
+
+        var liveCount = hiddenLiveCount;
+        foreach (var row in rows)
+        {
+            if (row.IsLive)
+                liveCount += row.SlotSpan;
         }
 
-        return new RosterPlan(rows, live.Count, resolved.Count, hiddenCount, hiddenLiveCount);
+        return new RosterPlan(rows, liveCount, resolved.Count, hiddenCount, hiddenLiveCount);
     }
+
+    private static RosterRow Row(in ParticipantFact fact, bool isLive, bool isCurrentTarget)
+        => new(
+            fact.Name, isLive, isCurrentTarget, fact.Outcome,
+            fact.HealthRung, fact.HealthPhrase, fact.HealthAgeSeconds, fact.DamageTakenFrom,
+            fact.NpcWeapon, fact.FightDamage, fact.EverDamage,
+            fact.Vitality, fact.NextBlow, fact.BlowAfter, fact.YourTempo, fact.Reach,
+            fact.Novelty, fact.StaminaRead, fact.StaminaReadAgeSeconds, fact.Value,
+            fact.Dealt, fact.Taken, fact.Exchange, fact.TookDamageThisTick);
 }

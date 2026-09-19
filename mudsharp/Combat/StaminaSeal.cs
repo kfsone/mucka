@@ -222,7 +222,10 @@ public static class ReachAggregate
         for (var i = 0; i < plan.Rows.Count; i++)
         {
             var row = plan.Rows[i];
-            if (!row.IsLive || !row.Reach.HasEvidence)
+            // An unknown badge carries the reach of the WORD's record, which is several Creatures'
+            // blows pooled, and the rail draws it with its own frame rather than the tempo frame the
+            // accent rides on - so it can neither be the greatest threat nor show it.
+            if (!row.IsLive || row.IsUnseen || !row.Reach.HasEvidence)
                 continue;
             if (best < 0)
             {

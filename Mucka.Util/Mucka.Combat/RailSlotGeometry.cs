@@ -315,6 +315,75 @@ public static class RailSlotGeometry
             m.SlotHeight * k);
     }
 
+    /// <summary>One slot plus one gap: the distance between the same edge of two adjacent slots.</summary>
+    public static double SlotPitch(in RailSlotMetrics m) => m.SlotHeight + m.SlotGap;
+
+    /// <summary>The logical height of a row spanning <paramref name="span"/> slots: the slots plus
+    /// the gaps between them.</summary>
+    public static double RowHeight(in RailSlotMetrics m, int span)
+        => (span * m.SlotHeight) + (Math.Max(0, span - 1) * m.SlotGap);
+
+    /// <summary>
+    /// Where LIVE roster row <paramref name="index"/> lands in the slot stack, in logical units: the
+    /// y of its top edge and how many slots it actually gets. Rows are stacked from the bottom in
+    /// roster order, each taking its own <see cref="MudSharp.Combat.RosterRow.SlotSpan"/>, against a
+    /// budget of <see cref="ShownSlots"/> for <paramref name="liveSlots"/>. Null when the row has no
+    /// pane: it is resolved (the dead strip's, not the stack's), the budget ran out before it, or the
+    /// panel has no height.
+    ///
+    /// <para>An unknown badge that does not fit whole is drawn as tall as the budget leaves - its
+    /// label still says how many it stands for - where a Creature's row either fits or is in the
+    /// overflow tail. The canvas's draw loop and every consumer placing something over a row go
+    /// through this one function, so they cannot disagree about where a row is.</para>
+    /// </summary>
+    public static (double Top, int Span)? RowPlacement(
+        in RailSlotMetrics m, double logicalHeight, IReadOnlyList<MudSharp.Combat.RosterRow> rows,
+        int index, int liveSlots)
+    {
+        if (index < 0 || index >= rows.Count || !rows[index].IsLive || logicalHeight <= 0)
+            return null;
+        var budget = ShownSlots(m, logicalHeight, liveSlots);
+        var offset = 0;
+        for (var i = 0; i < index; i++)
+        {
+            if (!rows[i].IsLive)
+                return null;
+            offset += Math.Max(1, rows[i].SlotSpan);
+        }
+        if (offset >= budget)
+            return null;
+        var span = Math.Max(1, rows[index].SlotSpan);
+        if (offset + span > budget)
+        {
+            if (!rows[index].IsUnseen)
+                return null;
+            span = budget - offset;
+        }
+        var top = SlotTop(m, logicalHeight, offset + span - 1);
+        return top < 0 ? null : (top, span);
+    }
+
+    /// <summary>
+    /// The rectangle live roster row <paramref name="index"/> is drawn in, in dp - the span-aware
+    /// form of <see cref="OpponentSlotDp"/>, which assumes one slot per row. Null under the same
+    /// conditions as <see cref="RowPlacement"/>.
+    /// </summary>
+    public static RailRect? RowRectDp(
+        in RailSlotMetrics m, double panelWidthDp, double panelHeightDp,
+        IReadOnlyList<MudSharp.Combat.RosterRow> rows, int index, int liveSlots)
+    {
+        if (panelWidthDp <= 0 || panelHeightDp <= 0 || m.RailWidth <= 0)
+            return null;
+        var k = panelWidthDp / m.RailWidth;
+        if (RowPlacement(m, panelHeightDp / k, rows, index, liveSlots) is not (double top, int span))
+            return null;
+        return new RailRect(
+            m.Pad * k,
+            top * k,
+            (m.RailWidth - (m.Pad * 2.0)) * k,
+            RowHeight(m, span) * k);
+    }
+
     /// <summary>
     /// The PLAYER'S TILE.
     ///

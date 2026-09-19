@@ -65,6 +65,64 @@ public sealed class RailSlotGeometryTests
         Assert.Equal(376.0 - 20.0, bottom.Value.Width, 3);
     }
 
+    // -- rows that span several slots: the unknown badge -------------------------
+
+    private static RosterRow Creature(string name) => new(name, IsLive: true, IsCurrentTarget: false, FightOutcome.Unresolved);
+    private static RosterRow Badge(int span) => new(AnonymousOpponent.Thing, IsLive: true, IsCurrentTarget: false, FightOutcome.Unresolved)
+        { SlotSpan = span, UnseenLabel = string.Join(", ", Enumerable.Repeat(ParticipantRoster.UnknownMark, span)) };
+    private static RosterRow Resolved(string name) => new(name, IsLive: false, IsCurrentTarget: false, FightOutcome.Kill);
+
+    [Fact]
+    public void RowPlacement_OneSlotPerCreature_MatchesTheUniformSlotArithmetic()
+    {
+        RosterRow[] rows = [Creature("rat0"), Creature("rat1"), Creature("rat2")];
+        for (var i = 0; i < rows.Length; i++)
+        {
+            var placed = RailSlotGeometry.RowRectDp(M, W, 600, rows, i, liveSlots: 3);
+            var uniform = RailSlotGeometry.OpponentSlotDp(M, W, 600, i, liveCount: 3);
+            Assert.Equal(uniform, placed);
+        }
+    }
+
+    [Fact]
+    public void RowPlacement_ABadgeThreeDeep_TakesThreeSlotsAndTheirGaps()
+    {
+        // A Creature at the bottom, then a badge standing for three: the badge's TOP edge is where
+        // slot index 3 (the fourth slot up) would have its top, and it is three slots plus two gaps
+        // tall - so nothing about the stack's arithmetic changes for whatever sits above it.
+        RosterRow[] rows = [Creature("rat0"), Badge(3)];
+        var placed = RailSlotGeometry.RowPlacement(M, 800, rows, 1, liveSlots: 4);
+
+        Assert.NotNull(placed);
+        Assert.Equal(RailSlotGeometry.SlotTop(M, 800, 3), placed!.Value.Top, 3);
+        Assert.Equal(3, placed.Value.Span);
+        Assert.Equal((3 * 76.0) + (2 * 5.0), RailSlotGeometry.RowHeight(M, 3), 3);
+    }
+
+    [Fact]
+    public void RowPlacement_ABadgeTallerThanWhatIsLeft_IsClampedToWhatFits_ACreatureIsNot()
+    {
+        var height = HeightForSlots(2);
+        RosterRow[] badgeOnly = [Badge(3)];
+        var clamped = RailSlotGeometry.RowPlacement(M, height, badgeOnly, 0, liveSlots: 3);
+        Assert.NotNull(clamped);
+        // liveSlots 3 against a capacity of 2 surrenders one slot to the overflow row: one left.
+        Assert.Equal(1, clamped!.Value.Span);
+        Assert.Equal(RailSlotGeometry.SlotTop(M, height, 0), clamped.Value.Top, 3);
+
+        RosterRow[] creatures = [Creature("rat0"), Creature("rat1"), Creature("rat2")];
+        Assert.NotNull(RailSlotGeometry.RowPlacement(M, height, creatures, 0, liveSlots: 3));
+        Assert.Null(RailSlotGeometry.RowPlacement(M, height, creatures, 1, liveSlots: 3));   // the overflow tail
+    }
+
+    [Fact]
+    public void RowPlacement_AResolvedRow_HasNoSlot_ItIsTheDeadStrips()
+    {
+        RosterRow[] rows = [Creature("rat0"), Resolved("rat1")];
+        Assert.Null(RailSlotGeometry.RowPlacement(M, 800, rows, 1, liveSlots: 1));
+        Assert.Null(RailSlotGeometry.RowRectDp(M, W, 800, rows, 1, liveSlots: 1));
+    }
+
     // -- capacity and the overflow row -------------------------------------------
 
     [Fact]

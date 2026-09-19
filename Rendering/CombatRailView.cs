@@ -609,10 +609,12 @@ public sealed class CombatRailView : SKCanvasView
     // across any number of paints, which is the whole point.
     private SKPathEffect? _dashResetRule;   // 1 on, 3 off - the dead strip's reset separator
     private SKPathEffect? _dashOverflow;    // 3 on, 3 off - the overflow row's frame
+    private SKPathEffect? _dashUnseen;      // 3 on, 5 off - the unknown badge's still frame
     private SKPathEffect? _dashHalfLink;    // 1 on, 2 off - the half-link underline (see HalfLinkInk)
 
     private SKPathEffect DashResetRule => _dashResetRule ??= SKPathEffect.CreateDash([1f, 3f], 0f);
     private SKPathEffect DashOverflow  => _dashOverflow  ??= SKPathEffect.CreateDash([3f, 3f], 0f);
+    private SKPathEffect DashUnseen    => _dashUnseen    ??= SKPathEffect.CreateDash([3f, 5f], 0f);
     private SKPathEffect DashHalfLink  => _dashHalfLink  ??= SKPathEffect.CreateDash([1f, 2f], 0f);
 
     /// <summary>Cap on the tempo-dash cache before it is emptied wholesale. The two tempo sites take
@@ -657,6 +659,8 @@ public sealed class CombatRailView : SKCanvasView
         _dashResetRule = null;
         _dashOverflow?.Dispose();
         _dashOverflow = null;
+        _dashUnseen?.Dispose();
+        _dashUnseen = null;
         _dashHalfLink?.Dispose();
         _dashHalfLink = null;
         foreach (var effect in _tempoDashes.Values)
@@ -788,34 +792,39 @@ public sealed class CombatRailView : SKCanvasView
 
         var rows = live.Roster.Rows;
 
-        // LIVE opponents only, bottom-anchored. Capacity, the overflow rule and the per-slot y all come
-        // from RailSlotGeometry rather than being computed here: GamePage's float overlay has to place a
+        // LIVE opponents only, bottom-anchored. Capacity, the overflow rule and every row's y come from
+        // RailSlotGeometry rather than being computed here: GamePage's float overlay has to place a
         // number over the same rectangle this loop draws, and a second copy of the arithmetic would
         // disagree the first time either side's constants moved.
         //
-        // Counted on LIVE participants rather than the published row list. The roster caps its rows at
+        // Counted on LIVE opponents, not on the published row list. The roster caps its rows at
         // ParticipantRoster.MaxRows, so deciding the overflow on rows.Count made the tail invisible at
         // any height that fits the whole capped list - which is every ordinary window - and a
-        // fourteen-rat fight drew eight rats and said nothing about the other six.
-        var liveCount = live.Roster.LiveCount;
-        var overflow = liveCount > RailSlotGeometry.Capacity(SlotMetrics, height);
-        // Clamped against the published rows purely so an indexing slip can never be a crash. Live rows
-        // sort first, so this cannot actually bind.
-        var shown = Math.Min(RailSlotGeometry.ShownSlots(SlotMetrics, height, liveCount), rows.Count);
+        // fourteen-rat fight drew eight rats and said nothing about the other six. One opponent is one
+        // slot: an unknown badge takes as many as the Unseen opponents it stands for
+        // (RosterRow.SlotSpan) and RosterPlan.LiveCount counts them that way.
+        var liveSlots = live.Roster.LiveCount;
+        var overflow = liveSlots > RailSlotGeometry.Capacity(SlotMetrics, height);
 
-        var y = (float)RailSlotGeometry.SlotsBottom(SlotMetrics, height) - SlotHeight;
         var threatRow = GreatestThreatRow(live);
         var hoveredValueTop = float.NaN;
-        for (var i = 0; i < shown; i++)
+        var usedSlots = 0;
+        var shownRows = 0;
+        for (var i = 0; i < rows.Count; i++)
         {
+            if (RailSlotGeometry.RowPlacement(SlotMetrics, height, rows, i, liveSlots)
+                is not (double top, int span))
+                break;
             // Every live row gets its own prediction, not just the current target: the bands come from
             // per-creature brackets and per-creature pool estimates, so each one is about the creature
             // it is drawn on.
-            DrawOpponentSlot(canvas, y, rows[i], i == threatRow);
+            DrawOpponentSlot(canvas, (float)top, rows[i], i == threatRow, span);
             if (i == NpcValueHoverRow && rows[i].Value is not null)
-                hoveredValueTop = y;
-            y -= SlotHeight + SlotGap;
+                hoveredValueTop = (float)top;
+            usedSlots += span;
+            shownRows++;
         }
+        var y = (float)RailSlotGeometry.SlotTop(SlotMetrics, height, usedSlots);
 
         // The overflow row is a tail of the LIVE roster, so it belongs with the live region - directly
         // above the last live slot, not up with the dead. Compact for the same reason the dead strip is:
@@ -823,11 +832,11 @@ public sealed class CombatRailView : SKCanvasView
         if (overflow)
         {
             y += SlotHeight - OverflowRowHeight;
-            DrawOverflowRow(canvas, y, rows, shown, live.Roster);
+            DrawOverflowRow(canvas, y, rows, shownRows, live.Roster);
         }
 
         var stack = RailSlotGeometry.LiveStackHeight(
-            SlotMetrics, shown, overflow ? OverflowRowHeight : 0);
+            SlotMetrics, usedSlots, overflow ? OverflowRowHeight : 0);
         DrawDeadStrip(
             canvas, (float)RailSlotGeometry.DeadStripBottom(SlotMetrics, height, stack),
             live.DeadStripHistory);
@@ -1056,6 +1065,7 @@ public sealed class CombatRailView : SKCanvasView
     {
         FightOutcome.CFled or FightOutcome.CFledFail or FightOutcome.Withdraw
             or FightOutcome.NoMore or FightOutcome.EndOther or FightOutcome.Interrupted
+            or FightOutcome.Named
             => HueOnly(baseColor, TerminalTheme.Palette[3], OutcomeTintMix),
         FightOutcome.UFled or FightOutcome.UFledFail
             => HueOnly(baseColor, TerminalTheme.Palette[9], OutcomeTintMix),
@@ -1158,14 +1168,14 @@ public sealed class CombatRailView : SKCanvasView
         }
         else
         {
-            if (OpponentSlotDp(panelWidthDp, panelHeightDp, rosterIndex, participantCount, _showStats)
+            var rows = _live.Roster.Rows;
+            if (RailSlotGeometry.RowRectDp(
+                    SlotMetrics, panelWidthDp, panelHeightDp, rows, rosterIndex, participantCount)
                 is not RailRect slot)
                 return null;
-            var rows = _live.Roster.Rows;
-            if (rosterIndex >= rows.Count)
-                return null;
             top = (float)slot.Top;
-            name = rows[rosterIndex].Name;
+            // The badge is titled by the word as a subject, and its floats sit beside that title.
+            name = rows[rosterIndex].IsUnseen ? (AnonymousOpponent.Subject(rows[rosterIndex].Name) ?? rows[rosterIndex].Name) : rows[rosterIndex].Name;
             tookDamage = rows[rosterIndex].TookDamageThisTick;
         }
 
@@ -1188,12 +1198,17 @@ public sealed class CombatRailView : SKCanvasView
     /// <summary>One opponent: the ladder bar, the name, and the game's own wound phrase. The phrase is
     /// verbatim from the MUD and set in the terminal's own monospace, because echoing what the player
     /// just read in the scroll is what anchors the panel to it.</summary>
-    private void DrawOpponentSlot(SKCanvas canvas, float y, RosterRow row, bool isGreatestThreat)
+    private void DrawOpponentSlot(SKCanvas canvas, float y, RosterRow row, bool isGreatestThreat, int span = 1)
     {
+        // A Creature's row is one slot. An unknown badge is as many as the Unseen opponents it stands
+        // for (RosterRow.SlotSpan, clamped by RailSlotGeometry.RowPlacement to what fits): the
+        // operator's rule that the badge's SIZE is the count. Its standard tile content sits in the
+        // top slot's worth; the slots below list who it stands for.
+        var height = (float)RailSlotGeometry.RowHeight(SlotMetrics, span);
         _fill.Color = row.IsCurrentTarget
             ? new SKColor(0x61, 0xd6, 0xd6, 0x14)
             : new SKColor(0xff, 0xff, 0xff, 0x08);
-        canvas.DrawRoundRect(Pad, y, Content, SlotHeight, 5f, 5f, _fill);
+        canvas.DrawRoundRect(Pad, y, Content, height, 5f, 5f, _fill);
 
         // The current target is marked inside its own slot - never by being bigger. A slot that
         // changes size moves everything around it.
@@ -1204,24 +1219,35 @@ public sealed class CombatRailView : SKCanvasView
         if (row.IsCurrentTarget)
         {
             _fill.Color = TerminalTheme.Palette[14];
-            canvas.DrawRect(Pad, y, 3f, SlotHeight, _fill);
+            canvas.DrawRect(Pad, y, 3f, height, _fill);
         }
 
         // The engagement's own frame, carrying the same dash-density language as its prediction bands:
         // solid when blows are landing, decaying to a dotted outline when they are not. Its rectangle
-        // is the slot's own, so the frame can never reflow - only the dash changes.
-        DrawTempoFrame(canvas, Pad, y, Content, SlotHeight, row.YourTempo, isGreatestThreat);
+        // is the slot's own, so the frame can never reflow - only the dash changes. The unknown badge
+        // has its own frame instead: the tempo of blows on "something" says nothing about any one of
+        // the Creatures it stands for.
+        if (row.IsUnseen)
+            DrawUnseenFrame(canvas, Pad, y, Content, height);
+        else
+            DrawTempoFrame(canvas, Pad, y, Content, height, row.YourTempo, isGreatestThreat);
 
         // Line 1: the creature and what it is holding.
         //
         // Bold ONLY on a tick this creature took a blow on. Tied to damage, the weight means
         // something that changes: in a pack, which of them is actually being worked on. See
         // Mucka.Combat.TickDamageEmphasis for the rule and the carry-forward behind the flag.
+        //
+        // The badge's title is the word MUD2 used, capitalised as the game prints it as a subject.
         var nameFont = row.TookDamageThisTick ? _nameBoldFont : _nameFont;
+        var title = row.IsUnseen ? (AnonymousOpponent.Subject(row.Name) ?? row.Name) : row.Name;
         DrawMarkedText(
-            canvas, Ellipsize(row.Name, SlotNameWidth, nameFont), TileTextLeft, y + TileNameBaseline,
+            canvas, Ellipsize(title, SlotNameWidth, nameFont), TileTextLeft, y + TileNameBaseline,
             SKTextAlign.Left, nameFont,
             row.IsCurrentTarget ? InkBright : Ink, row.Novelty);
+
+        if (row.IsUnseen)
+            DrawUnseenList(canvas, y, span, row.UnseenLabel!);
 
         // What THIS creature is fighting with, right-aligned opposite its name. A per-participant fact
         // belongs on the participant, not in the player's own weapon column where only one of a pack
@@ -1232,8 +1258,9 @@ public sealed class CombatRailView : SKCanvasView
         // walked in already holding an axe never prints. Writing "unarmed" there turned an unknown into
         // a measured claim on nearly every opponent, which is rule 5 inverted, on the readout that
         // decides whether a fight is survivable. The client cannot tell empty hands from silence, so it
-        // says nothing and the slot simply stays reserved.
-        if (row.NpcWeapon is { Length: > 0 } npcWeapon)
+        // says nothing and the slot simply stays reserved. The badge's name row carries its list
+        // instead - a weapon "something" announced cannot be pinned on any one of them either.
+        if (!row.IsUnseen && row.NpcWeapon is { Length: > 0 } npcWeapon)
         {
             _text.Color = Hostile;
             canvas.DrawText(
@@ -1271,7 +1298,66 @@ public sealed class CombatRailView : SKCanvasView
         if (row.IsCurrentTarget)
         {
             _fill.Color = TerminalTheme.Palette[14];
-            canvas.DrawRect(Pad, y, 3f, SlotHeight, _fill);
+            canvas.DrawRect(Pad, y, 3f, height, _fill);
+        }
+    }
+
+    /// <summary>
+    /// The unknown badge's frame: a still dashed edge in the caution colour, on every platform. The
+    /// operator's marquee - dots stepping along the edge - is not built. When it is, it cannot be
+    /// drawn here, because this canvas never animates (Invariant #1); it would be a Composition
+    /// sibling laid over this rectangle, the way the flee pill's pulse is.
+    /// </summary>
+    private void DrawUnseenFrame(SKCanvas canvas, float x, float y, float width, float height)
+    {
+        var inset = UnseenStroke / 2f;
+        _stroke.Color = Caution;
+        _stroke.StrokeWidth = UnseenStroke;
+        _stroke.StrokeCap = SKStrokeCap.Butt;
+        _stroke.PathEffect = DashUnseen;
+        canvas.DrawRoundRect(x + inset, y + inset, width - UnseenStroke, height - UnseenStroke, 5f, 5f, _stroke);
+        _stroke.PathEffect = null;
+        _stroke.StrokeWidth = 1f;
+    }
+
+    private const float UnseenStroke = 2f;
+
+    /// <summary>
+    /// Who the unknown badge stands for - its <see cref="RosterRow.UnseenLabel"/>, one entry per slot
+    /// of its height. The first entry sits on the name row, right-aligned where a Creature's weapon
+    /// would go; each further entry gets the slot below, on that slot's own name baseline, so a badge
+    /// three deep reads as three rows of "rat3 / ??? / ???" down its left edge under the word. The
+    /// first slot's worth of the badge is otherwise the ordinary tile - the exchange rows and spark are
+    /// the blows that landed on the word - and the entries below are drawn dim: they are the client's
+    /// bookkeeping, not anything the game said.
+    /// </summary>
+    private void DrawUnseenList(SKCanvas canvas, float y, int span, string label)
+    {
+        var entries = label.Split(", ");
+        var pitch = (float)RailSlotGeometry.SlotPitch(SlotMetrics);
+        // More entries than slots: the badge was clamped to what fits (RailSlotGeometry.RowPlacement)
+        // and says so - on the name row when that is the only row it has, else in its last slot.
+        var clipped = entries.Length - span;
+        var clippedMark = "+" + clipped.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        var head = clipped > 0 && span == 1 ? entries[0] + " " + clippedMark : entries[0];
+        _text.Color = Caution;
+        canvas.DrawText(
+            Ellipsize(head, SlotWeaponWidth, _weaponFont),
+            TileTextRight, y + TileNameBaseline, SKTextAlign.Right, _weaponFont, _text);
+        for (var i = 1; i < entries.Length && i < span; i++)
+        {
+            var slotTop = y + (i * pitch);
+            _stroke.Color = Rule;
+            canvas.DrawLine(TileTextLeft, slotTop - (SlotGap / 2f), TileTextRight, slotTop - (SlotGap / 2f), _stroke);
+            _text.Color = entries[i] == ParticipantRoster.UnknownMark ? Caution : InkDim;
+            canvas.DrawText(
+                Ellipsize(entries[i], SlotNameWidth, _nameFont),
+                TileTextLeft, slotTop + TileNameBaseline, SKTextAlign.Left, _nameFont, _text);
+            if (i == span - 1 && clipped > 0)
+            {
+                _text.Color = Caution;
+                canvas.DrawText(clippedMark, TileTextRight, slotTop + TileNameBaseline, SKTextAlign.Right, _nameFont, _text);
+            }
         }
     }
 
@@ -1916,7 +2002,10 @@ public sealed class CombatRailView : SKCanvasView
         canvas.DrawRoundRect(Pad, y, Content, OverflowRowHeight, 5f, 5f, _stroke);
         _stroke.PathEffect = null;
 
-        var hidden = plan.TotalCount - shown;
+        // Every published row without a slot of its own, plus the participants the roster's cap never
+        // published. Rows rather than TotalCount: a badge is one row standing for several Unseen
+        // participants, and Creatures folded into it are participants with no row at all.
+        var hidden = plan.HiddenCount + (rows.Count - shown);
         _text.Color = Hostile;
         canvas.DrawText("+" + hidden.ToString(System.Globalization.CultureInfo.InvariantCulture),
             Pad + 10f, y + 15f, SKTextAlign.Left, _nameFont, _text);
@@ -2760,8 +2849,8 @@ public sealed class CombatRailView : SKCanvasView
 
         for (var i = 0; i < live.Roster.Rows.Count; i++)
         {
-            if (RailSlotGeometry.OpponentSlotDp(
-                    SlotMetrics, panelWidthDp, panelHeightDp, i, live.Roster.LiveCount)
+            if (RailSlotGeometry.RowRectDp(
+                    SlotMetrics, panelWidthDp, panelHeightDp, live.Roster.Rows, i, live.Roster.LiveCount)
                 is not RailRect slot)
                 continue;
 
@@ -3066,6 +3155,9 @@ public sealed class CombatRailView : SKCanvasView
         // strip's second line; which of the four reasons it was is in the clog's EncounterForceEnded
         // event, not on a roster row.
         FightOutcome.Interrupted => "cut short",
+        // The word's row retired because the Creature behind it was named once sight returned - the
+        // fight goes on under that name. Not a kill and not a loss.
+        FightOutcome.Named => "named",
         _ => string.Empty,
     };
 

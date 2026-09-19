@@ -135,6 +135,40 @@ a fact about that participant, so it lives on that participant's row.
 Current target: marked by emphasis **within its own slot** (border, brightness) - never by
 size.
 
+**The unknown badge.** MUD2 replaces a Creature's name with `someone` (person-shaped) or
+`something` (the rest) whenever the player cannot see it - blind, in the dark, or the Creature
+invisible. Blows the client cannot attribute (`CombatTracker.ResolveAnonymous`: attribute only when
+exactly one candidate of the word's class is engaged, and only while the player is known unable to
+see or the Creature was seen to fade) land on the word's own row, and that row is drawn as the
+**unknown badge**: one per word, at the **top of the live stack**, titled by the word.
+
+- **Size is the count.** The badge is `RosterRow.SlotSpan` slots tall - one per Unseen opponent it
+  stands for. Every attacker announces itself under C08.00 ("Someone is about to attack you."), so
+  the count is exact: `CombatTracker.Unseen` counts those starts and an anonymous kill or flee takes
+  one away. Swings never open one.
+- **Who it stands for** is its list (`RosterRow.UnseenLabel`): the named Creatures that folded into
+  it, then one `???` per announced opponent nobody has named. The first entry sits on the title row,
+  right-aligned where a Creature's weapon would go; each further entry has the slot below, on its own
+  name line (`CombatRailView.DrawUnseenList`). A Creature folds in while the player cannot see and
+  there is more than one candidate for the word - blind with a rat engaged and two `Something is
+  about to attack you.` reads `rat3, ???, ???`, three slots tall. Sighted, a named Creature is
+  self-evidently not the unknown and keeps its own row. A Creature of unknown kind is a candidate for
+  either word; with both open it folds into the `SomeKinds.Default` word's badge.
+- **Derived every refresh from what is open now** (`ParticipantRoster.Build`), never accumulated.
+  When sight returns, a Creature joining by name is the opponent that announced itself blind
+  (`CombatEventKind.UnseenNamed` retires the word's row once its last one is named); folded names
+  un-fold on their own; an opponent that announced itself while the player could see is invisible
+  itself and stays a `???` until it is killed or the encounter ends.
+- **Frame**: a still dashed edge in the caution colour on every platform (`CombatRailView.DrawUnseenFrame`).
+  The marquee - dots stepping along the edge - is not built. It will not be drawn by the canvas
+  (rule 3, Invariant #1); it will be a Composition sibling on Windows.
+- **Never the row the cap drops.** Named live rows take the room the badges leave
+  (`ParticipantRoster.MaxRows` less the badges), so an over-tall pack hides its eighth named Creature
+  before it hides the unknowns. On a panel too short for the badge's full height it is drawn as tall
+  as fits and its list says `+N` (`RailSlotGeometry.RowPlacement`).
+- It is the exception to "one slot per opponent" and to rule 3: the badge's height changes as
+  opponents announce themselves and die, because that change IS the information.
+
 ## 5. The player's own tile
 
 Built like an opponent's and read the same way: the persona's name, the weapon lines, then the
