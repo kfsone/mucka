@@ -1,5 +1,11 @@
 # Captured MUD2 wire frames. A .c1 file holds the server's own bytes - about a third of them are
 # C1 codes above 0x7F - so it is the one thing in this repo that is NOT ASCII, and git must not
 # touch it. core.autocrlf is true here, and an end-of-line conversion applied to captured evidence
-# would silently rewrite the frames these fixtures exist to pin.
-*.c1 -text
+# would silently rewrite the frames these fixtures exist to pin. `binary` is -text -diff -merge:
+# no conversion, no textual diff, and never an automatic merge of two captures.
+#
+# The operator's own play sessions are never committed. A test that needs real bytes commits a
+# REDACTED cut, declared by name in its test project: server->client frames only (no tx records),
+# only the frames under test, who-list and other frames carrying player names dropped, nothing
+# identifying. It never skips when the file is absent.
+*.c1 binary

@@ -326,16 +326,33 @@ public class CombatTrackerTests
         // Exact real-capture scenario: the vampire cast blindness mid-fight, then put the player
         // to sleep, then landed the killing blow while blind - MUD2 anonymizes the killer to
         // "someone" in narrative mode whenever the player is blind. With exactly one active
-        // participant, best-effort resolve "someone" back to that NPC rather than losing
-        // attribution entirely.
+        // participant AND the player known to be blind, resolve "someone" back to that NPC rather
+        // than losing attribution entirely. The blindness has to be reported: a line alone says
+        // nothing about why the name is missing (see the sibling below).
         var (t, inCombat, events) = NewTracker();
         t.Observe(Line("The vampire is looking at you hatefully."), DateTime.UtcNow);
+        t.NoteCannotSee(true);
         t.Observe(Line("You have been killed by someone."), DateTime.UtcNow);
 
         Assert.False(t.InCombat);
         Assert.Equal([true, false], inCombat);
         Assert.Equal(CombatEventKind.KilledByNpc, events.Last().Kind);
         Assert.Equal("vampire", events.Last().NpcName);
+    }
+
+    [Fact]
+    public void NarrativeDeath_AnonymizedWhileSighted_IsSomeoneElse()
+    {
+        // The same two lines with the player NOT blind. Nothing has faded and the player can see, so
+        // "someone" is a participant the game never named - an unseen attacker - and crediting the
+        // sole engaged Creature with it is the misattribution that put an invisible player's blows on
+        // zombie5 in run 49. The kill stays anonymous.
+        var (t, _, events) = NewTracker();
+        t.Observe(Line("The vampire is looking at you hatefully."), DateTime.UtcNow);
+        t.Observe(Line("You have been killed by someone."), DateTime.UtcNow);
+
+        Assert.Equal(CombatEventKind.KilledByNpc, events.Last().Kind);
+        Assert.Equal("someone", events.Last().NpcName);
     }
 
     [Fact]

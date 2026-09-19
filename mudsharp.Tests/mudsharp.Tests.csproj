@@ -36,6 +36,10 @@
          file for WireLogTests. -->
     <None Include="Fixtures\Data\wyvern-poison-death.c1" Link="Fixtures\Data\wyvern-poison-death.c1"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Fixtures\Data\invisible-player-joins.c1" Link="Fixtures\Data\invisible-player-joins.c1"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Fixtures\Data\blind-vs-water-snake.c1" Link="Fixtures\Data\blind-vs-water-snake.c1"
+          CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

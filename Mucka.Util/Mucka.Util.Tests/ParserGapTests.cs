@@ -976,4 +976,152 @@ public sealed class ParserGapTests
         var forced = Assert.Single(seen, e => e.Kind == CombatEventKind.EncounterForceEnded);
         Assert.Equal("(forced end: room changed)", forced.RawText);
     }
+
+    // -- the two anonymous words, and what decides who they mean ---------------------------------
+    //
+    // Every wording below is verbatim from the wire. "someone" is a person-shaped Creature the
+    // player cannot see; "something" is an animal. The word is chosen by the Creature, not by the
+    // cause - the cause is what ResolveAnonymous has to work out, and the only two are a fade code
+    // (04.00.05, handled elsewhere in this file) and the player's own blindness.
+
+    [Fact]
+    public void BlindPlayer_SoleAnimalOpponent_SomethingIsThatAnimal()
+    {
+        var tracker = new CombatTracker();
+        var seen = new List<CombatEvent>();
+        tracker.EventOccurred += seen.Add;
+
+        tracker.Observe(Line("You attack the water-snake1."), T0);
+        tracker.NoteCannotSee(true);
+        tracker.Observe(Line("Something hits you (116/120)."), T0.AddSeconds(2));
+        tracker.Observe(Line("You miss something."), T0.AddSeconds(2));
+
+        // Both lines used to match nothing at all: the anonymous alternatives accepted only
+        // "someone", so a blind fight against an animal produced no swing events.
+        var hit = Assert.Single(seen, e => e.Kind == CombatEventKind.HitByNpc);
+        Assert.Equal("water-snake1", hit.NpcName);
+        Assert.Equal(116, hit.RangeLow);
+        var miss = Assert.Single(seen, e => e.Kind == CombatEventKind.Miss);
+        Assert.Equal("water-snake1", miss.NpcName);
+    }
+
+    [Fact]
+    public void SightedPlayer_SoleOpponent_SomeoneIsSomeoneElse()
+    {
+        var tracker = new CombatTracker();
+        var seen = new List<CombatEvent>();
+        tracker.EventOccurred += seen.Add;
+
+        tracker.Observe(Line("You attack the zombie5."), T0);
+        tracker.Observe(Line("The zombie5 hits you (106/120)."), T0.AddSeconds(2));
+        tracker.Observe(Line("Someone hits you (103/120)."), T0.AddSeconds(4));
+
+        // Not blind, nothing faded: the only honest reading of "Someone" is a participant the game
+        // has not named. Handing the blow to the zombie because it was the only thing engaged is the
+        // rule that credited an invisible player's whole attack to zombie5 in run 49.
+        var hits = seen.Where(e => e.Kind == CombatEventKind.HitByNpc).ToList();
+        Assert.Equal(2, hits.Count);
+        Assert.Equal("zombie5", hits[0].NpcName);
+        Assert.Equal("someone", hits[1].NpcName);
+        Assert.True(tracker.InCombat);
+    }
+
+    [Fact]
+    public void BlindPlayer_SeveralOpponents_SomethingStaysSomething()
+    {
+        var tracker = new CombatTracker();
+        var seen = new List<CombatEvent>();
+        tracker.EventOccurred += seen.Add;
+
+        tracker.Observe(Line("You attack the rat0."), T0);
+        tracker.Observe(Line("The rat1 is looking at you hatefully."), T0);
+        tracker.NoteCannotSee(true);
+        tracker.Observe(Line("Something hits you (67/120)."), T0.AddSeconds(2));
+
+        // Two engaged and both unnamed: the line says nothing about which, and the word is the
+        // truthful name. It is "something", the word the game chose - never collapsed to "someone".
+        var hit = Assert.Single(seen, e => e.Kind == CombatEventKind.HitByNpc);
+        Assert.Equal("something", hit.NpcName);
+    }
+
+    [Fact]
+    public void YouHitSomething_IsABlow_NotAWeaponEquip()
+    {
+        var tracker = new CombatTracker();
+        var seen = new List<CombatEvent>();
+        tracker.EventOccurred += seen.Add;
+
+        tracker.Observe(Line("You attack the fox."), T0);
+        tracker.NoteCannotSee(true);
+        tracker.Observe(Line("You hit something (5-9)."), T0.AddSeconds(2));
+        // The one line in the corpus where "something" is a WEAPON, not a Creature. It must still
+        // yield an unknown weapon, and the blow above must not have been mistaken for it.
+        tracker.Observe(Line("Something has started to use something to fight!"), T0.AddSeconds(3));
+
+        var hit = Assert.Single(seen, e => e.Kind == CombatEventKind.Hit);
+        Assert.Equal("fox", hit.NpcName);
+        Assert.Equal(5, hit.RangeLow);
+        Assert.Equal(9, hit.RangeHigh);
+        var equip = Assert.Single(seen, e => e.Kind == CombatEventKind.NpcWeaponEquip);
+        Assert.Null(equip.Weapon);
+    }
+
+    /// <summary>
+    /// The player's own `invis` spell on a Creature. Verbatim: "Your spell worked!" then "The
+    /// zombie9 has become invisible!" - and that second line arrives under C1 11.00 (the caster's
+    /// spell-result code), NOT the 04.00.05 Creature-fade code the tracker keys on, so it reaches
+    /// the tracker as plain text with no kind. The wording alone has to mark the Creature faded;
+    /// before it did, the next line was "You miss someone." with nothing faded, and the kill at the
+    /// end could only land on the zombie by the old sole-active accident.
+    /// </summary>
+    [Fact]
+    public void PlayerCastInvisibility_MarksTheCreatureFaded_ByWordingAlone()
+    {
+        var tracker = new CombatTracker();
+        var seen = new List<CombatEvent>();
+        tracker.EventOccurred += seen.Add;
+
+        tracker.Observe(Line("You attack the zombie9."), T0);
+        tracker.Observe(Line("Your spell worked!"), T0.AddSeconds(20));
+        tracker.Observe(Line("The zombie9 has become invisible!"), T0.AddSeconds(20));   // no LineKind
+        tracker.Observe(Line("You miss someone."), T0.AddSeconds(26));
+        tracker.Observe(Line("Someone misses you."), T0.AddSeconds(26));
+        tracker.Observe(Line("You hit someone (5-9)."), T0.AddSeconds(40));
+        tracker.Observe(Line("You have killed someone."), T0.AddSeconds(54));
+
+        var faded = Assert.Single(seen, e => e.Kind == CombatEventKind.NpcTurnedInvisible);
+        Assert.Equal("zombie9", faded.NpcName);
+        // Every anonymous line after it is the zombie's - by the fade, not by any sight gate.
+        Assert.All(seen.Where(e => e.RawText is { } t && t.Contains("omeone")),
+            e => Assert.Equal("zombie9", e.NpcName));
+        var kill = Assert.Single(seen, e => e.Kind == CombatEventKind.Kill);
+        Assert.Equal("zombie9", kill.NpcName);
+        Assert.False(tracker.InCombat);
+        Assert.DoesNotContain(seen, e => e.NpcName == AnonymousOpponent.Person);
+    }
+
+    /// <summary>
+    /// The same fade path for a Creature MUD2 calls "something". The fade itself rides the
+    /// 04.00.05 code (wording-agnostic by design); the swing lines are verbatim from blind fights
+    /// against animals. Pins that nothing on this path is spelled for one word only - the faded
+    /// Creature owns its anonymous lines whichever word the game chose for it.
+    /// </summary>
+    [Fact]
+    public void FadedAnimal_OwnsItsSomethingLines_SameAsAPersonOwnsSomeone()
+    {
+        var tracker = new CombatTracker();
+        var seen = new List<CombatEvent>();
+        tracker.EventOccurred += seen.Add;
+
+        tracker.Observe(Line("You attack the water-snake1."), T0);
+        tracker.Observe(InvisibleLine("The water-snake1 fades from view."), T0.AddSeconds(2));
+        tracker.Observe(Line("Something hits you (116/120)."), T0.AddSeconds(4));
+        tracker.Observe(Line("You miss something."), T0.AddSeconds(4));
+        tracker.Observe(Line("Something misses you."), T0.AddSeconds(6));
+
+        Assert.Equal("water-snake1", Assert.Single(seen, e => e.Kind == CombatEventKind.NpcTurnedInvisible).NpcName);
+        Assert.All(seen.Where(e => e.RawText is { } t && t.Contains("omething")),
+            e => Assert.Equal("water-snake1", e.NpcName));
+        Assert.DoesNotContain(seen, e => AnonymousOpponent.IsAnonymous(e.NpcName));
+    }
 }

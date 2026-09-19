@@ -70,7 +70,7 @@ public sealed class MudSession : IDisposable
     // earliest signal a FEX is genuinely on the way); if it elapses unanswered, fire the same
     // explicit FEX probe used at game-mode entry. Guarded by _fesLock like the other one-shot
     // timers in this file.
-    private Timer? _roomFexProbeTimer;
+    private IOneShotTimer? _roomFexProbeTimer;
 
     // -- In-combat inventory probe -----------------------------------------------
     // A drop or a take during a fight changes the two numbers a fight is decided by - dexterity is
@@ -240,6 +240,13 @@ public sealed class MudSession : IDisposable
     // no relation to the many-hour session it captures and would otherwise stamp every event with
     // whatever instant the test happened to run at.
     internal Func<DateTime> CombatClock { get; set; } = () => DateTime.UtcNow;
+
+    // Testability seam only: production code never overrides this, so the room-entry recovery probe
+    // always runs on a real System.Threading.Timer. RoomEntryFexProbeTests substitutes a timer with a
+    // virtual clock it advances by hand, so the probe's deadline arithmetic is asserted rather than
+    // slept against. Invoked once per session, under _fesLock, on the first room entry; the instance
+    // is reused from then on, so a factory set after that point is silently never called.
+    internal Func<Action, IOneShotTimer> OneShotTimerFactory { get; set; } = callback => new ThreadingOneShotTimer(callback);
 
     /// <summary>
     /// Milliseconds from now to the next MUD2 combat-tick boundary, or null while the phase is
@@ -642,6 +649,17 @@ public sealed class MudSession : IDisposable
         _parser.FrameClosed       += () => FrameClosed?.Invoke();
         _parser.PresenceNameSeen  += OnPresenceName;
         _parser.StatusEffectChanged += _effects.Apply;
+        // The coded blind line, same frame it lands: the combat tracker's anonymous-opponent rule
+        // turns on whether the PLAYER can see, and the FES flag below is up to a heartbeat late. Only
+        // the start is coded into a change today (the end returns null from the decoder); sight
+        // returning is picked up by the FES flag in MergeStats, which is the safe direction to be late
+        // in - a sighted player is being sent named lines again, so nothing anonymous arrives to be
+        // misresolved in the gap.
+        _parser.StatusEffectChanged += change =>
+        {
+            if (change.Kind == StatusEffectKind.Blind && change.Transition == EffectTransition.Started)
+                _combat.NoteCannotSee(true);
+        };
         _effects.Changed += state => StatusEffectsChanged?.Invoke(state);
         _combat.InCombatChanged += v =>
         {
@@ -780,6 +798,16 @@ public sealed class MudSession : IDisposable
             // projection relies on this to only re-anchor on genuine readings.
             HasFesStats = partial.HasFesStats
         };
+        // The FES flag is authoritative for the combat tracker's blind gate in both directions, and
+        // the only source at all on a relog into an already-blind persona. Asserted as a LEVEL on
+        // every genuine reply, never as an edge on this snapshot: the coded <11.00> line sets the
+        // tracker blind without writing IsBlind here, so a blind episode shorter than one heartbeat
+        // (a backfire and an "unblind me" is about 2 s against a 10 s default) never shows FES a Y,
+        // an edge test sees no transition, and the tracker would stay blind for the rest of the
+        // session - reinstating the very misattribution the gate exists to prevent. A repeat of the
+        // current value is a no-op in the tracker, so the level costs nothing.
+        if (partial.HasFesStats)
+            _combat.NoteCannotSee(_currentStats.IsBlind);
         // Fold the reset value into the projection. Called outside _fesLock (ClearStale above took and
         // released it) so the engine->_fesLock order holds when Observe fires a burst probe.
         _resetClock.Observe(_currentStats.TimeToReset, partial.HasFesStats, replyMono);
@@ -1130,6 +1158,12 @@ public sealed class MudSession : IDisposable
     private void OnParticipantJoined(string npc)
     {
         if (string.IsNullOrWhiteSpace(npc))
+            return;
+        // An opponent the game would not name gets no value probe: "value someone" is answered with
+        // the PLAYER's own value ("Your value is 225 points."), which CreatureValueReply does not
+        // match, so it cost two junk lines on the screen and a game turn spent mid-fight - three
+        // times in one run - for nothing the client could use.
+        if (AnonymousOpponent.IsAnonymous(npc))
             return;
         lock (_fesLock)
         {
@@ -1549,8 +1583,8 @@ public sealed class MudSession : IDisposable
         if (_setupWindowActive) return;
         lock (_fesLock)
         {
-            _roomFexProbeTimer ??= new Timer(_ => OnRoomFexProbeDeadline(), null, Timeout.Infinite, Timeout.Infinite);
-            _roomFexProbeTimer.Change(_options.RoomEntryFexProbeDelay, Timeout.InfiniteTimeSpan);
+            _roomFexProbeTimer ??= OneShotTimerFactory(OnRoomFexProbeDeadline);
+            _roomFexProbeTimer.Change(_options.RoomEntryFexProbeDelay);
         }
     }
 
@@ -1598,7 +1632,7 @@ public sealed class MudSession : IDisposable
     private void CancelRoomFexProbe()
     {
         lock (_fesLock)
-            _roomFexProbeTimer?.Change(Timeout.Infinite, Timeout.Infinite);
+            _roomFexProbeTimer?.Stop();
     }
 
     /// <summary>
@@ -1620,7 +1654,7 @@ public sealed class MudSession : IDisposable
 
     private void StopRoomFexProbeLocked()
     {
-        _roomFexProbeTimer?.Change(Timeout.Infinite, Timeout.Infinite);
+        _roomFexProbeTimer?.Stop();
     }
 
     /// <summary>

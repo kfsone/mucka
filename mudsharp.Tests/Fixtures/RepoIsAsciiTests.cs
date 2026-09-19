@@ -19,7 +19,7 @@ public class RepoIsAsciiTests
 
     /// <summary>NOT a text extension, deliberately: a <c>.c1</c> file holds captured MUD2 frames, and
     /// about a third of their bytes are C1 codes above 0x7F. It is the one shape in this repo that is
-    /// allowed to be non-ASCII, which is why it has an extension of its own, a <c>-text</c> rule in
+    /// allowed to be non-ASCII, which is why it has an extension of its own, a <c>binary</c> rule in
     /// .gitattributes and an override in .editorconfig.</summary>
     private const string CaptureExtension = ".c1";
 

@@ -23,6 +23,12 @@ public static class NpcGroups
     {
         if (string.IsNullOrWhiteSpace(name))
             return string.Empty;
+        // An opponent the game would not name is not a species. Pluralising the word made
+        // "someones" and "somethings" - buckets that mixed players, zombies, snakes and rats and
+        // that every per-species index would then have learned from. The word itself is the group,
+        // so a reader can recognise it with AnonymousOpponent.IsAnonymous and keep it out.
+        if (AnonymousOpponent.Canonical(name.Trim()) is { } anonymous)
+            return anonymous;
 
         // Strip the instance number ("rat0" -> "rat"), then take the last whitespace/hyphen
         // separated token, so "giant cave bat" groups as "bats" rather than "giant cave bats".

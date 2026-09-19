@@ -87,12 +87,20 @@ public sealed class CombatTracker
     /// SUBJECT ("The man ..." / "Someone ..."). Every combat line that names a creature is built
     /// from one of these two, so they are written once here rather than eleven times below.
     ///
-    /// <para><b>"someone" is MUD2's name for a creature the player cannot identify</b>, and it is
-    /// not an occasional curiosity - it replaces the name in EVERY sentence for as long as the
-    /// condition lasts. Two causes are confirmed, and they are different things: the CREATURE
-    /// turned invisible (C1 04.00.05, "The man fades from view."), in which case only that one goes
-    /// anonymous and anything else in the room is still named; or the PLAYER was blinded, in which
-    /// case everything is. Both are on the wire in the same session.</para>
+    /// <para><b>"someone" and "something" are MUD2's names for a Creature the player cannot
+    /// identify</b>, and neither is an occasional curiosity - the word replaces the name in EVERY
+    /// sentence for as long as the condition lasts. Two causes are confirmed, and they are different
+    /// things: the CREATURE turned invisible (C1 04.00.05, "The man fades from view."), in which case
+    /// only that one goes anonymous and anything else in the room is still named; or the PLAYER was
+    /// blinded, in which case everything is. Both are on the wire in the same session.</para>
+    ///
+    /// <para><b>The word is chosen by the Creature, not by the cause.</b> The man, the thief and the
+    /// run-49 attacker are all "someone"; a water-snake, a fox, an eagle and a rat pack fought blind
+    /// are all "something" - across every coded C08 line in the corpus, with no counter-example. It
+    /// coincides with the pronoun the game already uses for each ("You can fight him no longer." /
+    /// "You can fight it no longer."). Both alternatives are accepted below and the matched word is
+    /// carried through <see cref="ResolveAnonymous"/>, because a blind fight against an animal used to
+    /// produce ZERO swing events: "Something hits you (116/120)." matched nothing at all.</para>
     ///
     /// <para>What is NOT different is the protocol. An anonymous line carries the same C08 sub-code
     /// as its named counterpart, byte for byte: <c>[A3][9B]</c> "You attack someone.",
@@ -105,8 +113,10 @@ public sealed class CombatTracker
     /// <para>The <c>anon</c> group exists to be tested for, never read: see
     /// <see cref="ResolveAnonymous"/> for what the name becomes.</para>
     /// </summary>
-    private const string NpcObject  = @"(?:the (?<npc>.+?)|(?<anon>someone))";
-    private const string NpcSubject = @"(?:The (?<npc>.+?)|(?<anon>Someone))";
+    private const string NpcObject  =
+        @"(?:the (?<npc>.+?)|(?<anon>" + AnonymousOpponent.Person + "|" + AnonymousOpponent.Thing + "))";
+    private const string NpcSubject =
+        @"(?:The (?<npc>.+?)|(?<anon>" + AnonymousOpponent.PersonAsSubject + "|" + AnonymousOpponent.ThingAsSubject + "))";
 
     // NPC-initiated aggro lines never name a weapon and use one of a handful of verb phrases
     // observed in the research capture. Best-effort: MUD2 may use aggro phrasing not yet seen.
@@ -184,7 +194,7 @@ public sealed class CombatTracker
     // cast a blindness spell mid-fight). See NpcKilledYouNarrative handling in Observe below for
     // how the anonymous case is resolved back to a real NPC name when possible.
     private static readonly Regex NpcKilledYouNarrative = new(
-        @"^You have been killed by (?:the (?<npc>.+?)|(?<anon>someone))\.$", RegexOptions.Compiled);
+        $@"^You have been killed by {NpcObject}\.$", RegexOptions.Compiled);
     private static readonly Regex MutualWithdraw = new(
         $@"^{NpcSubject} withdraws from your fight, and so do you\.$", RegexOptions.Compiled);
 
@@ -322,13 +332,22 @@ public sealed class CombatTracker
         $@"^{NpcSubject} has started to use (?:the (?<weapon>.+?)|something) to fight!$", RegexOptions.Compiled);
 
     /// <summary>
-    /// "The man fades from view." - the creature turned invisible. Under C1 code 04.00.05, which is
-    /// what actually detects it (<see cref="LineKind.CreatureInvisible"/>); this pattern is only
-    /// here to read the name out of the sentence, and the code carries the line when the wording is
-    /// one we do not know.
+    /// The Creature turned invisible, in either of the two wordings on the wire - and they arrive
+    /// under DIFFERENT codes, which is why this pattern is load-bearing for one of them.
+    ///
+    /// <para>"The man fades from view." - the Creature went invisible by itself. Under C1 04.00.05,
+    /// which is what detects it (<see cref="LineKind.CreatureInvisible"/>); the pattern only reads the
+    /// name out, and the code carries the line when the wording is one we do not know.</para>
+    ///
+    /// <para>"The zombie9 has become invisible!" - the PLAYER made it invisible (`invis z9` ->
+    /// "Your spell worked!" -> this line). Under C1 11.00, the caster's spell-result code, NOT
+    /// 04.00.05: two occurrences in the corpus, both the player's casts, neither carrying the
+    /// Creature code. Nothing tags that line, so the wording alone is what detects it here. Before it
+    /// was accepted, the Creature simply became "someone" on the next line with nothing faded, and
+    /// its kill ("You have killed someone.") could only be attributed by luck.</para>
     /// </summary>
     private static readonly Regex NpcFadedFromView = new(
-        @"^The (?<npc>.+?) fades from view\.$", RegexOptions.Compiled);
+        @"^The (?<npc>.+?) (?:fades from view\.|has become invisible!)$", RegexOptions.Compiled);
 
     /// <summary>
     /// "The man has regained his visibleness!" - verbatim, and the end of the anonymity. Observed
@@ -422,11 +441,23 @@ public sealed class CombatTracker
     /// </summary>
     private readonly HashSet<string> _faded = new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>The name MUD2 uses for a creature the player cannot identify, and the name this
-    /// class reports when it cannot work out which creature that is. Never a guess dressed up as a
-    /// creature: a roster entry reading "someone" is the honest statement that something is fighting
-    /// the player and nothing has said what.</summary>
-    private const string Anonymous = "someone";
+    /// <summary>The name this class reports when it cannot work out which Creature an anonymous
+    /// line means: the anonymous word itself, lower-cased, exactly as MUD2 chose it - "someone" for a
+    /// person-shaped Creature, "something" for an animal. Never a guess dressed up as a Creature: a
+    /// roster entry reading "someone" is the honest statement that something is fighting the player
+    /// and nothing has said what. The word is kept rather than collapsed to one constant because the
+    /// split is information the game handed over for free, and a person-shaped unseen attacker is the
+    /// dangerous case.</summary>
+    // Never null: the anon alternatives ARE AnonymousOpponent's constants, so the group can only
+    // ever hold one of them.
+    private static string AnonymousName(Match m) => AnonymousOpponent.Canonical(m.Groups["anon"].Value)!;
+
+    /// <summary>Whether the PLAYER cannot see - blind, or in a dark room - as last reported by
+    /// <see cref="NoteCannotSee"/>. Read by <see cref="ResolveAnonymous"/> and nothing else. Player
+    /// state, not encounter state: it is deliberately NOT cleared when an encounter closes, because
+    /// the condition outlives the fight. Distinct from a Creature being UNSEEN because it is
+    /// invisible, which is per Creature and lives in <c>_faded</c>.</summary>
+    private bool _cannotSee;
 
     // The encounter closes the instant _active empties, whether that was a kill, a flee, or a
     // withdrawal - see End(). Begin() keeps the SAME encounter open for as long as _active is
@@ -947,11 +978,11 @@ public sealed class CombatTracker
             ? _active.First()
             : null;
 
-    /// <summary>The creature a matched line names, with MUD2's "someone" resolved back to a real
-    /// participant where it can only mean one. Every widened pattern goes through here, so the rule
-    /// is stated once - see <see cref="ResolveAnonymous"/> for what it is.</summary>
+    /// <summary>The Creature a matched line names, with MUD2's "someone"/"something" resolved back
+    /// to a real participant where it can only mean one. Every widened pattern goes through here, so
+    /// the rule is stated once - see <see cref="ResolveAnonymous"/> for what it is.</summary>
     private string NameFrom(Match m)
-        => m.Groups["npc"].Success ? m.Groups["npc"].Value : ResolveAnonymous();
+        => m.Groups["npc"].Success ? m.Groups["npc"].Value : ResolveAnonymous(AnonymousName(m));
 
     /// <summary>
     /// Which creature "someone" is.
@@ -978,7 +1009,7 @@ public sealed class CombatTracker
     /// analysis that cares should treat a name resolved this way as the likeliest reading, never as
     /// ground truth.</para>
     /// </summary>
-    private string ResolveAnonymous()
+    private string ResolveAnonymous(string word)
     {
         string? onlyFaded = null;
         foreach (var npc in _active)
@@ -986,11 +1017,39 @@ public sealed class CombatTracker
             if (!_faded.Contains(npc))
                 continue;
             if (onlyFaded is not null)
-                return Anonymous;   // two invisible opponents: the line says nothing about which
+                return word;   // two invisible opponents: the line says nothing about which
             onlyFaded = npc;
         }
+        if (onlyFaded is not null)
+            return onlyFaded;
 
-        return onlyFaded ?? (_active.Count == 1 ? _active.First() : Anonymous);
+        // The sole-active fallback is GATED on the player being unable to see, because that is the
+        // one cause that anonymises a Creature without a fade code and without touching the
+        // Creature - the one engaged thing is still the one engaged thing, only unnamed. Blindness
+        // feeds the flag today; a dark room does the same to the wire and has no code, and is wired
+        // next. Ungated, this rule credited an unseen attacker's every blow to whatever the player
+        // happened to be fighting: run 49, "Someone hits you (103/120)." landed on zombie5 while an
+        // invisible player was killing the player, and zombie5's record closed with 7 incoming hits
+        // where the wire shows 1. Sighted with nothing faded means a participant nothing has named -
+        // so it is reported as exactly that, and opens its own fight beside the named one.
+        if (_cannotSee && _active.Count == 1)
+            return _active.First();
+        return word;
+    }
+
+    /// <summary>
+    /// Whether the player can currently see, from whichever source reports it. Today that is
+    /// blindness: the coded <c>&lt;11.00&gt;You have suddenly and magically gone blind!</c> line the
+    /// frame it lands, and the FES heartbeat's flag on every genuine reply (authoritative, up to one
+    /// heartbeat late, and the only signal on a relog into an already-blind persona). A dark room
+    /// anonymises the wire the same way and has no code; its wiring follows. A level, not an edge -
+    /// a repeat of the current value is a no-op - so the FES path clears a blind the coded line set
+    /// even when no heartbeat ever saw the blind state itself.
+    /// </summary>
+    public void NoteCannotSee(bool cannotSee)
+    {
+        lock (_gate)
+            _cannotSee = cannotSee;
     }
 
     /// <summary>Force-close any open encounter without a matching end line (e.g. an auto-reset

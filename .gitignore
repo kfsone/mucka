@@ -47,12 +47,6 @@ __pycache__/
 # committed. Nothing tracked may depend on a path under tools/.
 tools/
 
-# The operator's own play sessions are not committed. A test that needs real bytes commits a
-# REDACTED cut (only the frames under test, no tx records, nothing identifying) and negates it
-# here by name; it never skips when the file is absent.
-*.c1
-!mudsharp.Tests/Fixtures/Data/wyvern-poison-death.c1
-
 # A filename starting "--" is a mistyped command-line flag that became an output path.
 --*
 

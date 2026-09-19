@@ -8,8 +8,14 @@ namespace MudSharp.Tests.Fixtures;
 /// a room description with no accompanying auto-fex FEEXITS block, because auto commands only
 /// fire on real movement. MudSession arms a one-shot timer on RoomEntered; FexListStarting
 /// (ordinary auto-fex-covered movement) cancels it, otherwise it fires the same explicit FEX
-/// probe used at game-mode entry. Real timers with a short delay; assertions poll rather than
-/// assuming exact firing.
+/// probe used at game-mode entry.
+///
+/// <para>The timer is the session's <see cref="MudSession.OneShotTimerFactory"/> seam, substituted
+/// here by <see cref="VirtualOneShotTimer"/>: a deadline on a clock this fixture steps by hand. So
+/// the assertions are about the probe's deadline arithmetic - what was armed, what replaced it, what
+/// it was still holding when the step crossed it - and not about what a loaded machine got round to
+/// within a margin. The delay under test is the shipped
+/// <see cref="MudSessionOptions.RoomEntryFexProbeDelay"/>, not a test-only short one.</para>
 /// </summary>
 public class RoomEntryFexProbeTests : IDisposable
 {
@@ -37,21 +43,25 @@ public class RoomEntryFexProbeTests : IDisposable
         "score:  47,297 points   this game:      0 points        value:  9,534 points\r\n" +
         "games played:   144\r\n";
 
+    /// <summary>The delay the probe actually ships with; every step below is expressed against it.</summary>
+    private static readonly TimeSpan ProbeDelay = new MudSessionOptions().RoomEntryFexProbeDelay;
+    /// <summary>Smallest step that takes the virtual clock strictly past a deadline.</summary>
+    private static readonly TimeSpan Tick = TimeSpan.FromMilliseconds(1);
+
     private readonly MudSession _session;
     private readonly List<string> _outgoing = new();
     private readonly object _lock = new();
+    private VirtualOneShotTimer? _probeTimer;
 
-    private RoomEntryFexProbeTests(TimeSpan roomEntryFexProbeDelay)
+    public RoomEntryFexProbeTests()
     {
         _session = new MudSession(new MudSessionOptions
         {
-            FesHeartbeatInterval    = TimeSpan.FromSeconds(60),   // keep the heartbeat out of the way
-            RoomEntryFexProbeDelay  = roomEntryFexProbeDelay,
+            FesHeartbeatInterval = TimeSpan.FromSeconds(60),   // keep the heartbeat out of the way
         });
+        _session.OneShotTimerFactory = callback => _probeTimer = new VirtualOneShotTimer(callback);
         _session.OutgoingBytes += b => { lock (_lock) _outgoing.Add(Encoding.Latin1.GetString(b)); };
     }
-
-    public RoomEntryFexProbeTests() : this(TimeSpan.FromMilliseconds(80)) { }
 
     public void Dispose() => _session.Dispose();
 
@@ -69,15 +79,14 @@ public class RoomEntryFexProbeTests : IDisposable
         lock (_lock) _outgoing.Clear();
     }
 
-    private bool WaitForProbe(string probe, int atLeast = 1, int timeoutMs = 2000)
+    /// <summary>
+    /// Step the probe timer's clock. Any probe the step is due lands synchronously, before this
+    /// returns, so the assertion that follows needs no waiting.
+    /// </summary>
+    private void Advance(TimeSpan by)
     {
-        var deadline = Environment.TickCount64 + timeoutMs;
-        while (Environment.TickCount64 < deadline)
-        {
-            if (CountSent(probe) >= atLeast) return true;
-            Thread.Sleep(10);
-        }
-        return CountSent(probe) >= atLeast;
+        Assert.True(_probeTimer is not null, "no recovery timer was ever armed");
+        _probeTimer!.Advance(by);
     }
 
     /// <summary>
@@ -109,7 +118,12 @@ public class RoomEntryFexProbeTests : IDisposable
     {
         EnterAndCloseSetupWindow();
         FeedRoomEntry();
-        Assert.True(WaitForProbe(FexProbe), "expected the explicit FEX probe once the recovery window elapsed");
+
+        Advance(ProbeDelay - Tick);
+        Assert.Equal(0, CountSent(FexProbe));   // the window has not elapsed yet
+
+        Advance(Tick);
+        Assert.Equal(1, CountSent(FexProbe));
     }
 
     [Fact]
@@ -118,41 +132,93 @@ public class RoomEntryFexProbeTests : IDisposable
         EnterAndCloseSetupWindow();
         FeedRoomEntry();
 
-        // Ordinary auto-fex-covered movement: the FEX list starts arriving well inside the window.
+        // Ordinary auto-fex-covered movement: the FEX list starts arriving inside the window.
         Feed(FexContextOpen);
         Feed("north\n");
         Feed(Pop);   // closes the FEX response scope
 
-        Thread.Sleep(300);   // well past the 80ms recovery window
+        Advance(ProbeDelay * 10);
         Assert.Equal(0, CountSent(FexProbe));
     }
 
     [Fact]
     public void OverlappingRoomEntries_ResetTimer_OnlyOneProbeFires()
     {
-        EnterAndCloseSetupWindow();
-        FeedRoomEntry();               // arms a timer due in ~80ms
-        Thread.Sleep(50);              // before it elapses...
-        FeedRoomEntry();               // ...a second entry replaces it with a fresh ~80ms timer
+        var half = ProbeDelay / 2;
 
-        // The FIRST timer's original deadline (~30ms from now) must NOT have fired.
-        Thread.Sleep(20);
+        EnterAndCloseSetupWindow();
+        FeedRoomEntry();               // arms a deadline one full delay out
+        Advance(half);
         Assert.Equal(0, CountSent(FexProbe));
 
-        // The second timer eventually fires exactly once.
-        Assert.True(WaitForProbe(FexProbe), "expected the reset timer to still fire once");
-        Thread.Sleep(150);   // give a stray duplicate time to show up, if any
+        FeedRoomEntry();               // a second entry must REPLACE that deadline, not keep it
+
+        Advance(half + Tick);          // now strictly past the FIRST entry's deadline
+        Assert.Equal(0, CountSent(FexProbe));
+
+        Advance(ProbeDelay);           // past the replacement deadline
+        Assert.Equal(1, CountSent(FexProbe));
+
+        Advance(ProbeDelay * 10);      // one-shot: the deadline does not come round again
         Assert.Equal(1, CountSent(FexProbe));
     }
 
+    /// <summary>
+    /// Smoke test for a pair of defences, not a pin on either: the exit path stops the timer AND
+    /// OnRoomFexProbeDeadline returns early when not InGameMode. Removing either one on its own
+    /// leaves this passing; only removing both fails it. Anyone tightening one of them needs
+    /// another test, because this one will not notice.
+    /// </summary>
     [Fact]
     public void GameModeExit_BeforeDeadline_SuppressesProbe()
     {
         EnterAndCloseSetupWindow();
-        FeedRoomEntry();          // arms a timer due in ~80ms
-        Feed(AccountLogout);      // exits game mode well before the deadline
+        FeedRoomEntry();          // arms a deadline one full delay out
+        Feed(AccountLogout);      // exits game mode well before it
 
-        Thread.Sleep(300);        // past the original deadline
+        Advance(ProbeDelay * 10);
         Assert.Equal(0, CountSent(FexProbe));
+    }
+
+    /// <summary>
+    /// A one-shot timer whose clock only moves when <see cref="Advance"/> is called: Change sets a
+    /// deadline relative to the current virtual instant, Stop drops it, and a step that crosses a
+    /// pending deadline runs the callback once and clears it. Holding the deadline rather than a
+    /// mere "armed" flag is what makes a missing re-arm visible - a flag would already be set, so a
+    /// timer the session failed to replace would look identical to one it did.
+    /// </summary>
+    private sealed class VirtualOneShotTimer : IOneShotTimer
+    {
+        private readonly Action _callback;
+        private readonly object _gate = new();
+        private TimeSpan _now;
+        private TimeSpan? _dueAt;
+
+        public VirtualOneShotTimer(Action callback) => _callback = callback;
+
+        public void Change(TimeSpan due)
+        {
+            lock (_gate) _dueAt = _now + due;
+        }
+
+        public void Stop()
+        {
+            lock (_gate) _dueAt = null;
+        }
+
+        public void Dispose() => Stop();
+
+        public void Advance(TimeSpan by)
+        {
+            bool due;
+            lock (_gate)
+            {
+                _now += by;
+                due = _dueAt is { } deadline && deadline <= _now;
+                if (due) _dueAt = null;
+            }
+            // Outside the gate: the callback takes the session's own probe lock and sends bytes.
+            if (due) _callback();
+        }
     }
 }
