@@ -69,6 +69,9 @@ public sealed class WyvernPoisonDeathReplayTests
         // The capture's own timestamps, not the wall clock: an in-memory replay of a 90-second fight
         // finishes in milliseconds (see MudSession.CombatClock).
         session.CombatClock = () => DateTimeOffset.FromUnixTimeMilliseconds(captureTs).UtcDateTime;
+        // A recording cannot answer this client's setup batch, so the swallow window that hides its
+        // echoes would never close - see MudSession.SetupInjectEnabled.
+        session.SetupInjectEnabled = false;
         session.InCombatChanged += inCombat.Add;
         session.CombatEventOccurred += events.Add;
         session.LineReady += lines.Add;

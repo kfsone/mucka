@@ -291,6 +291,19 @@ public enum CombatEventKind
     /// its presence in a clog is the signal to go and find the line that went unmatched.</para>
     /// </summary>
     NpcDied,
+
+    /// <summary>
+    /// The last Unseen opponent of one word has been named: a Creature the client had never seen
+    /// joined by name after sight returned, with an opponent still open that had announced itself
+    /// anonymously while the player could not see - so that Creature is the one, and the word's own
+    /// row retires. <see cref="CombatEvent.NpcName"/> is the WORD whose row retires;
+    /// <see cref="CombatEvent.RawText"/> is <c>(&lt;name&gt; was the &lt;word&gt;)</c>. Synthesised by
+    /// <c>CombatTracker</c>, not a classified line - a consumer that treats kinds as wire evidence
+    /// must exclude this one, as it does <see cref="EncounterForceEnded"/>. The blows that landed on
+    /// the word stay on the word's record: the operator's rule is that the record never says which
+    /// unknown became which name, only that the display stops showing an unknown.
+    /// </summary>
+    UnseenNamed,
 }
 
 /// <summary>

@@ -920,6 +920,11 @@ internal sealed class Mud2C1Decoder
                 // LineKind.FightEnd.
                 if (count == 1 && b0 is 0xA5 or 0xA6 or 0xA7)
                     _parser.SetPendingKind(LineKind.FightEnd);
+                // And the start, the same way. 08 00 on the wire, never the bare 08 the list gives -
+                // see LineKind.FightStart. This is what lets an opponent the player cannot see open
+                // its own fight: "Someone is about to attack you." carries it like every other start.
+                if (count == 1 && b0 == 0x9B)
+                    _parser.SetPendingKind(LineKind.FightStart);
                 // Stamina hints: bare C08 (fight starts), C03 (they hit you - usually
                 // followed by an inline "(sta/max)" that cancels the probe), C05 (weapon
                 // change), C08 (you killed them), C10/C11/C12 (fight ends).

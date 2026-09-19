@@ -47,6 +47,21 @@ public enum LineKind
     FightEnd,
 
     /// <summary>
+    /// A fight started - C1 code 08.00. Bartle's list gives fight-start as a bare <c>08</c> with no
+    /// sub-code; the server has sent <c>08 00</c> (<c>[A3][9B]</c>) for it in every one of 1,068+
+    /// occurrences on the wire and a bare <c>08</c> in none, so the code tested for is the one that
+    /// arrives, not the one documented forty years ago and never revised.
+    ///
+    /// <para>Tagged for the same reason as <see cref="FightEnd"/>: the code states the fact, the
+    /// prose only says which Creature. Every opening carries it - "You attack the X", every aggro
+    /// sentence, and the anonymous forms "You attack someone." and "Someone/Something is about to
+    /// attack you." - which is what makes it the primary count of Unseen opponents: an opponent the
+    /// player cannot see still announces itself under this code. A wording no regex knows still
+    /// opens the fight; it costs the actor and the weapon, never the fight.</para>
+    /// </summary>
+    FightStart,
+
+    /// <summary>
     /// A creature turned invisible - C1 code 04.00.05, which fecodes.txt names "Normal creatures
     /// becoming invisible". Confirmed on the wire: <c>[9F][9B][A0]</c> introduces "The man fades
     /// from view."

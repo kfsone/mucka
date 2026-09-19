@@ -248,6 +248,16 @@ public sealed class MudSession : IDisposable
     // is reused from then on, so a factory set after that point is silently never called.
     internal Func<Action, IOneShotTimer> OneShotTimerFactory { get; set; } = callback => new ThreadingOneShotTimer(callback);
 
+    // Testability seam only: production never clears it. A replay of a recorded session must not
+    // send the post-character-select setup batch (identify / fightbrief / auto fex / score) or open
+    // the swallow window that hides its echoes - the recording cannot answer, so the window would
+    // never close and TrySwallowSetupLine would eat combat frames for the rest of the capture.
+    internal bool SetupInjectEnabled { get; set; } = true;
+
+    /// <summary>Testability seam: the tracker, for the wiring tests to read what the two
+    /// cannot-see sources left it saying.</summary>
+    internal CombatTracker Combat => _combat;
+
     /// <summary>
     /// Milliseconds from now to the next MUD2 combat-tick boundary, or null while the phase is
     /// unknown. Supplied by the layer that owns the estimate (Mucka.Core.TickPhase, published as
@@ -382,6 +392,14 @@ public sealed class MudSession : IDisposable
     public string? CurrentDreamword => _currentDreamword;
     public bool InGameMode => _parser.InGameMode;
     public bool InCombat => _combat.InCombat;
+
+    /// <summary>Which anonymous word each species gets, as learned by the combat tracker. Exposed for
+    /// the store that carries it between runs.</summary>
+    public SomeKindKnowledge SomeKindKnowledge => _combat.Knowledge;
+
+    /// <summary>The Unseen opponents open right now, per word, and whether the player can see - what
+    /// the roster sizes its unknown badges from.</summary>
+    public UnseenState Unseen => _combat.Unseen;
     /// <summary>Latest reset-time projection snapshot (target instant + uncertainty + phase).</summary>
     public ResetEstimate ResetEstimate => _resetClock.Snapshot();
 
@@ -860,6 +878,12 @@ public sealed class MudSession : IDisposable
         // line's stats still reach the UI (the parser's analyzer fires StatsUpdated before
         // LineReady). Future user-defined setup commands slot in before `score`, which stays
         // LAST so its reply frame is the one that closes the swallow window.
+        //
+        // Not in a replay (SetupInjectEnabled false): a recording never answers a command THIS
+        // client sends, so the score reply that closes the window would never arrive and the
+        // swallow would stay armed for the whole capture, eating combat frames.
+        if (!SetupInjectEnabled)
+            return;
         OpenSetupWindow();
         // The server echoes each command back on its own line, then executes them on subsequent
         // game turns - the outputs (auto-fex FEEXITS confirmation, then the score sheet) trickle

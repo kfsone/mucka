@@ -412,6 +412,13 @@ public sealed class CombatStatsAggregator
                 RemoveParticipant(combatEvent.NpcName);
                 break;
 
+            case CombatEventKind.UnseenNamed:
+                // The word's row retires: the Creature it stood for is now fighting under its own
+                // name, on its own row. The blows already on the word stay there - see the kind.
+                ResolveFight(combatEvent, FightOutcome.Named);
+                RemoveParticipant(combatEvent.NpcName);
+                break;
+
             case CombatEventKind.KilledByNpc:
                 // The player died, which ends the WHOLE encounter - CombatTracker emits this once
                 // naming only the killer and then calls EndAll(), so no other fight gets its own
@@ -693,6 +700,7 @@ public sealed class CombatStatsAggregator
         CombatEventKind.NpcFled => FightOutcome.CFled,
         CombatEventKind.NpcFleeFailed => FightOutcome.CFledFail,
         CombatEventKind.NpcDied => FightOutcome.NoMore,
+        CombatEventKind.UnseenNamed => FightOutcome.Named,
         CombatEventKind.YouFled => FightOutcome.UFled,
         CombatEventKind.YouFleeFailed => FightOutcome.UFledFail,
         _ => FightOutcome.Unresolved,

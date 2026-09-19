@@ -343,16 +343,17 @@ public class CombatTrackerTests
     [Fact]
     public void NarrativeDeath_AnonymizedWhileSighted_IsSomeoneElse()
     {
-        // The same two lines with the player NOT blind. Nothing has faded and the player can see, so
-        // "someone" is a participant the game never named - an unseen attacker - and crediting the
-        // sole engaged Creature with it is the misattribution that put an invisible player's blows on
-        // zombie5 in run 49. The kill stays anonymous.
+        // The same two lines with no blindness reported. Nothing explains the word, so the sole
+        // engaged Creature does not get it: the operator's ruling is that an unexplained anonymous
+        // line is left on the word rather than risk crediting an unannounced Unseen attacker's blow
+        // to the vampire and teaching vampires its kind.
         var (t, _, events) = NewTracker();
         t.Observe(Line("The vampire is looking at you hatefully."), DateTime.UtcNow);
         t.Observe(Line("You have been killed by someone."), DateTime.UtcNow);
 
         Assert.Equal(CombatEventKind.KilledByNpc, events.Last().Kind);
         Assert.Equal("someone", events.Last().NpcName);
+        Assert.Null(t.Knowledge.Known("vampire"));
     }
 
     [Fact]

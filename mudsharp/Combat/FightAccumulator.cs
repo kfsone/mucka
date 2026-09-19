@@ -167,6 +167,16 @@ public enum FightOutcome
     /// never appears in combat_fights and needs no schema.sql entry.</para>
     /// </summary>
     Interrupted,
+
+    /// <summary>
+    /// An Unseen opponent's word row ("someone" / "something") retired because the Creature behind
+    /// it was named after sight returned - see <c>CombatEventKind.UnseenNamed</c>. Not a kill and not
+    /// a loss: the fight goes on under the Creature's own name. Display-side only, exactly as
+    /// <see cref="Interrupted"/> is: the live aggregator resolves to this so the rail stops drawing
+    /// the badge; FightHistoryRecorder keeps the word's fight <see cref="Unresolved"/>, because the
+    /// record never says which unknown became which name.
+    /// </summary>
+    Named,
 }
 
 /// <summary>

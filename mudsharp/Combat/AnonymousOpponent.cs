@@ -34,6 +34,13 @@ public static class AnonymousOpponent
         => string.Equals(name, Person, StringComparison.OrdinalIgnoreCase)
         || string.Equals(name, Thing, StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>The subject spelling of an anonymous word however it was capitalised - what the
+    /// unknown badge is titled with. Null for anything that is not an anonymous word.</summary>
+    public static string? Subject(string word)
+        => string.Equals(word, Person, StringComparison.OrdinalIgnoreCase) ? PersonAsSubject
+         : string.Equals(word, Thing,  StringComparison.OrdinalIgnoreCase) ? ThingAsSubject
+         : null;
+
     /// <summary>The canonical (lower-case) constant for an anonymous word however it was
     /// capitalised on the line, so a consumer can compare by reference to <see cref="Person"/> or
     /// <see cref="Thing"/>. Null for anything that is not an anonymous word.</summary>

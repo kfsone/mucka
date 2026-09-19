@@ -40,6 +40,9 @@ public sealed class AnonymousOpponentReplayTests
         long captureTs = 0;
         session.CombatClock = () => DateTimeOffset.FromUnixTimeMilliseconds(captureTs).UtcDateTime;
         session.CombatEventOccurred += events.Add;
+        // A recording cannot answer this client's setup batch, so the swallow window that hides its
+        // echoes would never close - see MudSession.SetupInjectEnabled.
+        session.SetupInjectEnabled = false;
 
         foreach (var rawLine in File.ReadLines(capture, Encoding.Latin1))
         {
@@ -100,6 +103,12 @@ public sealed class AnonymousOpponentReplayTests
         var zombieResolved = events.First(e => e.Kind == CombatEventKind.Kill && e.NpcName == "zombie5");
         Assert.True(firstSomeone.TimestampUtc < zombieResolved.TimestampUtc,
             "the unseen attacker must be recognised while the zombie is still alive");
+
+        // And recognised at its ANNOUNCEMENT, not its first blow: "Someone is about to attack you."
+        // is coded 08.00 like every start, and it is the count of Unseen opponents.
+        Assert.Equal(CombatEventKind.FightStart, firstSomeone.Kind);
+        Assert.Equal(CombatActor.Npc, firstSomeone.Actor);
+        Assert.Equal("Someone is about to attack you.", firstSomeone.RawText);
     }
 
     [Fact]
@@ -131,5 +140,29 @@ public sealed class AnonymousOpponentReplayTests
 
         // And no phantom participant called "something" alongside the real one.
         Assert.DoesNotContain(events, e => e.NpcName == "something");
+    }
+
+    // -- an invisible Creature strikes first ------------------------------------------------------
+
+    /// <summary>
+    /// <c>invisible-man-preemptive.c1</c>: run 59, the man already invisible from an earlier fight
+    /// attacks the player in a tunnel. The only opening line is "Someone is about to attack you.",
+    /// coded 08.00. Before it was recognised the fight opened 2.1 s later on the first miss, with no
+    /// start event and no actor - the client did not know it had been attacked until it had been
+    /// hit at.
+    /// </summary>
+    [Fact]
+    public void UnseenCreatureStrikingFirst_OpensTheFightAtItsAnnouncement()
+    {
+        var events = Replay(Capture("invisible-man-preemptive.c1"));
+
+        var start = Assert.Single(events, e => e.Kind == CombatEventKind.FightStart && e.RawText == "Someone is about to attack you.");
+        Assert.Equal(CombatActor.Npc, start.Actor);
+        Assert.Equal("someone", start.NpcName);
+
+        // Everything that follows in that fight is the same participant's.
+        var after = events.Where(e => e.TimestampUtc >= start.TimestampUtc && e.Kind is CombatEventKind.MissByNpc or CombatEventKind.Hit).ToList();
+        Assert.NotEmpty(after);
+        Assert.All(after, e => Assert.Equal("someone", e.NpcName));
     }
 }

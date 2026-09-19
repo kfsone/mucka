@@ -272,6 +272,13 @@ public sealed class FightHistoryRecorder : IDisposable
                     FightForLocked(combatEvent)?.Resolve(FightOutcome.EndOther, combatEvent.TimestampUtc);
                     break;
 
+                case CombatEventKind.UnseenNamed:
+                    // Deliberately nothing, for the record's reason below: the word's fight was never
+                    // seen to end, and which Creature it turned out to be is not written down - the
+                    // operator's rule. The live side resolves it to FightOutcome.Named so the badge
+                    // goes; here it stays Unresolved.
+                    break;
+
                 case CombatEventKind.EncounterForceEnded:
                     // Deliberately nothing. The client force-ended the encounter (reset, logout, room
                     // change, app exit) and these fights are written as Unresolved, because for the

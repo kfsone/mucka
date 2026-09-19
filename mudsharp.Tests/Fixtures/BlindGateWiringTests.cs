@@ -6,22 +6,20 @@ namespace MudSharp.Tests.Fixtures;
 
 /// <summary>
 /// The two sources that tell the combat tracker the PLAYER cannot see, each pinned on its own. Both
-/// are blindness today (a dark room does the same to the wire and is wired next). The tracker's
-/// anonymous-opponent rule hands a "Someone" line to the sole engaged Creature only while the player
-/// is known unable to see, so both edges of that knowledge have to be wired - and wired as a level,
-/// not an edge.
+/// are blindness today (a dark room does the same to the wire and is wired next). The flag is the one
+/// reason the tracker accepts for handing an anonymous line to a sole engaged Creature, so both edges
+/// of that knowledge have to be wired - and wired as a level, not an edge.
 ///
 /// <para>The replay fixture (<see cref="AnonymousOpponentReplayTests"/>) cannot pin either source:
 /// in the capture the coded line and a FES row with the flag set both land before the first
 /// anonymous swing, so deleting either hook alone leaves it green. Here each source is fed by
-/// itself.</para>
+/// itself, and each test asserts both the flag and what the flag did to the next anonymous blow.</para>
 ///
 /// <para>The clearing case is the one that bit. The coded &lt;11.00&gt; line sets the tracker blind
 /// without writing the FES snapshot's IsBlind, so a blind shorter than one heartbeat never shows FES
-/// a Y; an EDGE test on that snapshot then sees no transition, never clears the tracker, and every
-/// later anonymous line for the rest of the session is credited to whatever the player happens to
-/// be fighting - the run-49 misattribution, silently reinstated. The FES flag is asserted as a
-/// level on every genuine reply instead.</para>
+/// a Y; a hook that reacted only to a CHANGE in that snapshot would see none, leave the tracker
+/// blind, and credit every later anonymous line for the rest of the session to whatever the player
+/// happened to be fighting. The FES flag is asserted as a level on every genuine reply instead.</para>
 /// </summary>
 public sealed class BlindGateWiringTests : IDisposable
 {
@@ -53,6 +51,8 @@ public sealed class BlindGateWiringTests : IDisposable
     public BlindGateWiringTests()
     {
         _session.CombatEventOccurred += _events.Add;
+        // Hand-fed bytes never answer the setup batch either - see MudSession.SetupInjectEnabled.
+        _session.SetupInjectEnabled = false;
         _session.Feed(GameModeEntry);
         _session.Feed(PromptBytes);
     }
@@ -70,6 +70,7 @@ public sealed class BlindGateWiringTests : IDisposable
         _session.Feed(Text("Someone hits you (50/60)."));
         _session.Feed(PromptBytes);
 
+        Assert.True(_session.Combat.CannotSee);
         Assert.Equal("rat0", WhoHitThePlayer());
     }
 
@@ -79,11 +80,12 @@ public sealed class BlindGateWiringTests : IDisposable
         _session.Feed(Text("You attack the rat0."));
         _session.Feed(DisableStart("You have suddenly and magically gone blind!"));
         // Sight returned inside one heartbeat: FES never saw a Y. The row says N, and that has to
-        // be enough - an edge test on the snapshot would see N -> N and leave the tracker blind.
+        // be enough - reacting to N -> N as "no change" would leave the tracker blind.
         _session.Feed(Fes('N'));
         _session.Feed(Text("Someone hits you (50/60)."));
         _session.Feed(PromptBytes);
 
+        Assert.False(_session.Combat.CannotSee);
         Assert.Equal(AnonymousOpponent.Person, WhoHitThePlayer());
     }
 
@@ -96,6 +98,7 @@ public sealed class BlindGateWiringTests : IDisposable
         _session.Feed(Text("Someone hits you (50/60)."));
         _session.Feed(PromptBytes);
 
+        Assert.True(_session.Combat.CannotSee);
         Assert.Equal("rat0", WhoHitThePlayer());
     }
 }

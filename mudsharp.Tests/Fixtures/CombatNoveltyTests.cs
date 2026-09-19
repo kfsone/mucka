@@ -168,6 +168,9 @@ public sealed class CombatNoveltyTests
             FightOutcome.Died, FightOutcome.CFled, FightOutcome.CFledFail, FightOutcome.UFled,
             FightOutcome.UFledFail, FightOutcome.Withdraw, FightOutcome.EndOther, FightOutcome.Unresolved,
             FightOutcome.Interrupted,
+            // Display-side only, like Interrupted: never persisted, so never seen here - but a member
+            // of the enum, and "not dead" is the right answer if it ever were.
+            FightOutcome.Named,
         };
         Assert.Equal(Enum.GetValues<FightOutcome>().ToHashSet(), classified);
     }
