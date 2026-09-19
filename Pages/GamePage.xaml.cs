@@ -150,6 +150,13 @@ public partial class GamePage : ContentPage
     private readonly RailFloatLayer?[] _combatFloatLayers = new RailFloatLayer?[RailFloatBudget.MaxInFlight];
     private readonly RailFloatBudget _combatFloatBudget = new();
     private bool _combatFloatsBuilt;
+    // - Unknown badge marquees -
+    // One host per SomeKind, since the roster makes at most one badge per word. Transparent, never
+    // laid out beyond the panel's top-left: the marquee positions its own Composition visual over the
+    // badge's rectangle (see UnseenMarquee), so a badge growing by a slot costs no layout.
+    private readonly BoxView[] _unseenMarqueeHosts = new BoxView[2];
+    private readonly UnseenMarquee?[] _unseenMarquees = new UnseenMarquee?[2];
+    private bool _unseenMarqueesBuilt;
     // The rail's content box in dp, cached from the canvas's own SizeChanged rather than read from a
     // layout property at spawn time. Reading Width/Height at spawn would be a UI-thread question
     // asked once per combat line; caching makes it once per resize.
@@ -391,6 +398,8 @@ public partial class GamePage : ContentPage
                 OnCombatFleePillHitHandlerChanged(CombatFleePillHit, EventArgs.Empty);
                 CombatMetronomeHit.HandlerChanged += OnCombatMetronomeHandlerChanged;
                 OnCombatMetronomeHandlerChanged(CombatMetronomeHit, EventArgs.Empty);
+                // Before the floats, so the float labels added after these stay topmost.
+                SetupUnseenMarquees();
                 SetupCombatFloats();
                 SetupWindowMinimumSize();
                 // Size the window once so the terminal view fits ~82 columns + the side panel,
@@ -575,6 +584,7 @@ public partial class GamePage : ContentPage
         CombatFleePillHit.Clicked -= OnCombatFleePillClicked;
         CombatMetronomeHit.HandlerChanged -= OnCombatMetronomeHandlerChanged;
         TeardownCombatFloats();
+        TeardownUnseenMarquees();
         // A thread-pool timer outlives its page unless stopped; a metronome still clicking after the
         // window closed is the audible version of the RO_E_CLOSED crash class below.
         _combatMetronome.Dispose();
@@ -1525,6 +1535,7 @@ public partial class GamePage : ContentPage
             UpdateCombatEdges();
             UpdateCombatFleePill();
             SyncCombatFloatRoster();
+            SyncUnseenMarquees();
         }
         else if (e.PropertyName == nameof(SidePanelViewModel.IsCombatFloatsEnabled))
         {
@@ -1554,6 +1565,7 @@ public partial class GamePage : ContentPage
                 // geometry that no longer applies, so the pool is reset rather than left to finish
                 // rising over a panel that has moved out from under it.
                 CancelCombatFloats();
+                SyncUnseenMarquees();
                 ResizeWindowForCombatPanel(_vm.SidePanel.IsCombatPanelVisible);
                 // Remembered per profile so it comes back on relog - see Profile.ShowCombatRail
                 // and GameViewModel.PersistCombatRailVisibilityAsync. Fire-and-forget, like the other
@@ -2022,6 +2034,8 @@ public partial class GamePage : ContentPage
         _railContentWidthDp = width;
         _railContentHeightDp = height;
         CancelCombatFloats();
+        // The badges' rectangles moved with the panel; the marquees follow them.
+        SyncUnseenMarquees();
     }
 
     /// <summary>
@@ -2034,6 +2048,92 @@ public partial class GamePage : ContentPage
         _combatFloatRosterShape = (-1, -1);
         foreach (var layer in _combatFloatLayers)
             layer?.Rest();
+    }
+
+    /// <summary>
+    /// Builds the two marquee hosts once and (re)attaches their Composition visuals on every
+    /// appearance, mirroring <see cref="SetupCombatFloats"/>: the elements outlive teardown, only
+    /// their animators are released.
+    /// </summary>
+    private void SetupUnseenMarquees()
+    {
+        for (var i = 0; i < _unseenMarqueeHosts.Length && !_unseenMarqueesBuilt; i++)
+        {
+            // A point at the panel's top-left, never sized to the badge: the visual it hosts is not
+            // clipped to it and carries its own rectangle. Transparent, so nothing of the host itself
+            // is ever seen; InputTransparent for Invariant #0, with the platform view taken out of
+            // hit-testing as well below.
+            var host = new BoxView
+            {
+                Color = Colors.Transparent,
+                WidthRequest = 1,
+                HeightRequest = 1,
+                HorizontalOptions = LayoutOptions.Start,
+                VerticalOptions = LayoutOptions.Start,
+                InputTransparent = true,
+            };
+            _unseenMarqueeHosts[i] = host;
+            var slot = i;
+            host.HandlerChanged += (_, _) => OnUnseenMarqueeHandlerChanged(slot);
+            CombatPanelLayers.Children.Add(host);
+        }
+        _unseenMarqueesBuilt = true;
+
+        for (var i = 0; i < _unseenMarqueeHosts.Length; i++)
+            OnUnseenMarqueeHandlerChanged(i);
+    }
+
+    private void TeardownUnseenMarquees()
+    {
+        for (var i = 0; i < _unseenMarquees.Length; i++)
+        {
+            _unseenMarquees[i]?.Stop();
+            _unseenMarquees[i] = null;
+        }
+    }
+
+    private void OnUnseenMarqueeHandlerChanged(int slot)
+    {
+        var previous = _unseenMarquees[slot];
+        _unseenMarquees[slot] = null;
+        previous?.Stop();
+
+        if (_unseenMarqueeHosts[slot].Handler?.PlatformView is not Microsoft.UI.Xaml.FrameworkElement fe)
+            return;
+        fe.IsHitTestVisible = false;
+        fe.AllowFocusOnInteraction = false;
+        _unseenMarquees[slot] = UnseenMarquee.Attach(fe);
+        SyncUnseenMarquees();
+    }
+
+    /// <summary>
+    /// Puts a marquee around every unknown badge the rail is drawing and hides the rest. Runs on every
+    /// Live republish; the marquee itself treats an unchanged rectangle as a no-op, so the per-refresh
+    /// cost is the roster walk and a struct compare per badge.
+    /// </summary>
+    private void SyncUnseenMarquees()
+    {
+        var panel = _vm.SidePanel;
+        var live = panel.Live;
+        var rows = live.Roster.Rows;
+        var used = 0;
+        if (panel.IsCombatPanelVisible && live.HasEncounter && _railContentWidthDp > 0 && _railContentHeightDp > 0)
+        {
+            for (var i = 0; i < rows.Count && used < _unseenMarquees.Length; i++)
+            {
+                if (!rows[i].IsUnseen || !rows[i].IsLive)
+                    continue;
+                // The same rectangle the canvas draws the badge in - null when the row has no pane
+                // (a panel too short), in which case there is nothing to ring.
+                if (CombatPanelCanvas.RowRectDp(_railContentWidthDp, _railContentHeightDp, rows, i, live.Roster.LiveCount)
+                    is not RailRect rect)
+                    continue;
+                _unseenMarquees[used]?.Show(rect);
+                used++;
+            }
+        }
+        for (var i = used; i < _unseenMarquees.Length; i++)
+            _unseenMarquees[i]?.Hide();
     }
 
     /// <summary>

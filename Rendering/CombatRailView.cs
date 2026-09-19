@@ -397,7 +397,7 @@ public sealed class CombatRailView : SKCanvasView
     /// never finished it" is exactly that. What separates it from the NPC-weapon text on the same row is
     /// position (name column vs weapon column) and the halo.</para>
     /// </summary>
-    private static readonly SKColor NoveltyUnfought = new(0xF0, 0x88, 0x3E);
+    internal static readonly SKColor NoveltyUnfought = new(0xF0, 0x88, 0x3E);
     private static readonly SKColor NoveltyUndefeated = TerminalTheme.Palette[9];
 
     /// <summary>
@@ -1121,6 +1121,15 @@ public sealed class CombatRailView : SKCanvasView
         => RailSlotGeometry.OpponentSlotDp(
             SlotMetricsFor(showStats), panelWidthDp, panelHeightDp, rosterIndex, participantCount);
 
+    /// <summary>Where live roster row <paramref name="rosterIndex"/> of <paramref name="rows"/> is drawn,
+    /// in dp from the panel content box's top-left, span and all - the rectangle the unknown badge's
+    /// marquee rings. The caller's rows rather than this canvas's own <c>Live</c>, so a consumer
+    /// reacting to the view model's republish is placed against the roster it is reacting to whether
+    /// or not this canvas's binding has caught up. Null when the row has no pane of its own.</summary>
+    public RailRect? RowRectDp(
+        double panelWidthDp, double panelHeightDp, IReadOnlyList<RosterRow> rows, int rosterIndex, int liveCount)
+        => RailSlotGeometry.RowRectDp(SlotMetrics, panelWidthDp, panelHeightDp, rows, rosterIndex, liveCount);
+
     /// <summary>Where the player's own tile is drawn, in dp from the panel content box's top-left.</summary>
     public static RailRect PlayerTileDp(double panelWidthDp, double panelHeightDp, bool showStats)
         => RailSlotGeometry.PlayerTileDp(SlotMetricsFor(showStats), panelWidthDp, panelHeightDp);
@@ -1304,9 +1313,9 @@ public sealed class CombatRailView : SKCanvasView
 
     /// <summary>
     /// The unknown badge's frame: a still dashed edge in the caution colour, on every platform. The
-    /// operator's marquee - dots stepping along the edge - is not built. When it is, it cannot be
-    /// drawn here, because this canvas never animates (Invariant #1); it would be a Composition
-    /// sibling laid over this rectangle, the way the flee pill's pulse is.
+    /// operator's marquee - dots stepping along the edge just outside this frame - is not drawn here,
+    /// because this canvas never animates (Invariant #1); on Windows it is a Composition sibling,
+    /// <c>UnseenMarquee</c>, ringing the rectangle <see cref="RowRectDp"/> reports for the row.
     /// </summary>
     private void DrawUnseenFrame(SKCanvas canvas, float x, float y, float width, float height)
     {

@@ -985,6 +985,22 @@ public sealed class StaminaSealTests
     }
 
     [Fact]
+    public void GreatestThreat_NeverSelectsAnUnknownBadge()
+    {
+        // The badge carries the WORD's record - several Creatures' blows pooled - and the largest
+        // mark here, so a green result means the badge guard ran and the accent went to a Creature.
+        var badge = Row(AnonymousOpponent.Thing, true, 30) with { SlotSpan = 2, UnseenLabel = "rat3, ???" };
+        var plan = new RosterPlan(
+            [Row("rat0", true, 7), badge, Row("ogre1", true, 26)],
+            LiveCount: 4, ResolvedCount: 0, HiddenCount: 0, HiddenLiveCount: 0);
+
+        Assert.Equal(2, ReachAggregate.GreatestThreat(plan));
+
+        var badgeOnly = new RosterPlan([badge], LiveCount: 2, ResolvedCount: 0, HiddenCount: 0, HiddenLiveCount: 0);
+        Assert.Equal(-1, ReachAggregate.GreatestThreat(badgeOnly));
+    }
+
+    [Fact]
     public void GreatestThreat_IsMinusOne_WhenNothingLiveHasAMark()
     {
         var plan = new RosterPlan(

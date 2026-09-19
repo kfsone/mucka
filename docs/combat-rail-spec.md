@@ -160,8 +160,11 @@ see or the Creature was seen to fade) land on the word's own row, and that row i
   un-fold on their own; an opponent that announced itself while the player could see is invisible
   itself and stays a `???` until it is killed or the encounter ends.
 - **Frame**: a still dashed edge in the caution colour on every platform (`CombatRailView.DrawUnseenFrame`).
-  The marquee - dots stepping along the edge - is not built. It will not be drawn by the canvas
-  (rule 3, Invariant #1); it will be a Composition sibling on Windows.
+  On Windows a marquee rides just outside it: yellow and orange dots alternating along the edge,
+  stepping `UnseenMarquee.StepDp` every `UnseenMarquee.StepMilliseconds`. Never drawn by the canvas
+  (rule 3, Invariant #1): it is a Composition `ShapeVisual` on a sibling element, one per word,
+  positioned by the visual's own offset over `CombatRailView.RowRectDp` so a badge growing by a slot
+  costs no layout (`GamePage.SyncUnseenMarquees`). Android has the still frame only.
 - **Never the row the cap drops.** Named live rows take the room the badges leave
   (`ParticipantRoster.MaxRows` less the badges), so an over-tall pack hides its eighth named Creature
   before it hides the unknowns. On a panel too short for the badge's full height it is drawn as tall
