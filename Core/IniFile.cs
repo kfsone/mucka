@@ -2,9 +2,21 @@ namespace Mucka.Core;
 
 /// <summary>
 /// Line-preserving INI document. The file is held as raw lines and only the specific
-/// key lines touched by <see cref="Set"/>/<see cref="Remove"/> are rewritten - comments,
-/// blank lines, unknown sections (e.g. the hand-edited [watch] rules) and key order all
-/// survive a round-trip. Section and key lookups are case-insensitive.
+/// key lines touched by <see cref="Set"/>/<see cref="Remove"/> are rewritten - whole-line
+/// comments, blank lines, unknown sections (e.g. the hand-edited [watch] rules) and key order
+/// all survive a round-trip. Section and key lookups are case-insensitive.
+///
+/// An inline comment on a key line ("fontsize=15 ; big") does not survive: it is stripped on read
+/// (see StripInlineComment, without which the value parses as "15 ; big", GetInt returns null, and
+/// null means "absent" to every caller) and <see cref="Set"/> rewrites the line as key=value, so
+/// the annotation is gone at the next save.
+///
+/// An inline comment on a SECTION HEADER is a larger failure and is NOT handled here.
+/// "[settings] ; globals" does not end in ']', so TryParseSectionHeader rejects it and TryParseKey
+/// skips it as well: HasSection is false, the whole section reads as absent, and the next save
+/// appends a second [settings] at end of file. Stripping there would corrupt a profile name that
+/// contains a marker - "[profile:MUD2 # test]" would lose its closing bracket and take the profile
+/// with it - and profile names are user-typed, so the two cases cannot share one rule.
 /// Not thread-safe; callers serialize access (see SettingsStore).
 /// </summary>
 public sealed class IniFile
@@ -35,7 +47,7 @@ public sealed class IniFile
         var idx = FindKeyLine(section, key);
         if (idx < 0) return null;
         var line = _lines[idx];
-        return line[(line.IndexOf('=') + 1)..].Trim();
+        return StripInlineComment(line[(line.IndexOf('=') + 1)..]).Trim();
     }
 
     /// <summary>All key=value pairs in a section, in file order.</summary>
@@ -114,8 +126,29 @@ public sealed class IniFile
         var eq = trimmed.IndexOf('=');
         if (eq <= 0) return false;
         key   = trimmed[..eq].Trim();
-        value = trimmed[(eq + 1)..].Trim();
+        value = StripInlineComment(trimmed[(eq + 1)..]).Trim();
         return key.Length > 0;
+    }
+
+    /// <summary>
+    /// Drops a trailing inline comment from a raw value. The markers are the two
+    /// <see cref="IsComment"/> already accepts at the start of a line, and one only counts when
+    /// whitespace precedes it.
+    /// </summary>
+    /// <remarks>
+    /// The whitespace requirement is what makes this safe on values already in the file. Every
+    /// value this class writes comes from <see cref="Set"/> as "key=value" with nothing appended,
+    /// so a marker with no space in front of it belongs to the value - a hand-written
+    /// "menamecolor=#e09840" keeps its hash. A value that itself contains whitespace-then-marker
+    /// would be truncated here and then persisted truncated by the next Set; nothing in the tree
+    /// writes one (fkey macros separate commands with commas).
+    /// </remarks>
+    private static string StripInlineComment(string value)
+    {
+        for (var i = 1; i < value.Length; i++)
+            if ((value[i] == ';' || value[i] == '#') && char.IsWhiteSpace(value[i - 1]))
+                return value[..i];
+        return value;
     }
 
     private int FindSectionHeader(string section)

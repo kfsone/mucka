@@ -1971,6 +1971,11 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _conn.SendLine(string.Empty);
     }
 
+    // Operator rule for both directions: recall replaces whatever the box currently holds. An
+    // unsent draft is not stashed anywhere, and _history holds sent lines only - ProcessInput is
+    // the one thing that appends to it - so there is no slot at index == _history.Count for an
+    // uncommitted line. The consequence, which is the behaviour asked for: type "kill ra", press
+    // Up, press Down, and the box is empty rather than back at "kill ra".
     private void HistoryUp()
     {
         if (_history.Count == 0) return;
@@ -1978,6 +1983,8 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         InputText = _history[_historyIndex];
     }
 
+    // Same operator rule as HistoryUp above: no draft is stashed, so stepping past the newest
+    // entry empties the box rather than restoring what was being typed.
     private void HistoryDown()
     {
         if (_historyIndex >= _history.Count - 1)

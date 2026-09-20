@@ -145,6 +145,46 @@ public sealed class CreatureTextCaptureTests
     }
 
     /// <summary>
+    /// A creature sentence still being captured when the session ends must not reach the next
+    /// login. The exit fires no end-of-scope action, so <c>FlushCreatureText</c> never runs;
+    /// without the capture being cleared on the way out, the dead session's fragment is emitted
+    /// glued to the front of the new session's first sentence, and
+    /// <see cref="MudSharp.Models.RoomCreatures"/> then reports a name from the old room as a live
+    /// creature in the new one - the swords-icon-on-an-object failure its own class doc names.
+    ///
+    /// <para>The exit is driven by the option-menu prompt alone. The captured "qq" sequence sends a
+    /// {C00}{C255} colour reset ahead of the prompt, and that reset pops the C04 scope normally, so
+    /// it flushes the fragment before the exit and cannot show this. This test therefore pins the
+    /// mechanism, not the reachability: whether MUD2 ever leaves a C04 scope open across a real
+    /// death or drop is a wire-table question.</para>
+    /// </summary>
+    [Fact]
+    public void FragmentOpenAtGameModeExit_DoesNotReachTheNextLogin()
+    {
+        var h = new ParserHarness();
+        h.Feed(0x9D, 0x9C, 0xFF, 0xFF);   // enter game mode
+
+        // Mid-capture: the scope is open and the sentence has no closing pop.
+        OpenCreatureHere(h);
+        h.Feed("An evil, black rat (rat17) bares its");
+
+        // The option-menu prompt, matched at column 0, is what takes the parser out of game mode.
+        h.Feed("\r\nOption (H for help): ");
+        Assert.Equal(1, h.GameModeExitedCount);
+
+        h.Feed(0x9D, 0x9C, 0xFF, 0xFF);   // log back in on the same connection
+        Assert.Equal(2, h.GameModeEnteredCount);
+
+        OpenCreatureHere(h);
+        h.Feed("A large, black raven swoops about your head. ");
+        Pop(h);
+
+        var captured = Assert.Single(h.CreatureTexts);
+        Assert.Equal("A large, black raven swoops about your head.", captured);
+        Assert.DoesNotContain("rat17", captured);
+    }
+
+    /// <summary>
     /// The other presence variants share the code class and must NOT carry the tag. A creature
     /// merely standing in the room has not gone anonymous, and tagging it would have CombatTracker
     /// resolving "someone" to whatever was last described.

@@ -72,7 +72,7 @@ public sealed class MudStreamParser
     public event Action? BellReceived;
 
     /// <summary>
-    /// Server confirmed the terminal width with an ESC-<n>W response, or the parser
+    /// Server confirmed the terminal width with an ESC-&lt;n&gt;W response, or the parser
     /// detected the server's "[New terminal width is N]" annotation line.
     /// The payload is the confirmed column count.
     /// </summary>
@@ -1006,6 +1006,11 @@ public sealed class MudStreamParser
         _fewName.Clear();
         _feiLine.Clear();
         _fexLine.Clear();
+        // Same family as the three above, and the only one without a begin-side clear: a C04 scope
+        // open when the session ended fires no end-of-scope action, so FlushCreatureText never runs
+        // and the fragment would be glued to the front of the next login's first creature sentence -
+        // past OnRoomEntered's room scoping, into RoomCreatures.
+        _creatureText.Clear();
         _pendingRoomShort = false;
         _chatOpenAtLineStart = false;
         _chatTextOnLine = false;
