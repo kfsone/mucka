@@ -225,8 +225,8 @@ public class ShellTextTests
         var raw = "Option (H for help): Option unavailable.\r\nOption (H for help): \r\n" +
                   "Option (H for help): p\r\nMUD version 4E.\r\nCopyright (C) 1991-2026\r\n" +
                   "Multi-User Entertainment Ltd.\r\n\r\n" +
-                  "The personae available to you are:\r \r\n(1)     Ollie,\r \r\n" +
-                  "(2)     Shezerah,\r \r\n(3)     Nessa.\r \r\n" +
+                  "The personae available to you are:\r\u0000\r\n(1)     Ollie,\r\u0000\r\n" +
+                  "(2)     Shezerah,\r\u0000\r\n(3)     Nessa.\r\u0000\r\n" +
                   "By what name shall I call you (Q to quit)?\r\n";
 
         var n = ShellText.NormalizeWhitespace(raw);
