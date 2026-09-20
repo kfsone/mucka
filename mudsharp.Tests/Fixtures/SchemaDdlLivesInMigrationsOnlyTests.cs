@@ -5,10 +5,13 @@ namespace MudSharp.Tests.Fixtures;
 ///
 /// <para><b>Why this is a build failure rather than a policy.</b> Releases go out on GitHub, so
 /// databases created by this client sit on machines nobody here can inspect, and no human reviews the
-/// engineering that changes them (CLAUDE.md, "One operator, no reviewer"). An <c>ALTER TABLE</c>
-/// dropped into a writer would run against a stranger's file outside the journal - unversioned,
-/// unrepeatable, and impossible to reason about afterwards, because nothing would record that it had
-/// happened. A policy in a document does not stop that; a red build does.</para>
+/// engineering that changes them (CLAUDE.md, "Who writes, who accepts, and where releases land").
+/// An <c>ALTER TABLE</c> dropped into a writer would run against a stranger's file outside the
+/// journal - unversioned, unrepeatable, and impossible to reason about afterwards, because nothing
+/// would record that it had happened. A policy in a document does not stop that; a red build does.
+/// Observed: three reviews of the migration tooling each concluded "no framework needed" by quoting
+/// the policy paragraph that then stood in CLAUDE.md, and each would have shipped column drops onto
+/// those machines.</para>
 ///
 /// <para>The allowlist is deliberately by exact path rather than by folder or by "tests are exempt".
 /// Adding a file to it is a line in a diff that someone has to write on purpose, which is the entire

@@ -12,6 +12,11 @@ using XamlMedia = Microsoft.UI.Xaml.Media;
 /// That is the entire point of this class. It works by tree position, not by name, so a control
 /// that did not exist when this was written is covered the moment it appears.
 ///
+/// <para><b>Never a list of names again.</b> Enforcement used to be a dozen <c>x:Name</c>s checked
+/// against roughly 50 interactive elements; the hamburger rows, the floating map panel, the Chat
+/// button and the data-templated fkey buttons were all missing from it. That list is gone, and a
+/// replacement for it is an operator-level "no" (CLAUDE.md, Invariant #0).</para>
+///
 /// <para>Four layers, weakest-but-earliest first. Any one of them holding is enough:</para>
 /// <list type="number">
 /// <item><description><b>Hover pre-emption.</b> A mouse reaches a control before it clicks it, so
