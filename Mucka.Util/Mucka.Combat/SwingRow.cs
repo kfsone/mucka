@@ -18,7 +18,7 @@ namespace Mucka.Combat;
 /// omitting one is permanent.</para>
 ///
 /// <para>Nulls are stored rather than defaulted. Half the damage fields are direction-specific by
-/// construction (a bracket going out, an exact figure coming in - see <see cref="Damage"/>), and
+/// construction (a bracket going out, an exact figure coming in - see <see cref="SwingRow.Damage"/>), and
 /// every stat can genuinely be unknown for a swing that landed before the first heartbeat. A zero
 /// standing in for "not reported" would be a fabricated measurement that outlives the session that
 /// invented it.</para>

@@ -8,7 +8,7 @@ namespace Mucka.Combat;
 /// interchangeable:</para>
 /// <list type="bullet">
 /// <item><b>PULSE</b> - a smooth opacity ramp on a WinUI Composition layer behind the Skia canvas
-/// (<see cref="PulseLayer"/>). Runs on the compositor, costs the UI thread nothing, and can be as
+/// (<c>Mucka.Rendering.PulseLayer</c>). Runs on the compositor, costs the UI thread nothing, and can be as
 /// fast and as smooth as it likes. Used for whole-element alarms: the panel glow, the flee pill.</item>
 /// <item><b>BLINK</b> - a hard alternation between two appearances, drawn by the canvas itself.
 /// Two states, no fade. Used where the thing that must alarm is a few characters of text inside a
@@ -26,7 +26,7 @@ namespace Mucka.Combat;
 ///
 /// <para><b>The periods are harmonically related on purpose.</b> The pulse is 1200 ms and the blink
 /// 2000 ms, and neither is arbitrary: every pulsing element shares one period
-/// (see <see cref="PulseLayer.PeriodMilliseconds"/>, whose remarks record that several elements on
+/// (see <c>Mucka.Rendering.PulseLayer</c>'s period constant, whose remarks record that several elements on
 /// their own phases read as noise rather than as urgency), and the blink period is exactly ONE
 /// COMBAT TICK - MUD2 resolves combat every 2000 ms, so a combat alarm beats with the thing that is
 /// actually hitting you. The 1 Hz flush samples that at precisely twice per cycle, which is what

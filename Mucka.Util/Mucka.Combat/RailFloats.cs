@@ -205,7 +205,7 @@ public sealed class RailFloatBudget
     ///
     /// <para>This is the whole of the rule the operator set, and it turns on a distinction the
     /// budget would otherwise be blind to. Two blows in one tick are one event with two parts, and
-    /// they cluster (see <see cref="Cluster"/>). A blow landing a tick later is a NEW event, and it
+    /// they cluster (see <see cref="RailFloatGrant.Cluster"/>). A blow landing a tick later is a NEW event, and it
     /// belongs exactly where the last one was - the eye has learned that spot and must not have to
     /// find it again. Stacking those was what made a second hit on one Creature read as a different
     /// number in a different place.</para>
@@ -407,5 +407,52 @@ public sealed class RailFloatBudget
             if (best < 0 || _startedUtc[i] < _startedUtc[best]) best = i;
         }
         return best;
+    }
+}
+
+/// <summary>
+/// Where a granted float is drawn, given the cluster <see cref="RailFloatBudget"/> handed it and the
+/// origin the canvas measured. The other half of the same idea as the budget, and pure arithmetic:
+/// no element, no framework, nothing but a point.
+/// </summary>
+public static class RailFloatPlacement
+{
+    /// <summary>The box every float is drawn in, sized for the BIGGEST one the emphasis ladder can
+    /// produce (<see cref="RailFloatEmphasis.BaseFontSize"/> plus its four steps). The box is
+    /// asserted natively and does not grow with the text, so a height fitted to the base size would
+    /// clip exactly the numbers worth reading.</summary>
+    public const double CombatFloatHeightDp = 24.0;
+
+    /// <summary>How far sideways a clustered float steps, alternating each way. Small: the cluster
+    /// should read as one flurry over one pane, not as numbers walking off it.</summary>
+    public const double CombatFloatZigDp = 11.0;
+
+    /// <summary>How far up each further blow of the same tick sits. Deliberately LESS than
+    /// <see cref="CombatFloatHeightDp"/>, so a cluster overlaps rather than stacking clear - see
+    /// <see cref="For"/>.</summary>
+    public const double CombatFloatClusterStepDp = 13.0;
+
+    /// <summary>
+    /// The float's top-left, in the same dp space <paramref name="origin"/> is measured in.
+    ///
+    /// <para>Cluster 0 - a new exchange - starts exactly beside the name it belongs to, every time.
+    /// Further blows from the SAME tick zig-zag off it: alternating sideways, stepping up by less
+    /// than a box height so they deliberately overlap. The overlap is the point. Several numbers
+    /// piling over one pane is the sense of being hit by a pack, which is what the rail owes the
+    /// player; reading each figure is the encounter table's job, not this one's.</para>
+    ///
+    /// <para>ONE column for every float, whatever its direction and whatever pane it sits on -
+    /// <c>CombatRailView.OpponentFloatOriginDp</c> and its player twin return the same x. Splitting
+    /// the two directions to opposite edges was tried in play and is worse: the rail is scanned down
+    /// its badges, and numbers alternating between the left and right margins cut across that scan
+    /// instead of riding it. Which direction a float is remains legible from its colour and from the
+    /// pane it rises off, neither of which costs a second sweep of the eye. Do not re-split
+    /// them.</para>
+    /// </summary>
+    public static (double X, double Y) For(int cluster, RailRect origin)
+    {
+        var zig = cluster == 0 ? 0.0
+            : (cluster % 2 == 1 ? CombatFloatZigDp : -CombatFloatZigDp);
+        return (origin.Left + zig, origin.Top - (cluster * CombatFloatClusterStepDp));
     }
 }

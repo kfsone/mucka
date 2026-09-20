@@ -152,15 +152,10 @@ public sealed class CombatRailView : SKCanvasView
     private const float ShapeSep2Left = ShapeHighLeft + ShapeHighWidth;
     private const float ShapeMeanLeft = ShapeSep2Left + ShapeSepWidth;
 
-    /// <summary>One swing's slot in the spark, and the widest bar it can draw. Damage saturates the
-    /// bar at <see cref="SparkDamageCap"/>: beyond that the creature is already hitting for more than
-    /// any single tick of headroom the player is likely to have, and a taller mark would only be
-    /// re-stating that in a way that squeezed every other mark shorter.</summary>
+    /// <summary>One swing's slot in the spark, and the width of the mark in it. How TALL a mark is
+    /// belongs to <see cref="RailReadout.SparkBarHeight"/>, with the cap it saturates at.</summary>
     private const float SparkPitch = 5.5f;
     private const float SparkBarWidth = 3f;
-    private const float SparkMinBar = 3f;
-    private const float SparkMaxBar = 14f;
-    private const double SparkDamageCap = 20.0;
 
     /// <summary>
     /// One ending's row in the top-anchored dead strip. The strip is top-anchored and grows downward:
@@ -681,7 +676,7 @@ public sealed class CombatRailView : SKCanvasView
     /// not invalidate for identical content.
     ///
     /// <para><b>Structural, not reference, equality.</b> <c>ReferenceEquals</c> alone can never
-    /// match here: <c>SidePanelViewModel.RefreshCombatSignals</c> allocates a fresh
+    /// match here: <c>Mucka.Combat.CombatFrameComposer.Compose</c> allocates a fresh
     /// <see cref="CombatLiveView"/> on every refresh (a <c>with</c>-expression in the idle branch,
     /// <c>new</c> in the two in-combat branches), including the 1 Hz anti-idle tick that runs
     /// whether or not anything actually changed - so a reference check alone forced a repaint every
@@ -882,7 +877,7 @@ public sealed class CombatRailView : SKCanvasView
     ///
     /// <para><b>Combat ENDINGS, not just kills</b> - so a row can tell a flee from a death. Every
     /// <see cref="FightOutcome"/> a fight can resolve to gets its own row and its own word
-    /// (<see cref="OutcomeWord"/>); a slight tint on the word marks the off-nominal endings
+    /// (<see cref="RailReadout.OutcomeWord"/>); a slight tint on the word marks the off-nominal endings
     /// (<see cref="OutcomeTint"/>) without ever replacing the word itself.</para>
     ///
     /// <para><b>Truncation drops the OLDEST, newest always wins.</b> When more endings exist than the
@@ -939,7 +934,7 @@ public sealed class CombatRailView : SKCanvasView
 
             _text.Color = ending.Outcome == FightOutcome.Died ? Hostile : OutcomeTint(InkDim, ending.Outcome);
             canvas.DrawText(
-                Ellipsize(OutcomeWord(ending.Outcome), DeadNameWidth, font), Pad, y,
+                Ellipsize(RailReadout.OutcomeWord(ending.Outcome), DeadNameWidth, font), Pad, y,
                 SKTextAlign.Left, font, _text);
 
             // What MUD2 announced against this ending, when anything was paired to it. Never a zero -
@@ -1590,13 +1585,15 @@ public sealed class CombatRailView : SKCanvasView
         if (plan.LitSoft is { } soft)
         {
             _fill.Color = Dim(lit, 0.42f);
-            canvas.DrawRect(x, top, RemainingWidth(soft.StartDegrees, width), TileBarFillHeight, _fill);
+            canvas.DrawRect(
+                x, top, RailReadout.RemainingWidth(soft.StartDegrees, width), TileBarFillHeight, _fill);
         }
 
         if (plan.LitHard is { } hard)
         {
             _fill.Color = lit;
-            canvas.DrawRect(x, top, RemainingWidth(hard.StartDegrees, width), TileBarFillHeight, _fill);
+            canvas.DrawRect(
+                x, top, RailReadout.RemainingWidth(hard.StartDegrees, width), TileBarFillHeight, _fill);
         }
 
         DrawRungNotches(canvas, x, top, width);
@@ -1607,19 +1604,13 @@ public sealed class CombatRailView : SKCanvasView
         {
             _fill.Color = InkBright;
             canvas.DrawRect(
-                x + RemainingWidth(measured.StartDegrees, width) - 1f, top - 1f, 1.5f,
+                x + RailReadout.RemainingWidth(measured.StartDegrees, width) - 1f, top - 1f, 1.5f,
                 TileBarFillHeight + 2f, _fill);
         }
 
         DrawPredictionLane(canvas, plan.BlowAfter, x, top, width, PredictAfter);
         DrawPredictionLane(canvas, plan.NextBlow, x, top, width, PredictNext);
     }
-
-    /// <summary>Where a boundary at <paramref name="startDegrees"/> falls along a bar that fills from
-    /// the left with what remains. The ring's lit arc runs from its start round to 360, so the
-    /// fraction still standing is everything the arc covers.</summary>
-    private static float RemainingWidth(float startDegrees, float width)
-        => Math.Clamp((360f - startDegrees) / 360f, 0f, 1f) * width;
 
     /// <summary>Six cuts in the fill, one per rung boundary. Painted in the panel's own ground rather
     /// than a colour, so they read as gaps in the ladder rather than as marks on it - the same trick
@@ -1639,8 +1630,8 @@ public sealed class CombatRailView : SKCanvasView
         if (arc is not { } band)
             return;
 
-        var far = RemainingWidth(band.StartDegrees, width);
-        var near = RemainingWidth(band.StartDegrees + band.SweepDegrees, width);
+        var far = RailReadout.RemainingWidth(band.StartDegrees, width);
+        var near = RailReadout.RemainingWidth(band.StartDegrees + band.SweepDegrees, width);
         var span = Math.Max(far - near, 1.5f);
 
         _fill.Color = color;
@@ -1794,7 +1785,7 @@ public sealed class CombatRailView : SKCanvasView
     /// what separates a creature that keeps missing from one that is not swinging at all.</para>
     ///
     /// <para>Incoming bars carry severity twice, in height and in hue, both saturating at
-    /// <see cref="SparkDamageCap"/>.</para>
+    /// <see cref="RailReadout.SparkDamageCap"/>.</para>
     ///
     /// <para><b>It mirrors between the two kinds of tile</b>, for the same reason the stat rows do:
     /// UP is what the badge's subject is TAKING. On an opponent's tile the player's blows rise; on the
@@ -1838,7 +1829,9 @@ public sealed class CombatRailView : SKCanvasView
                 continue;
             }
 
-            var height = mark.Measured && mark.Damage > 0 ? SparkBarHeight(mark.Damage) : SparkMinBar;
+            var height = mark.Measured && mark.Damage > 0
+                ? RailReadout.SparkBarHeight(mark.Damage)
+                : RailReadout.SparkMinBar;
 
             // Colour follows the ACTOR, never the side of the line - that is what keeps the player's
             // own blows white on both tiles while their position flips. An UNMEASURED blow is the one
@@ -1851,16 +1844,13 @@ public sealed class CombatRailView : SKCanvasView
         }
     }
 
-    private static float SparkBarHeight(double damage)
-        => SparkMinBar + (float)(Math.Clamp(damage / SparkDamageCap, 0.0, 1.0) * (SparkMaxBar - SparkMinBar));
-
-    /// <summary>Yellow through to bright red, saturating at <see cref="SparkDamageCap"/>. A blow of
-    /// unknown size gets the bottom of it rather than a colour of its own: the height
+    /// <summary>Yellow through to bright red, saturating at <see cref="RailReadout.SparkDamageCap"/>.
+    /// A blow of unknown size gets the bottom of it rather than a colour of its own: the height
     /// already says "unknown" by sitting at the minimum, and a fourth colour on a three-unit mark
     /// would be a distinction nobody can see.</summary>
     private static SKColor IncomingRamp(double damage)
     {
-        var t = Math.Clamp(damage / SparkDamageCap, 0.0, 1.0);
+        var t = Math.Clamp(damage / RailReadout.SparkDamageCap, 0.0, 1.0);
         return t < 0.5
             ? Tint(Caution, NoveltyUnfought, (float)(t * 2.0))
             : Tint(NoveltyUnfought, Hostile, (float)((t - 0.5) * 2.0));
@@ -2560,9 +2550,9 @@ public sealed class CombatRailView : SKCanvasView
         [
             countsWorthStating ? live.LiveOpponents.ToString(culture) : string.Empty,
             countsWorthStating ? live.OpponentsFaced.ToString(culture) : string.Empty,
-            Ticks(live.EncounterTicks, culture),
-            Ticks(live.TicksToVictory, culture),
-            Ticks(live.TicksToDeath, culture),
+            RailReadout.Ticks(live.EncounterTicks, culture),
+            RailReadout.Ticks(live.TicksToVictory, culture),
+            RailReadout.Ticks(live.TicksToDeath, culture),
         ];
 
         for (var i = 0; i < values.Length; i++)
@@ -2737,11 +2727,6 @@ public sealed class CombatRailView : SKCanvasView
         canvas.DrawLine(right - underlineWidth, baseline + 1.5f, right, baseline + 1.5f, _stroke);
         _stroke.PathEffect = null;
     }
-
-    /// <summary>Ticks, rounded and suffixed, or empty for "no answer" - which the caller draws as the
-    /// column's own name rather than as a figure.</summary>
-    private static string Ticks(double? ticks, System.Globalization.CultureInfo culture)
-        => ticks is double value && value >= 0 ? value.ToString("0", culture) + "t" : string.Empty;
 
     /// <summary>
     /// The Death column's tone. One lookup - the reading itself is resolved once, in
@@ -3139,38 +3124,6 @@ public sealed class CombatRailView : SKCanvasView
     // ---- Drawn icons. ASCII source only, so every glyph is a path, never a font character. --
 
     // ---- Helpers ---------------------------------------------------------------------------
-
-    private static string OutcomeWord(FightOutcome outcome) => outcome switch
-    {
-        FightOutcome.Kill => "killed",
-        FightOutcome.Died => "KILLED YOU",
-        FightOutcome.CFled => "fled",
-        // "broke off", not "fled": the creature is still standing in the room. Calling this a flee on
-        // the roster row would have the player chase something that never left - see
-        // FightOutcome.CFledFail.
-        FightOutcome.CFledFail => "broke off",
-        FightOutcome.UFled => "you fled",
-        // The player is also still in the room, and still has to deal with this thing.
-        FightOutcome.UFledFail => "flee failed",
-        FightOutcome.Withdraw => "withdrew",
-        // The outcome's own word rather than the observed cause: NoMore is an open family (poison so
-        // far, with more expected) and the label has to cover the ones not yet seen. Not
-        // "killed" - nothing in these frames says the player's blow finished it - and not "died",
-        // which on a roster row beside "KILLED YOU" invites exactly the wrong reading.
-        FightOutcome.NoMore => "no more",
-        // The game closed it and gave no reason; saying more than that on the roster row would be
-        // inventing one. Distinct from a blank label, which means we never saw it end at all.
-        FightOutcome.EndOther => "ended",
-        // The client stopped it, not the game - a reset, a logout, a room change, app exit. "cut
-        // short" rather than "interrupted" only because the word has to fit DeadNameWidth on the dead
-        // strip's second line; which of the four reasons it was is in the clog's EncounterForceEnded
-        // event, not on a roster row.
-        FightOutcome.Interrupted => "cut short",
-        // The word's row retired because the Creature behind it was named once sight returned - the
-        // fight goes on under that name. Not a kill and not a loss.
-        FightOutcome.Named => "named",
-        _ => string.Empty,
-    };
 
     private static string Ellipsize(string value, float maxWidth, SKFont font)
     {

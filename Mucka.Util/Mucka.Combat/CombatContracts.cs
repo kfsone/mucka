@@ -96,7 +96,7 @@ public sealed record SessionCombatTotals(
 /// session-scoped counters, not timestamps or epochs. They share their source with
 /// <c>SwingRow.ResetLandedAtMs</c> - the observed C06 C06 landing - and neither is ever derived from
 /// the FES <c>TimeToReset</c>, which wizards can delay or accelerate.
-/// See <see cref="SidePanelViewModel"/>'s own fields for where each counter is advanced.</para>
+/// See <c>SidePanelViewModel</c>'s own fields for where each counter is advanced.</para>
 /// </summary>
 /// <param name="EncounterOrdinal">Which encounter this ending belongs to. Incremented once per
 /// encounter OPEN (<c>SidePanelViewModel.OnInCombatChanged</c>'s <c>inCombat: true</c> branch) -
@@ -231,7 +231,7 @@ public sealed record CombatHistoryContext(
 /// these values and inherits no layout from anywhere else, rather than drawing pre-composed lines
 /// from a text formatter verbatim onto the canvas.</para>
 ///
-/// <para>Equality is structural, which is what lets <see cref="Mucka.Rendering.CombatRailView.Live"/>
+/// <para>Equality is structural, which is what lets <c>Mucka.Rendering.CombatRailView.Live</c>
 /// skip invalidating the canvas when a freshly-allocated frame is not actually different from the
 /// last one (Invariant #1 - the canvas is invalidated only on genuine state change, never per
 /// frame). This record is reallocated on every refresh, including the 1 Hz anti-idle tick, so that
@@ -261,7 +261,7 @@ public sealed record CombatLiveView(
     // has no persistent wielded weapon: one is named for the current fight and stops being wielded
     // when the fight ends, so "unarmed" describes a fight rather than a person and there is no such
     // state to report between them. Both construction sites hold this false outside combat; see
-    // SidePanelViewModel's post-combat branch.
+    // CombatFrameComposer's post-combat branch.
     bool IsUnarmed,
     // The whole opposition, one row per participant. Each row carries its own seal state and its own
     // NPC weapon - see RosterRow.

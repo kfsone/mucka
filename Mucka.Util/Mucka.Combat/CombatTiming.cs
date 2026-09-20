@@ -6,12 +6,19 @@ namespace Mucka.Combat;
 /// </summary>
 public static class CombatTiming
 {
-    /// <summary>The one MUD2 combat tick duration, shared by <see cref="Mucka.Audio.CombatMetronome"/>
+    /// <summary>The one MUD2 combat tick duration, shared by <c>Mucka.Audio.CombatMetronome</c>
     /// (the click) and <c>Mucka.Rendering.TickSweep</c> (the bar - Windows-only, so not a resolvable
     /// cref from a cross-platform doc comment). Measured, not chosen: swing gaps across the whole
     /// capture corpus are exact multiples of this, with 76-94% of a session's swings landing in a
     /// single 20 ms bin.</summary>
     public const double TickMilliseconds = 2000.0;
+
+    /// <summary>How many combat ticks a span covers, as a real number. Wall clock over the measured
+    /// tick, NOT a count of swings: roughly half the ticks an engaged creature is present for carry
+    /// no swing at all (DamagePrediction's own remarks), so swings would understate the elapsed time
+    /// by about half and double every rate built on it.</summary>
+    public static double TicksElapsed(TimeSpan duration)
+        => duration.TotalMilliseconds / TickMilliseconds;
 
     /// <summary>
     /// Milliseconds from <paramref name="nowUtc"/> to the next tick boundary on the lattice defined by
@@ -19,7 +26,7 @@ public static class CombatTiming
     ///
     /// <para><b>One implementation, on purpose.</b> Both renderings of the tick - the bar
     /// (<c>Mucka.Rendering.TickSweep</c>) and the click
-    /// (<see cref="Mucka.Audio.CombatMetronome"/>) - locate the rollover through this method and
+    /// (<c>Mucka.Audio.CombatMetronome</c>) - locate the rollover through this method and
     /// nothing else, so the two cannot independently drift out of agreement.</para>
     ///
     /// <para>Returns a full tick, never zero, when <paramref name="nowUtc"/> lands exactly on a

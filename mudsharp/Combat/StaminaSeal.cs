@@ -194,7 +194,7 @@ public static class StaminaSeal
 public static class ReachAggregate
 {
     /// <summary>
-    /// Which live row the player's own incoming-damage prediction (<c>SidePanelViewModel.IncomingPerBlowOf</c>)
+    /// Which live row the player's own incoming-damage prediction (<c>CombatFrameComposer.IncomingPerBlowOf</c>)
     /// should be projected from, or -1 when nothing live has a reach mark yet.
     ///
     /// <para><b>One creature, never the pack summed.</b> The player's two prediction lanes

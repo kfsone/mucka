@@ -937,7 +937,7 @@ public sealed class StaminaSealTests
 
     // -- group fights: which one is the greatest threat --------------------------
     //
-    // GreatestThreat picks the ONE live opponent SidePanelViewModel.IncomingPerBlowOf projects the
+    // GreatestThreat picks the ONE live opponent CombatFrameComposer.IncomingPerBlowOf projects the
     // player's own prediction bands from. GreatestThreat and the RosterRow.Reach data behind it are
     // load-bearing for those prediction bands, and CombatRailView's accent frame draws this same
     // selection on screen too, via GreatestThreatForAccent below.

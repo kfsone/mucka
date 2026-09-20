@@ -228,9 +228,6 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     private bool _isCombatPanelVisible;
     private CombatTier _pulseTier = CombatTier.None;
 
-    /// <summary>Stamina at or below which the rail's glow keeps running even with no fight on -
-    /// see the use in RefreshCombatSignals.</summary>
-    private const int OutOfCombatVulnerableStamina = 25;
     private CombatTier _encumbranceTier = CombatTier.None;
     // The Combat Rail's LIVE hero section - threat indicator, opposition roster, survival numbers -
     // composed fresh each refresh (see RefreshCombatSignals). CombatLiveView.Idle until an encounter
@@ -320,8 +317,9 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
 
     // Same lifetime and the same null contract again. Feeds ReachAggregate.GreatestThreat, which picks
     // the ONE live opponent the player's own incoming-damage prediction bands are projected from (see
-    // IncomingPerBlowOf) - the reason this index is read per roster row rather than once for the
-    // primary target is that the selection is a question about the whole opposition, not one target.
+    // CombatFrameComposer.IncomingPerBlowOf) - the reason this index is read per roster row rather
+    // than once for the primary target is that the selection is a question about the whole
+    // opposition, not one target.
     private ReachMarkIndex? _reachMarks;
     // Cached once so the per-carried-item weapon test costs no allocation on the refresh path. Reads
     // _fightHistory through the closure rather than capturing it, so attaching the store later (as
@@ -499,8 +497,9 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     public void AttachStaminaPool(StaminaPoolIndex index) => _staminaPool = index;
 
     /// <summary>Attaches the per-species reach marks (see MudSharp.Combat.ReachMarkIndex) behind the
-    /// live-opponent selection <see cref="IncomingPerBlowOf"/> projects the player's own prediction
-    /// bands from (MudSharp.Combat.ReachAggregate.GreatestThreat). Unlike the swing-damage index this
+    /// live-opponent selection <see cref="CombatFrameComposer.IncomingPerBlowOf"/> projects the
+    /// player's own prediction bands from
+    /// (MudSharp.Combat.ReachAggregate.GreatestThreat). Unlike the swing-damage index this
     /// one folds the LIVE encounter's own blows in as they land and has no sample floor, which is
     /// exactly what a "largest blow seen so far" floor needs - the blow that just landed is part of
     /// the answer.</summary>
@@ -932,235 +931,33 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     }
 
     /// <summary>
-    /// Computes the Combat Rail's own content: the threat indicator, the plain-language "why" line,
-    /// and the tier driving the shared pulse layer. Kept separate from
-    /// <c>CombatHistoryFormatter</c>'s content (survivability, participants, exchange, history
-    /// comparison, weapon table, session totals), which is salvaged as-is; this is the new layer
-    /// built on top of it.
+    /// Composes the Combat Rail's frame - the encumbrance tier, the pulse tier and the live view -
+    /// and stores the three of them.
+    ///
+    /// <para>The computation itself is <see cref="CombatFrameComposer.Compose"/>, which is pure and
+    /// therefore testable; this method is the seam that reads the fields it needs and applies the
+    /// result. The one input it cannot hand over is the dead strip's history:
+    /// <see cref="BuildDeadStripHistory"/> caches against the resolved-fight count and against
+    /// <see cref="_currentEncounterArchived"/>, so it is computed here and passed in.</para>
     /// </summary>
     private void RefreshCombatSignals(
         CombatEncounterSnapshot snapshot, CombatStatDeficits deficits, CombatHistoryContext history,
         DateTime nowUtc)
     {
-        // Unconditional (not gated on InCombat): carrying too much is worth flagging through the
-        // post-fight grace window too, and costs nothing to recompute - pure arithmetic on values
-        // already on hand.
-        _encumbranceTier = CombatTierResolver.StrengthTier(deficits.StrengthEffective, deficits.StrengthMax);
+        var frame = CombatFrameComposer.Compose(new CombatFrameInputs(
+            snapshot, deficits, history, nowUtc,
+            InventoryList, _isKnownWeapon, _readUnseen?.Invoke() ?? default,
+            // Only with an encounter on: the composer's no-encounter branch reads the archive
+            // instead, and BuildDeadStripHistory is a caching method whose cache must not be moved
+            // by a path that will not use the answer.
+            _archiveSnapshot, snapshot.HasEncounter ? BuildDeadStripHistory(snapshot) : [],
+            _tickLoss.LostThisTick, _tickLoss.LastLossUtc, _tickPhase.Anchor,
+            _personaName, _staminaAnsiColor,
+            _staminaPool, _swingDamage, _fightHistory, _reachMarks, _someKinds));
 
-        // The panel's glow keeps running at low stamina whether or not a fight is happening, because
-        // the danger does not stop when the fight does. At this stamina a wandering NPC that would
-        // ignore a healthy player will attack, one blow from most creatures can kill, and fleeing
-        // still costs real points. Walking away from a fight at 22 stamina and forgetting about it is
-        // a way to lose a character between fights.
-        //
-        // 25 rather than 20: chosen as a margin close enough to the survival threshold to matter with
-        // a little room before it.
-        var vulnerable = deficits.StaminaCurrent is int sta && sta <= OutOfCombatVulnerableStamina
-            ? CombatTier.T3
-            : CombatTier.None;
-
-        if (!snapshot.HasEncounter)
-        {
-            _pulseTier = vulnerable;
-            // The dead strip is session-scoped and must survive dismissing the encounter summary -
-            // ClearCombatSummaryCommand leaves the session totals, and the strip is part of that, not
-            // part of the per-encounter readout being wiped. CombatLiveView.Idle alone blanks it
-            // (DeadStripHistory defaults to empty), so HasEncounter is set true here whenever there IS
-            // session history to show. CombatRailView.DrawOpponents gates the WHOLE
-            // opponent-slot/dead-strip region on that one flag, and with an empty Roster
-            // (RosterPlan.Empty, from CombatLiveView.Idle) the live-slot loop draws nothing regardless
-            // of it - so this only ever re-enables the dead strip, never the live stack.
-            _live = _archiveSnapshot.Length == 0
-                ? CombatLiveView.Idle
-                : CombatLiveView.Idle with { HasEncounter = true, DeadStripHistory = _archiveSnapshot };
-            return;
-        }
-
-        // IN COMBAT ONLY. A weapon is a property of the ENCOUNTER, not of the player: MUD2 has no
-        // equipment slots and no persistent wield - one is named for the current fight, or as part of
-        // starting it ("kill x with y"), and when that fight ends nothing is held. So between fights
-        // there is no weapon to report, not an old one worth remembering.
-        var liveWeapon = snapshot.InCombat ? snapshot.CurrentWeapon : null;
-        var hasWeapon = !string.IsNullOrWhiteSpace(liveWeapon);
-        // Empty rather than "UNARMED" for the bare-handed case: the tile draws that word off
-        // CombatLiveView.IsUnarmed, which knows whether a fight is running, and this string is only
-        // ever the NAME of something held.
-        var weaponText = hasWeapon ? CombatComposition.DisplayName(liveWeapon) : string.Empty;
-        // Roster/weapon/duration context is worth showing whenever an encounter exists at all, live
-        // or just-finished - mirrors CombatComposition.Build's own AppendHeadline/AppendParticipants,
-        // which never gated on InCombat either.
-        //
-        // Built AFTER the weapon is known, because each participant's novelty is asked twice - once
-        // bare, once against what is actually in hand - and the second question has no answer until
-        // the line above has run.
-        var facts = ToParticipantFacts(snapshot.Fights, nowUtc, liveWeapon);
-        // The Unseen state rides in beside the facts: the badges are derived from what is open NOW,
-        // on every refresh, never accumulated - see ParticipantRoster.Build.
-        var roster = ParticipantRoster.Build(facts, _readUnseen?.Invoke() ?? default);
-        // The weapon's own mark: the worst thing the corpus says about this weapon against anything
-        // still engaged. Over the FACTS, not the roster rows, so a pack past the row cap still counts.
-        var weaponNovelty = CombatNovelty.WeaponRollup(facts);
-        // The Ctrl+W offer, in combat only. MUD2 has no equipment slots and no default weapon: a
-        // weapon is chosen while fighting, or as part of starting a fight ("kill x with y"). There is
-        // nothing a wield could mean between fights, so the offer - and with it the chip advertising
-        // the key - exists only while a fight is live.
-        //
-        // Recomputed on every refresh rather than latched, because the pack changes mid-fight (things
-        // get picked up, weapons break) and a stale offer would send a wield for something no longer
-        // carried - which costs a dropped guard and a free enemy swing. Cheap: one dictionary probe
-        // per carried item over an inventory of a handful.
-        var altWeapon = snapshot.InCombat
-            ? CombatComposition.ChooseAltWeapon(
-                InventoryList, snapshot.CurrentWeapon, history.ByWeapon, _isKnownWeapon)
-            : null;
-        var deadStripHistory = BuildDeadStripHistory(snapshot);
-
-        if (!snapshot.InCombat)
-        {
-            // Post-combat / grace window: only the survival PROJECTION (threat/flee) goes quiet -
-            // projecting a finished fight's death clock would be a lie. The roster and weapon/duration
-            // context stay, exactly as the old formatter's headline/participant rows did.
-            _pulseTier = vulnerable;
-            _live = new CombatLiveView(
-                InCombat: false, HasEncounter: true, WeaponText: weaponText,
-                // FALSE out of combat, whatever the player is holding. MUD2 has no persistent notion
-                // of being armed - a weapon is named for the CURRENT fight and stops being wielded
-                // when that fight ends. So "unarmed" is not a state the player can be in between
-                // fights; it is the only state, and an alarm about it would fire from the end of every
-                // fight until the start of the next one.
-                //
-                // This flag therefore means "unarmed IN A FIGHT", which is the only thing it can
-                // usefully mean; !hasWeapon would fire falsely for the common case where the
-                // post-combat branch resolves a weapon from the fight that just ended.
-                IsUnarmed: false,
-                Roster: roster,
-                StaminaCurrent: deficits.StaminaCurrent, StaminaMax: deficits.StaminaMax,
-                ObjectsCarried: deficits.ObjectsCarried, Score: deficits.Score,
-                DeadStripHistory: deadStripHistory,
-                MagicCurrent: deficits.MagicCurrent, MagicMax: deficits.MagicMax,
-                AltWeapon: altWeapon,
-                // Rolls up to None on its own here - WeaponRollup skips resolved fights, and outside
-                // combat every fight in the encounter is resolved. Passed rather than omitted so the
-                // two construction sites stay readable as the same record.
-                WeaponNovelty: weaponNovelty);
-            return;
-        }
-
-        var primary = CombatComposition.PrimaryFight(snapshot);
-        var outlook = CombatComposition.ComputeOutlook(snapshot, deficits, history, primary);
-
-        // Incoming per-hit rate this fight - thin-sample gated (MinimumOwnHits) the same way the old
-        // ladder's own risk pairing gated it, reused here for the tier table's "hits-left" trigger
-        // too, so the threat indicator and the tier table never quietly disagree about "how
-        // close is this fight".
-        double? incomingPerHit = primary is { TheyHits: > 0 } f ? f.ApproxDamageTaken / f.TheyHits : null;
-        int? hitsLeft = incomingPerHit is double rate && rate > 0
-            && deficits.StaminaCurrent is int sta1 && primary!.TheyHits >= CombatOutlook.MinimumOwnHits
-            ? (int)Math.Ceiling(sta1 / rate)
-            : null;
-
-        // The encounter table's one coloured cell, off the SAME outlook the tier resolver below reads.
-        // Two consumers of one projection, which is what ComputeOutlook was extracted for; what must
-        // never happen again is a second ladder derived from the raw seconds beside it.
-        var survival = Survival.Read(outlook, CombatTiming.TickMilliseconds);
-
-        var staminaTier = CombatTierResolver.StaminaTier(
-            deficits.StaminaCurrent, deficits.StaminaMax, hitsLeft, outlook.SecondsToDie, outlook.SecondsToKill);
-        var fightTier = CombatTierResolver.ResolvePulseTier(staminaTier, CombatTier.None);
-
-        // The whole-panel glow is the loudest thing this client owns, so it answers to ONE stamina
-        // threshold - the same 25 that governs it out of combat - rather than to the survival
-        // projection on its own.
-        //
-        // The projection promotes to T3 at "under 15 seconds to die", which against an ordinary
-        // zombie is arithmetically true from about 30 stamina. That is a correct reading and still
-        // too eager for a full-panel flash: it fires while the player is comfortably above the
-        // threshold they actually act on, and an alarm that cries wolf at 30 is an alarm that gets
-        // ignored at 20. The projection still drives everything quieter.
-        //
-        // One override survives, because it is not a projection but a count: two hits left or fewer.
-        // That is imminent whatever the absolute stamina says - it is how a dragon kills someone at
-        // full health.
-        var imminent = fightTier == CombatTier.T3 && hitsLeft is int left && left <= 2;
-        _pulseTier = imminent || vulnerable == CombatTier.T3
-            ? CombatTier.T3
-            : fightTier == CombatTier.T3 ? CombatTier.T2 : fightTier;
-
-        // The flee pill computes no flee-cost figure and publishes no price; its loudest state is an
-        // alarm about the cheap band, not a report of a cost. One accidental flee from a zombie at
-        // 90/100 stamina cost 1300 of 13,000 points and a level, so the player already knows fleeing
-        // is expensive. What the panel owes them is the zone signal (staminaTier, above) and a valid
-        // direction to run, not a price tag to read while deciding.
-
-        var incomingPerBlow = IncomingPerBlowOf(roster);
-
-        _live = new CombatLiveView(
-            InCombat: true, HasEncounter: true, WeaponText: weaponText, IsUnarmed: !hasWeapon,
-            Roster: roster,
-            StaminaCurrent: deficits.StaminaCurrent, StaminaMax: deficits.StaminaMax,
-            ObjectsCarried: deficits.ObjectsCarried, Score: deficits.Score,
-            DeadStripHistory: deadStripHistory,
-            MagicCurrent: deficits.MagicCurrent, MagicMax: deficits.MagicMax,
-            AltWeapon: altWeapon,
-            // The flee pill. Fed hitsLeft rather than the resolved tier, so it agrees with the count
-            // that already overrides the whole-panel glow instead of deriving a second opinion from the
-            // same inputs.
-            //
-            // Not gated on the grace window here: the grace flag changes without the frame state being
-            // rebuilt, so folding it in would leave it stale exactly when it matters. The renderer and
-            // the pulse layer both apply that gate themselves, as the tick meter already does.
-            FleePill: FleePillResolver.Resolve(
-                inCombat: true, deficits.StaminaCurrent,
-                FleePillResolver.WorstCaseTickDamage(roster), hitsLeft),
-            // The incoming half of the border language, pooled over everything still swinging at the
-            // player. See CombatLiveView.IncomingTempo for why it is a ratio of sums.
-            IncomingTempo: IncomingTempoOf(snapshot),
-            WeaponNovelty: weaponNovelty,
-            // The player's own prediction bands, off the ONE creature ReachAggregate.GreatestThreat
-            // names (see IncomingPerBlowOf) - never a pack summed together. See
-            // DamagePrediction.IncomingPerBlow.
-            YourNextBlow: DamagePrediction.PlayerAfterBlows(
-                1, deficits.StaminaCurrent, deficits.StaminaMax, incomingPerBlow),
-            YourBlowAfter: DamagePrediction.PlayerAfterBlows(
-                2, deficits.StaminaCurrent, deficits.StaminaMax, incomingPerBlow),
-            StaminaLostLastTick: _tickLoss.LostThisTick,
-            // Only meaningful alongside a nonzero LostThisTick - see CombatLiveView.StaminaLossUtc.
-            StaminaLossUtc: _tickLoss.LostThisTick > 0 ? _tickLoss.LastLossUtc : null,
-            // The encounter table. Par counts what is still up; Op counts everything this encounter
-            // has produced, which is why a fight that has killed four of five reads "1" and "5".
-            PlayerName: _personaName,
-            StaminaAnsiColor: _staminaAnsiColor,
-            YourDealt: EncounterLine(snapshot, outgoing: true),
-            YourTaken: EncounterLine(snapshot, outgoing: false),
-            YourExchange: snapshot.Exchange,
-            // One reading, resolved here off the same outlook the survivability line uses. The phase
-            // rides with it rather than being sampled at paint time, so the 1 Hz flush that already
-            // runs through a fight is what makes a blink visible - and it only alternates while the
-            // reading is Dire, so nothing republishes once a second for a blink nobody is drawing.
-            Survival: survival,
-            BlinkOn: survival == MudSharp.Combat.SurvivalReading.Dire
-                && Mucka.Combat.Blink.PhaseOn(nowUtc),
-            // Unarmed AND below maximum - an unarmed opening is normal and must not raise an alarm.
-            BlinkOffPhase: !hasWeapon
-                && deficits.StaminaCurrent is int sta2 && deficits.StaminaMax is int max2 && sta2 < max2
-                && Mucka.Combat.Blink.PhaseOn(nowUtc, inverted: true),
-            LiveOpponents: roster.LiveCount,
-            OpponentsFaced: roster.TotalCount,
-            // Duration comes off the encounter, not the primary fight: a fight that started when the
-            // third creature joined has been going a fraction of the time the player has been in
-            // trouble, and the table is about the encounter.
-            EncounterTicks: EncounterTicksOf(snapshot),
-            // Both null until the projection will commit. Same instrument the survivability line uses
-            // (CombatComposition.ComputeOutlook), converted to ticks in this one place.
-            TicksToVictory: TicksFromSeconds(outlook.SecondsToKill),
-            TicksToDeath: TicksFromSeconds(outlook.SecondsToDie),
-            // The player's name emphasis, off the same instant the ring's just-lost slice fades from -
-            // TickStaminaLoss already groups a tick's blows into one burst with one arrival time, which
-            // is exactly the granularity this cue wants. Gated on there being a loss at all, for the
-            // same reason StaminaLossUtc is: LastLossUtc is DateTime.MinValue until something lands,
-            // and a default that reads as "damage in 1 AD" is not a timestamp.
-            PlayerTookDamageThisTick: _tickLoss.LostThisTick > 0
-                && TickDamageEmphasis.IsOn(_tickLoss.LastLossUtc, nowUtc, _tickPhase.Anchor));
+        _encumbranceTier = frame.EncumbranceTier;
+        _pulseTier = frame.PulseTier;
+        _live = frame.Live;
     }
 
     /// <summary>
@@ -1296,315 +1093,6 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             if (AwardFor(ending.EncounterOrdinal, ending.Name, ending.EndedUtc) is int award)
                 endings[i] = ending with { ScoreAwarded = award };
         }
-    }
-
-    /// <summary>
-    /// What one incoming blow takes, from the creature <see cref="ReachAggregate.GreatestThreat"/>
-    /// names - the greatest measured single-blow reach among the live rows, tie-broken on damage
-    /// actually taken.
-    ///
-    /// <para>One creature, never the pack summed. Falls back to the first live row when nothing has a
-    /// reach mark yet, so the bands appear as soon as anything has swung rather than waiting for the
-    /// threat ranking to have evidence.</para>
-    /// </summary>
-    private static DamageBracket? IncomingPerBlowOf(RosterPlan roster)
-    {
-        var index = ReachAggregate.GreatestThreat(roster);
-        if (index < 0)
-        {
-            for (var i = 0; i < roster.Rows.Count; i++)
-            {
-                if (roster.Rows[i].IsLive)
-                {
-                    index = i;
-                    break;
-                }
-            }
-        }
-
-        if (index < 0)
-            return null;
-
-        var row = roster.Rows[index];
-        return DamagePrediction.IncomingPerBlow(row.FightDamage, row.EverDamage);
-    }
-
-    /// <summary>
-    /// Every live opponent's swings at the player this encounter, pooled into one tempo.
-    ///
-    /// <para>Hits and misses are ADDED, so the resulting rate is a ratio of sums. An average of the
-    /// per-creature rates would weight a rat that has swung twice the same as an ogre that has swung
-    /// forty times, which is the shape of aggregate error this panel has been bitten by before.</para>
-    ///
-    /// <para>Live participants only: a creature that is already dead is not part of what is coming at
-    /// the player, and leaving its swings in would keep the border reading busy after a pack was
-    /// cleared.</para>
-    /// </summary>
-    private static SwingTempo IncomingTempoOf(CombatEncounterSnapshot snapshot)
-    {
-        var tempo = SwingTempo.None;
-        foreach (var fight in snapshot.Fights)
-        {
-            if (!fight.IsResolved)
-                tempo = tempo.Plus(new SwingTempo(fight.TheyHits, fight.TheyMisses));
-        }
-        return tempo;
-    }
-
-    /// <summary>One creature's remaining-stamina band: the species estimate, less this fight's damage
-    /// brackets, narrowed by the live health rung and by any `diagnose` reading. Null when nothing at
-    /// all supports one - a band with no evidence is not a band.
-    ///
-    /// <para>Absolute, and it never leaves this file. Its only consumer is NpcVitality.Estimate, which
-    /// divides it by the pool to place the seal's fill inside the rung the game printed; no figure it
-    /// produces is ever drawn.</para></summary>
-    private static NpcStaminaBand? RemainingFor(StaminaPoolEstimate pool, FightSnapshot fight)
-    {
-        var band = NpcRemainingStamina.Compute(
-            pool, fight.YourDamage, fight.RungAnchor, fight.StaminaReading);
-        return band.HasEvidence ? band : null;
-    }
-
-    /// <summary>Maps the app-side <see cref="FightSnapshot"/> list down to the plain facts
-    /// <see cref="ParticipantRoster.Build"/> needs. That class lives in mudsharp and
-    /// <see cref="FightSnapshot"/> in Mucka.Combat, which references mudsharp - the dependency runs
-    /// one way, so the roster cannot reference the snapshot itself.
-    ///
-    /// <para>An instance method rather than static purely so it can reach <see cref="_swingDamage"/>
-    /// - the "ever" figures are a per-participant fact and belong to the participant, exactly as the
-    /// NPC's own weapon does, so this is the one place that can attach them without the roster or the
-    /// renderer having to know a store exists.</para></summary>
-    private ParticipantFact[] ToParticipantFacts(
-        IReadOnlyList<FightSnapshot> fights, DateTime nowUtc, string? currentWeapon)
-    {
-        var facts = new ParticipantFact[fights.Count];
-        for (var i = 0; i < fights.Count; i++)
-        {
-            var fight = fights[i];
-            // Age is resolved to seconds here, at the one point that knows what "now" is, so nothing
-            // downstream has to be handed a clock. Negative ages (a reading timestamped marginally
-            // ahead of this refresh) clamp to zero rather than reading as fresher than fresh.
-            double? healthAge = fight.HealthReadUtc is DateTime read
-                ? Math.Max(0.0, (nowUtc - read).TotalSeconds)
-                : null;
-            // The diagnose probe's own age, resolved the same way and kept separate from the
-            // descriptor's: the two fade for different reasons - see RosterRow.StaminaReadStaleAfterSeconds.
-            double? staminaReadAge = fight.StaminaReadUtc is DateTime probed
-                ? Math.Max(0.0, (nowUtc - probed).TotalSeconds)
-                : null;
-            // Null (not StaminaPoolEstimate.None) with no index attached, so the narrowing step can
-            // tell "no pool index in this context" from "an index with nothing on file for this
-            // creature" - the second is a real answer about a species and the first is not an answer
-            // at all. Either way the rung's own seventh still stands on its own.
-            var pool = _staminaPool?.Lookup(fight.NpcName);
-            // The seal's fill, per participant rather than for the primary target alone - the whole
-            // point of a seal per slot is that a pack can be read row against row, which a figure only
-            // the current target carries cannot support.
-            //
-            // A FRACTION, not a stamina figure. The rung is the source (it is what MUD2 actually
-            // printed and what the player themselves read); the pool estimate and this fight's damage
-            // brackets only narrow the position inside that seventh, and no absolute number they
-            // produce reaches the screen. Both probes are dictionary lookups under a lock held for
-            // exactly that probe (StaminaPoolIndex's own remarks), run for at most MaxRows opponents
-            // per refresh.
-            var vitality = NpcVitality.Estimate(
-                fight.HealthRung, pool, pool is null ? null : RemainingFor(pool, fight),
-                // The crossing is the sharpest constraint of the three on a large creature, and it needs
-                // this fight's cumulative bracket because on a first encounter that is the only floor
-                // under the pool there is.
-                fight.RungCrossing, fight.YourDamage,
-                // "full of life" / "full of energy" is cur == max exactly, not merely the top band, so
-                // it is the one reading that can fill the seal. Without it the hard fill tops out at
-                // the rung floor - 6/7 - and an untouched creature never draws full.
-                atMax: fight.HealthPhrase is { } phrase && NpcHealthRungs.IsAtMax(phrase));
-            // One probe, three answers. Narrowed by the creature's CURRENT weapon so the armed-as-now
-            // profile comes back alongside the species-wide one; both are dictionary lookups under a
-            // single lock (SwingDamageIndex's own remarks), and taking them together rather than in
-            // two calls halves the locking on a path that runs once per opponent per refresh.
-            var damage = _swingDamage?.Lookup(fight.NpcName, fight.NpcWeapon) ?? OpponentDamage.Empty;
-            var perBlow = DamagePrediction.PerBlow(
-                fight.YourDamage, fight.YouHits, damage.Outgoing);
-            // (None, None) with no store attached (unit/design contexts): no corpus means no evidence
-            // either way, and "unfought" is a claim about the corpus rather than the absence of one.
-            var novelty = _fightHistory?.NoveltyFor(fight.NpcName, currentWeapon)
-                ?? (NoveltyMark.None, NoveltyMark.None);
-
-            facts[i] = new ParticipantFact(
-                fight.NpcName, fight.IsResolved, fight.Outcome,
-                fight.HealthRung, fight.HealthPhrase, healthAge, fight.ApproxDamageTaken,
-                fight.NpcWeapon,
-                fight.TheirDamage,
-                // Empty (which draws as nothing) whenever the cache is absent or has too few blows on
-                // file - never a zero, which would read as "this thing cannot hurt you". Only the
-                // incoming half reaches the rail today; the outgoing brackets are cached alongside it
-                // for the exchange bars and the analysis view, which want both sides.
-                // BestIncoming, not Incoming: narrowed to the weapon this creature is actually holding
-                // when enough blows have been seen through it. This feeds the player's own prediction
-                // bands and the flee readout, which is exactly where the sharper number belongs.
-                damage.BestIncoming,
-                vitality,
-                // rDPT: where the next two landed blows put this creature's boundary, as intervals off
-                // the player's own damage brackets. This fight's bracket is preferred over history so a
-                // weapon swap, a dropped load or a magic buff moves the bands on the very next blow -
-                // nothing here latches. See MudSharp.Combat.DamagePrediction for what each evidence
-                // state buys and why this replaced a time-based forecast.
-                DamagePrediction.AfterBlows(1, vitality, pool, perBlow, fight.YourDamage, fight.RungCrossing),
-                DamagePrediction.AfterBlows(2, vitality, pool, perBlow, fight.YourDamage, fight.RungCrossing),
-                new SwingTempo(fight.YouHits, fight.YouMisses),
-                // The reach mark is per SPECIES and includes this encounter's own blows, so it is the
-                // only figure on this row that can already know about the hit that landed a second ago.
-                _reachMarks?.Lookup(fight.NpcName) ?? ReachMark.None,
-                // Novelty: has this creature's KIND ever been fought, and ever killed - once bare, once
-                // narrowed to the weapon in hand. Two dictionary probes under one lock, per row.
-                //
-                // The index holds only CLOSED, flushed fights (HistoryIndex's own remarks), so the
-                // encounter on screen cannot enter its own answer. That is the property that makes the
-                // marks hold still: a creature met for the first time stays orange for the whole of the
-                // fight that is teaching you about it, and only stops being new on the NEXT one.
-                novelty.Name, novelty.Weapon,
-                // The diagnose probe, with the damage dealt since it so the slot can show what the
-                // Creature has left NOW rather than what it had when the probe was taken. Kept for the
-                // rest of the fight rather than expiring; the probe's own age rides alongside and dims
-                // it - see RosterRow.StaminaReadStaleAfterSeconds for what time costs a reading that
-                // damage cannot.
-                fight.StaminaReading,
-                staminaReadAge,
-                fight.Value,
-                DealtLine(fight),
-                TakenLine(fight),
-                fight.Exchange,
-                // The name's emphasis. HealthReadUtc is the arrival of a WOUND DESCRIPTOR, and MUD2
-                // prints one after every landed blow that does not kill - 3,559 descriptors against
-                // 3,561 such hits across 1,197 fights - so it is the sharpest "this creature just took
-                // damage" instant the client has. `diagnose` does not touch it (that is
-                // FightAccumulator.NoteStaminaRead), so a probe cannot fake a blow. What it does
-                // include is damage the player did not deal: NPC-versus-NPC combat is in the corpus,
-                // and a creature being hurt by something else is still a creature being hurt, which is
-                // what the cue claims.
-                TickDamageEmphasis.IsOn(fight.HealthReadUtc, nowUtc, _tickPhase.Anchor),
-                // Which word this species gets when Unseen, if learned. Null for the anonymous words
-                // themselves (they are not a species) and for anything never fought unseen.
-                _someKinds?.Known(fight.NpcName));
-        }
-        return facts;
-    }
-
-    /// <summary>How many combat ticks this fight has been running, as a real number. Wall clock over
-    /// the measured 2000 ms tick, NOT a count of swings: roughly half the ticks an engaged creature is
-    /// present for carry no swing at all (DamagePrediction's own remarks), so swings would understate
-    /// the elapsed time by about half and double every rate built on it.</summary>
-    private static double TicksElapsed(TimeSpan duration)
-        => duration.TotalMilliseconds / CombatTiming.TickMilliseconds;
-
-    /// <summary>Seconds into ticks, or null straight through. Null is the whole point: CombatOutlook
-    /// returns null for "not enough evidence to project", and turning that into a zero here would put
-    /// a confident "0t to death" on the table at the exact moment the projection was refusing to make
-    /// one. Permadeath game; that particular zero is the worst lie on the panel.</summary>
-    private static double? TicksFromSeconds(double? seconds)
-        => seconds is double value ? value * 1000.0 / CombatTiming.TickMilliseconds : null;
-
-    /// <summary>
-    /// The player's own stat row, pooled over every fight in the encounter.
-    ///
-    /// <para>Folded from the per-fight figures rather than kept as a second running tally, so the
-    /// player's row and the opponents' rows cannot disagree: a total is a sum, the extremes are the
-    /// extremes, and the mean comes from the pooled numerator and the pooled denominator rather than
-    /// from averaging averages (which would weight a creature hit twice like one hit forty times).</para>
-    ///
-    /// <para>The rate divides by the ENCOUNTER's duration, not the sum of the fights': three
-    /// creatures swinging at once for ten ticks is ten ticks of trouble, not thirty.</para>
-    /// </summary>
-    private static ExchangeLine EncounterLine(CombatEncounterSnapshot snapshot, bool outgoing)
-    {
-        var samples = 0;
-        var min = 0.0;
-        var max = 0.0;
-        var low = 0.0;
-        var high = 0.0;
-
-        foreach (var fight in snapshot.Fights)
-        {
-            var line = outgoing ? DealtLine(fight) : TakenLine(fight);
-            if (!line.HasSamples)
-                continue;
-
-            if (samples == 0 || line.Min < min)
-                min = line.Min;
-            if (line.Max > max)
-                max = line.Max;
-            samples += line.Samples;
-            low += line.Total.Low;
-            high += line.Total.High;
-        }
-
-        if (samples == 0)
-            return ExchangeLine.Empty;
-
-        // Both ends pooled on the outgoing side, matching DealtLine's own definition of a mean; the
-        // incoming side's two ends are equal, so the same expression is simply the exact mean.
-        return new ExchangeLine(
-            samples, min, max, (low + high) / (2.0 * samples),
-            PerTick((low + high) / 2.0, snapshot.Duration),
-            new DamageBracket(low, high));
-    }
-
-    /// <summary>
-    /// How long the whole ENCOUNTER has been running, in ticks.
-    ///
-    /// <para>Straight off <c>snapshot.Duration</c>, which the aggregator keeps as
-    /// <c>nowUtc - _encounterStartUtc</c>. Walking the fights and taking the longest instead would be
-    /// wrong twice over: <see cref="FightAccumulator.DurationAt"/> FREEZES at <c>EndedUtc</c> once a
-    /// fight resolves, so killing the last creature would stop Dur advancing while the encounter is
-    /// still open through the grace window - and the <c>dmg/tick</c> cells on the same tile divide by
-    /// this same encounter duration, so the two readouts would visibly drift apart every second.</para>
-    /// </summary>
-    private static double? EncounterTicksOf(CombatEncounterSnapshot snapshot)
-        => snapshot.Duration > TimeSpan.Zero ? TicksElapsed(snapshot.Duration) : null;
-
-    /// <summary>The player's side of the stat row. <see cref="ExchangeLine.Mean"/> pools BOTH ends of
-    /// every bracket: three blows of (1-5), (5-9) and (10-14) average to (1+5+5+9+10+14)/6. The
-    /// extremes are upper bounds for the reason ExchangeLine records.</summary>
-    private static ExchangeLine DealtLine(FightSnapshot fight)
-    {
-        if (fight.DealtSamples <= 0)
-            return ExchangeLine.Empty;
-
-        var bothEnds = fight.YourDamage.Low + fight.YourDamage.High;
-        return new ExchangeLine(
-            fight.DealtSamples,
-            fight.DealtMinHigh,
-            fight.DealtMaxHigh,
-            bothEnds / (2.0 * fight.DealtSamples),
-            PerTick(bothEnds / 2.0, fight.Duration),
-            fight.YourDamage);
-    }
-
-    /// <summary>The creature's side. Exact throughout - MUD2 prints the player absolute stamina on
-    /// every blow that lands - so the total comes back with equal ends rather than as a range.</summary>
-    private static ExchangeLine TakenLine(FightSnapshot fight)
-    {
-        var profile = fight.TheirDamage;
-        if (profile.Samples <= 0)
-            return ExchangeLine.Empty;
-
-        return new ExchangeLine(
-            profile.Samples,
-            fight.MinDamageTaken,
-            profile.Max,
-            profile.Average,
-            PerTick(profile.Sum, fight.Duration),
-            new DamageBracket(profile.Sum, profile.Sum));
-    }
-
-    /// <summary>A rate, or zero for "not yet worth stating". Under one full tick there is no rate to
-    /// report - dividing by a fraction of a tick turns the first blow of a fight into a catastrophic
-    /// -40/tick - so this returns zero and the tile draws the cell as unknown rather than as a
-    /// measurement. Same refusal CombatOutlook makes for the same reason, at a lower bar
-    /// because this states what HAS happened rather than projecting what will.</summary>
-    private static double PerTick(double total, TimeSpan duration)
-    {
-        var ticks = TicksElapsed(duration);
-        return ticks < 1.0 ? 0.0 : total / ticks;
     }
 
     /// <summary>Stand-in for "no encounter", so the formatter's session-totals path can run without a
@@ -2052,7 +1540,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     private CombatEnding EndingFor(FightSnapshot fight, int encounterOrdinal, int resetOrdinal)
         => new(
             fight.NpcName, fight.Outcome, fight.EndedUtc, encounterOrdinal, resetOrdinal,
-            DealtLine(fight), TakenLine(fight),
+            ExchangeLines.DealtLine(fight), ExchangeLines.TakenLine(fight),
             AwardFor(encounterOrdinal, fight.NpcName, fight.EndedUtc));
 
     /// <summary>The award paired to one ending - see <see cref="KillAwardLedger"/>, which owns the

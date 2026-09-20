@@ -1537,7 +1537,7 @@ public partial class GamePage : ContentPage
         }
         else if (e.PropertyName == nameof(SidePanelViewModel.PulseTier))
         {
-            // Only T3 ever requests real motion (see SidePanelViewModel.RefreshCombatSignals's
+            // Only T3 ever requests real motion (see CombatFrameComposer.Compose's
             // remarks on why lower/event tiers are static colour only in this implementation phase).
             var isCritical = _vm.SidePanel.PulseTier == MudSharp.Combat.CombatTier.T3;
             _combatPanelPulse?.SetTier(isCritical ? PulseTier.T3 : PulseTier.None);
@@ -1840,22 +1840,6 @@ public partial class GamePage : ContentPage
     /// name column, and 92 from there stays inside the panel at the narrow width as well as the
     /// wide one.</para></summary>
     private const double CombatFloatWidthDp = 92.0;
-    /// <summary>The box every float is drawn in, sized for the BIGGEST one the emphasis ladder can
-    /// produce (<see cref="RailFloatEmphasis.BaseFontSize"/> plus its four steps). The box is
-    /// asserted natively and does not grow with the text, so a height fitted to the base size would
-    /// clip exactly the numbers worth reading.</summary>
-    private const double CombatFloatHeightDp = 24.0;
-
-
-    /// <summary>How far sideways a clustered float steps, alternating each way. Small: the cluster
-    /// should read as one flurry over one pane, not as numbers walking off it.</summary>
-    private const double CombatFloatZigDp = 11.0;
-
-    /// <summary>How far up each further blow of the same tick sits. Deliberately LESS than
-    /// <see cref="CombatFloatHeightDp"/>, so a cluster overlaps rather than stacking clear - see
-    /// OnCombatFloatRaised.</summary>
-    private const double CombatFloatClusterStepDp = 13.0;
-
     /// <summary>A float's whole life, read from RailFloatBudget's expiry rather than restated, so
     /// the animation and the budget cannot disagree about when a slot is free again.</summary>
     private static readonly TimeSpan CombatFloatDuration = RailFloatBudget.Lifetime;
@@ -1905,7 +1889,7 @@ public partial class GamePage : ContentPage
                 // Everything after construction is Composition Translation - see the section
                 // remarks on why layout is off limits.
                 WidthRequest = CombatFloatWidthDp,
-                HeightRequest = CombatFloatHeightDp,
+                HeightRequest = RailFloatPlacement.CombatFloatHeightDp,
                 HorizontalOptions = LayoutOptions.Start,
                 VerticalOptions = LayoutOptions.Start,
                 HorizontalTextAlignment = TextAlignment.Center,
@@ -2014,7 +1998,7 @@ public partial class GamePage : ContentPage
         // about half its width to the left of the pane it is reporting on, and the centred text
         // alignment has nothing to centre within.
         fe.Width = CombatFloatWidthDp;
-        fe.Height = CombatFloatHeightDp;
+        fe.Height = RailFloatPlacement.CombatFloatHeightDp;
 
         // The handle spawning writes through. MAUI's LabelHandler creates a plain TextBlock
         // (decompiled: LabelHandler.CreatePlatformView, and MapText/MapTextColor go straight to
@@ -2275,22 +2259,9 @@ public partial class GamePage : ContentPage
         if (textBlock.FontWeight.Weight != weight.Weight)
             textBlock.FontWeight = weight;
 
-        // ONE column for every float, whatever its direction and whatever pane it sits on -
-        // CombatRailView.OpponentFloatOriginDp and its player twin return the same x. Splitting the
-        // two directions to opposite edges was tried in play and is worse: the rail is scanned down
-        // its badges, and numbers alternating between the left and right margins cut across that
-        // scan instead of riding it. Which direction a float is remains legible from its colour and
-        // from the pane it rises off, neither of which costs a second sweep of the eye. Do not
-        // re-split them.
-        // Cluster 0 - a new exchange - starts exactly beside the name it belongs to, every time.
-        // Further blows from the SAME tick zig-zag off it: alternating sideways, stepping up by less
-        // than a box height so they deliberately overlap. The overlap is the point. Several numbers
-        // piling over one pane is the sense of being hit by a pack, which is what the rail owes the
-        // player; reading each figure is the encounter table's job, not this one's.
-        var zig = grant.Cluster == 0 ? 0.0
-            : (grant.Cluster % 2 == 1 ? CombatFloatZigDp : -CombatFloatZigDp);
-        var x = origin.Left + zig;
-        var y = origin.Top - (grant.Cluster * CombatFloatClusterStepDp);
+        // Where it goes - one column for every float, with the same tick's further blows zig-zagging
+        // up in a deliberate overlap. See RailFloatPlacement.For for both rules.
+        var (x, y) = RailFloatPlacement.For(grant.Cluster, origin);
 
         if (!layer.Play(x, y, CombatFloatDuration,
                 () =>

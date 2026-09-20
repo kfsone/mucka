@@ -10,7 +10,7 @@ namespace Mucka.Combat;
 /// resolves combat on a 2000 ms tick (median residual 26 ms over 68 sessions), so every blow belonging
 /// to one tick reaches the client within a few tens of milliseconds of the others while consecutive
 /// ticks are two seconds apart. Grouping losses that arrive inside <see cref="SameTickWindow"/> - a
-/// quarter of a tick - therefore separates ticks cleanly with two orders of magnitude of margin.
+/// quarter of a tick - therefore separates ticks cleanly with two orders of magnitude of margin.</para>
 ///
 /// <para>Bucketing on absolute 2000 ms boundaries instead would be worse, not better: a tick whose
 /// blows straddle a boundary would be split into two slices, which happens roughly 26/2000 of the
