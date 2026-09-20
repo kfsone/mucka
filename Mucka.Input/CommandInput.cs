@@ -10,7 +10,7 @@ namespace Mucka.Input;
 /// keystroke itself.</para>
 ///
 /// <para><b>What a consumer may do to the box.</b> Ask for text to be put in it
-/// (<see cref="RequestSetText"/>), ask for it to be emptied (<see cref="RequestClear"/>), ask for
+/// (<see cref="RequestSetText(string)"/>), ask for it to be emptied (<see cref="RequestClear"/>), ask for
 /// focus (<see cref="RequestFocus"/>). That is all, and all three are REQUESTS routed through the
 /// gate rather than writes applied on the spot. This is the part that makes interference structurally
 /// awkward: there is no handle to the control to be found, and the requests queue behind whatever the

@@ -376,7 +376,7 @@ public sealed class WireLogTests : IDisposable
     private static string WyvernFixturePath =>
         Path.Combine(AppContext.BaseDirectory, "Fixtures", "Data", "wyvern-poison-death.c1");
 
-    /// <summary>Same as <see cref="AssertSame"/> minus the timestamps, for records that went through the
+    /// <summary>An exact record comparison minus the timestamps, for records that went through the
     /// live writer: it stamps each one with its own <c>UtcNow</c> reading, so only the payload, the
     /// direction and the order are the writer's to preserve.</summary>
     private static void AssertRecordShapes(List<WireRecord> expected, List<WireRecord> actual)

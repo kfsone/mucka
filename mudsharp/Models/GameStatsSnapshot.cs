@@ -31,13 +31,13 @@ public sealed record GameStatsSnapshot(
     // -- `score` sheet only (no FES equivalent) --------------------------------
     // The sheet is the sole source for these, so they are appended (never reordered):
     // every construction site names its arguments, and appending keeps that safe.
-    /// <summary>Persona sex as the sheet words it ("male"/"female"). Never changes within a persona.</summary>
+    // Persona sex as the sheet words it ("male"/"female"). Never changes within a persona.
     string? Sex = null,
-    /// <summary>Points earned in the current game ("this game: N points"). Legitimately 0 - null means
-    /// "not reported", 0 means "reported as zero", per the nullable convention above.</summary>
+    // Points earned in the current game ("this game: N points"). Legitimately 0 - null means
+    // "not reported", 0 means "reported as zero", per the nullable convention above.
     int? ScoreThisGame = null,
-    /// <summary>The persona's own point value ("value: N points"). This is what an attacker collects
-    /// when we flee or die, so it is the size of the transfer, not a vanity figure.</summary>
+    // The persona's own point value ("value: N points"). This is what an attacker collects
+    // when we flee or die, so it is the size of the transfer, not a vanity figure.
     int? PlayerValue = null
 )
 {

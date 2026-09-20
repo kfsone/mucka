@@ -13,11 +13,13 @@ namespace MudSharp.Tests.Fixtures;
 /// added later for an unrelated feature. Nothing about that is visible to a compiler, a reviewer or
 /// a reader - the reference still looks like a reference.</para>
 ///
-/// <para><b>Scope, deliberately narrow.</b> Only <c>docs/</c>, and only source extensions. CLAUDE.md
-/// lives at the repo root and is outside the sweep, so it can quote the banned shape when it states
-/// the rule. Citations of a CAPTURE - a session recording and a record number inside it - are
-/// evidence and are not touched: they name a file that is not source, and they are how a wire fact
-/// is made checkable. A cross-reference to another document is likewise left alone.</para>
+/// <para><b>Scope.</b> <c>docs/</c>, and the comment lines of every <c>.cs</c> file, and only source
+/// extensions. CLAUDE.md lives at the repo root and is outside the sweep, so it can quote the banned
+/// shape when it states the rule. Citations of a CAPTURE - a session recording and a record number
+/// inside it - are evidence and are not touched: they name a file that is not source, and they are
+/// how a wire fact is made checkable. A cross-reference to another document is likewise left alone.
+/// Source comments are swept because they rot the same way: the first sweep of them found a test
+/// citing <c>MudSession.cs:166</c> for a claim that had moved to a method 1,150 lines below.</para>
 ///
 /// <para><b>The one shape it cannot see.</b> A citation whose FILENAME is split by a line wrap
 /// (<c>Foo.c</c> / <c>s:44</c>) survives, because the sweep joins at most two adjacent lines and the
@@ -85,6 +87,60 @@ public class DocsCiteSymbolsNotLinesTests
         Assert.True(offenders.Count == 0,
             "Docs must cite a symbol, not a line number (see CLAUDE.md, \"What a doc may say\"):\n  "
             + string.Join("\n  ", offenders));
+    }
+
+    /// <summary>Only comment lines are swept, so a string literal carrying the shape (this file's
+    /// own test data, an error message) is not a citation. XML doc comments are included: they are
+    /// where an agent writes "see Foo.cs:44" most often.</summary>
+    private static readonly Regex CommentLine = new(@"^\s*//", RegexOptions.Compiled);
+
+    private static readonly HashSet<string> SkippedDirectories = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".git", ".vs", "bin", "obj", "tools", "node_modules",
+    };
+
+    [Fact]
+    public void NoSourceCommentCitesCodeByLineNumber()
+    {
+        var root = FindRepoRoot();
+        var files = EnumerateSourceFiles(root)
+            .Where(f => !f.Name.Equals(nameof(DocsCiteSymbolsNotLinesTests) + ".cs", StringComparison.Ordinal))
+            .ToList();
+        Assert.True(files.Count > 100, "source sweep found almost nothing - the walk is wrong");
+
+        var offenders = new List<string>();
+        foreach (var file in files)
+        {
+            var lines = File.ReadAllLines(file.FullName);
+            for (int i = 0; i < lines.Length; i++)
+            {
+                if (!CommentLine.IsMatch(lines[i])) continue;
+                var hit = CodeLineCitation.Match(lines[i]);
+                // The join is for a citation the wrap split; one the next line carries whole is
+                // that line's own offence and is not reported twice.
+                if (!hit.Success && i + 1 < lines.Length && CommentLine.IsMatch(lines[i + 1])
+                    && !CodeLineCitation.IsMatch(lines[i + 1]))
+                    hit = CodeLineCitation.Match(lines[i] + " " + lines[i + 1].TrimStart(' ', '/'));
+                if (hit.Success)
+                    offenders.Add(
+                        $"{Path.GetRelativePath(root.FullName, file.FullName)}:{i + 1}: {hit.Value}");
+            }
+        }
+
+        Assert.True(offenders.Count == 0,
+            "A source comment must cite a symbol, not a line number (see CLAUDE.md, \"What a comment may say\"):\n  "
+            + string.Join("\n  ", offenders));
+    }
+
+    private static IEnumerable<FileInfo> EnumerateSourceFiles(DirectoryInfo dir)
+    {
+        if (SkippedDirectories.Contains(dir.Name))
+            yield break;
+        foreach (var f in dir.EnumerateFiles("*.cs"))
+            yield return f;
+        foreach (var sub in dir.EnumerateDirectories())
+            foreach (var f in EnumerateSourceFiles(sub))
+                yield return f;
     }
 
     /// <summary>The gate has to be able to fail, and the pattern is the whole of it - a regex that

@@ -130,7 +130,7 @@ public enum PoolEvidence
 /// inside a single encounter, so no blow could be attributed to any one of them.</param>
 /// <param name="ContradictoryFights">Kills whose rung readings demanded a larger pool than their own
 /// kill bracket allows. The rung bounds were dropped for those and the kill bracket kept - see
-/// <see cref="BoundFor"/>.</param>
+/// <see cref="StaminaPoolEstimator.BoundFor"/>.</param>
 /// <param name="TiedRuns">The disjoint bands that tied for maximum depth, low to high. Exactly one in
 /// the ordinary case, and then it equals <paramref name="Interval"/>. More than one means
 /// <paramref name="Evidence"/> is <see cref="PoolEvidence.Split"/> and

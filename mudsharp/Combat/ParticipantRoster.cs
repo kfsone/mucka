@@ -311,7 +311,8 @@ public readonly record struct RosterPlan(
     ///
     /// <para><b>This is load-bearing for Invariant #1 and was silently absent.</b> The rail's render
     /// surface skips a repaint when the frame it is handed equals the one it already drew
-    /// (<c>CombatRailView.Live</c>'s setter). <see cref="CombatLiveView"/> is a record, so that
+    /// (<c>CombatRailView.Live</c>'s setter). <c>CombatLiveView</c> (Mucka.Combat, above this
+    /// assembly) is a record, so that
     /// comparison recurses into this struct - but the synthesized <c>Equals</c> compares
     /// <see cref="Rows"/> with <c>EqualityComparer&lt;IReadOnlyList&lt;RosterRow&gt;&gt;.Default</c>,
     /// which for a list or array is REFERENCE equality. <see cref="ParticipantRoster.Build"/>

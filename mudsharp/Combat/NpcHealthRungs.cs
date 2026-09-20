@@ -54,7 +54,7 @@ public static class NpcHealthRungs
     /// reading into a longer sentence - "The ram looks covered in wounds, and is holding the
     /// following:" - and an end-anchored pattern silently dropped a perfectly good rung-4 reading
     /// every time it did. The descriptor match is lazy so the run-on clause is never absorbed into it,
-    /// and it still has to survive <see cref="TryRung"/>, which is what actually keeps aggro poses out.
+    /// and it still has to survive <see cref="TryRung"/>, which is what actually keeps aggro poses out.</para>
     ///
     /// <para><b>It does NOT keep all object condition out.</b> The
     /// "in ... condition" family is rejected, but the BySeverity fallback matches an object's wear the
@@ -237,7 +237,7 @@ public static class NpcHealthRungs
     /// "close to" and returns rung 1, i.e. about to die. Observed in the corpus, and reachable in
     /// play - `ql` your own weapon while engaged with a creature whose name it shares and a bogus
     /// reading lands on the rail. "The broadsword looks to be seriously damaged." (rung 3) and the
-    /// well-maintained pick at 6 are the same failure without the drama.
+    /// well-maintained pick at 6 are the same failure without the drama.</para>
     ///
     /// <para>Two families, both from `ql`/examine on an item: the "in ... condition" ladder
     /// (excellent / very good / good / relatively good / poor / very bad) and the terminal
@@ -273,7 +273,7 @@ public static class NpcHealthRungs
     /// stamina, not 5, not 500. "close to death" means the bottom seventh of whatever that creature
     /// has. So the ladder needs no per-creature calibration and carries no absolute information: it
     /// applies to a rat and to a giant identically, and players are creatures like any other, which
-    /// is why 328 player self-inspections measure the scale for everything.
+    /// is why 328 player self-inspections measure the scale for everything.</para>
     ///
     /// <para>What a creature's rung does NOT give you is its stamina. That is the pool-estimation
     /// problem and it is separate - see StaminaPoolEstimator. The stethoscope is the tool there:

@@ -8,7 +8,7 @@ namespace Mucka.Terminal;
 /// splitting a span that straddles the boundary and preserving its <see cref="TextStyle"/>
 /// and any <see cref="StyledSpan.ClickInsertText"/> across the break (so a clickable name that
 /// wraps stays clickable in both pieces). A hard break (no word awareness) - this matches a dumb terminal and is
-/// a no-op when the server has already wrapped (every logical line is then <= columns).
+/// a no-op when the server has already wrapped (every logical line is then &lt;= columns).
 ///
 /// A visual row is itself a (non-partial) <see cref="StyledLine"/>; a blank logical line
 /// produces exactly one empty row.

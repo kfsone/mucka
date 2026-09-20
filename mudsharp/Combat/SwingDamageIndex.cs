@@ -121,7 +121,8 @@ public readonly record struct OpponentDamage(
 /// level, effect flags), so a richer baseline is a query away; this cache is the cheap always-there
 /// answer, not the last word. Anything doing real risk assessment should slice the table.</para>
 ///
-/// <para><b>Threading.</b> <see cref="Fold"/> and the load methods run on the session Feed thread or a
+/// <para><b>Threading.</b> <see cref="FoldIncoming"/>, <see cref="FoldOutgoing"/>, <see cref="FoldAll"/>
+/// and the load methods run on the session Feed thread or a
 /// background warm task; <see cref="Lookup"/> runs on the UI thread on every panel refresh. The lock
 /// is only ever held for a dictionary probe or a single insert, never across I/O - the same contract,
 /// for the same reason, as FightHistoryStore's own lock.</para>

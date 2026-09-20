@@ -37,7 +37,7 @@ namespace MudSharp.Combat;
 /// <item><term>6. Withdraw</term><description>"The X withdraws from your fight, and so do you." / "You withdraw from your fight with someone, and that person does too." - per-creature; an agreement with ONE creature, worded from whichever side accepted.</description></item>
 /// <item><term>7. Player died</term><description>"The X has killed you." / "You have been killed by ..." - zeroes the fight count. Permadeath.</description></item>
 /// <item><term>8. You lose the creature</term><description>"The X drops dead, poisoned..." - per-creature; it died without the player landing the last blow, so no kill line is printed at all. An OPEN family (see <see cref="FightOutcome.NoMore"/>): poison is the member observed, other causes are expected to be worded differently.</description></item>
-/// </list>
+/// </list></para>
 ///
 /// <para>1-3, 6 and 8 close only the creature they name. 4, 5 and 7 are the player's own state changing
 /// rather than one opponent's, so they return the fight count to 0 and close every open fight at once.

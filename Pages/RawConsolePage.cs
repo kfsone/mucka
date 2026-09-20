@@ -9,7 +9,7 @@ namespace Mucka.Pages;
 /// Windows-only diagnostic window opened by the $con command.
 ///
 /// Top half: read-only scrolling Editor showing raw bytes to/from the server,
-/// shown as escaped text (<- for RX, -> for TX). Text is selectable and copyable.
+/// shown as escaped text (&lt;- for RX, -&gt; for TX). Text is selectable and copyable.
 ///
 /// Bottom half: accumulated outgoing sequence built by raw keypresses.
 /// Every key appends its byte(s) to the sequence; Backspace removes the last

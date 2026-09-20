@@ -10,6 +10,12 @@
     <!-- The tree is at zero warnings. A warning that only prints is a warning nobody reads, and
          the next one would be lost in a clean build's output within a week. -->
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- The compiler only checks a <see cref="..."/> when it is asked to emit the XML file. Without
+         this, a cref naming a deleted or renamed member is inert text. Two XML warnings are not
+         rules here and are switched off: CS1591 (public member has no doc comment) and CS1573 (a
+         member documents some of its parameters and not all). -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591;CS1573</NoWarn>
   </PropertyGroup>
 
   <!--

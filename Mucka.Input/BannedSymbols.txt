@@ -1,0 +1,7 @@
+M:System.Threading.Tasks.Task.Wait;Invariant #1: the typing path never blocks on a task
+M:System.Threading.Tasks.Task.Wait(System.Int32);Invariant #1: the typing path never blocks on a task
+M:System.Threading.Tasks.Task.Wait(System.TimeSpan);Invariant #1: the typing path never blocks on a task
+M:System.Threading.Tasks.Task.Wait(System.Threading.CancellationToken);Invariant #1: the typing path never blocks on a task
+P:System.Threading.Tasks.Task`1.Result;Invariant #1: the typing path never blocks on a task
+M:System.Threading.Thread.Sleep(System.Int32);Invariant #1: the typing path never sleeps
+M:System.Threading.Thread.Sleep(System.TimeSpan);Invariant #1: the typing path never sleeps

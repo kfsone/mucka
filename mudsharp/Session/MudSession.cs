@@ -329,7 +329,7 @@ public sealed class MudSession : IDisposable
     /// <summary>Fires for every classified combat line while (or just as) InCombat.</summary>
     public event Action<CombatEvent>? CombatEventOccurred;
     /// <summary>
-    /// Server confirmed the terminal width (ESC-<n>W response or "[New terminal width is N]" annotation).
+    /// Server confirmed the terminal width (ESC-&lt;n&gt;W response or "[New terminal width is N]" annotation).
     /// Payload is the confirmed column count.
     /// </summary>
     public event Action<int>? TerminalWidthConfirmed;

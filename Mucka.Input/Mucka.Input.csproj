@@ -21,5 +21,15 @@
     <Nullable>enable</Nullable>
     <RootNamespace>Mucka.Input</RootNamespace>
   </PropertyGroup>
+  <ItemGroup>
+    <!-- RS0030 on any symbol listed in BannedSymbols.txt; TreatWarningsAsErrors makes it a build
+         failure. This library is the typing path (CLAUDE.md, Invariant #1), so a blocking wait
+         here is banned by name rather than by a sentence. -->
+    <PackageReference Include="Microsoft.CodeAnalysis.BannedApiAnalyzers" Version="4.14.0">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <AdditionalFiles Include="BannedSymbols.txt" />
+  </ItemGroup>
 
 </Project>

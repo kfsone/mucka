@@ -8,7 +8,7 @@ internal sealed class AnsiSgrState
     public TextStyle CurrentStyle { get; private set; } = TextStyle.Default;
 
     /// <summary>
-    /// Invoked when the server confirms the terminal width via ESC-<n>W.
+    /// Invoked when the server confirms the terminal width via ESC-&lt;n&gt;W.
     /// Payload is the confirmed width value.
     /// </summary>
     internal Action<int>? WidthConfirmed;

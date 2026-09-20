@@ -40,9 +40,9 @@ public enum OutlookVerdict
 /// </summary>
 public sealed record CombatOutlook(
     OutlookVerdict Verdict,
-    /// Seconds until the player finishes the opponent, null when unprojectable.
+    // Seconds until the player finishes the opponent, null when unprojectable.
     double? SecondsToKill,
-    /// Seconds until the opponent finishes the player, null when unprojectable.
+    // Seconds until the opponent finishes the player, null when unprojectable.
     double? SecondsToDie)
 {
     public static readonly CombatOutlook Unknown = new(OutlookVerdict.Unknown, null, null);

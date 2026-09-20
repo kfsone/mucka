@@ -106,7 +106,7 @@ public class CreatureValueProbeTests : IDisposable
     }
 
     // -- Matrix row: "prompt, echo" / "prompt, reply" - the documented shape --------------------
-    // (MudSession.cs:166's own claim, and PostSelectSetupTests' model): echo and reply each arrive
+    // (MudSession.TryConsumeCreatureValueLine's own remarks, and PostSelectSetupTests' model): echo and reply each arrive
     // as their OWN frame, each led by its own prompt.
 
     [Fact]
