@@ -425,7 +425,7 @@ public class ShellTextTests
     public void DetectsQuitFarewellLine()
     {
         // Wrap padding exactly as GameModeExitTests' captured qq byte sequence carries it.
-        Assert.True(ShellText.IsQuitFarewellLine(ShellText.NormalizeWhitespace("Cheerio!\r\0\r\n")));
+        Assert.True(ShellText.IsQuitFarewellLine(ShellText.NormalizeWhitespace("Cheerio!\r\u0000\r\n")));
     }
 
     [Theory]

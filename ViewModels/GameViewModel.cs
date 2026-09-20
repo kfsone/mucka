@@ -1014,21 +1014,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     }
 
     /// <summary>
-    /// Names the drop that just put us back at the Option menu, for the overlay's headline and for
-    /// the auto-persona decision. Permadeath first: the C08+C13 wipe is unambiguous and outranks
-    /// any timing coincidence.
-    ///
-    /// <para>The reset test prefers the server's own C06 C04 announcement ("auto reset initiated,
-    /// you have 120 seconds to finish up"), which is an exact statement of fact rather than a
-    /// guess. It still cannot, on its own, tell a reset-driven drop from a player who typed QUIT
-    /// during the finish-up period -- that needs the verb/separator/speech-aware input parser
-    /// GitHub #143 tracks. What it does buy is precision: the announcement anchors the reset
-    /// instant to a fraction of a second (see ResetClock.NoteAutoResetInitiated), so we can require
-    /// the drop to land ON that instant rather than anywhere in a multi-minute neighbourhood, which
-    /// is what shrinks the false-positive span. Without the announcement (we connected mid-finish-up,
-    /// say) we fall back to the looser projection-proximity windows.</para>
-    /// </summary>
-    /// <summary>
     /// Why the shell dropped us, for the overlay. Asks <see cref="MuckaConnection.LastSessionEndReason"/>
     /// first - the same answer the database records - so the two cannot name one event differently.
     /// Before this, an ordinary death showed as "Oops!" on screen while the session row said "died".
@@ -1039,9 +1024,20 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     /// an alias or a comma batch. Only it can say <see cref="SessionDropReason.Died"/> at all.</para>
     ///
     /// <para>The local signals remain as a fallback for when the watcher saw nothing, so this can
-    /// only add answers, never lose one. Their order is preserved and still matters: a qq during the
-    /// finish-up period lands inside the reset window, and calling that a Reset would auto-relog the
-    /// player straight back into the persona they had just chosen to leave.</para>
+    /// only add answers, never lose one. Their order is preserved and still matters: permadeath
+    /// first, since the C08+C13 wipe is unambiguous and outranks any timing coincidence; and a qq
+    /// during the finish-up period lands inside the reset window, so calling that a Reset would
+    /// auto-relog the player straight back into the persona they had just chosen to leave.</para>
+    ///
+    /// <para>There are two lead windows because the fallback reset test has two sources. It prefers
+    /// the server's own C06 C04 announcement ("auto reset initiated, you have 120 seconds to finish
+    /// up"), which is an exact statement of fact rather than a guess. It still cannot, on its own,
+    /// tell a reset-driven drop from a player who typed QUIT during the finish-up period. What it
+    /// buys is precision: the announcement anchors the reset instant to a fraction of a second (see
+    /// ResetClock.NoteAutoResetInitiated), so the drop can be required to land ON that instant rather
+    /// than anywhere in a multi-minute neighbourhood, which is what shrinks the false-positive span.
+    /// Without the announcement - connected mid-finish-up, say - the looser projection-proximity
+    /// window applies instead.</para>
     /// </summary>
     private SessionDropContext ClassifyDrop(string? exitedPersona, IReadOnlyList<StyledLine> tail)
     {

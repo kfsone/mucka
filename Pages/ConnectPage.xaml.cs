@@ -211,9 +211,10 @@ public partial class ConnectPage : ContentPage
 
     private void OnConnected(MuckaConnection conn, Profile profile)    {
         // Create GameViewModel on the UI thread so Dispatcher.CreateTimer() is available.
-        // The lambda is async void (BeginInvokeOnMainThread takes Action) - any unhandled
-        // exception here would propagate to the WinUI 3 dispatcher and crash the process
-        // (0xc000027b), so we catch explicitly and surface the error instead.
+        // The lambda is async void (BeginInvokeOnMainThread takes Action), so an unhandled exception
+        // here reaches the platform's dispatcher. On Windows Platforms/Windows/App.xaml.cs marks it
+        // Handled and the process survives; on Android there is no such handler, which is the real
+        // exposure. Catch explicitly and surface the error instead.
         MainThread.BeginInvokeOnMainThread(async () =>
         {
             try

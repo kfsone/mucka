@@ -4,8 +4,8 @@ using Mucka.Terminal;
 namespace Mucka.Terminal.Tests;
 
 /// <summary>
-/// Tests for <see cref="TerminalBuffer"/> - the C# port of the partial/complete/merge/clear
-/// line semantics that previously lived as JavaScript in GamePage.BuildInjectionScript.
+/// Tests for <see cref="TerminalBuffer"/> - the partial/complete/merge/clear line semantics that
+/// decide where one line of screen ends.
 /// </summary>
 public class TerminalBufferTests
 {

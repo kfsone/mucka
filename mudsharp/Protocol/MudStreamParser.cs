@@ -53,8 +53,8 @@ public sealed class MudStreamParser
 
     /// <summary>
     /// A room-short description line was received: the player has entered or looked at a room.
-    /// Detected by LT_GREEN foreground c on the first span (mirrors Clio telnet.l:1218-1226).
-    /// The payload is the plain-text room name.
+    /// Detected by the C02+C01 sequence at line start; no colour is inspected. The payload is the
+    /// plain-text room name.
     /// </summary>
     public event Action<string>? RoomShortReady;
 
@@ -1155,12 +1155,8 @@ public sealed class MudStreamParser
         return char.IsWhiteSpace(lineText[lead.Length]) || lineText[lead.Length] is '"' or ',' or ':';
     }
 
-    /// <summary>Clear accumulated spans (used after emitting the prompt partial line).</summary>
-    internal void ClearSpans() => _spans.Clear();
-
     internal void EmitStatsUpdate(GameStatsSnapshot stats) => StatsUpdated?.Invoke(stats);
     internal void EmitPersonaWiped() => PersonaWiped?.Invoke();
-    internal void EmitOutgoing(byte[] bytes) => OutgoingBytes?.Invoke(bytes);
     internal void EmitBell() => BellReceived?.Invoke();
     internal void EmitDreamwordChanged(string? word)
     {
@@ -1213,7 +1209,10 @@ public sealed class MudStreamParser
         foreach (var s in _spans) totalLen += s.Text.Length;
         if (totalLen <= prefix.Length + 1) return false;
 
-        // Quick prefix check using the first span before building the full string.
+        // Prefix check on the first span, to skip building the full string. The `_spans.Count > 1`
+        // term means this can only reject a MULTI-span line: a single-span line - which is every
+        // uncoloured pre-game line, including the width notification itself - always falls through to
+        // the StringBuilder below and is rejected there instead.
         var first = _spans[0].Text;
         if (!first.StartsWith(prefix[..Math.Min(first.Length, prefix.Length)], StringComparison.Ordinal)
             && _spans.Count > 1)
@@ -1276,7 +1275,6 @@ public sealed class MudStreamParser
                     _state = Telnet.ProcessByte(b, ParserState.Iac, _iacSbBuf);
                 }
                 break;
-            case ParserState.Iac:
             case ParserState.IacDo:
             case ParserState.IacDont:
             case ParserState.IacWill:

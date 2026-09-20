@@ -73,10 +73,11 @@ public sealed class CombatRailView : SKCanvasView
     private float Content => RailWidth - (Pad * 2);
 
     /// <summary>
-    /// A LIVE opponent's slot, sized so five live slots still fit the shortest realistic rail: at a
-    /// 560-unit rail the available height is 408 and five slots at 81 pitch is 405. Five covers 99.45%
-    /// of encounters in the clog corpus (1268 of 1275), so the sizing is bought against the case that
-    /// actually happens rather than against the one that happened once.
+    /// A LIVE opponent's slot, sized so five live slots still fit the shortest realistic rail.
+    /// <c>Mucka.Combat.RailSlotGeometry.Capacity</c> owns that arithmetic - it is the one place the
+    /// available height is divided by the slot pitch, and it counts no trailing gap below the top
+    /// slot. Five covers 99.45% of encounters in the clog corpus (1268 of 1275), so the sizing is
+    /// bought against the case that actually happens rather than against the one that happened once.
     /// </summary>
     private const float SlotHeight = 76f;
     private const float SlotGap = 5f;
@@ -542,11 +543,9 @@ public sealed class CombatRailView : SKCanvasView
     /// strip is a record, not a thing to be watched.</summary>
     private readonly SKFont _nameBoldFont = new(
         SKTypeface.FromFamilyName(SKTypeface.Default.FamilyName, SKFontStyle.Bold) ?? SKTypeface.Default, 13.5f);
-    private readonly SKFont _phraseFont = new(SKTypeface.FromFamilyName("Cascadia Mono") ?? SKTypeface.Default, 13f);
-    /// <summary>The wound phrase and the stat rows, a point down from <see cref="_phraseFont"/>.
-    /// Monospace and tabular, which is what actually holds the two stat rows in
-    /// register: the fixed column origins place the groups, and equal digit advances line the figures
-    /// up inside them.</summary>
+    /// <summary>The wound phrase and the stat rows. Monospace and tabular, which is what actually
+    /// holds the two stat rows in register: the fixed column origins place the groups, and equal
+    /// digit advances line the figures up inside them.</summary>
     private readonly SKFont _rungFont = new(SKTypeface.FromFamilyName("Cascadia Mono") ?? SKTypeface.Default, 12f);
     /// <summary>The blow-shape group's outer two figures, and the ghost labels. Same face as the stat
     /// row so the digits still align, two points down so the eye is told which figure is the one that
@@ -1048,7 +1047,11 @@ public sealed class CombatRailView : SKCanvasView
     /// not your blow"; <see cref="FightOutcome.EndOther"/> is the game closing a fight without saying
     /// why, which is not a kill claim either; <see cref="FightOutcome.Interrupted"/> is the client
     /// ending the encounter because the world went away (reset/logout/room change/exit), where the
-    /// creature is not merely un-killed but was never finished with. None of these belongs anywhere near
+    /// creature is not merely un-killed but was never finished with. <see cref="FightOutcome.Named"/>
+    /// is the one whose semantics differ from the rest: the row retires because SIGHT RETURNED and an
+    /// anonymous word acquired a name, so the fight goes on under that name - neither a kill nor a
+    /// loss, and the only member of this group where nothing ended at all. None of these belongs
+    /// anywhere near
     /// <see cref="FightOutcome.Kill"/>'s own doc comment, which is unambiguous about what a genuine kill
     /// looks like on the wire.</para>
     ///
@@ -2019,11 +2022,8 @@ public sealed class CombatRailView : SKCanvasView
         canvas.DrawText("+" + hidden.ToString(System.Globalization.CultureInfo.InvariantCulture),
             Pad + 10f, y + 15f, SKTextAlign.Left, _nameFont, _text);
 
-        // Names only, ordered by how much each has actually hurt the player, worst first - "who is
-        // doing the damage" is the only question a names-only row can usefully answer, and it is not
-        // the same question as "who joined first", which is the order the slots themselves keep (a
-        // slot that reorders itself as damage accrues would have to be re-found on every glance).
-        // Built by OverflowNames, which caches this string - see its own remarks.
+        // Built and ordered by OverflowNames, which owns the sort and caches this string - see its
+        // own remarks.
         _text.Color = InkDim;
         canvas.DrawText(OverflowNames(rows, shown, plan.HasHidden), Pad + 42f, y + 15f,
             SKTextAlign.Left, _smallFont, _text);

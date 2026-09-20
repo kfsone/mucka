@@ -60,7 +60,7 @@ internal sealed class Mud2C1Decoder
     // -- Color index constants ----------------------------------------------
     private const int BLACK = 0, RED = 1, GREEN = 2, YELLOW = 3;
     private const int BLUE = 4, MAGENTA = 5, CYAN = 6, WHITE = 7;
-    private const int LT_BLACK = 8, LT_RED = 9, LT_GREEN = 10, LT_YELLOW = 11;
+    private const int LT_RED = 9, LT_GREEN = 10, LT_YELLOW = 11;
     private const int LT_BLUE = 12, LT_MAGENTA = 13, LT_CYAN = 14, LT_WHITE = 15;
 
     // -- Helpers ---------------------------------------------------------------
@@ -154,7 +154,6 @@ internal sealed class Mud2C1Decoder
     /// <summary>
     /// Pop the color stack (Clio pop() on bare FF FF).
     /// Restores the style that was active before the last push, if any.
-    /// Also handles the two prompt-preamble flags set by the C01 game-mode dispatch.
     /// </summary>
     internal void PopColor()
     {
@@ -1326,7 +1325,7 @@ internal sealed class Mud2C1Decoder
             var b2 = rawBytes[i];
             if (b2 == 0xFE && i + 1 < rawBytes.Count)
             {
-                // C99 c marker - record first occurrence as the stamina c hint.
+                // C99 colour marker - record first occurrence as the stamina colour hint.
                 // The byte following 0xFE is a C1 byte (0x9B + ANSI index); subtract 0x9B
                 // to produce the 0-15 ANSI index expected by GameViewModel.AnsiToColor.
                 if (staColorHint is null)

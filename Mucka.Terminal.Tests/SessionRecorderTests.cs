@@ -221,11 +221,10 @@ public sealed class SessionRecorderTests : IDisposable
     /// mid-session or a network path that goes away.</summary>
     private sealed class FailsAfterHeader : TextWriter
     {
-        private int _lines;
         public bool Disposed { get; private set; }
         public override Encoding Encoding => Encoding.UTF8;
-        public override void WriteLine(string? value) => _lines++;
-        public override void WriteLine() => _lines++;
+        public override void WriteLine(string? value) { }
+        public override void WriteLine() { }
         public override Task WriteLineAsync(string? value)
             => throw new IOException("There is not enough space on the disk.");
         protected override void Dispose(bool disposing) { Disposed = true; base.Dispose(disposing); }

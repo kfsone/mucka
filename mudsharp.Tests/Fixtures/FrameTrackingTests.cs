@@ -8,7 +8,7 @@ namespace MudSharp.Tests.Fixtures;
 /// been output on that line yet. Pure C1 color sequences do not advance the column.
 ///
 /// "At line start" is set:
-///   - When the game '*' prompt partial line is emitted (SetLineStart from PopColor).
+///   - When the game prompt partial line is emitted (SetLineStart from ClosePromptContext).
 ///   - After each real '\n' line is emitted.
 /// "At line start" is cleared:
 ///   - When any text character is appended (_atLineStart = false).
@@ -185,7 +185,7 @@ public class FrameTrackingTests
         => [..RoomShort, ..System.Text.Encoding.Latin1.GetBytes(name + "\n"), 0xFF, 0xFF];
 
     [Fact]
-    public void RoomShortReady_FiredForLtGreenLine()
+    public void RoomShortReady_FiredForC02C01AtLineStart()
     {
         var h = InGameMode();
         h.Feed(RoomShortLine("Elizabethan tearoom"));
@@ -205,9 +205,9 @@ public class FrameTrackingTests
     }
 
     [Fact]
-    public void RoomShortReady_NotFiredForNonGreenLine()
+    public void RoomShortReady_NotFiredWithoutC02C01()
     {
-        // Normal white game-mode text must not trigger RoomShortReady.
+        // Normal game-mode text carrying no room-short sequence must not trigger RoomShortReady.
         var h = InGameMode();
         h.Feed(WithPrompt("You swing your sword.\n"));
         Assert.Empty(h.RoomShorts);

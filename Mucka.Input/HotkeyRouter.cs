@@ -90,12 +90,6 @@ public sealed class HotkeyRouter
         _boundKeyCodes.Add(key.KeyCode);
     }
 
-    public void Clear()
-    {
-        _bindings.Clear();
-        _boundKeyCodes.Clear();
-    }
-
     /// <summary>
     /// Whether this key code participates in ANY binding, ignoring modifiers. False for every letter,
     /// digit and punctuation mark of ordinary typing.

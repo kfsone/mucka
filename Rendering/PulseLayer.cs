@@ -37,7 +37,6 @@ internal sealed class PulseLayer
     /// same synchronous block are the nearest thing to one heartbeat that two visuals can be.</summary>
     internal const double PeriodMilliseconds = Blink.PulsePeriodMilliseconds;
 
-    private CompositionAnimation? _anim;
     private Visual? _visual;
     private readonly FrameworkElement _host;
 
@@ -86,7 +85,6 @@ internal sealed class PulseLayer
         anim.InsertKeyFrame(1.0f, 0.5f);
         anim.Duration = TimeSpan.FromMilliseconds(PeriodMilliseconds);
         anim.IterationBehavior = AnimationIterationBehavior.Forever;
-        _anim = anim;
         _visual.StartAnimation("Opacity", anim);
     }
 
@@ -96,7 +94,6 @@ internal sealed class PulseLayer
     /// above.</summary>
     public void Stop()
     {
-        _anim = null;
         if (_visual is null)
             return;
 

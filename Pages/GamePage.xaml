@@ -877,7 +877,8 @@
                                             </FormattedString>
                                         </Label.FormattedText>
                                     </Label>
-                                    <!-- Dock icon: gold [x] = docked, grey [ ] = floated free -->
+                                    <!-- Dock toggle: hollow gold [ ] = docked (tap to float me),
+                                         filled grey [x] = floated free (tap to dock me) -->
                                     <Label Grid.Column="1"
                                            Text="{Binding SidePanel.PinGlyph}"
                                            TextColor="{Binding SidePanel.PinColor}"
@@ -1100,7 +1101,8 @@
                                         <Label Text="Map" TextColor="#58a6ff" FontSize="11"
                                                VerticalOptions="Center"
                                                HorizontalOptions="Fill" HorizontalTextAlignment="Start"/>
-                                        <!-- Float toggle: filled [x] = docked, hollow [ ] = floated free -->
+                                        <!-- Float toggle: hollow [ ] = docked (tap to float me),
+                                             filled [x] = floated free (tap to dock me) -->
                                         <Label Grid.Column="1" Text="{Binding SidePanel.MapPinGlyph}"
                                                TextColor="{Binding SidePanel.MapPinColor}"
                                                FontSize="13" VerticalOptions="Center"

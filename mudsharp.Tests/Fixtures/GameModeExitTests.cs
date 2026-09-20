@@ -14,16 +14,6 @@ namespace MudSharp.Tests.Fixtures;
 /// </summary>
 public class GameModeExitTests
 {
-    // Wire-format prompt preamble
-    private static readonly byte[] WirePromptPreamble =
-    [
-        0x9C, 0xFF, 0xFF,
-        0x9C, 0x9D, 0xFF, 0xFF,
-        (byte)'*',
-        0xFF, 0xFF,
-        0xFF, 0xFF,
-    ];
-
     private static ParserHarness InGameMode()
     {
         var h = new ParserHarness();

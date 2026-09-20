@@ -78,17 +78,6 @@ public sealed class WireLogTests : IDisposable
         ];
     }
 
-    private static void AssertSame(IReadOnlyList<WireRecord> expected, IReadOnlyList<WireRecord> actual)
-    {
-        Assert.Equal(expected.Count, actual.Count);
-        for (var i = 0; i < expected.Count; i++)
-        {
-            Assert.Equal(expected[i].TimestampMs, actual[i].TimestampMs);
-            Assert.Equal(expected[i].Direction, actual[i].Direction);
-            Assert.Equal(expected[i].Payload, actual[i].Payload);   // byte-for-byte
-        }
-    }
-
     /// <summary>Pushes a run of records at a writer in the order they were captured.</summary>
     private static void Feed(WireLogWriter writer, IEnumerable<WireRecord> records)
     {

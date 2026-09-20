@@ -10,7 +10,10 @@ namespace Mucka.Terminal;
 ///
 /// <para><b>The screen, not the socket.</b> The byte-exact record is the wire log, which is always
 /// on and stores raw bytes. This is the readable half: MUD2's markup resolved away, one line per
-/// line of screen. A transcript that disagrees with <c>wire</c> is the transcript that is wrong.</para>
+/// line of screen. Where both record the same server line and they disagree, the transcript is the
+/// one that is wrong. The transcript also carries lines <c>wire</c> has no reason to hold:
+/// <see cref="Inject"/> writes client-side annotations by design, so a line present here and absent
+/// there is not by itself a phantom.</para>
 ///
 /// <para><b>Input is in here because MUD2 echoes it.</b> The server sends a typed command back
 /// (verified on the wire: session 14 record 119965 is Tx <c>wave</c>, 119966 is Rx <c>wave</c>), so
@@ -158,7 +161,9 @@ public sealed class SessionRecorder : IAsyncDisposable
             if (_stopped) return;
             _stopped = true;
             // A live prompt is on screen but was never committed. It belongs in the transcript -
-            // the player was looking at it when they stopped recording.
+            // the player was looking at it when they stopped recording. There is nothing to write
+            // when a form feed arrived last: TerminalBuffer.Append clears the partial on one, along
+            // with any text that shared its line.
             if (_screen.Partial is { } partial && partial.PlainText.Length > 0)
                 _queue.Writer.TryWrite(partial.PlainText);
             // The footer and the completion are queued under the SAME lock the committing path holds,

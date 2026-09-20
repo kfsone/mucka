@@ -217,7 +217,6 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     // render directly so a final state is never lost behind the throttle.
     private readonly ClogRenderGate _clogRenderGate = new();
     private bool _inCombat, _hasCombatData, _isCombatGrace;
-    private int _combatClearGeneration;
     // -- Combat Rail: the right-edge panel -----------
     // Show/hide only - driven by ToggleCombatPanelCommand from the overflow menu, with GamePage
     // resizing the window on the change. GameViewModel's constructor is the one exception to "an
@@ -651,7 +650,6 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             // republish restarts the bar's animation, so it must not happen per swing.
             if (IsSwing(combatEvent.Kind) && _tickPhase.Observe(combatEvent.TimestampUtc))
                 OnPropertyChanged(nameof(TickPhaseUtc));
-            _combatClearGeneration++;
             // Queued BEFORE the aggregator sees it, so the ending is waiting by the time the award line
             // that follows it arrives (KillAwardLedger). The event's own stamp is what the fight will
             // resolve with, so this key and the one AwardFor looks up with are the same by construction.
@@ -1364,14 +1362,15 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         return band.HasEvidence ? band : null;
     }
 
-    /// <summary>Maps the app-side <see cref="FightSnapshot"/> list down to the plain, MAUI-independent
-    /// facts <see cref="ParticipantRoster.Build"/> needs - that class lives in mudsharp (no MAUI
-    /// dependency, directly unit-testable), so it cannot reference <see cref="FightSnapshot"/>
-    /// itself.</summary>
-    /// <summary>An instance method rather than static purely so it can reach <see cref="_swingDamage"/>
+    /// <summary>Maps the app-side <see cref="FightSnapshot"/> list down to the plain facts
+    /// <see cref="ParticipantRoster.Build"/> needs. That class lives in mudsharp and
+    /// <see cref="FightSnapshot"/> in Mucka.Combat, which references mudsharp - the dependency runs
+    /// one way, so the roster cannot reference the snapshot itself.
+    ///
+    /// <para>An instance method rather than static purely so it can reach <see cref="_swingDamage"/>
     /// - the "ever" figures are a per-participant fact and belong to the participant, exactly as the
     /// NPC's own weapon does, so this is the one place that can attach them without the roster or the
-    /// renderer having to know a store exists.</summary>
+    /// renderer having to know a store exists.</para></summary>
     private IReadOnlyList<ParticipantFact> ToParticipantFacts(
         IReadOnlyList<FightSnapshot> fights, DateTime nowUtc, string? currentWeapon)
     {
@@ -2154,7 +2153,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
 
     /// <summary>
     /// Called from the TCP read thread for each player name in the FEW response.
-    /// The AnsiColor carries the wire-protocol c (e.g. RED = mortal, LT_RED = wizard).
+    /// The AnsiColor carries the wire-protocol colour (e.g. RED = mortal, LT_RED = wizard).
     /// </summary>
     public void OnFewPlayerReceived(string playerName, AnsiColor color)
         => _pendingWhos.Add(new WhoEntry(playerName, AnsiPalette.GetFg((byte)color)));
@@ -2162,10 +2161,12 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     /// <summary>
     /// Called when the FEW-response context closes - all names have been delivered.
     /// Diffs the incoming snapshot against the current WhosList:
-    ///   - Players no longer in the snapshot are marked departing and fade out over 4 s.
+    ///   - Players no longer in the snapshot are marked departing and fade out.
     ///   - Players that reappear before their fade completes have their departure cancelled.
-    ///   - New arrivals are appended with a white->color glow over 4 s.
-    ///   - Players whose name or color changed (e.g. level-up) are updated in-place with a glow.
+    ///   - New arrivals are appended and fade in.
+    ///   - Players whose name or color changed (e.g. level-up) are updated in-place with a fade.
+    /// <c>Mucka.Behaviors.WhoEntryFadeBehavior</c> owns both fades and their durations; they are
+    /// plain opacity on the compositor, not a colour transition.
     ///   - A visibility change ("Ollie the sorcerer" becoming "(Ollie the sorcerer)", or back) is a status
     ///     change, not a rename: WhoEntry.PersonaName ignores the invisibility parens, so the
     ///     entry updates in-place (with glow) instead of fading out and back in.
@@ -2247,7 +2248,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             foreach (var entry in snapshot)
             {
                 if (!currentPersonas.Contains(entry.PersonaName))
-                    WhosList.Add(entry);   // appears instantly
+                    WhosList.Add(entry);   // the row is added at once; WhoEntryFadeBehavior fades it in
             }
 
             FewRefreshed?.Invoke();   // restart the section's compositor stale-dim

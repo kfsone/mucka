@@ -15,7 +15,7 @@ public sealed record ExaminePersona(string Name, string Sex, int Score, int Play
 /// <summary>
 /// Pure text-matching helpers for driving the MUD Shell (Option menu -> EXAMINE -> persona
 /// selection/creation -> tearoom). No MAUI dependency so this is unit-testable in isolation
-/// (see mudsharp.Tests, which links this file the same way it links SessionCommandAliases.cs).
+/// (see Mucka.Util.Tests, which takes Mucka.Commands as a project reference).
 ///
 /// The MUD wraps all server text to the negotiated terminal width and pads wrapped lines with a
 /// spurious "\r\0" before the real "\r\n", so every landmark check here is done against text that
@@ -128,18 +128,6 @@ public static class ShellText
         => string.Equals(normalized, "Cheerio!", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
-    /// MUD2's end-of-game summary: "Overall, you scored 2,126 points this game." It is printed on the
-    /// way out of the game whether the player quit or died, so on its own it says only that the game
-    /// ended - pair it with <see cref="IsQuitFarewellLine"/> to tell which.
-    ///
-    /// <para>The verb is deliberately not matched. "scored" and "lost" track whether the session
-    /// netted a gain, not how it ended: the corpus has quits printing each. Keying on the verb was
-    /// tried and the wire log disproved it.</para>
-    ///
-    /// <para>Whole-line shape rather than <c>ContainsPhrase</c>, for the same reason the farewell is:
-    /// this is tested against in-game lines, where another player can say anything.</para>
-    /// </summary>
-    /// <summary>
     /// The world reset landing, in words: MUD2's last in-world line before the server goes down
     /// (Mud2C1Decoder's C06 C06, which carries exactly this text).
     ///
@@ -154,6 +142,18 @@ public static class ShellText
     public static bool IsWorldResetLandingLine(string normalized)
         => string.Equals(normalized, "Something magical is happening.", StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// MUD2's end-of-game summary: "Overall, you scored 2,126 points this game." It is printed on the
+    /// way out of the game whether the player quit or died, so on its own it says only that the game
+    /// ended - pair it with <see cref="IsQuitFarewellLine"/> to tell which.
+    ///
+    /// <para>The verb is deliberately not matched. "scored" and "lost" track whether the session
+    /// netted a gain, not how it ended: the corpus has quits printing each. Keying on the verb was
+    /// tried and the wire log disproved it.</para>
+    ///
+    /// <para>Whole-line shape rather than <c>ContainsPhrase</c>, for the same reason the farewell is:
+    /// this is tested against in-game lines, where another player can say anything.</para>
+    /// </summary>
     public static bool IsGameSummaryLine(string normalized)
         => normalized.StartsWith("Overall, you ", StringComparison.OrdinalIgnoreCase)
         && normalized.EndsWith(" points this game.", StringComparison.OrdinalIgnoreCase);

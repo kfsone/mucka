@@ -269,7 +269,9 @@ public partial class GamePage : ContentPage
 
         if (_antiIdleTimer == null)
         {
-            // Unsubscribe before subscribing to guard against any double-subscribe scenario.
+            // A boolean latch against double-subscribe: OnAppearing can run again without an
+            // intervening OnDisappearing, and the handlers are only ever detached there, where the
+            // flag is cleared.
             if (!_eventsSubscribed)
             {
                 _vm.OutputAvailable     += OnOutputAvailable;
@@ -1539,8 +1541,8 @@ public partial class GamePage : ContentPage
         }
         else if (e.PropertyName == nameof(SidePanelViewModel.IsCombatFloatsEnabled))
         {
-            // Switching them off has to take the ones already in the air with it, or the last
-            // second and a half of motion outlives the decision to stop it.
+            // Switching them off has to take the ones already in the air with it, or a whole
+            // RailFloatBudget.Lifetime of motion outlives the decision to stop it.
             if (!_vm.SidePanel.IsCombatFloatsEnabled)
                 CancelCombatFloats();
         }
@@ -1766,7 +1768,7 @@ public partial class GamePage : ContentPage
 
     // -- Damage floats -----------------------------------------------------------------------
     // The rail's one deliberate piece of motion: a small "5-9" / "-7" / "Miss" / "+14" that appears
-    // over the pane an event belongs to, drifts upward and is gone in about a second and a half.
+    // over the pane an event belongs to, drifts upward and is gone within RailFloatBudget.Lifetime.
     //
     // Three rules shape everything below, and each of them has a file behind it:
     //   * The canvas never animates (Invariant #1, CombatRailView's own remarks). So a float is not
@@ -1881,11 +1883,12 @@ public partial class GamePage : ContentPage
                 // (see the brushes above). Setting it here too would leave two writers for one
                 // property, and MAUI's would win on any handler rebuild.
                 //
-                // Font stays on the MAUI side - set once at construction, never touched again, so
-                // it costs nothing per event and MAUI's font resolution is worth having. The BOX
-                // does not: these requests never reach the element (its layout is native - see
-                // OnCombatFloatHandlerChanged), and they are kept only as the single place the two
-                // numbers are written down.
+                // These are starting values only. The font is NOT left alone after construction:
+                // OnCombatFloatRaised writes FontSize and FontWeight natively on every spawn (both
+                // guarded by a comparison, so an unchanged value costs no property write), and
+                // OnCombatFloatHandlerChanged writes TextAlignment natively. The BOX requests never
+                // reach the element at all - its layout is native, see OnCombatFloatHandlerChanged -
+                // and are kept only as the single place the two numbers are written down.
                 //
                 // Everything after construction is Composition Translation - see the section
                 // remarks on why layout is off limits.
@@ -1988,7 +1991,7 @@ public partial class GamePage : ContentPage
         // click on it took keyboard focus off the command box - Invariant #0), so the platform view
         // is taken out of hit-testing and focus directly rather than trusted to the cross-platform
         // property. A float sits ABOVE the metronome and flee hit targets in z-order; without this
-        // it would swallow their clicks for a second and a half at a time.
+        // it would swallow their clicks for a whole RailFloatBudget.Lifetime at a time.
         fe.IsHitTestVisible = false;
         fe.AllowFocusOnInteraction = false;
         // The box, asserted natively. The Label's WidthRequest/HeightRequest do not reach this
@@ -2625,7 +2628,7 @@ public partial class GamePage : ContentPage
         catch { /* diagnostics only */ }
     }
 
-    // Referenced only from FocusDiag call arguments; must stay compiled for those to parse.
+#if FOCUS_DIAG
     private string FocusDesc(object? o) => o switch
     {
         null => "(null)",
@@ -2634,7 +2637,6 @@ public partial class GamePage : ContentPage
         _ => o.GetType().Name,
     };
 
-#if FOCUS_DIAG
     private void OnFmGettingFocus(object? sender, Microsoft.UI.Xaml.Input.GettingFocusEventArgs e) =>
         FocusDiag($"FM.GettingFocus  old={FocusDesc(e.OldFocusedElement)} new={FocusDesc(e.NewFocusedElement)} state={e.FocusState} dir={e.Direction}");
     private void OnFmLosingFocus(object? sender, Microsoft.UI.Xaml.Input.LosingFocusEventArgs e) =>
@@ -2769,34 +2771,14 @@ public partial class GamePage : ContentPage
         e.Handled = true;   // swallow all other keys - input box is hidden in scrollback
     }
 
-    private void OnSendButtonClicked(object? sender, EventArgs e) => AcceptInputLine();
-
-    /// <summary>
-    /// Windows' one input-accept path, shared by Enter and the send button. Three steps, in this
-    /// order, and nothing else: take the text, empty the box, hand the line off.
-    ///
-    /// <para><b>Accepting a line and acting on it are separate concerns.</b> The
-    /// box's only job is to capture and enqueue what was typed, smoothly; command interpretation,
-    /// alias expansion and the socket write all happen on the view model's drain, off this path. See
-    /// <see cref="GameViewModel.EnqueueInput"/>. Nothing may be added here that does work - if a
-    /// future feature needs to inspect or rewrite outgoing lines, it belongs in the drain.</para>
-    ///
-    /// <para><b>The box is emptied directly, not via the view model.</b> Clearing it by setting
-    /// <c>InputText = ""</c> and relying on <c>OnVmPropertyChanged</c> to write the box back has a
-    /// hole: <c>Set</c> raises nothing when the value is UNCHANGED, so whenever the text read from the
-    /// box already equalled the view model's (an empty box being the common case) nothing would clear
-    /// the box at all, and text that arrived after the read would sit there and get prepended to the
-    /// NEXT command. Emptying the box here makes "after Enter the box is empty" true by construction
-    /// rather than inferred from a notification chain, and it happens BEFORE the hand-off so the box
-    /// is never waiting on anything.</para>
-    ///
-    /// <para>An EMPTY line is deliberately still accepted. A bare Enter is a real MUD2 action, so
-    /// this must not "helpfully" swallow blank sends - and if a blank line ever goes out when the
-    /// player typed something, the fault is upstream in the read, where silently discarding it would
-    /// hide precisely the thing worth seeing.</para>
-    /// </summary>
     /// <summary>The send button, mirroring the Enter key exactly by going through the same accept
     /// path, so the two cannot drift apart.</summary>
+    private void OnSendButtonClicked(object? sender, EventArgs e) => AcceptInputLine();
+
+    /// <summary>Windows' one input-accept path, shared by Enter and the send button. It forwards to
+    /// <c>Mucka.Input.CommandInput</c>, which owns the accept steps and the rules governing them;
+    /// nothing may be added here that does work. The fallback branch covers the case where no native
+    /// box is attached.</summary>
     private void AcceptInputLine()
     {
         if (_commandInput is not null)

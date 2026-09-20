@@ -83,6 +83,24 @@ public sealed class CommandInput
 
     /// <summary>
     /// Takes what is in the box, empties it, and hands the line off. Three steps and no fourth.
+    ///
+    /// <para><b>Accepting a line and acting on it are separate concerns.</b> The box's only job is to
+    /// capture and enqueue what was typed, smoothly; command interpretation, alias expansion and the
+    /// socket write all happen on the drain behind the gate, off this path. Nothing may be added here
+    /// that does work - if a future feature needs to inspect or rewrite outgoing lines, it belongs in
+    /// the drain.</para>
+    ///
+    /// <para><b>The box is emptied directly, not via the view model.</b> Clearing it by setting the
+    /// bound property and relying on a change notification to write the box back has a hole: the
+    /// setter raises nothing when the value is UNCHANGED, so whenever the text read from the box
+    /// already equalled the view model's (an empty box being the common case) nothing would clear the
+    /// box at all, and text that arrived after the read would sit there and get prepended to the NEXT
+    /// command.</para>
+    ///
+    /// <para>An EMPTY line is deliberately still accepted. A bare Enter is a real MUD2 action, so this
+    /// must not "helpfully" swallow blank sends - and if a blank line ever goes out when the player
+    /// typed something, the fault is upstream in the read, where silently discarding it would hide
+    /// precisely the thing worth seeing.</para>
     /// </summary>
     private void AcceptLine()
     {

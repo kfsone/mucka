@@ -7,9 +7,9 @@ namespace Mucka.Terminal;
 /// completed lines plus at most one live partial line (a prompt being built before
 /// its terminating '\n' arrives).
 ///
-/// This is a faithful port of the line semantics that previously lived as JavaScript
-/// inside GamePage.BuildInjectionScript - moved into testable C# so the live Skia
-/// renderer and the frozen history snapshot consume one source of truth.
+/// It is the single source of truth for those line semantics: the live Skia renderer, the
+/// frozen history snapshot and <see cref="SessionRecorder"/> all read one buffer rather than
+/// each deciding for itself where a line ends.
 ///
 /// Lines are stored as raw <em>logical</em> lines. Wrapping is a render-time concern
 /// (the renderer wraps to the negotiated column count); the buffer never wraps.
@@ -52,9 +52,11 @@ public sealed class TerminalBuffer
     public int Capacity => _cap;
 
     /// <summary>
-    /// Apply one parsed line. Mirrors BuildInjectionScript:
+    /// Apply one parsed line:
     /// <list type="bullet">
-    /// <item>A line whose plain text contains form-feed (\f) clears everything.</item>
+    /// <item>A line whose plain text contains form-feed (\f) clears everything - the committed
+    ///       lines, the live partial, and the incoming line itself, so any text sharing the line
+    ///       with the form feed is discarded rather than kept.</item>
     /// <item>A partial line replaces the current partial.</item>
     /// <item>A blank complete line (no spans) promotes a live partial to committed, or -
     ///       if there is no partial - appends a blank committed line.</item>

@@ -4,17 +4,17 @@ using MudSharp.Session;
 namespace MudSharp.Tests.Fixtures;
 
 /// <summary>
-/// Post-character-select setup: on game-mode entry MudSession injects "auto fex\r\nscore\r\n" and
-/// hides both the command echoes and their replies from the terminal, reporting the character name
-/// parsed from the score sheet.
+/// Post-character-select setup: on game-mode entry MudSession injects the batch named by
+/// <c>MudSession.SetupCommands</c>, one command per line, and hides both the command echoes and
+/// their replies from the terminal, reporting the character name parsed from the score sheet. The
+/// <c>Echoes</c> constant below is that same batch as the server echoes it back.
 ///
 /// The swallow works by FRAME, not by matching each line. On the wire (verified from a live
-/// recording, 2026-07-09) every server reply arrives as a frame introduced by an IsPartial '*'
-/// prompt line:
-///   [P]*  auto fex / score        (echoes)
-///   [P]*  You will now get ...     (auto-fex confirmation)
-///   [P]*  name: ... games played   (score sheet)
-///   [P]*  &lt;real game output&gt;       (shown)
+/// recording) every server reply arrives as a frame introduced by an IsPartial prompt line:
+///   [P]*  identify / fightbrief / auto fex / score   (echoes)
+///   [P]*  You will now get ...                       (auto-fex confirmation)
+///   [P]*  name: ... games played                     (score sheet)
+///   [P]*  &lt;real game output&gt;                         (shown)
 /// So a setup frame is recognised from its FIRST content line (echo / FEEXITS / "name:", all at
 /// column 0) and then swallowed whole up to the next prompt. This is width-independent: at narrow
 /// widths the server wraps a reply into extra content lines WITHIN the same frame, and they are all

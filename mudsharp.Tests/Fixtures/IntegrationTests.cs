@@ -13,7 +13,6 @@ public class IntegrationTests
     private const byte WILL = 0xFB;
     private const byte WONT = 0xFC;
     private const byte DO   = 0xFD;
-    private const byte DONT = 0xFE;
 
     private const byte OPT_ECHO        = 0x01;
     private const byte OPT_TTYPE       = 0x18;

@@ -18,7 +18,7 @@ namespace Mucka.Rendering;
 ///   keeps filling the buffer behind the frozen view. Scrolling back to the bottom (or Esc/End)
 ///   returns to live. While in history the host blocks the input buffer.</item>
 /// </list>
-/// Lines are naive-hard-wrapped at a fixed column count; selection/copy arrive in a later stage.
+/// Lines are naive-hard-wrapped at a fixed column count. Selection and copy are handled here.
 /// </summary>
 public sealed class TerminalView : SKCanvasView
 {
