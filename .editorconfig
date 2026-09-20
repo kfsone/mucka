@@ -51,6 +51,25 @@ dotnet_naming_symbols.private_fields.applicable_accessibilities       = private
 dotnet_naming_style.underscore_camel_case_style.capitalization        = camel_case
 dotnet_naming_style.underscore_camel_case_style.required_prefix       = _
 
+# Test projects. Two rules that are right for shipping code and wrong for a test:
+#   CA1707 - xunit names a test Method_Condition_Expected, so every test in the tree trips it.
+#   CA1861 - it wants a constant array argument hoisted to a static readonly field, which in an
+#            Assert.Equal moves the expected value away from the assertion that reads it. The rule
+#            is about arrays rebuilt on a hot path; a test asserts once.
+# The glob is `**.cs` and not `**/*.cs`: the latter needs a directory between the two, so it
+# silently skips a project's top-level files.
+[mudsharp.Tests/**.cs]
+dotnet_diagnostic.CA1707.severity = none
+dotnet_diagnostic.CA1861.severity = none
+
+[Mucka.Terminal.Tests/**.cs]
+dotnet_diagnostic.CA1707.severity = none
+dotnet_diagnostic.CA1861.severity = none
+
+[Mucka.Util/Mucka.Util.Tests/**.cs]
+dotnet_diagnostic.CA1707.severity = none
+dotnet_diagnostic.CA1861.severity = none
+
 [*.{xml,xaml,csproj,props,targets}]
 indent_size = 4
 

@@ -35,7 +35,11 @@ public class MudSessionStatusEffectTests : IDisposable
         _session.StatusEffectsChanged += s => _states.Add(s);
     }
 
-    public void Dispose() => _session.Dispose();
+    public void Dispose()
+    {
+        _session.Dispose();
+        GC.SuppressFinalize(this);
+    }
 
     [Fact]
     public void StatusBracket_RaisesStatusEffectsChanged_WithRightState()

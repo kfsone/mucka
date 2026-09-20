@@ -22,6 +22,8 @@ namespace Mucka.Rendering;
 /// Open exits are clickable (<see cref="MoveCommand"/> is invoked with the direction keyword),
 /// and hovering an open exit highlights it so the interactivity is discoverable.
 /// </summary>
+[System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA1001:Types that own disposable fields should be disposable",
+    Justification = "The paints and fonts live as long as the view does, and nothing disposes a MAUI view; a Dispose here would never be called.")]
 public sealed class RadarCompassView : SKCanvasView
 {
     // -- Geometry (120-space) ---------------------------------------------------

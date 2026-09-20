@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.Data.Sqlite;
 using MudSharp.Combat;
 using MudSharp.Models;
@@ -88,7 +89,7 @@ public sealed class StoreJoinTests : IDisposable
     }
 
 
-    private static IReadOnlyList<Dictionary<string, object?>> Query(string path, string sql)
+    private static List<Dictionary<string, object?>> Query(string path, string sql)
     {
         var rows = new List<Dictionary<string, object?>>();
         using var connection = new SqliteConnection(MuckaDb.ConnectionString(path));
@@ -121,10 +122,10 @@ public sealed class StoreJoinTests : IDisposable
             """);
 
         var row = Assert.Single(joined);
-        Assert.Equal(Key, Convert.ToInt64(row["key"]));
-        Assert.True(Convert.ToInt64(row["fights"]) > 0,
+        Assert.Equal(Key, Convert.ToInt64(row["key"], CultureInfo.InvariantCulture));
+        Assert.True(Convert.ToInt64(row["fights"], CultureInfo.InvariantCulture) > 0,
             "the encounter joined to no fight: the writers disagree about the encounter key");
-        Assert.True(Convert.ToInt64(row["swings"]) > 0,
+        Assert.True(Convert.ToInt64(row["swings"], CultureInfo.InvariantCulture) > 0,
             "the encounter joined to no swing: the writers disagree about the encounter key");
     }
 
@@ -145,7 +146,7 @@ public sealed class StoreJoinTests : IDisposable
         {
             var rows = Query(DbPath, $"SELECT DISTINCT {column} AS k FROM {table};");
             var only = Assert.Single(rows);
-            Assert.True(Key == Convert.ToInt64(only["k"]),
+            Assert.True(Key == Convert.ToInt64(only["k"], CultureInfo.InvariantCulture),
                 $"{table}.{column} is {only["k"]}, not the {Key} its caller supplied");
         }
     }

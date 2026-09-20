@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.Data.Sqlite;
 using MudSharp.Session;
 using Mucka.Commands;
@@ -177,7 +178,7 @@ public static class PersonaSessionBackfill
             using var command = connection.CreateCommand();
             command.CommandText =
                 $"SELECT EXISTS(SELECT 1 FROM {table} WHERE persona_session_id IS NULL);";
-            if (Convert.ToInt64(command.ExecuteScalar()) != 0)
+            if (Convert.ToInt64(command.ExecuteScalar(), CultureInfo.InvariantCulture) != 0)
                 return true;
         }
         return false;
@@ -321,7 +322,7 @@ public static class PersonaSessionBackfill
         command.Parameters.AddWithValue("$started", login.StartedMs);
         command.Parameters.AddWithValue("$ended", (object?)login.EndedMs ?? DBNull.Value);
         command.Parameters.AddWithValue("$note", (object?)login.EndNote ?? DBNull.Value);
-        return Convert.ToInt64(command.ExecuteScalar());
+        return Convert.ToInt64(command.ExecuteScalar(), CultureInfo.InvariantCulture);
     }
 
     /// <summary>The fact tables and the column each stamps its own time in.</summary>

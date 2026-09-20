@@ -135,7 +135,7 @@ internal sealed class GameLineAnalyzer
     /// When true, the dreamword regex is skipped. In game mode dreamwords arrive exclusively
     /// via the binary C15+C00+C00+C255 sequence; the text regex only applies pre-game.
     /// </param>
-    internal GameStatsSnapshot? Analyze(StyledLine line, bool inGameMode = false)
+    internal static GameStatsSnapshot? Analyze(StyledLine line, bool inGameMode = false)
     {
         var text = line.PlainText;
         if (text.Length == 0)
@@ -367,7 +367,7 @@ internal sealed class GameLineAnalyzer
     }
 
     // Text triggers mirror Clio's sound.c pattern matches (game mode only).
-    internal string? CheckSoundTrigger(StyledLine line)
+    internal static string? CheckSoundTrigger(StyledLine line)
     {
         var text = line.PlainText;
         if (text.StartsWith("Out from the end of the cannon flies a projectile, which smashes", StringComparison.Ordinal))

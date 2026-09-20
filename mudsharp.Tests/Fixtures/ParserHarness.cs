@@ -1,3 +1,4 @@
+using System.Globalization;
 using MudSharp.Models;
 using MudSharp.Protocol;
 
@@ -59,7 +60,7 @@ internal sealed class ParserHarness
         Parser.LineReady          += l => Lines.Add(l);
         Parser.StatsUpdated       += s => Stats.Add(s);
         Parser.PersonaWiped       += () => PersonaWipedCount++;
-        Parser.ScoreSaved         += s => { ScoreSaves.Add(s); ScoringOrder.Add(s.Delta is int d ? d.ToString("+0;-0") : "="); };
+        Parser.ScoreSaved         += s => { ScoreSaves.Add(s); ScoringOrder.Add(s.Delta is int d ? d.ToString("+0;-0", CultureInfo.InvariantCulture) : "="); };
         Parser.TaskCompleted      += t => { TaskCompletions.Add(t); ScoringOrder.Add("task"); };
         Parser.FrameClosed        += () => { FrameClosedCount++; ScoringOrder.Add("frame"); };
         Parser.GameModeEntered    += () => { if (GameModeEnteredAtLineIndex < 0) GameModeEnteredAtLineIndex = Lines.Count; GameModeEnteredCount++; };

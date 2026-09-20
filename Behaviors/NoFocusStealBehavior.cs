@@ -19,13 +19,15 @@ namespace Mucka.Behaviors;
 /// </summary>
 public sealed class NoFocusStealBehavior : Behavior<View>
 {
+#if WINDOWS
     private View? _view;
+#endif
 
     protected override void OnAttachedTo(View view)
     {
         base.OnAttachedTo(view);
-        _view = view;
 #if WINDOWS
+        _view = view;
         Apply();
         // Platform views can be recreated (virtualization/handler churn) - re-apply each time.
         view.HandlerChanged += OnHandlerChanged;
@@ -36,8 +38,8 @@ public sealed class NoFocusStealBehavior : Behavior<View>
     {
 #if WINDOWS
         view.HandlerChanged -= OnHandlerChanged;
-#endif
         _view = null;
+#endif
         base.OnDetachingFrom(view);
     }
 

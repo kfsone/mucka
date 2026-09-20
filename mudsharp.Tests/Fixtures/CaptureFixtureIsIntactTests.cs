@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -73,7 +74,7 @@ public class CaptureFixtureIsIntactTests
         {
             if (line.Length == 0) continue;
             var parts = line.Split(' ', 3);
-            records.Add(new CaptureRecord(long.Parse(parts[0]), parts[1], CaptureBytes(parts[2])));
+            records.Add(new CaptureRecord(long.Parse(parts[0], CultureInfo.InvariantCulture), parts[1], CaptureBytes(parts[2])));
         }
         return records;
     }

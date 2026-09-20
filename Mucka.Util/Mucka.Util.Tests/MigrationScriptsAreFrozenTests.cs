@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -105,7 +106,7 @@ public sealed class MigrationScriptsAreFrozenTests
             Assert.True(match.Success,
                 $"'{names[i]}' must be NNNN_lower_snake.sql - four digits, because DbUp sorts by name "
                 + "and '10_x' sorts before '2_x'.");
-            Assert.Equal(i + 1, int.Parse(match.Groups[1].Value));
+            Assert.Equal(i + 1, int.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture));
         }
 
         Assert.Equal(names.Count, names.Distinct(StringComparer.OrdinalIgnoreCase).Count());
@@ -193,7 +194,7 @@ public sealed class MigrationScriptsAreFrozenTests
               WHERE m.name NOT LIKE 'sqlite_%'
               ORDER BY m.type, m.name);
             """;
-        return Convert.ToString(command.ExecuteScalar()) ?? string.Empty;
+        return Convert.ToString(command.ExecuteScalar(), CultureInfo.InvariantCulture) ?? string.Empty;
     }
 
     /// <summary>

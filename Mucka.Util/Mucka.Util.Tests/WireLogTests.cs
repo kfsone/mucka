@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using Mucka.Store;
@@ -378,7 +379,7 @@ public sealed class WireLogTests : IDisposable
     /// <summary>Same as <see cref="AssertSame"/> minus the timestamps, for records that went through the
     /// live writer: it stamps each one with its own <c>UtcNow</c> reading, so only the payload, the
     /// direction and the order are the writer's to preserve.</summary>
-    private static void AssertRecordShapes(IReadOnlyList<WireRecord> expected, IReadOnlyList<WireRecord> actual)
+    private static void AssertRecordShapes(List<WireRecord> expected, List<WireRecord> actual)
     {
         Assert.Equal(expected.Count, actual.Count);
         for (var i = 0; i < expected.Count; i++)
@@ -416,7 +417,7 @@ public sealed class WireLogTests : IDisposable
                 "tx" => WireDirection.Tx,
                 _ => WireDirection.Annotation,
             };
-            records.Add(new WireRecord(long.Parse(parts[0]), direction, CaptureBytes(parts[2])));
+            records.Add(new WireRecord(long.Parse(parts[0], CultureInfo.InvariantCulture), direction, CaptureBytes(parts[2])));
         }
         return records;
     }

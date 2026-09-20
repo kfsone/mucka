@@ -71,7 +71,7 @@ public static class TerminalText
     {
         bool any = false;
         for (int i = 0; i < line.Spans.Count && !any; i++)
-            if (line.Spans[i].Text.IndexOf('\t') >= 0) any = true;
+            if (line.Spans[i].Text.Contains('\t')) any = true;
         if (!any) return line;
 
         int col = 0;

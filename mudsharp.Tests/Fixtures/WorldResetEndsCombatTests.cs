@@ -82,7 +82,11 @@ public class WorldResetEndsCombatTests : IDisposable
         ResetClock             = new ResetClockOptions { FinishUpDuration = FinishUp },
     });
 
-    public void Dispose() => _session.Dispose();
+    public void Dispose()
+    {
+        _session.Dispose();
+        GC.SuppressFinalize(this);
+    }
 
     /// <summary>C06 C04 - the warning, verbatim wording from all 10 corpus occurrences (note the
     /// HYPHEN: the string is "Auto-reset", never "Auto reset").</summary>

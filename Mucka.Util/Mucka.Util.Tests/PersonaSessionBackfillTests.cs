@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using Microsoft.Data.Sqlite;
 using Mucka.Combat;
@@ -36,7 +37,7 @@ public sealed class PersonaSessionBackfillTests : IDisposable
     /// <summary>The MUD Shell's own prompt, which is what leaving the game lands on.</summary>
     private static byte[] LeavesGameMode => Encoding.Latin1.GetBytes("\r\nOption (H for help): ");
 
-    private long NewRun(SqliteConnection connection, string host,
+    private static long NewRun(SqliteConnection connection, string host,
         long startedMs = 1, long endedMs = 99999)
     {
         using var command = connection.CreateCommand();
@@ -48,10 +49,10 @@ public sealed class PersonaSessionBackfillTests : IDisposable
         command.Parameters.AddWithValue("$started", startedMs);
         command.Parameters.AddWithValue("$ended", endedMs);
         command.Parameters.AddWithValue("$host", host);
-        return Convert.ToInt64(command.ExecuteScalar());
+        return Convert.ToInt64(command.ExecuteScalar(), CultureInfo.InvariantCulture);
     }
 
-    private void Wire(SqliteConnection connection, long runId, int seq, long ts, byte[] data)
+    private static void Wire(SqliteConnection connection, long runId, int seq, long ts, byte[] data)
     {
         using var command = connection.CreateCommand();
         command.CommandText =
@@ -63,7 +64,7 @@ public sealed class PersonaSessionBackfillTests : IDisposable
         command.ExecuteNonQuery();
     }
 
-    private void Swing(SqliteConnection connection, long ts)
+    private static void Swing(SqliteConnection connection, long ts)
     {
         using var command = connection.CreateCommand();
         command.CommandText =
@@ -77,7 +78,7 @@ public sealed class PersonaSessionBackfillTests : IDisposable
         using var connection = MuckaDb.OpenRead(path);
         using var command = connection.CreateCommand();
         command.CommandText = sql;
-        return Convert.ToInt64(command.ExecuteScalar());
+        return Convert.ToInt64(command.ExecuteScalar(), CultureInfo.InvariantCulture);
     }
 
     /// <summary>The whole point: a swing recorded before persona_sessions existed gets the login it
@@ -265,7 +266,7 @@ public sealed class PersonaSessionBackfillTests : IDisposable
                 "INSERT INTO persona_sessions (mucka_run_id, persona, host, started_ms, ended_ms) "
                 + "VALUES ($run, 'Ollie', 'mud2.co.uk', 2000, 30000); SELECT last_insert_rowid();";
             command.Parameters.AddWithValue("$run", run);
-            sessionId = Convert.ToInt64(command.ExecuteScalar());
+            sessionId = Convert.ToInt64(command.ExecuteScalar(), CultureInfo.InvariantCulture);
 
             Swing(connection, 5_000);    // inside the login
             Swing(connection, 35_000);   // after it, so still nobody's

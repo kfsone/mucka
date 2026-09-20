@@ -15,7 +15,7 @@ public class WavProbeTests
     /// <summary>Builds a PCM WAV in memory. <paramref name="frames"/> is a per-frame amplitude in
     /// 0..1, so a test can state an envelope directly.</summary>
     private static byte[] Wav(
-        IReadOnlyList<double> frames, int sampleRate = 48000, int bits = 16, int channels = 2,
+        List<double> frames, int sampleRate = 48000, int bits = 16, int channels = 2,
         short formatTag = 1, string dataId = "data", bool truncate = false, bool extraChunk = false)
     {
         var bytesPerSample = bits / 8;
@@ -76,7 +76,7 @@ public class WavProbeTests
 
     /// <summary>A run of silence, then a short loud body, then a long quiet tail - the shape of the real
     /// Perc_Stick assets after padding.</summary>
-    private static IReadOnlyList<double> ClickEnvelope(
+    private static List<double> ClickEnvelope(
         int silenceFrames, int bodyFrames, int tailFrames, double tailLevel = 0.02)
     {
         var f = new List<double>(silenceFrames + bodyFrames + tailFrames);

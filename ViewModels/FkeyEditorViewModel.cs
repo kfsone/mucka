@@ -1,3 +1,5 @@
+using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 using System.Windows.Input;
 using Mucka.Audio;
 using Mucka.Core;
@@ -142,6 +144,8 @@ public sealed class FkeyEditorViewModel : BaseViewModel
     }
 
     /// <summary>Gates the Debug-only "log reset diagnostics" row (XAML has no #if, so bind visibility here).</summary>
+    [SuppressMessage("Performance", "CA1822:Mark members as static",
+        Justification = "Bound from XAML ({Binding IsTtrDiagAvailable}); a binding cannot resolve a static member.")]
     public bool IsTtrDiagAvailable =>
 #if DEBUG
         true;
@@ -202,7 +206,9 @@ public sealed class FkeyEditorViewModel : BaseViewModel
         set => SetAndNotify(ref _displayColumns, Math.Clamp(Math.Round(value), 0, 160),
             [nameof(DisplayColumnsDisplay)]);
     }
-    public string DisplayColumnsDisplay => _displayColumns <= 0 ? "auto" : ((int)Math.Round(_displayColumns)).ToString();
+    // The reader's culture, on purpose: these three are Label readouts and nothing parses them back.
+    public string DisplayColumnsDisplay =>
+        _displayColumns <= 0 ? "auto" : ((int)Math.Round(_displayColumns)).ToString(CultureInfo.CurrentCulture);
 
     // "Me" chat colours - hex text the user edits, with a live-swatch Color the preview binds to.
     public string MeNameColor
@@ -246,7 +252,7 @@ public sealed class FkeyEditorViewModel : BaseViewModel
         get
         {
             var v = (int)Math.Round(_displayDreamwordOffset);
-            return v == 0 ? "0" : v > 0 ? $"+{v}" : v.ToString();
+            return v == 0 ? "0" : v > 0 ? $"+{v}" : v.ToString(CultureInfo.CurrentCulture);
         }
     }
 
@@ -259,7 +265,8 @@ public sealed class FkeyEditorViewModel : BaseViewModel
         get => _maxOnlineDisplay;
         set => SetAndNotify(ref _maxOnlineDisplay, Math.Clamp(value, 0, 999), [nameof(MaxOnlineDisplayText)]);
     }
-    public string MaxOnlineDisplayText => _maxOnlineDisplay == 0 ? "unlimited" : _maxOnlineDisplay.ToString();
+    public string MaxOnlineDisplayText =>
+        _maxOnlineDisplay == 0 ? "unlimited" : _maxOnlineDisplay.ToString(CultureInfo.CurrentCulture);
     public bool OnlineNamesOnly { get => _onlineNamesOnly; set => Set(ref _onlineNamesOnly, value); }
     /// <summary>Minutes a departed player lingers in the Recent list; 0 = off (no Recent list). Range 0-10.</summary>
     public int OnlineForgetWindow

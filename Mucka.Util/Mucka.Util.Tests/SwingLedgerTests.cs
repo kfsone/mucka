@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.Data.Sqlite;
 using MudSharp.Combat;
 using MudSharp.Models;
@@ -118,7 +119,7 @@ public sealed class SwingLedgerTests : IDisposable
         }
 
         /// <summary>Closes the ledger and reads the score_events table back in insertion order.</summary>
-        public IReadOnlyList<Dictionary<string, object?>> ScoreRows() => Read("score_events");
+        public List<Dictionary<string, object?>> ScoreRows() => Read("score_events");
 
         public Session Say(params string[] lines)
         {
@@ -129,9 +130,9 @@ public sealed class SwingLedgerTests : IDisposable
 
         /// <summary>Closes the ledger (draining its background writer) and reads every row back, in
         /// insertion order, as column-name to value maps.</summary>
-        public IReadOnlyList<Dictionary<string, object?>> Rows() => Read("swings");
+        public List<Dictionary<string, object?>> Rows() => Read("swings");
 
-        private IReadOnlyList<Dictionary<string, object?>> Read(string table)
+        private List<Dictionary<string, object?>> Read(string table)
         {
             _db.Dispose();
             if (!File.Exists(_path))
@@ -156,7 +157,7 @@ public sealed class SwingLedgerTests : IDisposable
         /// <summary>The swings table's columns, in declaration order - the schema is the deliverable
         /// now that a query is what reads this, so a rename is a breaking change and belongs under
         /// test.</summary>
-        public IReadOnlyList<string> Columns()
+        public List<string> Columns()
         {
             _db.Dispose();
             using var connection = MuckaDb.Open(_path);
@@ -174,13 +175,13 @@ public sealed class SwingLedgerTests : IDisposable
     }
 
     private static int? Int(Dictionary<string, object?> row, string name)
-        => row[name] is null ? null : Convert.ToInt32(row[name]);
+        => row[name] is null ? null : Convert.ToInt32(row[name], CultureInfo.InvariantCulture);
 
     private static string? Str(Dictionary<string, object?> row, string name)
         => row[name] as string;
 
     private static bool Flag(Dictionary<string, object?> row, string name)
-        => row[name] is not null && Convert.ToInt64(row[name]) != 0;
+        => row[name] is not null && Convert.ToInt64(row[name], CultureInfo.InvariantCulture) != 0;
 
     // ---- Row shape -------------------------------------------------------------------------
 
@@ -268,7 +269,7 @@ public sealed class SwingLedgerTests : IDisposable
         var row = Assert.Single(session.Rows());
         Assert.Equal(
             new DateTimeOffset(T0.AddSeconds(1), TimeSpan.Zero).ToUnixTimeMilliseconds(),
-            Convert.ToInt64(row["ts"]));
+            Convert.ToInt64(row["ts"], CultureInfo.InvariantCulture));
     }
 
     // ---- Outgoing: a bracket, never an exact figure ------------------------------------------

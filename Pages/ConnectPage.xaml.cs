@@ -203,7 +203,8 @@ public partial class ConnectPage : ContentPage
         var text = MaxColumnsEntry.Text;
         if (string.IsNullOrWhiteSpace(text))
             _vm.MaxColumns = 0;
-        else if (int.TryParse(text, out var v))
+        else if (int.TryParse(text, System.Globalization.NumberStyles.Integer,
+                              System.Globalization.CultureInfo.InvariantCulture, out var v))
             _vm.MaxColumns = v;
         // Reflect the (possibly clamped) value back - blank for auto, number otherwise.
         MaxColumnsEntry.Text = _vm.MaxColumnsText;
@@ -264,7 +265,7 @@ public partial class ConnectPage : ContentPage
 
     private void OnProfileSelected(object? sender, SelectionChangedEventArgs e)
     {
-        if (e.CurrentSelection.FirstOrDefault() is Profile p)
+        if (e.CurrentSelection is [Profile p, ..])
         {
             _vm.SelectProfileCommand.Execute(p);
         }

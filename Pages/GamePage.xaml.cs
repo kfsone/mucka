@@ -1,3 +1,5 @@
+using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 using System.Runtime.InteropServices;
 using Mucka.Core;
 using Mucka.Rendering;
@@ -9,6 +11,8 @@ using Mucka.Combat;
 
 namespace Mucka.Pages;
 
+[SuppressMessage("Reliability", "CA1001:Types that own disposable fields should be disposable",
+    Justification = "A MAUI page is never Dispose()d by anything; both fields are torn down on the page's own lifecycle path instead.")]
 public partial class GamePage : ContentPage
 {
     private readonly GameViewModel _vm;
@@ -90,6 +94,7 @@ public partial class GamePage : ContentPage
     // handler that hit-tests its encounter table is shared code and has to scale by the same width
     // the canvas drew at.
 
+#if WINDOWS
     /// <summary>The rail's live content width - narrower with the stat rows off. Every overlay
     /// positioned over the canvas scales off this, and it must be the same number the canvas is
     /// drawing at.</summary>
@@ -99,6 +104,7 @@ public partial class GamePage : ContentPage
     /// <summary>What the docked panel costs the window at its current stats setting.</summary>
     private double RailPanelWidthDp
         => CombatRailResize.PanelWidthDp(_vm.SidePanel.IsCombatStatsEnabled);
+#endif
 
     private bool RailShowStats => _vm.SidePanel.IsCombatStatsEnabled;
 
@@ -608,7 +614,9 @@ public partial class GamePage : ContentPage
         StopUiThreadProbe();
 #endif
 #endif
-        _ = _vm.DisposeAsync();
+        // AsTask() consumes the ValueTask exactly once, which fire-and-forget needs: a discarded
+        // ValueTask can be recycled by a pooling implementation while it is still in flight.
+        _ = _vm.DisposeAsync().AsTask();
     }
 
     // 1 s tick: anti-idle keep-alive plus the projected reset countdown. Output draining is
@@ -876,7 +884,7 @@ public partial class GamePage : ContentPage
     // Keep a floating panel anchored by the screen quadrant it sits in when it grows/shrinks
     // (resize buttons, lock/unlock revealing the title strip, fold). A panel in the bottom half grows upward;
     // one pinned to the right edge grows leftward; a top-docked panel just grows down.
-    private void Reanchor(Border panel, ref Size last)
+    private static void Reanchor(Border panel, ref Size last)
     {
         var cur = new Size(panel.Width, panel.Height);
         if (cur.Width <= 0 || cur.Height <= 0) return;      // hidden / not yet measured
@@ -1201,6 +1209,7 @@ public partial class GamePage : ContentPage
         SetInputText(insertText + (InputEntry.Text ?? string.Empty), insertText.Length);
     }
 
+#if WINDOWS
     // Ctrl+R: unconditionally replaces the input with "<sender> "" and puts the
     // caret after the quote, ready for the reply text. Unlike OnTerminalSpanInsertTextRequested's
     // prepend, this clears whatever was typed - ctrl-r is a deliberate "start a reply now" action.
@@ -1217,6 +1226,7 @@ public partial class GamePage : ContentPage
         SetInputText(text, text.Length);
         FocusInput();
     }
+#endif
 
     // Sets the command box's text and caret position on whichever platform control is live, and
     // keeps _vm.InputText in sync. Shared tail for the click-to-insert-name and Ctrl+R reply paths.
@@ -1239,7 +1249,9 @@ public partial class GamePage : ContentPage
         _vm.InputText = text;
     }
 
+#if WINDOWS
     private void ShowCopiedToast() => ShowToast("* Copied to clipboard");
+#endif
 
     // Briefly flash a confirmation toast (3.3s); re-arms on each call.
     private void ShowToast(string message)
@@ -3228,7 +3240,7 @@ public partial class GamePage : ContentPage
             await rtb.RenderAsync(root);
             var pixels = await rtb.GetPixelsAsync();
 
-            var ts      = DateTime.Now.ToString("yyyyMMdd-HHmmss");
+            var ts      = DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
             var outPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"mucka-selfie-{ts}.png");
             var ptrFile = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "mucka-latest-selfie.txt");
 
@@ -3251,7 +3263,7 @@ public partial class GamePage : ContentPage
             System.Diagnostics.Trace.WriteLine($"[selfie] {outPath}");
 
             // Flash the window title briefly so the user knows the selfie was taken.
-            if (Application.Current?.Windows.FirstOrDefault() is Window win)
+            if (Application.Current?.Windows is [var win, ..])
             {
                 var origTitle = win.Title;
                 win.Title = $"selfie \u2192 {System.IO.Path.GetFileName(outPath)}";
@@ -3461,7 +3473,7 @@ public partial class GamePage : ContentPage
             await DisplayAlertAsync("Disconnected", "The server closed the connection.", "OK");
             if (_exitOnDisconnect)
             {
-                var window = Window ?? Application.Current?.Windows.FirstOrDefault();
+                var window = Window ?? (Application.Current?.Windows is [var first, ..] ? first : null);
                 if (window != null)
                 {
                     Application.Current?.CloseWindow(window);

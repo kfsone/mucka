@@ -16,7 +16,7 @@ public sealed class AsyncCommand : ICommand
     }
 
     public event EventHandler? CanExecuteChanged;
-    public bool CanExecute(object? _) => !_isExecuting && (_canExecute?.Invoke() ?? true);
+    public bool CanExecute(object? parameter) => !_isExecuting && (_canExecute?.Invoke() ?? true);
 
     public async void Execute(object? parameter)
     {

@@ -222,7 +222,7 @@ public class Mud2C1Tests
         // EmitPartialLine clears spans, so Lines[1] only has the new "after" span (Black/Blue).
         h.Feed("after\n");
         Assert.Equal(2, h.Lines.Count);
-        var style = h.Lines[1].Spans.Last().Style;
+        var style = h.Lines[1].Spans[^1].Style;
         Assert.Equal(AnsiColor.Black, style.Foreground);
         Assert.Equal(AnsiColor.Blue,  style.Background);
     }

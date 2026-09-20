@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.Data.Sqlite;
 
 namespace Mucka.Store;
@@ -95,6 +96,6 @@ internal static class LegacySchemaAdopter
         command.CommandText =
             "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = $journal;";
         command.Parameters.AddWithValue("$journal", MigrationScripts.JournalTable);
-        return Convert.ToInt64(command.ExecuteScalar()) != 0;
+        return Convert.ToInt64(command.ExecuteScalar(), CultureInfo.InvariantCulture) != 0;
     }
 }

@@ -76,7 +76,7 @@ public sealed class StaminaReadLedgerTests : IDisposable
         }
 
         /// <summary>Drains the writer and reads every stamina-read row back as column-name maps.</summary>
-        public IReadOnlyList<Dictionary<string, object?>> Reads()
+        public List<Dictionary<string, object?>> Reads()
         {
             _db.Dispose();
             if (!File.Exists(_path))

@@ -18,8 +18,8 @@ namespace Mucka.Behaviors;
 /// </summary>
 public sealed class WhoEntryFadeBehavior : Behavior<Label>
 {
-    private Label? _label;
 #if WINDOWS
+    private Label? _label;
     private WhoEntry? _entry;
     private Microsoft.UI.Composition.Visual? _visual;
     private const double FadeInMs  = 2000;   // arrival
@@ -29,8 +29,8 @@ public sealed class WhoEntryFadeBehavior : Behavior<Label>
     protected override void OnAttachedTo(Label label)
     {
         base.OnAttachedTo(label);
-        _label = label;
 #if WINDOWS
+        _label = label;
         label.Loaded += OnLoaded;
         label.Unloaded += OnUnloaded;
         label.BindingContextChanged += OnBindingContextChanged;
@@ -45,8 +45,8 @@ public sealed class WhoEntryFadeBehavior : Behavior<Label>
         label.BindingContextChanged -= OnBindingContextChanged;
         HookEntry(null);
         _visual = null;
-#endif
         _label = null;
+#endif
         base.OnDetachingFrom(label);
     }
 

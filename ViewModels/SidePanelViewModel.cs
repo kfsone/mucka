@@ -4,6 +4,7 @@ using MudSharp.Combat;
 using MudSharp.Models;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Linq;
 using System.Windows.Input;
@@ -269,7 +270,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     // actually grows (at an encounter close), so every frame published before that close keeps
     // aliasing a snapshot nothing will ever mutate again. Safe to hand straight to CombatLiveView
     // and to reuse across any number of refreshes between closes at zero additional cost.
-    private IReadOnlyList<CombatEnding> _archiveSnapshot = Array.Empty<CombatEnding>();
+    private CombatEnding[] _archiveSnapshot = Array.Empty<CombatEnding>();
     // True from the moment the CURRENT _combatStats encounter's endings are folded into
     // _endingArchive (the same close) until the NEXT encounter begins clears it. While true,
     // BuildDeadStripHistory must not also read _combatStats.Fights for "this encounter's own
@@ -344,6 +345,8 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     /// room for it, not a phone-sized screen. Drives both the overflow-menu entry's visibility and
     /// <see cref="IsCombatPanelVisible"/>'s own setter, so there is one place that decides this
     /// rather than the menu and the panel disagreeing.</summary>
+    [SuppressMessage("Performance", "CA1822:Mark members as static",
+        Justification = "Bound from XAML ({Binding SidePanel.IsCombatRailSupported}); a binding cannot resolve a static member.")]
     public bool IsCombatRailSupported =>
 #if ANDROID
         false;
@@ -967,7 +970,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             // opponent-slot/dead-strip region on that one flag, and with an empty Roster
             // (RosterPlan.Empty, from CombatLiveView.Idle) the live-slot loop draws nothing regardless
             // of it - so this only ever re-enables the dead strip, never the live stack.
-            _live = _archiveSnapshot.Count == 0
+            _live = _archiveSnapshot.Length == 0
                 ? CombatLiveView.Idle
                 : CombatLiveView.Idle with { HasEncounter = true, DeadStripHistory = _archiveSnapshot };
             return;
@@ -1230,7 +1233,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
                 tail.Add(EndingFor(fight, _encounterOrdinal, _resetOrdinal));
         }
 
-        var combined = new List<CombatEnding>(_archiveSnapshot.Count + tail.Count);
+        var combined = new List<CombatEnding>(_archiveSnapshot.Length + tail.Count);
         combined.AddRange(_archiveSnapshot);
         // Sorted (CombatEndingOrder.Sorted): snapshot.Fights is in first-engaged order, not
         // resolution order - see CombatEndingOrder's own remarks. _archiveSnapshot above needs no re-sort: it
@@ -1371,7 +1374,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     /// - the "ever" figures are a per-participant fact and belong to the participant, exactly as the
     /// NPC's own weapon does, so this is the one place that can attach them without the roster or the
     /// renderer having to know a store exists.</para></summary>
-    private IReadOnlyList<ParticipantFact> ToParticipantFacts(
+    private ParticipantFact[] ToParticipantFacts(
         IReadOnlyList<FightSnapshot> fights, DateTime nowUtc, string? currentWeapon)
     {
         var facts = new ParticipantFact[fights.Count];
@@ -1785,6 +1788,8 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     public string PreviousRoom { get => _previousRoom; private set => Set(ref _previousRoom, value); }
     public string OldestRoom   { get => _oldestRoom;   private set => Set(ref _oldestRoom,   value); }
 
+    [SuppressMessage("Performance", "CA1822:Mark members as static",
+        Justification = "Bound from XAML ({Binding SidePanel.AppVersion}); a binding cannot resolve a static member.")]
     public string AppVersion => AppInfo.VersionString;
 
     // -- WHO list --------------------------------------------------------------

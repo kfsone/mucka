@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Text;
 
 namespace Mucka.Core;
@@ -54,8 +55,8 @@ public static class TickDiag
         {
             lock (_gate)
             {
-                _buffer.Append(DateTime.Now.ToString("HH:mm:ss.fff"))
-                       .Append("  +").AppendFormat("{0,9:F1}", _sw.Elapsed.TotalMilliseconds)
+                _buffer.Append(DateTime.Now.ToString("HH:mm:ss.fff", CultureInfo.InvariantCulture))
+                       .Append("  +").AppendFormat(CultureInfo.InvariantCulture, "{0,9:F1}", _sw.Elapsed.TotalMilliseconds)
                        .Append("ms  ").Append(message).Append('\n');
                 if (++_pending >= FlushEvery)
                     FlushLocked();

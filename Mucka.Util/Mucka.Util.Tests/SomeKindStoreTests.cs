@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.Data.Sqlite;
 using MudSharp.Combat;
 using Mucka.Combat;
@@ -37,7 +38,7 @@ public sealed class SomeKindStoreTests : IDisposable
         connection.Open();
         using var count = connection.CreateCommand();
         count.CommandText = "SELECT COUNT(*) FROM some_kinds;";
-        var rows = Convert.ToInt32(count.ExecuteScalar());
+        var rows = Convert.ToInt32(count.ExecuteScalar(), CultureInfo.InvariantCulture);
         using var read = connection.CreateCommand();
         read.CommandText = "SELECT kind, learned_ms FROM some_kinds WHERE species = $s;";
         read.Parameters.AddWithValue("$s", species);

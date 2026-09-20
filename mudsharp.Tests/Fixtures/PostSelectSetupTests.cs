@@ -47,7 +47,11 @@ public class PostSelectSetupTests : IDisposable
         _session.OutgoingBytes      += b => _outgoing.Add(Encoding.Latin1.GetString(b));
     }
 
-    public void Dispose() => _session.Dispose();
+    public void Dispose()
+    {
+        _session.Dispose();
+        GC.SuppressFinalize(this);
+    }
 
     private void Feed(string ascii) => _session.Feed(Encoding.Latin1.GetBytes(ascii));
     private void Prompt() => _session.Feed(PromptBytes);   // one frame-leading '*' prompt

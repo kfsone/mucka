@@ -9,7 +9,7 @@ namespace Mucka.Util.Tests;
 /// </summary>
 public class SessionDropContextTests
 {
-    private static IReadOnlyList<StyledLine> Lines(params string[] text)
+    private static List<StyledLine> Lines(params string[] text)
         => text.Select(t => new StyledLine(new[] { new StyledSpan(t, TextStyle.Default) })).ToList();
 
     /// <summary>

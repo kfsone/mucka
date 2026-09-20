@@ -6,6 +6,11 @@ public partial class FkeyEditorPage : ContentPage
 {
     private readonly FkeyEditorViewModel _vm;
 
+#if WINDOWS
+    // The picker's file-type list, built once: every ".ini" import rebuilt the same two strings.
+    private static readonly string[] IniFileTypes = [".ini", "*"];
+#endif
+
     public FkeyEditorPage(FkeyEditorViewModel vm)
     {
         InitializeComponent();
@@ -93,7 +98,7 @@ public partial class FkeyEditorPage : ContentPage
                 FileTypes = new FilePickerFileType(
                     new Dictionary<DevicePlatform, IEnumerable<string>>
                     {
-                        { DevicePlatform.WinUI, new[] { ".ini", "*" } }
+                        { DevicePlatform.WinUI, IniFileTypes }
                     })
             };
             var result = await FilePicker.Default.PickAsync(options);

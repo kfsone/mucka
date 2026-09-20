@@ -23,16 +23,16 @@ public sealed class StaleDimBehavior : Behavior<View>
     /// <summary>"Few" (Online list) or "Fei" (Here/Carrying lists).</summary>
     public string Source { get; set; } = "";
 
-    private View? _view;
 #if WINDOWS
+    private View? _view;
     private SidePanelViewModel? _sp;
 #endif
 
     protected override void OnAttachedTo(View view)
     {
         base.OnAttachedTo(view);
-        _view = view;
 #if WINDOWS
+        _view = view;
         view.Loaded   += OnLoaded;
         view.Unloaded += OnUnloaded;
 #endif
@@ -44,8 +44,8 @@ public sealed class StaleDimBehavior : Behavior<View>
         view.Loaded   -= OnLoaded;
         view.Unloaded -= OnUnloaded;
         Unsubscribe();
-#endif
         _view = null;
+#endif
         base.OnDetachingFrom(view);
     }
 

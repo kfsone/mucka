@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.RegularExpressions;
 using MudSharp.Models;
 
@@ -654,8 +655,11 @@ public sealed class CombatTracker
             // Begin() empties _active and spuriously closes/reopens the encounter mid-pack-fight.
             var npc = NameFrom(m);
             Begin(npc);
+            // Every number parsed here is ASCII digits off the wire. MUD2 has no notion of a
+            // locale, so the reader's culture must never reach these - invariant throughout.
             Emit(timestampUtc, CombatEventKind.Hit, CombatActor.Player, npc, null,
-                int.Parse(m.Groups["lo"].Value), int.Parse(m.Groups["hi"].Value), text);
+                int.Parse(m.Groups["lo"].Value, CultureInfo.InvariantCulture),
+                int.Parse(m.Groups["hi"].Value, CultureInfo.InvariantCulture), text);
         }
         else if ((m = YouHitExact.Match(text)).Success)
         {
@@ -666,7 +670,7 @@ public sealed class CombatTracker
             // since "(5-9)" cannot satisfy a pattern demanding digits-then-close-paren.
             var npc = NameFrom(m);
             Begin(npc);
-            var exact = int.Parse(m.Groups["dmg"].Value);
+            var exact = int.Parse(m.Groups["dmg"].Value, CultureInfo.InvariantCulture);
             Emit(timestampUtc, CombatEventKind.Hit, CombatActor.Player, npc, null,
                 exact, exact, text);
         }
@@ -681,7 +685,8 @@ public sealed class CombatTracker
             var npc = NameFrom(m);
             Begin(npc);
             Emit(timestampUtc, CombatEventKind.HitByNpc, CombatActor.Npc, npc, null,
-                int.Parse(m.Groups["cur"].Value), int.Parse(m.Groups["max"].Value), text);
+                int.Parse(m.Groups["cur"].Value, CultureInfo.InvariantCulture),
+                int.Parse(m.Groups["max"].Value, CultureInfo.InvariantCulture), text);
         }
         else if ((m = NpcHitsYouBare.Match(text)).Success)
         {

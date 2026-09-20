@@ -41,9 +41,9 @@ public static class SelfChatColorizer
     public struct Carry
     {
         /// <summary>The current (most recently started) chat message is self-authored.</summary>
-        public bool SelfActive;
+        public bool SelfActive { get; set; }
         /// <summary>A double quote was still open when the previous line of that message ended.</summary>
-        public bool InQuote;
+        public bool InQuote { get; set; }
     }
 
     /// <summary>Parses "#rrggbb" / "rrggbb" into a packed 0xRRGGBB int, or null when malformed.</summary>

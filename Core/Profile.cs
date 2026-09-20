@@ -1,3 +1,5 @@
+using System.Diagnostics.CodeAnalysis;
+
 namespace Mucka.Core;
 
 public class Profile
@@ -18,11 +20,13 @@ public class Profile
     /// GuidedLogin is enabled. Empty = let the user choose interactively during connect.</summary>
     public string GuidedLoginPersona { get; set; } = string.Empty;
     /// <summary>Maximum terminal columns to advertise via NAWS. 0 = auto-size to window (default).</summary>
-    public int MaxColumns { get; set; } = 0;
+    public int MaxColumns { get; set; }
     /// <summary>Seconds of player inactivity before sending a blank keep-alive command. 0 = disabled.</summary>
-    public int AntiIdleSeconds { get; set; } = 0;
+    public int AntiIdleSeconds { get; set; }
     /// <summary>Keep the screen/display awake while connected to the game.
     /// Defaults on for mobile, where an idle screen-lock mid-session gets you swamped.</summary>
+    [SuppressMessage("Performance", "CA1805:Do not initialize unnecessarily",
+        Justification = "The initialiser is platform-conditional: false only on desktop, true on the mobile TFMs.")]
     public bool KeepScreenOn { get; set; } =
 #if ANDROID || IOS
         true;
@@ -32,7 +36,7 @@ public class Profile
     /// <summary>Fill unpopulated hotkey slots with built-in defaults at session start.</summary>
     public bool DefaultHotkeys { get; set; } = true;
     /// <summary>Terminal font size in pixels. 0 = use the built-in default (15px).</summary>
-    public int FontSize { get; set; } = 0;
+    public int FontSize { get; set; }
     /// <summary>Sound volume, 0-100. Default 75.</summary>
     public int Volume { get; set; } = 75;
     /// <summary>FES stats-update heartbeat interval in seconds. 0 = disabled. Default 10.</summary>

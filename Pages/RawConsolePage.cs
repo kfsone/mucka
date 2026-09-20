@@ -484,6 +484,8 @@ internal sealed class RawConsolePage : ContentPage
     [DllImport("user32.dll")]
     private static extern uint MapVirtualKey(uint uCode, uint uMapType);
 
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1838:Avoid 'StringBuilder' parameters for P/Invokes",
+        Justification = "This signature is on the $con keyboard path; a char-buffer rewrite changes the marshalling for no measurable gain here.")]
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern int ToUnicode(
         uint wVirtKey, uint wScanCode, byte[]? lpKeyState,

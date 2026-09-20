@@ -4,6 +4,12 @@
     <!-- Code-style rules only run in the build when this is on; without it the .editorconfig
          severities are an IDE-only suggestion and nothing fails. -->
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <!-- The default analysis mode runs a handful of rules. Recommended is what found the
+         culture-sensitive parsing of wire data and of mucka.ini. -->
+    <AnalysisMode>Recommended</AnalysisMode>
+    <!-- The tree is at zero warnings. A warning that only prints is a warning nobody reads, and
+         the next one would be lost in a clean build's output within a week. -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
 
   <!--

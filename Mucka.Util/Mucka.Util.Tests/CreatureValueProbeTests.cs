@@ -52,7 +52,11 @@ public class CreatureValueProbeTests : IDisposable
         _session.LineReady += l => { if (!l.IsPartial) lock (_lock) _visible.Add(l.PlainText); };
     }
 
-    public void Dispose() => _session.Dispose();
+    public void Dispose()
+    {
+        _session.Dispose();
+        GC.SuppressFinalize(this);
+    }
 
     private void Feed(string ascii) => _session.Feed(Encoding.Latin1.GetBytes(ascii));
     private void Prompt() => _session.Feed(PromptBytes);
@@ -536,7 +540,7 @@ public class CreatureValueProbeTests : IDisposable
     // use their own session with a debounce long enough to make the queue-then-die ordering
     // deterministic rather than a race.
 
-    private MudSession NewSlowDebounceSession(List<string> outgoing, object gate)
+    private static MudSession NewSlowDebounceSession(List<string> outgoing, object gate)
     {
         var s = new MudSession(new MudSessionOptions
         {

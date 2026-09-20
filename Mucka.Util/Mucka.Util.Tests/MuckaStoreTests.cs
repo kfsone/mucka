@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.Data.Sqlite;
 using Mucka.Store;
 
@@ -70,7 +71,7 @@ public sealed class MuckaStoreTests : IDisposable
         using var connection = MuckaDb.OpenRead(DbPath);
         using var command = connection.CreateCommand();
         command.CommandText = "SELECT COUNT(*) FROM wire;";
-        return Convert.ToInt64(command.ExecuteScalar());
+        return Convert.ToInt64(command.ExecuteScalar(), CultureInfo.InvariantCulture);
     }
 
     private static void WaitUntil(Func<bool> condition, string what)

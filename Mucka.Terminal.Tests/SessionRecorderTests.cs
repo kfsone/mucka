@@ -213,7 +213,7 @@ public sealed class SessionRecorderTests : IDisposable
 
             var all = File.ReadAllLines(path);
             Assert.StartsWith("Recording by Mucka from mud2.co.uk finished on ", all[^1]);
-            Assert.DoesNotContain(all[..^1], l => l.StartsWith("Recording by Mucka from mud2.co.uk finished"));
+            Assert.DoesNotContain(all[..^1], l => l.StartsWith("Recording by Mucka from mud2.co.uk finished", StringComparison.Ordinal));
         }
     }
 
@@ -319,7 +319,7 @@ public sealed class SessionRecorderTests : IDisposable
 
         // The capture really does deliver prompts as repeated partials, so the count below is
         // measuring something: the stream carries far more StyledLines than the file has lines.
-        Assert.True(streamed.Count(l => l.IsPartial) > 0);
+        Assert.Contains(streamed, l => l.IsPartial);
         Assert.True(streamed.Count > body.Length);
 
         // Exactly one bare prompt in the whole file, and it is the last line: the live prompt the

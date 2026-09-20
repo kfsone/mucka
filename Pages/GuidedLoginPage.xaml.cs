@@ -9,6 +9,8 @@ namespace Mucka.Pages;
 /// controller's persona-choice/create-confirmation events into native pickers/prompts. Pushed
 /// modally by <c>ConnectPage</c> while <see cref="GuidedLoginController.RunAsync"/> runs.
 /// </summary>
+[System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA1001:Types that own disposable fields should be disposable",
+    Justification = "A MAUI page is never Dispose()d, and the token this source hands out outlives the page's own teardown path.")]
 public partial class GuidedLoginPage : ContentPage
 {
     private readonly GuidedLoginViewModel _vm;

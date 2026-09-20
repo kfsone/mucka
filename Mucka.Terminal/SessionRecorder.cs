@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using System.Threading.Channels;
 using MudSharp.Models;
@@ -95,7 +96,7 @@ public sealed class SessionRecorder : IAsyncDisposable
         _pump = Task.Run(PumpAsync);
     }
 
-    private static TextWriter OpenFile(string filePath)
+    private static StreamWriter OpenFile(string filePath)
     {
         var directory = Path.GetDirectoryName(filePath);
         if (!string.IsNullOrEmpty(directory))
@@ -224,5 +225,8 @@ public sealed class SessionRecorder : IAsyncDisposable
         }
     }
 
-    private static string Stamp(DateTime local) => local.ToString("yyyy-MM-dd HH:mm:ss");
+    // The transcript is a record format, not a readout: the stamp reads the same on every machine
+    // that opens the file, so the culture is fixed rather than the reader's.
+    private static string Stamp(DateTime local) =>
+        local.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
 }

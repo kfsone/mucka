@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using MudSharp.Combat;
@@ -84,7 +85,7 @@ public sealed class WyvernPoisonDeathReplayTests
             var parts = rawLine.Split(' ', 3);
             if (parts.Length < 3 || parts[1] != "rx")
                 continue;
-            captureTs = long.Parse(parts[0]);
+            captureTs = long.Parse(parts[0], CultureInfo.InvariantCulture);
             session.Feed(CaptureBytes(parts[2]));
         }
 

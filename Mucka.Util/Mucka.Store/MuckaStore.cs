@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Threading.Channels;
 using Microsoft.Data.Sqlite;
 
@@ -122,7 +123,7 @@ public sealed class MuckaStore : IDisposable
                 "SELECT last_insert_rowid();";
             command.Parameters.AddWithValue("$run", SessionId);
             command.Parameters.AddWithValue("$started", startedMs);
-            return Convert.ToInt64(command.ExecuteScalar());
+            return Convert.ToInt64(command.ExecuteScalar(), CultureInfo.InvariantCulture);
         }
         catch (Exception ex)
         {
@@ -301,7 +302,7 @@ public sealed class MuckaStore : IDisposable
         command.Parameters.AddWithValue("$started", startedMs);
         command.Parameters.AddWithValue("$host", host);
         command.Parameters.AddWithValue("$version", (object?)clientVersion ?? DBNull.Value);
-        return Convert.ToInt64(command.ExecuteScalar());
+        return Convert.ToInt64(command.ExecuteScalar(), CultureInfo.InvariantCulture);
     }
 
     private void CloseSession()

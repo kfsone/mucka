@@ -27,7 +27,7 @@ public sealed class TerminalBuffer
     /// <param name="cap">Maximum number of committed lines retained (the live partial is extra).</param>
     public TerminalBuffer(int cap = 120)
     {
-        if (cap < 1) throw new ArgumentOutOfRangeException(nameof(cap));
+        ArgumentOutOfRangeException.ThrowIfLessThan(cap, 1);
         _cap = cap;
     }
 

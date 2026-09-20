@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.Maui.Storage;
 
 namespace Mucka.Core;
@@ -229,10 +230,12 @@ public static class SettingsStore
             var ini  = IniFile.Load(path);
 
             var settingsSection = settings.SettingsPerProfile ? $"settings:{profileName}" : "settings";
-            ini.Set(settingsSection, "fontsize",   settings.FontSize.ToString());
-            ini.Set(settingsSection, "columns",    settings.MaxColumns.ToString());
-            ini.Set(settingsSection, "volume",     settings.Volume.ToString());
-            ini.Set(settingsSection, "statupdate", settings.StatUpdateFrequency.ToString());
+            // mucka.ini is a stored file format, so every number in it is written and read back
+            // invariant - the file must not change meaning when it is opened under another locale.
+            ini.Set(settingsSection, "fontsize",   settings.FontSize.ToString(CultureInfo.InvariantCulture));
+            ini.Set(settingsSection, "columns",    settings.MaxColumns.ToString(CultureInfo.InvariantCulture));
+            ini.Set(settingsSection, "volume",     settings.Volume.ToString(CultureInfo.InvariantCulture));
+            ini.Set(settingsSection, "statupdate", settings.StatUpdateFrequency.ToString(CultureInfo.InvariantCulture));
             ini.Set(settingsSection, "mutebeep",   settings.MuteBeepPermanently ? "yes" : "no");
             ini.Set(settingsSection, "logttr",     settings.LogResetDiagnostics ? "yes" : "no");
             if (writeSounds)
@@ -241,16 +244,16 @@ public static class SettingsStore
             if (writeDisplayGlobals)
             {
                 // Display tab settings always go to the global [settings] section.
-                ini.Set("settings", "defaultfontsize",    settings.DefaultFontSize.ToString());
-                ini.Set("settings", "defaultcolumns",     settings.DefaultMaxColumns.ToString());
-                ini.Set("settings", "dreamwordsizeoffset", settings.DreamwordSizeOffset.ToString());
+                ini.Set("settings", "defaultfontsize",    settings.DefaultFontSize.ToString(CultureInfo.InvariantCulture));
+                ini.Set("settings", "defaultcolumns",     settings.DefaultMaxColumns.ToString(CultureInfo.InvariantCulture));
+                ini.Set("settings", "dreamwordsizeoffset", settings.DreamwordSizeOffset.ToString(CultureInfo.InvariantCulture));
                 ini.Set("settings", "showonline",         settings.ShowOnline    ? "yes" : "no");
                 ini.Set("settings", "showinventory",      settings.ShowInventory ? "yes" : "no");
                 ini.Set("settings", "showitemshere",      settings.ShowItemsHere ? "yes" : "no");
                 ini.Set("settings", "showmapcompass",     settings.ShowMapCompass ? "yes" : "no");
-                ini.Set("settings", "maxonlinedisplay",   settings.MaxOnlineDisplay.ToString());
+                ini.Set("settings", "maxonlinedisplay",   settings.MaxOnlineDisplay.ToString(CultureInfo.InvariantCulture));
                 ini.Set("settings", "onlinenamesonly",    settings.OnlineNamesOnly ? "yes" : "no");
-                ini.Set("settings", "onlineforgetwindow", settings.OnlineForgetWindow.ToString());
+                ini.Set("settings", "onlineforgetwindow", settings.OnlineForgetWindow.ToString(CultureInfo.InvariantCulture));
                 ini.Set("settings", "floatonline",        settings.FloatOnline     ? "yes" : "no");
                 ini.Set("settings", "floatcompass",       settings.FloatCompass    ? "yes" : "no");
                 ini.Set("settings", "menamecolor",        settings.MeNameColor);
@@ -410,12 +413,13 @@ public static class SettingsStore
         // Rewrite the MRU order as 1..N and drop any stale numeric keys beyond it.
         var staleKeys = ini.Items(ProfilesSection)
             .Select(kv => kv.Key)
-            .Where(k => int.TryParse(k, out var n) && (n < 1 || n > profiles.Count))
+            .Where(k => int.TryParse(k, NumberStyles.Integer, CultureInfo.InvariantCulture, out var n)
+                        && (n < 1 || n > profiles.Count))
             .ToList();
         foreach (var key in staleKeys)
             ini.Remove(ProfilesSection, key);
         for (var i = 0; i < profiles.Count; i++)
-            ini.Set(ProfilesSection, (i + 1).ToString(), profiles[i].Name);
+            ini.Set(ProfilesSection, (i + 1).ToString(CultureInfo.InvariantCulture), profiles[i].Name);
 
         // Sections for deleted profiles go away; their settings:/fkeys: sections are
         // deliberately left alone (same hands-off rule as saving globals over them).
@@ -444,13 +448,13 @@ public static class SettingsStore
         {
             var section = ProfileSectionPrefix + p.Name;
             ini.Set(section, "host",             p.Host);
-            ini.Set(section, "port",             p.Port.ToString());
+            ini.Set(section, "port",             p.Port.ToString(CultureInfo.InvariantCulture));
             ini.Set(section, "account",          p.AccountId);
             ini.Set(section, "rememberpassword", p.RememberPassword   ? "yes" : "no");
             ini.Set(section, "telnetlogin",      p.TelnetLoginEnabled ? "yes" : "no");
             ini.Set(section, "loginname",        p.TelnetLoginName);
-            ini.Set(section, "columns",          p.MaxColumns.ToString());
-            ini.Set(section, "antiidle",         p.AntiIdleSeconds.ToString());
+            ini.Set(section, "columns",          p.MaxColumns.ToString(CultureInfo.InvariantCulture));
+            ini.Set(section, "antiidle",         p.AntiIdleSeconds.ToString(CultureInfo.InvariantCulture));
             ini.Set(section, "keepscreenon",     p.KeepScreenOn       ? "yes" : "no");
             ini.Set(section, "defaulthotkeys",   p.DefaultHotkeys     ? "yes" : "no");
             ini.Set(section, "guidedlogin",       p.GuidedLogin        ? "yes" : "no");
@@ -489,7 +493,7 @@ public static class SettingsStore
             // the "soundgroup."/"sound." branches.
             if (key.StartsWith(SoundGroupVolKeyPrefix, StringComparison.OrdinalIgnoreCase))
             {
-                if (int.TryParse(value, out var vol))
+                if (int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var vol))
                     Sounds().GroupVolumes[key[SoundGroupVolKeyPrefix.Length..]] = Math.Clamp(vol, 0, 100);
             }
             else if (key.StartsWith(SoundGroupKeyPrefix, StringComparison.OrdinalIgnoreCase))
@@ -504,7 +508,7 @@ public static class SettingsStore
             }
             else if (key.StartsWith(SoundVolKeyPrefix, StringComparison.OrdinalIgnoreCase))
             {
-                if (int.TryParse(value, out var vol))
+                if (int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var vol))
                     Sounds().SoundVolumes[key[SoundVolKeyPrefix.Length..]] = Math.Clamp(vol, 0, 100);
             }
             else if (key.StartsWith(SoundKeyPrefix, StringComparison.OrdinalIgnoreCase))
@@ -540,9 +544,9 @@ public static class SettingsStore
         foreach (var (prefix, code) in sounds.GroupDefaults)
             ini.Set(section, SoundDefaultKeyPrefix + prefix, code);
         foreach (var (prefix, vol) in sounds.GroupVolumes)
-            ini.Set(section, SoundGroupVolKeyPrefix + prefix, vol.ToString());
+            ini.Set(section, SoundGroupVolKeyPrefix + prefix, vol.ToString(CultureInfo.InvariantCulture));
         foreach (var (code, vol) in sounds.SoundVolumes)
-            ini.Set(section, SoundVolKeyPrefix + code, vol.ToString());
+            ini.Set(section, SoundVolKeyPrefix + code, vol.ToString(CultureInfo.InvariantCulture));
     }
 
     private static bool? ParseOnOff(string value)
@@ -554,7 +558,8 @@ public static class SettingsStore
         };
 
     private static int? GetInt(IniFile ini, string section, string key)
-        => int.TryParse(ini.Get(section, key), out var v) ? v : null;
+        => int.TryParse(ini.Get(section, key), NumberStyles.Integer, CultureInfo.InvariantCulture, out var v)
+            ? v : null;
 
     private static bool? GetBool(IniFile ini, string section, string key)
         => ini.Get(section, key)?.ToLowerInvariant() switch
@@ -570,7 +575,8 @@ public static class SettingsStore
         index = -1;
         if (key.Length < 2 || (key[0] != 'F' && key[0] != 'f'))
             return false;
-        if (!int.TryParse(key[1..], out var n) || n < 1 || n > FkeyCount)
+        if (!int.TryParse(key[1..], NumberStyles.Integer, CultureInfo.InvariantCulture, out var n)
+            || n < 1 || n > FkeyCount)
             return false;
         index = n - 1;
         return true;

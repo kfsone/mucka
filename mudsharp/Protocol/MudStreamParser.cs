@@ -215,7 +215,6 @@ public sealed class MudStreamParser
     internal TelnetNegotiator Telnet { get; }
     internal AnsiSgrState Ansi { get; }
     internal Mud2C1Decoder C1 { get; }
-    internal GameLineAnalyzer LineAnalyzer { get; }
 
     // -- Parser state ----------------------------------------------------------
     private ParserState _state = ParserState.Normal;
@@ -614,7 +613,6 @@ public sealed class MudStreamParser
         Ansi.WidthConfirmed = w => TerminalWidthConfirmed?.Invoke(w);
         Telnet = new TelnetNegotiator(send => OutgoingBytes?.Invoke(send));
         C1 = new Mud2C1Decoder(this);
-        LineAnalyzer = new GameLineAnalyzer();
     }
 
     // -- Public API -------------------------------------------------------------
@@ -803,7 +801,7 @@ public sealed class MudStreamParser
                     if (tellSender is not null) TellReceived?.Invoke(tellSender);
                 }
             }
-            var stats = LineAnalyzer.Analyze(line, _inGameMode);
+            var stats = GameLineAnalyzer.Analyze(line, _inGameMode);
             if (stats != null) StatsUpdated?.Invoke(stats);
             // Raised AFTER StatsUpdated so a consumer that reacts to the event can already see the new
             // total in the merged snapshot. Not gated on game mode: the save that lands as the world
@@ -816,7 +814,7 @@ public sealed class MudStreamParser
                 TaskCompleted?.Invoke(taskCompleted);
             if (GameLineAnalyzer.TryReadScoreSave(line.PlainText, out var scoreSave))
                 ScoreSaved?.Invoke(scoreSave);
-            if (_inGameMode) { var sf = LineAnalyzer.CheckSoundTrigger(line); if (sf != null) EmitSound(sf); }
+            if (_inGameMode) { var sf = GameLineAnalyzer.CheckSoundTrigger(line); if (sf != null) EmitSound(sf); }
             if (_inGameMode && tellAlertRequested && !ownListenersSend)
                 EmitSound(ChooseTellAlertSound(line.PlainText));
             if (_inGameMode)

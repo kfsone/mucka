@@ -897,7 +897,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     /// <see cref="DropTailLineCount"/> lines from the last <see cref="DropTailWindow"/>, blanks
     /// trimmed off both ends. Falls back to the most recent lines regardless of age when that
     /// window is empty, so a slow death message still gets shown.</summary>
-    private IReadOnlyList<StyledLine> SnapshotDropTail()
+    private List<StyledLine> SnapshotDropTail()
     {
         List<(DateTime AtUtc, StyledLine Line)> recent;
         lock (_recentLinesLock)

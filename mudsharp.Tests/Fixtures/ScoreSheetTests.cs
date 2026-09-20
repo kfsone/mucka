@@ -88,7 +88,11 @@ public class ScoreSheetTests : IDisposable
         });
     }
 
-    public void Dispose() => _session.Dispose();
+    public void Dispose()
+    {
+        _session.Dispose();
+        GC.SuppressFinalize(this);
+    }
 
     /// <summary>Feed a sheet as the server sends it (CRLF-terminated lines) and return the merged
     /// character sheet the client now holds.</summary>

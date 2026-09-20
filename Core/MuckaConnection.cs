@@ -309,8 +309,10 @@ public sealed class MuckaConnection : IAsyncDisposable
             _session.OutgoingBytes -= EnqueueBytes;
             _session.OutgoingBytes += EnqueueBytes;
 
-            _writerTask = Task.Run(() => WriteLoopAsync(stream, sendChannel.Reader, cts.Token));
-            _readLoop = Task.Run(() => ReadLoopAsync(stream, cts.Token));
+            // CancellationToken.None, not the connect call's token: these two loops outlive the
+            // connect and are cancelled by `cts`, which Disconnect owns.
+            _writerTask = Task.Run(() => WriteLoopAsync(stream, sendChannel.Reader, cts.Token), CancellationToken.None);
+            _readLoop = Task.Run(() => ReadLoopAsync(stream, cts.Token), CancellationToken.None);
         }
         catch
         {

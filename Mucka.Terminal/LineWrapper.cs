@@ -39,7 +39,7 @@ public static class LineWrapper
     public static List<StyledLine> WrapAll(IReadOnlyList<StyledLine> lines, int columns,
         List<bool>? continuesPrevious)
     {
-        if (columns < 1) throw new ArgumentOutOfRangeException(nameof(columns));
+        ArgumentOutOfRangeException.ThrowIfLessThan(columns, 1);
         var rows = new List<StyledLine>();
         for (int i = 0; i < lines.Count; i++)
             Wrap(lines[i], columns, rows, continuesPrevious);
@@ -56,7 +56,7 @@ public static class LineWrapper
     public static void Wrap(StyledLine line, int columns, List<StyledLine> rows,
         List<bool>? continuesPrevious)
     {
-        if (columns < 1) throw new ArgumentOutOfRangeException(nameof(columns));
+        ArgumentOutOfRangeException.ThrowIfLessThan(columns, 1);
         int firstRow = rows.Count;
 
         if (line.Spans.Count == 0)

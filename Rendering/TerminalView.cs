@@ -20,6 +20,8 @@ namespace Mucka.Rendering;
 /// </list>
 /// Lines are naive-hard-wrapped at a fixed column count. Selection and copy are handled here.
 /// </summary>
+[System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA1001:Types that own disposable fields should be disposable",
+    Justification = "The paints and fonts live as long as the view does, and nothing disposes a MAUI view; a Dispose here would never be called.")]
 public sealed class TerminalView : SKCanvasView
 {
     // 500 logical lines of scrollback. Each live repaint re-wraps the whole committed buffer

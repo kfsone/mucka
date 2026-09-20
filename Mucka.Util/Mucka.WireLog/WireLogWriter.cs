@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Text;
 using Microsoft.Data.Sqlite;
 using Mucka.Store;
@@ -55,6 +56,8 @@ public sealed class WireLogWriter : IDisposable
     /// <summary>Nothing is held back, so there is nothing to flush. Kept because every path that ends
     /// a connection calls it, and because a recorder that grows a buffer later should have one place
     /// to empty it.</summary>
+    [SuppressMessage("Performance", "CA1822:Mark members as static",
+        Justification = "Instance method on purpose: it is the recorder's flush point, and every caller holds the writer.")]
     public void Flush() { }
 
     public void Dispose() => _disposed = true;

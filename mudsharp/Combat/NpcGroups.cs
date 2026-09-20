@@ -45,15 +45,15 @@ public static class NpcGroups
         if (Irregular.TryGetValue(leaf, out var irregular))
             return irregular;
 
-        if (leaf.EndsWith("s", StringComparison.Ordinal)
-            || leaf.EndsWith("x", StringComparison.Ordinal)
+        if (leaf.EndsWith('s')
+            || leaf.EndsWith('x')
             || leaf.EndsWith("ch", StringComparison.Ordinal)
             || leaf.EndsWith("sh", StringComparison.Ordinal))
             return leaf + "es";
 
         // Consonant + y pluralizes as -ies ("harpy" -> "harpies"), vowel + y does not
         // ("donkey" -> "donkeys").
-        if (leaf.Length > 1 && leaf.EndsWith("y", StringComparison.Ordinal) && !IsVowel(leaf[^2]))
+        if (leaf.Length > 1 && leaf.EndsWith('y') && !IsVowel(leaf[^2]))
             return leaf[..^1] + "ies";
 
         return leaf + "s";

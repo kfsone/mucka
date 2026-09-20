@@ -31,6 +31,8 @@ namespace Mucka.Rendering;
 /// <para><b>Invariant #0 - this surface cannot take focus.</b> No gesture recognizers, mounted
 /// <c>InputTransparent</c>. There is nothing to click, by construction.</para>
 /// </summary>
+[System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA1001:Types that own disposable fields should be disposable",
+    Justification = "The paints and fonts live as long as the view does, and nothing disposes a MAUI view; a Dispose here would never be called.")]
 public sealed class CombatRailView : SKCanvasView
 {
     // ---- Geometry (logical units; the canvas is scaled to these at paint time) -------------

@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.Data.Sqlite;
 
 namespace Mucka.Store;
@@ -71,7 +72,7 @@ public sealed class StoreWrite
         using var command = _connection.CreateCommand();
         command.Transaction = _transaction;
         command.CommandText = "SELECT last_insert_rowid();";
-        return Convert.ToInt64(command.ExecuteScalar());
+        return Convert.ToInt64(command.ExecuteScalar(), CultureInfo.InvariantCulture);
     }
 
     /// <summary>SQL NULL for a missing value. Never 0 - see the schema's note on fabricated

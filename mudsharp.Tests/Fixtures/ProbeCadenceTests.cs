@@ -34,7 +34,11 @@ public class ProbeCadenceTests : IDisposable
         _session.OutgoingBytes += b => { lock (_lock) _outgoing.Add(Encoding.Latin1.GetString(b)); };
     }
 
-    public void Dispose() => _session.Dispose();
+    public void Dispose()
+    {
+        _session.Dispose();
+        GC.SuppressFinalize(this);
+    }
 
     private void Feed(byte[] data) => _session.Feed(data);
     private void Feed(string ascii) => _session.Feed(Encoding.Latin1.GetBytes(ascii));

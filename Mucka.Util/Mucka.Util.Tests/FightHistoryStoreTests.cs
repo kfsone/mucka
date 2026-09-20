@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.Data.Sqlite;
 using MudSharp.Combat;
 using Mucka.Combat;
@@ -37,7 +38,7 @@ public sealed class FightHistoryStoreTests : IDisposable
         connection.Open();
         using var command = connection.CreateCommand();
         command.CommandText = $"SELECT COUNT(*) FROM {table};";
-        return Convert.ToInt32(command.ExecuteScalar());
+        return Convert.ToInt32(command.ExecuteScalar(), CultureInfo.InvariantCulture);
     }
 
     private static FightRecord Fight(string npcName, double damageDone = 30)

@@ -34,7 +34,11 @@ public class DreamwordSpokenTests : IDisposable
         _session.DreamwordChanged += w => _dreamwords.Add(w);
     }
 
-    public void Dispose() => _session.Dispose();
+    public void Dispose()
+    {
+        _session.Dispose();
+        GC.SuppressFinalize(this);
+    }
 
     private void Feed(string ascii) => _session.Feed(Encoding.Latin1.GetBytes(ascii));
     private void Prompt() => _session.Feed(PromptBytes);

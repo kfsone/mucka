@@ -1,4 +1,6 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 using System.Windows.Input;
 using Mucka.Core;
 
@@ -23,10 +25,12 @@ public sealed class ConnectViewModel : BaseViewModel
     private bool _guidedLogin;
     private string _guidedLoginPersona = string.Empty;
     private int _maxColumns = 80;
-    private int _antiIdleSeconds = 0;
+    private int _antiIdleSeconds;
     private int _profileSelectionVersion;
     private int _profileLoadsInProgress;
     // Mobile defaults on - matches Profile.KeepScreenOn (screen-lock mid-session gets you swamped).
+    [SuppressMessage("Performance", "CA1805:Do not initialize unnecessarily",
+        Justification = "The initialiser is platform-conditional: false only on desktop, true on the mobile TFMs.")]
     private bool _keepScreenOn =
 #if ANDROID || IOS
         true;
@@ -56,7 +60,10 @@ public sealed class ConnectViewModel : BaseViewModel
     }
 
     /// <summary>Display string for the MaxColumns entry - blank means "auto" (0).</summary>
-    public string MaxColumnsText => _maxColumns == 0 ? string.Empty : _maxColumns.ToString();
+    // Invariant, not the reader's culture: this text goes back into the entry and is parsed out of
+    // it again, so the two ends have to agree on one format. See OnMaxColumnsEntryCompleted.
+    public string MaxColumnsText =>
+        _maxColumns == 0 ? string.Empty : _maxColumns.ToString(CultureInfo.InvariantCulture);
     public int AntiIdleSeconds { get => _antiIdleSeconds; set => Set(ref _antiIdleSeconds, Math.Clamp(value, 0, 3600)); }
     public bool KeepScreenOn { get => _keepScreenOn; set => Set(ref _keepScreenOn, value); }
 
@@ -90,7 +97,7 @@ public sealed class ConnectViewModel : BaseViewModel
     public ICommand ShowTelnetHelpCommand { get; }
     public ICommand DeleteProfileCommand { get; }
 
-    public Func<PasswordPromptArgs, Task<PasswordResult?>>? PasswordRequired;
+    public Func<PasswordPromptArgs, Task<PasswordResult?>>? PasswordRequired { get; set; }
 
     public event Action<MuckaConnection, Profile>? Connected;
 
@@ -102,7 +109,7 @@ public sealed class ConnectViewModel : BaseViewModel
         DeleteProfileCommand = new AsyncCommand(DeleteProfileAsync);
         ShowTelnetHelpCommand = new Command(async () =>
         {
-            var page = Application.Current?.Windows.FirstOrDefault()?.Page;
+            var page = Application.Current?.Windows is [var window, ..] ? window.Page : null;
             if (page != null)
             {
                 await page.DisplayAlertAsync(
@@ -382,7 +389,7 @@ public sealed class ConnectViewModel : BaseViewModel
             return;
         }
 
-        var page = Application.Current?.Windows.FirstOrDefault()?.Page;
+        var page = Application.Current?.Windows is [var window, ..] ? window.Page : null;
         if (page == null) return;
 
         var name = ProfileName;

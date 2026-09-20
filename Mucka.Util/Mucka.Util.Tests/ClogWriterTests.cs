@@ -56,7 +56,7 @@ public sealed class ClogWriterTests : IDisposable
 
     /// <summary>Closes the store so everything queued is on disk, then reads a table back in insertion
     /// order as column-name to value maps.</summary>
-    private IReadOnlyList<Dictionary<string, object?>> Rows(string table, string? where = null)
+    private List<Dictionary<string, object?>> Rows(string table, string? where = null)
     {
         _db.Dispose();
         if (!File.Exists(DbPath))
@@ -196,7 +196,7 @@ public sealed class ClogWriterTests : IDisposable
                Dexterity: dexterity, RawDexterity: 100, MaxDexterity: 100) { HasFesStats = true };
 
     /// <summary>The items of one contents row, in order, as (name, isCreature, isCarried).</summary>
-    private IReadOnlyList<(string Name, bool Creature, bool Carried)> ItemsOf(long contentsId)
+    private List<(string Name, bool Creature, bool Carried)> ItemsOf(long contentsId)
         => Rows("encounter_contents_items", $"contents_id = {contentsId}")
             .Select(r => ((string)r["name"]!, (long)r["is_creature"]! == 1, (long)r["is_carried"]! == 1))
             .ToList();

@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.RegularExpressions;
 
 namespace Mucka.Commands;
@@ -274,8 +275,11 @@ public static class ShellText
         var result = new List<ExaminePersona>();
         foreach (Match m in ExaminePersonaRegex.Matches(normalized))
         {
-            var score = int.Parse(m.Groups["score"].Value.Replace(",", string.Empty));
-            var played = int.Parse(m.Groups["played"].Value);
+            // Shell text off the wire. The thousands separator is stripped by hand because the
+            // server's is a comma whatever the reader's locale calls one.
+            var score = int.Parse(m.Groups["score"].Value.Replace(",", string.Empty),
+                CultureInfo.InvariantCulture);
+            var played = int.Parse(m.Groups["played"].Value, CultureInfo.InvariantCulture);
             result.Add(new ExaminePersona(m.Groups["name"].Value, m.Groups["sex"].Value.ToLowerInvariant(), score, played));
         }
         return result;

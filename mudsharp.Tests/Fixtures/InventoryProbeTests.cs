@@ -39,7 +39,11 @@ public class InventoryProbeTests : IDisposable
         _session.OutgoingBytes += b => { lock (_lock) _outgoing.Add(Encoding.Latin1.GetString(b)); };
     }
 
-    public void Dispose() => _session.Dispose();
+    public void Dispose()
+    {
+        _session.Dispose();
+        GC.SuppressFinalize(this);
+    }
 
     private void Feed(string ascii) => _session.Feed(Encoding.Latin1.GetBytes(ascii));
 
@@ -51,7 +55,7 @@ public class InventoryProbeTests : IDisposable
     private int CountContaining(string needle)
         => Sent().Count(o => o.Contains(needle, StringComparison.Ordinal));
 
-    private bool WaitFor(Func<bool> condition, int timeoutMs = 2000)
+    private static bool WaitFor(Func<bool> condition, int timeoutMs = 2000)
     {
         var deadline = Environment.TickCount64 + timeoutMs;
         while (Environment.TickCount64 < deadline)

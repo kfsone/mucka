@@ -11,6 +11,8 @@ namespace Mucka.Rendering;
 ///
 /// Authored in a 100x14 space and stretched to the control's box.
 /// </summary>
+[System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA1001:Types that own disposable fields should be disposable",
+    Justification = "The paints and fonts live as long as the view does, and nothing disposes a MAUI view; a Dispose here would never be called.")]
 public sealed class SwampSeamView : SKCanvasView
 {
     private static readonly SKColor Mud   = new(0x20, 0x29, 0x1a);
