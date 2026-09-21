@@ -1836,7 +1836,7 @@ public partial class GamePage : ContentPage
     /// any float can carry is a five-character bracket, and this holds it.
     ///
     /// <para>The width answers to that string and to nothing else. It still has to fit: the box is
-    /// placed left-edge-first at <c>CombatRailView.OpponentFloatOriginDp</c>, which is clear of the
+    /// placed left-edge-first at <c>CombatRailView.FloatOriginDp</c>, which is clear of the
     /// name column, and 92 from there stays inside the panel at the narrow width as well as the
     /// wide one.</para></summary>
     private const double CombatFloatWidthDp = 92.0;
@@ -3317,7 +3317,7 @@ public partial class GamePage : ContentPage
     ///
     /// <para>The auto-vs-fixed-columns slack reasoning, the manual-resize-survives-the-toggle
     /// reasoning, the floor clamp, and the DPI-safe dp-stored delta all live in
-    /// <see cref="CombatRailResize.ComputeToggle"/> now (<c>Mucka.Terminal</c>, unit-tested against
+    /// <see cref="CombatRailResize.ComputeToggle"/> now (<c>Mucka.Combat</c>, unit-tested against
     /// acceptance examples in <c>CombatRailResizeTests</c>) - this method is a thin
     /// caller: gather the live window/DPI/column-count state, hand it to that pure function, apply
     /// the one real side effect (<c>appWindow.Resize</c>), and remember the returned delta.</para>

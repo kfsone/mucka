@@ -370,11 +370,10 @@ public static class ParticipantRoster
 
     /// <summary>
     /// Live participants first (in their original first-engaged order), then the unknown badges, then
-    /// resolved ones, capped at <see cref="MaxRows"/> - the same ordering
-    /// <c>CombatHistoryFormatter.OrderedTargets</c> already uses, so a truncated pack fight always
+    /// resolved ones, capped at <see cref="MaxRows"/>, so a truncated pack fight always
     /// keeps whoever is still swinging and drops finished fights first. The very first row is marked
     /// <see cref="RosterRow.IsCurrentTarget"/> exactly when it is live - mirroring
-    /// <c>CombatHistoryFormatter.PrimaryFight</c>'s own "first still-unresolved fight in original
+    /// <c>Mucka.Combat.CombatComposition.PrimaryFight</c>'s own "first still-unresolved fight in original
     /// order" rule, so the roster's bolded row and the outlook/threat projection can never describe
     /// two different fights.
     ///

@@ -44,9 +44,9 @@ public sealed class CombatRailView : SKCanvasView
     // e.Info.Width is the SKCanvasView surface in PHYSICAL pixels (IgnorePixelScaling is not set
     // anywhere in this repo), so scale == 1.0 only at 100% OS scaling - at 150% it is 1.5, etc.
     //
-    // Derived from CombatRailResize.CombatPanelContentWidthDp (Mucka.Terminal), not the other way
+    // Derived from CombatRailResize.CombatPanelContentWidthDp (Mucka.Combat), not the other way
     // round: that project is plain net10.0 with no dependency on this one, so it cannot reference
-    // this constant - this project (Mucka, Windows-only) DOES already depend on Mucka.Terminal, so
+    // this constant - this project (Mucka, Windows-only) DOES already depend on Mucka.Combat, so
     // the dependency has to run this direction for there to be exactly one source of truth instead of
     // two hand-kept copies. GamePage.xaml.cs's window-resize arithmetic reads the SAME
     // CombatRailResize constant, so the two sides cannot drift apart.
@@ -890,7 +890,7 @@ public sealed class CombatRailView : SKCanvasView
             return;
 
         var startY = Pad + DeadLineHeight;
-        // Row-count/truncation arithmetic lives in RailSlotGeometry so mudsharp.Tests can pin it
+        // Row-count/truncation arithmetic lives in RailSlotGeometry so Mucka.Util.Tests can pin it
         // directly - this class is an SKCanvasView and unreachable from a unit test. See
         // RailSlotGeometry.PlanDeadStrip for the capacity-1 rule (show the newest ending rather than a
         // marker with nothing under it). The two separator heights are the SAME constants this method

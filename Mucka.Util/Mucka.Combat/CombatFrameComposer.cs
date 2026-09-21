@@ -130,8 +130,8 @@ public static class CombatFrameComposer
         // ever the NAME of something held.
         var weaponText = hasWeapon ? CombatComposition.DisplayName(liveWeapon) : string.Empty;
         // Roster/weapon/duration context is worth showing whenever an encounter exists at all, live
-        // or just-finished - mirrors CombatComposition.Build's own AppendHeadline/AppendParticipants,
-        // which never gated on InCombat either.
+        // or just-finished: an encounter's roster and weapon are worth reading while the tile still
+        // shows the fight that has just ended.
         //
         // Built AFTER the weapon is known, because each participant's novelty is asked twice - once
         // bare, once against what is actually in hand - and the second question has no answer until

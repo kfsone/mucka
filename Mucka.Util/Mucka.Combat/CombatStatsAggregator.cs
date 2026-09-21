@@ -58,7 +58,8 @@ public sealed record FightSnapshot(
     // ending archive's timestamp; see SidePanelViewModel.BuildDeadStripHistory. Never fabricated when
     // absent.
     DateTime? EndedUtc,
-    // Recent-hits strip data (clog window, primary fight only - see CombatHistoryFormatter). Every
+    // Per-fight bounded rings of recent swing outcomes. No production surface reads them today -
+    // the composer and the rail draw neither - so they are carried and tested but not drawn. Every
     // fight carries its own bounded ring regardless, since the cost is a handful of structs and
     // BuildFightSnapshots already allocates one FightSnapshot per active NPC on every refresh.
     IReadOnlyList<SwingOutcome> RecentYourSwings,

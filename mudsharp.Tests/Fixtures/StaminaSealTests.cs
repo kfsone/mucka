@@ -854,13 +854,11 @@ public sealed class StaminaSealTests
     [Fact]
     public void TheRingDrains_SoAFullCreatureHasItsBoundaryAtTheOrigin()
     {
-        // Grey from the origin is what has been taken off, the lit run from the boundary round to the
-        // end is what is left. The origin is 6 o'clock and the angle grows ANTICLOCKWISE, so the
-        // half-gone boundary at 180 lands at 12 o'clock and the lit run is the left-hand "C" - which
-        // is what 50% should look like. The screen mapping itself lives in
-        // CombatRailView.OnRing / DrawRingArc, which no test can reach; what is pinnable here is that
-        // the axis runs 0 at full to 360 at dead, which is what every other angle on the panel is
-        // measured against.
+        // The boundary is where what has been taken off meets what is left, on a 0-to-360 axis.
+        // The screen mapping lives in CombatRailView.DrawVitalityBar, which no test can reach and
+        // which turns a boundary back into a remaining-fraction as (360 - start) / 360; what is
+        // pinnable here is that the axis runs 0 at full to 360 at dead, which is what every other
+        // angle on the panel is measured against.
         Assert.Equal(0f, StaminaSeal.BoundaryFor(1.0), 3);
         Assert.Equal(360f, StaminaSeal.BoundaryFor(0.0), 3);
         Assert.Equal(180f, StaminaSeal.BoundaryFor(0.5), 3);

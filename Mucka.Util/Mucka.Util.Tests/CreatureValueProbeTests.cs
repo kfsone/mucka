@@ -442,8 +442,9 @@ public class CreatureValueProbeTests : IDisposable
     /// Unnumbered mobs (thief, banshee, coot, fox - see NpcPoolKey's own remarks) have no instance
     /// number and can share a live name, so ONE `value thief` command can legitimately draw a reply
     /// from each of two different creatures. This test proves the SESSION layer captures BOTH
-    /// replies (neither leaks to the terminal unswallowed) - see FightAccumulator.NoteValueTests /
-    /// ClogWriterTests for the downstream half: turning "resolved twice" into an honest
+    /// replies (neither leaks to the terminal unswallowed) - see CombatPerFightTests (which pins
+    /// FightAccumulator.NoteValue) and ClogWriterTests for the downstream half: turning "resolved
+    /// twice" into an honest
     /// ambiguous/unknown reading rather than a last-writer-wins coin-flip.
     /// </summary>
     [Fact]

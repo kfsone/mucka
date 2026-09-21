@@ -1,10 +1,11 @@
 namespace Mucka.Combat;
 
 /// <summary>
-/// Bounds how often the clog readout is allowed to rebuild and republish.
+/// Bounds how often the combat readout is allowed to rebuild and republish.
 ///
-/// <para>Rendering rebuilds a native FormattedString on the UI thread (see ClogPage.Render), which
-/// is expensive enough to compete with typing. Combat events and the FES stats heartbeat can fire
+/// <para>A render runs SidePanelViewModel.RefreshCombatDisplay on the UI thread: a fresh
+/// FightSnapshot per active NPC, the history resolve and the frame composition. That is expensive
+/// enough to compete with typing. Combat events and the FES stats heartbeat can fire
 /// many times per second, especially in a pack fight, but MUD2's own combat tick is roughly 2
 /// seconds, so rendering faster than a few times a second is UI-thread work the player cannot
 /// perceive.</para>
@@ -19,14 +20,14 @@ namespace Mucka.Combat;
 /// call <see cref="MarkRendered"/> to keep the gate's bookkeeping in step, rather than going
 /// through <see cref="RequestRender"/> and risking a skip.</para>
 ///
-/// <para>Pure and stateless of any MAUI type, so - like ClogDisplay.cs and
-/// CombatHistoryFormatter.cs - it is linked directly into mudsharp.Tests.</para>
+/// <para>Pure and stateless of any MAUI type, so Mucka.Util.Tests exercises it directly
+/// (ClogRenderGateTests).</para>
 /// </summary>
 public sealed class ClogRenderGate
 {
     /// <summary>~4.5 Hz: comfortably above MUD2's own ~2 s combat tick (so no real update is ever
-    /// delayed by this bound) and comfortably below the point where native span rebuilds start
-    /// competing with typing.</summary>
+    /// delayed by this bound) and comfortably below the point where the per-refresh composition
+    /// starts competing with typing.</summary>
     public static readonly TimeSpan DefaultMinInterval = TimeSpan.FromMilliseconds(220);
 
     private readonly TimeSpan _minInterval;

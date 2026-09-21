@@ -7,7 +7,8 @@ namespace Mucka.Core;
 /// <c>docs/persistence-design.md</c>.
 ///
 /// <para>This is the only file in the persistence path that compiles against
-/// <c>FileSystem.Current</c> (Microsoft.Maui.Storage), which a plain xunit project cannot resolve.
+/// <c>FileSystem.AppDataDirectory</c> (Microsoft.Maui.Storage), which a plain xunit project cannot
+/// resolve.
 /// Everything below it takes a path from its caller and stays MAUI-free, which is what lets the
 /// stores be tested against a temp directory and read by an offline tool.</para>
 /// </summary>

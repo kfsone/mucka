@@ -442,7 +442,8 @@ public static class RailFloatPlacement
     /// player; reading each figure is the encounter table's job, not this one's.</para>
     ///
     /// <para>ONE column for every float, whatever its direction and whatever pane it sits on -
-    /// <c>CombatRailView.OpponentFloatOriginDp</c> and its player twin return the same x. Splitting
+    /// <c>CombatRailView.FloatOriginDp</c> returns the same x for an opponent row and for the
+    /// player's own. Splitting
     /// the two directions to opposite edges was tried in play and is worse: the rail is scanned down
     /// its badges, and numbers alternating between the left and right margins cut across that scan
     /// instead of riding it. Which direction a float is remains legible from its colour and from the

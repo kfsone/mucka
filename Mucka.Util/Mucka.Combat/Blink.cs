@@ -1,8 +1,10 @@
 namespace Mucka.Combat;
 
 /// <summary>
-/// <b>The client's blink and pulse doctrine: what "blink" and "pulse" mean in this client, and the
-/// only place either period is written down.</b>
+/// <b>The client's blink and pulse doctrine: what "blink" and "pulse" mean in this client, and where
+/// each period is declared.</b> The pulse period is declared here and read by
+/// <c>Mucka.Rendering.PulseLayer</c>. The blink period is declared here as well, as a second literal
+/// of the combat tick that <see cref="CombatTiming.TickMilliseconds"/> also carries.
 ///
 /// <para><b>Two mechanisms, deliberately not one.</b> They look similar and they are not
 /// interchangeable:</para>
@@ -45,8 +47,8 @@ public static class Blink
     public const double PulsePeriodMilliseconds = 1200.0;
 
     /// <summary>The blink period, in milliseconds: one MUD2 combat tick. Measured, not chosen - see
-    /// Mucka.Combat.CombatTiming, which owns that measurement; this restates the figure rather than
-    /// referencing it only because Rendering must not depend on Core for a constant.</summary>
+    /// <see cref="CombatTiming.TickMilliseconds"/>, which owns that measurement and carries the same
+    /// figure. This is a second literal of it, in the same assembly, and the two can drift.</summary>
     public const double BlinkPeriodMilliseconds = 2000.0;
 
     /// <summary>

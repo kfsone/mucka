@@ -16,7 +16,7 @@ namespace Mucka.Util.Tests;
 /// changed.</para>
 ///
 /// <para><b>Why this pins the record rather than the setter.</b> <c>CombatRailView</c> is an
-/// <c>SKCanvasView</c> in the MAUI-only Mucka project and is not reachable from mudsharp.Tests, so
+/// <c>SKCanvasView</c> in the MAUI-only Mucka project and is not reachable from here, so
 /// there is no way to call its setter directly from here. <c>CombatContracts.cs</c> - which holds
 /// <see cref="CombatLiveView"/> and lives in Mucka.Combat precisely so its pure pieces stay
 /// testable - is reachable, and the setter's whole decision is

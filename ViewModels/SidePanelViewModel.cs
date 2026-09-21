@@ -666,8 +666,8 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             if (_combatStats.HasEncounter)
                 _hasCombatData = true;
             // A pack fight can fire this once per swing per participant - far faster than anyone
-            // can read the readout, and each render rebuilds a native FormattedString on the UI
-            // thread (see ClogPage.Render). Route through the render gate so a burst collapses to
+            // can read the readout, and each render runs RefreshCombatDisplay's snapshot, history
+            // resolve and composition on the UI thread. Route through the render gate so a burst collapses to
             // a bounded rate instead of one full rebuild per event (CLAUDE.md Invariant #1); a
             // throttled event is not lost, it just waits for the next tick (TickCombatDisplay).
             var now = DateTime.UtcNow;
@@ -686,7 +686,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             ObserveFloatStamina(stats.Stamina);
             // The game's own colour for the stamina figure. Sticky: a partial snapshot that carries no
             // colour must not reset it to "unknown" and flip the condition line to a default tone
-            // mid-fight - MudSession.OnStatsUpdated carries the previous value forward for the same
+            // mid-fight - MudSession.MergeStats carries the previous value forward for the same
             // reason.
             if (stats.StaminaColor is byte staColor)
                 _staminaAnsiColor = staColor;
@@ -1549,7 +1549,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         => _killAwards.AwardFor(encounterOrdinal, name, endedUtc);
 
     /// <summary>What each kill and creature flight was scored, and what the player's own flights cost.
-    /// Kept out of this class (MAUI-dependent, unreachable from mudsharp.Tests) so the pairing can be
+    /// Kept out of this class (MAUI-dependent, unreachable from any test project) so the pairing can be
     /// replayed by a test, like <c>CombatEndingOrder</c>.</summary>
     private readonly KillAwardLedger _killAwards = new();
     private readonly FleeChargeLedger _fleeCharges = new();

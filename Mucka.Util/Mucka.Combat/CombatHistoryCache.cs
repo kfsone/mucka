@@ -7,13 +7,14 @@ namespace Mucka.Combat;
 ///
 /// <para>Extracted out of <c>SidePanelViewModel</c> (which owns the only production instance) purely
 /// so this - and specifically the self-comparison-exclusion invariant below - is unit-testable
-/// without the MAUI runtime. See <c>mudsharp.Tests.Fixtures.CombatHistoryCacheTests</c> for the
+/// without the MAUI runtime. See <c>Mucka.Util.Tests.CombatHistoryCacheTests</c> for the
 /// invariant this class exists to make provable: a live encounter's own fight rows must never enter
 /// its own comparison baseline.</para>
 ///
-/// <para><b>Why the cache key has no row-count/version component:</b> <c>HistoryIndex.Insert</c>
-/// only ever runs once a fight has fully closed and been flushed (<c>FightHistoryRecorder.
-/// FlushLocked</c> -&gt; <c>FightHistoryStore.Append</c>), which happens at the exact moment the
+/// <para><b>Why the cache key has no row-count/version component:</b> the <c>HistoryIndex.Insert</c>
+/// call that can run DURING a session is <c>FightHistoryStore.Append</c>'s (the other is
+/// <c>LoadAsync</c>'s, at startup), and Append only ever runs once a fight has fully closed and been
+/// flushed (<c>FightHistoryRecorder.FlushLocked</c>), which happens at the exact moment the
 /// ENCOUNTER on screen closes - not per individual fight within a pack encounter (FlushLocked writes
 /// every fight of an encounter together). If this cache re-queried the index every time it changed,
 /// the very first re-query after an encounter ends would pick up that encounter's own just-flushed

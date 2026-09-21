@@ -15,14 +15,15 @@ namespace MudSharp.Combat;
 /// O(corpus) shape.</para>
 ///
 /// <para><b>Self-comparison is structurally impossible, not filtered out.</b>
-/// Nothing calls <see cref="Insert"/> except <c>Core.FightHistoryStore.Append</c>, which only ever
-/// runs once a fight has fully closed and been flushed (see FightHistoryRecorder.FlushLocked). The
-/// still-open encounter currently on screen therefore cannot be in this index yet, by construction -
-/// there is no runtime exclusion check to get wrong or forget to call, because there is nothing to
-/// exclude. Correctness here rests entirely on that update-ordering guarantee: nothing but a closed
-/// fight's own append path may ever call Insert.</para>
+/// Two call sites reach <see cref="Insert"/>, both in <c>Mucka.Combat.FightHistoryStore</c>:
+/// <c>Append</c>, which only ever runs once a fight has fully closed and been flushed (see
+/// FightHistoryRecorder.FlushLocked), and <c>LoadAsync</c>, which inserts rows the fights table
+/// already held before this session opened. Neither can carry the still-open encounter on screen,
+/// so it cannot be in this index yet, by construction - there is no runtime exclusion check to get
+/// wrong or forget to call, because there is nothing to exclude. Correctness here rests entirely on
+/// that update-ordering guarantee.</para>
 ///
-/// <para>Not thread-safe on its own - <c>Core.FightHistoryStore</c> is the single owner and
+/// <para>Not thread-safe on its own - <c>Mucka.Combat.FightHistoryStore</c> is the single owner and
 /// serializes every access (Insert from Append/LoadAsync, reads from GetHistoryContext) under its
 /// own lock, exactly as it already does for its own <c>_records</c> list.</para>
 /// </summary>

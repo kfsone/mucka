@@ -76,7 +76,7 @@ public sealed class TickStaminaLoss
     /// <see cref="CombatTiming.TickMilliseconds"/> tick, then holding at 0.
     ///
     /// <para>A pure function of the two timestamps rather than a method on an instance, because the
-    /// renderer that needs this (<c>CombatRailView.DrawSeal</c>) only ever has the timestamp carried
+    /// renderer that needs this (<c>CombatRailView.DrawPlayerBar</c>) only ever has the timestamp carried
     /// through <c>CombatLiveView.StaminaLossUtc</c> - a value published once per refresh - and not a
     /// live reference to whichever <see cref="TickStaminaLoss"/> instance produced it.</para>
     ///

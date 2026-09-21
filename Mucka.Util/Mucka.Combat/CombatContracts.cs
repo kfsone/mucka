@@ -93,8 +93,8 @@ public sealed record SessionCombatTotals(
 /// row-capped roster - see <c>SidePanelViewModel.BuildDeadStripHistory</c>.</para>
 ///
 /// <para><see cref="EncounterOrdinal"/> and <see cref="ResetOrdinal"/> are simple monotonic
-/// session-scoped counters, not timestamps or epochs. They share their source with
-/// <c>SwingRow.ResetLandedAtMs</c> - the observed C06 C06 landing - and neither is ever derived from
+/// session-scoped counters, not timestamps or epochs. The reset one advances on
+/// <c>MudSession.WorldResetLanded</c> - the observed C06 C06 landing - and neither is ever derived from
 /// the FES <c>TimeToReset</c>, which wizards can delay or accelerate.
 /// See <c>SidePanelViewModel</c>'s own fields for where each counter is advanced.</para>
 /// </summary>
@@ -133,7 +133,7 @@ public readonly record struct CombatEnding(
 
 /// <summary>
 /// Pure ordering for the dead strip's session history - kept out of <c>SidePanelViewModel</c> (MAUI-
-/// dependent, unreachable from mudsharp.Tests) so the one property that actually matters - an
+/// dependent, unreachable from any test project) so the one property that actually matters - an
 /// ending's row, once drawn, never moves - can be pinned directly by a test.
 ///
 /// <para><c>CombatStatsAggregator.BuildFightSnapshots</c> produces <c>FightSnapshot</c>s in
@@ -250,8 +250,8 @@ public sealed record CombatHistoryContext(
 public sealed record CombatLiveView(
     bool InCombat,
     bool HasEncounter,
-    // "UNARMED" (uppercase) when no weapon is in hand, else the display-shortened weapon name -
-    // matches CombatHistoryFormatter.AppendHeadline's own wording so the two surfaces never drift.
+    // The display-shortened weapon name, or empty when nothing is in hand
+    // (CombatFrameComposer.Compose).
     // The NAME of what the player is fighting with, and empty whenever that is nothing - including
     // between fights, because a weapon belongs to an encounter rather than to a person (see
     // IsUnarmed). Never the word "UNARMED": that is drawn from the flag, which knows whether a fight

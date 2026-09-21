@@ -60,7 +60,7 @@ public enum DeadStripSeparatorKind
 /// <para>Passed in rather than restated here because the canvas owns those numbers and there must
 /// be exactly one copy of them - the same reasoning that put <c>RailWidth</c> itself in
 /// <c>CombatRailResize</c> instead of in two places. This record is what lets the arithmetic live
-/// in a MAUI-free file (so mudsharp.Tests can link it) without the constants having to move out of
+/// in a MAUI-free file (so Mucka.Util.Tests can exercise it) without the constants having to move out of
 /// the class that draws with them.</para>
 /// </summary>
 public readonly record struct RailSlotMetrics(
@@ -176,7 +176,7 @@ public static class RailSlotGeometry
 
     /// <summary>
     /// How many of <paramref name="history"/>'s session-history rows are drawn this frame, and where
-    /// the truncation marker (if any) goes - lifted out here so mudsharp.Tests can pin it directly:
+    /// the truncation marker (if any) goes - lifted out here so Mucka.Util.Tests can pin it directly:
     /// <c>CombatRailView</c> is an <c>SKCanvasView</c> and unreachable from a unit test.
     ///
     /// <para><b>Per-row heights, not a uniform pitch.</b> The strip has two grouping separators

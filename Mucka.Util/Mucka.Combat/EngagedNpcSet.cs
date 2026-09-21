@@ -10,7 +10,7 @@ namespace Mucka.Combat;
 ///
 /// <para>The property below is load-bearing and not obvious, and cannot be checked at all from
 /// inside a MAUI view model. This type deliberately references nothing but
-/// <see cref="FightSnapshot"/>, so mudsharp.Tests can link it.</para>
+/// <see cref="FightSnapshot"/>, so Mucka.Util.Tests can exercise it.</para>
 ///
 /// <para><b>The property that matters: an unchanged refresh must report false.</b>
 /// <see cref="Update"/> runs on every combat event, every FES heartbeat and every 1 Hz tick, and the

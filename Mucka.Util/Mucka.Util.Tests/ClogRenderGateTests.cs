@@ -3,9 +3,9 @@ using Mucka.Combat;
 namespace Mucka.Util.Tests;
 
 /// <summary>
-/// Coverage for the coalescing gate behind the clog window's render throttling (see
+/// Coverage for the coalescing gate behind the combat readout's render throttling (see
 /// SidePanelViewModel.OnCombatEvent/OnStatsUpdated/TickCombatDisplay). The gate stops a burst of
-/// combat events from rebuilding the native FormattedString (ClogPage.Render) far faster than
+/// combat events from re-running SidePanelViewModel.RefreshCombatDisplay far faster than
 /// anyone can read it, while guaranteeing the eventual state is never lost.
 /// </summary>
 public sealed class ClogRenderGateTests

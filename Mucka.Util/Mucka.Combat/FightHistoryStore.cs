@@ -123,8 +123,8 @@ public sealed class FightHistoryStore
     /// RIGHT NOW. Callers that need this frozen for the duration of a live encounter (so a fight
     /// closing mid-comparison cannot change the answer they are already showing) must cache the
     /// result themselves keyed on something that changes only between encounters - see
-    /// SidePanelViewModel.ResolveHistory, which is the only production caller and exists specifically
-    /// to explain that caching contract.</summary>
+    /// <see cref="CombatHistoryCache.Resolve"/>, the only production caller, which exists to hold
+    /// exactly that cache. SidePanelViewModel.ResolveHistory is in turn its only caller.</summary>
     public (FightHistorySummary Instance, FightHistorySummary Group,
             IReadOnlyList<WeaponHistorySummary> ByWeapon, FightHistorySummary CurrentWeaponGlobal)
         GetHistoryContext(string instanceName, string groupName, string? currentWeapon)
@@ -180,8 +180,9 @@ public sealed class FightHistoryStore
 
             // The incremental update: O(log bucket-size), never a
             // rescan. This is also THE reason a live encounter can never compare against itself
-            // (see HistoryIndex's class remarks) - Insert only ever runs from here, and this method
-            // only ever runs once a fight has fully closed and been handed to FlushLocked.
+            // (see HistoryIndex's class remarks) - this method only ever runs once a fight has fully
+            // closed and been handed to FlushLocked. The only other Insert call site is LoadAsync,
+            // which replays rows the table already held.
             _index.Insert(record);
         }
 
