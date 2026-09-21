@@ -15,9 +15,9 @@ public sealed record WireLogSessionInfo(
 /// <para><see cref="ReadSession"/> reconstructs the original sequence - same bytes, same directions,
 /// same timestamps, same order - by selecting it. The rows ARE the records.</para>
 ///
-/// <para>Nothing in the running client calls either of these. They are the read half of the store, for
-/// the command-line tool that surfaces logs from it (see <c>TODO</c>) and for
-/// <c>docs/Lab-spec.md</c>.</para>
+/// <para>Nothing in the running client calls either of these. They are the read half of the store,
+/// for a command-line tool that surfaces logs from it (see <c>TODO</c>, and
+/// <c>docs/persistence-design.md</c>, "What an offline reader takes").</para>
 ///
 /// <para>Reads open their own short-lived read-only connection and must not run on the UI thread
 /// (Invariant #1): a session is tens of megabytes of blob to walk.</para>

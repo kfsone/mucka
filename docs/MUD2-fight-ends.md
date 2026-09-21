@@ -232,19 +232,18 @@ capture, case 8 in a later one -- each in a frame that a careful reading of the 
 could not happen. "Exactly seven" was true of what had been observed by then, and was written down as
 though it were closed.
 
-## Why case 3 was wrong for so long
+## Case 3 closes its fight, and the fragmentation is correct
 
 `The X has fled by trying to go <dir>.` differs from case 2 by one word and means the opposite: the
-creature is still standing in the room. From that, an earlier analysis pass concluded the *fight* was
-also still running, and pointed at a real capture in support -- a water-snake that attempted it seven
-times in thirteen seconds, which under an immediate close became eight recorded encounters instead of
-one continuous fight.
+creature is still standing in the room. That does **not** mean the fight is still running, and the
+tempting inference that it does is the trap. A water-snake attempted it seven times in thirteen
+seconds, which under an immediate close records eight encounters rather than one continuous fight.
 
-The reasoning was inverted. Eight re-engagements **are** eight encounters: each is its own frame, its
-own attack command, and its own weapon selection. And the price of pretending otherwise was worse than
-the fragmentation it avoided -- since nothing else in the frame can close a fight, a player who simply
-walked away instead of re-attacking left the client "in combat" with no line left that could ever end
-it, until reset or logout forced it. That is precisely the frame the owner reported:
+Eight re-engagements **are** eight encounters: each is its own frame, its own attack command, and its
+own weapon selection. The price of pretending otherwise is worse than the fragmentation it avoids --
+since nothing else in the frame can close a fight, a player who simply walks away instead of
+re-attacking leaves the client "in combat" with no line left that could ever end it, until reset or
+logout forces it. That is precisely the frame the owner reported:
 
 ```
 The water-snake3 looks close to death.

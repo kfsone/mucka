@@ -32,8 +32,11 @@ D7. Render surface for all live combat content is a single SkiaSharp `SKCanvasVi
     and not a second `SKCanvasView` window.
 
 D8. Pulse/glow motion runs via WinUI Composition (`ElementCompositionPreview` +
-    `ScalarKeyFrameAnimation` on `Opacity`) on a layer positioned BEHIND the Skia canvas, never via
-    a UI-thread timer and never by animating text colour directly.
+    `ScalarKeyFrameAnimation` on `Opacity`) on a sibling layer, never via a UI-thread timer and
+    never by animating text colour directly. The layer sits BEHIND the transparent canvas, with one
+    exception: the flee pill's own ring, because the chip's fill is opaque and a pulsing sibling
+    behind it would be painted over (`combat-rail-spec.md`, section 5). Anything laid over the
+    canvas is `InputTransparent` AND sets `IsHitTestVisible = false` on its platform view.
 
 D9. Historical summaries (median damage/hit-rate/duration per npc_group, per instance, per weapon)
     are maintained incrementally as each fight closes, never recomputed by rescanning the full
@@ -49,15 +52,23 @@ D11. ASCII-only iconography (`#`/`.` bars, `~` estimate marker, `[v]`/`[>]` fold
 D12. Flee decisions are ABSOLUTE: incoming damage per tick against the player's actual stamina. No
      fraction-of-maximum scaling and no creature rung ladder takes part in them.
 
-D13. Cognitive-load tenets for the whole live combat panel: (a) the player's attention belongs on
+D13. The assistive surface is settled: glanceable health, the opponent list, alt-weapon, flee cost,
+     a for/against cue. Mucka is a client for playing MUD2 - real-time, PvP-ish, permadeath, read by
+     people who do not want to be pulled off the scroll - and growing that surface is not how the
+     panel improves. Analysis belongs out of action, against the store.
+
+D14. Cognitive-load tenets for the whole live combat panel: (a) the player's attention belongs on
      the terminal window directly above the input box, not buried in the panel; (b) the panel must
      impose minimal cognitive load - fixed, pre-allocated layout with no reflow (new elements may
      appear, everything else holds still), unambiguous colour, alarms that work without reading.
 
 ## Window policy
 
-The panel's width is `Mucka.Util/Mucka.Combat/CombatRailResize.cs`: `CombatPanelContentWidthDp` (376) plus
-the border stroke on each side (`CombatPanelWidthDp`). `SidePanelWidthDp` = 228 is the LEFT panel's
+The panel's width is `Mucka.Util/Mucka.Combat/CombatRailResize.cs`: `CombatPanelContentWidthDp` plus
+the border stroke on each side (`CombatPanelWidthDp`), or `CombatPanelNarrowContentWidthDp` /
+`CombatPanelNarrowWidthDp` with the stat rows off. `CombatRailResize.PanelWidthDp` is the one place
+that picks between them, so the renderer, the Border's `WidthRequest` and the window arithmetic
+cannot disagree. `SidePanelWidthDp` is the LEFT panel's
 constant and is never merged with it. The toggle is `SidePanelViewModel.ToggleCombatPanelCommand`
 (overflow menu), persisted as `ClientSettings.ShowCombatRail`. Showing the panel widens the main
 window by exactly the panel width via `AppWindow.Resize`; hiding it shrinks the window back by the
@@ -76,8 +87,10 @@ populates and updates as combat happens; it does not appear, grow, or shrink on 
   (`RosterPlan.HiddenLiveCount`).
 - The current target row is brightest and bold; other live rows bright, normal weight; resolved
   rows dim and struck through.
-- Bold is used for exactly: the urgency headline, `UNARMED` when no weapon is in hand, the roster
-  count header, and the current-target row. Nothing else on the panel is bold.
+- Bold on a tile's NAME means the subject took a blow on the tick being drawn, and nothing else -
+  on the player's own tile as on an opponent's. Bold elsewhere is reserved for `UNARMED` when no
+  weapon is in hand, and for the top of the float emphasis ladder
+  (`RailFloatEmphasis.HeavyThreshold`).
 
 ## After a fight
 
@@ -161,11 +174,11 @@ history lookup whose cost grows across a session; hence D7, D8, D9 and the rules
 ### Render surface
 
 A single `SKCanvasView` inside the Combat Rail (D7). All text, bars and gauges are Skia draw calls
-against a FIXED layout: a capped number of rows (urgency headline; stamina gauge; roster rows up to
-`ParticipantRoster.MaxRows` plus a hidden-count footer; the flee pill, one row; pursuit block)
-whose draw-call count depends only on that cap, never on total participant count or total
-historical fight count. On WinUI, `SKXamlCanvas` paints ON the UI thread - acceptable because the
-draw-call count is bounded and the canvas is invalidated only on genuine state change.
+against a FIXED layout - the bands `combat-rail-spec.md` section 2 lists, with roster rows capped at
+`ParticipantRoster.MaxRows` - whose draw-call count depends only on that cap, never on total
+participant count or total historical fight count. On WinUI, `SKXamlCanvas` paints ON the UI thread -
+acceptable because the draw-call count is bounded and the canvas is invalidated only on genuine
+state change.
 
 Pulse/glow (D8): a WinUI element positioned BEHIND the canvas in the same grid cell (canvas
 background transparent), driven by `ElementCompositionPreview.GetElementVisual` plus a
@@ -175,9 +188,9 @@ visual crashes the process with `RO_E_CLOSED` (`0x80000013`), so teardown is not
 the ONLY mechanism producing continuous motion anywhere on the panel; the canvas is never asked to
 animate. `Rendering/PulseLayer.cs` is the implementation.
 
-The recent-swing ring buffer bound is `FightAccumulator.RecentSwingCapacity` (6): two fixed
-`SwingOutcome[]` arrays per fight, O(1) to write and capped regardless of fight length. The strip
-never draws more than 6 columns per side.
+The recent-swing ring buffer bound is `FightAccumulator.RecentSwingCapacity`: two fixed
+`SwingOutcome[]` arrays per fight, O(1) to write and capped regardless of fight length. That cap is
+what the exchange spark draws, so its mark count is fixed too.
 
 ### Work budget
 

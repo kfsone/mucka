@@ -60,8 +60,8 @@ the FE documents, below the originals it was made from, and Clio, below Bartle.
 1. Bartle's own documentation. `G:\Source\mud-fe\mud2_FE4.txt` and `MUD-FECodes.txt`. Definitive.
 2. Bartle's own words on a specific question. `docs/MUD2-flee-cost.md` is one: the flee formula,
    from his email, verbatim.
-3. Captured wire traffic. The operator's session recordings and the wire database; see
-   `docs/Lab-spec.md` for the tool that is meant to query them.
+3. Captured wire traffic. The operator's session recordings and the `wire` table in
+   `~/.mucka/mucka.db`; `docs/persistence-design.md` says how to read them.
 4. `G:\Source\clio-1.8a` - a working client written by a human who understood the protocol. A
    strong second opinion, and the North Star for client design, but not authority over Bartle.
 

@@ -24,20 +24,25 @@ panel, untouched by anything here); `CombatRailView.SlotHeight`, `PlayerTileHeig
 `TickRowHeight` for the bands below. A value restated here is a value free to drift from the one that
 draws.
 
-What this section fixes is the ORDER, which no constant states. Bottom-up, nearest gaze last:
+The ORDER is stated in `CombatRailView`'s bottom-up offset chain (`PlayerTileBottomOffset`,
+`TickRowBottomOffset`, `EncounterBottomOffset`), which is the authority. Bottom-up, nearest gaze
+first:
 
 ```
-   (empty - top of rail)
-   overflow row          (only when opponents exceed slot capacity)
-   opponent slots        (N slots, N computed from window height - see 3)
-   the player's own tile
-   tick meter + encounter gauge
    (bottom edge)
+   the player's own tile
+   tick meter          (the flee pill rides its top; the metronome toggle its right end)
+   encounter table     (a heading row reserved always, painted on hover, and a value row)
+   opponent slots      (N slots, N computed from window height - see 3)
+   overflow row        (only when opponents exceed slot capacity)
+   (empty - top of rail)
 ```
 
 - Opponent slots are identical in size, with no primary/secondary distinction.
 - Empty space goes at the TOP, per rule 2. Nothing in the bottom bands moves when the count above
   them changes.
+- The encounter table's headings are RESERVED whether painted or not: headings that appeared on
+  hover would push the whole rail down every time the pointer crossed it.
 
 ## 3. Opponent slots - count is derived from window height
 
@@ -78,9 +83,15 @@ Overflow is not a rare pathological case - it must exist, and it will be seen.
 
 ## 4. Opponent slot contents
 
-Line 1: **name**.
-Line 2: the **health gauge** - a full-width horizontal bar notched into sevenths, with the
-game's own health phrase overlaid (`CombatRailView.DrawVitalityBar`).
+A slot is four bands at fixed baselines (`CombatRailView.TileNameBaseline`, `TileHealthBaseline`,
+`TileUpperBaseline`, `TileLowerBaseline`), with a tempo frame around the whole thing:
+
+1. **name**, with the creature's own weapon right-aligned beside it;
+2. the **health gauge**, with the game's health phrase overlaid and two prediction lanes under it;
+3. two **stat rows**, and the **exchange spark** beside them.
+
+**The health gauge** is a full-width horizontal bar notched into sevenths, with the game's own
+health phrase overlaid (`CombatRailView.DrawVitalityBar`).
 
 **Fill direction: health REMAINING.** The bar fills from the left with what is left: full at
 full health, depleting as the creature is hurt, so `close to death` shows one seventh. This
@@ -122,15 +133,55 @@ a kill that is no longer one swing away.
 
 Staleness: the ladder only updates when you land a hit (player hit rate 0.57). A one-tick
 gap is normal (68% of gaps); the reading fades to **stale at 3 ticks**
-(`ParticipantRoster.StaleAfterSeconds`, 6 s). Staleness changes tone only: the last reading
+(`RosterRow.StaleAfterSeconds`, 6 s; the stamina reading fades on its own clock,
+`RosterRow.StaminaReadStaleAfterSeconds`). Staleness changes tone only: the last reading
 stays drawn, never replaced by a full or an empty ladder, because both of those are confident
 claims.
 
 The same sentence appears in **room descriptions**, so a health reading is accepted only for
 a creature already engaged. A phantom opponent on the panel is worse than a missing one.
 
+**The two prediction lanes** run in a thin band under the fill (`CombatRailView.DrawPredictionLane`):
+where the bar would stand after the next blow, and after the one following it. **Nothing is drawn
+when a band is absent** - an unsupported prediction has to look like no prediction, never like a
+small one (rule 5). A `diagnose` reading is different in kind, being a number MUD2 printed to the
+player in so many words, so it earns a bright tick on the fill itself rather than a lane: the one
+hard measurement on this side of the panel.
+
 **The creature's own weapon** is drawn right-aligned on its name line, in the hostile colour -
 a fact about that participant, so it lives on that participant's row.
+
+**The two stat rows** (`CombatRailView.DrawStatRow`), one per direction of the exchange. They are
+named by POSITION, not by content: **the upper row is always what the SUBJECT of the tile is
+taking**, so on an opponent's tile the upper row is what you have dealt it and on the player's own
+tile the upper row is what the creatures have dealt you. A name like "dealt" would be true on one
+tile and a lie on the other.
+
+Four fixed columns, so the two rows of a tile lock to each other and to every other tile: a
+direction mark, the running total, the blow shape (low / high / avg), and damage per tick. The
+columns are positions, not a measured flow, so a wide figure cannot shift the group. **A row with
+no samples prints its own column names** rather than dashes - the tile teaches its layout while it
+has nothing to report and goes quiet the moment a figure lands. Either way rule 5 holds: a word can
+no more be read as a measurement than a dash can. `ExchangeLine` owns what those figures mean;
+"low/high/avg" rather than "min/max/avg" because on the outgoing side the outer two are the upper
+bounds of the smallest and largest blows, so three identical `(5-9)` blows read 9 / 9 / 7 and a
+label promising a minimum below the average would be contradicted by the commonest case there is.
+Damage per tick of 0 means "under one tick elapsed", not "no damage", and draws as the unknown it is.
+
+**The exchange spark** sits to the right of the stat rows: one mark per recent swing, its height
+linear in that blow's damage between `RailReadout.SparkMinBar` and `RailReadout.SparkMaxBar`,
+saturating at `RailReadout.SparkDamageCap`. A swing that happened but whose size is unknown draws at
+the floor, so "happened" and "hurt" stay separate readings (rule 5).
+
+**The tempo frame** (`CombatRailView.DrawTempoFrame`) is the slot's own border, and its DASH
+DENSITY is how often blows are landing. The rectangle never changes, only the dash, so nothing
+reflows when a fight's rate does.
+
+**The stat rows and the spark are what the width is spent on**, and they are what the narrow
+setting drops: `CombatRailResize.CombatPanelNarrowContentWidthDp` against
+`CombatPanelContentWidthDp`, chosen by `CombatRailResize.ContentWidthDp`. The operator set it - the
+rail was too wide for a Surface. Nothing else on the panel changes between the two widths, and the
+flee pill's drawn width is the floor on how narrow either can go.
 
 Current target: marked by emphasis **within its own slot** (border, brightness) - never by
 size.
@@ -174,16 +225,26 @@ see or the Creature was seen to fade) land on the word's own row, and that row i
 
 ## 5. The player's own tile
 
-Built like an opponent's and read the same way: the persona's name, the weapon lines, then the
-player's stamina as a full-width bar with the magic strip immediately beneath it
-(`CombatRailView.DrawPlayerTile`).
+Built like an opponent's and read the same way (`CombatRailView.DrawPlayerTile`): the persona's
+name, the weapon lines, then the player's stamina as a full-width bar with the magic strip
+immediately beneath it, then the same two stat rows and the same exchange spark - **mirrored**,
+because the upper row is always what the tile's subject is taking. The tempo frame around it is the
+incoming half of the same border language every opponent tile carries, its dash density pooled
+across everything still swinging.
 
+- The name is **blank until the login handshake names the persona** - never a stand-in word. Bold
+  on it means the player took a blow on the tick being drawn, and nothing else.
+- The player's ladder is the same seven rungs and the same two prediction lanes as an opponent's,
+  pointed the other way. These are the TIGHTEST bands on the panel: the denominator is a maximum the
+  game printed, where every opponent band divides by an inferred pool.
 - **No status dot** anywhere on it - the bar carries its own state.
 - Stamina colour follows the `colorcode()` ladder, identical to the top status strip:
   `>=100` bright green, `>=76` green, `>=36` bright yellow, `>=16` yellow, `>=6` red,
   else bright red. The rail and the strip must never disagree about the same number.
-- **Magic** is purple shading blue, turning **red below 20**. When `maxMag == 0` the strip is
-  **greyed and inert but still present**.
+- **Magic** is purple shading blue, turning **red below 20**, notched at the quarters. It answers
+  "roughly how much is left" and nothing more - a caster who needs the figure has it in the status
+  strip at the top of the window. When the maximum is 0 or unknown the strip is **greyed and inert
+  but still present**.
 - **Out of combat the readouts go grey** (hue kept). The numbers stay true - they ride the FES
   heartbeat and the top strip still shows them in full colour.
 
@@ -219,7 +280,7 @@ charges nothing.
 radius that leaves it not fully rounded - centred on the panel. `CombatRailView` owns the values
 (`PillWidth`, `PillRadius`, `PillStroke` and the two colours beside them).
 
-Those two colours are the panel's only ones not derived from `TerminalTheme.Palette` (section 11),
+Those two colours are the panel's only ones not derived from `TerminalTheme.Palette` (section 9),
 because Campbell has no pure red. That exception is the part worth writing down; the hex is not.
 
 - **Four states**, resolved by `FleePillResolver` (pure, in mudsharp, unit-tested):
@@ -279,7 +340,7 @@ amber only **after damage has landed**, and never straight to red.
 
 ## 6. Tick meter and metronome
 
-- Ember's tick, at the very bottom, **pale and dim** - grey/white, low opacity. It is a
+- Ember's tick, directly above the player's own tile, **pale and dim** - grey/white, low opacity. It is a
   timer, not a judgement, so **no colour coding and no label**. A small drawn metronome mark
   is permitted; text is not.
 - **It moves, and it drains.** The bar starts **full** at the top of a tick and shrinks
@@ -294,9 +355,9 @@ amber only **after damage has landed**, and never straight to red.
 - **In-combat only.** The whole row - track and fill - is absent between fights.
 - Two exceptions only: **red at stamina <= 30**, **glow at stamina <= 20** - see "The three
   stamina thresholds" below.
-- Nothing else is drawn over the tick. The opponent count is stated by the slots themselves
-  and by the overflow row; a third copy centred on a width that changed with every death slid
-  under the eye and was removed.
+- Nothing else is drawn over the tick. The opponent count is stated by the slots themselves and by
+  the overflow row; a third copy centred on a width that changes with every death slides under the
+  eye, which is why there is not one.
 
 **The metronome toggle** sits at the right end of the tick row, in width taken OUT of the track
 (`CombatRailView.MetronomeReserve`) rather than added beside it, so the row's overall geometry is
@@ -369,8 +430,8 @@ bindable property.
   box. The rail itself stays `InputTransparent` with zero gesture recognizers, and every element
   laid over the canvas that must not take pointer input sets `IsHitTestVisible = false` on its
   platform view as well.
-- **On by default** - the beat is the point. Session-scoped; not yet persisted to `mucka.ini`,
-  so switching it off lasts until restart.
+- **On by default** - the beat is the point. Session-scoped: `mucka.ini` does not hold it, so
+  switching it off lasts until restart.
 
 ## 6a. The three stamina thresholds
 
@@ -398,22 +459,47 @@ experience, permadeath - it outranks any formula for deciding what the panel sho
 
 So: **the stat knees explain, the survival threshold alarms.**
 
-## 7. Combat beats
+## 7. Damage floats
 
-Restrained comic-book emphasis, absolutely positioned, reserving no space, decaying fast.
+Restrained comic-book emphasis, absolutely positioned over the canvas (`Rendering/RailFloatLayer.cs`),
+reserving no space, decaying fast. A float echoes the one line the game just printed and nothing
+else.
 
-- **Outgoing**, right side: `hit!` / `miss!`
-- **Incoming**, left side, coloured by how hard it landed:
+**What raises one.** A blow the player landed, a blow the player took, and stamina observed going
+UP. **A miss raises no float** - `RailFloatKind` names the miss kinds and nothing raises them, so a
+quiet pane means nothing landed rather than nothing happened.
 
-| damage | colour |
-|---|---|
-| 1-4 | yellow |
-| 5-9 | orange |
-| 10-19 | red |
-| 20+ | bold red |
+**Text** (`RailFloatText`). Outgoing is the game's own BRACKET, unsigned, exactly as printed
+("5-9"), or the single figure MUD2 sometimes prints instead, because that side is a bucket and a
+minus sign would launder a bracket into a value. Incoming is a signed figure, because MUD2 prints
+absolute stamina on the hit line and the delta against the previous reading is a measurement. A
+signed number on a float is a measurement; an unsigned range is a range.
+
+**One column, whatever the direction** (`RailFloatPlacement`). Every float - outgoing, incoming,
+gain, player pane or opponent pane - starts at the same x beside the row it belongs to. Splitting
+the directions to opposite edges was tried in play and rejected: the rail is scanned down its badges,
+and numbers alternating between the margins cut across that scan instead of riding it. Direction
+stays legible from the colour and from which pane it rose off, neither of which costs a second sweep
+of the eye. **Do not re-split them.** Further blows of the SAME tick zig-zag off the first,
+alternating sideways and stepping up by less than a box height so they deliberately overlap
+(`RailFloatPlacement.CombatFloatZigDp`, `RailFloatPlacement.CombatFloatClusterStepDp`); several
+numbers piling over one pane is the sense of being hit by a pack. Reading each figure is the
+encounter table's job, not this one's.
+
+**Colour is the KIND, size is the MAGNITUDE.** Outgoing, incoming and gain each have one colour,
+fixed. What varies with how hard the blow landed is the text: `RailFloatEmphasis.StepsFor` adds a
+point at each of four thresholds and `RailFloatEmphasis.IsHeavy` adds weight at the top one. The
+box is sized for the biggest the ladder can produce and never grows with the text, so a big number
+cannot clip. For an outgoing hit the magnitude is the LOW bound of the printed bracket - the floor
+the game committed to - so emphasis can never claim a blow was bigger than the wire said.
 
 Incoming damage is **exact, not estimated** - MUD2 reports post-hit stamina on every
-incoming hit, so per-attacker damage is known precisely.
+incoming hit, so per-attacker damage is known precisely. A stamina gain is the opposite: MUD2 has no
+"+3 health" line, so a gain float is the sum of everything since the previous reading - regen, food,
+a spell - reported at the moment of observation, and it says so by being a different colour rather
+than by claiming a cause.
+
+`RailFloatBudget` bounds how many are in flight at once and sheds by kind.
 
 ## 8. Signalling that lives outside the rail
 
@@ -435,7 +521,7 @@ block inside the rail. A giant glow just because a fight started is a distractio
 
 Pulse is a very dark red, slow (roughly RGB 16-24).
 
-## 11. Rendering contract
+## 9. Rendering contract
 
 - One `SKCanvasView`, `InputTransparent`, zero gesture recognizers, no MAUI children.
 - **Invalidate only on genuine state change.** No per-frame timer - `SKXamlCanvas` paints on

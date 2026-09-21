@@ -24,20 +24,14 @@ these numbers ever need re-checking, expect to save the pages from a browser aga
 
 ---
 
-## 1. What this document corrected
+## 1. Scoping rule for any query over this corpus
 
-**A rat has 25 stamina.** An earlier note in `combat-rail-spec.md` and in `NpcHealthRungs`'s own
-remarks claimed a rat0 stayed `critically injured` "from 407 to 560 points of damage." That was
-wrong.
-
-The error: the analysis query accumulated damage per `(capture, npc-name)` and never reset on
-a fight boundary. MUD2 reuses instance names (`rat7` is the same name every reset), so a
-session with a dozen separate fights against `rat7` summed into one figure. Re-run with the
-reducer's own fight segmentation (`combat_fights`), the **largest damage total in any single
-fight in the entire corpus is 108**.
-
-The lesson is procedural, not arithmetic: per-instance analysis over a capture MUST be scoped
-to a fight, because the instance name is not unique over time.
+**Per-instance analysis over a capture MUST be scoped to a fight, because an instance name is not
+unique over time.** MUD2 reuses them - `rat7` is the same name every reset - so accumulating
+damage per `(capture, npc-name)` sums a session's dozen separate fights against `rat7` into one
+figure, and produces pool estimates several times too large. Scoped to the reducer's own fight
+segmentation (`combat_fights`), the **largest damage total in any single fight in the entire
+corpus is 108**, against a published rat0 pool of 100 and a rat1-21 pool of 25.
 
 ## 2. Effective strength
 
@@ -317,6 +311,20 @@ Two things worth reading twice:
   against a player's 100: it hits ~56% of the time while the player hits ~44%. Stamina pools
   tell you how long a kill takes; dexterity tells you who wins.
 
+## 7a. The player's own stat maxima
+
+Not from the guide. From the operator, 2026-09-09:
+
+- `sta`, `str` and `dex` are rolled 35-65 each and must total 150. **The maxima are otherwise
+  independent of one another.**
+- Each rises by `max(0, min(100 - current_max, 10))` per level gained, and falls by 10 per level
+  lost. So one persona's stats keep the differences its roll gave them across every level change.
+  Those differences are a property of that character and say nothing about the game.
+- Permanent ceiling 100 for all three; stamina alone can be taken to 120 by the +5 permanent health
+  potion available some resets.
+- Low stamina drains *effective* strength and dexterity (sections 2 and 3). That is the only live
+  coupling between them.
+
 ## 8. Corroboration against our own corpus
 
 Per-fight cumulative bracket-midpoint damage in fights that ended in a kill, from
@@ -358,13 +366,13 @@ latter exactly one rung), with zero transitions contradicting the rung order.
 
 Not built, deliberately - each is a scope decision for the owner:
 
-1. **Replace the client's own stamina-pool estimate with the published `STA`.** The client currently estimates
-   an NPC's pool as the median damage of fights that ended in a kill, because "MUD2 never
-   reports NPC stamina" - which is true of the protocol but not of the world. A lookup would
-   be exact, available on the first ever encounter, and would make "how close is this thing to
-   dropping" a real number instead of a thin-sample guess. The comments in
-   `SwingLedger.Pool` and `CombatLiveView` assert the
-   estimate is "the only route"; that is now false and they say so.
+1. **Replace the client's own stamina-pool estimate with the published `STA`.** The client infers
+   an NPC's pool from its own observations (`SwingLedger.Pool`, off
+   `MudSharp.Combat.StaminaPoolEstimator`), because MUD2 never reports NPC stamina - which is true
+   of the protocol but not of the world. A lookup would be exact, available on the first ever
+   encounter, and would make "how close is this thing to dropping" a real number instead of a
+   thin-sample guess. It would also reach a species the client has never fought, which the
+   estimator structurally cannot.
 2. **Anchor the health ladder to real health.** With a known pool and exact damage dealt, the
    pips could show measured remaining stamina rather than an ordinal descriptor rung - or
    better, show both and let disagreement between them be the interesting signal.

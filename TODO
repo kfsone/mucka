@@ -2,7 +2,7 @@
   traffic (sessions/wire) and every encounter's classified rows, and nothing in the client reads
   either back. WireLogExport.ListSessions/ReadSession are the seed - they have no other caller.
   Wanted: list sessions, dump one as text, and grep the encounter tables. See
-  docs/persistence-design.md and docs/Lab-spec.md.
+  docs/persistence-design.md, "What an offline reader takes".
 - A parsed `lines` table, with the C1 code that introduced each line. StyledLine carries only
   LineKind (four values); the code lives in the parser and never leaves it, so a code-level question
   still has to re-parse wire.data. Storing it means surfacing the code from Mud2C1Decoder's

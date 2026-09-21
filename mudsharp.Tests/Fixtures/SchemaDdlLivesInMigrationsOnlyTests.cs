@@ -21,9 +21,9 @@ public class SchemaDdlLivesInMigrationsOnlyTests
 {
     /// <summary>What counts as changing the SHAPE of the database. DML is absent on purpose - writers
     /// exist to insert and update rows, and sweeping for DELETE would flag every one of them. Row
-    /// destruction is guarded by where it is allowed to live instead: no migration script deletes
-    /// anything, and the one pruning path is <c>PersonaSessionBackfill.PruneUnattributable</c>, which
-    /// runs only after the wire log has been given its chance to claim the rows.</summary>
+    /// destruction is guarded by where it is allowed to live instead: it happens in a numbered
+    /// script, bounded by a frozen literal instant, which <c>0004_prune_unattributable.sql</c> is the
+    /// one instance of and states its own cost in full.</summary>
     private static readonly string[] DdlTokens =
     [
         "CREATE TABLE", "CREATE INDEX", "CREATE VIEW", "CREATE TRIGGER",
