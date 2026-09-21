@@ -38,14 +38,51 @@ DELETE FROM npc_stamina_reads WHERE persona_session_id IS NULL AND ts           
 DELETE FROM encounters        WHERE persona_session_id IS NULL
                                 AND encounter_started_at_ms < 1789001000023;
 
--- The encounter children have no session key of their own - they reach it through encounters - so
--- they follow their parent, and are bounded by the same instant rather than by mere orphanhood. An
--- orphan NEWER than the cut is a gap in reconstruction, which is a bug to find rather than evidence
--- to destroy.
+-- The encounter children have no session key of their own - they reach it through encounters, on
+-- encounter_started_at_ms - so the guard their siblings above write inline is a NOT EXISTS against
+-- the parent here. They follow their parent: a child goes when every encounter sharing its key is
+-- unattributed, and when no encounter holds that key at all, which is the whole of what
+-- "unattributable" can mean for a row with no column of its own to say so. A child of an attributed
+-- encounter stays, exactly as the attributed parent does.
+--
+-- NOT EXISTS and not NOT IN: one NULL in the subquery's result makes a NOT IN predicate match no
+-- rows whatsoever, and a delete that silently does nothing reads exactly like a delete that had
+-- nothing to do.
+--
+-- ix_encounters_key is deliberately not unique, so two encounters can share a start instant. A child
+-- of such a pair is kept when EITHER parent is attributed - the direction that keeps rows, because
+-- a row deleted here cannot be got back and a row kept can be deleted later.
+--
+-- The cut bounds all of them as before. An orphan NEWER than the cut is a gap in reconstruction,
+-- which is a bug to find rather than evidence to destroy.
 DELETE FROM encounter_contents_items WHERE contents_id IN (
-    SELECT id FROM encounter_contents WHERE ts < 1789001000023);
-DELETE FROM encounter_contents  WHERE ts < 1789001000023;
-DELETE FROM encounter_lines     WHERE encounter_started_at_ms < 1789001000023;
-DELETE FROM encounter_events    WHERE ts < 1789001000023;
-DELETE FROM encounter_stats     WHERE ts < 1789001000023;
-DELETE FROM creature_values     WHERE ts < 1789001000023;
+    SELECT c.id FROM encounter_contents c
+     WHERE c.ts < 1789001000023
+       AND NOT EXISTS (SELECT 1 FROM encounters e
+                        WHERE e.encounter_started_at_ms = c.encounter_started_at_ms
+                          AND e.persona_session_id IS NOT NULL));
+
+DELETE FROM encounter_contents WHERE ts < 1789001000023
+  AND NOT EXISTS (SELECT 1 FROM encounters e
+                   WHERE e.encounter_started_at_ms = encounter_contents.encounter_started_at_ms
+                     AND e.persona_session_id IS NOT NULL);
+
+DELETE FROM encounter_lines WHERE encounter_started_at_ms < 1789001000023
+  AND NOT EXISTS (SELECT 1 FROM encounters e
+                   WHERE e.encounter_started_at_ms = encounter_lines.encounter_started_at_ms
+                     AND e.persona_session_id IS NOT NULL);
+
+DELETE FROM encounter_events WHERE ts < 1789001000023
+  AND NOT EXISTS (SELECT 1 FROM encounters e
+                   WHERE e.encounter_started_at_ms = encounter_events.encounter_started_at_ms
+                     AND e.persona_session_id IS NOT NULL);
+
+DELETE FROM encounter_stats WHERE ts < 1789001000023
+  AND NOT EXISTS (SELECT 1 FROM encounters e
+                   WHERE e.encounter_started_at_ms = encounter_stats.encounter_started_at_ms
+                     AND e.persona_session_id IS NOT NULL);
+
+DELETE FROM creature_values WHERE ts < 1789001000023
+  AND NOT EXISTS (SELECT 1 FROM encounters e
+                   WHERE e.encounter_started_at_ms = creature_values.encounter_started_at_ms
+                     AND e.persona_session_id IS NOT NULL);
