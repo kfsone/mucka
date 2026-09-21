@@ -92,7 +92,10 @@ public sealed class SomeKindStoreTests : IDisposable
         writerDb.Dispose();
         var before = Row("rats").LearnedMs;
 
-        await Task.Delay(5);   // so a write-back would carry a visibly later stamp
+        // So a write-back would carry a visibly later stamp. A loaded machine only widens that gap,
+        // so this wait cannot fail the assertion below - it is the one direction a wall-clock wait
+        // is safe in.
+        await Task.Delay(5);
         var readerDb = Db();
         var restored = new SomeKindKnowledge();
         await new SomeKindStore(readerDb, restored).LoadAsync();

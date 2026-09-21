@@ -74,6 +74,13 @@ public sealed class MuckaStoreTests : IDisposable
         return Convert.ToInt64(command.ExecuteScalar(), CultureInfo.InvariantCulture);
     }
 
+    /// <summary>
+    /// Smoke wait, and the one wall-clock wait in this file that cannot be closed by construction:
+    /// what it waits on is a real background writer thread reaching a real sqlite commit, so there
+    /// is no clock to inject - substituting one would leave the thread untested, which is the whole
+    /// subject here. The 10 s bound is set against a commit that normally takes single-digit
+    /// milliseconds, so it is a hang detector rather than a timing assertion.
+    /// </summary>
     private static void WaitUntil(Func<bool> condition, string what)
     {
         var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);

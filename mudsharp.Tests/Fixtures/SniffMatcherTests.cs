@@ -22,7 +22,11 @@ public class SniffMatcherTests
 
     private sealed class Harness : IDisposable
     {
+        /// <summary>The heartbeat a queued sniff rides out on.</summary>
+        private static readonly TimeSpan Beat = TimeSpan.FromMilliseconds(150);
+
         public readonly MudSession Session;
+        private readonly VirtualSessionClock _clock = new();
         private readonly object _gate = new();
         private readonly List<(string Name, SniffOutcome Outcome)> _sniffs = new();
         private readonly List<string> _visible = new();
@@ -32,11 +36,12 @@ public class SniffMatcherTests
         {
             Session = new MudSession(new MudSessionOptions
             {
-                FesHeartbeatInterval   = TimeSpan.FromMilliseconds(150),
+                FesHeartbeatInterval   = Beat,
                 StaleProbeDelay        = TimeSpan.FromSeconds(30),
                 MinProbeSpacing        = TimeSpan.FromMilliseconds(20),
                 InventoryProbeDebounce = TimeSpan.FromMilliseconds(80),
             });
+            _clock.Attach(Session);
             Session.SniffResult += (n, o) => { lock (_gate) _sniffs.Add((n, o)); };
             Session.OutgoingBytes += b => { lock (_gate) _sent.Add(Encoding.Latin1.GetString(b)); };
             Session.LineReady += l => { if (!l.IsPartial) lock (_gate) _visible.Add(l.PlainText); };
@@ -44,14 +49,14 @@ public class SniffMatcherTests
 
         public void Dispose() => Session.Dispose();
 
-        /// <summary>Enter game mode, queue a sniff, and wait until it is actually on the wire -
-        /// only then is the in-flight slot armed and the matcher reachable.</summary>
+        /// <summary>Enter game mode, queue a sniff, and step the clock to the beat it rides out on -
+        /// only once it is on the wire is the in-flight slot armed and the matcher reachable.</summary>
         public void ArmSniff(string persona)
         {
             Session.Feed(GameModeEntry);
             Session.QueueValueProbe(persona);
-            Assert.True(WaitFor(() => Sent().Any(s => s.Contains("value " + persona, StringComparison.Ordinal))),
-                $"the sniff for '{persona}' never reached the wire");
+            _clock.Advance(Beat);
+            Assert.Contains(Sent(), s => s.Contains("value " + persona, StringComparison.Ordinal));
             lock (_gate) _visible.Clear();
         }
 
@@ -61,26 +66,17 @@ public class SniffMatcherTests
         public List<string> Visible() { lock (_gate) return _visible.ToList(); }
         private List<string> Sent() { lock (_gate) return _sent.ToList(); }
 
+        /// <summary>The matcher runs on the Feed thread, so a verdict is already in by the time the
+        /// line that decided it has returned - nothing here waits.</summary>
         public bool Resolved(string name, SniffOutcome outcome)
-            => WaitFor(() => Sniffs().Any(s => s.Name == name && s.Outcome == outcome));
+            => Sniffs().Any(s => s.Name == name && s.Outcome == outcome);
 
-        /// <summary>Nothing resolved after a fair wait. Deliberately a settle-and-check, not an
-        /// instant read - the matcher runs on the feed thread.</summary>
+        /// <summary>Nothing resolved, with the clock stepped past the next beat so a probe that
+        /// would have carried a verdict has had its chance.</summary>
         public bool NothingResolved()
         {
-            Thread.Sleep(120);
+            _clock.Advance(Beat);
             return Sniffs().Count == 0;
-        }
-
-        private static bool WaitFor(Func<bool> condition, int timeoutMs = 2000)
-        {
-            var deadline = Environment.TickCount64 + timeoutMs;
-            while (Environment.TickCount64 < deadline)
-            {
-                if (condition()) return true;
-                Thread.Sleep(10);
-            }
-            return condition();
         }
     }
 

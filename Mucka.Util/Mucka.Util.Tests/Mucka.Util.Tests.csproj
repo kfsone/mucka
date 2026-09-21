@@ -27,6 +27,9 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The virtual clock every MudSession probe fixture is driven by, shared with mudsharp.Tests
+         where it lives; CreatureValueProbeTests drives the same session timers. -->
+    <Compile Include="..\..\mudsharp.Tests\Fixtures\VirtualSessionClock.cs" Link="Fixtures\VirtualSessionClock.cs" />
     <!-- The poisoned-wyvern death recording, shared with mudsharp.Tests (which replays its protocol
          facts); WireLogTests pushes the same records through framing and the sqlite sink. -->
     <None Include="..\..\mudsharp.Tests\Fixtures\Data\wyvern-poison-death.c1" Link="Fixtures\Data\wyvern-poison-death.c1"

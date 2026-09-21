@@ -7,7 +7,10 @@ namespace MudSharp.Tests.Fixtures;
 /// MudSession-level tests for the debounced stale-stats probe scheduler: C1 hints mark
 /// categories stale, updates arriving within the grace period cancel the probe, and only
 /// the still-stale categories are queried, always with the mandatory FES prefix.
-/// Uses shortened timings; assertions poll rather than assuming exact timer firing.
+///
+/// <para>Timings are shortened, and every deadline and probe-path instant comes from
+/// <see cref="VirtualSessionClock"/>: a probe lands because <c>Advance</c> crossed its deadline, so
+/// the counts below are exact rather than polled.</para>
 /// </summary>
 public class StaleProbeTests : IDisposable
 {
@@ -26,7 +29,13 @@ public class StaleProbeTests : IDisposable
     private static readonly byte[] MortalArriving    = [0xA0, 0x9B, 0x9D, 0xFF, 0xFF];
     private static readonly byte[] Pop               = [0xFF, 0xFF];
 
+    private static readonly TimeSpan StaleDelay = TimeSpan.FromMilliseconds(60);
+    private static readonly TimeSpan MinSpacing = TimeSpan.FromMilliseconds(100);
+    /// <summary>Long enough that anything a hint could have armed has either fired or been dropped.</summary>
+    private static readonly TimeSpan WellPastEveryDeadline = TimeSpan.FromMilliseconds(400);
+
     private readonly MudSession _session;
+    private readonly VirtualSessionClock _clock = new();
     private readonly List<string> _outgoing = new();
     private readonly object _lock = new();
 
@@ -35,9 +44,10 @@ public class StaleProbeTests : IDisposable
         _session = new MudSession(new MudSessionOptions
         {
             FesHeartbeatInterval = TimeSpan.FromSeconds(60),   // far enough away not to interfere
-            StaleProbeDelay      = TimeSpan.FromMilliseconds(60),
-            MinProbeSpacing      = TimeSpan.FromMilliseconds(100),
+            StaleProbeDelay      = StaleDelay,
+            MinProbeSpacing      = MinSpacing,
         });
+        _clock.Attach(_session);
         _session.OutgoingBytes += b => { lock (_lock) _outgoing.Add(Encoding.Latin1.GetString(b)); };
     }
 
@@ -55,24 +65,17 @@ public class StaleProbeTests : IDisposable
         lock (_lock) return _outgoing.Count(o => o == probe);
     }
 
-    private bool WaitForProbe(string probe, int atLeast = 1, int timeoutMs = 2000)
-    {
-        var deadline = Environment.TickCount64 + timeoutMs;
-        while (Environment.TickCount64 < deadline)
-        {
-            if (CountSent(probe) >= atLeast) return true;
-            Thread.Sleep(10);
-        }
-        return CountSent(probe) >= atLeast;
-    }
+    /// <summary>Step the clock. Every probe the step is due lands before this returns.</summary>
+    private void Advance(TimeSpan by) => _clock.Advance(by);
 
-    /// <summary>Enter game mode and wait out MinProbeSpacing from the entry probe.</summary>
+    /// <summary>Enter game mode and step past MinProbeSpacing from the entry probe, by which point
+    /// the entry's own room hint has spent its probe and nothing is left armed.</summary>
     private void EnterGameModeAndSettle()
     {
         Feed(GameModeEntry);
         Assert.True(_session.InGameMode);
         Assert.Equal(1, CountSent(FullProbe));   // game-entry heartbeat
-        Thread.Sleep(150);
+        Advance(MinSpacing + StaleDelay);
     }
 
     /// <summary>Feed a complete FEW response naming one online player, "Alice the witch".</summary>
@@ -100,7 +103,7 @@ public class StaleProbeTests : IDisposable
         // FES catches the rest. A hit alone does not justify an off-cadence probe.
         EnterGameModeAndSettle();
         Feed(C07Hit);
-        Thread.Sleep(400);
+        Advance(WellPastEveryDeadline);
         Assert.Equal(0, CountSent(FesProbe));
         Assert.Equal(1, CountSent(FullProbe));   // entry probe only
     }
@@ -111,7 +114,7 @@ public class StaleProbeTests : IDisposable
         EnterGameModeAndSettle();
         Feed(C07Hit);
         Feed("The eel stings you (84/90).\r\n");   // clears the stamina flag before the deadline
-        Thread.Sleep(400);
+        Advance(WellPastEveryDeadline);
         Assert.Equal(0, CountSent(FesProbe));
     }
 
@@ -121,8 +124,10 @@ public class StaleProbeTests : IDisposable
         // C08 05 marks stamina and inventory stale. Inventory warrants the reactive query, and
         // mandatory FES refreshes the stats in the same probe.
         EnterGameModeAndSettle();
+        var baseline = CountSent(FesFeiProbe);
         Feed(C08WeaponChange);
-        Assert.True(WaitForProbe(FesFeiProbe), "expected FES to lead the FEI query");
+        Advance(StaleDelay);
+        Assert.Equal(baseline + 1, CountSent(FesFeiProbe));   // FES leads the FEI query
     }
 
     [Fact]
@@ -132,12 +137,12 @@ public class StaleProbeTests : IDisposable
         // code accompanies them, so the plain line itself is the FEI hint (probe-noise policy:
         // any non-coded output may have moved items).
         EnterGameModeAndSettle();
-        Feed(Pop);           // close the entry code's colour frame - the live server always pops
-        Thread.Sleep(200);   // drain the entry room-enter hint's own FEI probe
+        Feed(Pop);                          // close the entry code's colour frame - the live server always pops
+        Advance(MinSpacing + StaleDelay);   // drain the entry room-enter hint's own FEI probe
         var baseline = CountSent(FesFeiProbe);
         Feed("You drop the ancient scroll.\r\n");
-        Assert.True(WaitForProbe(FesFeiProbe, atLeast: baseline + 1),
-            "expected a FES,FEI probe after plain un-coded output");
+        Advance(StaleDelay);
+        Assert.Equal(baseline + 1, CountSent(FesFeiProbe));   // a FES,FEI probe follows plain un-coded output
     }
 
     [Fact]
@@ -147,13 +152,13 @@ public class StaleProbeTests : IDisposable
         // governs. C07 (combat hit) is stats-advisory, so no reactive probe fires at all.
         EnterGameModeAndSettle();
         Feed(Pop);
-        Thread.Sleep(200);   // drain the entry room-enter hint's own FEI probe
+        Advance(MinSpacing + StaleDelay);   // drain the entry room-enter hint's own FEI probe
         var feiBaseline = CountSent(FesFeiProbe);
         Feed(C07Hit);                          // pushes a colour frame
         Feed("The eel stings you (84/90).");
         Feed(Pop);
         Feed("\r\n");
-        Thread.Sleep(400);
+        Advance(WellPastEveryDeadline);
         Assert.Equal(feiBaseline, CountSent(FesFeiProbe));
         Assert.Equal(0, CountSent(FesProbe));
     }
@@ -165,11 +170,12 @@ public class StaleProbeTests : IDisposable
         // who-list + inventory stale -> one full reactive probe.
         EnterGameModeAndSettle();
         EstablishWhoListBaseline();
-        Thread.Sleep(150);
+        Advance(MinSpacing + StaleDelay);
         Feed(C06Magical);                  // no hint (probe-noise policy)
         Feed(C03ItemArriving);             // inventory stale
         FeedArrivalLine("Bob the warrior"); // unknown player -> who list stale (+ inventory)
-        Assert.True(WaitForProbe(FullProbe, atLeast: 2), "expected a combined FES,FEW,FEI probe");
+        Advance(StaleDelay);
+        Assert.Equal(2, CountSent(FullProbe));   // one combined FES,FEW,FEI probe on top of the entry's
     }
 
     [Fact]
@@ -177,9 +183,9 @@ public class StaleProbeTests : IDisposable
     {
         EnterGameModeAndSettle();
         EstablishWhoListBaseline();
-        Thread.Sleep(150);
+        Advance(MinSpacing + StaleDelay);
         FeedArrivalLine("Alice the witch");   // already on the cached list
-        Thread.Sleep(400);
+        Advance(WellPastEveryDeadline);
         Assert.Equal(0, CountSent(FesFewProbe));
         Assert.True(CountSent(FesFeiProbe) >= 1);   // the arrival still refreshes room contents
     }
@@ -191,10 +197,11 @@ public class StaleProbeTests : IDisposable
         // who list stale (FEW) -> one combined reactive probe.
         EnterGameModeAndSettle();
         EstablishWhoListBaseline();
-        Thread.Sleep(150);
+        Advance(MinSpacing + StaleDelay);
         FeedArrivalLine("Bob the warrior");
-        Assert.True(WaitForProbe(FullProbe, atLeast: 2),
-            "expected FES to lead the FEW,FEI query for an unknown arrival");
+        Advance(StaleDelay);
+        // FES leads the FEW,FEI query for an unknown arrival.
+        Assert.Equal(2, CountSent(FullProbe));
     }
 
     [Fact]
@@ -204,7 +211,7 @@ public class StaleProbeTests : IDisposable
         Feed(GameModeEntry);
         Feed(C07Hit);
         Feed(C08WeaponChange);
-        Thread.Sleep(400);
+        Advance(WellPastEveryDeadline);
         lock (_lock)
             Assert.DoesNotContain(_outgoing, o => o.StartsWith("\x1b-[FES", StringComparison.Ordinal));
     }

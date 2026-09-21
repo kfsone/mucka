@@ -63,8 +63,9 @@ internal sealed class ResetClock : IDisposable
     private readonly Func<bool> _canProbe;            // in game && !held && heartbeat enabled
     private readonly Action<bool> _setDiscoveryHold;  // true suspends the routine heartbeat (reserve channel)
     private readonly Func<long> _monoNow;             // monotonic milliseconds
+    private readonly Func<DateTime> _utcNow;          // wall clock, for the mono -> UTC projection only
     private readonly object _lock = new();
-    private readonly Timer? _timer;
+    private readonly ISessionTimer? _timer;
     private bool _disposed;
 
     // Window on R in monotonic ms: R  in  [_loMs, _hiMs). Null when unheld.
@@ -100,19 +101,21 @@ internal sealed class ResetClock : IDisposable
     public event Action<string>? DiagnosticNote;
 
     public ResetClock(ResetClockOptions options, Func<bool> sendFesProbe, Func<bool> canProbe,
-                      Action<bool> setDiscoveryHold, Func<long>? monoNow = null)
+                      Action<bool> setDiscoveryHold, Func<long>? monoNow = null,
+                      Func<DateTime>? utcNow = null, Func<Action, ISessionTimer>? timerFactory = null)
     {
         _o = options;
         _sendFesProbe = sendFesProbe;
         _canProbe = canProbe;
         _setDiscoveryHold = setDiscoveryHold;
         _monoNow = monoNow ?? DefaultMonoNow;
+        _utcNow = utcNow ?? (() => DateTime.UtcNow);
         _budgetLeft = _o.ProbeBudget;
         if (_o.SelfSchedule)
-            _timer = new Timer(_ => OnTimerFired(), null, Timeout.Infinite, Timeout.Infinite);
+            _timer = (timerFactory ?? (cb => new ThreadingSessionTimer(cb)))(OnTimerFired);
     }
 
-    private static long DefaultMonoNow() => Stopwatch.GetTimestamp() * 1000L / Stopwatch.Frequency;
+    internal static long DefaultMonoNow() => Stopwatch.GetTimestamp() * 1000L / Stopwatch.Frequency;
 
     /// <summary>Current monotonic timestamp (ms). Callers stamp reply arrival with this.</summary>
     public long NowMono => _monoNow();
@@ -460,7 +463,7 @@ internal sealed class ResetClock : IDisposable
         {
             long now = _monoNow();
             long mid = (lo + hi) / 2;
-            target = DateTime.UtcNow.AddSeconds((mid - now) / 1000.0);
+            target = _utcNow().AddSeconds((mid - now) / 1000.0);
             unc = (hi - lo) / 2000.0;
         }
         _snapshot = new ResetEstimate(target, unc, _phase);
@@ -471,13 +474,13 @@ internal sealed class ResetClock : IDisposable
         if (!_o.SelfSchedule || _timer is null)
             return;
         long delay = Math.Max(1, atMs - nowMs);
-        _timer.Change(delay, Timeout.Infinite);
+        _timer.Change(TimeSpan.FromMilliseconds(delay), Timeout.InfiniteTimeSpan);
     }
 
     private void CancelTimerLocked()
     {
         if (_o.SelfSchedule)
-            _timer?.Change(Timeout.Infinite, Timeout.Infinite);
+            _timer?.Stop();
     }
 
     /// <summary>Test hook: run one scheduling pass at the injected clock's current time. Only
@@ -499,7 +502,7 @@ internal sealed class ResetClock : IDisposable
         lock (_lock)
         {
             _disposed = true;
-            _timer?.Change(Timeout.Infinite, Timeout.Infinite);
+            _timer?.Stop();
         }
         _timer?.Dispose();
     }

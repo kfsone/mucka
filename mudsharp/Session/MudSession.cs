@@ -17,7 +17,7 @@ public sealed class MudSession : IDisposable
     private readonly MudStreamParser _parser;
     private readonly MudSessionOptions _options;
     private readonly object _fesLock = new();
-    private Timer? _fesTimer;
+    private ISessionTimer? _fesTimer;
     private TimeSpan _fesInterval;
     // Wake-probe state: while the character is asleep the periodic probes are no-ops, so
     // probe replies stop arriving. Any real bytes from the server while replies are stale
@@ -38,7 +38,7 @@ public sealed class MudSession : IDisposable
     // heartbeat is about to cover them anyway. All fields guarded by _fesLock except
     // the who-list name caches, which are only touched on the Feed thread.
     private StaleStats _staleFlags;
-    private Timer? _staleTimer;
+    private ISessionTimer? _staleTimer;
     private bool _staleArmed;
     private DateTime _lastProbeSentUtc;
     // Last FES send drives wake detection: only a fresh stats reply proves a probe was answered.
@@ -70,7 +70,7 @@ public sealed class MudSession : IDisposable
     // earliest signal a FEX is genuinely on the way); if it elapses unanswered, fire the same
     // explicit FEX probe used at game-mode entry. Guarded by _fesLock like the other one-shot
     // timers in this file.
-    private IOneShotTimer? _roomFexProbeTimer;
+    private ISessionTimer? _roomFexProbeTimer;
 
     // -- In-combat inventory probe -----------------------------------------------
     // A drop or a take during a fight changes the two numbers a fight is decided by - dexterity is
@@ -85,7 +85,7 @@ public sealed class MudSession : IDisposable
     // one probe. FES and FEI each cost the player a tick and ticks are short, but three
     // items must not cost six.
     private static readonly byte[] InventoryProbe = System.Text.Encoding.Latin1.GetBytes("\x1b-[FES,FEI\x1b-]");
-    private Timer? _inventoryProbeTimer;
+    private ISessionTimer? _inventoryProbeTimer;
     // Volatile so SendLine can reject the overwhelmingly common case with one field read and no
     // lock. Set on the Feed thread; cleared by whichever of the two paths - the timer or a player
     // dispatch riding it out - claims it first.
@@ -165,7 +165,7 @@ public sealed class MudSession : IDisposable
     private readonly HashSet<string> _creatureValueKnown = new(StringComparer.OrdinalIgnoreCase);
     // Names seen but not yet sent - guarded by _fesLock, like _pendingSniff.
     private readonly List<string> _pendingCreatureNames = new();
-    private Timer? _creatureValueProbeTimer;
+    private ISessionTimer? _creatureValueProbeTimer;
     // The batch actually sent, and its exact echo text, so the Feed-thread line filter can swallow
     // the echo and attribute replies without positional pairing (one request can draw more or fewer
     // reply lines than names sent - e.g. a prefix like "gg" answering both gargoyle0 and gargoyle1 -
@@ -190,7 +190,7 @@ public sealed class MudSession : IDisposable
     // Backstop that force-closes the window if it is never fully accounted for (see
     // MudSessionOptions.CreatureValueProbeTimeout) - guards against a name that can legitimately
     // never draw a reply wedging the window open past its usefulness.
-    private Timer? _creatureProbeTimeoutTimer;
+    private ISessionTimer? _creatureProbeTimeoutTimer;
 
     // -- Post-character-select setup swallow state -------------------------------
     // On game-mode entry we inject a setup batch ("auto fex\r\nscore\r\n") and hide its echo +
@@ -241,12 +241,20 @@ public sealed class MudSession : IDisposable
     // whatever instant the test happened to run at.
     internal Func<DateTime> CombatClock { get; set; } = () => DateTime.UtcNow;
 
-    // Testability seam only: production code never overrides this, so the room-entry recovery probe
-    // always runs on a real System.Threading.Timer. RoomEntryFexProbeTests substitutes a timer with a
-    // virtual clock it advances by hand, so the probe's deadline arithmetic is asserted rather than
-    // slept against. Invoked once per session, under _fesLock, on the first room entry; the instance
-    // is reused from then on, so a factory set after that point is silently never called.
-    internal Func<Action, IOneShotTimer> OneShotTimerFactory { get; set; } = callback => new ThreadingOneShotTimer(callback);
+    // Testability seam only: production code never overrides this, so every probe deadline in this
+    // file runs on a real System.Threading.Timer. A fixture substitutes timers driven by a clock it
+    // advances by hand, so probe cadence is asserted as deadline arithmetic rather than slept
+    // against. Each timer field is created lazily and then reused, so a factory set after a session
+    // has started running is silently never called for the timers that already exist.
+    internal Func<Action, ISessionTimer> SessionTimerFactory { get; set; } = callback => new ThreadingSessionTimer(callback);
+
+    // Testability seam only: production code never overrides these, so every probe-path instant is
+    // the real wall clock and the reset clock's monotonic clock is the real one. They travel
+    // together with SessionTimerFactory: a virtual timer's deadline means nothing unless the
+    // elapsed-time guards those callbacks compute (MinProbeSpacing, WakeReplySlack, the routine
+    // beat's own phase) read the same clock the deadline was measured on.
+    internal Func<DateTime> ProbeClock { get; set; } = () => DateTime.UtcNow;
+    internal Func<long> MonoClock { get; set; } = ResetClock.DefaultMonoNow;
 
     // Testability seam only: production never clears it. A replay of a recorded session must not
     // send the post-character-select setup batch (identify / fightbrief / auto fex / score) or open
@@ -408,7 +416,8 @@ public sealed class MudSession : IDisposable
         _options = options ?? new MudSessionOptions();
         _fesInterval = _options.FesHeartbeatInterval;
         _parser = new MudStreamParser();
-        _resetClock = new ResetClock(_options.ResetClock, TrySendResetFesProbe, CanResetProbe, SetResetDiscoveryHold);
+        _resetClock = new ResetClock(_options.ResetClock, TrySendResetFesProbe, CanResetProbe, SetResetDiscoveryHold,
+                                     () => MonoClock(), () => ProbeClock(), callback => SessionTimerFactory(callback));
         _resetClock.ObservationRecorded += o => ResetObservationRecorded?.Invoke(o);
         _resetClock.EstimateChanged     += () => ResetEstimateChanged?.Invoke();
         _resetClock.DiagnosticNote      += n => ResetDiagnostic?.Invoke(n);
@@ -427,8 +436,9 @@ public sealed class MudSession : IDisposable
             StopFesTimerLocked();
             if (InGameMode && _fesInterval > TimeSpan.Zero)
             {
-                _nextRoutineProbeUtc = DateTime.UtcNow + _fesInterval;
-                _fesTimer = new Timer(_ => SendFesSubscription(), null, _fesInterval, _fesInterval);
+                _nextRoutineProbeUtc = ProbeClock() + _fesInterval;
+                _fesTimer = SessionTimerFactory(SendFesSubscription);
+                _fesTimer.Change(_fesInterval, _fesInterval);
             }
             else
             {
@@ -506,7 +516,7 @@ public sealed class MudSession : IDisposable
         {
             byte[]? probe;
             lock (_fesLock)
-                probe = TakeInventoryProbeLocked(DateTime.UtcNow);
+                probe = TakeInventoryProbeLocked(ProbeClock());
             if (probe is not null)
             {
                 var combined = new byte[probe.Length + bytes.Length];
@@ -701,7 +711,7 @@ public sealed class MudSession : IDisposable
         _parser.FewListStarting  += () => { _pendingOnlineNames.Clear(); FewListStarting?.Invoke(); };
         _parser.FewListComplete  += () =>
         {
-            _lastProbeReplyUtc = DateTime.UtcNow;
+            _lastProbeReplyUtc = ProbeClock();
             _onlineNames.Clear();
             _onlineNames.UnionWith(_pendingOnlineNames);
             _pendingOnlineNames.Clear();
@@ -721,7 +731,7 @@ public sealed class MudSession : IDisposable
         _parser.FeiListStarting  += () => FeiListStarting?.Invoke();
         _parser.FeiListComplete  += () =>
         {
-            _lastProbeReplyUtc = DateTime.UtcNow;
+            _lastProbeReplyUtc = ProbeClock();
             ClearStale(StaleStats.Inventory);
             FeiListComplete?.Invoke();
         };
@@ -741,7 +751,7 @@ public sealed class MudSession : IDisposable
 
         // An FES snapshot is a probe reply - the panel data is fresh again.
         if (partial.HasFesStats)
-            _lastProbeReplyUtc = DateTime.UtcNow;
+            _lastProbeReplyUtc = ProbeClock();
 
         // Whatever values this update carries - a full FES snapshot or an inline text
         // line like "(84/90)" - are no longer stale, so a pending hint for them won't
@@ -839,7 +849,7 @@ public sealed class MudSession : IDisposable
         GameModeEntered?.Invoke();
         lock (_fesLock)
         {
-            _lastProbeReplyUtc = DateTime.UtcNow;   // nothing is stale yet
+            _lastProbeReplyUtc = ProbeClock();   // nothing is stale yet
             if (_fesInterval > TimeSpan.Zero)
             {
                 // First beat populates everything: mark the FEI panel dirty so the entry probe is
@@ -847,7 +857,8 @@ public sealed class MudSession : IDisposable
                 _lastFesSentUtc = DateTime.MinValue;
                 _staleFlags |= StaleStats.Inventory;
                 SendFesSubscription();
-                _fesTimer = new Timer(_ => SendFesSubscription(), null, _fesInterval, _fesInterval);
+                _fesTimer = SessionTimerFactory(SendFesSubscription);
+                _fesTimer.Change(_fesInterval, _fesInterval);
             }
         }
 
@@ -952,7 +963,7 @@ public sealed class MudSession : IDisposable
         // The tolerance is the projection's own stated uncertainty, floored at 2 s so a hard lock
         // (+/-0.3 s) still absorbs ordinary jitter between the anchor and this line's arrival.
         var tolerance = Math.Max(2.0, estimate.UncertaintySec);
-        if (Math.Abs((DateTime.UtcNow - target).TotalSeconds) > tolerance)
+        if (Math.Abs((ProbeClock() - target).TotalSeconds) > tolerance)
             return;
         _combat.ForceEnd(CombatClock(), "world reset");
         // Raised only past the corroboration above, so a stray "Something magical is happening."
@@ -1025,7 +1036,7 @@ public sealed class MudSession : IDisposable
             // aren't raced by this compound reply. The pass lasts only seconds, so the beat is delayed,
             // not dropped; SetResetDiscoveryHold(false) re-phases the tick when it ends.
             if (_resetDiscoveryHold || _resetClock.IsSamplingInFlight) return;
-            var now = DateTime.UtcNow;
+            var now = ProbeClock();
             payload = ComposeBeatLocked(out bool fes, out bool few, out bool fei);
             _lastProbeSentUtc = now;
             _lastFesSentUtc = now;
@@ -1215,7 +1226,7 @@ public sealed class MudSession : IDisposable
             if (_creatureProbeInFlight is { } inFlight && inFlight.Contains(npc, StringComparer.OrdinalIgnoreCase))
                 return;
             _pendingCreatureNames.Add(npc);
-            ScheduleCreatureValueProbeLocked(DateTime.UtcNow);
+            ScheduleCreatureValueProbeLocked(ProbeClock());
         }
     }
 
@@ -1234,7 +1245,7 @@ public sealed class MudSession : IDisposable
         {
             delay = TimeSpan.FromMilliseconds(toTick) + _options.InventoryProbeTickClearance;
         }
-        _creatureValueProbeTimer ??= new Timer(_ => OnCreatureValueProbeDeadline(), null, Timeout.Infinite, Timeout.Infinite);
+        _creatureValueProbeTimer ??= SessionTimerFactory(OnCreatureValueProbeDeadline);
         _creatureValueProbeTimer.Change(delay, Timeout.InfiniteTimeSpan);
     }
 
@@ -1270,14 +1281,14 @@ public sealed class MudSession : IDisposable
             // accounted for, at the following frame boundary - or the timeout backstop giving up;
             // see TryConsumeCreatureValueLine) rather than sending a second `value` command whose
             // replies could not be told apart from the first's.
-            ScheduleCreatureValueProbeLocked(DateTime.UtcNow);
+            ScheduleCreatureValueProbeLocked(ProbeClock());
             return null;
         }
         if (_probesHeld || _resetDiscoveryHold || _resetClock.IsSamplingInFlight)
         {
             // Something else owns the wire; wait it out and try again, exactly as the inventory
             // probe does.
-            ScheduleCreatureValueProbeLocked(DateTime.UtcNow);
+            ScheduleCreatureValueProbeLocked(ProbeClock());
             return null;
         }
         // Deliberately NOT folded into _lastProbeSentUtc/MinProbeSpacing: that floor is shared by
@@ -1291,7 +1302,7 @@ public sealed class MudSession : IDisposable
         _creatureProbeEcho = command;
         _creatureProbeUnresolved = new HashSet<string>(names, StringComparer.OrdinalIgnoreCase);
         _creatureProbeReadyToClose = false;
-        _creatureProbeTimeoutTimer ??= new Timer(_ => OnCreatureValueProbeTimeout(), null, Timeout.Infinite, Timeout.Infinite);
+        _creatureProbeTimeoutTimer ??= SessionTimerFactory(OnCreatureValueProbeTimeout);
         _creatureProbeTimeoutTimer.Change(_options.CreatureValueProbeTimeout, Timeout.InfiniteTimeSpan);
         _creatureProbeInFlight = names;   // publish last - the Feed thread starts matching against
                                           // this the instant it becomes non-null
@@ -1410,7 +1421,7 @@ public sealed class MudSession : IDisposable
     {
         lock (_fesLock)
         {
-            _creatureProbeTimeoutTimer?.Change(Timeout.Infinite, Timeout.Infinite);
+            _creatureProbeTimeoutTimer?.Stop();
             _creatureProbeInFlight = null;
             _creatureProbeEcho = null;
             _creatureProbeUnresolved = null;
@@ -1441,8 +1452,8 @@ public sealed class MudSession : IDisposable
         _creatureProbeEcho = null;
         _creatureProbeUnresolved = null;
         _creatureProbeReadyToClose = false;
-        _creatureValueProbeTimer?.Change(Timeout.Infinite, Timeout.Infinite);
-        _creatureProbeTimeoutTimer?.Change(Timeout.Infinite, Timeout.Infinite);
+        _creatureValueProbeTimer?.Stop();
+        _creatureProbeTimeoutTimer?.Stop();
         _creatureValueKnown.Clear();
     }
 
@@ -1462,7 +1473,7 @@ public sealed class MudSession : IDisposable
     private void DropPendingCreatureValueProbeLocked()
     {
         _pendingCreatureNames.Clear();
-        _creatureValueProbeTimer?.Change(Timeout.Infinite, Timeout.Infinite);
+        _creatureValueProbeTimer?.Stop();
     }
 
     // -- Post-character-select setup swallow -------------------------------------
@@ -1607,8 +1618,8 @@ public sealed class MudSession : IDisposable
         if (_setupWindowActive) return;
         lock (_fesLock)
         {
-            _roomFexProbeTimer ??= OneShotTimerFactory(OnRoomFexProbeDeadline);
-            _roomFexProbeTimer.Change(_options.RoomEntryFexProbeDelay);
+            _roomFexProbeTimer ??= SessionTimerFactory(OnRoomFexProbeDeadline);
+            _roomFexProbeTimer.Change(_options.RoomEntryFexProbeDelay, Timeout.InfiniteTimeSpan);
         }
     }
 
@@ -1695,7 +1706,7 @@ public sealed class MudSession : IDisposable
             _probesHeld = held;
             if (!held && _fesTimer is not null && _fesInterval > TimeSpan.Zero)
             {
-                _nextRoutineProbeUtc = DateTime.UtcNow + _fesInterval;
+                _nextRoutineProbeUtc = ProbeClock() + _fesInterval;
                 _fesTimer.Change(_fesInterval, _fesInterval);
             }
         }
@@ -1723,12 +1734,12 @@ public sealed class MudSession : IDisposable
             // probe catches anything else - rapid-firing on every combat code is pure noise.
             if ((kinds & (StaleStats.WhoList | StaleStats.Inventory)) == StaleStats.None)
                 return;
-            if (_nextRoutineProbeUtc - DateTime.UtcNow <= _options.MinProbeSpacing)
+            if (_nextRoutineProbeUtc - ProbeClock() <= _options.MinProbeSpacing)
                 return;   // beat imminent - it will carry the flagged parts
             if (!_staleArmed)
             {
                 _staleArmed = true;
-                _staleTimer ??= new Timer(_ => OnStaleDeadline(), null, Timeout.Infinite, Timeout.Infinite);
+                _staleTimer ??= SessionTimerFactory(OnStaleDeadline);
                 _staleTimer.Change(_options.StaleProbeDelay, Timeout.InfiniteTimeSpan);
             }
         }
@@ -1758,7 +1769,7 @@ public sealed class MudSession : IDisposable
                 _staleTimer?.Change(_options.StaleProbeDelay, Timeout.InfiniteTimeSpan);
                 return;
             }
-            var now = DateTime.UtcNow;
+            var now = ProbeClock();
             // Honour the global probe-spacing floor; try again once it has elapsed.
             var wait = _options.MinProbeSpacing - (now - _lastProbeSentUtc);
             if (wait > TimeSpan.Zero)
@@ -1814,7 +1825,7 @@ public sealed class MudSession : IDisposable
         {
             if (_fesInterval <= TimeSpan.Zero)
                 return;
-            var now = DateTime.UtcNow;
+            var now = ProbeClock();
             _inventoryProbePending = true;
             _inventoryChangeSeenUtc = now;
             ScheduleInventoryProbeLocked(now);
@@ -1853,7 +1864,7 @@ public sealed class MudSession : IDisposable
         {
             delay = TimeSpan.FromMilliseconds(toTick) + _options.InventoryProbeTickClearance;
         }
-        _inventoryProbeTimer ??= new Timer(_ => OnInventoryProbeDeadline(), null, Timeout.Infinite, Timeout.Infinite);
+        _inventoryProbeTimer ??= SessionTimerFactory(OnInventoryProbeDeadline);
         _inventoryProbeTimer.Change(delay, Timeout.InfiniteTimeSpan);
     }
 
@@ -1933,7 +1944,7 @@ public sealed class MudSession : IDisposable
     {
         byte[]? probe;
         lock (_fesLock)
-            probe = TakeInventoryProbeLocked(DateTime.UtcNow);
+            probe = TakeInventoryProbeLocked(ProbeClock());
         if (probe is null)
             return;
         OutgoingBytes?.Invoke(probe);
@@ -1959,7 +1970,7 @@ public sealed class MudSession : IDisposable
     private void StopInventoryProbeLocked()
     {
         _inventoryProbePending = false;
-        _inventoryProbeTimer?.Change(Timeout.Infinite, Timeout.Infinite);
+        _inventoryProbeTimer?.Stop();
     }
 
     /// <summary>
@@ -1988,7 +1999,7 @@ public sealed class MudSession : IDisposable
     {
         _staleArmed = false;
         _staleFlags = StaleStats.None;
-        _staleTimer?.Change(Timeout.Infinite, Timeout.Infinite);
+        _staleTimer?.Stop();
     }
 
     /// <summary>
@@ -2007,7 +2018,7 @@ public sealed class MudSession : IDisposable
             return;
         if (_resetDiscoveryHold || _resetClock.IsSamplingInFlight)   // discovery owns the wire
             return;
-        var now = DateTime.UtcNow;
+        var now = ProbeClock();
         if (_lastFesSentUtc <= _lastProbeReplyUtc)     // last FES-carrying probe was answered
             return;
         if (now - _lastFesSentUtc <= _options.WakeReplySlack)  // in flight - give the reply time to land
@@ -2043,7 +2054,7 @@ public sealed class MudSession : IDisposable
         {
             if (!InGameMode || _fesInterval <= TimeSpan.Zero || _probesHeld)
                 return false;
-            var now = DateTime.UtcNow;
+            var now = ProbeClock();
             _lastProbeSentUtc = now;
             _lastFesSentUtc = now;
         }
@@ -2067,7 +2078,7 @@ public sealed class MudSession : IDisposable
             if (!held && _fesTimer is not null && _fesInterval > TimeSpan.Zero)
             {
                 var due = InGameMode ? TimeSpan.Zero : _fesInterval;
-                _nextRoutineProbeUtc = DateTime.UtcNow + due;
+                _nextRoutineProbeUtc = ProbeClock() + due;
                 _fesTimer.Change(due, _fesInterval);
             }
         }
@@ -2081,7 +2092,7 @@ public sealed class MudSession : IDisposable
 
     private void StopFesTimerLocked()
     {
-        _fesTimer?.Change(Timeout.Infinite, Timeout.Infinite);
+        _fesTimer?.Stop();
         _fesTimer?.Dispose();
         _fesTimer = null;
     }

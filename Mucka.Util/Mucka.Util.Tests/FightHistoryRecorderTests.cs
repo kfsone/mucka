@@ -164,19 +164,19 @@ public sealed class FightHistoryRecorderTests : IDisposable
         var store = MakeStore();
         var recorder = new FightHistoryRecorder(store);
 
-        recorder.OnInCombatChanged(true);
+        // The encounter's natural key is supplied by the caller (see OnInCombatChanged's remarks);
+        // the local DateTime.UtcNow reading is only the fallback for when nobody supplies one.
+        // Two encounters that really are distinct are handed two distinct keys, which is what this
+        // asserts - a sleep between them would instead be asserting the wall clock's granularity.
+        const long FirstEncounterMs = 1_700_000_000_000;
+        const long SecondEncounterMs = FirstEncounterMs + 5;
+
+        recorder.OnInCombatChanged(true, FirstEncounterMs);
         recorder.OnCombatEvent(Event(CombatEventKind.FightStart, "rat0"));
         recorder.OnCombatEvent(Event(CombatEventKind.Kill, "rat0", atSecond: 1));
         recorder.OnInCombatChanged(false);
 
-        // OnInCombatChanged(true) stamps the encounter id from DateTime.UtcNow (see its remarks) -
-        // real play always has at least one network round trip between two distinct encounters
-        // (CombatTracker closes the first instantly, but the SERVER still has to print the second
-        // fight's own opening line), so give this synchronous test loop the same real separation
-        // rather than asserting two encounters opened in the same millisecond.
-        Thread.Sleep(5);
-
-        recorder.OnInCombatChanged(true);
+        recorder.OnInCombatChanged(true, SecondEncounterMs);
         recorder.OnCombatEvent(Event(CombatEventKind.FightStart, "rat1"));
         recorder.OnCombatEvent(Event(CombatEventKind.Kill, "rat1", atSecond: 1));
         recorder.OnInCombatChanged(false);

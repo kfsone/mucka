@@ -359,6 +359,9 @@ public sealed class WireLogTests : IDisposable
         writer.RecordRx(Wire("second%0D%0A"));
         writer.Flush();
 
+        // Smoke wait, same reason as WaitForRecords: the writer thread has to reach its own sqlite
+        // error for real. Bounded well above the millisecond it normally takes, so this detects a
+        // writer that never died rather than a machine that was busy.
         var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
         while (!store.IsFaulted && DateTime.UtcNow < deadline) Thread.Sleep(25);
         Assert.True(store.IsFaulted, "the store should have marked itself faulted when its writer died");
@@ -441,7 +444,11 @@ public sealed class WireLogTests : IDisposable
     }
 
     /// <summary>Polls until the background writer has committed at least <paramref name="expected"/>
-    /// records. Bounded, and fails loudly rather than hanging.</summary>
+    /// records. Bounded, and fails loudly rather than hanging.
+    /// <para>Smoke wait: what it waits on is a real writer thread reaching a real sqlite commit, so
+    /// there is no clock to inject - a virtual one would leave the thread untested, which is the
+    /// subject. The 10 s bound is set against a commit that normally takes single-digit
+    /// milliseconds, so it is a hang detector rather than a timing assertion.</para></summary>
     private static WireLogSessionInfo WaitForRecords(string dbPath, int expected)
     {
         var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);

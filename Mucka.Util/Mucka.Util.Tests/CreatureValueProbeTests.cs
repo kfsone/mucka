@@ -2,6 +2,7 @@ using System.Text;
 using MudSharp.Combat;
 using MudSharp.Models;
 using MudSharp.Session;
+using MudSharp.Tests.Fixtures;   // VirtualSessionClock, linked from mudsharp.Tests where it lives
 using Mucka.Combat;
 
 namespace Mucka.Util.Tests;
@@ -33,6 +34,7 @@ public class CreatureValueProbeTests : IDisposable
         [0x9C, 0xFF, 0xFF, 0x9C, 0x9D, 0xFF, 0xFF, 0x2A, 0xFF, 0xFF, 0xFF, 0xFF];
 
     private readonly MudSession _session;
+    private readonly VirtualSessionClock _clock = new();
     private readonly List<string> _outgoing = new();
     private readonly List<(string Name, int Value)> _resolved = new();
     private readonly List<string> _visible = new();
@@ -47,6 +49,7 @@ public class CreatureValueProbeTests : IDisposable
             MinProbeSpacing        = TimeSpan.FromMilliseconds(50),
             InventoryProbeDebounce = TimeSpan.FromMilliseconds(80),   // shared debounce, see MudSession
         });
+        _clock.Attach(_session);
         _session.OutgoingBytes += b => { lock (_lock) _outgoing.Add(Encoding.Latin1.GetString(b)); };
         _session.CreatureValueResolved += (name, value) => { lock (_lock) _resolved.Add((name, value)); };
         _session.LineReady += l => { if (!l.IsPartial) lock (_lock) _visible.Add(l.PlainText); };
@@ -76,15 +79,25 @@ public class CreatureValueProbeTests : IDisposable
         lock (_lock) return _visible.ToList();
     }
 
-    private static bool WaitFor(Func<bool> condition, int timeoutMs = 2000)
+    /// <summary>
+    /// Step <paramref name="clock"/> forward in small slices, up to <paramref name="budget"/>,
+    /// stopping the moment the condition holds. Nothing here waits on real time: a false result
+    /// means the probe never fired within that much VIRTUAL time, which a loaded machine cannot
+    /// change. The default budget is generous next to the debounce and the probe timeout, since
+    /// what it bounds is the deadline arithmetic rather than a machine's spare capacity.
+    /// </summary>
+    private static bool Settled(VirtualSessionClock clock, Func<bool> condition, TimeSpan? budget = null)
     {
-        var deadline = Environment.TickCount64 + timeoutMs;
-        while (Environment.TickCount64 < deadline)
+        var step = TimeSpan.FromMilliseconds(20);
+        var left = budget ?? TimeSpan.FromSeconds(2);
+        while (true)
         {
             if (condition()) return true;
-            Thread.Sleep(10);
+            if (left <= TimeSpan.Zero) return false;
+            var by = left < step ? left : step;
+            clock.Advance(by);
+            left -= by;
         }
-        return condition();
     }
 
     /// <summary>Enter game mode and open a fight against one named creature (a fresh
@@ -102,7 +115,7 @@ public class CreatureValueProbeTests : IDisposable
     public void FightStart_SendsAValueProbeForTheNewParticipant()
     {
         EnterCombat("rat17");
-        Assert.True(WaitFor(() => Sent().Contains("value rat17\r\n")));
+        Assert.True(Settled(_clock, () => Sent().Contains("value rat17\r\n")));
     }
 
     // -- Matrix row: "prompt, echo" / "prompt, reply" - the documented shape --------------------
@@ -113,13 +126,13 @@ public class CreatureValueProbeTests : IDisposable
     public void ThousandsSeparator_IsParsed()
     {
         EnterCombat("thief");
-        Assert.True(WaitFor(() => Sent().Any(o => o.Contains("value thief"))));
+        Assert.True(Settled(_clock, () => Sent().Any(o => o.Contains("value thief"))));
         Prompt();
         Feed("value thief\r\n");
         Prompt();
         Feed("The value of the thief is 1,419 points.\r\n");
         Prompt();
-        Assert.True(WaitFor(() => Resolved().Any(r => r.Name == "thief" && r.Value == 1419)));
+        Assert.True(Settled(_clock, () => Resolved().Any(r => r.Name == "thief" && r.Value == 1419)));
         Assert.DoesNotContain(Visible(), v => v.Contains("thief"));
     }
 
@@ -127,13 +140,13 @@ public class CreatureValueProbeTests : IDisposable
     public void ZeroIsALegalValue()
     {
         EnterCombat("ox");
-        Assert.True(WaitFor(() => Sent().Any(o => o.Contains("value ox"))));
+        Assert.True(Settled(_clock, () => Sent().Any(o => o.Contains("value ox"))));
         Prompt();
         Feed("value ox\r\n");
         Prompt();
         Feed("The value of the ox is 0 points.\r\n");
         Prompt();
-        Assert.True(WaitFor(() => Resolved().Any(r => r.Name == "ox" && r.Value == 0)));
+        Assert.True(Settled(_clock, () => Resolved().Any(r => r.Name == "ox" && r.Value == 0)));
     }
 
     // A NEGATIVE value is a real wire shape, not a defensive guess: 36 occurrences across 21
@@ -145,13 +158,13 @@ public class CreatureValueProbeTests : IDisposable
     public void ANegativeValue_IsParsed()
     {
         EnterCombat("map");
-        Assert.True(WaitFor(() => Sent().Any(o => o.Contains("value map"))));
+        Assert.True(Settled(_clock, () => Sent().Any(o => o.Contains("value map"))));
         Prompt();
         Feed("value map\r\n");
         Prompt();
         Feed("The value of the map is -12 points.\r\n");
         Prompt();
-        Assert.True(WaitFor(() => Resolved().Any(r => r.Name == "map" && r.Value == -12)));
+        Assert.True(Settled(_clock, () => Resolved().Any(r => r.Name == "map" && r.Value == -12)));
         Assert.DoesNotContain(Visible(), v => v.Contains("map"));
     }
 
@@ -161,13 +174,13 @@ public class CreatureValueProbeTests : IDisposable
     public void ASingularPoint_IsParsed()
     {
         EnterCombat("penny");
-        Assert.True(WaitFor(() => Sent().Any(o => o.Contains("value penny"))));
+        Assert.True(Settled(_clock, () => Sent().Any(o => o.Contains("value penny"))));
         Prompt();
         Feed("value penny\r\n");
         Prompt();
         Feed("The value of the penny is 1 point.\r\n");
         Prompt();
-        Assert.True(WaitFor(() => Resolved().Any(r => r.Name == "penny" && r.Value == 1)));
+        Assert.True(Settled(_clock, () => Resolved().Any(r => r.Name == "penny" && r.Value == 1)));
         Assert.DoesNotContain(Visible(), v => v.Contains("penny"));
     }
 
@@ -175,13 +188,13 @@ public class CreatureValueProbeTests : IDisposable
     public void NumberedInstance_IsAttributedByItsFullEchoedName()
     {
         EnterCombat("rat9");
-        Assert.True(WaitFor(() => Sent().Any(o => o.Contains("value rat9"))));
+        Assert.True(Settled(_clock, () => Sent().Any(o => o.Contains("value rat9"))));
         Prompt();
         Feed("value rat9\r\n");
         Prompt();
         Feed("The value of the rat9 is 22 points.\r\n");
         Prompt();
-        Assert.True(WaitFor(() => Resolved().Any(r => r.Name == "rat9" && r.Value == 22)));
+        Assert.True(Settled(_clock, () => Resolved().Any(r => r.Name == "rat9" && r.Value == 22)));
     }
 
     [Fact]
@@ -190,26 +203,26 @@ public class CreatureValueProbeTests : IDisposable
         // No instance number, and potentially shared by more than one live creature - the value
         // still attaches to the name, honestly, with no per-instance claim.
         EnterCombat("banshee");
-        Assert.True(WaitFor(() => Sent().Any(o => o.Contains("value banshee"))));
+        Assert.True(Settled(_clock, () => Sent().Any(o => o.Contains("value banshee"))));
         Prompt();
         Feed("value banshee\r\n");
         Prompt();
         Feed("The value of the banshee is 640 points.\r\n");
         Prompt();
-        Assert.True(WaitFor(() => Resolved().Any(r => r.Name == "banshee" && r.Value == 640)));
+        Assert.True(Settled(_clock, () => Resolved().Any(r => r.Name == "banshee" && r.Value == 640)));
     }
 
     [Fact]
     public void BadTarget_ProducesNoValue_AndIsStillSwallowed()
     {
         EnterCombat("vase1");
-        Assert.True(WaitFor(() => Sent().Any(o => o.Contains("value vase1"))));
+        Assert.True(Settled(_clock, () => Sent().Any(o => o.Contains("value vase1"))));
         Prompt();
         Feed("value vase1\r\n");
         Prompt();
         Feed("I don't know to what \"vase1\" you're referring.\r\n");
         Prompt();
-        Thread.Sleep(200);   // give a wrongly-unswallowed line time to surface
+        _clock.Advance(TimeSpan.FromMilliseconds(200));   // give a wrongly-unswallowed line its chance to surface
         Assert.Empty(Resolved());
         Assert.DoesNotContain(Visible(), v => v.Contains("vase1"));
     }
@@ -221,7 +234,7 @@ public class CreatureValueProbeTests : IDisposable
         // A second participant joins inside the same quiet period, before the first probe fires -
         // both are folded into ONE `value` command (the whole point of batching the roster).
         Feed("The gargoyle1 is glaring at you madly.\r\n");
-        Assert.True(WaitFor(() => Sent().Any(o =>
+        Assert.True(Settled(_clock, () => Sent().Any(o =>
             o.Contains("value gargoyle0 and gargoyle1") || o.Contains("value gargoyle1 and gargoyle0"))));
 
         Prompt();
@@ -234,7 +247,7 @@ public class CreatureValueProbeTests : IDisposable
         Feed("The value of the gargoyle0 is 150 points.\r\n");
         Prompt();
 
-        Assert.True(WaitFor(() => Resolved().Count >= 2));
+        Assert.True(Settled(_clock, () => Resolved().Count >= 2));
         Assert.Contains(Resolved(), r => r.Name == "gargoyle0" && r.Value == 150);
         Assert.Contains(Resolved(), r => r.Name == "gargoyle1" && r.Value == 300);
     }
@@ -245,12 +258,12 @@ public class CreatureValueProbeTests : IDisposable
     public void EchoAndReply_InTheSameFrame_StillResolve()
     {
         EnterCombat("thief");
-        Assert.True(WaitFor(() => Sent().Any(o => o.Contains("value thief"))));
+        Assert.True(Settled(_clock, () => Sent().Any(o => o.Contains("value thief"))));
         Prompt();
         Feed("value thief\r\n");
         Feed("The value of the thief is 1,419 points.\r\n");
         Prompt();
-        Assert.True(WaitFor(() => Resolved().Any(r => r.Name == "thief" && r.Value == 1419)));
+        Assert.True(Settled(_clock, () => Resolved().Any(r => r.Name == "thief" && r.Value == 1419)));
         Assert.DoesNotContain(Visible(), v => v.Contains("thief"));
     }
 
@@ -263,7 +276,7 @@ public class CreatureValueProbeTests : IDisposable
     public void AnUnrelatedFrameArrivingFirst_DoesNotCloseTheWindowEarly()
     {
         EnterCombat("thief");
-        Assert.True(WaitFor(() => Sent().Any(o => o.Contains("value thief"))));
+        Assert.True(Settled(_clock, () => Sent().Any(o => o.Contains("value thief"))));
 
         Prompt();
         Feed("You see nothing unusual.\r\n");   // an unrelated frame, no relation to the probe at all
@@ -273,7 +286,7 @@ public class CreatureValueProbeTests : IDisposable
         Feed("The value of the thief is 1,419 points.\r\n");
         Prompt();
 
-        Assert.True(WaitFor(() => Resolved().Any(r => r.Name == "thief" && r.Value == 1419)));
+        Assert.True(Settled(_clock, () => Resolved().Any(r => r.Name == "thief" && r.Value == 1419)));
         Assert.Contains(Visible(), v => v.Contains("nothing unusual"));
     }
 
@@ -284,10 +297,10 @@ public class CreatureValueProbeTests : IDisposable
     public void EchoAndReply_WithNoPromptAtAll_StillResolve()
     {
         EnterCombat("thief");
-        Assert.True(WaitFor(() => Sent().Any(o => o.Contains("value thief"))));
+        Assert.True(Settled(_clock, () => Sent().Any(o => o.Contains("value thief"))));
         Feed("value thief\r\n");
         Feed("The value of the thief is 1,419 points.\r\n");
-        Assert.True(WaitFor(() => Resolved().Any(r => r.Name == "thief" && r.Value == 1419)));
+        Assert.True(Settled(_clock, () => Resolved().Any(r => r.Name == "thief" && r.Value == 1419)));
     }
 
     [Fact]
@@ -299,6 +312,7 @@ public class CreatureValueProbeTests : IDisposable
         // other's replies. Frame realism is not this test's concern (that is what the matrix-row
         // cases above cover) - it exercises the SNIFF/creature independence, which does not depend
         // on prompt framing at all.
+        var clock = new VirtualSessionClock();
         using var session = new MudSession(new MudSessionOptions
         {
             FesHeartbeatInterval   = TimeSpan.FromMilliseconds(150),
@@ -306,6 +320,7 @@ public class CreatureValueProbeTests : IDisposable
             MinProbeSpacing        = TimeSpan.FromMilliseconds(20),
             InventoryProbeDebounce = TimeSpan.FromMilliseconds(80),
         });
+        clock.Attach(session);
         var sent = new List<string>();
         var resolvedValues = new List<(string Name, int Value)>();
         var sniffs = new List<(string Name, SniffOutcome Outcome)>();
@@ -322,22 +337,22 @@ public class CreatureValueProbeTests : IDisposable
 
         // Both requests genuinely outstanding at once - not sent one after the other resolving in
         // between.
-        Assert.True(WaitFor(() => SentContains("value Polly")));
-        Assert.True(WaitFor(() => SentContains("value rat21")));
+        Assert.True(Settled(clock, () => SentContains("value Polly")));
+        Assert.True(Settled(clock, () => SentContains("value rat21")));
 
         // Player-presence wording ("The value of {Name} the {title} is {n} points.") - structurally
         // distinct from a creature reply ("The value of the {name} is {n} points.") per
         // TryConsumeSniffLine's anchored match, so this must resolve as the SNIFF and must NOT be
         // mistaken for (or steal) the creature probe's reply.
         session.Feed(Encoding.Latin1.GetBytes("The value of Polly the witch is 4,120 points.\r\n"));
-        Assert.True(WaitFor(() =>
+        Assert.True(Settled(clock, () =>
         {
             lock (gate) return sniffs.Any(s => s.Name == "Polly" && s.Outcome == SniffOutcome.Present);
         }));
         lock (gate) Assert.DoesNotContain(resolvedValues, r => r.Name == "Polly");
 
         session.Feed(Encoding.Latin1.GetBytes("The value of the rat21 is 87 points.\r\n"));
-        Assert.True(WaitFor(() =>
+        Assert.True(Settled(clock, () =>
         {
             lock (gate) return resolvedValues.Any(r => r.Name == "rat21" && r.Value == 87);
         }));
@@ -354,6 +369,7 @@ public class CreatureValueProbeTests : IDisposable
     [Fact]
     public void ACreatureReply_ForANameContainingAQueuedSniffsPersona_DoesNotResolveTheSniff()
     {
+        var clock = new VirtualSessionClock();
         using var session = new MudSession(new MudSessionOptions
         {
             FesHeartbeatInterval   = TimeSpan.FromMilliseconds(150),
@@ -361,6 +377,7 @@ public class CreatureValueProbeTests : IDisposable
             MinProbeSpacing        = TimeSpan.FromMilliseconds(20),
             InventoryProbeDebounce = TimeSpan.FromMilliseconds(80),
         });
+        clock.Attach(session);
         var resolvedValues = new List<(string Name, int Value)>();
         var sniffs = new List<(string Name, SniffOutcome Outcome)>();
         var gate = new object();
@@ -374,12 +391,12 @@ public class CreatureValueProbeTests : IDisposable
         session.Feed(Encoding.Latin1.GetBytes("You attack the ram2, using the axe0 as a weapon.\r\n"));
 
         bool SentContains(string needle) { lock (gate) return sent.Any(o => o.Contains(needle)); }
-        Assert.True(WaitFor(() => SentContains("value Ram")));
-        Assert.True(WaitFor(() => SentContains("value ram2")));
+        Assert.True(Settled(clock, () => SentContains("value Ram")));
+        Assert.True(Settled(clock, () => SentContains("value ram2")));
 
         session.Feed(Encoding.Latin1.GetBytes("The value of the ram2 is 313 points.\r\n"));
 
-        Assert.True(WaitFor(() =>
+        Assert.True(Settled(clock, () =>
         {
             lock (gate) return resolvedValues.Any(r => r.Name == "ram2" && r.Value == 313);
         }));
@@ -394,19 +411,19 @@ public class CreatureValueProbeTests : IDisposable
     public void ALateJoiner_TriggersASecondProbe_OnceTheFirstBatchsWindowCloses()
     {
         EnterCombat("rat17");
-        Assert.True(WaitFor(() => Sent().Contains("value rat17\r\n")));
+        Assert.True(Settled(_clock, () => Sent().Contains("value rat17\r\n")));
 
         // A second creature joins AFTER the first batch already went out - too late to fold in, so
         // it must not be silently left without a value once known. It stays queued while the first
         // batch's own window is still open.
         Feed("The rat18 is snarling at you hungrily.\r\n");
-        Thread.Sleep(150);
+        _clock.Advance(TimeSpan.FromMilliseconds(150));
         Assert.DoesNotContain(Sent(), o => o.Contains("rat18"));
 
         // A bare prompt with NOTHING accounted for must NOT close the window - the second batch
         // must still not have gone out.
         Prompt();
-        Thread.Sleep(150);
+        _clock.Advance(TimeSpan.FromMilliseconds(150));
         Assert.DoesNotContain(Sent(), o => o.Contains("rat18"));
 
         // Only once rat17 is fully accounted for (its reply seen) AND the frame's closing prompt
@@ -414,11 +431,11 @@ public class CreatureValueProbeTests : IDisposable
         Feed("value rat17\r\n");
         Prompt();
         Feed("The value of the rat17 is 22 points.\r\n");
-        Thread.Sleep(150);
+        _clock.Advance(TimeSpan.FromMilliseconds(150));
         Assert.DoesNotContain(Sent(), o => o.Contains("rat18"));   // still open - no closing prompt yet
 
         Prompt();
-        Assert.True(WaitFor(() => Sent().Contains("value rat18\r\n")));
+        Assert.True(Settled(_clock, () => Sent().Contains("value rat18\r\n")));
     }
 
     /// <summary>
@@ -433,7 +450,7 @@ public class CreatureValueProbeTests : IDisposable
     public void UnnumberedNameSharedByTwoLiveCreatures_BothRepliesAreCaptured_NeitherLeaked()
     {
         EnterCombat("thief");
-        Assert.True(WaitFor(() => Sent().Any(o => o.Contains("value thief"))));
+        Assert.True(Settled(_clock, () => Sent().Any(o => o.Contains("value thief"))));
         Prompt();
         Feed("value thief\r\n");
         Prompt();
@@ -441,7 +458,7 @@ public class CreatureValueProbeTests : IDisposable
         Feed("The value of the thief is 87 points.\r\n");
         Prompt();
 
-        Assert.True(WaitFor(() => Resolved().Count(r => r.Name == "thief") == 2));
+        Assert.True(Settled(_clock, () => Resolved().Count(r => r.Name == "thief") == 2));
         Assert.Contains(Resolved(), r => r.Name == "thief" && r.Value == 1419);
         Assert.Contains(Resolved(), r => r.Name == "thief" && r.Value == 87);
         Assert.DoesNotContain(Visible(), v => v.Contains("thief"));
@@ -455,6 +472,7 @@ public class CreatureValueProbeTests : IDisposable
     [Fact]
     public void ANameThatNeverReplies_IsGivenUpOnByTheTimeoutBackstop_AndDoesNotWedgeTheWindow()
     {
+        var clock = new VirtualSessionClock();
         using var session = new MudSession(new MudSessionOptions
         {
             FesHeartbeatInterval      = TimeSpan.FromSeconds(60),
@@ -463,6 +481,7 @@ public class CreatureValueProbeTests : IDisposable
             InventoryProbeDebounce    = TimeSpan.FromMilliseconds(80),
             CreatureValueProbeTimeout = TimeSpan.FromMilliseconds(200),
         });
+        clock.Attach(session);
         var sent = new List<string>();
         var gate = new object();
         session.OutgoingBytes += b => { lock (gate) sent.Add(Encoding.Latin1.GetString(b)); };
@@ -470,13 +489,13 @@ public class CreatureValueProbeTests : IDisposable
 
         session.Feed(GameModeEntry);
         session.Feed(Encoding.Latin1.GetBytes("You attack the zombie4, using the axe0 as a weapon.\r\n"));
-        Assert.True(WaitFor(() => Sent().Any(o => o.Contains("value zombie4"))));
+        Assert.True(Settled(clock, () => Sent().Any(o => o.Contains("value zombie4"))));
 
         // Nothing ever answers it - no echo, no reply. A second creature joins and must eventually
         // get its own probe once the backstop gives up on the first.
         session.Feed(Encoding.Latin1.GetBytes("The zombie5 is snarling at you hungrily.\r\n"));
 
-        Assert.True(WaitFor(() => Sent().Any(o => o.Contains("value zombie5")), timeoutMs: 3000));
+        Assert.True(Settled(clock, () => Sent().Any(o => o.Contains("value zombie5")), TimeSpan.FromSeconds(3)));
     }
 
     /// <summary>
@@ -493,9 +512,9 @@ public class CreatureValueProbeTests : IDisposable
     public void SameCreatureName_TwoSeparateEncounters_TheSecondEncountersValueReachesTheRosterRow()
     {
         EnterCombat("thief");
-        Assert.True(WaitFor(() => Sent().Any(o => o.Contains("value thief"))));
+        Assert.True(Settled(_clock, () => Sent().Any(o => o.Contains("value thief"))));
         Feed("The value of the thief is 100 points.\r\n");
-        Assert.True(WaitFor(() => Resolved().Any(r => r.Name == "thief" && r.Value == 100)));
+        Assert.True(Settled(_clock, () => Resolved().Any(r => r.Name == "thief" && r.Value == 100)));
 
         // Close the first encounter outright (a kill - the sole active participant).
         Feed("You have killed the thief.\r\n");
@@ -507,9 +526,9 @@ public class CreatureValueProbeTests : IDisposable
         // fight and this probe would never be sent at all.
         Feed("You attack the thief, using the axe0 as a weapon.\r\n");
         Assert.True(_session.InCombat);
-        Assert.True(WaitFor(() => Sent().Any(o => o.Contains("value thief"))));
+        Assert.True(Settled(_clock, () => Sent().Any(o => o.Contains("value thief"))));
         Feed("The value of the thief is 1,419 points.\r\n");
-        Assert.True(WaitFor(() => Resolved().Any(r => r.Name == "thief" && r.Value == 1419)));
+        Assert.True(Settled(_clock, () => Resolved().Any(r => r.Name == "thief" && r.Value == 1419)));
 
         var secondValue = Resolved().Single(r => r.Name == "thief").Value;
 
@@ -540,7 +559,7 @@ public class CreatureValueProbeTests : IDisposable
     // use their own session with a debounce long enough to make the queue-then-die ordering
     // deterministic rather than a race.
 
-    private static MudSession NewSlowDebounceSession(List<string> outgoing, object gate)
+    private static MudSession NewSlowDebounceSession(List<string> outgoing, object gate, VirtualSessionClock clock)
     {
         var s = new MudSession(new MudSessionOptions
         {
@@ -549,6 +568,7 @@ public class CreatureValueProbeTests : IDisposable
             MinProbeSpacing        = TimeSpan.FromMilliseconds(50),
             InventoryProbeDebounce = TimeSpan.FromMilliseconds(400),
         });
+        clock.Attach(s);
         s.OutgoingBytes += b => { lock (gate) outgoing.Add(Encoding.Latin1.GetString(b)); };
         return s;
     }
@@ -558,7 +578,8 @@ public class CreatureValueProbeTests : IDisposable
     {
         var outgoing = new List<string>();
         var gate = new object();
-        using var s = NewSlowDebounceSession(outgoing, gate);
+        var clock = new VirtualSessionClock();
+        using var s = NewSlowDebounceSession(outgoing, gate, clock);
 
         s.Feed(GameModeEntry);
         s.Feed(Encoding.Latin1.GetBytes("You attack the thief, using the axe0 as a weapon.\r\n"));
@@ -573,9 +594,9 @@ public class CreatureValueProbeTests : IDisposable
         Assert.True(s.InGameMode);
 
         // Well past the debounce. Nothing may go out.
-        Assert.False(WaitFor(
+        Assert.False(Settled(clock,
             () => { lock (gate) return outgoing.Any(o => o.Contains("value", StringComparison.Ordinal)); },
-            timeoutMs: 1200));
+            TimeSpan.FromMilliseconds(1200)));
     }
 
     [Fact]
@@ -583,7 +604,8 @@ public class CreatureValueProbeTests : IDisposable
     {
         var outgoing = new List<string>();
         var gate = new object();
-        using var s = NewSlowDebounceSession(outgoing, gate);
+        var clock = new VirtualSessionClock();
+        using var s = NewSlowDebounceSession(outgoing, gate, clock);
 
         s.Feed(GameModeEntry);
         s.Feed(Encoding.Latin1.GetBytes("You attack the thief, using the axe0 as a weapon.\r\n"));
@@ -596,8 +618,8 @@ public class CreatureValueProbeTests : IDisposable
         // TakeCreatureValueProbeLocked, there is nothing left to re-arm.
         s.Feed(Encoding.Latin1.GetBytes("The thief walks away, wearily.\r\n"));
         Assert.False(s.InCombat);
-        Assert.False(WaitFor(
+        Assert.False(Settled(clock,
             () => { lock (gate) return outgoing.Any(o => o.Contains("value", StringComparison.Ordinal)); },
-            timeoutMs: 1000));
+            TimeSpan.FromSeconds(1)));
     }
 }

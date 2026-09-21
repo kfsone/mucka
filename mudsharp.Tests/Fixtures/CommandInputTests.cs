@@ -457,7 +457,11 @@ public class CommandInputTests
     }
 
     /// <summary>And it does fire when something on the path is slow - the mechanism that makes a
-    /// future regression announce itself instead of waiting to be noticed mid-fight.</summary>
+    /// future regression announce itself instead of waiting to be noticed mid-fight.
+    /// <para>The sleep here is the WORK being measured, not a wait for something else, and
+    /// <see cref="InputPathBudget"/> exists to measure real elapsed time - there is no clock to
+    /// inject without deleting the subject. Every assertion in this trio is a lower bound (a 0.5 ms
+    /// budget, a 10 ms floor), so a loaded machine can only overshoot them.</para></summary>
     [Fact]
     public void Budget_ReportsWorkThatOverrunsTheKeystroke()
     {

@@ -73,6 +73,7 @@ public class WorldResetEndsCombatTests : IDisposable
     /// wire, and the corroboration under test is the same arithmetic.</summary>
     private static readonly TimeSpan FinishUp = TimeSpan.FromMilliseconds(300);
 
+    private readonly VirtualSessionClock _clock = new();
     private readonly MudSession _session = new(new MudSessionOptions
     {
         FesHeartbeatInterval   = TimeSpan.FromSeconds(60),
@@ -81,6 +82,12 @@ public class WorldResetEndsCombatTests : IDisposable
         InventoryProbeDebounce = TimeSpan.FromMilliseconds(400),
         ResetClock             = new ResetClockOptions { FinishUpDuration = FinishUp },
     });
+
+    public WorldResetEndsCombatTests() => _clock.Attach(_session);
+
+    /// <summary>Step the clock the countdown is anchored on. Nothing here waits on real time: the
+    /// corroboration under test compares the reset projection's instant against this clock.</summary>
+    private void Advance(TimeSpan by) => _clock.Advance(by);
 
     public void Dispose()
     {
@@ -114,8 +121,9 @@ public class WorldResetEndsCombatTests : IDisposable
         OpenAFight();
         FeedWarning();
         Assert.True(_session.InCombat);
-        // And it is still going a moment later - the warning starts no clock that closes it.
-        Thread.Sleep(50);
+        // And it is still going once the whole finish-up period has passed - the warning starts no
+        // clock that closes the fight by itself; only the C06 C06 line does.
+        Advance(FinishUp * 2);
         Assert.True(_session.InCombat);
     }
 
@@ -139,7 +147,7 @@ public class WorldResetEndsCombatTests : IDisposable
         // no longer exists.
         OpenAFight();
         FeedWarning();
-        Thread.Sleep(FinishUp);
+        Advance(FinishUp);
         _session.Feed(ResetLandedFrame());
         Assert.False(_session.InCombat);
     }
@@ -150,7 +158,7 @@ public class WorldResetEndsCombatTests : IDisposable
         // Belt and braces: ending the encounter early must not disturb the existing exit path.
         OpenAFight();
         FeedWarning();
-        Thread.Sleep(FinishUp);
+        Advance(FinishUp);
         _session.Feed(ResetLandedFrame());
         _session.Feed(ShellEjectionFrame());
         Assert.False(_session.InGameMode);

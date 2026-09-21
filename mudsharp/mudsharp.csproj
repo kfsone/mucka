@@ -10,6 +10,12 @@
     <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
       <_Parameter1>mudsharp.Tests</_Parameter1>
     </AssemblyAttribute>
+    <!-- Mucka.Util.Tests holds one MudSession fixture (the in-combat creature-value probe, which is
+         a Mucka.Combat concern reached through the session) and needs the same timing seams
+         mudsharp.Tests drives it with. -->
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>Mucka.Util.Tests</_Parameter1>
+    </AssemblyAttribute>
   </ItemGroup>
 
 </Project>
