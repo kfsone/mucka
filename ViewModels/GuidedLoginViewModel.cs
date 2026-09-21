@@ -1,5 +1,6 @@
 using System.Windows.Input;
 using Microsoft.Maui.Graphics;
+using Mucka.Core;
 using Mucka.Core.GuidedLogin;
 using MudSharp.Models;
 using Mucka.Commands;
@@ -87,6 +88,12 @@ public sealed class GuidedLoginViewModel : BaseViewModel
         _controller.SplashTextReady -= OnSplashLinesReady;
         _controller.PersonaChoiceReady -= OnPersonaChoiceReady;
         _controller.CreateConfirmationReady -= OnCreateConfirmationReady;
+
+        // Release what the page gave us as well as what we subscribed. Both handlers marshal
+        // through the dispatcher, so an event raised just before Detach is already queued with
+        // the hook captured, and would run against a page being popped.
+        PersonaChoiceRequested = null;
+        CreateConfirmationRequested = null;
     }
 
     private void OnPhaseChanged(GuidedLoginPhase phase)
@@ -99,22 +106,47 @@ public sealed class GuidedLoginViewModel : BaseViewModel
             SplashLinesReady?.Invoke(lines);
         });
 
+    // Both hooks run in an async void lambda, so nothing above observes a faulted task. A throw
+    // that escaped would skip select, create and cancel alike: the controller would still be
+    // awaiting the decision, RunAsync would never return, and the picker would sit abandoned over
+    // a live connection - the state the drop-to-menu rule exists to prevent, reached by nobody
+    // choosing it. Cancelling is the safe resolution, and the controller's TrySetResult makes it a
+    // no-op when the hook already answered before it threw.
+
     private void OnPersonaChoiceReady(PersonaChoice choice)
         => MainThread.BeginInvokeOnMainThread(async () =>
         {
-            if (PersonaChoiceRequested != null)
-                await PersonaChoiceRequested(choice);
-            else
+            var hook = PersonaChoiceRequested;
+            try
+            {
+                if (hook != null)
+                    await hook(choice);
+                else
+                    _controller.CancelPersonaChoice();
+            }
+            catch (Exception ex)
+            {
+                CrashLog.Write("GuidedLoginPersonaChoice", ex);
                 _controller.CancelPersonaChoice();
+            }
         });
 
     private void OnCreateConfirmationReady(string name)
         => MainThread.BeginInvokeOnMainThread(async () =>
         {
-            if (CreateConfirmationRequested != null)
-                await CreateConfirmationRequested(name);
-            else
+            var hook = CreateConfirmationRequested;
+            try
+            {
+                if (hook != null)
+                    await hook(name);
+                else
+                    _controller.CancelCreate();
+            }
+            catch (Exception ex)
+            {
+                CrashLog.Write("GuidedLoginCreateConfirmation", ex);
                 _controller.CancelCreate();
+            }
         });
 
     private static string Describe(GuidedLoginPhase phase) => phase switch

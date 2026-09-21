@@ -165,6 +165,16 @@ public sealed class GuidedLoginController : IDisposable
         {
             return Cancel();
         }
+        catch (Exception ex)
+        {
+            // Operator rule: only an explicit drop-to-menu may expose the MUD Shell. A fault
+            // anywhere in the dance resolves as Cancelled because that is the one outcome both
+            // callers end the connection on; anything else leaves the player at a live terminal
+            // sitting on the Option menu. No AbandonPersonaPrompt() here: after a fault the
+            // shell's state is unknown, and "q" at the Option menu means QUIT.
+            CrashLog.Write("GuidedLoginRun", ex);
+            return Cancel();
+        }
     }
 
     /// <summary>Call from the picker UI when the player chooses an existing persona.</summary>

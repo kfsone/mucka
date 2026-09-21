@@ -798,6 +798,17 @@ public partial class GamePage : ContentPage
             leftAtOptionMenu = result.Outcome == Mucka.Core.GuidedLogin.GuidedLoginOutcome.ManualAtOptionMenu;
             endConnection = result.Outcome == Mucka.Core.GuidedLogin.GuidedLoginOutcome.Cancelled;
         }
+        catch (Exception ex)
+        {
+            // The disconnect below sits outside this try, so a throw anywhere above would run the
+            // finally, pop the modal, and sail past it -- leaving the shell exposed on a live
+            // connection. Resolve a fault the way Cancelled resolves: end the connection. A throw
+            // from the failure alert lands here too, so a Failed dance whose alert faults ends the
+            // connection rather than leaving the player at the Option menu.
+            CrashLog.Write("GuidedLoginOverlay", ex);
+            leftAtOptionMenu = false;
+            endConnection = true;
+        }
         finally
         {
             loginVm.Detach();
