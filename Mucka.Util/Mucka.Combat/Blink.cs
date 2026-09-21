@@ -46,10 +46,10 @@ public static class Blink
     /// element. See the class remarks for why one period is not negotiable.</summary>
     public const double PulsePeriodMilliseconds = 1200.0;
 
-    /// <summary>The blink period, in milliseconds: one MUD2 combat tick. Measured, not chosen - see
-    /// <see cref="CombatTiming.TickMilliseconds"/>, which owns that measurement and carries the same
-    /// figure. This is a second literal of it, in the same assembly, and the two can drift.</summary>
-    public const double BlinkPeriodMilliseconds = 2000.0;
+    /// <summary>The blink period, in milliseconds: one MUD2 combat tick. Measured, not chosen -
+    /// <see cref="CombatTiming.TickMilliseconds"/> owns that measurement and this reads it, so the
+    /// two cannot drift.</summary>
+    public const double BlinkPeriodMilliseconds = CombatTiming.TickMilliseconds;
 
     /// <summary>
     /// Which half of the blink cycle <paramref name="nowUtc"/> falls in - true for the "on" half.
