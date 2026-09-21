@@ -42,6 +42,8 @@
           CopyToOutputDirectory="PreserveNewest" />
     <None Include="Fixtures\Data\invisible-man-preemptive.c1" Link="Fixtures\Data\invisible-man-preemptive.c1"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Fixtures\Data\dark-two-rats.c1" Link="Fixtures\Data\dark-two-rats.c1"
+          CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

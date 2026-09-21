@@ -135,6 +135,10 @@ public sealed class CombatTracker
     /// opponent the player cannot see announces itself, and it opens a participant of its own -
     /// never resolved onto a Creature already engaged, because a Creature already engaged does not
     /// announce that it is about to attack.
+    ///
+    /// <para>One announcement per Creature, observed: a dark Cellar fight carried two "Something is
+    /// about to attack you." lines 2 s apart and closed with two named kill lines, "You have killed
+    /// the rat18." and "You have killed the rat19." Two announcements, two Creatures.</para>
     /// </summary>
     private static readonly Regex NpcAboutToAttack = new(
         $@"^{NpcSubject} is about to attack you\.$", RegexOptions.Compiled);
@@ -1307,27 +1311,60 @@ public sealed class CombatTracker
     {
         if (_cannotSee)
             return;
-        var someone = _unseenBlind[(int)SomeKind.Someone];
-        var something = _unseenBlind[(int)SomeKind.Something];
-        SomeKind kind;
-        if (Knowledge.Known(npc) is SomeKind known)
-            kind = known;
-        else if (someone > 0 && something == 0)
-            kind = SomeKind.Someone;
-        else if (something > 0 && someone == 0)
-            kind = SomeKind.Something;
-        else
+        if (UnseenKindOf(npc, _unseenBlind) is not SomeKind kind)
             return;
-        if (_unseenBlind[(int)kind] == 0)
-            return;
-
         _unseenBlind[(int)kind]--;
         _unseenOpen[(int)kind]--;
+        RetireUnseen(npc, kind);
+    }
+
+    /// <summary>
+    /// Which Unseen opponent a named Creature is, counted over <paramref name="counts"/>, or null for
+    /// "cannot say". The one-candidate rule narrowed to the two words: the species' kind if this
+    /// install has learned it, else the single word that has an Unseen open. Both words open with the
+    /// kind unknown is two candidates and the answer is nothing - the kind decided here is written
+    /// into <see cref="Knowledge"/>, which is persisted, so a guess outlives the encounter that made
+    /// it.
+    /// </summary>
+    private SomeKind? UnseenKindOf(string npc, int[] counts)
+    {
+        if (Knowledge.Known(npc) is SomeKind known)
+            return counts[(int)known] > 0 ? known : null;
+        var someone = counts[(int)SomeKind.Someone];
+        var something = counts[(int)SomeKind.Something];
+        if (someone > 0 && something == 0)
+            return SomeKind.Someone;
+        if (something > 0 && someone == 0)
+            return SomeKind.Something;
+        return null;
+    }
+
+    /// <summary>One Unseen opponent of <paramref name="kind"/> has been identified as
+    /// <paramref name="npc"/> and its slot is spent - the caller has already taken it off the counts.
+    /// The identification teaches the species its word, and the word's own row retires once the last
+    /// opponent standing behind it has been identified.</summary>
+    private void RetireUnseen(string npc, SomeKind kind)
+    {
         Knowledge.Learn(npc, kind);
         var word = SomeKinds.Word(kind);
         if (_unseenOpen[(int)kind] == 0 && _active.Remove(word))
             Emit(_now, CombatEventKind.UnseenNamed, CombatActor.Npc, word, null, null, null, $"({npc} was the {word})");
         PublishUnseen();
+    }
+
+    /// <summary>
+    /// A named END line for a Creature no line of this encounter ever named - see <see cref="End"/>.
+    /// It identifies one Unseen opponent and closes that one; with no single candidate nothing is
+    /// claimed and the word's row stays exactly as open as it was.
+    /// </summary>
+    private void UnseenEnded(string npc)
+    {
+        if (UnseenKindOf(npc, _unseenOpen) is not SomeKind kind)
+            return;
+        _unseenOpen[(int)kind]--;
+        if (_unseenBlind[(int)kind] > _unseenOpen[(int)kind])
+            _unseenBlind[(int)kind] = _unseenOpen[(int)kind];
+        RetireUnseen(npc, kind);
     }
 
     private void End(string npc)
@@ -1347,6 +1384,15 @@ public sealed class CombatTracker
                 _endedThisFrame = true;
                 return;
             }
+        }
+        else if (!_active.Contains(npc))
+        {
+            // A named end for a Creature nothing in this encounter engaged by name. Observed in the
+            // dark Cellar: every exchange line was anonymous ("Something hits you (55/90).") and the
+            // kill line named the Creature anyway ("You have killed the rat18."). So the line is not
+            // stray prose - it identifies one Unseen opponent, and closing that one is what lets the
+            // encounter end at all.
+            UnseenEnded(npc);
         }
         _active.Remove(npc);
         _endedThisFrame = true;
