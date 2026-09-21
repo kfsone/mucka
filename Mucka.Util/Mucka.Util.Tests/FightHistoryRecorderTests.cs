@@ -499,6 +499,201 @@ public sealed class FightHistoryRecorderTests : IDisposable
         Assert.Null(row.PrevSameNameEndedMs);
     }
 
+    // -- the fight-ending arms, one per outcome -----------------------------------
+
+    /// <summary>
+    /// Every remaining <c>OnCombatEvent</c> arm that ends a fight, table-driven so no arm can quietly
+    /// resolve to another arm's outcome. The one that pays for the whole table is
+    /// <c>KilledByNpc -> Died</c>: filed as <c>Kill</c> instead, every death in the operator's history
+    /// reads as a win, and the kill-versus-death record for a species then encourages him to fight it
+    /// again.
+    ///
+    /// <para><c>Withdrawn</c> is the odd one here and is deliberately in the same table: it is
+    /// per-creature where the other three are player-scoped, which is what the sibling below pins.</para>
+    /// </summary>
+    [Theory]
+    [InlineData(CombatEventKind.KilledByNpc, FightOutcome.Died)]
+    [InlineData(CombatEventKind.YouFled, FightOutcome.UFled)]
+    [InlineData(CombatEventKind.YouFleeFailed, FightOutcome.UFledFail)]
+    [InlineData(CombatEventKind.Withdrawn, FightOutcome.Withdraw)]
+    [InlineData(CombatEventKind.NpcFled, FightOutcome.CFled)]
+    [InlineData(CombatEventKind.NpcFleeFailed, FightOutcome.CFledFail)]
+    [InlineData(CombatEventKind.Kill, FightOutcome.Kill)]
+    public void EachFightEndingArm_ResolvesToItsOwnOutcome(CombatEventKind kind, FightOutcome expected)
+    {
+        var store = MakeStore();
+        var recorder = new FightHistoryRecorder(store);
+
+        recorder.OnInCombatChanged(true);
+        recorder.OnCombatEvent(Event(CombatEventKind.FightStart, "rat0"));
+        recorder.OnCombatEvent(Event(kind, "rat0", atSecond: 5));
+        recorder.OnInCombatChanged(false);
+
+        var row = Assert.Single(store.Snapshot());
+        Assert.Equal(expected.ToString(), row.Outcome);
+    }
+
+    /// <summary>
+    /// The player-scoped endings reach every open fight in the pack, not just the one the line named.
+    /// MUD2 zeroes the whole fight count on a death or a flee attempt, so a second creature left
+    /// sitting at <c>Unresolved</c> would put a fight that demonstrably ended into the bucket the
+    /// corpus is searched on when hunting a wording the parser is missing.
+    /// </summary>
+    [Theory]
+    [InlineData(CombatEventKind.KilledByNpc, FightOutcome.Died)]
+    [InlineData(CombatEventKind.YouFled, FightOutcome.UFled)]
+    [InlineData(CombatEventKind.YouFleeFailed, FightOutcome.UFledFail)]
+    public void APlayerScopedEnding_ResolvesEveryOpenFightInThePack(
+        CombatEventKind kind, FightOutcome expected)
+    {
+        var store = MakeStore();
+        var recorder = new FightHistoryRecorder(store);
+
+        recorder.OnInCombatChanged(true);
+        recorder.OnCombatEvent(Event(CombatEventKind.FightStart, "rat0"));
+        recorder.OnCombatEvent(Event(CombatEventKind.FightStart, "rat1", atSecond: 1));
+        // The line names one creature; the ending is the player's, so both rows must carry it.
+        recorder.OnCombatEvent(Event(kind, "rat0", atSecond: 5));
+        recorder.OnInCombatChanged(false);
+
+        var rows = store.Snapshot();
+        Assert.Equal(2, rows.Count);
+        Assert.Equal(expected.ToString(), Assert.Single(rows, r => r.NpcName == "rat0").Outcome);
+        Assert.Equal(expected.ToString(), Assert.Single(rows, r => r.NpcName == "rat1").Outcome);
+    }
+
+    /// <summary>The other half of the pack rule: a withdraw is an agreement with ONE creature, so the
+    /// second fight must still be running afterwards and must persist as Unresolved. Filing the pack
+    /// under Withdraw would record an ending nobody ever saw.</summary>
+    [Fact]
+    public void AWithdraw_EndsOnlyTheCreatureItNames()
+    {
+        var store = MakeStore();
+        var recorder = new FightHistoryRecorder(store);
+
+        recorder.OnInCombatChanged(true);
+        recorder.OnCombatEvent(Event(CombatEventKind.FightStart, "rat0"));
+        recorder.OnCombatEvent(Event(CombatEventKind.FightStart, "rat1", atSecond: 1));
+        recorder.OnCombatEvent(Event(CombatEventKind.Withdrawn, "rat0", atSecond: 5));
+        recorder.OnInCombatChanged(false);
+
+        var rows = store.Snapshot();
+        Assert.Equal(2, rows.Count);
+        Assert.Equal(nameof(FightOutcome.Withdraw), Assert.Single(rows, r => r.NpcName == "rat0").Outcome);
+        Assert.Equal(nameof(FightOutcome.Unresolved), Assert.Single(rows, r => r.NpcName == "rat1").Outcome);
+    }
+
+    /// <summary>The four swing counters, each fed a distinct number of events so no pair can be
+    /// swapped without one of them reading the other's count. These are what every later damage and
+    /// hit-rate figure is divided by.</summary>
+    [Fact]
+    public void FlushedRecord_CountsHitsAndMissesOnBothSidesSeparately()
+    {
+        var store = MakeStore();
+        var recorder = new FightHistoryRecorder(store);
+
+        recorder.OnInCombatChanged(true);
+        recorder.OnCombatEvent(Event(CombatEventKind.FightStart, "rat0"));
+        for (var i = 0; i < 1; i++)
+            recorder.OnCombatEvent(Event(CombatEventKind.Hit, "rat0", rangeLow: 4, rangeHigh: 8, atSecond: 1));
+        for (var i = 0; i < 2; i++)
+            recorder.OnCombatEvent(Event(CombatEventKind.Miss, "rat0", atSecond: 2));
+        for (var i = 0; i < 3; i++)
+            recorder.OnCombatEvent(Event(CombatEventKind.HitByNpc, "rat0", atSecond: 3));
+        for (var i = 0; i < 4; i++)
+            recorder.OnCombatEvent(Event(CombatEventKind.MissByNpc, "rat0", atSecond: 4));
+        recorder.OnCombatEvent(Event(CombatEventKind.Kill, "rat0", atSecond: 5));
+        recorder.OnInCombatChanged(false);
+
+        var row = Assert.Single(store.Snapshot());
+        Assert.Equal(1, row.YouHits);
+        Assert.Equal(2, row.YouMisses);
+        Assert.Equal(3, row.TheyHits);
+        Assert.Equal(4, row.TheyMisses);
+    }
+
+    // -- weapon tracking ----------------------------------------------------------
+
+    /// <summary>A weapon equipped mid-fight is adopted by every fight still open, which is how the
+    /// pack's rows agree about what they were fought with. The already-resolved fight must keep the
+    /// weapon it actually used.</summary>
+    [Fact]
+    public void AWeaponEquippedMidEncounter_ReachesEveryStillOpenFight_AndNotTheClosedOne()
+    {
+        var store = MakeStore();
+        var recorder = new FightHistoryRecorder(store);
+
+        recorder.OnInCombatChanged(true);
+        recorder.OnCombatEvent(Event(CombatEventKind.FightStart, "rat0", weapon: "dagger0"));
+        recorder.OnCombatEvent(Event(CombatEventKind.FightStart, "rat1", atSecond: 1));
+        recorder.OnCombatEvent(Event(CombatEventKind.Kill, "rat0", atSecond: 2));
+        recorder.OnCombatEvent(Event(CombatEventKind.WeaponEquip, "rat1", weapon: "axe0", atSecond: 3));
+        recorder.OnCombatEvent(Event(CombatEventKind.Kill, "rat1", atSecond: 4));
+        recorder.OnInCombatChanged(false);
+
+        var rows = store.Snapshot();
+        Assert.Equal(2, rows.Count);
+        Assert.Equal("dagger0", Assert.Single(rows, r => r.NpcName == "rat0").WeaponUsed);
+        Assert.Equal("axe0", Assert.Single(rows, r => r.NpcName == "rat1").WeaponUsed);
+    }
+
+    /// <summary>
+    /// A weapon that breaks, is refused, or is dropped leaves the player's hands, so a fight that
+    /// OPENS afterwards in the same encounter must not inherit it - but the fight that was already
+    /// using it keeps it on its row.
+    ///
+    /// <para>That second half is the one worth the test: MUD2 auto-drops the weapon on a flee, in the
+    /// same tick and just before the flee line, so clearing <c>WeaponUsed</c> here would write an
+    /// armed fight to history as bare-handed and hand the unarmed bucket a fight it never had.</para>
+    /// </summary>
+    [Theory]
+    [InlineData(CombatEventKind.WeaponBroke, null)]
+    [InlineData(CombatEventKind.WeaponUnusable, null)]
+    [InlineData(CombatEventKind.ItemDropped, "dagger0")]
+    public void LosingTheWeapon_KeepsItOnTheFightThatUsedIt_ButNotOnTheNextOne(
+        CombatEventKind kind, string? droppedItem)
+    {
+        var store = MakeStore();
+        var recorder = new FightHistoryRecorder(store);
+
+        recorder.OnInCombatChanged(true);
+        recorder.OnCombatEvent(Event(CombatEventKind.FightStart, "rat0", weapon: "dagger0"));
+        recorder.OnCombatEvent(Event(kind, "rat0", weapon: droppedItem, atSecond: 1));
+        recorder.OnCombatEvent(Event(CombatEventKind.Kill, "rat0", atSecond: 2));
+        // A straggler joins after the weapon is gone: it was fought bare-handed.
+        recorder.OnCombatEvent(Event(CombatEventKind.FightStart, "rat1", atSecond: 3));
+        recorder.OnCombatEvent(Event(CombatEventKind.Kill, "rat1", atSecond: 4));
+        recorder.OnInCombatChanged(false);
+
+        var rows = store.Snapshot();
+        Assert.Equal(2, rows.Count);
+        Assert.Equal("dagger0", Assert.Single(rows, r => r.NpcName == "rat0").WeaponUsed);
+        Assert.Null(Assert.Single(rows, r => r.NpcName == "rat1").WeaponUsed);
+    }
+
+    /// <summary>An item dropped that is NOT the weapon in hand must leave the weapon alone - the drop
+    /// line names an item, unlike the break and refusal lines, and treating every drop as a disarm
+    /// would write later fights in the encounter as bare-handed while the player is still holding
+    /// the thing.</summary>
+    [Fact]
+    public void DroppingSomethingThatIsNotTheWeapon_LeavesTheWeaponInHand()
+    {
+        var store = MakeStore();
+        var recorder = new FightHistoryRecorder(store);
+
+        recorder.OnInCombatChanged(true);
+        recorder.OnCombatEvent(Event(CombatEventKind.FightStart, "rat0", weapon: "dagger0"));
+        recorder.OnCombatEvent(Event(CombatEventKind.ItemDropped, "rat0", weapon: "lamp2", atSecond: 1));
+        recorder.OnCombatEvent(Event(CombatEventKind.Kill, "rat0", atSecond: 2));
+        recorder.OnCombatEvent(Event(CombatEventKind.FightStart, "rat1", atSecond: 3));
+        recorder.OnCombatEvent(Event(CombatEventKind.Kill, "rat1", atSecond: 4));
+        recorder.OnInCombatChanged(false);
+
+        var rows = store.Snapshot();
+        Assert.Equal(2, rows.Count);
+        Assert.Equal("dagger0", Assert.Single(rows, r => r.NpcName == "rat1").WeaponUsed);
+    }
+
     // -- where a score comes from -------------------------------------------------
 
     /// <summary>

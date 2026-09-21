@@ -120,12 +120,10 @@ public sealed class CombatTierResolverTests
     public void ResolvePulseTier_StaminaT3AlwaysWins()
         => Assert.Equal(CombatTier.T3, CombatTierResolver.ResolvePulseTier(CombatTier.T3, CombatTier.T2));
 
-    [Fact]
-    public void ResolvePulseTier_TieBetweenTwoT3CandidatesGoesToStamina()
-        // Stamina is the only T3-eligible signal that can directly end the encounter in death - no
-        // other signal in this design reaches T3 today, but the tie-break itself must still resolve
-        // in stamina's favour if it ever does.
-        => Assert.Equal(CombatTier.T3, CombatTierResolver.ResolvePulseTier(CombatTier.T3, CombatTier.T3));
+    // A T3/T3 tie is unobservable through this method: it returns a TIER, not which candidate won,
+    // so every branch returns T3 and no assertion can tell them apart. The stamina-first line in
+    // ResolvePulseTier is therefore pinned by nothing here, and its only production caller passes
+    // CombatTier.None as the second argument, so it would not be exercised live either.
 
     [Fact]
     public void ResolvePulseTier_NoT3AnywhereFallsBackToTheHigherStaticTier()

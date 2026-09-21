@@ -193,32 +193,8 @@ public class WavProbeTests
     public void ReadReturnsNullForAMissingFile()
         => Assert.Null(WavProbe.Read(Path.Combine(Path.GetTempPath(), "mucka-no-such-file-9d3f.wav")));
 
-    // -- The arithmetic the metronome does with the result --------------------------------------
-
-    /// <summary>
-    /// The required bracket: 100 ms of silence between the END of the first sound and the START of
-    /// the second, centred on the tick boundary. This reproduces CombatMetronome's two offset
-    /// calculations against a real-shaped clip and checks the perceived result.
-    /// </summary>
-    [Fact]
-    public void ScheduledFromTheSpan_ThePerceivedGapIsExactlyTwoN_CentredOnTheBoundary()
-    {
-        const double n = 50.0;
-        var pre = WavProbe.Parse(Wav(ClickEnvelope(30 * 48, 36 * 48, 134 * 48)))!.Value;
-        var post = pre;   // the two click assets are the same shape
-
-        // CombatMetronome.PreTickLeadMilliseconds / AfterTickOffsetMilliseconds
-        var preLead = n + pre.AudibleEndMs;
-        var afterOffset = Math.Max(1.0, n - post.AudibleStartMs);
-
-        // Where each clip's audible content lands, relative to the boundary at 0.
-        var preAudibleEnd = -preLead + pre.AudibleEndMs;
-        var postAudibleStart = afterOffset + post.AudibleStartMs;
-
-        Assert.Equal(-n, preAudibleEnd, 6);
-        Assert.Equal(n, postAudibleStart, 6);
-        Assert.Equal(2 * n, postAudibleStart - preAudibleEnd, 6);
-        // The boundary is the midpoint of the silence, which is what "centred on the cycle" means.
-        Assert.Equal(0.0, (preAudibleEnd + postAudibleStart) / 2, 6);
-    }
+    // The metronome's two offset formulas are not testable from here: they live in
+    // Audio/CombatMetronome.cs, inside the MAUI assembly no test project references. A test that
+    // hand-copies them asserts its own arithmetic - every term cancels - and says nothing about the
+    // production expressions. Moving them beside WavProbe is what would make them assertable.
 }

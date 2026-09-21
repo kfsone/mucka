@@ -295,6 +295,73 @@ public sealed class MuckaStoreTests : IDisposable
         Assert.Equal(1, after.GetInt32(1));
     }
 
+    /// <summary>
+    /// The two persona-session writes, read back off disk. These bypass the background writer and
+    /// open their own connection, so nothing else in this fixture speaks for them, and they are what
+    /// attributes a login to a character and records how it ended.
+    ///
+    /// <para>Two rows are opened and only the first is written to, which is what makes the three
+    /// mutations below distinguishable rather than merely detectable:</para>
+    /// <list type="bullet">
+    /// <item><b>An empty <c>UpdatePersonaSession</c> body</b> - the first row's persona, ended_ms and
+    /// ended_note all stay NULL.</item>
+    /// <item><b>The <c>$ended</c> and <c>$value</c> bindings swapped</b> - observed: the name write,
+    /// which passes no <c>endedMs</c>, is then left with <c>$value</c> unbound, sqlite refuses the
+    /// command, and <c>UpdatePersonaSession</c> swallows it. The error-callback assertion below is
+    /// what catches that; the read-backs alone would only see a NULL persona.</item>
+    /// <item><b><c>WHERE id</c> dropped, or turned into <c>WHERE id = $ended</c></b> - dropped, every
+    /// row is updated and the untouched second row stops being NULL; pointed at <c>$ended</c>, no row
+    /// matches on the end write and the name write throws on an unbound parameter, which
+    /// <c>UpdatePersonaSession</c> swallows - hence the error-callback assertion, which is the only
+    /// thing that separates "swallowed a broken statement" from "wrote nothing".</item>
+    /// </list>
+    /// </summary>
+    [Fact]
+    public void A_persona_session_is_named_and_closed_on_its_own_row_and_no_other()
+    {
+        const long EndedMs = 1_787_000_123_456;
+        var failures = new List<string>();
+
+        long named, untouched;
+        using (var store = new MuckaStore(DbPath, "test", onError: (context, ex) => failures.Add(context + " :: " + ex.Message)))
+        {
+            named = store.BeginPersonaSession(1_787_000_000_000, "mud2.co.uk")
+                ?? throw new InvalidOperationException("BeginPersonaSession returned no id");
+            untouched = store.BeginPersonaSession(1_787_000_000_001, "mud2.co.uk")
+                ?? throw new InvalidOperationException("BeginPersonaSession returned no id");
+            Assert.NotEqual(named, untouched);
+
+            store.NamePersonaSession(named, "Ollie");
+            store.EndPersonaSession(named, EndedMs, PersonaSessionEnd.Quit);
+        }
+
+        // Nothing was allowed to fail quietly: both writes swallow their exceptions, so a statement
+        // that never executed would otherwise be indistinguishable from one that wrote nothing.
+        Assert.Empty(failures);
+
+        using var connection = MuckaDb.OpenRead(DbPath);
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT persona, ended_ms, ended_note FROM persona_sessions WHERE id = $id;";
+        command.Parameters.AddWithValue("$id", named);
+        using (var reader = command.ExecuteReader())
+        {
+            Assert.True(reader.Read(), "the persona session row went missing");
+            Assert.False(reader.IsDBNull(0), "persona was never written");
+            Assert.False(reader.IsDBNull(1), "ended_ms was never written");
+            Assert.False(reader.IsDBNull(2), "ended_note was never written");
+            Assert.Equal("Ollie", reader.GetString(0));
+            Assert.Equal(EndedMs, reader.GetInt64(1));
+            Assert.Equal(PersonaSessionEnd.Quit, reader.GetString(2));
+        }
+
+        command.Parameters["$id"].Value = untouched;
+        using var other = command.ExecuteReader();
+        Assert.True(other.Read(), "the second persona session row went missing");
+        Assert.True(other.IsDBNull(0), "the name write reached a row it was not given");
+        Assert.True(other.IsDBNull(1), "the end write reached a row it was not given");
+        Assert.True(other.IsDBNull(2), "the end write reached a row it was not given");
+    }
+
     [Fact]
     public void Rows_are_committed_in_the_order_they_were_enqueued_across_producers()
     {

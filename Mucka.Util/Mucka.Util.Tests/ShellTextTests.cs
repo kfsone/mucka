@@ -168,52 +168,46 @@ public class ShellTextTests
         Assert.Null(ShellText.TryParsePersonaSlots(n));
     }
 
+    /// <summary>
+    /// Our "p" eaten by stale input already sitting in the shell's buffer (an in-flight FES probe
+    /// splice): the shell answers "Option unavailable." instead of showing the persona-name prompt,
+    /// and no persona list ever arrives. What this fixture can state about that text is which
+    /// <c>ShellText</c> predicates it matches.
+    ///
+    /// <para>The combined landmark predicate guided login waits on is composed inside
+    /// <c>GuidedLoginController.SendPlayAndGetSlotsAsync</c>, in the MAUI assembly, and no test can
+    /// call it. Rebuilding the five-clause OR here out of the same predicates and asserting the
+    /// local copy asserted nothing about the production one - reorder or drop a clause there and
+    /// the copy still holds. It is gone; the real predicates it was made of are asserted
+    /// individually below, and the composition needs the move into <c>ShellText</c> before it can
+    /// be pinned at all.</para>
+    /// </summary>
     [Fact]
-    public void OptionUnavailableAfterOurPWakesTheLandmarkAndTriggersAnImmediateResend()
+    public void OptionUnavailableAfterOurP_IsRecognisedAndCarriesNoDbInitPhrase()
     {
-        // Simulates our "p" getting eaten by stale input already sitting in the shell's buffer
-        // (an in-flight FES probe splice): the shell answers "Option unavailable." instead of
-        // showing the persona-name prompt, and no persona list ever arrives. Guided login's
-        // SendPlayAndGetSlotsAsync landmark predicate must wake on this and trigger an immediate
-        // retry rather than riding out the full outer deadline.
         var n = ShellText.NormalizeWhitespace(
             "Option (H for help): p\r\nOption unavailable.\r\nOption (H for help): ");
 
-        // The combined landmark predicate SendPlayAndGetSlotsAsync waits on wakes for this text.
-        var wakesLandmark = ShellText.IsPersonaNamePrompt(n)
-            || ShellText.IsDatabaseStillInitialisingLine(n)
-            || ShellText.IsDatabaseStartedInitialisingLine(n)
-            || ShellText.IsDatabaseFinishedInitialisingLine(n)
-            || ShellText.IsOptionUnavailableLine(n);
-        Assert.True(wakesLandmark);
-
-        // ...and it is the immediate-resend branch that fires (not the DB-init pacing branch,
-        // which must still own any text that also carries a DB-initialising phrase).
-        var isImmediateResendCase = ShellText.IsOptionUnavailableLine(n)
-            && !ShellText.IsDatabaseStillInitialisingLine(n)
-            && !ShellText.IsDatabaseStartedInitialisingLine(n);
-        Assert.True(isImmediateResendCase);
+        Assert.True(ShellText.IsOptionUnavailableLine(n));
+        Assert.False(ShellText.IsDatabaseStillInitialisingLine(n));
+        Assert.False(ShellText.IsDatabaseStartedInitialisingLine(n));
+        Assert.False(ShellText.IsDatabaseFinishedInitialisingLine(n));
         Assert.False(ShellText.IsPersonaNamePrompt(n));
     }
 
+    /// <summary>
+    /// The two phrases are not mutually exclusive: a text carrying both must match both predicates,
+    /// which is the input the branch order in guided login's resend logic exists to disambiguate.
+    /// Which branch wins is decided there and is not asserted here - see the sibling above.
+    /// </summary>
     [Fact]
-    public void OptionUnavailableDuringDatabaseInitialising_DoesNotFightTheDbInitBranch()
+    public void OptionUnavailableAndDatabaseInitialising_BothMatchTheSameText()
     {
-        // The reset-time "p" reply also says "Option unavailable." is never actually shown here --
-        // it is "The database is still initialising." -- but if a server variant ever paired the
-        // two, the DB-init branch (which paces retries rather than resending immediately) must
-        // still win: IsOptionUnavailableLine must not be treated as the immediate-resend case
-        // when a DB-initialising phrase is also present.
         var n = ShellText.NormalizeWhitespace(
             "Option unavailable.\r\nThe database is still initialising.\r\nOption (H for help): ");
 
         Assert.True(ShellText.IsOptionUnavailableLine(n));
         Assert.True(ShellText.IsDatabaseStillInitialisingLine(n));
-
-        var isImmediateResendCase = ShellText.IsOptionUnavailableLine(n)
-            && !ShellText.IsDatabaseStillInitialisingLine(n)
-            && !ShellText.IsDatabaseStartedInitialisingLine(n);
-        Assert.False(isImmediateResendCase);
     }
 
     [Fact]

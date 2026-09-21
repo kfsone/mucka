@@ -13,21 +13,24 @@ public class SessionDropContextTests
         => text.Select(t => new StyledLine(new[] { new StyledSpan(t, TextStyle.Default) })).ToList();
 
     /// <summary>
-    /// Quit is its own SessionDropReason, distinct from Reset: IsResetDrop is a pure proximity test,
-    /// so a qq inside the reset finish-up window must still classify as Quit rather than Reset - a
-    /// Reset classification auto-relogs the player straight back into the persona they just
-    /// deliberately left, without even showing the picker.
+    /// A deliberate quit gets its own headline, not the server's last line, and shows no tail.
+    ///
+    /// <para>The precedence this test used to claim in its name - that a <c>qq</c> inside the reset
+    /// finish-up window still classifies as Quit rather than Reset - is decided by
+    /// <c>GameViewModel.ClassifyDrop</c>, in the MAUI assembly, which nothing here calls. Asserting
+    /// <c>Reason != Reset</c> on a context the test itself constructed with <c>Quit</c> reads like a
+    /// check on that rule and is not one.</para>
     /// </summary>
     [Fact]
-    public void QuitIsItsOwnReason_SoItCanOutrankTheResetTimingGuess()
+    public void QuitHasItsOwnHeadline_AndShowsNoTail()
     {
-        var drop = new SessionDropContext(SessionDropReason.Quit, "Ollie", Lines("Cheerio!"));
+        // Deliberately NOT "Cheerio!" in the tail: the headline is a fixed word for the reason, and
+        // a tail line that happened to match it would hide a headline reading the last line back.
+        var drop = new SessionDropContext(SessionDropReason.Quit, "Ollie", Lines("The world fades."));
 
         Assert.Equal("Cheerio!", drop.Headline);
         // The player knows why they left; the server's last words add nothing.
         Assert.False(drop.ShowsTailLines);
-        // And it must not read as a reset, which is the value auto-relog is gated on.
-        Assert.NotEqual(SessionDropReason.Reset, drop.Reason);
     }
 
     [Fact]

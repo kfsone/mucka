@@ -333,10 +333,19 @@ public sealed class RailSlotGeometryTests
             M, h, RailSlotGeometry.LiveStackHeight(M, 5, 0));
 
         Assert.True(fiveLive < oneLive);
+
+        // The containment itself: the strip's floor never runs down INTO the live stack, whose top
+        // edge is the topmost drawn slot's top. Both bounds are worked up from the panel's bottom
+        // edge, so a dead strip measured from the raw logical height instead - skipping the tick
+        // row, the bottom block and the pad - puts corpses over the player's own tile.
+        Assert.True(oneLive <= RailSlotGeometry.SlotTop(M, h, 0),
+            $"one live slot: dead strip runs to {oneLive}, past the live slot's top "
+            + $"({RailSlotGeometry.SlotTop(M, h, 0)})");
+        Assert.True(fiveLive <= RailSlotGeometry.SlotTop(M, h, 4),
+            $"five live slots: dead strip runs to {fiveLive}, past the topmost live slot's top "
+            + $"({RailSlotGeometry.SlotTop(M, h, 4)})");
+
         // And the live slots themselves sit in exactly the same place either way.
-        Assert.Equal(
-            RailSlotGeometry.SlotTop(M, h, 0),
-            RailSlotGeometry.SlotTop(M, h, 0), 3);
         Assert.Equal(RailSlotGeometry.SlotsBottom(M, h) - 76.0, RailSlotGeometry.SlotTop(M, h, 0), 3);
     }
 

@@ -165,6 +165,27 @@ public class WorldResetEndsCombatTests : IDisposable
         Assert.False(_session.InCombat);
     }
 
+    /// <summary>
+    /// The corroboration GATE, as opposed to the no-projection-at-all case its sibling below
+    /// covers. A countdown IS anchored here, so <c>OnWorldResetLanded</c> gets past its null-target
+    /// return and reaches the tolerance comparison - and the C06 C06 arrives half a minute past the
+    /// projected instant, far outside any tolerance the projection can state.
+    ///
+    /// <para>Nothing else in the fixture reaches this branch: the sibling returns on a null target
+    /// before the comparison runs, so with the tolerance check deleted every other test here stays
+    /// green and a stray C06 C06 in ordinary play force-ends the player's fight with "world reset"
+    /// as the reason.</para>
+    /// </summary>
+    [Fact]
+    public void SomethingMagical_FarOutsideTheProjectedInstant_DoesNotEndTheFight()
+    {
+        OpenAFight();
+        FeedWarning();
+        Advance(FinishUp + TimeSpan.FromSeconds(30));
+        _session.Feed(ResetLandedFrame());
+        Assert.True(_session.InCombat);
+    }
+
     [Fact]
     public void SomethingMagical_WithNoResetDue_DoesNotEndTheFight()
     {

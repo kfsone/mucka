@@ -205,14 +205,22 @@ public class Mud2C1Tests
 
     // -- C98 correctness --------------------------------------------------------
 
+    /// <summary>
+    /// C98 (0xFD) + even payload byte: BLACK/BLUE, and an unconditional ShowPrompt() - but it must
+    /// NOT re-arm <c>PromptAllowed</c>. Only a real game newline does that, and C98 always precedes
+    /// the C01 prompt preamble bytes, so setting it here would make every FES heartbeat's
+    /// end-of-frame marker display as a real prompt - a stray '*' in the terminal on every beat.
+    /// The old name claimed C98 SETS the flag, which is the defect, not the behaviour.
+    /// </summary>
     [Fact]
-    public void C98_SetsColor_AndSetsPromptAllowed()
+    public void C98_SetsColor_AndShowsThePrompt_WithoutReArmingPromptAllowed()
     {
-        // C98 (0xFD) + even payload byte -> BLACK/BLUE; also fires ShowPrompt()
         // 0x9C = 156, 156 % 2 == 0 -> Apply(BLACK, BLUE)
         var h = new ParserHarness();
         h.Feed("prompt: ");           // accumulate text
+        h.Parser.PromptAllowed = false;   // as it stands after a prompt was last displayed
         h.Feed(0xFD, 0x9C, 0xFF, 0xFF); // C98 with even byte -> BLACK/BLUE + ShowPrompt()
+        Assert.False(h.Parser.PromptAllowed, "C98 must not re-arm the prompt gate");
 
         // ShowPrompt() should have emitted the accumulated "prompt: " as a partial line
         Assert.Single(h.Lines);
@@ -784,15 +792,27 @@ public class Mud2C1Tests
         Assert.Equal(AnsiColor.Black, style.Background);
     }
 
+    /// <summary>
+    /// F4 9D xx - the first payload byte is neither 0x9B nor 0x9C, so this variant is unrecognised
+    /// and must run on to the FF FF terminator rather than dispatching after one or two bytes.
+    ///
+    /// <para>The bytes between the payload and the terminator are what prove it: printable text fed
+    /// while the sequence is still open must be SWALLOWED as payload. A line count alone cannot see
+    /// this - the parser recovers and emits one line either way.</para>
+    /// </summary>
     [Fact]
     public void C89_F4_UnrecognisedPayload_WaitsForTerminator()
     {
-        // F4 9D xx FF FF - first payload byte is not 0x9B or 0x9C, so must wait for FF FF
-        // The sequence should NOT dispatch early; text after FF FF should be in the applied color.
         var h = new ParserHarness();
-        h.Feed(0xF4, 0x9D, 0x9B, 0xFF, 0xFF);  // unrecognised C89 variant, terminated normally
+        h.Feed(0xF4, 0x9D, 0x9B);               // unrecognised C89 variant, still open
+        h.Feed("SWALLOWED");                    // payload, not display text - an early dispatch leaks it
+        h.Feed(0xFF, 0xFF);                     // terminated normally -> Apply(WHITE, BLACK)
         h.Feed("text\n");
-        Assert.Single(h.Lines);                 // parser recovered and emitted text
+
+        var line = Assert.Single(h.Lines);
+        Assert.Equal("text", line.PlainText);
+        Assert.Equal(AnsiColor.White, line.Spans[0].Style.Foreground);
+        Assert.Equal(AnsiColor.Black, line.Spans[0].Style.Background);
     }
 
     // -- Gap 3: FE FE FF FF special reset --------------------------------------

@@ -3,8 +3,7 @@ namespace MudSharp.Combat;
 /// <summary>
 /// Incremental replacement for scanning the WHOLE fight corpus on every history lookup.
 ///
-/// <para>The failure mode this exists to fix: the previous approach
-/// filtered <c>FightHistory.ExcludingEncounterFrom(...)</c> then ran three median-computing passes
+/// <para>The failure mode this exists to fix: a full re-scan running three median-computing passes
 /// over the ENTIRE loaded corpus on every cache miss, and misses happen on every fight resolution -
 /// so the cost grew across a whole session. This index instead maintains a small SORTED list per
 /// bucket (per npc_group, per npc_name instance, per (npc_group, weapon), per weapon-global) and
@@ -161,7 +160,7 @@ public sealed class HistoryIndex
     }
 
     /// <summary>Aggregates for one specific NPC instance (e.g. "rat0"). Empty (not null) when
-    /// nothing is on file yet - mirrors FightHistory.SummarizeInstance's contract exactly.</summary>
+    /// nothing is on file yet.</summary>
     public FightHistorySummary GetInstanceSummary(string instanceName)
         => !string.IsNullOrWhiteSpace(instanceName) && _byInstance.TryGetValue(instanceName, out var bucket)
             ? bucket.ToSummary()

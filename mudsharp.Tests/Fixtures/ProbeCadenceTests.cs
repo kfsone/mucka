@@ -181,11 +181,17 @@ public class ProbeCadenceTests : IDisposable
         Assert.Equal(3, FesCarrying());
     }
 
+    /// <summary>
+    /// One unanswered beat earns exactly ONE wake across a long run of chatter, and the wake
+    /// re-phases the heartbeat instead of adding to it.
+    ///
+    /// <para>The old name said an answered FES never wakes a probe, which this arrangement cannot
+    /// show: only the entry FES is answered here, so the beat after it really is unanswered and a
+    /// wake is correct. The sibling below is where the answered case is asserted.</para>
+    /// </summary>
     [Fact]
-    public void AnsweredFes_ServerChatterNeverWakeProbes()
+    public void OneUnansweredBeat_EarnsExactlyOneWake_AndTheFloorHoldsForTheRest()
     {
-        // An answered FES must clear the wake check so ordinary server chatter does not trigger
-        // extra recovery probes.
         var clock = new VirtualSessionClock();
         using var session = new MudSession(new MudSessionOptions
         {
@@ -211,7 +217,9 @@ public class ProbeCadenceTests : IDisposable
         }
         lock (sync)
         {
-            Assert.True(outgoing.Count >= 2, "expected routine FES+FEW beats to keep flowing");
+            // No lower bound here: the routine beats satisfy one on their own and extra wake probes
+            // can only raise the count, so `>= 2` is green precisely when the guard this test is
+            // named for has been deleted. The exact counts below are the assertion.
             // Observed, with the clock stepped by hand: FES-carrying writes at 0, at one beat, at
             // one beat + WakeReplySlack + the chatter line that crossed it, and one beat after
             // THAT. Four, and the third is a wake beat - the entry FES is the only one anything
@@ -223,6 +231,55 @@ public class ProbeCadenceTests : IDisposable
             Assert.Equal(4, outgoing.Count(o => o.StartsWith("\x1b-[FES", StringComparison.Ordinal)));
             Assert.Equal(2, outgoing.Count(o => o == FesFewProbe));
         }
+    }
+
+    /// <summary>
+    /// The guard the test above cannot reach. There, only the ENTRY FES is answered, so the beat
+    /// that follows it is genuinely unanswered and one legitimate wake is expected - which means
+    /// deleting <c>MaybeSendWakeProbe</c>'s answered-probe check changes nothing it asserts:
+    /// <c>WakeProbeFloor</c> is a hard-coded 2 s and the whole timeline there is 400 ms, so at most
+    /// one wake can fire either way.
+    ///
+    /// <para>Here EVERY beat is answered before the next chatter line, so no wake is ever
+    /// legitimate and the only FES-carrying writes are the routine beats. Drop the
+    /// <c>_lastFesSentUtc &lt;= _lastProbeReplyUtc</c> check and the first chatter line past
+    /// <c>WakeReplySlack</c> fires a recovery probe, which re-phases the heartbeat and adds a
+    /// write - the client sending recovery probes on ordinary server chatter.</para>
+    /// </summary>
+    [Fact]
+    public void EveryFesAnswered_ServerChatterRaisesNoWakeProbe()
+    {
+        var clock = new VirtualSessionClock();
+        using var session = new MudSession(new MudSessionOptions
+        {
+            FesHeartbeatInterval = Beat,
+            WakeReplySlack       = TimeSpan.FromMilliseconds(50),  // a naive check would trip almost instantly
+        });
+        clock.Attach(session);
+        var outgoing = new List<string>();
+        var sync = new object();
+        session.OutgoingBytes += b => { lock (sync) outgoing.Add(Encoding.Latin1.GetString(b)); };
+
+        void AnswerFes()
+        {
+            session.Feed(FesOpen);
+            session.Feed(Encoding.Latin1.GetBytes("81 81 94 94 95 95 50 50 1785 N N N N 5 S\n"));
+        }
+
+        session.Feed(GameModeEntry);
+        AnswerFes();                // the entry FES
+        session.Feed(AutoReset);
+
+        var step = TimeSpan.FromMilliseconds(40);
+        for (int i = 0; i < 10; i++)
+        {
+            session.Feed(Encoding.Latin1.GetBytes("The wind whistles through the trees.\r\n"));
+            AnswerFes();            // nothing is ever left outstanding
+            clock.Advance(step);
+        }
+
+        lock (sync)
+            Assert.Equal(3, outgoing.Count(o => o.StartsWith("\x1b-[FES", StringComparison.Ordinal)));
     }
 
     [Fact]

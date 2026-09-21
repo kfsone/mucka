@@ -269,7 +269,10 @@ public class SoundTriggerTests
     [Fact]
     public void C09_C02Say_DoesNotEmitTellAlert()
     {
-        var h = new ParserHarness();
+        // In game mode, like every sibling C09 test: the tell alert is gated on _inGameMode, so a
+        // bare harness makes this pass because the parser is out of game mode rather than because
+        // C02 differs from C03.
+        var h = InGameMode();
         h.Feed(0xA4, 0x9D, 0xFF, 0xFF);
         h.Feed("Ollie says \"hello\".\n");
         Assert.Empty(h.Sounds);

@@ -291,12 +291,16 @@ public class FrameTrackingTests
     [Fact]
     public void FewResponse_PlayerNamesNotEmittedAsLines()
     {
+        // The row's own newline is what makes this assertable: a StyledLine completes on a newline
+        // or a prompt flush, so without one the count could not move either way and the assertion
+        // held for free. With it, the FEW context's newline path is the thing under test.
         var h = InGameMode();
         var linesBefore = h.Lines.Count;
         h.Feed(FewContextOpen);
         h.Feed(FewPlayerRedPrefix);
         h.Feed("Gandalf");
         h.Feed(0xFF, 0xFF);
+        h.Feed("\r\n");
         Assert.Equal(linesBefore, h.Lines.Count);
     }
 

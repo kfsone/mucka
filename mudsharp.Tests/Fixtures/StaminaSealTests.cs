@@ -918,20 +918,12 @@ public sealed class StaminaSealTests
     private static RosterRow Row(string name, bool live, double reach, int blows = 20)
         => new(name, live, IsCurrentTarget: false, FightOutcome.Unresolved, Reach: new ReachMark(reach, blows));
 
-    [Fact]
-    public void AResolvedRowCarriesNoLiveState_WhichIsWhatLetsItsFrameBeAbsent()
-    {
-        // The renderer draws a tempo frame only for a live row, and "no frame" is what makes a finished
-        // fight readable at a glance. This pins the model side of that rule: a resolved row is exactly
-        // the rows the frame test excludes, and its own swing tempo is not what decides it.
-        var resolved = Row("rat0", live: false, 7) with { YourTempo = new SwingTempo(20, 2) };
-        var live = Row("rat1", live: true, 7) with { YourTempo = new SwingTempo(20, 2) };
-
-        Assert.False(resolved.IsLive);
-        Assert.True(live.IsLive);
-        // Same tempo on both, so nothing about the dash can be standing in for the live/resolved split.
-        Assert.Equal(resolved.YourTempo, live.YourTempo);
-    }
+    // There was a test here asserting that a RosterRow built with IsLive false reports IsLive
+    // false. IsLive is a positional member of a readonly record struct, so it read back exactly
+    // what the test supplied and no derivation was invoked. What actually derives it from
+    // ParticipantFact.IsResolved is ParticipantRoster.Build, and
+    // ParticipantRosterTests.Build_LiveParticipantsSortBeforeResolvedOnes is what catches Build
+    // marking every row live.
 
     // -- group fights: which one is the greatest threat --------------------------
     //

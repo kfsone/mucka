@@ -390,18 +390,34 @@ public class GameLineAnalyzerTests
     [Fact]
     public void DreamwordLine_DoesNotMatchUppercase()
     {
-        // Dreamword is always lowercase; uppercase words inside quotes must not match
+        // Dreamword is always lowercase; uppercase words inside quotes must not match.
+        // The verb has to be one the regex accepts, or the line never reaches the character class
+        // this test is about - `says` is deliberately excluded from the alternation, so with it the
+        // assertion holds for a reason that has nothing to do with the case of the word.
         var h = new ParserHarness();
-        h.Feed("Someone says \"HELLO\".\n");
+        h.Feed("Someone gasps \"HELLO\".\n");
         Assert.Empty(h.Stats);
     }
 
     [Fact]
     public void DreamwordLine_DoesNotMatchTooLong()
     {
-        // More than 14 lowercase letters is not a dreamword
+        // More than 14 lowercase letters is not a dreamword. Same point about the verb as above:
+        // behind `says` the length cap is never reached.
         var h = new ParserHarness();
-        h.Feed("Someone says \"abcdefghijklmno\".\n");
+        h.Feed("Someone gasps \"abcdefghijklmno\".\n");
         Assert.Empty(h.Stats);
+    }
+
+    /// <summary>The positive control for the two negatives above: the same shape, in bounds,
+    /// behind the same verb, does match. Without it "does not match" could be true because the
+    /// arrange never reaches the pattern at all, which is exactly how those two used to pass.</summary>
+    [Fact]
+    public void DreamwordLine_FourteenLowercaseLetters_StillMatches()
+    {
+        var h = new ParserHarness();
+        h.Feed("Someone gasps \"abcdefghijklmn\".\n");
+        Assert.Single(h.Stats);
+        Assert.Equal("abcdefghijklmn", h.Stats[0].DreamWord);
     }
 }

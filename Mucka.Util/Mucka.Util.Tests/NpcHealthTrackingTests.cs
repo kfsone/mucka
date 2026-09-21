@@ -152,11 +152,20 @@ public sealed class NpcHealthTrackingTests
         Assert.False(Row(3, 2.5).IsHealthStale);
     }
 
+    /// <summary>
+    /// Where the fade actually starts, bounded from both sides at the literal six seconds - three
+    /// MUD2 ticks of silence. Feeding <c>RosterRow.StaleAfterSeconds</c> back into
+    /// <c>IsHealthStale</c>, which is <c>age &gt;= StaleAfterSeconds</c>, asserts only that
+    /// <c>x &gt;= x</c> and holds for any value the constant could take; its siblings bound it no
+    /// tighter than the open interval (2.5, 10.0], so the constant could move to 9.0 - the
+    /// descriptor fading after four and a half ticks - with the whole suite green.
+    /// </summary>
     [Fact]
-    public void RosterRow_FadesAtThreeTicks_ButKeepsTheReading()
+    public void RosterRow_FadesAtSixSeconds_ButKeepsTheReading()
     {
-        var row = Row(3, RosterRow.StaleAfterSeconds);
+        Assert.False(Row(3, 5.99).IsHealthStale);
 
+        var row = Row(3, 6.0);
         Assert.Equal(3, row.HealthRung);
         Assert.True(row.IsHealthStale);
     }

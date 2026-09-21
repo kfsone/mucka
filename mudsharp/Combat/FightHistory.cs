@@ -97,26 +97,6 @@ public static class FightHistory
     /// before; a shared constant makes drifting apart a compile error instead.</summary>
     public const string NoWeaponKey = "(none)";
 
-    /// <summary>
-    /// Drops rows belonging to the encounter currently on screen.
-    ///
-    /// <para>Essential, not cosmetic: <c>FightHistoryRecorder</c> appends a finished encounter's rows
-    /// to the store BEFORE the view model rebuilds its readout, so without this filter the panel
-    /// compares the fight the player just had against itself - which makes "now" and "usual"
-    /// identical by construction at one sample, and biases the baseline toward the current fight at
-    /// any sample size.</para>
-    /// </summary>
-    public static IEnumerable<FightRecord> ExcludingEncounterFrom(
-        IEnumerable<FightRecord> records,
-        DateTime? encounterStartUtc)
-    {
-        if (encounterStartUtc is not DateTime start)
-            return records;
-
-        var cutoffMs = new DateTimeOffset(start, TimeSpan.Zero).ToUnixTimeMilliseconds();
-        return records.Where(record => record.StartedAtMs < cutoffMs);
-    }
-
     /// <summary>Aggregates the fights matching <paramref name="npcGroup"/>, optionally narrowed to
     /// a single weapon. Pass <paramref name="weapon"/> null for "any weapon".</summary>
     public static FightHistorySummary Summarize(
@@ -135,31 +115,6 @@ public static class FightHistory
             if (weapon is not null && !string.Equals(record.WeaponUsed ?? string.Empty, weapon, StringComparison.OrdinalIgnoreCase))
                 continue;
             matching.Add(record);
-        }
-
-        return Summarize(matching);
-    }
-
-    /// <summary>
-    /// Aggregates prior fights against one specific NPC INSTANCE (e.g. "rat0", not "rats").
-    ///
-    /// <para>MUD2 instances of the same creature are not equivalent opponents: rat0 is far more
-    /// dangerous than the other rats, and dwarf48 harder than most dwarves. Difficulty figures -
-    /// damage, duration, outcomes, stamina pool - therefore belong to the instance once it has
-    /// samples of its own. Weapon susceptibility does NOT: dwarf48 is still a dwarf and still takes
-    /// extra from a pick, so <see cref="SummarizeByWeapon"/> stays keyed on the group, which is also
-    /// where sample counts actually accumulate.</para>
-    /// </summary>
-    public static FightHistorySummary SummarizeInstance(IEnumerable<FightRecord> records, string npcName)
-    {
-        if (string.IsNullOrWhiteSpace(npcName))
-            return FightHistorySummary.Empty;
-
-        var matching = new List<FightRecord>();
-        foreach (var record in records)
-        {
-            if (string.Equals(record.NpcName, npcName, StringComparison.OrdinalIgnoreCase))
-                matching.Add(record);
         }
 
         return Summarize(matching);

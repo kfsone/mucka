@@ -48,9 +48,6 @@ public sealed class TerminalBuffer
     /// <summary>Total visible lines = committed + (partial ? 1 : 0).</summary>
     public int Count => _committed.Count + (_partial is null ? 0 : 1);
 
-    /// <summary>Maximum committed lines retained.</summary>
-    public int Capacity => _cap;
-
     /// <summary>
     /// Apply one parsed line:
     /// <list type="bullet">

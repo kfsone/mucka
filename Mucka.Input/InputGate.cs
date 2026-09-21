@@ -49,9 +49,6 @@ public sealed class InputGate
     /// <see cref="Drain"/> - so this is a report, not a control point.</summary>
     public event Action<Exception>? Faulted;
 
-    /// <summary>Queued work not yet run. Diagnostic; also what <see cref="Flush"/> keys off.</summary>
-    public int PendingCount => _queue.Count;
-
     /// <summary>Total lines accepted this session - a cheap sanity counter for "did the box lose
     /// one".</summary>
     public long AcceptedCount { get; private set; }

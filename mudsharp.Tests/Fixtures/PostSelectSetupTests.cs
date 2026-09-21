@@ -254,6 +254,19 @@ public class PostSelectSetupTests : IDisposable
 
         _session.Feed(GameModeEntry);
         Assert.Contains("identify\r\nfightbrief\r\nauto fex\r\nscore\r\n", _outgoing);
+
+        // ...and the WINDOW re-armed too, which is what the name is about. The batch going out
+        // again is a separate statement from the swallow being open to receive its replies:
+        // OnGameModeEntered opens the window and sends the batch in two statements, so a
+        // once-per-session guard on the open alone leaves the batch flowing and its replies on
+        // screen. Only these assertions can see that.
+        _visible.Clear();
+        Prompt(); Feed(Echoes);
+        Prompt(); Feed(AutoFexReply);
+        Prompt(); Feed(ScoreSheet);
+        Prompt(); Feed("The fire crackles.\r\n");
+
+        Assert.Equal(["The fire crackles."], _visible);
     }
 
     /// <summary>
