@@ -180,27 +180,11 @@ public enum FightOutcome
 }
 
 /// <summary>
-/// One swing's outcome, for the clog window's recent-hits strip: a landed blow's damage
-/// magnitude, or a miss. Deliberately NOT nullable-double - a null "hit" and a "miss" read the
-/// same to a caller that forgets to check, and the two are different information (a miss tells
-/// you the swing rhythm, a null tells you nothing was observed).
-/// </summary>
-public readonly record struct SwingOutcome(bool IsHit, double Damage)
-{
-    public static readonly SwingOutcome Miss = new(false, 0);
-    public static SwingOutcome Hit(double damage) => new(true, damage);
-}
-
-/// <summary>
 /// One swing in the EXCHANGE, in arrival order, whichever side threw it. The rail's spark draws
 /// these left to right off a shared baseline - the player's above it, the creature's below - so what
-/// matters here is the sequence, which the two per-side rings above cannot reconstruct between them.
-///
-/// <para><b>Why a third ring rather than merging the two.</b> The per-side rings are ordered within
-/// themselves and carry no timestamp, so "your third swing" and "its second swing" cannot be
-/// interleaved after the fact without inventing an order. Recording arrival order once, at the point
-/// where it is still known, is cheaper and honest; the two per-side rings keep their own shape and
-/// their own tests.</para>
+/// matters here is the sequence. Arrival order is recorded once, at the point where it is still
+/// known, because a per-side tally carries no timestamp and the two sides cannot be interleaved
+/// after the fact without inventing an order.
 ///
 /// <para><b>Both bracket ends survive.</b> <paramref name="Damage"/> is what the bar height is scaled
 /// from - the exact stamina delta for an incoming blow, the bracket's midpoint for one of the
@@ -348,24 +332,11 @@ public sealed class FightAccumulator
     /// why the gap from <see cref="ScoreAtStart"/> is not what the fight earned.</summary>
     public int? ScoreAtEnd { get; private set; }
 
-    /// <summary>How many of each side's most recent swings the clog window's recent-hits strip
-    /// shows. A fixed-size ring, not a growing list: one fight can run to hundreds of swings and
-    /// the display only ever wants the last handful, so unbounded growth would be pure churn on a
-    /// path (AddYouHit/AddTheyHit/etc) that runs on every combat line (Invariant #1).</summary>
-    public const int RecentSwingCapacity = 6;
-
-    private readonly SwingOutcome[] _yourRecent = new SwingOutcome[RecentSwingCapacity];
-    private readonly SwingOutcome[] _theirRecent = new SwingOutcome[RecentSwingCapacity];
-    private int _yourRecentHead;
-    private int _yourRecentCount;
-    private int _theirRecentHead;
-    private int _theirRecentCount;
-
-    /// <summary>How many swings of the EXCHANGE the rail's spark keeps, both sides pooled. Larger
-    /// than <see cref="RecentSwingCapacity"/> because this ring is shared: at the roughly even split
-    /// a real fight produces, 24 leaves each side about a dozen marks, which is what the spark's
-    /// width takes. Still a fixed ring for the same reason - this is written on every combat line
-    /// (Invariant #1) and a growing list would be pure churn on that path.</summary>
+    /// <summary>How many swings of the EXCHANGE the rail's spark keeps, both sides pooled. The ring
+    /// is shared, so at the roughly even split a real fight produces, 24 leaves each side about a
+    /// dozen marks, which is what the spark's width takes. A fixed-size ring rather than a growing
+    /// list: one fight can run to hundreds of swings, this is written on every combat line
+    /// (Invariant #1), and unbounded growth would be pure churn on that path.</summary>
     public const int RecentExchangeCapacity = 24;
 
     private readonly SwingMark[] _exchange = new SwingMark[RecentExchangeCapacity];
@@ -618,7 +589,6 @@ public sealed class FightAccumulator
             // remaining-stamina band can be built from. Collapsing to the midpoint here is the one-way
             // door the <c>swings</c> table's own remarks warn about.
             DamageDealt = DamageDealt.Plus(new DamageBracket(low, high));
-            RecordSwing(_yourRecent, ref _yourRecentHead, ref _yourRecentCount, SwingOutcome.Hit(midpoint));
 
             if (DealtSamples == 0 || high < DealtMinHigh)
                 DealtMinHigh = high;
@@ -645,7 +615,6 @@ public sealed class FightAccumulator
     public void AddYouMiss()
     {
         YouMisses++;
-        RecordSwing(_yourRecent, ref _yourRecentHead, ref _yourRecentCount, SwingOutcome.Miss);
         RecordExchange(SwingMark.Miss(true));
     }
 
@@ -673,12 +642,6 @@ public sealed class FightAccumulator
                 MaxDamageTaken = measured;
         }
 
-        // The ring buffer records the swing whenever a magnitude was resolved at all, even a zero
-        // delta (armour soaking a blow is still a landed hit) - only a genuinely unresolvable
-        // baseline (damage null) is skipped, since there is nothing honest to show for it.
-        if (damage is double resolved)
-            RecordSwing(_theirRecent, ref _theirRecentHead, ref _theirRecentCount, SwingOutcome.Hit(Math.Max(resolved, 0)));
-
         // The exchange records the blow either way. An unresolvable baseline (the first blow of a
         // fight, or the killing one, which prints bare) still happened, and dropping it would leave a
         // gap in the spark where a real swing was - so it draws as a landed blow of unknown size.
@@ -690,19 +653,8 @@ public sealed class FightAccumulator
     public void AddTheyMiss()
     {
         TheyMisses++;
-        RecordSwing(_theirRecent, ref _theirRecentHead, ref _theirRecentCount, SwingOutcome.Miss);
         RecordExchange(SwingMark.Miss(false));
     }
-
-    /// <summary>Oldest-to-newest snapshot of the player's last <see cref="RecentSwingCapacity"/>
-    /// swings against this NPC, so the clog window reads it left-to-right as a timeline.</summary>
-    public IReadOnlyList<SwingOutcome> RecentYourSwings
-        => OrderedRingCopy(_yourRecent, _yourRecentHead, _yourRecentCount);
-
-    /// <summary>Oldest-to-newest snapshot of this NPC's last <see cref="RecentSwingCapacity"/>
-    /// swings against the player.</summary>
-    public IReadOnlyList<SwingOutcome> RecentTheirSwings
-        => OrderedRingCopy(_theirRecent, _theirRecentHead, _theirRecentCount);
 
     /// <summary>Oldest-to-newest snapshot of the last <see cref="RecentExchangeCapacity"/> swings of
     /// this fight from BOTH sides, in the order they arrived - the spark's timeline.</summary>

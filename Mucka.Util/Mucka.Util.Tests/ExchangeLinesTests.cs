@@ -23,7 +23,6 @@ public sealed class ExchangeLinesTests
             YouHits: 0, YouMisses: 0, TheyHits: 0, TheyMisses: 0,
             ApproxDamageDone: 0, ApproxDamageTaken: 0, Duration: duration,
             Outcome: FightOutcome.Unresolved, IsResolved: false, EndedUtc: null,
-            RecentYourSwings: [], RecentTheirSwings: [],
             TheirDamage: theirDamage,
             YourDamage: yourDamage,
             DealtSamples: dealtSamples,

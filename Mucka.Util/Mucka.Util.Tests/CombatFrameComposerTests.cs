@@ -30,8 +30,7 @@ public sealed class CombatFrameComposerTests
             Duration: duration ?? TenTicks,
             Outcome: resolved ? FightOutcome.Kill : FightOutcome.Unresolved,
             IsResolved: resolved,
-            EndedUtc: resolved ? Now : null,
-            RecentYourSwings: [], RecentTheirSwings: []);
+            EndedUtc: resolved ? Now : null);
 
     private static CombatEncounterSnapshot Encounter(
         bool hasEncounter = true, bool inCombat = true, string? weapon = "axe0",

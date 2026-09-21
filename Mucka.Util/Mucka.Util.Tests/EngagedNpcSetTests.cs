@@ -20,8 +20,7 @@ public sealed class EngagedNpcSetTests
             ApproxDamageDone: 0, ApproxDamageTaken: 0, Duration: TimeSpan.Zero,
             Outcome: resolved ? FightOutcome.Kill : FightOutcome.Unresolved,
             IsResolved: resolved,
-            EndedUtc: resolved ? DateTime.UtcNow : null,
-            RecentYourSwings: [], RecentTheirSwings: []);
+            EndedUtc: resolved ? DateTime.UtcNow : null);
 
     [Fact]
     public void Empty_ContainsNothing()

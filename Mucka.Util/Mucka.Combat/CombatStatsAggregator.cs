@@ -58,12 +58,6 @@ public sealed record FightSnapshot(
     // ending archive's timestamp; see SidePanelViewModel.BuildDeadStripHistory. Never fabricated when
     // absent.
     DateTime? EndedUtc,
-    // Per-fight bounded rings of recent swing outcomes. No production surface reads them today -
-    // the composer and the rail draw neither - so they are carried and tested but not drawn. Every
-    // fight carries its own bounded ring regardless, since the cost is a handful of structs and
-    // BuildFightSnapshots already allocates one FightSnapshot per active NPC on every refresh.
-    IReadOnlyList<SwingOutcome> RecentYourSwings,
-    IReadOnlyList<SwingOutcome> RecentTheirSwings,
     // How hurt this creature last looked, on NpcHealthRungs' 1-7 scale, with the game's own wording
     // and when it was read. MUD2 reports this only on a landed blow, so the timestamp is not
     // bookkeeping - it is what separates a current reading from a stale one, and the panel must never
@@ -97,8 +91,8 @@ public sealed record FightSnapshot(
     // The `value <name>` points this creature is worth killing, or null until a probe has answered
     // for it - see FightAccumulator.Value for why null and zero must stay distinguishable.
     int? Value = null,
-    // Both sides' last two dozen swings in ARRIVAL order - the rail spark's timeline. Distinct from
-    // the two per-side rings above, which cannot be interleaved after the fact; see SwingMark.
+    // Both sides' last two dozen swings in ARRIVAL order - the rail spark's timeline. Arrival order
+    // is recorded where it is still known; a per-side tally cannot reconstruct it. See SwingMark.
     IReadOnlyList<SwingMark>? Exchange = null,
     // The outgoing blow-shape figures, which the bracket total alone cannot reconstruct: how many of
     // the player's blows carried numbers, and the smallest and largest UPPER bound among them.
@@ -579,8 +573,6 @@ public sealed class CombatStatsAggregator
                 fight.Outcome,
                 fight.IsResolved,
                 fight.EndedUtc,
-                fight.RecentYourSwings,
-                fight.RecentTheirSwings,
                 fight.HealthRung,
                 fight.HealthPhrase,
                 fight.HealthReadUtc,

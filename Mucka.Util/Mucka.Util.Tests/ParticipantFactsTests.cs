@@ -26,7 +26,6 @@ public sealed class ParticipantFactsTests
             YouHits: 0, YouMisses: 0, TheyHits: 0, TheyMisses: 0,
             ApproxDamageDone: 0, ApproxDamageTaken: 0, Duration: TimeSpan.Zero,
             Outcome: FightOutcome.Unresolved, IsResolved: false, EndedUtc: null,
-            RecentYourSwings: [], RecentTheirSwings: [],
             HealthRung: healthRung, HealthPhrase: healthPhrase, HealthReadUtc: healthReadUtc,
             YourDamage: yourDamage,
             StaminaReading: staminaReading,

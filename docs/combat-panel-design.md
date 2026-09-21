@@ -188,9 +188,9 @@ visual crashes the process with `RO_E_CLOSED` (`0x80000013`), so teardown is not
 the ONLY mechanism producing continuous motion anywhere on the panel; the canvas is never asked to
 animate. `Rendering/PulseLayer.cs` is the implementation.
 
-The recent-swing ring buffer bound is `FightAccumulator.RecentSwingCapacity`: two fixed
-`SwingOutcome[]` arrays per fight, O(1) to write and capped regardless of fight length. That cap is
-what the exchange spark draws, so its mark count is fixed too.
+The swing ring buffer bound is `FightAccumulator.RecentExchangeCapacity`: one fixed `SwingMark[]`
+array per fight holding both sides' swings in arrival order, O(1) to write and capped regardless of
+fight length. That cap is what the exchange spark draws, so its mark count is fixed too.
 
 ### Work budget
 
