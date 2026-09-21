@@ -1179,19 +1179,32 @@ public sealed class CombatTracker
     }
 
     /// <summary>
-    /// Whether the player can currently see, from whichever source reports it. Today that is
-    /// blindness: the coded <c>&lt;11.00&gt;You have suddenly and magically gone blind!</c> line the
-    /// frame it lands, and the FES heartbeat's flag on every genuine reply (authoritative, up to one
-    /// heartbeat late, and the only signal on a relog into an already-blind persona). A dark room
-    /// anonymises the wire the same way and has no code; its wiring follows. A level, not an edge -
-    /// a repeat of the current value is a no-op - so the FES path clears a blind the coded line set
-    /// even when no heartbeat ever saw the blind state itself.
+    /// Whether the player can currently see, from whichever source reports it. Two conditions
+    /// produce the same anonymity on the wire and this class does not distinguish them:
+    ///
+    /// <list type="bullet">
+    /// <item><b>Blind</b> - the coded <c>&lt;11.00&gt;You have suddenly and magically gone blind!</c>
+    /// and <c>&lt;11.01&gt;You have suddenly and magically regained your sight!</c> lines the frame
+    /// they land, and the FES heartbeat's flag on every genuine reply (authoritative, up to one
+    /// heartbeat late, and the only signal on a relog into an already-blind persona).</item>
+    /// <item><b>Dark</b> - no code and no FES column, so the game's own prose: "It's too dark to see
+    /// now." and "You move in the darkness..." start it, "It's light enough to see now!" and any
+    /// coded room entry end it.</item>
+    /// </list>
+    ///
+    /// <para>A level, not an edge - a repeat of the current value is a no-op - so the FES path
+    /// clears a blind the coded line set even when no heartbeat ever saw the blind state itself.
+    /// <paramref name="reason"/> names the signal that changed it and is recorded verbatim in the
+    /// synthesised event's raw text, exactly as <see cref="ForceEnd"/>'s is, so a clog says which
+    /// source spoke.</para>
     /// </summary>
-    public void NoteCannotSee(bool cannotSee)
+    public void NoteCannotSee(bool cannotSee, DateTime timestampUtc, string reason)
     {
         lock (_gate)
         {
-            if (cannotSee && !_cannotSee && _encounterOpen)
+            if (cannotSee == _cannotSee)
+                return;
+            if (cannotSee && _encounterOpen)
                 // Sight lost mid-fight: everything engaged and named right now is the episode's
                 // pre-set. If an episode from an earlier blind spell in the same fight is still open
                 // (sight came back, the fight went on, sight went again), it stays - the named lines
@@ -1200,6 +1213,13 @@ public sealed class CombatTracker
                 _episode ??= new UnseenEpisode(_active, Knowledge);
             _cannotSee = cannotSee;
             PublishUnseen();
+            // Emitted whether or not a fight is open: the loss of sight routinely precedes the fight
+            // it explains (a dark room, then something attacks), and the consumers that only care
+            // inside an encounter already drop events arriving outside one.
+            Emit(timestampUtc,
+                cannotSee ? CombatEventKind.SightLost : CombatEventKind.SightRegained,
+                null, null, null, null, null,
+                $"({(cannotSee ? "sight lost" : "sight regained")}: {reason})");
         }
     }
 

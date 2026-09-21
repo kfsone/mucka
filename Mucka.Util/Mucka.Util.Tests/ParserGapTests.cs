@@ -1000,7 +1000,7 @@ public sealed class ParserGapTests
         tracker.EventOccurred += seen.Add;
 
         tracker.Observe(Line("You attack the water-snake1."), T0);
-        tracker.NoteCannotSee(true);
+        tracker.NoteCannotSee(true, T0, "blinded");
         tracker.Observe(Line("Something hits you (116/120)."), T0.AddSeconds(2));
         tracker.Observe(Line("You miss something."), T0.AddSeconds(2));
 
@@ -1065,7 +1065,7 @@ public sealed class ParserGapTests
         tracker.EventOccurred += seen.Add;
 
         tracker.Observe(Line("You attack the zombie5."), T0);
-        tracker.NoteCannotSee(true);
+        tracker.NoteCannotSee(true, T0, "blinded");
         tracker.Observe(Line("Someone hits you (103/120)."), T0.AddSeconds(4));
 
         // The same line with the anonymity explained: the zombie is the only thing "someone" can
@@ -1084,7 +1084,7 @@ public sealed class ParserGapTests
         tracker.Knowledge.Learn("zombie5", SomeKind.Someone);
 
         tracker.Observe(Line("You attack the zombie5."), T0);
-        tracker.NoteCannotSee(true);
+        tracker.NoteCannotSee(true, T0, "blinded");
         tracker.Observe(Line("Something hits you (103/120)."), T0.AddSeconds(2));
 
         // Zombies are "someone" on this install, so "Something" cannot be the zombie even as the
@@ -1103,7 +1103,7 @@ public sealed class ParserGapTests
 
         tracker.Observe(Line("You attack the thief."), T0);
         tracker.Observe(Line("The rat0 is looking at you hatefully."), T0);
-        tracker.NoteCannotSee(true);
+        tracker.NoteCannotSee(true, T0, "blinded");
         tracker.Observe(Line("Someone hits you (100/120)."), T0.AddSeconds(2));
         tracker.Observe(Line("Something hits you (95/120)."), T0.AddSeconds(2));
 
@@ -1121,7 +1121,7 @@ public sealed class ParserGapTests
 
         tracker.Observe(Line("You attack the rat0."), T0);
         tracker.Observe(Line("The rat1 is looking at you hatefully."), T0);
-        tracker.NoteCannotSee(true);
+        tracker.NoteCannotSee(true, T0, "blinded");
         tracker.Observe(Line("Something hits you (67/120)."), T0.AddSeconds(2));
         tracker.Observe(Line("Something hits you (60/120)."), T0.AddSeconds(4));
         Assert.Null(tracker.Knowledge.Known("rat0"));   // not while more words could still arrive
@@ -1142,10 +1142,10 @@ public sealed class ParserGapTests
 
         tracker.Observe(Line("You attack the thief."), T0);
         tracker.Observe(Line("The rat0 is looking at you hatefully."), T0);
-        tracker.NoteCannotSee(true);
+        tracker.NoteCannotSee(true, T0, "blinded");
         tracker.Observe(Line("Someone hits you (100/120)."), T0.AddSeconds(2));
         tracker.Observe(Line("You have killed someone."), T0.AddSeconds(4));
-        tracker.NoteCannotSee(false);
+        tracker.NoteCannotSee(false, T0, "sight returned");
         tracker.Observe(Line("The rat0 hits you (95/120)."), T0.AddSeconds(6));
 
         // Sight back, the rat named, the thief not: the "someone" that died was the Creature that is
@@ -1160,7 +1160,7 @@ public sealed class ParserGapTests
         var tracker = new CombatTracker();
 
         tracker.Observe(Line("You attack the rat0."), T0);
-        tracker.NoteCannotSee(true);
+        tracker.NoteCannotSee(true, T0, "blinded");
         tracker.Observe(FightStartLine("Something is about to attack you."), T0.AddSeconds(2));
         tracker.Observe(FightStartLine("Something is about to attack you."), T0.AddSeconds(2));
         tracker.Observe(FightStartLine("Someone is about to attack you."), T0.AddSeconds(4));
@@ -1186,7 +1186,7 @@ public sealed class ParserGapTests
         var seen = new List<CombatEvent>();
         tracker.EventOccurred += seen.Add;
 
-        tracker.NoteCannotSee(true);
+        tracker.NoteCannotSee(true, T0, "blinded");
         tracker.Observe(FightStartLine("Something is about to attack you."), T0);
         tracker.Observe(FightStartLine("Something is about to attack you."), T0);
         tracker.Observe(Line("Something hits you (90/120)."), T0.AddSeconds(2));
@@ -1208,10 +1208,10 @@ public sealed class ParserGapTests
         var seen = new List<CombatEvent>();
         tracker.EventOccurred += seen.Add;
 
-        tracker.NoteCannotSee(true);
+        tracker.NoteCannotSee(true, T0, "blinded");
         tracker.Observe(FightStartLine("Someone is about to attack you."), T0);
         tracker.Observe(Line("Someone hits you (100/120)."), T0.AddSeconds(2));
-        tracker.NoteCannotSee(false);
+        tracker.NoteCannotSee(false, T0, "sight returned");
         tracker.Observe(Line("The thief hits you (95/120)."), T0.AddSeconds(4));
 
         // Operator's case: blind, someone attacks and hits, sight back, the thief hits. The thief IS
@@ -1248,7 +1248,7 @@ public sealed class ParserGapTests
     {
         var tracker = new CombatTracker();
 
-        tracker.NoteCannotSee(true);
+        tracker.NoteCannotSee(true, T0, "blinded");
         tracker.Observe(Line("You attack the rat0."), T0);
         tracker.NoteRoomChanged(T0.AddSeconds(2));   // fight one over, still blind
 
@@ -1290,7 +1290,7 @@ public sealed class ParserGapTests
         tracker.Knowledge.Learn("thief", SomeKind.Someone);
 
         tracker.Observe(Line("You attack the thief."), T0);
-        tracker.NoteCannotSee(true);
+        tracker.NoteCannotSee(true, T0, "blinded");
         tracker.Observe(Line("Someone hits you (100/120)."), T0.AddSeconds(2));
         tracker.Observe(FightStartLine("Someone is about to attack you."), T0.AddSeconds(4));
         tracker.Observe(Line("Someone hits you (90/120)."), T0.AddSeconds(4));
@@ -1315,7 +1315,7 @@ public sealed class ParserGapTests
 
         tracker.Observe(Line("You attack the rat0."), T0);
         tracker.Observe(Line("The rat1 is looking at you hatefully."), T0);
-        tracker.NoteCannotSee(true);
+        tracker.NoteCannotSee(true, T0, "blinded");
         tracker.Observe(Line("Something hits you (67/120)."), T0.AddSeconds(2));
 
         // Two engaged and both unnamed: the line says nothing about which, and the word is the
@@ -1332,7 +1332,7 @@ public sealed class ParserGapTests
         tracker.EventOccurred += seen.Add;
 
         tracker.Observe(Line("You attack the fox."), T0);
-        tracker.NoteCannotSee(true);
+        tracker.NoteCannotSee(true, T0, "blinded");
         tracker.Observe(Line("You hit something (5-9)."), T0.AddSeconds(2));
         // The one line in the corpus where "something" is a WEAPON, not a Creature. It must still
         // yield an unknown weapon, and the blow above must not have been mistaken for it.

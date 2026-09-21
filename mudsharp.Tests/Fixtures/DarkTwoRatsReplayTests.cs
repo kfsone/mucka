@@ -26,11 +26,13 @@ namespace MudSharp.Tests.Fixtures;
 /// kill rows for rats the client thought it had never fought.</item>
 /// </list>
 ///
-/// <para>The player is in the DARK here, not blind: FES carries blind "N" for the whole fight and
-/// darkness has no code, so nothing tells the tracker the player cannot see. That is why no
-/// anonymous swing is attributed to anything - which is the right answer with no named Creature
-/// engaged - and it is unrelated to the three behaviours above, all of which are driven by the 08.00
-/// announcements and the named kill lines.</para>
+/// <para>The player is in the DARK here, not blind: FES carries blind "N" for the whole fight, so
+/// the only thing that says the player cannot see is the prose - "It's too dark to see now.",
+/// followed by an empty FEX exits reply and a FES row with effective dexterity at 36 of 91. The
+/// fourth test pins that. No anonymous swing is attributed to anything all the same, and correctly:
+/// no named Creature is ever engaged here, so there is nothing for the one-candidate rule to
+/// attribute TO. The first three behaviours are driven by the 08.00 announcements and the named kill
+/// lines and are unaffected either way.</para>
 /// </summary>
 public sealed class DarkTwoRatsReplayTests
 {
@@ -164,5 +166,29 @@ public sealed class DarkTwoRatsReplayTests
 
         // And it stays closed: nothing after the second kill reopens it.
         Assert.All(steps.Skip(at), s => Assert.False(s.InCombat));
+    }
+
+    // -- 4. the client knows it cannot see, from the prose alone -------------------------------
+
+    [Fact]
+    public void TheTooDarkLine_TellsTheTrackerThePlayerCannotSee_ForTheRestOfTheCapture()
+    {
+        var steps = Replay();
+
+        // The lit Cellar frame that opens the capture: a coded room short, a non-empty exits reply,
+        // and the player can see.
+        Assert.False(steps[0].Unseen.CannotSee);
+
+        // "It's too dark to see now." is the whole of the signal. Every FES row after it carries
+        // blind "N" and every exits reply after it is empty, so a flag fed from IsBlind alone would
+        // read false for the entire fight - which is what it did.
+        var dark = steps.FindIndex(s => s.Events.Any(
+            e => e.Kind == CombatEventKind.SightLost && e.RawText == "(sight lost: too dark to see)"));
+        Assert.InRange(dark, 1, KillFrame(steps, "rat18") - 1);
+        Assert.All(steps.Skip(dark), s => Assert.True(s.Unseen.CannotSee));
+
+        // Nothing in the capture ever says the light came back, so nothing claims it did.
+        Assert.DoesNotContain(steps.SelectMany(s => s.Events),
+            e => e.Kind == CombatEventKind.SightRegained);
     }
 }

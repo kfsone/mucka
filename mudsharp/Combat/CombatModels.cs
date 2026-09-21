@@ -304,6 +304,28 @@ public enum CombatEventKind
     /// unknown became which name, only that the display stops showing an unknown.
     /// </summary>
     UnseenNamed,
+
+    /// <summary>
+    /// The player has stopped being able to see - blinded, or standing in a dark room.
+    /// <see cref="CombatEvent.RawText"/> is <c>(sight lost: &lt;cause&gt;)</c>, naming the signal
+    /// that said so, and <see cref="CombatEvent.NpcName"/> is always null: this is the player's own
+    /// state, not any Creature's.
+    ///
+    /// <para>Synthesised by <c>CombatTracker.NoteCannotSee</c> rather than classified from a line -
+    /// a consumer that treats kinds as wire evidence must exclude it, as it does
+    /// <see cref="EncounterForceEnded"/>. Recorded because it is what explains the swings around
+    /// it: from here MUD2 writes "someone"/"something" in place of every Creature's name, and the
+    /// clog needs the two facts in sequence to be readable afterwards.</para>
+    ///
+    /// <para>Two causes, one flag. Blindness is coded (C11.00) and carried on the FES heartbeat;
+    /// darkness has neither a code nor a FES column and is read from the game's own prose.</para>
+    /// </summary>
+    SightLost,
+
+    /// <summary>The player can see again - the blindness ended, or the room is lit. The counterpart
+    /// to <see cref="SightLost"/>, with <c>(sight regained: &lt;cause&gt;)</c> as its
+    /// <see cref="CombatEvent.RawText"/>, and synthesised the same way.</summary>
+    SightRegained,
 }
 
 /// <summary>

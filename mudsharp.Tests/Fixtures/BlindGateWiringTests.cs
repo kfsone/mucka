@@ -5,10 +5,11 @@ using MudSharp.Session;
 namespace MudSharp.Tests.Fixtures;
 
 /// <summary>
-/// The two sources that tell the combat tracker the PLAYER cannot see, each pinned on its own. Both
-/// are blindness today (a dark room does the same to the wire and is wired next). The flag is the one
-/// reason the tracker accepts for handing an anonymous line to a sole engaged Creature, so both edges
-/// of that knowledge have to be wired - and wired as a level, not an edge.
+/// The three sources that tell the combat tracker the player is BLIND, each pinned on its own: the
+/// coded start, the coded end, and the FES flag behind both. A dark room does the same to the wire
+/// and is the other half of the same flag - see <see cref="DarkSightWiringTests"/>. The flag is the
+/// one reason the tracker accepts for handing an anonymous line to a sole engaged Creature, so both
+/// edges of that knowledge have to be wired - and wired as a level, not an edge.
 ///
 /// <para>The replay fixture (<see cref="AnonymousOpponentReplayTests"/>) cannot pin either source:
 /// in the capture the coded line and a FES row with the flag set both land before the first
@@ -35,6 +36,11 @@ public sealed class BlindGateWiringTests : IDisposable
     /// wire form of the blind line, verbatim phrase.</summary>
     private static byte[] DisableStart(string phrase)
         => [0xA6, 0x9B, 0xFF, 0xFF, .. Encoding.Latin1.GetBytes(phrase), 0xFF, 0xFF, 0x0D, 0x0A];
+
+    /// <summary>The matching disabling-END bracket (11 01): <c>0xA6 0x9C FF FF phrase FF FF</c>.
+    /// Shared with deaf/dumb/cripple/glow, so the phrase is the only discriminator.</summary>
+    private static byte[] DisableEnd(string phrase)
+        => [0xA6, 0x9C, 0xFF, 0xFF, .. Encoding.Latin1.GetBytes(phrase), 0xFF, 0xFF, 0x0D, 0x0A];
 
     /// <summary>A FES reply row. Field 9 is the blind flag.</summary>
     private static byte[] Fes(char blind)
@@ -87,6 +93,56 @@ public sealed class BlindGateWiringTests : IDisposable
 
         Assert.False(_session.Combat.CannotSee);
         Assert.Equal(AnonymousOpponent.Person, WhoHitThePlayer());
+    }
+
+    [Fact]
+    public void TheCodedSightLine_ClearsABlind_WithoutWaitingForAHeartbeat()
+    {
+        // "You have suddenly and magically regained your sight!" arrives under 11 01, which is
+        // shared with deaf/dumb/cripple/glow, so the phrase is what identifies it. It is the
+        // earliest statement that sight is back; the FES flag agrees up to a heartbeat later, and
+        // in the gap MUD2 is already naming Creatures again.
+        _session.Feed(Text("You attack the rat0."));
+        _session.Feed(DisableStart("You have suddenly and magically gone blind!"));
+        _session.Feed(DisableEnd("You have suddenly and magically regained your sight!"));
+        _session.Feed(Text("Someone hits you (50/60)."));
+        _session.Feed(PromptBytes);
+
+        Assert.False(_session.Combat.CannotSee);
+        Assert.Equal(AnonymousOpponent.Person, WhoHitThePlayer());
+        Assert.Equal("(sight regained: sight returned)",
+            _events.Last(e => e.Kind is CombatEventKind.SightLost or CombatEventKind.SightRegained).RawText);
+    }
+
+    /// <summary>
+    /// The 11 01 code says only "a disabling effect ended" - it is shared with deaf, dumb, cripple
+    /// and glow, and it also carries lines about OTHER Creatures. Three of those reach this test as
+    /// separate guards, each of which alone would be enough to keep the blind set:
+    ///
+    /// <list type="bullet">
+    /// <item>"The man has regained his visibleness!" - verbatim, a Creature's line, stopped by the
+    /// decoder's target gate before any phrase table is consulted.</item>
+    /// <item>"You have suddenly and magically regained your original state of not glowing!" -
+    /// verbatim, the player's own, and glow's case is ahead of blindness's.</item>
+    /// <item>A phrase nothing has ever sent. Synthetic on purpose, and it is the only one of the
+    /// three that pins the "sight" needle itself: no other self-phrase 11 01 wording is on file, so
+    /// without it the needle could be widened to "any end" and every test would stay green.</item>
+    /// </list>
+    /// </summary>
+    [Theory]
+    [InlineData("The man has regained his visibleness!")]
+    [InlineData("You have suddenly and magically regained your original state of not glowing!")]
+    [InlineData("You have suddenly and magically regained your hearing!")]
+    public void ADisablingEffectThatIsNotBlindnessEnding_DoesNotClearABlind(string phrase)
+    {
+        _session.Feed(Text("You attack the rat0."));
+        _session.Feed(DisableStart("You have suddenly and magically gone blind!"));
+        _session.Feed(DisableEnd(phrase));
+        _session.Feed(Text("Someone hits you (50/60)."));
+        _session.Feed(PromptBytes);
+
+        Assert.True(_session.Combat.CannotSee);
+        Assert.Equal("rat0", WhoHitThePlayer());
     }
 
     [Fact]

@@ -234,6 +234,30 @@ public sealed class MudSession : IDisposable
     // Read by NoteRoomShort to tell a real move from a `look` at the room already occupied.
     private string? _lastRoomShort;
 
+    // The two independent reasons the player cannot see, held apart because they are reported by
+    // different things and clear at different times. Blindness is coded and carried on every FES
+    // heartbeat; darkness has no code and no FES column at all, so folding the pair into one flag
+    // lets the first heartbeat of a dark fight - blind "N", truthfully - clear it. The combat
+    // tracker is told their OR; see NoteSightChanged. Feed thread only.
+    private bool _blind;
+    private bool _dark;
+
+    // Effective dexterity on the previous FES row, for the darkness corroboration in MergeStats.
+    private int? _lastFesDexterity;
+
+    // Exit keywords in the FEX reply currently arriving. A dark room's reply comes back empty.
+    private int _fexItemsThisList;
+
+    /// <summary>
+    /// How far effective dexterity recovers when a dark room lights up, as a floor on the rise that
+    /// corroborates it. Observed drops the instant darkness began, each against the previous FES
+    /// row: 99->39, 100->40, 95->34, 80->32, in 224 of 276 darkness starts (the rest have a FES row
+    /// before the drop landed, or light back inside the heartbeat). Used ONLY to clear a Dark whose
+    /// prose end was missed, never to set one - an ordinary dexterity buff must not be able to say
+    /// the lights went out.
+    /// </summary>
+    private const int DarknessDexterityRecovery = 40;
+
     // Testability seam only: production code never overrides this, so combat timestamps are
     // always the real wall clock. WyvernPoisonDeathReplayTests overrides it to replay a captured
     // session's own original timestamps, since a fast in-memory replay's real elapsed time bears
@@ -622,6 +646,9 @@ public sealed class MudSession : IDisposable
             // only runs while a dreamword is active. See TryCancelSpokenDreamword.
             if (_currentDreamword is not null)
                 TryCancelSpokenDreamword(line);
+            // Before Observe: a dark room anonymises every Creature line, so the tracker has to know
+            // before it classifies anything that arrives after the line saying so.
+            NoteDarknessLine(line);
             _combat.Observe(line, CombatClock());
             // After _combat.Observe, so InCombat already reflects any fight this very line opened.
             NoteInventoryChangeLine(line);
@@ -677,16 +704,19 @@ public sealed class MudSession : IDisposable
         _parser.FrameClosed       += () => FrameClosed?.Invoke();
         _parser.PresenceNameSeen  += OnPresenceName;
         _parser.StatusEffectChanged += _effects.Apply;
-        // The coded blind line, same frame it lands: the combat tracker's anonymous-opponent rule
-        // turns on whether the PLAYER can see, and the FES flag below is up to a heartbeat late. Only
-        // the start is coded into a change today (the end returns null from the decoder); sight
-        // returning is picked up by the FES flag in MergeStats, which is the safe direction to be late
-        // in - a sighted player is being sent named lines again, so nothing anonymous arrives to be
-        // misresolved in the gap.
+        // The two coded blind lines, each in the frame it lands: the combat tracker's
+        // anonymous-opponent rule turns on whether the PLAYER can see, and the FES flag in
+        // MergeStats is up to a heartbeat late in both directions. PartiallyWoreOff never appears
+        // for an affliction and would mean nothing here if it did, so only the two transitions that
+        // state a level are read.
         _parser.StatusEffectChanged += change =>
         {
-            if (change.Kind == StatusEffectKind.Blind && change.Transition == EffectTransition.Started)
-                _combat.NoteCannotSee(true);
+            if (change.Kind != StatusEffectKind.Blind)
+                return;
+            if (change.Transition == EffectTransition.Started)
+                NoteSightChanged(blind: true, _dark, "blinded");
+            else if (change.Transition == EffectTransition.FullyWoreOff)
+                NoteSightChanged(blind: false, _dark, "sight returned");
         };
         _effects.Changed += state => StatusEffectsChanged?.Invoke(state);
         _combat.InCombatChanged += v =>
@@ -736,9 +766,18 @@ public sealed class MudSession : IDisposable
             FeiListComplete?.Invoke();
         };
         _parser.CreatureTextReady += text => CreatureTextReady?.Invoke(text);
-        _parser.FexItemReady     += item => FexItemReady?.Invoke(item);
-        _parser.FexListStarting  += () => { CancelRoomFexProbe(); FexListStarting?.Invoke(); };
-        _parser.FexListComplete  += () => FexListComplete?.Invoke();
+        _parser.FexItemReady     += item => { _fexItemsThisList++; FexItemReady?.Invoke(item); };
+        _parser.FexListStarting  += () => { _fexItemsThisList = 0; CancelRoomFexProbe(); FexListStarting?.Invoke(); };
+        _parser.FexListComplete  += () =>
+        {
+            // Corroboration, never detection. A dark room's exits reply comes back empty (run 60,
+            // 4 of 4) and a lit one's does not, so exits arriving clear a Dark whose prose end this
+            // client missed. The empty case sets nothing: the same reply is empty wherever the
+            // server has no exits to list.
+            if (_fexItemsThisList > 0)
+                NoteSightChanged(_blind, dark: false, "exits reply");
+            FexListComplete?.Invoke();
+        };
         _parser.ExitLineReady    += (dir, dest) => ExitLineReady?.Invoke(dir, dest);
         _parser.TerminalWidthConfirmed += w => TerminalWidthConfirmed?.Invoke(w);
     }
@@ -826,16 +865,32 @@ public sealed class MudSession : IDisposable
             // projection relies on this to only re-anchor on genuine readings.
             HasFesStats = partial.HasFesStats
         };
-        // The FES flag is authoritative for the combat tracker's blind gate in both directions, and
-        // the only source at all on a relog into an already-blind persona. Asserted as a LEVEL on
-        // every genuine reply, never as an edge on this snapshot: the coded <11.00> line sets the
-        // tracker blind without writing IsBlind here, so a blind episode shorter than one heartbeat
-        // (a backfire and an "unblind me" is about 2 s against a 10 s default) never shows FES a Y,
-        // an edge test sees no transition, and the tracker would stay blind for the rest of the
-        // session - reinstating the very misattribution the gate exists to prevent. A repeat of the
-        // current value is a no-op in the tracker, so the level costs nothing.
+        // The FES flag is authoritative for BLINDNESS in both directions, and the only source at all
+        // on a relog into an already-blind persona. Asserted as a LEVEL on every genuine reply,
+        // never as an edge on this snapshot: the coded <11.00> line sets the tracker blind without
+        // writing IsBlind here, so a blind episode shorter than one heartbeat (a backfire and an
+        // "unblind me" is about 2 s against a 10 s default) never shows FES a Y, an edge test sees
+        // no transition, and the tracker would stay blind for the rest of the session - reinstating
+        // the very misattribution the gate exists to prevent. A repeat of the current value is a
+        // no-op in the tracker, so the level costs nothing.
+        //
+        // It says nothing at all about DARKNESS - a dark room reads blind "N" throughout - which is
+        // why the two are separate flags here. A FES row can only CLEAR a dark, by the dexterity
+        // corroboration below, and never set one.
         if (partial.HasFesStats)
-            _combat.NoteCannotSee(_currentStats.IsBlind);
+        {
+            var dark = _dark;
+            var reason = "FES blind flag";
+            if (dark && !_currentStats.IsBlind
+                && _lastFesDexterity is int was && _currentStats.Dexterity is int now
+                && now - was >= DarknessDexterityRecovery)
+            {
+                dark = false;
+                reason = "dexterity restored";
+            }
+            _lastFesDexterity = _currentStats.Dexterity;
+            NoteSightChanged(_currentStats.IsBlind, dark, reason);
+        }
         // Fold the reset value into the projection. Called outside _fesLock (ClearStale above took and
         // released it) so the engine->_fesLock order holds when Observe fires a burst probe.
         _resetClock.Observe(_currentStats.TimeToReset, partial.HasFesStats, replyMono);
@@ -845,6 +900,11 @@ public sealed class MudSession : IDisposable
     private void OnGameModeEntered()
     {
         _effects.Reset();   // fresh character - no effects carried from a previous session
+        // Same reason, for the sight flags: a dark room the previous persona was standing in is not
+        // this one's. Blindness is re-asserted within a heartbeat by the FES flag, which is the only
+        // signal there is on a relog into an already-blind persona.
+        _lastFesDexterity = null;
+        NoteSightChanged(blind: false, dark: false, "game entry");
         _resetClock.OnGameModeEntered();   // eligible for a fresh one-time reset-time refinement
         GameModeEntered?.Invoke();
         lock (_fesLock)
@@ -1657,10 +1717,58 @@ public sealed class MudSession : IDisposable
     {
         if (string.IsNullOrWhiteSpace(room))
             return;
+        // A lit room always sends its coded short description and a dark one never does, so this
+        // line is itself proof the player can see - the end of a darkness whose "It's light enough
+        // to see now!" this client did not match, and the reason no dark stretch can outlive the
+        // room it happened in. Clearing only: nothing about the ABSENCE of a room short says the
+        // lights went out, since most frames carry no room short at all.
+        NoteSightChanged(_blind, dark: false, "room entry");
         var moved = _lastRoomShort is not null && !string.Equals(_lastRoomShort, room, StringComparison.Ordinal);
         _lastRoomShort = room;
         if (moved)
             _combat.NoteRoomChanged(CombatClock());
+    }
+
+    /// <summary>
+    /// The one path into <see cref="CombatTracker.NoteCannotSee"/>. Both reasons are recorded here
+    /// and their OR is what the tracker is told, so no source can clear a condition it does not
+    /// report: a FES heartbeat saying blind "N" leaves a dark room dark, and a lit room leaves a
+    /// blind player blind. A level on both sides - a source restating what it already said costs
+    /// nothing - and <paramref name="reason"/> names whichever one just spoke.
+    /// </summary>
+    private void NoteSightChanged(bool blind, bool dark, string reason)
+    {
+        _blind = blind;
+        _dark = dark;
+        _combat.NoteCannotSee(blind || dark, CombatClock(), reason);
+    }
+
+    /// <summary>
+    /// Darkness read from the game's own prose, which is all there is: it carries no C1 code and no
+    /// FES column, yet it anonymises every Creature line exactly as blindness does. All three
+    /// sentences verbatim.
+    ///
+    /// <para>Start: "It's too dark to see now." (276 occurrences) and "You move in the darkness..."
+    /// (391), one per move for as long as it lasts. Matched on a prefix because the server ends the
+    /// first with "!" in some contexts and "." in others - observed live, moving up into an unlit
+    /// loft - which is why the parser's own check for that line is a prefix too.</para>
+    ///
+    /// <para>End: "It's light enough to see now!", and separately any coded room entry (see
+    /// <see cref="NoteRoomShort"/>).</para>
+    /// </summary>
+    private void NoteDarknessLine(StyledLine line)
+    {
+        if (line.IsPartial)
+            return;
+        var text = line.PlainText;
+        if (string.IsNullOrEmpty(text))
+            return;
+        if (text.StartsWith("It's too dark to see now", StringComparison.Ordinal))
+            NoteSightChanged(_blind, dark: true, "too dark to see");
+        else if (text.StartsWith("You move in the darkness", StringComparison.Ordinal))
+            NoteSightChanged(_blind, dark: true, "moving in the darkness");
+        else if (text.StartsWith("It's light enough to see now", StringComparison.Ordinal))
+            NoteSightChanged(_blind, dark: false, "light enough to see");
     }
 
     /// <summary>A FEX list has started arriving - the pending recovery probe (if any) is moot.</summary>

@@ -331,7 +331,7 @@ public class CombatTrackerTests
         // nothing about why the name is missing (see the sibling below).
         var (t, inCombat, events) = NewTracker();
         t.Observe(Line("The vampire is looking at you hatefully."), DateTime.UtcNow);
-        t.NoteCannotSee(true);
+        t.NoteCannotSee(true, DateTime.UtcNow, "blinded");
         t.Observe(Line("You have been killed by someone."), DateTime.UtcNow);
 
         Assert.False(t.InCombat);

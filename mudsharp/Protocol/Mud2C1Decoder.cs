@@ -546,19 +546,29 @@ internal sealed class Mud2C1Decoder
         switch (capture)
         {
             // Disabling family: glow + the afflictions (blind/deaf/dumb/cripple). Glow's on/off is
-            // ours ("glowing"); afflictions we surface ONLY as a tooltip line on start - their
-            // visibility is FES-driven, so their end (11 01) is ignored here.
+            // ours ("glowing"); the icons for the afflictions are FES-driven, so their start is
+            // surfaced for its tooltip line and their end (11 01) says nothing the FES flag does not
+            // - with one exception, blindness, below.
             case C11Capture.DisableStart when phrase.Contains("glowing", StringComparison.Ordinal):
                 return new StatusEffectChange(StatusEffectKind.Glow, EffectSign.Buff, EffectTransition.Started, msg);
             case C11Capture.DisableEnd when phrase.Contains("glowing", StringComparison.Ordinal):
                 return new StatusEffectChange(StatusEffectKind.Glow, EffectSign.Buff, EffectTransition.FullyWoreOff, msg);
+            // "You have suddenly and magically regained your sight!" (verbatim, 22 occurrences).
+            // Reported although the icon does not need it, because the combat tracker's
+            // anonymous-opponent rule turns on whether the PLAYER can see and this is the earliest
+            // statement that sight is back - the FES flag agrees up to a heartbeat later. Keyed on
+            // "sight": the affliction table's own needles describe the START wordings and none of
+            // them appears in this sentence. The creature-side "The man has regained his
+            // visibleness!" cannot reach here - it is not a self-phrase, and carries no "sight".
+            case C11Capture.DisableEnd when phrase.Contains("sight", StringComparison.Ordinal):
+                return new StatusEffectChange(StatusEffectKind.Blind, EffectSign.Buff, EffectTransition.FullyWoreOff, msg);
             case C11Capture.DisableStart:
                 foreach (var (needle, kind) in AfflictionPhrases)
                     if (phrase.Contains(needle, StringComparison.Ordinal))
                         return new StatusEffectChange(kind, EffectSign.Buff, EffectTransition.Started, msg);
                 return null;
             case C11Capture.DisableEnd:
-                return null;   // affliction cleared - FES flag hides the icon; no tooltip needed
+                return null;   // deaf/dumb/cripple cleared - the FES flag hides the icon on its own
 
             case C11Capture.EnhanceStart:
                 foreach (var (needle, kind, sign) in StartPhrases)
