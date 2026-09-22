@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
+using System.Globalization;
 using System.Linq;
 using System.Windows.Input;
 using Microsoft.Maui.Graphics;
@@ -1523,6 +1524,8 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
                 ScanHistory();
             else if (name == "con")
                 OpenRawConsole();
+            else if (string.Equals(name, "SID", StringComparison.OrdinalIgnoreCase))
+                PrintSessionId();
             else if (name == "fkeys" || name.StartsWith("fkeys ", StringComparison.OrdinalIgnoreCase))
                 PrintFkeys(name.Length > 5 ? name[6..].Trim() : string.Empty);
             // $f<n>: annotate with fkey n's macro (absolute 1-36). Checked after "fkeys" so it
@@ -1640,6 +1643,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
 #endif
         AddSystemLine("  $fkeys [shift|ctrl]   list your function-key macros", 14);
         AddSystemLine("  $f<n>                 annotate output with fkey n's text (1-36)", 14);
+        AddSystemLine("  $SID                  print the current session id (server/run/persona/login)", 14);
         AddSystemLine("  $VER                  expands to the current Mucka version", 14);
         AddSystemLine("  $name=command         define a command until you exit the gameworld", 14);
         AddSystemLine("  $name                 run a command defined above", 14);
@@ -1650,6 +1654,38 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         AddSystemLine("  ^1/^2/^3=command  bind a slot; type ^1 to run it", 14);
 #endif
         AddSystemLine("  $$ / ^^               doubled sigil sends a literal $ or ^ (no interpolation)", 14);
+    }
+
+    /// <summary>
+    /// $SID - which session the rows being written right now belong to, in one line:
+    /// <c>s=&lt;host&gt;/m=&lt;mucka run&gt;/p=&lt;persona&gt;[@&lt;reset&gt;]/i=&lt;persona session&gt;</c>.
+    ///
+    /// <para>Four identifiers because four different things can be meant by "this session", and a
+    /// question about the data is always about one of them: the SERVER, the client run
+    /// (<c>mucka_runs.id</c>, what every <c>wire</c> row carries), the persona and the world epoch
+    /// it is playing in, and the login (<c>persona_sessions.id</c>, what combat rows are attributed
+    /// to). A run spans several logins and a login can outlive a reset, so no one of them answers
+    /// for the others.</para>
+    ///
+    /// <para>Each part says "unknown" on its own rather than suppressing the line: at the shell
+    /// there is no persona and no login, before a banner there is no epoch, and which of them is
+    /// missing is exactly what the operator is asking.</para>
+    /// </summary>
+    private void PrintSessionId()
+    {
+        var persona = string.IsNullOrWhiteSpace(_currentChar) ? "unknown" : _currentChar;
+        if (_conn.ResetNumber is long reset)
+            persona += "@" + reset.ToString(CultureInfo.InvariantCulture);
+
+        var login = _conn.PersonaSessionId is long id
+            ? id.ToString(CultureInfo.InvariantCulture)
+            : "unknown";
+
+        AddSystemLine(
+            $"[sid] s={_conn.Host}"
+            + $"/m={_conn.MuckaRunId.ToString(CultureInfo.InvariantCulture)}"
+            + $"/p={persona}"
+            + $"/i={login}", 14);
     }
 
     // $fkeys [shift|ctrl] - list the 12 macros on the requested layer, echoing each line into the

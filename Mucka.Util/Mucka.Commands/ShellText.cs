@@ -60,6 +60,33 @@ public static class ShellText
     private static bool ContainsPhrase(string normalized, string phrase)
         => normalized.Contains(phrase, StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>The login banner's reset counter, verbatim: "This reset is number 127149."</summary>
+    private static readonly System.Text.RegularExpressions.Regex ResetNumberLine =
+        new(@"This reset is number (?<n>\d+)\.", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    /// <summary>
+    /// Which world epoch the far end is in, from the login banner.
+    ///
+    /// <para>A MUD2 reset takes the world down, rebuilds the database and logs everyone out, so a
+    /// number from before one describes a different world: object positions, creature populations
+    /// and every persona's standing are rebuilt. It is printed in the banner and nowhere else, and
+    /// the banner is reprinted after a reset (see
+    /// <see cref="TryParsePersonaSlots"/>'s reset capture), so it can be read again without a
+    /// reconnect.</para>
+    ///
+    /// <para>Best-effort and the only source there is: a client that connects mid-epoch, or whose
+    /// banner is skipped, simply does not know the number. Callers say "unknown" rather than
+    /// guessing one.</para>
+    /// </summary>
+    public static bool TryParseResetNumber(string text, out long resetNumber)
+    {
+        resetNumber = 0;
+        if (string.IsNullOrEmpty(text))
+            return false;
+        var m = ResetNumberLine.Match(text);
+        return m.Success && long.TryParse(m.Groups["n"].Value, out resetNumber);
+    }
+
     /// <summary>Any "(y/n)" confirmation prompt shown between login and the shell splash --
     /// e.g. "Skip the rest? (y/n)" (MOTD skip) or "...usurp...(y/n)" (kick an existing session).
     /// Guided login answers "y" to whichever of these actually appears.</summary>

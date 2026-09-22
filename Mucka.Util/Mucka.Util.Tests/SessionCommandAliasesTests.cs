@@ -57,6 +57,7 @@ public class SessionCommandAliasesTests
     [InlineData("map=look")]
     [InlineData("f12=look")]
     [InlineData("VER=look")]
+    [InlineData("SID=look")]
     public void BuiltInCannotBeReassigned(string definition)
     {
         var aliases = CreateAliases();

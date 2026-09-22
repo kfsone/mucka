@@ -432,4 +432,30 @@ public class ShellTextTests
         // deliberate quit, or GameViewModel would suppress guided-login re-entry for a real death.
         Assert.False(ShellText.IsQuitFarewellLine(ShellText.NormalizeWhitespace(spoken)));
     }
+
+    /// <summary>The banner's reset counter, in the two shapes it arrives in: the raw line off the
+    /// wire with its wrap padding, and the normalised banner the shell parser already works on.
+    /// </summary>
+    [Fact]
+    public void ParsesTheResetNumber_FromTheBannerLine()
+    {
+        Assert.True(ShellText.TryParseResetNumber("This reset is number 127149.\r\u0000\r\n", out var raw));
+        Assert.Equal(127149, raw);
+
+        var banner = ShellText.NormalizeWhitespace(
+            "MUD last reset on 2-AUG-2026 at 20:19:05.\r\u0000\r\n"
+            + "This reset is number 126509.\r\u0000\r\n");
+        Assert.True(ShellText.TryParseResetNumber(banner, out var normalized));
+        Assert.Equal(126509, normalized);
+    }
+
+    [Theory]
+    // The dated line that sits directly above it carries no counter and must not be read as one.
+    [InlineData("MUD last reset on 2-AUG-2026 at 20:19:05.")]
+    [InlineData("Your last game of MUD began on 2-AUG-2026 at 19:54:50.")]
+    // A player repeating the wording in chat, and the sentence without its number.
+    [InlineData("Ollie says \"This reset is number one for loot\"")]
+    [InlineData("This reset is number unknown.")]
+    public void ResetNumber_IsNotReadFromAnythingElse(string line)
+        => Assert.False(ShellText.TryParseResetNumber(line, out _));
 }

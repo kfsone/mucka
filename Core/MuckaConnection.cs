@@ -163,6 +163,20 @@ public sealed class MuckaConnection : IAsyncDisposable
     /// until <see cref="ConnectAsync"/> has been called, so it answers "unknown" rather than "".</summary>
     public string Host => string.IsNullOrWhiteSpace(_host) ? "unknown" : _host;
 
+    /// <summary>This client run's <c>mucka_runs</c> row - what every <c>wire</c> row is keyed to.
+    /// One per store, so one per connection attempt, spanning every login inside it.</summary>
+    public long MuckaRunId => _store.SessionId;
+
+    /// <summary>The open login's <c>persona_sessions</c> row, or null at the shell - where combat
+    /// rows recorded right now are being attributed, which is the question worth being able to
+    /// ask live.</summary>
+    public long? PersonaSessionId => _personaSessionId;
+
+    /// <summary>The far end's world epoch from the login banner, or null when this connection never
+    /// saw one. See <see cref="ShellText.TryParseResetNumber"/> for why it is not always known.
+    /// </summary>
+    public long? ResetNumber { get; private set; }
+
     /// <summary>
     /// Raised when the store fails - at open, or later if its writer dies. The crash log is not a
     /// place the owner ever looks, and this is a store that is switched on once and then trusted
@@ -703,6 +717,23 @@ public sealed class MuckaConnection : IAsyncDisposable
         _clog.OnPersonaSessionChanged(null);
     }
 
+    /// <summary>
+    /// Watch the login banner go past for the world's reset number.
+    ///
+    /// <para>Re-read rather than latched: a world reset reprints the banner with a new number on the
+    /// same connection, and a stale epoch is worse than none - it would date rows to a world that no
+    /// longer exists.</para>
+    ///
+    /// <para>On the line-ready path, so it is deliberately cheap: an ordinal prefix compare rejects
+    /// every line but this one before any pattern runs (Invariant #1).</para>
+    /// </summary>
+    private void NoteBannerLine(string text)
+    {
+        if (text.StartsWith("This reset is number", StringComparison.Ordinal)
+            && ShellText.TryParseResetNumber(text, out var reset))
+            ResetNumber = reset;
+    }
+
     private void NamePersonaSession(string name)
     {
         if (_personaSessionId is long id && !string.IsNullOrWhiteSpace(name))
@@ -720,7 +751,7 @@ public sealed class MuckaConnection : IAsyncDisposable
         // the "Not updating persona." line that accompanies it.
         _session.PersonaWiped += _sessionEnd.NotePersonaWiped;
         _session.FrameClosed      += () => FrameClosed?.Invoke();
-        _session.LineReady          += l => { _sessionEnd.NoteLine(l.PlainText); _clog.OnLineReady(l); LineReady?.Invoke(l); };
+        _session.LineReady          += l => { _sessionEnd.NoteLine(l.PlainText); NoteBannerLine(l.PlainText); _clog.OnLineReady(l); LineReady?.Invoke(l); };
         _session.StatsUpdated       += s => { _clog.OnStatsUpdated(s); _fightRecorder.OnStatsUpdated(s); _swingLedger.OnStatsUpdated(s); StatsUpdated?.Invoke(s); };
         _session.StatusEffectsChanged += s => { _clog.OnStatusEffectsChanged(s); _fightRecorder.OnStatusEffectsChanged(s); _swingLedger.OnStatusEffectsChanged(s); StatusEffectsChanged?.Invoke(s); };
         _session.InCombatChanged     += OnSessionInCombatChanged;

@@ -1775,16 +1775,24 @@ public sealed class MudSession : IDisposable
     /// naive count already attributed to a movement, which is the direction that cannot be wrong -
     /// type-ahead can hide a move that happened, never invent one that did not.</para>
     ///
-    /// <para>"It's too dark to see now." is NOT proof, and 5 of its 270 rows say why, verbatim and
-    /// in one frame: <c>You take hold of the longsword but its magical powers have faded, and it
-    /// disintegrates in your hand. / It's too dark to see now.</c> The light source died in the
-    /// player's hand and the room went dark around them where they stood. Most of the rest ARE a
-    /// room entry, and <c>MudStreamParser</c> reads the line as one to clear its Here list - rightly,
-    /// because the two consumers are not priced alike. A Here list cleared in the room the player is
-    /// still in refills on the next probe; an encounter force-ended in that room takes the roster
-    /// with it, mid-fight, in the dark, which is the state this whole feature exists to survive. A
-    /// backstop needs proof and a list clear does not, so the same line feeds one and not the other.
-    /// </para>
+    /// <para>"It's too dark to see now." is NOT proof. It is the LIT-&gt;DARK transition message,
+    /// paired with "It's light enough to see now!" for DARK-&gt;LIT, and it fires on whichever cause
+    /// came first: the player moved, or the light left. Three in-place causes are on record and none
+    /// is a move - 5 of its 270 rows carry <c>You take hold of the longsword but its magical powers
+    /// have faded, and it disintegrates in your hand.</c> on the line above, and the operator's own
+    /// play has it after <c>Lit brand2 thrown westward.</c> and after <c>The lit brand2 is now
+    /// unlit.</c>, both in the room he was standing in.</para>
+    ///
+    /// <para>Most occurrences ARE a room entry all the same, and <c>MudStreamParser</c> reads the
+    /// line as one to clear its Here list - rightly, because the two consumers are not priced alike.
+    /// A Here list cleared in the room the player is still in refills on the next probe; an
+    /// encounter force-ended in that room takes the roster with it, mid-fight, in the dark, which is
+    /// the state this whole feature exists to survive. A backstop needs proof and a list clear does
+    /// not, so the same line feeds one and not the other.</para>
+    ///
+    /// <para>The exit from darkness needs nothing of its own: "It's light enough to see now!" is
+    /// followed by the room short, so <see cref="NoteRoomShort"/> closes on it as it does
+    /// anywhere else.</para>
     ///
     /// <para>The cost of that: the FIRST step into an unlit room has no signal this client can
     /// close a fight on - "You move in the darkness..." arrives from the second step onward. An
