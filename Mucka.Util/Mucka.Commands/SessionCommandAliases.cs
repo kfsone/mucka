@@ -260,7 +260,7 @@ public sealed class SessionCommandAliases
 
     private static bool IsReservedClientCommand(string name)
     {
-        if (name is "help" or "?" or "<" or "con" or "map" or "fkeys" or "VER" or "SID")
+        if (name is "help" or "?" or "<" or "con" or "map" or "fkeys" or "VER" or "SID" or "MARK")
             return true;
 
         return name.Length >= 2

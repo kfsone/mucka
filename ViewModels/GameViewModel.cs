@@ -979,6 +979,12 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
                 && !string.IsNullOrWhiteSpace(exitedPersona);
             _inGameMode = false;
             _sessionAliases.Clear();
+            // A span the login ended under is closed rather than dropped: one with no end reads in
+            // the log exactly like one still running, and the drop reason is the most useful thing
+            // that can be said about why it never closed properly. Classified above, so this is the
+            // reason the persona_sessions row will carry too.
+            foreach (var closed in _marks.CloseAll(PersonaSessionEndNote.For(drop.Reason)))
+                EmitAnnotated(closed.Text);
             // Back at the option menu: no current character. Drop the live baseline (the
             // per-character history in _baseScoreByChar is kept, so returning restores it) and
             // fall the title back to the profile-only form.
@@ -1526,6 +1532,9 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
                 OpenRawConsole();
             else if (string.Equals(name, "SID", StringComparison.OrdinalIgnoreCase))
                 PrintSessionId();
+            else if (string.Equals(name, "MARK", StringComparison.OrdinalIgnoreCase)
+                || name.StartsWith("MARK ", StringComparison.OrdinalIgnoreCase))
+                ApplyMark(name.Length > 4 ? name[5..] : string.Empty);
             else if (name == "fkeys" || name.StartsWith("fkeys ", StringComparison.OrdinalIgnoreCase))
                 PrintFkeys(name.Length > 5 ? name[6..].Trim() : string.Empty);
             // $f<n>: annotate with fkey n's macro (absolute 1-36). Checked after "fkeys" so it
@@ -1644,6 +1653,8 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         AddSystemLine("  $fkeys [shift|ctrl]   list your function-key macros", 14);
         AddSystemLine("  $f<n>                 annotate output with fkey n's text (1-36)", 14);
         AddSystemLine("  $SID                  print the current session id (server/run/persona/login)", 14);
+        AddSystemLine("  $MARK [@id|\"note\"]    drop a landmark into the log", 14);
+        AddSystemLine("  $MARK start|end ...   open/close a nested span (end takes no id)", 14);
         AddSystemLine("  $VER                  expands to the current Mucka version", 14);
         AddSystemLine("  $name=command         define a command until you exit the gameworld", 14);
         AddSystemLine("  $name                 run a command defined above", 14);
@@ -1686,6 +1697,23 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             + $"/m={_conn.MuckaRunId.ToString(CultureInfo.InvariantCulture)}"
             + $"/p={persona}"
             + $"/i={login}", 14);
+    }
+
+    /// <summary>The operator's landmarks in the log - see <see cref="SessionMarks"/> for the id
+    /// rules and why a persona session is required. Span state lives with the login, so
+    /// <see cref="OnGameModeExited"/> closes whatever is still open.</summary>
+    private readonly SessionMarks _marks = new();
+
+    /// <summary>$MARK - annotated rather than printed, so the landmark lands in the capture that
+    /// will be read later as well as on the terminal in front of the operator. An error is neither:
+    /// nothing was marked, so nothing belongs in the log.</summary>
+    private void ApplyMark(string argument)
+    {
+        var result = _marks.Apply(argument, _conn.PersonaSessionId, SessionMarks.NewId);
+        if (result.Kind == MarkKind.Error)
+            AddSystemLine(result.Text, 9);
+        else
+            EmitAnnotated(result.Text);
     }
 
     // $fkeys [shift|ctrl] - list the 12 macros on the requested layer, echoing each line into the
