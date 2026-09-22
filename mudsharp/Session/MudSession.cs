@@ -1776,12 +1776,14 @@ public sealed class MudSession : IDisposable
     /// type-ahead can hide a move that happened, never invent one that did not.</para>
     ///
     /// <para>"It's too dark to see now." is NOT proof. It is the LIT-&gt;DARK transition message,
-    /// paired with "It's light enough to see now!" for DARK-&gt;LIT, and it fires on whichever cause
-    /// came first: the player moved, or the light left. Three in-place causes are on record and none
-    /// is a move - 5 of its 270 rows carry <c>You take hold of the longsword but its magical powers
-    /// have faded, and it disintegrates in your hand.</c> on the line above, and the operator's own
-    /// play has it after <c>Lit brand2 thrown westward.</c> and after <c>The lit brand2 is now
-    /// unlit.</c>, both in the room he was standing in.</para>
+    /// paired with "It's light enough to see now!" for DARK-&gt;LIT, and it reports that the light
+    /// changed without saying which cause changed it. USUALLY the cause is a move into an unlit
+    /// room, and that is why it reads like a room entry. But the light can equally leave the room
+    /// the player is standing in: 5 of its 270 rows carry <c>You take hold of the longsword but its
+    /// magical powers have faded, and it disintegrates in your hand.</c> on the line above, and the
+    /// operator's own play has it after <c>Lit brand2 thrown westward.</c> and after <c>The lit
+    /// brand2 is now unlit.</c> The line alone cannot tell the two apart, so on its own it cannot
+    /// close a fight.</para>
     ///
     /// <para>Most occurrences ARE a room entry all the same, and <c>MudStreamParser</c> reads the
     /// line as one to clear its Here list - rightly, because the two consumers are not priced alike.
