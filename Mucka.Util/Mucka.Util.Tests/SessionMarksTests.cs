@@ -132,15 +132,56 @@ public class SessionMarksTests
         Assert.Equal("ERROR: Mark note is 65 characters, maximum is 64.", Apply(marks, $"\"{tooLong}\""));
     }
 
-    /// <summary>"start" and "end" are matched as whole words, so a note that opens with one is a
-    /// note. Without this, `$MARK "starting the run"` would parse as a span.</summary>
+    /// <summary>
+    /// A text id must be quoted. An unquoted word is a syntax error and never a note, so
+    /// <c>$MARK start beer</c> does not open a span called beer - it opens nothing.
+    /// </summary>
+    [Theory]
+    [InlineData("start beer")]
+    [InlineData("end beer")]
+    [InlineData("beer")]
+    public void AnUnquotedWordIsNeverANote(string argument)
+    {
+        var marks = new SessionMarks();
+
+        var result = marks.Apply(argument, Session, Gen);
+
+        Assert.Equal(MarkKind.Error, result.Kind);
+        // Named back, so the operator can see it was the word and not the verb that was rejected.
+        Assert.Contains("beer", result.Text);
+        Assert.Equal(0, marks.Depth);
+    }
+
+    /// <summary>The quote is what separates a verb from an id, so a note can open with either word
+    /// and still be a note. Nothing about the whole-word match is load-bearing for that.</summary>
     [Fact]
-    public void AVerbIsAWholeWord()
+    public void AQuotedNoteMayOpenWithAVerb()
     {
         var marks = new SessionMarks();
 
         Assert.Equal("//MARK: mm-61:starting the run", Apply(marks, "\"starting the run\""));
-        Assert.Equal("//MARK: mm-61:ending", Apply(marks, "\"ending\""));
+        Assert.Equal("//BEG: mm-61:end of the run", Apply(marks, "start \"end of the run\""));
+        Assert.Equal(1, marks.Depth);
+    }
+
+    /// <summary>What the whole-word match IS for: the refusal names what was typed rather than the
+    /// remainder a prefix match would leave behind.</summary>
+    [Fact]
+    public void AWordMerelyStartingWithAVerbIsNamedInFull()
+    {
+        var marks = new SessionMarks();
+
+        Assert.Contains("startle", Apply(marks, "startle"));
+        Assert.DoesNotContain("got: le", Apply(marks, "startle"));
+    }
+
+    [Fact]
+    public void TrailingTextAfterANoteIsRefused()
+    {
+        var marks = new SessionMarks();
+
+        Assert.Equal("ERROR: Trailing text after the mark note: and more",
+            Apply(marks, "start \"beer\" and more"));
         Assert.Equal(0, marks.Depth);
     }
 

@@ -42,6 +42,12 @@ public sealed record MarkResult(MarkKind Kind, string Text);
 /// <para><b>A persona session is required for all three forms</b>, not just for <c>start</c>. There
 /// is no id without one, so a mark made at the shell could not be found again - which is the whole
 /// point of making it.</para>
+///
+/// <para><b>A text id must be quoted.</b> <c>$MARK start beer</c> is a syntax error, not a span
+/// called beer; the quotes are what make it an id rather than a word that happened to follow the
+/// verb. They are stripped only where the id is built, so nothing downstream has to know whether a
+/// given string still carries them - which is also why the mismatch message can quote the note back
+/// exactly as it was typed.</para>
 /// </summary>
 public sealed class SessionMarks
 {
@@ -147,8 +153,12 @@ public sealed class SessionMarks
 
     private enum Verb { None, Start, End }
 
-    /// <summary>Strip a leading <c>start</c>/<c>end</c> off <paramref name="rest"/>. Matched as a
-    /// whole word so a note beginning "start" is not mistaken for the verb.</summary>
+    /// <summary>Strip a leading <c>start</c>/<c>end</c> off <paramref name="rest"/>.
+    ///
+    /// <para>Matched as a whole word for the error message, not to tell a verb from a note: a note
+    /// opens with a quote, so it can never be read as one of these. What this buys is that
+    /// <c>$MARK startle</c> is refused naming <c>startle</c> rather than the <c>le</c> a prefix
+    /// match would leave behind.</para></summary>
     private static Verb TakeVerb(ref string rest)
     {
         if (TakeWord(ref rest, "start")) return Verb.Start;
@@ -196,12 +206,20 @@ public sealed class SessionMarks
 
         if (rest[0] == '"')
         {
-            if (rest.Length < 2 || rest[^1] != '"')
+            // The note ends at the FIRST closing quote, so a note cannot itself contain one. That
+            // also makes trailing text detectable, which an "ends with a quote" test cannot do.
+            var close = rest.IndexOf('"', 1);
+            if (close < 0)
             {
                 error = "Unterminated mark note - close it with a quote.";
                 return false;
             }
-            var note = rest[1..^1];
+            if (close != rest.Length - 1)
+            {
+                error = $"Trailing text after the mark note: {rest[(close + 1)..].Trim()}";
+                return false;
+            }
+            var note = rest[1..close];
             if (note.Length == 0)
             {
                 error = "Mark note is empty.";
