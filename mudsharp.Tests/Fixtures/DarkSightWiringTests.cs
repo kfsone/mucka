@@ -95,15 +95,58 @@ public sealed class DarkSightWiringTests : IDisposable
     public void TheMoveInTheDarknessLine_SetsItToo()
     {
         // One per move for as long as it lasts, so it is also the only signal a player who walked
-        // into the dark before this client connected will ever be given.
-        _session.Feed(Text("You attack the rat0."));
+        // into the dark before this client connected will ever be given. Engaged AFTER the move,
+        // because the move is what this line reports and MUD2 refuses to move a fighting player.
         _session.Feed(Text("You move in the darkness..."));
+        _session.Feed(Text("You attack the rat0."));
         _session.Feed(Text("Something hits you (50/60)."));
         _session.Feed(PromptBytes);
 
         Assert.True(_session.Combat.CannotSee);
         Assert.Equal("rat0", WhoHitThePlayer());
         Assert.Equal("(sight lost: moving in the darkness)", LastSightRawText());
+    }
+
+    [Fact]
+    public void TheMoveInTheDarknessLine_ClosesAnEncounterTheRoomShortCannotReach()
+    {
+        // The room-change backstop, in the one place the room short can never carry it: a dark room
+        // sends no coded short, so without this an encounter left open by an unmatched end follows
+        // the player into the next room and its roster answers the anonymous blows there. Every one
+        // of these rows in the wire table follows a movement and none follows a look, which is what
+        // licenses reading it as a room change - "It's too dark to see now." is NOT read that way,
+        // and the test below says why. MudSession.NoteDarknessLine records how it was counted: the
+        // naive count is wrong, because the operator types ahead of the round trip.
+        FightInTheDark();
+        _session.Feed(Text("You move in the darkness..."));
+        _session.Feed(Text("Something hits you (50/60)."));
+        _session.Feed(PromptBytes);
+
+        Assert.Contains(_events, e => e.Kind == CombatEventKind.EncounterForceEnded);
+        // The rat was left behind with the room. The blow belongs to whatever is in this one, and
+        // nothing here has a name yet.
+        Assert.Equal(AnonymousOpponent.Thing, WhoHitThePlayer());
+        // The move did not restore sight - it moved from one dark room into another.
+        Assert.True(_session.Combat.CannotSee);
+    }
+
+    [Fact]
+    public void TheTooDarkLine_DoesNotCloseTheEncounter()
+    {
+        // Measured, not assumed: 5 of the 239 "It's too dark to see now." rows in the wire table
+        // are a light source dying in the player's hand - "You take hold of the longsword but its
+        // magical powers have faded, and it disintegrates in your hand." on the line above - with no
+        // move at all. Read as a room change it would close a fight the player is still standing in,
+        // which is exactly the fight this line most often introduces.
+        _session.Feed(Text("You attack the rat0."));
+        _session.Feed(Text("You take hold of the longsword but its magical powers have faded, and it disintegrates in your hand."));
+        _session.Feed(Text("It's too dark to see now."));
+        _session.Feed(Text("Something hits you (50/60)."));
+        _session.Feed(PromptBytes);
+
+        Assert.DoesNotContain(_events, e => e.Kind == CombatEventKind.EncounterForceEnded);
+        Assert.True(_session.Combat.CannotSee);
+        Assert.Equal("rat0", WhoHitThePlayer());
     }
 
     // -- darkness ends: prose, and the coded room entry behind it -------------------------------

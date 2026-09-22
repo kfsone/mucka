@@ -50,6 +50,13 @@ public class DocsAreNotWorkOrdersTests
         // Our own system, asserted absent. Bare "not yet" is deliberately absent - see the remarks.
         "not yet implemented", "not yet built", "not yet wired", "not yet persisted",
         "not yet done", "not implemented yet",
+        // The bare markers - the three plainest ways of writing a work order. This corpus carries
+        // none of them, so they cost no rewriting and catch the next one on the way in.
+        // "wip" is deliberately absent and cannot be added: matched as a substring it fires on
+        // "wiping", and this corpus writes "a reset wiping the game state mid-fight". A marker that
+        // fires on ordinary prose is how a gate gets worked around, and a gate that is routinely
+        // worked around stops being one.
+        "todo", "fixme", "tbd",
     ];
 
     private static readonly string[] DocExtensions = [".md"];
@@ -76,9 +83,16 @@ public class DocsAreNotWorkOrdersTests
         return dir;
     }
 
-    /// <summary>A table row: the pipe-delimited rows a transcribed table is made of, and the
-    /// <c>|---|---|</c> rule under its heading.</summary>
-    private static readonly Regex TableRow = new(@"^\s*\|", RegexOptions.Compiled);
+    /// <summary>
+    /// A table row: the pipe-delimited rows a transcribed table is made of, and the
+    /// <c>|---|---|</c> rule under its heading.
+    ///
+    /// <para><b>Two pipes, not one.</b> A single leading pipe is the cheapest way out of this gate
+    /// there is: prefix a work order with <c>| </c> and it reads as evidence. A real row closes its
+    /// first cell, so requiring the second pipe costs nothing - this corpus has no single-pipe line
+    /// at all, and a table cannot be written without one.</para>
+    /// </summary>
+    private static readonly Regex TableRow = new(@"^\s*\|[^|]*\|", RegexOptions.Compiled);
 
     /// <summary>A blockquote, which is how a quotation from outside this repo is set.</summary>
     private static readonly Regex BlockQuote = new(@"^\s*>", RegexOptions.Compiled);
@@ -163,17 +177,42 @@ public class DocsAreNotWorkOrdersTests
             + string.Join("\n  ", offenders));
     }
 
-    /// <summary>Every marker still catches something. Without this the list rots into strings that
-    /// match nothing, and the gate quietly stops being one.</summary>
+    /// <summary>
+    /// Each shape of work order below is caught by some marker. That is the direction the assertion
+    /// runs, and the only one a per-sample check can show.
+    ///
+    /// <para>Marker rot is therefore NOT covered: a marker that matches nothing would need a sample
+    /// of its own, and there are more markers than samples by design - each describes a shape rather
+    /// than a wording. A description claiming otherwise would be the same defect this fixture sweeps
+    /// the corpus for.</para>
+    /// </summary>
     [Theory]
     [InlineData("Retention is not in this stage.")]
     [InlineData("**Still to delete**, once the new build has been played:")]
     [InlineData("That is a stage of its own.")]
     [InlineData("Session-scoped; not yet persisted to `mucka.ini`.")]
     [InlineData("## Landing it")]
+    // The bare markers.
+    [InlineData("TODO: decide whether the rail keeps the badge.")]
+    [InlineData("FIXME - this reads the wrong column.")]
+    [InlineData("Retention window: TBD.")]
     public void EveryShapeOfWorkOrderIsCaught(string prose)
         => Assert.Contains(WorkOrderMarkers,
             m => prose.Contains(m, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>A lone leading pipe is not a table and does not exempt the line. It was the cheapest
+    /// evasion this gate had: one character in front of a work order and the sweep skipped it.
+    /// </summary>
+    [Fact]
+    public void ALeadingPipeAloneIsStillTheDocsOwnVoice()
+    {
+        string[] file = ["| Still to delete: the old path.", "| a | real row |"];
+
+        var voice = DocVoiceLines(file).ToList();
+
+        Assert.Single(voice);
+        Assert.Equal(1, voice[0].Line);
+    }
 
     /// <summary>The exemptions, proved on the forms this corpus actually uses: a fenced capture, a
     /// quoted email and a transcribed table row may all say anything. The indented line is there to

@@ -36,6 +36,32 @@ public class ClaudeMdRulesNameARealGateTests
     private static readonly Regex TypeDeclaration = new(
         @"\b(?:class|record|struct|interface|enum)\s+([A-Za-z_][A-Za-z0-9_]*)", RegexOptions.Compiled);
 
+    /// <summary>A block comment, across as many lines as it spans.</summary>
+    private static readonly Regex BlockComment = new(
+        @"/\*.*?\*/", RegexOptions.Compiled | RegexOptions.Singleline);
+
+    /// <summary>A line comment to end of line. <c>///</c> is a <c>//</c> and needs no second
+    /// pattern.</summary>
+    private static readonly Regex LineComment = new(@"//[^\r\n]*", RegexOptions.Compiled);
+
+    /// <summary>
+    /// The file with its comments cut out, so <see cref="TypeDeclaration"/> harvests a name only
+    /// from a real declaration.
+    ///
+    /// <para>Measured, not hypothetical: 201 comment lines in this tree satisfy that pattern - "see
+    /// the class remarks", "the one thing that class exists", "The scope flags record which" - so a
+    /// sweep of raw text registers <c>remarks</c>, <c>exists</c> and <c>which</c> as declared types,
+    /// and an <c>enforced_by:</c> naming one of them passes. A gate that accepts a word taken out of
+    /// its own prose is not a gate, and the failure is silent: the rule reads as enforced.</para>
+    ///
+    /// <para>String literals are left alone. A declaration spelled inside one is a shape this tree
+    /// does not have, and cutting them properly needs a lexer rather than a pattern - the cost of
+    /// the remaining hole is one more name accepted, the cost of a half-written lexer is names
+    /// wrongly rejected.</para>
+    /// </summary>
+    private static string StripComments(string source)
+        => LineComment.Replace(BlockComment.Replace(source, " "), " ");
+
     /// <summary>A trailing parenthetical says HOW a gate fires (<c>(RS0030)</c>) and is not part of
     /// the name.</summary>
     private static readonly Regex TrailingNote = new(@"\s*\([^)]*\)\s*$", RegexOptions.Compiled);
@@ -69,7 +95,7 @@ public class ClaudeMdRulesNameARealGateTests
     {
         var names = new HashSet<string>(StringComparer.Ordinal);
         foreach (var file in EnumerateCSharpFiles(root))
-            foreach (Match m in TypeDeclaration.Matches(File.ReadAllText(file.FullName)))
+            foreach (Match m in TypeDeclaration.Matches(StripComments(File.ReadAllText(file.FullName))))
                 names.Add(m.Groups[1].Value);
         return names;
     }
@@ -213,4 +239,23 @@ public class ClaudeMdRulesNameARealGateTests
     [InlineData("none - judgement")]
     public void AGateThatDoesNotExistIsRejected(string value)
         => Assert.NotNull(WhyNotAGate(value, KnownTypes, KnownFile));
+
+    /// <summary>A type name written in a comment is not a declaration, so it cannot be named as a
+    /// gate. Both comment forms, and both of the real phrasings this tree contains: "see the class
+    /// remarks" would otherwise declare <c>remarks</c>, and an <c>enforced_by: remarks</c> would
+    /// then read as enforced and be nothing at all.</summary>
+    [Fact]
+    public void ATypeNameInACommentIsNotADeclaration()
+    {
+        const string source =
+            "// see the class remarks for why\n"
+            + "/* The scope flags record which */\n"
+            + "public sealed class RealThing { }\n";
+
+        var names = TypeDeclaration.Matches(StripComments(source))
+            .Select(m => m.Groups[1].Value)
+            .ToList();
+
+        Assert.Equal(["RealThing"], names);
+    }
 }

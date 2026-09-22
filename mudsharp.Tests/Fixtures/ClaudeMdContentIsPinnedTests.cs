@@ -33,7 +33,7 @@ public class ClaudeMdContentIsPinnedTests
     /// <c>core.autocrlf=true</c>, so the bytes on disk differ between machines while the document
     /// does not. This pins the DOCUMENT and not the checkout.
     /// </summary>
-    private const string Pinned = "89776D4D79F237954F3007F352C04C9CED9B924F1040D5BE89FF7D546E88B57F";
+    private const string Pinned = "23F70845211D5965E84DB874A6C72069E51FDF9767BFE77348296C4EE6CBD994";
 
     private static string HashOf(string contents)
         => Convert.ToHexString(SHA256.HashData(

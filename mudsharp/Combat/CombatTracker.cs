@@ -819,15 +819,56 @@ public sealed class CombatTracker
             //
             // Per-creature, not EndAll: only this creature's fight ended, and anything else in a pack
             // is still swinging.
+            //
+            // Roster-scoped, exactly as the two ambient death lines above are. This sentence is
+            // written from the CREATURE's side and never mentions the player's fight, so anything
+            // leaving the room can print it - including a creature disengaging from somebody else.
+            // An off-roster name must therefore not reach End, where a named end for a Creature this
+            // encounter never engaged is read as identifying an Unseen opponent. That reading rests
+            // on the kill line, which is written from the PLAYER's side and so can only be about the
+            // player's own fight; taken from an ambient line it spends an Unseen slot on a passer-by
+            // and writes that word into Knowledge, which is keyed by SPECIES and persisted, so one
+            // stray line mislabels every member of that species in every later session. The
+            // anonymous form is unaffected: ResolveAnonymous returns either a name the roster holds
+            // or the word itself, and the word is on the roster.
+            //
+            // What abstaining costs, in full, because it is more than the line: an Unseen opponent
+            // that flees under a name no swing line ever used loses its end here, and the trailing
+            // "You can fight it no longer." closes the ENCOUNTER instead, through
+            // SoleActiveOnFightEnd, which is reachable precisely BECAUSE this branch left
+            // _endedThisFrame false. (The 27/27 figure on FightEndOther below says that trailing
+            // line arrives after a flee, not that it carries the C1 code SoleActiveOnFightEnd
+            // requires; that path is the one the code tags, and an untagged wording closes nothing.)
+            //
+            // It does NOT identify the Creature. That rescue runs End(word) down the anonymous
+            // branch, which decrements the count and never reaches UnseenEnded, so Knowledge.Learn
+            // is not called and the species stays unlearned - and FightHistoryRecorder files the
+            // fight as FightOutcome.EndOther rather than CFled, so it is not counted as a flee
+            // downstream. Both are deliberate: the line cannot say whose fight it was, and a species
+            // learned wrong is learned wrong for good, whereas an unlearned one is asked again.
+            //
+            // The rescue also needs the word to be the SOLE active entry, so it does not reach a
+            // pack: dark, one Unseen open and a named Creature also engaged, the count is two and
+            // SoleActiveOnFightEnd returns null. Nothing closes, which is the right answer with two
+            // candidates open, and the room-change backstop - now firing on "You move in the
+            // darkness..." - is the floor under it.
             var npc = NameFrom(m);
-            Emit(timestampUtc, CombatEventKind.NpcFleeFailed, CombatActor.Npc, npc, null, null, null, text);
-            End(npc);
+            if (_active.Contains(npc))
+            {
+                Emit(timestampUtc, CombatEventKind.NpcFleeFailed, CombatActor.Npc, npc, null, null, null, text);
+                End(npc);
+            }
         }
         else if ((m = NpcFled.Match(text)).Success)
         {
+            // Roster-scoped for the reason spelled out on NpcFleeFailed above: the subject form is
+            // ambient, and an end line nothing engaged must not be allowed to name an Unseen.
             var npc = NameFrom(m);
-            Emit(timestampUtc, CombatEventKind.NpcFled, CombatActor.Npc, npc, null, null, null, text);
-            End(npc);
+            if (_active.Contains(npc))
+            {
+                Emit(timestampUtc, CombatEventKind.NpcFled, CombatActor.Npc, npc, null, null, null, text);
+                End(npc);
+            }
         }
         else if (YouFleeFailed.IsMatch(text))
         {

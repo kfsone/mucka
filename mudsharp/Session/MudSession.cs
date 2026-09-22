@@ -1755,6 +1755,47 @@ public sealed class MudSession : IDisposable
     ///
     /// <para>End: "It's light enough to see now!", and separately any coded room entry (see
     /// <see cref="NoteRoomShort"/>).</para>
+    ///
+    /// <para><b>Only ONE of the two start lines is PROOF of a room change</b>, which is a higher bar
+    /// than being usually one, and the difference is measured rather than reasoned. Counted over the
+    /// <c>wire</c> table with <c>instr(CAST(data AS TEXT), ...)</c> - not <c>LIKE</c>, which
+    /// truncates at the NULs telnet leaves in these rows and undercounts by a fifth - every "You
+    /// move in the darkness..." row follows a movement and not one follows a <c>look</c>: 382 rows,
+    /// 0 looks. So the line means a move happened, and it is the only such proof a dark room ever
+    /// gives, since a dark room sends no coded room short for <see cref="NoteRoomShort"/> to read.
+    /// It therefore carries the room-change backstop the room short carries everywhere else. The
+    /// corpus grows with play so the count moves; the absence of a <c>look</c> is the part that has
+    /// to keep holding.</para>
+    ///
+    /// <para>How to count it, because the obvious way is wrong: the last command SENT before a row
+    /// is not the command it answers. The operator types ahead of the round trip, so a handful show
+    /// a <c>g t</c> or a <c>zw</c> sent while the move's own reply was still in flight. What answers
+    /// is the server's ECHO of the command in the inbound stream. Every row whose last sent command
+    /// was not a movement was read by hand and each has a movement echo behind it; the rest the
+    /// naive count already attributed to a movement, which is the direction that cannot be wrong -
+    /// type-ahead can hide a move that happened, never invent one that did not.</para>
+    ///
+    /// <para>"It's too dark to see now." is NOT proof, and 5 of its 270 rows say why, verbatim and
+    /// in one frame: <c>You take hold of the longsword but its magical powers have faded, and it
+    /// disintegrates in your hand. / It's too dark to see now.</c> The light source died in the
+    /// player's hand and the room went dark around them where they stood. Most of the rest ARE a
+    /// room entry, and <c>MudStreamParser</c> reads the line as one to clear its Here list - rightly,
+    /// because the two consumers are not priced alike. A Here list cleared in the room the player is
+    /// still in refills on the next probe; an encounter force-ended in that room takes the roster
+    /// with it, mid-fight, in the dark, which is the state this whole feature exists to survive. A
+    /// backstop needs proof and a list clear does not, so the same line feeds one and not the other.
+    /// </para>
+    ///
+    /// <para>The cost of that: the FIRST step into an unlit room has no signal this client can
+    /// close a fight on - "You move in the darkness..." arrives from the second step onward. An
+    /// encounter left open by an unmatched end survives exactly one dark room.</para>
+    ///
+    /// <para>Ordering inside the move branch is load-bearing. The backstop runs BEFORE the sight
+    /// change, because <see cref="CombatTracker.NoteCannotSee"/> opens an UnseenEpisode whose
+    /// pre-set is whatever is engaged at that instant - so a roster left over from the room just
+    /// left would be baked into the new room's episode. Nothing is pre-empted by running it first:
+    /// the one captured flee out of a dark room prints <c>You have fled by going out.</c> on the
+    /// line ABOVE the move line, so the fight is already closed and the backstop is a no-op.</para>
     /// </summary>
     private void NoteDarknessLine(StyledLine line)
     {
@@ -1766,7 +1807,12 @@ public sealed class MudSession : IDisposable
         if (text.StartsWith("It's too dark to see now", StringComparison.Ordinal))
             NoteSightChanged(_blind, dark: true, "too dark to see");
         else if (text.StartsWith("You move in the darkness", StringComparison.Ordinal))
+        {
+            // The move is the room change, and this is the only place a dark room ever admits to one.
+            // Before the sight change, not after - see the remarks.
+            _combat.NoteRoomChanged(CombatClock());
             NoteSightChanged(_blind, dark: true, "moving in the darkness");
+        }
         else if (text.StartsWith("It's light enough to see now", StringComparison.Ordinal))
             NoteSightChanged(_blind, dark: false, "light enough to see");
     }

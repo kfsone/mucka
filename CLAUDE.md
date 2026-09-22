@@ -167,7 +167,7 @@ that lands the work rewrites it to what the system now does and deletes the work
 migration steps, the "still to delete" list, the "not in this stage" notes. A doc still written in
 the future tense after its stage shipped is the defect. Git history is the changelog; a decision the
 work order recorded is not history and stays.
-enforced_by: none: judgement
+enforced_by: DocsAreNotWorkOrdersTests
 
 RULE Evidence is immutable and outranks the code. Bartle's words, captured frames, recorded
 measurements: if the implementation disagrees with one of these, the implementation is what is

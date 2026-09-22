@@ -94,6 +94,50 @@ public class DocsCiteSymbolsNotLinesTests
     /// where an agent writes "see Foo.cs:44" most often.</summary>
     private static readonly Regex CommentLine = new(@"^\s*//", RegexOptions.Compiled);
 
+    /// <summary>
+    /// Which lines carry comment text, <c>//</c> and <c>/* */</c> alike.
+    ///
+    /// <para><see cref="CommentLine"/> alone sees only the first form, so a citation written inside
+    /// a block comment - or on any continuation line of one - is invisible to the sweep. This tree's
+    /// 30 block comments are all the single-line trailing kind (<c>catch { /* diagnostics only */
+    /// }</c>), so the hole is unexploited rather than absent, and a gate is worth no more than the
+    /// text it can actually see.</para>
+    ///
+    /// <para>A line that OPENS a block counts, whatever sits before the <c>/*</c>: the sweep reports
+    /// a whole line, so a citation either side of the marker is the same offence at the same place.
+    /// </para>
+    /// </summary>
+    public static bool[] CommentLines(string[] lines)
+    {
+        var flags = new bool[lines.Length];
+        var inBlock = false;
+        for (int i = 0; i < lines.Length; i++)
+        {
+            var text = lines[i];
+            if (inBlock)
+            {
+                flags[i] = true;
+                if (text.Contains("*/", StringComparison.Ordinal))
+                    inBlock = false;
+                continue;
+            }
+
+            var lineComment = text.IndexOf("//", StringComparison.Ordinal);
+            var blockOpen = text.IndexOf("/*", StringComparison.Ordinal);
+            // A "/*" sitting inside a // comment is prose and opens nothing. This tree writes one:
+            // an arithmetic aside in CombatRailResizeTests whose "*/" is on the NEXT line, also
+            // inside a // comment. Treated as an opener it would swallow whatever followed until a
+            // stray "*/" turned up, and every line between would be swept as if it were a comment.
+            if (blockOpen >= 0 && lineComment >= 0 && lineComment < blockOpen)
+                blockOpen = -1;
+
+            flags[i] = blockOpen >= 0 || CommentLine.IsMatch(text);
+            if (blockOpen >= 0 && text.IndexOf("*/", blockOpen, StringComparison.Ordinal) < 0)
+                inBlock = true;
+        }
+        return flags;
+    }
+
     private static readonly HashSet<string> SkippedDirectories = new(StringComparer.OrdinalIgnoreCase)
     {
         ".git", ".vs", "bin", "obj", "tools", "node_modules",
@@ -112,13 +156,14 @@ public class DocsCiteSymbolsNotLinesTests
         foreach (var file in files)
         {
             var lines = File.ReadAllLines(file.FullName);
+            var isComment = CommentLines(lines);
             for (int i = 0; i < lines.Length; i++)
             {
-                if (!CommentLine.IsMatch(lines[i])) continue;
+                if (!isComment[i]) continue;
                 var hit = CodeLineCitation.Match(lines[i]);
                 // The join is for a citation the wrap split; one the next line carries whole is
                 // that line's own offence and is not reported twice.
-                if (!hit.Success && i + 1 < lines.Length && CommentLine.IsMatch(lines[i + 1])
+                if (!hit.Success && i + 1 < lines.Length && isComment[i + 1]
                     && !CodeLineCitation.IsMatch(lines[i + 1]))
                     hit = CodeLineCitation.Match(lines[i] + " " + lines[i + 1].TrimStart(' ', '/'));
                 if (hit.Success)
@@ -173,6 +218,58 @@ public class DocsCiteSymbolsNotLinesTests
     [InlineData("at 12:30, a contrast of 3.8:1")]
     public void ThePatternLeavesLegitimateProseAlone(string text)
         => Assert.DoesNotMatch(CodeLineCitation, text);
+
+    /// <summary>A citation inside a block comment is seen. With <c>^\s*//</c> as the only test it
+    /// was not, so an entire comment form was exempt by accident rather than by decision - including
+    /// every continuation line of a multi-line block, which is where a wrapped citation would
+    /// land.</summary>
+    [Fact]
+    public void ACitationInsideABlockCommentIsSeen()
+    {
+        string[] file =
+        [
+            "var x = 1;",
+            "/*",
+            " * See MudSession.cs:1740 for the wiring.",
+            " */",
+            "var y = 2;",
+        ];
+
+        Assert.Equal([false, true, true, true, false], CommentLines(file));
+        Assert.Matches(CodeLineCitation, file[2]);
+    }
+
+    /// <summary>The trailing single-line form this tree actually uses closes on its own line, so it
+    /// does not exempt everything after it.</summary>
+    [Fact]
+    public void ASingleLineBlockCommentDoesNotBlindTheRestOfTheFile()
+    {
+        string[] file = ["catch { /* diagnostics only */ }", "var y = 2;"];
+
+        Assert.Equal([true, false], CommentLines(file));
+    }
+
+    /// <summary>A "/*" inside a // comment is prose and opens no block. The shape is in this tree -
+    /// an arithmetic aside whose "*/" lands on the next line, also inside a // comment - and reading
+    /// it as an opener would sweep the code after it as comment text until a stray "*/" appeared.
+    /// </summary>
+    [Fact]
+    public void ABlockMarkerInsideALineCommentOpensNothing()
+    {
+        // The code line sits BETWEEN the false opener and the "*/", which is what makes this
+        // discriminating: read as a real block, the marker swallows it and it is swept as comment
+        // text. With the "*/" on the very next line - the shape this tree has - both readings agree
+        // and the test would prove nothing.
+        string[] file =
+        [
+            "        // width is 72 /* 70 + 2 breathing",
+            "        var width = Compute();",
+            "        // columns */ and the rail keeps the rest.",
+            "        Execute();",
+        ];
+
+        Assert.Equal([true, false, true, false], CommentLines(file));
+    }
 
     /// <summary>A citation split by a line wrap after the filename is caught by the two-line join,
     /// which is the whole reason the sweep looks at pairs.</summary>
