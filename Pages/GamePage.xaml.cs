@@ -414,7 +414,7 @@ public partial class GamePage : ContentPage
                 // rather than inheriting WinUI's oversized default window width.
                 SetPreferredInitialWindowSize();
                 // A persisted "show combat rail" preference (SidePanelViewModel.IsCombatPanelVisible,
-                // restored from the connecting profile in GameViewModel's constructor via
+                // restored from the global [settings] key in GameViewModel's constructor via
                 // Profile.ShowCombatRail) can already be true here, before this page ever sets
                 // it - so nothing will raise the PropertyChanged that normally drives this resize.
                 // Apply the current state once, directly, so the very first frame already has room
@@ -1592,7 +1592,7 @@ public partial class GamePage : ContentPage
                 CancelCombatFloats();
                 SyncUnseenMarquees();
                 ResizeWindowForCombatPanel(_vm.SidePanel.IsCombatPanelVisible);
-                // Remembered per profile so it comes back on relog - see Profile.ShowCombatRail
+                // Remembered globally so it comes back on relog - see Profile.ShowCombatRail
                 // and GameViewModel.PersistCombatRailVisibilityAsync. Fire-and-forget, like the other
                 // startup-time I/O in this file (e.g. LoadCombatHistoryAsync in GameViewModel's own
                 // constructor); the method swallows and logs its own failures.
@@ -3315,7 +3315,7 @@ public partial class GamePage : ContentPage
             ResizeWindowForCombatPanel(showing: false);
             ResizeWindowForCombatPanel(showing: true);
         }
-        // Remembered per profile, like the rail's own visibility beside it. Fire-and-forget; the
+        // Remembered globally, like the rail's own visibility beside it. Fire-and-forget; the
         // method swallows and logs its own failures, and a missed write costs one relog's worth of
         // the toggle's memory, never gameplay.
         _ = _vm.PersistCombatStatsAsync();

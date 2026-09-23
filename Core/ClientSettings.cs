@@ -31,11 +31,10 @@ public sealed record ClientSettings
     /// <summary>Per-sound enablement and group fallbacks (the Sounds tab's tree).
     /// Treated as frozen once snapshotted - see <see cref="SoundSettings"/>.</summary>
     public SoundSettings Sounds { get; init; } = new();
-    // The Combat Rail's two flags are deliberately NOT here. They are per-profile unconditionally
-    // and live in [profile:Name], written a key at a time by SettingsStore.SetProfileFlagAsync from
-    // the overflow menu's own toggles - they never travel in this snapshot, because this snapshot's
-    // scope is the settings dialog's Save and theirs is one click on a menu row. See
-    // Profile.ShowCombatRail.
+    // The Combat Rail's two flags are deliberately NOT here. They are global keys in [settings],
+    // written a key at a time by SettingsStore.SetGlobalFlagAsync from the overflow menu's own
+    // toggles - they never travel in this snapshot, because this snapshot's scope is the settings
+    // dialog's Save and theirs is one click on a menu row. See Profile.ShowCombatRail.
 
     // -- Display tab settings (always global, never per-profile) --------------
     /// <summary>Global default terminal font size in pixels; 0 = use built-in default.</summary>

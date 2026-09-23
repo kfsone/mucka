@@ -228,10 +228,10 @@ public partial class ConnectPage : ContentPage
                 // see GameViewModel's own remarks on why this cannot reuse saveSettings above.
                 Func<bool, Task>? persistCombatRailVisibility = _vm.IsDirectConnectMode
                     ? null
-                    : showCombatRail => vm.PersistCombatRailVisibilityAsync(profile.Name, showCombatRail);
+                    : ConnectViewModel.PersistCombatRailVisibilityAsync;
                 Func<bool, Task>? persistCombatStats = _vm.IsDirectConnectMode
                     ? null
-                    : showCombatStats => vm.PersistCombatStatsAsync(profile.Name, showCombatStats);
+                    : ConnectViewModel.PersistCombatStatsAsync;
 
                 // GameViewModel subscribes to conn.LineReady/etc immediately, BEFORE GamePage is
                 // pushed, so nothing is lost while guided login runs -- pushing GamePage now (or

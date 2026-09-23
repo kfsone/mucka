@@ -221,10 +221,10 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     // -- Combat Rail: the right-edge panel -----------
     // Show/hide only - driven by ToggleCombatPanelCommand from the overflow menu, with GamePage
     // resizing the window on the change. GameViewModel's constructor is the one exception to "an
-    // explicit toggle is the only way this becomes true": it seeds this from the connecting profile's
-    // persisted Profile.ShowCombatRail, so the panel restores to whatever a given profile
-    // last left it at on relog. The window never resizes itself on any other change - see
-    // GamePage.OnAppearing's own remarks on applying that first state.
+    // explicit toggle is the only way this becomes true": it seeds this from the persisted global
+    // Profile.ShowCombatRail, so the panel restores to whatever it was last left at on relog. The
+    // window never resizes itself on any other change - see GamePage.OnAppearing's own remarks on
+    // applying that first state.
     private bool _isCombatPanelVisible;
     private CombatTier _pulseTier = CombatTier.None;
 
@@ -422,7 +422,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
 
     /// <summary>
     /// Whether the Combat Rail draws its two stat rows and the exchange spark. Unlike the floats and
-    /// the metronome beside it, this one is PERSISTED (mucka.ini, per profile - see
+    /// the metronome beside it, this one is PERSISTED (mucka.ini, global - see
     /// <c>Mucka.Core.Profile.ShowCombatStats</c>) and it changes the panel's WIDTH - the host
     /// re-sizes the Border and the window from <see cref="CombatStatsChanged"/>.
     /// </summary>

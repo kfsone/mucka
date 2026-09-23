@@ -48,21 +48,20 @@ public class Profile
     public bool LogResetDiagnostics { get; set; }
     /// <summary>Per-sound enablement and group fallbacks. Defaults to everything on.</summary>
     public SoundSettings Sounds { get; set; } = new();
-    /// <summary>Whether the Combat Rail (right-edge combat panel) is shown. Per profile always, with
-    /// no checkbox to turn that on: it is stored in this profile's own <c>[profile:Name]</c> section
-    /// beside the identity fields, not in <c>[settings]</c>, so one persona's rail is never another's
-    /// - see <see cref="SettingsStore.SetProfileFlagAsync"/> for why that section and not a
-    /// <c>[settings:Name]</c> one. Restored on connect and re-saved immediately whenever the player
-    /// toggles it (GameViewModel.PersistCombatRailVisibilityAsync) rather than only through the
-    /// settings dialog's Save button, since a menu toggle should not require a separate save step to
-    /// survive a relog.
+    /// <summary>Whether the Combat Rail (right-edge combat panel) is shown. Global, never per profile
+    /// or per persona: one key in <c>[settings]</c>, read on every connect by
+    /// <see cref="SettingsStore.LoadProfileAsync"/> and written immediately whenever the player
+    /// toggles it (<see cref="SettingsStore.SetGlobalFlagAsync"/>, via
+    /// GameViewModel.PersistCombatRailVisibilityAsync) rather than only through the settings
+    /// dialog's Save button, since a menu toggle should not require a separate save step to survive a
+    /// relog.
     ///
-    /// <para>False (hidden) is the default - the panel is additive and does not appear for a profile
-    /// that has never touched the toggle.</para></summary>
+    /// <para>False (hidden) is the default - the panel is additive and does not appear until the
+    /// toggle is first touched.</para></summary>
     public bool ShowCombatRail { get; set; }
     /// <summary>Whether the Combat Rail draws its two stat rows and the exchange spark. Off narrows
     /// the panel, which is the point: it is what the width is mostly spent on. Stored and restored
-    /// exactly like <see cref="ShowCombatRail"/> above, in <c>[profile:Name]</c>.
+    /// exactly like <see cref="ShowCombatRail"/> above, in <c>[settings]</c>.
     ///
     /// <para>Default TRUE, unlike the rail beside it - the rail is additive and arrives hidden, and
     /// the stat rows are part of it arriving complete once it is switched on.</para></summary>

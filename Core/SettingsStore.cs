@@ -78,7 +78,9 @@ public static class SettingsStore
         bool? FloatCompass      = null,
         bool? LogResetDiagnostics = null,
         string? MeNameColor     = null,
-        string? MeSpeechColor   = null)
+        string? MeSpeechColor   = null,
+        bool? ShowCombatRail    = null,
+        bool? ShowCombatStats   = null)
     {
         /// <summary>Overlays the stored (ini) values onto a profile - ini wins when present.</summary>
         public void ApplyTo(Profile profile)
@@ -108,10 +110,8 @@ public static class SettingsStore
             if (FloatCompass     is bool fc)  profile.FloatCompass     = fc;
             if (MeNameColor   is { Length: > 0 } mnc) profile.MeNameColor   = mnc;
             if (MeSpeechColor is { Length: > 0 } msc) profile.MeSpeechColor = msc;
-            // The two Combat Rail flags are NOT here. They live in [profile:Name] and are read by
-            // ReadProfiles, because this overlay's scope is the thing they must not have: it
-            // resolves to the shared global [settings] for every profile that has not turned on
-            // "Save to profile only", so one persona's rail would be every persona's.
+            if (ShowCombatRail  is bool rail)  profile.ShowCombatRail  = rail;
+            if (ShowCombatStats is bool stats) profile.ShowCombatStats = stats;
         }
     }
 
@@ -190,7 +190,9 @@ public static class SettingsStore
                 FloatOnline:        ini.HasSection("settings") ? GetBool(ini, "settings", "floatonline")        : null,
                 FloatCompass:       ini.HasSection("settings") ? GetBool(ini, "settings", "floatcompass")       : null,
                 MeNameColor:        ini.HasSection("settings") ? ini.Get("settings", "menamecolor")   : null,
-                MeSpeechColor:      ini.HasSection("settings") ? ini.Get("settings", "mespeechcolor") : null);
+                MeSpeechColor:      ini.HasSection("settings") ? ini.Get("settings", "mespeechcolor") : null,
+                ShowCombatRail:     ini.HasSection("settings") ? GetBool(ini, "settings", "showcombatrail")     : null,
+                ShowCombatStats:    ini.HasSection("settings") ? GetBool(ini, "settings", "showcombatstats")    : null);
         }
         finally
         {
@@ -284,23 +286,22 @@ public static class SettingsStore
     }
 
     /// <summary>
-    /// Writes ONE key in a profile's own <c>[profile:Name]</c> section and leaves every other key in
-    /// the file alone.
+    /// Writes ONE key in the global <c>[settings]</c> section and leaves every other key in the file
+    /// alone.
     ///
-    /// <para>For a per-profile flag a one-click control changes outside the settings dialog - the
-    /// Combat Rail's shown/hidden state and its "Stats" row. <see cref="SaveProfileAsync"/> cannot
-    /// serve those: its blocks are all-or-nothing, so a caller would have to reconstruct every other
-    /// key from memory and would silently reset any it got wrong. Nothing here reads the rest of the
-    /// file, so nothing here can clobber it.</para>
+    /// <para>For a global flag a one-click control changes outside the settings dialog - the Combat
+    /// Rail's shown/hidden state and its "Stats" row. <see cref="SaveProfileAsync"/> cannot serve
+    /// those: its blocks are all-or-nothing, so a caller would have to reconstruct every other key
+    /// from memory and would silently reset any it got wrong.</para>
     /// </summary>
-    public static async Task SetProfileFlagAsync(string profileName, string key, bool value)
+    public static async Task SetGlobalFlagAsync(string key, bool value)
     {
         await s_gate.WaitAsync().ConfigureAwait(false);
         try
         {
             var path = ResolvePath();
             var ini  = IniFile.Load(path);
-            ini.Set(ProfileSectionPrefix + profileName, key, value ? "yes" : "no");
+            ini.Set("settings", key, value ? "yes" : "no");
             await ini.SaveAsync(path).ConfigureAwait(false);
         }
         finally
@@ -393,15 +394,6 @@ public static class SettingsStore
             if (GetBool(ini, section, "keepscreenon")     is bool keep)  p.KeepScreenOn       = keep;
             if (GetBool(ini, section, "defaulthotkeys")   is bool defs)  p.DefaultHotkeys     = defs;
             if (GetBool(ini, section, "guidedlogin")      is bool gl)    p.GuidedLogin        = gl;
-            // The Combat Rail's two flags. Here rather than in [settings] because this section is
-            // the only one that is per profile unconditionally - a [settings:Name] section would
-            // have to be created to hold them, and its mere existence switches that profile's WHOLE
-            // settings block to per-profile, so every key the new section lacked would silently fall
-            // back to a built-in default.
-            if (GetBool(ini, section, "showcombatrail")   is bool rail)  p.ShowCombatRail     = rail;
-            // Absent leaves Profile's own `= true`, unlike the rail beside it: the rail is additive
-            // and arrives hidden, the stat rows are part of the rail arriving complete.
-            if (GetBool(ini, section, "showcombatstats")  is bool stats) p.ShowCombatStats    = stats;
             p.GuidedLoginPersona = ini.Get(section, "guidedloginpersona") ?? string.Empty;
             profiles.Add(p);
         }
@@ -431,13 +423,12 @@ public static class SettingsStore
         foreach (var section in staleSections)
             ini.RemoveSection(section);
 
-        // The two Combat Rail keys below used to live in [settings] / [settings:Name]. This is the
-        // writer that owns them now, so it is also what clears the copies nothing reads any more -
-        // a key left where a reader would look for it is a file that lies about its own state.
-        ini.Remove("settings", "showcombatrail");
-        ini.Remove("settings", "showcombatstats");
+        // The two Combat Rail keys are global and live in [settings] only (SetGlobalFlagAsync).
+        // Copies in [profile:Name] / [settings:Name] are read by nothing, so they are cleared: a key
+        // left where a reader might look for it is a file that lies about its own state.
         foreach (var section in ini.SectionNames()
-                     .Where(s => s.StartsWith("settings:", StringComparison.OrdinalIgnoreCase))
+                     .Where(s => s.StartsWith(ProfileSectionPrefix, StringComparison.OrdinalIgnoreCase)
+                              || s.StartsWith("settings:", StringComparison.OrdinalIgnoreCase))
                      .ToList())
         {
             ini.Remove(section, "showcombatrail");
@@ -459,8 +450,6 @@ public static class SettingsStore
             ini.Set(section, "defaulthotkeys",   p.DefaultHotkeys     ? "yes" : "no");
             ini.Set(section, "guidedlogin",       p.GuidedLogin        ? "yes" : "no");
             ini.Set(section, "guidedloginpersona", p.GuidedLoginPersona);
-            ini.Set(section, "showcombatrail",   p.ShowCombatRail     ? "yes" : "no");
-            ini.Set(section, "showcombatstats",  p.ShowCombatStats    ? "yes" : "no");
         }
     }
 

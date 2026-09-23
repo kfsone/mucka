@@ -26,12 +26,12 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     /// globals" block, and <see cref="CurrentSettings"/> sources that block's Show* fields from LIVE
     /// SidePanel fold/pin state - correct when the player explicitly hit Save in the settings dialog,
     /// wrong for a one-click overflow-menu toggle, which must not promote whatever the Onlines section
-    /// happens to be folded to this session into every profile's shared global default. See
+    /// happens to be folded to this session into the shared global default. See
     /// <see cref="PersistCombatRailVisibilityAsync"/>.</summary>
     private readonly Func<bool, Task>? _persistCombatRailVisibilityAsync;
     /// <summary>Persists ONLY the Combat Rail's stat rows, for the same reason
     /// <see cref="_persistCombatRailVisibilityAsync"/> is its own delegate: both are one-click
-    /// overflow-menu toggles on a per-profile flag, and neither may travel in the settings dialog's
+    /// overflow-menu toggles on a global flag, and neither may travel in the settings dialog's
     /// whole-block snapshot.</summary>
     private readonly Func<bool, Task>? _persistCombatStatsAsync;
     private readonly List<string> _history = new();
@@ -57,7 +57,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     // character arrives. Kept as a plain field so the ScoreDelta/ScoreColor properties stay
     // unchanged; the per-character history lives in _baseScoreByChar.
     private int _baseScore = -1;
-    // Per-character baselines, keyed by SERVER+character (RailKey) - a score belongs to one persona
+    // Per-character baselines, keyed by SERVER+character (CharKey) - a score belongs to one persona
     // on one host, and a same-named character on another server is a different character with a
     // different score.
     //
@@ -67,13 +67,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     // servers (see SidePanelViewModel.OnCharacterIdentified): "how much have I gained" is a question
     // about a character, "what have I been killing" is a question about the sitting.
     private readonly Dictionary<string, int> _baseScoreByChar = new(StringComparer.Ordinal);
-    // Whether the Combat Rail was showing for a given server+persona, for the life of this Mucka
-    // session. Same shape and the same reason as _baseScoreByChar above: the rail belongs to the
-    // persona it was opened for - its fight history, its bestiary and its pool estimates are all
-    // that character's - so carrying its visibility across a switch puts one persona's fights on
-    // screen under another's name. Keyed on host as well as name because two servers can have the
-    // same persona name and they are not the same character.
-    private readonly Dictionary<string, bool> _railVisibleByChar = new(StringComparer.OrdinalIgnoreCase);
     // The character occupying the session, from the setup `score` reply. null at the option menu.
     private string? _currentChar;
     private byte _staminaColor;
@@ -675,7 +668,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         SidePanel.ForgetWindowMinutes = profile.OnlineForgetWindow;
         SidePanel.IsOnlinePinned      = !profile.FloatOnline;   // apply the saved float default to the live state
         SidePanel.IsMapPinned         = !profile.FloatCompass;  // ditto for the compass
-        // T2: restore the Combat Rail's shown/hidden state for this persona. The setter itself gates
+        // Restore the Combat Rail's global shown/hidden state. The setter itself gates
         // to IsCombatRailSupported (Windows only), so a Windows-saved "true" is silently ignored on
         // Android rather than needing a platform check here too.
         SidePanel.IsCombatStatsEnabled = profile.ShowCombatStats;
@@ -1081,10 +1074,10 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             _recentLines.Clear();
     }
 
-    /// <summary>Key for <see cref="_railVisibleByChar"/>. Host as well as persona: the same name on
+    /// <summary>Key for <see cref="_baseScoreByChar"/>. Host as well as persona: the same name on
     /// two servers is two characters, and a NUL separator so no host/name pair can collide with
     /// another by concatenation.</summary>
-    private string RailKey(string persona) => $"{_profileHost}\u0000{persona}";
+    private string CharKey(string persona) => $"{_profileHost}\u0000{persona}";
 
     // The character was identified from the setup `score` reply (fires on the Feed thread).
     // The score StatsUpdated for that same line is queued just ahead of this on the UI thread,
@@ -1093,30 +1086,17 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         => MainThread.BeginInvokeOnMainThread(() =>
         {
             if (name == _currentChar) return;
-            // Hand the rail over with the persona. Remember what the outgoing character had, then
-            // restore what the incoming one had - and a persona not seen this run starts HIDDEN
-            // rather than inheriting profile.ShowCombatRail, because that preference belongs to a
-            // connection (host/port/account) and says nothing about a character it was never saved
-            // for. The exception is the first persona of the run, which keeps whatever the profile
-            // applied at connect; otherwise the saved preference would never take effect at all.
-            if (_currentChar is { Length: > 0 } outgoing)
-                _railVisibleByChar[RailKey(outgoing)] = SidePanel.IsCombatPanelVisible;
-            var railKey = RailKey(name);
-            if (!_railVisibleByChar.TryGetValue(railKey, out var railWasVisible))
-                railWasVisible = _railVisibleByChar.Count == 0 && SidePanel.IsCombatPanelVisible;
-            _railVisibleByChar[railKey] = railWasVisible;
-            SidePanel.IsCombatPanelVisible = railWasVisible;
-            // The rail labels its own tile with the persona, so it is handed the name in the same
-            // block that hands it the visibility - the two cannot then disagree about whose fight is
-            // on screen.
+            // The rail's visibility is a global preference and does not change with the persona;
+            // the rail labels its own tile with the name.
             SidePanel.OnCharacterIdentified(name);
 
+            var charKey = CharKey(name);
             _currentChar = name;
-            // railKey, not the bare name: same persona, different server is a different character.
-            if (_baseScoreByChar.TryGetValue(railKey, out var stored))
+            // charKey, not the bare name: same persona, different server is a different character.
+            if (_baseScoreByChar.TryGetValue(charKey, out var stored))
                 _baseScore = stored;                 // returning character - resume their delta
             else if (_score > 0)
-                _baseScoreByChar[railKey] = _baseScore = _score;   // first seen this session
+                _baseScoreByChar[charKey] = _baseScore = _score;   // first seen this session
             else
                 _baseScore = -1;                     // score not in yet; set on next StatsUpdated
             OnPropertiesChanged(nameof(WindowTitle),
@@ -1187,10 +1167,10 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             if (_baseScore < 0 && _score > 0)
             {
                 _baseScore = _score;
-                // RailKey, matching where OnCharacterIdentified reads it back - keyed on the bare
+                // CharKey, matching where OnCharacterIdentified reads it back - keyed on the bare
                 // name here, this late-arriving seed would write to a key nothing ever looks up, and
                 // the character's baseline would silently re-seed every time they were switched to.
-                if (_currentChar != null) _baseScoreByChar[RailKey(_currentChar)] = _baseScore;
+                if (_currentChar != null) _baseScoreByChar[CharKey(_currentChar)] = _baseScore;
             }
 
             _blind        = stats.IsBlind;

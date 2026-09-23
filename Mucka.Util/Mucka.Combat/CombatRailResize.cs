@@ -227,7 +227,7 @@ public static class CombatRailResize
     /// the right basis.</para>
     ///
     /// <para><b>The rail is reserved here or it is taken out of the terminal.</b> Showing the rail is
-    /// a profile preference (<c>Mucka.Core.Profile.ShowCombatRail</c>) that is already true before a page
+    /// a saved preference (<c>Mucka.Core.Profile.ShowCombatRail</c>) that is already true before a page
     /// has toggled anything, and <see cref="PreferredWindowWidthDp"/> never includes the rail - so a
     /// first sizing that ignores <paramref name="railShown"/> hands the rail a window sized for the
     /// terminal alone, and the rail's <see cref="CombatPanelWidthDp"/> comes out of the columns.</para>

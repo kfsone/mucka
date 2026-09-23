@@ -70,7 +70,8 @@ the border stroke on each side (`CombatPanelWidthDp`), or `CombatPanelNarrowCont
 that picks between them, so the renderer, the Border's `WidthRequest` and the window arithmetic
 cannot disagree. `SidePanelWidthDp` is the LEFT panel's
 constant and is never merged with it. The toggle is `SidePanelViewModel.ToggleCombatPanelCommand`
-(overflow menu), persisted as `ClientSettings.ShowCombatRail`. Showing the panel widens the main
+(overflow menu), persisted globally (not per profile or persona) as `Profile.ShowCombatRail`, one
+`[settings]` key written by `SettingsStore.SetGlobalFlagAsync`. Showing the panel widens the main
 window by exactly the panel width via `AppWindow.Resize`; hiding it shrinks the window back by the
 same amount. The terminal's column count and the left panel's width are never touched by the
 toggle. The window never resizes itself outside this one explicit toggle. Once shown, the panel
