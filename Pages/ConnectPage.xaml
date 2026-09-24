@@ -281,7 +281,7 @@
                     <!-- This server's score history, without connecting. -->
                     <Button Grid.Column="1"
                             x:Name="ScoreButton"
-                            Text="Score  &#x2197;"
+                            Text="Score  &#x1F50D;"
                             Clicked="OnScoreClicked"
                             BackgroundColor="#1a1a1a"
                             TextColor="#58a6ff"

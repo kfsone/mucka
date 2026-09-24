@@ -193,6 +193,10 @@ public sealed class ScoreGraphPainter
         _stroke.StrokeWidth = 1.25f;
         canvas.DrawCircle((float)at.X, (float)at.Y, 5f, _stroke);
 
+        // Every step's size beside the climb, so the whole staircase reads at once; the card goes on
+        // the other side where there is room for it there.
+        var labelsRight = DrawStairLabels(canvas, plot, move, ink, bx + 5);
+
         var inv = CultureInfo.InvariantCulture;
         var start = TimeZoneInfo.ConvertTime(DateTimeOffset.FromUnixTimeMilliseconds(move.StartMs), TimeZoneInfo.Local);
         var end = TimeZoneInfo.ConvertTime(DateTimeOffset.FromUnixTimeMilliseconds(move.EndMs), TimeZoneInfo.Local);
@@ -218,8 +222,71 @@ public sealed class ScoreGraphPainter
             if (at.Parts is { } parts)
                 rows.Add(new CardRow(parts.Count.ToString(inv) + " lines", AxisInk, string.Empty, PartsText(parts), AxisInk));
         }
-        DrawCard(canvas, plot, bx, title, ink, boldTitle: true, subtitle, rows);
+        DrawCard(canvas, plot, labelsRight ? x0 - 4 : bx, title, ink, boldTitle: true, subtitle, rows, preferLeft: labelsRight);
     }
+
+    /// <summary>
+    /// Each step's size in a small pill level with its node, in a column beside the move. Pills that
+    /// would overlap are nudged up or down to the nearest free spot, with a leader line back to the
+    /// node; the largest steps are placed first, so where there is not room for all of them, the
+    /// small ones are the ones left out. Returns true when the column went right of the move.
+    /// </summary>
+    private bool DrawStairLabels(SKCanvas canvas, ScoreGraphPlot plot, PlotMove move, SKColor ink, float rightColumn)
+    {
+        const float Height = 14f, Gap = 2f;
+        // Only the largest steps are considered: a column the plot's height holds far fewer pills
+        // than this, and the rest would be measured and tried on every hover repaint for nothing.
+        var chosen = Enumerable.Range(0, move.Stairs.Count)
+            .OrderByDescending(i => Math.Abs(move.Stairs[i].Change))
+            .Take(MaxStairLabels)
+            .ToList();
+        var texts = chosen.ToDictionary(i => i, i =>
+            (move.Stairs[i].Change >= 0 ? "+" : "-") + Math.Abs(move.Stairs[i].Change).ToString("N0", CultureInfo.CurrentCulture));
+        var w = texts.Count == 0 ? 0 : texts.Values.Max(t => _pillFont.MeasureText(t)) + 10;
+        var canvasRight = (float)(plot.Right + ScoreGraphPlot.RightMargin);
+        var right = rightColumn + w <= canvasRight || (float)move.X0 - 12 - w < 0;
+        var left = right ? Math.Min(rightColumn, canvasRight - w) : (float)move.X0 - 12 - w;
+
+        var placed = new List<(float Top, float Bottom)>();
+        float lo = (float)plot.Top, hi = (float)plot.Bottom;
+        foreach (var i in chosen)
+        {
+            var want = (float)move.Stairs[i].Y - Height / 2;
+            float? top = null;
+            // Nearest free slot, alternating below and above, at most a few rows away from the node.
+            for (var k = 0; k <= 8 && top is null; k++)
+            {
+                foreach (var t in k == 0 ? [want] : new[] { want + k * (Height + Gap), want - k * (Height + Gap) })
+                {
+                    if (t < lo || t + Height > hi) continue;
+                    if (placed.Any(p => t < p.Bottom + Gap && t + Height > p.Top - Gap)) continue;
+                    top = t;
+                    break;
+                }
+            }
+            if (top is not { } y) continue;
+            placed.Add((y, y + Height));
+
+            var dot = move.Stairs[i];
+            var rect = new SKRect(left, y, left + w, y + Height);
+            if (Math.Abs(rect.MidY - (float)dot.Y) > 1.5f)
+            {
+                _stroke.Color = ink.WithAlpha(0x60);
+                _stroke.StrokeWidth = Hairline;
+                canvas.DrawLine((float)dot.X, (float)dot.Y, right ? rect.Left : rect.Right, rect.MidY, _stroke);
+            }
+            _fill.Color = TooltipFill;
+            canvas.DrawRoundRect(rect, 3, 3, _fill);
+            _stroke.Color = ink.WithAlpha(0x70);
+            _stroke.StrokeWidth = Hairline;
+            canvas.DrawRoundRect(rect, 3, 3, _stroke);
+            _fill.Color = ink;
+            canvas.DrawText(texts[i], rect.MidX, rect.MidY + 3.5f, SKTextAlign.Center, _pillFont, _fill);
+        }
+        return right;
+    }
+
+    private const int MaxStairLabels = 40;
 
     /// <summary>A frame's lines as signed figures, cut short past <see cref="MaxParts"/>.</summary>
     private static string PartsText(IReadOnlyList<long> parts)
@@ -534,7 +601,7 @@ public sealed class ScoreGraphPainter
     /// <summary>A floating card beside <paramref name="anchorX"/>: a title, an optional grey subtitle,
     /// then rows of a coloured label, a bold figure and a coloured change.</summary>
     private void DrawCard(SKCanvas canvas, ScoreGraphPlot plot, float anchorX, string title, SKColor titleInk,
-        bool boldTitle, string? subtitle, List<CardRow> rows)
+        bool boldTitle, string? subtitle, List<CardRow> rows, bool preferLeft = false)
     {
         var x = anchorX;
         var titleFont = boldTitle ? _tipBold : _tipFont;
@@ -548,7 +615,12 @@ public sealed class ScoreGraphPainter
         var height = Pad * 2 + Line * lines - 2;
 
         // Right of the crosshair unless that runs off the plot; vertically, clear of the top.
-        var boxLeft = x + 12 + width <= plot.Right + ScoreGraphPlot.RightMargin ? x + 12 : x - 12 - width;
+        var canvasRight = (float)(plot.Right + ScoreGraphPlot.RightMargin);
+        var fitsRight = x + 12 + width <= canvasRight;
+        var fitsLeft = x - 12 - width >= 0;
+        var boxLeft = (preferLeft ? fitsLeft || !fitsRight : !fitsRight) ? x - 12 - width : x + 12;
+        // Neither side has room: keep the card on the canvas, over whatever is there.
+        boxLeft = Math.Clamp(boxLeft, 0, Math.Max(0, canvasRight - width));
         var box = new SKRect(boxLeft, (float)plot.Top + 4, boxLeft + width, (float)plot.Top + 4 + height);
 
         using (var shadow = SKImageFilter.CreateDropShadow(0, 2, 6, 6, SKColors.Black.WithAlpha(0x90)))

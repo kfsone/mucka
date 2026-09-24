@@ -296,6 +296,23 @@ public sealed class ScoreGraphTests : IDisposable
     }
 
     [Fact]
+    public void Zero_plots_several_characters_by_score_not_by_gain()
+    {
+        // One gained, one lost: as gains, the loser would sit below a zero line.
+        ScoreGraphSeries[] series =
+        [
+            new("Big", [new(0, 100_000), new(50, 110_000)], []),
+            new("Small", [new(0, 8_000), new(50, 200)], []),
+        ];
+
+        var plot = ScoreGraphPlot.Build(new ScoreGraphScene(0, 100, false, 0, series, [], [], Zero: true), 600, 300, TimeZoneInfo.Utc);
+
+        Assert.False(plot.GainMode);
+        Assert.All(plot.Lines.SelectMany(l => l), p => Assert.True(p.Y <= plot.Bottom + 1e-6, "nothing below the zero line"));
+        Assert.Equal(0, plot.YTicks.Min(t => t.Value));
+    }
+
+    [Fact]
     public void Reader_reports_a_wipe_at_the_end_of_its_persona_session()
     {
         using (var c = MuckaDb.Open(DbPath))

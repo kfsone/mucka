@@ -115,7 +115,8 @@ public readonly record struct ScoreStats(long Start, long Low, long High, long G
 /// <para><b>Axis.</b> One character plots the score itself. Several characters plot points gained
 /// since the window opened, because scores of different characters can differ by orders of magnitude
 /// and one absolute axis would flatten every line but the highest. The Y range fits the visible
-/// values unless the scene asks for <see cref="ScoreGraphScene.Zero"/>.</para>
+/// values unless the scene asks for <see cref="ScoreGraphScene.Zero"/>, which also plots every
+/// character's score itself, from zero.</para>
 ///
 /// <para><b>Squeeze.</b> Time outside every selected character's persona sessions is collapsed to
 /// <see cref="GapWidth"/> per gap, so a window of mostly offline days shows the play rather than
@@ -187,7 +188,9 @@ public sealed class ScoreGraphPlot
             ? ScoreTimeAxis.Squeezed(scene.StartMs, scene.EndMs, sessions, left, right - left, GapWidth)
             : ScoreTimeAxis.Linear(scene.StartMs, scene.EndMs, left, right - left);
 
-        var gainMode = scene.Series.Count > 1;
+        // Zero asks for scores read against zero, so it keeps the score itself even for several
+        // characters: gained-since-open against a zero line puts any character that lost below it.
+        var gainMode = scene.Series.Count > 1 && !scene.Zero;
         var windows = scene.Series.Select(s => Window(s.Points, scene.StartMs, scene.EndMs)).ToList();
         var values = windows.Select(w => gainMode && w.Length > 0
             ? w.Select(p => p with { Total = p.Total - w[0].Total }).ToArray()

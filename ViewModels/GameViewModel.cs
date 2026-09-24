@@ -985,6 +985,10 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
                 && !string.IsNullOrWhiteSpace(exitedPersona);
             _inGameMode = false;
             _sessionAliases.Clear();
+            // The panel belongs to the login: leaving the game closes it, and nothing reopens it.
+            // The keyboard goes back to the command box unless the persona picker is about to take it
+            // (the branch below).
+            ScoreGraph.TryClose(refocus: !(_guidedLoginEnabled && _conn.IsConnected));
             // A span the login ended under is closed rather than dropped: one with no end reads in
             // the log exactly like one still running, and the drop reason is the most useful thing
             // that can be said about why it never closed properly. Classified above, so this is the

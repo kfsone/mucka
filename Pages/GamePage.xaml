@@ -106,14 +106,15 @@
                     <Label Grid.Column="4" Text="|"
                            Style="{StaticResource StatLabelStyle}" TextColor="#444444" Margin="0,0,8,0"/>
 
-                    <!-- The score opens the $SCORE graph; the trailing arrow says it does. -->
+                    <!-- The score opens the $SCORE graph, and closes it when it is open; the
+                         trailing magnifying glass says it does. -->
                     <Label Grid.Column="5" Style="{StaticResource StatLabelStyle}">
                         <Label.FormattedText>
                             <FormattedString>
                                 <Span Text="Score: " TextColor="#58a6ff"/>
                                 <Span Text="{Binding ScoreValue}" TextColor="{Binding ScoreColor}" FontAttributes="Bold"/>
                                 <Span Text="{Binding ScoreDeltaValue}" TextColor="{Binding ScoreColor}"/>
-                                <Span Text=" &#x2197;" TextColor="#58a6ff"/>
+                                <Span Text=" &#x1F50D;" TextColor="#58a6ff" FontSize="11"/>
                             </FormattedString>
                         </Label.FormattedText>
                         <Label.GestureRecognizers>

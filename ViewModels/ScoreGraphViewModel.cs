@@ -382,17 +382,25 @@ public sealed class ScoreGraphViewModel : BaseViewModel
     }
 
     /// <summary>True when the panel was open and is now closed.</summary>
-    public bool TryClose()
+    /// <param name="refocus">False when something else is about to take the keyboard - the persona
+    /// picker, when leaving the game raises it - so it is not the command box's to be handed.</param>
+    public bool TryClose(bool refocus = true)
     {
         if (!IsVisible)
             return false;
-        Close();
+        Close(refocus);
         return true;
     }
 
-    private void Close()
+    private void Close() => Close(refocus: true);
+
+    private void Close(bool refocus)
     {
-        OpenList();
+        IsServersOpen = false;
+        IsCharactersOpen = false;
+        IsScaleOpen = false;
+        if (refocus)
+            _requestFocus();
         IsVisible = false;
         Scene = null;
         Stats.Clear();
