@@ -71,10 +71,8 @@ public readonly record struct PlotPoint(double X, double Y);
 /// <summary>A negative step: the score read lower than the reading before it. <see cref="YBefore"/>
 /// and <see cref="YAfter"/> are the two ends of the drop. <see cref="Radius"/> is zero when a larger
 /// drop nearby holds the marker; the drop itself is still drawn. In a bucketed scale a loss is the sum
-/// of every drop in one bucket, and both ends sit at the bucket's low. <see cref="Permadeath"/> marks
-/// the drop that followed a persona wipe.</summary>
-public readonly record struct PlotLoss(int Series, double X, double YBefore, double YAfter, long Drop, double Radius, bool Labelled,
-    bool Permadeath);
+/// of every drop in one bucket, and both ends sit at the bucket's low.</summary>
+public readonly record struct PlotLoss(int Series, double X, double YBefore, double YAfter, long Drop, double Radius, bool Labelled);
 
 /// <summary>One reading as the hover readout reports it, at its place in the plot. For a bucket,
 /// <see cref="Ms"/>..<see cref="EndMs"/> is the bucket, <see cref="Total"/> its last reading and
@@ -224,22 +222,13 @@ public sealed class ScoreGraphPlot
             var frames = FrameSteps(real);
             var steps = frames.Select(f => f.Step).ToList();
 
-            // The drop after each wipe, and the wipe itself where the line stood.
-            // The wipe's drop is looked for from the wiped login's last frame (its reset line may be
-            // stamped in the same frame as the wipe) up to the start of the login after the next one:
-            // a drop any later belongs to some other session and is not the wipe's.
-            var wipedAt = new HashSet<long>();
-            var starts = scene.Series[s].Sessions.Select(x => x.StartMs).Order().ToArray();
+            // Each wipe, where the line stood when it was recorded. Only the moment is marked: the drop
+            // that follows is drawn like any other, so nothing has to guess which drop it was.
             foreach (var ms in scene.Series[s].Permadeaths ?? [])
             {
                 if (ms < scene.StartMs || ms > scene.EndMs || real.Length == 0) continue;
                 var held = real.LastOrDefault(p => p.Ms <= ms);
-                var lastFrame = held == default ? long.MinValue : held.Ms;
                 deaths.Add(new PlotDeath(axis.Map(ms), YReal(held == default ? real[0].Total : held.Total)));
-                var later = starts.Where(t => t > ms).Take(2).ToArray();
-                var until = later.Length == 2 ? later[1] : long.MaxValue;
-                if (steps.FirstOrDefault(st => st.Change < 0 && st.Ms >= lastFrame && st.Ms < until) is { Readings: > 0 } drop)
-                    wipedAt.Add(drop.Ms);
             }
 
             // Climbs follow the raw line; a bucketed scale reports its buckets' gains and losses instead.
@@ -261,8 +250,7 @@ public sealed class ScoreGraphPlot
                         st.After, st.After, Math.Max(0, -st.Change), Math.Max(0, st.Change), parts.Length > 1 ? parts : null));
                 lines.Add(Step(Decimate(read.Select(r => new PlotPoint(r.X, r.Y)).ToList()), right));
                 foreach (var st in steps.Where(st => st.Change < 0))
-                    raw.Add(new PlotLoss(s, axis.Map(st.Ms), YReal(st.Before), YReal(st.After), -st.Change, 0, false,
-                        wipedAt.Contains(st.Ms)));
+                    raw.Add(new PlotLoss(s, axis.Map(st.Ms), YReal(st.Before), YReal(st.After), -st.Change, 0, false));
                 continue;
             }
 
@@ -278,22 +266,18 @@ public sealed class ScoreGraphPlot
                     previousClose is { } p ? b.Close - p : 0, b.Low, b.High, b.Lost, b.Gained));
                 previousClose = b.Close;
                 if (b.Lost > 0)
-                    raw.Add(new PlotLoss(s, mid, YReal(b.Low), YReal(b.Low), b.Lost, 0, false,
-                        wipedAt.Any(ms => ms >= b.StartMs && ms < b.EndMs)));
+                    raw.Add(new PlotLoss(s, mid, YReal(b.Low), YReal(b.Low), b.Lost, 0, false));
             }
             lines.Add(Step(Decimate(vertices), right));
         }
 
         // One marker per slot of MarkerSlot width, the largest drop in it; markers any closer overlap
-        // into a solid band and none of them stands out. A wipe's drop is always marked and labelled.
+        // into a solid band and none of them stands out.
         var maxDrop = raw.Count == 0 ? 1 : raw.Max(l => l.Drop);
         var marked = raw.GroupBy(l => Math.Floor(l.X / MarkerSlot))
             .Select(g => g.MaxBy(l => l.Drop))
-            .Concat(raw.Where(l => l.Permadeath))
             .ToHashSet();
-        var labelled = marked.Where(l => l.Permadeath)
-            .Concat(marked.Where(l => !l.Permadeath).OrderByDescending(l => l.Drop).Take(LabelledLosses))
-            .ToHashSet();
+        var labelled = marked.OrderByDescending(l => l.Drop).Take(LabelledLosses).ToHashSet();
         var losses = raw.Select(l => l with
         {
             Radius = marked.Contains(l)

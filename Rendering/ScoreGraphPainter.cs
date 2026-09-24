@@ -36,7 +36,6 @@ public sealed class ScoreGraphPainter
     private static readonly SKColor TooltipFill = SKColor.Parse("#161b22").WithAlpha(0xf2);
     private static readonly SKColor TooltipEdge = SKColor.Parse("#3d4f5c");
     private static readonly SKColor Gain        = SKColor.Parse("#3fb950");
-    private static readonly SKColor Wipe        = SKColor.Parse("#ff2d2d");
 
     private static readonly SKTypeface Regular = Face(SKFontStyle.Normal);
     private static readonly SKTypeface Bold = Face(SKFontStyle.Bold);
@@ -390,20 +389,11 @@ public sealed class ScoreGraphPainter
 
         // Drops over the lines, then their markers: a downward chevron at the foot, ringed in the
         // panel colour so it separates from the line it sits on.
-        // A wipe's drop is heavier and a deeper red, over a glow, so it cannot pass for a flee.
+        _stroke.Color = Loss;
+        _stroke.StrokeWidth = 2f;
         foreach (var loss in plot.Losses)
-        {
-            if (loss.YAfter <= loss.YBefore) continue;
-            if (loss.Permadeath)
-            {
-                _stroke.Color = Wipe.WithAlpha(0x50);
-                _stroke.StrokeWidth = 8f;
+            if (loss.YAfter > loss.YBefore)
                 canvas.DrawLine((float)loss.X, (float)loss.YBefore, (float)loss.X, (float)loss.YAfter, _stroke);
-            }
-            _stroke.Color = loss.Permadeath ? Wipe : Loss;
-            _stroke.StrokeWidth = loss.Permadeath ? 3.5f : 2f;
-            canvas.DrawLine((float)loss.X, (float)loss.YBefore, (float)loss.X, (float)loss.YAfter, _stroke);
-        }
         foreach (var loss in plot.Losses)
         {
             if (loss.Radius <= 0) continue;
@@ -413,7 +403,7 @@ public sealed class ScoreGraphPainter
             tri.LineTo(x + r, y);
             tri.LineTo(x, y + r * 1.3f);
             tri.Close();
-            _fill.Color = loss.Permadeath ? Wipe : Loss;
+            _fill.Color = Loss;
             canvas.DrawPath(tri, _fill);
             _stroke.Color = Panel;
             _stroke.StrokeWidth = 1.25f;
@@ -465,10 +455,9 @@ public sealed class ScoreGraphPainter
     {
         var bounds = new SKRect((float)plot.Left, (float)plot.Top, (float)plot.Right, (float)plot.Bottom);
         const float Height = 15f;
-        // A wipe's pill is placed first, whatever its size, and says what it was.
-        foreach (var loss in plot.Losses.Where(l => l.Labelled).OrderByDescending(l => l.Permadeath).ThenByDescending(l => l.Drop))
+        foreach (var loss in plot.Losses.Where(l => l.Labelled).OrderByDescending(l => l.Drop))
         {
-            var text = (loss.Permadeath ? "wiped  -" : "-") + loss.Drop.ToString("N0", CultureInfo.CurrentCulture);
+            var text = "-" + loss.Drop.ToString("N0", CultureInfo.CurrentCulture);
             var w = _pillFont.MeasureText(text) + 10;
             float x = (float)loss.X, foot = (float)loss.YAfter + 1.5f + (float)loss.Radius * 1.3f, head = (float)loss.YBefore;
             SKRect[] candidates =
@@ -487,12 +476,12 @@ public sealed class ScoreGraphPainter
                 if (!bounds.Contains(rect) || taken.Any(t => t.IntersectsWith(rect)))
                     continue;
                 taken.Add(rect);
-                _fill.Color = loss.Permadeath ? Wipe : LossPill;
+                _fill.Color = LossPill;
                 canvas.DrawRoundRect(rect, 4, 4, _fill);
                 _stroke.Color = Loss.WithAlpha(0xa0);
                 _stroke.StrokeWidth = Hairline;
                 canvas.DrawRoundRect(rect, 4, 4, _stroke);
-                _fill.Color = loss.Permadeath ? SKColors.White : LossInk;
+                _fill.Color = LossInk;
                 canvas.DrawText(text, rect.MidX, rect.MidY + 3.5f, SKTextAlign.Center, _pillFont, _fill);
                 break;
             }

@@ -260,7 +260,6 @@ public partial class GamePage : ContentPage
         _vm = vm;
         _exitOnDisconnect = exitOnDisconnect;
         BindingContext = vm;
-        _vm.ScoreGraph.PropertyChanged += OnScoreGraphPropertyChanged;
     }
 
     protected override void OnAppearing()
@@ -852,63 +851,6 @@ public partial class GamePage : ContentPage
                 _floatTransY = FloatingOnlinePanel.TranslationY;
                 break;
         }
-    }
-
-    private double _scoreResizeStartW, _scoreResizeStartH;
-    private VisualElement? _scorePanelHost;
-
-    /// <summary>The $SCORE panel's corner grip. The panel is centred, so the width moves by twice the
-    /// drag to keep its right edge under the pointer. The size is saved when the drag ends.</summary>
-    private void OnScorePanelResize(object? sender, PanUpdatedEventArgs e)
-    {
-        var graph = _vm.ScoreGraph;
-        switch (e.StatusType)
-        {
-            case GestureStatus.Started:
-                _scoreResizeStartW = graph.PanelWidth;
-                _scoreResizeStartH = graph.PanelHeight;
-                break;
-            case GestureStatus.Running:
-                var (maxW, maxH) = ScorePanelRoom();
-                graph.Resize(_scoreResizeStartW + 2 * e.TotalX, _scoreResizeStartH + e.TotalY, maxW, maxH);
-                break;
-            case GestureStatus.Completed:
-            case GestureStatus.Canceled:
-                graph.SaveSize();
-                FocusInput();
-                break;
-        }
-    }
-
-    /// <summary>The room the $SCORE panel's host gives it, less the panel's margins.</summary>
-    private (double Width, double Height) ScorePanelRoom()
-    {
-        if (_scorePanelHost is null && ScorePanel.Parent is VisualElement host)
-        {
-            _scorePanelHost = host;
-            host.SizeChanged += (_, _) => ClampScorePanel();
-        }
-        var m = ScorePanel.Margin;
-        return _scorePanelHost is { Width: > 0 } h
-            ? (h.Width - m.Left - m.Right, h.Height - m.Top - m.Bottom)
-            : (double.MaxValue, double.MaxValue);
-    }
-
-    /// <summary>Keeps a remembered size inside a smaller window: a size saved on a wide screen is
-    /// shrunk to fit here, and grows back only when the user drags it.</summary>
-    private void ClampScorePanel()
-    {
-        var graph = _vm.ScoreGraph;
-        if (!graph.IsVisible) return;
-        var (maxW, maxH) = ScorePanelRoom();
-        graph.Resize(graph.PanelWidth, graph.PanelHeight, maxW, maxH);
-    }
-
-    private void OnScoreGraphPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
-    {
-        if (e.PropertyName is nameof(ScoreGraphViewModel.IsVisible)
-            or nameof(ScoreGraphViewModel.PanelWidth) or nameof(ScoreGraphViewModel.PanelHeight))
-            ClampScorePanel();
     }
 
     private void OnFloatingMapPanUpdated(object? sender, PanUpdatedEventArgs e)

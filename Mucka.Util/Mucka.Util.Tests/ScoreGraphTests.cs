@@ -269,32 +269,18 @@ public sealed class ScoreGraphTests : IDisposable
     }
 
     [Fact]
-    public void A_wipe_marks_the_drop_after_it_and_places_a_death_where_the_line_stood()
+    public void A_wipe_is_marked_where_the_line_stood_and_its_drops_are_ordinary()
     {
-        ScorePoint[] points = [new(0, 8000), new(100, 8205), new(300, 200), new(400, 260)];
+        // A small drop in the wiped login's last frame, the wipe at 200, and the restart at 200 points
+        // in the next login: two drops, both plain, and one death at the wipe.
+        ScorePoint[] points = [new(0, 8000), new(100, 8243), new(150, 8218), new(300, 200), new(400, 260)];
         var scene = new ScoreGraphScene(0, 1000, false, 0, [new ScoreGraphSeries("A", points, [], [200])], [], []);
         var plot = ScoreGraphPlot.Build(scene, 1000 + ScoreGraphPlot.LeftMargin + ScoreGraphPlot.RightMargin, 300, TimeZoneInfo.Utc);
 
-        var wipe = Assert.Single(plot.Losses);
-        Assert.True(wipe.Permadeath);
-        Assert.True(wipe.Labelled);
-        Assert.Equal(8005, wipe.Drop);
+        Assert.Equal([25L, 8018], plot.Losses.Select(l => l.Drop));
         var death = Assert.Single(plot.Deaths);
         Assert.Equal(ScoreGraphPlot.LeftMargin + 200, death.X, 6);
-        Assert.Equal(wipe.YBefore, death.Y, 6);
-    }
-
-    [Fact]
-    public void A_wipe_with_no_drop_in_the_next_login_marks_no_later_drop()
-    {
-        // Wiped at 200; the next login (300) records only gains; an ordinary drop comes a login later.
-        ScorePoint[] points = [new(0, 8000), new(150, 8200), new(350, 8300), new(650, 8100)];
-        TimeSpanMs[] sessions = [new(0, 200), new(300, 400), new(600, 700)];
-        var scene = new ScoreGraphScene(0, 1000, false, 0, [new ScoreGraphSeries("A", points, sessions, [200])], [], []);
-        var plot = ScoreGraphPlot.Build(scene, 1000 + ScoreGraphPlot.LeftMargin + ScoreGraphPlot.RightMargin, 300, TimeZoneInfo.Utc);
-
-        Assert.False(Assert.Single(plot.Losses).Permadeath);
-        Assert.Single(plot.Deaths);
+        Assert.Equal(plot.Losses[1].YBefore, death.Y, 6);
     }
 
     [Fact]

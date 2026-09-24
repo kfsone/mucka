@@ -268,7 +268,7 @@
                     </Grid>
                 </Grid>
 
-                <Grid ColumnDefinitions="*"
+                <Grid ColumnDefinitions="*,Auto"
                       ColumnSpacing="8">
                     <Button Grid.Column="0"
                             Text="Connect  &#x25B6;"
@@ -278,6 +278,18 @@
                             TextColor="White"
                             CornerRadius="6"
                             HeightRequest="48" />
+                    <!-- This server's score history, without connecting. -->
+                    <Button Grid.Column="1"
+                            x:Name="ScoreButton"
+                            Text="Score  &#x2197;"
+                            Clicked="OnScoreClicked"
+                            BackgroundColor="#1a1a1a"
+                            TextColor="#58a6ff"
+                            BorderColor="#333333"
+                            BorderWidth="1"
+                            CornerRadius="6"
+                            HeightRequest="48"
+                            Padding="16,0" />
                 </Grid>
 
                 <!-- Advanced toggle -->

@@ -283,8 +283,15 @@ public sealed class ScoreGraphViewModel : BaseViewModel
         PanelHeight = Math.Min(Math.Max(height, MinHeight), Math.Max(1, maxHeight));
     }
 
+    /// <summary>A resize drag has ended: keep the size, and hand the keyboard back.</summary>
+    public void EndResize()
+    {
+        SaveSize();
+        _requestFocus();
+    }
+
     /// <summary>Remembers the current size for every later session.</summary>
-    public void SaveSize()
+    private void SaveSize()
     {
         var w = Math.Round(_panelWidth).ToString(CultureInfo.InvariantCulture);
         var h = Math.Round(_panelHeight).ToString(CultureInfo.InvariantCulture);
@@ -390,7 +397,12 @@ public sealed class ScoreGraphViewModel : BaseViewModel
         Scene = null;
         Stats.Clear();
         _statsKey = null;
+        Closed?.Invoke();
     }
+
+    /// <summary>Raised when the panel closes, by its x or <see cref="TryClose"/>. A page that exists
+    /// only to show the panel closes itself on it.</summary>
+    public event Action? Closed;
 
     /// <summary>Opens at most one of the three drop-down lists, and hands the keyboard back.</summary>
     private void OpenList(bool servers = false, bool characters = false, bool scale = false)
@@ -550,6 +562,7 @@ public sealed class ScoreGraphViewModel : BaseViewModel
 
         Status = _loadStatus
             ?? (_history.Points.Count == 0 ? "No score recorded yet."
+                : hosts.Count == 0 ? "No server selected."
                 : series.Count == 0 ? "No character selected."
                 : Stats.Count == 0 ? $"No score recorded in the last {DaysLabel}."
                 : string.Empty);

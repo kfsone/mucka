@@ -278,4 +278,12 @@ public partial class ConnectPage : ContentPage
             await _vm.LaunchProfileAsync(profile);
         }
     }
+
+    /// <summary>The score history for the server in the form, without connecting to it.</summary>
+    private async void OnScoreClicked(object? sender, EventArgs e)
+    {
+        var host = _vm.Host?.Trim() ?? string.Empty;
+        if (Navigation.ModalStack.Count == 0)
+            await Navigation.PushModalAsync(new ScorePage(host));
+    }
 }
