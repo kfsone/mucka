@@ -362,6 +362,26 @@ public sealed class MuckaStoreTests : IDisposable
         Assert.True(other.IsDBNull(2), "the end write reached a row it was not given");
     }
 
+    /// <summary>
+    /// The host a persona session was opened with lands on its row, trimmed as the run's host is.
+    /// Existing databases hold rows with a NULL host, which is why readers fall back to
+    /// <c>mucka_runs.host</c> - see <c>ScoreHistoryReader</c>.
+    /// </summary>
+    [Fact]
+    public void A_persona_session_records_the_host_it_was_opened_with()
+    {
+        long id;
+        using (var store = new MuckaStore(DbPath, "test"))
+            id = store.BeginPersonaSession(1_787_000_000_000, " mud2.co.uk ")
+                ?? throw new InvalidOperationException("BeginPersonaSession returned no id");
+
+        using var connection = MuckaDb.OpenRead(DbPath);
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT host FROM persona_sessions WHERE id = $id;";
+        command.Parameters.AddWithValue("$id", id);
+        Assert.Equal("mud2.co.uk", command.ExecuteScalar() as string);
+    }
+
     [Fact]
     public void Rows_are_committed_in_the_order_they_were_enqueued_across_producers()
     {

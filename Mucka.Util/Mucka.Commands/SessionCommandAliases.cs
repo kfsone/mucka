@@ -260,7 +260,13 @@ public sealed class SessionCommandAliases
 
     private static bool IsReservedClientCommand(string name)
     {
-        if (name is "help" or "?" or "<" or "con" or "map" or "fkeys" or "VER" or "SID" or "MARK")
+        if (name is "help" or "?" or "<" or "con" or "map" or "fkeys" or "VER")
+            return true;
+
+        // Dispatch matches these in any case, so every case of each name is reserved.
+        if (name.Equals("SID", StringComparison.OrdinalIgnoreCase)
+            || name.Equals("MARK", StringComparison.OrdinalIgnoreCase)
+            || name.Equals("SCORE", StringComparison.OrdinalIgnoreCase))
             return true;
 
         return name.Length >= 2

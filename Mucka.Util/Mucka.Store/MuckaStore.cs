@@ -119,10 +119,11 @@ public sealed class MuckaStore : IDisposable
             Execute(connection, "PRAGMA busy_timeout=5000;");
             using var command = connection.CreateCommand();
             command.CommandText =
-                "INSERT INTO persona_sessions (mucka_run_id, started_ms) VALUES ($run, $started); " +
+                "INSERT INTO persona_sessions (mucka_run_id, started_ms, host) VALUES ($run, $started, $host); " +
                 "SELECT last_insert_rowid();";
             command.Parameters.AddWithValue("$run", SessionId);
             command.Parameters.AddWithValue("$started", startedMs);
+            command.Parameters.AddWithValue("$host", string.IsNullOrWhiteSpace(host) ? DBNull.Value : host.Trim());
             return Convert.ToInt64(command.ExecuteScalar(), CultureInfo.InvariantCulture);
         }
         catch (Exception ex)

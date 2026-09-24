@@ -521,6 +521,8 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public ObservableCollection<FkeyItem> FkeyItems { get; } = new();
     public bool CanSaveSettings => _saveSettingsAsync != null;
     public SidePanelViewModel SidePanel { get; }
+    /// <summary>The $SCORE panel.</summary>
+    public ScoreGraphViewModel ScoreGraph { get; }
 
     /// <summary>Snapshot of the current client settings, for the settings dialog.</summary>
     public ClientSettings CurrentSettings => new()
@@ -559,6 +561,8 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public ICommand HistoryUpCommand { get; }
     public ICommand HistoryDownCommand { get; }
     public ICommand ToggleFkeysCommand { get; }
+    /// <summary>The status line's score: opens the $SCORE panel at its defaults, or closes it.</summary>
+    public ICommand ToggleScoreGraphCommand { get; }
     public ICommand ConfigCommand { get; }
     /// <summary>Toggles the chat-view filter (latching). GamePage rebuilds the terminal on <see cref="ChatModeChanged"/>.</summary>
     public ICommand ToggleChatModeCommand { get; }
@@ -611,6 +615,9 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _profileHost = profile.Host;
         _watchwords = WatchwordStore.Load();
         _sessionAliases = new SessionCommandAliases(AppInfo.VersionString);
+        ScoreGraph = new ScoreGraphViewModel(
+            () => _conn.DatabasePath, () => _conn.MuckaRunId, () => _profileHost,
+            () => _currentChar, () => RequestFocus?.Invoke());
         _maxColumns = Math.Clamp(profile.MaxColumns, 0, 160);  // 0 = auto
         _effCols = _maxColumns > 0 ? _maxColumns : 80;  // sensible until OnSizeAllocated fires
         _antiIdleSeconds = Math.Clamp(profile.AntiIdleSeconds, 0, 3600);
@@ -706,6 +713,12 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         HistoryUpCommand      = new Command(HistoryUp);
         HistoryDownCommand    = new Command(HistoryDown);
         ToggleFkeysCommand    = new Command(() => { FkeysVisible = !FkeysVisible; RequestFocus?.Invoke(); });
+        ToggleScoreGraphCommand = new Command(() =>
+        {
+            if (!ScoreGraph.TryClose())
+                ScoreGraph.Open(new ScoreCommandArgs(ScoreCommandArgs.DefaultDays, null));
+            RequestFocus?.Invoke();
+        });
         ConfigCommand         = new Command(() => ConfigRequested?.Invoke());
         ToggleChatModeCommand = new Command(() => SetChatMode(!ChatMode));
         ToggleRecordingCommand = new Command(ToggleRecording);
@@ -1515,6 +1528,9 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             else if (string.Equals(name, "MARK", StringComparison.OrdinalIgnoreCase)
                 || name.StartsWith("MARK ", StringComparison.OrdinalIgnoreCase))
                 ApplyMark(name.Length > 4 ? name[5..] : string.Empty);
+            else if (string.Equals(name, "SCORE", StringComparison.OrdinalIgnoreCase)
+                || name.StartsWith("SCORE ", StringComparison.OrdinalIgnoreCase))
+                OpenScoreGraph(name.Length > 5 ? name[6..] : string.Empty);
             else if (name == "fkeys" || name.StartsWith("fkeys ", StringComparison.OrdinalIgnoreCase))
                 PrintFkeys(name.Length > 5 ? name[6..].Trim() : string.Empty);
             // $f<n>: annotate with fkey n's macro (absolute 1-36). Checked after "fkeys" so it
@@ -1635,6 +1651,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         AddSystemLine("  $SID                  print the current session id (server/run/persona/login)", 14);
         AddSystemLine("  $MARK [@id|\"note\"]    drop a landmark into the log", 14);
         AddSystemLine("  $MARK start|end ...   open/close a nested span (end takes no id)", 14);
+        AddSystemLine($"  $SCORE [days] [name]  graph a character's score (default: {ScoreCommandArgs.DefaultDays} days, you)", 14);
         AddSystemLine("  $VER                  expands to the current Mucka version", 14);
         AddSystemLine("  $name=command         define a command until you exit the gameworld", 14);
         AddSystemLine("  $name                 run a command defined above", 14);
@@ -1677,6 +1694,18 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             + $"/m={_conn.MuckaRunId.ToString(CultureInfo.InvariantCulture)}"
             + $"/p={persona}"
             + $"/i={login}", 14);
+    }
+
+    /// <summary>$SCORE [days] [persona] - see <see cref="ScoreCommandArgs"/>.</summary>
+    private void OpenScoreGraph(string argument)
+    {
+        var args = ScoreCommandArgs.Parse(argument, out var error);
+        if (args is null)
+        {
+            AddSystemLine($"[score] {error}; usage: $SCORE [days] [name]", 9);
+            return;
+        }
+        ScoreGraph.Open(args.Value);
     }
 
     /// <summary>The operator's landmarks in the log - see <see cref="SessionMarks"/> for the id

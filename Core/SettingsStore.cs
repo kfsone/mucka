@@ -294,15 +294,33 @@ public static class SettingsStore
     /// those: its blocks are all-or-nothing, so a caller would have to reconstruct every other key
     /// from memory and would silently reset any it got wrong.</para>
     /// </summary>
-    public static async Task SetGlobalFlagAsync(string key, bool value)
+    public static Task SetGlobalFlagAsync(string key, bool value)
+        => SetGlobalValueAsync(key, value ? "yes" : "no");
+
+    /// <summary>Writes one key of the global <c>[settings]</c> section and nothing else.</summary>
+    public static async Task SetGlobalValueAsync(string key, string value)
     {
         await s_gate.WaitAsync().ConfigureAwait(false);
         try
         {
             var path = ResolvePath();
             var ini  = IniFile.Load(path);
-            ini.Set("settings", key, value ? "yes" : "no");
+            ini.Set("settings", key, value);
             await ini.SaveAsync(path).ConfigureAwait(false);
+        }
+        finally
+        {
+            s_gate.Release();
+        }
+    }
+
+    /// <summary>Reads one key of the global <c>[settings]</c> section; null when absent.</summary>
+    public static async Task<string?> GetGlobalValueAsync(string key)
+    {
+        await s_gate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            return IniFile.Load(ResolvePath()).Get("settings", key);
         }
         finally
         {

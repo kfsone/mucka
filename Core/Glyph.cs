@@ -23,4 +23,14 @@ public static class Glyph
     public const string ArrowLeft = "\u2190";
     /// <summary>Rightwards arrow: bytes sent to the server.</summary>
     public const string ArrowRight = "\u2192";
+    /// <summary>Ballot box: an unticked option.</summary>
+    public const string BoxEmpty = "\u2610";
+    /// <summary>Ballot box with check: a ticked option.</summary>
+    public const string BoxChecked = "\u2611";
+    /// <summary>White circle: an unchosen one-of-several option.</summary>
+    public const string RadioOff = "\u25cb";
+    /// <summary>Black circle: the chosen one-of-several option.</summary>
+    public const string RadioOn = "\u25cf";
+    /// <summary>Skull and crossbones: a persona wiped, on the score graph.</summary>
+    public const string Skull = "\u2620";
 }
