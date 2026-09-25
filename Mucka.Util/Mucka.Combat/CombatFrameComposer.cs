@@ -14,11 +14,11 @@ namespace Mucka.Combat;
 /// because it reads the fight-history store, which is attached after this class's callers exist.</param>
 /// <param name="Unseen">How many opponents of each anonymous word are open, and whether the player
 /// can see. Read once per frame and never accumulated - see <see cref="ParticipantRoster.Build"/>.</param>
-/// <param name="ArchiveSnapshot">Prior encounters' endings, frozen at each encounter close. Read only
-/// by the no-encounter branch, which keeps the dead strip on screen between fights.</param>
-/// <param name="DeadStripHistory">That archive plus the CURRENT encounter's endings, already folded
-/// and award-filled by the caller (SidePanelViewModel.BuildDeadStripHistory, which caches against the
-/// resolved-fight count and cannot be pure).</param>
+/// <param name="DeadStripHistory">Prior encounters' endings plus the CURRENT encounter's, already
+/// folded, award-filled and coalesced (<see cref="CombatEndingCoalescer"/>) by the caller
+/// (SidePanelViewModel.BuildDeadStripHistory, which caches against the resolved-fight count and
+/// cannot be pure). With no encounter it is the prior endings alone, which keep the dead strip on
+/// screen between fights.</param>
 /// <param name="StaminaLostLastTick">Stamina lost on the most recent combat tick, one figure for the
 /// whole tick - <see cref="TickStaminaLoss.LostThisTick"/>.</param>
 /// <param name="LastStaminaLossUtc">When that burst arrived. Only meaningful alongside a nonzero
@@ -32,7 +32,6 @@ public sealed record CombatFrameInputs(
     IReadOnlyList<string> Inventory,
     Func<string, bool> IsKnownWeapon,
     UnseenState Unseen,
-    IReadOnlyList<CombatEnding> ArchiveSnapshot,
     IReadOnlyList<CombatEnding> DeadStripHistory,
     double StaminaLostLastTick,
     DateTime LastStaminaLossUtc,
@@ -110,12 +109,12 @@ public static class CombatFrameComposer
             // of it - so this only ever re-enables the dead strip, never the live stack.
             return new CombatFrame(
                 encumbranceTier, vulnerable,
-                inputs.ArchiveSnapshot.Count == 0
+                inputs.DeadStripHistory.Count == 0
                     ? CombatLiveView.Idle
                     : CombatLiveView.Idle with
                     {
                         HasEncounter = true,
-                        DeadStripHistory = inputs.ArchiveSnapshot,
+                        DeadStripHistory = inputs.DeadStripHistory,
                     });
         }
 

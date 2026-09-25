@@ -869,11 +869,12 @@ public sealed class CombatRailView : SKCanvasView
     /// two regions grow toward the gap between them, and when they meet it is the DEAD that gives -
     /// which is the region where movement is acceptable.</para>
     ///
-    /// <para><b>One row per ending, session-scoped, not grouped and not per-encounter.</b>
-    /// <paramref name="history"/> already IS that history, chronological oldest-first -
-    /// <see cref="SidePanelViewModel.BuildDeadStripHistory"/> owns stitching the session archive to the
-    /// current encounter's own endings, so this method only lays rows out and truncates from the front
-    /// when there are more than fit.</para>
+    /// <para><b>One row per ending, session-scoped, not per-encounter</b> - except that a kill absorbs
+    /// the flights of that creature directly before it, drawn as retry marks after the word
+    /// (<see cref="CombatEndingCoalescer"/>). <paramref name="history"/> already IS that history,
+    /// chronological oldest-first - <see cref="SidePanelViewModel.BuildDeadStripHistory"/> owns
+    /// stitching the session archive to the current encounter's own endings and coalescing them, so
+    /// this method only lays rows out and truncates from the front when there are more than fit.</para>
     ///
     /// <para><b>Combat ENDINGS, not just kills</b> - so a row can tell a flee from a death. Every
     /// <see cref="FightOutcome"/> a fight can resolve to gets its own row and its own word
@@ -932,10 +933,12 @@ public sealed class CombatRailView : SKCanvasView
                 Ellipsize(ending.Name, DeadNameWidth, font), Pad, nameBaseline, SKTextAlign.Left,
                 font, _text);
 
-            _text.Color = ending.Outcome == FightOutcome.Died ? Hostile : OutcomeTint(InkDim, ending.Outcome);
-            canvas.DrawText(
-                Ellipsize(RailReadout.OutcomeWord(ending.Outcome), DeadNameWidth, font), Pad, y,
-                SKTextAlign.Left, font, _text);
+            var outcomeColor = ending.Outcome == FightOutcome.Died ? Hostile : OutcomeTint(InkDim, ending.Outcome);
+            var outcomeWord = Ellipsize(RailReadout.OutcomeWord(ending.Outcome), DeadNameWidth, font);
+            _text.Color = outcomeColor;
+            canvas.DrawText(outcomeWord, Pad, y, SKTextAlign.Left, font, _text);
+            if (ending.Retries > 0)
+                DrawRetryMarks(canvas, Pad + font.MeasureText(outcomeWord), y, ending.Retries, outcomeColor);
 
             // What MUD2 announced against this ending, when anything was paired to it. Never a zero -
             // see CombatEnding.ScoreAwarded for why the pairing is an inference and null means "no
@@ -1878,6 +1881,66 @@ public sealed class CombatRailView : SKCanvasView
         }
         _arcPath.Close();
 
+        _fill.Color = color;
+        canvas.DrawPath(_arcPath, _fill);
+    }
+
+    /// <summary>
+    /// One retry mark per flight a kill row absorbed (<see cref="CombatEnding.Retries"/>), after the
+    /// outcome word. Kept inside <see cref="DeadNameWidth"/> so they never reach the exchange figures
+    /// on the same baseline: when they will not all fit, one mark and the count are drawn instead.
+    /// </summary>
+    private void DrawRetryMarks(SKCanvas canvas, float left, float baseline, int retries, SKColor color)
+    {
+        const float gap = 3f;
+        const float step = RetryMarkWidth + 2f;
+        var x = left + gap;
+        var room = Pad + DeadNameWidth - x;
+        if (retries * step - 2f <= room)
+        {
+            for (var i = 0; i < retries; i++, x += step)
+                DrawRetryMark(canvas, x, baseline, color);
+            return;
+        }
+
+        if (RetryMarkWidth > room)
+            return;
+        DrawRetryMark(canvas, x, baseline, color);
+        var count = "x" + retries.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        if (step + _smallFont.MeasureText(count) > room)
+            return;
+        _text.Color = color;
+        canvas.DrawText(count, x + step, baseline, SKTextAlign.Left, _smallFont, _text);
+    }
+
+    private const float RetryMarkWidth = 8f;
+
+    /// <summary>A clockwise circular arrow, drawn rather than typed for the reason
+    /// <see cref="DrawDirectionMark"/> gives. The circle is open at the top and the arrowhead points
+    /// across the gap.</summary>
+    private void DrawRetryMark(SKCanvas canvas, float x, float baseline, SKColor color)
+    {
+        const float r = 3f;
+        var cx = x + (RetryMarkWidth / 2f);
+        var cy = baseline - 3.5f;
+
+        _arcPath.Reset();
+        _arcPath.AddArc(new SKRect(cx - r, cy - r, cx + r, cy + r), -60f, 300f);
+        _stroke.Color = color;
+        _stroke.StrokeWidth = 1.1f;
+        canvas.DrawPath(_arcPath, _stroke);
+        _stroke.StrokeWidth = 1f;
+
+        // The arc ends at 240 degrees, heading clockwise along (cos -30, sin -30).
+        var endX = cx - (0.5f * r);
+        var endY = cy - (0.866f * r);
+        const float tx = 0.866f, ty = -0.5f;
+        const float nx = 0.5f, ny = 0.866f;
+        _arcPath.Reset();
+        _arcPath.MoveTo(endX + (tx * 2.4f), endY + (ty * 2.4f));
+        _arcPath.LineTo(endX + (nx * 2f), endY + (ny * 2f));
+        _arcPath.LineTo(endX - (nx * 2f), endY - (ny * 2f));
+        _arcPath.Close();
         _fill.Color = color;
         canvas.DrawPath(_arcPath, _fill);
     }

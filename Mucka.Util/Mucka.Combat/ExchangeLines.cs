@@ -89,6 +89,27 @@ public static class ExchangeLines
             new DamageBracket(profile.Sum, profile.Sum));
     }
 
+    /// <summary>
+    /// Two engagements' lines for one side, as one: totals and sample counts summed, the extremes the
+    /// extremes, the mean from the pooled figures as <see cref="EncounterLine"/> computes it, and the
+    /// rate over <paramref name="duration"/> - the engagements' summed durations, whether or not this
+    /// side landed anything in each, and never the wall clock between them.
+    /// </summary>
+    public static ExchangeLine Combine(ExchangeLine a, ExchangeLine b, TimeSpan duration)
+    {
+        if (!a.HasSamples && !b.HasSamples)
+            return ExchangeLine.Empty;
+
+        var samples = a.Samples + b.Samples;
+        var total = a.Total.Plus(b.Total);
+        var min = !a.HasSamples ? b.Min : !b.HasSamples ? a.Min : Math.Min(a.Min, b.Min);
+        var max = !a.HasSamples ? b.Max : !b.HasSamples ? a.Max : Math.Max(a.Max, b.Max);
+        return new ExchangeLine(
+            samples, min, max, (total.Low + total.High) / (2.0 * samples),
+            PerTick((total.Low + total.High) / 2.0, duration),
+            total);
+    }
+
     /// <summary>A rate, or zero for "not yet worth stating". Under one full tick there is no rate to
     /// report - dividing by a fraction of a tick turns the first blow of a fight into a catastrophic
     /// -40/tick - so this returns zero and the tile draws the cell as unknown rather than as a

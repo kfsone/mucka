@@ -944,13 +944,12 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         CombatEncounterSnapshot snapshot, CombatStatDeficits deficits, CombatHistoryContext history,
         DateTime nowUtc)
     {
+        // Built with or without an encounter: with none there are no fights and it is the archive,
+        // which on its own carries neither the read-time awards nor the coalescing.
         var frame = CombatFrameComposer.Compose(new CombatFrameInputs(
             snapshot, deficits, history, nowUtc,
             InventoryList, _isKnownWeapon, _readUnseen?.Invoke() ?? default,
-            // Only with an encounter on: the composer's no-encounter branch reads the archive
-            // instead, and BuildDeadStripHistory is a caching method whose cache must not be moved
-            // by a path that will not use the answer.
-            _archiveSnapshot, snapshot.HasEncounter ? BuildDeadStripHistory(snapshot) : [],
+            BuildDeadStripHistory(snapshot),
             _tickLoss.LostThisTick, _tickLoss.LastLossUtc, _tickPhase.Anchor,
             _personaName, _staminaAnsiColor,
             _staminaPool, _swingDamage, _fightHistory, _reachMarks, _someKinds));
@@ -1018,7 +1017,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         {
             var archived = new List<CombatEnding>(_archiveSnapshot);
             FillAwards(archived);
-            _deadStripHistoryCache = archived;
+            _deadStripHistoryCache = CombatEndingCoalescer.Coalesce(archived);
             _deadStripHistoryCachedResolvedCount = 0;
             return _deadStripHistoryCache;
         }
@@ -1039,7 +1038,8 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         combined.AddRange(CombatEndingOrder.Sorted(tail));
         FillAwards(combined);
 
-        _deadStripHistoryCache = combined;
+        // After the awards, which pair to each engagement's own ending; the fold then sums them.
+        _deadStripHistoryCache = CombatEndingCoalescer.Coalesce(combined);
         _deadStripHistoryCachedResolvedCount = resolvedThisEncounter;
         return _deadStripHistoryCache;
     }
@@ -1541,7 +1541,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         => new(
             fight.NpcName, fight.Outcome, fight.EndedUtc, encounterOrdinal, resetOrdinal,
             ExchangeLines.DealtLine(fight), ExchangeLines.TakenLine(fight),
-            AwardFor(encounterOrdinal, fight.NpcName, fight.EndedUtc));
+            AwardFor(encounterOrdinal, fight.NpcName, fight.EndedUtc), fight.Duration);
 
     /// <summary>The award paired to one ending - see <see cref="KillAwardLedger"/>, which owns the
     /// pairing and the reason it is scoped to the frame that produced the ending.</summary>

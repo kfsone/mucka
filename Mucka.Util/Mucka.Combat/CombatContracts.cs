@@ -82,7 +82,8 @@ public sealed record SessionCombatTotals(
 
 /// <summary>
 /// One resolved participant, permanently on record for the Combat Rail's dead strip: which
-/// creature, how the fight ended, and when.
+/// creature, how the fight ended, and when. A coalesced kill row stands for several engagements
+/// (<see cref="Retries"/>, <see cref="CombatEndingCoalescer"/>).
 ///
 /// <para>Deliberately NOT a <c>RosterRow</c>. A roster row carries a whole live fight's worth of
 /// state - seals, tempo, novelty, health phrases - that stops meaning anything the instant the
@@ -124,12 +125,92 @@ public sealed record SessionCombatTotals(
 /// it). Null wherever nothing was paired, never a zero: MUD2 prints nothing for an unscored flight.
 /// What the pairing can still get wrong is WHICH ending, if something else moves the score inside the
 /// same frame; nothing downstream decides on it, so a mis-paired figure is cosmetic.</para></param>
+/// <param name="Duration">How long this engagement lasted - what <see cref="Dealt"/> and
+/// <see cref="Taken"/>'s rates were divided by, carried so a coalesced row can recompute them over
+/// the summed engagements (<see cref="CombatEndingCoalescer"/>).</param>
+/// <param name="Retries">How many times this creature fled from the player before the kill this row
+/// records - the engagements <see cref="CombatEndingCoalescer"/> folded into it. Zero for a row that
+/// stands for one engagement.</param>
 public readonly record struct CombatEnding(
     string Name, MudSharp.Combat.FightOutcome Outcome, DateTime? EndedUtc,
     int EncounterOrdinal = 0, int ResetOrdinal = 0,
     MudSharp.Combat.ExchangeLine Dealt = default,
     MudSharp.Combat.ExchangeLine Taken = default,
-    int? ScoreAwarded = null);
+    int? ScoreAwarded = null,
+    TimeSpan Duration = default,
+    int Retries = 0);
+
+/// <summary>
+/// Folds a creature's flights into the kill that finally ended it, for the dead strip.
+///
+/// <para>A creature that flees leaves combat whether or not it gets away, so each re-engagement is a
+/// fight of its own (see <c>CombatStatsAggregator.EngagedFightFor</c>) and each produces an ending.
+/// Against a creature that breaks off repeatedly the strip fills with "broke off" rows and the kill,
+/// when it comes, is one row among many - the player cannot tell which creatures are dead. So a
+/// <see cref="MudSharp.Combat.FightOutcome.Kill"/> row absorbs the run of flee rows directly above it
+/// for the same name: one row, the kill's outcome and timestamp, the engagements' figures combined,
+/// and <see cref="CombatEnding.Retries"/> counting the flights.</para>
+///
+/// <para>A display fold only. The fight records, the history and the archive keep every engagement
+/// separate, which <c>ChaseLinker</c> depends on.</para>
+///
+/// <para>The run stops at any other row - another creature, a player flight - and at a reset: MUD2
+/// reuses instance names, and a reset is the one boundary where the client knows the name now stands
+/// for a different creature.</para>
+/// </summary>
+public static class CombatEndingCoalescer
+{
+    /// <summary><paramref name="endings"/> in the same order, each kill carrying the flights directly
+    /// before it. Returns the input itself when nothing folds.</summary>
+    public static IReadOnlyList<CombatEnding> Coalesce(IReadOnlyList<CombatEnding> endings)
+    {
+        List<CombatEnding>? result = null;
+        for (var i = 0; i < endings.Count; i++)
+        {
+            var ending = endings[i];
+            if (ending.Outcome == MudSharp.Combat.FightOutcome.Kill)
+            {
+                var output = (IReadOnlyList<CombatEnding>?)result ?? endings;
+                var outputCount = result?.Count ?? i;
+                var first = outputCount;
+                while (first > 0 && Absorbs(ending, output[first - 1]))
+                    first--;
+
+                if (first < outputCount)
+                {
+                    result ??= new List<CombatEnding>(endings.Take(i));
+                    for (var j = first; j < outputCount; j++)
+                        ending = Merge(result[j], ending);
+                    result.RemoveRange(first, outputCount - first);
+                }
+            }
+            result?.Add(ending);
+        }
+        return result ?? endings;
+    }
+
+    private static bool Absorbs(in CombatEnding kill, in CombatEnding earlier)
+        => earlier.Outcome is MudSharp.Combat.FightOutcome.CFledFail or MudSharp.Combat.FightOutcome.CFled
+            && earlier.ResetOrdinal == kill.ResetOrdinal
+            && string.Equals(earlier.Name, kill.Name, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>The kill keeps its identity - outcome, timestamp, ordinals - and takes on the flight's
+    /// figures and one more retry.</summary>
+    private static CombatEnding Merge(in CombatEnding flight, in CombatEnding kill)
+    {
+        var duration = flight.Duration + kill.Duration;
+        return kill with
+        {
+            Dealt = ExchangeLines.Combine(flight.Dealt, kill.Dealt, duration),
+            Taken = ExchangeLines.Combine(flight.Taken, kill.Taken, duration),
+            ScoreAwarded = flight.ScoreAwarded is int a
+                ? kill.ScoreAwarded is int b ? a + b : a
+                : kill.ScoreAwarded,
+            Duration = duration,
+            Retries = kill.Retries + flight.Retries + 1,
+        };
+    }
+}
 
 /// <summary>
 /// Pure ordering for the dead strip's session history - kept out of <c>SidePanelViewModel</c> (MAUI-
@@ -143,6 +224,10 @@ public readonly record struct CombatEnding(
 /// creature engaged first but killed last would draw above one engaged second but killed first, and
 /// that row would move the moment the first one died, breaking the strip's own "nothing moves"
 /// rule.</para>
+///
+/// <para>The one deliberate exception is <see cref="CombatEndingCoalescer"/>: a kill takes that
+/// creature's flight rows into itself, so they leave the strip and the rows around them shift. A
+/// death has changed something, which is what the strip moving is allowed to say.</para>
 /// </summary>
 public static class CombatEndingOrder
 {
