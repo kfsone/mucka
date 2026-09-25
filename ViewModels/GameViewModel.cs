@@ -2201,6 +2201,10 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         // LANDING, not the warning: hanging this off AutoResetInitiated grouped anything ending in
         // the 120-second finish-up window with the next cycle.
         _conn.WorldResetLanded += SidePanel.OnWorldResetLanded;
+        _conn.ResetNumberSeen  += SidePanel.OnResetNumberSeen;
+        // The first banner can go past before this view model exists.
+        if (_conn.ResetNumber is long resetNumber)
+            SidePanel.OnResetNumberSeen(resetNumber);
         _conn.StatusEffectsChanged += SidePanel.OnStatusEffectsChanged;
         _conn.InCombatChanged  += OnInCombatChanged;
         _conn.CombatGracePeriodChanged += OnCombatGracePeriodChanged;
@@ -2210,8 +2214,9 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _conn.GameModeExited   += SidePanel.OnGameModeExited;
         _conn.CharacterIdentified += OnCharacterIdentified;
         _conn.DreamwordChanged += OnDreamwordChanged;
-        // A word carried from an earlier connection to this world is restored before this view model
-        // exists, so it is read once here, after subscribing so a change cannot fall between the two.
+        // A word restored at the login banner can land before this view model subscribes, so it is read
+        // once here. After subscribing, so a later change still arrives; one racing this read can post
+        // behind it, which the next change corrects.
         OnDreamwordChanged(_conn.CurrentDreamword);
         _conn.TellReceived     += OnTellReceived;
         _conn.Disconnected     += OnDisconnected;
@@ -2257,6 +2262,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _conn.PersonaWiped     -= OnPersonaWiped;
         _conn.AutoResetInitiated -= OnAutoResetInitiated;
         _conn.WorldResetLanded -= SidePanel.OnWorldResetLanded;
+        _conn.ResetNumberSeen  -= SidePanel.OnResetNumberSeen;
         _conn.StatusEffectsChanged -= SidePanel.OnStatusEffectsChanged;
         _conn.InCombatChanged  -= OnInCombatChanged;
         _conn.CombatGracePeriodChanged -= OnCombatGracePeriodChanged;

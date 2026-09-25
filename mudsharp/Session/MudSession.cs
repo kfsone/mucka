@@ -810,12 +810,13 @@ public sealed class MudSession : IDisposable
         }
         ClearStale(refreshed);
 
-        // Keep _currentDreamword in sync when the dreamword arrives via text analysis
-        // (pre-game path, DreamwordLineRegex) rather than the binary C15 decoder.
-        // In game mode the C15 path fires DreamwordChanged which updates _currentDreamword
-        // directly; in pre-game mode the text path is the only source.
-        if (partial.DreamWord != null)
-            _currentDreamword = partial.DreamWord;
+        // A dreamword can arrive via text analysis (pre-game path, DreamwordLineRegex) rather than the
+        // binary C15 decoder; in pre-game mode the text path is the only source. Routed through the
+        // parser like the C15 path, so DreamwordChanged fires for it too. An FES snapshot carries the
+        // parser's own copy, which is equal and so raises nothing.
+        if (partial.DreamWord != null
+            && !string.Equals(partial.DreamWord, _parser.CurrentDreamword, StringComparison.Ordinal))
+            _parser.EmitDreamwordChanged(partial.DreamWord);
 
         // Merge: only overwrite fields that are non-null in the partial snapshot.
         // Nullable int? means null="absent" rather than 0="actual zero", so a death
@@ -1034,11 +1035,13 @@ public sealed class MudSession : IDisposable
     }
 
     /// <summary>Sets the dreamword as if the server had sent it - a word carried over from an earlier
-    /// connection to the same world. Through the parser, whose copy rides every FES snapshot.</summary>
+    /// login to the same world. Through the parser, whose copy rides every FES snapshot. Feed thread
+    /// only.</summary>
     public void RestoreDreamword(string word) => _parser.EmitDreamwordChanged(word);
 
     /// <summary>Clears the dreamword as if the server had - the world it belonged to has reset.
-    /// Through the parser for the reason <see cref="TryCancelSpokenDreamword"/> gives.</summary>
+    /// Through the parser for the reason <see cref="TryCancelSpokenDreamword"/> gives. Feed thread
+    /// only.</summary>
     public void ClearDreamword()
     {
         if (_parser.CurrentDreamword is not null || _currentDreamword is not null)
@@ -1057,8 +1060,8 @@ public sealed class MudSession : IDisposable
     // the speak is a no-op - we spoke at full stamina, or someone drained the FIFO queue first -
     // no C1 clear arrives, and we would otherwise keep advertising a dead dreamword forever.
     // Detection: our own persona saying the exact current dreamword. Speaking uses it, full stop.
-    // Runs on the Feed thread (LineReady), so no marshalling. _currentDreamword/_currentCharName are
-    // written on that thread, and by RestoreDreamword before a connection's read loop starts.
+    // Runs on the Feed thread (LineReady), so no marshalling; _currentDreamword/_currentCharName
+    // are only touched on that same thread.
     private void TryCancelSpokenDreamword(StyledLine line)
     {
         var word = _currentDreamword;
