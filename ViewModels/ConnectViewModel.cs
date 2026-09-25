@@ -10,6 +10,9 @@ public sealed class ConnectViewModel : BaseViewModel
 {
     private readonly CommandLineArgs _cmdArgs = CommandLineArgs.Current;
     private readonly Task _loadProfilesTask;
+    // Static: every connection this app makes shares the one dreamword carry, whatever page
+    // instance started it.
+    private static readonly Mucka.Commands.DreamwordCarry DreamwordCarry = new();
     private string _profileName = string.Empty;
     private string _host = "mud2.co.uk";
     private int _port = 23;
@@ -173,7 +176,8 @@ public sealed class ConnectViewModel : BaseViewModel
                 autoLogin ? resolvedPassword : null,
                 MaxColumns,
                 loginName,
-                Host.Trim())).ConfigureAwait(true);
+                Host.Trim(),
+                DreamwordCarry)).ConfigureAwait(true);
 
             // Carry the persisted settings (fkeys, font, volume, ...) over from the saved
             // profile - they are not editable on this page but must not reset on connect.

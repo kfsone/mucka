@@ -2210,6 +2210,9 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _conn.GameModeExited   += SidePanel.OnGameModeExited;
         _conn.CharacterIdentified += OnCharacterIdentified;
         _conn.DreamwordChanged += OnDreamwordChanged;
+        // A word carried from an earlier connection to this world is restored before this view model
+        // exists, so it is read once here, after subscribing so a change cannot fall between the two.
+        OnDreamwordChanged(_conn.CurrentDreamword);
         _conn.TellReceived     += OnTellReceived;
         _conn.Disconnected     += OnDisconnected;
         _conn.ResetEstimateChanged += OnResetEstimateChanged;
