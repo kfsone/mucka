@@ -45,7 +45,6 @@ public sealed class CombatFrameComposerTests
     private static CombatFrame Compose(
         CombatEncounterSnapshot snapshot,
         CombatStatDeficits? deficits = null,
-        IReadOnlyList<CombatEnding>? archive = null,
         IReadOnlyList<CombatEnding>? deadStrip = null,
         IReadOnlyList<string>? inventory = null)
         => CombatFrameComposer.Compose(new CombatFrameInputs(
@@ -56,7 +55,6 @@ public sealed class CombatFrameComposerTests
             inventory ?? [],
             _ => false,
             default,
-            archive ?? [],
             deadStrip ?? [],
             StaminaLostLastTick: 0,
             LastStaminaLossUtc: DateTime.MinValue,
@@ -228,7 +226,7 @@ public sealed class CombatFrameComposerTests
     {
         CombatEnding[] archive = [new("large rat", FightOutcome.Kill, Now)];
 
-        var frame = Compose(Encounter(hasEncounter: false, inCombat: false), archive: archive);
+        var frame = Compose(Encounter(hasEncounter: false, inCombat: false), deadStrip: archive);
 
         Assert.True(frame.Live.HasEncounter);
         Assert.Equal(archive, frame.Live.DeadStripHistory);
