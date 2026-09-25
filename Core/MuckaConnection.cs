@@ -155,6 +155,7 @@ public sealed class MuckaConnection : IAsyncDisposable
 
     public bool IsConnected => _client?.Connected ?? false;
     public bool InGameMode => _session.InGameMode;
+    public string? CurrentDreamword => _session.CurrentDreamword;
 
     /// <summary>Where the store is writing - shown to the player.</summary>
     public string DatabasePath => _store.Path;
@@ -269,8 +270,9 @@ public sealed class MuckaConnection : IAsyncDisposable
     /// the part of a session most worth a byte-exact record of - is in the wire log like everything
     /// else.</param>
     public MuckaConnection(string? accountId = null, string? password = null, int maxCols = 80,
-        string loginName = "mud", string host = "unknown")
+        string loginName = "mud", string host = "unknown", DreamwordCarry? dreamwordCarry = null)
     {
+        _dreamwordCarry = dreamwordCarry ?? new DreamwordCarry();
         _windowCols = Math.Clamp(maxCols, 20, 160);
         _store = new MuckaStore(
             MuckaPaths.GetDatabasePath(),
@@ -305,6 +307,11 @@ public sealed class MuckaConnection : IAsyncDisposable
             using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
             await client.ConnectAsync(host, port, linkedCts.Token).ConfigureAwait(false);
             client.NoDelay = true;
+
+            // Only once the socket is up, so a failed attempt at another server keeps this one's
+            // word; and before the read loop starts, so the session is touched on this thread alone.
+            if (_dreamwordCarry.Connect(host, DateTime.UtcNow) is string carried)
+                _session.RestoreDreamword(carried);
 
             var stream = client.GetStream();
             var cts = new CancellationTokenSource();
@@ -685,6 +692,18 @@ public sealed class MuckaConnection : IAsyncDisposable
     /// </summary>
     public SessionDropReason LastSessionEndReason { get; private set; } = SessionDropReason.Unknown;
 
+    /// <summary>The dreamword outlives a connection while the world it belongs to does - see
+    /// <see cref="DreamwordCarry"/>. Shared across every connection the app makes.</summary>
+    private readonly DreamwordCarry _dreamwordCarry;
+
+    /// <summary>The world has reset: the word it handed out is gone, here and for later
+    /// connections.</summary>
+    private void ForgetDreamword()
+    {
+        _session.ClearDreamword();
+        _dreamwordCarry.Clear();
+    }
+
     private void BeginPersonaSession()
     {
         // Defensive: two entries with no exit between them would otherwise strand the first row with
@@ -693,6 +712,9 @@ public sealed class MuckaConnection : IAsyncDisposable
             EndPersonaSession();
 
         _sessionEnd.Begin();
+        // A reset that came while the player sat at the menu sends no landing to see.
+        if (_dreamwordCarry.IsPastReset(DateTime.UtcNow))
+            ForgetDreamword();
         _personaSessionId = _store.BeginPersonaSession(
             DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), _host);
         _swingLedger.OnPersonaSessionChanged(_personaSessionId);
@@ -703,6 +725,9 @@ public sealed class MuckaConnection : IAsyncDisposable
     private void EndPersonaSession()
     {
         LastSessionEndReason = _sessionEnd.Reason;
+        // Covers a reset recognised by its landing line when the C06 C06 was not corroborated.
+        if (LastSessionEndReason == SessionDropReason.Reset)
+            ForgetDreamword();
 
         if (_personaSessionId is long id)
             _store.EndPersonaSession(id, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
@@ -746,7 +771,12 @@ public sealed class MuckaConnection : IAsyncDisposable
         _session.AutoResetInitiated += () => AutoResetInitiated?.Invoke();
         // The reset takes the world down and logs everyone out, so the game-mode exit that follows it
         // milliseconds later is the one that closes the session. Leave a note for it to pick up.
-        _session.WorldResetLanded += () => { _sessionEnd.NoteWorldResetLanded(); WorldResetLanded?.Invoke(); };
+        _session.WorldResetLanded += () =>
+        {
+            _sessionEnd.NoteWorldResetLanded();
+            ForgetDreamword();
+            WorldResetLanded?.Invoke();
+        };
         // Permadeath has a code of its own (C08+C13), so it is taken from the code rather than from
         // the "Not updating persona." line that accompanies it.
         _session.PersonaWiped += _sessionEnd.NotePersonaWiped;
@@ -788,6 +818,7 @@ public sealed class MuckaConnection : IAsyncDisposable
         };
         _session.DreamwordChanged   += w =>
         {
+            _dreamwordCarry.Note(w);
             if (w != null)
                 _wireLog.Annotate($"dreamword detected: {w}");
             else
@@ -823,7 +854,11 @@ public sealed class MuckaConnection : IAsyncDisposable
         // rather than pushed, so it gets the clock's best current lock. See
         // ClogWriter.ResetEstimateProvider.
         _clog.ResetEstimateProvider = () => _session.ResetEstimate;
-        _session.ResetEstimateChanged   += () => ResetEstimateChanged?.Invoke();
+        _session.ResetEstimateChanged   += () =>
+        {
+            _dreamwordCarry.NoteResetDue(_session.ResetEstimate.TargetUtc);
+            ResetEstimateChanged?.Invoke();
+        };
         _session.ResetObservationRecorded += OnResetObservation;
         _session.ResetDiagnostic        += OnResetDiagnostic;
     }
