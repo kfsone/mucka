@@ -52,6 +52,19 @@ public sealed class KillAwardLedger
     /// </summary>
     public readonly record struct EndingKey(int Encounter, string Name, long EndedTicks);
 
+    /// <summary>
+    /// Whether an ending of this kind can carry an award, and so goes on the queue: a kill, and a
+    /// creature's flight whether it got away or not.
+    ///
+    /// <para>A FAILED flight is scored too. One frame, mudii.co.uk, Kayfez:
+    /// <c>The water-snake1 has fled by trying to go north.</c> / <c>You can fight it no longer.</c> /
+    /// <c>(Persona saved on +4 = 2,756).</c></para>
+    /// </summary>
+    public static bool Awards(MudSharp.Combat.CombatEventKind kind)
+        => kind is MudSharp.Combat.CombatEventKind.Kill
+            or MudSharp.Combat.CombatEventKind.NpcFled
+            or MudSharp.Combat.CombatEventKind.NpcFleeFailed;
+
     /// <summary>A creature died or broke off and ran. Queued to await the announcement that follows it
     /// inside this frame, or to be dropped by <see cref="NoteFrameClosed"/> if none does.</summary>
     public void NoteEnding(int encounterOrdinal, string name, DateTime endedUtc)

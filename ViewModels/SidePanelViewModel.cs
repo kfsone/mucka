@@ -655,9 +655,8 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             // Queued BEFORE the aggregator sees it, so the ending is waiting by the time the award line
             // that follows it arrives (KillAwardLedger). The event's own stamp is what the fight will
             // resolve with, so this key and the one AwardFor looks up with are the same by construction.
-            // NpcFled joins Kill, showing what an NPC's flight was worth; NpcFleeFailed does not - the
-            // creature is still in the room and nothing was scored.
-            if (combatEvent.Kind is CombatEventKind.Kill or CombatEventKind.NpcFled
+            // Which endings are scored is KillAwardLedger.Awards.
+            if (KillAwardLedger.Awards(combatEvent.Kind)
                 && combatEvent.NpcName is { Length: > 0 } ended)
                 _killAwards.NoteEnding(_encounterOrdinal, ended, combatEvent.TimestampUtc);
             if (combatEvent.Kind is CombatEventKind.YouFled or CombatEventKind.YouFleeFailed)
