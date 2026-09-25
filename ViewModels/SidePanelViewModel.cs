@@ -257,11 +257,9 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     // each other (0 == 0) without a separate "has anything happened yet" flag - the value only has to
     // be a stable key, never a human-facing count.
     private int _encounterOrdinal;
-    private int _resetOrdinal;
-    // True once the corroborated reset landing has advanced _resetOrdinal for the current cycle, so
-    // the shell-prompt backstop in OnGameModeExited does not advance it a second time. Cleared by
-    // that same handler, which every reset passes through. See OnWorldResetLanded.
-    private bool _resetOrdinalAdvanced;
+    // The reset ordinal is ResetCycle's: the corroborated landing and the login banner's reset
+    // number, never a return to the menu.
+    private readonly ResetCycle _resetCycle = new();
     private readonly List<CombatEnding> _endingArchive = new();
     // The published, immutable form of _endingArchive - a fresh array taken only when the archive
     // actually grows (at an encounter close), so every frame published before that close keeps
@@ -577,7 +575,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
                 foreach (var fight in closingSnapshot.Fights)
                 {
                     if (fight.IsResolved)
-                        newEndings.Add(EndingFor(fight, _encounterOrdinal, _resetOrdinal));
+                        newEndings.Add(EndingFor(fight, _encounterOrdinal, _resetCycle.Ordinal));
                 }
                 _endingArchive.AddRange(CombatEndingOrder.Sorted(newEndings));
                 // A fresh immutable copy - see _archiveSnapshot's own remarks on why this is the ONLY
@@ -1025,7 +1023,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         foreach (var fight in snapshot.Fights)
         {
             if (fight.IsResolved)
-                tail.Add(EndingFor(fight, _encounterOrdinal, _resetOrdinal));
+                tail.Add(EndingFor(fight, _encounterOrdinal, _resetCycle.Ordinal));
         }
 
         var combined = new List<CombatEnding>(_archiveSnapshot.Length + tail.Count);
@@ -1519,13 +1517,6 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         {
             CurrentRoom = "Option Menu.";
             SetAllExitsPresent(false);
-            // Backstop for the dead strip's reset boundary - see OnWorldResetLanded. Only advances
-            // when the landing did not, so a corroborated reset gets its line at 06 06 and an
-            // uncorroborated one gets it here, at the shell prompt about 200 ms later, rather than
-            // not at all.
-            if (!_resetOrdinalAdvanced)
-                _resetOrdinal++;
-            _resetOrdinalAdvanced = false;
         });
 
     /// <summary>
@@ -1627,11 +1618,17 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     /// Advances the dead strip's reset-grouping ordinal (<see cref="CombatEnding.ResetOrdinal"/>) on
     /// <c>MudSession.WorldResetLanded</c> (FE 06 06). Fires on the reset LANDING, not the C06 C04
     /// warning: an ending inside the finish-up window belongs to the cycle that is ending, not the
-    /// next one. <see cref="OnGameModeExited"/> is the backstop when the landing is not raised; a
+    /// next one. <see cref="OnResetNumberSeen"/> is the backstop when the landing is not raised; a
     /// missing separator merges two cycles, which is worse than one drawn late.
     /// </summary>
     public void OnWorldResetLanded()
-        => MainThread.BeginInvokeOnMainThread(() => { _resetOrdinal++; _resetOrdinalAdvanced = true; });
+        => MainThread.BeginInvokeOnMainThread(_resetCycle.NoteLanding);
+
+    /// <summary>A login banner named the world's reset number - see <see cref="ResetCycle"/>. Hops like
+    /// every other handler here: the ledger is UI-thread state, and the landing arrives the same way,
+    /// so the two reach it in the order their lines did.</summary>
+    public void OnResetNumberSeen(long number)
+        => MainThread.BeginInvokeOnMainThread(() => _resetCycle.NoteResetNumber(number));
 
     // -- WHO list (FEW) --------------------------------------------------------
 

@@ -1,96 +1,79 @@
 using Mucka.Commands;
+using World = Mucka.Commands.DreamwordCarry.World;
 
 namespace Mucka.Util.Tests;
 
 /// <summary>
-/// <see cref="DreamwordCarry"/>: the dreamword survives a relog to the same server inside one reset
-/// cycle, and nothing else.
+/// <see cref="DreamwordCarry"/>: the dreamword survives a relog into the same world - one server, one
+/// reset number - and nothing else. The numbers are from the wire table: runs 115 and 116 both read
+/// "This reset is number 127228.", the next reset read 127229, and the other server read 48784.
 /// </summary>
 public sealed class DreamwordCarryTests
 {
-    private static readonly DateTime T0 = new(2026, 9, 24, 12, 0, 0, DateTimeKind.Utc);
+    private static readonly World Reset127228 = World.Of("mudii.co.uk", 23, 127228);
 
-    private static DreamwordCarry HoldingOn(string host, string word, DateTime? resetDue = null)
+    private static DreamwordCarry Holding(World world, string word)
     {
         var carry = new DreamwordCarry();
-        carry.Connect(host, T0);
-        carry.Note(word);
-        carry.NoteResetDue(resetDue);
+        carry.Enter(world);
+        carry.Note(world, word);
         return carry;
     }
 
     [Fact]
-    public void ARelogToTheSameServerBeforeTheReset_RestoresTheWord()
+    public void ARelogIntoTheSameWorld_RestoresTheWord()
     {
-        var carry = HoldingOn("mud2.co.uk", "zanzibar", T0.AddMinutes(30));
+        var carry = Holding(Reset127228, "zanzibar");
 
-        Assert.Equal("zanzibar", carry.Connect("MUD2.co.uk", T0.AddMinutes(5)));
+        Assert.Equal("zanzibar", carry.Enter(World.Of(" MUDII.co.uk ", 23, 127228)));
+    }
+
+    [Fact]
+    public void ANewResetNumber_DropsTheWord()
+    {
+        var carry = Holding(Reset127228, "zanzibar");
+
+        Assert.Null(carry.Enter(World.Of("mudii.co.uk", 23, 127229)));
     }
 
     [Fact]
     public void AnotherServer_DropsTheWord_AndComingBackDoesNotRestoreIt()
     {
-        var carry = HoldingOn("mud2.co.uk", "zanzibar", T0.AddMinutes(30));
+        var carry = Holding(Reset127228, "zanzibar");
 
-        Assert.Null(carry.Connect("mud2.com", T0.AddMinutes(1)));
-        Assert.Null(carry.Connect("mud2.co.uk", T0.AddMinutes(2)));
+        Assert.Null(carry.Enter(World.Of("mud2.com", 23, 48784)));
+        Assert.Null(carry.Enter(Reset127228));
     }
 
     [Fact]
-    public void AResetWhileAway_DropsTheWord()
+    public void AnotherPortOnTheSameHost_IsAnotherServer()
     {
-        var carry = HoldingOn("mud2.co.uk", "zanzibar", T0.AddMinutes(30));
+        var carry = Holding(Reset127228, "zanzibar");
 
-        Assert.Null(carry.Connect("mud2.co.uk", T0.AddMinutes(31)));
-    }
-
-    [Fact]
-    public void AResetSeenLive_DropsTheWord()
-    {
-        var carry = HoldingOn("mud2.co.uk", "zanzibar", T0.AddMinutes(30));
-
-        carry.Clear();
-
-        Assert.Null(carry.Connect("mud2.co.uk", T0.AddMinutes(1)));
+        Assert.Null(carry.Enter(World.Of("mudii.co.uk", 2323, 127228)));
     }
 
     [Fact]
     public void AClearedWord_IsNotRestored()
     {
-        var carry = HoldingOn("mud2.co.uk", "zanzibar", T0.AddMinutes(30));
+        var carry = Holding(Reset127228, "zanzibar");
 
-        carry.Note(null);
+        carry.Note(Reset127228, null);
 
-        Assert.Null(carry.Connect("mud2.co.uk", T0.AddMinutes(1)));
+        Assert.Null(carry.Enter(Reset127228));
     }
 
     [Fact]
-    public void ADroppedProjection_DoesNotForgetTheLastKnownReset()
+    public void ALateWriteFromAnotherWorld_IsNotRestoredIntoThisOne()
     {
-        var carry = HoldingOn("mud2.co.uk", "zanzibar", T0.AddMinutes(30));
+        var carry = new DreamwordCarry();
+        var next = World.Of("mudii.co.uk", 23, 127229);
 
-        carry.NoteResetDue(null);
+        // A closing connection still in the old reset delivers its last word after the new login's
+        // banner has been read.
+        carry.Enter(next);
+        carry.Note(Reset127228, "zanzibar");
 
-        Assert.Null(carry.Connect("mud2.co.uk", T0.AddMinutes(31)));
-    }
-
-    [Fact]
-    public void NoProjectionEver_KeepsTheWord()
-    {
-        var carry = HoldingOn("mud2.co.uk", "zanzibar");
-
-        Assert.False(carry.IsPastReset(T0.AddHours(3)));
-        Assert.Equal("zanzibar", carry.Connect("mud2.co.uk", T0.AddHours(3)));
-    }
-
-    [Fact]
-    public void IsPastReset_TracksTheLatestProjection()
-    {
-        var carry = HoldingOn("mud2.co.uk", "zanzibar", T0.AddMinutes(30));
-
-        carry.NoteResetDue(T0.AddMinutes(40));
-
-        Assert.False(carry.IsPastReset(T0.AddMinutes(35)));
-        Assert.True(carry.IsPastReset(T0.AddMinutes(40)));
+        Assert.Null(carry.Enter(next));
     }
 }

@@ -76,6 +76,18 @@ public class DreamwordSpokenTests : IDisposable
     }
 
     [Fact]
+    public void ADreamwordFromPreGameText_RaisesTheChange_Once()
+    {
+        // Outside game mode the word arrives as text, not C15; it must still raise DreamwordChanged,
+        // which is what carries it to the next login. The same word again is no change.
+        Feed("The wanderer gasps \"orchid\".\n");
+        Feed("The wanderer gasps \"orchid\".\n");
+
+        Assert.Equal(["orchid"], _dreamwords);
+        Assert.Equal("orchid", _session.CurrentDreamword);
+    }
+
+    [Fact]
     public void OwnPersonaSpeaksDreamword_CancelsIt()
     {
         EnterAsOllie();

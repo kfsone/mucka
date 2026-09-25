@@ -94,9 +94,9 @@ public sealed record SessionCombatTotals(
 /// row-capped roster - see <c>SidePanelViewModel.BuildDeadStripHistory</c>.</para>
 ///
 /// <para><see cref="EncounterOrdinal"/> and <see cref="ResetOrdinal"/> are simple monotonic
-/// session-scoped counters, not timestamps or epochs. The reset one advances on
-/// <c>MudSession.WorldResetLanded</c> - the observed C06 C06 landing - and neither is ever derived from
-/// the FES <c>TimeToReset</c>, which wizards can delay or accelerate.
+/// session-scoped counters, not timestamps or epochs. The reset one is <see cref="ResetCycle"/>'s,
+/// advanced by the observed C06 C06 landing and by the login banner's reset number, and neither is
+/// ever derived from the FES <c>TimeToReset</c>, which wizards can delay or accelerate.
 /// See <c>SidePanelViewModel</c>'s own fields for where each counter is advanced.</para>
 /// </summary>
 /// <param name="EncounterOrdinal">Which encounter this ending belongs to. Incremented once per
@@ -105,8 +105,9 @@ public sealed record SessionCombatTotals(
 /// <param name="ResetOrdinal">Which reset cycle this ending belongs to. Incremented when the reset
 /// LANDS - the server's own C06 C06, corroborated against the reset countdown
 /// (<c>SidePanelViewModel.OnWorldResetLanded</c>, wired to <c>MuckaConnection.WorldResetLanded</c>),
-/// with the shell prompt as a backstop. Never inferred from the countdown or from prose, and
-/// never from the C06 C04 WARNING - anything ending in the 120-second finish-up window (a fight cut
+/// with the next login banner's new reset number as a backstop (<see cref="ResetCycle"/>). Never
+/// advanced by a return to the menu, which a quit or a relog inside one reset also makes. Never
+/// inferred from the countdown or from prose, and never from the C06 C04 WARNING - anything ending in the 120-second finish-up window (a fight cut
 /// short BY the reset, most obviously) must land on the pre-reset side of the separator.</param>
 /// <param name="Dealt">What the player did to this creature over the whole fight, and at what rate -
 /// the same <see cref="MudSharp.Combat.ExchangeLine"/> its live tile carried, frozen at the moment it
