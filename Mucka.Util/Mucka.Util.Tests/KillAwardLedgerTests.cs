@@ -27,6 +27,40 @@ public sealed class KillAwardLedgerTests
         Assert.Equal(118, ledger.AwardFor(16, "billy goat", At(0)));
     }
 
+    [Theory]
+    [InlineData(MudSharp.Combat.CombatEventKind.Kill, true)]
+    [InlineData(MudSharp.Combat.CombatEventKind.NpcFled, true)]
+    [InlineData(MudSharp.Combat.CombatEventKind.NpcFleeFailed, true)]
+    [InlineData(MudSharp.Combat.CombatEventKind.NpcDied, false)]
+    [InlineData(MudSharp.Combat.CombatEventKind.YouFled, false)]
+    public void Awards_a_kill_and_a_creatures_flight_whether_or_not_it_got_away(
+        MudSharp.Combat.CombatEventKind kind, bool awards)
+        => Assert.Equal(awards, KillAwardLedger.Awards(kind));
+
+    [Fact]
+    public void A_failed_flight_takes_its_own_award_and_the_kill_after_it_takes_its_own()
+    {
+        //   The water-snake1 has fled by trying to go north.
+        //   You can fight it no longer.
+        //   (Persona saved on +4 = 2,756).
+        //   ...
+        //   You have killed the water-snake1.
+        //   (Persona saved on +85 = 2,841).
+        var ledger = new KillAwardLedger();
+
+        Assert.True(KillAwardLedger.Awards(MudSharp.Combat.CombatEventKind.NpcFleeFailed));
+        ledger.NoteEnding(encounterOrdinal: 7, "water-snake1", At(0));
+        Assert.True(ledger.NoteScoreRise(4));
+        ledger.NoteFrameClosed();
+
+        ledger.NoteEnding(encounterOrdinal: 8, "water-snake1", At(4));
+        Assert.True(ledger.NoteScoreRise(85));
+        ledger.NoteFrameClosed();
+
+        Assert.Equal(4, ledger.AwardFor(7, "water-snake1", At(0)));
+        Assert.Equal(85, ledger.AwardFor(8, "water-snake1", At(4)));
+    }
+
     [Fact]
     public void An_unscored_ending_cannot_steal_a_later_frames_award()
     {
