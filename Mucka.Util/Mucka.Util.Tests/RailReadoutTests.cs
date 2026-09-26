@@ -58,14 +58,31 @@ public sealed class RailReadoutTests
         Assert.Equal(
             [
                 "water-snake1  killed  1 flight  +89  18t",
-                "you  6 measured  max <=14 avg ~12.8  65-89 @ 3.3t",
-                "it   3 measured  4-15 avg 8.7  26 @ 1.4t",
+                "     hits   max    avg  total  rate",
+                "you     6  <=14  ~12.8  65-89  3.3t",
+                "it      3    15    8.7     26  1.4t",
             ],
             RailReadout.EndingCard(ending, CultureInfo.InvariantCulture));
     }
 
     [Fact]
-    public void EndingCard_ASideWithNothingMeasured_SaysSo_AndBlowsAllAlike_ReadEach()
+    public void EndingCard_AWideTotal_WidensItsColumn_AndEveryLineStaysTheSameLength()
+    {
+        // The total that was being cut off: "81-120" on the old one-line layout.
+        var ending = new CombatEnding(
+            "ram", FightOutcome.Kill, null,
+            Dealt: new ExchangeLine(12, 9, 24, 15.3, 3.3, new DamageBracket(81, 120)),
+            Taken: new ExchangeLine(3, 4, 15, 26 / 3.0, 1.4, new DamageBracket(26, 26)));
+
+        var card = RailReadout.EndingCard(ending, CultureInfo.InvariantCulture);
+
+        Assert.Equal("you    12  <=24  ~15.3  81-120  3.3t", card[2]);
+        Assert.Equal(card[1].Length, card[2].Length);
+        Assert.Equal(card[1].Length, card[3].Length);
+    }
+
+    [Fact]
+    public void EndingCard_ASideWithNothingMeasured_ReadsZeroHitsAndDashes()
     {
         var ending = new CombatEnding(
             "rat9", FightOutcome.CFledFail, null,
@@ -74,8 +91,8 @@ public sealed class RailReadoutTests
         var card = RailReadout.EndingCard(ending, CultureInfo.InvariantCulture);
 
         Assert.Equal("rat9  broke off", card[0]);
-        Assert.Equal("you  no blows measured", card[1]);
-        Assert.Equal("it   2 measured  each 6  12", card[2]);
+        Assert.Equal("you     0    -    -      -     -", card[2]);
+        Assert.Equal("it      2    6    6     12     -", card[3]);
     }
 
     // ---- OutcomeWord ---------------------------------------------------------------------------

@@ -62,13 +62,25 @@ public static class RailReadout
     }
 
     /// <summary>
-    /// The dead-strip row's hover card: the ending, then each side's blows over every engagement the
-    /// row stands for.
+    /// The dead-strip row's hover card: the ending, then a small table of each side's blows over every
+    /// engagement the row stands for.
+    ///
+    /// <code>
+    /// water-snake1  killed  1 flight  +89  18t
+    ///      hits   max    avg   total  rate
+    /// you     6  &lt;=14  ~12.8   65-89  3.3t
+    /// it      3    15    8.7      26  1.4t
+    /// </code>
+    ///
+    /// <para>A table rather than a sentence per side, so every figure keeps its own column and a
+    /// long total cannot push another off the card's edge. Padded with spaces, which aligns because
+    /// the card's face is monospace.</para>
     ///
     /// <para>The two sides read differently because they are different measurements. The creature's
-    /// blows are exact, so its line gives the range and the average. The player's are brackets: the
-    /// total is a range, the average is a midpoint (marked "~"), and the largest blow is an upper
-    /// bound (marked "&lt;="). See <see cref="ExchangeLine"/>.</para>
+    /// blows are exact. The player's are brackets: the total is a range, the average is a midpoint
+    /// (marked "~"), and the largest blow is an upper bound (marked "&lt;="). See
+    /// <see cref="ExchangeLine"/>. "hits" counts the landed blows that carried numbers
+    /// (<see cref="ExchangeLine.Samples"/>); the word is the operator's.</para>
     /// </summary>
     public static IReadOnlyList<string> EndingCard(CombatEnding ending, CultureInfo culture)
     {
@@ -81,28 +93,47 @@ public static class RailReadout
         if (ticks >= 1.0)
             head += "  " + ticks.ToString("0", culture) + "t";
 
-        return [head, CardLine("you", ending.Dealt, byPlayer: true, culture),
-            CardLine("it ", ending.Taken, byPlayer: false, culture)];
+        string[][] rows =
+        [
+            ["", "hits", "max", "avg", "total", "rate"],
+            CardRow("you", ending.Dealt, byPlayer: true, culture),
+            CardRow("it", ending.Taken, byPlayer: false, culture),
+        ];
+
+        var widths = new int[rows[0].Length];
+        foreach (var row in rows)
+        {
+            for (var c = 0; c < row.Length; c++)
+                widths[c] = Math.Max(widths[c], row[c].Length);
+        }
+
+        var lines = new string[rows.Length + 1];
+        lines[0] = head;
+        for (var r = 0; r < rows.Length; r++)
+        {
+            // The label column reads left to right; every figure lines up on its last digit.
+            var text = rows[r][0].PadRight(widths[0]);
+            for (var c = 1; c < rows[r].Length; c++)
+                text += "  " + rows[r][c].PadLeft(widths[c]);
+            lines[r + 1] = text;
+        }
+        return lines;
     }
 
-    private static string CardLine(string who, ExchangeLine line, bool byPlayer, CultureInfo culture)
+    private static string[] CardRow(string who, ExchangeLine line, bool byPlayer, CultureInfo culture)
     {
         if (!line.HasSamples)
-            return who + "  no blows measured";
+            return [who, "0", "-", "-", "-", "-"];
 
-        // "measured", not "hits": Samples counts the landed blows that carried numbers, and a blow
-        // can land without one.
-        var measured = line.Samples.ToString(culture) + " measured";
         var total = byPlayer && line.Total.High > line.Total.Low
             ? line.Total.Low.ToString("0.#", culture) + "-" + line.Total.High.ToString("0.#", culture)
             : line.Total.High.ToString("0.#", culture);
-        var rate = line.PerTick > 0 ? " @ " + line.PerTick.ToString("0.#", culture) + "t" : string.Empty;
-        // The blows lead and the total follows: a line too long for the card is cut from the right,
-        // and the largest blow is the figure that must not be the one lost.
-        var shape = byPlayer
-            ? "max <=" + line.Max.ToString("0.#", culture) + " avg ~" + line.Mean.ToString("0.#", culture)
-            : BlowShape(line, culture);
-        return who + "  " + measured + "  " + shape + "  " + total + rate;
+        var rate = line.PerTick > 0 ? line.PerTick.ToString("0.#", culture) + "t" : "-";
+        var max = line.Max.ToString("0.#", culture);
+        var avg = line.Mean.ToString("0.#", culture);
+        return byPlayer
+            ? [who, line.Samples.ToString(culture), "<=" + max, "~" + avg, total, rate]
+            : [who, line.Samples.ToString(culture), max, avg, total, rate];
     }
 
     /// <summary>
