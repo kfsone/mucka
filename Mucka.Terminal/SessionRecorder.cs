@@ -27,7 +27,8 @@ namespace Mucka.Terminal;
 /// operator's ruling is that it is not masked.</para>
 ///
 /// <para><b>What one line is.</b> Delegated entirely to <see cref="TerminalBuffer"/>, which owns the
-/// partial-replaces-partial, echo-merges-into-prompt and form-feed-clears rules. Writing a line per
+/// partial-replaces-partial, echo-merges-into-prompt and form-feed rules; a clear-screen reaches the
+/// file as <see cref="ClearRuleText"/> and removes nothing from it. Writing a line per
 /// <see cref="StyledLine"/> instead would put a copy of every prompt in the file, since a prompt is
 /// a partial line that is replaced until its echo finishes it.</para>
 ///
@@ -162,9 +163,8 @@ public sealed class SessionRecorder : IAsyncDisposable
             if (_stopped) return;
             _stopped = true;
             // A live prompt is on screen but was never committed. It belongs in the transcript -
-            // the player was looking at it when they stopped recording. There is nothing to write
-            // when a form feed arrived last: TerminalBuffer.Append clears the partial on one, along
-            // with any text that shared its line.
+            // the player was looking at it when they stopped recording. A form feed never strands
+            // one: TerminalBuffer.Append commits the partial ahead of the clear.
             if (_screen.Partial is { } partial && partial.PlainText.Length > 0)
                 _queue.Writer.TryWrite(partial.PlainText);
             // The footer and the completion are queued under the SAME lock the committing path holds,
@@ -188,7 +188,13 @@ public sealed class SessionRecorder : IAsyncDisposable
         await _pump.ConfigureAwait(false);
     }
 
-    private void OnLineCommitted(StyledLine line) => _queue.Writer.TryWrite(line.PlainText);
+    /// <summary>What the transcript writes where the screen was cleared: the pane draws a rule
+    /// there, the file writes a bracketed client note. Not a line of dashes - the server prints
+    /// those itself, and a reader must be able to tell a clear from server output.</summary>
+    internal const string ClearRuleText = "[screen cleared]";
+
+    private void OnLineCommitted(StyledLine line) =>
+        _queue.Writer.TryWrite(TerminalBuffer.IsClearRule(line) ? ClearRuleText : line.PlainText);
 
     private async Task PumpAsync()
     {

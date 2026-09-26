@@ -18,6 +18,9 @@ namespace Mucka.Rendering;
 ///   keeps filling the buffer behind the frozen view. Scrolling back to the bottom (or Esc/End)
 ///   returns to live. While in history the host blocks the input buffer.</item>
 /// </list>
+/// A clear-screen from the server empties the live view but not history: the snapshot holds the
+/// lines above it, with a drawn rule where the clear was (see <see cref="TerminalBuffer.ClearRule"/>).
+/// <see cref="Clear"/> is the client's own wipe and takes history with it.
 /// Lines are naive-hard-wrapped at a fixed column count. Selection and copy are handled here.
 /// </summary>
 [System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA1001:Types that own disposable fields should be disposable",
@@ -60,6 +63,8 @@ public sealed class TerminalView : SKCanvasView
     // -- Selection (mouse drag in history) -------------------------------------
     // Translucent so text shows through; bright enough to be unmistakable on the dark background.
     private static readonly SKColor SelectionColor = new(0x3A, 0x6E, 0xA5, 0x99);
+    // The clear-screen rule in scrollback: the palette's dark grey, the colour of client notes.
+    private static readonly SKColor ClearRuleColor = TerminalTheme.Palette[8];
     // A plain click must NOT enter scrollback - only a deliberate drag does (along with the
     // wheel and PgUp/PgDn keys). On a live press we arm a pending drag and stay live; scrollback
     // begins the moment the pointer moves past this threshold (see PointerDrag).
@@ -406,7 +411,7 @@ public sealed class TerminalView : SKCanvasView
         int n = Columns > 0 ? Columns : colsFit;
 
         var continues = new List<bool>();
-        var rows = BuildVisualRows(n, continues);
+        var rows = BuildVisualRows(n, continues, out int liveFirstRow);
 
         int viewportRows = Math.Max(1, (int)(pxH / cellH));
         _lastViewportRows = viewportRows;
@@ -418,11 +423,15 @@ public sealed class TerminalView : SKCanvasView
         {
             int bottomIndex = rows.Count - 1 - offset;            // last visible row sits at the bottom edge
             int drawn = Math.Min(viewportRows + 1, bottomIndex + 1);   // +1 lets the top row clip cleanly
+            // Live: a server clear-screen empties the screen - nothing at or above its rule is drawn.
+            if (!_historyMode) drawn = Math.Min(drawn, bottomIndex + 1 - liveFirstRow);
             int first = bottomIndex - drawn + 1;
             float top = pxH - drawn * cellH;                      // bottom-pinned window (may be slightly negative)
 
             // Cache geometry so pointer events can hit-test rows/columns for selection.
-            _lastRows = rows; _lastRowContinues = continues; _lastFirst = first; _lastBottomIndex = bottomIndex;
+            // first is past bottomIndex on a live screen emptied by a clear; HitTest clamps into
+            // [_lastFirst, _lastBottomIndex], so keep that range non-empty.
+            _lastRows = rows; _lastRowContinues = continues; _lastFirst = Math.Min(first, bottomIndex); _lastBottomIndex = bottomIndex;
             _lastTop = top; _lastCellW = cellW; _lastCellH = cellH; _lastLeftPad = leftPad;
 
             // Normalize the selection range (only meaningful while reviewing history).
@@ -435,6 +444,17 @@ public sealed class TerminalView : SKCanvasView
             {
                 float rowTop = top + (r - first) * cellH;
                 var row = rows[r];
+
+                // Where the server cleared the screen: only scrollback ever shows these rows. A
+                // drawn rule across the text columns - no glyph, and no selection highlight.
+                if (TerminalBuffer.IsClearRule(row))
+                {
+                    _fillPaint.Color = ClearRuleColor;
+                    float ruleH = Math.Max(1f, scale);
+                    float ruleW = Math.Min(n * cellW, pxW - leftPad);
+                    canvas.DrawRect(leftPad, rowTop + (cellH - ruleH) / 2f, ruleW, ruleH, _fillPaint);
+                    continue;
+                }
 
                 // Glyphs first.
                 float baseline = rowTop + font.Baseline;
@@ -509,12 +529,25 @@ public sealed class TerminalView : SKCanvasView
 
     // Wrap the active source (frozen snapshot in history, else live buffer) into visual rows, and
     // record which of them are soft-wrap continuations - the copy path strips those breaks.
-    private List<StyledLine> BuildVisualRows(int n, List<bool>? continues = null)
+    //
+    // Live wraps the whole buffer too, so a row index means the same row in both modes - a drag
+    // from live seeds its selection from live geometry and then paints over the frozen rows.
+    // liveFirstRow is where the live screen starts (the row after the latest clear-screen rule);
+    // the live window is never drawn above it.
+    private List<StyledLine> BuildVisualRows(int n, List<bool>? continues, out int liveFirstRow)
     {
+        liveFirstRow = 0;
         if (_historyMode && _frozen is not null)
             return LineWrapper.WrapAll(_frozen, n, continues);
 
-        var rows = LineWrapper.WrapAll(_buffer.Committed, n, continues);
+        var rows = new List<StyledLine>();
+        var committed = _buffer.Committed;
+        for (int i = 0; i < committed.Count; i++)
+        {
+            if (i == _buffer.LiveStart) liveFirstRow = rows.Count;
+            LineWrapper.Wrap(committed[i], n, rows, continues);
+        }
+        if (_buffer.LiveStart >= committed.Count) liveFirstRow = rows.Count;
         if (_buffer.Partial is { } partial)
             LineWrapper.Wrap(partial, n, rows, continues);
         return rows;

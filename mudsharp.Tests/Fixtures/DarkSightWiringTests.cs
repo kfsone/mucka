@@ -5,16 +5,17 @@ using MudSharp.Session;
 namespace MudSharp.Tests.Fixtures;
 
 /// <summary>
-/// A dark room anonymises every Creature line exactly as blindness does, and MUD2 says so in three
-/// ways that carry no code and no FES column: its own prose. This file feeds each signal by itself
-/// and asserts both the flag and what the flag did to the next anonymous blow -
-/// <see cref="BlindGateWiringTests"/> does the same for the blind side.
+/// A dark room anonymises every Creature line exactly as blindness does. Darkness has no C1 code and
+/// no FES column; MUD2 says so in its own prose, three sentences, and in the FEI reply, whose room
+/// section reads "oo" when an FEI is sent at all. This file feeds each signal by itself and asserts
+/// both the flag and what the flag did to the next anonymous blow - <see cref="BlindGateWiringTests"/>
+/// does the same for the blind side, and the FEI reply's "--" is pinned here beside "oo".
 ///
 /// <para>The asymmetry between the two directions is the point, and it is the operator's rule: prose
-/// SETS darkness, and the corroborating signals - the FES dexterity collapse, the empty exits reply -
-/// may only CLEAR a darkness whose end this client missed. Inverted, a dexterity buff or a room with
-/// no exits would put the client in the dark and hand every anonymous blow to whatever it happened to
-/// be fighting.</para>
+/// and the documented "oo" marker SET darkness, and the corroborating signals - the FES dexterity
+/// recovery, the non-empty exits reply - may only CLEAR a darkness whose end this client missed.
+/// Inverted, a dexterity buff or a room with no exits would put the client in the dark and hand every
+/// anonymous blow to whatever it happened to be fighting.</para>
 /// </summary>
 public sealed class DarkSightWiringTests : IDisposable
 {
@@ -260,6 +261,118 @@ public sealed class DarkSightWiringTests : IDisposable
 
         Assert.True(_session.Combat.CannotSee);
         Assert.Equal("rat0", WhoHitThePlayer());
+    }
+
+    // -- the items reply: FEI's room section ----------------------------------------------------
+
+    // C12 C08 C03 -> the FEI reply; one line per object, "========" between room and carried.
+    private static readonly byte[] FeiOpen = [0xA7, 0xA3, 0x9E, 0xFF, 0xFF];
+
+    /// <summary>An FEI reply as the wire carries it: each line CR-NUL-CR-LF terminated, then the pop.</summary>
+    private static byte[] Fei(params string[] lines)
+        => [.. FeiOpen, .. Encoding.Latin1.GetBytes(string.Concat(lines.Select(l => l + "\r\0\r\n"))), .. ScopeClose];
+
+    private List<string> CaptureFeiItems()
+    {
+        var items = new List<string>();
+        _session.FeiItemReady += items.Add;
+        return items;
+    }
+
+    [Fact]
+    public void TheFeiDarkMarker_SetsDark_AndIsNotAnObject()
+    {
+        // mud2_FE4.txt: the room section "will be replaced by -- if the player is blinded, and by
+        // oo if the room is dark". No prose here at all - the marker alone has to do it.
+        var items = CaptureFeiItems();
+        _session.Feed(Text("You attack the rat0."));
+        _session.Feed(Fei("oo", "========", "halberd"));
+        _session.Feed(Text("Something hits you (50/60)."));
+        _session.Feed(PromptBytes);
+
+        Assert.True(_session.Combat.CannotSee);
+        Assert.Equal("rat0", WhoHitThePlayer());
+        Assert.Equal("(sight lost: items reply dark)", LastSightRawText());
+        Assert.Equal(["========", "halberd"], items);
+    }
+
+    [Fact]
+    public void TheFeiBlindMarker_SetsBlind_AndIsNotAnObject()
+    {
+        var items = CaptureFeiItems();
+        _session.Feed(Text("You attack the rat0."));
+        _session.Feed(Fei("--", "========", "halberd"));
+        _session.Feed(Text("Something hits you (50/60)."));
+        _session.Feed(PromptBytes);
+
+        Assert.True(_session.Combat.CannotSee);
+        Assert.Equal("rat0", WhoHitThePlayer());
+        Assert.Equal("(sight lost: items reply blind)", LastSightRawText());
+        Assert.Equal(["========", "halberd"], items);
+    }
+
+    [Fact]
+    public void TheMarkersAfterTheSeparator_AreCarriedObjects()
+    {
+        // Only the room section is replaced; below the separator the same text is just a name.
+        var items = CaptureFeiItems();
+        _session.Feed(Fei("raven", "========", "--", "oo"));
+        _session.Feed(PromptBytes);
+
+        Assert.False(_session.Combat.CannotSee);
+        Assert.Equal(["raven", "========", "--", "oo"], items);
+    }
+
+    [Theory]
+    [InlineData("raven")]   // a room with objects in it
+    [InlineData(null)]      // a room with none - still a room that was seen
+    public void ALitFeiReply_ClearsAStaleDark(string? roomObject)
+    {
+        FightInTheDark();
+        _session.Feed(roomObject is null ? Fei("========", "halberd") : Fei(roomObject, "========", "halberd"));
+        _session.Feed(PromptBytes);
+
+        Assert.False(_session.Combat.CannotSee);
+        Assert.Equal("(sight regained: items reply)", LastSightRawText());
+    }
+
+    [Fact]
+    public void ALitFeiReply_LeavesBlindnessToFes()
+    {
+        // A listed room section says the room is lit; whether the player is blind is FES's to say.
+        _session.Feed(Text("You attack the rat0."));
+        _session.Feed(Fes('Y', 95));
+        _session.Feed(Fei("raven", "========", "halberd"));
+        _session.Feed(Text("Something hits you (50/60)."));
+        _session.Feed(PromptBytes);
+
+        Assert.True(_session.Combat.CannotSee);
+        Assert.Equal("rat0", WhoHitThePlayer());
+    }
+
+    [Fact]
+    public void TheFeiBlindMarker_SaysNothingAboutLight()
+    {
+        // Which marker a blind player in a dark room gets is unstated, so "--" leaves a dark as it
+        // found it: when FES then clears the blindness, the room is still dark.
+        FightInTheDark();
+        _session.Feed(Fei("--", "========"));
+        _session.Feed(Fes('N', 35));
+        _session.Feed(Text("Something hits you (50/60)."));
+        _session.Feed(PromptBytes);
+
+        Assert.True(_session.Combat.CannotSee);
+        Assert.Equal("rat0", WhoHitThePlayer());
+    }
+
+    [Fact]
+    public void AnFeiReplyCutBeforeItsSeparator_SaysNothing()
+    {
+        FightInTheDark();
+        _session.Feed(Fei("raven"));
+        _session.Feed(PromptBytes);
+
+        Assert.True(_session.Combat.CannotSee);
     }
 
     // -- the two reasons are independent --------------------------------------------------------

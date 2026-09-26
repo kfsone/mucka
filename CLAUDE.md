@@ -54,8 +54,8 @@ enforced_by: none: judgement
 ## What counts as evidence, strongest first
 
 DECISION For protocol questions - what a code means, what frames exist, what a command returns -
-the ranking is by source. Two candidates are ranked and rejected inside it: the local reduction of
-the FE documents, below the originals it was made from, and Clio, below Bartle.
+the ranking is by source. Two candidates are ranked and rejected inside it: the local copy and
+excerpt of `mud2_FE4.txt`, below the original they were made from, and Clio, below Bartle.
 
 1. Bartle's own documentation. `G:\Source\mud-fe\mud2_FE4.txt` and `MUD-FECodes.txt`. Definitive.
 2. Bartle's own words on a specific question. `docs/MUD2-flee-cost.md` is one: the flee formula,
@@ -65,10 +65,17 @@ the FE documents, below the originals it was made from, and Clio, below Bartle.
 4. `G:\Source\clio-1.8a` - a working client written by a human who understood the protocol. A
    strong second opinion, and the North Star for client design, but not authority over Bartle.
 
-EVIDENCE The gitignored `fecodes.txt` and `Bartle.MUD2-C1-Codes.txt` in this worktree are copies
-and a lossy reduction of the two FE documents.
+DECISION `mud2_FE4.txt` is the newer and more complete code list and governs wherever the two
+documents differ. `MUD-FECodes.txt` is the older list, but it ends with a Java `handleCode`
+skeleton, the only worked example of how the codes are dispatched: a missing trailing parameter
+reads as 0, so a bare `09` takes the `param[1]==0` "speaker" branch. Most of its cases have no
+`break`, so fall-through there is not semantics.
 
-RULE Prefer the originals, and never conclude something does not exist because the reduction
+EVIDENCE The gitignored `Bartle.MUD2-C1-Codes.txt` in this worktree is byte-identical to
+`mud2_FE4.txt` apart from line endings, and the gitignored `fecodes.txt` is an excerpt of
+`mud2_FE4.txt`'s code list. Neither is derived from `MUD-FECodes.txt`.
+
+RULE Prefer the originals, and never conclude something does not exist because the excerpt
 omits it.
 enforced_by: none: judgement
 

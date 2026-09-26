@@ -9,7 +9,9 @@ namespace Mucka.Core;
 ///   1. "login:"    -> send "mud"                   (Linux shell login)
 ///   2. "account id"-> send account ID              (MUD2 application)
 ///   3. "password"  -> send password                (MUD2 application)
-///   4. "Option"    -> send ESC Ctrl-F ESC-T        (mudshell sequence for client-emulation mode entry)
+///   4. "Option"    -> MuckaConnection.SendClientModeEntry: ESC-[ ESC Ctrl-F ESC-T ESC-N /T{cols} ESC-]
+///                     (client/server mode entry, text mode, normal mode and the terminal width,
+///                     inside one command interrupt)
 /// </remarks>
 internal sealed class MudLoginHandler
 {

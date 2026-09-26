@@ -153,10 +153,10 @@ public class AnsiSgrTests
     [Fact]
     public void TerminalWidth_EscDash_OtherLetter_Consumed()
     {
-        // ESC-C (a named server command letter) must be silently consumed; the text
+        // ESC-X (a letter with no meaning of its own) must be silently consumed; the text
         // that follows is unrelated and should be displayed normally.
         var h = new ParserHarness();
-        h.Feed("\x1B-Chello\n");
+        h.Feed("\x1B-Xhello\n");
         Assert.Single(h.Lines);
         Assert.Equal("hello", h.Lines[0].PlainText);
         Assert.Empty(h.ConfirmedWidths);

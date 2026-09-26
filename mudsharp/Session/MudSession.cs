@@ -236,8 +236,9 @@ public sealed class MudSession : IDisposable
 
     // The two independent reasons the player cannot see, held apart because they are reported by
     // different things and clear at different times. Blindness is coded and carried on every FES
-    // heartbeat; darkness has no code and no FES column at all, so folding the pair into one flag
-    // lets the first heartbeat of a dark fight - blind "N", truthfully - clear it. The combat
+    // heartbeat; darkness has no code and no FES column at all - only prose, and the FEI reply's
+    // "oo" when one is sent - so folding the pair into one flag lets the first heartbeat of a dark
+    // fight - blind "N", truthfully - clear it. The combat
     // tracker is told their OR; see NoteSightChanged. Feed thread only.
     private bool _blind;
     private bool _dark;
@@ -247,6 +248,19 @@ public sealed class MudSession : IDisposable
 
     // Exit keywords in the FEX reply currently arriving. A dark room's reply comes back empty.
     private int _fexItemsThisList;
+
+    // The FEI reply currently arriving: whether its "========" has passed, and what its room section
+    // (everything before it) said about sight. Feed thread only.
+    private bool _feiPastSeparator;
+    private FeiRoomSight _feiRoomSight;
+
+    /// <summary>What an FEI reply's room section says about sight. mud2_FE4.txt: "the pre-========
+    /// section will be replaced by -- if the player is blinded, and by oo if the room is dark."</summary>
+    private enum FeiRoomSight { Seen, Blind, Dark }
+
+    private const string FeiSeparator = "========";
+    private const string FeiBlindMarker = "--";
+    private const string FeiDarkMarker = "oo";
 
     /// <summary>
     /// How far effective dexterity recovers when a dark room lights up, as a floor on the rise that
@@ -757,12 +771,21 @@ public sealed class MudSession : IDisposable
         };
         _parser.RoomEntered      += () => { ArmRoomFexProbe(); RoomEntered?.Invoke(); };
         _parser.RoomShortReady   += name => { NoteRoomShort(name); RoomShortReady?.Invoke(name); };
-        _parser.FeiItemReady     += item => FeiItemReady?.Invoke(item);
-        _parser.FeiListStarting  += () => FeiListStarting?.Invoke();
+        _parser.FeiItemReady     += OnFeiItem;
+        _parser.FeiListStarting  += () =>
+        {
+            _feiPastSeparator = false;
+            _feiRoomSight = FeiRoomSight.Seen;
+            FeiListStarting?.Invoke();
+        };
         _parser.FeiListComplete  += () =>
         {
             _lastProbeReplyUtc = ProbeClock();
             ClearStale(StaleStats.Inventory);
+            // A reply cut off before its separator never reached the room section's end, so it says
+            // nothing about sight either way.
+            if (_feiPastSeparator)
+                NoteFeiRoomSight(_feiRoomSight);
             FeiListComplete?.Invoke();
         };
         _parser.CreatureTextReady += text => CreatureTextReady?.Invoke(text);
@@ -1759,8 +1782,64 @@ public sealed class MudSession : IDisposable
     }
 
     /// <summary>
-    /// Darkness read from the game's own prose, which is all there is: it carries no C1 code and no
-    /// FES column, yet it anonymises every Creature line exactly as blindness does. All three
+    /// One line of an FEI reply. A room section that is exactly <c>--</c> or <c>oo</c> is the
+    /// game's marker for blind or dark, not an object, and is held back here so no consumer lists
+    /// it: the room's contents are unknown in that state, not "one object called oo". After the
+    /// separator the same text is an ordinary carried object and passes through.
+    /// </summary>
+    private void OnFeiItem(string item)
+    {
+        if (!_feiPastSeparator)
+        {
+            if (item == FeiSeparator)
+                _feiPastSeparator = true;
+            else if (item == FeiBlindMarker)
+            {
+                _feiRoomSight = FeiRoomSight.Blind;
+                return;
+            }
+            else if (item == FeiDarkMarker)
+            {
+                _feiRoomSight = FeiRoomSight.Dark;
+                return;
+            }
+        }
+        FeiItemReady?.Invoke(item);
+    }
+
+    /// <summary>
+    /// The sight an FEI reply's room section reported, as a level on each flag it speaks for.
+    /// Counted over the wire table's FEI replies, each against the latest FES blind flag and the
+    /// darkness prose before it: 142 of 142 <c>--</c> replies with FES blind "Y", 507 of 507
+    /// <c>oo</c> replies inside a prose darkness, and none of the 60,293 lists or empty sections
+    /// with either.
+    ///
+    /// <para>A listed or empty room section clears darkness - the room was seen. It leaves
+    /// blindness to FES, whose flag leads the same probe. <c>--</c> says nothing about light: the
+    /// document does not say which marker wins for a blind player in a dark room, and the wire has
+    /// no case of both.</para>
+    ///
+    /// <para>None of the darkness heuristics is redundant for this. FEI rides a beat only when an
+    /// Inventory hint marked it stale (<see cref="ComposeBeatLocked"/>), and not at all while the
+    /// side panel's items section is turned off (<see cref="UpdateSubscriptionOptions"/>), so it can
+    /// arrive late or never; the prose lines, the exits reply, the room short and the dexterity
+    /// recovery all still speak on turns it does not.</para>
+    /// </summary>
+    private void NoteFeiRoomSight(FeiRoomSight sight)
+    {
+        switch (sight)
+        {
+            case FeiRoomSight.Blind: NoteSightChanged(blind: true, _dark, "items reply blind"); break;
+            case FeiRoomSight.Dark:  NoteSightChanged(_blind, dark: true, "items reply dark"); break;
+            default:                 NoteSightChanged(_blind, dark: false, "items reply"); break;
+        }
+    }
+
+    /// <summary>
+    /// Darkness read from the game's own prose: it carries no C1 code and no FES column, yet it
+    /// anonymises every Creature line exactly as blindness does. The one other statement of it is
+    /// the FEI reply's <c>oo</c> (see <see cref="NoteFeiRoomSight"/>), which arrives only on the
+    /// beats that carry an FEI, so the prose is still the first and usually the only word. All three
     /// sentences verbatim.
     ///
     /// <para>Start: "It's too dark to see now." (276 occurrences) and "You move in the darkness..."

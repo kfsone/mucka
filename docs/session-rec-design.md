@@ -87,10 +87,13 @@ Not every `StyledLine` is a line on screen. The prompt is `IsPartial` and is *re
 completes; writing each one out would duplicate every prompt in the file.
 
 `TerminalBuffer.Append` already owns these semantics exactly - partial replaces partial, blank
-complete promotes the partial, non-empty complete merges into it, form-feed clears - and the
-recorder must not grow a second copy of them. The recorder holds its own `TerminalBuffer` and
-writes a line at the moment that buffer commits one. That needs one new thing in `TerminalBuffer`:
-an event raised from `Commit`. The cap is small; the recorder keeps no scrollback.
+complete promotes the partial, non-empty complete merges into it, a form feed commits what was on
+the live line and then a `TerminalBuffer.ClearRule` - and the recorder must not grow a second copy
+of them. The recorder holds its own `TerminalBuffer` and writes a line at the moment that buffer
+commits one, through the `TerminalBuffer.LineCommitted` event. The cap is small; the recorder keeps
+no scrollback. A committed clear rule is written as `SessionRecorder.ClearRuleText`, a bracketed
+client note standing for the rule the pane draws in scrollback; not a line of dashes, which the
+server prints itself.
 
 Text comes from `StyledLine.PlainText` after `TerminalText.Sanitize` and `TerminalText.ExpandTabs`,
 which is what `TerminalView.AppendLines` applies before buffering - same input, same output.
@@ -142,8 +145,9 @@ recorder, assert the text. Required cases:
 1. **Prompt is not duplicated.** A prompt partial, replaced several times, then completed by an
    echo, writes one line.
 2. Prompt and echo land on one line, as the screen shows them.
-3. A form-feed clears nothing in the file: the screen clears, the transcript keeps scrolling. The
-   file is a record of what was shown, and a clear is not an unshowing.
+3. A form-feed clears nothing in the file: the screen clears, the transcript keeps scrolling with
+   `SessionRecorder.ClearRuleText` where the clear was, and a prompt live at the clear is written
+   ahead of it. The file is a record of what was shown, and a clear is not an unshowing.
 4. An F-key annotation is written standalone, above the prompt it was raised against.
 5. A write failure reports itself, ends the recording, and leaves `Completion` completed rather than
    faulted - teardown awaits it after closing the store, and a faulted task there would take the

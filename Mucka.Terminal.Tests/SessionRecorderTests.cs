@@ -134,7 +134,7 @@ public sealed class SessionRecorderTests : IDisposable
     public async Task A_form_feed_clears_the_screen_and_removes_nothing_from_the_file()
     {
         // The transcript is a record of what was shown. A clear-screen is not an unshowing, so the
-        // lines before it stay and the file simply carries on.
+        // lines before it stay and the file carries on past a text rule where the clear was.
         var body = await RecordAsync(rec =>
         {
             rec.Append(Complete("before the clear"));
@@ -142,7 +142,22 @@ public sealed class SessionRecorderTests : IDisposable
             rec.Append(Complete("after the clear"));
         });
 
-        Assert.Equal(["before the clear", "after the clear"], body);
+        Assert.Equal(["before the clear", SessionRecorder.ClearRuleText, "after the clear"], body);
+    }
+
+    [Fact]
+    public async Task A_prompt_live_at_a_clear_screen_is_written_ahead_of_the_rule()
+    {
+        // The server's ESC-C through the production parser, arriving while a prompt is on screen.
+        var body = await RecordAsync(rec =>
+        {
+            var parser = new MudSharp.Protocol.MudStreamParser();
+            parser.LineReady += rec.Append;
+            parser.Feed("You are in a dark room.\n*"u8);
+            parser.Feed("\x1B-CWelcome back.\n"u8);
+        });
+
+        Assert.Equal(["You are in a dark room.", "*", SessionRecorder.ClearRuleText, "Welcome back."], body);
     }
 
     [Fact]

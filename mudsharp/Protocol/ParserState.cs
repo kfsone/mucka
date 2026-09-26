@@ -32,11 +32,13 @@ internal enum ParserState
     // C1 sub-states handled by Mud2C1Decoder
     FesData,        // after C12+C08+C01+C255: collecting raw FES text line (until '\r'/'\n' with all fields)
     FesLineTail,    // after the FES line parsed: absorbing the rest of its CR-NUL/CRLF line ending
+    FesLineEndPending, // FES line break after exactly the documented 14 fields: end of line or a wrap before the weather field, decided by the next significant byte
     FewPlayerData,  // after WHO-list color code (C04/C05+C00/C01+C06+C255): collecting player name
     PresenceNameData, // after a C05 presence code (here/arriving/departing/visible/invisible/fleeing): collecting the bracketed player name for the who-list staleness check
     StatusPhraseData, // after a C11 enhance start/end code (11 02 / 11 03): collecting the bracketed "You have suddenly and magically become X!" phrase to identify the stat + direction
     DreamwordData,  // after C15+C00+C00+C255: collecting [a-z]{1,14} dreamword letters
-    C95Data,        // after C95+C255: collecting 5 newline-terminated client-mode lines
+    C95Data,        // after C95+C255 / C95+C02+C255: collecting the 5-line client-mode block or the 2-line account change
+    C95Close,       // after a C95 block's lines: absorbing the FF FF that closes it (C95 pushes no colour frame)
     C95LogoutLine,  // after C95+C03+C255: consuming 1 line (account-logout, silent)
 
 }

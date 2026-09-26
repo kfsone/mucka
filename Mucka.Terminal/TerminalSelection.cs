@@ -14,6 +14,9 @@ namespace Mucka.Terminal;
 /// the text, and it has no business in the clipboard - a path or a URL the client printed pastes as
 /// one string. Lines the server wrapped itself arrive as separate logical lines and keep their
 /// breaks, which is what makes MUD output paste as the game laid it out.</para>
+///
+/// <para>A <see cref="TerminalBuffer.ClearRule"/> row contributes no text, so a selection across a
+/// clear-screen pastes a blank line where the rule was drawn.</para>
 /// </summary>
 public static class TerminalSelection
 {
@@ -33,7 +36,8 @@ public static class TerminalSelection
         var sb = new StringBuilder();
         for (int r = startR; r <= endR; r++)
         {
-            string text = rows[r].PlainText;
+            // A clear-screen rule is drawn, not text: it copies as a blank line.
+            string text = TerminalBuffer.IsClearRule(rows[r]) ? string.Empty : rows[r].PlainText;
             int s = r == a.Row ? Math.Clamp(a.Col, 0, text.Length) : 0;
             int e = r == b.Row ? Math.Clamp(b.Col, 0, text.Length) : text.Length;
             if (e > s) sb.Append(text, s, e - s);

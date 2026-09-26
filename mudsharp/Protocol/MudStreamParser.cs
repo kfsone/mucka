@@ -78,6 +78,18 @@ public sealed class MudStreamParser
     /// </summary>
     public event Action<int>? TerminalWidthConfirmed;
 
+    /// <summary>
+    /// The server sent ESC-K, "erase to end of line". Nothing to erase in this model: '\r' is
+    /// dropped and there is no cursor, so the write position is always the end of the line.
+    /// </summary>
+    public event Action? EraseToEndOfLineReceived;
+
+    /// <summary>
+    /// The server sent ESC-Q, "end of session, return a clunk (MUDPLEX only)". Nothing subscribes:
+    /// the connection's own close is what ends a session here, and ESC-Q is absent from the wire.
+    /// </summary>
+    public event Action? EndOfSessionReceived;
+
     /// <summary>Dreamword has changed. Null means cleared.</summary>
     public event Action<string?>? DreamwordChanged;
 
@@ -442,6 +454,83 @@ public sealed class MudStreamParser
             CreatureTextReady?.Invoke(text);
     }
 
+    // -- Stat-value capture (C89) ----------------------------------------------
+    // Like the creature capture, a copy: the number is displayed as usual. Each closed bracket
+    // parks its value until the line's newline, where it joins that line's StatsUpdated - so the
+    // event keeps its place in the order consumers see, after the line and not mid-way through it.
+    private readonly StringBuilder _statText = new();
+    private StatField _statField;
+    private int? _lineStamina;
+    private int? _lineMaxStamina;
+    private int? _lineScore;
+
+    internal bool InStatValueContext => C1.HasScope(C1Scope.StatValue);
+
+    internal void BeginStatValue(StatField field)
+    {
+        _statField = field;
+        _statText.Clear();
+    }
+
+    private void FlushStatValue()
+    {
+        // Digits and the score's thousands commas are all a bracket has ever held; anything else
+        // in it means this is not a number, and a guess is worse than no reading.
+        int? value = null;
+        var raw = _statText.ToString().Replace(",", "", StringComparison.Ordinal);
+        if (raw.Length > 0 && raw.All(char.IsAsciiDigit) && int.TryParse(raw, out var parsed))
+            value = parsed;
+        _statText.Clear();
+        var field = _statField;
+        _statField = StatField.None;
+        if (value is null) return;
+        switch (field)
+        {
+            case StatField.Stamina:    _lineStamina = value; break;
+            case StatField.MaxStamina: _lineMaxStamina = value; break;
+            case StatField.Score:      _lineScore = value; break;
+        }
+    }
+
+    /// <summary>The line's C89 readings, or null when it carried none, and clears them. Taken at
+    /// every newline, so a reading never outlives the line that printed it.</summary>
+    private GameStatsSnapshot? TakeLineStatValues()
+    {
+        if (_lineStamina is null && _lineMaxStamina is null && _lineScore is null)
+            return null;
+        var values = GameStatsSnapshot.Empty with
+        {
+            Stamina = _lineStamina, MaxStamina = _lineMaxStamina, Score = _lineScore,
+        };
+        _lineStamina = null;
+        _lineMaxStamina = null;
+        _lineScore = null;
+        return values;
+    }
+
+    private void ClearStatValues()
+    {
+        _statText.Clear();
+        _statField = StatField.None;
+        _lineStamina = null;
+        _lineMaxStamina = null;
+        _lineScore = null;
+    }
+
+    /// <summary>Folds a line's C89 readings into what the prose analysis found on it. A code
+    /// outranks the prose, which on the same line is only ever the same number printed.</summary>
+    private static GameStatsSnapshot? WithStatValues(GameStatsSnapshot? stats, GameStatsSnapshot? values)
+    {
+        if (values is null) return stats;
+        if (stats is null) return values;
+        return stats with
+        {
+            Stamina    = values.Stamina    ?? stats.Stamina,
+            MaxStamina = values.MaxStamina ?? stats.MaxStamina,
+            Score      = values.Score      ?? stats.Score,
+        };
+    }
+
     /// <summary>
     /// End-of-scope actions, invoked by the decoder when colour-stack frames that opened
     /// semantic scopes unwind (a bare FF FF pop, a C90 colour throw, or the C00 init reset).
@@ -468,6 +557,8 @@ public sealed class MudStreamParser
         }
         if ((closed & C1Scope.CreatureText) != 0)
             FlushCreatureText();
+        if ((closed & C1Scope.StatValue) != 0)
+            FlushStatValue();
         // The prompt container: show the whole captured prompt - '*', '(*)' when invisible,
         // snoop/rank indicators - as a partial line (PromptAllowed) or discard it (FES
         // heartbeat). Skipped when a mid-container newline already aborted the capture.
@@ -611,6 +702,9 @@ public sealed class MudStreamParser
     {
         Ansi = new AnsiSgrState();
         Ansi.WidthConfirmed = w => TerminalWidthConfirmed?.Invoke(w);
+        Ansi.ClearScreen = EmitClearScreen;
+        Ansi.EraseToEndOfLine = () => EraseToEndOfLineReceived?.Invoke();
+        Ansi.EndOfSession = () => EndOfSessionReceived?.Invoke();
         Telnet = new TelnetNegotiator(send => OutgoingBytes?.Invoke(send));
         C1 = new Mud2C1Decoder(this);
     }
@@ -670,6 +764,7 @@ public sealed class MudStreamParser
         _feiLine.Clear();
         _fexLine.Clear();
         _creatureText.Clear();
+        ClearStatValues();
         _atLineStart = true;
         _pendingRoomShort = false;
         _chatOpenAtLineStart = false;
@@ -695,6 +790,7 @@ public sealed class MudStreamParser
             // line. Taken up front so every return path below leaves the snapshot correct.
             bool chatOpenAtLineStart = _chatOpenAtLineStart;
             _chatOpenAtLineStart = InChatContext;
+            var statValues = TakeLineStatValues();
             _optionMatchLen = 0;   // the option-menu match never spans a newline
             // A colour-interrupted WHO-list name ends at its line's newline.
             if (_fewNameActive) FinalizeFewName();
@@ -801,7 +897,12 @@ public sealed class MudStreamParser
                     if (tellSender is not null) TellReceived?.Invoke(tellSender);
                 }
             }
-            var stats = GameLineAnalyzer.Analyze(line, _inGameMode);
+            // Speech never feeds a stat or a scoring event. Every pattern below matches prose, and a
+            // player can say any prose - "(Persona saved on +999 = 999)." included - and a wrapped
+            // row of a long message starts at column 0, so no anchor keeps speech out. The C89
+            // readings are exempt: they come from a code, and no player can type one.
+            bool speech = lineKind == LineKind.Chat;
+            var stats = WithStatValues(speech ? null : GameLineAnalyzer.Analyze(line, _inGameMode), statValues);
             if (stats != null) StatsUpdated?.Invoke(stats);
             // Raised AFTER StatsUpdated so a consumer that reacts to the event can already see the new
             // total in the merged snapshot. Not gated on game mode: the save that lands as the world
@@ -810,9 +911,9 @@ public sealed class MudStreamParser
             // discharged by a kill prints its own payout FIRST and the kill's award second, so the
             // consumer must already know a task landed by the time the first rise reaches it. See
             // TaskCompletion for the recordings that fix that ordering.
-            if (GameLineAnalyzer.TryReadTaskCompleted(line.PlainText, out var taskCompleted))
+            if (!speech && GameLineAnalyzer.TryReadTaskCompleted(line.PlainText, out var taskCompleted))
                 TaskCompleted?.Invoke(taskCompleted);
-            if (GameLineAnalyzer.TryReadScoreSave(line.PlainText, out var scoreSave))
+            if (!speech && GameLineAnalyzer.TryReadScoreSave(line.PlainText, out var scoreSave))
                 ScoreSaved?.Invoke(scoreSave);
             if (_inGameMode) { var sf = GameLineAnalyzer.CheckSoundTrigger(line); if (sf != null) EmitSound(sf); }
             if (_inGameMode && tellAlertRequested && !ownListenersSend)
@@ -901,6 +1002,7 @@ public sealed class MudStreamParser
             // captured so the Here list can tell this creature from an object. One bit test per
             // printable character on a path that already does several.
             if (InCreatureTextContext) CaptureCreatureChar(ch);
+            if (InStatValueContext) _statText.Append(ch);
             MatchOptionMenu(ch, wasLineStart);
         }
     }
@@ -983,6 +1085,19 @@ public sealed class MudStreamParser
         LineReady?.Invoke(line);
     }
 
+    // The server's ESC-C (clear screen), delivered in order with the text as a complete line
+    // ending in '\f', carrying whatever this line held before the escape. TerminalBuffer.Append
+    // commits that text, then clears the live screen at the '\f'; text after the escape starts
+    // a fresh line on the cleared screen.
+    private void EmitClearScreen()
+    {
+        FlushSpan();
+        _spans.Add(new StyledSpan("\f", Ansi.CurrentStyle));
+        var line = new StyledLine(_spans.ToArray(), isPartial: false);
+        _spans.Clear();
+        LineReady?.Invoke(line);
+    }
+
     internal void EnterGameMode()
     {
         if (_inGameMode) return;
@@ -1011,6 +1126,8 @@ public sealed class MudStreamParser
         // and the fragment would be glued to the front of the next login's first creature sentence -
         // past OnRoomEntered's room scoping, into RoomCreatures.
         _creatureText.Clear();
+        // The C89 capture likewise: a reading from the session just ended is not this one's.
+        ClearStatValues();
         _pendingRoomShort = false;
         _chatOpenAtLineStart = false;
         _chatTextOnLine = false;
@@ -1312,11 +1429,13 @@ public sealed class MudStreamParser
             case ParserState.C1Ff1:
             case ParserState.FesData:
             case ParserState.FesLineTail:
+            case ParserState.FesLineEndPending:
             case ParserState.FewPlayerData:
             case ParserState.PresenceNameData:
             case ParserState.StatusPhraseData:
             case ParserState.DreamwordData:
             case ParserState.C95Data:
+            case ParserState.C95Close:
             case ParserState.C95LogoutLine:
                 _state = C1.ProcessByte(b, _state, _c1Lead, _c1Buf);
                 break;

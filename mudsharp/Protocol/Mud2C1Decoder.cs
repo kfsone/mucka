@@ -18,8 +18,8 @@ internal sealed class Mud2C1Decoder
 
     // One colour-stack entry: the style plus the semantic scopes this frame opened (C1Scope
     // doc explains the mechanism). Scope lifetime is frame lifetime - SettleScopes() reports
-    // scopes whose frames have unwound.
-    private readonly record struct ColorFrame(TextStyle Style, C1Scope Opens);
+    // scopes whose frames have unwound. IsInitialise marks the frame C00 leaves at the bottom.
+    private readonly record struct ColorFrame(TextStyle Style, C1Scope Opens, bool IsInitialise = false);
 
     // Color stack: tracks color history for bare FF FF pop()
     private readonly Stack<ColorFrame> _colorStack = new();
@@ -32,18 +32,31 @@ internal sealed class Mud2C1Decoder
     internal bool HasScope(C1Scope scope) => (_activeScopes & scope) != 0;
 
     /// <summary>
-    /// True while ANY colour frame is on the stack - i.e. some C1 code's styling is in effect.
-    /// Text arriving with the stack empty is plain, un-coded game output (the parser's
-    /// plain-text-line Inventory hint keys off this).
+    /// True while a colour frame other than C00's is on the stack - i.e. some C1 code's styling
+    /// is in effect. Text arriving with nothing but the C00 initialise frame (or nothing at all)
+    /// is plain, un-coded game output (the parser's plain-text-line Inventory hint keys off this).
+    /// On the wire C00 arrives at the options menu and nothing pops its frame, so it is still at
+    /// the bottom of the stack for the whole game.
     /// </summary>
-    internal bool HasOpenColourFrame => _colorStack.Count > 0;
+    internal bool HasOpenColourFrame
+        => _colorStack.Count > 1 || (_colorStack.Count == 1 && !_colorStack.Peek().IsInitialise);
 
     // C90 colour-catch depths: {C90}{C255} snapshots the stack depth here;
-    // {C90}{C01}{C255} (colour throw) unwinds the stack back to the snapshot.
+    // {C90}{C01}{C255} (colour throw) unwinds the stack back to the snapshot. The innermost
+    // snapshot is also a floor for bare pops: mud2_FE4.txt says "When a catch is issued, the
+    // entire colour stack is saved and a new stack is begun; when a throw is issued, the old
+    // stack is reinstated", so a surplus FF FF inside a catch cannot unwind a frame (or the
+    // C1 scope it opened) that was pushed before the catch.
     private readonly Stack<int> _catchDepths = new();
 
     // C95 line counter (how many newline-terminated lines remain to collect)
     private int _c95LinesRemaining;
+
+    // The block being collected is 95 02 (account ID, priv level) rather than bare 95's five lines.
+    private bool _c95AccountChange;
+
+    // The first FF of the FF FF that closes a C95 block has been absorbed.
+    private bool _c95CloseSeenFf;
 
     // After the C95-logout line's '\n', absorb the trailing 0xFF 0xFF color-terminator
     // that the server appends before returning to Normal.
@@ -63,6 +76,23 @@ internal sealed class Mud2C1Decoder
     private const int LT_RED = 9, LT_GREEN = 10, LT_YELLOW = 11;
     private const int LT_BLUE = 12, LT_MAGENTA = 13, LT_CYAN = 14, LT_WHITE = 15;
 
+    // Operator rule: said, shouted and told words are distinct shades of one yellow family - close,
+    // but distinguishable, including under the common colour-vision deficiencies, so the three
+    // differ in lightness and saturation rather than hue alone. Said words keep the palette's
+    // LT_YELLOW slot (TerminalTheme.Palette); these are stamped as an RGB override on that slot.
+    private const int ShoutedRgb = 0xFFDD00;   // vivid, saturated yellow
+    private const int ToldRgb    = 0xD4C25A;   // darker, muted yellow - still lighter than the YELLOW label
+
+    // The C09 frame's style. The 09 00 speaker frame holds the whole message; the quoted words
+    // arrive in an inner 09 01 / 09 02 / 09 03 frame.
+    private static TextStyle SpeechStyle(int count, byte b0)
+    {
+        if (b0 == 0x9B && count <= 1) return Style(YELLOW);
+        if (count == 1 && b0 == 0x9C) return Style(LT_YELLOW) with { ForegroundRgb = ShoutedRgb };
+        if (count == 1 && b0 == 0x9E) return Style(LT_YELLOW) with { ForegroundRgb = ToldRgb };
+        return Style(LT_YELLOW);
+    }
+
     // -- Helpers ---------------------------------------------------------------
 
     /// <summary>
@@ -78,7 +108,8 @@ internal sealed class Mud2C1Decoder
     ///   C00/C01 -> none | C02 room-enter -> FEI | C03 items -> FEI | C04/C05 creatures/players -> FEI
     ///   C06 -> none (announcements suffice) | C07/C08 combat -> stats(+FEI for weapon/guard)
     ///   C09 speakers -> FEW-relevant, but FEW rides every beat anyway | C11 spells -> stats
-    ///   C13 -> none | C14 weather -> stats | C15..C20 -> none.
+    ///   C13 -> none | C14 weather -> stats | C15..C17 -> none | C18 events -> stats
+    ///   C19/C20 -> none.
     /// PLAIN text (no code at all) -> FEI, hinted by the PARSER at line finalisation
     /// (_plainTextOnLine): item-moving command responses ("You drop the sword.") are un-coded.
     /// </summary>
@@ -158,6 +189,10 @@ internal sealed class Mud2C1Decoder
     internal void PopColor()
     {
         _parser.FlushSpan();
+        // Inside a colour catch the stack below the catch point belongs to the saved stack: a pop
+        // with nothing left above the floor has nothing to unwind (the colour stays as it is).
+        if (_catchDepths.Count > 0 && _colorStack.Count <= _catchDepths.Peek())
+            return;
         if (_colorStack.Count > 0)
             _colorStack.Pop();
         if (_colorStack.Count > 0)
@@ -196,7 +231,7 @@ internal sealed class Mud2C1Decoder
 
     /// <summary>
     /// C90+C01 colour throw: restore the colour stack to the depth recorded by the most
-    /// recent colour catch (fecodes: "the colour stack is restored to what it was when the
+    /// recent colour catch (mud2_FE4.txt: "the colour stack is restored to what it was when the
     /// last colour catch was made"). Without this, rainbow wiz names (catch + per-letter
     /// C99 pushes + throw) leave the stack permanently too deep, so the FEW context never
     /// closes and all subsequent terminal output stays suppressed.
@@ -218,16 +253,18 @@ internal sealed class Mud2C1Decoder
     internal ParserState ProcessByte(byte b, ParserState state, byte lead, List<byte> buf)
         => state switch
         {
-            ParserState.C1Seq      => OnC1Seq(b, lead, buf),
-            ParserState.C1Data     => OnC1Data(b, lead, buf),
+            ParserState.C1Seq      => OnC1Seq(b, buf),
+            ParserState.C1Data     => OnC1Data(b, buf),
             ParserState.C1Ff1      => OnC1Ff1(b, lead, buf),
             ParserState.FesData    => OnFesData(b, buf),
             ParserState.FesLineTail => OnFesLineTail(b),
+            ParserState.FesLineEndPending => OnFesLineEndPending(b, buf),
             ParserState.FewPlayerData   => OnFewPlayerData(b, buf),
             ParserState.PresenceNameData => OnPresenceNameData(b, buf),
             ParserState.StatusPhraseData => OnStatusPhraseData(b, buf),
             ParserState.DreamwordData   => OnDreamwordData(b, buf),
             ParserState.C95Data    => OnC95Data(b, buf),
+            ParserState.C95Close   => OnC95Close(b),
             ParserState.C95LogoutLine   => OnC95LogoutLine(b),
             _                      => ParserState.Normal,
         };
@@ -235,6 +272,8 @@ internal sealed class Mud2C1Decoder
     internal void Reset()
     {
         _c95LinesRemaining = 0;
+        _c95AccountChange = false;
+        _c95CloseSeenFf = false;
         _c95LogoutSeenNewline = false;
         _colorStack.Clear();
         _catchDepths.Clear();
@@ -255,35 +294,19 @@ internal sealed class Mud2C1Decoder
 
     // -- C1 sequence accumulation ----------------------------------------------
 
-    private ParserState OnC1Seq(byte b, byte lead, List<byte> buf)
+    private static ParserState OnC1Seq(byte b, List<byte> buf)
     {
         if (b == 0xFF) return ParserState.C1Ff1;
         buf.Add(b);
-        // C89 (0xF4): non-terminated - F4+C01 (0x9C) is complete after exactly 1 byte (Clio telnet.l:968)
-        if (lead == 0xF4 && b == 0x9C)
-        {
-            var next = Dispatch(lead, buf);
-            buf.Clear();
-            return next;
-        }
         return ParserState.C1Data;
     }
 
     private const int C1BufMaxBytes = 8192;
 
-    private ParserState OnC1Data(byte b, byte lead, List<byte> buf)
+    private static ParserState OnC1Data(byte b, List<byte> buf)
     {
         if (b == 0xFF) return ParserState.C1Ff1;
         buf.Add(b);
-        // C89 (0xF4): non-terminated - only F4+C00+xx (buf[0]==0x9B) is complete after exactly
-        // 2 bytes (Clio telnet.l:966-967: F4 9B 9B and F4 9B 9C).
-        // Any other F4+xx+yy sequence is unrecognised and falls through to FF FF termination.
-        if (lead == 0xF4 && buf.Count == 2 && buf[0] == 0x9B)
-        {
-            var next = Dispatch(lead, buf);
-            buf.Clear();
-            return next;
-        }
         if (buf.Count > C1BufMaxBytes)
         {
             buf.Clear();
@@ -309,13 +332,18 @@ internal sealed class Mud2C1Decoder
 
     // -- FES data state (after C12+C08+C01+C255) -------------------------------
 
+    // mud2_FE4.txt documents 14 FES fields (stamina ... "minutes to next reset"); the wire
+    // carries a 15th, the weather character.
+    private const int FesDocumentedFields = 14;
     private const int FesExpectedFields = 15;
     private const int FesMaxBufBytes = 1024;
     private const int C95MaxBufBytes = 4096;
 
     private ParserState OnFesData(byte b, List<byte> buf)
     {
-        // The data line ends at the first '\r' or '\n' once all 15 fields are present.
+        // The data line ends at the first '\r' or '\n' once all 15 fields are present (the
+        // wire's trailing weather field); after exactly the documented 14 it waits on the next
+        // significant byte to tell a missing weather from a wrap (see below).
         // Both checks are required: on narrow terminals the server wraps the line
         // mid-stream (the plain-text content is ~51 chars; a phone may be <52 cols
         // wide), so a line ending before all fields are present is a wrap - keep
@@ -324,13 +352,16 @@ internal sealed class Mud2C1Decoder
         // immediately - waiting for a '\n' would swallow them all into this buffer.
         if (b is (byte)'\r' or (byte)'\n')
         {
-            if (buf.Count < FesMaxBufBytes && !FesHasAllFields(buf))
+            int fields = FesFieldCount(buf);
+            if (buf.Count < FesMaxBufBytes && fields < FesExpectedFields)
             {
                 // Wrap point: substitute a separator so adjacent fields stay apart even
                 // when the wrap is a plain CRLF without the telnet CR-NUL's NUL byte.
                 // Duplicate separators are harmless (RemoveEmptyEntries).
                 buf.Add((byte)' ');
-                return ParserState.FesData;
+                // Exactly the documented 14: either the end of a weatherless line or a wrap
+                // just before the weather field - the next significant byte says which.
+                return fields == FesDocumentedFields ? ParserState.FesLineEndPending : ParserState.FesData;
             }
 
             ParseAndEmitFes(buf);
@@ -361,9 +392,28 @@ internal sealed class Mud2C1Decoder
         return ParserState.Normal;
     }
 
-    // Returns true when the visible ASCII portion of the FES buffer contains at least 15
-    // space-separated fields - the minimum for a complete FES line.
-    private static bool FesHasAllFields(List<byte> buf)
+    // A line break after exactly 14 fields. The rest of the line ending (CR, NUL, LF, a space)
+    // is absorbed; printable text next is the wrapped weather field, so collecting resumes;
+    // anything else - on the wire the FF FF pop and the prompt container follow the FES line -
+    // means the line was complete without it.
+    private ParserState OnFesLineEndPending(byte b, List<byte> buf)
+    {
+        if (b is 0x00 or 0x20 or (byte)'\r' or (byte)'\n')
+            return ParserState.FesLineEndPending;
+        if (b is > 0x20 and < 0x7F)
+        {
+            buf.Add(b);
+            return ParserState.FesData;
+        }
+        ParseAndEmitFes(buf);
+        buf.Clear();
+        Apply(WHITE, BLACK);
+        _parser.QueueReprocessByte(b);
+        return ParserState.Normal;
+    }
+
+    // Number of space-separated fields in the visible ASCII portion of the FES buffer.
+    private static int FesFieldCount(List<byte> buf)
     {
         bool skipNext = false;
         bool inField = false;
@@ -386,7 +436,7 @@ internal sealed class Mud2C1Decoder
             }
         }
         if (inField) count++;
-        return count >= FesExpectedFields;
+        return count;
     }
 
     // -- FEW player-name data state (after WHO-list color code + C255) --------
@@ -638,24 +688,59 @@ internal sealed class Mud2C1Decoder
         {
             buf.Clear();
             _c95LinesRemaining = 0;
+            _c95AccountChange = false;
             return ParserState.Normal;
         }
         if (b == '\n' && --_c95LinesRemaining <= 0)
         {
             var data = Encoding.ASCII.GetString(buf.ToArray());
             buf.Clear();
-            _parser.EmitClientMode(data);
-            // Parse Rule A fields: licence, minclient, maxclient, account, privs
             var lines = data.Split('\n');
-            if (lines.Length >= 5)
+            if (_c95AccountChange)
             {
-                var accountId = lines[3].TrimEnd('\r', '\0');
-                _ = int.TryParse(lines[4].TrimEnd('\r', '\0'), out int privs);
-                _parser.SetAccountInfo(accountId, privs);
+                // 95 02: account ID, priv level
+                _c95AccountChange = false;
+                _ = int.TryParse(lines[1].TrimEnd('\r', '\0'), out int newPrivs);
+                _parser.SetAccountInfo(lines[0].TrimEnd('\r', '\0'), newPrivs);
             }
-            return ParserState.Normal;
+            else
+            {
+                _parser.EmitClientMode(data);
+                // Parse Rule A fields: licence, minclient, maxclient, account, privs
+                if (lines.Length >= 5)
+                {
+                    var accountId = lines[3].TrimEnd('\r', '\0');
+                    _ = int.TryParse(lines[4].TrimEnd('\r', '\0'), out int privs);
+                    _parser.SetAccountInfo(accountId, privs);
+                }
+            }
+            _c95CloseSeenFf = false;
+            return ParserState.C95Close;
         }
         return ParserState.C95Data;
+    }
+
+    // The FF FF after a C95 block's last line closes the code. C95 pushes no colour frame, so
+    // it must not reach PopColor, where it would unwind a frame pushed before the block. Every
+    // bare 95 and 95 02 block on the wire ends this way; anything else is handed back.
+    private ParserState OnC95Close(byte b)
+    {
+        if (!_c95CloseSeenFf)
+        {
+            if (b == 0xFF)
+            {
+                _c95CloseSeenFf = true;
+                return ParserState.C95Close;
+            }
+            _parser.QueueReprocessByte(b);
+            return ParserState.Normal;
+        }
+        _c95CloseSeenFf = false;
+        if (b == 0xFF)
+            return ParserState.Normal;
+        // A lone FF: hand both bytes back as Normal would have read them.
+        _parser.QueueReprocessByte(b);
+        return ParserState.Ff1;
     }
 
     // -- C95 account-logout line (after C95+C03+C255) -------------------------
@@ -689,20 +774,27 @@ internal sealed class Mud2C1Decoder
     {
         _parser.FlushSpan();
 
+        // A missing trailing parameter reads as 00 (0x9B): the codes are hierarchical, so a bare
+        // 09 is 09 00 "Speaker of a message", and MUD-FECodes.txt's handleCode takes the
+        // param[1]==0 branch for it. Guards that must also match the bare form test `count <= 1`.
         int count = buf.Count;
-        byte b0 = count > 0 ? buf[0] : (byte)0;
-        byte b1 = count > 1 ? buf[1] : (byte)0;
+        byte b0 = count > 0 ? buf[0] : (byte)0x9B;
+        byte b1 = count > 1 ? buf[1] : (byte)0x9B;
 
         switch (lead)
         {
             // -- C00 (0x9B): init_stack -> reset to WHITE/BLACK -----------------
-            // Clio sends C00+C255 at the start of every game-output frame (before the room
-            // short description, text, etc.) as a color-stack reset. C1 sequences do not
-            // advance the display column, so _atLineStart is untouched here and everywhere
-            // else in Dispatch - only text characters clear it.
+            // "Initialise. This is transmitted whenever a program is forked or terminated"
+            // (MUD-FECodes.txt). On the wire it arrives at the options menu and its frame is
+            // never popped, so it sits at the bottom of the stack all game; IsInitialise lets
+            // HasOpenColourFrame read text under it as plain. C1 sequences do not advance the
+            // display column, so _atLineStart is untouched here and everywhere else in
+            // Dispatch - only text characters clear it.
             case 0x9B:
                 _colorStack.Clear();
-                Apply(WHITE, BLACK);
+                _catchDepths.Clear();   // the catch floors index frames that no longer exist
+                _colorStack.Push(new ColorFrame(Style(WHITE, BLACK), C1Scope.None, IsInitialise: true));
+                _parser.Ansi.SetStyle(_colorStack.Peek().Style);
                 SettleScopes();   // the reset ends every open scope, with end-of-scope actions
                 return ParserState.Normal;
 
@@ -728,9 +820,9 @@ internal sealed class Mud2C1Decoder
                     _parser.EnterGameMode();
                 if (wasAlreadyInGameMode)
                 {
-                    if (count == 0)
+                    if (b0 == 0x9B)
                     {
-                        // Bare {C01}{C255}: the outer prompt container. Capture until its frame
+                        // Bare {C01}{C255} (or 01 00): the outer prompt container. Capture until its frame
                         // pops. Re-entering while a container is still open means the previous
                         // one lost its pop - MoveScopeToTop re-anchors the scope to this frame
                         // and the parser restarts the capture.
@@ -749,13 +841,13 @@ internal sealed class Mud2C1Decoder
             }
 
             // -- C02 (0x9D): GREEN shades + game-mode entry --------------------
-            // {C02}{C00}{C255} -> BLACK/GREEN
+            // {C02}{C00}{C255} (or bare {C02}{C255}) -> BLACK/GREEN
             // {C02}{C01}{C255} -> LT_GREEN/BLACK + enter game mode
             // {C02}{C02}{C255} -> GREEN/BLACK
             case 0x9D:
                 switch (b0)
                 {
-                    case 0x9B when count == 1:
+                    case 0x9B when count <= 1:
                         Apply(BLACK, GREEN);
                         break;
                     case 0x9C when count == 1:
@@ -789,9 +881,9 @@ internal sealed class Mud2C1Decoder
                 return ParserState.Normal;
 
             // -- C03 (0x9E): CYAN / LT_CYAN (room/location variants) ----------
-            // {C03}{C00..C03}{C255} -> GREEN/BLACK
-            // {C03}{C01..C03}{C255} -> CYAN/BLACK
-            // {C03}{C02..C03+variants}{C255} -> LT_CYAN/BLACK
+            // {C03}{C00..}{C255} (features, and bare {C03}{C255}) -> GREEN/BLACK
+            // {C03}{C01..}{C255} (non-treasure)                  -> CYAN/BLACK
+            // {C03}{C02..}{C255} / {C03}{C03..}{C255} (trinkets, treasure) -> LT_CYAN/BLACK
             case 0x9E:
                 // C1Scope.ListedObject on every C03 variant: its only job is to mask an object's name
                 // out of an enclosing creature sentence (see C1Scope.ListedObject), and an object is an
@@ -904,7 +996,7 @@ internal sealed class Mud2C1Decoder
 
             // -- C08 (0xA3): RED / WHITE / BLACK+RED (combat/death) ------------
             // {C08}{C01}{C255}|{C08}{C03}{C255} -> LT_RED/BLACK + txfes
-            // {C08}{C00/C02/C04}{C255} -> RED/BLACK  (plain, NO txfes - Clio:633-636)
+            // {C08}{C255}|{C08}{C00/C02/C04}{C255} -> RED/BLACK  (plain, NO txfes - Clio:633-636)
             // {C08}{C05..C07/C09}{C255} -> WHITE/BLACK
             // {C08}{C08}{C255} -> BLACK/RED + txfes
             // {C08}{C10..C12}{C255} -> RED/BLACK + txfes
@@ -929,21 +1021,21 @@ internal sealed class Mud2C1Decoder
                 // LineKind.FightEnd.
                 if (count == 1 && b0 is 0xA5 or 0xA6 or 0xA7)
                     _parser.SetPendingKind(LineKind.FightEnd);
-                // And the start, the same way. 08 00 on the wire, never the bare 08 the list gives -
-                // see LineKind.FightStart. This is what lets an opponent the player cannot see open
+                // And the start, the same way: 08 "Fight starts", which arrives as 08 00 - see
+                // LineKind.FightStart. This is what lets an opponent the player cannot see open
                 // its own fight: "Someone is about to attack you." carries it like every other start.
-                if (count == 1 && b0 == 0x9B)
+                if (count <= 1 && b0 == 0x9B)
                     _parser.SetPendingKind(LineKind.FightStart);
-                // Stamina hints: bare C08 (fight starts), C03 (they hit you - usually
-                // followed by an inline "(sta/max)" that cancels the probe), C05 (weapon
-                // change), C08 (you killed them), C10/C11/C12 (fight ends).
+                // Stamina hints: C00 (fight starts - 08 00 on the wire, or bare 08), C03 (they
+                // hit you - usually followed by an inline "(sta/max)" that cancels the probe),
+                // C05 (weapon change), C08 (you killed them), C10/C11/C12 (fight ends).
                 // NOT C01/C02/C04 (your hits and misses either way don't change YOUR
                 // stats - Clio txfes'd C01 but that just spammed probes every swing).
                 // Inventory hints: C05 (weapon change), C06 (dropped guard) - the held
                 // weapon shown in the FEI carry list may have changed.
                 {
                     var hint = StaleStats.None;
-                    if (count == 0 || (count == 1 && b0 is 0x9E or 0xA0 or 0xA3 or 0xA5 or 0xA6 or 0xA7))
+                    if ((count <= 1 && b0 == 0x9B) || (count == 1 && b0 is 0x9E or 0xA0 or 0xA3 or 0xA5 or 0xA6 or 0xA7))
                         hint |= StaleStats.Stamina;
                     if (count == 1 && b0 is 0xA0 or 0xA1)
                         hint |= StaleStats.Inventory;
@@ -966,9 +1058,11 @@ internal sealed class Mud2C1Decoder
                 return ParserState.Normal;
 
             // -- C09 (0xA4): YELLOW / LT_YELLOW ------------------------------
-            // {C09}{C00}{C255} -> YELLOW/BLACK
-            // everything else -> LT_YELLOW/BLACK
-            // C09 is "speaker of a message" (fecodes.txt): shout/say/tell/act/emote/social.
+            // {C09}{C255}|{C09}{C00}{C255} -> YELLOW/BLACK (the speaker frame: the whole message)
+            // {C09}{C01}{C255} (shouted) / {C09}{C03}{C255} (told) -> LT_YELLOW/BLACK in its own
+            //                    shade - see SpeechStyle
+            // everything else, {C09}{C02}{C255} (said) included -> LT_YELLOW/BLACK
+            // mud2_FE4.txt: "09 Speaker of a message." - the 09 family is shout/say/tell/act/emote/social.
             // Tag the line as Chat so the chat-view filter can show only these. To tighten the
             // filter to speech-only, gate on b0 (0x9C=shout, 0x9D=say, 0x9E=tell); to widen it to
             // wiz messages, add the same call under case 0xA5 (C10).
@@ -978,7 +1072,7 @@ internal sealed class Mud2C1Decoder
                 // first-frame-owns rule keeps the scope anchored to the outer C09 when the
                 // message nests an inner one (e.g. `says "<C09>oippoo</C09>"`), so the inner
                 // pop cannot end it one level too early.
-                Apply(b0 == 0x9B && count == 1 ? YELLOW : LT_YELLOW, BLACK, opens: C1Scope.Chat);
+                Apply(SpeechStyle(count, b0), opens: C1Scope.Chat);
                 _parser.SetPendingKind(LineKind.Chat);
                 // C09+C03 (tell): select tell alert variant from the finished line text.
                 if (count == 1 && b0 == 0x9E)
@@ -986,7 +1080,7 @@ internal sealed class Mud2C1Decoder
                 return ParserState.Normal;
 
             // -- C10 (0xA5): BLACK+YELLOW / LT_RED+YELLOW ---------------------
-            // {C10}{C00/C03}{C255} -> BLACK/YELLOW
+            // {C10}{C255}|{C10}{C00/C03}{C255} -> BLACK/YELLOW
             // {C10}{C01/C02/C04}{C255} -> LT_RED/YELLOW (non-wireplay)
             case 0xA5:
                 if (b0 == 0x9B || b0 == 0x9E) Apply(BLACK,  YELLOW);
@@ -994,11 +1088,12 @@ internal sealed class Mud2C1Decoder
                 return ParserState.Normal;
 
             // -- C11 (0xA6): LT_RED (spells/abilities) ------------------------
-            // {C11}{C255}|{C11}{C06}{C255}|{C11}{C09}{C255}|{C11}{C14}{C255} -> LT_RED, no txfes (Clio:675-685)
-            // All other single-byte payload variants -> LT_RED + txfes + sound(11,NN) (Clio:687-713)
+            // {C11}{C06}{C255}|{C11}{C09}{C255}|{C11}{C14}{C255} -> LT_RED, no txfes (Clio:675-685)
+            // All other single-byte payload variants, and bare {C11}{C255} (= 11 00, "Disabling
+            // spell starts") -> LT_RED + txfes + sound(11,NN) (Clio:687-713)
             case 0xA6:
                 Apply(LT_RED, BLACK);
-                if (count == 1 && b0 is not (0xA1 or 0xA4 or 0xA9))
+                if (count <= 1 && b0 is not (0xA1 or 0xA4 or 0xA9))
                 {
                     // Spells starting/ending can change any stat or status flag.
                     Hint(StaleStats.AllStats);
@@ -1014,7 +1109,7 @@ internal sealed class Mud2C1Decoder
                 //       ending ("regained your hearing") wrongly cleared the glow icon.
                 //   11 02 (b0=0x9D) enhancing starts | 11 03 (b0=0x9E) enhancing ends (wear-off)
                 //     - all six stat spells collapse here; the phrase gives stat + direction.
-                if (count == 1)
+                if (count <= 1)
                 {
                     switch (b0)
                     {
@@ -1031,9 +1126,12 @@ internal sealed class Mud2C1Decoder
             // {C12}{C04/C05}{C255} -> GREEN/BLACK
             // {C12}{C06}{C255} -> YELLOW/BLACK
             // {C12}{C07}{C255} -> LT_YELLOW/BLACK
-            // {C12}{C08}{C01}{C255} -> FES data line follows
-            // {C12}{C08}{C02..C04/C09/C10}{C255} -> WHITE/BLACK
-            // {C12}{C08}{C05}{C255} -> FEW response context: suppress display, capture names
+            // {C12}{C08}{C01}{C255} -> FE SCORE: FES data line follows
+            // {C12}{C08}{C02}{C255} -> FE EXITS: FEX response context, exit line captured
+            // {C12}{C08}{C03}{C255} -> FE INVENTORY: FEI response context, item lines captured
+            // {C12}{C08}{C05}{C255} -> FE WHO: FEW response context, suppress display, capture names
+            // {C12}{C08}{C04}{C255} (FE TEAM), {C12}{C08}{C06}{C255} (FE MAP) -> WHITE/BLACK
+            // {C12}{C09}{C255} (EXITS), {C12}{C10}{C255} (MAP), anything else -> WHITE/BLACK
             case 0xA7:
                 if (count == 2 && b0 == 0xA3 && b1 == 0x9C)
                 {
@@ -1051,8 +1149,9 @@ internal sealed class Mud2C1Decoder
                 }
                 if (count == 2 && b0 == 0xA3 && b1 == 0x9D)
                 {
-                    // FEX response: C12+C08+C02+C255 - exit keyword lines follow while the scope
-                    // is open. Each line is one direction keyword.
+                    // FEX response: C12+C08+C02+C255 - the exits follow while the scope is open, as
+                    // ONE line of space-separated direction keywords (mud2_FE4.txt's example: "out
+                    // swampward southwest south southeast northwest"); the consumer splits it.
                     Apply(WHITE, BLACK, opens: C1Scope.FexResponse);
                     _parser.BeginFexResponse();
                     return ParserState.Normal;
@@ -1175,7 +1274,9 @@ internal sealed class Mud2C1Decoder
                 Apply(LT_WHITE, BLUE);
                 return ParserState.Normal;
 
-            // -- C17 (0xAC): not explicitly listed -> catchall WHITE ------------
+            // -- C17 (0xAC): music -> WHITE/BLACK ------------------------------
+            // mud2_FE4.txt: "17 Music off." / "17 01 Switch to music for ///to be implemented///";
+            // MUD-FECodes.txt's handleCode has "case 17: // music!".
             case 0xAC:
                 Apply(WHITE, BLACK);
                 return ParserState.Normal;
@@ -1196,34 +1297,47 @@ internal sealed class Mud2C1Decoder
                 Apply(LT_WHITE, BLUE);
                 return ParserState.Normal;
 
-            // -- C20-C21 (0xAF-0xB0): not listed -> catchall ------------------
+            // -- C20 (0xAF): background noise; C21 (0xB0) -> WHITE/BLACK -------
+            // mud2_FE4.txt lists 20 00 "Cancel background noise (silence)." through 20 14 "Wind.";
+            // MUD-FECodes.txt's handleCode has "case 20: // ambient sounds". Neither lists 21.
             case 0xAF or 0xB0:
                 Apply(WHITE, BLACK);
                 return ParserState.Normal;
 
-            // -- C89 (0xF4): WHITE/BLACK (catch/display) ----------------------
+            // -- C89 (0xF4): stamina/score -> WHITE/BLACK ----------------------
+            // mud2_FE4.txt: "89 00 00 Stamina.", "89 00 01 Maximum stamina.", "89 01 Score."
+            // (catch/throw is C90). Terminated in 255 like every code (MUD-FECodes.txt), and it
+            // brackets the number: F4 9B 9B FF FF FE 9D FF FF "97" FF FF FF FF on the wire.
+            // A missing trailing parameter reads as 00, so a bare 89 or 89 00 is stamina.
             case 0xF4:
-                Apply(WHITE, BLACK);
+            {
+                var field = b0 == 0x9C ? StatField.Score
+                          : b0 == 0x9B && b1 == 0x9C ? StatField.MaxStamina
+                          : b0 == 0x9B && b1 == 0x9B ? StatField.Stamina
+                          : StatField.None;
+                // First frame owns the scope (see Apply): a C89 nested inside an open one does not
+                // restart the capture.
+                bool opensStat = field != StatField.None && !HasScope(C1Scope.StatValue);
+                Apply(WHITE, BLACK, opens: opensStat ? C1Scope.StatValue : C1Scope.None);
+                if (opensStat)
+                    _parser.BeginStatValue(field);
                 return ParserState.Normal;
+            }
 
             // -- C90 (0xF5): catch()/throw() - color-stack save/restore -----
-            // {C90}{C255}      -> colour catch: snapshot the stack depth; NO colour change
-            //                    and NO push (fecodes: "90 - Colour catch. No colour change.")
-            // {C90}{C01}{C255} -> colour throw: restore the stack to the last catch point,
-            //                    undoing multiply-deep colour changes in a single code
-            //                    (e.g. the per-letter C99 colours in rainbow wiz names).
+            // {C90}{C255} or {C90}{C00}{C255} -> colour catch: record the stack depth as a floor;
+            //                    NO colour change and NO push (mud2_FE4.txt: "90 Colour catch.
+            //                    No colour change.")
+            // anything else, e.g. {C90}{C01}{C255} -> colour throw: restore the stack to the last
+            //                    catch point, undoing multiply-deep colour changes in a single
+            //                    code (e.g. the per-letter C99 colours in rainbow wiz names).
+            // The split is MUD-FECodes.txt's handleCode: "if((paramCount==1) || (param[1]==0))
+            // { // catch" and everything else is the throw. Neither has a matching 255 pop.
             case 0xF5:
-                if (count == 0)
-                {
+                if (b0 == 0x9B)
                     _catchDepths.Push(_colorStack.Count);
-                    return ParserState.Normal;
-                }
-                if (count == 1 && b0 == 0x9C)
-                {
+                else
                     ThrowToCatch();
-                    return ParserState.Normal;
-                }
-                Apply(WHITE, BLACK);   // unrecognised C90 variant: legacy reset behaviour
                 return ParserState.Normal;
 
             // -- C94 (0xF9): snoop starts -> WHITE/BLACK -----------------------
@@ -1232,18 +1346,23 @@ internal sealed class Mud2C1Decoder
                 return ParserState.Normal;
 
             // -- C95 (0xFA): client-mode data block ---------------------------
-            // {C95}{C255}           -> 5 lines: licence, min-level, max-level, account, privs
-            // {C95}{C02}{C255}      -> account change; new 5-line Rule A block follows
+            // {C95}{C255} (or 95 00) -> 5 lines: licence, min-level, max-level, account, privs
+            // {C95}{C02}{C255}      -> account change: 2 lines, account ID and priv level
+            //                          (mud2_FE4.txt: "It brackets the new account ID and the new
+            //                          priv level.")
             // {C95}{C03}{C255}      -> account-logout notice (1 trailing line, silent)
+            // Both collected blocks end with the FF FF that closes the code - see OnC95Close.
             case 0xFA:
-                if (count == 0)
+                if (count <= 1 && b0 == 0x9B)
                 {
                     _c95LinesRemaining = 5;
+                    _c95AccountChange = false;
                     return ParserState.C95Data;
                 }
-                if (count == 1 && b0 == 0x9D) // C02 -> account change; collect new Rule A block
+                if (count == 1 && b0 == 0x9D)
                 {
-                    _c95LinesRemaining = 5;
+                    _c95LinesRemaining = 2;
+                    _c95AccountChange = true;
                     return ParserState.C95Data;
                 }
                 if (count == 1 && b0 == 0x9E) // C03 -> account logout, transition to Options menu
@@ -1259,7 +1378,9 @@ internal sealed class Mud2C1Decoder
                 Apply(WHITE, BLACK);
                 return ParserState.Normal;
 
-            // -- C97 (0xFC): not listed -> catchall ----------------------------
+            // -- C97 (0xFC): snooped material -> WHITE/BLACK --------------------
+            // Both docs list "97 ... Snooped material from the player using internal FE"
+            // (mud2_FE4.txt: 97 oo nn, FE number oo*100+nn; MUD-FECodes.txt: 97 nn).
             case 0xFC:
                 Apply(WHITE, BLACK);
                 return ParserState.Normal;
@@ -1287,14 +1408,15 @@ internal sealed class Mud2C1Decoder
             // {C99}{C99}{C255}    -> WHITE/BLACK
             // {C99}{fg}{bg}{C255} -> color (fg-155, bg-155)
             // {C99}{fg}{C255}     -> color (fg-155, BLACK)
+            // {C99}{C255}         -> BLACK/BLACK (the missing fg reads as 00)
             // Color bytes are offset by 0x9B (155); index clamped to 0-15.
             case 0xFE:
                 if (count == 1 && b0 == 0xFE)       // FE FE FF FF -> WHITE/BLACK (special reset)
                     Apply(WHITE, BLACK);
                 else if (count == 2)
                     Apply(C99Color(b0), C99Color(b1));
-                else if (count == 1)
-                    Apply(C99Color(b0), BLACK);
+                else if (count <= 1)
+                    Apply(C99Color(b0), BLACK);   // bare 99 = 99 00: "99 Black on black."
                 else
                     Apply(WHITE, BLACK);
                 return ParserState.Normal;
@@ -1316,7 +1438,8 @@ internal sealed class Mud2C1Decoder
     ///   [0]=sta [1]=msta [2]=str [3]=mstr [4]=dex [5]=mdex
     ///   [6]=mag [7]=mmag [8]=score [9]=blind [10]=deaf [11]=crippled
     ///   [12]=dumb [13]=reset(minutes) [14]=weather
-    /// At least 15 fields required; score is a long (comma-free on server).
+    /// At least the 14 documented fields required; [14] weather is on the wire but not in
+    /// mud2_FE4.txt, so it is optional. Score is a long (comma-free on server).
     /// </summary>
     private void ParseAndEmitFes(List<byte> rawBytes)
     {
@@ -1358,7 +1481,7 @@ internal sealed class Mud2C1Decoder
 
         var text = Encoding.ASCII.GetString(textBytes.ToArray());
         var fields = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        if (fields.Length < 15) return;
+        if (fields.Length < FesDocumentedFields) return;
 
         int? sta   = int.TryParse(fields[0],  out int _sta)   ? _sta   : null;
         int? msta  = int.TryParse(fields[1],  out int _msta)  ? _msta  : null;
@@ -1374,7 +1497,8 @@ internal sealed class Mud2C1Decoder
         bool crippled = fields[11] == "Y";
         bool dumb     = fields[12] == "Y";
         int? reset = int.TryParse(fields[13], out int _reset) ? _reset : null;
-        char weather  = fields[14].Length > 0 ? fields[14][0] : ' ';
+        // ' ' = no weather field; MudSession's merge keeps the previous weather for it.
+        char weather  = fields.Length > 14 && fields[14].Length > 0 ? fields[14][0] : ' ';
 
         if (score > int.MaxValue || score < int.MinValue)
             Debug.WriteLine($"[Mud2C1Decoder] FES score {score} exceeds int32 range; clamping to {(score > int.MaxValue ? int.MaxValue : int.MinValue)}");
@@ -1401,7 +1525,8 @@ internal sealed class Mud2C1Decoder
             Privs:        _parser.CurrentPrivs,
             StaminaColor: staColorHint
         ) { HasFesStats = true };
-        _parser.SetWeather(weather);
+        if (weather != ' ')
+            _parser.SetWeather(weather);
         _parser.EmitStatsUpdate(snapshot);
     }
 }

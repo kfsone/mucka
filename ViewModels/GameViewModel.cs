@@ -1139,7 +1139,9 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             // chat filter show them highlighted too. A no-op for non-chat / non-self lines.
             line = SelfChatColorizer.Apply(line, _currentChar, _meNameRgb, _meSpeechRgb, ref _selfChatCarry);
             batch.Add(line);
-            if (!line.IsPartial && !line.PlainText.Contains('\f'))
+            // A clear-screen line is kept: replaying this history into the pane (leaving chat mode)
+            // then clears the live view and draws the scrollback rule exactly as the stream did.
+            if (!line.IsPartial)
             {
                 _historyBuffer.Add(line);
                 if (_historyBuffer.Count > MainHistoryCap) _historyBuffer.RemoveAt(0);

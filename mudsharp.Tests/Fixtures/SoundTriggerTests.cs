@@ -301,12 +301,13 @@ public class SoundTriggerTests
     }
 
     [Fact]
-    public void C11_Bare_NoSound()
+    public void C11_Bare_EmitsSound1100_LikeC11C00()
     {
-        // {C11}{C255} -> count==0, condition fails, no sound
+        // {C11}{C255} = 11 00 with the parameter missing -> the same clio.1100.wav as 11 00
         var h = new ParserHarness();
         h.Feed(0xA6, 0xFF, 0xFF);
-        Assert.Empty(h.Sounds);
+        h.Feed("You have gone blind!\n");
+        Assert.Equal(["sounds/clio.1100.wav"], h.Sounds);
     }
 
     // -- C13 (0xA8) -------------------------------------------------------------
