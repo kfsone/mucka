@@ -2533,6 +2533,8 @@ public partial class GamePage : ContentPage
             point.X, point.Y, CombatPanelLayers.Width, CombatPanelLayers.Height, RailShowStats);
         CombatPanelCanvas.NpcValueHoverRow = CombatPanelCanvas.NpcValueRowAt(
             point.X, point.Y, CombatPanelLayers.Width, CombatPanelLayers.Height);
+        CombatPanelCanvas.DeadStripHoverRow = CombatPanelCanvas.DeadStripRowAt(
+            point.X, point.Y, CombatPanelLayers.Width);
     }
 
     /// <summary>The pointer left the panel. Cleared explicitly rather than left to the next move: a
@@ -2544,6 +2546,7 @@ public partial class GamePage : ContentPage
             return;
         CombatPanelCanvas.EncounterHoverColumn = -1;
         CombatPanelCanvas.NpcValueHoverRow = -1;
+        CombatPanelCanvas.DeadStripHoverRow = -1;
     }
 
 #if WINDOWS

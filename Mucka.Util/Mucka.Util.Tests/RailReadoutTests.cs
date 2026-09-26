@@ -13,6 +13,71 @@ public sealed class RailReadoutTests
 {
     private static readonly FightOutcome[] AllOutcomes = Enum.GetValues<FightOutcome>();
 
+    // ---- BlowShape ----------------------------------------------------------------------------
+
+    private static ExchangeLine Blows(int samples, double min, double max, double sum)
+        => new(samples, min, max, sum / samples, 0, new DamageBracket(sum, sum));
+
+    [Fact]
+    public void BlowShape_IsTheRangeAndTheAverage()
+        => Assert.Equal("4-15 avg 8.7",
+            RailReadout.BlowShape(Blows(3, 4, 15, 26), CultureInfo.InvariantCulture));
+
+    [Fact]
+    public void BlowShape_BlowsAllAlike_AreOneFigure()
+        => Assert.Equal("each 6", RailReadout.BlowShape(Blows(2, 6, 6, 12), CultureInfo.InvariantCulture));
+
+    [Fact]
+    public void BlowShape_NothingMeasured_IsEmpty()
+        => Assert.Equal(string.Empty, RailReadout.BlowShape(ExchangeLine.Empty, CultureInfo.InvariantCulture));
+
+    [Fact]
+    public void BlowShape_OfACoalescedRow_SpansEveryEngagement()
+    {
+        var first = Blows(2, 6, 15, 21);
+        var kill = Blows(1, 4, 4, 4);
+
+        var merged = ExchangeLines.Combine(first, kill, TimeSpan.FromSeconds(20));
+
+        Assert.Equal("4-15 avg 8.3", RailReadout.BlowShape(merged, CultureInfo.InvariantCulture));
+    }
+
+    // ---- EndingCard ---------------------------------------------------------------------------
+
+    [Fact]
+    public void EndingCard_ACoalescedKill_HeadsWithItsFlightsPointsAndTime_ThenBothSides()
+    {
+        var ending = new CombatEnding(
+            "water-snake1", FightOutcome.Kill, null,
+            Dealt: new ExchangeLine(6, 5, 14, 77 / 6.0, 3.3, new DamageBracket(65, 89)),
+            Taken: new ExchangeLine(3, 4, 15, 26 / 3.0, 1.4, new DamageBracket(26, 26)),
+            ScoreAwarded: 89,
+            Duration: TimeSpan.FromMilliseconds(CombatTiming.TickMilliseconds * 18),
+            Retries: 1);
+
+        Assert.Equal(
+            [
+                "water-snake1  killed  1 flight  +89  18t",
+                "you  6 measured  max <=14 avg ~12.8  65-89 @ 3.3t",
+                "it   3 measured  4-15 avg 8.7  26 @ 1.4t",
+            ],
+            RailReadout.EndingCard(ending, CultureInfo.InvariantCulture));
+    }
+
+    [Fact]
+    public void EndingCard_ASideWithNothingMeasured_SaysSo_AndBlowsAllAlike_ReadEach()
+    {
+        var ending = new CombatEnding(
+            "rat9", FightOutcome.CFledFail, null,
+            Taken: new ExchangeLine(2, 6, 6, 6, 0, new DamageBracket(12, 12)));
+
+        var card = RailReadout.EndingCard(ending, CultureInfo.InvariantCulture);
+
+        Assert.Equal("rat9  broke off", card[0]);
+        Assert.Equal("you  no blows measured", card[1]);
+        Assert.Equal("it   2 measured  each 6  12", card[2]);
+    }
+
     // ---- OutcomeWord ---------------------------------------------------------------------------
 
     /// <summary>

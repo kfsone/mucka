@@ -42,6 +42,70 @@ public static class RailReadout
         => ticks is double value && value >= 0 ? value.ToString("0", culture) + "t" : string.Empty;
 
     /// <summary>
+    /// A creature's blows on its dead-strip row: the smallest and largest that landed and the average,
+    /// "4-15 avg 8.7", or "each 6" when every measured blow was alike - labelled, because a bare figure
+    /// beside the total reads as some other quantity. Empty when nothing was measured.
+    ///
+    /// <para>The creature's side only. Its blows are exact - MUD2 prints the player's stamina on every
+    /// one - whereas the player's own are brackets whose extremes are upper bounds, which a range
+    /// beside the total's range would read as something they are not (see
+    /// <see cref="ExchangeLine"/>).</para>
+    /// </summary>
+    public static string BlowShape(ExchangeLine line, CultureInfo culture)
+    {
+        if (!line.HasSamples)
+            return string.Empty;
+        if (line.AllAlike)
+            return "each " + line.Max.ToString("0.#", culture);
+        return line.Min.ToString("0.#", culture) + "-" + line.Max.ToString("0.#", culture)
+            + " avg " + line.Mean.ToString("0.#", culture);
+    }
+
+    /// <summary>
+    /// The dead-strip row's hover card: the ending, then each side's blows over every engagement the
+    /// row stands for.
+    ///
+    /// <para>The two sides read differently because they are different measurements. The creature's
+    /// blows are exact, so its line gives the range and the average. The player's are brackets: the
+    /// total is a range, the average is a midpoint (marked "~"), and the largest blow is an upper
+    /// bound (marked "&lt;="). See <see cref="ExchangeLine"/>.</para>
+    /// </summary>
+    public static IReadOnlyList<string> EndingCard(CombatEnding ending, CultureInfo culture)
+    {
+        var head = ending.Name + "  " + OutcomeWord(ending.Outcome);
+        if (ending.Retries > 0)
+            head += ending.Retries == 1 ? "  1 flight" : "  " + ending.Retries.ToString(culture) + " flights";
+        if (ending.ScoreAwarded is int award && award != 0)
+            head += "  " + (award < 0 ? "-" : "+") + Math.Abs(award).ToString(culture);
+        var ticks = CombatTiming.TicksElapsed(ending.Duration);
+        if (ticks >= 1.0)
+            head += "  " + ticks.ToString("0", culture) + "t";
+
+        return [head, CardLine("you", ending.Dealt, byPlayer: true, culture),
+            CardLine("it ", ending.Taken, byPlayer: false, culture)];
+    }
+
+    private static string CardLine(string who, ExchangeLine line, bool byPlayer, CultureInfo culture)
+    {
+        if (!line.HasSamples)
+            return who + "  no blows measured";
+
+        // "measured", not "hits": Samples counts the landed blows that carried numbers, and a blow
+        // can land without one.
+        var measured = line.Samples.ToString(culture) + " measured";
+        var total = byPlayer && line.Total.High > line.Total.Low
+            ? line.Total.Low.ToString("0.#", culture) + "-" + line.Total.High.ToString("0.#", culture)
+            : line.Total.High.ToString("0.#", culture);
+        var rate = line.PerTick > 0 ? " @ " + line.PerTick.ToString("0.#", culture) + "t" : string.Empty;
+        // The blows lead and the total follows: a line too long for the card is cut from the right,
+        // and the largest blow is the figure that must not be the one lost.
+        var shape = byPlayer
+            ? "max <=" + line.Max.ToString("0.#", culture) + " avg ~" + line.Mean.ToString("0.#", culture)
+            : BlowShape(line, culture);
+        return who + "  " + measured + "  " + shape + "  " + total + rate;
+    }
+
+    /// <summary>
     /// The word one ending is reported with on the dead strip.
     ///
     /// <para>Empty for <see cref="FightOutcome.Unresolved"/>, and that blank is a distinct statement:

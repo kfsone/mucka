@@ -770,7 +770,9 @@ public sealed class CombatRailView : SKCanvasView
         DrawPlayerTile(canvas, height - PlayerTileBottomOffset - PlayerTileHeight, live);
         DrawTickRow(canvas, height - TickRowBottomOffset - TickRowHeight, live);
         DrawEncounterTable(canvas, height - EncounterBottomOffset - EncounterRowHeight, live);
+        _deadRowBands.Clear();
         DrawOpponents(canvas, height, live);
+        DrawEndingCard(canvas, height, live);
 
         canvas.Restore();
     }
@@ -887,6 +889,7 @@ public sealed class CombatRailView : SKCanvasView
     /// </summary>
     private void DrawDeadStrip(SKCanvas canvas, float floor, IReadOnlyList<CombatEnding> history)
     {
+        _deadBandsHistory = history;
         if (history.Count == 0)
             return;
 
@@ -927,6 +930,7 @@ public sealed class CombatRailView : SKCanvasView
             // the player below. The exchange summary is the only place a finished fight's figures
             // survive - its tile is gone.
             var nameBaseline = y - DeadSubLineHeight;
+            _deadRowBands.Add(new DeadRowBand(nameBaseline - DeadRowAscent, y + DeadRowDescent, i));
 
             _text.Color = Ink;
             canvas.DrawText(
@@ -1086,6 +1090,20 @@ public sealed class CombatRailView : SKCanvasView
     /// the grouping separator clear of the row above it - approximate on purpose, since it only has to
     /// keep a 1px line out of a "g".</summary>
     private const float DeadRowDescent = 4f;
+
+    /// <summary>How far the small font's capitals reach above a dead-strip baseline - the top of a
+    /// row's hover band. Approximate like <see cref="DeadRowDescent"/>.</summary>
+    private const float DeadRowAscent = 9f;
+
+    /// <summary>One dead-strip row as last painted, in canvas units: its vertical extent and which
+    /// ending in the history it drew.</summary>
+    private readonly record struct DeadRowBand(float Top, float Bottom, int Index);
+
+    /// <summary>The dead-strip rows the last paint drew, and the history it drew them from - what
+    /// <see cref="DeadStripRowAt"/> answers against, so the row it names is the row on screen. Both
+    /// written and read on the UI thread; refilled every paint without reallocating.</summary>
+    private readonly List<DeadRowBand> _deadRowBands = new();
+    private IReadOnlyList<CombatEnding>? _deadBandsHistory;
 
     private const float DeadNameWidth = 104f;
     private const float DeadScoreWidth = 44f;
@@ -2666,7 +2684,9 @@ public sealed class CombatRailView : SKCanvasView
 
     /// <summary>
     /// One direction of a finished fight, right-aligned on a dead-strip line:
-    /// <c>[mark] 155-209 @ 9.1t</c> - what was dealt in total, and the rate it went out at.
+    /// <c>[mark] 155-209 @ 9.1t</c> - what was dealt in total, and the rate it went out at. The
+    /// creature's line leads with its blows (<see cref="RailReadout.BlowShape"/>),
+    /// <c>[mark] 4-15 avg 8.7  23 @ 1.4t</c>, over every engagement a coalesced row stands for.
     ///
     /// <para>Same drawn direction marks and the same monospace figures the live tile uses, a size
     /// down. A fight with nothing measured draws nothing at all rather than a zero (rule 5) - an
@@ -2693,10 +2713,31 @@ public sealed class CombatRailView : SKCanvasView
         var tone = byPlayer ? InkDim : HostileDim;
         _text.Color = tone;
         canvas.DrawText(text, right, baseline, SKTextAlign.Right, _statSmallFont, _text);
+        var left = right - _statSmallFont.MeasureText(text);
 
-        DrawDirectionMark(
-            canvas, right - _statSmallFont.MeasureText(text) - 10f, baseline - 7f, !inbound, tone);
+        // The creature's blow shape ahead of the total, dimmer so the total still leads - when it
+        // fits right of the outcome column; a narrow rail drops it rather than crowd the word.
+        if (!byPlayer)
+        {
+            var shape = RailReadout.BlowShape(line, culture);
+            if (shape.Length > 0)
+            {
+                var shapeText = shape + "  ";
+                var shapeLeft = left - _statSmallFont.MeasureText(shapeText);
+                if (shapeLeft - DeadExchangeMarkRoom >= Pad + DeadNameWidth)
+                {
+                    _text.Color = InkDim;
+                    canvas.DrawText(shapeText, left, baseline, SKTextAlign.Right, _statSmallFont, _text);
+                    left = shapeLeft;
+                }
+            }
+        }
+
+        DrawDirectionMark(canvas, left - DeadExchangeMarkRoom, baseline - 7f, !inbound, tone);
     }
+
+    /// <summary>The room left of an exchange line's text for its direction mark and the gap.</summary>
+    private const float DeadExchangeMarkRoom = 10f;
 
     /// <summary>
     /// The hovered column's description, in a chip immediately BELOW the table - over the tick gauge.
@@ -2730,9 +2771,9 @@ public sealed class CombatRailView : SKCanvasView
     /// One hover readout, as a chip: dark ground, hairline border, one line of small text, centred
     /// inside <paramref name="usableWidth"/> from <paramref name="usableLeft"/> and clamped to it.
     ///
-    /// <para>Every hover readout on this canvas draws through here, so the two - the encounter
-    /// table's column descriptions and the creature-value sentence - cannot drift into two different
-    /// chips. Drawn on the canvas rather than as a platform tooltip because the rail is
+    /// <para>Every one-line hover readout on this canvas draws through here, so the two - the
+    /// encounter table's column descriptions and the creature-value sentence - cannot drift into two
+    /// different chips; the several-line ending card shares its ground (<see cref="DrawTipGround"/>). Drawn on the canvas rather than as a platform tooltip because the rail is
     /// InputTransparent and takes no gestures of its own (Invariant #0), and because a tooltip that
     /// appears where the eye already is beats one that chases the pointer.</para>
     /// </summary>
@@ -2745,15 +2786,50 @@ public sealed class CombatRailView : SKCanvasView
         var left = Math.Clamp(
             usableLeft + ((usableWidth - width) / 2f), usableLeft, usableLeft + usableWidth - width);
 
-        _fill.Color = new SKColor(0x1c, 0x24, 0x27, 0xF2);
-        canvas.DrawRoundRect(left, top, width, height, 3f, 3f, _fill);
-        _stroke.Color = Rule;
-        canvas.DrawRoundRect(left + 0.5f, top + 0.5f, width - 1f, height - 1f, 3f, 3f, _stroke);
+        DrawTipGround(canvas, left, top, width, height);
 
         _text.Color = Ink;
         canvas.DrawText(
             Ellipsize(text, width - (padX * 2f), _statSmallFont),
             left + (width / 2f), top + height - 5f, SKTextAlign.Center, _statSmallFont, _text);
+    }
+
+    /// <summary>A hover readout of several lines - the dead strip's ending card. The chip's ground and
+    /// border (<see cref="DrawTipGround"/>), lines left-aligned so the card's columns stay in register,
+    /// sized to the widest line and centred in <paramref name="usableWidth"/> like the chip.</summary>
+    private void DrawTipCard(
+        SKCanvas canvas, IReadOnlyList<string> lines, float top, float usableLeft, float usableWidth)
+    {
+        const float padX = 6f;
+
+        var widest = 0f;
+        foreach (var line in lines)
+            widest = Math.Max(widest, _statSmallFont.MeasureText(line));
+        var width = Math.Min(widest + (padX * 2f), usableWidth);
+        var height = (EndingCardPadY * 2f) + (lines.Count * EndingCardLineHeight);
+        var left = Math.Clamp(
+            usableLeft + ((usableWidth - width) / 2f), usableLeft, usableLeft + usableWidth - width);
+
+        DrawTipGround(canvas, left, top, width, height);
+
+        _text.Color = Ink;
+        var baseline = top + EndingCardPadY + EndingCardLineHeight - 3f;
+        foreach (var line in lines)
+        {
+            canvas.DrawText(
+                Ellipsize(line, width - (padX * 2f), _statSmallFont),
+                left + padX, baseline, SKTextAlign.Left, _statSmallFont, _text);
+            baseline += EndingCardLineHeight;
+        }
+    }
+
+    /// <summary>Every hover readout's dark ground and hairline border.</summary>
+    private void DrawTipGround(SKCanvas canvas, float left, float top, float width, float height)
+    {
+        _fill.Color = new SKColor(0x1c, 0x24, 0x27, 0xF2);
+        canvas.DrawRoundRect(left, top, width, height, 3f, 3f, _fill);
+        _stroke.Color = Rule;
+        canvas.DrawRoundRect(left + 0.5f, top + 0.5f, width - 1f, height - 1f, 3f, 3f, _stroke);
     }
 
     /// <summary>
@@ -2875,6 +2951,105 @@ public sealed class CombatRailView : SKCanvasView
     public static readonly BindableProperty NpcValueHoverRowProperty = BindableProperty.Create(
         nameof(NpcValueHoverRow), typeof(int), typeof(CombatRailView), -1,
         propertyChanged: (bindable, _, _) => ((CombatRailView)bindable).InvalidateSurface());
+
+    /// <summary>The dead-strip ending under the pointer, as an index into the history the last paint
+    /// drew, or -1. Set by GamePage's pointer hit test from <see cref="DeadStripRowAt"/>; repaints
+    /// only when it changes, not on every pointer move.</summary>
+    public int DeadStripHoverRow
+    {
+        get => (int)GetValue(DeadStripHoverRowProperty);
+        set => SetValue(DeadStripHoverRowProperty, value);
+    }
+
+    public static readonly BindableProperty DeadStripHoverRowProperty = BindableProperty.Create(
+        nameof(DeadStripHoverRow), typeof(int), typeof(CombatRailView), -1,
+        propertyChanged: (bindable, _, _) => ((CombatRailView)bindable).InvalidateSurface());
+
+    /// <summary>
+    /// Which dead-strip ending a pointer at <paramref name="xDp"/>,<paramref name="yDp"/> is over, or
+    /// -1. Answered against the rows the last paint drew (<see cref="_deadRowBands"/>) rather than a
+    /// second copy of the strip's layout, which would disagree with the paint the first time the
+    /// truncation or the separators changed.
+    /// </summary>
+    public int DeadStripRowAt(double xDp, double yDp, double panelWidthDp)
+    {
+        if (panelWidthDp <= 0 || _deadRowBands.Count == 0)
+            return -1;
+
+        var perDp = RailWidth / panelWidthDp;
+        var x = xDp * perDp;
+        var y = yDp * perDp;
+        if (x < Pad || x > Pad + Content)
+            return -1;
+
+        foreach (var band in _deadRowBands)
+        {
+            if (y >= band.Top && y <= band.Bottom)
+            {
+                // The index means something only in the list it was read from. A new list since the
+                // last hit test means the index can be unchanged while the row is not, which the
+                // bindable would not repaint for.
+                if (!ReferenceEquals(_deadHoverHistory, _deadBandsHistory))
+                {
+                    _deadHoverHistory = _deadBandsHistory;
+                    InvalidateSurface();
+                }
+                return band.Index;
+            }
+        }
+        return -1;
+    }
+
+    /// <summary>The history <see cref="DeadStripHoverRow"/> was resolved against by the last hit test.
+    /// The card is drawn only while the published history is still this one.</summary>
+    private IReadOnlyList<CombatEnding>? _deadHoverHistory;
+
+    // The last card's text and the ending it was built for, so a held hover does not rebuild the
+    // strings on every paint.
+    private CombatEnding _cardEnding;
+    private IReadOnlyList<string> _cardLines = [];
+
+    /// <summary>
+    /// The hovered dead-strip row's card (<see cref="RailReadout.EndingCard"/>): drawn last, over the
+    /// strip and the live stack alike, just below the row, or above it when the rail has no room
+    /// below.
+    ///
+    /// <para>Only against the history the hovered index was resolved against
+    /// (<see cref="_deadHoverHistory"/>). A new ending, or a fold that takes a flight into its kill,
+    /// publishes a new list, and until the pointer moves again the index may name a different row -
+    /// so the card waits for the next hit test instead.</para>
+    /// </summary>
+    private void DrawEndingCard(SKCanvas canvas, float height, CombatLiveView live)
+    {
+        var index = DeadStripHoverRow;
+        var history = live.DeadStripHistory;
+        if (index < 0 || index >= history.Count || !ReferenceEquals(history, _deadHoverHistory))
+            return;
+
+        DeadRowBand? hovered = null;
+        foreach (var band in _deadRowBands)
+        {
+            if (band.Index == index)
+                hovered = band;
+        }
+        if (hovered is not DeadRowBand row)
+            return;
+
+        if (_cardLines.Count == 0 || _cardEnding != history[index])
+        {
+            _cardEnding = history[index];
+            _cardLines = RailReadout.EndingCard(_cardEnding, System.Globalization.CultureInfo.InvariantCulture);
+        }
+        var lines = _cardLines;
+        var cardHeight = EndingCardPadY * 2f + (lines.Count * EndingCardLineHeight);
+        var top = row.Bottom + 2f;
+        if (top + cardHeight > height)
+            top = Math.Max(0f, row.Top - 2f - cardHeight);
+        DrawTipCard(canvas, lines, top, Pad, Content);
+    }
+
+    private const float EndingCardLineHeight = 13f;
+    private const float EndingCardPadY = 4f;
 
     /// <summary>
     /// Which opponent row's value figure a pointer at <paramref name="xDp"/>,<paramref name="yDp"/>
