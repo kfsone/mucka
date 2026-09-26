@@ -116,6 +116,9 @@ public sealed class ScoreGraphViewModel : BaseViewModel
             new("1 minute", (long)TimeSpan.FromMinutes(1).TotalMilliseconds, SelectScale),
             new("1 hour", (long)TimeSpan.FromHours(1).TotalMilliseconds, SelectScale),
             new("1 day", (long)TimeSpan.FromDays(1).TotalMilliseconds, SelectScale),
+            new("3 days", (long)TimeSpan.FromDays(3).TotalMilliseconds, SelectScale),
+            new("7 days", (long)TimeSpan.FromDays(7).TotalMilliseconds, SelectScale),
+            new("30 days", (long)TimeSpan.FromDays(30).TotalMilliseconds, SelectScale),
         ];
         _scale = Scales[0];
         _scale.IsSelected = true;

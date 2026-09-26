@@ -166,6 +166,29 @@ public sealed class ScoreGraphTests : IDisposable
     }
 
     [Fact]
+    public void A_several_day_bucket_runs_midnight_to_midnight_counted_from_the_epoch()
+    {
+        // 7-day buckets fall on multiples of seven days from 1970-01-01, a Thursday, so a week bucket
+        // runs Thursday to Thursday rather than on a calendar week.
+        const long Day = 86_400_000;
+        ScorePoint[] points =
+        [
+            new(0, 100),
+            new(6 * Day, 400),
+            new(7 * Day, 350),
+            new(13 * Day + (Day / 2), 500),
+        ];
+
+        var buckets = ScoreGraphPlot.Bucket(points, 7 * Day, TimeZoneInfo.Utc);
+
+        Assert.Equal(
+        [
+            new ScoreBucket(0, 7 * Day, 100, 400, 400, 0, 300),
+            new ScoreBucket(7 * Day, 14 * Day, 350, 500, 500, 50, 150),
+        ], buckets);
+    }
+
+    [Fact]
     public void A_bucketed_scale_draws_a_bar_per_bucket_and_one_loss_per_bucket()
     {
         const long Minute = 60_000;
