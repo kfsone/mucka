@@ -51,6 +51,13 @@ public class TerminalSelectionTests
     }
 
     [Fact]
+    public void ClearRuleRowInRange_CopiesAsABlankLine_NotAFormFeed()
+    {
+        IReadOnlyList<StyledLine> rows = [Row("before"), TerminalBuffer.ClearRule, Row("after")];
+        Assert.Equal("before\n\nafter", TerminalSelection.Extract(rows, (0, 0), (2, 5)));
+    }
+
+    [Fact]
     public void EmptyRowList_ReturnsEmpty()
     {
         Assert.Equal(string.Empty, TerminalSelection.Extract(Array.Empty<StyledLine>(), (0, 0), (3, 3)));

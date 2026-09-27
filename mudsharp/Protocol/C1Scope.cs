@@ -66,4 +66,13 @@ internal enum C1Scope
     /// mark an identically-named object on the floor as a creature.
     /// </summary>
     ListedObject = 1 << 7,
+
+    /// <summary>
+    /// C89 - one of the player's own stat values: 89 00 00 stamina, 89 00 01 maximum stamina,
+    /// 89 01 score (mud2_FE4.txt). The number inside is displayed as usual and also captured, so the
+    /// value comes from the code that names it rather than from a pattern over the line's prose -
+    /// which a player's speech can reproduce character for character. On the wire the code brackets
+    /// a C99 colour and the digits: F4 9B 9B FF FF FE 9D FF FF "97" FF FF FF FF.
+    /// </summary>
+    StatValue = 1 << 8,
 }

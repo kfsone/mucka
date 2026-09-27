@@ -6,7 +6,8 @@ namespace MudSharp.Tests.Fixtures;
 
 /// <summary>
 /// The three sources that tell the combat tracker the player is BLIND, each pinned on its own: the
-/// coded start, the coded end, and the FES flag behind both. A dark room does the same to the wire
+/// coded start, the coded end, and the FES flag behind both. A fourth, the FEI reply's "--" room
+/// section, is pinned beside its "oo" twin in <see cref="DarkSightWiringTests"/>. A dark room does the same to the wire
 /// and is the other half of the same flag - see <see cref="DarkSightWiringTests"/>. The flag is the
 /// one reason the tracker accepts for handing an anonymous line to a sole engaged Creature, so both
 /// edges of that knowledge have to be wired - and wired as a level, not an edge.

@@ -151,12 +151,13 @@ The wyvern has just passed on.
 
 Two facts, both the opposite of what you would guess, and both now pinned by a test:
 
-1. **The death lines carry no C1 code at all** -- and not merely "none observed". Bartle's own code
-   list is exhaustive on the 08 family: `08 08` you killed them, `08 09` they killed you, and three
-   fight-end *reasons*. There is no death or corpse code anywhere in the document. On the wire,
-   `The X has just passed on.` arrives untagged in **87 of 87** occurrences across every capture on
-   disk. MUD2 is frozen, so that absence is permanent: prose matching is not a workaround for these
-   lines, it is the only thing there will ever be.
+1. **The death lines carry no C1 code at all.** On the wire, `The X has just passed on.` arrives
+   untagged in **87 of 87** occurrences across every capture on disk. Bartle's code lists agree as
+   far as they go -- the 08 family is `08 08` you killed them, `08 09` they killed you, and three
+   fight-end *reasons*, and there is no death or corpse code anywhere in either document -- but
+   neither claims to be complete: "I will be adding more codes", and "Look in muddle/codes.mud for
+   the latest versions." The wire is what settles it. MUD2 is frozen, so that absence is permanent:
+   prose matching is not a workaround for these lines, it is the only thing there will ever be.
 2. **The trailing line is `08.12`** -- `Fight ends - other` -- and so is the pronoun form
    (`08 12` precedes `You can fight him no longer.` in the older captures). That is the
    one statement in the whole frame that a fight ended, made in the protocol rather than in English.

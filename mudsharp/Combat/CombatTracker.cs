@@ -1227,10 +1227,12 @@ public sealed class CombatTracker
     /// <item><b>Blind</b> - the coded <c>&lt;11.00&gt;You have suddenly and magically gone blind!</c>
     /// and <c>&lt;11.01&gt;You have suddenly and magically regained your sight!</c> lines the frame
     /// they land, and the FES heartbeat's flag on every genuine reply (authoritative, up to one
-    /// heartbeat late, and the only signal on a relog into an already-blind persona).</item>
-    /// <item><b>Dark</b> - no code and no FES column, so the game's own prose: "It's too dark to see
-    /// now." and "You move in the darkness..." start it, "It's light enough to see now!" and any
-    /// coded room entry end it.</item>
+    /// heartbeat late, and the only signal on a relog into an already-blind persona), and an
+    /// items reply whose room section is <c>--</c>.</item>
+    /// <item><b>Dark</b> - no code and no FES column. An items reply whose room section is
+    /// <c>oo</c> starts it and any other complete items reply ends it; between replies the game's
+    /// own prose carries it: "It's too dark to see now." and "You move in the darkness..." start
+    /// it, "It's light enough to see now!" and any coded room entry end it.</item>
     /// </list>
     ///
     /// <para>A level, not an edge - a repeat of the current value is a no-op - so the FES path

@@ -13,6 +13,15 @@ internal sealed class AnsiSgrState
     /// </summary>
     internal Action<int>? WidthConfirmed;
 
+    /// <summary>Invoked on the server's ESC-C (clear screen).</summary>
+    internal Action? ClearScreen;
+
+    /// <summary>Invoked on the server's ESC-K (erase to end of line).</summary>
+    internal Action? EraseToEndOfLine;
+
+    /// <summary>Invoked on the server's ESC-Q (end of session).</summary>
+    internal Action? EndOfSession;
+
     private readonly StringBuilder _paramBuf = new(32);
 
     /// <summary>
@@ -43,7 +52,17 @@ internal sealed class AnsiSgrState
                     _paramBuf.Append((char)b);
                     return ParserState.EscapeDashWidth;
                 }
-                // Any other byte is a named shell command letter - consume it silently.
+                // The server's named escapes (mud2_FE4.txt section 2: "$-C clear screen",
+                // "$-R reverse video mode on", "$-r reverse video mode off", "$-K erase to end
+                // of line", "$-Q end of session"). Any other letter is consumed silently.
+                switch (b)
+                {
+                    case (byte)'R': CurrentStyle = CurrentStyle with { Reverse = true };  break;
+                    case (byte)'r': CurrentStyle = CurrentStyle with { Reverse = false }; break;
+                    case (byte)'C': ClearScreen?.Invoke();      break;
+                    case (byte)'K': EraseToEndOfLine?.Invoke(); break;
+                    case (byte)'Q': EndOfSession?.Invoke();     break;
+                }
                 return ParserState.Normal;
 
             case ParserState.EscapeDashWidth:

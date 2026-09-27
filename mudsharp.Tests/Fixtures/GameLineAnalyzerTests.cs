@@ -1,3 +1,5 @@
+using MudSharp.Models;
+
 namespace MudSharp.Tests.Fixtures;
 
 /// <summary>
@@ -7,12 +9,15 @@ namespace MudSharp.Tests.Fixtures;
 /// </summary>
 public class GameLineAnalyzerTests
 {
+    // Every stamina reading outside FES comes from its C89 bracket - see StatCodes for the wire
+    // form, and GameLineAnalyzer's header for the counts that make the code the only source.
+
     [Fact]
     public void StaminaLine_ExtractsCurrentAndMax()
     {
-        // Clio: "stamina:        N      max:    M"
+        // The sheet's "stamina:        N      max:    M", both figures bracketed.
         var h = new ParserHarness();
-        h.Feed("stamina:  81      max:  81\n");
+        h.Feed("stamina:  " + StatCodes.Stamina(81) + "      max:  " + StatCodes.MaxStamina(81) + "\n");
         Assert.Single(h.Stats);
         Assert.Equal(81, h.Stats[0].Stamina);
         Assert.Equal(81, h.Stats[0].MaxStamina);
@@ -21,35 +26,45 @@ public class GameLineAnalyzerTests
     [Fact]
     public void YourStaminaIs_ExtractsStamina()
     {
-        // Wake-up / rest line: "Your stamina is N."
+        // Wake-up / rest line: "Your stamina is N." - stamina alone, no maximum.
         var h = new ParserHarness();
-        h.Feed("Your stamina is 42.\n");
+        h.Feed("Your stamina is " + StatCodes.Stamina(42) + ".\n");
         Assert.Single(h.Stats);
         Assert.Equal(42, h.Stats[0].Stamina);
+        Assert.Null(h.Stats[0].MaxStamina);
     }
 
     [Fact]
-    public void CompactStamina_ExtractsFromLineStart()
+    public void BarePair_ExtractsBoth()
     {
-        // Clio: buf[0]=='(' then (N/M) -- prompt-style compact stamina
+        // "(N/M)." on a line of its own, 460 of them in the wire table.
         var h = new ParserHarness();
-        h.Feed("(42/100) You are standing in a clearing.\n");
+        h.Feed("(" + StatCodes.Stamina(19) + "/" + StatCodes.MaxStamina(100) + ").\n");
         Assert.Single(h.Stats);
-        Assert.Equal(42,  h.Stats[0].Stamina);
+        Assert.Equal(19,  h.Stats[0].Stamina);
         Assert.Equal(100, h.Stats[0].MaxStamina);
+    }
+
+    [Fact]
+    public void StaminaAboveMax_IsTakenAsPrinted()
+    {
+        // "sta 114/120" and "sta 101/120" are both in the wire table; the code is not filtered for
+        // plausibility the way a prose match had to be.
+        var h = new ParserHarness();
+        h.Feed("(" + StatCodes.Stamina(125) + "/" + StatCodes.MaxStamina(120) + ").\n");
+        Assert.Equal(125, Assert.Single(h.Stats).Stamina);
     }
 
     [Fact]
     public void OverflowNumbers_DoNotThrowOrEmit()
     {
-        // Any player can put "(N/M)" with >int.MaxValue digits in a say/shout; an
-        // int.Parse OverflowException here propagated out of Feed() and dropped the
+        // An int.Parse OverflowException here would propagate out of Feed() and drop the
         // connection. TryParse must swallow it without emitting stats.
         var h = new ParserHarness();
-        h.Feed(0x9D, 0x9C, 0xFF, 0xFF);   // game mode (combat regex runs on all lines)
+        h.Feed(0x9D, 0x9C, 0xFF, 0xFF);   // game mode
         h.Feed("Ollie says \"(99999999999999999999/9)\".\n");
-        h.Feed("stamina:  99999999999999999999      max:  81\n");
-        h.Feed("(99999999999999999999/99999999999999999999) ouch\n");
+        h.Feed("stamina:  " + StatCodes.Stamina("99999999999999999999") + "      max:  "
+               + StatCodes.MaxStamina("99999999999999999999") + "\n");
         Assert.Empty(h.Stats);
     }
 
@@ -150,12 +165,23 @@ public class GameLineAnalyzerTests
     [Fact]
     public void PersonaSaved_SetsFlag_AndExtractsScore()
     {
-        // "(Persona saved on [+N = ]M,NNN)." -- sets PersonaSaved and extracts score
+        // "(Persona saved on [+N = ]M,NNN)." -- sets PersonaSaved; the score is the C89 total
         var h = new ParserHarness();
-        h.Feed("(Persona saved on +500 = 2,500).\n");
+        h.Feed("(Persona saved on +500 = " + StatCodes.Score("2,500") + ").\n");
         Assert.Single(h.Stats);
         Assert.True(h.Stats[0].PersonaSaved);
         Assert.Equal(2500, h.Stats[0].Score);
+    }
+
+    /// <summary>The same line with no code around the total sets the flag and no score: the code is
+    /// the score's only source, and every save line in the wire table carries it.</summary>
+    [Fact]
+    public void PersonaSaved_WithoutTheCode_SetsNoScore()
+    {
+        var h = new ParserHarness();
+        h.Feed("(Persona saved on +500 = 2,500).\n");
+        Assert.True(Assert.Single(h.Stats).PersonaSaved);
+        Assert.Null(h.Stats[0].Score);
     }
 
     /// <summary>
@@ -171,14 +197,16 @@ public class GameLineAnalyzerTests
     public void PersonaSaved_CarriesTheSignedDelta(string line, int expectedDelta, int expectedTotal)
     {
         var h = new ParserHarness();
-        h.Feed(line + "\n");
+        // The total bracketed in its C89 code, as every save line on the wire has it.
+        var coded = System.Text.RegularExpressions.Regex.Replace(line, @"[\d,]+(?=\)\.$)", m => StatCodes.Score(m.Value));
+        h.Feed(coded + "\n");
 
         var save = Assert.Single(h.ScoreSaves);
         Assert.Equal(expectedDelta, save.Delta);
         Assert.Equal(expectedTotal, save.Total);
         Assert.Equal(line, save.RawText);
 
-        // The stat path still sees exactly what it always did.
+        // The stat path reads the same total from the code.
         Assert.Equal(expectedTotal, h.Stats[0].Score);
         Assert.True(h.Stats[0].PersonaSaved);
     }
@@ -320,23 +348,108 @@ public class GameLineAnalyzerTests
     [Fact]
     public void CombatHitLine_ExtractsStamina()
     {
-        // "The rat16 hits you (89/94)." -- stamina embedded mid-line
+        // A real hit line, framed as the wire carries it:
+        //   A3 9E FF FF "The rat22 hits you (" <89 00 00>97 "/" <89 00 01>100 ")." FF FF
         var h = new ParserHarness();
-        h.Feed("The rat16 hits you (89/94).\n");
-        Assert.Single(h.Stats);
-        Assert.Equal(89, h.Stats[0].Stamina);
-        Assert.Equal(94, h.Stats[0].MaxStamina);
+        h.Feed(0x9D, 0x9C, 0xFF, 0xFF);   // game mode
+        h.Feed("Cellar.\n");
+        h.Feed(0xA3, 0x9E, 0xFF, 0xFF);
+        h.Feed("The rat22 hits you (" + StatCodes.Stamina(97) + "/" + StatCodes.MaxStamina(100) + ").");
+        h.Feed(0xFF, 0xFF);
+        h.Feed("\r\n");
+        var s = Assert.Single(h.Stats);
+        Assert.Equal(97, s.Stamina);
+        Assert.Equal(100, s.MaxStamina);
+        Assert.Equal("The rat22 hits you (97/100).", h.Lines[^1].PlainText);
     }
 
+    /// <summary>The same words with no code read nothing. Every "(N/M)" on the wire carries its C89
+    /// code (3,980 of 3,980 lines), so a bare one is text somebody else put there.</summary>
     [Fact]
-    public void CombatHitLine_UsesLastStaminaOccurrence()
+    public void ProsePairWithoutTheCode_ReadsNothing()
     {
-        // When multiple (N/M) appear, use the last one (the stamina update)
         var h = new ParserHarness();
-        h.Feed("You (1/2) hit the rat (42/50) hard.\n");
-        Assert.Single(h.Stats);
-        Assert.Equal(42, h.Stats[0].Stamina);
-        Assert.Equal(50, h.Stats[0].MaxStamina);
+        h.Feed("The rat16 hits you (89/94).\n");
+        h.Feed("(42/100) You are standing in a clearing.\n");
+        h.Feed("Your stamina is 42.\n");
+        h.Feed("stamina:  81      max:  81\n");
+        Assert.Empty(h.Stats);
+    }
+
+    /// <summary>
+    /// Speech never feeds a stat. The player can say anything, including the exact prose of a hit
+    /// line or a save line; both used to land. (The column-0 patterns are reached only by a wrapped
+    /// row - see the next test.)
+    /// </summary>
+    [Theory]
+    [InlineData("(5/100)")]
+    [InlineData("(Persona saved on +999 = 999).")]
+    public void SpokenStatProse_FeedsNothing(string words)
+    {
+        var h = new ParserHarness();
+        h.Feed(0x9D, 0x9C, 0xFF, 0xFF);   // game mode
+        h.Feed("Cellar.\n");
+        h.ClearCounters();
+        h.Feed(0xA4, 0x9B, 0xFF, 0xFF);
+        h.Feed("Bob the hero says \"");
+        h.Feed(0xA4, 0x9D, 0xFF, 0xFF);
+        h.Feed(words);
+        h.Feed(0xFF, 0xFF);
+        h.Feed("\".");
+        h.Feed(0xFF, 0xFF);
+        h.Feed("\r\n");
+
+        Assert.Equal(LineKind.Chat, Assert.Single(h.Lines).Kind);
+        Assert.Empty(h.Stats);
+        Assert.Empty(h.ScoreSaves);
+        Assert.Empty(h.TaskCompletions);
+    }
+
+    /// <summary>A server-wrapped row of a long message starts at column 0, so an anchored pattern
+    /// does not keep speech out; the line kind does.</summary>
+    [Theory]
+    [InlineData("score:  999,999 points   this game:  5 points")]
+    [InlineData("(Persona saved on +999 = 999).")]
+    [InlineData("You have completed a Task. This makes a total of 9.")]
+    [InlineData("level:  99  arch-wizard")]
+    public void WrappedSpeechRow_FeedsNothing(string row)
+    {
+        var h = new ParserHarness();
+        h.Feed(0x9D, 0x9C, 0xFF, 0xFF);   // game mode
+        h.Feed("Cellar.\n");
+        h.ClearCounters();
+        h.Feed(0xA4, 0x9C, 0xFF, 0xFF);   // a shout, wrapped by the server
+        h.Feed("Bob the hero shouts \"this is long enough to wrap and the next row reads\r\n");
+        h.Feed(row + "\r\n");
+        h.Feed("\"");
+        h.Feed(0xFF, 0xFF);
+        h.Feed("\r\n");
+
+        Assert.All(h.Lines, l => Assert.Equal(LineKind.Chat, l.Kind));
+        Assert.Equal(row, h.Lines[1].PlainText);
+        Assert.Empty(h.Stats);
+        Assert.Empty(h.ScoreSaves);
+        Assert.Empty(h.TaskCompletions);
+    }
+
+    /// <summary>The C89 codes inside a FES row belong to FES: the row yields its one snapshot and
+    /// nothing more. Row transcribed from the wire table.</summary>
+    [Fact]
+    public void FesRow_WithItsC89Brackets_YieldsOneSnapshot()
+    {
+        var h = new ParserHarness();
+        h.Feed(0x9D, 0x9C, 0xFF, 0xFF);   // game mode
+        h.Feed("Cellar.\n");
+        h.ClearCounters();
+        h.Feed(0xA7, 0xA3, 0x9C, 0xFF, 0xFF);
+        h.Feed(StatCodes.Stamina(97) + " " + StatCodes.MaxStamina(100) + " 99 99 39 99 0 100 5262 N N N N 90 F\r\n");
+        h.Feed(0xFF, 0xFF);
+
+        var s = Assert.Single(h.Stats);
+        Assert.True(s.HasFesStats);
+        Assert.Equal(97, s.Stamina);
+        Assert.Equal(100, s.MaxStamina);
+        Assert.Equal(5262, s.Score);
     }
 
     [Fact]

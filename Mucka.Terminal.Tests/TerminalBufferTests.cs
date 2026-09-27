@@ -112,8 +112,16 @@ public class TerminalBufferTests
 
     // -- Form-feed clear ------------------------------------------------------
 
+    // What the live screen shows: the committed lines from LiveStart on.
+    private static string[] Live(TerminalBuffer buf) =>
+        buf.Committed.Skip(buf.LiveStart).Select(l => l.PlainText).ToArray();
+
+    // What scrollback shows, with the rule written as "---".
+    private static string[] History(TerminalBuffer buf) =>
+        buf.Snapshot().Select(l => TerminalBuffer.IsClearRule(l) ? "---" : l.PlainText).ToArray();
+
     [Fact]
-    public void FormFeed_ClearsCommittedAndPartial()
+    public void FormFeed_EmptiesTheLiveScreen_AndScrollbackKeepsEverythingAboveARule()
     {
         var buf = new TerminalBuffer();
         buf.Append(Complete("one"));
@@ -122,9 +130,98 @@ public class TerminalBufferTests
 
         buf.Append(Complete("\f"));   // clear-screen
 
-        Assert.Empty(buf.Committed);
+        Assert.Empty(Live(buf));
         Assert.Null(buf.Partial);
-        Assert.Equal(0, buf.Count);
+        // The prompt that was live at the clear is scrollback now, not lost.
+        Assert.Equal(new[] { "one", "two", "* ", "---" }, History(buf));
+    }
+
+    [Fact]
+    public void FormFeed_TextBeforeItOnTheLine_MergesIntoThePrompt_AndTextAfterItStartsTheNewScreen()
+    {
+        var buf = new TerminalBuffer();
+        buf.Append(Partial("*"));
+        buf.Append(Complete("half\fnew"));
+
+        Assert.Equal(new[] { "new" }, Live(buf));
+        Assert.Equal(new[] { "*half", "---", "new" }, History(buf));
+    }
+
+    [Fact]
+    public void FormFeed_RepeatedClears_DrawOneRule()
+    {
+        var buf = new TerminalBuffer();
+        buf.Append(Complete("before"));
+        buf.Append(Complete("\f"));
+        buf.Append(Complete("\f\f"));
+        buf.Append(Complete("after"));
+
+        Assert.Equal(new[] { "before", "---", "after" }, History(buf));
+    }
+
+    [Fact]
+    public void FormFeed_WithNothingAbove_DrawsNoRule()
+    {
+        var buf = new TerminalBuffer();
+        buf.Append(Complete("\f"));
+        buf.Append(Complete("first"));
+
+        Assert.Equal(new[] { "first" }, History(buf));
+        Assert.Equal(new[] { "first" }, Live(buf));
+    }
+
+    [Fact]
+    public void FormFeed_LiveStartFollowsTheCapTrim()
+    {
+        var buf = new TerminalBuffer(cap: 3);
+        buf.Append(Complete("old"));
+        buf.Append(Complete("\f"));          // old, rule  (LiveStart 2)
+        buf.Append(Complete("a"));           // old, rule, a
+        Assert.Equal(new[] { "a" }, Live(buf));
+
+        buf.Append(Complete("b"));           // rule, a, b
+        Assert.Equal(new[] { "a", "b" }, Live(buf));
+
+        buf.Append(Complete("c"));           // a, b, c - the rule itself trimmed away
+        buf.Append(Complete("d"));
+        Assert.Equal(0, buf.LiveStart);
+        Assert.Equal(new[] { "b", "c", "d" }, Live(buf));
+    }
+
+    [Fact]
+    public void FormFeed_TheRuleIsCommitted_SoTheRecorderSeesIt()
+    {
+        var buf = new TerminalBuffer();
+        var seen = new List<StyledLine>();
+        buf.LineCommitted += seen.Add;
+        buf.Append(Complete("x"));
+        buf.Append(Complete("\f"));
+
+        Assert.Equal(2, seen.Count);
+        Assert.True(TerminalBuffer.IsClearRule(seen[1]));
+    }
+
+    [Fact]
+    public void Clear_IsTheClientsWipe_AndTakesScrollbackWithIt()
+    {
+        var buf = new TerminalBuffer();
+        buf.Append(Complete("one"));
+        buf.Append(Complete("\f"));
+        buf.Append(Complete("two"));
+
+        buf.Clear();
+
+        Assert.Empty(buf.Snapshot());
+        Assert.Equal(0, buf.LiveStart);
+    }
+
+    [Fact]
+    public void ClearRule_SurvivesWrapping()
+    {
+        // The renderer and the copy path see wrapped rows, never the buffer's instance.
+        var rows = LineWrapper.WrapAll(new[] { TerminalBuffer.ClearRule }, 5);
+        Assert.Single(rows);
+        Assert.True(TerminalBuffer.IsClearRule(rows[0]));
     }
 
     // -- Inject above the live partial ($f<n> annotation) ---------------------
@@ -240,5 +337,21 @@ public class TerminalBufferTests
     public void Constructor_RejectsNonPositiveCapacity()
     {
         Assert.Throws<ArgumentOutOfRangeException>(() => new TerminalBuffer(cap: 0));
+    }
+
+    [Fact]
+    public void ServerClearScreenEscape_ThroughTheParser_ClearsTheLiveScreen_AndScrollbackKeepsWhatCameBefore()
+    {
+        // The server's ESC-C reaches the buffer in order with the text: the live screen keeps only
+        // what follows it; scrollback keeps everything before it, the part-line it interrupted
+        // included, above the rule.
+        var parser = new MudSharp.Protocol.MudStreamParser();
+        var buf = new TerminalBuffer();
+        parser.LineReady += buf.Append;
+        parser.Feed("old one\nold two\nhalf\x1B-Cnew\n"u8);
+
+        Assert.Equal(new[] { "new" }, Live(buf));
+        Assert.Equal(new[] { "old one", "old two", "half", "---", "new" }, History(buf));
+        Assert.Null(buf.Partial);
     }
 }

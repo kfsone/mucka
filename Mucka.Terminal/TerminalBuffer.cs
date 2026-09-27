@@ -14,6 +14,12 @@ namespace Mucka.Terminal;
 /// Lines are stored as raw <em>logical</em> lines. Wrapping is a render-time concern
 /// (the renderer wraps to the negotiated column count); the buffer never wraps.
 ///
+/// A clear-screen (form feed in the stream) does not delete anything. It commits a
+/// <see cref="ClearRule"/> and moves <see cref="LiveStart"/> past it: the live screen shows only
+/// what follows, while <see cref="Snapshot"/> - scrollback - keeps the lines above it with the rule
+/// marking where the screen was cleared. Operator rule: clear the screen when it happens, but in
+/// scrollback ignore it and display a horizontal line.
+///
 /// Not thread-safe. The renderer's instance is touched only on the UI thread (Append from
 /// the flush tick, reads from paint); <see cref="SessionRecorder"/> keeps its own instance
 /// and serialises its own access to it.
@@ -22,7 +28,21 @@ public sealed class TerminalBuffer
 {
     private readonly List<StyledLine> _committed = new();
     private StyledLine? _partial;
+    private int _liveStart;
     private readonly int _cap;
+
+    /// <summary>
+    /// The committed line that stands where a clear-screen happened. Its content is a lone form
+    /// feed rather than an identity or a flag because <see cref="LineWrapper"/> rebuilds every row
+    /// from its spans; test for it with <see cref="IsClearRule"/>, never by reference.
+    /// </summary>
+    public static readonly StyledLine ClearRule = new([new StyledSpan("\f", TextStyle.Default)], isPartial: false);
+
+    /// <summary>True for <see cref="ClearRule"/> and for any visual row wrapped from it. Renderers
+    /// draw it as a horizontal rule, copy treats it as a blank line, the transcript writes a
+    /// separator.</summary>
+    public static bool IsClearRule(StyledLine line) =>
+        line.Spans.Count == 1 && line.Spans[0].Text == "\f";
 
     /// <param name="cap">Maximum number of committed lines retained (the live partial is extra).</param>
     public TerminalBuffer(int cap = 120)
@@ -31,8 +51,14 @@ public sealed class TerminalBuffer
         _cap = cap;
     }
 
-    /// <summary>Completed lines, oldest first. Does not include the live partial.</summary>
+    /// <summary>Completed lines, oldest first, including those above the last clear-screen and the
+    /// <see cref="ClearRule"/> lines themselves. Does not include the live partial.</summary>
     public IReadOnlyList<StyledLine> Committed => _committed;
+
+    /// <summary>Index into <see cref="Committed"/> of the first line on the live screen: 0 until a
+    /// clear-screen, then the line after the latest <see cref="ClearRule"/>. Equal to
+    /// <c>Committed.Count</c> when nothing has been committed since the clear.</summary>
+    public int LiveStart => _liveStart;
 
     /// <summary>The live partial line (a prompt awaiting its newline), or null.</summary>
     public StyledLine? Partial => _partial;
@@ -45,15 +71,17 @@ public sealed class TerminalBuffer
     /// </summary>
     public event Action<StyledLine>? LineCommitted;
 
-    /// <summary>Total visible lines = committed + (partial ? 1 : 0).</summary>
+    /// <summary>Total retained lines, scrollback included = committed + (partial ? 1 : 0).</summary>
     public int Count => _committed.Count + (_partial is null ? 0 : 1);
 
     /// <summary>
     /// Apply one parsed line:
     /// <list type="bullet">
-    /// <item>A line whose plain text contains form-feed (\f) clears everything - the committed
-    ///       lines, the live partial, and the incoming line itself, so any text sharing the line
-    ///       with the form feed is discarded rather than kept.</item>
+    /// <item>A form feed (\f) is a clear-screen. Text before it on the line completes a line of its
+    ///       own (merged into a live partial, as any complete line is) and is committed, a live
+    ///       partial with nothing after it is promoted, then a <see cref="ClearRule"/> is committed
+    ///       and <see cref="LiveStart"/> moves past it. Text after it is applied as the rest of the
+    ///       line. No rule is committed with nothing above it, or directly after another rule.</item>
     /// <item>A partial line replaces the current partial.</item>
     /// <item>A blank complete line (no spans) promotes a live partial to committed, or -
     ///       if there is no partial - appends a blank committed line.</item>
@@ -63,13 +91,51 @@ public sealed class TerminalBuffer
     /// </summary>
     public void Append(StyledLine line)
     {
-        // Form-feed anywhere in the line is a clear-screen.
         if (line.PlainText.Contains('\f'))
         {
-            Clear();
+            AppendAcrossClears(line);
             return;
         }
+        AppendLine(line);
+    }
 
+    // Split the line at each form feed: every piece before one is finished off and followed by a
+    // clear; whatever follows the last one carries the line's own partial/kind flags.
+    private void AppendAcrossClears(StyledLine line)
+    {
+        var segment = new List<StyledSpan>();
+        foreach (var span in line.Spans)
+        {
+            var parts = span.Text.Split('\f');
+            for (int i = 0; i < parts.Length; i++)
+            {
+                if (parts[i].Length > 0) segment.Add(span with { Text = parts[i] });
+                if (i < parts.Length - 1)
+                {
+                    ClearScreenAfter(segment);
+                    segment = new List<StyledSpan>();
+                }
+            }
+        }
+        if (segment.Count > 0)
+            AppendLine(new StyledLine(segment, line.IsPartial, line.Kind, line.ContinuesChat));
+    }
+
+    private void ClearScreenAfter(List<StyledSpan> before)
+    {
+        if (before.Count > 0)
+            AppendLine(new StyledLine(before, isPartial: false));   // merges into a live partial
+        else if (_partial is { Spans.Count: > 0 } partial)
+            Commit(Promote(partial));
+        _partial = null;
+
+        if (_committed.Count > 0 && !IsClearRule(_committed[^1]))
+            Commit(ClearRule);
+        _liveStart = _committed.Count;
+    }
+
+    private void AppendLine(StyledLine line)
+    {
         if (line.IsPartial)
         {
             // Replace the live partial wholesale (the JS set p.innerHTML to the new content).
@@ -122,11 +188,13 @@ public sealed class TerminalBuffer
         _partial = saved;
     }
 
-    /// <summary>Remove all committed lines and any live partial (used by \f and Clear-screen).</summary>
+    /// <summary>Remove all committed lines and any live partial, scrollback included. The client's
+    /// own wipe (Ctrl-L, a chat-filter repaint); a clear-screen in the stream does not come here.</summary>
     public void Clear()
     {
         _committed.Clear();
         _partial = null;
+        _liveStart = 0;
     }
 
     /// <summary>
@@ -149,7 +217,11 @@ public sealed class TerminalBuffer
         _committed.Add(line);
         // Trim oldest beyond the cap. RemoveRange is O(n) once rather than repeated shifts.
         if (_committed.Count > _cap)
-            _committed.RemoveRange(0, _committed.Count - _cap);
+        {
+            int removed = _committed.Count - _cap;
+            _committed.RemoveRange(0, removed);
+            _liveStart = Math.Max(0, _liveStart - removed);
+        }
         LineCommitted?.Invoke(line);
     }
 

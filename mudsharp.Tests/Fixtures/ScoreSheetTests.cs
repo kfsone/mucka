@@ -95,11 +95,18 @@ public class ScoreSheetTests : IDisposable
     }
 
     /// <summary>Feed a sheet as the server sends it (CRLF-terminated lines) and return the merged
-    /// character sheet the client now holds.</summary>
+    /// character sheet the client now holds. The captures above are the decoded text; on the wire
+    /// both stamina figures are bracketed in their C89 codes (every sheet in the wire table), and
+    /// those codes are the only source the client reads them from, so the brackets go back in.</summary>
     private GameStatsSnapshot Parse(string sheet)
     {
         _session.Feed(GameModeEntry);
-        var wire = sheet.Replace("\r\n", "\n").Replace("\n", "\r\n") + "\r\n";
+        var coded = System.Text.RegularExpressions.Regex.Replace(sheet,
+            @"^([ \t]*stamina:[ \t]*)(\d+)([ \t]+max:[ \t]*)(\d+)",
+            m => m.Groups[1].Value + StatCodes.Stamina(m.Groups[2].Value)
+               + m.Groups[3].Value + StatCodes.MaxStamina(m.Groups[4].Value),
+            System.Text.RegularExpressions.RegexOptions.Multiline);
+        var wire = coded.Replace("\r\n", "\n").Replace("\n", "\r\n") + "\r\n";
         _session.Feed(Encoding.Latin1.GetBytes(wire));
         return _session.CurrentStats;
     }

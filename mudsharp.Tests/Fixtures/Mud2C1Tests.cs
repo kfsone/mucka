@@ -163,10 +163,54 @@ public class Mud2C1Tests
         Assert.Equal(AnsiColor.Black, style.Background);
     }
 
+    // Verbatim wire shape: the 09 00 speaker frame holds the whole message and the quoted words sit
+    // in an inner 09 01 (shout) / 09 02 (say) / 09 03 (tell) frame.
+    private static StyledLine SpeechLine(string label, byte subcode, string words)
+    {
+        var h = new ParserHarness();
+        h.Feed(0x9D, 0x9C, 0xFF, 0xFF);         // C02+C01: game mode, so the tell decoration runs
+        h.Feed("setup\n");
+        h.Feed(0x9B, 0xFF, 0xFF);               // C00
+        h.ClearCounters();
+        h.Feed([0xA4, 0x9B, 0xFF, 0xFF, .. System.Text.Encoding.ASCII.GetBytes(label + "\""),
+                0xA4, subcode, 0xFF, 0xFF, .. System.Text.Encoding.ASCII.GetBytes(words), 0xFF, 0xFF,
+                (byte)'"', (byte)'.', 0xFF, 0xFF, (byte)'\r', 0x00, (byte)'\r', (byte)'\n']);
+        return h.Lines.Single(l => l.Kind == LineKind.Chat);
+    }
+
+    [Theory]
+    [InlineData(0x9C, 0xFFDD00)]   // 09 01 shouted message
+    [InlineData(0x9E, 0xD4C25A)]   // 09 03 told message
+    public void C09_ShoutAndTellWords_TakeTheirOwnShade_AndTheLabelStaysSpeakerYellow(byte subcode, int rgb)
+    {
+        var line = SpeechLine("Crispyjr tells you ", subcode, "HELLO GIANTS");
+        var speaker = new TextStyle(AnsiColor.Yellow, AnsiColor.Black);
+        var words = line.Spans.Single(s => s.Text == "HELLO GIANTS").Style;
+        Assert.Equal(AnsiColor.BrightYellow, words.Foreground);
+        Assert.Equal(rgb, words.ForegroundRgb);
+        Assert.Null(line.Spans[0].Style.ForegroundRgb);
+        Assert.Equal(AnsiColor.Yellow, line.Spans[0].Style.Foreground);
+        Assert.Equal(speaker, line.Spans.Single(s => s.Text == "\".").Style);
+    }
+
+    [Fact]
+    public void C09_SaidWords_StayOnThePaletteLightYellow()
+    {
+        var words = SpeechLine("Ollie the heroine says ", 0x9D, "ixeeti").Spans.Single(s => s.Text == "ixeeti").Style;
+        Assert.Equal(new TextStyle(AnsiColor.BrightYellow, AnsiColor.Black), words);
+    }
+
+    [Fact]
+    public void C09_SayShoutAndTell_AreThreeDistinctColours()
+    {
+        int? Rgb(byte subcode) => SpeechLine("Fred says ", subcode, "hi").Spans.Single(s => s.Text == "hi").Style.ForegroundRgb;
+        Assert.Equal(3, new[] { Rgb(0x9C), Rgb(0x9D), Rgb(0x9E) }.Distinct().Count());
+    }
+
     [Fact]
     public void C1Color_0xA6_SetsLtRed()
     {
-        // C11 (0xA6) + C255 -> Clio push(LT_RED,BLACK) (FOD/WHERE/SUMMON spells)
+        // C11 (0xA6) + C255 = 11 00 "Disabling spell starts" -> push(LT_RED,BLACK)
         var h = new ParserHarness();
         h.Feed(0xA6, 0xFF, 0xFF);
         h.Feed("text\n");
@@ -540,9 +584,10 @@ public class Mud2C1Tests
     // session schedules the probe. No C1 code may produce OutgoingBytes any more.
 
     [Fact]
-    public void C08_Bare_HintsStamina()
+    public void C08_Bare_HintsStamina_LikeC08C00()
     {
-        // 0xA3 0xFF 0xFF = C08 (fight starts) -> stamina stale hint
+        // 0xA3 0xFF 0xFF = bare C08 (fight starts). A missing parameter reads as 00, so this is
+        // the 08 00 the wire carries, and hints exactly as it does.
         var h = new ParserHarness();
         h.Feed(0xA3, 0xFF, 0xFF);
         Assert.Equal([StaleStats.Stamina], h.ProbeHints);
@@ -550,12 +595,12 @@ public class Mud2C1Tests
     }
 
     [Fact]
-    public void C08_C00_DoesNotHint()
+    public void C08_C00_FightStarts_HintsStamina()
     {
-        // 0xA3 0x9B 0xFF 0xFF = C08+C00 (telnet.l:634) -> plain RED, no hint
+        // 0xA3 0x9B 0xFF 0xFF = C08+C00, the form every fight start takes on the wire
         var h = new ParserHarness();
         h.Feed(0xA3, 0x9B, 0xFF, 0xFF);
-        Assert.Empty(h.ProbeHints);
+        Assert.Equal([StaleStats.Stamina], h.ProbeHints);
         Assert.Empty(h.Outgoing);
     }
 
@@ -652,12 +697,37 @@ public class Mud2C1Tests
         Assert.Equal(1, h.PersonaWipedCount);
     }
 
+    [Fact]
+    public void C00InitialiseFrame_DoesNotMakeTextCoded()
+    {
+        // Wire order: C00 at the options menu stays at the bottom of the stack through game entry.
+        // Text under that frame alone is un-coded output and still gives the plain-line FEI hint;
+        // text inside any code's frame above it does not.
+        var h = new ParserHarness();
+        h.Feed(0x9B, 0xFF, 0xFF);               // C00 initialise
+        h.Feed(0x9D, 0x9C, 0xFF, 0xFF);         // C02+C01: game entry, room short name
+        h.Feed("Elizabethan tearoom.");
+        h.Feed(0xFF, 0xFF);
+        h.Feed("\r\n");
+        h.ClearCounters();
+
+        h.Feed("You drop the ancient scroll.\r\n");
+        Assert.Equal([StaleStats.Inventory], h.ProbeHints);
+
+        h.ClearCounters();
+        h.Feed(0xA1, 0xFF, 0xFF);               // C06
+        h.Feed("For your information: there are 150 mobiles still alive.");
+        h.Feed(0xFF, 0xFF);
+        h.Feed("\r\n");
+        Assert.Empty(h.ProbeHints);
+    }
+
     // -- C95 Rule A: account block ---------------------------------------------
 
     [Fact]
     public void C95_RuleA_PopulatesAccountIdAndPrivs_InSubsequentFesSnapshot()
     {
-        // C95 Rule A wire: 0xFA 0xFF 0xFF + 5 fields + (trailing 0xFF 0xFF consumed silently)
+        // C95 Rule A wire: 0xFA 0xFF 0xFF + 5 fields + the 0xFF 0xFF that closes the block
         // Fields: licence, minclient, maxclient, account, privs
         var h = new ParserHarness();
         h.Feed(0xFA, 0xFF, 0xFF);
@@ -707,6 +777,66 @@ public class Mud2C1Tests
         Assert.Single(h.Lines);
     }
 
+    // -- C95 closing pops, and 95 02 account change ------------------------------
+
+    [Fact]
+    public void C95_BlockCloser_IsAbsorbed_NotPoppedOffTheColourStack()
+    {
+        // Verbatim wire: every bare 95 block ends "1\r\n" FF FF. C95 pushes no frame, so that pop
+        // must not unwind one pushed before it.
+        var h = new ParserHarness();
+        h.Feed(0x9B, 0xFF, 0xFF);               // C00
+        h.Feed(0xA1, 0xFF, 0xFF);               // C06: LT_BLUE
+        h.Feed(0xFA, 0xFF, 0xFF);
+        h.Feed("57009120\r\n1\r\n1\r\nz00012863\r\n1\r\n");
+        h.Feed(0xFF, 0xFF);
+        h.Feed("after\n");
+
+        Assert.Single(h.ClientModeData);
+        var line = Assert.Single(h.Lines);
+        Assert.Equal("after", line.PlainText);
+        Assert.Equal(AnsiColor.BrightBlue, line.Spans[0].Style.Foreground);
+    }
+
+    [Fact]
+    public void C95_BlockWithoutACloser_HandsTheNextByteBack()
+    {
+        var h = new ParserHarness();
+        h.Feed(0xFA, 0xFF, 0xFF);
+        h.Feed("57009120\r\n1\r\n1\r\nz00012863\r\n1\r\nafter\n");
+
+        Assert.Single(h.ClientModeData);
+        Assert.Equal("after", Assert.Single(h.Lines).PlainText);
+    }
+
+    [Fact]
+    public void C95C02_AccountChange_ReadsTheTwoBracketedLines_AndSwallowsNothingAfter()
+    {
+        // Verbatim wire (every 95 02 instance): the new account ID and priv level, then the pop,
+        // then the server's own output.
+        byte[] wire =
+        [
+            0xFA, 0x9D, 0xFF, 0xFF, .. "Z00012863\r\n1\r\n"u8, 0xFF, 0xFF,
+            0x1B, (byte)'-', (byte)'C', .. "Z00012863 logged in on pts/2.\r\n"u8,
+        ];
+        var h = new ParserHarness();
+        h.Feed(0x9B, 0xFF, 0xFF);               // C00
+        h.Feed(0xA1, 0xFF, 0xFF);               // C06: LT_BLUE
+        h.Feed(wire);
+        h.Feed("after\n");
+
+        var loggedIn = h.Lines.Single(l => l.PlainText.EndsWith("logged in on pts/2.", StringComparison.Ordinal));
+        Assert.Equal(AnsiColor.BrightBlue, loggedIn.Spans[^1].Style.Foreground);
+        var after = h.Lines.Single(l => l.PlainText == "after");
+        Assert.Equal(AnsiColor.BrightBlue, after.Spans[0].Style.Foreground);
+
+        h.Feed(0xA7, 0xA3, 0x9C, 0xFF, 0xFF);
+        h.Feed("81 81 94 94 95 95 50 50 1785 N N N N 5 S\n");
+        var snapshot = h.Stats.Last();
+        Assert.Equal("Z00012863", snapshot.AccountId);
+        Assert.Equal(1, snapshot.Privs);
+    }
+
     // -- Gap 1: bare FF FF pops color stack -----------------------------------
 
     [Fact]
@@ -751,68 +881,139 @@ public class Mud2C1Tests
         Assert.Single(h.Lines);
     }
 
-    // -- Gap 2: C89 (0xF4) non-terminated wire format -------------------------
+    // -- C89 (0xF4) stamina / max stamina / score ----------------------------
+    // MUD-FECodes.txt: every code is "terminating in 255". On the wire every C89 is, and it
+    // brackets a C99 colour and the number: F4 9B 9B FF FF FE 9D FF FF "97" FF FF FF FF.
 
-    [Fact]
-    public void C89_F4_9C_SetsWhiteBlack()
+    [Theory]
+    [InlineData(new byte[] { 0xF4, 0x9B, 0x9B })]   // 89 00 00 stamina
+    [InlineData(new byte[] { 0xF4, 0x9B, 0x9C })]   // 89 00 01 maximum stamina
+    [InlineData(new byte[] { 0xF4, 0x9C })]         // 89 01 score
+    public void C89_WaitsForItsTerminator_ThenPushesWhite(byte[] code)
     {
-        // Clio telnet.l:968: {C89}{C01} -> push(WHITE,BLACK); NO FF FF terminator
+        // Printable bytes before the FF FF are still the code's payload: an early dispatch leaks
+        // them as text.
         var h = new ParserHarness();
-        h.Feed(0xF4, 0x9C);                 // F4 9C - no terminator
-        h.Feed("text\n");
-        Assert.Single(h.Lines);
-        var style = h.Lines[0].Spans[0].Style;
-        Assert.Equal(AnsiColor.White, style.Foreground);
-        Assert.Equal(AnsiColor.Black, style.Background);
-    }
-
-    [Fact]
-    public void C89_F4_9B_9B_SetsWhiteBlack()
-    {
-        // Clio telnet.l:966: {C89}{C00}{C00} -> push(WHITE,BLACK); NO FF FF terminator
-        var h = new ParserHarness();
-        h.Feed(0xF4, 0x9B, 0x9B);           // F4 9B 9B - no terminator
-        h.Feed("text\n");
-        Assert.Single(h.Lines);
-        var style = h.Lines[0].Spans[0].Style;
-        Assert.Equal(AnsiColor.White, style.Foreground);
-        Assert.Equal(AnsiColor.Black, style.Background);
-    }
-
-    [Fact]
-    public void C89_F4_9B_9C_SetsWhiteBlack()
-    {
-        // Clio telnet.l:967: {C89}{C00}{C01} -> push(WHITE,BLACK); NO FF FF terminator
-        var h = new ParserHarness();
-        h.Feed(0xF4, 0x9B, 0x9C);           // F4 9B 9C - no terminator
-        h.Feed("text\n");
-        Assert.Single(h.Lines);
-        var style = h.Lines[0].Spans[0].Style;
-        Assert.Equal(AnsiColor.White, style.Foreground);
-        Assert.Equal(AnsiColor.Black, style.Background);
-    }
-
-    /// <summary>
-    /// F4 9D xx - the first payload byte is neither 0x9B nor 0x9C, so this variant is unrecognised
-    /// and must run on to the FF FF terminator rather than dispatching after one or two bytes.
-    ///
-    /// <para>The bytes between the payload and the terminator are what prove it: printable text fed
-    /// while the sequence is still open must be SWALLOWED as payload. A line count alone cannot see
-    /// this - the parser recovers and emits one line either way.</para>
-    /// </summary>
-    [Fact]
-    public void C89_F4_UnrecognisedPayload_WaitsForTerminator()
-    {
-        var h = new ParserHarness();
-        h.Feed(0xF4, 0x9D, 0x9B);               // unrecognised C89 variant, still open
-        h.Feed("SWALLOWED");                    // payload, not display text - an early dispatch leaks it
-        h.Feed(0xFF, 0xFF);                     // terminated normally -> Apply(WHITE, BLACK)
-        h.Feed("text\n");
+        h.Feed(0x9B, 0xFF, 0xFF);               // C00
+        h.Feed(0xA1, 0xFF, 0xFF);               // C06: LT_BLUE
+        h.Feed(code);
+        h.Feed("SWALLOWED");
+        h.Feed(0xFF, 0xFF);
+        h.Feed("text");
+        h.Feed(0xFF, 0xFF);                     // the C89's own pop
+        h.Feed(" after\n");
 
         var line = Assert.Single(h.Lines);
-        Assert.Equal("text", line.PlainText);
-        Assert.Equal(AnsiColor.White, line.Spans[0].Style.Foreground);
-        Assert.Equal(AnsiColor.Black, line.Spans[0].Style.Background);
+        Assert.Equal("text after", line.PlainText);
+        Assert.Equal(new TextStyle(AnsiColor.White, AnsiColor.Black), line.Spans[0].Style);
+        Assert.Equal(AnsiColor.BrightBlue, line.Spans[^1].Style.Foreground);
+    }
+
+    [Fact]
+    public void C89_InlineStaminaInsideAHitLine_KeepsTheHitLineColour()
+    {
+        // Verbatim wire: "The rat22 hits you (97/100)." inside 08 03.
+        byte[] wire =
+        [
+            0xA3, 0x9E, 0xFF, 0xFF, .. "The rat22 hits you ("u8,
+            0xF4, 0x9B, 0x9B, 0xFF, 0xFF, 0xFE, 0x9D, 0xFF, 0xFF, .. "97"u8, 0xFF, 0xFF, 0xFF, 0xFF,
+            (byte)'/',
+            0xF4, 0x9B, 0x9C, 0xFF, 0xFF, 0xFE, 0xA5, 0xFF, 0xFF, .. "100"u8, 0xFF, 0xFF, 0xFF, 0xFF,
+            .. ")."u8, 0xFF, 0xFF, (byte)'\r', 0x00, (byte)'\r', (byte)'\n',
+        ];
+        var h = new ParserHarness();
+        h.Feed(0x9B, 0xFF, 0xFF);               // C00
+        h.Feed(wire);
+        h.Feed("after\n");
+
+        var hit = h.Lines.Single(l => l.PlainText.StartsWith("The rat22", StringComparison.Ordinal));
+        Assert.Equal("The rat22 hits you (97/100).", hit.PlainText);
+        AnsiColor ColourOf(string text) => hit.Spans.Single(s => s.Text == text).Style.Foreground;
+        Assert.Equal(AnsiColor.BrightRed,   ColourOf("The rat22 hits you ("));
+        Assert.Equal(AnsiColor.Green,       ColourOf("97"));
+        Assert.Equal(AnsiColor.BrightRed,   ColourOf("/"));
+        Assert.Equal(AnsiColor.BrightGreen, ColourOf("100"));
+        Assert.Equal(AnsiColor.BrightRed,   ColourOf(")."));
+        var after = h.Lines.Single(l => l.PlainText == "after");
+        Assert.Equal(new TextStyle(AnsiColor.White, AnsiColor.Black), after.Spans[0].Style);
+    }
+
+    [Fact]
+    public void C89Score_InAPersonaSave_KeepsTheEnclosingColour()
+    {
+        // Verbatim wire: 89 01 around the saved score, with no enclosing code but C00's.
+        byte[] wire =
+        [
+            .. "(Persona saved on +25 = "u8,
+            0xF4, 0x9C, 0xFF, 0xFF, 0xFE, 0x9D, 0xFF, 0xFF, .. "26,345"u8, 0xFF, 0xFF, 0xFF, 0xFF,
+            .. ").\r"u8, 0x00, (byte)'\r', (byte)'\n',
+        ];
+        var h = new ParserHarness();
+        h.Feed(0x9B, 0xFF, 0xFF);               // C00
+        h.Feed(wire);
+
+        var line = h.Lines.Single(l => l.PlainText.StartsWith("(Persona", StringComparison.Ordinal));
+        Assert.Equal("(Persona saved on +25 = 26,345).", line.PlainText);
+        var white = new TextStyle(AnsiColor.White, AnsiColor.Black);
+        Assert.Equal(white, line.Spans.Single(s => s.Text == "(Persona saved on +25 = ").Style);
+        Assert.Equal(AnsiColor.Green, line.Spans.Single(s => s.Text == "26,345").Style.Foreground);
+        Assert.Equal(white, line.Spans.Single(s => s.Text == ").").Style);
+        var save = Assert.Single(h.ScoreSaves);
+        Assert.Equal(25, save.Delta);
+    }
+
+    [Fact]
+    public void C89_InAScoreBlock_LeavesTheStackBalanced()
+    {
+        // Verbatim wire: the stamina line of a 12 02 SCORE block, then the block's own pop.
+        byte[] wire =
+        [
+            0xA7, 0x9D, 0xFF, 0xFF, .. "stamina:        "u8,
+            0xF4, 0x9B, 0x9B, 0xFF, 0xFF, 0xFE, 0xA5, 0xFF, 0xFF, .. "100"u8, 0xFF, 0xFF, 0xFF, 0xFF,
+            .. "     max:    "u8,
+            0xF4, 0x9B, 0x9C, 0xFF, 0xFF, 0xFE, 0xA5, 0xFF, 0xFF, .. "100"u8, 0xFF, 0xFF, 0xFF, 0xFF,
+            (byte)'\r', 0x00, (byte)'\r', (byte)'\n',
+            .. "games played:   9\r"u8, 0x00, (byte)'\r', (byte)'\n',
+            0xFF, 0xFF,
+        ];
+        var h = new ParserHarness();
+        h.Feed(0x9B, 0xFF, 0xFF);               // C00
+        h.Feed(0xA1, 0xFF, 0xFF);               // C06: LT_BLUE
+        h.Feed(wire);
+        h.Feed("after\n");
+
+        var after = h.Lines.Single(l => l.PlainText == "after");
+        Assert.Equal(AnsiColor.BrightBlue, after.Spans[0].Style.Foreground);
+    }
+
+    [Fact]
+    public void Fes_WithC89WrappedFields_Parses_AndLeavesTheStackBalanced()
+    {
+        // Verbatim wire: the FES line carries its stamina and max stamina inside 89 00 00 / 89 00 01.
+        byte[] wire =
+        [
+            0xA7, 0xA3, 0x9C, 0xFF, 0xFF,
+            0xF4, 0x9B, 0x9B, 0xFF, 0xFF, 0xFE, 0xA5, 0xFF, 0xFF, .. "100"u8, 0xFF, 0xFF, 0xFF, 0xFF,
+            (byte)' ',
+            0xF4, 0x9B, 0x9C, 0xFF, 0xFF, 0xFE, 0xA5, 0xFF, 0xFF, .. "100"u8, 0xFF, 0xFF, 0xFF, 0xFF,
+            .. " 99 99 99 99 0 100 5262 N N N N 90 F\r"u8, 0x00, (byte)'\r', (byte)'\n',
+            0xFF, 0xFF,
+        ];
+        var h = new ParserHarness();
+        h.Feed(0x9B, 0xFF, 0xFF);               // C00
+        h.Feed(0xA1, 0xFF, 0xFF);               // C06: LT_BLUE
+        h.Feed(wire);
+        h.Feed("after\n");
+
+        var s = Assert.Single(h.Stats);
+        Assert.Equal(100, s.Stamina);
+        Assert.Equal(100, s.MaxStamina);
+        Assert.Equal((byte)10, s.StaminaColor);
+        Assert.Equal(5262, s.Score);
+        Assert.Equal(90, s.TimeToReset);
+        Assert.Equal('F', s.Weather);
+        var after = h.Lines.Single(l => l.PlainText == "after");
+        Assert.Equal(AnsiColor.BrightBlue, after.Spans[0].Style.Foreground);
     }
 
     // -- Gap 3: FE FE FF FF special reset --------------------------------------
@@ -901,12 +1102,13 @@ public class Mud2C1Tests
     }
 
     [Fact]
-    public void C11_Bare_DoesNotHint()
+    public void C11_Bare_HintsAllStats_LikeC11C00()
     {
-        // C11+C255 (0xA6 FF FF) -> LT_RED only (Clio:675)
+        // C11+C255 (0xA6 FF FF) is 11 00 "Disabling spell starts" with its parameter missing, so it
+        // hints as 11 00 does - Clio's rule grouping bare C11 with FOD/WHERE/SUMMON is not followed.
         var h = new ParserHarness();
         h.Feed(0xA6, 0xFF, 0xFF);
-        Assert.Empty(h.ProbeHints);
+        Assert.Equal([StaleStats.AllStats], h.ProbeHints);
     }
 
     [Fact]

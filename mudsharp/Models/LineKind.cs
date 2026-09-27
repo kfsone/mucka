@@ -2,7 +2,7 @@ namespace MudSharp.Models;
 
 /// <summary>
 /// Semantic classification of a completed output line, derived from the MUD2 C1 code that
-/// introduced it (see fecodes.txt). Used by the chat-view filter: chat mode shows only
+/// introduced it (see mud2_FE4.txt). Used by the chat-view filter: chat mode shows only
 /// <see cref="Chat"/> lines, so everything else (room text, combat, prompts, echoes) is hidden.
 /// Room to grow - add Combat (codes 07/08), Wiz (code 10), etc. as filters need them.
 ///
@@ -30,27 +30,29 @@ public enum LineKind
     /// text and the authority from this.</para>
     ///
     /// <para><b>What the code says is WHY a fight ended, never what happened.</b> Bartle's own list
-    /// (Bartle.MUD2-C1-Codes.txt) names them "Fight ends - withdraw / flee / other", and measurement
+    /// (mud2_FE4.txt) names them "08 10 Fight ends - withdraw.", "08 11 Fight ends - flee." and
+    /// "08 12 Fight ends - other.", and measurement
     /// bears the distinction out: a creature's successful flee and its FAILED flee carry the SAME
     /// 08.11 across every capture on disk (11 and 8 occurrences, no exceptions), so the one-word
     /// prose difference between "has fled by going" and "has fled by trying to go" is the only thing
     /// that separates a creature that escaped from one standing in front of you. The protocol will
     /// not tell you.</para>
     ///
-    /// <para>And a creature dying by anything but the player's blow has NO code at all - not merely
-    /// unobserved: the 08 family is exhaustive in the spec (08.08 you killed them, 08.09 they killed
-    /// you, plus the three fight-end reasons) and there is no death or corpse code anywhere in the
-    /// document. Confirmed on the wire, where "The X has just passed on." arrives untagged in 87 of
-    /// 87 occurrences. MUD2 is a museum piece, so that absence is permanent. Prose matching is not a
-    /// workaround for these lines; it is the only thing there will ever be.</para>
+    /// <para>And a creature dying by anything but the player's blow carries no code on the wire:
+    /// "The X has just passed on." arrives untagged in 87 of 87 occurrences. The documents agree -
+    /// the 08 family lists 08.08 you killed them, 08.09 they killed you, plus the three fight-end
+    /// reasons, and there is no death or corpse code anywhere in either - though neither claims to
+    /// be complete (mud2_FE4.txt: "I will be adding more codes"; "Look in muddle/codes.mud for the
+    /// latest versions."). Prose matching is not a workaround for these lines; it is the only
+    /// thing there is.</para>
     /// </summary>
     FightEnd,
 
     /// <summary>
-    /// A fight started - C1 code 08.00. Bartle's list gives fight-start as a bare <c>08</c> with no
-    /// sub-code; the server has sent <c>08 00</c> (<c>[A3][9B]</c>) for it in every one of 1,068+
-    /// occurrences on the wire and a bare <c>08</c> in none, so the code tested for is the one that
-    /// arrives, not the one documented forty years ago and never revised.
+    /// A fight started - C1 code 08, "Fight starts." in mud2_FE4.txt. A missing trailing parameter
+    /// reads as 00, so the bare <c>08</c> the list gives and <c>08 00</c> are the same code; the
+    /// wire carries <c>08 00</c> (<c>[A3][9B]</c>) in every one of 1,068+ occurrences and the bare
+    /// form in none. Both are tagged.
     ///
     /// <para>Tagged for the same reason as <see cref="FightEnd"/>: the code states the fact, the
     /// prose only says which Creature. Every opening carries it - "You attack the X", every aggro
@@ -62,8 +64,8 @@ public enum LineKind
     FightStart,
 
     /// <summary>
-    /// A creature turned invisible - C1 code 04.00.05, which fecodes.txt names "Normal creatures
-    /// becoming invisible". Confirmed on the wire: <c>[9F][9B][A0]</c> introduces "The man fades
+    /// A creature turned invisible - C1 code 04.00.05, which mud2_FE4.txt names "Normal creatures
+    /// becoming invisible." Confirmed on the wire: <c>[9F][9B][A0]</c> introduces "The man fades
     /// from view."
     ///
     /// <para>Worth a kind of its own because of what happens AFTER it. MUD2 does not stop reporting

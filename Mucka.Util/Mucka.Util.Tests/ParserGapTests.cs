@@ -772,8 +772,8 @@ public sealed class ParserGapTests
     }
 
     /// <summary>
-    /// The prose is not what detects it. C1 04.00.05 is ("Normal creatures becoming invisible",
-    /// fecodes.txt), so a wording nobody has seen still costs only the name - and with one creature
+    /// The prose is not what detects it. C1 04.00.05 is ("Normal creatures becoming invisible.",
+    /// mud2_FE4.txt), so a wording nobody has seen still costs only the name - and with one creature
     /// engaged, not even that.
     /// </summary>
     [Fact]

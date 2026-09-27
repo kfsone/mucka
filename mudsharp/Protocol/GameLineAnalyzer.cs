@@ -8,25 +8,13 @@ namespace MudSharp.Protocol;
 /// </summary>
 internal sealed class GameLineAnalyzer
 {
-    // "stamina:        81      max:    81"
-    private static readonly Regex StaminaMaxRegex = new(
-        @"^stamina:\s*(\d+)\s+max:\s*(\d+)",
-        RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
-
-    // "Your stamina is 81."  (wake-up / rest line)
-    private static readonly Regex YourStaminaRegex = new(
-        @"^Your stamina is (\d+)\.",
-        RegexOptions.Compiled | RegexOptions.CultureInvariant);
-
-    // "(150/200)"  compact stamina at the start of a line
-    private static readonly Regex CompactStaminaRegex = new(
-        @"^\((\d+)/(\d+)\)",
-        RegexOptions.Compiled | RegexOptions.CultureInvariant);
-
-    // "The rat hits you (89/94)."  - stamina embedded in combat hit lines; find the last (N/M)
-    private static readonly Regex CombatStaminaRegex = new(
-        @"\((\d+)/(\d+)\)",
-        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+    // No stamina pattern, and no score from the save line. Every stamina and maximum stamina the
+    // game prints outside FES is bracketed in its C89 code - "The rat22 hits you (97/100).", "Your
+    // stamina is 23.", the sheet's "stamina: 100 max: 100", "Stamina=99/120." - and so is the total
+    // in "(Persona saved on +2 = 5,264).", so the parser reads those from the code (see
+    // C1Scope.StatValue). Counted over the wire table: 3,980 of 3,980 prose "(N/M)" lines, 1,702 of
+    // 1,702 "Your stamina is" lines and 5,691 of 5,691 save lines carry the code. The sheet's
+    // "score:" line carries none (0 of 290), so it stays prose, below.
 
     // "strength:       94" or "strength:       94      effective strength:     47"
     private static readonly Regex StrengthRegex = new(
@@ -71,8 +59,8 @@ internal sealed class GameLineAnalyzer
     // Three separate figures on one ~70-column line, so at narrow widths the server wraps it and
     // the tail arrives on a continuation line ("points        value:  9,534 points"). Each figure
     // therefore gets its own regex: the score prefix anchors at column 0, while the other two
-    // anchor either at column 0 or immediately after the previous figure's "points" - enough of a
-    // guard to keep player chatter from matching, while surviving the wrap.
+    // anchor either at column 0 or immediately after the previous figure's "points", which survives
+    // the wrap. The anchors are not what keeps speech out - the parser offers no chat line here.
     private static readonly Regex ScoreRegex = new(
         @"^score:\s*([\d,]+)",
         RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
@@ -105,9 +93,9 @@ internal sealed class GameLineAnalyzer
     // "You have completed a Task which you have done before."
     //
     // Anchored at column 0 and matched on the invariant head, because the tail differs between the
-    // first-time and repeat wordings and only the first-time one carries a count. Player speech
-    // cannot reach this: a line quoting the same words arrives as `Bob shouts "..."`, with the verb
-    // and the quote ahead of it. The count is its own optional group rather than a second pattern so
+    // first-time and repeat wordings and only the first-time one carries a count. The anchor alone
+    // does not keep speech out - a wrapped row of a long message starts at column 0 too - so the
+    // parser never offers a chat line to this at all. The count is its own optional group rather than a second pattern so
     // that a wording this has not seen still yields the event, just without a number.
     private static readonly Regex TaskCompletedRegex = new(
         @"^You have completed a Task\b",
@@ -141,29 +129,16 @@ internal sealed class GameLineAnalyzer
         if (text.Length == 0)
             return null;
 
-        // "(Persona saved on ...)" - early return in Clio; also extracts score from the number
+        // "(Persona saved on ...)" - early return in Clio. The total is the C89 score, read by the
+        // parser from the code; ScoreSaved reads the line separately (TryReadScoreSave).
         if (text.Contains("(Persona saved on "))
-        {
-            var pm = PersonaSavedScoreRegex.Match(text);
-            var score = pm.Success ? StripCommas(pm.Groups["total"].Value) : 0;
-            return score > 0
-                ? GameStatsSnapshot.Empty with { PersonaSaved = true, Score = score }
-                : GameStatsSnapshot.Empty with { PersonaSaved = true };
-        }
+            return GameStatsSnapshot.Empty with { PersonaSaved = true };
 
-        // All numeric captures parse with TryParse: any player can put "(99999999999999/9)"
-        // in a say/shout, and an int.Parse OverflowException here propagates out of Feed()
-        // and tears down the connection.
-
-        // "stamina: N  max: M"
-        var m = StaminaMaxRegex.Match(text);
-        if (m.Success
-            && int.TryParse(m.Groups[1].Value, out var staVal)
-            && int.TryParse(m.Groups[2].Value, out var mstaVal))
-            return GameStatsSnapshot.Empty with { Stamina = staVal, MaxStamina = mstaVal };
+        // All numeric captures parse with TryParse: an int.Parse OverflowException here would
+        // propagate out of Feed() and tear down the connection.
 
         // "sex: male"
-        m = SexRegex.Match(text);
+        var m = SexRegex.Match(text);
         if (m.Success)
             return GameStatsSnapshot.Empty with { Sex = m.Groups[1].Value.ToLowerInvariant() };
 
@@ -246,31 +221,6 @@ internal sealed class GameLineAnalyzer
                 return GameStatsSnapshot.Empty with { ScoreThisGame = thisGame, PlayerValue = value };
         }
 
-        // "Your stamina is N."
-        m = YourStaminaRegex.Match(text);
-        if (m.Success && int.TryParse(m.Groups[1].Value, out var yourSta))
-            return GameStatsSnapshot.Empty with { Stamina = yourSta };
-
-        // "(N/M)" compact stamina
-        m = CompactStaminaRegex.Match(text);
-        if (m.Success
-            && int.TryParse(m.Groups[1].Value, out var cSta)
-            && int.TryParse(m.Groups[2].Value, out var cMsta)
-            && cMsta > 0)
-            return GameStatsSnapshot.Empty with { Stamina = cSta, MaxStamina = cMsta };
-
-        // "(N/M)" embedded anywhere in line (combat hit messages e.g. "The rat hits you (89/94).")
-        // Use the last match to handle rare lines with multiple parenthesised numbers.
-        var combatMatches = CombatStaminaRegex.Matches(text);
-        if (combatMatches.Count > 0)
-        {
-            var last = combatMatches[combatMatches.Count - 1];
-            if (int.TryParse(last.Groups[1].Value, out var sta)
-                && int.TryParse(last.Groups[2].Value, out var msta)
-                && sta > 0 && msta > 0 && sta <= msta)
-                return GameStatsSnapshot.Empty with { Stamina = sta, MaxStamina = msta };
-        }
-
         // `passes you a note which says "word"` - dreamword delivered as game text.
         // Only matched outside game mode; in game mode dreamwords arrive exclusively
         // via the binary C15+C00+C00+C255 sequence in Mud2C1Decoder.
@@ -304,8 +254,6 @@ internal sealed class GameLineAnalyzer
         return int.TryParse(buf[..len], out value);
     }
 
-    private static int StripCommas(string s) => TryStripCommas(s, out var val) ? val : 0;
-
     /// <summary>
     /// Reads a <c>(Persona saved on ...)</c> line as the score EVENT it is - the signed delta where
     /// the game gave one, and the authoritative total either way. See <see cref="ScoreSave"/> for the
@@ -314,12 +262,11 @@ internal sealed class GameLineAnalyzer
     /// <para>Separate from <see cref="Analyze"/> rather than folded into its return, because a delta
     /// is a one-shot fact and <see cref="GameStatsSnapshot"/> is a carried-forward one: MudSession
     /// merges every snapshot field into a running state, so a delta living there would be re-reported
-    /// on every subsequent line until something overwrote it. The double parse costs nothing - the
-    /// line occurs 877 times across forty sessions - and it keeps each path testable on its own.</para>
+    /// on every subsequent line until something overwrote it.</para>
     ///
-    /// <para>Deliberately shares <see cref="PersonaSavedScoreRegex"/> with the stat path, so the
-    /// number this records and the number that reaches <c>GameStatsSnapshot.Score</c> can never
-    /// disagree about the same line.</para>
+    /// <para><c>GameStatsSnapshot.Score</c> takes the same total from the C89 code that brackets it
+    /// (see <see cref="C1Scope.StatValue"/>); this reads the digits the code brackets, so the two are
+    /// the same characters read twice.</para>
     /// </summary>
     internal static bool TryReadScoreSave(string text, out ScoreSave save)
     {
