@@ -17,6 +17,8 @@ public static class ChatColorKeys
     public const string Say     = "saycolor";
     public const string Shout   = "shoutcolor";
     public const string Tell    = "tellcolor";
+    /// <summary>The selected <see cref="ChatTheme"/>, by its <see cref="ChatTheme.Key"/>.</summary>
+    public const string Theme   = "chattheme";
 
     public const string SpeakerOwn   = "speakerown";
     public const string SpeakerOther = "speakerother";
@@ -38,17 +40,25 @@ public static class ChatColorKeys
         (SpeechPart.Tell,    true, TellOwn),    (SpeechPart.Tell,    false, TellOther),
     ];
 
-    /// <summary>The stored hex strings; null when the key is absent.</summary>
-    public static (string? Speaker, string? Say, string? Shout, string? Tell) Read(Func<string, string, string?> get)
+    /// <summary>
+    /// The selected theme and the four colours as 6-digit hex. An absent or unknown theme is
+    /// <see cref="ChatTheme.Default"/>; an absent or malformed colour key is the selected theme's
+    /// colour. A readable stored colour is returned as its own value, never replaced by the theme's.
+    /// </summary>
+    public static (ChatTheme Theme, string Speaker, string Say, string Shout, string Tell) Read(Func<string, string, string?> get)
     {
         ArgumentNullException.ThrowIfNull(get);
-        return (get(Section, Speaker), get(Section, Say), get(Section, Shout), get(Section, Tell));
+        var theme = ChatTheme.Find(get(Section, Theme));
+        string Colour(string key, int fallback) => ChatColorizer.ToHex(ChatColorizer.TryParseRgb(get(Section, key)) ?? fallback);
+        return (theme, Colour(Speaker, theme.Speaker), Colour(Say, theme.Say), Colour(Shout, theme.Shout), Colour(Tell, theme.Tell));
     }
 
-    /// <summary>Writes the four colours.</summary>
-    public static void Write(Action<string, string, string> set, string speakerHex, string sayHex, string shoutHex, string tellHex)
+    /// <summary>Writes the selected theme and the four colours.</summary>
+    public static void Write(Action<string, string, string> set, ChatTheme theme, string speakerHex, string sayHex, string shoutHex, string tellHex)
     {
         ArgumentNullException.ThrowIfNull(set);
+        ArgumentNullException.ThrowIfNull(theme);
+        set(Section, Theme,   theme.Key);
         set(Section, Speaker, speakerHex);
         set(Section, Say,     sayHex);
         set(Section, Shout,   shoutHex);

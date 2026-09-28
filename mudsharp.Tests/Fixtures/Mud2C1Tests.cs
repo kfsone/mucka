@@ -195,6 +195,72 @@ public class Mud2C1Tests
         Assert.Equal(speaker, line.Spans.Single(s => s.Text == "\".").Style);
     }
 
+    // A tell's verb is underlined in both directions, in whatever style its span already has; the
+    // sender, inbound and named, is underlined as before. The labels are the four shapes seen on
+    // the wire in 09 03 frames.
+    [Theory]
+    [InlineData("Lazlo the yeoman tells you ", "tells", "Lazlo")]
+    [InlineData("Lazlo tells you ",            "tells", "Lazlo")]
+    [InlineData("Someone tells you ",          "tells", null)]
+    [InlineData("You tell your listeners ",    "tell",  null)]
+    public void C09_Tell_UnderlinesTheVerb(string label, string verb, string? sender)
+    {
+        var line = SpeechLine(label, 0x9E, "tell me what he tells you");
+        var underlined = line.Spans.Where(s => s.Style.Underline).Select(s => s.Text).ToArray();
+        Assert.Equal(sender is null ? [verb] : new[] { sender, verb }, underlined);
+
+        var verbSpan = line.Spans.Single(s => s.Style.Underline && s.Text == verb);
+        Assert.Equal(new TextStyle(AnsiColor.Yellow, AnsiColor.Black, Underline: true, Speech: SpeechPart.Speaker),
+            verbSpan.Style);
+        Assert.Null(verbSpan.ClickInsertText);
+        Assert.Equal(label + "\"tell me what he tells you\".", line.PlainText);
+    }
+
+    [Fact]
+    public void C09_Tell_SenderKeepsItsClickInsert_AndTheVerbGetsNone()
+    {
+        var line = SpeechLine("Lazlo the yeoman tells you ", 0x9E, "hi");
+        Assert.Equal("Lazlo ", line.Spans.Single(s => s.Text == "Lazlo").ClickInsertText);
+        Assert.Single(line.Spans, s => s.ClickInsertText != null);
+    }
+
+    // The settings editor's tell examples underline exactly what the pane underlines on the same line.
+    [Fact]
+    public void ChatExampleText_TellExamples_UnderlineWhatThePaneUnderlines()
+    {
+        foreach (var example in ChatExampleText.Tell)
+        {
+            var line = SpeechLine(example.Lead[..^1], 0x9E, example.Quoted);
+            var pane = line.Spans.Where(s => s.Style.Underline).Select(s => s.Text);
+            var runs = example.LeadRuns;
+            Assert.Equal(ChatExampleText.LeadRunCount, runs.Count);
+            Assert.Equal(example.Lead, string.Concat(runs));
+            Assert.Equal(pane, runs.Where((_, i) => i % 2 == 1 && runs[i].Length > 0));
+        }
+        Assert.Equal(["", "Other", " the hero ", "tells", " you \""], ChatExampleText.Tell[0].LeadRuns);
+        Assert.Equal(["You ", "tell", " your listeners \"", "", ""], ChatExampleText.Tell[1].LeadRuns);
+    }
+
+    [Fact]
+    public void ChatExampleText_OtherRows_HaveNoUnderline()
+    {
+        foreach (var example in ChatExampleText.Say.Concat(ChatExampleText.Shout).Concat(ChatExampleText.Speaker))
+            Assert.Equal([example.Lead, "", "", "", ""], example.LeadRuns);
+    }
+
+    // Only a tell's label is decorated: the same prose in a say or shout, or in the told words of a
+    // tell whose label is neither form, underlines nothing.
+    [Theory]
+    [InlineData("Crispyjr tells you ", 0x9D)]
+    [InlineData("Crispyjr tells you ", 0x9C)]
+    [InlineData("You tell your listeners ", 0x9D)]
+    [InlineData("Crispyjr says ",      0x9E)]
+    public void C09_Tell_OnlyATellLabelIsUnderlined(string label, byte subcode)
+    {
+        var line = SpeechLine(label, subcode, "You tell your listeners he tells you lies");
+        Assert.DoesNotContain(line.Spans, s => s.Style.Underline);
+    }
+
     // 09 04 act, 09 05 emotion (with its 00/01/02 parameter), 09 06 affection, 09 07 hello,
     // 09 08 goodbye, 09 09 congratulations, 09 10 sorry: all are drawn as the speaker.
     [Theory]

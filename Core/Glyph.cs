@@ -17,6 +17,8 @@ public static class Glyph
     public const string TriangleDown = "\u25BC";
     /// <summary>Leftwards arrow with hook: the there-and-back (u-turn) button.</summary>
     public const string UTurn = "\u21A9";
+    /// <summary>Clockwise open circle arrow: a reset-to-defaults button.</summary>
+    public const string Reset = "\u21BB";
     /// <summary>Multiplication X: a close button.</summary>
     public const string Close = "\u2715";
     /// <summary>Leftwards arrow: bytes received from the server.</summary>

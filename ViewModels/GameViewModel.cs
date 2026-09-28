@@ -96,10 +96,11 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private int _dreamwordSizeOffset;
     // Chat colours: hex text as the settings hold it plus the resolved palette (colours and faces)
     // the pane draws chat spans with (ChatPalette).
-    private string _speakerColor = ChatColorizer.DefaultSpeakerHex;
-    private string _sayColor     = ChatColorizer.DefaultSayHex;
-    private string _shoutColor   = ChatColorizer.DefaultShoutHex;
-    private string _tellColor    = ChatColorizer.DefaultTellHex;
+    private ChatTheme _chatTheme = ChatTheme.Default;
+    private string _speakerColor = ChatTheme.Default.SpeakerHex;
+    private string _sayColor     = ChatTheme.Default.SayHex;
+    private string _shoutColor   = ChatTheme.Default.ShoutHex;
+    private string _tellColor    = ChatTheme.Default.TellHex;
     private ChatColorizer.Palette _chatPalette = ChatColorizer.DefaultPalette;
     // Threads per-message state across the drain so a message the server soft-wrapped keeps
     // its own/other verdict on every continuation line (StyledLine.ContinuesChat), not just the first.
@@ -550,6 +551,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         SayColor            = _sayColor,
         ShoutColor          = _shoutColor,
         TellColor           = _tellColor,
+        ChatTheme           = _chatTheme,
         ChatFaces           = _chatPalette.Faces,
         ShowOnline    = SidePanel.IsOnlineExpanded,
         ShowInventory = SidePanel.IsInventoryExpanded,
@@ -643,7 +645,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _fkeysPerProfile     = profile.FkeysPerProfile;
         _sounds              = profile.Sounds;
         _dreamwordSizeOffset = Math.Clamp(profile.DreamwordSizeOffset, -2, 4);
-        SetChatColors(profile.SpeakerColor, profile.SayColor, profile.ShoutColor, profile.TellColor, profile.ChatFaces);
+        SetChatColors(profile.ChatTheme, profile.SpeakerColor, profile.SayColor, profile.ShoutColor, profile.TellColor, profile.ChatFaces);
         _defaultFontSize     = profile.DefaultFontSize;
         _defaultMaxColumns   = profile.DefaultMaxColumns;
         _floatOnline         = profile.FloatOnline;
@@ -793,7 +795,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _floatCompass = settings.FloatCompass;
 
         _dreamwordSizeOffset = Math.Clamp(settings.DreamwordSizeOffset, -2, 4);
-        SetChatColors(settings.SpeakerColor, settings.SayColor, settings.ShoutColor, settings.TellColor, settings.ChatFaces);
+        SetChatColors(settings.ChatTheme, settings.SpeakerColor, settings.SayColor, settings.ShoutColor, settings.TellColor, settings.ChatFaces);
         _defaultFontSize     = settings.DefaultFontSize;
         _defaultMaxColumns   = settings.DefaultMaxColumns;
         OnPropertyChanged(nameof(DreamwordFontSize));
@@ -1131,13 +1133,14 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
                 nameof(ScoreValue), nameof(ScoreDeltaValue), nameof(ScoreDisplayValue), nameof(ScoreColor));
         });
 
-    private void SetChatColors(string speakerHex, string sayHex, string shoutHex, string tellHex, ChatFaces faces)
+    private void SetChatColors(ChatTheme theme, string speakerHex, string sayHex, string shoutHex, string tellHex, ChatFaces faces)
     {
+        _chatTheme    = theme;
         _speakerColor = speakerHex;
         _sayColor     = sayHex;
         _shoutColor   = shoutHex;
         _tellColor    = tellHex;
-        var palette   = ChatColorizer.ResolvePalette(speakerHex, sayHex, shoutHex, tellHex, faces);
+        var palette   = ChatColorizer.ResolvePalette(theme, speakerHex, sayHex, shoutHex, tellHex, faces);
         if (palette == _chatPalette) return;
         _chatPalette  = palette;
         OnPropertyChanged(nameof(ChatPalette));
@@ -1679,7 +1682,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         AddSystemLine("  $f<n>                 annotate output with fkey n's text (1-36)", 14);
         AddSystemLine("  $SID                  print the current session id (server/run/persona/login)", 14);
         AddSystemLine("  $CHATTEST             play a scripted chat into the output (sends nothing)", 14);
-        AddSystemLine("  $CHATTEST slow|stop   play it one line at a time, 0.5-9s apart / stop that", 14);
+        AddSystemLine("  $CHATTEST slow|stop   play it one line at a time, ~1.5s apart / stop that", 14);
         AddSystemLine("  $MARK [@id|\"note\"]    drop a landmark into the log", 14);
         AddSystemLine("  $MARK start|end ...   open/close a nested span (end takes no id)", 14);
         AddSystemLine($"  $SCORE [days] [name]  graph a character's score (default: {ScoreCommandArgs.DefaultDays} days, you)", 14);
@@ -1775,7 +1778,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
 
     private void PlaySlowChatTest(string myName)
     {
-        InjectNote("// $CHATTEST slow: playing the script one line at a time, 0.5-9s apart; $CHATTEST stop stops it");
+        InjectNote("// $CHATTEST slow: playing the script one line at a time, 1.5s apart on average; $CHATTEST stop stops it");
         // The last unit's lines are still queued when the run finishes and a note is injected at
         // once, so the note is posted behind the flush that drains them.
         _ = _slowChatTest.Start(ChatTestScript.Units(myName), ShowChatTestUnit,

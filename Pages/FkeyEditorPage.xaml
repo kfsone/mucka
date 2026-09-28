@@ -2,11 +2,46 @@
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              xmlns:vm="clr-namespace:Mucka.ViewModels"
+             xmlns:pages="clr-namespace:Mucka.Pages"
+             xmlns:core="clr-namespace:Mucka.Core"
              x:Class="Mucka.Pages.FkeyEditorPage"
              x:DataType="vm:FkeyEditorViewModel"
              Title="Config"
              BackgroundColor="#0C0C0C"
              SafeAreaEdges="All">
+
+    <ContentPage.Resources>
+        <!-- One chat example line, drawn as the pane draws it: its font, and the speaker's and the
+             quoted words' own or other faces. Used beside each chat colour row and in the block below.
+             Not scaled by the system text size, which the pane does not follow either; the page's
+             wide/narrow test sizes the line from its FontSize. The lead is ChatExampleText.LeadRunCount
+             runs, the odd ones underlined, as the pane underlines a tell's sender and verb. -->
+        <DataTemplate x:Key="ChatExampleLineTemplate" x:DataType="vm:ChatExampleLine">
+            <Label FontFamily="Cascadia Mono" FontSize="{x:Static pages:FkeyEditorPage.ChatExampleFontSize}"
+                   FontAutoScalingEnabled="False" LineBreakMode="NoWrap">
+                <Label.FormattedText>
+                    <FormattedString>
+                        <Span Text="{Binding Lead0}" TextColor="{Binding SpeakerColor}" FontAutoScalingEnabled="False"
+                              FontFamily="{Binding SpeakerFontFamily}" FontAttributes="{Binding SpeakerAttributes}"/>
+                        <Span Text="{Binding Lead1}" TextColor="{Binding SpeakerColor}" FontAutoScalingEnabled="False"
+                              FontFamily="{Binding SpeakerFontFamily}" FontAttributes="{Binding SpeakerAttributes}"
+                              TextDecorations="Underline"/>
+                        <Span Text="{Binding Lead2}" TextColor="{Binding SpeakerColor}" FontAutoScalingEnabled="False"
+                              FontFamily="{Binding SpeakerFontFamily}" FontAttributes="{Binding SpeakerAttributes}"/>
+                        <Span Text="{Binding Lead3}" TextColor="{Binding SpeakerColor}" FontAutoScalingEnabled="False"
+                              FontFamily="{Binding SpeakerFontFamily}" FontAttributes="{Binding SpeakerAttributes}"
+                              TextDecorations="Underline"/>
+                        <Span Text="{Binding Lead4}" TextColor="{Binding SpeakerColor}" FontAutoScalingEnabled="False"
+                              FontFamily="{Binding SpeakerFontFamily}" FontAttributes="{Binding SpeakerAttributes}"/>
+                        <Span Text="{Binding Quoted}" TextColor="{Binding WordsColor}" FontAutoScalingEnabled="False"
+                              FontFamily="{Binding WordsFontFamily}" FontAttributes="{Binding WordsAttributes}"/>
+                        <Span Text="{Binding Tail}" TextColor="{Binding SpeakerColor}" FontAutoScalingEnabled="False"
+                              FontFamily="{Binding SpeakerFontFamily}" FontAttributes="{Binding SpeakerAttributes}"/>
+                    </FormattedString>
+                </Label.FormattedText>
+            </Label>
+        </DataTemplate>
+    </ContentPage.Resources>
 
     <Grid RowDefinitions="Auto,*,Auto">
 
@@ -594,19 +629,35 @@
                         <Label Grid.Column="0" Text="Chat colours" TextColor="#58a6ff" FontSize="13" FontAttributes="Bold"
                                VerticalOptions="Center"/>
                         <Button Grid.Column="1"
-                                Text="Reset to Default"
+                                Text="{x:Static core:Glyph.Reset}"
                                 Command="{Binding ResetChatColorsCommand}"
+                                ToolTipProperties.Text="Reset colors to the theme defaults"
+                                SemanticProperties.Description="Reset colors to the theme defaults"
                                 BackgroundColor="#2d333b" TextColor="#cccccc"
-                                FontSize="12" HeightRequest="30"
-                                CornerRadius="4" Padding="10,0"/>
+                                FontSize="16" WidthRequest="34" HeightRequest="30"
+                                CornerRadius="4" Padding="0"/>
                     </Grid>
                     <Label Text="For everyone's lines. Acts/Speaks is who did it, and acts and emotes; the others are the quoted words. Each row styles your own messages and other people's separately: italic, bold, dim."
                            TextColor="#555555" FontSize="11" FontAttributes="Italic"/>
 
-                    <VerticalStackLayout Spacing="10" BindableLayout.ItemsSource="{Binding ChatColors}">
+                    <Grid ColumnDefinitions="160,Auto" ColumnSpacing="12">
+                        <Label Grid.Column="0" Text="Theme" TextColor="#888888" FontSize="13" VerticalOptions="Center"/>
+                        <Picker Grid.Column="1"
+                                ItemsSource="{Binding ChatThemeNames}"
+                                SelectedIndex="{Binding SelectedChatThemeIndex, Mode=TwoWay}"
+                                SemanticProperties.Description="Chat colour theme"
+                                TextColor="White" TitleColor="#888888"
+                                BackgroundColor="#161b22"
+                                FontSize="13" WidthRequest="160"/>
+                    </Grid>
+
+                    <!-- Each row: label, controls (the Auto column the page measures for the wide/narrow
+                         switch), and on a wide window the examples that row covers, sized to their text
+                         and set hard against the controls; any width left over is blank on the right. -->
+                    <VerticalStackLayout x:Name="ChatRows" Spacing="10" BindableLayout.ItemsSource="{Binding ChatColors}">
                         <BindableLayout.ItemTemplate>
                             <DataTemplate x:DataType="vm:ChatColorEditorItem">
-                                <Grid ColumnDefinitions="160,*" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="12" RowSpacing="2">
+                                <Grid ColumnDefinitions="160,Auto,Auto" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="12" RowSpacing="2">
                                     <Label Grid.Column="0" Text="{Binding Label}" TextColor="#888888" FontSize="13" VerticalOptions="Center"/>
                                     <HorizontalStackLayout Grid.Column="1" Spacing="6" VerticalOptions="Center">
                                         <Label Text="#" TextColor="#888888" FontSize="14" VerticalOptions="Center"/>
@@ -643,104 +694,27 @@
                                         <CheckBox IsChecked="{Binding OtherDim, Mode=TwoWay}" Color="#1f6feb" VerticalOptions="Center"/>
                                         <Label Text="dim" TextColor="#777777" FontSize="12" VerticalOptions="Center"/>
                                     </HorizontalStackLayout>
+                                    <Border Grid.Column="2" Grid.RowSpan="3" IsVisible="{Binding ShowExamples}"
+                                            HorizontalOptions="Start"
+                                            BackgroundColor="{x:Static vm:FkeyEditorViewModel.PaneBackground}" StrokeThickness="0"
+                                            Padding="{x:Static pages:FkeyEditorPage.ChatExamplePadding}">
+                                        <VerticalStackLayout Spacing="2" VerticalOptions="Center"
+                                                             BindableLayout.ItemsSource="{Binding Examples}"
+                                                             BindableLayout.ItemTemplate="{StaticResource ChatExampleLineTemplate}"/>
+                                    </Border>
                                 </Grid>
                             </DataTemplate>
                         </BindableLayout.ItemTemplate>
                     </VerticalStackLayout>
 
-                    <!-- Drawn as the pane draws it: its background, its font, and each row's own or
-                         other face - Lazlo's lines are another Creature's, Kayfez's and "You" are yours. -->
-                    <Border BackgroundColor="{Binding PaneBackground}" StrokeThickness="0" Padding="10,8">
-                        <VerticalStackLayout Spacing="2">
-                            <Label FontFamily="Cascadia Mono" FontSize="14" LineBreakMode="NoWrap">
-                                <Label.FormattedText>
-                                    <FormattedString>
-                                        <Span Text="Lazlo the yeoman says &quot;" TextColor="{Binding SpeakerColor.OtherColor}"
-                                              FontFamily="{Binding SpeakerColor.OtherFontFamily}" FontAttributes="{Binding SpeakerColor.OtherAttributes}"/>
-                                        <Span Text="Hello there." TextColor="{Binding SayColor.OtherColor}"
-                                              FontFamily="{Binding SayColor.OtherFontFamily}" FontAttributes="{Binding SayColor.OtherAttributes}"/>
-                                        <Span Text="&quot;." TextColor="{Binding SpeakerColor.OtherColor}"
-                                              FontFamily="{Binding SpeakerColor.OtherFontFamily}" FontAttributes="{Binding SpeakerColor.OtherAttributes}"/>
-                                    </FormattedString>
-                                </Label.FormattedText>
-                            </Label>
-                            <Label FontFamily="Cascadia Mono" FontSize="14" LineBreakMode="NoWrap">
-                                <Label.FormattedText>
-                                    <FormattedString>
-                                        <Span Text="Kayfez the warlock says &quot;" TextColor="{Binding SpeakerColor.OwnColor}"
-                                              FontFamily="{Binding SpeakerColor.OwnFontFamily}" FontAttributes="{Binding SpeakerColor.OwnAttributes}"/>
-                                        <Span Text="I will trade you a candle for that rope" TextColor="{Binding SayColor.OwnColor}"
-                                              FontFamily="{Binding SayColor.OwnFontFamily}" FontAttributes="{Binding SayColor.OwnAttributes}"/>
-                                        <Span Text="&quot;." TextColor="{Binding SpeakerColor.OwnColor}"
-                                              FontFamily="{Binding SpeakerColor.OwnFontFamily}" FontAttributes="{Binding SpeakerColor.OwnAttributes}"/>
-                                    </FormattedString>
-                                </Label.FormattedText>
-                            </Label>
-                            <Label FontFamily="Cascadia Mono" FontSize="14" LineBreakMode="NoWrap">
-                                <Label.FormattedText>
-                                    <FormattedString>
-                                        <Span Text="Lazlo the yeoman shouts &quot;" TextColor="{Binding SpeakerColor.OtherColor}"
-                                              FontFamily="{Binding SpeakerColor.OtherFontFamily}" FontAttributes="{Binding SpeakerColor.OtherAttributes}"/>
-                                        <Span Text="Help!" TextColor="{Binding ShoutColor.OtherColor}"
-                                              FontFamily="{Binding ShoutColor.OtherFontFamily}" FontAttributes="{Binding ShoutColor.OtherAttributes}"/>
-                                        <Span Text="&quot;." TextColor="{Binding SpeakerColor.OtherColor}"
-                                              FontFamily="{Binding SpeakerColor.OtherFontFamily}" FontAttributes="{Binding SpeakerColor.OtherAttributes}"/>
-                                    </FormattedString>
-                                </Label.FormattedText>
-                            </Label>
-                            <Label FontFamily="Cascadia Mono" FontSize="14" LineBreakMode="NoWrap">
-                                <Label.FormattedText>
-                                    <FormattedString>
-                                        <Span Text="Kayfez the warlock shouts &quot;" TextColor="{Binding SpeakerColor.OwnColor}"
-                                              FontFamily="{Binding SpeakerColor.OwnFontFamily}" FontAttributes="{Binding SpeakerColor.OwnAttributes}"/>
-                                        <Span Text="Over here!" TextColor="{Binding ShoutColor.OwnColor}"
-                                              FontFamily="{Binding ShoutColor.OwnFontFamily}" FontAttributes="{Binding ShoutColor.OwnAttributes}"/>
-                                        <Span Text="&quot;." TextColor="{Binding SpeakerColor.OwnColor}"
-                                              FontFamily="{Binding SpeakerColor.OwnFontFamily}" FontAttributes="{Binding SpeakerColor.OwnAttributes}"/>
-                                    </FormattedString>
-                                </Label.FormattedText>
-                            </Label>
-                            <Label FontFamily="Cascadia Mono" FontSize="14" LineBreakMode="NoWrap">
-                                <Label.FormattedText>
-                                    <FormattedString>
-                                        <Span Text="Lazlo the yeoman tells you &quot;" TextColor="{Binding SpeakerColor.OtherColor}"
-                                              FontFamily="{Binding SpeakerColor.OtherFontFamily}" FontAttributes="{Binding SpeakerColor.OtherAttributes}"/>
-                                        <Span Text="Meet at the tree." TextColor="{Binding TellColor.OtherColor}"
-                                              FontFamily="{Binding TellColor.OtherFontFamily}" FontAttributes="{Binding TellColor.OtherAttributes}"/>
-                                        <Span Text="&quot;." TextColor="{Binding SpeakerColor.OtherColor}"
-                                              FontFamily="{Binding SpeakerColor.OtherFontFamily}" FontAttributes="{Binding SpeakerColor.OtherAttributes}"/>
-                                    </FormattedString>
-                                </Label.FormattedText>
-                            </Label>
-                            <Label FontFamily="Cascadia Mono" FontSize="14" LineBreakMode="NoWrap">
-                                <Label.FormattedText>
-                                    <FormattedString>
-                                        <Span Text="You tell Lazlo &quot;" TextColor="{Binding SpeakerColor.OwnColor}"
-                                              FontFamily="{Binding SpeakerColor.OwnFontFamily}" FontAttributes="{Binding SpeakerColor.OwnAttributes}"/>
-                                        <Span Text="On my way." TextColor="{Binding TellColor.OwnColor}"
-                                              FontFamily="{Binding TellColor.OwnFontFamily}" FontAttributes="{Binding TellColor.OwnAttributes}"/>
-                                        <Span Text="&quot;." TextColor="{Binding SpeakerColor.OwnColor}"
-                                              FontFamily="{Binding SpeakerColor.OwnFontFamily}" FontAttributes="{Binding SpeakerColor.OwnAttributes}"/>
-                                    </FormattedString>
-                                </Label.FormattedText>
-                            </Label>
-                            <Label FontFamily="Cascadia Mono" FontSize="14" LineBreakMode="NoWrap">
-                                <Label.FormattedText>
-                                    <FormattedString>
-                                        <Span Text="Lazlo the yeoman dances." TextColor="{Binding SpeakerColor.OtherColor}"
-                                              FontFamily="{Binding SpeakerColor.OtherFontFamily}" FontAttributes="{Binding SpeakerColor.OtherAttributes}"/>
-                                    </FormattedString>
-                                </Label.FormattedText>
-                            </Label>
-                            <Label FontFamily="Cascadia Mono" FontSize="14" LineBreakMode="NoWrap">
-                                <Label.FormattedText>
-                                    <FormattedString>
-                                        <Span Text="Kayfez the warlock dances." TextColor="{Binding SpeakerColor.OwnColor}"
-                                              FontFamily="{Binding SpeakerColor.OwnFontFamily}" FontAttributes="{Binding SpeakerColor.OwnAttributes}"/>
-                                    </FormattedString>
-                                </Label.FormattedText>
-                            </Label>
-                        </VerticalStackLayout>
+                    <!-- Every example in one block, on a window too narrow to set them beside their rows. -->
+                    <Border IsVisible="{Binding ChatExamplesBelow}"
+                            HorizontalOptions="Start"
+                            BackgroundColor="{x:Static vm:FkeyEditorViewModel.PaneBackground}" StrokeThickness="0"
+                            Padding="{x:Static pages:FkeyEditorPage.ChatExamplePadding}">
+                        <VerticalStackLayout Spacing="2"
+                                             BindableLayout.ItemsSource="{Binding ChatExamples}"
+                                             BindableLayout.ItemTemplate="{StaticResource ChatExampleLineTemplate}"/>
                     </Border>
 
                     <BoxView Color="#2d333b" HeightRequest="1"/>

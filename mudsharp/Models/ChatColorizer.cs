@@ -20,9 +20,8 @@ namespace MudSharp.Models;
 /// <item>Colours and faces are looked up when a span is drawn (<see cref="CampbellPalette.ForegroundRgb"/>,
 ///   <see cref="Palette.FaceOf"/>), never stored on it, so a changed setting restyles every line
 ///   already held.</item>
-/// <item>The default colours are fixed values: speaker and say are the decoder's built-in
-///   palette slots, shout is #FF8210 and tell is #91BCFF. Changing one setting never changes
-///   another.</item>
+/// <item>The default colours are the selected <see cref="ChatTheme"/>'s, Lamplight when none is
+///   selected. Changing one colour never changes another.</item>
 /// </list>
 ///
 /// Your own messages are found by <see cref="IsSelf"/>: a line that begins with "&lt;MyName&gt; "
@@ -39,17 +38,6 @@ namespace MudSharp.Models;
 /// </summary>
 public static class ChatColorizer
 {
-    // The default settings. Speaker and say are the palette slots the decoder gives the 09 00
-    // speaker frame (YELLOW) and the word frames (LT_YELLOW); shout and tell are fixed colours.
-    public static readonly int    DefaultSpeakerRgb = CampbellPalette.Rgb[3];
-    public static readonly int    DefaultSayRgb     = CampbellPalette.Rgb[11];
-    public const           int    DefaultShoutRgb   = 0xFF8210;
-    public const           int    DefaultTellRgb    = 0x91BCFF;
-    public static readonly string DefaultSpeakerHex = ToHex(DefaultSpeakerRgb);
-    public static readonly string DefaultSayHex     = ToHex(DefaultSayRgb);
-    public static readonly string DefaultShoutHex   = ToHex(DefaultShoutRgb);
-    public static readonly string DefaultTellHex    = ToHex(DefaultTellRgb);
-
     /// <summary>
     /// How much of a row's colour a dim span keeps, in percent; the rest is the pane background
     /// (<see cref="CampbellPalette.BackgroundSlot"/>).
@@ -94,21 +82,23 @@ public static class ChatColorizer
             : Faces.Of(style.Speech, style.Own);
     }
 
-    /// <summary>The palette of the default settings.</summary>
-    public static readonly Palette DefaultPalette =
-        new(DefaultSpeakerRgb, DefaultSayRgb, DefaultShoutRgb, DefaultTellRgb, ChatFaces.Default);
+    /// <summary>The palette of the default settings: the default theme's colours and the default faces.</summary>
+    public static Palette DefaultPalette => ChatTheme.Default.ResetPalette();
 
     /// <summary>
     /// The palette the settings hex strings and faces describe. Each colour is independent: a
-    /// missing or malformed value falls back to that colour's own default.
+    /// missing or malformed value falls back to that colour in <paramref name="theme"/>.
     /// </summary>
-    public static Palette ResolvePalette(string? speakerHex, string? sayHex, string? shoutHex, string? tellHex, ChatFaces faces)
-        => new(
-            Speaker: TryParseRgb(speakerHex) ?? DefaultSpeakerRgb,
-            Say:     TryParseRgb(sayHex)     ?? DefaultSayRgb,
-            Shout:   TryParseRgb(shoutHex)   ?? DefaultShoutRgb,
-            Tell:    TryParseRgb(tellHex)    ?? DefaultTellRgb,
+    public static Palette ResolvePalette(ChatTheme theme, string? speakerHex, string? sayHex, string? shoutHex, string? tellHex, ChatFaces faces)
+    {
+        ArgumentNullException.ThrowIfNull(theme);
+        return new(
+            Speaker: TryParseRgb(speakerHex) ?? theme.Speaker,
+            Say:     TryParseRgb(sayHex)     ?? theme.Say,
+            Shout:   TryParseRgb(shoutHex)   ?? theme.Shout,
+            Tell:    TryParseRgb(tellHex)    ?? theme.Tell,
             Faces:   faces);
+    }
 
     /// <summary>A packed 0xRRGGBB as 6 lowercase hex digits, no '#'.</summary>
     public static string ToHex(int rgb) => (rgb & 0xFFFFFF).ToString("x6", CultureInfo.InvariantCulture);

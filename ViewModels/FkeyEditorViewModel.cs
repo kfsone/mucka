@@ -215,8 +215,69 @@ public sealed class FkeyEditorViewModel : BaseViewModel
     public ChatColorEditorItem TellColor    { get; }
     public IReadOnlyList<ChatColorEditorItem> ChatColors => [SpeakerColor, SayColor, ShoutColor, TellColor];
 
+    /// <summary>The Theme drop-down's entries, in <see cref="ChatTheme.All"/> order.</summary>
+    [SuppressMessage("Performance", "CA1822:Mark members as static",
+        Justification = "Bound from XAML ({Binding ChatThemeNames}); a binding cannot resolve a static member.")]
+    public IReadOnlyList<string> ChatThemeNames => s_chatThemeNames;
+    private static readonly IReadOnlyList<string> s_chatThemeNames = [.. ChatTheme.All.Select(t => t.Name)];
+
+    /// <summary>
+    /// The drop-down's theme. Picking one loads its four colours into the rows and leaves the faces;
+    /// an index outside the list (the Picker's -1 while it binds) is ignored.
+    /// </summary>
+    public int SelectedChatThemeIndex
+    {
+        get => _chatThemeIndex;
+        set
+        {
+            if (value < 0 || value >= ChatTheme.All.Count || value == _chatThemeIndex) return;
+            _chatThemeIndex = value;
+            OnPropertyChanged();
+            LoadChatPalette(SelectedChatTheme.ApplyTo(ChatPalette));
+        }
+    }
+    private int _chatThemeIndex;
+
+    private ChatTheme SelectedChatTheme => ChatTheme.All[_chatThemeIndex];
+
+    /// <summary>The rows' colours and faces as a palette.</summary>
+    private ChatColorizer.Palette ChatPalette => new(SpeakerColor.Rgb, SayColor.Rgb, ShoutColor.Rgb, TellColor.Rgb,
+        ChatColors.Aggregate(ChatFaces.Default, (faces, row) => row.WriteFaces(faces)));
+
+    private void LoadChatPalette(ChatColorizer.Palette palette)
+    {
+        foreach (var row in ChatColors)
+            row.Load(palette);
+    }
+
+    /// <summary>
+    /// Every example line, in the order the single preview block below the rows lists them. Each
+    /// row's <see cref="ChatColorEditorItem.Examples"/> holds the same line objects, so the block
+    /// and the beside-the-row layout draw one set of lines.
+    /// </summary>
+    public IReadOnlyList<ChatExampleLine> ChatExamples { get; }
+
+    /// <summary>
+    /// True when the window is wide enough for each row's examples to sit beside its controls;
+    /// false keeps them in the one block below. The page decides from its width.
+    /// </summary>
+    public bool ChatExamplesBeside
+    {
+        get => _chatExamplesBeside;
+        set
+        {
+            if (!Set(ref _chatExamplesBeside, value)) return;
+            foreach (var row in ChatColors)
+                row.ShowExamples = value;
+            OnPropertyChanged(nameof(ChatExamplesBelow));
+        }
+    }
+    private bool _chatExamplesBeside;
+
+    public bool ChatExamplesBelow => !_chatExamplesBeside;
+
     /// <summary>The game pane's background, behind the chat preview.</summary>
-    public Microsoft.Maui.Graphics.Color PaneBackground { get; } = RgbColor(CampbellPalette.Rgb[CampbellPalette.BackgroundSlot]);
+    public static Microsoft.Maui.Graphics.Color PaneBackground { get; } = RgbColor(CampbellPalette.Rgb[CampbellPalette.BackgroundSlot]);
 
     private static Microsoft.Maui.Graphics.Color RgbColor(int rgb)
         => Microsoft.Maui.Graphics.Color.FromRgb((rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF);
@@ -318,15 +379,20 @@ public sealed class FkeyEditorViewModel : BaseViewModel
         // Display tab
         _displayFontSize       = settings.DefaultFontSize > 0 ? Math.Clamp(settings.DefaultFontSize, 9, 24) : 15;
         _displayColumns        = Math.Clamp(settings.DefaultMaxColumns, 0, 160);
-        SpeakerColor = new("Acts/Speaks", SpeechPart.Speaker, settings.SpeakerColor, ChatColorizer.DefaultSpeakerRgb, settings.ChatFaces);
-        SayColor     = new("Say",         SpeechPart.Say,     settings.SayColor,     ChatColorizer.DefaultSayRgb,     settings.ChatFaces);
-        ShoutColor   = new("Shout",       SpeechPart.Shout,   settings.ShoutColor,   ChatColorizer.DefaultShoutRgb,   settings.ChatFaces);
-        TellColor    = new("Tell",        SpeechPart.Tell,    settings.TellColor,    ChatColorizer.DefaultTellRgb,    settings.ChatFaces);
-        ResetChatColorsCommand = new Command(() =>
-        {
-            foreach (var row in ChatColors)
-                row.Reset();
-        });
+        _chatThemeIndex = Math.Max(0, ChatTheme.All.ToList().IndexOf(settings.ChatTheme));
+        var chatPalette = ChatColorizer.ResolvePalette(SelectedChatTheme, settings.SpeakerColor, settings.SayColor,
+            settings.ShoutColor, settings.TellColor, settings.ChatFaces);
+        SpeakerColor = new("Acts/Speaks", SpeechPart.Speaker, chatPalette);
+        SayColor     = new("Say",         SpeechPart.Say,     chatPalette);
+        ShoutColor   = new("Shout",       SpeechPart.Shout,   chatPalette);
+        TellColor    = new("Tell",        SpeechPart.Tell,    chatPalette);
+        // The names and framing of every line are the Acts/Speaks row's.
+        SayColor.Examples     = [.. ChatExampleText.Say.Select(t => new ChatExampleLine(SpeakerColor, SayColor, t))];
+        ShoutColor.Examples   = [.. ChatExampleText.Shout.Select(t => new ChatExampleLine(SpeakerColor, ShoutColor, t))];
+        TellColor.Examples    = [.. ChatExampleText.Tell.Select(t => new ChatExampleLine(SpeakerColor, TellColor, t))];
+        SpeakerColor.Examples = [.. ChatExampleText.Speaker.Select(t => new ChatExampleLine(SpeakerColor, SpeakerColor, t))];
+        ChatExamples = [.. SayColor.Examples, .. ShoutColor.Examples, .. TellColor.Examples, .. SpeakerColor.Examples];
+        ResetChatColorsCommand = new Command(() => LoadChatPalette(SelectedChatTheme.ResetPalette()));
         _displayDreamwordOffset = Math.Clamp(settings.DreamwordSizeOffset, -2, 4);
         _showOnline    = settings.ShowOnline;
         _showInventory = settings.ShowInventory;
@@ -462,7 +528,8 @@ public sealed class FkeyEditorViewModel : BaseViewModel
         SayColor            = SayColor.Hex6,
         ShoutColor          = ShoutColor.Hex6,
         TellColor           = TellColor.Hex6,
-        ChatFaces           = ChatColors.Aggregate(ChatFaces.Default, (faces, row) => row.WriteFaces(faces)),
+        ChatTheme           = SelectedChatTheme,
+        ChatFaces           = ChatPalette.Faces,
         ShowOnline          = _showOnline,
         ShowInventory       = _showInventory,
         ShowItemsHere       = _showItemsHere,

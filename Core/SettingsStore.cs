@@ -81,6 +81,7 @@ public static class SettingsStore
         string? SayColor        = null,
         string? ShoutColor      = null,
         string? TellColor       = null,
+        MudSharp.Models.ChatTheme? ChatTheme = null,
         MudSharp.Models.ChatFaces? ChatFaces = null,
         bool? ShowCombatRail    = null,
         bool? ShowCombatStats   = null)
@@ -115,6 +116,7 @@ public static class SettingsStore
             if (SayColor     is { Length: > 0 } sac) profile.SayColor     = sac;
             if (ShoutColor   is { Length: > 0 } shc) profile.ShoutColor   = shc;
             if (TellColor    is { Length: > 0 } tec) profile.TellColor    = tec;
+            if (ChatTheme    is { } theme)           profile.ChatTheme    = theme;
             if (ChatFaces    is { } faces)           profile.ChatFaces    = faces;
             if (ShowCombatRail  is bool rail)  profile.ShowCombatRail  = rail;
             if (ShowCombatStats is bool stats) profile.ShowCombatStats = stats;
@@ -200,6 +202,7 @@ public static class SettingsStore
                 SayColor:           colors.Say,
                 ShoutColor:         colors.Shout,
                 TellColor:          colors.Tell,
+                ChatTheme:          colors.Theme,
                 ChatFaces:          MudSharp.Models.ChatColorKeys.ReadFaces(ini.Get),
                 ShowCombatRail:     ini.HasSection("settings") ? GetBool(ini, "settings", "showcombatrail")     : null,
                 ShowCombatStats:    ini.HasSection("settings") ? GetBool(ini, "settings", "showcombatstats")    : null);
@@ -268,7 +271,7 @@ public static class SettingsStore
                 ini.Set("settings", "onlineforgetwindow", settings.OnlineForgetWindow.ToString(CultureInfo.InvariantCulture));
                 ini.Set("settings", "floatonline",        settings.FloatOnline     ? "yes" : "no");
                 ini.Set("settings", "floatcompass",       settings.FloatCompass    ? "yes" : "no");
-                MudSharp.Models.ChatColorKeys.Write(ini.Set, settings.SpeakerColor, settings.SayColor,
+                MudSharp.Models.ChatColorKeys.Write(ini.Set, settings.ChatTheme, settings.SpeakerColor, settings.SayColor,
                     settings.ShoutColor, settings.TellColor);
                 MudSharp.Models.ChatColorKeys.WriteFaces(ini.Set, settings.ChatFaces);
             }

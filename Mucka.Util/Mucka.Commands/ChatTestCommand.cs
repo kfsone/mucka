@@ -29,8 +29,10 @@ public static class ChatTestCommand
 }
 
 /// <summary>
-/// The pacing of <c>$CHATTEST slow</c>: a pause drawn uniformly from
-/// [<see cref="MinDelay"/>, <see cref="MaxDelay"/>] before every unit, the first included. At most
+/// The pacing of <c>$CHATTEST slow</c>: a pause before every unit, the first included, of
+/// <see cref="MinDelay"/> plus an exponential draw of mean <see cref="MeanExtraDelay"/>, capped at
+/// <see cref="MaxDelay"/>. The operator's rule: the average interval is 1.5s and 9s is an outlier.
+/// Past 5s about one pause in a hundred; at the cap about one in five thousand. At most
 /// one run at a time. Delivery happens where the run was started resumes - the UI thread for the
 /// view model, whose awaits keep its context. Nothing is delivered once <see cref="Stop"/> has
 /// returned, even when the pause had already elapsed and its continuation was still queued.
@@ -38,6 +40,7 @@ public static class ChatTestCommand
 public sealed class ChatTestSlowRun
 {
     public static readonly TimeSpan MinDelay = TimeSpan.FromMilliseconds(500);
+    public static readonly TimeSpan MeanExtraDelay = TimeSpan.FromSeconds(1);
     public static readonly TimeSpan MaxDelay = TimeSpan.FromSeconds(9);
 
     private readonly Func<double> _random;
@@ -54,9 +57,17 @@ public sealed class ChatTestSlowRun
 
     public bool IsRunning => _current is not null;
 
-    /// <summary>The pause for a draw <paramref name="unit"/> in [0, 1], clamped to it.</summary>
+    /// <summary>
+    /// The pause for a uniform draw <paramref name="unit"/> in [0, 1), clamped to [0, 1], by the
+    /// inverse CDF: <see cref="MinDelay"/> - <see cref="MeanExtraDelay"/> * ln(1 - unit), at most
+    /// <see cref="MaxDelay"/>.
+    /// </summary>
     public static TimeSpan DelayFor(double unit)
-        => MinDelay + (MaxDelay - MinDelay) * Math.Clamp(unit, 0.0, 1.0);
+    {
+        double u = Math.Clamp(unit, 0.0, 1.0);
+        double seconds = MinDelay.TotalSeconds - MeanExtraDelay.TotalSeconds * Math.Log(1.0 - u);
+        return TimeSpan.FromSeconds(Math.Min(seconds, MaxDelay.TotalSeconds));
+    }
 
     /// <summary>
     /// Starts delivering <paramref name="units"/>, stopping any run already going first.

@@ -879,15 +879,15 @@ public sealed class MudStreamParser
             // their queued sounds now.
             FlushPendingLineSounds(suppress: _inGameMode && ChatColorizer.IsOkActEcho(line.PlainText));
             if (isAsteriskPreamble) return;
-            // Your own "send" to your listeners echoes as: You tell your listeners "...". It rides
-            // the tell channel (C09+C03) but is your own output - no tell alert and no sender
-            // decoration, which are for tells directed AT you.
+            // Every tell you send, directed or not, echoes as: You tell your listeners "...". It
+            // rides the tell channel (C09+C03) but is your own output - no tell alert and no
+            // sender, which are for tells directed AT you. Its verb is decorated like every tell's.
             bool ownListenersSend = _inGameMode && tellAlertRequested
                                     && IsOwnListenersSend(line.PlainText);
-            if (_inGameMode && tellAlertRequested && !ownListenersSend)
+            if (_inGameMode && tellAlertRequested)
             {
                 line = DecorateTellLine(line, out var tellSender);
-                if (tellSender is not null) TellReceived?.Invoke(tellSender);
+                if (tellSender is not null && !ownListenersSend) TellReceived?.Invoke(tellSender);
             }
             // Speech never feeds a stat or a scoring event. Every pattern below matches prose, and a
             // player can say any prose - "(Persona saved on +999 = 999)." included - and a wrapped
@@ -1131,7 +1131,7 @@ public sealed class MudStreamParser
         GameModeExited?.Invoke();
     }
 
-    // Your own broadcast to your listeners (the "send" command) echoes on the tell channel as
+    // Every tell you send, directed or not, echoes on the tell channel as
     // You tell your listeners "...". Detected by lead so we can mute its alert.
     private const string OwnListenersLead = "You tell your listeners";
 
@@ -1147,25 +1147,22 @@ public sealed class MudStreamParser
         return "sounds/tell.wav";
     }
 
+    // A tell line in either direction: the sender (inbound only, and not "Someone") is underlined
+    // and click-inserts its name; the verb ("tells" inbound, "tell" outbound) is underlined.
     private static StyledLine DecorateTellLine(StyledLine line, out string? senderName)
     {
         senderName = null;
-        const string tellsYou = "tells you";
         var text = line.PlainText;
         if (text.Length == 0) return line;
 
-        // The sender is the text before " tells you", up to its first space.
-        var marker = text.IndexOf(" " + tellsYou, StringComparison.OrdinalIgnoreCase);
-        if (marker <= 0) return line;
+        var label = TellLabel.Parse(text[..TellLabelEnd(line)]);
+        if (label is not { } tell) return line;
 
-        int firstSpace = text.IndexOfAny([' ', '\t']);
-        if (firstSpace < 1 || firstSpace > marker)
-            firstSpace = marker;
-
-        var senderToken = text[..firstSpace];
-        var hasNamedSender = !senderToken.Equals("Someone", StringComparison.OrdinalIgnoreCase);
-        var clickInsert = hasNamedSender ? senderToken + " " : null;
-        if (hasNamedSender) senderName = senderToken;
+        int senderEnd = tell.SenderLength;
+        var clickInsert = tell.SenderName is { } name ? name + " " : null;
+        senderName = tell.SenderName;
+        int verbStart = tell.VerbStart;
+        int verbEnd = tell.VerbStart + tell.VerbLength;
 
         var rewritten = new List<StyledSpan>(line.Spans.Count + 4);
         int absolute = 0;
@@ -1176,7 +1173,8 @@ public sealed class MudStreamParser
             absolute = spanEnd;
 
             var cuts = new List<int> { 0, span.Text.Length };
-            AddCut(cuts, 0, firstSpace, spanStart, spanEnd);
+            AddCut(cuts, 0, senderEnd, spanStart, spanEnd);
+            AddCut(cuts, verbStart, verbEnd, spanStart, spanEnd);
             cuts.Sort();
 
             for (int i = 1; i < cuts.Count; i++)
@@ -1188,16 +1186,37 @@ public sealed class MudStreamParser
                 int absB = spanStart + localB;
                 var piece = span.Text.Substring(localA, localB - localA);
 
-                bool inSender = hasNamedSender && absA >= 0 && absB <= firstSpace;
+                bool inSender = absB <= senderEnd;
+                bool inVerb = absA >= verbStart && absB <= verbEnd;
 
                 var style = span.Style;
-                if (inSender) style = style with { Underline = true };
+                if (inSender || inVerb) style = style with { Underline = true };
 
                 rewritten.Add(new StyledSpan(piece, style, inSender ? clickInsert : null));
             }
         }
 
         return line.WithSpans(rewritten);
+    }
+
+    // Where a tell's label ends and its told words begin: the first span of the 09 03 told-words
+    // frame (a Tell-part span after one that is not), or the opening quote when that comes first.
+    private static int TellLabelEnd(StyledLine line)
+    {
+        var text = line.PlainText;
+        int end = text.IndexOf('"');
+        if (end < 0) end = text.Length;
+        int absolute = 0;
+        bool afterOther = false;
+        foreach (var span in line.Spans)
+        {
+            if (absolute >= end) break;
+            bool told = span.Style.Speech == SpeechPart.Tell;
+            if (told && afterOther) return absolute;
+            afterOther = !told;
+            absolute += span.Text.Length;
+        }
+        return end;
     }
 
     private static void AddCut(List<int> cuts, int rangeStart, int rangeEnd, int spanStart, int spanEnd)

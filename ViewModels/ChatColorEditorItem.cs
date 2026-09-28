@@ -14,21 +14,19 @@ public sealed class ChatColorEditorItem : BaseViewModel
     private const string UprightFamily = "Cascadia Mono";
     private const string ItalicFamily  = "Cascadia Mono Italic";
 
-    private readonly int _defaultRgb;
     private string _hex;
     private int _rgb;
     private ChatFace _own;
     private ChatFace _other;
 
-    public ChatColorEditorItem(string label, SpeechPart part, string hex, int defaultRgb, ChatFaces faces)
+    public ChatColorEditorItem(string label, SpeechPart part, ChatColorizer.Palette palette)
     {
-        Label       = label;
-        Part        = part;
-        _defaultRgb = defaultRgb;
-        _rgb        = ChatColorizer.TryParseRgb(hex) ?? defaultRgb;
-        _hex        = ChatColorizer.ToHex(_rgb);
-        _own        = faces.Of(part, own: true);
-        _other      = faces.Of(part, own: false);
+        Label  = label;
+        Part   = part;
+        _rgb   = palette.RgbOf(part) ?? 0;
+        _hex   = ChatColorizer.ToHex(_rgb);
+        _own   = palette.Faces.Of(part, own: true);
+        _other = palette.Faces.Of(part, own: false);
     }
 
     public string Label { get; }
@@ -36,20 +34,33 @@ public sealed class ChatColorEditorItem : BaseViewModel
     /// <summary>The message part this row colours and styles.</summary>
     public SpeechPart Part { get; }
 
+    /// <summary>The example lines this row's setting covers, drawn beside its controls.</summary>
+    public IReadOnlyList<ChatExampleLine> Examples { get; internal set; } = [];
+
+    /// <summary>Whether <see cref="Examples"/> show beside this row; set with the editor's layout.</summary>
+    public bool ShowExamples
+    {
+        get => _showExamples;
+        internal set => Set(ref _showExamples, value);
+    }
+    private bool _showExamples;
+
     /// <summary>The colour as saved: 6 lowercase hex digits, no '#'.</summary>
     public string Hex6 => ChatColorizer.ToHex(_rgb);
+
+    /// <summary>The colour as a packed 0xRRGGBB.</summary>
+    public int Rgb => _rgb;
 
     /// <summary>This row's two faces written into <paramref name="faces"/>.</summary>
     public ChatFaces WriteFaces(ChatFaces faces) => faces.With(Part, true, _own).With(Part, false, _other);
 
-    /// <summary>The row back to its default colour and faces.</summary>
-    public void Reset()
+    /// <summary>The row set to its part's colour and faces in <paramref name="palette"/>.</summary>
+    public void Load(ChatColorizer.Palette palette)
     {
-        var defaults = ChatFaces.Default;
-        _rgb   = _defaultRgb;
+        _rgb   = palette.RgbOf(Part) ?? _rgb;
         _hex   = ChatColorizer.ToHex(_rgb);
-        _own   = defaults.Of(Part, own: true);
-        _other = defaults.Of(Part, own: false);
+        _own   = palette.Faces.Of(Part, own: true);
+        _other = palette.Faces.Of(Part, own: false);
         OnPropertiesChanged(nameof(Hex), nameof(R), nameof(G), nameof(B), nameof(RText), nameof(GText), nameof(BText),
             nameof(Preview), nameof(OwnItalic), nameof(OwnBold), nameof(OwnDim),
             nameof(OtherItalic), nameof(OtherBold), nameof(OtherDim));

@@ -6,7 +6,7 @@ namespace MudSharp.Tests.Fixtures;
 /// <see cref="ChatColorizer"/>, <see cref="CampbellPalette.ForegroundRgb"/> and
 /// <see cref="ChatColorKeys"/>. Operator rules under test: four colour rows for everyone's lines
 /// (speaker, say, shout, tell), looked up when a span is drawn and drawn exactly; acts and emotes
-/// take the speaker row; the default settings are fixed values; each row has an own and an other
+/// take the speaker row; the default colours are the selected theme's (<see cref="ChatThemeTests"/>); each row has an own and an other
 /// face (italic, bold, dim), looked up when drawn, whose defaults are the words of your own say,
 /// shout and tell italic and nothing else.
 /// </summary>
@@ -18,25 +18,8 @@ public class ChatColorizerTests
     // -- Defaults ---------------------------------------------------------------
 
     [Fact]
-    public void DefaultSpeakerAndSay_AreTheDecodersBuiltInSlots()
-    {
-        Assert.Equal("c19c00", ChatColorizer.DefaultSpeakerHex);   // Campbell slot 3, YELLOW
-        Assert.Equal("f9f1a5", ChatColorizer.DefaultSayHex);       // Campbell slot 11, LT_YELLOW
-    }
-
-    [Fact]
-    public void DefaultShout_IsTheOperatorsFixedColour()
-        => Assert.Equal("ff8210", ChatColorizer.DefaultShoutHex);   // 255, 130, 16
-
-    [Fact]
-    public void DefaultTell_IsTheOperatorsFixedColour()
-        => Assert.Equal("91bcff", ChatColorizer.DefaultTellHex);   // 145, 188, 255
-
-    [Fact]
-    public void DefaultPalette_IsTheDefaultSettings()
-        => Assert.Equal(ChatColorizer.ResolvePalette(
-               ChatColorizer.DefaultSpeakerHex, ChatColorizer.DefaultSayHex,
-               ChatColorizer.DefaultShoutHex, ChatColorizer.DefaultTellHex, ChatFaces.Default),
+    public void DefaultPalette_IsLamplightWithTheDefaultFaces()
+        => Assert.Equal(new ChatColorizer.Palette(0xBFA36A, 0xEDE6D0, 0xFFA033, 0x7FB8FF, ChatFaces.Default),
            ChatColorizer.DefaultPalette);
 
     [Fact]
@@ -53,20 +36,20 @@ public class ChatColorizerTests
     [Fact]
     public void ChangingSay_LeavesShoutAndTellUnchanged()
     {
-        var p = ChatColorizer.ResolvePalette(null, "102030", null, null, ChatFaces.Default);
+        var p = ChatColorizer.ResolvePalette(ChatTheme.Default, null, "102030", null, null, ChatFaces.Default);
         Assert.Equal(0x102030, p.Say);
-        Assert.Equal(ChatColorizer.DefaultShoutRgb, p.Shout);
-        Assert.Equal(ChatColorizer.DefaultTellRgb, p.Tell);
+        Assert.Equal(ChatTheme.Default.Shout, p.Shout);
+        Assert.Equal(ChatTheme.Default.Tell, p.Tell);
     }
 
     [Fact]
-    public void ExplicitValues_AreHonoured_AndAMalformedOneFallsBackToItsOwnDefault()
+    public void ExplicitValues_AreHonoured_AndAMalformedOneFallsBackToTheSelectedTheme()
     {
-        var p = ChatColorizer.ResolvePalette("#010203", "040506", "070809", "0a0b0c", ChatFaces.Default);
+        var p = ChatColorizer.ResolvePalette(ChatTheme.Rose, "#010203", "040506", "070809", "0a0b0c", ChatFaces.Default);
         Assert.Equal(new ChatColorizer.Palette(0x010203, 0x040506, 0x070809, 0x0a0b0c, ChatFaces.Default), p);
 
-        var bad = ChatColorizer.ResolvePalette("nope", "12345", "", "zzzzzz", ChatFaces.Default);
-        Assert.Equal(ChatColorizer.DefaultPalette, bad);
+        var bad = ChatColorizer.ResolvePalette(ChatTheme.Rose, "nope", "12345", "", "zzzzzz", ChatFaces.Default);
+        Assert.Equal(ChatTheme.Rose.ResetPalette(), bad);
     }
 
     [Theory]
@@ -141,7 +124,6 @@ public class ChatColorizerTests
     [InlineData("Ollie the heroine says ", 0x9D, true)]
     [InlineData("(Ollie the heroine) says ", 0x9D, true)]   // invisible self
     [InlineData("You shout ", 0x9C, true)]
-    [InlineData("You tell Lazlo ", 0x9E, true)]
     [InlineData("You tell your listeners ", 0x9E, true)]
     public void AtTheDefaults_OnlyYourOwnWordsAreItalic_AndNothingIsBoldOrDim(string label, byte subcode, bool mine)
     {
@@ -178,7 +160,7 @@ public class ChatColorizerTests
         var spans = new List<TextStyle>();
         foreach (var (label, sub) in new[] { ("Ollie the heroine says ", (byte)0x9D), ("Lazlo the yeoman says ", (byte)0x9D),
                                              ("You shout ", (byte)0x9C), ("Lazlo the yeoman shouts ", (byte)0x9C),
-                                             ("You tell Lazlo ", (byte)0x9E), ("Lazlo the yeoman tells you ", (byte)0x9E) })
+                                             ("You tell your listeners ", (byte)0x9E), ("Lazlo the yeoman tells you ", (byte)0x9E) })
         {
             var line = ChatColorizer.Apply(Wire(label, sub, "hi"), "Ollie");
             spans.Add(line.Spans[0].Style);
@@ -243,7 +225,7 @@ public class ChatColorizerTests
         Assert.Equal(bg, ChatColorizer.Dim(bg));
         Assert.Equal(0x9E9E9E, ChatColorizer.Dim(0xFFFFFF));               // (255*60 + 12*40 + 50) / 100 = 158
         Assert.Equal(0x050505, ChatColorizer.Dim(0x000000));               // (12*40 + 50) / 100 = 5
-        Assert.Equal(0x796205, ChatColorizer.Dim(ChatColorizer.DefaultSpeakerRgb));   // C1 9C 00 -> 121, 98, 5
+        Assert.Equal(0x796205, ChatColorizer.Dim(0xC19C00));                         // C1 9C 00 -> 121, 98, 5
     }
 
     [Fact]
@@ -315,7 +297,6 @@ public class ChatColorizerTests
     [Theory]
     [InlineData("Ollie the swordsman says \"hi\".", true)]
     [InlineData("You tell your listeners \"hi\".", true)]
-    [InlineData("You tell Lazlo \"hi\".", true)]
     [InlineData("OK, Ollie the superheroine waves.", true)]
     [InlineData("(Ollie the superheroine) says \"hi\".", true)]
     [InlineData("(Ollie) waves.", true)]
@@ -477,12 +458,14 @@ public class ChatColorizerTests
         var profileSettings = new Dictionary<string, string>(ini.Sections["settings:UK Alt"]);
         var profile = new Dictionary<string, string>(ini.Sections["profile:UK Alt"]);
 
-        Assert.Equal((null, null, null, null), ChatColorKeys.Read(ini.Get));
+        var lamp = ChatTheme.Lamplight;
+        Assert.Equal((lamp, lamp.SpeakerHex, lamp.SayHex, lamp.ShoutHex, lamp.TellHex), ChatColorKeys.Read(ini.Get));
 
-        ChatColorKeys.Write(ini.Set, "010203", "040506", "070809", "0a0b0c");
+        ChatColorKeys.Write(ini.Set, ChatTheme.Dusk, "010203", "040506", "070809", "0a0b0c");
 
-        Assert.Equal(("010203", "040506", "070809", "0a0b0c"), ChatColorKeys.Read(ini.Get));
+        Assert.Equal((ChatTheme.Dusk, "010203", "040506", "070809", "0a0b0c"), ChatColorKeys.Read(ini.Get));
         Assert.Equal("040506", ini.Get("settings", "saycolor"));
+        Assert.Equal("dusk", ini.Get("settings", "chattheme"));
         Assert.Equal(profileSettings, ini.Sections["settings:UK Alt"]);
         Assert.Equal(profile, ini.Sections["profile:UK Alt"]);
         Assert.Equal("15", ini.Get("settings", "fontsize"));

@@ -5,10 +5,12 @@ using MudSharp.Protocol;
 namespace MudSharp.Tests.Fixtures;
 
 /// <summary>
-/// <see cref="ChatTestScript"/>, the <c>$CHATTEST</c> script. Operator rules under test: 90 lines;
-/// your says with their command echo; other Creatures saying, acting, shouting, screaming, yelling
-/// and yodelling; exactly four tells, two each way; nothing sent to the server. The lines go
-/// through the real parser, so what is asserted here is what the pane receives.
+/// <see cref="ChatTestScript"/>, the <c>$CHATTEST</c> script. Operator rules under test: 50 lines
+/// covering every kind; your say, shout-family, tell and emote lines, each after its command echo;
+/// other Creatures saying, acting, emoting, shouting, screaming and yodelling; "Someone" and
+/// "Someone powerful" lines; exactly six tells, two yours and four to you, two of those from
+/// Someone; nothing sent to the server. The lines go through the real parser, so what is asserted
+/// here is what the pane receives.
 /// </summary>
 public class ChatTestScriptTests
 {
@@ -42,18 +44,20 @@ public class ChatTestScriptTests
 
     private static List<StyledLine> Complete(Run run) => run.Lines.Where(l => !l.IsPartial).ToList();
 
+    private static readonly string[] EchoLeads = { "\"", "sh \"", "yell ", "scream ", "tell ", "re \"" };
+
     private static bool IsEcho(StyledLine line)
         => line.Kind != LineKind.Chat
-           && (line.PlainText.StartsWith('"') || line.PlainText.StartsWith("tell ", StringComparison.Ordinal)
-               || line.PlainText.StartsWith("re ", StringComparison.Ordinal));
+           && (EchoLeads.Any(lead => line.PlainText.StartsWith(lead, StringComparison.Ordinal)) || line.PlainText == "sigh");
 
     private static bool IsMine(StyledLine line)
         => line.PlainText.StartsWith(Me + " " + ChatTestScript.MyTitle + " ", StringComparison.Ordinal)
+           || line.PlainText.StartsWith("OK, " + Me + " " + ChatTestScript.MyTitle + " ", StringComparison.Ordinal)
            || line.PlainText.StartsWith("You ", StringComparison.Ordinal);
 
     [Fact]
-    public void Script_IsNinetyLines()
-        => Assert.Equal(90, Complete(Play()).Count);
+    public void Script_IsFiftyLines()
+        => Assert.Equal(50, Complete(Play()).Count);
 
     [Fact]
     public void Script_EndsAtAShownPrompt()
@@ -74,12 +78,13 @@ public class ChatTestScriptTests
     }
 
     [Fact]
-    public void Script_HasExactlyFourTells_TwoEachWay()
+    public void Script_HasExactlySixTells_TwoYours_FourToYou_TwoOfThemFromSomeone()
     {
         var tells = Complete(Play()).Where(l => l.Spans.Any(s => s.Style.Speech == SpeechPart.Tell)).ToList();
-        Assert.Equal(4, tells.Count);
+        Assert.Equal(6, tells.Count);
         Assert.Equal(2, tells.Count(l => l.PlainText.StartsWith("You tell your listeners \"", StringComparison.Ordinal)));
-        Assert.Equal(2, tells.Count(l => l.PlainText.Contains(" tells you \"", StringComparison.Ordinal)));
+        Assert.Equal(4, tells.Count(l => l.PlainText.Contains(" tells you \"", StringComparison.Ordinal)));
+        Assert.Equal(2, tells.Count(l => l.PlainText.StartsWith("Someone tells you \"", StringComparison.Ordinal)));
     }
 
     [Fact]
@@ -89,21 +94,41 @@ public class ChatTestScriptTests
         var chat = lines.Where(l => l.Kind == LineKind.Chat).ToList();
         int Mine(string verb) => chat.Count(l => IsMine(l) && l.PlainText.Contains($" {verb} \"", StringComparison.Ordinal));
         int Theirs(string verb) => chat.Count(l => !IsMine(l) && Regex.IsMatch(l.PlainText, $@"^[A-Z][^""]* {verb}\b"));
+        int Echoes(string lead) => lines.Count(l => IsEcho(l) && l.PlainText.StartsWith(lead, StringComparison.Ordinal));
 
-        Assert.True(Mine("says") >= 5, "your says");
-        Assert.True(Mine("asks") >= 1 && Mine("exclaims") >= 1, "your asks and exclaims");
-        Assert.Equal(Mine("says") + Mine("asks") + Mine("exclaims"),
-            lines.Count(l => IsEcho(l) && l.PlainText.StartsWith('"')));
-        foreach (var verb in new[] { "says", "asks", "exclaims", "whispers", "shouts", "yells", "screams", "yodels", "hollers" })
+        // Yours: every channel, each message after its echo.
+        foreach (var verb in new[] { "says", "asks", "exclaims" })
+            Assert.True(Mine(verb) >= 1, $"your {verb}");
+        Assert.Equal(Mine("says") + Mine("asks") + Mine("exclaims"), Echoes("\""));
+        foreach (var (verb, lead) in new[] { ("shout", "sh \""), ("yell", "yell "), ("scream", "scream ") })
+        {
+            Assert.Equal(1, Mine(verb));
+            Assert.Equal(1, Echoes(lead));
+        }
+        Assert.Equal(1, Echoes("sigh"));
+        Assert.Single(chat, l => l.PlainText == "OK, " + Me + " " + ChatTestScript.MyTitle + " sighs.");
+
+        // Theirs. A yell and a scream with words are in the wire log only as your own.
+        foreach (var verb in new[] { "says", "asks", "exclaims", "whispers", "shouts", "screams", "yodels", "hollers", "cheers", "howls" })
             Assert.True(Theirs(verb) >= 1, $"another Creature {verb}");
-        Assert.True(Theirs("screams") >= 2 && Theirs("yodels") >= 2 && Theirs("shouts") >= 2 && Theirs("yells") >= 2);
+        Assert.True(Theirs("screams") >= 2 && Theirs("yodels") >= 2 && Theirs("shouts") >= 3);
+        Assert.Contains(chat, l => Regex.IsMatch(l.PlainText, @"^\S+ the [^""]* yodels """));
+        Assert.Contains(chat, l => l.PlainText == "A male voice in the distance yodels.");
         Assert.Contains(chat, l => l.PlainText.StartsWith("A male voice in the distance ", StringComparison.Ordinal));
         Assert.Contains(chat, l => l.PlainText.StartsWith("A female voice in the distance ", StringComparison.Ordinal));
 
-        // Acts (09 04) and emotes (09 05) differ only by their code: counted in the bytes.
+        // The unseen: Someone's tells and hello, Someone powerful's emote.
+        Assert.Equal(2, chat.Count(l => l.PlainText.StartsWith("Someone tells you \"", StringComparison.Ordinal)));
+        Assert.Single(chat, l => l.PlainText == "Someone bids you morning.");
+        Assert.Single(chat, l => l.PlainText.StartsWith("Someone powerful ", StringComparison.Ordinal));
+
+        // Acts (09 04), emotes (09 05 0n) and the hello (09 07) differ only by their code: counted
+        // in the bytes. Emotes include yours.
         var bytes = ChatTestScript.Bytes(Me);
         Assert.True(CountOf(bytes, [0xA4, 0x9F, 0xFF, 0xFF]) >= 3, "acts");
-        Assert.True(CountOf(bytes, [0xA4, 0xA0]) >= 3, "emotes");
+        foreach (byte kind in new byte[] { 0x9B, 0x9C, 0x9D })
+            Assert.True(CountOf(bytes, [0xA4, 0xA0, kind, 0xFF, 0xFF]) >= 1, $"emote 09 05 {kind - 0x9B:00}");
+        Assert.Equal(1, CountOf(bytes, [0xA4, 0xA2, 0xFF, 0xFF]));
     }
 
     [Fact]
@@ -129,7 +154,7 @@ public class ChatTestScriptTests
     {
         var lines = Complete(Play());
         var echoes = lines.Where(IsEcho).ToList();
-        Assert.Equal(16, echoes.Count);   // 14 says, 2 tells
+        Assert.Equal(10, echoes.Count);   // 4 says, a shout, a yell, a scream, 2 tells, an emote
         Assert.All(echoes, e => Assert.Equal(LineKind.Normal, e.Kind));
         Assert.All(lines.Except(echoes), l => Assert.Equal(LineKind.Chat, l.Kind));
         Assert.Single(lines, l => l.ContinuesChat);
@@ -162,9 +187,9 @@ public class ChatTestScriptTests
                 if (isMine && words) yourWords++;
             }
         }
-        Assert.Equal(16, mine);   // 14 says, 2 tells
-        Assert.True(theirs > 50);
-        Assert.Equal(16, yourWords);
+        Assert.Equal(10, mine);   // 4 says, a shout, a yell, a scream, 2 tells, an emote
+        Assert.Equal(30, theirs);
+        Assert.Equal(9, yourWords);   // the emote has no words
     }
 
     [Fact]
@@ -172,7 +197,7 @@ public class ChatTestScriptTests
     {
         var run = Play();
         Assert.Equal(new[] { "Lazlo", "Atomicbob" }, run.TellSenders.Select(n => n.Split(' ')[0]));
-        Assert.Equal(2, run.Sounds.Count);
+        Assert.Equal(new[] { "sounds/tell.wav", "sounds/tell-invis.wav", "sounds/tell.wav", "sounds/tell-invis.wav" }, run.Sounds);
         var yours = Complete(run).Where(l => l.PlainText.StartsWith("You tell your listeners", StringComparison.Ordinal));
         Assert.Equal(2, yours.Count());
         Assert.All(yours, l => Assert.DoesNotContain(l.Spans, s => s.Style.Italic || s.Style.Own));
@@ -195,8 +220,8 @@ public class ChatTestScriptTests
         var lines = Complete(Play("Drizzle"));
         Assert.DoesNotContain(lines, l => l.PlainText.StartsWith("Drizzle ", StringComparison.Ordinal)
                                           && !l.PlainText.StartsWith("Drizzle " + ChatTestScript.MyTitle + " ", StringComparison.Ordinal));
-        Assert.Equal(14, lines.Count(l => l.PlainText.StartsWith("Drizzle " + ChatTestScript.MyTitle + " ", StringComparison.Ordinal)));
-        Assert.Equal(90, lines.Count);
+        Assert.Equal(4, lines.Count(l => l.PlainText.StartsWith("Drizzle " + ChatTestScript.MyTitle + " ", StringComparison.Ordinal)));
+        Assert.Equal(50, lines.Count);
     }
 
     /// <summary>In the wire log another Creature's unprompted line follows the standing prompt with
@@ -206,7 +231,8 @@ public class ChatTestScriptTests
     {
         var bytes = ChatTestScript.Bytes(Me);
         Assert.Equal(0, CountOf(bytes, ChatTestScript.Encode("{01}{01.02}*^^^^{01}")));
-        Assert.True(CountOf(bytes, ChatTestScript.Encode("{01}{01.02}*^^{09.00}")) > 50);
+        // All 29 of another Creature's lines but the first, which follows the opening prompt.
+        Assert.Equal(28, CountOf(bytes, ChatTestScript.Encode("{01}{01.02}*^^{09.00}")));
     }
 
     [Fact]
@@ -235,7 +261,7 @@ public class ChatTestScriptTests
     public void Units_AreOneEntryEach_EndingAtThePrompt()
     {
         var units = ChatTestScript.Units(Me);
-        Assert.Equal(73, units.Count);   // 90 lines: 16 echoes and one wrapped row ride with their message
+        Assert.Equal(39, units.Count);   // 50 lines: 10 echoes and one wrapped row ride with their message
         Assert.All(units, u =>
         {
             Assert.True(u.Lines[^1].IsPartial);
@@ -248,7 +274,7 @@ public class ChatTestScriptTests
         });
         var wrapped = Assert.Single(units, u => u.Lines.Any(l => l.ContinuesChat));
         Assert.StartsWith("Wargames the necromancer says \"", wrapped.Lines.First(l => !l.IsPartial).PlainText);
-        Assert.Equal(2, units.Count(u => u.Sounds.Count > 0));
+        Assert.Equal(4, units.Count(u => u.Sounds.Count > 0));
     }
 
     [Fact]

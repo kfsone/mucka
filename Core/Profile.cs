@@ -80,13 +80,15 @@ public class Profile
     public int DefaultMaxColumns { get; set; }
     public int DreamwordSizeOffset { get; set; }
     /// <summary>Hex color (6 digits, no '#') for the speaker of every chat line and act/emote text.</summary>
-    public string SpeakerColor { get; set; } = MudSharp.Models.ChatColorizer.DefaultSpeakerHex;
+    public string SpeakerColor { get; set; } = MudSharp.Models.ChatTheme.Default.SpeakerHex;
     /// <summary>Hex color for said words, everyone's.</summary>
-    public string SayColor { get; set; } = MudSharp.Models.ChatColorizer.DefaultSayHex;
+    public string SayColor { get; set; } = MudSharp.Models.ChatTheme.Default.SayHex;
     /// <summary>Hex color for shouted words, everyone's.</summary>
-    public string ShoutColor { get; set; } = MudSharp.Models.ChatColorizer.DefaultShoutHex;
+    public string ShoutColor { get; set; } = MudSharp.Models.ChatTheme.Default.ShoutHex;
     /// <summary>Hex color for told words, both directions.</summary>
-    public string TellColor { get; set; } = MudSharp.Models.ChatColorizer.DefaultTellHex;
+    public string TellColor { get; set; } = MudSharp.Models.ChatTheme.Default.TellHex;
+    /// <summary>The chat colour theme the editor shows and resets to.</summary>
+    public MudSharp.Models.ChatTheme ChatTheme { get; set; } = MudSharp.Models.ChatTheme.Default;
     /// <summary>The own/other face (italic, bold, dim) of each chat colour row.</summary>
     public MudSharp.Models.ChatFaces ChatFaces { get; set; } = MudSharp.Models.ChatFaces.Default;
     public bool ShowOnline { get; set; } = true;
