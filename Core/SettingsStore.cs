@@ -77,8 +77,11 @@ public static class SettingsStore
         bool? FloatOnline       = null,
         bool? FloatCompass      = null,
         bool? LogResetDiagnostics = null,
-        string? MeNameColor     = null,
-        string? MeSpeechColor   = null,
+        string? SpeakerColor    = null,
+        string? SayColor        = null,
+        string? ShoutColor      = null,
+        string? TellColor       = null,
+        MudSharp.Models.ChatFaces? ChatFaces = null,
         bool? ShowCombatRail    = null,
         bool? ShowCombatStats   = null)
     {
@@ -108,8 +111,11 @@ public static class SettingsStore
             if (OnlineForgetWindow is int ofw) profile.OnlineForgetWindow = ofw;
             if (FloatOnline      is bool fo)  profile.FloatOnline      = fo;
             if (FloatCompass     is bool fc)  profile.FloatCompass     = fc;
-            if (MeNameColor   is { Length: > 0 } mnc) profile.MeNameColor   = mnc;
-            if (MeSpeechColor is { Length: > 0 } msc) profile.MeSpeechColor = msc;
+            if (SpeakerColor is { Length: > 0 } spc) profile.SpeakerColor = spc;
+            if (SayColor     is { Length: > 0 } sac) profile.SayColor     = sac;
+            if (ShoutColor   is { Length: > 0 } shc) profile.ShoutColor   = shc;
+            if (TellColor    is { Length: > 0 } tec) profile.TellColor    = tec;
+            if (ChatFaces    is { } faces)           profile.ChatFaces    = faces;
             if (ShowCombatRail  is bool rail)  profile.ShowCombatRail  = rail;
             if (ShowCombatStats is bool stats) profile.ShowCombatStats = stats;
         }
@@ -165,6 +171,7 @@ public static class SettingsStore
                         fkeys[index] = value;
             }
 
+            var colors = MudSharp.Models.ChatColorKeys.Read(ini.Get);
             return new StoredSettings(
                 FontSize:            settingsSection is null ? null : GetInt(ini, settingsSection, "fontsize"),
                 MaxColumns:          settingsSection is null ? null : GetInt(ini, settingsSection, "columns"),
@@ -189,8 +196,11 @@ public static class SettingsStore
                 OnlineForgetWindow: ini.HasSection("settings") ? GetInt (ini, "settings", "onlineforgetwindow") : null,
                 FloatOnline:        ini.HasSection("settings") ? GetBool(ini, "settings", "floatonline")        : null,
                 FloatCompass:       ini.HasSection("settings") ? GetBool(ini, "settings", "floatcompass")       : null,
-                MeNameColor:        ini.HasSection("settings") ? ini.Get("settings", "menamecolor")   : null,
-                MeSpeechColor:      ini.HasSection("settings") ? ini.Get("settings", "mespeechcolor") : null,
+                SpeakerColor:       colors.Speaker,
+                SayColor:           colors.Say,
+                ShoutColor:         colors.Shout,
+                TellColor:          colors.Tell,
+                ChatFaces:          MudSharp.Models.ChatColorKeys.ReadFaces(ini.Get),
                 ShowCombatRail:     ini.HasSection("settings") ? GetBool(ini, "settings", "showcombatrail")     : null,
                 ShowCombatStats:    ini.HasSection("settings") ? GetBool(ini, "settings", "showcombatstats")    : null);
         }
@@ -216,7 +226,7 @@ public static class SettingsStore
     /// populated silently erases the player's volume overrides. Mirrors <c>fkeys: null</c>.</param>
     /// <param name="writeDisplayGlobals">False leaves the whole always-global block (default
     /// font/columns, dreamword offset, the Show* section toggles, online display options, the float
-    /// defaults, the "me" chat colours, the wire-log switch) untouched. Pass false from callers that cannot edit any of
+    /// defaults, the chat colours, the wire-log switch) untouched. Pass false from callers that cannot edit any of
     /// those fields (the connect page): unlike <paramref name="writeSounds"/>'s block, this one has
     /// no per-key purge-then-rewrite, but a <see cref="ClientSettings"/> assembled without deliberately
     /// populating this block still carries C# defaults for every field in it, and writing those
@@ -258,9 +268,11 @@ public static class SettingsStore
                 ini.Set("settings", "onlineforgetwindow", settings.OnlineForgetWindow.ToString(CultureInfo.InvariantCulture));
                 ini.Set("settings", "floatonline",        settings.FloatOnline     ? "yes" : "no");
                 ini.Set("settings", "floatcompass",       settings.FloatCompass    ? "yes" : "no");
-                ini.Set("settings", "menamecolor",        settings.MeNameColor);
-                ini.Set("settings", "mespeechcolor",      settings.MeSpeechColor);
+                MudSharp.Models.ChatColorKeys.Write(ini.Set, settings.SpeakerColor, settings.SayColor,
+                    settings.ShoutColor, settings.TellColor);
+                MudSharp.Models.ChatColorKeys.WriteFaces(ini.Set, settings.ChatFaces);
             }
+            MudSharp.Models.ChatColorKeys.RemoveDeadKeys(ini.SectionNames(), ini.Remove);
 
             if (fkeys is not null)
             {

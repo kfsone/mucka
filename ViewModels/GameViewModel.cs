@@ -9,6 +9,7 @@ using Mucka.Core;
 using Mucka.Core.GuidedLogin;
 using MudSharp.Combat;
 using MudSharp.Models;
+using MudSharp.Protocol;
 using MudSharp.Session;
 using Mucka.Combat;
 using Mucka.Commands;
@@ -93,16 +94,17 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private int _antiIdleSeconds;
     private bool _keepScreenOn;
     private int _dreamwordSizeOffset;
-    // "Me" self-chat colours: hex text (for round-tripping to settings) plus the parsed 0xRRGGBB
-    // used to recolour our own chat lines at flush time.
-    private string _meNameColor   = SelfChatColorizer.DefaultNameHex;
-    private string _meSpeechColor = SelfChatColorizer.DefaultSpeechHex;
-    private int _meNameRgb   = SelfChatColorizer.DefaultNameRgb;
-    private int _meSpeechRgb = SelfChatColorizer.DefaultSpeechRgb;
-    // Threads per-message state across the drain so a self message the server soft-wrapped keeps
-    // its colours on every continuation line (StyledLine.ContinuesChat), not just the first.
+    // Chat colours: hex text as the settings hold it plus the resolved palette (colours and faces)
+    // the pane draws chat spans with (ChatPalette).
+    private string _speakerColor = ChatColorizer.DefaultSpeakerHex;
+    private string _sayColor     = ChatColorizer.DefaultSayHex;
+    private string _shoutColor   = ChatColorizer.DefaultShoutHex;
+    private string _tellColor    = ChatColorizer.DefaultTellHex;
+    private ChatColorizer.Palette _chatPalette = ChatColorizer.DefaultPalette;
+    // Threads per-message state across the drain so a message the server soft-wrapped keeps
+    // its own/other verdict on every continuation line (StyledLine.ContinuesChat), not just the first.
     // Self-heals to default on the next non-continuation line, so it need not be reset on disconnect.
-    private SelfChatColorizer.Carry _selfChatCarry;
+    private ChatColorizer.Carry _chatCarry;
     private int _defaultFontSize;
     private int _defaultMaxColumns;
     // The saved "Float online by default" global. Tracked separately from the live pin state
@@ -173,16 +175,19 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     // Draining is event-driven (see OnLineReady/OutputAvailable) - no polling timer.
     private readonly ConcurrentQueue<StyledLine> _pendingLines = new();
     // Coalescing guard: 0 = no flush pending, 1 = one flush already requested. Flipped 0->1 in
-    // OnLineReady (TCP thread) to fire OutputAvailable exactly once per idle->busy edge; cleared
+    // ShowLine (TCP thread) to fire OutputAvailable exactly once per idle->busy edge; cleared
     // in FlushPendingLines before draining so lines arriving during a drain re-arm it.
     private int _flushScheduled;
-    // History buffer for the (future) history panel - kept separately from the live view.
-    private readonly List<StyledLine> _historyBuffer = new();
-    // Chat-only ring for the chat-view filter - kept deeper than the main ring so shouts/tells
-    // survive in chat mode long after they have scrolled out of the main history.
-    private readonly List<StyledLine> _chatBuffer = new();
-    private const int MainHistoryCap = 1000;
+    // The prompt the pane is left standing at by the last line through OnLineReady: that line if
+    // it was partial, else none. Written on the TCP thread; $CHATTEST re-shows it after its lines.
+    private StyledLine? _livePartial;
+    // What the pane holds while the chat filter hides it; leaving chat mode repaints from here.
+    // The chat ring is deeper than the main history so shouts/tells survive in chat mode long
+    // after they have scrolled out of it. UI thread only (flush, annotation, snapshots).
+    // A multiple of the pane's own buffer, so leaving chat mode can always refill the whole pane.
+    private const int MainHistoryCap = 2 * Mucka.Rendering.TerminalView.BufferCap;
     private const int ChatHistoryCap = 3000;
+    private readonly PaneHistory _paneHistory = new(MainHistoryCap, ChatHistoryCap);
 
     // INPUT_DIAG: the setter should fire only on deliberate pushes (send-clear, history nav,
     // Escape) - NOT once per typed character. Per-character firing here proves the Entry's Text
@@ -541,8 +546,11 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         DefaultFontSize     = _defaultFontSize,
         DefaultMaxColumns   = _defaultMaxColumns,
         DreamwordSizeOffset = _dreamwordSizeOffset,
-        MeNameColor         = _meNameColor,
-        MeSpeechColor       = _meSpeechColor,
+        SpeakerColor        = _speakerColor,
+        SayColor            = _sayColor,
+        ShoutColor          = _shoutColor,
+        TellColor           = _tellColor,
+        ChatFaces           = _chatPalette.Faces,
         ShowOnline    = SidePanel.IsOnlineExpanded,
         ShowInventory = SidePanel.IsInventoryExpanded,
         ShowItemsHere = SidePanel.IsItemsHereExpanded,
@@ -572,7 +580,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public event Action? Disconnected;
     public event Action? RequestFocus;
     public event Action? ConfigRequested;
-    public event Action? ClearScreenRequested;
     /// <summary>The shell dropped us back to the Option menu: re-run the persona dance. The
     /// <see cref="SessionDropContext"/> is what the overlay tells the player about why they are
     /// there, captured at the instant the terminal went behind it.</summary>
@@ -636,10 +643,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _fkeysPerProfile     = profile.FkeysPerProfile;
         _sounds              = profile.Sounds;
         _dreamwordSizeOffset = Math.Clamp(profile.DreamwordSizeOffset, -2, 4);
-        _meNameColor   = profile.MeNameColor;
-        _meSpeechColor = profile.MeSpeechColor;
-        _meNameRgb   = SelfChatColorizer.TryParseRgb(_meNameColor)   ?? SelfChatColorizer.DefaultNameRgb;
-        _meSpeechRgb = SelfChatColorizer.TryParseRgb(_meSpeechColor) ?? SelfChatColorizer.DefaultSpeechRgb;
+        SetChatColors(profile.SpeakerColor, profile.SayColor, profile.ShoutColor, profile.TellColor, profile.ChatFaces);
         _defaultFontSize     = profile.DefaultFontSize;
         _defaultMaxColumns   = profile.DefaultMaxColumns;
         _floatOnline         = profile.FloatOnline;
@@ -789,10 +793,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _floatCompass = settings.FloatCompass;
 
         _dreamwordSizeOffset = Math.Clamp(settings.DreamwordSizeOffset, -2, 4);
-        _meNameColor   = settings.MeNameColor;
-        _meSpeechColor = settings.MeSpeechColor;
-        _meNameRgb   = SelfChatColorizer.TryParseRgb(_meNameColor)   ?? SelfChatColorizer.DefaultNameRgb;
-        _meSpeechRgb = SelfChatColorizer.TryParseRgb(_meSpeechColor) ?? SelfChatColorizer.DefaultSpeechRgb;
+        SetChatColors(settings.SpeakerColor, settings.SayColor, settings.ShoutColor, settings.TellColor, settings.ChatFaces);
         _defaultFontSize     = settings.DefaultFontSize;
         _defaultMaxColumns   = settings.DefaultMaxColumns;
         OnPropertyChanged(nameof(DreamwordFontSize));
@@ -870,11 +871,12 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     /// from the instant the file opens, because the read loop keeps delivering lines throughout.</param>
     private void OnLineReady(StyledLine line, bool transcribe)
     {
-        _pendingLines.Enqueue(line);
+        Volatile.Write(ref _livePartial, line.IsPartial ? line : null);
         // The transcript taps here and not at the terminal: the chat filter sits downstream and
         // replays its whole snapshot every time it is toggled, so a recorder behind it would write a
         // filtered session and write it again on each toggle. This is the one point every line
-        // passes exactly once - the server's, and AddSystemLine's.
+        // passes exactly once - the server's, and AddSystemLine's. $CHATTEST's lines skip it and
+        // go straight to ShowLine.
         if (transcribe) _recorder?.Append(line);
         RememberRecentLine(line);
         // "Cheerio!" is the shell's last word on a deliberate qq, and the ONLY signal that
@@ -885,6 +887,13 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             && line.PlainText.Contains("Cheerio", StringComparison.OrdinalIgnoreCase)
             && ShellText.IsQuitFarewellLine(ShellText.NormalizeWhitespace(line.PlainText)))
             _deliberateQuit = true;
+        ShowLine(line);
+    }
+
+    // Queue a line for the pane and wake the flush.
+    private void ShowLine(StyledLine line)
+    {
+        _pendingLines.Enqueue(line);
         if (Interlocked.Exchange(ref _flushScheduled, 1) == 0)
             OutputAvailable?.Invoke();
     }
@@ -984,7 +993,9 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             var autoRelogAfterReset = drop.Reason == SessionDropReason.Reset
                 && !string.IsNullOrWhiteSpace(exitedPersona);
             _inGameMode = false;
+            StopSlowChatTest("stopped, left the game");
             _sessionAliases.Clear();
+            FlipChatMode(false);
             // The panel belongs to the login: leaving the game closes it, and nothing reopens it.
             // The keyboard goes back to the command box unless the persona picker is about to take it
             // (the branch below).
@@ -1120,10 +1131,26 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
                 nameof(ScoreValue), nameof(ScoreDeltaValue), nameof(ScoreDisplayValue), nameof(ScoreColor));
         });
 
+    private void SetChatColors(string speakerHex, string sayHex, string shoutHex, string tellHex, ChatFaces faces)
+    {
+        _speakerColor = speakerHex;
+        _sayColor     = sayHex;
+        _shoutColor   = shoutHex;
+        _tellColor    = tellHex;
+        var palette   = ChatColorizer.ResolvePalette(speakerHex, sayHex, shoutHex, tellHex, faces);
+        if (palette == _chatPalette) return;
+        _chatPalette  = palette;
+        OnPropertyChanged(nameof(ChatPalette));
+    }
+
+    /// <summary>The chat colours and faces the pane draws every chat span with, whenever it was received.</summary>
+    public ChatColorizer.Palette ChatPalette => _chatPalette;
+
     /// <summary>
     /// Called by GamePage on the UI thread in response to <see cref="OutputAvailable"/>.
     /// Returns the lines to inject, or null if nothing pending.
-    /// Also maintains the history buffer for the (future) history panel.
+    /// Every returned line is also recorded in the pane history, whether or not the chat filter
+    /// lets it paint.
     /// </summary>
     public List<StyledLine>? FlushPendingLines()
     {
@@ -1135,22 +1162,12 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         var batch = new List<StyledLine>();
         while (_pendingLines.TryDequeue(out var line))
         {
-            // Recolour our own chat lines ("me") before painting/buffering so scrollback and the
-            // chat filter show them highlighted too. A no-op for non-chat / non-self lines.
-            line = SelfChatColorizer.Apply(line, _currentChar, _meNameRgb, _meSpeechRgb, ref _selfChatCarry);
+            // Mark whose message each speech span is (TextStyle.Own) before painting/buffering, so
+            // scrollback and the chat filter carry it too; the renderer applies the row's face at
+            // draw time. A no-op for non-chat lines.
+            line = ChatColorizer.Apply(line, _currentChar, ref _chatCarry);
             batch.Add(line);
-            // A clear-screen line is kept: replaying this history into the pane (leaving chat mode)
-            // then clears the live view and draws the scrollback rule exactly as the stream did.
-            if (!line.IsPartial)
-            {
-                _historyBuffer.Add(line);
-                if (_historyBuffer.Count > MainHistoryCap) _historyBuffer.RemoveAt(0);
-                if (line.Kind == LineKind.Chat)
-                {
-                    _chatBuffer.Add(line);
-                    if (_chatBuffer.Count > ChatHistoryCap) _chatBuffer.RemoveAt(0);
-                }
-            }
+            _paneHistory.Append(line);
         }
         return batch;
     }
@@ -1310,7 +1327,9 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private void ResetSessionState()
     {
         _inGameMode = false;
+        StopSlowChatTest("stopped, disconnected");
         _sessionAliases.Clear();
+        FlipChatMode(false);
         IsConnected = false;
         ClearResetProjection();   // stop the countdown; a stale target would keep ticking down
         OnPropertiesChanged(nameof(IsInGameMode),
@@ -1531,6 +1550,9 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
                 OpenRawConsole();
             else if (string.Equals(name, "SID", StringComparison.OrdinalIgnoreCase))
                 PrintSessionId();
+            else if (string.Equals(name, "CHATTEST", StringComparison.OrdinalIgnoreCase)
+                || name.StartsWith("CHATTEST ", StringComparison.OrdinalIgnoreCase))
+                RunChatTest(name.Length > 8 ? name[9..] : string.Empty);
             else if (string.Equals(name, "MARK", StringComparison.OrdinalIgnoreCase)
                 || name.StartsWith("MARK ", StringComparison.OrdinalIgnoreCase))
                 ApplyMark(name.Length > 4 ? name[5..] : string.Empty);
@@ -1597,7 +1619,8 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
 
     private void ScanHistory()
     {
-        var count     = _historyBuffer.Count;
+        var history   = _paneHistory.Committed;
+        var count     = history.Count;
         var scanStart = Math.Max(0, count - 80);
 
         // Join all recent lines into one string, skipping blank lines.
@@ -1606,7 +1629,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         var sb = new System.Text.StringBuilder();
         for (var i = scanStart; i < count; i++)
         {
-            var plain = _historyBuffer[i].PlainText.TrimEnd();
+            var plain = history[i].PlainText.TrimEnd();
             if (plain.Length == 0) continue;
             if (sb.Length > 0) sb.Append(' ');
             sb.Append(plain);
@@ -1655,6 +1678,8 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         AddSystemLine("  $fkeys [shift|ctrl]   list your function-key macros", 14);
         AddSystemLine("  $f<n>                 annotate output with fkey n's text (1-36)", 14);
         AddSystemLine("  $SID                  print the current session id (server/run/persona/login)", 14);
+        AddSystemLine("  $CHATTEST             play a scripted chat into the output (sends nothing)", 14);
+        AddSystemLine("  $CHATTEST slow|stop   play it one line at a time, 0.5-9s apart / stop that", 14);
         AddSystemLine("  $MARK [@id|\"note\"]    drop a landmark into the log", 14);
         AddSystemLine("  $MARK start|end ...   open/close a nested span (end takes no id)", 14);
         AddSystemLine($"  $SCORE [days] [name]  graph a character's score (default: {ScoreCommandArgs.DefaultDays} days, you)", 14);
@@ -1700,6 +1725,83 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             + $"/m={_conn.MuckaRunId.ToString(CultureInfo.InvariantCulture)}"
             + $"/p={persona}"
             + $"/i={login}", 14);
+    }
+
+    /// <summary>
+    /// $CHATTEST - see <see cref="ChatTestScript"/>. Its lines enter the pane's queue as the
+    /// server's do, but stay out of the transcript and the drop tail, and its tells never set
+    /// <see cref="LastTellSender"/> (ctrl-r would reply to a scripted name). It speaks as the current
+    /// persona. Starting either form stops a slow run already going.
+    /// </summary>
+    private void RunChatTest(string argument)
+    {
+        var mode = ChatTestCommand.Parse(argument);
+        if (mode == ChatTestMode.Unknown)
+        {
+            AddSystemLine($"[chattest] unknown argument '{argument.Trim()}'; usage: {ChatTestCommand.Usage}", 9);
+            return;
+        }
+        if (mode == ChatTestMode.Stop)
+        {
+            if (!StopSlowChatTest("stopped"))
+                InjectNote("// $CHATTEST: nothing is running");
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(_currentChar))
+        {
+            AddSystemLine("[chattest] needs a persona in the game - the script speaks as you", 9);
+            return;
+        }
+        StopSlowChatTest("stopped, starting again");
+        if (mode == ChatTestMode.Slow) PlaySlowChatTest(_currentChar);
+        else PlayChatTest(_currentChar);
+    }
+
+    private void PlayChatTest(string myName)
+    {
+        var lines = new List<StyledLine>();
+        ChatTestScript.Play(myName, lines.Add, OnSoundRequested);
+        // The script ends at its own prompt; the pane ends at the live one, or at none.
+        if (lines.Count > 0 && lines[^1].IsPartial) lines.RemoveAt(lines.Count - 1);
+        if (Volatile.Read(ref _livePartial) is { } live) lines.Add(live);
+        foreach (var line in lines) ShowLine(line);
+    }
+
+    /// <summary>
+    /// $CHATTEST slow - the script one entry at a time (see <see cref="ChatTestSlowRun"/>), on the UI
+    /// thread. It ends on game-mode exit, on any disconnect and on disposal.
+    /// </summary>
+    private readonly ChatTestSlowRun _slowChatTest = new();
+
+    private void PlaySlowChatTest(string myName)
+    {
+        InjectNote("// $CHATTEST slow: playing the script one line at a time, 0.5-9s apart; $CHATTEST stop stops it");
+        // The last unit's lines are still queued when the run finishes and a note is injected at
+        // once, so the note is posted behind the flush that drains them.
+        _ = _slowChatTest.Start(ChatTestScript.Units(myName), ShowChatTestUnit,
+            () => MainThread.BeginInvokeOnMainThread(() => InjectNote("// $CHATTEST slow: finished")), out _);
+    }
+
+    // Live lines interleave between units, so each unit is placed as the plain run places the whole
+    // script: its lines follow the standing live prompt (the first merges into it, as an unprompted
+    // server line does), the script's own closing prompt is dropped, and the live prompt is shown
+    // again beneath. Showing a prompt replaces the pane's partial, so it is never doubled; ShowLine
+    // does not write _livePartial, so the script's prompt never becomes the live one.
+    private void ShowChatTestUnit(ChatTestUnit unit)
+    {
+        var lines = unit.Lines;
+        int count = lines.Count > 0 && lines[^1].IsPartial ? lines.Count - 1 : lines.Count;
+        for (int i = 0; i < count; i++) ShowLine(lines[i]);
+        if (Volatile.Read(ref _livePartial) is { } live) ShowLine(live);
+        foreach (var sound in unit.Sounds) OnSoundRequested(sound);
+    }
+
+    // Stops a slow $CHATTEST run and notes why. False, and no note, when none was running.
+    private bool StopSlowChatTest(string why)
+    {
+        if (!_slowChatTest.Stop()) return false;
+        InjectNote($"// $CHATTEST slow: {why}");
+        return true;
     }
 
     /// <summary>$SCORE [days] [persona] - see <see cref="ScoreCommandArgs"/>.</summary>
@@ -1783,8 +1885,14 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             return;
         }
 
-        var annotation = $"// {macro}";
+        InjectNote($"// {macro}");
+    }
+
+    // A client note above the prompt: the $f<n> form, on the pane and in the transcript.
+    private void InjectNote(string annotation)
+    {
         var line = new StyledLine(new[] { new StyledSpan(annotation, new TextStyle(Foreground: (AnsiColor)10)) });
+        _paneHistory.InjectAbovePartial(line);   // so leaving chat mode repaints it too
         AnnotationReady?.Invoke(line);   // display: above the prompt, prompt restored below
         _recorder?.Inject(line);         // transcript: the same way, since it is on screen
         _conn.Annotate(annotation);      // wire log: as an annotation
@@ -2014,30 +2122,32 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         RequestFocus?.Invoke();
     }
 
-    public void ClearScreen()
-    {
-        ClearScreenRequested?.Invoke();
-        RequestFocus?.Invoke();
-    }
-
     /// <summary>Set the chat-view filter. Fires <see cref="ChatModeChanged"/> so GamePage repaints,
     /// and always hands focus back to the input box (Invariant #0). Only repaints on an actual flip.</summary>
     public void SetChatMode(bool on)
     {
-        if (ChatMode != on)
-        {
-            ChatMode = on;
-            OnPropertyChanged(nameof(InputPlaceholder));
-            ChatModeChanged?.Invoke();
-        }
+        FlipChatMode(on);
         RequestFocus?.Invoke();
     }
 
-    /// <summary>Snapshot of the full scrollback (non-partial lines) - used to repaint when the filter turns off.</summary>
-    public IReadOnlyList<StyledLine> HistorySnapshot() => _historyBuffer.ToArray();
+    // The flip without the refocus, for the game-mode exit and disconnect paths: there the persona
+    // picker may be about to take the keyboard, and those paths decide focus themselves.
+    // Operator rule: chat mode ends when game mode ends. UI thread only.
+    private void FlipChatMode(bool on)
+    {
+        if (ChatMode == on) return;
+        ChatMode = on;
+        OnPropertyChanged(nameof(InputPlaceholder));
+        ChatModeChanged?.Invoke();
+    }
+
+    /// <summary>The pane as it would stand had the chat filter never been on: committed lines
+    /// (prompts merged with their input, clear-screen rules kept) then the live prompt. Replayed
+    /// through the pane's append when the filter turns off.</summary>
+    public IReadOnlyList<StyledLine> HistorySnapshot() => _paneHistory.MainSnapshot();
 
     /// <summary>Snapshot of chat-only history - used to repaint when the filter turns on.</summary>
-    public IReadOnlyList<StyledLine> ChatSnapshot() => _chatBuffer.ToArray();
+    public IReadOnlyList<StyledLine> ChatSnapshot() => _paneHistory.ChatSnapshot();
 
     public void AntiIdleTick()
     {
@@ -2301,6 +2411,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        _slowChatTest.Stop();
         SidePanel.Dispose();
         UnsubscribeConnectionEvents();
         // The connection goes first. It owns the store and the always-on wire log, which outrank a

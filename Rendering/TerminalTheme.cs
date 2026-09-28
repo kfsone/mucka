@@ -4,34 +4,21 @@ using SkiaSharp;
 namespace Mucka.Rendering;
 
 /// <summary>
-/// The single Campbell colour theme for the Skia terminal, mirroring AnsiPalette.cs.
+/// The single Campbell colour theme for the Skia terminal, built from
+/// <see cref="CampbellPalette"/>, which owns the values and the foreground resolution.
 /// Index 0-15 are the ANSI slots; AnsiColor.Default (-1) resolves to slot 7 (light grey).
-/// The classic "bold = bright" rule promotes a
-/// normal-intensity foreground (slots 0-7) to its bright variant (slots 8-15).
+/// A chat span is drawn in the current chat colour setting for its part.
 /// </summary>
 public static class TerminalTheme
 {
-    public static readonly SKColor[] Palette =
-    {
-        SKColor.Parse("#0C0C0C"), SKColor.Parse("#C50F1F"), SKColor.Parse("#13A10E"), SKColor.Parse("#C19C00"),
-        SKColor.Parse("#0037DA"), SKColor.Parse("#881798"), SKColor.Parse("#3A96DD"), SKColor.Parse("#CCCCCC"),
-        SKColor.Parse("#767676"), SKColor.Parse("#E74856"), SKColor.Parse("#16C60C"), SKColor.Parse("#F9F1A5"),
-        SKColor.Parse("#3B78FF"), SKColor.Parse("#B4009E"), SKColor.Parse("#61D6D6"), SKColor.Parse("#F2F2F2"),
-    };
+    public static readonly SKColor[] Palette = CampbellPalette.Rgb.Select(ToSk).ToArray();
 
-    public static readonly SKColor Background = SKColor.Parse("#0C0C0C");
-    public static readonly SKColor DefaultForeground = Palette[7];
+    public static readonly SKColor Background = Palette[CampbellPalette.BackgroundSlot];
+    public static readonly SKColor DefaultForeground = Palette[CampbellPalette.DefaultForegroundSlot];
 
-    /// <summary>Resolve a span's foreground colour, applying the bold-to-bright promotion.</summary>
-    public static SKColor Foreground(TextStyle style)
-    {
-        // A client-applied RGB override (e.g. the "me" self-chat colours) wins over the palette.
-        if (style.ForegroundRgb is int rgb)
-            return new SKColor((byte)(rgb >> 16), (byte)(rgb >> 8), (byte)rgb);
-        int fg = style.Foreground == AnsiColor.Default ? 7 : (int)style.Foreground;
-        if (style.Bold && fg is >= 0 and < 8) fg += 8;
-        return Palette[fg is >= 0 and < 16 ? fg : 7];
-    }
+    /// <summary>Resolve a span's foreground colour against the current chat colours.</summary>
+    public static SKColor Foreground(TextStyle style, ChatColorizer.Palette chat)
+        => ToSk(CampbellPalette.ForegroundRgb(style, chat));
 
     /// <summary>Resolve a span's background colour, or null when it should use the page background.</summary>
     public static SKColor? SpanBackground(TextStyle style)
@@ -40,4 +27,6 @@ public static class TerminalTheme
         int bg = (int)style.Background;
         return bg is >= 0 and < 16 ? Palette[bg] : null;
     }
+
+    private static SKColor ToSk(int rgb) => new((byte)(rgb >> 16), (byte)(rgb >> 8), (byte)rgb);
 }

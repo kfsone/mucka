@@ -3,15 +3,18 @@ using SkiaSharp;
 namespace Mucka.Rendering;
 
 /// <summary>
-/// Loads the embedded Cascadia Mono typeface and computes fixed-cell metrics for a given
-/// pixel size. Because the font is a true monospace, every glyph shares one advance width,
-/// so the renderer can place text on an exact column grid (col * CellWidth) rather than
-/// measuring each run.
+/// Loads the embedded Cascadia Mono typefaces (regular and its italic) and computes fixed-cell
+/// metrics for a given pixel size. Because the font is a true monospace, every glyph shares one
+/// advance width, so the renderer can place text on an exact column grid (col * CellWidth) rather
+/// than measuring each run. The italic file has the regular's advance, so an italic run occupies
+/// the same cells; its glyphs lean past the right edge of their cell, which the renderer allows
+/// for by painting backgrounds before any glyph.
 /// </summary>
 public sealed class TerminalFont : IDisposable
 {
-    // Matches the LogicalName given to the EmbeddedResource in Mucka.csproj.
+    // Match the LogicalNames given to the EmbeddedResources in Mucka.csproj.
     private const string ResourceName = "Mucka.CascadiaMono.ttf";
+    private const string ItalicResourceName = "Mucka.CascadiaMonoItalic.ttf";
 
     public SKTypeface Typeface { get; }
     public SKTypeface ItalicTypeface { get; }
@@ -33,9 +36,8 @@ public sealed class TerminalFont : IDisposable
 
     public TerminalFont(float sizePx, float lineHeightFactor = 1.30f)
     {
-        Typeface = LoadTypeface();
-        ItalicTypeface = SKTypeface.FromFamilyName(Typeface.FamilyName, SKFontStyle.Italic)
-            ?? Typeface;
+        Typeface = LoadTypeface(ResourceName);
+        ItalicTypeface = LoadTypeface(ItalicResourceName);
         Font = new SKFont(Typeface, sizePx)
         {
             // Match Windows Terminal's ClearType: LCD subpixel AA + subpixel positioning.
@@ -64,14 +66,14 @@ public sealed class TerminalFont : IDisposable
         Baseline = (CellHeight - extent) / 2f - m.Ascent;
     }
 
-    private static SKTypeface LoadTypeface()
+    private static SKTypeface LoadTypeface(string resourceName)
     {
         var asm = typeof(TerminalFont).Assembly;
-        using var stream = asm.GetManifestResourceStream(ResourceName)
+        using var stream = asm.GetManifestResourceStream(resourceName)
             ?? throw new InvalidOperationException(
-                $"Embedded font resource '{ResourceName}' not found - check the EmbeddedResource LogicalName in Mucka.csproj.");
+                $"Embedded font resource '{resourceName}' not found - check the EmbeddedResource LogicalName in Mucka.csproj.");
         return SKTypeface.FromStream(stream)
-            ?? throw new InvalidOperationException($"SKTypeface.FromStream returned null for '{ResourceName}'.");
+            ?? throw new InvalidOperationException($"SKTypeface.FromStream returned null for '{resourceName}'.");
     }
 
     public void Dispose()
@@ -79,7 +81,6 @@ public sealed class TerminalFont : IDisposable
         Font.Dispose();
         ItalicFont.Dispose();
         Typeface.Dispose();
-        if (!ReferenceEquals(ItalicTypeface, Typeface))
-            ItalicTypeface.Dispose();
+        ItalicTypeface.Dispose();
     }
 }

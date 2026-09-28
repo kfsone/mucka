@@ -156,7 +156,7 @@ public class SoundTriggerTests
     }
 
     [Fact]
-    public void C09_C03Tell_StylesSenderAndTellPhrase()
+    public void C09_C03Tell_UnderlinesTheSender_AndLeavesTheLabelUpright()
     {
         var h = InGameMode();
         h.Feed(0xA4, 0x9E, 0xFF, 0xFF);
@@ -166,7 +166,7 @@ public class SoundTriggerTests
         Assert.Contains(line.Spans, s => s.Text == "Ollie"
                                       && s.Style.Underline
                                       && s.ClickInsertText == "Ollie ");
-        Assert.Contains(line.Spans, s => s.Text == "tells you" && s.Style.Italic);
+        Assert.DoesNotContain(line.Spans, s => s.Style.Italic);   // the label is upright
         Assert.DoesNotContain(line.Spans, s => s.Text.Contains("the necromancer", StringComparison.Ordinal)
                                             && s.Style.Underline);
     }
@@ -180,7 +180,7 @@ public class SoundTriggerTests
 
         var line = Assert.Single(h.Lines);
         Assert.DoesNotContain(line.Spans, s => s.ClickInsertText != null);
-        Assert.Contains(line.Spans, s => s.Text == "tells you" && s.Style.Italic);
+        Assert.DoesNotContain(line.Spans, s => s.Style.Italic);   // the label is upright
     }
 
     [Fact]
@@ -199,7 +199,7 @@ public class SoundTriggerTests
         Assert.Contains(line.Spans, s => s.Text == "li"
                                       && s.Style.Underline
                                       && s.ClickInsertText == "Ollie ");
-        Assert.Contains(line.Spans, s => s.Text == "tells you" && s.Style.Italic);
+        Assert.DoesNotContain(line.Spans, s => s.Style.Italic);   // the label is upright
     }
 
     [Fact]
@@ -254,14 +254,14 @@ public class SoundTriggerTests
     }
 
     [Fact]
-    public void C09_C03Tell_OwnListenersSend_ItalicisesListenersPhrase()
+    public void C09_C03Tell_OwnListenersSend_LeavesTheLabelUndecorated()
     {
         var h = InGameMode();
         h.Feed(0xA4, 0x9E, 0xFF, 0xFF);
         h.Feed("You tell your listeners \"hello everyone\".\n");
 
         var line = Assert.Single(h.Lines);
-        Assert.Contains(line.Spans, s => s.Text == "your listeners" && s.Style.Italic);
+        Assert.DoesNotContain(line.Spans, s => s.Style.Italic);
         // The tell-directed-at-you decoration (clickable sender) must not apply to your own send.
         Assert.DoesNotContain(line.Spans, s => s.ClickInsertText != null);
     }

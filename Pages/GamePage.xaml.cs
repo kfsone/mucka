@@ -27,7 +27,6 @@ public partial class GamePage : ContentPage
     // Set while this page is active so MainActivity can route hardware key events.
     private static Action<int>? _androidFkeyHandler;
     private static Action? _androidCtrlDHandler;
-    private static Action? _androidCtrlLHandler;
     private static Action? _androidHistoryUpHandler;
     private static Action? _androidHistoryDownHandler;
     private static Action? _androidEscapeHandler;
@@ -43,13 +42,6 @@ public partial class GamePage : ContentPage
     {
         if (_androidCtrlDHandler is null) return false;
         _androidCtrlDHandler();
-        return true;
-    }
-
-    public static bool TryFireCtrlL()
-    {
-        if (_androidCtrlLHandler is null) return false;
-        _androidCtrlLHandler();
         return true;
     }
 
@@ -264,6 +256,9 @@ public partial class GamePage : ContentPage
 
     protected override void OnAppearing()
     {
+        // The settings editor's Apply/Save may have changed the chat palette while it covered the
+        // pane; repaint what the pane holds - live, scrollback or chat mode - in it now.
+        if (_isFkeyEditorOpen) Terminal.InvalidateSurface();
         // Whatever modal we pushed has handed control back, so neither is up any more.
         _isFkeyEditorOpen = false;
         _fkeyEditorPage = null;
@@ -286,7 +281,6 @@ public partial class GamePage : ContentPage
                 _vm.SidePanel.RequestFocus += FocusInput;
                 _vm.SidePanel.FloatingOpenDisplaySettings += OnFloatingOpenDisplaySettings;
                 _vm.ConfigRequested     += OnConfigRequested;
-                _vm.ClearScreenRequested += OnClearScreenRequested;
                 _vm.GuidedLoginReentryRequested += OnGuidedLoginReentryRequested;
                 _vm.ChatModeChanged     += OnChatModeChanged;
                 _vm.SettingsSaved       += OnSettingsSaved;
@@ -303,6 +297,7 @@ public partial class GamePage : ContentPage
 
             Terminal.SetFontSize(_vm.FontSize);
             Terminal.Columns = _vm.EffCols;
+            Terminal.ChatPalette = _vm.ChatPalette;
 
             _antiIdleTimer = Dispatcher.CreateTimer();
             _antiIdleTimer.Interval = TimeSpan.FromSeconds(1);
@@ -463,7 +458,6 @@ public partial class GamePage : ContentPage
 #if ANDROID
         _androidFkeyHandler = _vm.SendFkeyAbsolute;
         _androidCtrlDHandler = _vm.SpeakDreamword;
-        _androidCtrlLHandler = _vm.ClearScreen;
         // History recall (Up/Down) is not a per-keystroke cost - wire the hardware arrows to the
         // same commands the Windows input box uses, then park the cursor at the end of the recalled
         // command so it can be edited immediately (the TwoWay binding has already pushed the text).
@@ -502,7 +496,6 @@ public partial class GamePage : ContentPage
 #if ANDROID
         _androidFkeyHandler = null;
         _androidCtrlDHandler = null;
-        _androidCtrlLHandler = null;
         _androidHistoryUpHandler = null;
         _androidHistoryDownHandler = null;
         _androidEscapeHandler = null;
@@ -525,7 +518,6 @@ public partial class GamePage : ContentPage
         _vm.SidePanel.RequestFocus -= FocusInput;
         _vm.SidePanel.FloatingOpenDisplaySettings -= OnFloatingOpenDisplaySettings;
         _vm.ConfigRequested     -= OnConfigRequested;
-        _vm.ClearScreenRequested -= OnClearScreenRequested;
         _vm.GuidedLoginReentryRequested -= OnGuidedLoginReentryRequested;
         _vm.ChatModeChanged      -= OnChatModeChanged;
         _vm.SettingsSaved       -= OnSettingsSaved;
@@ -646,7 +638,7 @@ public partial class GamePage : ContentPage
             if (_vm.ChatMode)
             {
                 // Chat filter on: paint only chat lines. Non-chat output is still captured in the
-                // VM history buffers (so toggling off restores it) - it just does not draw here.
+                // VM's PaneHistory (so toggling off restores it) - it just does not draw here.
                 // Any non-chat, non-partial line arriving is the "other stuff" the flash signals
                 // (FES/stats never arrive as terminal lines; prompts are IsPartial).
                 List<StyledLine>? chat = null;
@@ -972,13 +964,12 @@ public partial class GamePage : ContentPage
     }
 #endif
 
-    private void OnClearScreenRequested() => Terminal.Clear();
-
-    // Chat filter flipped: repaint the whole terminal from the matching buffer. This is a
-    // user-initiated toggle (not the typing hot path), so a full Clear + re-append is fine -
-    // one screenful paints sub-millisecond and the source buffers live in the VM, so nothing
-    // is lost either way. Kind==Chat lines that scrolled out of the main ring still show,
-    // because the chat ring is kept deeper (ChatHistoryCap).
+    // Chat filter flipped - by the button, or off because game mode ended: repaint the whole
+    // terminal from the matching buffer. Not the typing hot path, so a full Clear + re-append is
+    // fine - one screenful paints sub-millisecond. The main snapshot is a PaneHistory, which
+    // applies the pane's own prompt/merge/clear semantics, so turning the filter off restores the
+    // prompts and the live prompt as well as the finished lines. Kind==Chat lines that scrolled
+    // out of the main history still show, because the chat ring is kept deeper (ChatHistoryCap).
     // Shown in chat mode when no chat has arrived yet, so the toggle never lands on a blank screen.
     private static readonly StyledLine ChatEmptyPlaceholderLine =
         new(new[] { new StyledSpan("[no chat in this session yet]", new TextStyle(Foreground: (AnsiColor)8)) });
@@ -1047,6 +1038,12 @@ public partial class GamePage : ContentPage
         else if (e.PropertyName == nameof(GameViewModel.WindowTitle))
         {
             if (Window is not null) Window.Title = _vm.WindowTitle;
+        }
+        else if (e.PropertyName == nameof(GameViewModel.ChatPalette))
+        {
+            // Recolours every chat span the pane holds; the view repaints itself.
+            if (MainThread.IsMainThread) Terminal.ChatPalette = _vm.ChatPalette;
+            else MainThread.BeginInvokeOnMainThread(() => Terminal.ChatPalette = _vm.ChatPalette);
         }
         else if (e.PropertyName == nameof(GameViewModel.MaxColumns))
         {
@@ -2676,7 +2673,7 @@ public partial class GamePage : ContentPage
 
         // Ctrl+D speak dreamword (exits scrollback first if reviewing - dreamwords are
         // time-critical); Ctrl+Shift+D speaks it then chains the typed command (or "sleep");
-        // Ctrl+L clear screen; Ctrl+` window selfie.
+        // Ctrl+` window selfie.
         Add(Windows.System.VirtualKey.D, Windows.System.VirtualKeyModifiers.Control,
             () => { if (Terminal.IsHistoryMode) Terminal.ScrollToBottom(); _vm.SpeakDreamword(); });
         Add(Windows.System.VirtualKey.D, Windows.System.VirtualKeyModifiers.Control | Windows.System.VirtualKeyModifiers.Shift,
@@ -2696,7 +2693,6 @@ public partial class GamePage : ContentPage
             () => { if (Terminal.IsHistoryMode) Terminal.ScrollToBottom(); _vm.SendControlAlias(2); });
         Add(Windows.System.VirtualKey.Number3, Windows.System.VirtualKeyModifiers.Control,
             () => { if (Terminal.IsHistoryMode) Terminal.ScrollToBottom(); _vm.SendControlAlias(3); });
-        Add(Windows.System.VirtualKey.L, Windows.System.VirtualKeyModifiers.Control, () => _vm.ClearScreen());
         Add((Windows.System.VirtualKey)0xC0, Windows.System.VirtualKeyModifiers.Control, () => _ = TakeSelfieAsync());
         // Ctrl+R replies to the last person who sent us a tell. Prefills the input
         // rather than sending the game's 're' command, since 're' re-resolves its target

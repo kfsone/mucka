@@ -69,7 +69,7 @@ public class FeDocumentedFormsTests
         h.Feed(0xFF, 0xFF);
         h.Feed(" says hello.\n");
         var line = Assert.Single(h.Lines);
-        Assert.Equal(new TextStyle(AnsiColor.Yellow, AnsiColor.Black), line.Spans[0].Style);
+        Assert.Equal(new TextStyle(AnsiColor.Yellow, AnsiColor.Black, Speech: SpeechPart.Speaker), line.Spans[0].Style);
         Assert.Equal(LineKind.Chat, line.Kind);
     }
 

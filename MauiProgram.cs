@@ -20,6 +20,8 @@ public static class MauiProgram
                 fonts.AddFont("OpenSans-Regular.ttf", "OpenSansRegular");
                 // Registered so MAUI controls (input box, side panel) can resolve it by name.
                 fonts.AddFont("CascadiaMono.ttf", "Cascadia Mono");
+                // The terminal's italic face, for controls that preview what the pane draws.
+                fonts.AddFont("CascadiaMonoItalic.ttf", "Cascadia Mono Italic");
             });
 
         // Register ViewModels and Pages for dependency injection.

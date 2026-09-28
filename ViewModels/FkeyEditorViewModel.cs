@@ -31,8 +31,6 @@ public sealed class FkeyEditorViewModel : BaseViewModel
     private double _displayFontSize;
     private double _displayColumns;
     private double _displayDreamwordOffset;
-    private string _meNameColor   = SelfChatColorizer.DefaultNameHex;
-    private string _meSpeechColor = SelfChatColorizer.DefaultSpeechHex;
     private bool   _showOnline;
     private bool   _showInventory;
     private bool   _showItemsHere;
@@ -210,36 +208,18 @@ public sealed class FkeyEditorViewModel : BaseViewModel
     public string DisplayColumnsDisplay =>
         _displayColumns <= 0 ? "auto" : ((int)Math.Round(_displayColumns)).ToString(CultureInfo.CurrentCulture);
 
-    // "Me" chat colours - hex text the user edits, with a live-swatch Color the preview binds to.
-    public string MeNameColor
-    {
-        get => _meNameColor;
-        set => SetAndNotify(ref _meNameColor, value ?? string.Empty, [nameof(MeNameColorPreview)]);
-    }
-    public string MeSpeechColor
-    {
-        get => _meSpeechColor;
-        set => SetAndNotify(ref _meSpeechColor, value ?? string.Empty, [nameof(MeSpeechColorPreview)]);
-    }
-    public Microsoft.Maui.Graphics.Color MeNameColorPreview   => ParseHexColor(_meNameColor,   SelfChatColorizer.DefaultNameHex);
-    public Microsoft.Maui.Graphics.Color MeSpeechColorPreview => ParseHexColor(_meSpeechColor, SelfChatColorizer.DefaultSpeechHex);
+    // Chat colours - the four C09 colour rows and their own/other faces, for everyone's lines alike.
+    public ChatColorEditorItem SpeakerColor { get; }
+    public ChatColorEditorItem SayColor     { get; }
+    public ChatColorEditorItem ShoutColor   { get; }
+    public ChatColorEditorItem TellColor    { get; }
+    public IReadOnlyList<ChatColorEditorItem> ChatColors => [SpeakerColor, SayColor, ShoutColor, TellColor];
 
-    // Both args are 6-digit hex (with or without a leading '#'); returns the parsed colour, or the
-    // fallback colour when the primary text is malformed.
-    private static Microsoft.Maui.Graphics.Color ParseHexColor(string? hex, string fallbackHex)
-        => Microsoft.Maui.Graphics.Color.FromArgb("#" + (SelfChatColorizer.TryParseRgb(hex) is not null
-            ? (hex ?? string.Empty).Trim().TrimStart('#')
-            : fallbackHex.TrimStart('#')));
+    /// <summary>The game pane's background, behind the chat preview.</summary>
+    public Microsoft.Maui.Graphics.Color PaneBackground { get; } = RgbColor(CampbellPalette.Rgb[CampbellPalette.BackgroundSlot]);
 
-    // Canonicalises user hex text to 6 lowercase digits (no '#'); falls back when malformed.
-    private static string NormalizeHex(string? hex, string fallback)
-    {
-        var s = (hex ?? string.Empty).Trim().TrimStart('#');
-        return s.Length == 6 && int.TryParse(s, System.Globalization.NumberStyles.HexNumber,
-                   System.Globalization.CultureInfo.InvariantCulture, out _)
-            ? s.ToLowerInvariant()
-            : fallback;
-    }
+    private static Microsoft.Maui.Graphics.Color RgbColor(int rgb)
+        => Microsoft.Maui.Graphics.Color.FromRgb((rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF);
 
     public double DisplayDreamwordOffset
     {
@@ -290,6 +270,7 @@ public sealed class FkeyEditorViewModel : BaseViewModel
     public ICommand CancelCommand { get; }
     public ICommand PlayBeepCommand { get; }
     public ICommand ResetSoundsCommand { get; }
+    public ICommand ResetChatColorsCommand { get; }
     public ICommand IncrFontSizeCommand { get; }
     public ICommand DecrFontSizeCommand { get; }
     public ICommand IncrColumnsCommand { get; }
@@ -337,8 +318,15 @@ public sealed class FkeyEditorViewModel : BaseViewModel
         // Display tab
         _displayFontSize       = settings.DefaultFontSize > 0 ? Math.Clamp(settings.DefaultFontSize, 9, 24) : 15;
         _displayColumns        = Math.Clamp(settings.DefaultMaxColumns, 0, 160);
-        _meNameColor           = settings.MeNameColor;
-        _meSpeechColor         = settings.MeSpeechColor;
+        SpeakerColor = new("Acts/Speaks", SpeechPart.Speaker, settings.SpeakerColor, ChatColorizer.DefaultSpeakerRgb, settings.ChatFaces);
+        SayColor     = new("Say",         SpeechPart.Say,     settings.SayColor,     ChatColorizer.DefaultSayRgb,     settings.ChatFaces);
+        ShoutColor   = new("Shout",       SpeechPart.Shout,   settings.ShoutColor,   ChatColorizer.DefaultShoutRgb,   settings.ChatFaces);
+        TellColor    = new("Tell",        SpeechPart.Tell,    settings.TellColor,    ChatColorizer.DefaultTellRgb,    settings.ChatFaces);
+        ResetChatColorsCommand = new Command(() =>
+        {
+            foreach (var row in ChatColors)
+                row.Reset();
+        });
         _displayDreamwordOffset = Math.Clamp(settings.DreamwordSizeOffset, -2, 4);
         _showOnline    = settings.ShowOnline;
         _showInventory = settings.ShowInventory;
@@ -470,8 +458,11 @@ public sealed class FkeyEditorViewModel : BaseViewModel
         DefaultFontSize     = DisplayFontSizeDisplay,
         DefaultMaxColumns   = (int)Math.Round(_displayColumns),
         DreamwordSizeOffset = (int)Math.Round(_displayDreamwordOffset),
-        MeNameColor         = NormalizeHex(_meNameColor,   SelfChatColorizer.DefaultNameHex),
-        MeSpeechColor       = NormalizeHex(_meSpeechColor, SelfChatColorizer.DefaultSpeechHex),
+        SpeakerColor        = SpeakerColor.Hex6,
+        SayColor            = SayColor.Hex6,
+        ShoutColor          = ShoutColor.Hex6,
+        TellColor           = TellColor.Hex6,
+        ChatFaces           = ChatColors.Aggregate(ChatFaces.Default, (faces, row) => row.WriteFaces(faces)),
         ShowOnline          = _showOnline,
         ShowInventory       = _showInventory,
         ShowItemsHere       = _showItemsHere,

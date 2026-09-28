@@ -118,7 +118,7 @@ public sealed class TerminalBuffer
             }
         }
         if (segment.Count > 0)
-            AppendLine(new StyledLine(segment, line.IsPartial, line.Kind, line.ContinuesChat));
+            AppendLine(line.WithSpans(segment));
     }
 
     private void ClearScreenAfter(List<StyledSpan> before)
@@ -189,7 +189,7 @@ public sealed class TerminalBuffer
     }
 
     /// <summary>Remove all committed lines and any live partial, scrollback included. The client's
-    /// own wipe (Ctrl-L, a chat-filter repaint); a clear-screen in the stream does not come here.</summary>
+    /// own wipe (the chat-filter repaint); a clear-screen in the stream does not come here.</summary>
     public void Clear()
     {
         _committed.Clear();

@@ -266,7 +266,8 @@ public sealed class SessionCommandAliases
         // Dispatch matches these in any case, so every case of each name is reserved.
         if (name.Equals("SID", StringComparison.OrdinalIgnoreCase)
             || name.Equals("MARK", StringComparison.OrdinalIgnoreCase)
-            || name.Equals("SCORE", StringComparison.OrdinalIgnoreCase))
+            || name.Equals("SCORE", StringComparison.OrdinalIgnoreCase)
+            || name.Equals("CHATTEST", StringComparison.OrdinalIgnoreCase))
             return true;
 
         return name.Length >= 2

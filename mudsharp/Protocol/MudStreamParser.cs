@@ -877,25 +877,17 @@ public sealed class MudStreamParser
             // A self action echo plays no sound: the act's sound code announces the action to
             // the ROOM, and hearing your own wave/yodel back is noise. All other lines play
             // their queued sounds now.
-            FlushPendingLineSounds(suppress: _inGameMode && SelfChatColorizer.IsOkActEcho(line.PlainText));
+            FlushPendingLineSounds(suppress: _inGameMode && ChatColorizer.IsOkActEcho(line.PlainText));
             if (isAsteriskPreamble) return;
             // Your own "send" to your listeners echoes as: You tell your listeners "...". It rides
-            // the tell channel (C09+C03) but is your own output - suppress the tell alert and
-            // italicise only the "your listeners" phrase, rather than the sender/"tells you"
-            // decoration meant for tells directed AT you.
+            // the tell channel (C09+C03) but is your own output - no tell alert and no sender
+            // decoration, which are for tells directed AT you.
             bool ownListenersSend = _inGameMode && tellAlertRequested
                                     && IsOwnListenersSend(line.PlainText);
-            if (_inGameMode && tellAlertRequested)
+            if (_inGameMode && tellAlertRequested && !ownListenersSend)
             {
-                if (ownListenersSend)
-                {
-                    line = ItalicisePhrase(line, ListenersPhrase);
-                }
-                else
-                {
-                    line = DecorateTellLine(line, out var tellSender);
-                    if (tellSender is not null) TellReceived?.Invoke(tellSender);
-                }
+                line = DecorateTellLine(line, out var tellSender);
+                if (tellSender is not null) TellReceived?.Invoke(tellSender);
             }
             // Speech never feeds a stat or a scoring event. Every pattern below matches prose, and a
             // player can say any prose - "(Persona saved on +999 = 999)." included - and a wrapped
@@ -1140,53 +1132,11 @@ public sealed class MudStreamParser
     }
 
     // Your own broadcast to your listeners (the "send" command) echoes on the tell channel as
-    // You tell your listeners "...". Detected by lead so we can mute its alert and italicise
-    // just the "your listeners" phrase.
+    // You tell your listeners "...". Detected by lead so we can mute its alert.
     private const string OwnListenersLead = "You tell your listeners";
-    private const string ListenersPhrase  = "your listeners";
 
     private static bool IsOwnListenersSend(string lineText)
         => lineText.StartsWith(OwnListenersLead, StringComparison.Ordinal);
-
-    // Italicise every occurrence-spanning run of <phrase> within the line, splitting spans on the
-    // phrase boundaries and leaving all other styling (and any click-insert metadata) intact.
-    private static StyledLine ItalicisePhrase(StyledLine line, string phrase)
-    {
-        var text = line.PlainText;
-        int idx = text.IndexOf(phrase, StringComparison.Ordinal);
-        if (idx < 0) return line;
-        int phraseStart = idx;
-        int phraseEnd = idx + phrase.Length;
-
-        var rewritten = new List<StyledSpan>(line.Spans.Count + 2);
-        int absolute = 0;
-        foreach (var span in line.Spans)
-        {
-            int spanStart = absolute;
-            int spanEnd = spanStart + span.Text.Length;
-            absolute = spanEnd;
-
-            var cuts = new List<int> { 0, span.Text.Length };
-            AddCut(cuts, phraseStart, phraseEnd, spanStart, spanEnd);
-            cuts.Sort();
-
-            for (int i = 1; i < cuts.Count; i++)
-            {
-                int localA = cuts[i - 1];
-                int localB = cuts[i];
-                if (localB <= localA) continue;
-                int absA = spanStart + localA;
-                int absB = spanStart + localB;
-                var piece = span.Text.Substring(localA, localB - localA);
-
-                var style = span.Style;
-                if (absA >= phraseStart && absB <= phraseEnd) style = style with { Italic = true };
-                rewritten.Add(new StyledSpan(piece, style, span.ClickInsertText));
-            }
-        }
-
-        return new StyledLine(rewritten, line.IsPartial, line.Kind, line.ContinuesChat);
-    }
 
     private static string ChooseTellAlertSound(string lineText)
     {
@@ -1204,11 +1154,9 @@ public sealed class MudStreamParser
         var text = line.PlainText;
         if (text.Length == 0) return line;
 
-        // Look for " <tells you>" so we can style only the phrase, not the leading spacer.
+        // The sender is the text before " tells you", up to its first space.
         var marker = text.IndexOf(" " + tellsYou, StringComparison.OrdinalIgnoreCase);
         if (marker <= 0) return line;
-        int phraseStart = marker + 1;
-        int phraseEnd = phraseStart + tellsYou.Length;
 
         int firstSpace = text.IndexOfAny([' ', '\t']);
         if (firstSpace < 1 || firstSpace > marker)
@@ -1229,7 +1177,6 @@ public sealed class MudStreamParser
 
             var cuts = new List<int> { 0, span.Text.Length };
             AddCut(cuts, 0, firstSpace, spanStart, spanEnd);
-            AddCut(cuts, phraseStart, phraseEnd, spanStart, spanEnd);
             cuts.Sort();
 
             for (int i = 1; i < cuts.Count; i++)
@@ -1242,17 +1189,15 @@ public sealed class MudStreamParser
                 var piece = span.Text.Substring(localA, localB - localA);
 
                 bool inSender = hasNamedSender && absA >= 0 && absB <= firstSpace;
-                bool inPhrase = absA >= phraseStart && absB <= phraseEnd;
 
                 var style = span.Style;
                 if (inSender) style = style with { Underline = true };
-                if (inPhrase) style = style with { Italic = true };
 
                 rewritten.Add(new StyledSpan(piece, style, inSender ? clickInsert : null));
             }
         }
 
-        return new StyledLine(rewritten, line.IsPartial, line.Kind, line.ContinuesChat);
+        return line.WithSpans(rewritten);
     }
 
     private static void AddCut(List<int> cuts, int rangeStart, int rangeEnd, int spanStart, int spanEnd)

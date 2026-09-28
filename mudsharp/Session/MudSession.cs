@@ -1099,7 +1099,7 @@ public sealed class MudSession : IDisposable
         // parenthesises the whole name ("(Ollie the warlock) says ..."). Testing the raw prefix
         // directly would miss every invisible speak; PlayerNameParts.StartsWithPersona owns the
         // rule (and the "Ollie" must not match "Ollier" boundary) for both this and
-        // SelfChatColorizer.
+        // ChatColorizer.
         if (!PlayerNameParts.StartsWithPersona(text, _currentCharName))
             return;
 

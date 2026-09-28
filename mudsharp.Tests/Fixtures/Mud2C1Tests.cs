@@ -178,33 +178,41 @@ public class Mud2C1Tests
         return h.Lines.Single(l => l.Kind == LineKind.Chat);
     }
 
+    // Each word frame names its part of the message; the label, and the text after the inner frame
+    // closes, are the outer 09 00 speaker frame. The colour comes from the part when it is drawn.
     [Theory]
-    [InlineData(0x9C, 0xFFDD00)]   // 09 01 shouted message
-    [InlineData(0x9E, 0xD4C25A)]   // 09 03 told message
-    public void C09_ShoutAndTellWords_TakeTheirOwnShade_AndTheLabelStaysSpeakerYellow(byte subcode, int rgb)
+    [InlineData(0x9C, SpeechPart.Shout)]   // 09 01 shouted message
+    [InlineData(0x9D, SpeechPart.Say)]     // 09 02 said message
+    [InlineData(0x9E, SpeechPart.Tell)]    // 09 03 told message
+    public void C09_WordFrames_NameTheirPart_AndTheLabelIsTheSpeaker(byte subcode, SpeechPart part)
     {
         var line = SpeechLine("Crispyjr tells you ", subcode, "HELLO GIANTS");
-        var speaker = new TextStyle(AnsiColor.Yellow, AnsiColor.Black);
+        var speaker = new TextStyle(AnsiColor.Yellow, AnsiColor.Black, Speech: SpeechPart.Speaker);
         var words = line.Spans.Single(s => s.Text == "HELLO GIANTS").Style;
-        Assert.Equal(AnsiColor.BrightYellow, words.Foreground);
-        Assert.Equal(rgb, words.ForegroundRgb);
-        Assert.Null(line.Spans[0].Style.ForegroundRgb);
-        Assert.Equal(AnsiColor.Yellow, line.Spans[0].Style.Foreground);
+        Assert.Equal(new TextStyle(AnsiColor.BrightYellow, AnsiColor.Black, Speech: part), words);
+        // The first span is the sender's name, which the tell decoration may underline.
+        Assert.Equal(speaker, line.Spans[0].Style with { Underline = false });
         Assert.Equal(speaker, line.Spans.Single(s => s.Text == "\".").Style);
     }
 
-    [Fact]
-    public void C09_SaidWords_StayOnThePaletteLightYellow()
+    // 09 04 act, 09 05 emotion (with its 00/01/02 parameter), 09 06 affection, 09 07 hello,
+    // 09 08 goodbye, 09 09 congratulations, 09 10 sorry: all are drawn as the speaker.
+    [Theory]
+    [InlineData(new byte[] { 0x9F })]
+    [InlineData(new byte[] { 0xA0, 0x9B })]
+    [InlineData(new byte[] { 0xA0, 0x9D })]
+    [InlineData(new byte[] { 0xA1 })]
+    [InlineData(new byte[] { 0xA2 })]
+    [InlineData(new byte[] { 0xA5 })]
+    public void C09_ActAndEmoteFrames_AreTheSpeaker(byte[] subcodes)
     {
-        var words = SpeechLine("Ollie the heroine says ", 0x9D, "ixeeti").Spans.Single(s => s.Text == "ixeeti").Style;
-        Assert.Equal(new TextStyle(AnsiColor.BrightYellow, AnsiColor.Black), words);
-    }
-
-    [Fact]
-    public void C09_SayShoutAndTell_AreThreeDistinctColours()
-    {
-        int? Rgb(byte subcode) => SpeechLine("Fred says ", subcode, "hi").Spans.Single(s => s.Text == "hi").Style.ForegroundRgb;
-        Assert.Equal(3, new[] { Rgb(0x9C), Rgb(0x9D), Rgb(0x9E) }.Distinct().Count());
+        var h = new ParserHarness();
+        h.Feed([0xA4, 0x9B, 0xFF, 0xFF, .. System.Text.Encoding.ASCII.GetBytes("Fred "),
+                0xA4, .. subcodes, 0xFF, 0xFF, .. System.Text.Encoding.ASCII.GetBytes("waves"), 0xFF, 0xFF,
+                (byte)'.', 0xFF, 0xFF, (byte)'\r', (byte)'\n']);
+        var line = h.Lines.Single(l => l.Kind == LineKind.Chat);
+        Assert.Equal(SpeechPart.Speaker, line.Spans.Single(s => s.Text == "waves").Style.Speech);
+        Assert.Equal(AnsiColor.Yellow, line.Spans.Single(s => s.Text == "waves").Style.Foreground);
     }
 
     [Fact]
@@ -1545,7 +1553,7 @@ public class Mud2C1Tests
         // ContinuesChat is the parser's "same message as the previous line" fact: false on the
         // line that carries the C09 code (the scope opens mid-line, after the line started),
         // true on every server-wrapped row while the scope stays open, and never set once the
-        // colour pops. This is what downstream per-message state (the self-chat recolour) keys on.
+        // colour pops. This is what downstream per-message state (the chat colouring's whose-message verdict) keys on.
         var h = new ParserHarness();
         h.Feed(0xA4, 0x9C, 0xFF, 0xFF);
         h.Feed("a long shout that the server wraps\n");

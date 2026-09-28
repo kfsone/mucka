@@ -1459,15 +1459,6 @@
                     <Label FontSize="11">
                         <Label.FormattedText>
                             <FormattedString>
-                                <Span Text="Ctrl-L" TextColor="#58a6ff"/>
-                                <Span Text="  Clear the screen" TextColor="#888888"/>
-                            </FormattedString>
-                        </Label.FormattedText>
-                    </Label>
-
-                    <Label FontSize="11">
-                        <Label.FormattedText>
-                            <FormattedString>
                                 <Span Text="Ctrl-`" TextColor="#58a6ff"/>
                                 <Span Text="  Save a screenshot of the window" TextColor="#888888"/>
                             </FormattedString>

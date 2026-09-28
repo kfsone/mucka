@@ -27,10 +27,15 @@ namespace Mucka.Rendering;
     Justification = "The paints and fonts live as long as the view does, and nothing disposes a MAUI view; a Dispose here would never be called.")]
 public sealed class TerminalView : SKCanvasView
 {
-    // 500 logical lines of scrollback. Each live repaint re-wraps the whole committed buffer
-    // (see BuildVisualRows), so this is the per-paint wrap cost - but wrapping 500 short lines is
-    // sub-millisecond and only one viewport's worth is ever drawn, so it stays comfortably cheap.
-    private readonly TerminalBuffer _buffer = new(cap: 500);
+    /// <summary>
+    /// Logical lines of scrollback the pane holds. Each live repaint re-wraps the whole committed
+    /// buffer (see BuildVisualRows), so this is the per-paint wrap cost - but wrapping this many
+    /// short lines is sub-millisecond and only one viewport's worth is ever drawn. A repaint from
+    /// the view model's pane history can only restore what that history kept, so its main ring
+    /// derives from this.
+    /// </summary>
+    public const int BufferCap = 500;
+    private readonly TerminalBuffer _buffer = new(cap: BufferCap);
     private TerminalFont? _font;
     private float _builtForSizePx = -1f;
     private int _fontSizeDip = 15;
@@ -119,6 +124,22 @@ public sealed class TerminalView : SKCanvasView
     /// <summary>Host calls this on every non-modifier keypress so that accidental touchpad taps
     /// while typing do not enter scrollback.</summary>
     public void NotifyKeyPressed() => _lastKeypressUtc = DateTime.UtcNow;
+
+    /// <summary>
+    /// The chat colours and faces every chat span is drawn in, looked up at paint time: changing
+    /// them restyles everything the pane holds, live or frozen scrollback. UI thread only.
+    /// </summary>
+    public ChatColorizer.Palette ChatPalette
+    {
+        get => _chatPalette;
+        set
+        {
+            if (value == _chatPalette) return;
+            _chatPalette = value;
+            InvalidateSurface();
+        }
+    }
+    private ChatColorizer.Palette _chatPalette = ChatColorizer.DefaultPalette;
 
     public void SetFontSize(int dip)
     {
@@ -440,6 +461,27 @@ public sealed class TerminalView : SKCanvasView
             if (drawSel)
                 (selA, selB) = Precedes(_selAnchor, _selCaret) ? (_selAnchor, _selCaret) : (_selCaret, _selAnchor);
 
+            // Every background before any glyph: an italic glyph leans past the right edge of its
+            // cell, and a later span's background rect must not paint over it.
+            for (int r = first; r <= bottomIndex; r++)
+            {
+                var row = rows[r];
+                if (TerminalBuffer.IsClearRule(row)) continue;
+                float rowTop = top + (r - first) * cellH;
+                float x = leftPad;
+                for (int s = 0; s < row.Spans.Count; s++)
+                {
+                    var run = row.Spans[s];
+                    float runW = run.Text.Length * cellW;
+                    if (TerminalTheme.SpanBackground(run.Style) is { } bgColor)
+                    {
+                        _fillPaint.Color = bgColor;
+                        canvas.DrawRect(x, rowTop, runW, cellH, _fillPaint);
+                    }
+                    x += runW;
+                }
+            }
+
             for (int r = first; r <= bottomIndex; r++)
             {
                 float rowTop = top + (r - first) * cellH;
@@ -456,23 +498,19 @@ public sealed class TerminalView : SKCanvasView
                     continue;
                 }
 
-                // Glyphs first.
+                // Glyphs, each run starting on its column: italic and upright runs share the cell grid.
                 float baseline = rowTop + font.Baseline;
                 float x = leftPad;
                 for (int s = 0; s < row.Spans.Count; s++)
                 {
                     var run = row.Spans[s];
                     float runW = run.Text.Length * cellW;
-                    if (TerminalTheme.SpanBackground(run.Style) is { } bgColor)
-                    {
-                        _fillPaint.Color = bgColor;
-                        canvas.DrawRect(x, rowTop, runW, cellH, _fillPaint);
-                    }
-                    _textPaint.Color = TerminalTheme.Foreground(run.Style);
-                    var runFont = run.Style.Italic ? font.ItalicFont : font.Font;
+                    _textPaint.Color = TerminalTheme.Foreground(run.Style, _chatPalette);
+                    var face = _chatPalette.FaceOf(run.Style);
+                    var runFont = (face & ChatFace.Italic) != 0 ? font.ItalicFont : font.Font;
                     // Windows Terminal renders intense text bold AND bright; mirror the weight
                     // with a stroke-and-fill fake bold (advances unchanged -> grid stays aligned).
-                    if (run.Style.Bold)
+                    if ((face & ChatFace.Bold) != 0)
                     {
                         _textPaint.Style = SKPaintStyle.StrokeAndFill;
                         _textPaint.StrokeWidth = font.BoldStrokeWidth;

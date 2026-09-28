@@ -43,10 +43,17 @@ public sealed record ClientSettings
     public int DefaultMaxColumns { get; init; }
     /// <summary>Dreamword pill font size adjustment relative to the base size. Range -2 to +4.</summary>
     public int DreamwordSizeOffset { get; init; }
-    /// <summary>Hex color (6 digits, no '#') for the label portion of your own chat lines.</summary>
-    public string MeNameColor { get; init; } = MudSharp.Models.SelfChatColorizer.DefaultNameHex;
-    /// <summary>Hex color (6 digits, no '#') for the quoted-speech portion of your own chat lines.</summary>
-    public string MeSpeechColor { get; init; } = MudSharp.Models.SelfChatColorizer.DefaultSpeechHex;
+    /// <summary>Hex color (6 digits, no '#') for the speaker of every chat line - who did the
+    /// thing - and for act/emote/social text.</summary>
+    public string SpeakerColor { get; init; } = MudSharp.Models.ChatColorizer.DefaultSpeakerHex;
+    /// <summary>Hex color for said words, everyone's.</summary>
+    public string SayColor { get; init; } = MudSharp.Models.ChatColorizer.DefaultSayHex;
+    /// <summary>Hex color for shouted words (shout/yell/yodel/scream/holler), everyone's.</summary>
+    public string ShoutColor { get; init; } = MudSharp.Models.ChatColorizer.DefaultShoutHex;
+    /// <summary>Hex color for told words, both directions.</summary>
+    public string TellColor { get; init; } = MudSharp.Models.ChatColorizer.DefaultTellHex;
+    /// <summary>The own/other face (italic, bold, dim) of each chat colour row.</summary>
+    public MudSharp.Models.ChatFaces ChatFaces { get; init; } = MudSharp.Models.ChatFaces.Default;
     /// <summary>Show the Online (FEW) section in the side panel. When false, FEW is not requested.</summary>
     public bool ShowOnline { get; init; } = true;
     /// <summary>Show the Inventory (carrying half of FEI) in the side panel.</summary>

@@ -16,7 +16,7 @@ public sealed class StyledLine
     /// True when this line continues the chat message of the previous line: its C09 colour scope
     /// was already open when the line started (the server soft-wrapped one speaker message across
     /// several '\n' lines without re-sending the code). Lets consumers treat the wrapped rows as
-    /// one message - e.g. the self-chat recolour keeps its per-message state across them - instead
+    /// one message - e.g. the chat colouring keeps its whose-message verdict across them - instead
     /// of guessing from the text.
     /// </summary>
     public bool ContinuesChat { get; }
@@ -31,6 +31,11 @@ public sealed class StyledLine
         Kind = kind;
         ContinuesChat = continuesChat;
     }
+
+    /// <summary>The same line with its spans replaced and every other fact kept - the one way to
+    /// restyle a line without dropping what the parser knew about it.</summary>
+    public StyledLine WithSpans(IReadOnlyList<StyledSpan> spans)
+        => new(spans, IsPartial, Kind, ContinuesChat);
 
     // Cached: spans are immutable, and the '\n' hot path reads this several times per line
     // (line analyzer, sound triggers, room-short/too-dark checks) plus every consumer.

@@ -63,6 +63,8 @@ public class SessionCommandAliasesTests
     [InlineData("SCORE=look")]
     [InlineData("score=look")]
     [InlineData("Score=look")]
+    [InlineData("CHATTEST=look")]
+    [InlineData("chattest=look")]
     public void BuiltInCannotBeReassigned(string definition)
     {
         var aliases = CreateAliases();

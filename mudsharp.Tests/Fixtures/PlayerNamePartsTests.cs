@@ -59,7 +59,7 @@ public sealed class PlayerNamePartsTests
         Assert.DoesNotContain(')', parts.Name);
     }
 
-    // The "is this line about my persona?" rule, shared by the self-chat colouring and the
+    // The "is this line about my persona?" rule, shared by the chat colouring's own-line check and the
     // spoken-dreamword cancellation. Invisibility parenthesises the whole name-and-description.
     [Theory]
     [InlineData("Ollie says \"x\".", true)]

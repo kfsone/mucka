@@ -225,8 +225,11 @@ public sealed class ConnectViewModel : BaseViewModel
                 DefaultFontSize = saved?.DefaultFontSize ?? 0,
                 DefaultMaxColumns = saved?.DefaultMaxColumns ?? 0,
                 DreamwordSizeOffset = saved?.DreamwordSizeOffset ?? 0,
-                MeNameColor = saved?.MeNameColor ?? MudSharp.Models.SelfChatColorizer.DefaultNameHex,
-                MeSpeechColor = saved?.MeSpeechColor ?? MudSharp.Models.SelfChatColorizer.DefaultSpeechHex,
+                SpeakerColor = saved?.SpeakerColor ?? MudSharp.Models.ChatColorizer.DefaultSpeakerHex,
+                SayColor = saved?.SayColor ?? MudSharp.Models.ChatColorizer.DefaultSayHex,
+                ShoutColor = saved?.ShoutColor ?? MudSharp.Models.ChatColorizer.DefaultShoutHex,
+                TellColor = saved?.TellColor ?? MudSharp.Models.ChatColorizer.DefaultTellHex,
+                ChatFaces = saved?.ChatFaces ?? MudSharp.Models.ChatFaces.Default,
                 ShowOnline = saved?.ShowOnline ?? true,
                 ShowInventory = saved?.ShowInventory ?? true,
                 ShowItemsHere = saved?.ShowItemsHere ?? true,
@@ -595,11 +598,11 @@ public sealed class ConnectViewModel : BaseViewModel
         // writeSounds: false - sounds are not editable here either; rewriting them from a profile
         // blob assembled on this page would overwrite the stored per-sound volume overrides.
         // writeDisplayGlobals: false - nothing in that block (default font/columns, dreamword
-        // offset, the Show* toggles, online display options, float defaults, "me" chat colours) is
+        // offset, the Show* toggles, online display options, float defaults, chat colours) is
         // editable on this page; this partial ClientSettings leaves each of them at its C# default,
         // so writing the block unconditionally would reset a player's saved globals to those
         // defaults (DefaultFontSize -> 0, OnlineForgetWindow -> 0 killing the Recent list,
-        // MeNameColor/MeSpeechColor -> the built-in colours, etc.).
+        // the chat colours -> the built-in colours, etc.).
         await SettingsStore.SaveProfileAsync(incoming.Name, settings, fkeys: null,
             writeSounds: false, writeDisplayGlobals: false);
     }

@@ -76,21 +76,21 @@ internal sealed class Mud2C1Decoder
     private const int LT_RED = 9, LT_GREEN = 10, LT_YELLOW = 11;
     private const int LT_BLUE = 12, LT_MAGENTA = 13, LT_CYAN = 14, LT_WHITE = 15;
 
-    // Operator rule: said, shouted and told words are distinct shades of one yellow family - close,
-    // but distinguishable, including under the common colour-vision deficiencies, so the three
-    // differ in lightness and saturation rather than hue alone. Said words keep the palette's
-    // LT_YELLOW slot (TerminalTheme.Palette); these are stamped as an RGB override on that slot.
-    private const int ShoutedRgb = 0xFFDD00;   // vivid, saturated yellow
-    private const int ToldRgb    = 0xD4C25A;   // darker, muted yellow - still lighter than the YELLOW label
-
     // The C09 frame's style. The 09 00 speaker frame holds the whole message; the quoted words
-    // arrive in an inner 09 01 / 09 02 / 09 03 frame.
+    // arrive in an inner 09 01 / 09 02 / 09 03 frame, and an act's or emote's text in an inner
+    // 09 04 .. 09 10 frame, which is drawn as part of the speaker. The colours here are the
+    // built-in ones; a span with a SpeechPart is drawn in that part's chat colour setting.
     private static TextStyle SpeechStyle(int count, byte b0)
     {
-        if (b0 == 0x9B && count <= 1) return Style(YELLOW);
-        if (count == 1 && b0 == 0x9C) return Style(LT_YELLOW) with { ForegroundRgb = ShoutedRgb };
-        if (count == 1 && b0 == 0x9E) return Style(LT_YELLOW) with { ForegroundRgb = ToldRgb };
-        return Style(LT_YELLOW);
+        if (b0 == 0x9B && count <= 1) return Style(YELLOW) with { Speech = SpeechPart.Speaker };
+        return b0 switch
+        {
+            0x9C => Style(LT_YELLOW) with { Speech = SpeechPart.Shout },
+            0x9D => Style(LT_YELLOW) with { Speech = SpeechPart.Say },
+            0x9E => Style(LT_YELLOW) with { Speech = SpeechPart.Tell },
+            >= 0x9F and <= 0xA5 => Style(YELLOW) with { Speech = SpeechPart.Speaker },
+            _ => Style(LT_YELLOW),
+        };
     }
 
     // -- Helpers ---------------------------------------------------------------
@@ -1059,9 +1059,9 @@ internal sealed class Mud2C1Decoder
 
             // -- C09 (0xA4): YELLOW / LT_YELLOW ------------------------------
             // {C09}{C255}|{C09}{C00}{C255} -> YELLOW/BLACK (the speaker frame: the whole message)
-            // {C09}{C01}{C255} (shouted) / {C09}{C03}{C255} (told) -> LT_YELLOW/BLACK in its own
-            //                    shade - see SpeechStyle
-            // everything else, {C09}{C02}{C255} (said) included -> LT_YELLOW/BLACK
+            // {C09}{C04..C10}{...}{C255} -> YELLOW/BLACK (act/emotion/affection/greeting text)
+            // everything else, {C09}{C01/C02/C03}{C255} (shouted/said/told words) included
+            //                    -> LT_YELLOW/BLACK; each frame also names its SpeechPart - see SpeechStyle
             // mud2_FE4.txt: "09 Speaker of a message." - the 09 family is shout/say/tell/act/emote/social.
             // Tag the line as Chat so the chat-view filter can show only these. To tighten the
             // filter to speech-only, gate on b0 (0x9C=shout, 0x9D=say, 0x9E=tell); to widen it to

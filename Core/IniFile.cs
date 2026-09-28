@@ -139,7 +139,7 @@ public sealed class IniFile
     /// The whitespace requirement is what makes this safe on values already in the file. Every
     /// value this class writes comes from <see cref="Set"/> as "key=value" with nothing appended,
     /// so a marker with no space in front of it belongs to the value - a hand-written
-    /// "menamecolor=#e09840" keeps its hash. A value that itself contains whitespace-then-marker
+    /// "saycolor=#f9f1a5" keeps its hash. A value that itself contains whitespace-then-marker
     /// would be truncated here and then persisted truncated by the next Set; nothing in the tree
     /// writes one (fkey macros separate commands with commas).
     /// </remarks>

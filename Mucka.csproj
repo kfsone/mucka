@@ -92,10 +92,12 @@
 		<!-- Custom Fonts -->
 		<MauiFont Include="Resources\Fonts\*" />
 
-		<!-- Cascadia Mono is also embedded (independently of MAUI font registration) so the
-		     SkiaSharp terminal renderer can load its raw bytes synchronously via
-		     GetManifestResourceStream("Mucka.CascadiaMono.ttf"). -->
+		<!-- Cascadia Mono and its italic are also embedded (independently of MAUI font
+		     registration) so the SkiaSharp terminal renderer can load their raw bytes synchronously
+		     via GetManifestResourceStream. Both files are the v2407.24 release; the italic shares
+		     the regular's advance, so italic runs stay on the column grid. -->
 		<EmbeddedResource Include="Resources\Fonts\CascadiaMono.ttf" LogicalName="Mucka.CascadiaMono.ttf" />
+		<EmbeddedResource Include="Resources\Fonts\CascadiaMonoItalic.ttf" LogicalName="Mucka.CascadiaMonoItalic.ttf" />
 
 		<!-- Raw Assets (also remove the "Resources\Raw" prefix) -->
 		<MauiAsset Include="Resources\Raw\**" LogicalName="%(RecursiveDir)%(Filename)%(Extension)" />

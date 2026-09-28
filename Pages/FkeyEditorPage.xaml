@@ -589,38 +589,159 @@
 
                     <BoxView Color="#2d333b" HeightRequest="1"/>
 
-                    <!-- - Your own chat ("me") - -->
-                    <Label Text="Your chat (&quot;me&quot;)" TextColor="#58a6ff" FontSize="13" FontAttributes="Bold"/>
-                    <Label Text="Your own lines in any chat block are coloured: the label in the name color, the quoted speech in the speech color."
+                    <!-- - Chat colours - -->
+                    <Grid ColumnDefinitions="*,Auto">
+                        <Label Grid.Column="0" Text="Chat colours" TextColor="#58a6ff" FontSize="13" FontAttributes="Bold"
+                               VerticalOptions="Center"/>
+                        <Button Grid.Column="1"
+                                Text="Reset to Default"
+                                Command="{Binding ResetChatColorsCommand}"
+                                BackgroundColor="#2d333b" TextColor="#cccccc"
+                                FontSize="12" HeightRequest="30"
+                                CornerRadius="4" Padding="10,0"/>
+                    </Grid>
+                    <Label Text="For everyone's lines. Acts/Speaks is who did it, and acts and emotes; the others are the quoted words. Each row styles your own messages and other people's separately: italic, bold, dim."
                            TextColor="#555555" FontSize="11" FontAttributes="Italic"/>
 
-                    <!-- Me name color -->
-                    <Grid ColumnDefinitions="160,*" ColumnSpacing="12">
-                        <Label Grid.Column="0" Text="Name color" TextColor="#888888" FontSize="13" VerticalOptions="Center"
-                               ToolTipProperties.Text="Color of the non-quoted part of your own chat lines (your name and the says/tells text)."/>
-                        <HorizontalStackLayout Grid.Column="1" Spacing="6" VerticalOptions="Center">
-                            <Label Text="#" TextColor="#888888" FontSize="14" VerticalOptions="Center"/>
-                            <Entry Text="{Binding MeNameColor, Mode=TwoWay}" MaxLength="6"
-                                   BackgroundColor="#161b22" TextColor="#cccccc" FontSize="13"
-                                   WidthRequest="90" HeightRequest="34"/>
-                            <Label Text="Myname" FontSize="14" FontAttributes="Bold" VerticalOptions="Center"
-                                   Margin="6,0,0,0" TextColor="{Binding MeNameColorPreview}"/>
-                        </HorizontalStackLayout>
-                    </Grid>
+                    <VerticalStackLayout Spacing="10" BindableLayout.ItemsSource="{Binding ChatColors}">
+                        <BindableLayout.ItemTemplate>
+                            <DataTemplate x:DataType="vm:ChatColorEditorItem">
+                                <Grid ColumnDefinitions="160,*" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="12" RowSpacing="2">
+                                    <Label Grid.Column="0" Text="{Binding Label}" TextColor="#888888" FontSize="13" VerticalOptions="Center"/>
+                                    <HorizontalStackLayout Grid.Column="1" Spacing="6" VerticalOptions="Center">
+                                        <Label Text="#" TextColor="#888888" FontSize="14" VerticalOptions="Center"/>
+                                        <Entry Text="{Binding Hex, Mode=TwoWay}" MaxLength="7"
+                                               BackgroundColor="#161b22" TextColor="#cccccc" FontSize="13"
+                                               WidthRequest="90" HeightRequest="34"/>
+                                        <BoxView Color="{Binding Preview}" WidthRequest="22" HeightRequest="22"
+                                                 VerticalOptions="Center" Margin="6,0,0,0"/>
+                                    </HorizontalStackLayout>
+                                    <HorizontalStackLayout Grid.Row="1" Grid.Column="1" Spacing="6">
+                                        <Label Text="R" TextColor="#888888" FontSize="12" VerticalOptions="Center"/>
+                                        <Slider Minimum="0" Maximum="255" WidthRequest="110" Value="{Binding R, Mode=TwoWay}"/>
+                                        <Label Text="{Binding RText}" TextColor="White" FontSize="12" WidthRequest="26" VerticalOptions="Center"/>
+                                        <Label Text="G" TextColor="#888888" FontSize="12" VerticalOptions="Center"/>
+                                        <Slider Minimum="0" Maximum="255" WidthRequest="110" Value="{Binding G, Mode=TwoWay}"/>
+                                        <Label Text="{Binding GText}" TextColor="White" FontSize="12" WidthRequest="26" VerticalOptions="Center"/>
+                                        <Label Text="B" TextColor="#888888" FontSize="12" VerticalOptions="Center"/>
+                                        <Slider Minimum="0" Maximum="255" WidthRequest="110" Value="{Binding B, Mode=TwoWay}"/>
+                                        <Label Text="{Binding BText}" TextColor="White" FontSize="12" WidthRequest="26" VerticalOptions="Center"/>
+                                    </HorizontalStackLayout>
+                                    <HorizontalStackLayout Grid.Row="2" Grid.Column="1" Spacing="2">
+                                        <Label Text="own:" TextColor="#888888" FontSize="12" VerticalOptions="Center" Margin="0,0,4,0"/>
+                                        <CheckBox IsChecked="{Binding OwnItalic, Mode=TwoWay}" Color="#1f6feb" VerticalOptions="Center"/>
+                                        <Label Text="italic" TextColor="#cccccc" FontSize="12" FontAttributes="Italic" VerticalOptions="Center"/>
+                                        <CheckBox IsChecked="{Binding OwnBold, Mode=TwoWay}" Color="#1f6feb" VerticalOptions="Center"/>
+                                        <Label Text="bold" TextColor="#cccccc" FontSize="12" FontAttributes="Bold" VerticalOptions="Center"/>
+                                        <CheckBox IsChecked="{Binding OwnDim, Mode=TwoWay}" Color="#1f6feb" VerticalOptions="Center"/>
+                                        <Label Text="dim" TextColor="#777777" FontSize="12" VerticalOptions="Center"/>
+                                        <Label Text="other:" TextColor="#888888" FontSize="12" VerticalOptions="Center" Margin="18,0,4,0"/>
+                                        <CheckBox IsChecked="{Binding OtherItalic, Mode=TwoWay}" Color="#1f6feb" VerticalOptions="Center"/>
+                                        <Label Text="italic" TextColor="#cccccc" FontSize="12" FontAttributes="Italic" VerticalOptions="Center"/>
+                                        <CheckBox IsChecked="{Binding OtherBold, Mode=TwoWay}" Color="#1f6feb" VerticalOptions="Center"/>
+                                        <Label Text="bold" TextColor="#cccccc" FontSize="12" FontAttributes="Bold" VerticalOptions="Center"/>
+                                        <CheckBox IsChecked="{Binding OtherDim, Mode=TwoWay}" Color="#1f6feb" VerticalOptions="Center"/>
+                                        <Label Text="dim" TextColor="#777777" FontSize="12" VerticalOptions="Center"/>
+                                    </HorizontalStackLayout>
+                                </Grid>
+                            </DataTemplate>
+                        </BindableLayout.ItemTemplate>
+                    </VerticalStackLayout>
 
-                    <!-- Me speech color -->
-                    <Grid ColumnDefinitions="160,*" ColumnSpacing="12">
-                        <Label Grid.Column="0" Text="Speech color" TextColor="#888888" FontSize="13" VerticalOptions="Center"
-                               ToolTipProperties.Text="Color of the quoted speech in your own chat lines."/>
-                        <HorizontalStackLayout Grid.Column="1" Spacing="6" VerticalOptions="Center">
-                            <Label Text="#" TextColor="#888888" FontSize="14" VerticalOptions="Center"/>
-                            <Entry Text="{Binding MeSpeechColor, Mode=TwoWay}" MaxLength="6"
-                                   BackgroundColor="#161b22" TextColor="#cccccc" FontSize="13"
-                                   WidthRequest="90" HeightRequest="34"/>
-                            <Label Text="&quot;Hello&quot;" FontSize="14" FontAttributes="Bold" VerticalOptions="Center"
-                                   Margin="6,0,0,0" TextColor="{Binding MeSpeechColorPreview}"/>
-                        </HorizontalStackLayout>
-                    </Grid>
+                    <!-- Drawn as the pane draws it: its background, its font, and each row's own or
+                         other face - Lazlo's lines are another Creature's, Kayfez's and "You" are yours. -->
+                    <Border BackgroundColor="{Binding PaneBackground}" StrokeThickness="0" Padding="10,8">
+                        <VerticalStackLayout Spacing="2">
+                            <Label FontFamily="Cascadia Mono" FontSize="14" LineBreakMode="NoWrap">
+                                <Label.FormattedText>
+                                    <FormattedString>
+                                        <Span Text="Lazlo the yeoman says &quot;" TextColor="{Binding SpeakerColor.OtherColor}"
+                                              FontFamily="{Binding SpeakerColor.OtherFontFamily}" FontAttributes="{Binding SpeakerColor.OtherAttributes}"/>
+                                        <Span Text="Hello there." TextColor="{Binding SayColor.OtherColor}"
+                                              FontFamily="{Binding SayColor.OtherFontFamily}" FontAttributes="{Binding SayColor.OtherAttributes}"/>
+                                        <Span Text="&quot;." TextColor="{Binding SpeakerColor.OtherColor}"
+                                              FontFamily="{Binding SpeakerColor.OtherFontFamily}" FontAttributes="{Binding SpeakerColor.OtherAttributes}"/>
+                                    </FormattedString>
+                                </Label.FormattedText>
+                            </Label>
+                            <Label FontFamily="Cascadia Mono" FontSize="14" LineBreakMode="NoWrap">
+                                <Label.FormattedText>
+                                    <FormattedString>
+                                        <Span Text="Kayfez the warlock says &quot;" TextColor="{Binding SpeakerColor.OwnColor}"
+                                              FontFamily="{Binding SpeakerColor.OwnFontFamily}" FontAttributes="{Binding SpeakerColor.OwnAttributes}"/>
+                                        <Span Text="I will trade you a candle for that rope" TextColor="{Binding SayColor.OwnColor}"
+                                              FontFamily="{Binding SayColor.OwnFontFamily}" FontAttributes="{Binding SayColor.OwnAttributes}"/>
+                                        <Span Text="&quot;." TextColor="{Binding SpeakerColor.OwnColor}"
+                                              FontFamily="{Binding SpeakerColor.OwnFontFamily}" FontAttributes="{Binding SpeakerColor.OwnAttributes}"/>
+                                    </FormattedString>
+                                </Label.FormattedText>
+                            </Label>
+                            <Label FontFamily="Cascadia Mono" FontSize="14" LineBreakMode="NoWrap">
+                                <Label.FormattedText>
+                                    <FormattedString>
+                                        <Span Text="Lazlo the yeoman shouts &quot;" TextColor="{Binding SpeakerColor.OtherColor}"
+                                              FontFamily="{Binding SpeakerColor.OtherFontFamily}" FontAttributes="{Binding SpeakerColor.OtherAttributes}"/>
+                                        <Span Text="Help!" TextColor="{Binding ShoutColor.OtherColor}"
+                                              FontFamily="{Binding ShoutColor.OtherFontFamily}" FontAttributes="{Binding ShoutColor.OtherAttributes}"/>
+                                        <Span Text="&quot;." TextColor="{Binding SpeakerColor.OtherColor}"
+                                              FontFamily="{Binding SpeakerColor.OtherFontFamily}" FontAttributes="{Binding SpeakerColor.OtherAttributes}"/>
+                                    </FormattedString>
+                                </Label.FormattedText>
+                            </Label>
+                            <Label FontFamily="Cascadia Mono" FontSize="14" LineBreakMode="NoWrap">
+                                <Label.FormattedText>
+                                    <FormattedString>
+                                        <Span Text="Kayfez the warlock shouts &quot;" TextColor="{Binding SpeakerColor.OwnColor}"
+                                              FontFamily="{Binding SpeakerColor.OwnFontFamily}" FontAttributes="{Binding SpeakerColor.OwnAttributes}"/>
+                                        <Span Text="Over here!" TextColor="{Binding ShoutColor.OwnColor}"
+                                              FontFamily="{Binding ShoutColor.OwnFontFamily}" FontAttributes="{Binding ShoutColor.OwnAttributes}"/>
+                                        <Span Text="&quot;." TextColor="{Binding SpeakerColor.OwnColor}"
+                                              FontFamily="{Binding SpeakerColor.OwnFontFamily}" FontAttributes="{Binding SpeakerColor.OwnAttributes}"/>
+                                    </FormattedString>
+                                </Label.FormattedText>
+                            </Label>
+                            <Label FontFamily="Cascadia Mono" FontSize="14" LineBreakMode="NoWrap">
+                                <Label.FormattedText>
+                                    <FormattedString>
+                                        <Span Text="Lazlo the yeoman tells you &quot;" TextColor="{Binding SpeakerColor.OtherColor}"
+                                              FontFamily="{Binding SpeakerColor.OtherFontFamily}" FontAttributes="{Binding SpeakerColor.OtherAttributes}"/>
+                                        <Span Text="Meet at the tree." TextColor="{Binding TellColor.OtherColor}"
+                                              FontFamily="{Binding TellColor.OtherFontFamily}" FontAttributes="{Binding TellColor.OtherAttributes}"/>
+                                        <Span Text="&quot;." TextColor="{Binding SpeakerColor.OtherColor}"
+                                              FontFamily="{Binding SpeakerColor.OtherFontFamily}" FontAttributes="{Binding SpeakerColor.OtherAttributes}"/>
+                                    </FormattedString>
+                                </Label.FormattedText>
+                            </Label>
+                            <Label FontFamily="Cascadia Mono" FontSize="14" LineBreakMode="NoWrap">
+                                <Label.FormattedText>
+                                    <FormattedString>
+                                        <Span Text="You tell Lazlo &quot;" TextColor="{Binding SpeakerColor.OwnColor}"
+                                              FontFamily="{Binding SpeakerColor.OwnFontFamily}" FontAttributes="{Binding SpeakerColor.OwnAttributes}"/>
+                                        <Span Text="On my way." TextColor="{Binding TellColor.OwnColor}"
+                                              FontFamily="{Binding TellColor.OwnFontFamily}" FontAttributes="{Binding TellColor.OwnAttributes}"/>
+                                        <Span Text="&quot;." TextColor="{Binding SpeakerColor.OwnColor}"
+                                              FontFamily="{Binding SpeakerColor.OwnFontFamily}" FontAttributes="{Binding SpeakerColor.OwnAttributes}"/>
+                                    </FormattedString>
+                                </Label.FormattedText>
+                            </Label>
+                            <Label FontFamily="Cascadia Mono" FontSize="14" LineBreakMode="NoWrap">
+                                <Label.FormattedText>
+                                    <FormattedString>
+                                        <Span Text="Lazlo the yeoman dances." TextColor="{Binding SpeakerColor.OtherColor}"
+                                              FontFamily="{Binding SpeakerColor.OtherFontFamily}" FontAttributes="{Binding SpeakerColor.OtherAttributes}"/>
+                                    </FormattedString>
+                                </Label.FormattedText>
+                            </Label>
+                            <Label FontFamily="Cascadia Mono" FontSize="14" LineBreakMode="NoWrap">
+                                <Label.FormattedText>
+                                    <FormattedString>
+                                        <Span Text="Kayfez the warlock dances." TextColor="{Binding SpeakerColor.OwnColor}"
+                                              FontFamily="{Binding SpeakerColor.OwnFontFamily}" FontAttributes="{Binding SpeakerColor.OwnAttributes}"/>
+                                    </FormattedString>
+                                </Label.FormattedText>
+                            </Label>
+                        </VerticalStackLayout>
+                    </Border>
 
                     <BoxView Color="#2d333b" HeightRequest="1"/>
 
