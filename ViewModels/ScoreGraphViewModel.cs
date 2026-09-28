@@ -247,7 +247,8 @@ public sealed class ScoreGraphViewModel : BaseViewModel
 
     public const double DefaultWidth = 760;
     public const double DefaultHeight = 400;
-    /// <summary>Wide enough for the summary table's fixed columns (616) inside the panel's padding.</summary>
+    /// <summary>Wide enough for the summary table at its widest (ScorePanelView.SummaryWidth) inside
+    /// the panel's padding. A room narrower than this is a phone, which the view fills instead.</summary>
     public const double MinWidth = 660;
     public const double MinHeight = 320;
     // Global [settings] keys: one size for every profile, like the other panel preferences.

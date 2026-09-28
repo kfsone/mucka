@@ -1142,6 +1142,11 @@ public partial class GamePage : ContentPage
         OverflowMenuOverlay.IsVisible = false;
         _vm.SidePanel.ToggleCombatPanelCommand.Execute(null);
     }
+    private void OnOverflowScore(object? sender, EventArgs e)
+    {
+        OverflowMenuOverlay.IsVisible = false;
+        _vm.ToggleScoreGraphCommand.Execute(null);
+    }
     private void OnOverflowSettings(object? sender, EventArgs e)
     {
         OverflowMenuOverlay.IsVisible = false;

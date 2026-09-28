@@ -18,11 +18,16 @@
             Margin="16,6,16,0" Padding="10,8,10,8">
         <Border.StrokeShape><RoundRectangle CornerRadius="8"/></Border.StrokeShape>
         <Border.Shadow><Shadow Brush="Black" Opacity="0.55" Radius="20" Offset="0,6"/></Border.Shadow>
-        <Grid RowDefinitions="Auto,*,Auto" RowSpacing="6"
-              ColumnDefinitions="Auto,Auto,Auto,Auto,*,Auto,Auto" ColumnSpacing="18">
+        <Grid RowDefinitions="Auto,*,Auto" RowSpacing="6">
+
+            <!-- The controls wrap onto further lines when the panel is too narrow for one (a phone),
+                 so each stays whole and tappable; the x keeps its own column, top right. The days
+                 slider grows to fill whatever its line has left. -->
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+            <FlexLayout x:Name="ScoreControls" Wrap="Wrap" AlignItems="Center" AlignContent="Start">
 
             <!-- Each drop-down reads as a quiet caption, the current value, and a chevron. -->
-            <Label VerticalOptions="Center">
+            <Label x:Name="CharactersControl" VerticalOptions="Center" Margin="0,3,18,3">
                 <Label.FormattedText>
                     <FormattedString>
                         <Span Text="Characters  " TextColor="#7d8590" FontSize="11"/>
@@ -34,7 +39,7 @@
                     <TapGestureRecognizer Command="{Binding ToggleCharactersCommand}"/>
                 </Label.GestureRecognizers>
             </Label>
-            <Label Grid.Column="1" VerticalOptions="Center">
+            <Label x:Name="ServersControl" VerticalOptions="Center" Margin="0,3,18,3">
                 <Label.FormattedText>
                     <FormattedString>
                         <Span Text="Server  " TextColor="#7d8590" FontSize="11"/>
@@ -46,7 +51,7 @@
                     <TapGestureRecognizer Command="{Binding ToggleServersCommand}"/>
                 </Label.GestureRecognizers>
             </Label>
-            <Label Grid.Column="2" VerticalOptions="Center">
+            <Label x:Name="ScaleControl" VerticalOptions="Center" Margin="0,3,18,3">
                 <Label.FormattedText>
                     <FormattedString>
                         <Span Text="Scale  " TextColor="#7d8590" FontSize="11"/>
@@ -58,7 +63,7 @@
                     <TapGestureRecognizer Command="{Binding ToggleScaleCommand}"/>
                 </Label.GestureRecognizers>
             </Label>
-            <HorizontalStackLayout Grid.Column="3" Spacing="16" VerticalOptions="Center">
+            <HorizontalStackLayout Spacing="16" VerticalOptions="Center" Margin="0,3,18,3">
                 <HorizontalStackLayout Spacing="5">
                     <HorizontalStackLayout.GestureRecognizers>
                         <TapGestureRecognizer Command="{Binding ToggleSqueezeCommand}"/>
@@ -76,34 +81,41 @@
                     <Label Text="Zero" TextColor="#e6edf3" FontSize="12" VerticalOptions="Center"/>
                 </HorizontalStackLayout>
             </HorizontalStackLayout>
-            <Slider Grid.Column="4" Minimum="1" Maximum="{x:Static vm:ScoreGraphViewModel.MaxDays}"
-                    Value="{Binding DaysValue}"
-                    MinimumTrackColor="#58a6ff" MaximumTrackColor="#30363d" ThumbColor="#c9d1d9"
-                    VerticalOptions="Center"/>
-            <Label Grid.Column="5" Text="{Binding DaysLabel}"
-                   TextColor="#e6edf3" FontSize="12" WidthRequest="50" VerticalOptions="Center"/>
-            <Label Grid.Column="6" Text="&#x2715;" TextColor="#7d8590" FontSize="12"
-                   Padding="6,0,0,0" VerticalOptions="Center">
+            <Grid ColumnDefinitions="*,50" ColumnSpacing="8" MinimumWidthRequest="180"
+                  FlexLayout.Grow="1" VerticalOptions="Center">
+                <Slider Minimum="1" Maximum="{x:Static vm:ScoreGraphViewModel.MaxDays}"
+                        Value="{Binding DaysValue}"
+                        MinimumTrackColor="#58a6ff" MaximumTrackColor="#30363d" ThumbColor="#c9d1d9"
+                        VerticalOptions="Center"/>
+                <Label Grid.Column="1" Text="{Binding DaysLabel}"
+                       TextColor="#e6edf3" FontSize="12" VerticalOptions="Center"/>
+            </Grid>
+            </FlexLayout>
+            <Label Grid.Column="1" Text="&#x2715;" TextColor="#7d8590" FontSize="12"
+                   Padding="6,3,0,3" VerticalOptions="Start">
                 <Label.GestureRecognizers>
                     <TapGestureRecognizer Command="{Binding CloseCommand}"/>
                 </Label.GestureRecognizers>
             </Label>
+            </Grid>
 
-            <render:ScoreGraphView Grid.Row="1" Grid.ColumnSpan="7"
+            <render:ScoreGraphView Grid.Row="1"
                                    Scene="{Binding Scene}"/>
-            <Label Grid.Row="1" Grid.ColumnSpan="7"
+            <Label Grid.Row="1"
                    Text="{Binding Status}" IsVisible="{Binding HasStatus}"
                    TextColor="#888888" FontSize="12"
                    HorizontalOptions="Center" VerticalOptions="Center"/>
 
-            <BoxView Grid.Row="1" Grid.ColumnSpan="7" Color="Transparent"
+            <BoxView Grid.Row="1" Color="Transparent"
                      IsVisible="{Binding IsAnyListOpen}">
                 <BoxView.GestureRecognizers>
                     <TapGestureRecognizer Command="{Binding CloseListsCommand}"/>
                 </BoxView.GestureRecognizers>
             </BoxView>
 
-            <Border Grid.Row="1" Grid.ColumnSpan="7"
+            <!-- The drop-downs open under the control that opened them; the view places each one
+                 when it opens, since a wrapped control has no fixed column (OnGraphPropertyChanged). -->
+            <Border x:Name="CharactersList" Grid.Row="1"
                     IsVisible="{Binding IsCharactersOpen}"
                     HorizontalOptions="Start" VerticalOptions="Start"
                     BackgroundColor="#161b22" Stroke="#3d4f5c" StrokeThickness="1"
@@ -128,7 +140,7 @@
                 </ScrollView>
             </Border>
 
-            <Border Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="6"
+            <Border x:Name="ServersList" Grid.Row="1"
                     IsVisible="{Binding IsServersOpen}"
                     HorizontalOptions="Start" VerticalOptions="Start"
                     BackgroundColor="#161b22" Stroke="#3d4f5c" StrokeThickness="1"
@@ -153,7 +165,7 @@
                 </ScrollView>
             </Border>
 
-            <Border Grid.Row="1" Grid.Column="2" Grid.ColumnSpan="5"
+            <Border x:Name="ScaleList" Grid.Row="1"
                     IsVisible="{Binding IsScaleOpen}"
                     HorizontalOptions="Start" VerticalOptions="Start"
                     BackgroundColor="#161b22" Stroke="#3d4f5c" StrokeThickness="1"
@@ -178,9 +190,11 @@
 
             <!-- Per-character summary, bottom right. Three 18-high rows show; more scroll.
                  Three groups - the score's range, its movement, the net - parted by dotted
-                 rules. Each row draws its own 18-high piece of each rule, so the pieces meet. -->
-            <VerticalStackLayout Grid.Row="2" Grid.ColumnSpan="7" HorizontalOptions="End" Spacing="0">
-                <Grid ColumnDefinitions="120,76,76,76,20,76,76,20,76" RowDefinitions="17,1" HeightRequest="18">
+                 rules. Each row draws its own 18-high piece of each rule, so the pieces meet.
+                 Proportional columns inside a width the view sets (ScorePanelView.SummaryWidth at
+                 most), so the table fits a phone; the header and the rows share one set of columns. -->
+            <VerticalStackLayout x:Name="SummaryTable" Grid.Row="2" HorizontalOptions="End" Spacing="0">
+                <Grid ColumnDefinitions="1.6*,*,*,*,20,*,*,20,*" RowDefinitions="17,1" HeightRequest="18">
                     <Label Grid.Column="1" Text="START" TextColor="#6e7681" FontSize="9.5" CharacterSpacing="0.8" HorizontalTextAlignment="End"/>
                     <Label Grid.Column="2" Text="LOW" TextColor="#6e7681" FontSize="9.5" CharacterSpacing="0.8" HorizontalTextAlignment="End"/>
                     <Label Grid.Column="3" Text="HIGH" TextColor="#6e7681" FontSize="9.5" CharacterSpacing="0.8" HorizontalTextAlignment="End"/>
@@ -199,7 +213,7 @@
                     <VerticalStackLayout BindableLayout.ItemsSource="{Binding Stats}">
                         <BindableLayout.ItemTemplate>
                             <DataTemplate x:DataType="vm:ScoreStatRow">
-                                <Grid ColumnDefinitions="120,76,76,76,20,76,76,20,76" HeightRequest="18">
+                                <Grid ColumnDefinitions="1.6*,*,*,*,20,*,*,20,*" HeightRequest="18">
                                     <Label Text="{Binding Label}" TextColor="{Binding Color}" FontSize="12"
                                            FontAttributes="Bold" LineBreakMode="TailTruncation" VerticalOptions="Center"/>
                                     <Label Grid.Column="1" Text="{Binding Start}" TextColor="#e6edf3" FontSize="12" HorizontalTextAlignment="End" VerticalOptions="Center"/>
@@ -222,7 +236,7 @@
 
             <!-- Resize grip in the bottom-right corner. The panel stays centred, so a drag
                  grows it on both sides; it is clamped to the room its host gives it. -->
-            <Label Grid.Row="2" Grid.Column="6" Text="&#x25E2;" TextColor="#484f58" FontSize="10"
+            <Label x:Name="ResizeGrip" Grid.Row="2" Text="&#x25E2;" TextColor="#484f58" FontSize="10"
                    HorizontalOptions="End" VerticalOptions="End" TranslationX="9" TranslationY="7"
                    Padding="6,6,0,0">
                 <Label.GestureRecognizers>

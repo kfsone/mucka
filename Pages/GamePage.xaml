@@ -1724,6 +1724,21 @@
                         </Grid>
                     </Border>
 
+                    <!-- The $SCORE graph. The only way to it on a narrow strip, whose score carries
+                         no magnifying glass; one-shot like Combat, so it closes the menu. -->
+                    <BoxView Color="#2d333b" HeightRequest="1"/>
+                    <Border Padding="16,14" BackgroundColor="Transparent">
+                        <Border.GestureRecognizers>
+                            <TapGestureRecognizer Tapped="OnOverflowScore"/>
+                        </Border.GestureRecognizers>
+                        <Grid ColumnDefinitions="24,*">
+                            <Label Grid.Column="0" Text="&#x2713;" TextColor="#3fb950" FontSize="14"
+                                   VerticalOptions="Center"
+                                   IsVisible="{Binding ScoreGraph.IsVisible}"/>
+                            <Label Grid.Column="1" Text="Score" TextColor="White" FontSize="14"/>
+                        </Grid>
+                    </Border>
+
                     <BoxView Color="#2d333b" HeightRequest="1"/>
                     <Border Padding="16,14" BackgroundColor="Transparent">
                         <Border.GestureRecognizers>
