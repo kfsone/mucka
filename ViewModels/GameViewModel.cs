@@ -97,7 +97,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     // Chat colours: hex text as the settings hold it plus the resolved palette (colours and faces)
     // the pane draws chat spans with (ChatPalette).
     private ChatTheme _chatTheme = ChatTheme.Default;
-    private string _speakerColor = ChatTheme.Default.SpeakerHex;
+    private string _emoteColor = ChatTheme.Default.EmoteHex;
     private string _sayColor     = ChatTheme.Default.SayHex;
     private string _shoutColor   = ChatTheme.Default.ShoutHex;
     private string _tellColor    = ChatTheme.Default.TellHex;
@@ -232,11 +232,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public int EffCols => _effCols;
     public bool KeepScreenOn => _keepScreenOn;
     public int FontSize => _fontSize;
-    // Advance width of one Cascadia Mono cell per pixel of font size: 1200/2048 em units
-    // (from the embedded TTF's hmtx/head tables - a true monospace, so every glyph shares
-    // this advance). The previous 8.0/15 (~0.533) calibration dated from the WebView renderer
-    // and under-measured the Skia cell by ~10%, leaving windows sized from it 4-6 columns short.
-    public const double CharWidthPerFontPx = 1200.0 / 2048.0;
+    public const double CharWidthPerFontPx = Mucka.Terminal.TerminalColumns.CharWidthPerFontPx;
     /// <summary>Default terminal font size in pixels when the profile does not override it.</summary>
     public const int DefaultFontSizePx = 15;
     // Character width in MAUI logical pixels for the current font size.
@@ -281,11 +277,15 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public string ScoreDeltaValue => Score <= 0 || _baseScore < 0 ? string.Empty
         : $" ({ScoreDeltaStr(Score - _baseScore)})";
 
-    /// <summary>Score value for the compact bar - always carries the reset-delta suffix (rendered
-    /// one point smaller via <see cref="ScoreCompactFontSize"/> so it fits in narrow layouts).</summary>
-    public string ScoreDisplayValue => Score <= 0 ? "-"
-        : _baseScore < 0 ? $"{Score}"
-        : $"{Score} ({ScoreDeltaStr(Score - _baseScore)})";
+    /// <summary>The compact bar's reset-delta, after <see cref="ScoreValue"/>: " +5", unbracketed.
+    /// Operator rule: a delta of 0 still shows, as "+0".</summary>
+    public string ScoreCompactDeltaValue => Score <= 0 || _baseScore < 0 ? string.Empty
+        : $" {ScoreDeltaStr(Score - _baseScore)}";
+
+    /// <summary>Operator rule: the compact bar's delta is italic when the score has moved, upright at
+    /// +0.</summary>
+    public FontAttributes ScoreCompactDeltaAttributes
+        => Score > 0 && _baseScore >= 0 && Score != _baseScore ? FontAttributes.Italic : FontAttributes.None;
 
     /// <summary>Window/taskbar title. "{profile} mucka {version}" at the option menu;
     /// "{char}@{profile} mucka {version}" once a character is identified. GamePage pushes this
@@ -334,7 +334,10 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public double StatsMaxValueFontSize => StatsValueFontSize - 2.0;
     /// <summary>Font size for the score (with its reset-delta) in the compact bar - one point below
     /// the stat values so the always-on delta suffix fits without crowding the effects column.</summary>
-    public double ScoreCompactFontSize => StatsValueFontSize - 1.0;
+    public double ScoreCompactFontSize => StatsValueFontSize - CompactScoreStepPt;
+    /// <summary>Operator rule: the compact bar's delta is a point smaller again than its score.</summary>
+    public double ScoreCompactDeltaFontSize => ScoreCompactFontSize - CompactScoreStepPt;
+    private const double CompactScoreStepPt = 1.0;
     /// <summary>Font size for the dreamword pill - one point larger in wide mode.</summary>
     public double DreamwordFontSize => (_effCols < 50 ? 12.0 : 13.0) + _dreamwordSizeOffset;
 
@@ -547,7 +550,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         DefaultFontSize     = _defaultFontSize,
         DefaultMaxColumns   = _defaultMaxColumns,
         DreamwordSizeOffset = _dreamwordSizeOffset,
-        SpeakerColor        = _speakerColor,
+        EmoteColor        = _emoteColor,
         SayColor            = _sayColor,
         ShoutColor          = _shoutColor,
         TellColor           = _tellColor,
@@ -628,7 +631,9 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             () => _conn.DatabasePath, () => _conn.MuckaRunId, () => _profileHost,
             () => _currentChar, () => RequestFocus?.Invoke());
         _maxColumns = Math.Clamp(profile.MaxColumns, 0, 160);  // 0 = auto
-        _effCols = _maxColumns > 0 ? _maxColumns : 80;  // sensible until OnSizeAllocated fires
+        // What the server was told at login, so the page's first measurement finds nothing to change
+        // when the two agree (TerminalColumns).
+        _effCols = _conn.WindowColumns;
         _antiIdleSeconds = Math.Clamp(profile.AntiIdleSeconds, 0, 3600);
         _keepScreenOn = profile.KeepScreenOn;
         _lastSentUtc = DateTime.UtcNow;
@@ -645,7 +650,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _fkeysPerProfile     = profile.FkeysPerProfile;
         _sounds              = profile.Sounds;
         _dreamwordSizeOffset = Math.Clamp(profile.DreamwordSizeOffset, -2, 4);
-        SetChatColors(profile.ChatTheme, profile.SpeakerColor, profile.SayColor, profile.ShoutColor, profile.TellColor, profile.ChatFaces);
+        SetChatColors(profile.ChatTheme, profile.EmoteColor, profile.SayColor, profile.ShoutColor, profile.TellColor, profile.ChatFaces);
         _defaultFontSize     = profile.DefaultFontSize;
         _defaultMaxColumns   = profile.DefaultMaxColumns;
         _floatOnline         = profile.FloatOnline;
@@ -795,7 +800,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _floatCompass = settings.FloatCompass;
 
         _dreamwordSizeOffset = Math.Clamp(settings.DreamwordSizeOffset, -2, 4);
-        SetChatColors(settings.ChatTheme, settings.SpeakerColor, settings.SayColor, settings.ShoutColor, settings.TellColor, settings.ChatFaces);
+        SetChatColors(settings.ChatTheme, settings.EmoteColor, settings.SayColor, settings.ShoutColor, settings.TellColor, settings.ChatFaces);
         _defaultFontSize     = settings.DefaultFontSize;
         _defaultMaxColumns   = settings.DefaultMaxColumns;
         OnPropertyChanged(nameof(DreamwordFontSize));
@@ -1016,7 +1021,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             ClearResetProjection();   // no live world once back at the option menu
             OnPropertiesChanged(nameof(IsInGameMode),
                 nameof(WindowTitle),
-                nameof(ScoreDeltaValue), nameof(ScoreDisplayValue), nameof(ScoreColor),
+                nameof(ScoreDeltaValue), nameof(ScoreCompactDeltaValue), nameof(ScoreCompactDeltaAttributes), nameof(ScoreColor),
                 nameof(TtrText), nameof(TtrVisible), nameof(TtrTooltip), nameof(AnyRightStatVisible));
 
             // _conn.IsConnected, not the VM's flag: on a dropped link the parser fires its
@@ -1130,17 +1135,17 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             else
                 _baseScore = -1;                     // score not in yet; set on next StatsUpdated
             OnPropertiesChanged(nameof(WindowTitle),
-                nameof(ScoreValue), nameof(ScoreDeltaValue), nameof(ScoreDisplayValue), nameof(ScoreColor));
+                nameof(ScoreValue), nameof(ScoreDeltaValue), nameof(ScoreCompactDeltaValue), nameof(ScoreCompactDeltaAttributes), nameof(ScoreColor));
         });
 
-    private void SetChatColors(ChatTheme theme, string speakerHex, string sayHex, string shoutHex, string tellHex, ChatFaces faces)
+    private void SetChatColors(ChatTheme theme, string emoteHex, string sayHex, string shoutHex, string tellHex, ChatFaces faces)
     {
         _chatTheme    = theme;
-        _speakerColor = speakerHex;
+        _emoteColor = emoteHex;
         _sayColor     = sayHex;
         _shoutColor   = shoutHex;
         _tellColor    = tellHex;
-        var palette   = ChatColorizer.ResolvePalette(theme, speakerHex, sayHex, shoutHex, tellHex, faces);
+        var palette   = ChatColorizer.ResolvePalette(theme, emoteHex, sayHex, shoutHex, tellHex, faces);
         if (palette == _chatPalette) return;
         _chatPalette  = palette;
         OnPropertyChanged(nameof(ChatPalette));
@@ -1164,14 +1169,14 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
 
         var batch = new List<StyledLine>();
         while (_pendingLines.TryDequeue(out var line))
-        {
-            // Mark whose message each speech span is (TextStyle.Own) before painting/buffering, so
-            // scrollback and the chat filter carry it too; the renderer applies the row's face at
-            // draw time. A no-op for non-chat lines.
-            line = ChatColorizer.Apply(line, _currentChar, ref _chatCarry);
             batch.Add(line);
+        // Mark whose message each speech span is (TextStyle.Own) and its message's channel
+        // (TextStyle.Channel) before painting/buffering, so scrollback and the chat filter carry it
+        // too; the renderer resolves colour and face at draw time. Over the whole drain, because a
+        // wrapped message's channel can show only on a later row. A no-op for non-chat lines.
+        ChatColorizer.ApplyAll(batch, _currentChar, ref _chatCarry);
+        foreach (var line in batch)
             _paneHistory.Append(line);
-        }
         return batch;
     }
 
@@ -1234,7 +1239,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
                 nameof(Magic),      nameof(MaxMagic),
                 nameof(MagCurValue), nameof(MagMaxValue), nameof(MagColor),    nameof(MagVisible),
                 nameof(Score),
-                nameof(ScoreValue), nameof(ScoreDeltaValue), nameof(ScoreDisplayValue), nameof(ScoreColor),
+                nameof(ScoreValue), nameof(ScoreDeltaValue), nameof(ScoreCompactDeltaValue), nameof(ScoreCompactDeltaAttributes), nameof(ScoreColor),
                 nameof(Blind),      nameof(Deaf),        nameof(Crippled),    nameof(Dumb),
                 nameof(AnyEffectVisible), nameof(EffectsGlyphs),
                 nameof(TtrText),    nameof(TtrVisible),   nameof(TtrTooltip),
@@ -2198,11 +2203,12 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     /// </summary>
     public void NotifyWindowSize(double widthDp, int displayableCols)
     {
-        // 0 = auto: use window width directly; otherwise cap to user-set max.
-        var clamped       = _maxColumns > 0
-            ? Math.Clamp(Math.Min(_maxColumns, displayableCols), 20, 160)
-            : Math.Clamp(displayableCols, 20, 160);
+        var clamped       = Mucka.Terminal.TerminalColumns.Effective(_maxColumns, displayableCols);
         var effColChanged = clamped != _effCols;
+        // The page's first measurement re-lays out everything that depends on the width even when
+        // the count is the one the connection started with. Observed without it on Windows: with the
+        // combat rail hidden, the wide status bar kept a width that clipped the reset timer.
+        var firstMeasure  = _widthDp <= 0;
         _widthDp = widthDp;
         if (effColChanged)
         {
@@ -2211,6 +2217,9 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             // NAWS alone doesn't re-wrap MUD2 output - the server wraps on the /T width set at
             // client-mode entry. Re-issue it so text sent after a resize wraps at the new width.
             _conn.SendTerminalWidth();
+        }
+        if (effColChanged || firstMeasure)
+        {
             OnPropertyChanged(nameof(EffCols));
             OnPropertyChanged(nameof(IsCompactStats));
             OnPropertyChanged(nameof(IsNotCompactStats));
@@ -2218,6 +2227,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             OnPropertyChanged(nameof(StatsValueFontSize));
             OnPropertyChanged(nameof(StatsMaxValueFontSize));
             OnPropertyChanged(nameof(ScoreCompactFontSize));
+            OnPropertyChanged(nameof(ScoreCompactDeltaFontSize));
             OnPropertyChanged(nameof(DreamwordFontSize));
             OnPropertyChanged(nameof(StaMaxValue));
             OnPropertyChanged(nameof(MagMaxValue));

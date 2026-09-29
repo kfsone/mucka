@@ -5,7 +5,7 @@ namespace Mucka.ViewModels;
 
 /// <summary>
 /// One example line in the chat colours preview, in the pane's three-part shape: the speaker's
-/// framing (<see cref="Lead"/> and <see cref="Tail"/>, drawn in the Acts/Speaks row's face) around
+/// framing (<see cref="Lead"/> and <see cref="Tail"/>, drawn in the Emotes row's face) around
 /// the quoted words (<see cref="Quoted"/>, drawn in the owning row's face). An act or emote is all
 /// lead. <see cref="Own"/> picks the row's own face or the other-Creature face, and the line follows
 /// both rows live as their controls change. The text, and the lead's underlined runs
@@ -14,12 +14,12 @@ namespace Mucka.ViewModels;
 /// </summary>
 public sealed class ChatExampleLine : BaseViewModel
 {
-    private readonly ChatColorEditorItem _speaker;
+    private readonly ChatColorEditorItem _emote;
     private readonly ChatColorEditorItem _words;
 
-    public ChatExampleLine(ChatColorEditorItem speaker, ChatColorEditorItem words, ChatExampleText text)
+    public ChatExampleLine(ChatColorEditorItem emote, ChatColorEditorItem words, ChatExampleText text)
     {
-        _speaker = speaker;
+        _emote   = emote;
         _words   = words;
         Own      = text.Own;
         Lead     = text.Lead;
@@ -27,8 +27,8 @@ public sealed class ChatExampleLine : BaseViewModel
         Tail     = text.Tail;
         (Lead0, Lead1, Lead2, Lead3, Lead4) =
             (text.LeadRuns[0], text.LeadRuns[1], text.LeadRuns[2], text.LeadRuns[3], text.LeadRuns[4]);
-        _speaker.PropertyChanged += OnSpeakerChanged;
-        if (!ReferenceEquals(_words, _speaker))
+        _emote.PropertyChanged += OnEmoteChanged;
+        if (!ReferenceEquals(_words, _emote))
             _words.PropertyChanged += OnWordsChanged;
     }
 
@@ -48,23 +48,28 @@ public sealed class ChatExampleLine : BaseViewModel
     /// <summary>The line's width in characters, as the terminal font is monospaced.</summary>
     public int Length => Lead.Length + Quoted.Length + Tail.Length;
 
-    public Microsoft.Maui.Graphics.Color SpeakerColor => Own ? _speaker.OwnColor : _speaker.OtherColor;
-    public string SpeakerFontFamily                   => Own ? _speaker.OwnFontFamily : _speaker.OtherFontFamily;
-    public FontAttributes SpeakerAttributes           => Own ? _speaker.OwnAttributes : _speaker.OtherAttributes;
+    /// <summary>The framing's colour: the Emotes row's, or on a shout or tell the words row's
+    /// (<see cref="ChatColorizer.ColoursWholeLine"/>), dimmed by the Emotes row's face as the pane
+    /// draws it.</summary>
+    public Microsoft.Maui.Graphics.Color EmoteColor => ChatColorizer.ColoursWholeLine(_words.Part)
+        ? _emote.ColorIn(Own, _words.Rgb)
+        : Own ? _emote.OwnColor : _emote.OtherColor;
+    public string EmoteFontFamily                   => Own ? _emote.OwnFontFamily : _emote.OtherFontFamily;
+    public FontAttributes EmoteAttributes           => Own ? _emote.OwnAttributes : _emote.OtherAttributes;
 
     public Microsoft.Maui.Graphics.Color WordsColor => Own ? _words.OwnColor : _words.OtherColor;
     public string WordsFontFamily                   => Own ? _words.OwnFontFamily : _words.OtherFontFamily;
     public FontAttributes WordsAttributes           => Own ? _words.OwnAttributes : _words.OtherAttributes;
 
-    private void OnSpeakerChanged(object? sender, PropertyChangedEventArgs e)
+    private void OnEmoteChanged(object? sender, PropertyChangedEventArgs e)
     {
         switch (Slot(e.PropertyName))
         {
-            case Face.Color:      OnPropertyChanged(nameof(SpeakerColor)); break;
-            case Face.FontFamily: OnPropertyChanged(nameof(SpeakerFontFamily)); break;
-            case Face.Attributes: OnPropertyChanged(nameof(SpeakerAttributes)); break;
+            case Face.Color:      OnPropertyChanged(nameof(EmoteColor)); break;
+            case Face.FontFamily: OnPropertyChanged(nameof(EmoteFontFamily)); break;
+            case Face.Attributes: OnPropertyChanged(nameof(EmoteAttributes)); break;
         }
-        if (ReferenceEquals(_words, _speaker))
+        if (ReferenceEquals(_words, _emote))
             OnWordsChanged(sender, e);
     }
 
@@ -72,7 +77,11 @@ public sealed class ChatExampleLine : BaseViewModel
     {
         switch (Slot(e.PropertyName))
         {
-            case Face.Color:      OnPropertyChanged(nameof(WordsColor)); break;
+            case Face.Color:
+                OnPropertyChanged(nameof(WordsColor));
+                if (ChatColorizer.ColoursWholeLine(_words.Part))
+                    OnPropertyChanged(nameof(EmoteColor));   // the framing is the words' colour
+                break;
             case Face.FontFamily: OnPropertyChanged(nameof(WordsFontFamily)); break;
             case Face.Attributes: OnPropertyChanged(nameof(WordsAttributes)); break;
         }

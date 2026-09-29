@@ -21,22 +21,22 @@
                    FontAutoScalingEnabled="False" LineBreakMode="NoWrap">
                 <Label.FormattedText>
                     <FormattedString>
-                        <Span Text="{Binding Lead0}" TextColor="{Binding SpeakerColor}" FontAutoScalingEnabled="False"
-                              FontFamily="{Binding SpeakerFontFamily}" FontAttributes="{Binding SpeakerAttributes}"/>
-                        <Span Text="{Binding Lead1}" TextColor="{Binding SpeakerColor}" FontAutoScalingEnabled="False"
-                              FontFamily="{Binding SpeakerFontFamily}" FontAttributes="{Binding SpeakerAttributes}"
+                        <Span Text="{Binding Lead0}" TextColor="{Binding EmoteColor}" FontAutoScalingEnabled="False"
+                              FontFamily="{Binding EmoteFontFamily}" FontAttributes="{Binding EmoteAttributes}"/>
+                        <Span Text="{Binding Lead1}" TextColor="{Binding EmoteColor}" FontAutoScalingEnabled="False"
+                              FontFamily="{Binding EmoteFontFamily}" FontAttributes="{Binding EmoteAttributes}"
                               TextDecorations="Underline"/>
-                        <Span Text="{Binding Lead2}" TextColor="{Binding SpeakerColor}" FontAutoScalingEnabled="False"
-                              FontFamily="{Binding SpeakerFontFamily}" FontAttributes="{Binding SpeakerAttributes}"/>
-                        <Span Text="{Binding Lead3}" TextColor="{Binding SpeakerColor}" FontAutoScalingEnabled="False"
-                              FontFamily="{Binding SpeakerFontFamily}" FontAttributes="{Binding SpeakerAttributes}"
+                        <Span Text="{Binding Lead2}" TextColor="{Binding EmoteColor}" FontAutoScalingEnabled="False"
+                              FontFamily="{Binding EmoteFontFamily}" FontAttributes="{Binding EmoteAttributes}"/>
+                        <Span Text="{Binding Lead3}" TextColor="{Binding EmoteColor}" FontAutoScalingEnabled="False"
+                              FontFamily="{Binding EmoteFontFamily}" FontAttributes="{Binding EmoteAttributes}"
                               TextDecorations="Underline"/>
-                        <Span Text="{Binding Lead4}" TextColor="{Binding SpeakerColor}" FontAutoScalingEnabled="False"
-                              FontFamily="{Binding SpeakerFontFamily}" FontAttributes="{Binding SpeakerAttributes}"/>
+                        <Span Text="{Binding Lead4}" TextColor="{Binding EmoteColor}" FontAutoScalingEnabled="False"
+                              FontFamily="{Binding EmoteFontFamily}" FontAttributes="{Binding EmoteAttributes}"/>
                         <Span Text="{Binding Quoted}" TextColor="{Binding WordsColor}" FontAutoScalingEnabled="False"
                               FontFamily="{Binding WordsFontFamily}" FontAttributes="{Binding WordsAttributes}"/>
-                        <Span Text="{Binding Tail}" TextColor="{Binding SpeakerColor}" FontAutoScalingEnabled="False"
-                              FontFamily="{Binding SpeakerFontFamily}" FontAttributes="{Binding SpeakerAttributes}"/>
+                        <Span Text="{Binding Tail}" TextColor="{Binding EmoteColor}" FontAutoScalingEnabled="False"
+                              FontFamily="{Binding EmoteFontFamily}" FontAttributes="{Binding EmoteAttributes}"/>
                     </FormattedString>
                 </Label.FormattedText>
             </Label>
@@ -222,8 +222,8 @@
                                     BackgroundColor="#2d333b" TextColor="#cccccc"
                                     FontSize="15" WidthRequest="34" HeightRequest="30"
                                     CornerRadius="4" Padding="0"/>
-                            <Label Text="{Binding ColumnsDisplay}" TextColor="White" FontSize="13"
-                                   WidthRequest="28" VerticalOptions="Center" HorizontalTextAlignment="Center"/>
+                            <Label Text="{Binding ColumnsLabel}" TextColor="White" FontSize="13"
+                                   MinimumWidthRequest="28" VerticalOptions="Center" HorizontalTextAlignment="Center"/>
                             <Button Text="+" Command="{Binding IncrColumnsCommand}"
                                     BackgroundColor="#2d333b" TextColor="#cccccc"
                                     FontSize="15" WidthRequest="34" HeightRequest="30"
@@ -625,23 +625,20 @@
                     <BoxView Color="#2d333b" HeightRequest="1"/>
 
                     <!-- - Chat colours - -->
-                    <Grid ColumnDefinitions="*,Auto">
-                        <Label Grid.Column="0" Text="Chat colours" TextColor="#58a6ff" FontSize="13" FontAttributes="Bold"
-                               VerticalOptions="Center"/>
-                        <Button Grid.Column="1"
-                                Text="{x:Static core:Glyph.Reset}"
+                    <Label Text="Chat colours" TextColor="#58a6ff" FontSize="13" FontAttributes="Bold"/>
+                    <Label Text="For everyone's lines. Emotes is who did it, and acts and emotes; the others are the quoted words. A shout or a tell is its own colour from end to end. Each row styles your own messages and other people's separately: italic, bold, dim."
+                           TextColor="#555555" FontSize="11" FontAttributes="Italic"/>
+
+                    <Grid ColumnDefinitions="160,Auto,Auto" ColumnSpacing="12">
+                        <Label Grid.Column="0" Text="Theme" TextColor="#888888" FontSize="13" VerticalOptions="Center"/>
+                        <Button Grid.Column="2"
+                                Text="{Binding ChatResetText}"
                                 Command="{Binding ResetChatColorsCommand}"
                                 ToolTipProperties.Text="Reset colors to the theme defaults"
                                 SemanticProperties.Description="Reset colors to the theme defaults"
                                 BackgroundColor="#2d333b" TextColor="#cccccc"
-                                FontSize="16" WidthRequest="34" HeightRequest="30"
-                                CornerRadius="4" Padding="0"/>
-                    </Grid>
-                    <Label Text="For everyone's lines. Acts/Speaks is who did it, and acts and emotes; the others are the quoted words. Each row styles your own messages and other people's separately: italic, bold, dim."
-                           TextColor="#555555" FontSize="11" FontAttributes="Italic"/>
-
-                    <Grid ColumnDefinitions="160,Auto" ColumnSpacing="12">
-                        <Label Grid.Column="0" Text="Theme" TextColor="#888888" FontSize="13" VerticalOptions="Center"/>
+                                FontSize="14" MinimumWidthRequest="34" HeightRequest="30"
+                                CornerRadius="4" Padding="8,0" VerticalOptions="Center"/>
                         <Picker Grid.Column="1"
                                 ItemsSource="{Binding ChatThemeNames}"
                                 SelectedIndex="{Binding SelectedChatThemeIndex, Mode=TwoWay}"
@@ -680,19 +677,37 @@
                                     </HorizontalStackLayout>
                                     <HorizontalStackLayout Grid.Row="2" Grid.Column="1" Spacing="2">
                                         <Label Text="own:" TextColor="#888888" FontSize="12" VerticalOptions="Center" Margin="0,0,4,0"/>
-                                        <CheckBox IsChecked="{Binding OwnItalic, Mode=TwoWay}" Color="#1f6feb" VerticalOptions="Center"/>
-                                        <Label Text="italic" TextColor="#cccccc" FontSize="12" FontAttributes="Italic" VerticalOptions="Center"/>
-                                        <CheckBox IsChecked="{Binding OwnBold, Mode=TwoWay}" Color="#1f6feb" VerticalOptions="Center"/>
-                                        <Label Text="bold" TextColor="#cccccc" FontSize="12" FontAttributes="Bold" VerticalOptions="Center"/>
-                                        <CheckBox IsChecked="{Binding OwnDim, Mode=TwoWay}" Color="#1f6feb" VerticalOptions="Center"/>
-                                        <Label Text="dim" TextColor="#777777" FontSize="12" VerticalOptions="Center"/>
+                                        <HorizontalStackLayout Spacing="2" Margin="0,0,12,0">
+                                            <CheckBox IsChecked="{Binding OwnItalic, Mode=TwoWay}" Color="#1f6feb" VerticalOptions="Center"
+                                                      MinimumWidthRequest="0" WidthRequest="{OnPlatform WinUI=32, Android=44}"/>
+                                            <Label Text="italic" TextColor="#cccccc" FontSize="12" FontAttributes="Italic" VerticalOptions="Center"/>
+                                        </HorizontalStackLayout>
+                                        <HorizontalStackLayout Spacing="2" Margin="0,0,12,0">
+                                            <CheckBox IsChecked="{Binding OwnBold, Mode=TwoWay}" Color="#1f6feb" VerticalOptions="Center"
+                                                      MinimumWidthRequest="0" WidthRequest="{OnPlatform WinUI=32, Android=44}"/>
+                                            <Label Text="bold" TextColor="#cccccc" FontSize="12" FontAttributes="Bold" VerticalOptions="Center"/>
+                                        </HorizontalStackLayout>
+                                        <HorizontalStackLayout Spacing="2" Margin="0,0,0,0">
+                                            <CheckBox IsChecked="{Binding OwnDim, Mode=TwoWay}" Color="#1f6feb" VerticalOptions="Center"
+                                                      MinimumWidthRequest="0" WidthRequest="{OnPlatform WinUI=32, Android=44}"/>
+                                            <Label Text="dim" TextColor="#777777" FontSize="12" VerticalOptions="Center"/>
+                                        </HorizontalStackLayout>
                                         <Label Text="other:" TextColor="#888888" FontSize="12" VerticalOptions="Center" Margin="18,0,4,0"/>
-                                        <CheckBox IsChecked="{Binding OtherItalic, Mode=TwoWay}" Color="#1f6feb" VerticalOptions="Center"/>
-                                        <Label Text="italic" TextColor="#cccccc" FontSize="12" FontAttributes="Italic" VerticalOptions="Center"/>
-                                        <CheckBox IsChecked="{Binding OtherBold, Mode=TwoWay}" Color="#1f6feb" VerticalOptions="Center"/>
-                                        <Label Text="bold" TextColor="#cccccc" FontSize="12" FontAttributes="Bold" VerticalOptions="Center"/>
-                                        <CheckBox IsChecked="{Binding OtherDim, Mode=TwoWay}" Color="#1f6feb" VerticalOptions="Center"/>
-                                        <Label Text="dim" TextColor="#777777" FontSize="12" VerticalOptions="Center"/>
+                                        <HorizontalStackLayout Spacing="2" Margin="0,0,12,0">
+                                            <CheckBox IsChecked="{Binding OtherItalic, Mode=TwoWay}" Color="#1f6feb" VerticalOptions="Center"
+                                                      MinimumWidthRequest="0" WidthRequest="{OnPlatform WinUI=32, Android=44}"/>
+                                            <Label Text="italic" TextColor="#cccccc" FontSize="12" FontAttributes="Italic" VerticalOptions="Center"/>
+                                        </HorizontalStackLayout>
+                                        <HorizontalStackLayout Spacing="2" Margin="0,0,12,0">
+                                            <CheckBox IsChecked="{Binding OtherBold, Mode=TwoWay}" Color="#1f6feb" VerticalOptions="Center"
+                                                      MinimumWidthRequest="0" WidthRequest="{OnPlatform WinUI=32, Android=44}"/>
+                                            <Label Text="bold" TextColor="#cccccc" FontSize="12" FontAttributes="Bold" VerticalOptions="Center"/>
+                                        </HorizontalStackLayout>
+                                        <HorizontalStackLayout Spacing="2" Margin="0,0,0,0">
+                                            <CheckBox IsChecked="{Binding OtherDim, Mode=TwoWay}" Color="#1f6feb" VerticalOptions="Center"
+                                                      MinimumWidthRequest="0" WidthRequest="{OnPlatform WinUI=32, Android=44}"/>
+                                            <Label Text="dim" TextColor="#777777" FontSize="12" VerticalOptions="Center"/>
+                                        </HorizontalStackLayout>
                                     </HorizontalStackLayout>
                                     <Border Grid.Column="2" Grid.RowSpan="3" IsVisible="{Binding ShowExamples}"
                                             HorizontalOptions="Start"

@@ -45,7 +45,7 @@ public sealed record ClientSettings
     public int DreamwordSizeOffset { get; init; }
     /// <summary>Hex color (6 digits, no '#') for the speaker of every chat line - who did the
     /// thing - and for act/emote/social text.</summary>
-    public string SpeakerColor { get; init; } = MudSharp.Models.ChatTheme.Default.SpeakerHex;
+    public string EmoteColor { get; init; } = MudSharp.Models.ChatTheme.Default.EmoteHex;
     /// <summary>Hex color for said words, everyone's.</summary>
     public string SayColor { get; init; } = MudSharp.Models.ChatTheme.Default.SayHex;
     /// <summary>Hex color for shouted words (shout/yell/yodel/scream/holler), everyone's.</summary>

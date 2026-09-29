@@ -159,4 +159,24 @@ public sealed class SessionEndWatcherTests
     [InlineData(SessionDropReason.Unknown, null)]
     public void EveryReasonMapsToItsStoredWord(SessionDropReason reason, string? expected)
         => Assert.Equal(expected, PersonaSessionEndNote.For(reason));
+
+    /// <summary>The drowning's verbatim summary, wrapped by hand the way the server wraps at /T20,
+    /// each row ending in the "\r\0" wrap padding: the summary is 43 columns, so a width under that
+    /// splits it.</summary>
+    [Fact]
+    public void ASummaryTheServerWrapped_IsStillADeath()
+        => Assert.Equal(SessionDropReason.Died, Classify(
+            "(Persona saved on -55 = 2,321).",
+            "Overall, you scored\r\0",
+            "2,126 points this\r\0",
+            "game.\r\0"));
+
+    /// <summary>Two sentences on consecutive rows are two sentences: the first row ends one, so it
+    /// is not the front of a wrapped summary, however the pair reads joined. Constructed, not from
+    /// the wire: the pair is chosen to fit the summary's shape once joined.</summary>
+    [Fact]
+    public void TwoSeparateSentences_AreNeverJoinedIntoASummary()
+        => Assert.Equal(SessionDropReason.Unknown, Classify(
+            "Overall, you feel great.",
+            "That will cost you 12 points this game."));
 }

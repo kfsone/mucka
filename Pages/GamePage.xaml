@@ -14,6 +14,11 @@
              SafeAreaEdges="All">
 
     <ContentPage.Resources>
+        <!-- The wide bar's lesser figures - each stat's /max and the score's gain - a point under
+             StatLabelStyle's size. -->
+        <OnPlatform x:Key="StatMinorFontSize" x:TypeArguments="x:Double" Default="12">
+            <On Platform="WinUI" Value="13"/>
+        </OnPlatform>
         <Style x:Key="StatLabelStyle" TargetType="Label">
             <Setter Property="TextColor" Value="White"/>
             <Setter Property="FontSize" Value="{OnPlatform WinUI=14, Default=13}"/>
@@ -70,7 +75,7 @@
                             <FormattedString>
                                 <Span Text="Sta: " TextColor="#58a6ff"/>
                                 <Span Text="{Binding StaCurValue}" TextColor="{Binding StaColor}" FontAttributes="Bold"/>
-                                <Span Text="{Binding StaMaxValue}" TextColor="#808080" FontSize="{OnPlatform WinUI=13, Default=12}"/>
+                                <Span Text="{Binding StaMaxValue}" TextColor="#808080" FontSize="{StaticResource StatMinorFontSize}"/>
                             </FormattedString>
                         </Label.FormattedText>
                     </Label>
@@ -80,7 +85,7 @@
                             <FormattedString>
                                 <Span Text="Mag: " TextColor="#58a6ff"/>
                                 <Span Text="{Binding MagCurValue}" TextColor="{Binding MagColor}" FontAttributes="Bold"/>
-                                <Span Text="{Binding MagMaxValue}" TextColor="#808080" FontSize="{OnPlatform WinUI=13, Default=12}"/>
+                                <Span Text="{Binding MagMaxValue}" TextColor="#808080" FontSize="{StaticResource StatMinorFontSize}"/>
                             </FormattedString>
                         </Label.FormattedText>
                     </Label>
@@ -89,7 +94,7 @@
                             <FormattedString>
                                 <Span Text="Str: " TextColor="#58a6ff"/>
                                 <Span Text="{Binding StrCurValue}" TextColor="{Binding StrColor}" FontAttributes="Bold"/>
-                                <Span Text="{Binding StrMaxValue}" TextColor="#808080" FontSize="{OnPlatform WinUI=13, Default=12}"/>
+                                <Span Text="{Binding StrMaxValue}" TextColor="#808080" FontSize="{StaticResource StatMinorFontSize}"/>
                             </FormattedString>
                         </Label.FormattedText>
                     </Label>
@@ -98,7 +103,7 @@
                             <FormattedString>
                                 <Span Text="Dex: " TextColor="#58a6ff"/>
                                 <Span Text="{Binding DexCurValue}" TextColor="{Binding DexColor}" FontAttributes="Bold"/>
-                                <Span Text="{Binding DexMaxValue}" TextColor="#808080" FontSize="{OnPlatform WinUI=13, Default=12}"/>
+                                <Span Text="{Binding DexMaxValue}" TextColor="#808080" FontSize="{StaticResource StatMinorFontSize}"/>
                             </FormattedString>
                         </Label.FormattedText>
                     </Label>
@@ -113,7 +118,8 @@
                             <FormattedString>
                                 <Span Text="Score: " TextColor="#58a6ff"/>
                                 <Span Text="{Binding ScoreValue}" TextColor="{Binding ScoreColor}" FontAttributes="Bold"/>
-                                <Span Text="{Binding ScoreDeltaValue}" TextColor="{Binding ScoreColor}"/>
+                                <Span Text="{Binding ScoreDeltaValue}" TextColor="{Binding ScoreColor}"
+                                      FontSize="{StaticResource StatMinorFontSize}"/>
                                 <Span Text=" &#x1F50D;" TextColor="#58a6ff" FontSize="11"/>
                             </FormattedString>
                         </Label.FormattedText>
@@ -320,11 +326,18 @@
                            Margin="0,0,4,0"/>
 
                     <Label Grid.Row="1" Grid.Column="5"
-                           Text="{Binding ScoreDisplayValue}" TextColor="{Binding ScoreColor}"
                            Style="{StaticResource StatLabelStyle}"
-                           FontSize="{Binding ScoreCompactFontSize}" FontAttributes="Bold"
                            MaxLines="1" LineBreakMode="TailTruncation"
                            HorizontalOptions="Center" Margin="0,0,4,0">
+                        <Label.FormattedText>
+                            <FormattedString>
+                                <Span Text="{Binding ScoreValue}" TextColor="{Binding ScoreColor}"
+                                      FontSize="{Binding ScoreCompactFontSize}" FontAttributes="Bold"/>
+                                <Span Text="{Binding ScoreCompactDeltaValue}" TextColor="{Binding ScoreColor}"
+                                      FontSize="{Binding ScoreCompactDeltaFontSize}"
+                                      FontAttributes="{Binding ScoreCompactDeltaAttributes}"/>
+                            </FormattedString>
+                        </Label.FormattedText>
                         <Label.GestureRecognizers>
                             <TapGestureRecognizer Command="{Binding ToggleScoreGraphCommand}"/>
                         </Label.GestureRecognizers>

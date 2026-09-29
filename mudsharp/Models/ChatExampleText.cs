@@ -4,7 +4,7 @@ namespace MudSharp.Models;
 /// The text of one example line in the settings editor's chat colours preview, in the pane's
 /// three-part shape: the speaker's framing (<see cref="Lead"/> and <see cref="Tail"/>) around the
 /// quoted words (<see cref="Quoted"/>). <see cref="Words"/> is the row that colours the quoted
-/// words; an act or emote is all lead and belongs to the Speaker row. <see cref="Own"/> is a line
+/// words; an act or emote is all lead and belongs to the Emotes row. <see cref="Own"/> is a line
 /// of your own rather than another Creature's.
 ///
 /// <para>A tell's lead carries the underlines the pane's tell decoration draws, found by the same
@@ -36,7 +36,7 @@ public sealed class ChatExampleText
     public IReadOnlyList<string> LeadRuns { get; }
 
     // Other's lines are another Creature's; Yourname's and "You" are yours. The names and framing
-    // of every line are the Speaker row's, so that row's own examples are the emotes.
+    // of every line are the Emotes row's, so that row's own examples are the emotes.
     public static IReadOnlyList<ChatExampleText> Say { get; } =
     [
         new(SpeechPart.Say, own: false, "Other the hero says \"", "Fizz", "\"."),
@@ -55,7 +55,7 @@ public sealed class ChatExampleText
         new(SpeechPart.Tell, own: true,  "You tell your listeners \"", "Buzz", "\"."),
     ];
 
-    public static IReadOnlyList<ChatExampleText> Speaker { get; } =
+    public static IReadOnlyList<ChatExampleText> Emote { get; } =
     [
         new(SpeechPart.Speaker, own: false, "Other the hero dances."),
         new(SpeechPart.Speaker, own: true,  "Yourname the hero dances."),

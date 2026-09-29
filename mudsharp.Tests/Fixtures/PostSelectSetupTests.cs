@@ -307,6 +307,110 @@ public class PostSelectSetupTests : IDisposable
         Assert.Equal(["A rat scurries past."], _visible);
     }
 
+    private List<string> VisibleContent() => _visible.Select(v => v.Trim()).Where(v => v.Length > 0).ToList();
+
+    /// <summary><c>phone-login-at-20-columns.c1</c>: a phone login at /T20 (mud2.co.uk, Kayfez,
+    /// 2026-09-28), the server's rows from the setup batch's replies to the end of the score sheet, cut
+    /// verbatim from the wire table. Every reply is wrapped, and every one's first row is only the
+    /// start of its sentence - "You're already", "You will now get", and "name:" with the name pushed
+    /// to the next row.</summary>
+    [Fact]
+    public void PhoneLoginAt20Columns_SwallowsEveryReply_AndClosesTheWindow()
+    {
+        Enter();
+        foreach (var payload in C1Capture.ReadRx("phone-login-at-20-columns.c1"))
+            _session.Feed(payload);
+
+        Assert.Empty(VisibleContent());
+        Assert.Equal(["Kayfez"], _identified);
+
+        // The window closed at the score frame's prompt, so the player's own `score` shows.
+        Prompt(); Feed("score\r\n");
+        Assert.Equal(["score"], VisibleContent());
+    }
+
+    // The same replies at /T44, wrapped the way the server wraps ("\r\0\r\n" at the last space that
+    // fits). At this width the identify reply splits between "identification" and "numbers", so the
+    // lead-in and the subject sit on different rows.
+    [Fact]
+    public void RepliesWrappedAt44Columns_AreSwallowed()
+    {
+        Enter();
+        Prompt(); Feed(Echoes);
+        Prompt(); Feed(Wrap(IdentifyReplyAgain, 44));
+        Prompt(); Feed(Wrap(FightBriefReplyAgain, 44));
+        Prompt(); Feed(Wrap(AutoFexReply, 44));
+        Prompt(); Feed(ScoreSheet);
+        Prompt(); Feed("A rat scurries past.\r\n");
+
+        Assert.Equal(["A rat scurries past."], VisibleContent());
+        Assert.Equal(["Ollie"], _identified);
+    }
+
+    // A high-ranking persona is refused auto fex. Verbatim at /T80, as the operator saw it leak, with
+    // the frame prompt glued onto the first row.
+    private const string AutoFexRefusedAt80 =
+        "*At your level, you should be well past the stage of needing to use AUTO FEEXITS\r\0\r\n" +
+        "commands... If you're really so much of a wimp that you get lost without them, you'll\r\0\r\n" +
+        "just have to cope as best you can with the manual version, FEEXITS.\r\0\r\n";
+
+    [Theory]
+    [InlineData(80)]
+    [InlineData(20)]
+    public void AutoFexRefusedAtHighRank_IsSwallowed(int cols)
+    {
+        Enter();
+        Prompt(); Feed(Echoes);
+        Prompt(); Feed(cols == 80 ? AutoFexRefusedAt80 : Wrap(AutoFexRefusedAt80.Replace("\r\0\r\n", " ").TrimStart('*'), cols));
+        Prompt(); Feed(ScoreSheet);
+        Prompt(); Feed("A rat scurries past.\r\n");
+
+        Assert.Equal(["A rat scurries past."], VisibleContent());
+        Assert.Equal(["Ollie"], _identified);
+    }
+
+    /// <summary>A frame that opens like a reply and then turns out not to be one is shown whole and
+    /// in order once it diverges - held, never dropped.</summary>
+    [Fact]
+    public void HeldRows_OfAFrameThatIsNotOurs_AreShownInOrder()
+    {
+        Enter();
+        Prompt(); Feed(Echoes);
+        Prompt(); Feed("You're already\r\0\r\ngetting tired.\r\0\r\nRest a while.\r\0\r\n");
+        Prompt(); Feed("You'll now get\r\0\r\n");   // the frame ends still undecided
+        Prompt(); Feed(ScoreSheet);
+        Prompt();
+
+        Assert.Equal(["You're already", "getting tired.", "Rest a while.", "You'll now get"], VisibleContent());
+    }
+
+    // Wraps each sentence of a reply the way MUD2 does at /T<cols>.
+    private static string Wrap(string reply, int cols)
+    {
+        var sb = new StringBuilder();
+        foreach (var sentence in reply.Split("\r\n", StringSplitOptions.RemoveEmptyEntries))
+        {
+            var row = new StringBuilder();
+            foreach (var word in sentence.Split(' '))
+            {
+                if (row.Length > 0 && row.Length + 1 + word.Length > cols)
+                {
+                    sb.Append(row).Append("\r\0\r\n");
+                    row.Clear();
+                }
+                if (row.Length > 0) row.Append(' ');
+                row.Append(word);
+            }
+            sb.Append(row).Append("\r\0\r\n");
+        }
+        return sb.ToString();
+    }
+
+    [Fact]
+    public void Wrap_SplitsTheIdentifyReplyBetweenItsLeadInAndItsSubject()
+        => Assert.StartsWith("You're already getting object identification\r\0\r\nnumbers",
+            Wrap(IdentifyReplyAgain, 44));
+
     /// <summary>Widening the matcher must not have made it greedy: ordinary game prose that happens to
     /// start the same way is NOT part of the setup batch and must still render.</summary>
     [Theory]

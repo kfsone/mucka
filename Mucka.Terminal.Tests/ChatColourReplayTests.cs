@@ -13,9 +13,9 @@ namespace Mucka.Terminal.Tests;
 /// </summary>
 public class ChatColourReplayTests
 {
-    private static readonly ChatColorizer.Palette Before = new(Speaker: 0x112233, Say: 0x445566, Shout: 0x778899, Tell: 0xaabbcc, Faces: ChatFaces.Default);
-    private static readonly ChatColorizer.Palette After  = new(Speaker: 0x010203, Say: 0x040506, Shout: 0x070809, Tell: 0x0a0b0c,
-        Faces: ChatFaces.Default with { ShoutOwn = ChatFace.Bold, SayOther = ChatFace.Italic | ChatFace.Dim, SpeakerOther = ChatFace.Bold });
+    private static readonly ChatColorizer.Palette Before = new(Emote: 0x112233, Say: 0x445566, Shout: 0x778899, Tell: 0xaabbcc, Faces: ChatFaces.Default);
+    private static readonly ChatColorizer.Palette After  = new(Emote: 0x010203, Say: 0x040506, Shout: 0x070809, Tell: 0x0a0b0c,
+        Faces: ChatFaces.Default with { ShoutOwn = ChatFace.Bold, SayOther = ChatFace.Italic | ChatFace.Dim, EmoteOther = ChatFace.Bold });
 
     // {09.00}Lazlo the yeoman says "{09.02}hi{pop}".{pop}, then your own shout and an emote.
     private static List<StyledLine> Ingest()
@@ -49,7 +49,7 @@ public class ChatColourReplayTests
         {
             Assert.Equal(Before.Say,     CampbellPalette.ForegroundRgb(Span(held, "hi"), Before));
             Assert.Equal(Before.Shout,   CampbellPalette.ForegroundRgb(Span(held, "help"), Before));
-            Assert.Equal(Before.Speaker, CampbellPalette.ForegroundRgb(Span(held, "dances"), Before));
+            Assert.Equal(Before.Emote, CampbellPalette.ForegroundRgb(Span(held, "dances"), Before));
 
             // At the defaults: your words italic, nothing else styled.
             Assert.Equal(ChatFace.Italic, Before.FaceOf(Span(held, "help")));
@@ -60,13 +60,13 @@ public class ChatColourReplayTests
             // The same held spans, changed settings: drawn in the new colours and faces, exactly.
             Assert.Equal(ChatColorizer.Dim(After.Say), CampbellPalette.ForegroundRgb(Span(held, "hi"), After));
             Assert.Equal(After.Shout,   CampbellPalette.ForegroundRgb(Span(held, "help"), After));
-            Assert.Equal(After.Speaker, CampbellPalette.ForegroundRgb(Span(held, "dances"), After));
-            Assert.Equal(After.Speaker, CampbellPalette.ForegroundRgb(Span(held, "Lazlo the yeoman says \""), After));
+            Assert.Equal(After.Emote, CampbellPalette.ForegroundRgb(Span(held, "dances"), After));
+            Assert.Equal(After.Emote, CampbellPalette.ForegroundRgb(Span(held, "Lazlo the yeoman says \""), After));
             Assert.Equal(ChatFace.Bold, After.FaceOf(Span(held, "help")));
             Assert.Equal(ChatFace.Italic | ChatFace.Dim, After.FaceOf(Span(held, "hi")));
             Assert.Equal(ChatFace.Bold, After.FaceOf(Span(held, "dances")));
             Assert.Equal(ChatFace.Bold, After.FaceOf(Span(held, "Lazlo the yeoman says \"")));
-            Assert.Equal(ChatFace.None, After.FaceOf(Span(held, "You shout \"")));   // your label: SpeakerOwn
+            Assert.Equal(ChatFace.None, After.FaceOf(Span(held, "You shout \"")));   // your label: EmoteOwn
         }
     }
 }

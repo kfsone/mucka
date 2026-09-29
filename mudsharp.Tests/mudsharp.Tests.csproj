@@ -44,6 +44,8 @@
           CopyToOutputDirectory="PreserveNewest" />
     <None Include="Fixtures\Data\dark-two-rats.c1" Link="Fixtures\Data\dark-two-rats.c1"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Fixtures\Data\phone-login-at-20-columns.c1" Link="Fixtures\Data\phone-login-at-20-columns.c1"
+          CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

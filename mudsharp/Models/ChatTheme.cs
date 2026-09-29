@@ -15,7 +15,7 @@ namespace MudSharp.Models;
 /// <item>A missing or malformed colour key is the selected theme's value.</item>
 /// </list>
 /// </summary>
-public sealed record ChatTheme(string Key, string Name, int Speaker, int Say, int Shout, int Tell)
+public sealed record ChatTheme(string Key, string Name, int Emote, int Say, int Shout, int Tell)
 {
     public static readonly ChatTheme Lamplight = new("lamplight", "Lamplight", 0xBFA36A, 0xEDE6D0, 0xFFA033, 0x7FB8FF);
     public static readonly ChatTheme Dusk      = new("dusk",      "Dusk",      0xD69A5C, 0xF4DDB5, 0xFF8A3D, 0xA99CFF);
@@ -38,16 +38,16 @@ public sealed record ChatTheme(string Key, string Name, int Speaker, int Say, in
         return Default;
     }
 
-    public string SpeakerHex => ChatColorizer.ToHex(Speaker);
+    public string EmoteHex => ChatColorizer.ToHex(Emote);
     public string SayHex     => ChatColorizer.ToHex(Say);
     public string ShoutHex   => ChatColorizer.ToHex(Shout);
     public string TellHex    => ChatColorizer.ToHex(Tell);
 
     /// <summary><paramref name="palette"/> with this theme's four colours and its own faces: a theme pick.</summary>
     public ChatColorizer.Palette ApplyTo(ChatColorizer.Palette palette)
-        => palette with { Speaker = Speaker, Say = Say, Shout = Shout, Tell = Tell };
+        => palette with { Emote = Emote, Say = Say, Shout = Shout, Tell = Tell };
 
     /// <summary>This theme's four colours with <see cref="ChatFaces.Default"/>: a reset.</summary>
     public ChatColorizer.Palette ResetPalette()
-        => new(Speaker, Say, Shout, Tell, ChatFaces.Default);
+        => new(Emote, Say, Shout, Tell, ChatFaces.Default);
 }

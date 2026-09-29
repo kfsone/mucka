@@ -274,16 +274,23 @@ public sealed class MuckaConnection : IAsyncDisposable
         => _swingLedger.WarmDamageIndexAsync(cancellationToken);
 
     private int _windowCols;
+    private readonly ResetNumberWatcher _resetNumberWatcher = new();
+
+    /// <summary>The columns the server is told (NAWS and <c>/T</c>).</summary>
+    public int WindowColumns => _windowCols;
 
     /// <param name="host">The server this connection is for. Taken here rather than at
     /// <see cref="ConnectAsync"/> because the store opens with the connection, so the login exchange -
     /// the part of a session most worth a byte-exact record of - is in the wire log like everything
     /// else.</param>
-    public MuckaConnection(string? accountId = null, string? password = null, int maxCols = 80,
+    /// <param name="windowCols">The columns the server is told from the first NAWS on
+    /// (<see cref="Mucka.Terminal.TerminalColumns.Effective"/>): the login is wrapped at it.</param>
+    public MuckaConnection(string? accountId = null, string? password = null,
+        int windowCols = Mucka.Terminal.TerminalColumns.Unmeasured,
         string loginName = "mud", string host = "unknown", DreamwordCarry? dreamwordCarry = null)
     {
         _dreamwordCarry = dreamwordCarry ?? new DreamwordCarry();
-        _windowCols = Math.Clamp(maxCols, 20, 160);
+        _windowCols = Math.Clamp(windowCols, Mucka.Terminal.TerminalColumns.Min, Mucka.Terminal.TerminalColumns.Max);
         _store = new MuckaStore(
             MuckaPaths.GetDatabasePath(),
             string.IsNullOrWhiteSpace(host) ? "unknown" : host.Trim(),
@@ -480,15 +487,15 @@ public sealed class MuckaConnection : IAsyncDisposable
     /// </summary>
     internal void SendClientModeEntry()
     {
-        _session.SetWindowSize(_windowCols, 21);
+        _session.SetWindowSize(_windowCols, 21);  // TODO: Should reference naws cols rather than being random magic number
 
-        // ESC-[  = begin command interrupt
-        // ESC^F  = best-client mode (binary activation)
-        // ESC-T  = text mode (color ANSI baseline)
-        // ESC-N  = normal mode (server honours our column count)
-        // /T{n}  = MUD shell command: set terminal width
-        // ESC-]  = end command interrupt
-        byte[] prefix = { 0x1B, 0x2D, 0x5B, 0x1B, 0x06, 0x1B, 0x2D, 0x54, 0x1B, 0x2D, 0x4E };
+        byte[] prefix = {
+            // "command" here means user input, a command interrupt allows us to
+            // embed something that won't be echoed.
+            0x1B, 0x2D, 0x5B,   // ESC-[  = begin command interrupt
+            0x1B, 0x06,         // ESC^F  = C1 mode, server selects compatability level
+            0x1B, 0x2D, 0x4E    // ESC-N  = normal mode (server honours our column count)
+        };
         byte[] colCmd = Encoding.ASCII.GetBytes($"/T{_windowCols}");
         byte[] suffix = { 0x1B, 0x2D, 0x5D };
 
@@ -765,13 +772,12 @@ public sealed class MuckaConnection : IAsyncDisposable
     /// same connection, and a stale epoch is worse than none - it would date rows to a world that no
     /// longer exists.</para>
     ///
-    /// <para>On the line-ready path, so it is deliberately cheap: an ordinal prefix compare rejects
-    /// every line but this one before any pattern runs (Invariant #1).</para>
+    /// <para>The server wraps the sentence at the negotiated width, so it is read by
+    /// <see cref="ResetNumberWatcher"/>, which joins the rows back up.</para>
     /// </summary>
     private void NoteBannerLine(string text)
     {
-        if (!text.StartsWith("This reset is number", StringComparison.Ordinal)
-            || !ShellText.TryParseResetNumber(text, out var reset))
+        if (!_resetNumberWatcher.TryNote(text, out var reset))
             return;
         ResetNumber = reset;
         EnterWorld(DreamwordCarry.World.Of(_host, _port, reset));

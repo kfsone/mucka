@@ -12,19 +12,19 @@ public enum ChatFace
 
 /// <summary>
 /// The faces of the four chat rows, one for your own messages and one for another Creature's.
-/// A row's faces style the spans of its <see cref="SpeechPart"/>: the Speaker row the label and the
+/// A row's faces style the spans of its <see cref="SpeechPart"/>: the Emotes row the label and the
 /// act/emote text alike, the Say, Shout and Tell rows the quoted words. They are looked up when a
 /// span is drawn (<see cref="ChatColorizer.Palette.FaceOf"/>), never stored on it.
 /// </summary>
 public readonly record struct ChatFaces(
-    ChatFace SpeakerOwn, ChatFace SpeakerOther,
+    ChatFace EmoteOwn, ChatFace EmoteOther,
     ChatFace SayOwn,     ChatFace SayOther,
     ChatFace ShoutOwn,   ChatFace ShoutOther,
     ChatFace TellOwn,    ChatFace TellOther)
 {
     /// <summary>The defaults: the words of your own say, shout and tell italic, nothing else styled.</summary>
     public static readonly ChatFaces Default = new(
-        SpeakerOwn: ChatFace.None,   SpeakerOther: ChatFace.None,
+        EmoteOwn: ChatFace.None,   EmoteOther: ChatFace.None,
         SayOwn:     ChatFace.Italic, SayOther:     ChatFace.None,
         ShoutOwn:   ChatFace.Italic, ShoutOther:   ChatFace.None,
         TellOwn:    ChatFace.Italic, TellOther:    ChatFace.None);
@@ -33,7 +33,7 @@ public readonly record struct ChatFaces(
     /// <see cref="ChatFace.None"/> for <see cref="SpeechPart.None"/>.</summary>
     public ChatFace Of(SpeechPart part, bool own) => part switch
     {
-        SpeechPart.Speaker => own ? SpeakerOwn : SpeakerOther,
+        SpeechPart.Speaker => own ? EmoteOwn : EmoteOther,
         SpeechPart.Say     => own ? SayOwn     : SayOther,
         SpeechPart.Shout   => own ? ShoutOwn   : ShoutOther,
         SpeechPart.Tell    => own ? TellOwn    : TellOther,
@@ -43,8 +43,8 @@ public readonly record struct ChatFaces(
     /// <summary>A copy with one row side's face replaced.</summary>
     public ChatFaces With(SpeechPart part, bool own, ChatFace face) => (part, own) switch
     {
-        (SpeechPart.Speaker, true)  => this with { SpeakerOwn   = face },
-        (SpeechPart.Speaker, false) => this with { SpeakerOther = face },
+        (SpeechPart.Speaker, true)  => this with { EmoteOwn   = face },
+        (SpeechPart.Speaker, false) => this with { EmoteOther = face },
         (SpeechPart.Say,     true)  => this with { SayOwn       = face },
         (SpeechPart.Say,     false) => this with { SayOther     = face },
         (SpeechPart.Shout,   true)  => this with { ShoutOwn     = face },

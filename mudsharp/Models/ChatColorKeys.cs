@@ -7,21 +7,21 @@ namespace MudSharp.Models;
 /// set(section, key, value) and remove(section, key) operations.
 ///
 /// <para>A face key holds a comma-separated list of <c>italic</c>, <c>bold</c> and <c>dim</c>, or
-/// <c>none</c>: <c>sayown=italic</c>, <c>speakerother=bold,dim</c>. An absent key, or one holding
+/// <c>none</c>: <c>sayown=italic</c>, <c>emoteother=bold,dim</c>. An absent key, or one holding
 /// any other word, is that row side's default face.</para>
 /// </summary>
 public static class ChatColorKeys
 {
     public const string Section = "settings";
-    public const string Speaker = "speakercolor";
+    public const string Emote   = "emotecolor";
     public const string Say     = "saycolor";
     public const string Shout   = "shoutcolor";
     public const string Tell    = "tellcolor";
     /// <summary>The selected <see cref="ChatTheme"/>, by its <see cref="ChatTheme.Key"/>.</summary>
     public const string Theme   = "chattheme";
 
-    public const string SpeakerOwn   = "speakerown";
-    public const string SpeakerOther = "speakerother";
+    public const string EmoteOwn   = "emoteown";
+    public const string EmoteOther = "emoteother";
     public const string SayOwn       = "sayown";
     public const string SayOther     = "sayother";
     public const string ShoutOwn     = "shoutown";
@@ -30,11 +30,11 @@ public static class ChatColorKeys
     public const string TellOther    = "tellother";
 
     /// <summary>Keys no setting reads any more; removed from every section on save.</summary>
-    public static readonly IReadOnlyList<string> DeadKeys = ["menamecolor", "mespeechcolor"];
+    public static readonly IReadOnlyList<string> DeadKeys = ["menamecolor", "mespeechcolor", "speakercolor", "speakerown", "speakerother"];
 
     private static readonly (SpeechPart Part, bool Own, string Key)[] FaceKeys =
     [
-        (SpeechPart.Speaker, true, SpeakerOwn), (SpeechPart.Speaker, false, SpeakerOther),
+        (SpeechPart.Speaker, true, EmoteOwn), (SpeechPart.Speaker, false, EmoteOther),
         (SpeechPart.Say,     true, SayOwn),     (SpeechPart.Say,     false, SayOther),
         (SpeechPart.Shout,   true, ShoutOwn),   (SpeechPart.Shout,   false, ShoutOther),
         (SpeechPart.Tell,    true, TellOwn),    (SpeechPart.Tell,    false, TellOther),
@@ -45,21 +45,21 @@ public static class ChatColorKeys
     /// <see cref="ChatTheme.Default"/>; an absent or malformed colour key is the selected theme's
     /// colour. A readable stored colour is returned as its own value, never replaced by the theme's.
     /// </summary>
-    public static (ChatTheme Theme, string Speaker, string Say, string Shout, string Tell) Read(Func<string, string, string?> get)
+    public static (ChatTheme Theme, string Emote, string Say, string Shout, string Tell) Read(Func<string, string, string?> get)
     {
         ArgumentNullException.ThrowIfNull(get);
         var theme = ChatTheme.Find(get(Section, Theme));
         string Colour(string key, int fallback) => ChatColorizer.ToHex(ChatColorizer.TryParseRgb(get(Section, key)) ?? fallback);
-        return (theme, Colour(Speaker, theme.Speaker), Colour(Say, theme.Say), Colour(Shout, theme.Shout), Colour(Tell, theme.Tell));
+        return (theme, Colour(Emote, theme.Emote), Colour(Say, theme.Say), Colour(Shout, theme.Shout), Colour(Tell, theme.Tell));
     }
 
     /// <summary>Writes the selected theme and the four colours.</summary>
-    public static void Write(Action<string, string, string> set, ChatTheme theme, string speakerHex, string sayHex, string shoutHex, string tellHex)
+    public static void Write(Action<string, string, string> set, ChatTheme theme, string emoteHex, string sayHex, string shoutHex, string tellHex)
     {
         ArgumentNullException.ThrowIfNull(set);
         ArgumentNullException.ThrowIfNull(theme);
         set(Section, Theme,   theme.Key);
-        set(Section, Speaker, speakerHex);
+        set(Section, Emote,   emoteHex);
         set(Section, Say,     sayHex);
         set(Section, Shout,   shoutHex);
         set(Section, Tell,    tellHex);

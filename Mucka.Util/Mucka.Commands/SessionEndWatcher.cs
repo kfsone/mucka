@@ -36,7 +36,11 @@ public sealed class SessionEndWatcher
     public bool Decided => Reason != SessionDropReason.Unknown;
 
     /// <summary>Starts watching a fresh login. Call on game-mode entry.</summary>
-    public void Begin() => Reason = SessionDropReason.Unknown;
+    public void Begin()
+    {
+        Reason = SessionDropReason.Unknown;
+        _tail.Clear();
+    }
 
     /// <summary>The world reset landed - the server's own C06 C06. It takes the server down and logs
     /// everyone out, so the game-mode exit that follows belongs to it.</summary>
@@ -45,26 +49,43 @@ public sealed class SessionEndWatcher
     /// <summary>The persona was wiped - the decoder's C08+C13.</summary>
     public void NotePersonaWiped() => Set(SessionDropReason.Permadeath);
 
+    // The summary is the longest of the three landmarks: "Overall, you scored 2,126 points this game."
+    // is 43 columns, so any width under that wraps it - to three rows at TerminalColumns.Min.
+    private const int LandmarkRows = 3;
+    private readonly WrappedTail _tail = new(LandmarkRows);
+
     /// <summary>
     /// One line of server output, as plain text. Normalised here so callers can hand over whatever
-    /// they have - the live path has a styled line's PlainText, the backfill has a replayed one.
+    /// they have - the live path has a styled line's PlainText, the backfill has a replayed one. A
+    /// landmark the server wrapped is read from this line joined to the ones before it.
     /// </summary>
     public void NoteLine(string text)
     {
         if (Decided || string.IsNullOrEmpty(text))
             return;
 
-        var normalized = ShellText.NormalizeWhitespace(text);
-        if (ShellText.IsQuitFarewellLine(normalized))
-            Set(SessionDropReason.Quit);
-        // Before the summary check, and it has to be: a reset prints the same end-of-game summary a
-        // death does, so whichever is seen first wins and the reset landing precedes it. Live this is
-        // redundant - NoteWorldResetLanded has already fired from the C06 C06 code by now - and it
-        // carries a replay, where that event cannot fire at all.
-        else if (ShellText.IsWorldResetLandingLine(normalized))
-            Set(SessionDropReason.Reset);
-        else if (ShellText.IsGameSummaryLine(normalized))
-            Set(SessionDropReason.Died);
+        _tail.Add(text);
+        // Every landmark ends on its own terminator, so only a line ending on one can finish a
+        // wrapped landmark, and only then are the joins built.
+        var last = ShellText.NormalizeWhitespace(text);
+        if (!last.EndsWith('.') && !last.EndsWith('!'))
+            return;
+
+        foreach (var normalized in _tail.Candidates())
+        {
+            if (ShellText.IsQuitFarewellLine(normalized))
+                Set(SessionDropReason.Quit);
+            // Before the summary check, and it has to be: a reset prints the same end-of-game summary a
+            // death does, so whichever is seen first wins and the reset landing precedes it. Live this is
+            // redundant - NoteWorldResetLanded has already fired from the C06 C06 code by now - and it
+            // carries a replay, where that event cannot fire at all.
+            else if (ShellText.IsWorldResetLandingLine(normalized))
+                Set(SessionDropReason.Reset);
+            else if (ShellText.IsGameSummaryLine(normalized))
+                Set(SessionDropReason.Died);
+            if (Decided)
+                return;
+        }
     }
 
     private void Set(SessionDropReason reason)

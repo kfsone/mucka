@@ -193,14 +193,13 @@ public sealed class MudSession : IDisposable
     private ISessionTimer? _creatureProbeTimeoutTimer;
 
     // -- Post-character-select setup swallow state -------------------------------
-    // On game-mode entry we inject a setup batch ("auto fex\r\nscore\r\n") and hide its echo +
-    // replies from the terminal (TrySwallowSetupLine). Each reply arrives as its own server
-    // "frame", and every frame is introduced by an IsPartial '*' prompt line - a boundary that
-    // survives line-wrapping (narrow widths only add more content lines within a frame, never
-    // more prompts). So we recognise each setup frame by its first content line and then swallow
-    // the whole frame up to the next prompt; the score frame is the last, and its closing prompt
-    // shuts the window. All fields are touched only on the Feed thread (game-entry and line
-    // processing both run there).
+    // On game-mode entry we inject a setup batch (SetupCommands) and hide its echo + replies from
+    // the terminal (FilterSetupLine). Each reply arrives as its own server "frame", and every frame
+    // is introduced by an IsPartial '*' prompt line - a boundary that survives line-wrapping (narrow
+    // widths only add more content lines within a frame, never more prompts). So we recognise each
+    // setup frame from its unwrapped text and then swallow the whole frame up to the next prompt;
+    // the score frame is the last, and its closing prompt shuts the window. All fields are touched
+    // only on the Feed thread (game-entry and line processing both run there).
     //
     // The window opens ONCE, at game entry, and nothing reopens it. There is deliberately NO periodic
     // `score` refresh, and this is a hard rule rather than a tuning choice.
@@ -297,7 +296,7 @@ public sealed class MudSession : IDisposable
     // Testability seam only: production never clears it. A replay of a recorded session must not
     // send the post-character-select setup batch (identify / fightbrief / auto fex / score) or open
     // the swallow window that hides its echoes - the recording cannot answer, so the window would
-    // never close and TrySwallowSetupLine would eat combat frames for the rest of the capture.
+    // never close and FilterSetupLine would eat combat frames for the rest of the capture.
     internal bool SetupInjectEnabled { get; set; } = true;
 
     /// <summary>Testability seam: the tracker, for the wiring tests to read what the two
@@ -593,6 +592,11 @@ public sealed class MudSession : IDisposable
         _onlineNames.Clear();
         _pendingOnlineNames.Clear();
         _parser.Reset();
+        // Disconnected: what the setup window was holding belongs to a connection that is gone.
+        _setupHeld.Clear();
+        _setupWindowActive    = false;
+        _setupSwallowingFrame = false;
+        _setupCloseAfterFrame = false;
         _currentStats = GameStatsSnapshot.Empty;
         _currentDreamword = null;
         _resetClock.OnGameModeExited();   // disconnect: drop any live projection
@@ -631,42 +635,51 @@ public sealed class MudSession : IDisposable
     }
 
     // -- Private ----------------------------------------------------------------
+
+    // Feed thread. Everything a server line goes through once the setup filter has let it by.
+    private void DeliverLine(StyledLine line)
+    {
+        // Swallow the echo + reply of an injected `value <name>` sniff so it never
+        // reaches the terminal. Fast volatile check keeps normal lines free of cost.
+        if (_sniffInFlight != null && TryConsumeSniffLine(line))
+            return;
+        // Swallow the echo + reply/replies of an injected in-combat creature-value probe -
+        // its own in-flight slot, discriminated by target from the player sniff's above. An
+        // outstanding player sniff and an outstanding creature probe only avoid eating each
+        // other's lines because BOTH sides discriminate - this slot by target name, the sniff
+        // above by the reply's anchored name position (see the "In-combat creature value
+        // probe" field remarks and TryConsumeSniffLine) - discriminating by target alone is not
+        // sufficient: a creature reply can satisfy a bare substring match against the sniff's
+        // name.
+        if (_creatureProbeInFlight != null && TryConsumeCreatureValueLine(line))
+            return;
+        // Cancel the dreamword when we see our own persona speak it: speaking uses it,
+        // whether it recovered stamina (scenario: server also sends a C1 clear) or was a
+        // no-op (full stamina / already consumed - no C1 clear ever arrives). Cheap guard:
+        // only runs while a dreamword is active. See TryCancelSpokenDreamword.
+        if (_currentDreamword is not null)
+            TryCancelSpokenDreamword(line);
+        // Before Observe: a dark room anonymises every Creature line, so the tracker has to know
+        // before it classifies anything that arrives after the line saying so.
+        NoteDarknessLine(line);
+        _combat.Observe(line, CombatClock());
+        // After _combat.Observe, so InCombat already reflects any fight this very line opened.
+        NoteInventoryChangeLine(line);
+        LineReady?.Invoke(line);
+    }
+
     private void WireParserEvents()
     {
         _parser.LineReady += line =>
         {
-            // Swallow the echo + replies of the post-character-select setup batch (auto fex,
-            // score, CTRL-T time sentinel) so they never reach the terminal. Bounded to the
-            // brief window after game-mode entry; the flag keeps normal lines free of cost.
-            if (_setupWindowActive && TrySwallowSetupLine(line))
-                return;
-            // Swallow the echo + reply of an injected `value <name>` sniff so it never
-            // reaches the terminal. Fast volatile check keeps normal lines free of cost.
-            if (_sniffInFlight != null && TryConsumeSniffLine(line))
-                return;
-            // Swallow the echo + reply/replies of an injected in-combat creature-value probe -
-            // its own in-flight slot, discriminated by target from the player sniff's above. An
-            // outstanding player sniff and an outstanding creature probe only avoid eating each
-            // other's lines because BOTH sides discriminate - this slot by target name, the sniff
-            // above by the reply's anchored name position (see the "In-combat creature value
-            // probe" field remarks and TryConsumeSniffLine) - discriminating by target alone is not
-            // sufficient: a creature reply can satisfy a bare substring match against the sniff's
-            // name.
-            if (_creatureProbeInFlight != null && TryConsumeCreatureValueLine(line))
-                return;
-            // Cancel the dreamword when we see our own persona speak it: speaking uses it,
-            // whether it recovered stamina (scenario: server also sends a C1 clear) or was a
-            // no-op (full stamina / already consumed - no C1 clear ever arrives). Cheap guard:
-            // only runs while a dreamword is active. See TryCancelSpokenDreamword.
-            if (_currentDreamword is not null)
-                TryCancelSpokenDreamword(line);
-            // Before Observe: a dark room anonymises every Creature line, so the tracker has to know
-            // before it classifies anything that arrives after the line saying so.
-            NoteDarknessLine(line);
-            _combat.Observe(line, CombatClock());
-            // After _combat.Observe, so InCombat already reflects any fight this very line opened.
-            NoteInventoryChangeLine(line);
-            LineReady?.Invoke(line);
+            // The echo + replies of the post-character-select setup batch never reach the terminal.
+            // Bounded to the brief window after game-mode entry; the flag keeps normal lines free of
+            // cost. The filter passes on what is not ours through DeliverLine, possibly a few lines
+            // late (see FilterSetupLine).
+            if (_setupWindowActive)
+                FilterSetupLine(line);
+            else
+                DeliverLine(line);
         };
         _parser.StatsUpdated += MergeStats;
         _parser.PersonaWiped += () => PersonaWiped?.Invoke();
@@ -968,8 +981,8 @@ public sealed class MudSession : IDisposable
         // and needs no "is it already on?" probe first.
         //
         // Each replies in its OWN frame, in one of two wordings depending on whether the setting was
-        // already on - see the matcher in TrySwallowSetupLine for all four verbatim strings.
-        // The echo + replies are hidden from the terminal (TrySwallowSetupLine), but the score
+        // already on - see SetupReplies for the verbatim strings.
+        // The echo + replies are hidden from the terminal (FilterSetupLine), but the score
         // line's stats still reach the UI (the parser's analyzer fires StatsUpdated before
         // LineReady). Future user-defined setup commands slot in before `score`, which stays
         // LAST so its reply frame is the one that closes the swallow window.
@@ -982,7 +995,7 @@ public sealed class MudSession : IDisposable
         OpenSetupWindow();
         // The server echoes each command back on its own line, then executes them on subsequent
         // game turns - the outputs (auto-fex FEEXITS confirmation, then the score sheet) trickle
-        // in over the next ~700ms. Both echoes and outputs are hidden (TrySwallowSetupLine).
+        // in over the next ~700ms. Both echoes and outputs are hidden (FilterSetupLine).
         Send(System.Text.Encoding.Latin1.GetBytes(string.Join("\r\n", SetupCommands) + "\r\n"));
 
         // Request our first front-end exit list now (auto fex only arms it for future moves).
@@ -1005,6 +1018,7 @@ public sealed class MudSession : IDisposable
         _pendingOnlineNames.Clear();
         // Safety net: tear the setup window down on exit in case the score frame's closing
         // prompt never arrived. The character is gone until the next entry re-runs the batch.
+        ReleaseSetupHeld();
         _setupWindowActive    = false;
         _setupSwallowingFrame = false;
         _setupCloseAfterFrame = false;
@@ -1582,92 +1596,74 @@ public sealed class MudSession : IDisposable
     // completion; verified from a live session recording.)
     private static readonly string[] SetupCommands = { "identify", "fightbrief", "auto fex", "score" };
 
-    // First line of the `score` sheet: "name:           Ollie". A leading frame prompt ("*name:")
-    // is stripped before matching. Character names are single tokens, so the "name:" line never
-    // wraps - a reliable frame-start marker even at narrow terminal widths.
-    private static readonly System.Text.RegularExpressions.Regex SetupNameRegex = new(
-        @"^name:\s+(\S+)",
-        System.Text.RegularExpressions.RegexOptions.Compiled | System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+    // Feed thread. Holds the lines of the current unclaimed frame while they could still be the
+    // start of a setup reply; see FilterSetupLine.
+    private readonly List<StyledLine> _setupHeld = new();
 
-    // Feed thread. Returns true when the line belongs to the injected setup batch and should be
-    // swallowed. Works by frame, not by matching every line: each server reply arrives as a frame
-    // led by an IsPartial '*' prompt, so we recognise a setup frame from its FIRST content line
-    // (echo / FEEXITS / "name:" - all at column 0, so wrapping never hides them) and then swallow
-    // every line of that frame up to the next prompt. This is width-independent: a wrapped reply
-    // just adds more content lines inside the same frame (matching by individual line label would
-    // leak the moment a value wrapped). Player chatter arrives in its own frame, is not claimed, and still
-    // shows. The score frame is the last we claim; its closing prompt shuts the window. Called
-    // only while _setupWindowActive.
-    private bool TrySwallowSetupLine(StyledLine line)
+    // Feed thread, only while _setupWindowActive. Works by frame: each server reply arrives as a
+    // frame led by an IsPartial '*' prompt, and a frame the setup batch owns is swallowed whole up to
+    // the next prompt, so a wrapped reply's extra rows go with it.
+    //
+    // Which frame is ours is decided on the frame's text with the server's wrapping taken out
+    // (SetupReplies.Classify), never on its first physical row. At /T20 the first rows were
+    // "You're already", "You will now get" and a bare "name:", and at /T44 "You're already getting
+    // object identification" still splits the subject from its lead-in. So the frame's rows are held
+    // while their joined text could still become one of ours, swallowed when it does, and passed on
+    // the moment it cannot - at worst the few rows an unrelated frame shares with a reply's opening
+    // words. Player chatter arrives in its own frame and still shows. The score frame is the last
+    // we claim; its closing prompt shuts the window.
+    private void FilterSetupLine(StyledLine line)
     {
-        // Frame boundary: the '*' prompt that leads every frame. Let it render as the prompt, but
-        // use it to delimit frames - and to close the window once the score frame has ended.
+        // Frame boundary: the '*' prompt that leads every frame. It renders as the prompt, after
+        // whatever the frame it ends was still holding.
         if (line.IsPartial)
         {
+            ReleaseSetupHeld();
             if (_setupCloseAfterFrame)
             {
                 _setupWindowActive    = false;
                 _setupCloseAfterFrame = false;
             }
-            _setupSwallowingFrame = false;   // a new frame begins; re-decide on its first line
-            return false;                    // show the prompt (rendered in place, as normal)
+            _setupSwallowingFrame = false;   // a new frame begins; re-decide on its text
+            DeliverLine(line);
+            return;
         }
 
-        // Already inside a setup frame we've claimed - swallow the rest of it (wrapped
-        // continuations included) until the next prompt clears _setupSwallowingFrame.
+        // Inside a setup frame we have claimed: swallow the rest of it until the next prompt.
         if (_setupSwallowingFrame)
-            return true;
+            return;
 
-        // First content line of a fresh frame - decide whether the setup batch owns it.
-        var text = line.PlainText.Trim('\r', '\n', '\0', ' ');
-        var body = StripLeadingPrompt(text);   // a frame prompt can glue onto the first line
-
-        // Command echoes - the server echoes each injected command on its own line.
-        foreach (var cmd in SetupCommands)
-            if (body.Equals(cmd, StringComparison.OrdinalIgnoreCase))
-                return ClaimFrame();
-
-        // `auto fex` confirmation frame - opens "You will now get an automatic FEEXITS ...".
-        if (body.Contains("FEEXITS", StringComparison.OrdinalIgnoreCase) ||
-            body.StartsWith("You will now get an automatic", StringComparison.OrdinalIgnoreCase))
-            return ClaimFrame();
-
-        // `identify` / `fightbrief` confirmation frames - one frame each, and TWO wordings apiece,
-        // because MUD2 answers differently when the setting was already on. All four verbatim
-        // (session-rec.mud2.co.uk.20260819-134737 for the first pair, a second capture for the pair):
-        //   You'll now get object identification numbers where applicable.
-        //   You're already getting object identification numbers where applicable.
-        //   You'll now get brief descriptions of fights.
-        //   You're already getting brief descriptions of fights.
-        // Both "already" forms are the ordinary case from the second login onward: the commands are
-        // SETs rather than toggles, so the batch re-sends them every entry and MUD2 says so.
-        //
-        // Matched as lead-in AND subject rather than on the whole sentence, so a wrap at a narrow
-        // terminal width cannot hide the frame's first line from us the way an exact match would -
-        // the same reason the auto-fex matcher above keys on "FEEXITS" rather than its full sentence.
-        if ((body.StartsWith("You'll now get ", StringComparison.OrdinalIgnoreCase) ||
-             body.StartsWith("You're already getting ", StringComparison.OrdinalIgnoreCase)) &&
-            (body.Contains("identification numbers", StringComparison.OrdinalIgnoreCase) ||
-             body.Contains("descriptions of fights", StringComparison.OrdinalIgnoreCase)))
-            return ClaimFrame();
-
-        // `score` sheet frame - opens on the "name:" line, which yields the character name and is
-        // the LAST frame we claim, so arm the window to close when this frame's prompt arrives.
-        var nm = SetupNameRegex.Match(body);
-        if (nm.Success)
+        _setupHeld.Add(line);
+        // A frame prompt can glue onto the first line ("*name: ...").
+        var text = StripLeadingPrompt(ServerText.Collapse(string.Join(' ', _setupHeld.Select(l => l.PlainText))));
+        switch (SetupReplies.Classify(text, SetupCommands, out var characterName))
         {
-            SetCurrentCharacter(nm.Groups[1].Value);
-            _setupCloseAfterFrame = true;
-            return ClaimFrame();
+            case SetupReplies.Verdict.Ours:
+                _setupHeld.Clear();
+                _setupSwallowingFrame = true;
+                if (characterName is not null)
+                {
+                    // The score sheet is the LAST frame we claim: the window closes at its prompt.
+                    SetCurrentCharacter(characterName);
+                    _setupCloseAfterFrame = true;
+                }
+                break;
+            case SetupReplies.Verdict.NotOurs:
+                ReleaseSetupHeld();
+                break;
+            // Undecided: keep holding.
         }
+    }
 
-        return false;   // not ours (e.g. player chatter) - show it
-
-        bool ClaimFrame()
-        {
-            _setupSwallowingFrame = true;
-            return true;
-        }
+    // Feed thread. Passes on, in order, the rows an unclaimed frame was holding.
+    private void ReleaseSetupHeld()
+    {
+        if (_setupHeld.Count == 0)
+            return;
+        var held = _setupHeld.ToArray();
+        _setupHeld.Clear();
+        foreach (var l in held)
+            DeliverLine(l);
     }
 
     /// <summary>
@@ -1678,6 +1674,7 @@ public sealed class MudSession : IDisposable
     /// </summary>
     private void OpenSetupWindow()
     {
+        _setupHeld.Clear();
         _setupSwallowingFrame = false;
         _setupCloseAfterFrame = false;
         _setupWindowActive    = true;   // volatile store - publishes the two writes above
@@ -2145,7 +2142,7 @@ public sealed class MudSession : IDisposable
     /// consumed by the decoder and the FEI list is diverted into the parser's own buffer
     /// (MudStreamParser's InFeiResponseContext), so neither ever reaches LineReady. That is why the
     /// existing heartbeat, which sends this same interrupt at a ~1.26s median cadence, is invisible
-    /// in the terminal today. TrySwallowSetupLine exists for TYPED commands whose replies are plain
+    /// in the terminal today. FilterSetupLine exists for TYPED commands whose replies are plain
     /// text; routing an interrupt through it would leave the swallow window waiting for a first
     /// content line that never comes, eating real combat text instead.</para>
     /// </summary>

@@ -5,15 +5,15 @@ namespace MudSharp.Tests.Fixtures;
 /// <summary>
 /// <see cref="ChatColorizer"/>, <see cref="CampbellPalette.ForegroundRgb"/> and
 /// <see cref="ChatColorKeys"/>. Operator rules under test: four colour rows for everyone's lines
-/// (speaker, say, shout, tell), looked up when a span is drawn and drawn exactly; acts and emotes
-/// take the speaker row; the default colours are the selected theme's (<see cref="ChatThemeTests"/>); each row has an own and an other
+/// (emotes, say, shout, tell), looked up when a span is drawn and drawn exactly; acts and emotes
+/// take the emotes row; a shout or tell is its channel's colour end to end; the default colours are the selected theme's (<see cref="ChatThemeTests"/>); each row has an own and an other
 /// face (italic, bold, dim), looked up when drawn, whose defaults are the words of your own say,
 /// shout and tell italic and nothing else.
 /// </summary>
 public class ChatColorizerTests
 {
-    private static readonly ChatColorizer.Palette Test = new(Speaker: 0x112233, Say: 0x445566, Shout: 0x778899, Tell: 0xaabbcc, Faces: ChatFaces.Default);
-    private static readonly ChatColorizer.Palette Other = new(Speaker: 0x010101, Say: 0x020202, Shout: 0x030303, Tell: 0x040404, Faces: ChatFaces.Default);
+    private static readonly ChatColorizer.Palette Test = new(Emote: 0x112233, Say: 0x445566, Shout: 0x778899, Tell: 0xaabbcc, Faces: ChatFaces.Default);
+    private static readonly ChatColorizer.Palette Other = new(Emote: 0x010101, Say: 0x020202, Shout: 0x030303, Tell: 0x040404, Faces: ChatFaces.Default);
 
     // -- Defaults ---------------------------------------------------------------
 
@@ -99,12 +99,63 @@ public class ChatColorizerTests
     [InlineData("Lazlo the yeoman says ",         0x9D, 0x445566)]   // other's say
     [InlineData("Wargames the necromancer yodels ", 0x9C, 0x778899)] // other's shout family
     [InlineData("Lazlo the yeoman tells you ",    0x9E, 0xaabbcc)]   // other's tell, inbound
-    public void Words_AreDrawnInTheirChannelColour_AndTheLabelInTheSpeakerColour(string label, byte subcode, int wordsRgb)
+    public void Words_AreDrawnInTheirChannelColour_AShoutOrTellEndToEnd_ASaysLabelInTheEmotesColour(string label, byte subcode, int wordsRgb)
     {
         var line = ChatColorizer.Apply(Wire(label, subcode, "hi"), "Ollie");
+        var labelRgb = subcode == 0x9D ? 0x112233 : wordsRgb;   // operator rule: shouts and tells end to end
         Assert.Equal(wordsRgb, Drawn(StyleOf(line, "hi"), Test));
-        Assert.Equal(0x112233, Drawn(line.Spans[0].Style, Test));
-        Assert.Equal(0x112233, Drawn(StyleOf(line, "\"."), Test));
+        Assert.Equal(labelRgb, Drawn(line.Spans[0].Style, Test));
+        Assert.Equal(labelRgb, Drawn(StyleOf(line, "\"."), Test));
+    }
+
+    // A message the server wrapped before its quoted words start: the first row is all label, and
+    // the channel shows only on the continuation row.
+    private static List<StyledLine> WireWrapped(string labelRow, string labelRest, byte subcode, string words)
+    {
+        var h = new ParserHarness();
+        h.Feed(0x9D, 0x9C, 0xFF, 0xFF);         // C02+C01: game mode, as in play
+        h.Feed("setup\n");
+        h.Feed(0x9B, 0xFF, 0xFF);               // C00
+        h.Feed([0xA4, 0x9B, 0xFF, 0xFF, .. System.Text.Encoding.ASCII.GetBytes(labelRow),
+                (byte)'\r', 0x00, (byte)'\r', (byte)'\n',
+                .. System.Text.Encoding.ASCII.GetBytes(labelRest + "\""),
+                0xA4, subcode, 0xFF, 0xFF, .. System.Text.Encoding.ASCII.GetBytes(words), 0xFF, 0xFF,
+                (byte)'"', (byte)'.', 0xFF, 0xFF, (byte)'\r', 0x00, (byte)'\r', (byte)'\n']);
+        return h.Lines.Where(l => l.Kind == LineKind.Chat).ToList();
+    }
+
+    [Fact]
+    public void AWrappedShout_IsItsChannelsColourOnTheRowBeforeItsWords_Too()
+    {
+        var lines = WireWrapped("Wargames the necromancer", "yodels ", 0x9C, "hi");
+        Assert.Equal(2, lines.Count);
+        Assert.True(lines[1].ContinuesChat);
+        var carry = default(ChatColorizer.Carry);
+        ChatColorizer.ApplyAll(lines, "Ollie", ref carry);
+        Assert.All(lines.SelectMany(l => l.Spans).Where(s => s.Style.Speech != SpeechPart.None),
+            s => Assert.Equal(0x778899, Drawn(s.Style, Test)));
+    }
+
+    [Fact]
+    public void AWrappedSay_KeepsTheEmotesColourAroundItsWords()
+    {
+        var lines = WireWrapped("Lazlo the yeoman", "says ", 0x9D, "hi");
+        var carry = default(ChatColorizer.Carry);
+        ChatColorizer.ApplyAll(lines, "Ollie", ref carry);
+        Assert.Equal(0x112233, Drawn(lines[0].Spans[0].Style, Test));
+        Assert.Equal(0x445566, Drawn(StyleOf(lines[1], "hi"), Test));
+    }
+
+    /// <summary>The whole-line rule is colour only: your own shout's label keeps the Emotes row's
+    /// upright face while its words take the shout row's italic.</summary>
+    [Fact]
+    public void AShoutsLabel_TakesTheShoutColour_ButKeepsTheEmotesFace()
+    {
+        var line = ChatColorizer.Apply(Wire("You shout ", 0x9C, "hi"), "Ollie");
+        var p = ChatColorizer.DefaultPalette;
+        Assert.Equal(p.Shout, Drawn(line.Spans[0].Style, p));
+        Assert.Equal(ChatFace.None, p.FaceOf(line.Spans[0].Style));
+        Assert.Equal(ChatFace.Italic, p.FaceOf(StyleOf(line, "hi")));
     }
 
     [Fact]
@@ -133,7 +184,7 @@ public class ChatColorizerTests
         Assert.All(line.Spans, s => Assert.Equal(mine, s.Style.Own));                        // the verdict is
         Assert.Equal(mine ? ChatFace.Italic : ChatFace.None, p.FaceOf(StyleOf(line, "hi")));
         Assert.All(line.Spans.Where(s => s.Text != "hi"), s => Assert.Equal(ChatFace.None, p.FaceOf(s.Style)));
-        Assert.All(line.Spans, s => Assert.Equal(p.RgbOf(s.Style.Speech), CampbellPalette.ForegroundRgb(s.Style, p)));
+        Assert.All(line.Spans, s => Assert.Equal(p.RgbOf(ChatColorizer.ColourPartOf(s.Style)), CampbellPalette.ForegroundRgb(s.Style, p)));
     }
 
     [Fact]
@@ -190,7 +241,7 @@ public class ChatColorizerTests
                         var expectedFace = target ? baseline.FaceOf(s) ^ flag : baseline.FaceOf(s);
                         Assert.Equal(expectedFace, toggled.FaceOf(s));
                         bool dimmed = (toggled.FaceOf(s) & ChatFace.Dim) != 0;
-                        int rgb = baseline.RgbOf(s.Speech)!.Value;
+                        int rgb = baseline.RgbOf(ChatColorizer.ColourPartOf(s))!.Value;
                         Assert.Equal(dimmed ? ChatColorizer.Dim(rgb) : rgb, CampbellPalette.ForegroundRgb(s, toggled));
                     }
                 }
@@ -199,7 +250,7 @@ public class ChatColorizerTests
     [Fact]
     public void TheSpeakerRowsFace_StylesTheLabelAndTheEmoteTextAlike()
     {
-        var p = Test with { Faces = ChatFaces.Default with { SpeakerOwn = ChatFace.Bold, SpeakerOther = ChatFace.Italic | ChatFace.Dim } };
+        var p = Test with { Faces = ChatFaces.Default with { EmoteOwn = ChatFace.Bold, EmoteOther = ChatFace.Italic | ChatFace.Dim } };
         foreach (var (subject, act, me) in new[] { ("Lazlo ", "dances", false), ("Ollie the heroine ", "dances", true) })
         {
             var line = ChatColorizer.Apply(WireAct(subject, act), "Ollie");
@@ -397,7 +448,7 @@ public class ChatColorizerTests
         Assert.Equal(ChatFaces.Default, ChatColorKeys.ReadFaces(ini.Get));   // absent keys are the defaults
 
         var faces = new ChatFaces(
-            SpeakerOwn: ChatFace.Bold,               SpeakerOther: ChatFace.Italic | ChatFace.Dim,
+            EmoteOwn: ChatFace.Bold,               EmoteOther: ChatFace.Italic | ChatFace.Dim,
             SayOwn:     ChatFace.None,               SayOther:     ChatFace.Dim,
             ShoutOwn:   ChatFace.Italic | ChatFace.Bold | ChatFace.Dim, ShoutOther: ChatFace.Bold,
             TellOwn:    ChatFace.Italic,             TellOther:    ChatFace.None);
@@ -405,7 +456,7 @@ public class ChatColorizerTests
 
         Assert.Equal(faces, ChatColorKeys.ReadFaces(ini.Get));
         Assert.Equal("none",            ini.Get("settings", "sayown"));      // own italic turned off stays off
-        Assert.Equal("italic,dim",      ini.Get("settings", "speakerother"));
+        Assert.Equal("italic,dim",      ini.Get("settings", "emoteother"));
         Assert.Equal("italic,bold,dim", ini.Get("settings", "shoutown"));
         Assert.Equal(8, ini.Sections["settings"].Count);
         Assert.Single(ini.Sections);
@@ -444,7 +495,8 @@ public class ChatColorizerTests
         ChatColorKeys.RemoveDeadKeys(ini.Sections.Keys, ini.Remove);
         foreach (var section in ini.Sections.Values)
             Assert.Equal(["fontsize"], section.Keys);
-        Assert.Equal(2, ChatColorKeys.DeadKeys.Count);
+        // The speaker row was renamed Emotes, and its keys with it.
+        Assert.Equal(["me" + "namecolor", "me" + "speechcolor", "speakercolor", "speakerown", "speakerother"], ChatColorKeys.DeadKeys);
     }
 
     [Fact]
@@ -459,7 +511,7 @@ public class ChatColorizerTests
         var profile = new Dictionary<string, string>(ini.Sections["profile:UK Alt"]);
 
         var lamp = ChatTheme.Lamplight;
-        Assert.Equal((lamp, lamp.SpeakerHex, lamp.SayHex, lamp.ShoutHex, lamp.TellHex), ChatColorKeys.Read(ini.Get));
+        Assert.Equal((lamp, lamp.EmoteHex, lamp.SayHex, lamp.ShoutHex, lamp.TellHex), ChatColorKeys.Read(ini.Get));
 
         ChatColorKeys.Write(ini.Set, ChatTheme.Dusk, "010203", "040506", "070809", "0a0b0c");
 

@@ -244,7 +244,7 @@ public class Mud2C1Tests
     [Fact]
     public void ChatExampleText_OtherRows_HaveNoUnderline()
     {
-        foreach (var example in ChatExampleText.Say.Concat(ChatExampleText.Shout).Concat(ChatExampleText.Speaker))
+        foreach (var example in ChatExampleText.Say.Concat(ChatExampleText.Shout).Concat(ChatExampleText.Emote))
             Assert.Equal([example.Lead, "", "", "", ""], example.LeadRuns);
     }
 

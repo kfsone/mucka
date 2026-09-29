@@ -28,34 +28,7 @@ public static class ShellText
     /// <summary>Collapses all whitespace (including the embedded NUL wrap-padding byte) to single
     /// spaces and trims the ends, so landmark/phrase matching is agnostic to how the server wrapped
     /// a given line for the negotiated terminal width.</summary>
-    public static string NormalizeWhitespace(string text)
-    {
-        if (string.IsNullOrEmpty(text))
-            return string.Empty;
-
-        var sb = new System.Text.StringBuilder(text.Length);
-        var lastWasSpace = false;
-        foreach (var c in text)
-        {
-            var isSpace = c is ' ' or '\r' or '\n' or '\t' or '\0';
-            if (isSpace)
-            {
-                if (!lastWasSpace && sb.Length > 0)
-                    sb.Append(' ');
-                lastWasSpace = true;
-            }
-            else
-            {
-                sb.Append(c);
-                lastWasSpace = false;
-            }
-        }
-
-        // Trim a single trailing space left by a run of whitespace at the very end.
-        if (sb.Length > 0 && sb[^1] == ' ')
-            sb.Length--;
-        return sb.ToString();
-    }
+    public static string NormalizeWhitespace(string text) => MudSharp.Models.ServerText.Collapse(text);
 
     private static bool ContainsPhrase(string normalized, string phrase)
         => normalized.Contains(phrase, StringComparison.OrdinalIgnoreCase);

@@ -80,8 +80,13 @@ public sealed class FkeyEditorViewModel : BaseViewModel
         get => _columns;
         set
         {
-            if (SetAndNotify(ref _columns, Math.Clamp(Math.Round(value), 40, 160), [nameof(ColumnsDisplay)]))
-                _columnsIsAuto = false;
+            var was = _columnsIsAuto;
+            _columnsIsAuto = false;
+            if (!SetAndNotify(ref _columns,
+                    Math.Clamp(Math.Round(value), Mucka.Terminal.TerminalColumns.Min, Mucka.Terminal.TerminalColumns.Max),
+                    [nameof(ColumnsDisplay), nameof(ColumnsLabel)])
+                && was)
+                OnPropertyChanged(nameof(ColumnsLabel));   // the count is unchanged but no longer auto
         }
     }
 
@@ -107,6 +112,11 @@ public sealed class FkeyEditorViewModel : BaseViewModel
 
     public int    FontSizeDisplay            => (int)Math.Round(_fontSize);
     public int    ColumnsDisplay             => (int)Math.Round(_columns);
+    /// <summary>The columns row's text: "auto (44)" on an auto profile, the count the terminal is
+    /// using in the brackets; the chosen maximum otherwise.</summary>
+    public string ColumnsLabel => _columnsIsAuto
+        ? $"auto ({ColumnsDisplay.ToString(CultureInfo.CurrentCulture)})"
+        : ColumnsDisplay.ToString(CultureInfo.CurrentCulture);
     public int    VolumeDisplay              => (int)Math.Round(_volume);
     public string StatUpdateFrequencyDisplay => _statUpdateFrequency <= 0 ? "Off" : $"{(int)Math.Round(_statUpdateFrequency)}s";
 
@@ -209,11 +219,11 @@ public sealed class FkeyEditorViewModel : BaseViewModel
         _displayColumns <= 0 ? "auto" : ((int)Math.Round(_displayColumns)).ToString(CultureInfo.CurrentCulture);
 
     // Chat colours - the four C09 colour rows and their own/other faces, for everyone's lines alike.
-    public ChatColorEditorItem SpeakerColor { get; }
+    public ChatColorEditorItem EmoteColor { get; }
     public ChatColorEditorItem SayColor     { get; }
     public ChatColorEditorItem ShoutColor   { get; }
     public ChatColorEditorItem TellColor    { get; }
-    public IReadOnlyList<ChatColorEditorItem> ChatColors => [SpeakerColor, SayColor, ShoutColor, TellColor];
+    public IReadOnlyList<ChatColorEditorItem> ChatColors => [EmoteColor, SayColor, ShoutColor, TellColor];
 
     /// <summary>The Theme drop-down's entries, in <see cref="ChatTheme.All"/> order.</summary>
     [SuppressMessage("Performance", "CA1822:Mark members as static",
@@ -241,7 +251,7 @@ public sealed class FkeyEditorViewModel : BaseViewModel
     private ChatTheme SelectedChatTheme => ChatTheme.All[_chatThemeIndex];
 
     /// <summary>The rows' colours and faces as a palette.</summary>
-    private ChatColorizer.Palette ChatPalette => new(SpeakerColor.Rgb, SayColor.Rgb, ShoutColor.Rgb, TellColor.Rgb,
+    private ChatColorizer.Palette ChatPalette => new(EmoteColor.Rgb, SayColor.Rgb, ShoutColor.Rgb, TellColor.Rgb,
         ChatColors.Aggregate(ChatFaces.Default, (faces, row) => row.WriteFaces(faces)));
 
     private void LoadChatPalette(ChatColorizer.Palette palette)
@@ -270,11 +280,15 @@ public sealed class FkeyEditorViewModel : BaseViewModel
             foreach (var row in ChatColors)
                 row.ShowExamples = value;
             OnPropertyChanged(nameof(ChatExamplesBelow));
+            OnPropertyChanged(nameof(ChatResetText));
         }
     }
     private bool _chatExamplesBeside;
 
     public bool ChatExamplesBelow => !_chatExamplesBeside;
+
+    /// <summary>The theme reset button's face: the word as well as the glyph when the window is wide.</summary>
+    public string ChatResetText => _chatExamplesBeside ? "Reset " + Glyph.Reset : Glyph.Reset;
 
     /// <summary>The game pane's background, behind the chat preview.</summary>
     public static Microsoft.Maui.Graphics.Color PaneBackground { get; } = RgbColor(CampbellPalette.Rgb[CampbellPalette.BackgroundSlot]);
@@ -357,7 +371,8 @@ public sealed class FkeyEditorViewModel : BaseViewModel
         string[] allFkeys,
         ClientSettings settings,
         Action<ClientSettings, string[]> onApply,
-        Func<ClientSettings, string[], Task>? onSave)
+        Func<ClientSettings, string[], Task>? onSave,
+        int effectiveColumns = 0)
     {
         _original = settings;
         _onApply  = onApply;
@@ -366,7 +381,10 @@ public sealed class FkeyEditorViewModel : BaseViewModel
 
         _fontSize = Math.Clamp(settings.FontSize, 9, 24);
         _columnsIsAuto = settings.MaxColumns <= 0;
-        _columns  = _columnsIsAuto ? 80 : Math.Clamp(settings.MaxColumns, 40, 160);
+        // Auto starts from the columns the terminal is using, so +/- steps from what is on screen.
+        _columns  = Math.Clamp(
+            _columnsIsAuto ? Mucka.Terminal.TerminalColumns.Effective(0, effectiveColumns) : settings.MaxColumns,
+            Mucka.Terminal.TerminalColumns.Min, Mucka.Terminal.TerminalColumns.Max);
         _volume   = Math.Clamp(settings.Volume, 0, 100);
         _statUpdateFrequency = settings.StatUpdateFrequency <= 0
             ? 0 : Math.Clamp(Math.Round(settings.StatUpdateFrequency / 5.0) * 5, 5, 30);
@@ -380,18 +398,18 @@ public sealed class FkeyEditorViewModel : BaseViewModel
         _displayFontSize       = settings.DefaultFontSize > 0 ? Math.Clamp(settings.DefaultFontSize, 9, 24) : 15;
         _displayColumns        = Math.Clamp(settings.DefaultMaxColumns, 0, 160);
         _chatThemeIndex = Math.Max(0, ChatTheme.All.ToList().IndexOf(settings.ChatTheme));
-        var chatPalette = ChatColorizer.ResolvePalette(SelectedChatTheme, settings.SpeakerColor, settings.SayColor,
+        var chatPalette = ChatColorizer.ResolvePalette(SelectedChatTheme, settings.EmoteColor, settings.SayColor,
             settings.ShoutColor, settings.TellColor, settings.ChatFaces);
-        SpeakerColor = new("Acts/Speaks", SpeechPart.Speaker, chatPalette);
+        EmoteColor = new("Emotes", SpeechPart.Speaker, chatPalette);
         SayColor     = new("Say",         SpeechPart.Say,     chatPalette);
         ShoutColor   = new("Shout",       SpeechPart.Shout,   chatPalette);
         TellColor    = new("Tell",        SpeechPart.Tell,    chatPalette);
-        // The names and framing of every line are the Acts/Speaks row's.
-        SayColor.Examples     = [.. ChatExampleText.Say.Select(t => new ChatExampleLine(SpeakerColor, SayColor, t))];
-        ShoutColor.Examples   = [.. ChatExampleText.Shout.Select(t => new ChatExampleLine(SpeakerColor, ShoutColor, t))];
-        TellColor.Examples    = [.. ChatExampleText.Tell.Select(t => new ChatExampleLine(SpeakerColor, TellColor, t))];
-        SpeakerColor.Examples = [.. ChatExampleText.Speaker.Select(t => new ChatExampleLine(SpeakerColor, SpeakerColor, t))];
-        ChatExamples = [.. SayColor.Examples, .. ShoutColor.Examples, .. TellColor.Examples, .. SpeakerColor.Examples];
+        // The names and framing of every line are the Emotes row's.
+        SayColor.Examples     = [.. ChatExampleText.Say.Select(t => new ChatExampleLine(EmoteColor, SayColor, t))];
+        ShoutColor.Examples   = [.. ChatExampleText.Shout.Select(t => new ChatExampleLine(EmoteColor, ShoutColor, t))];
+        TellColor.Examples    = [.. ChatExampleText.Tell.Select(t => new ChatExampleLine(EmoteColor, TellColor, t))];
+        EmoteColor.Examples = [.. ChatExampleText.Emote.Select(t => new ChatExampleLine(EmoteColor, EmoteColor, t))];
+        ChatExamples = [.. SayColor.Examples, .. ShoutColor.Examples, .. TellColor.Examples, .. EmoteColor.Examples];
         ResetChatColorsCommand = new Command(() => LoadChatPalette(SelectedChatTheme.ResetPalette()));
         _displayDreamwordOffset = Math.Clamp(settings.DreamwordSizeOffset, -2, 4);
         _showOnline    = settings.ShowOnline;
@@ -524,7 +542,7 @@ public sealed class FkeyEditorViewModel : BaseViewModel
         DefaultFontSize     = DisplayFontSizeDisplay,
         DefaultMaxColumns   = (int)Math.Round(_displayColumns),
         DreamwordSizeOffset = (int)Math.Round(_displayDreamwordOffset),
-        SpeakerColor        = SpeakerColor.Hex6,
+        EmoteColor        = EmoteColor.Hex6,
         SayColor            = SayColor.Hex6,
         ShoutColor          = ShoutColor.Hex6,
         TellColor           = TellColor.Hex6,

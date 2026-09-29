@@ -67,6 +67,10 @@ public sealed class ConnectViewModel : BaseViewModel
     // it again, so the two ends have to agree on one format. See OnMaxColumnsEntryCompleted.
     public string MaxColumnsText =>
         _maxColumns == 0 ? string.Empty : _maxColumns.ToString(CultureInfo.InvariantCulture);
+    /// <summary>This page's width, set by the page as it lays out. The game page has the same width,
+    /// so the terminal's columns are worked out from it before connecting.</summary>
+    public double PageWidthDp { get; set; }
+
     public int AntiIdleSeconds { get => _antiIdleSeconds; set => Set(ref _antiIdleSeconds, Math.Clamp(value, 0, 3600)); }
     public bool KeepScreenOn { get => _keepScreenOn; set => Set(ref _keepScreenOn, value); }
 
@@ -171,10 +175,21 @@ public sealed class ConnectViewModel : BaseViewModel
             // Not Invariant #1, which is about the command box and there is none on this page: this
             // is a frozen Connect button on the first launch after an update, which is a bad first
             // impression rather than a broken one. Worth fixing on its own merits.
+            // The server wraps the login at the width it is told on connecting, before the game page
+            // exists to measure; this page is as wide as that one, so the count is worked out here.
+            // Auto used to reach the connection as 0 and be clamped to 20.
+            var fontPx = SavedProfiles.FirstOrDefault(p =>
+                    string.Equals(p.Name, ProfileName, StringComparison.OrdinalIgnoreCase)) is { } font
+                ? (font.FontSize > 0 ? font.FontSize
+                   : font.DefaultFontSize > 0 ? font.DefaultFontSize
+                   : GameViewModel.DefaultFontSizePx)
+                : GameViewModel.DefaultFontSizePx;
+            var windowCols = Mucka.Terminal.TerminalColumns.Effective(
+                MaxColumns, Mucka.Terminal.TerminalColumns.Displayable(PageWidthDp, fontPx));
             var conn = await Task.Run(() => new MuckaConnection(
                 autoLogin ? accountId : null,
                 autoLogin ? resolvedPassword : null,
-                MaxColumns,
+                windowCols,
                 loginName,
                 Host.Trim(),
                 DreamwordCarry)).ConfigureAwait(true);
@@ -225,7 +240,7 @@ public sealed class ConnectViewModel : BaseViewModel
                 DefaultFontSize = saved?.DefaultFontSize ?? 0,
                 DefaultMaxColumns = saved?.DefaultMaxColumns ?? 0,
                 DreamwordSizeOffset = saved?.DreamwordSizeOffset ?? 0,
-                SpeakerColor = saved?.SpeakerColor ?? MudSharp.Models.ChatTheme.Default.SpeakerHex,
+                EmoteColor = saved?.EmoteColor ?? MudSharp.Models.ChatTheme.Default.EmoteHex,
                 SayColor = saved?.SayColor ?? MudSharp.Models.ChatTheme.Default.SayHex,
                 ShoutColor = saved?.ShoutColor ?? MudSharp.Models.ChatTheme.Default.ShoutHex,
                 TellColor = saved?.TellColor ?? MudSharp.Models.ChatTheme.Default.TellHex,

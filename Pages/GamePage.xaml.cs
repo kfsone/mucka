@@ -710,7 +710,8 @@ public partial class GamePage : ContentPage
             _vm.GetAllFkeys(),
             _vm.CurrentSettings,
             _vm.ApplyClientSettings,
-            onSave)
+            onSave,
+            _vm.EffCols)
         {
             ActiveTab = initialTab
         };

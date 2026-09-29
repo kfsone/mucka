@@ -31,7 +31,7 @@ public class ChatThemeTests
                 ("rose",      "Rose",      0xD4A04C, 0xF7E7B0, 0xFF8A3D, 0xFF9EC7),
                 ("bland",     "Bland",     0xCAB872, 0xFAECA8, 0xFFC474, 0xD8E09C),
             ],
-            ChatTheme.All.Select(t => (t.Key, t.Name, t.Speaker, t.Say, t.Shout, t.Tell)));
+            ChatTheme.All.Select(t => (t.Key, t.Name, t.Emote, t.Say, t.Shout, t.Tell)));
     }
 
     [Fact]
@@ -48,7 +48,7 @@ public class ChatThemeTests
     public void Bland_IsWithin28PerChannelOfE6D28C()
     {
         const int centre = 0xE6D28C;
-        foreach (var rgb in new[] { ChatTheme.Bland.Speaker, ChatTheme.Bland.Say, ChatTheme.Bland.Shout, ChatTheme.Bland.Tell })
+        foreach (var rgb in new[] { ChatTheme.Bland.Emote, ChatTheme.Bland.Say, ChatTheme.Bland.Shout, ChatTheme.Bland.Tell })
             foreach (var shift in new[] { 16, 8, 0 })
                 Assert.InRange(((rgb >> shift) & 0xFF) - ((centre >> shift) & 0xFF), -28, 28);
     }
@@ -65,7 +65,7 @@ public class ChatThemeTests
     public void Reset_RestoresTheThemesColours_AndTheDefaultFaces()
     {
         foreach (var theme in ChatTheme.All)
-            Assert.Equal(new ChatColorizer.Palette(theme.Speaker, theme.Say, theme.Shout, theme.Tell, ChatFaces.Default),
+            Assert.Equal(new ChatColorizer.Palette(theme.Emote, theme.Say, theme.Shout, theme.Tell, ChatFaces.Default),
                 theme.ResetPalette());
     }
 
@@ -74,7 +74,7 @@ public class ChatThemeTests
     {
         var ini = new Ini();
         ini.Set(ChatColorKeys.Section, ChatColorKeys.Theme, "rose");
-        ini.Set(ChatColorKeys.Section, ChatColorKeys.Speaker, "c19c00");   // a colour saved before themes
+        ini.Set(ChatColorKeys.Section, ChatColorKeys.Emote, "c19c00");   // a colour saved before themes
         ini.Set(ChatColorKeys.Section, ChatColorKeys.Shout, "not-a-colour");
         var (theme, speaker, say, shout, tell) = ChatColorKeys.Read(ini.Get);
         Assert.Same(ChatTheme.Rose, theme);

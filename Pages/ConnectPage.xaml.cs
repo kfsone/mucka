@@ -54,6 +54,7 @@ public partial class ConnectPage : ContentPage
     {
         base.OnSizeAllocated(width, height);
         if (width <= 0) return;
+        _vm.PageWidthDp = width;
         bool wide = width >= WideLayoutMinWidthDp;
         if (_isWideLayout != wide)
         {

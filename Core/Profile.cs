@@ -80,7 +80,7 @@ public class Profile
     public int DefaultMaxColumns { get; set; }
     public int DreamwordSizeOffset { get; set; }
     /// <summary>Hex color (6 digits, no '#') for the speaker of every chat line and act/emote text.</summary>
-    public string SpeakerColor { get; set; } = MudSharp.Models.ChatTheme.Default.SpeakerHex;
+    public string EmoteColor { get; set; } = MudSharp.Models.ChatTheme.Default.EmoteHex;
     /// <summary>Hex color for said words, everyone's.</summary>
     public string SayColor { get; set; } = MudSharp.Models.ChatTheme.Default.SayHex;
     /// <summary>Hex color for shouted words, everyone's.</summary>

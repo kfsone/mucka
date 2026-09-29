@@ -112,6 +112,11 @@ public sealed class ChatColorEditorItem : BaseViewModel
     public FontAttributes OwnAttributes   => Has(_own,   ChatFace.Bold) ? FontAttributes.Bold : FontAttributes.None;
     public FontAttributes OtherAttributes => Has(_other, ChatFace.Bold) ? FontAttributes.Bold : FontAttributes.None;
 
+    /// <summary>Another row's colour <paramref name="rgb"/> in this row's own or other face: dimmed
+    /// when that face is dim.</summary>
+    public Microsoft.Maui.Graphics.Color ColorIn(bool own, int rgb)
+        => ToColor(Has(own ? _own : _other, ChatFace.Dim) ? ChatColorizer.Dim(rgb) : rgb);
+
     private static bool Has(ChatFace face, ChatFace flag) => (face & flag) != 0;
 
     private void SetFace(ref ChatFace face, ChatFace flag, bool on, [System.Runtime.CompilerServices.CallerMemberName] string? name = null)
