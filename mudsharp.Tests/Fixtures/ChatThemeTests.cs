@@ -22,13 +22,14 @@ public class ChatThemeTests
     }
 
     [Fact]
-    public void TheTable_IsTheOperatorsFourThemes_InOrder()
+    public void TheTable_IsTheOperatorsThemes_InOrder()
     {
         Assert.Equal(
             [
                 ("lamplight", "Lamplight", 0xBFA36A, 0xEDE6D0, 0xFFA033, 0x7FB8FF),
                 ("dusk",      "Dusk",      0xD69A5C, 0xF4DDB5, 0xFF8A3D, 0xA99CFF),
                 ("rose",      "Rose",      0xD4A04C, 0xF7E7B0, 0xFF8A3D, 0xFF9EC7),
+                ("tidewater", "Tidewater", 0xD4A04C, 0xF7E7B0, 0xFF8A3D, 0x7FB8FF),   // Rose, Lamplight's tell
                 ("bland",     "Bland",     0xCAB872, 0xFAECA8, 0xFFC474, 0xD8E09C),
             ],
             ChatTheme.All.Select(t => (t.Key, t.Name, t.Emote, t.Say, t.Shout, t.Tell)));

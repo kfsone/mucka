@@ -1,12 +1,12 @@
 namespace MudSharp.Models;
 
 /// <summary>
-/// A built-in set of the four chat colours (speaker, say, shout, tell), picked by name in the
+/// A built-in set of the four chat colours (emote, say, shout, tell), picked by name in the
 /// chat colours editor and stored by <see cref="Key"/> in <c>[settings] chattheme</c>.
 ///
 /// Operator rules:
 /// <list type="bullet">
-/// <item>The themes are Lamplight, Dusk, Rose and Bland; Lamplight is the default.</item>
+/// <item>The themes are Lamplight, Dusk, Rose, Tidewater and Bland; Lamplight is the default.</item>
 /// <item>Picking a theme loads its four colours and leaves the faces alone. Colours edited after a
 ///   pick are kept as custom values: the four colour keys are what is drawn, and the theme is the
 ///   base the editor shows and resets to.</item>
@@ -20,11 +20,13 @@ public sealed record ChatTheme(string Key, string Name, int Emote, int Say, int 
     public static readonly ChatTheme Lamplight = new("lamplight", "Lamplight", 0xBFA36A, 0xEDE6D0, 0xFFA033, 0x7FB8FF);
     public static readonly ChatTheme Dusk      = new("dusk",      "Dusk",      0xD69A5C, 0xF4DDB5, 0xFF8A3D, 0xA99CFF);
     public static readonly ChatTheme Rose      = new("rose",      "Rose",      0xD4A04C, 0xF7E7B0, 0xFF8A3D, 0xFF9EC7);
+    /// <summary>Operator rule: Rose, with Lamplight's tell colour.</summary>
+    public static readonly ChatTheme Tidewater = new("tidewater", "Tidewater", Rose.Emote, Rose.Say, Rose.Shout, Lamplight.Tell);
     /// <summary>Every colour within 28 per channel of #E6D28C.</summary>
     public static readonly ChatTheme Bland     = new("bland",     "Bland",     0xCAB872, 0xFAECA8, 0xFFC474, 0xD8E09C);
 
     /// <summary>The themes in the order the editor lists them.</summary>
-    public static readonly IReadOnlyList<ChatTheme> All = [Lamplight, Dusk, Rose, Bland];
+    public static readonly IReadOnlyList<ChatTheme> All = [Lamplight, Dusk, Rose, Tidewater, Bland];
 
     public static ChatTheme Default => Lamplight;
 
