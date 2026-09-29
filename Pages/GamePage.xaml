@@ -720,18 +720,15 @@
                 <BindableLayout.ItemTemplate>
                     <DataTemplate x:DataType="vm:FkeyItem">
                         <Button Text="{Binding Label}"
-                                Command="{Binding Source={RelativeSource AncestorType={x:Type ContentPage}},
-                                                  Path=BindingContext.FkeyCommand}"
+                                Command="{Binding Source={RelativeSource AncestorType={x:Type vm:GameViewModel}}, Path=FkeyCommand}"
                                 CommandParameter="{Binding Index, StringFormat='{0}'}"
-                                FontSize="{Binding Source={RelativeSource AncestorType={x:Type ContentPage}},
-                                                   Path=BindingContext.FkeyFontSize}"
+                                FontSize="{Binding Source={RelativeSource AncestorType={x:Type vm:GameViewModel}}, Path=FkeyFontSize}"
                                 WidthRequest="{Binding Width}"
                                 HeightRequest="22"
                                 Padding="0"
                                 BackgroundColor="#2d333b" TextColor="#cccccc"
                                 CornerRadius="3"
-                                Margin="{Binding Source={RelativeSource AncestorType={x:Type ContentPage}},
-                                                 Path=BindingContext.FkeyButtonMargin}"/>
+                                Margin="{Binding Source={RelativeSource AncestorType={x:Type vm:GameViewModel}}, Path=FkeyButtonMargin}"/>
                     </DataTemplate>
                 </BindableLayout.ItemTemplate>
             </HorizontalStackLayout>
