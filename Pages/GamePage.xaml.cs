@@ -226,7 +226,10 @@ public partial class GamePage : ContentPage
     // referenced by both this project and its own test project, so the arithmetic is unit-testable
     // without a live window. This file's own resize methods are thin callers of that class plus the
     // actual appWindow.Resize(...) side effect.
-    private int              _minWindowWidthPx;
+    // Held in dp and converted at the window's CURRENT dpi at every use: a floor cached in px goes
+    // stale when the window moves to a monitor of different dpi, and nothing recomputes it there.
+    private double           _minWindowWidthDp;
+    private int MinWindowWidthPx(uint dpi) => CombatRailResize.DpToPxCeil(_minWindowWidthDp, dpi);
     // Set once this page has given the window its preferred width. Per page instance, which is per
     // connection: ConnectPage builds a new GamePage each time, so coming back in from the connect
     // page re-sizes for the profile just chosen, while returning from a modal re-appears this same
@@ -1356,7 +1359,7 @@ public partial class GamePage : ContentPage
     }
 
     /// <summary>
-    /// Recomputes the required minimum window width (in physical pixels) and, if the window
+    /// Recomputes the required minimum window width (in dp) and, if the window
     /// is currently narrower, resizes it to the new minimum.
     /// </summary>
     private void UpdateWindowMinimumWidth()
@@ -1366,14 +1369,13 @@ public partial class GamePage : ContentPage
         if (nativeWindow is null) return;
 
         var panelExpanded = _vm.SidePanel.IsPanelExpanded;
-        var minDp  = PreferredWindowWidthDp(CharWidthDp, panelExpanded, _vm.MaxColumns);
         var dpi    = GetDpiForWindow(_hwnd);
-        // _minWindowWidthPx itself stays the pure terminal+left-panel floor - it is read elsewhere
-        // (WM_GETMINMAXINFO, ResizeWindowForCombatPanel's own floorPx) as exactly that, deliberately
-        // excluding the rail, and it has no "rail shown" flavour to switch to since it is a single
-        // shared field. The rail reservation below is applied only to this method's own local
-        // force-grow decision.
-        _minWindowWidthPx = (int)Math.Ceiling(minDp * dpi / 96.0);
+        // _minWindowWidthDp itself stays the pure terminal+left-panel floor - it is read elsewhere
+        // (WM_GETMINMAXINFO, SetPreferredInitialWindowSize, ResizeWindowToFitColumns) as exactly
+        // that, deliberately excluding the rail, and it has no "rail shown" flavour to switch to since
+        // it is a single shared field. The rail reservation below is applied only to this method's
+        // own local force-grow decision.
+        _minWindowWidthDp = PreferredWindowWidthDp(CharWidthDp, panelExpanded, _vm.MaxColumns);
 
         // Resize now if the window is already narrower than the new minimum. If the rail is
         // currently shown, its 338dp must be reserved on top of that floor here too - otherwise this
@@ -1381,7 +1383,7 @@ public partial class GamePage : ContentPage
         // grow the window to only just fit the terminal, eating the rail's space exactly like
         // ResizeWindowToFitColumns did before its own fix below.
         var appWindow = nativeWindow.AppWindow;
-        var floorPx = _minWindowWidthPx;
+        var floorPx = MinWindowWidthPx(dpi);
         var resyncedDeltaDp = _railDeltaAppliedDp;
         if (_railWidthApplied)
         {
@@ -1431,7 +1433,7 @@ public partial class GamePage : ContentPage
         var dpi = GetDpiForWindow(_hwnd);
         var railShown = _vm.SidePanel.IsCombatPanelVisible;
         var initial = CombatRailResize.ComputeInitialWidth(
-            _minWindowWidthPx, dpi, _vm.MaxColumns, CharWidthDp,
+            MinWindowWidthPx(dpi), dpi, _vm.MaxColumns, CharWidthDp,
             _vm.SidePanel.IsPanelExpanded, railShown, RailPanelWidthDp);
 
         _railWidthApplied = railShown;
@@ -1459,7 +1461,8 @@ public partial class GamePage : ContentPage
         var contentDp = PreferredWindowWidthDp(CharWidthDp, panelExpanded, _vm.MaxColumns + 2.0);
         var dpi       = GetDpiForWindow(_hwnd);
         var targetPx  = (int)Math.Ceiling(contentDp * dpi / 96.0);
-        if (targetPx < _minWindowWidthPx) targetPx = _minWindowWidthPx;
+        var minPx     = MinWindowWidthPx(dpi);
+        if (targetPx < minPx) targetPx = minPx;
 
         // PreferredWindowWidthDp deliberately never includes the rail (see its own remarks), so this
         // settings-driven snap needs its own explicit reservation - otherwise a column-count change
@@ -1501,7 +1504,7 @@ public partial class GamePage : ContentPage
     /// resizing the window narrower than the configured terminal width (plus side panel
     /// when it is open, and plus the Combat Rail while it is shown - see
     /// <see cref="CombatRailResize.MinTrackWidthPx"/> for why the rail belongs in the floor a drag
-    /// is held to but not in <see cref="_minWindowWidthPx"/> itself).
+    /// is held to but not in <see cref="_minWindowWidthDp"/> itself).
     ///
     /// <para>The rail term is computed here rather than cached in a second field so it cannot go
     /// stale against <see cref="_railWidthApplied"/>, and so it follows the CURRENT dpi - the same
@@ -1513,10 +1516,11 @@ public partial class GamePage : ContentPage
         IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam, IntPtr uIdSubclass, IntPtr dwRefData)
     {
         const uint WM_GETMINMAXINFO = 0x0024;
-        if (msg == WM_GETMINMAXINFO && lParam != IntPtr.Zero && _minWindowWidthPx > 0)
+        if (msg == WM_GETMINMAXINFO && lParam != IntPtr.Zero && _minWindowWidthDp > 0)
         {
+            var dpi = GetDpiForWindow(hwnd);
             var minTrackPx = CombatRailResize.MinTrackWidthPx(
-                _minWindowWidthPx, GetDpiForWindow(hwnd), _railWidthApplied, RailPanelWidthDp);
+                MinWindowWidthPx(dpi), dpi, _railWidthApplied, RailPanelWidthDp);
             var info = Marshal.PtrToStructure<MinMaxInfo>(lParam);
             if (info.ptMinTrackSize.x < minTrackPx)
             {
