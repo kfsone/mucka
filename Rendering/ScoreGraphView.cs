@@ -34,9 +34,22 @@ public sealed class ScoreGraphView : SKCanvasView
     {
         PaintSurface += OnPaintSurface;
 
+        // A press and drag across the plot selects a stretch of time to show; a press that barely
+        // moves is a click, and the hover answers it as usual.
         var pointer = new PointerGestureRecognizer();
-        pointer.PointerMoved += (_, e) => HoverAt(e.GetPosition(this));
-        pointer.PointerExited += (_, _) => SetHover(null);
+        pointer.PointerPressed += (_, e) => DragFrom(e.GetPosition(this));
+        pointer.PointerMoved += (_, e) =>
+        {
+            if (!DragTo(e.GetPosition(this)))
+                HoverAt(e.GetPosition(this));
+        };
+        pointer.PointerReleased += (_, e) => DragEnd(e.GetPosition(this));
+        pointer.PointerExited += (_, _) =>
+        {
+            _dragFrom = null;
+            SetDrag(null);
+            SetHover(null);
+        };
         GestureRecognizers.Add(pointer);
         // Touch has no hover; a tap reads the value under the finger instead.
         var tap = new TapGestureRecognizer();
@@ -59,6 +72,63 @@ public sealed class ScoreGraphView : SKCanvasView
         set => SetValue(SceneProperty, value);
     }
 
+    public static readonly BindableProperty SelectSpanCommandProperty = BindableProperty.Create(
+        nameof(SelectSpanCommand), typeof(System.Windows.Input.ICommand), typeof(ScoreGraphView));
+
+    /// <summary>Run with the <see cref="TimeSpanMs"/> a drag across the plot selected.</summary>
+    public System.Windows.Input.ICommand? SelectSpanCommand
+    {
+        get => (System.Windows.Input.ICommand?)GetValue(SelectSpanCommandProperty);
+        set => SetValue(SelectSpanCommandProperty, value);
+    }
+
+    /// <summary>How far, in plot units, a press must move to be a drag rather than a click.</summary>
+    private const double DragSlop = 6;
+
+    private double? _dragFrom;
+    private (double X0, double X1)? _drag;
+
+    private void DragFrom(Point? position)
+    {
+        _dragFrom = position is { } p && _plot is not null && p.X >= _plot.Left && p.X <= _plot.Right && p.Y >= _plot.Top && p.Y <= _plot.Bottom
+            ? p.X
+            : null;
+    }
+
+    /// <summary>True while a drag is under way, so the pointer is not also hovering.</summary>
+    private bool DragTo(Point? position)
+    {
+        if (_dragFrom is not { } from || position is not { } p || _plot is null)
+            return false;
+        var x = Math.Clamp(p.X, _plot.Left, _plot.Right);
+        if (_drag is null && Math.Abs(x - from) < DragSlop)
+            return false;
+        SetHover(null);
+        SetDrag((Math.Min(from, x), Math.Max(from, x)));
+        return true;
+    }
+
+    private void DragEnd(Point? position)
+    {
+        DragTo(position);
+        var drag = _drag;
+        _dragFrom = null;
+        SetDrag(null);
+        if (drag is not { } d || _plot is null || d.X1 - d.X0 < DragSlop)
+            return;
+        var span = new TimeSpanMs(_plot.Axis.Unmap(d.X0), _plot.Axis.Unmap(d.X1));
+        if (span.EndMs > span.StartMs && SelectSpanCommand?.CanExecute(span) == true)
+            SelectSpanCommand.Execute(span);
+    }
+
+    private void SetDrag((double X0, double X1)? drag)
+    {
+        if (Nullable.Equals(_drag, drag))
+            return;
+        _drag = drag;
+        InvalidateSurface();
+    }
+
     private void HoverAt(Point? position)
     {
         if (position is not { } p || _plot is null)
@@ -72,6 +142,17 @@ public sealed class ScoreGraphView : SKCanvasView
         if (p.Y < _plot.Top)
         {
             SetHover(_plot.MarkNear(p.X, MarkReach) is { } mark ? new ScoreHover(mark.Series, null, mark) : null);
+            return;
+        }
+        // On a callout, what it stands for: one change's own card, or every change gathered into it.
+        if (_painter.TallyAt(p.X, p.Y) is { } tally)
+        {
+            SetHover(tally switch
+            {
+                { Moves: [var only], Buckets: [] } => new ScoreHover(tally.Series, null, null, only, only.Stairs.Count - 1, tally),
+                { Moves: [], Buckets: [var bucket] } => new ScoreHover(tally.Series, bucket, null, Tally: tally),
+                _ => new ScoreHover(tally.Series, null, null, Tally: tally),
+            });
             return;
         }
         // On a climb or drop, its total; anywhere else on the plot, the score held at that moment.
@@ -106,8 +187,12 @@ public sealed class ScoreGraphView : SKCanvasView
             {
                 _plot = ScoreGraphPlot.Build(scene, Width, Height, TimeZoneInfo.Local);
                 _plotKey = (scene, Width, Height);
+                // What the pointer was on, and any drag, belong to the old layout.
+                _hover = null;
+                _dragFrom = null;
+                _drag = null;
             }
-            _painter.Paint(canvas, (float)(e.Info.Width / Width), _plot, scene, _hover);
+            _painter.Paint(canvas, (float)(e.Info.Width / Width), _plot, scene, _hover, _drag);
         }
         catch (Exception ex) when (ex is InvalidOperationException or ArgumentException or IndexOutOfRangeException or ArithmeticException)
         {

@@ -96,6 +96,7 @@ public sealed class ScoreGraphViewModel : BaseViewModel
     private bool _isCharactersOpen;
     private bool _isScaleOpen;
     private int _days = ScoreCommandArgs.DefaultDays;
+    private TimeSpanMs? _span;
     private bool _isSqueezed;
     private ScoreScaleChoice _scale;
     private ScoreGraphScene? _scene;
@@ -138,7 +139,37 @@ public sealed class ScoreGraphViewModel : BaseViewModel
             IsZero = !IsZero;
             _requestFocus();
         });
+        SelectSpanCommand = new Command<TimeSpanMs>(span =>
+        {
+            Span = span;
+            _requestFocus();
+        });
+        ResetSpanCommand = new Command(() =>
+        {
+            Span = null;
+            _requestFocus();
+        });
     }
+
+    /// <summary>A stretch of the graph dragged out to fill it, in place of the last
+    /// <see cref="DaysValue"/> days; null shows the days.</summary>
+    public TimeSpanMs? Span
+    {
+        get => _span;
+        private set
+        {
+            if (Nullable.Equals(_span, value))
+                return;
+            _span = value;
+            OnPropertiesChanged(nameof(Span), nameof(IsSpanShown));
+            RebuildScene();
+        }
+    }
+
+    public bool IsSpanShown => _span is not null;
+
+    public ICommand SelectSpanCommand { get; }
+    public ICommand ResetSpanCommand { get; }
 
     public ObservableCollection<ScoreChoice> Servers { get; } = [];
     public ObservableCollection<ScoreChoice> Characters { get; } = [];
@@ -192,7 +223,8 @@ public sealed class ScoreGraphViewModel : BaseViewModel
             if (days == _days)
                 return;
             _days = days;
-            OnPropertiesChanged(nameof(DaysValue), nameof(DaysLabel));
+            _span = null;
+            OnPropertiesChanged(nameof(DaysValue), nameof(DaysLabel), nameof(Span), nameof(IsSpanShown));
             RebuildScene();
         }
     }
@@ -347,7 +379,8 @@ public sealed class ScoreGraphViewModel : BaseViewModel
     {
         LoadSizeOnce();
         _days = args.Days;
-        OnPropertiesChanged(nameof(DaysValue), nameof(DaysLabel));
+        _span = null;
+        OnPropertiesChanged(nameof(DaysValue), nameof(DaysLabel), nameof(Span), nameof(IsSpanShown));
         OpenList();
         IsVisible = true;
         _loadStatus = null;
@@ -537,8 +570,8 @@ public sealed class ScoreGraphViewModel : BaseViewModel
         if (_loading)
             return;
 
-        var end = _history.NowMs;
-        var start = end - (long)TimeSpan.FromDays(_days).TotalMilliseconds;
+        var end = _span?.EndMs ?? _history.NowMs;
+        var start = _span?.StartMs ?? end - (long)TimeSpan.FromDays(_days).TotalMilliseconds;
         var hosts = CheckedHosts();
         var selected = Characters.Where(c => c.IsChecked && c.Persona is not null).ToList();
         var series = selected
@@ -576,7 +609,7 @@ public sealed class ScoreGraphViewModel : BaseViewModel
             ?? (_history.Points.Count == 0 ? "No score recorded yet."
                 : hosts.Count == 0 ? "No server selected."
                 : series.Count == 0 ? "No character selected."
-                : Stats.Count == 0 ? $"No score recorded in the last {DaysLabel}."
+                : Stats.Count == 0 ? (_span is null ? $"No score recorded in the last {DaysLabel}." : "No score recorded in this stretch.")
                 : string.Empty);
         Scene = new ScoreGraphScene(start, end, _isSqueezed, _scale.BucketMs, series, runs, switches, _isZero);
     }

@@ -34,6 +34,9 @@
          facts); WireLogTests pushes the same records through framing and the sqlite sink. -->
     <None Include="..\..\mudsharp.Tests\Fixtures\Data\wyvern-poison-death.c1" Link="Fixtures\Data\wyvern-poison-death.c1"
           CopyToOutputDirectory="PreserveNewest" />
+    <!-- The operator's own 3-day score window around three flees in a row, as "ms:total" pairs from
+         the window's start; ScoreGraphTests lays its callouts out at the width he views it at. -->
+    <None Include="Fixtures\Data\score-three-flees.txt" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

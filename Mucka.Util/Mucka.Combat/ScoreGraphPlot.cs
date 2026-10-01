@@ -69,10 +69,77 @@ public readonly record struct PlotMark(PlotMarkKind Kind, double X, double EndX,
 public readonly record struct PlotPoint(double X, double Y);
 
 /// <summary>A negative step: the score read lower than the reading before it. <see cref="YBefore"/>
-/// and <see cref="YAfter"/> are the two ends of the drop. <see cref="Radius"/> is zero when a larger
-/// drop nearby holds the marker; the drop itself is still drawn. In a bucketed scale a loss is the sum
-/// of every drop in one bucket, and both ends sit at the bucket's low.</summary>
-public readonly record struct PlotLoss(int Series, double X, double YBefore, double YAfter, long Drop, double Radius, bool Labelled);
+/// and <see cref="YAfter"/> are the two ends of the drop. A drop the eye reads as one - a
+/// <see cref="PlotMove"/> of several steps - has one marker, on its last step and sized by the whole
+/// drop; <see cref="Radius"/> is zero on its other steps, and on every step of a drop whose marker
+/// would touch a larger drop's marker or cross another drop's riser. The drop itself is still drawn.
+/// In a bucketed scale a loss is the sum of every drop in one bucket, and both ends sit at the
+/// bucket's low.</summary>
+public readonly record struct PlotLoss(int Series, double X, double YBefore, double YAfter, long Drop, double Radius);
+
+/// <summary>A rectangle in plot units.</summary>
+public readonly record struct PlotRect(double Left, double Top, double Right, double Bottom)
+{
+    public double Width => Right - Left;
+    public bool Intersects(PlotRect other)
+        => Left < other.Right && other.Left < Right && Top < other.Bottom && other.Top < Bottom;
+    public bool Within(PlotRect other)
+        => Left >= other.Left && Right <= other.Right && Top >= other.Top && Bottom <= other.Bottom;
+    public bool Contains(double x, double y) => x >= Left && x <= Right && y >= Top && y <= Bottom;
+}
+
+/// <summary>What a <see cref="PlotTally"/> holds: only losses, only gains, or both.</summary>
+public enum TallyKind { Loss, Gain, Mixed }
+
+/// <summary>
+/// A change that may be called out: one climb or drop in the raw scale, one bucket in a bucketed
+/// scale, or several of one kind gathered into one callout. Its text is the net change, in braces when
+/// it stands for more than one score line - every bucket does, and so does a riser of several steps
+/// or a frame of several lines; <see cref="Kind"/> says whether losses, gains or both went into it.
+/// <see cref="X"/> is the middle of its changes; <see cref="X0"/>..<see cref="X1"/> their span;
+/// <see cref="YTop"/>..<see cref="YBottom"/> their vertical extent, and <see cref="Foot"/> the bottom
+/// of anything hanging under them, such as a drop's marker. <see cref="Anchors"/> are where its
+/// splines start: the tip of a drop's marker, the top of a climb - one per change, so a gathered tally
+/// has several. <see cref="Own"/> are the shapes drawn for its own changes - risers, markers, a
+/// bucket's bar - which its callout may sit snug against; everything else it keeps
+/// <see cref="ScoreGraphPlot.CalloutClearance"/> from.
+/// </summary>
+public sealed record PlotTally(int Series, double X, double X0, double X1, double YTop, double YBottom, double Foot,
+    long Lost, long Gained, int Lines, bool Bucketed, IReadOnlyList<PlotMove> Moves, IReadOnlyList<PlotReading> Buckets,
+    IReadOnlyList<PlotPoint> Anchors, IReadOnlyList<PlotRect>? Own = null)
+{
+    public long Net => Gained - Lost;
+    public TallyKind Kind => Lost > 0 && Gained > 0 ? TallyKind.Mixed : Lost > 0 ? TallyKind.Loss : TallyKind.Gain;
+    public bool Aggregate => Bucketed || Lines > 1;
+    /// <summary>True when the callout stands for several changes gathered: drawn a size larger.</summary>
+    public bool Merged => Anchors.Count > 1;
+
+    public string Text
+    {
+        get
+        {
+            var figure = (Net > 0 ? "+" : Net < 0 ? "-" : "") + Math.Abs(Net).ToString("N0", CultureInfo.CurrentCulture);
+            return Aggregate ? "{" + figure + "}" : figure;
+        }
+    }
+
+    /// <summary>Both as one callout, centred on the middle of their changes.</summary>
+    public static PlotTally Merge(PlotTally a, PlotTally b) => a with
+    {
+        X = (a.Anchors.Concat(b.Anchors).Min(p => p.X) + a.Anchors.Concat(b.Anchors).Max(p => p.X)) / 2,
+        Anchors = [.. a.Anchors.Concat(b.Anchors).OrderBy(p => p.X)],
+        Own = [.. (a.Own ?? []).Concat(b.Own ?? [])],
+        X0 = Math.Min(a.X0, b.X0), X1 = Math.Max(a.X1, b.X1),
+        YTop = Math.Min(a.YTop, b.YTop), YBottom = Math.Max(a.YBottom, b.YBottom), Foot = Math.Max(a.Foot, b.Foot),
+        Lost = a.Lost + b.Lost, Gained = a.Gained + b.Gained, Lines = a.Lines + b.Lines,
+        Moves = [.. a.Moves.Concat(b.Moves).OrderBy(m => m.StartMs)],
+        Buckets = [.. a.Buckets.Concat(b.Buckets).OrderBy(r => r.Ms)],
+    };
+}
+
+/// <summary>A callout: what it names, where it went - a pill when <see cref="Expanded"/>, else a
+/// bulb's square - and the splines from the changes it names to it.</summary>
+public readonly record struct PlacedTally(PlotTally Tally, PlotRect Rect, bool Expanded, IReadOnlyList<(PlotPoint From, PlotPoint To)> Splines);
 
 /// <summary>One reading as the hover readout reports it, at its place in the plot. For a bucket,
 /// <see cref="Ms"/>..<see cref="EndMs"/> is the bucket, <see cref="Total"/> its last reading and
@@ -104,13 +171,21 @@ public readonly record struct ScoreStats(long Start, long Low, long High, long G
 /// a last-value bucket would draw that column flat and the loss would vanish. Each column keeps its
 /// first, lowest, highest and last reading in order (<see cref="Decimate"/>), so the step line still
 /// travels the whole range, and every negative <see cref="ScoreStep"/> is also listed in
-/// <see cref="Losses"/> and drawn as a drop. Markers are sized by the drop, one per
-/// <see cref="MarkerSlot"/>, the largest in it. Climbs and drops are also grouped into
-/// <see cref="Moves"/> for the hover to total.</para>
+/// <see cref="Losses"/> and drawn as a drop. Climbs and drops are also grouped into
+/// <see cref="Moves"/> for the hover to total. Each drop has a marker at its foot, sized by it and
+/// placed largest first, only where it clears every marker already placed by
+/// <see cref="MarkerGap"/> and every other drop's riser.</para>
+///
+/// <para><b>Callouts.</b> Every change, drops and climbs alike, is listed in <see cref="Tallies"/>,
+/// and <see cref="PlaceTallies"/> calls out the large ones: each gets a bulb on a dotted spline from
+/// its marker, and grows into a pill with its figure where there is room. Changes of a kind too close
+/// for a bulb each share one callout, a braced total; a drop is never netted into the climb beside
+/// it.</para>
 ///
 /// <para><b>Scale.</b> A bucketed scale draws each bucket as a bar over its range with the line
-/// through the last reading in each, and one loss per bucket totalling its drops - so a gain and a
-/// loss inside one bucket still show, as a tall bar with a marker under it.</para>
+/// through the last reading in each, one loss per bucket totalling its drops, and one tally per
+/// bucket - so a gain and a loss inside one bucket still show, as a tall bar with a marker under it
+/// and a callout that says both went into it.</para>
 ///
 /// <para><b>Axis.</b> One character plots the score itself. Several characters plot points gained
 /// since the window opened, because scores of different characters can differ by orders of magnitude
@@ -132,13 +207,18 @@ public sealed class ScoreGraphPlot
     public const double BottomMargin = 20;
     /// <summary>The width a squeezed gap is drawn at.</summary>
     public const double GapWidth = 8;
-    /// <summary>How many of the largest drops carry a text label.</summary>
-    public const int LabelledLosses = 5;
     private const double MinLossRadius = 2.5;
     private const double MaxLossRadius = 8;
-    /// <summary>The width within which only the largest drop gets a marker: two of the largest
-    /// markers side by side.</summary>
-    public const double MarkerSlot = 2 * MaxLossRadius;
+    /// <summary>The space kept between two drop markers' edges; a drop whose marker would come
+    /// closer to a larger drop's has none.</summary>
+    public const double MarkerGap = 2;
+    /// <summary>A pill's height.</summary>
+    public const double TallyHeight = 15;
+    /// <summary>The least distance between a callout and its anchor.</summary>
+    public const double TallyPad = 4;
+    private const double RiserHalfWidth = 1.5;
+    /// <summary>Half the width of a step line's soft glow, as the painter draws it.</summary>
+    private const double LineHalfWidth = 2.25;
     private const double MinXTickSpacing = 64;
     private static readonly double[] NiceSteps = [1, 2, 2.5, 5, 10];
     private static readonly int[] HourSteps = [1, 3, 6, 12, 24];
@@ -166,6 +246,13 @@ public sealed class ScoreGraphPlot
     public required IReadOnlyList<(double X, string Label)> XTicks { get; init; }
     /// <summary>Per bucket, its range; empty when every reading is plotted.</summary>
     public required IReadOnlyList<PlotBar> Bars { get; init; }
+    /// <summary>Every change that could be called out, largest first - see <see cref="PlaceTallies"/>.</summary>
+    public required IReadOnlyList<PlotTally> Tallies { get; init; }
+    /// <summary>What a callout must not cover: every drop, drop marker and bucket bar.</summary>
+    public required IReadOnlyList<PlotRect> TallyObstacles { get; init; }
+    /// <summary>Every segment of every step line, as wide as its drawn glow: what a callout would rather
+    /// not sit on, so the line stays readable.</summary>
+    public required IReadOnlyList<PlotRect> LineRects { get; init; }
     /// <summary>The run and switch marks inside the window, left to right.</summary>
     public required IReadOnlyList<PlotMark> Marks { get; init; }
     /// <summary>Per series, the readings in the window as the game printed them - see
@@ -175,6 +262,8 @@ public sealed class ScoreGraphPlot
     public required IReadOnlyList<(double X0, double X1)> SessionBands { get; init; }
     /// <summary>The squeezed-out gaps, empty when squeeze is off.</summary>
     public required IReadOnlyList<(double X0, double X1)> Gaps { get; init; }
+    /// <summary>Time to X and back, squeezed or not.</summary>
+    public required ScoreTimeAxis Axis { get; init; }
 
     public static ScoreGraphPlot Build(ScoreGraphScene scene, double width, double height, TimeZoneInfo zone)
     {
@@ -212,7 +301,14 @@ public sealed class ScoreGraphPlot
         var readings = new List<IReadOnlyList<PlotReading>>();
         var bars = new List<PlotBar>();
         var raw = new List<PlotLoss>();
+        // Per drop as the eye reads it - a raw move, or a bucket's losses - its losses First..Loss, the
+        // one its marker hangs from last, and the drop's size.
+        var markable = new List<(int First, int Loss, long Drop)>();
+        // Per drop move, by its index in moves, and per tally, the losses First..Last drawn for it.
+        var moveLosses = new Dictionary<int, (int First, int Last)>();
+        var tallyLosses = new List<(int First, int Last)>();
         var moves = new List<PlotMove>();
+        var tallies = new List<PlotTally>();
         var deaths = new List<PlotDeath>();
         for (var s = 0; s < values.Count; s++)
         {
@@ -235,9 +331,11 @@ public sealed class ScoreGraphPlot
             }
 
             // Climbs follow the raw line; a bucketed scale reports its buckets' gains and losses instead.
-            if (scene.BucketMs <= 0)
-                moves.AddRange(GroupMoves(s, frames, axis, YReal,
-                    [.. scene.Series[s].Sessions.Select(x => x.StartMs).Order()]));
+            var seriesMoves = scene.BucketMs <= 0
+                ? GroupMoves(s, frames, axis, YReal, [.. scene.Series[s].Sessions.Select(x => x.StartMs).Order()])
+                : [];
+            var moveBase = moves.Count;
+            moves.AddRange(seriesMoves);
 
             var read = new List<PlotReading>(pts.Length);
             readings.Add(read);
@@ -252,8 +350,19 @@ public sealed class ScoreGraphPlot
                     read.Add(new PlotReading(axis.Map(st.Ms), YReal(st.After), st.Ms, st.Ms, st.After, st.Change,
                         st.After, st.After, Math.Max(0, -st.Change), Math.Max(0, st.Change), parts.Length > 1 ? parts : null));
                 lines.Add(Step(Decimate(read.Select(r => new PlotPoint(r.X, r.Y)).ToList()), right));
+                var first = raw.Count;
                 foreach (var st in steps.Where(st => st.Change < 0))
-                    raw.Add(new PlotLoss(s, axis.Map(st.Ms), YReal(st.Before), YReal(st.After), -st.Change, 0, false));
+                    raw.Add(new PlotLoss(s, axis.Map(st.Ms), YReal(st.Before), YReal(st.After), -st.Change, 0));
+                // A drop's marker hangs from the foot of its last step, sized by the whole drop.
+                var negative = 0;
+                for (var j = 0; j < seriesMoves.Count; j++)
+                {
+                    var m = seriesMoves[j];
+                    if (m.Change >= 0) continue;
+                    negative += m.Steps;
+                    markable.Add((first + negative - m.Steps, first + negative - 1, -m.Change));
+                    moveLosses[moveBase + j] = (first + negative - m.Steps, first + negative - 1);
+                }
                 continue;
             }
 
@@ -263,31 +372,85 @@ public sealed class ScoreGraphPlot
             {
                 double x0 = axis.Map(Math.Max(b.StartMs, scene.StartMs)), x1 = axis.Map(Math.Min(b.EndMs, scene.EndMs));
                 var mid = (x0 + x1) / 2;
-                bars.Add(new PlotBar(s, x0, x1, YReal(b.High), YReal(b.Low)));
+                var bar = new PlotBar(s, x0, x1, YReal(b.High), YReal(b.Low));
+                bars.Add(bar);
                 vertices.Add(new PlotPoint(mid, YReal(b.Close)));
-                read.Add(new PlotReading(mid, YReal(b.Close), b.StartMs, b.EndMs, b.Close,
-                    previousClose is { } p ? b.Close - p : 0, b.Low, b.High, b.Lost, b.Gained));
+                var reading = new PlotReading(mid, YReal(b.Close), b.StartMs, b.EndMs, b.Close,
+                    previousClose is { } p ? b.Close - p : 0, b.Low, b.High, b.Lost, b.Gained);
+                read.Add(reading);
+                if (b.Lost > 0 || b.Gained > 0)
+                {
+                    var body = CandleBody(bar);
+                    tallies.Add(new PlotTally(s, mid, body.Left, body.Right, body.Top, body.Bottom, body.Bottom,
+                        b.Lost, b.Gained, 1, true, [], [reading], [], [body]));
+                    // Its loss, when it has one, is the next added.
+                    tallyLosses.Add(b.Lost > 0 ? (raw.Count, raw.Count) : (-1, -1));
+                }
                 previousClose = b.Close;
                 if (b.Lost > 0)
-                    raw.Add(new PlotLoss(s, mid, YReal(b.Low), YReal(b.Low), b.Lost, 0, false));
+                {
+                    markable.Add((raw.Count, raw.Count, b.Lost));
+                    raw.Add(new PlotLoss(s, mid, YReal(b.Low), YReal(b.Low), b.Lost, 0));
+                }
             }
             lines.Add(Step(Decimate(vertices), right));
         }
 
-        // One marker per slot of MarkerSlot width, the largest drop in it; markers any closer overlap
-        // into a solid band and none of them stands out.
-        var maxDrop = raw.Count == 0 ? 1 : raw.Max(l => l.Drop);
-        var marked = raw.GroupBy(l => Math.Floor(l.X / MarkerSlot))
-            .Select(g => g.MaxBy(l => l.Drop))
-            .ToHashSet();
-        var labelled = marked.OrderByDescending(l => l.Drop).Take(LabelledLosses).ToHashSet();
-        var losses = raw.Select(l => l with
+        // One marker per drop, placed largest first, each only where it clears every marker already
+        // placed and every drop's riser; markers any closer overlap into a solid band and none of them
+        // stands out, and one partway down another drop's riser reads as that drop's. Clearance is
+        // measured between the drawn shapes, not against a fixed grid, so zooming moves no boundary for
+        // a pair to straddle, and two drops side by side ending at different heights both keep theirs.
+        var maxDrop = markable.Count == 0 ? 1 : markable.Max(m => m.Drop);
+        var losses = raw.ToList();
+        var chevrons = new List<PlotRect>();
+        foreach (var (from, i, drop) in markable.OrderByDescending(m => m.Drop).ThenBy(m => raw[m.Loss].X))
         {
-            Radius = marked.Contains(l)
-                ? MinLossRadius + (MaxLossRadius - MinLossRadius) * Math.Sqrt((double)l.Drop / maxDrop)
-                : 0,
-            Labelled = labelled.Contains(l),
-        }).ToList();
+            var candidate = raw[i] with { Radius = MinLossRadius + (MaxLossRadius - MinLossRadius) * Math.Sqrt((double)drop / maxDrop) };
+            var rect = ChevronRect(candidate);
+            var clear = new PlotRect(rect.Left - MarkerGap, rect.Top - MarkerGap, rect.Right + MarkerGap, rect.Bottom + MarkerGap);
+            if (chevrons.Any(c => c.Intersects(clear))) continue;
+            var crossed = false;
+            for (var k = 0; k < raw.Count && !crossed; k++)
+                crossed = (k < from || k > i) && raw[k].YAfter > raw[k].YBefore && Riser(raw[k]).Intersects(rect);
+            if (crossed) continue;
+            losses[i] = candidate;
+            chevrons.Add(rect);
+        }
+
+        // Raw climbs and drops are tallied as the eye groups them, by move; bucket tallies were made
+        // with their buckets. A tally owns what is drawn for its own drops, and its foot drops below
+        // its marker.
+        for (var j = 0; j < moves.Count; j++)
+        {
+            var m = moves[j];
+            double high = Math.Min(m.YFrom, m.YTo), low = Math.Max(m.YFrom, m.YTo);
+            tallies.Add(new PlotTally(m.Series, m.X1, m.X0, m.X1, high, low, low,
+                Math.Max(0, -m.Change), Math.Max(0, m.Change), m.Stairs.Sum(st => st.Parts?.Count ?? 1), false, [m], [], [], []));
+            tallyLosses.Add(moveLosses.TryGetValue(j, out var span) ? span : (-1, -1));
+        }
+        for (var i = 0; i < tallies.Count; i++)
+        {
+            var t = tallies[i];
+            var own = new List<PlotRect>(t.Own ?? []);
+            for (var k = tallyLosses[i].First; k >= 0 && k <= tallyLosses[i].Last; k++)
+            {
+                if (raw[k].YAfter > raw[k].YBefore) own.Add(Riser(raw[k]));
+                if (losses[k].Radius > 0) own.Add(ChevronRect(losses[k]));
+            }
+            var foot = own.Where(o => o.Top > t.YBottom).Select(o => o.Bottom).Aggregate(t.Foot, Math.Max);
+            tallies[i] = t with
+            {
+                Foot = foot,
+                Anchors = [new PlotPoint(t.X, t.Lost == 0 ? t.YTop : foot)],
+                Own = own,
+            };
+        }
+        var ranked = tallies.OrderByDescending(t => t.Lost + t.Gained).ThenBy(t => t.X).ToList();
+
+        var obstacles = new List<PlotRect>(chevrons);
+        obstacles.AddRange(raw.Where(l => l.YAfter > l.YBefore).Select(Riser));
+        obstacles.AddRange(bars.Select(CandleBody));
 
         var inWindow = sessions.Where(x => x.EndMs >= scene.StartMs && x.StartMs <= scene.EndMs).ToList();
         return new ScoreGraphPlot
@@ -302,6 +465,11 @@ public sealed class ScoreGraphPlot
             YTicks = ticks.Where(t => t >= yMin && t <= yMax).Select(t => (Y(t), t)).ToList(),
             XTicks = XTicksFor(scene.StartMs, scene.EndMs, axis, zone),
             Bars = bars,
+            Tallies = ranked,
+            TallyObstacles = obstacles,
+            LineRects = lines.SelectMany(line => line.Zip(line.Skip(1), (a, b) => new PlotRect(
+                Math.Min(a.X, b.X) - LineHalfWidth, Math.Min(a.Y, b.Y) - LineHalfWidth,
+                Math.Max(a.X, b.X) + LineHalfWidth, Math.Max(a.Y, b.Y) + LineHalfWidth))).ToList(),
             Marks = scene.Runs.Where(r => r.StartMs >= scene.StartMs && r.StartMs <= scene.EndMs)
                     .Select(r => new PlotMark(PlotMarkKind.Run, axis.Map(r.StartMs), axis.Map(r.EndMs), r, -1, string.Empty))
                 .Concat(scene.Switches.Where(w => w.Session.StartMs >= scene.StartMs && w.Session.StartMs <= scene.EndMs)
@@ -311,8 +479,267 @@ public sealed class ScoreGraphPlot
             Points = windows,
             SessionBands = inWindow.Select(x => (axis.Map(x.StartMs), axis.Map(x.EndMs))).ToList(),
             Gaps = axis.Gaps,
+            Axis = axis,
         };
     }
+
+    /// <summary>The downward chevron under a marked drop: as wide as its radius each side, hanging
+    /// just below the drop's foot.</summary>
+    public static PlotRect ChevronRect(PlotLoss loss)
+    {
+        var top = loss.YAfter + 1.5;
+        return new PlotRect(loss.X - loss.Radius, top, loss.X + loss.Radius, top + loss.Radius * 1.3);
+    }
+
+    /// <summary>A drop's red line as drawn, from its head to its foot.</summary>
+    private static PlotRect Riser(PlotLoss loss)
+        => new(loss.X - RiserHalfWidth, loss.YBefore, loss.X + RiserHalfWidth, loss.YAfter);
+
+    /// <summary>A bucket's bar as drawn: a slim candle centred in its bucket over the bucket's range.</summary>
+    public static PlotRect CandleBody(PlotBar bar)
+    {
+        var mid = (bar.X0 + bar.X1) / 2;
+        var w = Math.Clamp((bar.X1 - bar.X0) * 0.6, 2, 14);
+        return new PlotRect(mid - w / 2, bar.YHigh, mid + w / 2, bar.YHigh + Math.Max(1.5, bar.YLow - bar.YHigh));
+    }
+
+    /// <summary>
+    /// The callouts for <paramref name="tallies"/>: every change worth one gets a bulb - a small circle
+    /// with a chevron, on a dotted spline from its marker - and as many as there is room for grow into a
+    /// pill with the figure. A spline, not nearness, says which change a callout names, so a callout
+    /// may sit wherever there is room.
+    ///
+    /// <para><b>Which.</b> A change is called out when it is at least <see cref="CalloutRatio"/> of the
+    /// largest of its kind (<see cref="TallyKind"/>) in view - drops against drops, climbs against
+    /// climbs, buckets with both against each other. Called-out changes of one series and kind whose
+    /// anchors lie within <see cref="BulbGap"/> of the largest among them share one callout, the
+    /// largest gathering first, so a burst too tight for a bulb each reads as one braced total. Changes
+    /// of different kinds never share, since a drop netted with a climb would be out of sight.</para>
+    ///
+    /// <para><b>Bulbs.</b> Largest first, each bulb goes to the cheapest spot round its anchor - the tip
+    /// of a drop's marker, the top of a climb - every <see cref="RingSteps"/>th of a turn, at distances
+    /// out from <see cref="TallyPad"/>. Cost is the distance out, a price for facing away from below (a
+    /// drop) or above (a climb), and prices for covering the step line and for a spline that crosses
+    /// another change's shapes. A spot must keep <see cref="CalloutClearance"/> from every other change's
+    /// shapes, every reserved area and every bulb placed; with none clear the bulb sits just past its
+    /// anchor anyway, so every callout has one.</para>
+    ///
+    /// <para><b>Growing.</b> Then, largest first again, each callout tries to grow into a pill by the
+    /// same costs, clear of every other change's shapes, every other bulb and every pill grown before
+    /// it. One that cannot stays a bulb.</para>
+    /// </summary>
+    /// <param name="obstacles">What is drawn for the changes: risers, markers, bars.</param>
+    /// <param name="width">A pill's width for its text.</param>
+    /// <param name="reserved">Other things a callout must not cover, such as the "as of" stamp.</param>
+    /// <param name="line">The step line's segments (<see cref="LineRects"/>): a callout may cover them,
+    /// at a price.</param>
+    public static List<PlacedTally> PlaceTallies(IReadOnlyList<PlotTally> tallies, PlotRect bounds,
+        IEnumerable<PlotRect> obstacles, Func<string, double> width, IEnumerable<PlotRect>? reserved = null,
+        IEnumerable<PlotRect>? line = null)
+    {
+        var drawn = obstacles.ToList();
+        var walls = drawn.Concat(reserved ?? []).ToList();
+        var lineRects = (line ?? []).ToList();
+        var callouts = Callouts(tallies);
+
+        // Bulbs first: every callout gets one.
+        var bulbs = new List<PlotRect>();
+        foreach (var t in callouts)
+        {
+            var side = 2 * BulbRadiusOf(t);
+            var spot = Cheapest(t, side, side, bulbs);
+            bulbs.Add(spot ?? Square(t, BulbRadiusOf(t), bounds));
+        }
+
+        // Then each grows into a pill where there is room for one.
+        var pills = new PlotRect?[callouts.Count];
+        for (var i = 0; i < callouts.Count; i++)
+        {
+            var t = callouts[i];
+            var others = bulbs.Where((_, j) => j != i && pills[j] is null).Concat(pills.OfType<PlotRect>()).ToList();
+            pills[i] = Cheapest(t, width(t.Text) + (t.Merged ? 2 * MergedPad : 0), TallyHeightOf(t), others);
+        }
+
+        return [.. callouts.Select((t, i) =>
+        {
+            var rect = pills[i] ?? bulbs[i];
+            return new PlacedTally(t, rect, pills[i] is not null, Splines(t, rect, pills[i] is null));
+        })];
+
+        // The cheapest clear spot round t's anchor for a box w by h, or none.
+        PlotRect? Cheapest(PlotTally t, double w, double h, List<PlotRect> placed)
+        {
+            var spots = RingSpots(t, w, h).Where(s => s.Rect.Within(bounds)).ToList();
+            if (spots.Count == 0) return null;
+            // Only what lies across the spots' span can be in the way; a dense plot has hundreds of
+            // risers.
+            var lo = spots.Min(s => s.Rect.Left) - CalloutClearance;
+            var hi = spots.Max(s => s.Rect.Right) + CalloutClearance;
+            var mine = (t.Own ?? []).ToHashSet();
+            var nearWalls = walls.Where(o => o.Right > lo && o.Left < hi && !mine.Contains(o)).ToList();
+            var nearDrawn = drawn.Where(o => o.Right > lo && o.Left < hi && !mine.Contains(o)).ToList();
+            var nearPlaced = placed.Where(o => o.Right > lo && o.Left < hi).ToList();
+            var nearLine = lineRects.Where(o => o.Right > lo && o.Left < hi).ToList();
+            var anchor = Toward(t);
+
+            bool Clear(PlotRect r)
+            {
+                var grown = Grow(r, CalloutClearance);
+                return !nearWalls.Any(o => o.Intersects(grown)) && !nearPlaced.Any(o => o.Intersects(grown));
+            }
+            // The step line's cover is measured as length: area over the line's width.
+            double OnLine(PlotRect r) => nearLine.Sum(o => r.Intersects(o)
+                ? (Math.Min(r.Right, o.Right) - Math.Max(r.Left, o.Left)) * (Math.Min(r.Bottom, o.Bottom) - Math.Max(r.Top, o.Top)) / (2 * LineHalfWidth)
+                : 0);
+            double Crossings(PlotRect r)
+            {
+                var end = new PlotPoint((r.Left + r.Right) / 2, (r.Top + r.Bottom) / 2);
+                return nearDrawn.Count(o => Crosses(anchor, end, o));
+            }
+
+            // Only spots with room are priced in full: the line and crossing terms are the dear part.
+            var best = spots
+                .Select((s, i) => (s.Rect, s.Cost, i))
+                .Where(s => Clear(s.Rect))
+                .Select(s => (s.Rect, Cost: s.Cost + LineCost * OnLine(s.Rect) + CrossCost * Crossings(s.Rect), s.i))
+                .OrderBy(s => s.Cost).ThenBy(s => s.i)
+                .FirstOrDefault();
+            return best.Rect.Width > 0 ? best.Rect : null;
+        }
+    }
+
+    /// <summary>The changes to call out, largest first, close ones of a kind gathered into one - see
+    /// <see cref="PlaceTallies"/>.</summary>
+    private static List<PlotTally> Callouts(IReadOnlyList<PlotTally> tallies)
+    {
+        static long Size(PlotTally t) => t.Lost + t.Gained;
+        var result = new List<PlotTally>();
+        foreach (var kind in tallies.GroupBy(t => t.Kind))
+        {
+            var largest = kind.Max(Size);
+            var left = kind.Where(t => Size(t) >= CalloutRatio * largest)
+                .OrderByDescending(Size).ThenBy(t => t.X).ToList();
+            while (left.Count > 0)
+            {
+                var seed = left[0];
+                var near = left.Where(t => t.Series == seed.Series && Math.Abs(t.X - seed.X) <= BulbGap).OrderBy(t => t.X).ToList();
+                foreach (var t in near)
+                    left.Remove(t);
+                result.Add(near.Skip(1).Aggregate(near[0], PlotTally.Merge));
+            }
+        }
+        return [.. result.OrderByDescending(Size).ThenBy(t => t.X)];
+    }
+
+    /// <summary>Where a callout's spline starts: the tip of a drop's marker, the top of a climb. A
+    /// callout for several changes starts from the middle of theirs.</summary>
+    private static PlotPoint Toward(PlotTally t)
+        => t.Kind == TallyKind.Gain ? new PlotPoint(t.X, t.YTop) : new PlotPoint(t.X, t.Foot);
+
+    /// <summary>A bulb's square just past <paramref name="t"/>'s anchor - below a drop, above a climb -
+    /// and inside <paramref name="bounds"/>.</summary>
+    private static PlotRect Square(PlotTally t, double radius, PlotRect bounds)
+    {
+        var anchor = Toward(t);
+        var side = 2 * radius;
+        var top = t.Kind == TallyKind.Gain ? anchor.Y - TallyPad - side : anchor.Y + TallyPad;
+        var left = Math.Clamp(anchor.X - radius, bounds.Left, Math.Max(bounds.Left, bounds.Right - side));
+        top = Math.Clamp(top, bounds.Top, Math.Max(bounds.Top, bounds.Bottom - side));
+        return new PlotRect(left, top, left + side, top + side);
+    }
+
+    private static double BulbRadiusOf(PlotTally t) => t.Merged ? BulbRadius + 1 : BulbRadius;
+
+    private static PlotRect Grow(PlotRect r, double by) => new(r.Left - by, r.Top - by, r.Right + by, r.Bottom + by);
+
+    /// <summary>From each of <paramref name="t"/>'s anchors to the nearest point of its callout - the
+    /// edge of a pill, or of a bulb's circle - up to <see cref="MaxSplines"/>; past that one, from the
+    /// middle of its changes. None that would be shorter than <see cref="TallyPad"/>.</summary>
+    private static List<(PlotPoint From, PlotPoint To)> Splines(PlotTally t, PlotRect rect, bool bulb)
+    {
+        var from = t.Anchors.Count > MaxSplines ? [Toward(t)] : t.Anchors;
+        var result = new List<(PlotPoint, PlotPoint)>();
+        foreach (var a in from)
+        {
+            PlotPoint to;
+            if (bulb)
+            {
+                double cx = (rect.Left + rect.Right) / 2, cy = (rect.Top + rect.Bottom) / 2, r = (rect.Right - rect.Left) / 2;
+                var d = Math.Sqrt((a.X - cx) * (a.X - cx) + (a.Y - cy) * (a.Y - cy));
+                to = d <= r ? new PlotPoint(cx, cy) : new PlotPoint(cx + (a.X - cx) * r / d, cy + (a.Y - cy) * r / d);
+            }
+            else
+                to = new PlotPoint(Math.Clamp(a.X, rect.Left, rect.Right), Math.Clamp(a.Y, rect.Top, rect.Bottom));
+            if (Math.Abs(to.X - a.X) + Math.Abs(to.Y - a.Y) >= TallyPad)
+                result.Add((a, to));
+        }
+        return result;
+    }
+
+    /// <summary>True when the segment from <paramref name="a"/> to <paramref name="b"/> passes
+    /// through <paramref name="r"/>.</summary>
+    private static bool Crosses(PlotPoint a, PlotPoint b, PlotRect r)
+    {
+        // Liang-Barsky: clip the segment's parameter range against each side.
+        double t0 = 0, t1 = 1, dx = b.X - a.X, dy = b.Y - a.Y;
+        bool Clip(double p, double q)
+        {
+            if (p == 0) return q >= 0;
+            var t = q / p;
+            if (p < 0) t0 = Math.Max(t0, t); else t1 = Math.Min(t1, t);
+            return t0 <= t1;
+        }
+        return Clip(-dx, a.X - r.Left) && Clip(dx, r.Right - a.X) && Clip(-dy, a.Y - r.Top) && Clip(dy, r.Bottom - a.Y);
+    }
+
+    /// <summary>Spots all round <paramref name="t"/>'s anchor for a box <paramref name="w"/> by
+    /// <paramref name="h"/>, each with its cost before the step line and crossings are counted - see
+    /// <see cref="PlaceTallies"/>.</summary>
+    private static IEnumerable<(PlotRect Rect, double Cost)> RingSpots(PlotTally t, double w, double h)
+    {
+        var anchor = Toward(t);
+        // Which way is "toward": down for anything with a loss in it, up for a climb.
+        var toward = t.Kind == TallyKind.Gain ? -1 : 1;
+        for (var ring = 0; ring < RingCount; ring++)
+        {
+            var r = TallyPad + ring * RingStep;
+            for (var k = 0; k < RingSteps; k++)
+            {
+                var angle = 2 * Math.PI * k / RingSteps;
+                double dx = Math.Cos(angle), dy = Math.Sin(angle);
+                var cx = anchor.X + dx * (r + w / 2);
+                var cy = anchor.Y + dy * (r + h / 2);
+                yield return (new PlotRect(cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2), r + FacingCost * (1 - dy * toward));
+            }
+        }
+    }
+
+    /// <summary>How far a callout keeps from every other change's shapes, every bulb and every pill.</summary>
+    public const double CalloutClearance = 4;
+    /// <summary>The smallest change called out, as a fraction of the largest of its kind in view.</summary>
+    public const double CalloutRatio = 0.1;
+    /// <summary>How close on the time axis changes of a kind must be to the largest among them to share
+    /// its callout: about a bulb and a half, so bulbs any closer could not sit side by side.</summary>
+    public const double BulbGap = 14;
+    public const double BulbRadius = 6;
+    /// <summary>The most changes a callout draws splines to; past this it draws one, from their middle.</summary>
+    public const int MaxSplines = 4;
+    /// <summary>How much larger each way a merged callout's pill is.</summary>
+    public const double MergedPad = 3;
+    /// <summary>How many directions round its anchor a callout is tried in.</summary>
+    public const int RingSteps = 16;
+    private const int RingCount = 9;
+    /// <summary>How much further out each ring of spots is than the last.</summary>
+    private const double RingStep = 5;
+    /// <summary>What facing beside the anchor costs, in units of distance; twice that for straight away
+    /// from below (a drop) or above (a climb).</summary>
+    private const double FacingCost = 8;
+    /// <summary>What each unit of step line covered costs.</summary>
+    private const double LineCost = 1.5;
+    /// <summary>What a spline crossing another change's riser, marker or bar costs.</summary>
+    private const double CrossCost = 20;
+
+    private static double TallyHeightOf(PlotTally t) => TallyHeight + (t.Merged ? 2 * MergedPad : 0);
 
     /// <summary>Time-ordered readings as <see cref="ScoreStep"/>s: each change from the reading
     /// before, with consecutive changes of one sign and one stamp merged. Unchanged readings make no
@@ -709,6 +1136,15 @@ public sealed class ScoreTimeAxis
             x += w;
         }
         return new ScoreTimeAxis([.. result], gaps);
+    }
+
+    /// <summary>The instant at <paramref name="x"/>: <see cref="Map"/> backwards, clamped to the axis.</summary>
+    public long Unmap(double x)
+    {
+        if (x <= _pieces[0].X0) return _pieces[0].StartMs;
+        if (x >= _pieces[^1].X1) return _pieces[^1].EndMs;
+        var (s, e, x0, x1) = _pieces.First(p => p.X1 >= x);
+        return x1 <= x0 ? s : s + (long)Math.Round((e - s) * (x - x0) / (x1 - x0));
     }
 
     public double Map(long ms)

@@ -4,18 +4,19 @@ using SkiaSharp;
 
 namespace Mucka.Rendering;
 
-/// <summary>What the pointer is on: a reading of series <see cref="Series"/>, a strip mark, or a climb
-/// or drop.</summary>
-public readonly record struct ScoreHover(int Series, PlotReading? Reading, PlotMark? Mark, PlotMove? Move = null, int Stair = 0);
+/// <summary>What the pointer is on: a reading of series <see cref="Series"/>, a strip mark, a climb or
+/// drop, or a callout. A callout that stands for one change also names that change, and shows its card.</summary>
+public readonly record struct ScoreHover(int Series, PlotReading? Reading, PlotMark? Mark, PlotMove? Move = null, int Stair = 0,
+    PlotTally? Tally = null);
 
 /// <summary>
 /// Paints a <see cref="ScoreGraphPlot"/> for <see cref="ScoreGraphView"/>: every coordinate comes from
 /// the plot, so the arithmetic is tested in Mucka.Util.Tests and this class chooses ink, type and
-/// label placement. SkiaSharp only - no MAUI - so it can also render to an image.
+/// where its text goes. SkiaSharp only - no MAUI - so it can also render to an image.
 ///
 /// <para>Drawing order, back to front: a hovered mark's span wash; guides (squeezed gaps, grid, day
 /// lines, axis, run and switch marks, session bands); data (bucket bars, area fill, line, drops and
-/// their markers); wipe skulls; labels (the "as of" stamp, live-value tags, drop pills); then the
+/// their markers); wipe skulls; labels (the "as of" stamp, live-value tags) and callouts; then the
 /// hover card. Guides are quiet so the data reads first.</para>
 /// </summary>
 [System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA1001:Types that own disposable fields should be disposable",
@@ -36,6 +37,11 @@ public sealed class ScoreGraphPainter
     private static readonly SKColor TooltipFill = SKColor.Parse("#161b22").WithAlpha(0xf2);
     private static readonly SKColor TooltipEdge = SKColor.Parse("#3d4f5c");
     private static readonly SKColor Gain        = SKColor.Parse("#3fb950");
+    private static readonly SKColor GainInk     = SKColor.Parse("#b7f0c1");
+    private static readonly SKColor GainPill    = SKColor.Parse("#10261a");
+    private static readonly SKColor Mixed       = SKColor.Parse("#d29922");
+    private static readonly SKColor MixedInk    = SKColor.Parse("#f2d58a");
+    private static readonly SKColor MixedPill   = SKColor.Parse("#2e2410");
 
     private static readonly SKTypeface Regular = Face(SKFontStyle.Normal);
     private static readonly SKTypeface Bold = Face(SKFontStyle.Bold);
@@ -66,11 +72,23 @@ public sealed class ScoreGraphPainter
         => new(face, size) { Edging = SKFontEdging.Antialias, Subpixel = true, Hinting = SKFontHinting.Slight };
 
     /// <param name="scale">Device pixels per plot unit; lines are snapped to device pixels with it.</param>
-    public void Paint(SKCanvas canvas, float scale, ScoreGraphPlot plot, ScoreGraphScene scene, ScoreHover? hover)
+    /// <param name="selection">The stretch a drag across the plot is selecting, if one is under way.</param>
+    public void Paint(SKCanvas canvas, float scale, ScoreGraphPlot plot, ScoreGraphScene scene, ScoreHover? hover,
+        (double X0, double X1)? selection = null)
     {
         canvas.Save();
         _scale = scale;
         canvas.Scale(scale);
+
+        if (selection is { } band)
+        {
+            _fill.Color = SKColors.White.WithAlpha(0x14);
+            canvas.DrawRect((float)band.X0, (float)plot.Top, (float)(band.X1 - band.X0), (float)(plot.Bottom - plot.Top), _fill);
+            _stroke.Color = SKColors.White.WithAlpha(0x60);
+            _stroke.StrokeWidth = Hairline;
+            canvas.DrawLine(Snap(band.X0), (float)plot.Top, Snap(band.X0), (float)plot.Bottom, _stroke);
+            canvas.DrawLine(Snap(band.X1), (float)plot.Top, Snap(band.X1), (float)plot.Bottom, _stroke);
+        }
 
         if (hover?.Mark is { } mark)
             DrawMarkSpan(canvas, plot, mark);
@@ -80,13 +98,15 @@ public sealed class ScoreGraphPainter
         var taken = new List<SKRect>();
         DrawAsOf(canvas, plot, scene, taken);
         DrawLiveTags(canvas, plot, taken);
-        DrawLossPills(canvas, plot, taken);
+        DrawTallies(canvas, plot, taken, hover);
         if (hover?.Reading is { } reading)
             DrawHover(canvas, plot, scene, (hover.Value.Series, reading));
         else if (hover?.Mark is { } m)
             DrawMarkCard(canvas, plot, scene, m);
         else if (hover?.Move is { } move)
             DrawMoveCard(canvas, plot, scene, move, hover.Value.Stair);
+        else if (hover?.Tally is { } tally)
+            DrawTallyCard(canvas, plot, scene, tally);
 
         canvas.Restore();
     }
@@ -194,8 +214,9 @@ public sealed class ScoreGraphPainter
         canvas.DrawCircle((float)at.X, (float)at.Y, 5f, _stroke);
 
         // Every step's size beside the climb, so the whole staircase reads at once; the card goes on
-        // the other side where there is room for it there.
-        var labelsRight = DrawStairLabels(canvas, plot, move, ink, bx + 5);
+        // the other side where there is room for it there. A single step is its own total, already
+        // in the card's title.
+        var labelsRight = move.Stairs.Count > 1 && DrawStairLabels(canvas, plot, move, ink, bx + 5);
 
         var inv = CultureInfo.InvariantCulture;
         var start = TimeZoneInfo.ConvertTime(DateTimeOffset.FromUnixTimeMilliseconds(move.StartMs), TimeZoneInfo.Local);
@@ -410,10 +431,7 @@ public sealed class ScoreGraphPainter
         foreach (var bar in plot.Bars)
         {
             var colour = SeriesColors[bar.Series % SeriesColors.Length];
-            var mid = (float)(bar.X0 + bar.X1) / 2;
-            var w = Math.Clamp((float)(bar.X1 - bar.X0) * 0.6f, 2f, 14f);
-            var h = Math.Max(1.5f, (float)(bar.YLow - bar.YHigh));
-            var rect = new SKRect(mid - w / 2, (float)bar.YHigh, mid + w / 2, (float)bar.YHigh + h);
+            var rect = Sk(ScoreGraphPlot.CandleBody(bar));
             _fill.Color = colour.WithAlpha(0x40);
             canvas.DrawRoundRect(rect, 1.5f, 1.5f, _fill);
             _stroke.Color = colour.WithAlpha(0x90);
@@ -464,11 +482,11 @@ public sealed class ScoreGraphPainter
         foreach (var loss in plot.Losses)
         {
             if (loss.Radius <= 0) continue;
-            float x = (float)loss.X, y = (float)loss.YAfter + 1.5f, r = (float)loss.Radius;
+            var box = Sk(ScoreGraphPlot.ChevronRect(loss));
             using var tri = new SKPath();
-            tri.MoveTo(x - r, y);
-            tri.LineTo(x + r, y);
-            tri.LineTo(x, y + r * 1.3f);
+            tri.MoveTo(box.Left, box.Top);
+            tri.LineTo(box.Right, box.Top);
+            tri.LineTo(box.MidX, box.Bottom);
             tri.Close();
             _fill.Color = Loss;
             canvas.DrawPath(tri, _fill);
@@ -516,44 +534,162 @@ public sealed class ScoreGraphPainter
         }
     }
 
-    /// <summary>The largest drops' sizes in pills, largest placed first, each at the first spot near
-    /// its marker that stays inside the plot and clear of every pill already placed.</summary>
-    private void DrawLossPills(SKCanvas canvas, ScoreGraphPlot plot, List<SKRect> taken)
+    /// <summary>The callouts, laid out by <see cref="ScoreGraphPlot.PlaceTallies"/> once per plot and kept
+    /// for every repaint and for <see cref="TallyAt"/>: splines first, then bulbs and pills over them.
+    /// Coloured by what went into them: red only losses, green only gains, amber both. The one the
+    /// hover is on has its splines solid white and its edge ringed.</summary>
+    private void DrawTallies(SKCanvas canvas, ScoreGraphPlot plot, List<SKRect> taken, ScoreHover? hover)
     {
-        var bounds = new SKRect((float)plot.Left, (float)plot.Top, (float)plot.Right, (float)plot.Bottom);
-        const float Height = 15f;
-        foreach (var loss in plot.Losses.Where(l => l.Labelled).OrderByDescending(l => l.Drop))
+        if (!ReferenceEquals(_tallyPlot, plot))
         {
-            var text = "-" + loss.Drop.ToString("N0", CultureInfo.CurrentCulture);
-            var w = _pillFont.MeasureText(text) + 10;
-            float x = (float)loss.X, foot = (float)loss.YAfter + 1.5f + (float)loss.Radius * 1.3f, head = (float)loss.YBefore;
-            SKRect[] candidates =
-            [
-                Rect(x - w / 2, foot + 3),
-                Rect(x + (float)loss.Radius + 4, (float)loss.YAfter - Height / 2),
-                Rect(x - (float)loss.Radius - 4 - w, (float)loss.YAfter - Height / 2),
-                Rect(x - w / 2, head - Height - 4),
-                Rect(x + 6, head - Height / 2),
-                Rect(x - 6 - w, head - Height / 2),
-            ];
-            SKRect Rect(float l, float t) => new(l, t, l + w, t + Height);
+            var bounds = new PlotRect(plot.Left, plot.Top, plot.Right, plot.Bottom);
+            var reserved = taken.Select(r => new PlotRect(r.Left, r.Top, r.Right, r.Bottom));
+            _tallies = ScoreGraphPlot.PlaceTallies(plot.Tallies, bounds, plot.TallyObstacles,
+                text => _pillFont.MeasureText(text) + 10, reserved, plot.LineRects);
+            _tallyPlot = plot;
+        }
 
-            foreach (var rect in candidates)
+        bool Lit(PlotTally tally) => hover is { } h && (ReferenceEquals(h.Tally, tally)
+            || h.Move is { } m && tally.Moves.Contains(m)
+            || h.Reading is { } r && tally.Buckets.Contains(r));
+
+        // Splines under every callout, so a line never runs over a figure; the lit one last, on top.
+        foreach (var lit in new[] { false, true })
+            foreach (var (tally, _, _, splines) in _tallies.Where(c => Lit(c.Tally) == lit))
             {
-                if (!bounds.Contains(rect) || taken.Any(t => t.IntersectsWith(rect)))
-                    continue;
-                taken.Add(rect);
-                _fill.Color = LossPill;
-                canvas.DrawRoundRect(rect, 4, 4, _fill);
-                _stroke.Color = Loss.WithAlpha(0xa0);
-                _stroke.StrokeWidth = Hairline;
-                canvas.DrawRoundRect(rect, 4, 4, _stroke);
-                _fill.Color = LossInk;
-                canvas.DrawText(text, rect.MidX, rect.MidY + 3.5f, SKTextAlign.Center, _pillFont, _fill);
-                break;
+                _stroke.Color = lit ? SKColors.White : SplineInk;
+                _stroke.StrokeWidth = lit ? 2f : 1f;
+                _stroke.PathEffect = lit ? null : _dash;
+                var toward = tally.Kind == TallyKind.Gain ? -1f : 1f;
+                foreach (var (from, to) in splines)
+                {
+                    using var path = Spline(from, to, toward);
+                    canvas.DrawPath(path, _stroke);
+                }
             }
+        _stroke.PathEffect = null;
+
+        foreach (var (tally, box, expanded, _) in _tallies)
+        {
+            var rect = Sk(box);
+            var (fill, edge, ink) = Ink(tally.Kind);
+            var lit = Lit(tally);
+            // A gathered callout is a size larger and edged firmer, so it reads as standing for several.
+            _stroke.Color = lit ? SKColors.White : edge.WithAlpha(tally.Merged ? (byte)0xe0 : (byte)0xa0);
+            _stroke.StrokeWidth = lit || tally.Merged ? 1.25f : Hairline;
+            _fill.Color = fill;
+            if (expanded)
+            {
+                canvas.DrawRoundRect(rect, 4, 4, _fill);
+                canvas.DrawRoundRect(rect, 4, 4, _stroke);
+                _fill.Color = ink;
+                canvas.DrawText(tally.Text, rect.MidX, rect.MidY + 3.5f, SKTextAlign.Center, _pillFont, _fill);
+                continue;
+            }
+            // A bulb: a circle with a chevron pointing the way the score went, flat when it came
+            // out even.
+            var r = rect.Width / 2;
+            canvas.DrawCircle(rect.MidX, rect.MidY, r, _fill);
+            canvas.DrawCircle(rect.MidX, rect.MidY, r, _stroke);
+            var down = Math.Sign(tally.Net) * -1f;
+            var c = r * 0.45f;
+            using var chevron = new SKPath();
+            chevron.MoveTo(rect.MidX - c, rect.MidY - c * 0.5f * down);
+            chevron.LineTo(rect.MidX, rect.MidY + c * 0.5f * down);
+            chevron.LineTo(rect.MidX + c, rect.MidY - c * 0.5f * down);
+            _stroke.Color = ink;
+            _stroke.StrokeWidth = 1.5f;
+            canvas.DrawPath(chevron, _stroke);
         }
     }
+
+    /// <summary>A callout's spline: leaving its anchor the way the score went (down for a drop, up
+    /// for a climb) and arriving at the callout, so it reads as hanging off the change.</summary>
+    private static SKPath Spline(PlotPoint from, PlotPoint to, float toward)
+    {
+        float ax = (float)from.X, ay = (float)from.Y, bx = (float)to.X, by = (float)to.Y;
+        var length = MathF.Sqrt((bx - ax) * (bx - ax) + (by - ay) * (by - ay));
+        var path = new SKPath();
+        path.MoveTo(ax, ay);
+        path.CubicTo(ax, ay + toward * 0.4f * length, bx + (ax - bx) * 0.4f, by + (ay - by) * 0.4f, bx, by);
+        return path;
+    }
+
+    /// <summary>A resting spline: a light grey no data on the graph is drawn in, so it reads as a link.</summary>
+    private static readonly SKColor SplineInk = SKColor.Parse("#c9d1d9").WithAlpha(0xcc);
+
+    private static (SKColor Fill, SKColor Edge, SKColor Ink) Ink(TallyKind kind) => kind switch
+    {
+        TallyKind.Loss => (LossPill, Loss, LossInk),
+        TallyKind.Gain => (GainPill, Gain, GainInk),
+        _ => (MixedPill, Mixed, MixedInk),
+    };
+
+    private ScoreGraphPlot? _tallyPlot;
+    private List<PlacedTally> _tallies = [];
+
+    /// <summary>The callout under the point in the last paint, if any; a bulb is small, so it is
+    /// reached a little way off.</summary>
+    public PlotTally? TallyAt(double x, double y)
+    {
+        foreach (var (tally, box, expanded, _) in _tallies)
+        {
+            var reach = expanded ? 0 : BulbReach;
+            if (x >= box.Left - reach && x <= box.Right + reach && y >= box.Top - reach && y <= box.Bottom + reach)
+                return tally;
+        }
+        return null;
+    }
+
+    private const double BulbReach = 4;
+
+    private static SKRect Sk(PlotRect r) => new((float)r.Left, (float)r.Top, (float)r.Right, (float)r.Bottom);
+
+    /// <summary>A callout that stands for several changes: each of them with its time, then the
+    /// totals each way when both went into it.</summary>
+    private void DrawTallyCard(SKCanvas canvas, ScoreGraphPlot plot, ScoreGraphScene scene, PlotTally tally)
+    {
+        var inv = CultureInfo.InvariantCulture;
+        var members = tally.Moves.Select(m => (m.StartMs, m.EndMs, m.Change, Lost: Math.Max(0, -m.Change), Gained: Math.Max(0, m.Change)))
+            .Concat(tally.Buckets.Select(b => (StartMs: b.Ms, b.EndMs, Change: b.Gained - b.Lost, b.Lost, b.Gained)))
+            .OrderBy(x => x.StartMs)
+            .ToList();
+        var oneDay = members.Count > 0 && members.All(x => Local(x.StartMs).Date == Local(members[0].StartMs).Date);
+
+        var rows = new List<CardRow>();
+        if (scene.Series.Count > 1)
+            rows.Add(new CardRow(scene.Series[tally.Series].Label, SeriesColors[tally.Series % SeriesColors.Length], string.Empty, string.Empty, AxisInk));
+        foreach (var x in members.Take(MaxTallyRows))
+        {
+            var when = tally.Buckets.Count > 0 && x.EndMs > x.StartMs
+                ? When(new PlotReading(0, 0, x.StartMs, x.EndMs, 0, 0, 0, 0, 0))
+                : Local(x.StartMs).ToString(oneDay ? "HH:mm:ss" : "ddd d  HH:mm:ss", inv);
+            rows.Add(ChangeRow(when, AxisInk, x.Change));
+        }
+        if (members.Count > MaxTallyRows)
+            rows.Add(new CardRow((members.Count - MaxTallyRows).ToString(inv) + " more", AxisInk, string.Empty, string.Empty, AxisInk));
+        if (tally.Kind == TallyKind.Mixed)
+        {
+            rows.Add(new CardRow("gained", AxisInk, string.Empty, "+" + tally.Gained.ToString("N0", CultureInfo.CurrentCulture), Gain));
+            rows.Add(new CardRow("lost", AxisInk, string.Empty, "-" + tally.Lost.ToString("N0", CultureInfo.CurrentCulture), Loss));
+        }
+
+        var (title, ink) = tally.Kind switch
+        {
+            TallyKind.Loss => ("Drops ", Loss),
+            TallyKind.Gain => ("Climbs ", Gain),
+            _ => ("Net ", Mixed),
+        };
+        var subtitle = members.Count.ToString(inv) + " changes" + (oneDay && members.Count > 0
+            ? "   " + Local(members[0].StartMs).ToString("ddd d MMM", inv)
+            : string.Empty);
+        DrawCard(canvas, plot, (float)tally.X, title + tally.Text, ink, boldTitle: true, subtitle, rows);
+    }
+
+    private const int MaxTallyRows = 10;
+
+    private static DateTimeOffset Local(long ms)
+        => TimeZoneInfo.ConvertTime(DateTimeOffset.FromUnixTimeMilliseconds(ms), TimeZoneInfo.Local);
 
     /// <summary>A crosshair on the snapped reading, a dot on every line at that instant, and a card:
     /// when, then each character's score and its change, plus a bucket's range and losses.</summary>

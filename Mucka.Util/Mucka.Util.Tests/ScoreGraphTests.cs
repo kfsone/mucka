@@ -6,8 +6,9 @@ using Mucka.Store;
 
 namespace Mucka.Util.Tests;
 
-/// <summary>The $SCORE panel's MAUI-free half: the read, the plot arithmetic and the argument parse.
-/// The panel and its drawing are in the MAUI assembly, which no suite reaches.</summary>
+/// <summary>The $SCORE panel's MAUI-free half: the read, the plot arithmetic, callout placement and the
+/// argument parse. The panel and its drawing - ink, fonts, hit-testing - are in the MAUI assembly,
+/// which no suite reaches.</summary>
 public sealed class ScoreGraphTests : IDisposable
 {
     private readonly string _directory =
@@ -110,7 +111,7 @@ public sealed class ScoreGraphTests : IDisposable
     }
 
     [Fact]
-    public void Every_negative_step_is_a_loss_and_the_largest_are_labelled()
+    public void Every_negative_step_is_a_loss_with_a_marker_sized_by_its_drop()
     {
         var points = new List<ScorePoint> { new(0, 1000) };
         for (var i = 1; i <= 8; i++)
@@ -121,23 +122,307 @@ public sealed class ScoreGraphTests : IDisposable
 
         Assert.Equal([20L, 40, 60, 80], plot.Losses.Select(l => l.Drop));
         Assert.All(plot.Losses, l => Assert.True(l.YAfter > l.YBefore, "a drop is drawn downwards"));
-        Assert.Equal(4, plot.Losses.Count(l => l.Labelled));
+        Assert.All(plot.Losses, l => Assert.True(l.Radius > 0));
         Assert.True(plot.Losses[^1].Radius > plot.Losses[0].Radius);
         Assert.False(plot.GainMode);
     }
 
     [Fact]
-    public void Drops_closer_than_a_marker_slot_share_one_marker_and_keep_their_drop()
+    public void Every_drop_with_room_for_its_marker_gets_one_however_many_there_are()
     {
-        // Three drops a few units apart and one far away; 1000 ms over a 1000-unit plot is about 1:1.
-        // Plot X = LeftMargin + ms, so 110..114 lands at 168..172, inside one 16-wide slot.
+        // Seven drops 100 units apart: no count limits which of them are marked.
+        var points = new List<ScorePoint> { new(0, 10_000) };
+        for (var i = 1; i <= 7; i++)
+            points.Add(new(i * 100, points[^1].Total - i * 10));
+        var scene = new ScoreGraphScene(0, 1000, false, 0, [new ScoreGraphSeries("A", [.. points], [])], [], []);
+
+        var plot = ScoreGraphPlot.Build(scene, 1000 + ScoreGraphPlot.LeftMargin + ScoreGraphPlot.RightMargin, 300, TimeZoneInfo.Utc);
+
+        Assert.Equal(7, plot.Losses.Count(l => l.Radius > 0));
+    }
+
+    [Fact]
+    public void Two_drops_too_close_for_two_markers_get_one_wherever_they_fall_on_the_axis()
+    {
+        // Plot X = LeftMargin + ms at about 1:1. Each pair is 4 apart; the offsets move the pair
+        // across every alignment against any fixed grid, including straddling a multiple of 16.
+        // Between them a climb, so they are two drops and not one of two steps.
+        for (var offset = 0; offset < 16; offset++)
+        {
+            long a = 100 + offset, b = a + 4;
+            ScorePoint[] points = [new(0, 1000), new(a, 700), new(a + 2, 710), new(b, 600)];
+            var scene = new ScoreGraphScene(0, 1000, false, 0, [new ScoreGraphSeries("A", points, [])], [], []);
+
+            var plot = ScoreGraphPlot.Build(scene, 1000 + ScoreGraphPlot.LeftMargin + ScoreGraphPlot.RightMargin, 300, TimeZoneInfo.Utc);
+
+            Assert.Single(plot.Losses, l => l.Radius > 0);
+        }
+    }
+
+    [Fact]
+    public void A_drops_marker_hangs_from_its_own_last_step_in_every_series_and_either_side_of_a_login()
+    {
+        // Series A: a single drop, then a two-step drop. Series B: a two-step drop split by a login
+        // between its steps, so two drops of one step each. Steps are 2 apart, closer than MoveGap.
+        ScorePoint[] a = [new(0, 1000), new(100, 980), new(500, 700), new(502, 690)];
+        ScorePoint[] b = [new(0, 1000), new(800, 800), new(802, 795)];
+        var scene = new ScoreGraphScene(0, 1000, false, 0,
+            [new ScoreGraphSeries("A", a, []), new ScoreGraphSeries("B", b, [new TimeSpanMs(0, 801), new TimeSpanMs(801, 1000)])], [], []);
+
+        var plot = ScoreGraphPlot.Build(scene, 1000 + ScoreGraphPlot.LeftMargin + ScoreGraphPlot.RightMargin, 300, TimeZoneInfo.Utc);
+
+        var marked = plot.Losses.Where(l => l.Radius > 0).Select(l => (l.Series, l.Drop)).ToList();
+        // A: the single drop of 20, and the two-step drop of 290 on its last step (10), not its first (280).
+        Assert.Equal([20L, 10], marked.Where(m => m.Series == 0).Select(m => m.Drop));
+        // B: the login makes two one-step drops; whichever keep a marker, each is on its own step.
+        Assert.Contains((1, 5L), marked);
+        Assert.All(marked.Where(m => m.Series == 1), m => Assert.Contains(m.Drop, new[] { 200L, 5L }));
+    }
+
+    [Fact]
+    public void A_drop_of_several_steps_has_one_marker_at_its_foot_sized_by_the_whole_drop()
+    {
+        // Three steps a few units apart - one drop of 450 to the eye - and one of 150 far away; 1000 ms
+        // over a 1000-unit plot is about 1:1.
         ScorePoint[] points = [new(0, 1000), new(110, 900), new(112, 600), new(114, 550), new(900, 400)];
         var scene = new ScoreGraphScene(0, 1000, false, 0, [new ScoreGraphSeries("A", points, [])], [], []);
 
         var plot = ScoreGraphPlot.Build(scene, 1000 + ScoreGraphPlot.LeftMargin + ScoreGraphPlot.RightMargin, 300, TimeZoneInfo.Utc);
 
         Assert.Equal(4, plot.Losses.Count);
-        Assert.Equal([300L, 150], plot.Losses.Where(l => l.Radius > 0).Select(l => l.Drop));
+        var marked = plot.Losses.Where(l => l.Radius > 0).ToList();
+        Assert.Equal([50L, 150], marked.Select(l => l.Drop));
+        Assert.True(marked[0].Radius > marked[1].Radius, "sized by the 450 it ends, not its own 50");
+    }
+
+    /// <summary>1000 ms over a 1000-unit plot: plot X = LeftMargin + ms.</summary>
+    private static ScoreGraphPlot RawPlot(params ScorePoint[] points)
+        => ScoreGraphPlot.Build(new ScoreGraphScene(0, 1000, false, 0, [new ScoreGraphSeries("A", points, [])], [], []),
+            1000 + ScoreGraphPlot.LeftMargin + ScoreGraphPlot.RightMargin, 300, TimeZoneInfo.Utc);
+
+    /// <summary>A fixed width per character, so placement is independent of fonts.</summary>
+    private static double Width(string text) => text.Length * 7 + 10;
+
+    private static List<PlacedTally> Place(ScoreGraphPlot plot)
+        => ScoreGraphPlot.PlaceTallies(plot.Tallies, new PlotRect(plot.Left, plot.Top, plot.Right, plot.Bottom),
+            plot.TallyObstacles, Width, null, plot.LineRects);
+
+    private static PlotTally Loss(double x, double top, double bottom, long lost)
+        => new(0, x, x, x, top, bottom, bottom, lost, 0, 1, false, [], [], [new PlotPoint(x, bottom)]);
+
+    private static PlotTally Climb(double x, double top, double bottom, long gained)
+        => new(0, x, x, x, top, bottom, bottom, 0, gained, 1, false, [], [], [new PlotPoint(x, top)]);
+
+    [Fact]
+    public void Two_drops_side_by_side_ending_at_different_heights_both_keep_their_markers()
+    {
+        // 15 apart in X - closer than two markers' radii - but their feet about 30 apart in Y.
+        var plot = RawPlot(new(0, 1000), new(100, 700), new(108, 1000), new(115, 650), new(900, 650));
+
+        Assert.Equal(2, plot.Losses.Count(l => l.Radius > 0));
+    }
+
+    /// <summary>The operator's own 3-day raw window, laid out at the 960 by 480 he views it at: three
+    /// flees of about 3,500 within an hour, climbs between them, a -10 and a -2 just after the last.
+    /// The fixture keeps the window's first and last readings and every one around the flees.</summary>
+    private static ScoreGraphPlot ThreeFlees()
+    {
+        var text = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Fixtures", "Data", "score-three-flees.txt"));
+        ScorePoint[] points = [.. text.Split(' ', StringSplitOptions.RemoveEmptyEntries).Select(pair =>
+        {
+            var parts = pair.Split(':');
+            return new ScorePoint(long.Parse(parts[0], CultureInfo.InvariantCulture), long.Parse(parts[1], CultureInfo.InvariantCulture));
+        })];
+        return ScoreGraphPlot.Build(new ScoreGraphScene(0, 259_200_000, false, 0, [new ScoreGraphSeries("Ollie", points, [])], [], []),
+            960, 480, TimeZoneInfo.Utc);
+    }
+
+    [Fact]
+    public void At_the_operators_width_each_flee_shows_its_own_figure_and_every_big_climb_is_called_out()
+    {
+        var plot = ThreeFlees();
+
+        var placed = Place(plot);
+
+        foreach (var drop in new[] { 3568L, 3570, 3614 })
+        {
+            var p = Assert.Single(placed, p => p.Tally.Moves.Any(m => m.Change == -drop));
+            Assert.True(p.Expanded, $"-{drop} shows its figure");
+            Assert.Single(p.Tally.Moves);
+        }
+        foreach (var climb in plot.Moves.Where(m => m.Change >= 3000))
+            Assert.Contains(placed, p => p.Tally.Moves.Contains(climb));
+    }
+
+    [Fact]
+    public void A_tiny_drop_beside_a_big_one_is_not_called_out()
+    {
+        var placed = Place(ThreeFlees());
+
+        Assert.DoesNotContain(placed, p => p.Tally.Moves.Any(m => m.Change is -10 or -2));
+    }
+
+    [Fact]
+    public void Every_large_change_has_one_callout_and_none_covers_another_or_another_changes_shapes()
+    {
+        var rng = new Random(7);
+        var points = new List<ScorePoint> { new(0, 50_000) };
+        for (var ms = 5; ms < 1000; ms += 5)
+            points.Add(new(ms, points[^1].Total + (rng.Next(3) == 0 ? -rng.Next(50, 3000) : rng.Next(10, 1500))));
+
+        foreach (var plot in new[] { ThreeFlees(), RawPlot([.. points]) })
+        {
+            var placed = Place(plot);
+
+            // Each change of a kind at least CalloutRatio of that kind's largest is in exactly one.
+            foreach (var kind in plot.Tallies.GroupBy(t => t.Kind))
+            {
+                var largest = kind.Max(t => t.Lost + t.Gained);
+                foreach (var t in kind.Where(t => t.Lost + t.Gained >= ScoreGraphPlot.CalloutRatio * largest))
+                    Assert.Single(placed, p => p.Tally.Moves.Contains(t.Moves[0]));
+            }
+            for (var i = 0; i < placed.Count; i++)
+                for (var j = i + 1; j < placed.Count; j++)
+                    Assert.False(placed[i].Rect.Intersects(placed[j].Rect), $"{placed[i].Tally.Text} on {placed[j].Tally.Text}");
+            // Another change's shapes, worked out here from where each drop is drawn.
+            foreach (var p in placed)
+            {
+                bool Mine(PlotLoss l) => p.Tally.Moves.Any(m => l.X >= m.X0 - 0.5 && l.X <= m.X1 + 0.5);
+                foreach (var l in plot.Losses.Where(l => !Mine(l)))
+                {
+                    if (l.YAfter > l.YBefore)
+                        Assert.False(p.Rect.Intersects(new PlotRect(l.X - 1, l.YBefore, l.X + 1, l.YAfter)), $"{p.Tally.Text} on the drop of {l.Drop}");
+                    if (l.Radius > 0)
+                        Assert.False(p.Rect.Intersects(ScoreGraphPlot.ChevronRect(l)), $"{p.Tally.Text} on the marker of {l.Drop}");
+                }
+            }
+        }
+    }
+
+    [Fact]
+    public void Drops_too_close_for_a_bulb_each_share_one_braced_callout_and_drops_further_apart_do_not()
+    {
+        var bounds = new PlotRect(0, 0, 400, 300);
+
+        var close = ScoreGraphPlot.PlaceTallies([Loss(100, 50, 100, 1000), Loss(108, 50, 100, 900)], bounds, [], Width);
+        var one = Assert.Single(close).Tally;
+        Assert.Equal(1900, one.Lost);
+        Assert.StartsWith("{-", one.Text, StringComparison.Ordinal);
+
+        var apart = ScoreGraphPlot.PlaceTallies([Loss(100, 50, 100, 1000), Loss(130, 50, 100, 900)], bounds, [], Width);
+        Assert.Equal(2, apart.Count);
+    }
+
+    [Fact]
+    public void A_drop_never_shares_a_callout_with_a_climb_however_close()
+    {
+        var placed = ScoreGraphPlot.PlaceTallies([Loss(100, 50, 100, 1000), Climb(104, 50, 100, 990)],
+            new PlotRect(0, 0, 400, 300), [], Width);
+
+        Assert.Equal(2, placed.Count);
+        Assert.DoesNotContain(placed, p => p.Tally.Kind == TallyKind.Mixed);
+    }
+
+    [Fact]
+    public void A_callout_with_no_room_for_its_figure_stays_a_bulb()
+    {
+        // 50 wide: a bulb fits, the 52-wide "-1,000" does not.
+        var p = Assert.Single(ScoreGraphPlot.PlaceTallies([Loss(100, 10, 12, 1000)], new PlotRect(75, 0, 125, 60), [], Width));
+
+        Assert.False(p.Expanded);
+        Assert.Equal(2 * ScoreGraphPlot.BulbRadius, p.Rect.Width, 6);
+    }
+
+    [Fact]
+    public void A_callout_with_no_clear_spot_anywhere_still_has_a_bulb()
+    {
+        // Everything round the drop is taken.
+        var p = Assert.Single(ScoreGraphPlot.PlaceTallies([Loss(100, 10, 12, 1000)], new PlotRect(0, 0, 400, 300),
+            [new PlotRect(0, 0, 400, 300)], Width));
+
+        Assert.False(p.Expanded);
+        Assert.Equal(2 * ScoreGraphPlot.BulbRadius, p.Rect.Width, 6);
+        Assert.True(p.Rect.Top > 12, "just past its drop's foot");
+
+        // A climb's goes above its top, off the climb.
+        var climb = Assert.Single(ScoreGraphPlot.PlaceTallies([Climb(100, 50, 100, 1000)], new PlotRect(0, 0, 400, 300),
+            [new PlotRect(0, 0, 400, 300)], Width));
+        Assert.True(climb.Rect.Bottom < 50, "just past its climb's top");
+    }
+
+    [Fact]
+    public void A_drag_maps_back_to_the_instants_under_it_on_a_linear_or_squeezed_axis()
+    {
+        var linear = ScoreTimeAxis.Linear(1000, 2000, 50, 100);
+        Assert.Equal(1500, linear.Unmap(100));
+        Assert.Equal(1000, linear.Unmap(0));
+        Assert.Equal(2000, linear.Unmap(500));
+
+        // Sessions 1000-1200 and 1800-2000 with the gap between squeezed to 8.
+        var squeezed = ScoreTimeAxis.Squeezed(1000, 2000, [new TimeSpanMs(1000, 1200), new TimeSpanMs(1800, 2000)], 0, 108, 8);
+        foreach (var ms in new long[] { 1000, 1100, 1200, 1500, 1800, 1950, 2000 })
+            Assert.InRange(squeezed.Unmap(squeezed.Map(ms)), ms - 1, ms + 1);
+    }
+
+    [Fact]
+    public void Splines_run_from_each_change_to_its_callout_up_to_the_limit_and_from_their_middle_past_it()
+    {
+        static PlacedTally Gather(int count) => Assert.Single(ScoreGraphPlot.PlaceTallies(
+            [.. Enumerable.Range(0, count).Select(i => Loss(100 + i * 3, 50, 100, 1000 - i))], new PlotRect(0, 0, 400, 300), [], Width));
+
+        var four = Gather(ScoreGraphPlot.MaxSplines);
+        Assert.Equal(four.Tally.Anchors, four.Splines.Select(s => s.From));
+        var edge = new PlotRect(four.Rect.Left - 0.01, four.Rect.Top - 0.01, four.Rect.Right + 0.01, four.Rect.Bottom + 0.01);
+        Assert.All(four.Splines, s => Assert.True(edge.Contains(s.To.X, s.To.Y), "ends on its callout"));
+
+        var five = Gather(ScoreGraphPlot.MaxSplines + 1);
+        var only = Assert.Single(five.Splines);
+        Assert.Equal(five.Tally.X, only.From.X, 6);
+    }
+
+    [Fact]
+    public void A_callout_for_several_score_lines_is_braced_and_one_line_is_not()
+    {
+        // 100: two drops in one frame; 500: one drop.
+        var plot = RawPlot(new(0, 1000), new(100, 900), new(100, 800), new(500, 700), new(900, 700));
+
+        var tallies = plot.Tallies.Where(t => t.Kind == TallyKind.Loss).OrderBy(t => t.X).ToList();
+        Assert.True(tallies[0].Aggregate);
+        Assert.StartsWith("{-", tallies[0].Text, StringComparison.Ordinal);
+        Assert.False(tallies[1].Aggregate);
+        Assert.StartsWith("-", tallies[1].Text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Every_bucket_callout_is_braced_and_says_which_ways_the_score_went()
+    {
+        const long Hour = 3_600_000;
+        ScorePoint[] points =
+        [
+            new(0, 1000),
+            new(Hour / 4, 1500), new(Hour / 2, 1200),        // hour 0: +500 then -300
+            new(Hour + 1, 1400),                             // hour 1: +200 only
+            new(2 * Hour + 1, 1100),                         // hour 2: -300 only
+        ];
+        var plot = ScoreGraphPlot.Build(new ScoreGraphScene(0, 3 * Hour, false, Hour, [new ScoreGraphSeries("A", points, [])], [], []),
+            600, 300, TimeZoneInfo.Utc);
+
+        var kinds = plot.Tallies.OrderBy(t => t.X).Select(t => (t.Kind, t.Aggregate, t.Net)).ToList();
+        Assert.Equal([(TallyKind.Mixed, true, 200L), (TallyKind.Gain, true, 200L), (TallyKind.Loss, true, -300L)], kinds);
+    }
+
+    [Fact]
+    public void Equal_drops_rank_left_to_right_whichever_series_they_are_in()
+    {
+        // Two equal drops 4 apart at the same height, the left one in the second series: order of
+        // series alone would put the right one first.
+        var scene = new ScoreGraphScene(0, 1000, false, 0,
+            [new ScoreGraphSeries("A", [new(0, 1000), new(304, 900)], []), new ScoreGraphSeries("B", [new(0, 1000), new(300, 900)], [])], [], []);
+
+        var plot = ScoreGraphPlot.Build(scene, 1000 + ScoreGraphPlot.LeftMargin + ScoreGraphPlot.RightMargin, 300, TimeZoneInfo.Utc);
+
+        Assert.Equal(1, plot.Tallies.First(t => t.Kind == TallyKind.Loss).Series);
+        Assert.Equal(1, Assert.Single(plot.Losses, l => l.Radius > 0).Series);
     }
 
     [Fact]

@@ -81,14 +81,23 @@
                     <Label Text="Zero" TextColor="#e6edf3" FontSize="12" VerticalOptions="Center"/>
                 </HorizontalStackLayout>
             </HorizontalStackLayout>
-            <Grid ColumnDefinitions="*,50" ColumnSpacing="8" MinimumWidthRequest="180"
+            <!-- While a dragged-out span is shown, the round arrow beside the days goes back to them. -->
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8" MinimumWidthRequest="180"
                   FlexLayout.Grow="1" VerticalOptions="Center">
                 <Slider Minimum="1" Maximum="{x:Static vm:ScoreGraphViewModel.MaxDays}"
                         Value="{Binding DaysValue}"
                         MinimumTrackColor="#58a6ff" MaximumTrackColor="#30363d" ThumbColor="#c9d1d9"
                         VerticalOptions="Center"/>
-                <Label Grid.Column="1" Text="{Binding DaysLabel}"
-                       TextColor="#e6edf3" FontSize="12" VerticalOptions="Center"/>
+                <HorizontalStackLayout Grid.Column="1" VerticalOptions="Center">
+                    <Label Text="{Binding DaysLabel}" MinimumWidthRequest="50"
+                           TextColor="#e6edf3" FontSize="12" VerticalOptions="Center"/>
+                    <Label Text="&#x21BB;" TextColor="#58a6ff" FontSize="14" Padding="8,2"
+                           IsVisible="{Binding IsSpanShown}" VerticalOptions="Center">
+                        <Label.GestureRecognizers>
+                            <TapGestureRecognizer Command="{Binding ResetSpanCommand}"/>
+                        </Label.GestureRecognizers>
+                    </Label>
+                </HorizontalStackLayout>
             </Grid>
             </FlexLayout>
             <Label Grid.Column="1" Text="&#x2715;" TextColor="#7d8590" FontSize="12"
@@ -100,7 +109,8 @@
             </Grid>
 
             <render:ScoreGraphView Grid.Row="1"
-                                   Scene="{Binding Scene}"/>
+                                   Scene="{Binding Scene}"
+                                   SelectSpanCommand="{Binding SelectSpanCommand}"/>
             <Label Grid.Row="1"
                    Text="{Binding Status}" IsVisible="{Binding HasStatus}"
                    TextColor="#888888" FontSize="12"
