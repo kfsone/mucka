@@ -30,7 +30,7 @@ public sealed class StoreJoinTests : IDisposable
 
     public void Dispose()
     {
-        SqliteConnection.ClearAllPools();
+        TestStore.ReleasePools(_directory);
         try { Directory.Delete(_directory, recursive: true); } catch { /* best-effort cleanup */ }
     }
 
@@ -42,7 +42,7 @@ public sealed class StoreJoinTests : IDisposable
     /// store so everything queued is committed.</summary>
     private void PlayOneEncounter()
     {
-        using var store = new MuckaStore(DbPath, "test");
+        using var store = TestStore.Open(DbPath);
         var tracker = new CombatTracker();
         var ledger = new SwingLedger(store);
         var clog = new ClogWriter(store);

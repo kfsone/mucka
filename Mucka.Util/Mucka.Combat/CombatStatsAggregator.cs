@@ -120,24 +120,38 @@ public sealed class CombatStatsAggregator
     private int _exchangeHead;
     private int _exchangeCount;
 
+    // The last copy handed out, kept until the ring changes - see FightAccumulator.RecentExchange for
+    // why the instance is the equality.
+    private SwingMark[]? _exchangeSnapshot;
+
     private void RecordExchange(SwingMark mark)
     {
         _exchange[_exchangeHead] = mark;
         _exchangeHead = (_exchangeHead + 1) % _exchange.Length;
         if (_exchangeCount < _exchange.Length)
             _exchangeCount++;
+        _exchangeSnapshot = null;
+    }
+
+    private void ClearExchange()
+    {
+        _exchangeHead = 0;
+        _exchangeCount = 0;
+        _exchangeSnapshot = null;
     }
 
     private SwingMark[] ExchangeSnapshot()
     {
+        if (_exchangeSnapshot is { } cached)
+            return cached;
         if (_exchangeCount == 0)
-            return Array.Empty<SwingMark>();
+            return _exchangeSnapshot = Array.Empty<SwingMark>();
 
         var result = new SwingMark[_exchangeCount];
         var oldest = _exchangeCount < _exchange.Length ? 0 : _exchangeHead;
         for (var i = 0; i < _exchangeCount; i++)
             result[i] = _exchange[(oldest + i) % _exchange.Length];
-        return result;
+        return _exchangeSnapshot = result;
     }
 
     private DateTime? _encounterStartUtc;
@@ -181,8 +195,7 @@ public sealed class CombatStatsAggregator
         _theyMisses = 0;
         _approxDamageDone = 0;
         _approxDamageTaken = 0;
-        _exchangeHead = 0;
-        _exchangeCount = 0;
+        ClearExchange();
         _activeNpcSet.Clear();
         _activeNpcOrder.Clear();
         _npcWeapons.Clear();
@@ -203,8 +216,7 @@ public sealed class CombatStatsAggregator
         _theyMisses = 0;
         _approxDamageDone = 0;
         _approxDamageTaken = 0;
-        _exchangeHead = 0;
-        _exchangeCount = 0;
+        ClearExchange();
         _activeNpcSet.Clear();
         _activeNpcOrder.Clear();
         _fights.Clear();

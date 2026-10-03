@@ -20,7 +20,7 @@ public sealed class SomeKindStoreTests : IDisposable
 
     private MuckaStore Db()
     {
-        var db = new MuckaStore(DbPath, "test");
+        var db = TestStore.Open(DbPath);
         _opened.Add(db);
         return db;
     }
@@ -28,7 +28,7 @@ public sealed class SomeKindStoreTests : IDisposable
     public void Dispose()
     {
         foreach (var db in _opened) db.Dispose();
-        SqliteConnection.ClearAllPools();
+        TestStore.ReleasePools(_root);
         try { Directory.Delete(_root, recursive: true); } catch { /* temp cleanup is best-effort */ }
     }
 
@@ -54,7 +54,7 @@ public sealed class SomeKindStoreTests : IDisposable
         _ = new SomeKindStore(writerDb, learned);
         learned.Learn("rat0", SomeKind.Something);
         learned.Learn("thief", SomeKind.Someone);
-        writerDb.Dispose();
+        TestStore.Close(writerDb);
 
         Assert.Equal(("something", 2), (Row("rats").Kind, Row("rats").Rows));
 
@@ -75,7 +75,7 @@ public sealed class SomeKindStoreTests : IDisposable
         _ = new SomeKindStore(db, knowledge);
         knowledge.Learn("goat", SomeKind.Something);
         knowledge.Learn("goat", SomeKind.Someone);
-        db.Dispose();
+        TestStore.Close(db);
 
         var row = Row(NpcGroups.Normalize("goat"));
         Assert.Equal(1, row.Rows);
@@ -89,7 +89,7 @@ public sealed class SomeKindStoreTests : IDisposable
         var learned = new SomeKindKnowledge();
         _ = new SomeKindStore(writerDb, learned);
         learned.Learn("rat0", SomeKind.Something);
-        writerDb.Dispose();
+        TestStore.Close(writerDb);
         var before = Row("rats").LearnedMs;
 
         // So a write-back would carry a visibly later stamp. A loaded machine only widens that gap,
@@ -115,14 +115,14 @@ public sealed class SomeKindStoreTests : IDisposable
         var learned = new SomeKindKnowledge();
         _ = new SomeKindStore(writerDb, learned);
         learned.Learn("goat", SomeKind.Something);
-        writerDb.Dispose();
+        TestStore.Close(writerDb);
 
         var db = Db();
         var live = new SomeKindKnowledge();
         var store = new SomeKindStore(db, live);
         live.Learn("goat", SomeKind.Someone);   // this run's own observation, ahead of the load
         await store.LoadAsync();
-        db.Dispose();
+        TestStore.Close(db);
 
         Assert.Equal(SomeKind.Someone, live.Known("goat"));
         Assert.Equal("someone", Row(NpcGroups.Normalize("goat")).Kind);

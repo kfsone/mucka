@@ -471,13 +471,13 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
 
     public string WeatherGlyph => _weather switch
     {
-        'F' => "\u2600\uFE0E",  // Sun
-        'C' => "\u26C5\uFE0E",  // Sun behind cloud
-        'R' => "\u2602\uFE0E",  // Umbrella (rain)
-        'S' => "\u2744\uFE0E",  // Snowflake
-        'O' => "\u2601\uFE0E",  // Cloud (overcast)
-        'T' => "\u26A1\uFE0E",  // Lightning (storm)
-        'B' => "\u2603\uFE0E",  // Snowman (blizzard)
+        'F' => Glyph.WeatherFine,
+        'C' => Glyph.WeatherCloudy,
+        'R' => Glyph.WeatherRain,
+        'S' => Glyph.WeatherSnow,
+        'O' => Glyph.WeatherOvercast,
+        'T' => Glyph.WeatherStorm,
+        'B' => Glyph.WeatherBlizzard,
         _   => string.Empty,
     };
 
@@ -498,10 +498,10 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         : string.Empty;
 
     // -- Status effects (afflictions) - shown after the score group -----------
-    private const string DeafGlyph     = "\U0001F442";        // ear
-    private const string BlindGlyph    = "\U0001F441\uFE0F"; // eye (FE0F: emoji presentation)
-    private const string DumbGlyph     = "\U0001F444";        // mouth
-    private const string CrippledGlyph = "\u267F";             // wheelchair symbol
+    private const string DeafGlyph     = Glyph.Ear;
+    private const string BlindGlyph    = Glyph.Eye;
+    private const string DumbGlyph     = Glyph.Mouth;
+    private const string CrippledGlyph = Glyph.Wheelchair;
 
     /// <summary>Glyph-only status effects on phones or when effcols &lt; 80.</summary>
     public bool IsCompactEffects => _effCols < 80 || DeviceInfo.Idiom == DeviceIdiom.Phone;
@@ -1920,10 +1920,11 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
 
     /// <summary>Arms the transcript. Separate from the toggle because <c>-record</c> must ARM, not
     /// flip: recording can be started by hand at the shell, and a toggle reaching game mode would
-    /// switch off the recording the operator had just switched on.</summary>
-    /// <summary>May be called from the read-loop thread - see <see cref="OnGameModeEntered"/>. The
+    /// switch off the recording the operator had just switched on.
+    ///
+    /// <para>May be called from the read-loop thread - see <see cref="OnGameModeEntered"/>. The
     /// only UI-thread-only step is <see cref="IsRecording"/>, which <see cref="SetIsRecording"/>
-    /// marshals.</summary>
+    /// marshals.</para></summary>
     private void StartRecording()
     {
         if (_recorder is not null) return;
@@ -2200,6 +2201,10 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     /// <summary>
     /// Called by GamePage on each SizeAllocated. Updates effective columns and notifies
     /// the server of the new terminal width if it changed.
+    ///
+    /// <para>The notification list must name every public property whose getter reaches
+    /// <c>_effCols</c>, directly or through another member, and nothing else;
+    /// <c>WindowSizeNotificationsTests</c> reads this file and fails the build when it does not.</para>
     /// </summary>
     public void NotifyWindowSize(double widthDp, int displayableCols)
     {

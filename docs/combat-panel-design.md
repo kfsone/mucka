@@ -124,15 +124,17 @@ Three STATE tiers. There are no event (one-off flash) tiers.
 | --- | --- | --- | --- | --- |
 | T1 | normal hue | none | while true | worth noticing on your own time |
 | T2 | bright hue | none | while true | worth noticing soon |
-| T3 | bright hue | glow pulse, `Blink.PulsePeriodMilliseconds` (1200 ms) | while true | act now |
+| T3 | bright hue | red combat edges; the panel glow at its red | while true | act now |
 
 Rules:
 
 - At most one T3 element at a time (`CombatTierResolver.ResolvePulseTier`). If two conditions
   qualify, the most urgent (lowest time-to-die) wins the pulse; the other renders T2. Tie-break:
   stamina always wins, because it is the only signal that directly ends the encounter in death.
-- Escalating transitions fade in over 250 ms; calming transitions stop instantly.
-- No motion at all outside combat.
+- The panel's trim and glow and the 1px combat rules are their own ladder (`StaminaGlow`,
+  combat-rail-spec.md section 8): an amber ramp from 30 stamina, red at 20, both moved up in a
+  fight by the largest blow a live creature has landed. T3 is exactly the ladder's red. It runs out
+  of combat too.
 - Motion is always a glow/opacity layer behind text via WinUI Composition (D8), never the text's
   own colour.
 

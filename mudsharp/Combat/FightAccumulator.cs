@@ -657,12 +657,22 @@ public sealed class FightAccumulator
     }
 
     /// <summary>Oldest-to-newest snapshot of the last <see cref="RecentExchangeCapacity"/> swings of
-    /// this fight from BOTH sides, in the order they arrived - the spark's timeline.</summary>
+    /// this fight from BOTH sides, in the order they arrived - the spark's timeline.
+    ///
+    /// <para>The same instance until the next swing is recorded, and a new one after it. A frame
+    /// compares this member by reference (it rides on <see cref="RosterRow.Exchange"/>), so a reference
+    /// that changed only when the ring did is exactly an equality that is true only when it should be.
+    /// It also copies the ring once per swing instead of once per refresh.</para></summary>
     public IReadOnlyList<SwingMark> RecentExchange
-        => OrderedRingCopy(_exchange, _exchangeHead, _exchangeCount);
+        => _exchangeSnapshot ??= OrderedRingCopy(_exchange, _exchangeHead, _exchangeCount);
+
+    private SwingMark[]? _exchangeSnapshot;
 
     private void RecordExchange(SwingMark mark)
-        => RecordSwing(_exchange, ref _exchangeHead, ref _exchangeCount, mark);
+    {
+        RecordSwing(_exchange, ref _exchangeHead, ref _exchangeCount, mark);
+        _exchangeSnapshot = null;
+    }
 
     /// <summary>Writes into a fixed-capacity ring: <paramref name="head"/> is the next write index,
     /// wrapping at capacity, and <paramref name="count"/> saturates at capacity once the ring has

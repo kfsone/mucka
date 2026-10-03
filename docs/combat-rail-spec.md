@@ -353,8 +353,8 @@ amber only **after damage has landed**, and never straight to red.
   stays in phase for the rest of the fight without resyncing. The canvas draws the **empty track
   only**; the fill is a Composition-animated sibling behind it (`TickSweep`).
 - **In-combat only.** The whole row - track and fill - is absent between fights.
-- Two exceptions only: **red at stamina <= 30**, **glow at stamina <= 20** - see "The three
-  stamina thresholds" below.
+- **No exceptions.** The tick is not recoloured at any stamina; low stamina is the panel glow's
+  job (section 8).
 - Nothing else is drawn over the tick. The opponent count is stated by the slots themselves and by
   the overflow row; a third copy centred on a width that changes with every death slides under the
   eye, which is why there is not one.
@@ -503,23 +503,37 @@ than by claiming a cause.
 
 ## 8. Signalling that lives outside the rail
 
-**The rail's glow answers to ONE stamina threshold, 25, in combat and out.** It is the loudest
-thing the client owns and it is not driven by the survival projection alone: the projection
-promotes at "under 15 seconds to die", which against an ordinary zombie is true from about 30
-stamina, and a full-panel flash at 30 is an alarm that gets ignored at 20. The projection still
-drives everything quieter. One override survives, because it is a count rather than a forecast -
-**two hits left or fewer**, which is imminent whatever the absolute stamina says, and is how a
-dragon kills someone at full health. The danger does not stop when the fight does: at that
-stamina a wandering NPC that would ignore a healthy player will attack you (`RATE` crossing its
-threshold, computed against the stats the 40 and 30 knees have already degraded), one blow from
-most creatures can kill, and fleeing still costs real points. In combat the tier may escalate
-above this but never read calmer than the same stamina would out of combat.
+**The rail's stamina alarm is a ladder, in combat and out** (`StaminaGlow`).
 
-Being **in combat at all** is signalled by the **application window border** turning red and
-pulsing slowly, and optionally a red outline on the input box - never by a large coloured
-block inside the rail. A giant glow just because a fight started is a distraction.
+| stamina (plain bands) | panel | what the player should be doing |
+|---|---|---|
+| above 30 | nothing | |
+| 30 down to 27 | amber trim: a 7px band of light around the panel's inside edge, slow and dim | planning the exit |
+| 26 down to 21 | the trim, and the whole panel glowing behind the tiles, redder, brighter and faster each step | planning the exit, seriously |
+| 20 and below | full red pulse across the panel | the exit typed and ready to send |
 
-Pulse is a very dark red, slow (roughly RGB 16-24).
+Five amber steps share the span between the bands; from the middle step (`WholePanelFromLevel`) the
+whole panel glows as well as the trim. **The bands move up in a fight with a big hitter**: red at
+one more than the largest single blow a *live* creature has landed (one more of those kills), amber
+at one more than twice it (two more kill), whenever those are higher than 20 and 30. Something that
+has hit for 39 makes the red due at 40 and the amber at 79. A creature that has fallen or fled no
+longer counts, and **out of combat there are no hits to worry about**: the bands are 30 and 20. The
+bands are absolute stamina, never a fraction of the maximum: incoming damage does not scale with the
+player's stats (dexterity moves accuracy and avoidance, not the size of a blow), so a 120-stamina
+player is in the same danger at 20 as a 40-stamina one.
+
+It is not driven by the survival projection: the projection promotes at "under 15 seconds to die",
+which against an ordinary zombie is true from about 30 stamina - amber territory, not red. The
+projection still drives everything quieter. A big hitter is the max-blow bands' job; an
+average-damage "two hits left" count no longer forces the red. The danger does not stop when the
+fight does: at that stamina a wandering NPC that would ignore a healthy player will attack you
+(`RATE` crossing its threshold, computed against the stats the 40 and 30 knees have already
+degraded), one blow from most creatures can kill, and fleeing still costs real points.
+
+**The 1px rules around the terminal and the input row** follow the same ladder as static colour,
+no pulse: amber to bright red through the steps, in combat or out; amber while a fight is live and
+stamina is above the ramp; dark otherwise. Never a large coloured block inside the rail just because
+a fight started - that is a distraction.
 
 ## 9. Rendering contract
 

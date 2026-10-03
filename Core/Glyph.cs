@@ -35,4 +35,44 @@ public static class Glyph
     public const string RadioOn = "\u25cf";
     /// <summary>Skull and crossbones: a persona wiped, on the score graph.</summary>
     public const string Skull = "\u2620";
+
+    /// <summary>White square: a dock toggle's "float me" action, shown while the panel is docked.</summary>
+    public const string SquareHollow = "\u25a1";
+    /// <summary>Black square: a dock toggle's "dock me" action, shown while the panel floats.</summary>
+    public const string SquareFilled = "\u25a0";
+    /// <summary>Lock (emoji): a floating panel locked - content only, no title strip, no drag.</summary>
+    public const string PadlockClosed = "\U0001F512";
+    /// <summary>Open lock (emoji): a floating panel unlocked for dragging.</summary>
+    public const string PadlockOpen = "\U0001F513";
+
+    // Weather, from the FES weather character. Each carries U+FE0E, the text-presentation selector,
+    // so it draws as a monochrome glyph that takes the status bar's colour rather than as emoji.
+    /// <summary>Sun: fine weather.</summary>
+    public const string WeatherFine = "\u2600\ufe0e";
+    /// <summary>Sun behind cloud: cloudy.</summary>
+    public const string WeatherCloudy = "\u26c5\ufe0e";
+    /// <summary>Umbrella: raining.</summary>
+    public const string WeatherRain = "\u2602\ufe0e";
+    /// <summary>Snowflake: snowing.</summary>
+    public const string WeatherSnow = "\u2744\ufe0e";
+    /// <summary>Cloud: overcast.</summary>
+    public const string WeatherOvercast = "\u2601\ufe0e";
+    /// <summary>High voltage: stormy.</summary>
+    public const string WeatherStorm = "\u26a1\ufe0e";
+    /// <summary>Snowman: blizzard.</summary>
+    public const string WeatherBlizzard = "\u2603\ufe0e";
+
+    // Afflictions on the status bar.
+    /// <summary>Ear (emoji): deaf.</summary>
+    public const string Ear = "\U0001F442";
+    /// <summary>Eye with U+FE0F, the emoji-presentation selector: blind.</summary>
+    public const string Eye = "\U0001F441\ufe0f";
+    /// <summary>Mouth (emoji): dumb.</summary>
+    public const string Mouth = "\U0001F444";
+    /// <summary>Wheelchair symbol: crippled.</summary>
+    public const string Wheelchair = "\u267f";
+
+    /// <summary>Clockwise right and left semicircle arrows: the swap mark on the Combat Rail's
+    /// alternate-weapon line.</summary>
+    public const string Swap = "\U0001F5D8";
 }

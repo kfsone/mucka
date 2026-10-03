@@ -22,7 +22,8 @@ public sealed class CombatFrameComposerTests
         int theyHits = 0,
         int theyMisses = 0,
         double damageTaken = 0,
-        TimeSpan? duration = null)
+        TimeSpan? duration = null,
+        double? largestBlowTaken = null)
         => new(
             npcName, NpcGroups.Normalize(npcName), Weapon: "axe0", NpcWeapon: null,
             YouHits: youHits, YouMisses: 0, TheyHits: theyHits, TheyMisses: theyMisses,
@@ -30,7 +31,10 @@ public sealed class CombatFrameComposerTests
             Duration: duration ?? TenTicks,
             Outcome: resolved ? FightOutcome.Kill : FightOutcome.Unresolved,
             IsResolved: resolved,
-            EndedUtc: resolved ? Now : null);
+            EndedUtc: resolved ? Now : null,
+            TheirDamage: largestBlowTaken is double blow ? new DamageProfile(1, blow, blow) : default);
+
+    private static CombatStatDeficits Stamina(int current) => new(StaminaCurrent: current, StaminaMax: 100, ObjectsCarried: 0);
 
     private static CombatEncounterSnapshot Encounter(
         bool hasEncounter = true, bool inCombat = true, string? weapon = "axe0",
@@ -62,25 +66,41 @@ public sealed class CombatFrameComposerTests
             PlayerName: "Tester",
             StaminaAnsiColor: null));
 
-    // ---- The hits-left override ---------------------------------------------------------------
+    // ---- Big hitters move the bands --------------------------------------------------------------
 
     /// <summary>
-    /// Two hits left keeps the whole-panel glow at T3 at a stamina the player would call healthy.
+    /// A creature that hits for 30, against a player at 60: two of its blows from dead, so amber - not
+    /// red - at a stamina the player would call healthy.
     ///
-    /// <para>60 of 100 stamina against a creature averaging 30 a hit is two hits from dead, and this
-    /// is the one thing allowed to survive the T3-to-T2 demotion the line below it applies - it is
-    /// not a projection but a count, and it is how a dragon kills someone at full health.</para>
-    ///
-    /// <para>Catches the <c>imminent</c> term being dropped: the frame then demotes to T2 and the
-    /// loudest alarm the client owns goes quiet exactly when the count says it should not.</para>
+    /// <para>The average-damage "two hits left" count used to force red here; the max-blow bands
+    /// replaced it, so the average alone no longer reaches the red.</para>
     /// </summary>
     [Fact]
-    public void PulseTier_TwoHitsLeftHoldsT3AtHealthyStamina()
+    public void Glow_TwoOfTheLargestBlowsFromDead_IsAmber()
     {
-        var frame = Compose(Encounter(fights: [Fight(theyHits: 3, damageTaken: 90)]));
+        var frame = Compose(Encounter(fights: [Fight(theyHits: 3, damageTaken: 90, largestBlowTaken: 30)]),
+            Stamina(60));
+
+        Assert.NotEqual(CombatTier.T3, frame.PulseTier);
+        Assert.InRange(frame.GlowLevel, 1, StaminaGlow.Steps);
+    }
+
+    /// <summary>The same creature with the player one blow from dead is red.</summary>
+    [Fact]
+    public void Glow_OneOfTheLargestBlowsFromDead_IsRed()
+    {
+        var frame = Compose(Encounter(fights: [Fight(theyHits: 3, damageTaken: 90, largestBlowTaken: 30)]),
+            Stamina(31));
 
         Assert.Equal(CombatTier.T3, frame.PulseTier);
+        Assert.Equal(StaminaGlow.Red, frame.GlowLevel);
     }
+
+    /// <summary>The average-damage count no longer forces the red on its own: with no measured largest
+    /// blow, a healthy 60 is not lit at all.</summary>
+    [Fact]
+    public void Glow_TheAverageHitsLeftCountAloneDoesNotLightIt()
+        => Assert.Equal(0, Compose(Encounter(fights: [Fight(theyHits: 3, damageTaken: 90)]), Stamina(60)).GlowLevel);
 
     /// <summary>The demotion the override exists to survive: a projection-driven T3 with no
     /// hits-left count behind it renders as T2. Catches an implementation that promotes on the
@@ -98,18 +118,72 @@ public sealed class CombatFrameComposerTests
     }
 
     /// <summary>Low stamina promotes to T3 on its own, in a fight the projection is not worried
-    /// about. Catches the out-of-combat threshold being dropped from the in-combat branch, where it
-    /// is the one thing the whole-panel glow answers to.</summary>
+    /// about. Catches the stamina ladder being dropped from the in-combat branch, where it is the one
+    /// thing the whole-panel glow answers to.</summary>
     [Fact]
-    public void PulseTier_VulnerableStaminaHoldsT3InCombat()
+    public void PulseTier_SurvivalStaminaHoldsT3InCombat()
     {
-        var frame = Compose(Encounter(fights: [Fight()]),
-            new CombatStatDeficits(
-                StaminaCurrent: CombatFrameComposer.OutOfCombatVulnerableStamina,
-                StaminaMax: 100, ObjectsCarried: 0));
+        var frame = Compose(Encounter(fights: [Fight()]), Stamina(StaminaGlow.RedStamina));
 
         Assert.Equal(CombatTier.T3, frame.PulseTier);
+        Assert.Equal(StaminaGlow.Red, frame.GlowLevel);
     }
+
+    /// <summary>Planning-the-exit stamina is amber, not the red alarm: 25 sits mid-ramp.</summary>
+    [Fact]
+    public void Glow_IsAmberBetweenTwentyAndThirty()
+    {
+        var frame = Compose(Encounter(fights: [Fight()]), Stamina(25));
+
+        Assert.NotEqual(CombatTier.T3, frame.PulseTier);
+        Assert.InRange(frame.GlowLevel, 1, StaminaGlow.Steps);
+    }
+
+    /// <summary>Something that has hit for 39 can kill at 39: the red is due at 40.</summary>
+    [Fact]
+    public void Glow_RedRisesToOneAboveTheLargestLiveBlow()
+    {
+        var snapshot = Encounter(fights: [Fight(largestBlowTaken: 39)]);
+
+        Assert.Equal(StaminaGlow.Red, Compose(snapshot, Stamina(40)).GlowLevel);
+        Assert.Equal(CombatTier.T3, Compose(snapshot, Stamina(40)).PulseTier);
+        Assert.InRange(Compose(snapshot, Stamina(41)).GlowLevel, 1, StaminaGlow.Steps);
+    }
+
+    /// <summary>A creature that has fallen no longer threatens: its blow does not raise the bands, even
+    /// with the fight still going against something else.</summary>
+    [Fact]
+    public void Glow_AFallenCreaturesBlowDoesNotCount()
+    {
+        var frame = Compose(
+            Encounter(fights: [Fight(resolved: true, largestBlowTaken: 39), Fight("zombie")]), Stamina(35));
+
+        Assert.Equal(0, frame.GlowLevel);
+    }
+
+    /// <summary>Out of combat there are no hits to worry about: the plain 30/20 bands, whatever hit the
+    /// player during the encounter that just ended.</summary>
+    [Fact]
+    public void Glow_OutOfCombatFallsBackToThirtyAndTwenty()
+    {
+        var frame = Compose(
+            Encounter(inCombat: false, fights: [Fight(resolved: true, largestBlowTaken: 39)]), Stamina(35));
+
+        Assert.Equal(0, frame.GlowLevel);
+        Assert.Equal(StaminaGlow.Red, Compose(
+            Encounter(inCombat: false, fights: [Fight(resolved: true, largestBlowTaken: 39)]), Stamina(20)).GlowLevel);
+    }
+
+    /// <summary>The gate is "in a fight", not only "the creature is down": a fight the tracker has not
+    /// yet resolved still raises nothing once combat is over.</summary>
+    [Fact]
+    public void Glow_OutOfCombatIgnoresEvenAnUnresolvedFightsBlow()
+        => Assert.Equal(0, Compose(
+            Encounter(inCombat: false, fights: [Fight(largestBlowTaken: 39)]), Stamina(35)).GlowLevel);
+
+    [Fact]
+    public void Glow_IsOffAboveTheRamp()
+        => Assert.Equal(0, Compose(Encounter(fights: [Fight()]), Stamina(31)).GlowLevel);
 
     // ---- The flee pill is fed the count, not the tier -----------------------------------------
 
@@ -244,7 +318,15 @@ public sealed class CombatFrameComposerTests
             new CombatStatDeficits(StaminaCurrent: 20, StaminaMax: 100, ObjectsCarried: 0));
 
         Assert.Equal(CombatTier.T3, frame.PulseTier);
+        Assert.Equal(StaminaGlow.Red, frame.GlowLevel);
     }
+
+    /// <summary>The amber ramp runs between fights too: the danger does not stop when the fight
+    /// does.</summary>
+    [Fact]
+    public void NoEncounter_TheAmberRampStillGlows()
+        => Assert.InRange(Compose(Encounter(hasEncounter: false, inCombat: false), Stamina(28)).GlowLevel,
+            1, StaminaGlow.Steps);
 
     // ---- Encumbrance is computed on every branch ------------------------------------------------
 

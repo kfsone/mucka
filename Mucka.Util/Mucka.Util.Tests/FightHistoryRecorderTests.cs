@@ -21,7 +21,7 @@ public sealed class FightHistoryRecorderTests : IDisposable
 
     private FightHistoryStore MakeStore()
     {
-        var db = new MuckaStore(Path.Combine(_directory, MuckaDb.DefaultFileName), "test");
+        var db = TestStore.Open(Path.Combine(_directory, MuckaDb.DefaultFileName));
         _db.Add(db);
         return new FightHistoryStore(db);
     }
@@ -29,6 +29,7 @@ public sealed class FightHistoryRecorderTests : IDisposable
     public void Dispose()
     {
         foreach (var db in _db) db.Dispose();
+        TestStore.ReleasePools(_directory);
         try { Directory.Delete(_directory, recursive: true); } catch { /* best-effort cleanup */ }
     }
 

@@ -26,6 +26,7 @@ public sealed class WireLogTests : IDisposable
 
     public void Dispose()
     {
+        TestStore.ReleasePools(_dir);
         try { if (Directory.Exists(_dir)) Directory.Delete(_dir, recursive: true); } catch { }
     }
 
@@ -306,7 +307,7 @@ public sealed class WireLogTests : IDisposable
         var path = Path.Combine(nested, MuckaDb.DefaultFileName);
         Assert.False(Directory.Exists(nested));
 
-        using (var store = new MuckaStore(path, "mud2.co.uk"))
+        using (var store = TestStore.Open(path, "mud2.co.uk"))
         {
             Assert.False(store.IsFaulted);
             Assert.True(Directory.Exists(nested));

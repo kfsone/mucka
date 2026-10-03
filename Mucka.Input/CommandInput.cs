@@ -28,13 +28,11 @@ public sealed class CommandInput
     private readonly IInputSurface _surface;
     private readonly InputGate _gate;
     private readonly HotkeyRouter _hotkeys;
-    private readonly InputPathBudget _budget;
 
-    public CommandInput(IInputSurface surface, InputGate gate, InputPathBudget budget)
+    public CommandInput(IInputSurface surface, InputGate gate)
     {
         _surface = surface ?? throw new ArgumentNullException(nameof(surface));
         _gate = gate ?? throw new ArgumentNullException(nameof(gate));
-        _budget = budget ?? throw new ArgumentNullException(nameof(budget));
         _hotkeys = new HotkeyRouter(gate);
     }
 
@@ -65,20 +63,12 @@ public sealed class CommandInput
     /// deliberately knows nothing about what any particular key code means.</param>
     public bool HandleKey(int keyCode, InputModifiers modifiers, bool isAcceptKey)
     {
-        var handled = false;
-        // The budget wraps everything we do on the keystroke, which is the number that matters to the
-        // player - not any single contributor to it.
-        _budget.Measure(isAcceptKey ? "accept" : "key", () =>
+        if (isAcceptKey)
         {
-            if (isAcceptKey)
-            {
-                AcceptLine();
-                handled = true;
-                return;
-            }
-            handled = _hotkeys.Handle(keyCode, modifiers);
-        });
-        return handled;
+            AcceptLine();
+            return true;
+        }
+        return _hotkeys.Handle(keyCode, modifiers);
     }
 
     /// <summary>

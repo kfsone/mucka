@@ -74,11 +74,14 @@ public static class MuckaDb
         return connection;
     }
 
+    /// <summary>The read-only connection string <see cref="OpenRead"/> uses.</summary>
+    public static string ReadConnectionString(string path)
+        => new SqliteConnectionStringBuilder { DataSource = path, Mode = SqliteOpenMode.ReadOnly }.ToString();
+
     /// <summary>Opens read-only. Throws if the file does not exist.</summary>
     public static SqliteConnection OpenRead(string path)
     {
-        var connection = new SqliteConnection(
-            new SqliteConnectionStringBuilder { DataSource = path, Mode = SqliteOpenMode.ReadOnly }.ToString());
+        var connection = new SqliteConnection(ReadConnectionString(path));
         connection.Open();
         return connection;
     }

@@ -279,16 +279,10 @@ public sealed class CombatRailView : SKCanvasView
     /// that is loudest before anything has happened is the one the spec warns gets ignored later.</summary>
     private const float PillQuietWash = 0.55f;
 
-    /// <summary>Upper bound on opponent slots. The measured maximum simultaneously-engaged opponents
-    /// is 13, one encounter out of 1275 in the clog corpus.
-    ///
-    /// <para>The cap deliberately does NOT chase that measured peak: live opponents already exceed
-    /// MaxSlots by a comfortable margin in the worst observed cases, and the overflow row
-    /// (<see cref="DrawOverflowRow"/>) exists precisely to carry whatever that excess is, live or dead
-    /// alike - see its own remarks for the pack-of-fourteen case that forced it to count properly.
-    /// Raising MaxSlots to match whatever the corpus says today would only have to be redone the next
-    /// time it grows again; the overflow row is what makes that unnecessary.</para></summary>
-    private const int MaxSlots = 8;
+    /// <summary>Upper bound on opponent slots: the roster's row cap, which is defined to sit at this
+    /// number - see <see cref="ParticipantRoster.MaxRows"/> for the value and why it is not higher.
+    /// Excess opponents go to the overflow row (<see cref="DrawOverflowRow"/>), live or dead alike.</summary>
+    private const int MaxSlots = ParticipantRoster.MaxRows;
 
     // ---- Palette: Campbell by index, so the rail and the terminal never drift -------------
     private static readonly SKColor Ink = TerminalTheme.Palette[7];
@@ -550,10 +544,8 @@ public sealed class CombatRailView : SKCanvasView
     private readonly SKFont _statSmallFont = new(
         SKTypeface.FromFamilyName("Cascadia Mono") ?? SKTypeface.Default, 10f);
 
-    /// <summary>The swap mark on the alternate-weapon line, U+1F5D8. Written as an escape because this
-    /// codebase rejects non-ASCII characters in source; the escape is the same character either
-    /// way.</summary>
-    private const string SwapGlyph = "\U0001F5D8";
+    /// <summary>The swap mark on the alternate-weapon line.</summary>
+    private const string SwapGlyph = Mucka.Core.Glyph.Swap;
 
     /// <summary>
     /// A face that actually HAS <see cref="SwapGlyph"/>, or null.
@@ -690,11 +682,10 @@ public sealed class CombatRailView : SKCanvasView
     /// - but <c>RosterPlan.Rows</c> is an <c>IReadOnlyList&lt;RosterRow&gt;</c>, and the synthesized
     /// compare for a reference-typed member of that shape is REFERENCE equality: a freshly allocated
     /// list of otherwise-identical rows compares unequal. <c>RosterPlan</c> declares its own
-    /// element-wise <c>Equals</c> for this reason; see that method's remarks. If a collection-typed
-    /// member is ever added to <see cref="CombatLiveView"/> itself, it needs the same treatment, or the
-    /// rail will repaint every refresh again with no compiler warning to say so. (<c>DeadStripHistory</c>
-    /// is safe today only because the view model publishes a CACHED instance and reallocates it only
-    /// when the archive actually grows.)</para>
+    /// element-wise <c>Equals</c> for this reason; see that method's remarks. The collection members of
+    /// <see cref="CombatLiveView"/> itself are listed, with what keeps each one equal, in that record's
+    /// remarks; a new one needs the same treatment, or the rail repaints every refresh with no compiler
+    /// warning to say so.</para>
     /// </summary>
     public CombatLiveView Live
     {
@@ -1079,11 +1070,8 @@ public sealed class CombatRailView : SKCanvasView
         _ => baseColor,
     };
 
-    /// <summary>Width of the outcome word's column in the dead strip - "KILLED YOU" is the longest at
-    /// 10f, and the names start clear of it so the two never run together.</summary>
-    /// <summary>The gap between an ending's two lines, and the room its left column takes. The name
-    /// sits on the upper line and the outcome word under it, so both are ellipsized against the same
-    /// width - a long creature name must not run into the exchange summary opposite it.</summary>
+    /// <summary>The gap between an ending's two lines: the name on the upper line, the outcome word
+    /// under it.</summary>
     private const float DeadSubLineHeight = 11f;
 
     /// <summary>How far the small font's descenders reach below a dead-strip baseline. Used to place
@@ -1105,12 +1093,37 @@ public sealed class CombatRailView : SKCanvasView
     private readonly List<DeadRowBand> _deadRowBands = new();
     private IReadOnlyList<CombatEnding>? _deadBandsHistory;
 
+    /// <summary>The room an ending's left column takes. The name and the outcome word under it are
+    /// both ellipsized against it, so a long creature name cannot run into the exchange summary
+    /// opposite it.</summary>
     private const float DeadNameWidth = 104f;
     private const float DeadScoreWidth = 44f;
 
     /// <summary>The overflow row's own height. One line of text, so it takes a line's worth rather than
     /// a live slot's - the same accounting the dead strip is built on.</summary>
     private const float OverflowRowHeight = 22f;
+
+    /// <summary>The overflow row's text baseline, down from the row's top edge. All three of its
+    /// texts sit on it.</summary>
+    private const float OverflowBaseline = 15f;
+
+    /// <summary>The "+N" count's left edge, in from <see cref="Pad"/>.</summary>
+    private const float OverflowCountLeft = 10f;
+
+    /// <summary>The names column: it starts <see cref="OverflowNamesLeft"/> in from
+    /// <see cref="Pad"/>, clear of the "+N" count, and is ellipsized to end
+    /// <see cref="OverflowNamesRightInset"/> short of the content's right edge.</summary>
+    private const float OverflowNamesLeft = 42f;
+    private const float OverflowNamesRightInset = 10f;
+
+    /// <summary>The "N alive" figure's right edge, in from the content's right edge. It is
+    /// right-aligned and nearer the edge than <see cref="OverflowNamesRightInset"/>, so a names
+    /// string ellipsized to the full column width runs underneath it.</summary>
+    private const float OverflowAliveRightInset = 8f;
+
+    /// <summary>The corner radius of every tile-sized rectangle: the opponent slots, the player's
+    /// tile, the overflow row, and the unknown and tempo frames drawn around a slot.</summary>
+    private const float TileCornerRadius = 5f;
 
     /// <summary>The gap between the bottom row's top edge and the lowest opponent slot. Named so the
     /// geometry published to the float overlay reads from the same number the paint path does.</summary>
@@ -1238,7 +1251,7 @@ public sealed class CombatRailView : SKCanvasView
         _fill.Color = row.IsCurrentTarget
             ? new SKColor(0x61, 0xd6, 0xd6, 0x14)
             : new SKColor(0xff, 0xff, 0xff, 0x08);
-        canvas.DrawRoundRect(Pad, y, Content, height, 5f, 5f, _fill);
+        canvas.DrawRoundRect(Pad, y, Content, height, TileCornerRadius, TileCornerRadius, _fill);
 
         // The current target is marked inside its own slot - never by being bigger. A slot that
         // changes size moves everything around it.
@@ -1345,7 +1358,7 @@ public sealed class CombatRailView : SKCanvasView
         _stroke.StrokeWidth = UnseenStroke;
         _stroke.StrokeCap = SKStrokeCap.Butt;
         _stroke.PathEffect = DashUnseen;
-        canvas.DrawRoundRect(x + inset, y + inset, width - UnseenStroke, height - UnseenStroke, 5f, 5f, _stroke);
+        canvas.DrawRoundRect(x + inset, y + inset, width - UnseenStroke, height - UnseenStroke, TileCornerRadius, TileCornerRadius, _stroke);
         _stroke.PathEffect = null;
         _stroke.StrokeWidth = 1f;
     }
@@ -2015,7 +2028,7 @@ public sealed class CombatRailView : SKCanvasView
             _stroke.PathEffect = TempoDash(tempoStroke.Dot, tempoStroke.Gap);
 
         canvas.DrawRoundRect(
-            x + inset, y + inset, width - FrameStroke, height - FrameStroke, 5f, 5f, _stroke);
+            x + inset, y + inset, width - FrameStroke, height - FrameStroke, TileCornerRadius, TileCornerRadius, _stroke);
 
         _stroke.PathEffect = null;
         _stroke.StrokeWidth = 1f;
@@ -2084,7 +2097,7 @@ public sealed class CombatRailView : SKCanvasView
     {
         _stroke.Color = Rule;
         _stroke.PathEffect = DashOverflow;
-        canvas.DrawRoundRect(Pad, y, Content, OverflowRowHeight, 5f, 5f, _stroke);
+        canvas.DrawRoundRect(Pad, y, Content, OverflowRowHeight, TileCornerRadius, TileCornerRadius, _stroke);
         _stroke.PathEffect = null;
 
         // Every published row without a slot of its own, plus the participants the roster's cap never
@@ -2093,12 +2106,12 @@ public sealed class CombatRailView : SKCanvasView
         var hidden = plan.HiddenCount + (rows.Count - shown);
         _text.Color = Hostile;
         canvas.DrawText("+" + hidden.ToString(System.Globalization.CultureInfo.InvariantCulture),
-            Pad + 10f, y + 15f, SKTextAlign.Left, _nameFont, _text);
+            Pad + OverflowCountLeft, y + OverflowBaseline, SKTextAlign.Left, _nameFont, _text);
 
         // Built and ordered by OverflowNames, which owns the sort and caches this string - see its
         // own remarks.
         _text.Color = InkDim;
-        canvas.DrawText(OverflowNames(rows, shown, plan.HasHidden), Pad + 42f, y + 15f,
+        canvas.DrawText(OverflowNames(rows, shown, plan.HasHidden), Pad + OverflowNamesLeft, y + OverflowBaseline,
             SKTextAlign.Left, _smallFont, _text);
 
         // How many of the hidden are still swinging - the exact distinction a bare "+N" cannot make,
@@ -2114,7 +2127,7 @@ public sealed class CombatRailView : SKCanvasView
         {
             _text.Color = InkDim;
             canvas.DrawText(hiddenLive.ToString(System.Globalization.CultureInfo.InvariantCulture) + " alive",
-                Pad + Content - 8f, y + 15f, SKTextAlign.Right, _smallFont, _text);
+                Pad + Content - OverflowAliveRightInset, y + OverflowBaseline, SKTextAlign.Right, _smallFont, _text);
         }
     }
 
@@ -2165,7 +2178,7 @@ public sealed class CombatRailView : SKCanvasView
         // Trailing ellipsis when the ROSTER itself truncated, so a "+9" beside two names does not read
         // as seven creatures the panel forgot to print.
         var names = string.Join(", ", named) + (hasHidden ? ", ..." : string.Empty);
-        var ellipsized = Ellipsize(names, Content - 52f, _smallFont);
+        var ellipsized = Ellipsize(names, Content - OverflowNamesLeft - OverflowNamesRightInset, _smallFont);
 
         _overflowNamesCacheKey = key;
         _overflowNamesCacheHasHidden = hasHidden;
@@ -2195,7 +2208,7 @@ public sealed class CombatRailView : SKCanvasView
         var wash = live.InCombat ? 1f : SpentWash;
 
         _fill.Color = new SKColor(0xff, 0xff, 0xff, 0x08);
-        canvas.DrawRoundRect(Pad, y, Content, PlayerTileHeight, 5f, 5f, _fill);
+        canvas.DrawRoundRect(Pad, y, Content, PlayerTileHeight, TileCornerRadius, TileCornerRadius, _fill);
 
         // The incoming half of the same border language every engaged opponent tile carries: dash
         // density is how often blows are landing on the player, pooled across everything still
@@ -3210,7 +3223,7 @@ public sealed class CombatRailView : SKCanvasView
 
     /// <summary>
     /// The tick meter. Pale and grey - it is a timer, not a judgement, so it carries no colour coding
-    /// and no label. It turns red at 30 stamina and glows at 20, and those are the only exceptions.
+    /// and no label, at any stamina.
     /// </summary>
     private void DrawTickRow(SKCanvas canvas, float y, CombatLiveView live)
     {

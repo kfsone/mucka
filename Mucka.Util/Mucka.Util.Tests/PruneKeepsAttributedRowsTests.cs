@@ -72,7 +72,7 @@ public sealed class PruneKeepsAttributedRowsTests
         }
         finally
         {
-            SqliteConnection.ClearAllPools();
+            TestStore.ReleasePools(directory);
             try { Directory.Delete(directory, recursive: true); } catch { /* best-effort */ }
         }
     }
@@ -111,7 +111,7 @@ public sealed class PruneKeepsAttributedRowsTests
         }
         finally
         {
-            SqliteConnection.ClearAllPools();
+            TestStore.ReleasePools(directory);
             try { Directory.Delete(directory, recursive: true); } catch { /* best-effort */ }
         }
     }
@@ -149,7 +149,7 @@ public sealed class PruneKeepsAttributedRowsTests
         }
         finally
         {
-            SqliteConnection.ClearAllPools();
+            TestStore.ReleasePools(directory);
             try { Directory.Delete(directory, recursive: true); } catch { /* best-effort */ }
         }
     }

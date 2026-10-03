@@ -28,7 +28,7 @@ public sealed class FightHistoryStoreTests : IDisposable
     {
         foreach (var db in _opened) db.Dispose();
         // Pooled connections keep the file handle open, which on Windows blocks the delete below.
-        SqliteConnection.ClearAllPools();
+        TestStore.ReleasePools(_root);
         try { Directory.Delete(_root, recursive: true); } catch { /* temp cleanup is best-effort */ }
     }
 

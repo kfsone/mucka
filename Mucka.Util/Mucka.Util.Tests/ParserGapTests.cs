@@ -289,14 +289,6 @@ public sealed class ParserGapTests
     // ---- A weapon equipped just before the client notices the fight ------------------------
 
     /// <summary>
-    /// The reported "it showed me unarmed despite attacking with a weapon" bug.
-    ///
-    /// <para>When you type <c>k zombie wi axe</c> against something ALREADY engaging you, MUD2's only
-    /// output is the equip line - there is no "You attack the zombie" to carry the weapon. That line
-    /// names no NPC so it cannot open an encounter, and if the encounter then opens on a swing line
-    /// (which carries no weapon either) the fight is weaponless for its whole duration.</para>
-    /// </summary>
-    /// <summary>
     /// Wires an aggregator to a tracker the way SidePanelViewModel does in production: the encounter
     /// is opened by the tracker's InCombatChanged, NOT by the aggregator seeing a FightStart. That
     /// distinction is the whole point of these tests - a fight opened by a swing line never produces a
@@ -316,6 +308,14 @@ public sealed class ParserGapTests
         return (tracker, aggregator, (text, when) => { at = when; tracker.Observe(Line(text), when); });
     }
 
+    /// <summary>
+    /// The reported "it showed me unarmed despite attacking with a weapon" bug.
+    ///
+    /// <para>When you type <c>k zombie wi axe</c> against something ALREADY engaging you, MUD2's only
+    /// output is the equip line - there is no "You attack the zombie" to carry the weapon. That line
+    /// names no NPC so it cannot open an encounter, and if the encounter then opens on a swing line
+    /// (which carries no weapon either) the fight is weaponless for its whole duration.</para>
+    /// </summary>
     [Fact]
     public void WeaponEquippedBeforeTheEncounterOpens_IsAdoptedByTheFight()
     {

@@ -20,9 +20,9 @@ namespace Mucka.Combat;
 public static class CombatRailResize
 {
     // -- Layout constants, moved here from GamePage.xaml.cs verbatim ----------------------------
-    // Must match SidePanelBorder's WidthRequest in GamePage.xaml - the LEFT panel (Online/Items/
-    // Map), unrelated to the combat rail. Deliberately untouched by the combat-rail work: that panel
-    // keeps the width the player already plays with.
+    // SidePanelBorder's WidthRequest in GamePage.xaml reads this through x:Static - the LEFT panel
+    // (Online/Items/Map), unrelated to the combat rail. That panel keeps the width the player
+    // already plays with.
     public const double SidePanelWidthDp = 228.0;
     // Left gutter the terminal renderer pads text with - must match TerminalView.LeftPadDip.
     public const double TerminalGutterDp = 4.0;

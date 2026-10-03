@@ -50,7 +50,9 @@ public sealed record CombatFrameInputs(
 public sealed record CombatFrame(
     CombatTier EncumbranceTier,
     CombatTier PulseTier,
-    CombatLiveView Live);
+    CombatLiveView Live,
+    // The panel glow's level - see StaminaGlow. StaminaGlow.Red exactly when PulseTier is T3.
+    int GlowLevel = 0);
 
 /// <summary>
 /// The Combat Rail's frame composer: the encumbrance tier, the pulse tier, and the whole
@@ -67,11 +69,6 @@ public sealed record CombatFrame(
 /// </summary>
 public static class CombatFrameComposer
 {
-    /// <summary>The stamina at or below which the panel's glow runs whether or not a fight is
-    /// happening. Owned here because the glow is composed here; see <see cref="Compose"/> for what
-    /// the number is and is not allowed to mean.</summary>
-    public const int OutOfCombatVulnerableStamina = 25;
-
     public static CombatFrame Compose(CombatFrameInputs inputs)
     {
         var snapshot = inputs.Snapshot;
@@ -85,17 +82,12 @@ public static class CombatFrameComposer
         var encumbranceTier = CombatTierResolver.StrengthTier(
             deficits.StrengthEffective, deficits.StrengthMax);
 
-        // The panel's glow keeps running at low stamina whether or not a fight is happening, because
-        // the danger does not stop when the fight does. At this stamina a wandering NPC that would
-        // ignore a healthy player will attack, one blow from most creatures can kill, and fleeing
-        // still costs real points. Walking away from a fight at 22 stamina and forgetting about it is
-        // a way to lose a character between fights.
-        //
-        // 25 rather than 20: chosen as a margin close enough to the survival threshold to matter with
-        // a little room before it.
-        var vulnerable = deficits.StaminaCurrent is int sta && sta <= OutOfCombatVulnerableStamina
-            ? CombatTier.T3
-            : CombatTier.None;
+        // The stamina alarm runs whether or not a fight is happening, because the danger does not stop
+        // when the fight does - see StaminaGlow for the ladder. In a fight its bands move up with the
+        // largest blow a LIVE creature has landed; out of one they are the plain 30 and 20.
+        var glowLevel = StaminaGlow.Level(deficits.StaminaCurrent,
+            StaminaGlow.BandsFor(snapshot.InCombat ? LargestLiveBlowTaken(snapshot) : null));
+        var vulnerable = glowLevel == StaminaGlow.Red ? CombatTier.T3 : CombatTier.None;
 
         if (!snapshot.HasEncounter)
         {
@@ -115,7 +107,8 @@ public static class CombatFrameComposer
                     {
                         HasEncounter = true,
                         DeadStripHistory = inputs.DeadStripHistory,
-                    });
+                    },
+                glowLevel);
         }
 
         // IN COMBAT ONLY. A weapon is a property of the ENCOUNTER, not of the player: MUD2 has no
@@ -188,7 +181,8 @@ public static class CombatFrameComposer
                     // Rolls up to None on its own here - WeaponRollup skips resolved fights, and outside
                     // combat every fight in the encounter is resolved. Passed rather than omitted so the
                     // two construction sites stay readable as the same record.
-                    WeaponNovelty: weaponNovelty));
+                    WeaponNovelty: weaponNovelty),
+                glowLevel);
         }
 
         var primary = CombatComposition.PrimaryFight(snapshot);
@@ -213,21 +207,12 @@ public static class CombatFrameComposer
             deficits.StaminaCurrent, deficits.StaminaMax, hitsLeft, outlook.SecondsToDie, outlook.SecondsToKill);
         var fightTier = CombatTierResolver.ResolvePulseTier(staminaTier, CombatTier.None);
 
-        // The whole-panel glow is the loudest thing this client owns, so it answers to ONE stamina
-        // threshold - the same 25 that governs it out of combat - rather than to the survival
-        // projection on its own.
-        //
-        // The projection promotes to T3 at "under 15 seconds to die", which against an ordinary
-        // zombie is arithmetically true from about 30 stamina. That is a correct reading and still
-        // too eager for a full-panel flash: it fires while the player is comfortably above the
-        // threshold they actually act on, and an alarm that cries wolf at 30 is an alarm that gets
-        // ignored at 20. The projection still drives everything quieter.
-        //
-        // One override survives, because it is not a projection but a count: two hits left or fewer.
-        // That is imminent whatever the absolute stamina says - it is how a dragon kills someone at
-        // full health.
-        var imminent = fightTier == CombatTier.T3 && hitsLeft is int left && left <= 2;
-        var pulseTier = imminent || vulnerable == CombatTier.T3
+        // The red answers to the stamina ladder (StaminaGlow) alone, never to the survival projection:
+        // the projection promotes at "under 15 seconds to die", which against an ordinary zombie is
+        // arithmetically true from about 30 stamina - amber territory. A big hitter is covered by the
+        // ladder's own bands (one of its blows from dead is red, two is amber), which is how a dragon
+        // can kill someone at high stamina. The projection's T3 drives everything quieter, as T2.
+        var pulseTier = vulnerable == CombatTier.T3
             ? CombatTier.T3
             : fightTier == CombatTier.T3 ? CombatTier.T2 : fightTier;
 
@@ -306,7 +291,8 @@ public static class CombatFrameComposer
                 // same reason StaminaLossUtc is: LastLossUtc is DateTime.MinValue until something lands,
                 // and a default that reads as "damage in 1 AD" is not a timestamp.
                 PlayerTookDamageThisTick: inputs.StaminaLostLastTick > 0
-                    && TickDamageEmphasis.IsOn(inputs.LastStaminaLossUtc, nowUtc, inputs.TickAnchor)));
+                    && TickDamageEmphasis.IsOn(inputs.LastStaminaLossUtc, nowUtc, inputs.TickAnchor)),
+            glowLevel);
     }
 
     /// <summary>
@@ -374,6 +360,21 @@ public static class CombatFrameComposer
     /// </summary>
     public static double? EncounterTicksOf(CombatEncounterSnapshot snapshot)
         => snapshot.Duration > TimeSpan.Zero ? CombatTiming.TicksElapsed(snapshot.Duration) : null;
+
+    /// <summary>The largest single blow a creature still fighting has landed on the player, or null
+    /// when none has a measured blow. A creature that has fallen or fled no longer counts.</summary>
+    public static double? LargestLiveBlowTaken(CombatEncounterSnapshot snapshot)
+    {
+        double? largest = null;
+        foreach (var fight in snapshot.Fights)
+        {
+            if (fight.IsResolved || fight.TheirDamage.Samples <= 0)
+                continue;
+            if (largest is not double l || fight.TheirDamage.Max > l)
+                largest = fight.TheirDamage.Max;
+        }
+        return largest;
+    }
 
     /// <summary>Seconds into ticks, or null straight through. Null is the whole point: CombatOutlook
     /// returns null for "not enough evidence to project", and turning that into a zero here would put

@@ -185,4 +185,70 @@ public sealed class CombatStatsAggregatorTests
         Assert.True(snapshot.InCombat);
         Assert.Equal(["billy goat", "ram"], snapshot.ActiveNpcs);
     }
+
+    // ---- The exchange rings: the instance is the equality -----------------------------------
+
+    private static (CombatStatsAggregator Aggregator, DateTime Start) Swinging()
+    {
+        var start = new DateTime(2026, 8, 1, 12, 0, 0, DateTimeKind.Utc);
+        var aggregator = new CombatStatsAggregator();
+        aggregator.BeginEncounter(start);
+        aggregator.Observe(new CombatEvent(start, CombatEventKind.FightStart, CombatActor.Player, "rat0", "dagger0", null, null, ""));
+        aggregator.Observe(new CombatEvent(start.AddSeconds(2), CombatEventKind.Hit, CombatActor.Player, "rat0", null, 5, 9, ""));
+        return (aggregator, start);
+    }
+
+    /// <summary>The frame compares the exchange lists by reference, so two refreshes with no swing
+    /// between them must hand out the same instances - the encounter's and each fight's.</summary>
+    [Fact]
+    public void Exchange_IsTheSameInstanceUntilASwingIsRecorded()
+    {
+        var (aggregator, start) = Swinging();
+
+        var first = aggregator.Snapshot(start.AddSeconds(3));
+        var second = aggregator.Snapshot(start.AddSeconds(4));
+
+        Assert.NotEmpty(first.Exchange!);
+        Assert.Same(first.Exchange, second.Exchange);
+        Assert.Same(first.Fights[0].Exchange, second.Fights[0].Exchange);
+    }
+
+    /// <summary>And a swing must hand out new ones, or the spark would freeze on screen.</summary>
+    [Fact]
+    public void Exchange_IsANewInstanceCarryingTheSwingAfterOneIsRecorded()
+    {
+        var (aggregator, start) = Swinging();
+        var before = aggregator.Snapshot(start.AddSeconds(3));
+
+        aggregator.Observe(new CombatEvent(start.AddSeconds(4), CombatEventKind.Miss, CombatActor.Player, "rat0", null, null, null, ""));
+        var after = aggregator.Snapshot(start.AddSeconds(5));
+
+        Assert.NotSame(before.Exchange, after.Exchange);
+        Assert.NotSame(before.Fights[0].Exchange, after.Fights[0].Exchange);
+        Assert.Equal(before.Exchange!.Count + 1, after.Exchange!.Count);
+        Assert.Equal(before.Fights[0].Exchange!.Count + 1, after.Fights[0].Exchange!.Count);
+    }
+
+    /// <summary>A new encounter starts with an empty spark, not the last encounter's cached one.</summary>
+    [Fact]
+    public void Exchange_IsEmptyAfterANewEncounterBegins()
+    {
+        var (aggregator, start) = Swinging();
+        Assert.NotEmpty(aggregator.Snapshot(start.AddSeconds(3)).Exchange!);
+
+        aggregator.BeginEncounter(start.AddMinutes(1));
+
+        Assert.Empty(aggregator.Snapshot(start.AddMinutes(1).AddSeconds(1)).Exchange!);
+    }
+
+    [Fact]
+    public void Exchange_IsEmptyAfterAReset()
+    {
+        var (aggregator, start) = Swinging();
+        Assert.NotEmpty(aggregator.Snapshot(start.AddSeconds(3)).Exchange!);
+
+        aggregator.Reset();
+
+        Assert.Empty(aggregator.Snapshot(start.AddSeconds(4)).Exchange ?? []);
+    }
 }

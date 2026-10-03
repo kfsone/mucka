@@ -21,7 +21,7 @@ public sealed class PersonaSessionBackfillTests : IDisposable
 
     public void Dispose()
     {
-        SqliteConnection.ClearAllPools();
+        TestStore.ReleasePools(_directory);
         try { Directory.Delete(_directory, recursive: true); } catch { /* best-effort cleanup */ }
     }
 

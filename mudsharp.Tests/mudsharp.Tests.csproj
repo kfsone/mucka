@@ -9,6 +9,9 @@
 
   <ItemGroup>
     <PackageReference Include="coverlet.collector" Version="6.0.2" />
+    <!-- Syntax trees only, for gates that read the MAUI assembly's source: no test can compile
+         against that assembly, but its source can be parsed. See WindowSizeNotificationsTests. -->
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.14.0" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
     <PackageReference Include="xunit" Version="2.9.2" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />

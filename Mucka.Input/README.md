@@ -44,7 +44,6 @@ architecture.
 | Enter empties the box *before* handing the line off | `CommandInput.AcceptLine`, in that order, unconditionally |
 | Everything the player initiates keeps its order | one FIFO in `InputGate` - typed lines *and* hotkeys |
 | Writes into the box cannot interleave with typing | `RequestSetText`/`RequestClear`/`RequestFocus` queue behind pending input |
-| Work on the keystroke is measured, not assumed | `InputPathBudget`, always compiled in, 1 ms budget |
 | Two features cannot silently fight over one key | duplicate `Bind` throws at startup |
 | What the box shows is **asserted**, never inferred from a value having changed | `RequestSetText`/`RequestClear` compare nothing and always deliver |
 | One bad consumer cannot strand the queue | per-item try/catch in the drain, `Faulted` event |

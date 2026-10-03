@@ -229,23 +229,6 @@ public static class NpcHealthRungs
     }
 
     /// <summary>
-    /// An object's wear, not a creature's health. `ql` on a carried item returns its own ladder and
-    /// it shares the "The X looks ..." shape exactly, so the two are indistinguishable by shape.
-    ///
-    /// <para>Rejected here rather than left to the caller because <see cref="BySeverity"/> reads it
-    /// as health and gets it badly wrong: "The rolling-pin1 looks close to disintegration." matches
-    /// "close to" and returns rung 1, i.e. about to die. Observed in the corpus, and reachable in
-    /// play - `ql` your own weapon while engaged with a creature whose name it shares and a bogus
-    /// reading lands on the rail. "The broadsword looks to be seriously damaged." (rung 3) and the
-    /// well-maintained pick at 6 are the same failure without the drama.</para>
-    ///
-    /// <para>Two families, both from `ql`/examine on an item: the "in ... condition" ladder
-    /// (excellent / very good / good / relatively good / poor / very bad) and the terminal
-    /// "close to disintegration". The condition family was already rejected incidentally by not
-    /// being in either table; it is stated explicitly now so that adding a "condition" phrase to
-    /// ByPhrase later cannot silently re-open the hole.</para>
-    /// </summary>
-    /// <summary>
     /// The descriptor means <b>exactly</b> <c>cur == max</c> - untouched - rather than the top band.
     ///
     /// <para><b>Measured, not assumed.</b> 328 paired readings across three personae and six
@@ -285,6 +268,23 @@ public static class NpcHealthRungs
         => phrase.Equals("full of life", StringComparison.OrdinalIgnoreCase)
         || phrase.Equals("full of energy", StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// An object's wear, not a creature's health. `ql` on a carried item returns its own ladder and
+    /// it shares the "The X looks ..." shape exactly, so the two are indistinguishable by shape.
+    ///
+    /// <para>Rejected here rather than left to the caller because <see cref="BySeverity"/> reads it
+    /// as health and gets it badly wrong: "The rolling-pin1 looks close to disintegration." matches
+    /// "close to" and returns rung 1, i.e. about to die. Observed in the corpus, and reachable in
+    /// play - `ql` your own weapon while engaged with a creature whose name it shares and a bogus
+    /// reading lands on the rail. "The broadsword looks to be seriously damaged." (rung 3) and the
+    /// well-maintained pick at 6 are the same failure without the drama.</para>
+    ///
+    /// <para>Two families, both from `ql`/examine on an item: the "in ... condition" ladder
+    /// (excellent / very good / good / relatively good / poor / very bad) and the terminal
+    /// "close to disintegration". The condition family was already rejected incidentally by not
+    /// being in either table; it is stated explicitly now so that adding a "condition" phrase to
+    /// ByPhrase later cannot silently re-open the hole.</para>
+    /// </summary>
     private static bool IsObjectCondition(string descriptor)
         => descriptor.Contains("condition", StringComparison.OrdinalIgnoreCase)
         || descriptor.Contains("disintegration", StringComparison.OrdinalIgnoreCase);

@@ -5,25 +5,6 @@ using Mucka.Store;
 namespace Mucka.Combat;
 
 /// <summary>
-/// One swing, either direction, as stored in the <c>swings</c> table (see <see cref="MuckaDb"/>).
-/// Property names map one-to-one onto columns; the table is the schema of record, so adding a
-/// property means adding a column - see MuckaDb on how schema changes are made.
-///
-/// <para><b>Everything knowable is recorded, not just what today's reader wants.</b> That is not
-/// hoarding: MUD2's creatures level up within a reset, take buffs and debuffs, get drunk, and respond
-/// differently to different weapons - so any "this fight is going worse than usual" judgement is a
-/// comparison against a baseline, and a baseline is only as good as the dimensions it can be sliced
-/// by. Those dimensions cannot be added to rows that already happened. Every field here is already
-/// sitting on the stats snapshot the ledger holds at swing time, so the cost is a column; the cost of
-/// omitting one is permanent.</para>
-///
-/// <para>Nulls are stored rather than defaulted. Half the damage fields are direction-specific by
-/// construction (a bracket going out, an exact figure coming in - see <see cref="SwingRow.Damage"/>), and
-/// every stat can genuinely be unknown for a swing that landed before the first heartbeat. A zero
-/// standing in for "not reported" would be a fabricated measurement that outlives the session that
-/// invented it.</para>
-/// </summary>
-/// <summary>
 /// One <c>(Persona saved on +38 = 19,214).</c> line, as stored in the <c>score_events</c> table. See
 /// <see cref="MudSharp.Models.ScoreSave"/> for the three forms the game prints, and the table's own
 /// comment in <see cref="MuckaDb"/> for why this is a row rather than a column on a swing.
@@ -139,6 +120,25 @@ public sealed record NpcStaminaReadRow : IStoreRow
     }
 }
 
+/// <summary>
+/// One swing, either direction, as stored in the <c>swings</c> table (see <see cref="MuckaDb"/>).
+/// Property names map one-to-one onto columns; the table is the schema of record, so adding a
+/// property means adding a column - see MuckaDb on how schema changes are made.
+///
+/// <para><b>Everything knowable is recorded, not just what today's reader wants.</b> That is not
+/// hoarding: MUD2's creatures level up within a reset, take buffs and debuffs, get drunk, and respond
+/// differently to different weapons - so any "this fight is going worse than usual" judgement is a
+/// comparison against a baseline, and a baseline is only as good as the dimensions it can be sliced
+/// by. Those dimensions cannot be added to rows that already happened. Every field here is already
+/// sitting on the stats snapshot the ledger holds at swing time, so the cost is a column; the cost of
+/// omitting one is permanent.</para>
+///
+/// <para>Nulls are stored rather than defaulted. Half the damage fields are direction-specific by
+/// construction (a bracket going out, an exact figure coming in - see <see cref="SwingRow.Damage"/>), and
+/// every stat can genuinely be unknown for a swing that landed before the first heartbeat. A zero
+/// standing in for "not reported" would be a fabricated measurement that outlives the session that
+/// invented it.</para>
+/// </summary>
 public sealed record SwingRow : IStoreRow
 {
     /// <summary>"out" - the player swinging.</summary>

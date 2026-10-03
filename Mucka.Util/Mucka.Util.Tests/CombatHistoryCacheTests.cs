@@ -23,7 +23,7 @@ public sealed class CombatHistoryCacheTests : IDisposable
 
     private FightHistoryStore NewStore()
     {
-        var db = new MuckaStore(FilePath, "test");
+        var db = TestStore.Open(FilePath);
         _opened.Add(db);
         return new FightHistoryStore(db);
     }
@@ -31,6 +31,7 @@ public sealed class CombatHistoryCacheTests : IDisposable
     public void Dispose()
     {
         foreach (var db in _opened) db.Dispose();
+        TestStore.ReleasePools(_directory);
         try { Directory.Delete(_directory, recursive: true); } catch { /* best-effort cleanup */ }
     }
 

@@ -25,7 +25,7 @@ public sealed class MuckaStoreTests : IDisposable
 
     public void Dispose()
     {
-        SqliteConnection.ClearAllPools();
+        TestStore.ReleasePools(_directory);
         try { Directory.Delete(_directory, recursive: true); } catch { /* best-effort cleanup */ }
     }
 
@@ -93,7 +93,7 @@ public sealed class MuckaStoreTests : IDisposable
     {
         // The drain guarantee the whole design rests on: a producer hands rows over and never waits,
         // so the only thing that can promise they reached disk is Dispose.
-        using (var store = new MuckaStore(DbPath, "test"))
+        using (var store = TestStore.Open(DbPath))
             for (var i = 0; i < 500; i++)
                 store.Enqueue(new GoodRow(store.SessionId, i));
 
@@ -109,7 +109,7 @@ public sealed class MuckaStoreTests : IDisposable
         // would pass for the wrong reason.
         using var entered = new ManualResetEventSlim(false);
         using var release = new ManualResetEventSlim(false);
-        var store = new MuckaStore(DbPath, "test");
+        var store = TestStore.Open(DbPath);
         try
         {
             store.Enqueue(new GateRow(entered, release));
@@ -232,7 +232,7 @@ public sealed class MuckaStoreTests : IDisposable
         // the writer for the whole of DrainTimeout on purpose, because the bound IS the property.
         using var entered = new ManualResetEventSlim(false);
         using var release = new ManualResetEventSlim(false);
-        var store = new MuckaStore(DbPath, "test");
+        var store = TestStore.Open(DbPath);
         store.Enqueue(new GateRow(entered, release));
         Assert.True(entered.Wait(TimeSpan.FromSeconds(10)),
             "the writer never entered the gate row, so nothing would have been wedged to time out");
@@ -254,7 +254,7 @@ public sealed class MuckaStoreTests : IDisposable
     [Fact]
     public void Dispose_is_safe_twice_and_Enqueue_after_it_is_a_no_op()
     {
-        var store = new MuckaStore(DbPath, "test");
+        var store = TestStore.Open(DbPath);
         store.Enqueue(new GoodRow(store.SessionId, 1));
         store.Dispose();
         store.Dispose();
@@ -268,7 +268,7 @@ public sealed class MuckaStoreTests : IDisposable
     public void One_store_is_one_session_row_opened_at_construction_and_closed_at_Dispose()
     {
         long id;
-        using (var store = new MuckaStore(DbPath, "mud2.co.uk", "9.9.9"))
+        using (var store = TestStore.Open(DbPath, "mud2.co.uk", "9.9.9"))
         {
             id = store.SessionId;
 
@@ -371,7 +371,7 @@ public sealed class MuckaStoreTests : IDisposable
     public void A_persona_session_records_the_host_it_was_opened_with()
     {
         long id;
-        using (var store = new MuckaStore(DbPath, "test"))
+        using (var store = TestStore.Open(DbPath))
             id = store.BeginPersonaSession(1_787_000_000_000, " mud2.co.uk ")
                 ?? throw new InvalidOperationException("BeginPersonaSession returned no id");
 
@@ -389,7 +389,7 @@ public sealed class MuckaStoreTests : IDisposable
         // score announcement made in the same breath is the whole basis on which an award is later
         // attributed to a kill. Two threads enqueueing interleaved proves the arbiter preserves it.
         const int Each = 2000;
-        var store = new MuckaStore(DbPath, "test");
+        var store = TestStore.Open(DbPath);
         var handed = new System.Collections.Concurrent.ConcurrentQueue<int>();
         var next = 0;
         var gate = new object();
@@ -408,7 +408,7 @@ public sealed class MuckaStoreTests : IDisposable
         var a = new Thread(Produce);
         var b = new Thread(Produce);
         a.Start(); b.Start(); a.Join(); b.Join();
-        store.Dispose();
+        TestStore.Close(store);
 
         using var connection = MuckaDb.OpenRead(DbPath);
         using var command = connection.CreateCommand();

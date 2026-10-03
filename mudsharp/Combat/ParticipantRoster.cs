@@ -309,21 +309,18 @@ public readonly record struct RosterPlan(
     /// <summary>
     /// Element-wise on <see cref="Rows"/>, replacing the synthesized member-wise equality.
     ///
-    /// <para><b>This is load-bearing for Invariant #1 and was silently absent.</b> The rail's render
-    /// surface skips a repaint when the frame it is handed equals the one it already drew
-    /// (<c>CombatRailView.Live</c>'s setter). <c>CombatLiveView</c> (Mucka.Combat, above this
-    /// assembly) is a record, so that
-    /// comparison recurses into this struct - but the synthesized <c>Equals</c> compares
-    /// <see cref="Rows"/> with <c>EqualityComparer&lt;IReadOnlyList&lt;RosterRow&gt;&gt;.Default</c>,
-    /// which for a list or array is REFERENCE equality. <see cref="ParticipantRoster.Build"/>
-    /// allocates a fresh list on every refresh, so the two references never matched and the
-    /// comparison decided "different" on every single 1 Hz tick - i.e. it was a no-op on the only
-    /// branch that is reached while a fight is open, which is the branch that matters. The fix
-    /// belongs at this level, because this is where the reference lives.</para>
+    /// <para>The rail's render surface skips a repaint when the frame it is handed equals the one it
+    /// already drew (<c>CombatRailView.Live</c>'s setter). <c>CombatLiveView</c> (Mucka.Combat, above
+    /// this assembly) is a record, so that comparison recurses into this struct - but the synthesized
+    /// <c>Equals</c> compares <see cref="Rows"/> with
+    /// <c>EqualityComparer&lt;IReadOnlyList&lt;RosterRow&gt;&gt;.Default</c>, which for a list or array
+    /// is REFERENCE equality, and <see cref="ParticipantRoster.Build"/> allocates a fresh list on every
+    /// refresh. Without this, no two frames carrying a roster could ever compare equal.</para>
     ///
-    /// <para><see cref="RosterRow"/> is a readonly record struct of primitives and other readonly
-    /// record structs, so its own equality is already by value and the loop below is a real content
-    /// comparison. Bounded by <see cref="ParticipantRoster.MaxRows"/> (8), so this is at most eight
+    /// <para><see cref="RosterRow"/> is a readonly record struct whose one collection member,
+    /// <see cref="RosterRow.Exchange"/>, compares by reference too; it is equal across refreshes
+    /// because <c>FightAccumulator.RecentExchange</c> hands out the same instance until a swing is
+    /// recorded. Bounded by <see cref="ParticipantRoster.MaxRows"/> (8), so this is at most eight
     /// struct compares - cheaper by orders of magnitude than the repaint it avoids.</para>
     /// </summary>
     public bool Equals(RosterPlan other)
@@ -359,10 +356,16 @@ public readonly record struct RosterPlan(
 /// </summary>
 public static class ParticipantRoster
 {
-    /// <summary>Row cap. Bounds the draw-call count regardless of pack size, and sits at the rail's
-    /// own maximum slot count so the renderer's height-derived capacity is what actually decides how
-    /// many rows appear - a lower cap here would silently overrule a tall window and hide opponents
-    /// that had room to be drawn.</summary>
+    /// <summary>Row cap, and the Combat Rail's maximum slot count, which reads it
+    /// (<c>CombatRailView.MaxSlots</c>). Bounds the draw-call count regardless of pack size. The two are
+    /// one number so the renderer's height-derived capacity is what actually decides how many rows
+    /// appear - a lower cap here would silently overrule a tall window and hide opponents that had
+    /// room to be drawn.
+    ///
+    /// <para>The measured maximum simultaneously-engaged opponents is 13, one encounter out of 1275
+    /// in the clog corpus. The cap deliberately does NOT chase that peak: the rail's overflow row
+    /// carries whatever exceeds it, live or dead alike, so raising the cap to match whatever the
+    /// corpus says today would only have to be redone the next time it grows.</para></summary>
     public const int MaxRows = 8;
 
     /// <summary>What the unknown badge lists for an Unseen opponent nobody has named.</summary>

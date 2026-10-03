@@ -1,4 +1,5 @@
 using System.Windows.Input;
+using MudSharp.Protocol;
 using Mucka.ViewModels;
 using SkiaSharp;
 using SkiaSharp.Views.Maui;
@@ -47,23 +48,23 @@ public sealed class RadarCompassView : SKCanvasView
     // Compass bearing (clockwise from north), label, and whether it is a diagonal.
     private static readonly (string Dir, float Deg, string Label, bool Diag)[] Ordinals =
     {
-        ("north",       0, "N",  false),
-        ("northeast",  45, "ne", true),
-        ("east",       90, "E",  false),
-        ("southeast", 135, "se", true),
-        ("south",     180, "S",  false),
-        ("southwest", 225, "sw", true),
-        ("west",      270, "W",  false),
-        ("northwest", 315, "nw", true),
+        (ExitWords.North,       0, "N",  false),
+        (ExitWords.NorthEast,  45, "ne", true),
+        (ExitWords.East,       90, "E",  false),
+        (ExitWords.SouthEast, 135, "se", true),
+        (ExitWords.South,     180, "S",  false),
+        (ExitWords.SouthWest, 225, "sw", true),
+        (ExitWords.West,      270, "W",  false),
+        (ExitWords.NorthWest, 315, "nw", true),
     };
 
     // Core-glyph anchors, used for both painting and hit-testing.
     private static readonly (string Dir, float X, float Y)[] CoreAnchors =
     {
-        ("up",   CX,      CY - 8),
-        ("down", CX,      CY + 8),
-        ("out",  CX - 15, CY),
-        ("in",   CX + 15, CY),
+        (ExitWords.Up,   CX,      CY - 8),
+        (ExitWords.Down, CX,      CY + 8),
+        (ExitWords.Out,  CX - 15, CY),
+        (ExitWords.In,   CX + 15, CY),
     };
 
     private readonly SKPaint _fill = new() { IsAntialias = true, Style = SKPaintStyle.Fill };
@@ -179,25 +180,25 @@ public sealed class RadarCompassView : SKCanvasView
         foreach (var (dir, deg, label, diag) in Ordinals)
         {
             if (!Present(vm, dir)) continue;
-            var color = dir == "north" ? InkNorth : dir == "south" ? InkSouth : InkOrd;
+            var color = dir == ExitWords.North ? InkNorth : dir == ExitWords.South ? InkSouth : InkOrd;
             var (lx, ly) = P(LBLR, deg);
-            float rot = diag ? (dir is "northeast" or "southwest" ? 45f : -45f) : 0f;
+            float rot = diag ? (dir is ExitWords.NorthEast or ExitWords.SouthWest ? 45f : -45f) : 0f;
             DrawGlyph(canvas, label, lx, ly, diag ? 9f : 11f, color, rot);
         }
 
         // Core: up / down chevrons, out / in letters. Dim at rest, gold when open.
         DrawCoreHover(canvas);
-        DrawChevron(canvas, up: true,  Present(vm, "up"));
-        DrawChevron(canvas, up: false, Present(vm, "down"));
-        DrawGlyph(canvas, "O", CX - 15, CY, 11f, Present(vm, "out") ? Core : CoreRest, 0f);
-        DrawGlyph(canvas, "I", CX + 15, CY, 11f, Present(vm, "in")  ? Core : CoreRest, 0f);
+        DrawChevron(canvas, up: true,  Present(vm, ExitWords.Up));
+        DrawChevron(canvas, up: false, Present(vm, ExitWords.Down));
+        DrawGlyph(canvas, "O", CX - 15, CY, 11f, Present(vm, ExitWords.Out) ? Core : CoreRest, 0f);
+        DrawGlyph(canvas, "I", CX + 15, CY, 11f, Present(vm, ExitWords.In)  ? Core : CoreRest, 0f);
 
         canvas.Restore();
     }
 
     private void DrawCoreHover(SKCanvas canvas)
     {
-        if (_hoverDir is not ("up" or "down" or "in" or "out")) return;
+        if (_hoverDir is not (ExitWords.Up or ExitWords.Down or ExitWords.In or ExitWords.Out)) return;
         foreach (var (dir, ax, ay) in CoreAnchors)
         {
             if (dir != _hoverDir) continue;
@@ -208,18 +209,18 @@ public sealed class RadarCompassView : SKCanvasView
 
     private static bool Present(SidePanelViewModel vm, string dir) => dir switch
     {
-        "north"     => vm.ExitNorth.Present,
-        "northeast" => vm.ExitNorthEast.Present,
-        "east"      => vm.ExitEast.Present,
-        "southeast" => vm.ExitSouthEast.Present,
-        "south"     => vm.ExitSouth.Present,
-        "southwest" => vm.ExitSouthWest.Present,
-        "west"      => vm.ExitWest.Present,
-        "northwest" => vm.ExitNorthWest.Present,
-        "up"        => vm.ExitUp.Present,
-        "down"      => vm.ExitDown.Present,
-        "in"        => vm.ExitIn.Present,
-        "out"       => vm.ExitOut.Present,
+        ExitWords.North     => vm.ExitNorth.Present,
+        ExitWords.NorthEast => vm.ExitNorthEast.Present,
+        ExitWords.East      => vm.ExitEast.Present,
+        ExitWords.SouthEast => vm.ExitSouthEast.Present,
+        ExitWords.South     => vm.ExitSouth.Present,
+        ExitWords.SouthWest => vm.ExitSouthWest.Present,
+        ExitWords.West      => vm.ExitWest.Present,
+        ExitWords.NorthWest => vm.ExitNorthWest.Present,
+        ExitWords.Up        => vm.ExitUp.Present,
+        ExitWords.Down      => vm.ExitDown.Present,
+        ExitWords.In        => vm.ExitIn.Present,
+        ExitWords.Out       => vm.ExitOut.Present,
         _           => false,
     };
 

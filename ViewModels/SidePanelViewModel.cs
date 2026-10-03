@@ -1,6 +1,7 @@
 using Microsoft.Maui.Graphics;
 using Mucka.Core;
 using MudSharp.Combat;
+using MudSharp.Protocol;
 using MudSharp.Models;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
@@ -116,7 +117,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
 
     /// <summary>Glyph for the compass float toggle \u2014 shows the action, not the state:
     /// hollow "float me" square while docked, filled "dock me" square while floating.</summary>
-    public string MapPinGlyph => _isMapPinned ? "\u25a1" : "\u25a0";
+    public string MapPinGlyph => _isMapPinned ? Glyph.SquareHollow : Glyph.SquareFilled;
     /// <summary>Color for the compass float toggle: gold when docked, dim grey when floating.</summary>
     public Color  MapPinColor => _isMapPinned ? Color.FromArgb("#FFD700") : Color.FromArgb("#555555");
 
@@ -144,8 +145,8 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     }
     /// <summary>Convenience inverse \u2014 binds the title strip's visibility (shown while unlocked).</summary>
     public bool IsFloatingMapUnlocked => !_isFloatingMapLocked;
-    /// <summary>Padlock glyph: \ud83d\udd12 locked, \ud83d\udd13 unlocked (drag-enabled).</summary>
-    public string FloatingMapLockGlyph => _isFloatingMapLocked ? "\U0001F512" : "\U0001F513";
+    /// <summary>Padlock glyph: closed while locked, open while unlocked (drag-enabled).</summary>
+    public string FloatingMapLockGlyph => _isFloatingMapLocked ? Glyph.PadlockClosed : Glyph.PadlockOpen;
 
     // \u2500\u2500 Floating-panel size steps (the \u2212 / + buttons step through these) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
     private static readonly double[] OnlineWidths = { 160, 190, 220 };
@@ -227,6 +228,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     // applying that first state.
     private bool _isCombatPanelVisible;
     private CombatTier _pulseTier = CombatTier.None;
+    private int _glowLevel;
 
     private CombatTier _encumbranceTier = CombatTier.None;
     // The Combat Rail's LIVE hero section - threat indicator, opposition roster, survival numbers -
@@ -459,10 +461,14 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     /// </summary>
     public event Action<RailFloat>? CombatFloatRaised;
 
-    /// <summary>The tier driving the Combat Rail's single shared Composition glow layer. At most one
-    /// T3 element runs at a time: only <see cref="CombatTier.T3"/> ever requests motion - the glow
-    /// helper (PulseLayer) treats every other value as "stop".</summary>
+    /// <summary>The Combat Rail's alert tier. <see cref="CombatTier.T3"/> lights the red combat edges;
+    /// the panel glow follows <see cref="GlowLevel"/>, which is at its red exactly when this is
+    /// T3.</summary>
     public CombatTier PulseTier => _pulseTier;
+
+    /// <summary>The panel glow's level on <see cref="StaminaGlow"/>'s ladder: 0 none, the amber steps,
+    /// then red. Notified only when it changes.</summary>
+    public int GlowLevel => _glowLevel;
 
     /// <summary>Encumbrance tier for the load line's colour intensity: T1 below 75% of max
     /// effective strength, T2 below 50%. Computed unconditionally whenever there is anything on
@@ -954,6 +960,11 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         _encumbranceTier = frame.EncumbranceTier;
         _pulseTier = frame.PulseTier;
         _live = frame.Live;
+        if (_glowLevel != frame.GlowLevel)
+        {
+            _glowLevel = frame.GlowLevel;
+            OnPropertyChanged(nameof(GlowLevel));
+        }
     }
 
     /// <summary>
@@ -1148,11 +1159,9 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             [nameof(IsFloatingOnlineVisible), nameof(IsOnlineSectionVisible), nameof(PinGlyph), nameof(PinColor)]);
     }
 
-    // \u25CF = filled circle (filled circle)  \u25CB = hollow circle (hollow circle)
-    // These are regular text glyphs that obey TextColor - unlike emoji which ignore it.
-    /// <summary>Glyph for the dock toggle \u2014 shows the action, not the state:
+    /// <summary>Glyph for the dock toggle - shows the action, not the state:
     /// hollow "float me" square while docked, filled "dock me" square while floating.</summary>
-    public string PinGlyph => _isOnlinePinned ? "\u25A1" : "\u25A0";
+    public string PinGlyph => _isOnlinePinned ? Glyph.SquareHollow : Glyph.SquareFilled;
     /// <summary>Color for the pin toggle: gold when docked, dim grey when floating.</summary>
     public Color  PinColor  => _isOnlinePinned
         ? Color.FromArgb("#FFD700")
@@ -1185,8 +1194,8 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     }
     /// <summary>Convenience inverse \u2014 binds the title strip's visibility (shown while unlocked).</summary>
     public bool IsFloatingOnlineUnlocked => !_isFloatingOnlineLocked;
-    /// <summary>Padlock glyph: \ud83d\udd12 locked, \ud83d\udd13 unlocked (drag-enabled).</summary>
-    public string FloatingOnlineLockGlyph => _isFloatingOnlineLocked ? "\U0001F512" : "\U0001F513";
+    /// <summary>Padlock glyph: closed while locked, open while unlocked (drag-enabled).</summary>
+    public string FloatingOnlineLockGlyph => _isFloatingOnlineLocked ? Glyph.PadlockClosed : Glyph.PadlockOpen;
 
     /// <summary>True only when names-only display mode is active: the title/level suffix is hidden.</summary>
     public bool NamesOnly
@@ -2047,19 +2056,19 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         MainThread.BeginInvokeOnMainThread(() =>
         {
             var exits = new HashSet<string>(snapshot, StringComparer.OrdinalIgnoreCase);
-            ExitNorth.Present     = exits.Contains("north");
-            ExitSouth.Present     = exits.Contains("south");
-            ExitEast.Present      = exits.Contains("east");
-            ExitWest.Present      = exits.Contains("west");
-            ExitNorthEast.Present = exits.Contains("northeast");
-            ExitNorthWest.Present = exits.Contains("northwest");
-            ExitSouthEast.Present = exits.Contains("southeast");
-            ExitSouthWest.Present = exits.Contains("southwest");
-            ExitUp.Present        = exits.Contains("up");
-            ExitDown.Present      = exits.Contains("down");
-            ExitIn.Present        = exits.Contains("in");
-            ExitOut.Present       = exits.Contains("out");
-            ExitSwampward.Present = exits.Contains("swampward");
+            ExitNorth.Present     = exits.Contains(ExitWords.North);
+            ExitSouth.Present     = exits.Contains(ExitWords.South);
+            ExitEast.Present      = exits.Contains(ExitWords.East);
+            ExitWest.Present      = exits.Contains(ExitWords.West);
+            ExitNorthEast.Present = exits.Contains(ExitWords.NorthEast);
+            ExitNorthWest.Present = exits.Contains(ExitWords.NorthWest);
+            ExitSouthEast.Present = exits.Contains(ExitWords.SouthEast);
+            ExitSouthWest.Present = exits.Contains(ExitWords.SouthWest);
+            ExitUp.Present        = exits.Contains(ExitWords.Up);
+            ExitDown.Present      = exits.Contains(ExitWords.Down);
+            ExitIn.Present        = exits.Contains(ExitWords.In);
+            ExitOut.Present       = exits.Contains(ExitWords.Out);
+            ExitSwampward.Present = exits.Contains(ExitWords.Swampward);
         });
     }
 

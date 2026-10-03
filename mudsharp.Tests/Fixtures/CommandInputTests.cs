@@ -49,17 +49,15 @@ public class CommandInputTests
     private const int KeyEscape = 27;
     private const int KeyN = 78;
 
-    private static (CommandInput Input, FakeSurface Surface, ManualPump Pump, List<string> Lines,
-        List<string> Reports) Build()
+    private static (CommandInput Input, FakeSurface Surface, ManualPump Pump, List<string> Lines) Build()
     {
         var surface = new FakeSurface();
         var pump = new ManualPump();
         var gate = new InputGate(pump.Post);
-        var reports = new List<string>();
-        var input = new CommandInput(surface, gate, new InputPathBudget(reports.Add));
+        var input = new CommandInput(surface, gate);
         var lines = new List<string>();
         gate.LineReady += lines.Add;
-        return (input, surface, pump, lines, reports);
+        return (input, surface, pump, lines);
     }
 
     // ---- The accept path -------------------------------------------------------------------------
@@ -71,7 +69,7 @@ public class CommandInputTests
     [Fact]
     public void Accept_EmptiesTheBoxOnTheKeystroke_AndDeliversTheLineAfterwards()
     {
-        var (input, surface, pump, lines, _) = Build();
+        var (input, surface, pump, lines) = Build();
         surface.Text = "north";
 
         Assert.True(input.HandleKey(KeyEnter, InputModifiers.None, isAcceptKey: true));
@@ -92,7 +90,7 @@ public class CommandInputTests
     [Fact]
     public void Accept_TextArrivingAfterEnter_StartsTheNextLine()
     {
-        var (input, surface, pump, lines, _) = Build();
+        var (input, surface, pump, lines) = Build();
 
         surface.Text = "n";
         input.HandleKey(KeyEnter, InputModifiers.None, isAcceptKey: true);
@@ -112,7 +110,7 @@ public class CommandInputTests
     [Fact]
     public void Accept_EmptyLine_IsSentAndCounted()
     {
-        var (input, surface, pump, lines, _) = Build();
+        var (input, surface, pump, lines) = Build();
         surface.Text = string.Empty;
 
         input.HandleKey(KeyEnter, InputModifiers.None, isAcceptKey: true);
@@ -127,7 +125,7 @@ public class CommandInputTests
     [Fact]
     public void Accept_ABurstOfLines_KeepsOrderAndLosesNothing()
     {
-        var (input, surface, pump, lines, _) = Build();
+        var (input, surface, pump, lines) = Build();
 
         foreach (var cmd in new[] { "n", "ne", "e", "se" })
         {
@@ -148,7 +146,7 @@ public class CommandInputTests
     [Fact]
     public void PlainTyping_IsNotOwned_AndCostsNoPostedWork()
     {
-        var (input, _, pump, _, _) = Build();
+        var (input, _, pump, _) = Build();
         input.Hotkeys.Bind(KeyUp, InputModifiers.None, "history-up", () => { });
 
         Assert.False(input.HandleKey(KeyN, InputModifiers.None, isAcceptKey: false));
@@ -160,7 +158,7 @@ public class CommandInputTests
     [Fact]
     public void Hotkey_IsOwnedSynchronously_ButActsOnTheDrain()
     {
-        var (input, _, pump, _, _) = Build();
+        var (input, _, pump, _) = Build();
         var ran = false;
         input.Hotkeys.Bind(KeyUp, InputModifiers.None, "history-up", () => ran = true);
 
@@ -176,7 +174,7 @@ public class CommandInputTests
     [Fact]
     public void Hotkey_ModifiersDistinguishBindings()
     {
-        var (input, _, pump, _, _) = Build();
+        var (input, _, pump, _) = Build();
         var hits = new List<string>();
         input.Hotkeys.Bind('1', InputModifiers.Control, "macro-1", () => hits.Add("ctrl"));
 
@@ -192,7 +190,7 @@ public class CommandInputTests
     [Fact]
     public void Hotkey_DuplicateBinding_IsRejected()
     {
-        var (input, _, _, _, _) = Build();
+        var (input, _, _, _) = Build();
         input.Hotkeys.Bind(KeyEscape, InputModifiers.None, "clear-input", () => { });
 
         var ex = Assert.Throws<InvalidOperationException>(
@@ -204,7 +202,7 @@ public class CommandInputTests
     [Fact]
     public void ImmediateHotkey_RunsOnTheKeystroke()
     {
-        var (input, _, _, _, _) = Build();
+        var (input, _, _, _) = Build();
         var ran = false;
         input.Hotkeys.BindImmediate(KeyEscape, InputModifiers.None, "close-overlay", () => ran = true);
 
@@ -221,7 +219,7 @@ public class CommandInputTests
     [Fact]
     public void IsBoundKey_RulesOutOrdinaryCharactersWithoutConsideringModifiers()
     {
-        var (input, _, _, _, _) = Build();
+        var (input, _, _, _) = Build();
         input.Hotkeys.Bind('1', InputModifiers.Control, "macro-1", () => { });
         input.Hotkeys.Bind(KeyUp, InputModifiers.None, "history-up", () => { });
 
@@ -240,7 +238,7 @@ public class CommandInputTests
     [Fact]
     public void TypedLinesAndHotkeys_ReachTheGameInThePlayersOrder()
     {
-        var (input, surface, pump, _, _) = Build();
+        var (input, surface, pump, _) = Build();
         var wire = new List<string>();
         input.Gate.LineReady += l => wire.Add($"line:{l}");
         input.Hotkeys.Bind('F', InputModifiers.Control, "flee", () => wire.Add("flee"));
@@ -258,7 +256,7 @@ public class CommandInputTests
     [Fact]
     public void RequestSetText_QueuesBehindTypedInput()
     {
-        var (input, surface, pump, lines, _) = Build();
+        var (input, surface, pump, lines) = Build();
 
         surface.Text = "north";
         input.HandleKey(KeyEnter, InputModifiers.None, isAcceptKey: true);
@@ -278,7 +276,7 @@ public class CommandInputTests
     [Fact]
     public void RequestSetText_WithACaret_LeavesItWhereAsked()
     {
-        var (input, surface, pump, _, _) = Build();
+        var (input, surface, pump, _) = Build();
 
         input.RequestSetText("Ollie \"", 6);
         pump.RunAll();
@@ -294,7 +292,7 @@ public class CommandInputTests
     [InlineData(99, 5)]
     public void RequestSetText_ClampsAnImpossibleCaret(int asked, int expected)
     {
-        var (input, surface, pump, _, _) = Build();
+        var (input, surface, pump, _) = Build();
 
         input.RequestSetText("north", asked);
         pump.RunAll();
@@ -316,7 +314,7 @@ public class CommandInputTests
     [Fact]
     public void RequestSetText_DeliversEvenWhenTheTextIsUnchanged()
     {
-        var (input, surface, pump, _, _) = Build();
+        var (input, surface, pump, _) = Build();
 
         input.RequestSetText("north");
         pump.RunAll();
@@ -334,7 +332,7 @@ public class CommandInputTests
     [Fact]
     public void RequestClear_DeliversEvenWhenTheBoxIsAlreadyEmpty()
     {
-        var (input, surface, pump, _, _) = Build();
+        var (input, surface, pump, _) = Build();
         Assert.Equal(string.Empty, surface.Text);
         surface.Log.Clear();
 
@@ -352,7 +350,7 @@ public class CommandInputTests
     [Fact]
     public void RepeatedIdenticalRecalls_EachReachTheBox()
     {
-        var (input, surface, pump, _, _) = Build();
+        var (input, surface, pump, _) = Build();
         var recalled = new[] { "n", "n", "n" };
         surface.Log.Clear();
 
@@ -379,7 +377,7 @@ public class CommandInputTests
             seen.Add(l);
             if (l == "boom") throw new InvalidOperationException("consumer bug");
         };
-        var input = new CommandInput(surface, gate, new InputPathBudget(_ => { }));
+        var input = new CommandInput(surface, gate);
 
         foreach (var cmd in new[] { "first", "boom", "third" })
         {
@@ -418,7 +416,7 @@ public class CommandInputTests
     [Fact]
     public void Flush_RunsPendingWorkImmediately()
     {
-        var (input, surface, _, lines, _) = Build();
+        var (input, surface, _, lines) = Build();
         surface.Text = "north";
         input.HandleKey(KeyEnter, InputModifiers.None, isAcceptKey: true);
 
@@ -437,77 +435,5 @@ public class CommandInputTests
         gate.Post(() => { runs++; gate.Flush(); });
         pump.RunAll();
         Assert.Equal(1, runs);
-    }
-
-    // ---- The budget ------------------------------------------------------------------------------
-
-    /// <summary>Ordinary key handling is far inside budget, so the guard is silent - it has to be, or
-    /// it would be noise and get ignored.</summary>
-    [Fact]
-    public void Budget_StaysSilentForNormalKeyHandling()
-    {
-        var (input, surface, pump, _, reports) = Build();
-        for (var i = 0; i < 200; i++)
-            input.HandleKey(KeyN, InputModifiers.None, isAcceptKey: false);
-        surface.Text = "north";
-        input.HandleKey(KeyEnter, InputModifiers.None, isAcceptKey: true);
-        pump.RunAll();
-
-        Assert.Empty(reports);
-    }
-
-    /// <summary>And it does fire when something on the path is slow - the mechanism that makes a
-    /// future regression announce itself instead of waiting to be noticed mid-fight.
-    /// <para>The sleep here is the WORK being measured, not a wait for something else, and
-    /// <see cref="InputPathBudget"/> exists to measure real elapsed time - there is no clock to
-    /// inject without deleting the subject. Every assertion in this trio is a lower bound (a 0.5 ms
-    /// budget, a 10 ms floor), so a loaded machine can only overshoot them.</para></summary>
-    [Fact]
-    public void Budget_ReportsWorkThatOverrunsTheKeystroke()
-    {
-        var reports = new List<string>();
-        var budget = new InputPathBudget(reports.Add, budgetMs: 0.5);
-
-        budget.Measure("deliberately slow", () => Thread.Sleep(20));
-
-        Assert.Single(reports);
-        Assert.Contains("deliberately slow", reports[0]);
-        Assert.Equal(1, budget.OverrunCount);
-        Assert.True(budget.WorstMilliseconds >= 10.0);
-    }
-
-    /// <summary>An immediate hotkey's cost lands INSIDE the keystroke's budget, which is the honest
-    /// accounting - that is what BindImmediate is trading away.</summary>
-    [Fact]
-    public void Budget_CountsImmediateHotkeyWorkAgainstTheKeystroke()
-    {
-        var surface = new FakeSurface();
-        var pump = new ManualPump();
-        var gate = new InputGate(pump.Post);
-        var reports = new List<string>();
-        var input = new CommandInput(surface, gate, new InputPathBudget(reports.Add, budgetMs: 0.5));
-        input.Hotkeys.BindImmediate(KeyEscape, InputModifiers.None, "slow-thing", () => Thread.Sleep(20));
-
-        input.HandleKey(KeyEscape, InputModifiers.None, isAcceptKey: false);
-
-        Assert.Single(reports);
-    }
-
-    /// <summary>Whereas a normal binding's cost does NOT, because it never ran on the keystroke. This
-    /// pair of tests is the framework's central claim, stated as arithmetic.</summary>
-    [Fact]
-    public void Budget_DoesNotCountPostedHotkeyWorkAgainstTheKeystroke()
-    {
-        var surface = new FakeSurface();
-        var pump = new ManualPump();
-        var gate = new InputGate(pump.Post);
-        var reports = new List<string>();
-        var input = new CommandInput(surface, gate, new InputPathBudget(reports.Add, budgetMs: 0.5));
-        input.Hotkeys.Bind(KeyEscape, InputModifiers.None, "slow-thing", () => Thread.Sleep(20));
-
-        input.HandleKey(KeyEscape, InputModifiers.None, isAcceptKey: false);
-        pump.RunAll();
-
-        Assert.Empty(reports);
     }
 }

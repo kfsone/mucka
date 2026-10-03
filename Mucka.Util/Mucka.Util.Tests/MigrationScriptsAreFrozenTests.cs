@@ -174,7 +174,7 @@ public sealed class MigrationScriptsAreFrozenTests
         }
         finally
         {
-            SqliteConnection.ClearAllPools();
+            TestStore.ReleasePools(directory);
             try { Directory.Delete(directory, recursive: true); } catch { /* best-effort */ }
         }
     }

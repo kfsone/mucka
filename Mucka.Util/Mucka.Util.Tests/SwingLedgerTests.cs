@@ -32,7 +32,7 @@ public sealed class SwingLedgerTests : IDisposable
     public void Dispose()
     {
         // Pooled connections keep the file handle open, which on Windows blocks the delete below.
-        SqliteConnection.ClearAllPools();
+        TestStore.ReleasePools(_directory);
         try { Directory.Delete(_directory, recursive: true); } catch { /* best-effort cleanup */ }
     }
 
@@ -54,7 +54,7 @@ public sealed class SwingLedgerTests : IDisposable
         {
             _path = Path.Combine(directory, MuckaDb.DefaultFileName);
             // The store is what drains, so it is what these tests close before reading rows back.
-            _db = new MuckaStore(_path, "test");
+            _db = TestStore.Open(_path);
             _ledger = new SwingLedger(_db);
             _tracker.EventOccurred += _ledger.OnCombatEvent;
             // Wrapped rather than assigned directly: OnInCombatChanged takes the shared encounter id
@@ -134,7 +134,7 @@ public sealed class SwingLedgerTests : IDisposable
 
         private List<Dictionary<string, object?>> Read(string table)
         {
-            _db.Dispose();
+            TestStore.Close(_db);
             if (!File.Exists(_path))
                 return [];
 
@@ -159,7 +159,7 @@ public sealed class SwingLedgerTests : IDisposable
         /// test.</summary>
         public List<string> Columns()
         {
-            _db.Dispose();
+            TestStore.Close(_db);
             using var connection = MuckaDb.Open(_path);
             using var command = connection.CreateCommand();
             command.CommandText = "SELECT * FROM swings LIMIT 0;";
@@ -480,7 +480,7 @@ public sealed class SwingLedgerTests : IDisposable
         Assert.Equal(3, live.Samples);
         session.Rows();   // drains the writer, so every row is actually on disk
 
-        using var reloadedDb = new MuckaStore(Path.Combine(_directory, MuckaDb.DefaultFileName), "test");
+        using var reloadedDb = TestStore.Open(Path.Combine(_directory, MuckaDb.DefaultFileName));
         var reloaded = new SwingLedger(reloadedDb);
         await reloaded.WarmDamageIndexAsync();
         var rebuilt = reloaded.Damage.Lookup("zombie2").Incoming;

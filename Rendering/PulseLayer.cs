@@ -6,18 +6,6 @@ using Mucka.Combat;
 
 namespace Mucka.Rendering;
 
-/// <summary>Tier passed to <see cref="PulseLayer.SetTier"/>. Kept as its own small enum, distinct
-/// from <see cref="MudSharp.Combat.CombatTier"/>, because the two answer different questions:
-/// CombatTier is "how urgent is this signal", PulseTier is "what should the shared glow layer
-/// physically do about it".</summary>
-public enum PulseTier
-{
-    /// <summary>No glow.</summary>
-    None,
-    /// <summary>Act now - continuous glow pulse, 1.2s period, forever until the tier changes.</summary>
-    T3,
-}
-
 /// <summary>
 /// WinUI Composition glow helper. Animates the OPACITY of a layer positioned BEHIND the Skia canvas
 /// (a transparent-background `Border`/`Rectangle` in the same grid cell), never the canvas's own
@@ -57,35 +45,34 @@ internal sealed class PulseLayer
 
     public static PulseLayer Attach(FrameworkElement host) => new(host);
 
-    /// <summary>Starts (or restarts) the glow for <see cref="PulseTier.T3"/>. <see cref="PulseTier.None"/>
-    /// just stops.</summary>
-    public void SetTier(PulseTier tier)
+    /// <summary>One pulse: the opacity it swings between, peak to trough and back, and its
+    /// period.</summary>
+    public readonly record struct Pulse(float Peak, float Trough, double PeriodMilliseconds);
+
+    private Pulse? _running;
+
+    /// <summary>Pulses the layer's opacity (its colour belongs to the host element), or stops for
+    /// null. Restarts only when the pulse changes: the view model republishes on every refresh, and a
+    /// restart would snap the pulse back to its first keyframe each time.</summary>
+    public void SetPulse(Pulse? pulse)
     {
-        if (tier is not PulseTier.T3)
+        if (pulse is not { } p)
         {
             Stop();
             return;
         }
+        if (_running == p && _visual is not null)
+            return;
 
         _visual ??= ElementCompositionPreview.GetElementVisual(_host);
-        var compositor = _visual.Compositor;
-        // Half amplitude (0.5 -> 0.125 -> 0.5), not full (1.0 -> 0.25 -> 1.0): full amplitude
-        // dominates the panel so completely that the flee pill - the one element with something
-        // actionable on it - does not draw the eye at all, observed in a fight at 23 stamina against
-        // a banshee. Both ends are halved rather than just the trough raised: raising the trough
-        // alone would shrink the swing while leaving the panel brighter on average, which is the
-        // opposite of what is wanted. Halving both keeps the swing but dims the glow throughout, so
-        // the pill has somewhere to stand out from.
-        //
-        // The glow is still the loudest thing the client owns; it is just no longer the only thing
-        // visible while it runs.
-        var anim = compositor.CreateScalarKeyFrameAnimation();
-        anim.InsertKeyFrame(0.0f, 0.5f);
-        anim.InsertKeyFrame(0.5f, 0.125f);
-        anim.InsertKeyFrame(1.0f, 0.5f);
-        anim.Duration = TimeSpan.FromMilliseconds(PeriodMilliseconds);
+        var anim = _visual.Compositor.CreateScalarKeyFrameAnimation();
+        anim.InsertKeyFrame(0.0f, p.Peak);
+        anim.InsertKeyFrame(0.5f, p.Trough);
+        anim.InsertKeyFrame(1.0f, p.Peak);
+        anim.Duration = TimeSpan.FromMilliseconds(p.PeriodMilliseconds);
         anim.IterationBehavior = AnimationIterationBehavior.Forever;
         _visual.StartAnimation("Opacity", anim);
+        _running = p;
     }
 
     /// <summary>Stops and detaches the animation. MUST be called from the host page's
@@ -117,6 +104,7 @@ internal sealed class PulseLayer
         finally
         {
             _visual = null;
+            _running = null;
         }
     }
 }

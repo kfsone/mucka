@@ -1023,8 +1023,9 @@ public sealed class MudStreamParser
     // Direction words as spelled out by the MUD2 exits verb (full names and a few aliases).
     private static readonly HashSet<string> ExitKeywords = new(StringComparer.OrdinalIgnoreCase)
     {
-        "north", "northeast", "east", "southeast", "south", "southwest", "west", "northwest",
-        "up", "down", "in", "out", "swampward", "over",
+        ExitWords.North, ExitWords.NorthEast, ExitWords.East, ExitWords.SouthEast,
+        ExitWords.South, ExitWords.SouthWest, ExitWords.West, ExitWords.NorthWest,
+        ExitWords.Up, ExitWords.Down, ExitWords.In, ExitWords.Out, ExitWords.Swampward, ExitWords.Over,
         // abbreviated forms appear in some contexts (e.g. look around output)
         "n", "ne", "e", "se", "s", "sw", "w", "nw",
     };

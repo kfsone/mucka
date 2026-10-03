@@ -325,13 +325,19 @@ public sealed record CombatHistoryContext(
 ///
 /// <para><b>That only holds because every member compares by value, and the synthesized equality
 /// does not guarantee it.</b> A reference-typed member gets reference equality unless its own type
-/// overrides <c>Equals</c>. Two members are of that shape: <c>Roster</c> - whose <c>Rows</c> list is
-/// reallocated on every refresh, and which therefore had to grow a hand-written element-wise
-/// <c>Equals</c> before this comparison did anything at all on the in-combat branch (see
-/// <c>RosterPlan.Equals</c>) - and <c>DeadStripHistory</c>, which is safe only because
-/// <c>SidePanelViewModel</c> publishes a CACHED instance and reallocates it just when the archive
-/// grows. Any new collection-typed member here needs one of those two properties, deliberately
-/// chosen; the compiler will not warn you and the symptom is a silent 1 Hz repaint.</para>
+/// overrides <c>Equals</c>. Three members are of that shape: <c>Roster</c>, whose <c>Rows</c> list is
+/// reallocated on every refresh and is compared element-wise by a hand-written
+/// <c>RosterPlan.Equals</c>; and <c>DeadStripHistory</c> and <c>YourExchange</c>, which are safe
+/// because their producers hand out a CACHED instance and replace it only when the content changes
+/// (<c>SidePanelViewModel</c> when the archive grows; <c>CombatStatsAggregator</c> when a swing is
+/// recorded). Each row's <c>RosterRow.Exchange</c> is cached the same way, by
+/// <c>FightAccumulator.RecentExchange</c>. Any new collection-typed member here needs one of those
+/// two properties, deliberately chosen; the compiler will not warn you and the symptom is a silent
+/// 1 Hz repaint.</para>
+///
+/// <para>A frame built during a fight is never equal to the one before it, by design: it carries the
+/// fight's elapsed ticks, per-tick rates and reading ages, all derived from the refresh's clock and
+/// drawn. The skip pays on the idle branch.</para>
 /// </summary>
 public sealed record CombatLiveView(
     bool InCombat,

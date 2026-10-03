@@ -19,7 +19,7 @@ public sealed class RailSlotGeometryTests
     // numbers in the same commit.
     private static readonly RailSlotMetrics M = new(
         RailWidth: 376f, Pad: 10f, SlotHeight: 76f, SlotGap: 5f, SlotsGap: 6f,
-        BottomRowHeight: 113f, TickRowHeight: 30f, PlayerTileHeight: 81f, MaxSlots: 8);
+        BottomRowHeight: 113f, TickRowHeight: 30f, PlayerTileHeight: 81f, MaxSlots: ParticipantRoster.MaxRows);
 
     /// <summary>A panel at the design width, so dp and the canvas's logical units are 1:1 - which
     /// is the condition GamePage.xaml's Border exists to guarantee (its WidthRequest minus its own

@@ -69,6 +69,25 @@ public partial class GamePage : ContentPage
 
     private bool _isFkeyEditorOpen;
     private bool _isGuidedLoginOverlayOpen;
+
+#if WINDOWS
+    /// <summary>Something other than the command box legitimately owns the keyboard: the F-key
+    /// editor, the guided-login overlay, or scrollback review (Invariant #0's exceptions). The one
+    /// predicate FocusGuard suspends on and every deferred refocus checks - a new owner is added
+    /// here, once.</summary>
+    private bool KeyboardOwnedElsewhere => _isFkeyEditorOpen || _isGuidedLoginOverlayOpen || Terminal.IsHistoryMode;
+
+    /// <summary>Re-asserts focus once a window resize and its re-layout have settled: the resize can
+    /// land keyboard focus elsewhere after the triggering command's own RequestFocus already fired,
+    /// and a plain dispatch still races it; a short delay wins (Invariant #0).</summary>
+    private void RefocusAfterResize()
+        => Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(50), () =>
+        {
+            if (!KeyboardOwnedElsewhere)
+                FocusInput();
+        });
+#endif
+
     private bool _guidedLoginOverlayRunning;
     // The config/f-key editor while it is up, so a guided-login reentry can close it. Being
     // dropped from the game outranks whatever the player was configuring: leaving the editor
@@ -117,14 +136,9 @@ public partial class GamePage : ContentPage
     /// assembly and not a convention.</para>
     /// </summary>
     private Mucka.Input.CommandInput? _commandInput;
-    // When the last line was sent, for the late-text detector in OnInputTextChanged.
-    private DateTime _sentAtUtc = DateTime.MinValue;
-    // How many times a character has been seen landing AFTER the Enter that should have carried it.
-    // Non-zero means the input path reordered keystrokes and the line the player typed is not the
-    // line that reached the MUD - see OnInputTextChanged.
-    private int _lateTextAfterSendCount;
     private Window? _rawConsoleWindow;
     private PulseLayer? _combatPanelPulse;
+    private PulseLayer? _combatPanelTrimPulse;
     private TickSweep? _combatTickSweep;
     private FleePulse? _combatFleePulse;
     /// <summary>Pill state the flee layer was last configured for, so the notification storm (Live
@@ -186,9 +200,6 @@ public partial class GamePage : ContentPage
     // encounter's first swing, replacing "no idea yet") re-aligns the bracket instead of being
     // ignored because the run state itself did not change.
     private DateTime? _metronomeAnchorUtc;
-    // Same reasoning for the sweep's colour: set only when the band actually changes, since assigning
-    // BoxView.Color rebuilds a native brush.
-    private bool _tickSweepAlarmed;
     private Microsoft.UI.Xaml.Controls.TextBox? _inputTextBox;
     private Microsoft.UI.Xaml.Controls.ScrollViewer? _inputScroller;   // _inputTextBox's inner ScrollViewer
     private Microsoft.UI.Xaml.UIElement? _terminalElement;   // SKXamlCanvas, for wheel scrollback
@@ -201,13 +212,13 @@ public partial class GamePage : ContentPage
     // scrollback, the temporary key handler. Kept so both can be torn down on disappear.
     private Microsoft.UI.Xaml.UIElement? _rootElement;
     private readonly List<Microsoft.UI.Xaml.Input.KeyboardAccelerator> _accelerators = new();
-    private int _wheelAccum;   // accumulates wheel delta so touchpad drift doesn't trip scrollback
+    private readonly WheelNotches _wheelNotches = new();
     // -- Window minimum-size enforcement -------------------------------------
     // SidePanelWidthDp - the LEFT panel's (Online/Items/Map) own width, unrelated to the combat
     // rail - lives in Mucka.Combat.CombatRailResize alongside the rest of this file's
-    // window-sizing constants. Must match SidePanelBorder's WidthRequest in GamePage.xaml; that
-    // panel keeps the width the player already plays with. The Combat Rail is a wholly separate,
-    // additional panel and never docks inside this one.
+    // window-sizing constants, and SidePanelBorder's WidthRequest in GamePage.xaml reads it through
+    // x:Static; that panel keeps the width the player already plays with. The Combat Rail is a
+    // wholly separate, additional panel and never docks inside this one.
 
     // - Combat Rail: the additional right-edge panel -
     // Own width constants, deliberately separate from SidePanelWidthDp above. Shown/hidden by the
@@ -344,7 +355,7 @@ public partial class GamePage : ContentPage
                         froot,
                         () => Handler?.PlatformView as Microsoft.UI.Xaml.FrameworkElement,
                         () => _inputTextBox,
-                        () => _isFkeyEditorOpen || _isGuidedLoginOverlayOpen || Terminal.IsHistoryMode,
+                        () => KeyboardOwnedElsewhere,
                         FocusInput);
                 }
                 else
@@ -389,6 +400,8 @@ public partial class GamePage : ContentPage
                 _vm.SidePanel.PropertyChanged += OnSidePanelPropertyChanged;
                 CombatPanelGlow.HandlerChanged += OnCombatPanelGlowHandlerChanged;
                 OnCombatPanelGlowHandlerChanged(CombatPanelGlow, EventArgs.Empty);
+                CombatPanelTrim.HandlerChanged += OnCombatPanelTrimHandlerChanged;
+                OnCombatPanelTrimHandlerChanged(CombatPanelTrim, EventArgs.Empty);
                 // The stats setting is restored from mucka.ini before this page exists, so the width
                 // it implies has to be applied once here - nothing will raise the change event for a
                 // value that was already false when the panel was built. Before the handler wiring
@@ -558,7 +571,6 @@ public partial class GamePage : ContentPage
         {
             _inputTextBox.PreviewKeyDown -= OnInputPreviewKeyDown;
             _inputTextBox.SelectionChanged -= OnInputSelectionChanged;
-            _inputTextBox.TextChanged -= OnInputTextChanged;
             _inputTextBox = null;
             _inputScroller = null;
         }
@@ -582,6 +594,7 @@ public partial class GamePage : ContentPage
         _vm.SidePanel.PropertyChanged -= OnSidePanelPropertyChanged;
         _vm.SidePanel.CombatStatsChanged -= OnCombatStatsChanged;
         CombatPanelGlow.HandlerChanged -= OnCombatPanelGlowHandlerChanged;
+        CombatPanelTrim.HandlerChanged -= OnCombatPanelTrimHandlerChanged;
         CombatTickSweep.HandlerChanged -= OnCombatTickSweepHandlerChanged;
         CombatFleePill.HandlerChanged -= OnCombatFleePillHandlerChanged;
         CombatFleePillHit.HandlerChanged -= OnCombatFleePillHitHandlerChanged;
@@ -598,6 +611,8 @@ public partial class GamePage : ContentPage
         // crash class). The tick sweep is the same crash class.
         _combatPanelPulse?.Stop();
         _combatPanelPulse = null;
+        _combatPanelTrimPulse?.Stop();
+        _combatPanelTrimPulse = null;
         _combatTickSweep?.Stop();
         _combatTickSweep = null;
         _combatFleePulse?.Stop();
@@ -889,6 +904,15 @@ public partial class GamePage : ContentPage
         _floatMapTransY = FloatingMapPanel.TranslationY;
     }
 
+    /// <summary>Half the width of Reanchor's centre band on each axis, as a fraction of the parent's
+    /// size on that axis. A panel whose offset from the parent's centre is within it stays centred;
+    /// beyond it, the nearer edge is pinned.</summary>
+    private const double ReanchorCentreBandFraction = 0.15;
+
+    /// <summary>A size change smaller than this on both axes is ignored rather than
+    /// re-anchored.</summary>
+    private const double ReanchorMinSizeChangeDp = 0.5;
+
     // Keep a floating panel anchored by the screen quadrant it sits in when it grows/shrinks
     // (resize buttons, lock/unlock revealing the title strip, fold). A panel in the bottom half grows upward;
     // one pinned to the right edge grows leftward; a top-docked panel just grows down.
@@ -901,19 +925,19 @@ public partial class GamePage : ContentPage
         double dW = cur.Width  - last.Width;
         double dH = cur.Height - last.Height;
         last = cur;
-        if (Math.Abs(dW) < 0.5 && Math.Abs(dH) < 0.5) return;
+        if (Math.Abs(dW) < ReanchorMinSizeChangeDp && Math.Abs(dH) < ReanchorMinSizeChangeDp) return;
 
         if (panel.Parent is not VisualElement parent || parent.Width <= 0 || parent.Height <= 0)
             return;
 
         // The panel is centre-anchored horizontally, so TranslationX is its offset from centre.
-        double bandX = parent.Width * 0.15;
+        double bandX = parent.Width * ReanchorCentreBandFraction;
         if (panel.TranslationX > bandX)        panel.TranslationX -= dW;        // right edge fixed
         else if (panel.TranslationX < -bandX)  { /* left edge fixed - no change */ }
         else                                   panel.TranslationX -= dW / 2;    // stays centred
 
         double panelCentreY = panel.Y + panel.TranslationY + cur.Height / 2;
-        double bandY = parent.Height * 0.15;
+        double bandY = parent.Height * ReanchorCentreBandFraction;
         if (panelCentreY > parent.Height / 2 + bandY)      panel.TranslationY -= dH;      // bottom -> grow up
         else if (panelCentreY < parent.Height / 2 - bandY) { /* top -> grow down */ }
         else                                               panel.TranslationY -= dH / 2;  // vertically centred
@@ -1544,22 +1568,16 @@ public partial class GamePage : ContentPage
         if (e.PropertyName == nameof(SidePanelViewModel.IsPanelExpanded))
         {
             UpdateWindowMinimumWidth();
-            // Toggling the panel can resize the window (its min width changes), and that resize
-            // lands keyboard focus elsewhere AFTER TogglePanelCommand's own RequestFocus has
-            // already fired - so the input box is left unfocused. Re-assert focus once the resize
-            // and re-layout have settled (a plain dispatch still races it; a short delay wins).
-            Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(50), () =>
-            {
-                if (!_isFkeyEditorOpen && !_isGuidedLoginOverlayOpen && !Terminal.IsHistoryMode)
-                    FocusInput();
-            });
+            // Toggling the panel can resize the window (its min width changes).
+            RefocusAfterResize();
         }
         else if (e.PropertyName == nameof(SidePanelViewModel.PulseTier))
         {
-            // Only T3 ever requests real motion (see CombatFrameComposer.Compose's
-            // remarks on why lower/event tiers are static colour only in this implementation phase).
-            var isCritical = _vm.SidePanel.PulseTier == MudSharp.Combat.CombatTier.T3;
-            _combatPanelPulse?.SetTier(isCritical ? PulseTier.T3 : PulseTier.None);
+            UpdateCombatEdges();
+        }
+        else if (e.PropertyName == nameof(SidePanelViewModel.GlowLevel))
+        {
+            ApplyPanelGlow();
             UpdateCombatEdges();
         }
         else if (e.PropertyName == nameof(SidePanelViewModel.Live))
@@ -1621,15 +1639,14 @@ public partial class GamePage : ContentPage
         }
     }
 
-    /// <summary>Amber while a fight is live. Campbell's normal yellow, NOT the bright yellow the
-    /// chat-mode cue on InputFrame uses - the two borders can be lit at once and sit within a couple
-    /// of pixels of each other, so identical colours would read as one thick rule rather than as two
-    /// separate facts.</summary>
-    private static readonly Color CombatEdgeLive = Color.FromArgb("#C19C00");
+    /// <summary>Amber while a fight is live - see <see cref="Mucka.Combat.StaminaGlow.Amber"/>.</summary>
+    private static readonly Color CombatEdgeLive = Color.FromRgb(
+        Mucka.Combat.StaminaGlow.Amber.R, Mucka.Combat.StaminaGlow.Amber.G, Mucka.Combat.StaminaGlow.Amber.B);
 
-    /// <summary>The same bright red the tick meter alarms in. A 1px line needs the bright slot to
-    /// register at all; the Rail's glow uses the dark red because it is filling a whole panel.</summary>
-    private static readonly Color CombatEdgeCritical = Color.FromArgb("#E74856");
+    /// <summary>Campbell's bright red, the hostile slot: the incoming-damage float, and the combat rules
+    /// at the top of the stamina ramp (<see cref="Mucka.Combat.StaminaGlow.EdgeRed"/>).</summary>
+    private static readonly Color HostileRed = Color.FromRgb(
+        Mucka.Combat.StaminaGlow.EdgeRed.R, Mucka.Combat.StaminaGlow.EdgeRed.G, Mucka.Combat.StaminaGlow.EdgeRed.B);
 
     /// <summary>Tracks the colour last applied, so the notification storm (Live republishes on every
     /// combat event, every heartbeat and every 1 Hz tick) does not set the same brush over and over -
@@ -1639,31 +1656,27 @@ public partial class GamePage : ContentPage
     /// <summary>
     /// Drives the 1px combat rules around the terminal and the input row.
     ///
-    /// <para><b>Not during the grace period.</b> InCombat itself already flips false the instant the
-    /// last tracked opponent dies or flees, so `Live.InCombat` alone should already exclude the
-    /// grace window - the explicit `!IsCombatGracePeriod` here is belt-and-braces against the UI
-    /// thread observing that flip a tick behind ClogWriter's own tail-only signal. Either way,
-    /// nothing is attacking during grace (the clog is just draining its tail) - and an alarm that
-    /// outlives the danger is how an alarm stops being read. Same rule the tick meter and the
-    /// metronome already obey.</para>
+    /// <para><b>The stamina ladder first.</b> Whenever <see cref="SidePanelViewModel.GlowLevel"/> is
+    /// lit - in a fight or out of one - the rules take its colour
+    /// (<see cref="Mucka.Combat.StaminaGlow.EdgeColorFor"/>): the same level as the panel's trim and
+    /// glow, so the two readouts never disagree about when it changed. Otherwise they are amber while a
+    /// fight is live, and dark.</para>
     ///
-    /// <para><b>Red at exactly the Rail's own threshold.</b> The switch is PulseTier == T3, which is
-    /// the identical condition driving CombatPanelGlow. Deliberately NOT a stamina number of its own:
-    /// two readouts of one state must never disagree about when it changed, and a second threshold
-    /// here would drift from the Rail's the first time either was tuned.</para>
+    /// <para><b>Live means not in the grace period.</b> InCombat already flips false the instant the
+    /// last tracked opponent dies or flees; the explicit `!IsCombatGracePeriod` is belt-and-braces
+    /// against the UI thread observing that flip a tick behind ClogWriter's own tail-only signal.</para>
     ///
-    /// <para><b>No motion, and that is a rule rather than an omission.</b> The design allows at most
-    /// one T3 element pulsing at a time - the Rail's glow already owns it.
-    /// Three things pulsing on their own phases would be noise, not urgency. These are static colour
+    /// <para><b>No motion, and that is a rule rather than an omission.</b> The panel owns the pulse;
+    /// several things pulsing on their own phases would be noise, not urgency. These are static colour
     /// only, which is also why they cost the UI thread nothing (Invariant #1).</para>
     /// </summary>
     private void UpdateCombatEdges()
     {
         var panel = _vm.SidePanel;
         var live = panel.Live.InCombat && !panel.IsCombatGracePeriod;
-        var color = !live
-            ? Colors.Transparent
-            : panel.PulseTier == MudSharp.Combat.CombatTier.T3 ? CombatEdgeCritical : CombatEdgeLive;
+        var color = Mucka.Combat.StaminaGlow.EdgeColorFor(panel.GlowLevel) is var (r, g, b)
+            ? Color.FromRgb(r, g, b)
+            : live ? CombatEdgeLive : Colors.Transparent;
 
         if (_combatEdgeColor == color)
             return;
@@ -1712,8 +1725,6 @@ public partial class GamePage : ContentPage
                 else
                     _combatTickSweep.Stop();
             }
-
-            UpdateTickSweepColour(live);
         }
 
         UpdateCombatMetronome();
@@ -1784,19 +1795,6 @@ public partial class GamePage : ContentPage
         _metronomeRunning = shouldRun && _combatMetronome.Start(anchor!.Value, TickIsMeaningful);
     }
 
-    private void UpdateTickSweepColour(Mucka.Combat.CombatLiveView live)
-    {
-        // The spec's only two exceptions to "the tick carries no colour coding": red at 30 stamina
-        // and below. A timer is not a verdict, so nothing else ever recolours it.
-        var alarmed = live.InCombat && live.StaminaCurrent is int sta && sta <= 30;
-        if (alarmed != _tickSweepAlarmed)
-        {
-            _tickSweepAlarmed = alarmed;
-            CombatTickSweep.Color = alarmed ? Color.FromArgb("#E74856") : Colors.White;
-            CombatTickSweep.Opacity = alarmed ? 0.75 : 0.20;
-        }
-    }
-
     // -- Damage floats -----------------------------------------------------------------------
     // The rail's one deliberate piece of motion: a small "5-9" / "-7" / "Miss" / "+14" that appears
     // over the pane an event belongs to, drifts upward and is gone within RailFloatBudget.Lifetime.
@@ -1842,12 +1840,15 @@ public partial class GamePage : ContentPage
     /// bright green for a deduced stamina gain.</para>
     /// </summary>
     private Microsoft.UI.Xaml.Media.SolidColorBrush? _floatBrushOutgoing;   // #F2F2F2
-    private Microsoft.UI.Xaml.Media.SolidColorBrush? _floatBrushIncoming;   // #E74856
+    private Microsoft.UI.Xaml.Media.SolidColorBrush? _floatBrushIncoming;   // HostileRed
     private Microsoft.UI.Xaml.Media.SolidColorBrush? _floatBrushMiss;       // #767676
     private Microsoft.UI.Xaml.Media.SolidColorBrush? _floatBrushGain;       // #16C60C
 
     private static Microsoft.UI.Xaml.Media.SolidColorBrush FloatBrush(byte r, byte g, byte b)
         => new(Microsoft.UI.ColorHelper.FromArgb(0xFF, r, g, b));
+
+    private static Microsoft.UI.Xaml.Media.SolidColorBrush FloatBrush(Color color)
+        => new(Microsoft.Maui.Platform.ColorExtensions.ToWindowsColor(color));
 
     /// <summary>Each pooled element's fixed box, in dp. Fixed so the element is ARRANGED once and
     /// never again: a float's whole position is a Composition Translation off that one arranged
@@ -1878,7 +1879,7 @@ public partial class GamePage : ContentPage
         // so this cannot be a static field initialiser whose timing is whoever touches the class
         // first.
         _floatBrushOutgoing ??= FloatBrush(0xF2, 0xF2, 0xF2);
-        _floatBrushIncoming ??= FloatBrush(0xE7, 0x48, 0x56);
+        _floatBrushIncoming ??= FloatBrush(HostileRed);
         _floatBrushMiss ??= FloatBrush(0x76, 0x76, 0x76);
         _floatBrushGain ??= FloatBrush(0x16, 0xC6, 0x0C);
 
@@ -2261,9 +2262,10 @@ public partial class GamePage : ContentPage
         if (!ReferenceEquals(textBlock.Foreground, tone))
             textBlock.Foreground = tone;
 
-        // Size and weight by how big the number is - see RailFloatEmphasis for the ladder. Written
-        // here rather than left on the MAUI Label because it changes per float, and because the
-        // Label's own font properties are set once at construction and never touched again.
+        // Size and weight by how big the number is - see RailFloatEmphasis for the ladder. Written to
+        // the native TextBlock rather than through the MAUI Label because it changes per float, for
+        // the reason the "Damage floats" section comment gives for text and colour; the Label's
+        // FontSize and FontAttributes are only the starting values.
         //
         // Both of these invalidate WinUI's measure, exactly as the Text write above does, and are
         // bounded by the same budget. Guarded against a same-value write for the same reason.
@@ -2331,12 +2333,57 @@ public partial class GamePage : ContentPage
         if (CombatPanelGlow.Handler?.PlatformView is Microsoft.UI.Xaml.FrameworkElement fe)
         {
             _combatPanelPulse = PulseLayer.Attach(fe);
-            // A fresh layer rests at no glow, so re-assert whatever the current tier actually is rather
-            // than waiting for the next PulseTier change - the panel can be toggled on mid-fight, and a
-            // T3 state that had already been published would otherwise never reach the new visual.
-            if (_vm.SidePanel.PulseTier == MudSharp.Combat.CombatTier.T3)
-                _combatPanelPulse.SetTier(PulseTier.T3);
+            // A fresh layer rests at no glow, so re-assert the current level rather than waiting for
+            // the next change - the panel can be toggled on mid-fight, and a level already published
+            // would otherwise never reach the new visual.
+            ApplyPanelGlow();
         }
+    }
+
+    /// <summary>The trim's counterpart to <see cref="OnCombatPanelGlowHandlerChanged"/>, for the same
+    /// reasons: stop the old layer before the native peer goes, attach a fresh one, re-assert the
+    /// current level.</summary>
+    private void OnCombatPanelTrimHandlerChanged(object? sender, EventArgs e)
+    {
+        var previousTrim = _combatPanelTrimPulse;
+        _combatPanelTrimPulse = null;
+        previousTrim?.Stop();
+
+        if (CombatPanelTrim.Handler?.PlatformView is Microsoft.UI.Xaml.FrameworkElement fe)
+        {
+            _combatPanelTrimPulse = PulseLayer.Attach(fe);
+            ApplyPanelGlow();
+        }
+    }
+
+    // The colour last given to the trim and the glow, so a level change that keeps the colour does not
+    // rebuild a native brush.
+    private Color? _panelGlowColor;
+
+    /// <summary>Drives the panel's trim and glow from <see cref="SidePanelViewModel.GlowLevel"/>
+    /// (<see cref="Mucka.Combat.StaminaGlow"/>): the trim is lit across the whole ramp, the whole-panel
+    /// glow from <see cref="Mucka.Combat.StaminaGlow.WholePanelFromLevel"/>. The level's colour goes on
+    /// both elements; each pulse goes to its Composition layer.</summary>
+    private void ApplyPanelGlow()
+    {
+        var level = _vm.SidePanel.GlowLevel;
+        var look = Mucka.Combat.StaminaGlow.LookFor(level);
+        if (look is { } l)
+        {
+            var color = Color.FromRgb(l.R, l.G, l.B);
+            if (_panelGlowColor != color)
+            {
+                _panelGlowColor = color;
+                CombatPanelGlow.Color = color;
+                CombatPanelTrim.Stroke = new SolidColorBrush(color);
+            }
+        }
+        _combatPanelTrimPulse?.SetPulse(look is { } t
+            ? new PulseLayer.Pulse(t.TrimPeak, t.TrimTrough, t.PeriodMilliseconds)
+            : null);
+        _combatPanelPulse?.SetPulse(look is { } g && level >= Mucka.Combat.StaminaGlow.WholePanelFromLevel
+            ? new PulseLayer.Pulse(g.Peak, g.Trough, g.PeriodMilliseconds)
+            : null);
     }
 
     /// <summary>
@@ -2589,12 +2636,16 @@ public partial class GamePage : ContentPage
     /// </summary>
     private void OnCombatMetronomeHandlerChanged(object? sender, EventArgs e)
     {
-        // Same reserved block the canvas draws the switch in, so the target cannot drift off it.
+        // The vertical position reads the same track the canvas draws the switch against, so it
+        // cannot drift off it. The right inset and the vertical nudge are real dp, not derived from
+        // the canvas, so those two can drift from the drawn switch.
         var (_, _, bottom, _) = CombatRailView.TickTrackDp(RailContentWidthDp, RailShowStats);
         const double sizeDp = 24.0;
+        const double rightInsetDp = 6.0;
+        const double verticalNudgeDp = 2.0;
         CombatMetronomeHit.WidthRequest = sizeDp;
         CombatMetronomeHit.HeightRequest = sizeDp;
-        CombatMetronomeHit.Margin = new Thickness(0, 0, 6, bottom - (sizeDp / 2.0) + 2);
+        CombatMetronomeHit.Margin = new Thickness(0, 0, rightInsetDp, bottom - (sizeDp / 2.0) + verticalNudgeDp);
 
         if (CombatMetronomeHit.Handler?.PlatformView is Microsoft.UI.Xaml.Controls.Control control)
         {
@@ -2660,6 +2711,7 @@ public partial class GamePage : ContentPage
     {
         void Add(Windows.System.VirtualKey key, Windows.System.VirtualKeyModifiers mods, Action action)
         {
+            _hotkeyCombos.Add((key, mods));
             var acc = new Microsoft.UI.Xaml.Input.KeyboardAccelerator { Key = key, Modifiers = mods };
             acc.Invoked += (_, e) =>
             {
@@ -2710,8 +2762,8 @@ public partial class GamePage : ContentPage
         Add(Windows.System.VirtualKey.R, Windows.System.VirtualKeyModifiers.Control,
             () => { if (Terminal.IsHistoryMode) Terminal.ScrollToBottom(); ReplyToLastTell(); });
 
-        // PageUp/PageDown scroll history; PageUp from live enters scrollback. These stay live in
-        // both modes (the scrollback handler, when attached, handles them before accelerators).
+        // PageUp/PageDown scroll history; PageUp from live enters scrollback. Live in both modes: the
+        // scrollback handler passes every registered hotkey through (ScrollbackKeys.Route).
         Add(Windows.System.VirtualKey.PageUp,   Windows.System.VirtualKeyModifiers.None, () => Terminal.ScrollByPages(1));
         Add(Windows.System.VirtualKey.PageDown, Windows.System.VirtualKeyModifiers.None, () => Terminal.ScrollByPages(-1));
     }
@@ -2722,57 +2774,49 @@ public partial class GamePage : ContentPage
             foreach (var acc in _accelerators)
                 _rootElement.KeyboardAccelerators.Remove(acc);
         _accelerators.Clear();
+        _hotkeyCombos.Clear();
         _rootElement = null;
     }
 
+    // Every key-and-modifier combination RegisterHotkeyAccelerators registered, so the scrollback
+    // handler can leave exactly those to the accelerators.
+    private readonly HashSet<(Windows.System.VirtualKey Key, Windows.System.VirtualKeyModifiers Mods)> _hotkeyCombos = [];
+
     // Scrollback-only key handler. Attached to the window root ONLY while reviewing history
-    // (OnHistoryModeChanged) and detached on exit, so it is NEVER in the live typing path.
-    // Handles scroll/copy/exit keys and swallows everything else (no typing in scrollback).
+    // (OnHistoryModeChanged) and detached on exit, so it is NEVER in the live typing path. The routing
+    // is Mucka.Terminal.ScrollbackKeys: a registered hotkey is left unhandled so its accelerator runs,
+    // the scrollback keys act here, and everything else is swallowed (no typing in scrollback).
+    // Leaving a hotkey unhandled is what lets its accelerator run. Observed: the input box's own
+    // Ctrl+1..3 binding marks its key handled in PreviewKeyDown, the window registers the same keys as
+    // accelerators, and a macro has never been seen to fire twice - a handled key does not reach them.
     private void OnScrollbackKeyDown(object sender, Microsoft.UI.Xaml.Input.KeyRoutedEventArgs e)
     {
         var key = e.Key;
         if (IsModifierKey(key)) return;   // lone modifiers pass through harmlessly
-        bool ctrl = (GetKeyState((int)Windows.System.VirtualKey.Control) & 0x8000) != 0;
+        var mods = Windows.System.VirtualKeyModifiers.None;
+        if ((GetKeyState((int)Windows.System.VirtualKey.Control) & 0x8000) != 0)
+            mods |= Windows.System.VirtualKeyModifiers.Control;
+        if ((GetKeyState((int)Windows.System.VirtualKey.Shift) & 0x8000) != 0)
+            mods |= Windows.System.VirtualKeyModifiers.Shift;
+        if ((GetKeyState((int)Windows.System.VirtualKey.Menu) & 0x8000) != 0)
+            mods |= Windows.System.VirtualKeyModifiers.Menu;
 
-        if (ctrl && key is Windows.System.VirtualKey.Number1
-            or Windows.System.VirtualKey.Number2
-            or Windows.System.VirtualKey.Number3)
+        switch (ScrollbackKeys.Route((int)key, mods.HasFlag(Windows.System.VirtualKeyModifiers.Control),
+                    _hotkeyCombos.Contains((key, mods))))
         {
-            Terminal.ScrollToBottom();
-            TrySendControlAlias(key);
-            e.Handled = true;
-            return;
+            case ScrollbackKeyAction.PassToHotkey:
+                return;
+            case ScrollbackKeyAction.ScrollToTop:
+                Terminal.ScrollToTop();
+                break;
+            case ScrollbackKeyAction.ScrollToBottom:
+                Terminal.ScrollToBottom();
+                break;
+            case ScrollbackKeyAction.CopySelection:
+                if (Terminal.CopySelectionToClipboard()) ShowCopiedToast();
+                break;
         }
-        if (ctrl && key == Windows.System.VirtualKey.C)
-        {
-            if (Terminal.CopySelectionToClipboard()) ShowCopiedToast();
-            e.Handled = true;
-            return;
-        }
-        bool shift = (GetKeyState((int)Windows.System.VirtualKey.Shift) & 0x8000) != 0;
-        if (ctrl && key == Windows.System.VirtualKey.D)
-        {
-            Terminal.ScrollToBottom();
-            if (shift) _vm.SpeakDreamwordThen(); else _vm.SpeakDreamword();
-            e.Handled = true;
-            return;
-        }
-        if (ctrl && key == Windows.System.VirtualKey.F)
-        {
-            Terminal.ScrollToBottom();
-            if (shift) _vm.FleeThen(); else _vm.Flee();
-            e.Handled = true;
-            return;
-        }
-        switch (key)
-        {
-            case Windows.System.VirtualKey.PageUp:   Terminal.ScrollByPages(1);  e.Handled = true; return;
-            case Windows.System.VirtualKey.PageDown: Terminal.ScrollByPages(-1); e.Handled = true; return;
-            case Windows.System.VirtualKey.Home:     Terminal.ScrollToTop();     e.Handled = true; return;
-            case Windows.System.VirtualKey.End:
-            case Windows.System.VirtualKey.Escape:   Terminal.ScrollToBottom();  e.Handled = true; return;
-        }
-        e.Handled = true;   // swallow all other keys - input box is hidden in scrollback
+        e.Handled = true;
     }
 
     /// <summary>The send button, mirroring the Enter key exactly by going through the same accept
@@ -2798,7 +2842,6 @@ public partial class GamePage : ContentPage
         {
             _inputTextBox.PreviewKeyDown -= OnInputPreviewKeyDown;
             _inputTextBox.SelectionChanged -= OnInputSelectionChanged;
-            _inputTextBox.TextChanged -= OnInputTextChanged;
             _inputTextBox = null;
             _inputScroller = null;
         }
@@ -2807,7 +2850,6 @@ public partial class GamePage : ContentPage
             _inputTextBox = tb;
             tb.PreviewKeyDown += OnInputPreviewKeyDown;
             tb.SelectionChanged += OnInputSelectionChanged;
-            tb.TextChanged += OnInputTextChanged;
             // Shadow the ReturnCommand with a local null so MAUI's KeyDown handler
             // (registered with handledEventsToo:true) sees null and skips execution.
             // Do NOT use RemoveBinding - that fires PropertyChanged which causes MAUI's
@@ -2830,19 +2872,13 @@ public partial class GamePage : ContentPage
 
             // Built once and kept across handler recreations: the surface reaches the control through
             // a callback (see CommandInputSurface), so a new platform view needs no rebuild here - and
-            // rebuilding would drop the declared bindings and the budget's running counts.
+            // rebuilding would drop the declared bindings.
             if (_commandInput is null)
             {
                 var surface = new CommandInputSurface(() => _inputTextBox, FocusInput);
                 // The view model's gate, not a second one: typed lines and the view model's own direct
                 // sends must share a single order. See GameViewModel.InputGate.
-                // Lambda rather than a method group: InputDiag.Log is [Conditional], so it cannot be
-                // used as a delegate. The wrapper means the MESSAGE compiles away in a normal build
-                // while the budget's measurement and its OverrunCount/WorstMilliseconds counters stay -
-                // which is the intended split (see InputPathBudget).
-                _commandInput = new Mucka.Input.CommandInput(
-                    surface, _vm.InputGate,
-                    new Mucka.Input.InputPathBudget(msg => InputDiag.Log(msg)));
+                _commandInput = new Mucka.Input.CommandInput(surface, _vm.InputGate);
                 RegisterCommandInputBindings(_commandInput);
                 InputDiag.Log($"CommandInput built; {_commandInput.Hotkeys.Count} bindings declared");
             }
@@ -2906,43 +2942,6 @@ public partial class GamePage : ContentPage
         if (!tb.DispatcherQueue.TryEnqueue(
                 Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, PinInputCaretToEnd))
             _inputPinPending = false;   // never queued, so nothing will clear the flag
-    }
-
-    /// <summary>
-    /// Watches for the one thing that must never happen: text appearing in the input box in the
-    /// moments immediately after a send, with no keystroke to account for it.
-    ///
-    /// <para>That is the signature of a character being applied to the box AFTER the Enter that should
-    /// have carried it - the reordering that puts <c>&lt;enter&gt;</c> then <c>nne</c> on the wire when
-    /// the player typed <c>n</c>&lt;enter&gt;<c>ne</c>&lt;enter&gt;. The stranded character becomes part
-    /// of the NEXT command, so this is a correctness fault on the wire, not a display glitch.</para>
-    ///
-    /// <para><b>Compiled into every build, not only INPUT_DIAG ones.</b> This fault is intermittent, it
-    /// latches on only after an auxiliary window has been opened, and it shows up solely in live play at
-    /// speed - requiring a diagnostic build to reproduce it would mean it could go unnoticed
-    /// indefinitely. It costs one <c>DateTime</c> subtraction per TextChanged. <see cref="InputDiag.Log"/>
-    /// is <c>[Conditional]</c> so the message compiles away in a normal build; <see
-    /// cref="_lateTextAfterSendCount"/> does not, so a later investigation can read the count without
-    /// the player having happened to run the right binary.</para>
-    ///
-    /// <para>It reports and never corrects. Correcting would mean guessing which line the character
-    /// belonged to, and guessing in this path is what produced the bug.</para>
-    /// </summary>
-    private void OnInputTextChanged(object sender, Microsoft.UI.Xaml.Controls.TextChangedEventArgs e)
-    {
-        var tb = (Microsoft.UI.Xaml.Controls.TextBox)sender;
-        if (tb.Text.Length == 0)
-            return;
-        // 50 ms: longer than any same-turn echo of the post-send clear, and far shorter than the
-        // ~100 ms between keystrokes even at 120+ wpm, so a genuine next-command keystroke cannot
-        // trip it.
-        var sinceSend = (DateTime.UtcNow - _sentAtUtc).TotalMilliseconds;
-        if (sinceSend >= 0.0 && sinceSend < 50.0)
-        {
-            _lateTextAfterSendCount++;
-            InputDiag.Log($"INPUT REORDER #{_lateTextAfterSendCount}: \"{tb.Text}\" appeared "
-                          + $"{sinceSend:F1}ms after a send - a keystroke was applied after its Enter");
-        }
     }
 
     /// <summary>Pins the input box's inner scroller to its right edge, off the keystroke path. Every
@@ -3081,14 +3080,9 @@ public partial class GamePage : ContentPage
         if (delta == 0) return;
         e.Handled = true;
 
-        // Accumulate and only act on whole wheel notches (120). A mouse wheel sends one full
-        // notch per click; a touchpad sends many tiny deltas - accumulating means it takes a
-        // deliberate scroll to enter scrollback, rather than incidental drift.
-        _wheelAccum += delta;
-        int notches = _wheelAccum / 120;
-        if (notches == 0) return;
-        _wheelAccum -= notches * 120;
-        Terminal.ScrollByRows(notches * 3);   // positive (wheel up) = toward older output
+        var rows = _wheelNotches.RowsFor(delta);
+        if (rows != 0)
+            Terminal.ScrollByRows(rows);
     }
 
     /// <summary>
@@ -3198,24 +3192,6 @@ public partial class GamePage : ContentPage
         }
     }
 
-
-
-    private bool TrySendControlAlias(Windows.System.VirtualKey key)
-    {
-        var slot = key switch
-        {
-            Windows.System.VirtualKey.Number1 => 1,
-            Windows.System.VirtualKey.Number2 => 2,
-            Windows.System.VirtualKey.Number3 => 3,
-            _ => 0,
-        };
-        if (slot == 0)
-            return false;
-
-        _vm.SendControlAlias(slot);
-        return true;
-    }
-
     /// <summary>
     /// Capture the current window content as a PNG (Ctrl+`).
     /// Saves to a timestamped file in TEMP and records the path in mucka-latest-selfie.txt
@@ -3258,7 +3234,7 @@ public partial class GamePage : ContentPage
             if (Application.Current?.Windows is [var win, ..])
             {
                 var origTitle = win.Title;
-                win.Title = $"selfie \u2192 {System.IO.Path.GetFileName(outPath)}";
+                win.Title = $"selfie {Glyph.ArrowRight} {System.IO.Path.GetFileName(outPath)}";
                 await Task.Delay(3000);
                 win.Title = origTitle;
             }
@@ -3394,14 +3370,7 @@ public partial class GamePage : ContentPage
         if (appWindow.Size.Width != targetWidth)
             appWindow.Resize(new Windows.Graphics.SizeInt32(targetWidth, appWindow.Size.Height));
 
-        // Same race as OnSidePanelPropertyChanged's left-panel resize above: the resize itself can
-        // land keyboard focus elsewhere after the toggle command's own RequestFocus already fired. Re-assert once
-        // the resize/re-layout has settled (Invariant #0).
-        Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(50), () =>
-        {
-            if (!_isFkeyEditorOpen && !_isGuidedLoginOverlayOpen && !Terminal.IsHistoryMode)
-                FocusInput();
-        });
+        RefocusAfterResize();
     }
 
 #if INPUT_DIAG

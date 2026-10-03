@@ -6,6 +6,7 @@
              xmlns:pages="clr-namespace:Mucka.Pages"
              xmlns:beh="clr-namespace:Mucka.Behaviors"
              xmlns:converters="clr-namespace:Mucka.Converters"
+             xmlns:combat="clr-namespace:Mucka.Combat;assembly=Mucka.Combat"
              x:Class="Mucka.Pages.GamePage"
              x:DataType="vm:GameViewModel"
              Title="mucka"
@@ -869,7 +870,7 @@
         <Border Grid.Column="0"
                 x:Name="SidePanelBorder"
                 IsVisible="{Binding SidePanel.IsPanelExpanded}"
-                WidthRequest="228"
+                WidthRequest="{x:Static combat:CombatRailResize.SidePanelWidthDp}"
                 BackgroundColor="#101618"
                 Stroke="#2d333b" StrokeThickness="1"
                 Padding="0">
@@ -1259,6 +1260,16 @@
                 <BoxView x:Name="CombatPanelGlow"
                          Color="#C50F1F"
                          InputTransparent="True"/>
+                <!-- The stamina ramp's trim: a band of light around the panel's inside edge, lit before
+                     the whole-panel glow above takes over mid-ramp (Mucka.Combat.StaminaGlow). Same
+                     arrangement as the glow - behind the canvas, opacity animated only by Composition
+                     (PulseLayer), no Opacity here for the same reason - and its stroke colour is set
+                     from code per level. -->
+                <Border x:Name="CombatPanelTrim"
+                        StrokeThickness="7"
+                        Stroke="#C19C00"
+                        BackgroundColor="Transparent"
+                        InputTransparent="True"/>
                 <!-- The tick meter's moving fill, also behind the canvas and also driven purely by
                      Composition (TickSweep, GamePage.xaml.cs) - the canvas draws the empty track and
                      the opponent count over it, but never the motion: SKXamlCanvas paints on the UI

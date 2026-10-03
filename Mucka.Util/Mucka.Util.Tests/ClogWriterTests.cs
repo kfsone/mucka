@@ -28,7 +28,7 @@ public sealed class ClogWriterTests : IDisposable
     public void Dispose()
     {
         foreach (var db in _opened) db.Dispose();
-        SqliteConnection.ClearAllPools();
+        TestStore.ReleasePools(_directory);
         try { Directory.Delete(_directory, recursive: true); } catch { /* best-effort cleanup */ }
     }
 
@@ -49,7 +49,7 @@ public sealed class ClogWriterTests : IDisposable
 
     private ClogWriter NewWriter()
     {
-        _db = new MuckaStore(DbPath, "test");
+        _db = TestStore.Open(DbPath);
         _opened.Add(_db);
         return new ClogWriter(_db);
     }
@@ -58,7 +58,7 @@ public sealed class ClogWriterTests : IDisposable
     /// order as column-name to value maps.</summary>
     private List<Dictionary<string, object?>> Rows(string table, string? where = null)
     {
-        _db.Dispose();
+        TestStore.Close(_db);
         if (!File.Exists(DbPath))
             return [];
 
