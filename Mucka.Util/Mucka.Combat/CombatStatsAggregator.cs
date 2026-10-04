@@ -114,6 +114,27 @@ public sealed class CombatStatsAggregator
     private readonly Dictionary<string, FightAccumulator> _fights = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<FightAccumulator> _fightOrder = new();
 
+    /// <summary>
+    /// Operator rule: re-engage a creature within this many seconds of breaking off with it and it is
+    /// still as hurt as it last looked - its last wound reading and its last diagnose, the diagnose
+    /// still less every blow landed since; any later and it is assumed to have healed (a dreamword,
+    /// say) and starts full. Chasing and re-attacking takes 5-10 seconds, so 30 is the trade-off
+    /// between the two. Within one fight the last reading holds however old it is.
+    /// </summary>
+    public const double HealthCarriesAcrossDisengagementSeconds = 30.0;
+
+    // Each creature's last wound reading and last diagnose, and when the player broke off with it, kept
+    // across engagements and encounters so a re-engagement inside the window starts from them.
+    private readonly record struct Remembered(
+        int? Rung, string? Phrase, DateTime? ReadUtc,
+        NpcStaminaReading? Diagnose, DateTime? ProbedUtc,
+        DateTime DisengagedUtc);
+
+    private readonly Dictionary<string, Remembered> _lastHealth = new(StringComparer.OrdinalIgnoreCase);
+
+    // The time of the last event observed in combat: when a fight that never resolved was broken off.
+    private DateTime _lastCombatEventUtc;
+
     // The encounter's own exchange ring - same fixed-capacity discipline and the same reason as
     // FightAccumulator's (this is written on every combat line; Invariant #1).
     private readonly SwingMark[] _exchange = new SwingMark[FightAccumulator.RecentExchangeCapacity];
@@ -199,11 +220,35 @@ public sealed class CombatStatsAggregator
         _activeNpcSet.Clear();
         _activeNpcOrder.Clear();
         _npcWeapons.Clear();
+        foreach (var fight in _fightOrder)
+            RememberHealth(fight, fight.EndedUtc ?? _lastCombatEventUtc);
+        foreach (var name in _lastHealth
+                     .Where(kv => (startedUtc - kv.Value.DisengagedUtc).TotalSeconds > HealthCarriesAcrossDisengagementSeconds)
+                     .Select(kv => kv.Key).ToList())
+            _lastHealth.Remove(name);
         _fights.Clear();
         _fightOrder.Clear();
     }
 
     public void EndEncounter() => InCombat = false;
+
+    /// <summary>Remembers <paramref name="fight"/>'s last wound reading and last diagnose against its
+    /// creature, broken off at <paramref name="disengagedUtc"/>. A creature that died is not remembered:
+    /// the next one by that name is another creature.</summary>
+    private void RememberHealth(FightAccumulator fight, DateTime disengagedUtc)
+    {
+        if (fight.Outcome is FightOutcome.Kill or FightOutcome.NoMore)
+            return;
+        var hasHealth = fight.HealthRung is not null && fight.HealthReadUtc is not null;
+        var hasDiagnose = fight.StaminaReading is not null && fight.StaminaReadUtc is not null;
+        if (!hasHealth && !hasDiagnose)
+            return;
+        _lastHealth[fight.NpcName] = new Remembered(
+            hasHealth ? fight.HealthRung : null, hasHealth ? fight.HealthPhrase : null,
+            hasHealth ? fight.HealthReadUtc : null,
+            hasDiagnose ? fight.StaminaReading : null, hasDiagnose ? fight.StaminaReadUtc : null,
+            disengagedUtc);
+    }
 
     public void Reset()
     {
@@ -221,6 +266,7 @@ public sealed class CombatStatsAggregator
         _activeNpcOrder.Clear();
         _fights.Clear();
         _fightOrder.Clear();
+        _lastHealth.Clear();
         // Cleared here as well as in BeginEncounter and the flee/force-end paths, which all clear it.
         // Inert today - the only reader walks _activeNpcOrder, which this method has just emptied - but
         // it was the one collection this reset did not touch, and an asymmetry that is only safe
@@ -268,6 +314,7 @@ public sealed class CombatStatsAggregator
         {
             BeginEncounter(combatEvent.TimestampUtc);
         }
+        _lastCombatEventUtc = combatEvent.TimestampUtc;
 
         switch (combatEvent.Kind)
         {
@@ -688,7 +735,19 @@ public sealed class CombatStatsAggregator
     /// wielded weapon to the new attacker.</summary>
     private FightAccumulator StartFight(string npcName, CombatEvent combatEvent)
     {
+        // A resolved bucket being replaced is the same creature re-engaged within this encounter.
+        if (_fights.TryGetValue(npcName, out var previous))
+            RememberHealth(previous, previous.EndedUtc ?? combatEvent.TimestampUtc);
+
         var fight = new FightAccumulator(npcName, combatEvent.TimestampUtc, _currentWeapon);
+        if (_lastHealth.TryGetValue(npcName, out var last)
+            && (combatEvent.TimestampUtc - last.DisengagedUtc).TotalSeconds <= HealthCarriesAcrossDisengagementSeconds)
+        {
+            if (last.Rung is int rung && last.ReadUtc is DateTime read)
+                fight.NoteHealth(rung, last.Phrase, read);
+            if (last.Diagnose is { } diagnose && last.ProbedUtc is DateTime probed)
+                fight.CarryStaminaRead(diagnose, probed);
+        }
         _fights[npcName] = fight;
         _fightOrder.Add(fight);
         return fight;

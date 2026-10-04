@@ -173,14 +173,13 @@ public sealed class NpcHealthTrackingTests
     }
 
     /// <summary>
-    /// Between the fade and the lapse a reading fades and stays: the row keeps the game's last words,
-    /// drawn faded. (Past <c>RosterRow.HealthReadingLapsesAfterSeconds</c> ParticipantFacts drops the
-    /// reading before it reaches the roster - see ParticipantFactsTests.)
+    /// Within an engagement a reading fades and stays, however old it gets: the row keeps the game's
+    /// last words, drawn faded.
     /// </summary>
     [Fact]
-    public void RosterRow_KeepsAFadedReadingUntilItLapses()
+    public void RosterRow_KeepsAFadedReadingForTheEngagement()
     {
-        foreach (var age in new[] { 10.0, 20.0, 29.0 })
+        foreach (var age in new[] { 10.0, 60.0, 600.0 })
         {
             var row = Row(3, age);
 

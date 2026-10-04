@@ -467,6 +467,18 @@ public sealed class FightAccumulator
         StaminaReadUtc = timestampUtc;
     }
 
+    /// <summary>Takes over a <c>diagnose</c> reading from an earlier engagement with this creature,
+    /// with the damage already landed on it since the probe, so the figure carried forward is the
+    /// probe less everything since - that engagement's blows and this one's.</summary>
+    public void CarryStaminaRead(NpcStaminaReading reading, DateTime probedUtc)
+    {
+        _staminaReadLow = reading.PrintedLow;
+        _staminaReadHigh = reading.PrintedHigh;
+        _dealtAtStaminaRead = new DamageBracket(
+            DamageDealt.Low - reading.DealtSince.Low, DamageDealt.High - reading.DealtSince.High);
+        StaminaReadUtc = probedUtc;
+    }
+
     /// <summary>The player's cumulative damage this fight as a BRACKET - the sum of the lows and the
     /// sum of the highs of every landed blow, never a midpoint.</summary>
     public DamageBracket DamageDealt { get; private set; } = DamageBracket.Zero;

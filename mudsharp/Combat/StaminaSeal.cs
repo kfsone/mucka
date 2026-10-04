@@ -9,7 +9,7 @@ public enum SealShape
     /// <summary>
     /// No vitality at all: a row with no fight record behind it, such as an Unseen badge whose
     /// opponents are known only by their anonymous word. A named creature never lands here - with no
-    /// current reading it is assumed full (<c>RosterRow.HealthReadingLapsesAfterSeconds</c>).
+    /// reading it is assumed full: descriptors print on every landed blow, so none means untouched.
     ///
     /// <para>Drawn as a FULL ring in the unknown treatment - never empty, never absent.</para>
     /// </summary>

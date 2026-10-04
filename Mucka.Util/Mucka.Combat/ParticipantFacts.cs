@@ -48,14 +48,8 @@ public static class ParticipantFacts
             double? healthAge = fight.HealthReadUtc is DateTime read
                 ? Math.Max(0.0, (nowUtc - read).TotalSeconds)
                 : null;
-            // Operator rule: a creature is at full health unless its health was seen within the last
-            // RosterRow.HealthReadingLapsesAfterSeconds. Older than that, the reading is dropped whole -
-            // rung, phrase and age - so the bar and the words cannot disagree.
-            var healthLapsed = healthAge is double seen && seen > RosterRow.HealthReadingLapsesAfterSeconds;
-            var healthRung = healthLapsed ? null : fight.HealthRung;
-            var healthPhrase = healthLapsed ? null : fight.HealthPhrase;
-            if (healthLapsed)
-                healthAge = null;
+            var healthRung = fight.HealthRung;
+            var healthPhrase = fight.HealthPhrase;
             // The diagnose probe's own age, resolved the same way and kept separate from the
             // descriptor's: the two fade for different reasons - see RosterRow.StaminaReadStaleAfterSeconds.
             double? staminaReadAge = fight.StaminaReadUtc is DateTime probed
@@ -84,14 +78,14 @@ public static class ParticipantFacts
                 fight.RungCrossing, fight.YourDamage,
                 // Full is cur == max exactly - "full of life" / "full of energy", which only ql and
                 // examine print, because the first point of damage ends it. So it is also what a
-                // creature with no current reading is assumed to be (the rule above): no landed blow
-                // means a descriptor-free creature, and descriptors print on every landed blow.
-                // A diagnose seen within the same window is health seen too, and a measured one: it
-                // narrows the bar instead. An Unseen opponent's word is not one creature that can be
-                // assumed anything, so it keeps the unknown treatment.
+                // creature with no reading is assumed to be: descriptors print on every landed blow,
+                // so none means untouched. A reading carried over from a recent engagement
+                // (CombatStatsAggregator.HealthCarriesAcrossDisengagementSeconds) counts as a reading.
+                // A diagnose is health seen too, and a measured one: it narrows the bar instead. An
+                // Unseen opponent's anonymous word is not one creature that can be assumed anything,
+                // so it keeps the unknown treatment.
                 atMax: (healthRung is null
-                        && !(fight.StaminaReading is not null && staminaReadAge is double probedAge
-                             && probedAge <= RosterRow.HealthReadingLapsesAfterSeconds)
+                        && fight.StaminaReading is null
                         && !AnonymousOpponent.IsAnonymous(fight.NpcName))
                     || (healthPhrase is { } phrase && NpcHealthRungs.IsAtMax(phrase)));
             // One probe, three answers. Narrowed by the creature's CURRENT weapon so the armed-as-now

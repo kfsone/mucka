@@ -251,4 +251,131 @@ public sealed class CombatStatsAggregatorTests
 
         Assert.Empty(aggregator.Snapshot(start.AddSeconds(4)).Exchange ?? []);
     }
+
+    // ---- A creature's health across disengagement ----------------------------------------------
+
+    private static readonly DateTime T0 = new(2026, 8, 1, 12, 0, 0, DateTimeKind.Utc);
+
+    private static CombatEvent At(double seconds, CombatEventKind kind, string npc = "zombie3",
+        int? rung = null, string? phrase = null)
+        => new(T0.AddSeconds(seconds), kind, CombatActor.Player, npc, null, null, null, "", rung, phrase);
+
+    /// <summary>Fights zombie3 to "seriously injured" (rung 3), and it flees at 10 s.</summary>
+    private static CombatStatsAggregator HurtThenFled()
+    {
+        var aggregator = new CombatStatsAggregator();
+        aggregator.BeginEncounter(T0);
+        aggregator.Observe(At(0, CombatEventKind.FightStart));
+        aggregator.Observe(At(4, CombatEventKind.NpcHealth, rung: 3, phrase: "seriously injured"));
+        aggregator.Observe(At(10, CombatEventKind.NpcFled));
+        return aggregator;
+    }
+
+    private static FightSnapshot LiveFight(CombatStatsAggregator aggregator, double seconds)
+        => aggregator.Snapshot(T0.AddSeconds(seconds)).Fights.Last(f => !f.IsResolved);
+
+    /// <summary>Chased and re-attacked inside 30 s of breaking off: it is still as hurt as it looked.</summary>
+    [Fact]
+    public void Health_ReEngagedWithinTheWindow_CarriesTheLastReading()
+    {
+        var aggregator = HurtThenFled();
+        aggregator.Observe(At(18, CombatEventKind.FightStart));
+
+        var fight = LiveFight(aggregator, 19);
+        Assert.Equal(3, fight.HealthRung);
+        Assert.Equal("seriously injured", fight.HealthPhrase);
+    }
+
+    /// <summary>Re-attacked more than 30 s after breaking off: it may have healed, so it starts with no
+    /// reading - which draws full.</summary>
+    [Fact]
+    public void Health_ReEngagedAfterTheWindow_StartsWithNoReading()
+    {
+        var aggregator = HurtThenFled();
+        aggregator.Observe(At(10 + CombatStatsAggregator.HealthCarriesAcrossDisengagementSeconds + 1,
+            CombatEventKind.FightStart));
+
+        Assert.Null(LiveFight(aggregator, 60).HealthRung);
+    }
+
+    /// <summary>The window holds across a new encounter, not only within one.</summary>
+    [Fact]
+    public void Health_ReEngagedInANewEncounterWithinTheWindow_CarriesTheLastReading()
+    {
+        var aggregator = HurtThenFled();
+        aggregator.EndEncounter();
+        aggregator.BeginEncounter(T0.AddSeconds(20));
+        aggregator.Observe(At(20, CombatEventKind.FightStart));
+
+        Assert.Equal(3, LiveFight(aggregator, 21).HealthRung);
+    }
+
+    /// <summary>A killed creature is not carried over: the next one by that name is another creature.</summary>
+    [Fact]
+    public void Health_AKilledCreatureIsNotCarriedOver()
+    {
+        var aggregator = new CombatStatsAggregator();
+        aggregator.BeginEncounter(T0);
+        aggregator.Observe(At(0, CombatEventKind.FightStart));
+        aggregator.Observe(At(4, CombatEventKind.NpcHealth, rung: 2, phrase: "badly wounded"));
+        aggregator.Observe(At(8, CombatEventKind.Kill));
+        aggregator.Observe(At(12, CombatEventKind.FightStart));
+
+        Assert.Null(LiveFight(aggregator, 13).HealthRung);
+    }
+
+    [Fact]
+    public void Health_AResetForgetsEveryCreature()
+    {
+        var aggregator = HurtThenFled();
+        aggregator.BeginEncounter(T0.AddSeconds(12));   // the encounter boundary remembers zombie3
+        aggregator.Reset();
+        aggregator.BeginEncounter(T0.AddSeconds(15));
+        aggregator.Observe(At(15, CombatEventKind.FightStart));
+
+        Assert.Null(LiveFight(aggregator, 16).HealthRung);
+    }
+
+    /// <summary>A diagnose carries over too, and still counts every blow since the probe: 3-5 landed
+    /// after it before the creature fled, and 2-4 more in the new fight.</summary>
+    [Fact]
+    public void Health_ADiagnoseCarriesOverWithTheDamageSinceIt()
+    {
+        var aggregator = new CombatStatsAggregator();
+        aggregator.BeginEncounter(T0);
+        aggregator.Observe(At(0, CombatEventKind.FightStart));
+        aggregator.Observe(new CombatEvent(T0.AddSeconds(2), CombatEventKind.NpcStaminaRead, CombatActor.Player,
+            "zombie3", null, 12, 20, ""));
+        aggregator.Observe(new CombatEvent(T0.AddSeconds(4), CombatEventKind.Hit, CombatActor.Player,
+            "zombie3", null, 3, 5, ""));
+        aggregator.Observe(At(10, CombatEventKind.NpcFled));
+        aggregator.Observe(At(18, CombatEventKind.FightStart));
+        aggregator.Observe(new CombatEvent(T0.AddSeconds(20), CombatEventKind.Hit, CombatActor.Player,
+            "zombie3", null, 2, 4, ""));
+
+        var read = LiveFight(aggregator, 21).StaminaReading!.Value;
+        Assert.Equal((12, 20), (read.PrintedLow, read.PrintedHigh));
+        Assert.Equal(new DamageBracket(5, 9), read.DealtSince);
+    }
+
+    /// <summary>The diagnose lapses with the rest after the window.</summary>
+    [Fact]
+    public void Health_ADiagnoseDoesNotCarryOverAfterTheWindow()
+    {
+        var aggregator = new CombatStatsAggregator();
+        aggregator.BeginEncounter(T0);
+        aggregator.Observe(At(0, CombatEventKind.FightStart));
+        aggregator.Observe(new CombatEvent(T0.AddSeconds(2), CombatEventKind.NpcStaminaRead, CombatActor.Player,
+            "zombie3", null, 12, 20, ""));
+        aggregator.Observe(At(10, CombatEventKind.NpcFled));
+        aggregator.Observe(At(10 + CombatStatsAggregator.HealthCarriesAcrossDisengagementSeconds + 1,
+            CombatEventKind.FightStart));
+
+        Assert.Null(LiveFight(aggregator, 60).StaminaReading);
+    }
+
+    /// <summary>The 30 is the operator's number, pinned literally so the constant cannot drift.</summary>
+    [Fact]
+    public void Health_TheWindowIsThirtySeconds()
+        => Assert.Equal(30.0, CombatStatsAggregator.HealthCarriesAcrossDisengagementSeconds);
 }

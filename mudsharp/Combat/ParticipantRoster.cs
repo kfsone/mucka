@@ -54,7 +54,8 @@ public readonly record struct ExchangeLine(
 /// in this same folder.
 /// </summary>
 /// <param name="HealthRung">How hurt it last looked, 1 (about to die) to 7 (unhurt), or null if the
-/// game has not said within <see cref="RosterRow.HealthReadingLapsesAfterSeconds"/>. See
+/// game has not said in this engagement or one broken off recently enough to carry over
+/// (<c>CombatStatsAggregator.HealthCarriesAcrossDisengagementSeconds</c>). See
 /// <see cref="NpcHealthRungs"/>.</param>
 /// <param name="HealthPhrase">The game's own wording for that reading, for echoing verbatim.</param>
 /// <param name="HealthAgeSeconds">How old the reading is. MUD2 only reports health on a landed blow,
@@ -85,9 +86,9 @@ public readonly record struct ExchangeLine(
 /// nothing on the tile draws the distinction, and a field nobody reads is the sediment this project
 /// deletes on sight.</para></param>
 /// <param name="Vitality">How much of this creature is left, as a FRACTION of its own full, in a
-/// band - what its seal fills to. Full when there is no current reading (see
-/// <see cref="RosterRow.HealthReadingLapsesAfterSeconds"/>); null only for a row with no fight record,
-/// which the seal draws as a full unknown ring. The absolute stamina estimate stays under
+/// band - what its seal fills to. Full when there is no reading (a creature not yet hit is untouched);
+/// null only for a row with no fight record, which the seal draws as a full unknown ring. The absolute
+/// stamina estimate stays under
 /// the hood: it narrows this band and is never itself shown. See <see cref="NpcVitality"/>.</param>
 /// <param name="NextBlow">Where the player's next landed blow is predicted to put this creature's
 /// boundary, as an interval on its own ladder. Null when nothing supports a prediction. See
@@ -228,9 +229,9 @@ public readonly record struct RosterRow(
     /// tick is ordinary, so fading any sooner would have the readout flickering through every normal
     /// fight.
     ///
-    /// <para><b>It changes tone only.</b> Between this and
-    /// <see cref="HealthReadingLapsesAfterSeconds"/> the reading is drawn faded - "this is what it last
-    /// said" - with no timestamp and no words about age: the reading is the game's own.</para>
+    /// <para><b>It changes tone only.</b> From here on, for the rest of the engagement, the reading is
+    /// drawn faded - "this is what it last said" - with no timestamp and no words about age: the reading
+    /// is the game's own.</para>
     ///
     /// <para>Observed: MUD2 prints a wound descriptor after every landed blow that does not kill - 3,559
     /// descriptors against 3,561 such hits across 1,197 fights, instrumented window from 2026-08-11,
@@ -241,20 +242,8 @@ public readonly record struct RosterRow(
     /// </summary>
     public const double StaleAfterSeconds = 6.0;
 
-    /// <summary>
-    /// Operator rule: a creature is at full health unless its health was seen within this many
-    /// seconds. An older reading is dropped whole - rung, phrase and age - and the creature is drawn
-    /// full, the same as one never read.
-    ///
-    /// <para>Full is cur == max exactly ("full of life" / "full of energy"), which only ql and examine
-    /// print: the first point of damage ends it, so combat lines never report it. A creature the
-    /// player has not landed on has had no descriptor, and is assumed untouched.</para>
-    /// </summary>
-    public const double HealthReadingLapsesAfterSeconds = 30.0;
-
     /// <summary>True when there IS a reading and it is old enough to show as faded - see
-    /// <see cref="StaleAfterSeconds"/>. Fading is not dropping: that happens at
-    /// <see cref="HealthReadingLapsesAfterSeconds"/>, before the reading reaches a row.</summary>
+    /// <see cref="StaleAfterSeconds"/>.</summary>
     public static bool HealthReadingIsStale(int? healthRung, double? ageSeconds)
         => healthRung is not null && ageSeconds is double age && age >= StaleAfterSeconds;
 

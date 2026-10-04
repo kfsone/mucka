@@ -123,13 +123,13 @@ public sealed class ParticipantFactsTests
         Assert.Equal(1.0, vitality.High);
     }
 
-    /// <summary>A reading seen within the last 30 seconds stands, the boundary included: a creature
-    /// described as seriously injured exactly 30 seconds ago is drawn that way, faded.</summary>
+    /// <summary>Within one engagement the last reading holds however old it is: a fight with a long run
+    /// of misses still shows the creature as hurt as it last looked, faded.</summary>
     [Fact]
-    public void Health_AReadingWithinTheLapseStands()
+    public void Health_WithinAnEngagementAnOldReadingStands()
     {
         var fact = Map(Fight(
-            healthReadUtc: Now - TimeSpan.FromSeconds(RosterRow.HealthReadingLapsesAfterSeconds),
+            healthReadUtc: Now - TimeSpan.FromMinutes(5),
             healthRung: 3, healthPhrase: "seriously injured"))[0];
 
         Assert.Equal(3, fact.HealthRung);
@@ -137,23 +137,8 @@ public sealed class ParticipantFactsTests
         Assert.True(fact.Vitality!.Value.High < 1.0);
     }
 
-    /// <summary>Older than 30 seconds, the reading is dropped whole and the creature is assumed back to
-    /// full - the bar and the words never disagree.</summary>
-    [Fact]
-    public void Health_AReadingOlderThanTheLapseIsDroppedAndTheCreatureAssumedFull()
-    {
-        var fact = Map(Fight(
-            healthReadUtc: Now - TimeSpan.FromSeconds(RosterRow.HealthReadingLapsesAfterSeconds + 1),
-            healthRung: 3, healthPhrase: "seriously injured"))[0];
-
-        Assert.Null(fact.HealthRung);
-        Assert.Null(fact.HealthPhrase);
-        Assert.Null(fact.HealthAgeSeconds);
-        Assert.Equal(1.0, fact.Vitality!.Value.Low);
-    }
-
-    /// <summary>A diagnose within the window is health seen, and measured: with no wound descriptor it
-    /// still narrows the bar rather than being overruled by the assumed full.</summary>
+    /// <summary>A diagnose is health seen, and measured: with no wound descriptor it still narrows the
+    /// bar rather than being overruled by the assumed full.</summary>
     [Fact]
     public void Health_AFreshDiagnoseWithNoDescriptorIsNotAssumedFull()
     {
@@ -169,11 +154,6 @@ public sealed class ParticipantFactsTests
     [Fact]
     public void Health_AnAnonymousOpponentIsNotAssumedFull()
         => Assert.Null(Map(Fight("someone"))[0].Vitality);
-
-    /// <summary>The 30 is the operator's number, pinned literally so the constant cannot drift.</summary>
-    [Fact]
-    public void Health_TheLapseIsThirtySeconds()
-        => Assert.Equal(30.0, RosterRow.HealthReadingLapsesAfterSeconds);
 
     // ---- No corpus is not a claim about the corpus -------------------------------------------
 

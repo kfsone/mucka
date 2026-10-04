@@ -1434,10 +1434,10 @@ public sealed class CombatRailView : SKCanvasView
     /// reading when the bar has none. It is MUD2's own vocabulary - the words the player just read in
     /// the scroll - and it is per-INDIVIDUAL where the bar's track is per-species.</para>
     ///
-    /// <para><b>It fades, then lapses.</b> After three ticks it is drawn dim - "this is what it last
-    /// said" - with no timestamp and no words about age (<see cref="RosterRow.StaleAfterSeconds"/>).
-    /// Past <see cref="RosterRow.HealthReadingLapsesAfterSeconds"/> the reading is dropped and the
-    /// creature is assumed full again, so the phrase goes with it.</para>
+    /// <para><b>It fades and stays.</b> After three ticks it is drawn dim - "this is what it last said"
+    /// - with no timestamp and no words about age (<see cref="RosterRow.StaleAfterSeconds"/>), for the
+    /// rest of the engagement. A creature re-engaged long after breaking off starts without one
+    /// (<c>CombatStatsAggregator.HealthCarriesAcrossDisengagementSeconds</c>).</para>
     ///
     /// <para><b>The diagnose band is an exception to the no-absolute-figures rule, and the only one.</b>
     /// Every stamina figure the ESTIMATOR produces stays under the hood, because the player has no way

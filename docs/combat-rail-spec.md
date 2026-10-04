@@ -134,12 +134,14 @@ a kill that is no longer one swing away.
 Staleness: the ladder only updates when you land a hit (player hit rate 0.57). A one-tick
 gap is normal (68% of gaps); the reading fades to **stale at 3 ticks**
 (`RosterRow.StaleAfterSeconds`, 6 s; the stamina reading fades on its own clock,
-`RosterRow.StaminaReadStaleAfterSeconds`) and stays drawn, faded. **Operator rule: a creature is
-at full health unless its health was seen within the last 30 seconds**
-(`RosterRow.HealthReadingLapsesAfterSeconds`): with no wound descriptor or `diagnose` in that window
-the reading is dropped and the bar draws full, because "full of life" ends with the first point of
-damage and so never appears in a combat line. An Unseen opponent's anonymous word is never assumed
-full; it keeps the unknown treatment.
+`RosterRow.StaminaReadStaleAfterSeconds`) and stays drawn, faded, for the rest of the engagement.
+A creature with no wound descriptor and no `diagnose` draws **full**: "full of life" ends with the
+first point of damage, so it never appears in a combat line, and a creature not yet hit is
+untouched. **Operator rule: re-engage a creature within 30 seconds of breaking off with it and it
+starts from its last wound reading and its last `diagnose` (still less every blow landed since the
+probe); later than that it is assumed healed (a dreamword, say) and starts full** (`CombatStatsAggregator.HealthCarriesAcrossDisengagementSeconds`) - chasing and re-attacking
+takes 5-10 seconds. An Unseen opponent's anonymous word is never assumed full; it keeps the unknown
+treatment.
 
 The same sentence appears in **room descriptions**, so a health reading is accepted only for
 a creature already engaged. A phantom opponent on the panel is worse than a missing one.
