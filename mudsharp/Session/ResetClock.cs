@@ -115,7 +115,13 @@ internal sealed class ResetClock : IDisposable
             _timer = (timerFactory ?? (cb => new ThreadingSessionTimer(cb)))(OnTimerFired);
     }
 
-    internal static long DefaultMonoNow() => Stopwatch.GetTimestamp() * 1000L / Stopwatch.Frequency;
+    internal static long DefaultMonoNow() => TicksToMilliseconds(Stopwatch.GetTimestamp(), Stopwatch.Frequency);
+
+    /// <summary>Stopwatch ticks to whole milliseconds without overflow. Multiplying first overflows a
+    /// long once <c>ticks * 1000</c> passes 2^63: with a 1 GHz frequency (Android) that is about 106 days
+    /// of uptime. Whole seconds and the remainder are converted apart instead.</summary>
+    internal static long TicksToMilliseconds(long ticks, long frequency)
+        => (ticks / frequency * 1000L) + (ticks % frequency * 1000L / frequency);
 
     /// <summary>Current monotonic timestamp (ms). Callers stamp reply arrival with this.</summary>
     public long NowMono => _monoNow();

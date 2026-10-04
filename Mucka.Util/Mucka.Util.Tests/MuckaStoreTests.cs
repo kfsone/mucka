@@ -249,6 +249,22 @@ public sealed class MuckaStoreTests : IDisposable
         Assert.True(waited < MuckaStore.DrainTimeout + TimeSpan.FromSeconds(5),
             $"Dispose waited {waited.TotalSeconds:F1}s, past DrainTimeout "
             + $"({MuckaStore.DrainTimeout.TotalSeconds:F0}s) plus slack");
+
+        // Released, the writer finishes and closes its connection in the background, after Dispose has
+        // returned; the class cleanup cannot delete the directory until it lets go.
+        WaitUntil(() =>
+        {
+            TestStore.ReleasePools(_directory);
+            try
+            {
+                File.Open(DbPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None).Dispose();
+                return true;
+            }
+            catch (IOException)
+            {
+                return false;
+            }
+        }, "the released writer never let go of the database");
     }
 
     [Fact]

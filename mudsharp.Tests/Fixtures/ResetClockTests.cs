@@ -310,4 +310,30 @@ public class ResetClockTests
         Assert.Equal(ResetPhase.Discovering, h.Snap.Phase);
         Assert.True(h.DiscoveryHold);
     }
+
+    // ---- The monotonic clock ----------------------------------------------------------------
+
+    /// <summary>Android's Stopwatch runs at 1 GHz, so 200 days of uptime is 1.728e16 ticks - past
+    /// the point where ticks * 1000 overflows a long. The clock must still read 200 days.</summary>
+    [Fact]
+    public void TicksToMilliseconds_DoesNotOverflowOnALongUptime()
+    {
+        const long Nanosecond = 1_000_000_000L;
+        var twoHundredDays = TimeSpan.FromDays(200);
+        var ticks = (long)twoHundredDays.TotalSeconds * Nanosecond;
+
+        Assert.Equal((long)twoHundredDays.TotalMilliseconds, ResetClock.TicksToMilliseconds(ticks, Nanosecond));
+    }
+
+    /// <summary>Exact to the millisecond for a frequency that is not a multiple of 1000, and for the
+    /// sub-second remainder.</summary>
+    [Theory]
+    [InlineData(0L, 10_000_000L, 0L)]
+    [InlineData(12_345_678L, 10_000_000L, 1_234L)]
+    [InlineData(3_579_545L * 7 + 1_789_772L, 3_579_545L, 7_499L)]
+    public void TicksToMilliseconds_MatchesTheDirectFormulaWhereThatDoesNotOverflow(long ticks, long frequency, long expected)
+    {
+        Assert.Equal(ticks * 1000L / frequency, ResetClock.TicksToMilliseconds(ticks, frequency));
+        Assert.Equal(expected, ResetClock.TicksToMilliseconds(ticks, frequency));
+    }
 }

@@ -483,12 +483,18 @@ public sealed class ScoreGraphPlot
         };
     }
 
+    /// <summary>How far below a drop's foot its chevron starts.</summary>
+    private const double ChevronGap = 1.5;
+
+    /// <summary>A chevron's height as a multiple of its drop's marker radius.</summary>
+    private const double ChevronHeightPerRadius = 1.3;
+
     /// <summary>The downward chevron under a marked drop: as wide as its radius each side, hanging
-    /// just below the drop's foot.</summary>
+    /// <see cref="ChevronGap"/> below the drop's foot.</summary>
     public static PlotRect ChevronRect(PlotLoss loss)
     {
-        var top = loss.YAfter + 1.5;
-        return new PlotRect(loss.X - loss.Radius, top, loss.X + loss.Radius, top + loss.Radius * 1.3);
+        var top = loss.YAfter + ChevronGap;
+        return new PlotRect(loss.X - loss.Radius, top, loss.X + loss.Radius, top + (loss.Radius * ChevronHeightPerRadius));
     }
 
     /// <summary>A drop's red line as drawn, from its head to its foot.</summary>
