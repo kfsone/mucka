@@ -50,12 +50,13 @@ public sealed class CombatFrameComposerTests
         CombatEncounterSnapshot snapshot,
         CombatStatDeficits? deficits = null,
         IReadOnlyList<CombatEnding>? deadStrip = null,
-        IReadOnlyList<string>? inventory = null)
+        IReadOnlyList<string>? inventory = null,
+        DateTime? now = null)
         => CombatFrameComposer.Compose(new CombatFrameInputs(
             snapshot,
             deficits ?? new CombatStatDeficits(StaminaCurrent: 60, StaminaMax: 100, ObjectsCarried: 0),
             CombatHistoryContext.Empty,
-            Now,
+            now ?? Now,
             inventory ?? [],
             _ => false,
             default,
@@ -65,6 +66,33 @@ public sealed class CombatFrameComposerTests
             TickAnchor: null,
             PlayerName: "Tester",
             StaminaAnsiColor: null));
+
+    // ---- An unchanged post-fight panel is an unchanged frame ----------------------------------
+
+    /// <summary>
+    /// The summary left up after a fight is refreshed every second with nothing new to show. Two of
+    /// those refreshes must compose equal frames, so the rail skips the repaint - which needs every
+    /// member to compare by value and nothing to carry the refresh's clock at a precision nothing
+    /// draws. The reading's age is the case in point: the row carries whether it is stale, not how
+    /// many milliseconds old it is.
+    /// </summary>
+    [Fact]
+    public void PostCombat_TwoRefreshesASecondApart_ComposeEqualFrames()
+    {
+        var fight = Fight(resolved: true, largestBlowTaken: 9) with
+        {
+            HealthRung = 3,
+            HealthPhrase = "to be seriously injured",
+            HealthReadUtc = Now - TimeSpan.FromSeconds(10),
+        };
+        var snapshot = Encounter(inCombat: false, fights: [fight]);
+
+        var first = Compose(snapshot, now: Now);
+        var second = Compose(snapshot, now: Now + TimeSpan.FromSeconds(1));
+
+        Assert.True(first.Live.Roster.Rows[0].IsHealthStale);
+        Assert.Equal(first.Live, second.Live);
+    }
 
     // ---- Big hitters move the bands --------------------------------------------------------------
 

@@ -336,8 +336,9 @@ public sealed record CombatHistoryContext(
 /// 1 Hz repaint.</para>
 ///
 /// <para>A frame built during a fight is never equal to the one before it, by design: it carries the
-/// fight's elapsed ticks, per-tick rates and reading ages, all derived from the refresh's clock and
-/// drawn. The skip pays on the idle branch.</para>
+/// fight's elapsed ticks and per-tick rates, derived from the refresh's clock and drawn. The skip pays
+/// on the idle panel and the post-fight summary, which is why a row carries whether a reading is stale
+/// rather than its age (<c>RosterRow.IsHealthStale</c>).</para>
 /// </summary>
 public sealed record CombatLiveView(
     bool InCombat,

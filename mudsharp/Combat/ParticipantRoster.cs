@@ -164,7 +164,10 @@ public readonly record struct RosterRow(
     FightOutcome Outcome,
     int? HealthRung = null,
     string? HealthPhrase = null,
-    double? HealthAgeSeconds = null,
+    // Whether the reading is old enough to draw faded - see HealthReadingIsStale. A flag rather than
+    // the age: the age changes on every refresh and nothing draws it, so carrying it would make two
+    // frames of an unchanged roster unequal and repaint the rail every tick for nothing.
+    bool IsHealthStale = false,
     double DamageTakenFrom = 0,
     string? NpcWeapon = null,
     // "Now" and "ever" for how hard this thing hits - the rail draws them stacked in one right-hand
@@ -182,11 +185,11 @@ public readonly record struct RosterRow(
     // Whether this creature's KIND is new to the player, or known-and-never-finished. Drawn as the
     // name's colour; see NoveltyMark for why red outranks orange here.
     NoveltyMark Novelty = NoveltyMark.None,
-    // The game's own diagnose reading, kept for the fight, and how long ago it was taken - see
-    // ParticipantFact. The reading carries the damage dealt since it, so the figure drawn from it
-    // moves with the fight; the age only dims it.
+    // The game's own diagnose reading, kept for the fight, and whether it is old enough to draw faded
+    // - see ParticipantFact and StaminaReadIsStale. The reading carries the damage dealt since it, so
+    // the figure drawn from it moves with the fight; its age only dims it.
     NpcStaminaReading? StaminaRead = null,
-    double? StaminaReadAgeSeconds = null,
+    bool IsStaminaReadStale = false,
     // The `value <name>` points, or null if never learned - see ParticipantFact.Value. Drawn on the
     // creature's own tile after the rung word, in the slot the player's tile uses
     // for their stamina figure; see CombatRailView.DrawWoundPhrase for the layout and for why a bare
@@ -250,8 +253,8 @@ public readonly record struct RosterRow(
 
     /// <summary>True when there IS a reading and it is old enough to show as faded. Never a reason to
     /// stop drawing one - see <see cref="StaleAfterSeconds"/>.</summary>
-    public bool IsHealthStale
-        => HealthRung is not null && HealthAgeSeconds is double age && age >= StaleAfterSeconds;
+    public static bool HealthReadingIsStale(int? healthRung, double? ageSeconds)
+        => healthRung is not null && ageSeconds is double age && age >= StaleAfterSeconds;
 
     /// <summary>
     /// Age past which the <c>diagnose</c> figure is drawn faded. The same six seconds as
@@ -271,9 +274,8 @@ public readonly record struct RosterRow(
 
     /// <summary>True when there IS a <c>diagnose</c> figure and it is old enough to draw faded. As with
     /// the wound phrase, never a reason to stop drawing it.</summary>
-    public bool IsStaminaReadStale
-        => StaminaRead is not null && StaminaReadAgeSeconds is double age
-            && age >= StaminaReadStaleAfterSeconds;
+    public static bool StaminaReadIsStale(NpcStaminaReading? read, double? ageSeconds)
+        => read is not null && ageSeconds is double age && age >= StaminaReadStaleAfterSeconds;
 }
 
 /// <summary>
@@ -477,9 +479,11 @@ public static class ParticipantRoster
     private static RosterRow Row(in ParticipantFact fact, bool isLive, bool isCurrentTarget)
         => new(
             fact.Name, isLive, isCurrentTarget, fact.Outcome,
-            fact.HealthRung, fact.HealthPhrase, fact.HealthAgeSeconds, fact.DamageTakenFrom,
+            fact.HealthRung, fact.HealthPhrase,
+            RosterRow.HealthReadingIsStale(fact.HealthRung, fact.HealthAgeSeconds), fact.DamageTakenFrom,
             fact.NpcWeapon, fact.FightDamage, fact.EverDamage,
             fact.Vitality, fact.NextBlow, fact.BlowAfter, fact.YourTempo, fact.Reach,
-            fact.Novelty, fact.StaminaRead, fact.StaminaReadAgeSeconds, fact.Value,
+            fact.Novelty, fact.StaminaRead,
+            RosterRow.StaminaReadIsStale(fact.StaminaRead, fact.StaminaReadAgeSeconds), fact.Value,
             fact.Dealt, fact.Taken, fact.Exchange, fact.TookDamageThisTick);
 }

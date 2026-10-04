@@ -131,9 +131,11 @@ public sealed class NpcHealthTrackingTests
 
     // ---- Staleness: the rules that stop an old reading being drawn as a current one ----------
 
+    // Built the way production builds it - a fact carrying the reading's age, through the roster - so
+    // the staleness rule is exercised where the row gets it.
     private static RosterRow Row(int? rung, double? ageSeconds)
-        => new("rat1", IsLive: true, IsCurrentTarget: true, FightOutcome.Unresolved,
-            rung, "seriously injured", ageSeconds);
+        => ParticipantRoster.Build(
+            [new ParticipantFact("rat1", false, FightOutcome.Unresolved, rung, "seriously injured", ageSeconds)]).Rows[0];
 
     [Fact]
     public void RosterRow_FreshReadingIsNotStale()
