@@ -2749,6 +2749,10 @@ public partial class GamePage : ContentPage
         // rest, so it is marked Handled and never reaches any default close-window behaviour.
         Add(Windows.System.VirtualKey.W, Windows.System.VirtualKeyModifiers.Control,
             () => { if (Terminal.IsHistoryMode) Terminal.ScrollToBottom(); _vm.WieldAlternateWeapon(); });
+        // Ctrl+1..3 control macros, the one definition of them. Three, not five: reaching Ctrl+4/5
+        // without looking is a stretch mid-fight, and a macro you have to look down for is a macro that
+        // gets you killed. SendControlAlias flushes typed lines still queued first, so a macro after a
+        // typed command still goes out after it.
         Add(Windows.System.VirtualKey.Number1, Windows.System.VirtualKeyModifiers.Control,
             () => { if (Terminal.IsHistoryMode) Terminal.ScrollToBottom(); _vm.SendControlAlias(1); });
         Add(Windows.System.VirtualKey.Number2, Windows.System.VirtualKeyModifiers.Control,
@@ -2786,9 +2790,9 @@ public partial class GamePage : ContentPage
     // (OnHistoryModeChanged) and detached on exit, so it is NEVER in the live typing path. The routing
     // is Mucka.Terminal.ScrollbackKeys: a registered hotkey is left unhandled so its accelerator runs,
     // the scrollback keys act here, and everything else is swallowed (no typing in scrollback).
-    // Leaving a hotkey unhandled is what lets its accelerator run. Observed: the input box's own
-    // Ctrl+1..3 binding marks its key handled in PreviewKeyDown, the window registers the same keys as
-    // accelerators, and a macro has never been seen to fire twice - a handled key does not reach them.
+    // Leaving a hotkey unhandled is what lets its accelerator run. Observed: with Ctrl+1..3 bound both
+    // in the input box (which marked the key handled in PreviewKeyDown) and as window accelerators, a
+    // macro was never seen to fire twice - a handled key does not reach the accelerators.
     private void OnScrollbackKeyDown(object sender, Microsoft.UI.Xaml.Input.KeyRoutedEventArgs e)
     {
         var key = e.Key;
@@ -3176,20 +3180,6 @@ public partial class GamePage : ContentPage
                 _vm.InputText = string.Empty;
                 input.RequestClear();
             });
-
-        // Ctrl+1..3 control macros. Three, not five: reaching Ctrl+4/5 without looking is a stretch
-        // mid-fight, and a macro you have to look down for is a macro that gets you killed. The
-        // scrollback bounce is part of the action, so it too is off the keystroke.
-        for (var slot = 1; slot <= 3; slot++)
-        {
-            var n = slot;
-            input.Hotkeys.Bind((int)Windows.System.VirtualKey.Number0 + n, Mucka.Input.InputModifiers.Control,
-                $"ctrl-macro-{n}", () =>
-                {
-                    if (Terminal.IsHistoryMode) Terminal.ScrollToBottom();
-                    _vm.SendControlAlias(n);
-                });
-        }
     }
 
     /// <summary>
