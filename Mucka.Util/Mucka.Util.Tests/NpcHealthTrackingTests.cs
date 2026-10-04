@@ -173,35 +173,20 @@ public sealed class NpcHealthTrackingTests
     }
 
     /// <summary>
-    /// The health read is never discarded, however old it gets. MUD2 prints a descriptor after every
-    /// non-killing landed hit, so a gap is positive evidence that nothing of the player's landed and
-    /// the reading still holds. It fades and stays; it never disappears.
+    /// Between the fade and the lapse a reading fades and stays: the row keeps the game's last words,
+    /// drawn faded. (Past <c>RosterRow.HealthReadingLapsesAfterSeconds</c> ParticipantFacts drops the
+    /// reading before it reaches the roster - see ParticipantFactsTests.)
     /// </summary>
     [Fact]
-    public void RosterRow_NeverDiscardsAReading_HoweverOldItGets()
+    public void RosterRow_KeepsAFadedReadingUntilItLapses()
     {
-        foreach (var age in new[] { 10.0, 60.0, 600.0 })
+        foreach (var age in new[] { 10.0, 20.0, 29.0 })
         {
             var row = Row(3, age);
 
             Assert.Equal(3, row.HealthRung);
             Assert.True(row.IsHealthStale);   // faded, and still there
         }
-    }
-
-    [Fact]
-    public void RosterRow_NeverReportedStaysDistinctFromMerelyOld()
-    {
-        // The one state that genuinely has nothing to show: a creature the player has not landed on.
-        // It must not be reachable by a reading simply getting old, or the never-blank rule would have
-        // erased the distinction it depends on.
-        var never = new RosterRow("rat1", IsLive: true, IsCurrentTarget: true, FightOutcome.Unresolved);
-
-        Assert.Null(never.HealthRung);
-        Assert.Null(never.HealthPhrase);
-        Assert.False(never.IsHealthStale);   // nothing to fade
-
-        Assert.NotNull(Row(3, 600.0).HealthRung);
     }
 
     [Fact]

@@ -1434,15 +1434,10 @@ public sealed class CombatRailView : SKCanvasView
     /// reading when the bar has none. It is MUD2's own vocabulary - the words the player just read in
     /// the scroll - and it is per-INDIVIDUAL where the bar's track is per-species.</para>
     ///
-    /// <para><b>It is never blanked.</b> MUD2 prints a descriptor after every landed blow that does not
-    /// kill, so silence between descriptors is not a missing observation but positive evidence that
-    /// nothing of the player's landed - which means the creature has taken nothing from them and the
-    /// last reading very probably still holds. Fading it after three ticks is the whole of the
-    /// staleness treatment, and it carries
-    /// the residual honestly: a creature CAN change untouched (NPC-versus-NPC combat is in the corpus,
-    /// and zombies regenerate), so dim says "this is what it last said" without hiding it or
-    /// overclaiming it. No timestamp, no duration, no words about age - see
-    /// <see cref="RosterRow.StaleAfterSeconds"/>, which owns the policy and the reasoning.</para>
+    /// <para><b>It fades, then lapses.</b> After three ticks it is drawn dim - "this is what it last
+    /// said" - with no timestamp and no words about age (<see cref="RosterRow.StaleAfterSeconds"/>).
+    /// Past <see cref="RosterRow.HealthReadingLapsesAfterSeconds"/> the reading is dropped and the
+    /// creature is assumed full again, so the phrase goes with it.</para>
     ///
     /// <para><b>The diagnose band is an exception to the no-absolute-figures rule, and the only one.</b>
     /// Every stamina figure the ESTIMATOR produces stays under the hood, because the player has no way
@@ -1599,9 +1594,8 @@ public sealed class CombatRailView : SKCanvasView
 
         if (plan.Shape == SealShape.Unmet)
         {
-            // Full width, in the unknown tone, with a mark in it. A creature nobody has a reading on
-            // is the most dangerous thing in the room and this is an ordinary state - in a pack every
-            // row but the one being swung at sits here for the whole fight.
+            // Full width, in the unknown tone, with a mark in it: a row with no fight record behind it
+            // (an Unseen badge). A named creature with no current reading is drawn full instead.
             _fill.Color = SealUnknown;
             canvas.DrawRect(x, top, width, TileBarFillHeight, _fill);
             DrawRungNotches(canvas, x, top, width);

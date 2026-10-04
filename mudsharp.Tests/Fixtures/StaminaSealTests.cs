@@ -459,8 +459,8 @@ public sealed class StaminaSealTests
     [Fact]
     public void NoReading_IsAFullRing_NeverAnEmptyOne()
     {
-        // The most dangerous case on the panel must not be the emptiest-looking thing on it. Empty
-        // reads as nearly dead; absent reads as safe.
+        // No vitality - an Unseen badge's state - must not be the emptiest-looking thing on the panel.
+        // Empty reads as nearly dead; absent reads as safe.
         var plan = StaminaSeal.Plan(null, null, null);
 
         Assert.Equal(SealShape.Unmet, plan.Shape);

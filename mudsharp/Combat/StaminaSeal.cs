@@ -7,13 +7,9 @@ namespace MudSharp.Combat;
 public enum SealShape
 {
     /// <summary>
-    /// MUD2 has said nothing about this creature's condition and nothing on file narrows it.
-    ///
-    /// <para>This is not the game withholding a reading. MUD2 prints a wound descriptor after every
-    /// landed blow that does not kill - 3,559 descriptors against 3,561 such hits across 1,197 fights
-    /// in the instrumented window from 2026-08-11, and none of the 988 fights that landed one produced
-    /// no descriptor. So it means the player has not LANDED on this creature yet, which in a pack is
-    /// most of the rows for most of the fight because you swing at one thing at a time.</para>
+    /// No vitality at all: a row with no fight record behind it, such as an Unseen badge whose
+    /// opponents are known only by their anonymous word. A named creature never lands here - with no
+    /// current reading it is assumed full (<c>RosterRow.HealthReadingLapsesAfterSeconds</c>).
     ///
     /// <para>Drawn as a FULL ring in the unknown treatment - never empty, never absent.</para>
     /// </summary>
@@ -132,8 +128,8 @@ public static class StaminaSeal
     /// <summary>
     /// One opponent's seal.
     /// </summary>
-    /// <param name="vitality">The creature's remaining fraction band, or null when the game has said
-    /// nothing - which is <see cref="SealShape.Unmet"/> and must never draw as an empty ring.</param>
+    /// <param name="vitality">The creature's remaining fraction band, or null for a row with no fight
+    /// record - which is <see cref="SealShape.Unmet"/>, drawn full in the unknown treatment.</param>
     /// <param name="nextBlow">Where the boundary is predicted to land after the player's next landed
     /// blow. See <see cref="DamagePrediction.AfterBlows"/>.</param>
     /// <param name="blowAfter">And after the one after that.</param>

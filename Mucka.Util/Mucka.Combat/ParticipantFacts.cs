@@ -48,6 +48,14 @@ public static class ParticipantFacts
             double? healthAge = fight.HealthReadUtc is DateTime read
                 ? Math.Max(0.0, (nowUtc - read).TotalSeconds)
                 : null;
+            // Operator rule: a creature is at full health unless its health was seen within the last
+            // RosterRow.HealthReadingLapsesAfterSeconds. Older than that, the reading is dropped whole -
+            // rung, phrase and age - so the bar and the words cannot disagree.
+            var healthLapsed = healthAge is double seen && seen > RosterRow.HealthReadingLapsesAfterSeconds;
+            var healthRung = healthLapsed ? null : fight.HealthRung;
+            var healthPhrase = healthLapsed ? null : fight.HealthPhrase;
+            if (healthLapsed)
+                healthAge = null;
             // The diagnose probe's own age, resolved the same way and kept separate from the
             // descriptor's: the two fade for different reasons - see RosterRow.StaminaReadStaleAfterSeconds.
             double? staminaReadAge = fight.StaminaReadUtc is DateTime probed
@@ -69,15 +77,23 @@ public static class ParticipantFacts
             // exactly that probe (StaminaPoolIndex's own remarks), run for at most MaxRows opponents
             // per refresh.
             var vitality = NpcVitality.Estimate(
-                fight.HealthRung, pool, pool is null ? null : RemainingFor(pool, fight),
+                healthRung, pool, pool is null ? null : RemainingFor(pool, fight),
                 // The crossing is the sharpest constraint of the three on a large creature, and it needs
                 // this fight's cumulative bracket because on a first encounter that is the only floor
                 // under the pool there is.
                 fight.RungCrossing, fight.YourDamage,
-                // "full of life" / "full of energy" is cur == max exactly, not merely the top band, so
-                // it is the one reading that can fill the seal. Without it the hard fill tops out at
-                // the rung floor - 6/7 - and an untouched creature never draws full.
-                atMax: fight.HealthPhrase is { } phrase && NpcHealthRungs.IsAtMax(phrase));
+                // Full is cur == max exactly - "full of life" / "full of energy", which only ql and
+                // examine print, because the first point of damage ends it. So it is also what a
+                // creature with no current reading is assumed to be (the rule above): no landed blow
+                // means a descriptor-free creature, and descriptors print on every landed blow.
+                // A diagnose seen within the same window is health seen too, and a measured one: it
+                // narrows the bar instead. An Unseen opponent's word is not one creature that can be
+                // assumed anything, so it keeps the unknown treatment.
+                atMax: (healthRung is null
+                        && !(fight.StaminaReading is not null && staminaReadAge is double probedAge
+                             && probedAge <= RosterRow.HealthReadingLapsesAfterSeconds)
+                        && !AnonymousOpponent.IsAnonymous(fight.NpcName))
+                    || (healthPhrase is { } phrase && NpcHealthRungs.IsAtMax(phrase)));
             // One probe, three answers. Narrowed by the creature's CURRENT weapon so the armed-as-now
             // profile comes back alongside the species-wide one; both are dictionary lookups under a
             // single lock (SwingDamageIndex's own remarks), and taking them together rather than in
@@ -92,7 +108,7 @@ public static class ParticipantFacts
 
             facts[i] = new ParticipantFact(
                 fight.NpcName, fight.IsResolved, fight.Outcome,
-                fight.HealthRung, fight.HealthPhrase, healthAge, fight.ApproxDamageTaken,
+                healthRung, healthPhrase, healthAge, fight.ApproxDamageTaken,
                 fight.NpcWeapon,
                 fight.TheirDamage,
                 // Empty (which draws as nothing) whenever the cache is absent or has too few blows on

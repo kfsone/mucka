@@ -109,11 +109,10 @@ public static class NpcVitality
     /// <summary>
     /// This creature's remaining fraction, or null when the game has said nothing that supports one.
     /// </summary>
-    /// <param name="rung">The latest wound descriptor, 1..7, or null when none has printed. Null does
-    /// not mean the game is being stingy: a descriptor follows every landed blow that does not kill
-    /// (3,559 against 3,561 such hits over 1,197 fights, instrumented window from 2026-08-11). It means
-    /// the player has not landed on this creature yet, which in a pack is the ordinary state of every
-    /// row but one.</param>
+    /// <param name="rung">The latest wound descriptor, 1..7, or null when none is current - none has
+    /// printed, or the last one lapsed (<c>RosterRow.HealthReadingLapsesAfterSeconds</c>). A descriptor
+    /// follows every landed blow that does not kill (3,559 against 3,561 such hits over 1,197 fights,
+    /// instrumented window from 2026-08-11).</param>
     /// <param name="pool">The species estimate. Used only as a denominator; never shown.</param>
     /// <param name="remaining">The absolute remaining band from <see cref="NpcRemainingStamina"/>.
     /// Used only as a numerator; never shown.</param>

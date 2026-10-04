@@ -111,11 +111,69 @@ public sealed class ParticipantFactsTests
         Assert.True(fact.Vitality!.Value.Low < 1.0);
     }
 
-    /// <summary>Nothing said about health at all is null, never a band. An unsupported estimate has
-    /// to look like no estimate, never like a small one.</summary>
+    /// <summary>Operator rule: nothing said about health means untouched. A descriptor prints on every
+    /// landed blow, so a creature without one has not been hit - attacking it starts with a full
+    /// bar.</summary>
     [Fact]
-    public void Vitality_IsNullWhenTheGameHasSaidNothing()
-        => Assert.Null(Map(Fight())[0].Vitality);
+    public void Vitality_IsFullWhenTheGameHasSaidNothing()
+    {
+        var vitality = Map(Fight())[0].Vitality!.Value;
+
+        Assert.Equal(1.0, vitality.Low);
+        Assert.Equal(1.0, vitality.High);
+    }
+
+    /// <summary>A reading seen within the last 30 seconds stands, the boundary included: a creature
+    /// described as seriously injured exactly 30 seconds ago is drawn that way, faded.</summary>
+    [Fact]
+    public void Health_AReadingWithinTheLapseStands()
+    {
+        var fact = Map(Fight(
+            healthReadUtc: Now - TimeSpan.FromSeconds(RosterRow.HealthReadingLapsesAfterSeconds),
+            healthRung: 3, healthPhrase: "seriously injured"))[0];
+
+        Assert.Equal(3, fact.HealthRung);
+        Assert.Equal("seriously injured", fact.HealthPhrase);
+        Assert.True(fact.Vitality!.Value.High < 1.0);
+    }
+
+    /// <summary>Older than 30 seconds, the reading is dropped whole and the creature is assumed back to
+    /// full - the bar and the words never disagree.</summary>
+    [Fact]
+    public void Health_AReadingOlderThanTheLapseIsDroppedAndTheCreatureAssumedFull()
+    {
+        var fact = Map(Fight(
+            healthReadUtc: Now - TimeSpan.FromSeconds(RosterRow.HealthReadingLapsesAfterSeconds + 1),
+            healthRung: 3, healthPhrase: "seriously injured"))[0];
+
+        Assert.Null(fact.HealthRung);
+        Assert.Null(fact.HealthPhrase);
+        Assert.Null(fact.HealthAgeSeconds);
+        Assert.Equal(1.0, fact.Vitality!.Value.Low);
+    }
+
+    /// <summary>A diagnose within the window is health seen, and measured: with no wound descriptor it
+    /// still narrows the bar rather than being overruled by the assumed full.</summary>
+    [Fact]
+    public void Health_AFreshDiagnoseWithNoDescriptorIsNotAssumedFull()
+    {
+        var fact = Map(Fight(
+            staminaReadUtc: Now - TimeSpan.FromSeconds(5),
+            staminaReading: new NpcStaminaReading(12, 20, DamageBracket.Zero)))[0];
+
+        Assert.NotEqual(1.0, fact.Vitality?.Low);
+    }
+
+    /// <summary>An Unseen opponent's anonymous word is not one creature that can be assumed full: with
+    /// no descriptor it keeps no vitality, which the seal draws as the unknown.</summary>
+    [Fact]
+    public void Health_AnAnonymousOpponentIsNotAssumedFull()
+        => Assert.Null(Map(Fight("someone"))[0].Vitality);
+
+    /// <summary>The 30 is the operator's number, pinned literally so the constant cannot drift.</summary>
+    [Fact]
+    public void Health_TheLapseIsThirtySeconds()
+        => Assert.Equal(30.0, RosterRow.HealthReadingLapsesAfterSeconds);
 
     // ---- No corpus is not a claim about the corpus -------------------------------------------
 

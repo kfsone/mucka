@@ -134,9 +134,12 @@ a kill that is no longer one swing away.
 Staleness: the ladder only updates when you land a hit (player hit rate 0.57). A one-tick
 gap is normal (68% of gaps); the reading fades to **stale at 3 ticks**
 (`RosterRow.StaleAfterSeconds`, 6 s; the stamina reading fades on its own clock,
-`RosterRow.StaminaReadStaleAfterSeconds`). Staleness changes tone only: the last reading
-stays drawn, never replaced by a full or an empty ladder, because both of those are confident
-claims.
+`RosterRow.StaminaReadStaleAfterSeconds`) and stays drawn, faded. **Operator rule: a creature is
+at full health unless its health was seen within the last 30 seconds**
+(`RosterRow.HealthReadingLapsesAfterSeconds`): with no wound descriptor or `diagnose` in that window
+the reading is dropped and the bar draws full, because "full of life" ends with the first point of
+damage and so never appears in a combat line. An Unseen opponent's anonymous word is never assumed
+full; it keeps the unknown treatment.
 
 The same sentence appears in **room descriptions**, so a health reading is accepted only for
 a creature already engaged. A phantom opponent on the panel is worse than a missing one.

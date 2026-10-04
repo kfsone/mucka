@@ -85,8 +85,9 @@ public readonly record struct ExchangeLine(
 /// nothing on the tile draws the distinction, and a field nobody reads is the sediment this project
 /// deletes on sight.</para></param>
 /// <param name="Vitality">How much of this creature is left, as a FRACTION of its own full, in a
-/// band - what its seal fills to. Null when MUD2 has said nothing that supports one, which the seal
-/// draws as a full unknown ring and never as an empty one. The absolute stamina estimate stays under
+/// band - what its seal fills to. Full when there is no current reading (see
+/// <see cref="RosterRow.HealthReadingLapsesAfterSeconds"/>); null only for a row with no fight record,
+/// which the seal draws as a full unknown ring. The absolute stamina estimate stays under
 /// the hood: it narrows this band and is never itself shown. See <see cref="NpcVitality"/>.</param>
 /// <param name="NextBlow">Where the player's next landed blow is predicted to put this creature's
 /// boundary, as an interval on its own ladder. Null when nothing supports a prediction. See
@@ -227,33 +228,33 @@ public readonly record struct RosterRow(
     /// tick is ordinary, so fading any sooner would have the readout flickering through every normal
     /// fight.
     ///
-    /// <para><b>This is the only staleness threshold, and it changes TONE only.</b> A reading is never
-    /// discarded regardless of age; the row must not be drawn as though nothing were known just
-    /// because a reading is old.</para>
+    /// <para><b>It changes tone only.</b> Between this and
+    /// <see cref="HealthReadingLapsesAfterSeconds"/> the reading is drawn faded - "this is what it last
+    /// said" - with no timestamp and no words about age: the reading is the game's own.</para>
     ///
-    /// <para><b>Why an old reading here is not degraded information.</b> MUD2 prints a wound descriptor
-    /// after every landed blow that does not kill - 3,559 descriptors against 3,561 such hits across
-    /// 1,197 fights, instrumented window from 2026-08-11, with none of the 988 fights that landed one
-    /// producing no descriptor. So a GAP between descriptors is not a missing observation: it is
-    /// positive evidence that no blow of the player's landed, which means the player has taken nothing
-    /// off this creature since, which means the last reading is very probably still true. Discarding it
-    /// threw away a reading that the silence itself corroborates.</para>
-    ///
-    /// <para><b>Likely, not certain - which is what the fade is for.</b> A creature can change without
-    /// the player touching it: NPC-versus-NPC combat is confirmed in the corpus (the viper, the thief
-    /// and the lion all attack other creatures) and zombies regenerate. Tone carries that honestly - a
-    /// dimmed but present phrase says "this is what it last said" without either hiding it or
-    /// overclaiming it. Deliberately no timestamp, no duration and no words about age: the reading is
-    /// the game's own, and annotating it would be the panel talking over the game.</para>
-    ///
-    /// <para><b>Never reported at all is a different state and must stay distinguishable.</b> A
-    /// creature the player has not yet landed a blow on has no phrase and no ring fill - see
-    /// <c>SealShape.Unmet</c>. Do not let a fading rule grow back into a blanking one.</para>
+    /// <para>Observed: MUD2 prints a wound descriptor after every landed blow that does not kill - 3,559
+    /// descriptors against 3,561 such hits across 1,197 fights, instrumented window from 2026-08-11,
+    /// with none of the 988 fights that landed one producing no descriptor. So a gap between
+    /// descriptors means no blow of the player's landed. A creature still changes without the player
+    /// touching it: NPC-versus-NPC combat is confirmed in the corpus (the viper, the thief and the lion
+    /// all attack other creatures) and zombies regenerate - which is what the fade is for.</para>
     /// </summary>
     public const double StaleAfterSeconds = 6.0;
 
-    /// <summary>True when there IS a reading and it is old enough to show as faded. Never a reason to
-    /// stop drawing one - see <see cref="StaleAfterSeconds"/>.</summary>
+    /// <summary>
+    /// Operator rule: a creature is at full health unless its health was seen within this many
+    /// seconds. An older reading is dropped whole - rung, phrase and age - and the creature is drawn
+    /// full, the same as one never read.
+    ///
+    /// <para>Full is cur == max exactly ("full of life" / "full of energy"), which only ql and examine
+    /// print: the first point of damage ends it, so combat lines never report it. A creature the
+    /// player has not landed on has had no descriptor, and is assumed untouched.</para>
+    /// </summary>
+    public const double HealthReadingLapsesAfterSeconds = 30.0;
+
+    /// <summary>True when there IS a reading and it is old enough to show as faded - see
+    /// <see cref="StaleAfterSeconds"/>. Fading is not dropping: that happens at
+    /// <see cref="HealthReadingLapsesAfterSeconds"/>, before the reading reaches a row.</summary>
     public static bool HealthReadingIsStale(int? healthRung, double? ageSeconds)
         => healthRung is not null && ageSeconds is double age && age >= StaleAfterSeconds;
 
