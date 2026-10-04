@@ -50,11 +50,42 @@ public enum FleePillStatus
 /// the opposite reading of the same band - it is loudest exactly there, and says go, not well done.
 /// Nothing here computes or publishes a price.</para>
 ///
-/// <para>Pure and primitive-typed, like <see cref="CombatTierResolver"/> beside it, so mudsharp.Tests
-/// exercises it directly.</para>
+/// <para>Pure and primitive-typed, so mudsharp.Tests exercises it directly.</para>
 /// </summary>
 public static class FleePillResolver
 {
+    /// <summary>
+    /// Stamina at or below which the pill reads <see cref="FleePillStatus.EscapeNow"/>.
+    ///
+    /// <para><b>Its value has no danger measurement behind it.</b> 6.5 entered this codebase as the
+    /// FLEE-FREE boundary - the stamina below which MUD2 stops charging to leave - and was then
+    /// re-used as a danger threshold because it was the only number available. They are different
+    /// quantities: whatever a flee costs is a question about score, and this is a question about how
+    /// many blows you can take.</para>
+    ///
+    /// <para><b>It stays ABSOLUTE all the same, and that is not an oversight.</b> MUD2 damage does not
+    /// consult the player's ceiling - a rat hits for what a rat hits for - so a danger threshold
+    /// graded as a fraction of maximum would be loudest for the strongest persona. Flee COST is
+    /// fractional; danger is not. What is missing is any measurement of where the absolute danger line
+    /// actually falls, and until there is one, this is a number of the right kind with an unearned
+    /// value.</para>
+    /// </summary>
+    public const double CriticalStaminaThreshold = 6.5;
+
+    /// <summary>
+    /// The survival threshold: docs/combat-rail-spec.md section 6a's third stamina number, and the
+    /// only one of the three that ALARMS rather than explains. The pill's Caution band and the stamina
+    /// glow's red (<c>Mucka.Combat.StaminaGlow.RedStamina</c>) both stand on it.
+    ///
+    /// <para>Deliberately not a formula, unlike the 40 and 30 stat knees. It is where the consequences
+    /// converge - most NPCs cap out at 15-20 damage so one blow can now kill, several creatures flip
+    /// from peaceful to hostile against a player this wounded, a newly-arrived NPC's surprise blow lands
+    /// 5-15 regardless of what the current opponent can do, and MUD2 prints its own "consider fleeing"
+    /// near here. Of 5 occasions at exactly 20 stamina (outside rats), 3 cost the character - a formula
+    /// that fits the instrument better is still answering the wrong question.</para>
+    /// </summary>
+    public const double SurvivalStaminaThreshold = 20.0;
+
     /// <summary>
     /// Stamina at or below which the pill is drawn at all, before any damage evidence is considered:
     /// the survival threshold plus the width of the band below it.
@@ -64,7 +95,7 @@ public static class FleePillResolver
     /// itself a new thing to read at the worst possible moment. One threshold's worth of warm-up.</para>
     /// </summary>
     public const double ReadyStaminaThreshold =
-        CombatTierResolver.SurvivalStaminaThreshold + CombatTierResolver.CriticalStaminaThreshold;
+        SurvivalStaminaThreshold + CriticalStaminaThreshold;
 
     /// <summary>
     /// What a live opponent is assumed to hit for when nothing is on file about it.
@@ -89,11 +120,9 @@ public static class FleePillResolver
     /// <para>Deliberately pessimistic all the same, because the alternative it replaced was silence, and
     /// silence about an unmeasured creature reads as a claim that it is harmless.</para>
     ///
-    /// <para><b>It shares a value with <see cref="CombatTierResolver.SurvivalStaminaThreshold"/> and is
+    /// <para><b>It shares a value with <see cref="SurvivalStaminaThreshold"/> and is
     /// not the same quantity.</b> That one is a stamina at which to act; this is a damage a creature
-    /// might deal. Do not merge them, do not derive one from the other, and if either is ever tuned it
-    /// moves alone - this codebase has already shipped a bug of exactly that shape, where a flee-cost
-    /// number was re-labelled a danger threshold because it was the only number available.</para>
+    /// might deal, so tuning one does not move the other.</para>
     ///
     /// <para><b>Known consequence, so it is not discovered as a surprise:</b> it multiplies. Four
     /// creatures nobody has ever been hit by sum to 80, which raises the pill to Caution from 80
@@ -211,14 +240,14 @@ public static class FleePillResolver
             return twoHitsLeft ? FleePillStatus.Caution : FleePillStatus.Hidden;
         }
 
-        if (stamina <= CombatTierResolver.CriticalStaminaThreshold)
+        if (stamina <= CriticalStaminaThreshold)
             return FleePillStatus.EscapeNow;
 
         // A single boundary can now kill. Note this subsumes the per-creature test ("any one of them
         // averages more than my whole stamina") exactly: a sum is never less than its largest term, so
         // the pack case fires wherever the single-creature case would and earlier besides. One rule
         // rather than two that could only ever agree.
-        if (stamina <= CombatTierResolver.SurvivalStaminaThreshold
+        if (stamina <= SurvivalStaminaThreshold
             || (worstCaseTickDamage > 0 && worstCaseTickDamage >= stamina)
             || twoHitsLeft)
             return FleePillStatus.Caution;
@@ -226,7 +255,7 @@ public static class FleePillResolver
         // Warm-up: one average bad tick would land the player at or below the survival threshold.
         if (stamina <= ReadyStaminaThreshold
             || (worstCaseTickDamage > 0
-                && stamina <= worstCaseTickDamage + CombatTierResolver.SurvivalStaminaThreshold))
+                && stamina <= worstCaseTickDamage + SurvivalStaminaThreshold))
             return FleePillStatus.Visible;
 
         return FleePillStatus.Hidden;

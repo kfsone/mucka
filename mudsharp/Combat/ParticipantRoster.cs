@@ -50,11 +50,12 @@ public readonly record struct ExchangeLine(
 /// app's own <c>FightSnapshot</c> record - that type lives in the Mucka/MAUI assembly, which this
 /// project does not and must not reference (mudsharp is the plain class library mudsharp.Tests links
 /// against via a ProjectReference with zero MAUI dependency). This keeps the decision pure,
-/// primitive-typed, and directly testable, matching <see cref="CombatTierResolver"/>'s own pattern
+/// primitive-typed, and directly testable, matching <see cref="FleePillResolver"/>'s own pattern
 /// in this same folder.
 /// </summary>
 /// <param name="HealthRung">How hurt it last looked, 1 (about to die) to 7 (unhurt), or null if the
-/// game has never said. See <see cref="NpcHealthRungs"/>.</param>
+/// game has not said within <see cref="RosterRow.HealthReadingLapsesAfterSeconds"/>. See
+/// <see cref="NpcHealthRungs"/>.</param>
 /// <param name="HealthPhrase">The game's own wording for that reading, for echoing verbatim.</param>
 /// <param name="HealthAgeSeconds">How old the reading is. MUD2 only reports health on a landed blow,
 /// and the player misses roughly a third of swings (measured 0.6275 hit rate, 5,118 of 8,156 player

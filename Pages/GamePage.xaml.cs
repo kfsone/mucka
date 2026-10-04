@@ -396,7 +396,7 @@ public partial class GamePage : ContentPage
                 SendButton.Clicked += OnSendButtonClicked;
                 _vm.OpenRawConsoleRequested += OnOpenRawConsoleRequested;
                 // Enforce minimum window width based on the configured terminal columns, and
-                // (same handler) drive the Combat Rail's shared pulse layer on tier changes.
+                // (same handler) drive the Combat Rail's trim, glow and rules on glow-level changes.
                 _vm.SidePanel.PropertyChanged += OnSidePanelPropertyChanged;
                 CombatPanelGlow.HandlerChanged += OnCombatPanelGlowHandlerChanged;
                 OnCombatPanelGlowHandlerChanged(CombatPanelGlow, EventArgs.Empty);
@@ -1558,7 +1558,7 @@ public partial class GamePage : ContentPage
     /// <summary>
     /// Responds to SidePanelViewModel property changes: updates the minimum window width
     /// (and resizes if needed) whenever the LEFT panel is expanded or collapsed, and drives the
-    /// Combat Rail's shared pulse layer whenever its tier changes. Deliberately one handler for
+    /// Combat Rail's trim, glow and rules whenever the glow level changes. Deliberately one handler for
     /// both - they are the same class of "a view-model flag changed, react on the UI thread" work,
     /// and the LEFT panel's own resize-then-refocus dance below is unrelated to (and must not be
     /// duplicated for) the combat panel's own resize, which lives in ResizeWindowForCombatPanel.
@@ -1570,10 +1570,6 @@ public partial class GamePage : ContentPage
             UpdateWindowMinimumWidth();
             // Toggling the panel can resize the window (its min width changes).
             RefocusAfterResize();
-        }
-        else if (e.PropertyName == nameof(SidePanelViewModel.PulseTier))
-        {
-            UpdateCombatEdges();
         }
         else if (e.PropertyName == nameof(SidePanelViewModel.GlowLevel))
         {

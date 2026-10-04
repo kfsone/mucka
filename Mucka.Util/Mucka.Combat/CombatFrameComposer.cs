@@ -45,19 +45,16 @@ public sealed record CombatFrameInputs(
     SomeKindKnowledge? SomeKinds = null);
 
 /// <summary>
-/// One composed frame: the two tiers the panel glows by, and the state the canvas draws.
+/// One composed frame: the state the canvas draws, and the stamina alarm's level on
+/// <see cref="StaminaGlow"/>'s ladder, which drives the panel's trim and glow and the combat rules.
 /// </summary>
 public sealed record CombatFrame(
-    CombatTier EncumbranceTier,
-    CombatTier PulseTier,
     CombatLiveView Live,
-    // The panel glow's level - see StaminaGlow. StaminaGlow.Red exactly when PulseTier is T3.
     int GlowLevel = 0);
 
 /// <summary>
-/// The Combat Rail's frame composer: the encumbrance tier, the pulse tier, and the whole
-/// <see cref="CombatLiveView"/> across three branches (no encounter / encounter but not in combat /
-/// in combat).
+/// The Combat Rail's frame composer: the whole <see cref="CombatLiveView"/> across three branches (no
+/// encounter / encounter but not in combat / in combat), and the stamina alarm's level.
 ///
 /// <para>Pure - it returns the frame rather than assigning it, so the stores stay in the view model
 /// and every rule below can be asserted from a test. <c>CombatRailResize.ComputeToggle</c> is the
@@ -76,18 +73,11 @@ public static class CombatFrameComposer
         var history = inputs.History;
         var nowUtc = inputs.NowUtc;
 
-        // Unconditional (not gated on InCombat): carrying too much is worth flagging through the
-        // post-fight grace window too, and costs nothing to recompute - pure arithmetic on values
-        // already on hand.
-        var encumbranceTier = CombatTierResolver.StrengthTier(
-            deficits.StrengthEffective, deficits.StrengthMax);
-
         // The stamina alarm runs whether or not a fight is happening, because the danger does not stop
         // when the fight does - see StaminaGlow for the ladder. In a fight its bands move up with the
         // largest blow a LIVE creature has landed; out of one they are the plain 30 and 20.
         var glowLevel = StaminaGlow.Level(deficits.StaminaCurrent,
             StaminaGlow.BandsFor(snapshot.InCombat ? LargestLiveBlowTaken(snapshot) : null));
-        var vulnerable = glowLevel == StaminaGlow.Red ? CombatTier.T3 : CombatTier.None;
 
         if (!snapshot.HasEncounter)
         {
@@ -100,7 +90,6 @@ public static class CombatFrameComposer
             // (RosterPlan.Empty, from CombatLiveView.Idle) the live-slot loop draws nothing regardless
             // of it - so this only ever re-enables the dead strip, never the live stack.
             return new CombatFrame(
-                encumbranceTier, vulnerable,
                 inputs.DeadStripHistory.Count == 0
                     ? CombatLiveView.Idle
                     : CombatLiveView.Idle with
@@ -159,7 +148,6 @@ public static class CombatFrameComposer
             // projecting a finished fight's death clock would be a lie. The roster and weapon/duration
             // context stay, exactly as the old formatter's headline/participant rows did.
             return new CombatFrame(
-                encumbranceTier, vulnerable,
                 new CombatLiveView(
                     InCombat: false, HasEncounter: true, WeaponText: weaponText,
                     // FALSE out of combat, whatever the player is holding. MUD2 has no persistent notion
@@ -188,44 +176,30 @@ public static class CombatFrameComposer
         var primary = CombatComposition.PrimaryFight(snapshot);
         var outlook = CombatComposition.ComputeOutlook(snapshot, deficits, history, primary);
 
-        // Incoming per-hit rate this fight - thin-sample gated (MinimumOwnHits) the same way the old
-        // ladder's own risk pairing gated it, reused here for the tier table's "hits-left" trigger
-        // too, so the threat indicator and the tier table never quietly disagree about "how
-        // close is this fight".
+        // Incoming per-hit rate this fight, thin-sample gated (MinimumOwnHits) - the flee pill's
+        // hits-left count.
         double? incomingPerHit = primary is { TheyHits: > 0 } f ? f.ApproxDamageTaken / f.TheyHits : null;
         int? hitsLeft = incomingPerHit is double rate && rate > 0
             && deficits.StaminaCurrent is int sta1 && primary!.TheyHits >= CombatOutlook.MinimumOwnHits
             ? (int)Math.Ceiling(sta1 / rate)
             : null;
 
-        // The encounter table's one coloured cell, off the SAME outlook the tier resolver below reads.
-        // Two consumers of one projection, which is what ComputeOutlook was extracted for; what must
-        // never happen again is a second ladder derived from the raw seconds beside it.
+        // The encounter table's one coloured cell. Its own reading of the outlook; what must never
+        // happen again is a second ladder derived from the raw seconds beside it. The stamina alarm does
+        // not read the projection at all: it promotes at "under 15 seconds to die", which against an
+        // ordinary zombie is arithmetically true from about 30 stamina - amber territory, which the
+        // ladder already covers by stamina.
         var survival = Survival.Read(outlook, CombatTiming.TickMilliseconds);
-
-        var staminaTier = CombatTierResolver.StaminaTier(
-            deficits.StaminaCurrent, deficits.StaminaMax, hitsLeft, outlook.SecondsToDie, outlook.SecondsToKill);
-        var fightTier = CombatTierResolver.ResolvePulseTier(staminaTier, CombatTier.None);
-
-        // The red answers to the stamina ladder (StaminaGlow) alone, never to the survival projection:
-        // the projection promotes at "under 15 seconds to die", which against an ordinary zombie is
-        // arithmetically true from about 30 stamina - amber territory. A big hitter is covered by the
-        // ladder's own bands (one of its blows from dead is red, two is amber), which is how a dragon
-        // can kill someone at high stamina. The projection's T3 drives everything quieter, as T2.
-        var pulseTier = vulnerable == CombatTier.T3
-            ? CombatTier.T3
-            : fightTier == CombatTier.T3 ? CombatTier.T2 : fightTier;
 
         // The flee pill computes no flee-cost figure and publishes no price; its loudest state is an
         // alarm about the cheap band, not a report of a cost. One accidental flee from a zombie at
         // 90/100 stamina cost 1300 of 13,000 points and a level, so the player already knows fleeing
-        // is expensive. What the panel owes them is the zone signal (staminaTier, above) and a valid
+        // is expensive. What the panel owes them is the zone signal (the stamina ladder) and a valid
         // direction to run, not a price tag to read while deciding.
 
         var incomingPerBlow = IncomingPerBlowOf(roster);
 
         return new CombatFrame(
-            encumbranceTier, pulseTier,
             new CombatLiveView(
                 InCombat: true, HasEncounter: true, WeaponText: weaponText, IsUnarmed: !hasWeapon,
                 Roster: roster,
@@ -234,9 +208,7 @@ public static class CombatFrameComposer
                 DeadStripHistory: deadStripHistory,
                 MagicCurrent: deficits.MagicCurrent, MagicMax: deficits.MagicMax,
                 AltWeapon: altWeapon,
-                // The flee pill. Fed hitsLeft rather than the resolved tier, so it agrees with the count
-                // that already overrides the whole-panel glow instead of deriving a second opinion from the
-                // same inputs.
+                // The flee pill, fed the hits-left count directly.
                 //
                 // Not gated on the grace window here: the grace flag changes without the frame state being
                 // rebuilt, so folding it in would leave it stale exactly when it matters. The renderer and

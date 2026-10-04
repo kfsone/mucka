@@ -2882,7 +2882,7 @@ public sealed class CombatRailView : SKCanvasView
 
     /// <summary>
     /// The Death column's tone. One lookup - the reading itself is resolved once, in
-    /// <see cref="MudSharp.Combat.Survival"/>, off the same projection the tier resolver uses.
+    /// <see cref="MudSharp.Combat.Survival"/>, off <c>CombatComposition.ComputeOutlook</c>.
     ///
     /// <para><b>Dire has no tone of its own</b>, because it is drawn inverted and blinking. Its entry
     /// here is the appearance it takes on the dark half of the cycle, which is the same red Losing

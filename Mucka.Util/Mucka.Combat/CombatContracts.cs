@@ -16,10 +16,6 @@ public sealed record CombatStatDeficits(
     int? StaminaCurrent,
     int? StaminaMax,
     int? ObjectsCarried,
-    // Effective (not raw) strength and its maximum, for the encumbrance-tier signal: T1 below 75% of
-    // max effective strength, T2 below 50%. An ABSOLUTE fraction-of-max, not a delta from raw strength.
-    int? StrengthEffective = null,
-    int? StrengthMax = null,
     // Total score, from the same FES snapshot. Carried only as an input to MUD2's own formula for what
     // leaving costs (MudSharp.Combat.FleeWorth); the top status strip owns the score READOUT.
     int? Score = null,

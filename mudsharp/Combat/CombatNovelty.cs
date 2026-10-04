@@ -31,9 +31,9 @@ public enum NoveltyMark
 /// Turns "have I fought this / have I killed this" into a <see cref="NoveltyMark"/>, and rolls a
 /// pack of them into the single mark the player's own weapon carries.
 ///
-/// <para>Kept as a pure static beside <see cref="CombatTierResolver"/> and
-/// <see cref="FleePillResolver"/> - same reason as those: the decision is testable without a
-/// canvas, a view model or a database, and the renderer is left with nothing to decide.</para>
+/// <para>Kept as a pure static beside <see cref="FleePillResolver"/> - same reason as that one: the
+/// decision is testable without a canvas, a view model or a database, and the renderer is left with
+/// nothing to decide.</para>
 /// </summary>
 public static class CombatNovelty
 {

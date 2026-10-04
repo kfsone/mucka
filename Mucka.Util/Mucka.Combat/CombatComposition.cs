@@ -19,8 +19,8 @@ public static class CombatComposition
 
     /// <summary>
     /// "Am I going to die before it does" - <see cref="CombatOutlook.Project"/> against the
-    /// encounter's primary fight. Shared with the Combat Rail's tier resolver so the outlook line
-    /// and the tier never disagree about "how close is this fight".
+    /// encounter's primary fight. Shared by the encounter table's Death column and the rail's
+    /// tick projections, so they never disagree about "how close is this fight".
     /// </summary>
     public static CombatOutlook ComputeOutlook(
         CombatEncounterSnapshot snapshot, CombatStatDeficits deficits, CombatHistoryContext history,

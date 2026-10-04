@@ -227,10 +227,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     // window never resizes itself on any other change - see GamePage.OnAppearing's own remarks on
     // applying that first state.
     private bool _isCombatPanelVisible;
-    private CombatTier _pulseTier = CombatTier.None;
     private int _glowLevel;
-
-    private CombatTier _encumbranceTier = CombatTier.None;
     // The Combat Rail's LIVE hero section - threat indicator, opposition roster, survival numbers -
     // composed fresh each refresh (see RefreshCombatSignals). CombatLiveView.Idle until an encounter
     // exists at all, exactly like every other combat signal field in this file.
@@ -461,20 +458,10 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     /// </summary>
     public event Action<RailFloat>? CombatFloatRaised;
 
-    /// <summary>The Combat Rail's alert tier. <see cref="CombatTier.T3"/> lights the red combat edges;
-    /// the panel glow follows <see cref="GlowLevel"/>, which is at its red exactly when this is
-    /// T3.</summary>
-    public CombatTier PulseTier => _pulseTier;
-
-    /// <summary>The panel glow's level on <see cref="StaminaGlow"/>'s ladder: 0 none, the amber steps,
-    /// then red. Notified only when it changes.</summary>
+    /// <summary>The stamina alarm's level on <see cref="StaminaGlow"/>'s ladder - 0 none, the amber
+    /// steps, then red - which drives the panel's trim and glow and the combat rules. Notified only when
+    /// it changes.</summary>
     public int GlowLevel => _glowLevel;
-
-    /// <summary>Encumbrance tier for the load line's colour intensity: T1 below 75% of max
-    /// effective strength, T2 below 50%. Computed unconditionally whenever there is anything on
-    /// screen at all - carrying too much is worth flagging even during the post-fight grace window,
-    /// not only while a fight is actively live.</summary>
-    public CombatTier EncumbranceTier => _encumbranceTier;
 
     /// <summary>True once there is a finished encounter on screen worth dismissing. Never while the
     /// fight is live - clearing mid-fight would just refill on the next line.</summary>
@@ -701,14 +688,8 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
                 StaminaCurrent: stats.Stamina,
                 StaminaMax: stats.MaxStamina,
                 // Carried weight is not here, and not anywhere - it is not captured, stored or shown
-                // by this client at all. See GameLineAnalyzer's score-sheet branch for why. Effective
-                // strength below still carries the real "you are loaded down" signal, because it rides
-                // the FES heartbeat and already has the load priced in.
+                // by this client at all. See GameLineAnalyzer's score-sheet branch for why.
                 ObjectsCarried: LiveObjectsCarried,
-                // Absolute effective/max strength, for the Combat Rail's encumbrance tier, which needs
-                // fraction-of-max. The dexterity pair beside it went with the deltas: nothing read it.
-                StrengthEffective: stats.Strength,
-                StrengthMax: stats.MaxStrength,
                 // MUD2's own input to what leaving costs - see MudSharp.Combat.FleeWorth.
                 Score: stats.Score,
                 MagicCurrent: stats.CurrentMagic,
@@ -928,14 +909,12 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         // what actually protects Invariant #1 here.
         RefreshCombatSignals(snapshot, _combatDeficits, history, nowUtc);
 
-        OnPropertiesChanged(nameof(HasCombatData), nameof(NoCombatData),
-            nameof(PulseTier),
-            nameof(EncumbranceTier), nameof(Live));
+        OnPropertiesChanged(nameof(HasCombatData), nameof(NoCombatData), nameof(Live));
     }
 
     /// <summary>
-    /// Composes the Combat Rail's frame - the encumbrance tier, the pulse tier and the live view -
-    /// and stores the three of them.
+    /// Composes the Combat Rail's frame - the live view and the stamina alarm's level - and stores
+    /// both.
     ///
     /// <para>The computation itself is <see cref="CombatFrameComposer.Compose"/>, which is pure and
     /// therefore testable; this method is the seam that reads the fields it needs and applies the
@@ -957,8 +936,6 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             _personaName, _staminaAnsiColor,
             _staminaPool, _swingDamage, _fightHistory, _reachMarks, _someKinds));
 
-        _encumbranceTier = frame.EncumbranceTier;
-        _pulseTier = frame.PulseTier;
         _live = frame.Live;
         if (_glowLevel != frame.GlowLevel)
         {

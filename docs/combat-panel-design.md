@@ -1,7 +1,7 @@
 # Combat Panel Design
 
 Appearance and content of the rail are specified in `combat-rail-spec.md`; this document keeps the
-decisions, the window policy, the alert tiers, the keybindings and the performance contract.
+decisions, the window policy, the alert, the keybindings and the performance contract.
 
 ## Decisions
 
@@ -24,8 +24,9 @@ D5. Flee cost is shown as the flee pill (`combat-rail-spec.md`, section 5), pric
     in `MUD2-flee-cost.md`. No automated "you should wait" advice is ever generated.
 
 D6. Cost-framing never overrides survival-framing. Below `CriticalStaminaThreshold` (6.5 stamina,
-    where a flee is free) the alert tier does NOT de-escalate to a calm tone - the player is 1-2
-    hits from permadeath regardless of what fleeing costs. See "Hard floor" below.
+    where a flee is free) the alarm does NOT de-escalate to a calm tone - the player is 1-2 hits
+    from permadeath regardless of what fleeing costs. The stamina glow is at its red and the flee
+    pill reads EscapeNow.
 
 D7. Render surface for all live combat content is a single SkiaSharp `SKCanvasView` embedded in
     the Combat Rail panel, not discrete WinUI controls (`Label`/`FormattedString`/`CollectionView`)
@@ -97,7 +98,7 @@ populates and updates as combat happens; it does not appear, grow, or shrink on 
 
 - The result banner persists until the next fight starts or the player dismisses it. No timed
   self-clear.
-- No urgency tier, outlook detail, or flee pricing renders post-combat; those are survival
+- No outlook detail or flee pricing renders post-combat; those are survival
   projections and go silent when `InCombat` is false. The roster and the stamina gauge stay, since
   they describe fact rather than projecting one.
 
@@ -116,47 +117,19 @@ populates and updates as combat happens; it does not appear, grow, or shrink on 
 | Caution | 3 / 11 | degraded, not lethal |
 | Good | 2 / 10 | beating your own historical baseline |
 
-## Alert tiers
+## Alert
 
-Three STATE tiers. There are no event (one-off flash) tiers.
+One alarm, about stamina, and no event (one-off flash) alerts.
 
-| Tier | Colour move | Motion | Duration | Meaning |
-| --- | --- | --- | --- | --- |
-| T1 | normal hue | none | while true | worth noticing on your own time |
-| T2 | bright hue | none | while true | worth noticing soon |
-| T3 | bright hue | red combat edges; the panel glow at its red | while true | act now |
-
-Rules:
-
-- At most one T3 element at a time (`CombatTierResolver.ResolvePulseTier`). If two conditions
-  qualify, the most urgent (lowest time-to-die) wins the pulse; the other renders T2. Tie-break:
-  stamina always wins, because it is the only signal that directly ends the encounter in death.
-- The panel's trim and glow and the 1px combat rules are their own ladder (`StaminaGlow`,
-  combat-rail-spec.md section 8): an amber ramp from 30 stamina, red at 20, both moved up in a
-  fight by the largest blow a live creature has landed. T3 is exactly the ladder's red. It runs out
-  of combat too.
+- The panel's trim and glow and the 1px combat rules are a single ladder (`StaminaGlow`,
+  combat-rail-spec.md section 8): an amber ramp from 30 stamina, red at 20, both moved up in a fight
+  by the largest blow a live creature has landed. It runs out of combat too.
+- The flee pill is its own state machine (`FleePillResolver`, combat-rail-spec.md section 5):
+  EscapeNow at or below `FleePillResolver.CriticalStaminaThreshold` (6.5), Caution at or below
+  `FleePillResolver.SurvivalStaminaThreshold` (20) or when one tick's damage can kill.
 - Motion is always a glow/opacity layer behind text via WinUI Composition (D8), never the text's
   own colour.
-
-### What triggers what
-
-| Signal | Tier | Condition |
-| --- | --- | --- |
-| Stamina / hits-left | T3 | hits-left <= 2, or projected time-to-die < 15 s and shorter than time-to-kill |
-| Stamina | T2 | hits-left <= 4, or stamina < 25% of max |
-| Stamina | T1 | stamina < 50% of max, in combat |
-| Strength delta chip | T2 | effective strength < 50% of max |
-| Strength delta chip | T1 | effective strength < 75% of max |
-| Dexterity delta chip | T1 | any nonzero penalty, in combat |
-| Unarmed | T2 | whenever current weapon is null and a fight is live |
-
-### Hard floor
-
-At or below `CriticalStaminaThreshold` (6.5 stamina) the urgency tier renders at no less than T2,
-regardless of what the table above computes from hits-left or projected time-to-die. The table may
-still promote it to T3; nothing may render it below T2 while stamina sits at or under the free-flee
-threshold. `CombatTierResolver.CriticalStaminaFloorTier` implements the floor.
-`SurvivalStaminaThreshold` (20) is the other risk-tier boundary used by the flee pill.
+- No alert is a fraction of maximum stamina: incoming damage does not scale with the player's stats.
 
 ## Keybindings
 
@@ -185,7 +158,7 @@ state change.
 
 Pulse/glow (D8): a WinUI element positioned BEHIND the canvas in the same grid cell (canvas
 background transparent), driven by `ElementCompositionPreview.GetElementVisual` plus a
-`ScalarKeyFrameAnimation` on `Opacity`, started/stopped only on tier transitions, and torn down in
+`ScalarKeyFrameAnimation` on `Opacity`, restarted only when the glow level changes, and torn down in
 the host's `OnHandlerChanged` when `Handler` is null. A live Composition animation on a destroyed
 visual crashes the process with `RO_E_CLOSED` (`0x80000013`), so teardown is not optional. This is
 the ONLY mechanism producing continuous motion anywhere on the panel; the canvas is never asked to

@@ -1253,7 +1253,7 @@
                 <!-- Glow layer BEHIND the canvas: opacity animated ONLY via WinUI Composition
                      (PulseLayer, GamePage.xaml.cs), never via a UI-thread timer and never by
                      recolouring the canvas's own drawn text. Rests at Opacity 0 (invisible) whenever
-                     no tier is pulsing. -->
+                     the stamina glow is not lit. -->
                 <!-- No Opacity here: XAML owns UIElement.Opacity on the very visual PulseLayer
                      animates, and at 0 it wins - the animation runs and nothing is ever drawn. The
                      rest state is asserted in PulseLayer's constructor instead. -->

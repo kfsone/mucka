@@ -109,7 +109,7 @@ public sealed class CombatFrameComposerTests
         var frame = Compose(Encounter(fights: [Fight(theyHits: 3, damageTaken: 90, largestBlowTaken: 30)]),
             Stamina(60));
 
-        Assert.NotEqual(CombatTier.T3, frame.PulseTier);
+        Assert.NotEqual(StaminaGlow.Red, frame.GlowLevel);
         Assert.InRange(frame.GlowLevel, 1, StaminaGlow.Steps);
     }
 
@@ -120,7 +120,6 @@ public sealed class CombatFrameComposerTests
         var frame = Compose(Encounter(fights: [Fight(theyHits: 3, damageTaken: 90, largestBlowTaken: 30)]),
             Stamina(31));
 
-        Assert.Equal(CombatTier.T3, frame.PulseTier);
         Assert.Equal(StaminaGlow.Red, frame.GlowLevel);
     }
 
@@ -130,30 +129,28 @@ public sealed class CombatFrameComposerTests
     public void Glow_TheAverageHitsLeftCountAloneDoesNotLightIt()
         => Assert.Equal(0, Compose(Encounter(fights: [Fight(theyHits: 3, damageTaken: 90)]), Stamina(60)).GlowLevel);
 
-    /// <summary>The demotion the override exists to survive: a projection-driven T3 with no
-    /// hits-left count behind it renders as T2. Catches an implementation that promotes on the
-    /// projection alone, which is the "alarm that cries wolf at 30" this ladder was built to
-    /// stop.</summary>
+    /// <summary>A fight the survival projection says is going badly does not light the red at a
+    /// stamina the ladder calls safe: the projection promotes from about 30 stamina against an
+    /// ordinary zombie, and an alarm that cries wolf at 30 is an alarm that gets ignored at 20.</summary>
     [Fact]
-    public void PulseTier_ProjectionOnlyT3IsDemotedToT2()
+    public void Glow_TheProjectionAloneDoesNotLightTheRed()
     {
         // Losing badly on the clock, but only one landed blow on file - below CombatOutlook's own
         // MinimumOwnHits, so no hits-left count exists.
         var frame = Compose(Encounter(fights: [Fight(youHits: 1, theyHits: 1, damageTaken: 55)]),
             new CombatStatDeficits(StaminaCurrent: 55, StaminaMax: 100, ObjectsCarried: 0));
 
-        Assert.NotEqual(CombatTier.T3, frame.PulseTier);
+        Assert.NotEqual(StaminaGlow.Red, frame.GlowLevel);
     }
 
-    /// <summary>Low stamina promotes to T3 on its own, in a fight the projection is not worried
-    /// about. Catches the stamina ladder being dropped from the in-combat branch, where it is the one
-    /// thing the whole-panel glow answers to.</summary>
+    /// <summary>Survival stamina is red on its own, in a fight the projection is not worried about.
+    /// Catches the stamina ladder being dropped from the in-combat branch, where it is the one thing
+    /// the whole-panel glow answers to.</summary>
     [Fact]
-    public void PulseTier_SurvivalStaminaHoldsT3InCombat()
+    public void Glow_SurvivalStaminaIsRedInCombat()
     {
         var frame = Compose(Encounter(fights: [Fight()]), Stamina(StaminaGlow.RedStamina));
 
-        Assert.Equal(CombatTier.T3, frame.PulseTier);
         Assert.Equal(StaminaGlow.Red, frame.GlowLevel);
     }
 
@@ -163,7 +160,7 @@ public sealed class CombatFrameComposerTests
     {
         var frame = Compose(Encounter(fights: [Fight()]), Stamina(25));
 
-        Assert.NotEqual(CombatTier.T3, frame.PulseTier);
+        Assert.NotEqual(StaminaGlow.Red, frame.GlowLevel);
         Assert.InRange(frame.GlowLevel, 1, StaminaGlow.Steps);
     }
 
@@ -174,7 +171,6 @@ public sealed class CombatFrameComposerTests
         var snapshot = Encounter(fights: [Fight(largestBlowTaken: 39)]);
 
         Assert.Equal(StaminaGlow.Red, Compose(snapshot, Stamina(40)).GlowLevel);
-        Assert.Equal(CombatTier.T3, Compose(snapshot, Stamina(40)).PulseTier);
         Assert.InRange(Compose(snapshot, Stamina(41)).GlowLevel, 1, StaminaGlow.Steps);
     }
 
@@ -213,16 +209,13 @@ public sealed class CombatFrameComposerTests
     public void Glow_IsOffAboveTheRamp()
         => Assert.Equal(0, Compose(Encounter(fights: [Fight()]), Stamina(31)).GlowLevel);
 
-    // ---- The flee pill is fed the count, not the tier -----------------------------------------
+    // ---- The flee pill is fed the hits-left count ------------------------------------------------
 
     /// <summary>
-    /// The pill agrees with the count that already overrides the whole-panel glow, rather than
-    /// deriving a second opinion from the resolved tier.
-    ///
-    /// <para>Asserted by construction: the frame's pill is what <see cref="FleePillResolver"/>
-    /// returns for the hits-left count, and NOT what it returns for the same fight with no count.
-    /// Catches the pill being handed the tier - the two then disagree about a fight two blows from
-    /// over, which is precisely when the player is reading it.</para>
+    /// The pill is resolved from the fight's hits-left count. Asserted by construction: the frame's
+    /// pill is what <see cref="FleePillResolver"/> returns for the count, and NOT what it returns for
+    /// the same fight with no count - the case two blows from over, which is precisely when the player
+    /// is reading it.
     /// </summary>
     [Fact]
     public void FleePill_IsResolvedFromTheHitsLeftCount()
@@ -345,7 +338,6 @@ public sealed class CombatFrameComposerTests
             Encounter(hasEncounter: false, inCombat: false),
             new CombatStatDeficits(StaminaCurrent: 20, StaminaMax: 100, ObjectsCarried: 0));
 
-        Assert.Equal(CombatTier.T3, frame.PulseTier);
         Assert.Equal(StaminaGlow.Red, frame.GlowLevel);
     }
 
@@ -355,23 +347,6 @@ public sealed class CombatFrameComposerTests
     public void NoEncounter_TheAmberRampStillGlows()
         => Assert.InRange(Compose(Encounter(hasEncounter: false, inCombat: false), Stamina(28)).GlowLevel,
             1, StaminaGlow.Steps);
-
-    // ---- Encumbrance is computed on every branch ------------------------------------------------
-
-    /// <summary>Carrying too much is flagged with no encounter at all: it is worth knowing through
-    /// the grace window and between fights, and it costs nothing to recompute. Catches the
-    /// computation being moved inside the in-combat branch.</summary>
-    [Fact]
-    public void EncumbranceTier_IsComputedWithNoEncounter()
-    {
-        var frame = Compose(
-            Encounter(hasEncounter: false, inCombat: false),
-            new CombatStatDeficits(
-                StaminaCurrent: 60, StaminaMax: 100, ObjectsCarried: 9,
-                StrengthEffective: 20, StrengthMax: 100));
-
-        Assert.Equal(CombatTier.T2, frame.EncumbranceTier);
-    }
 
     // ---- The encounter table --------------------------------------------------------------------
 

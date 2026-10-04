@@ -24,7 +24,7 @@ namespace Mucka.Combat;
 public static class StaminaGlow
 {
     /// <summary>The red band's floor: the survival threshold.</summary>
-    public const int RedStamina = (int)CombatTierResolver.SurvivalStaminaThreshold;
+    public const int RedStamina = (int)FleePillResolver.SurvivalStaminaThreshold;
 
     /// <summary>The amber band's floor.</summary>
     public const int AmberStamina = RedStamina + 10;
