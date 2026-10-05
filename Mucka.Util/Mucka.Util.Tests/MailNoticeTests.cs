@@ -3,8 +3,9 @@ using Mucka.Commands;
 namespace Mucka.Util.Tests;
 
 /// <summary>
-/// The login banner's mail verdict. Fixtures are the verbatim tails captured in the wire log
-/// (mud2.co.uk; both verdicts, and no other wording).
+/// The login banner's mail verdict, "[You have mail: N item]". The arrival notice is
+/// <c>MailNotice</c>, tested in mudsharp.Tests. Fixtures are the verbatim tails captured in the wire
+/// log (mud2.co.uk; both verdicts, and no other wording).
 /// </summary>
 public class MailNoticeTests
 {
@@ -35,24 +36,6 @@ public class MailNoticeTests
     [InlineData("[You have mail: \u0661 item]")]
     public void AbsurdOrNonAsciiCounts_DoNotThrow(string text)
         => Assert.Equal(0, ShellText.MailItemsWaiting(text));
-
-    [Theory]
-    [InlineData("+- You have new mail from Drizzle -+", "Drizzle")]
-    [InlineData("+- You have new mail from Kram -+", "Kram")]
-    public void NewMailNotice_IsReadFromTheCapturedLine(string line, string from)
-    {
-        Assert.True(ShellText.TryParseNewMailLine(ShellText.NormalizeWhitespace(line), out var sender));
-        Assert.Equal(from, sender);
-    }
-
-    /// <summary>The notice repeated through say, as captured: a speaker wraps it, so it is not mail.</summary>
-    [Theory]
-    [InlineData("Kayfez the pioneer says \"+- You have new mail from Drizzle -+\".")]
-    [InlineData("\"+- You have new mail from Drizzle -+")]
-    [InlineData("[Message number 14201 sent to Ollie]")]
-    [InlineData("[You have mail: 1 item]")]
-    public void NewMailNotice_RejectsEverythingButTheBareLine(string line)
-        => Assert.False(ShellText.TryParseNewMailLine(ShellText.NormalizeWhitespace(line), out _));
 
     [Fact]
     public void AMailLineWithNoCount_StillMeansSomethingIsWaiting()

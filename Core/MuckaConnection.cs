@@ -104,6 +104,8 @@ public sealed class MuckaConnection : IAsyncDisposable
     /// <summary>A tell arrived from a named sender. Payload is the sender's screen name; drives the
     /// ctrl-r reply hotkey.</summary>
     public event Action<string>? TellReceived;
+    /// <summary>New mail was announced; payload is the sender. See <see cref="MudSharp.Models.MailNotice"/>.</summary>
+    public event Action<string>? MailReceived;
     public event Action<string, AnsiColor>? FewPlayerReady;
     /// <summary>Fired when a FEW-response context opens (C12+C08+C05). Start accumulating names.</summary>
     public event Action? FewListStarting;
@@ -859,6 +861,7 @@ public sealed class MuckaConnection : IAsyncDisposable
         };
         _session.SoundRequested     += s => SoundRequested?.Invoke(s);
         _session.TellReceived       += name => TellReceived?.Invoke(name);
+        _session.MailReceived       += sender => MailReceived?.Invoke(sender);
         _session.FewPlayerReady     += (n, c) => FewPlayerReady?.Invoke(n, c);
         _session.FewListStarting    += () => FewListStarting?.Invoke();
         _session.FewListComplete    += () => FewListComplete?.Invoke();

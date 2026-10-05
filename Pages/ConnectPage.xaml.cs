@@ -245,7 +245,9 @@ public partial class ConnectPage : ContentPage
 
                 if (profile.GuidedLogin)
                 {
+                    gameVm.BeginLoginFlow();
                     var result = await RunGuidedLoginOverlayAsync(conn, profile);
+                    gameVm.EndLoginFlow(result.MailItems);
                     if (result.Outcome is not (GuidedLoginOutcome.Succeeded or GuidedLoginOutcome.ManualAtOptionMenu))
                     {
                         await gameVm.DisposeAsync();

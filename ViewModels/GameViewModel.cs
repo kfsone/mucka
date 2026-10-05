@@ -251,6 +251,52 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     /// stronger, and <see cref="StartRecording"/> guards its own re-entry.</summary>
     private volatile SessionRecorder? _recorder;
 
+    // -- Mail ------------------------------------------------------------------------------------
+    // The server announces mail with a bare "+- You have new mail from X -+" line at any time, game
+    // mode included. Every such line sets MailWaiting; the sound and toast are OnMailReceived's to give
+    // only once persona login has been passed, because until then GuidedLoginController has the
+    // notice and says it its own way. Cleared by the player, and by a new session.
+
+    private const string MailSoundAsset = "sounds/mucka.mail.wav";
+    /// <summary>Below this many effective columns the status bar has no room for the envelope.</summary>
+    private const int MailGlyphMinCols = 50;
+
+    private volatile bool _loginFlowActive;
+    private bool _mailWaiting;
+
+    /// <summary>Mail has arrived, or was waiting at login, and the player has not dismissed it.</summary>
+    public bool MailWaiting { get => _mailWaiting; private set { if (Set(ref _mailWaiting, value)) OnPropertyChanged(nameof(MailGlyphVisible)); } }
+    public bool MailGlyphVisible => _mailWaiting && _effCols >= MailGlyphMinCols;
+    public ICommand ClearMailCommand { get; }
+
+    /// <summary>The persona-login flow is running: it owns the sound for mail until it is passed.</summary>
+    public void BeginLoginFlow() => _loginFlowActive = true;
+
+    /// <summary>The persona-login flow has been passed. <paramref name="mailItems"/> is what it knew to
+    /// be waiting, which stays waiting if the player chose to carry on.</summary>
+    public void EndLoginFlow(int mailItems)
+    {
+        _loginFlowActive = false;
+        if (mailItems > 0)
+            SetMailWaiting(true);
+    }
+
+    // Feed thread, once per announcement - see MailNotice.
+    private void OnMailReceived(string sender)
+    {
+        SetMailWaiting(true);
+        if (_loginFlowActive)
+            return;
+        SoundService.PlayServerSound(MailSoundAsset);
+        MainThread.BeginInvokeOnMainThread(() => ToastRequested?.Invoke($"* You have mail from {sender}"));
+    }
+
+    private void SetMailWaiting(bool value)
+    {
+        if (MainThread.IsMainThread) MailWaiting = value;
+        else MainThread.BeginInvokeOnMainThread(() => MailWaiting = value);
+    }
+
     /// <summary>True while a transcript is being written - lights the "rec" chip.</summary>
     public bool IsRecording { get => _isRecording; private set => Set(ref _isRecording, value); }
     private bool _isRecording;
@@ -733,6 +779,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         ConfigCommand         = new Command(() => ConfigRequested?.Invoke());
         ToggleChatModeCommand = new Command(() => SetChatMode(!ChatMode));
         ToggleRecordingCommand = new Command(ToggleRecording);
+        ClearMailCommand = new Command(() => SetMailWaiting(false));
     }
 
     public string[] GetAllFkeys()
@@ -1335,6 +1382,8 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private void ResetSessionState()
     {
         _inGameMode = false;
+        _loginFlowActive = false;
+        SetMailWaiting(false);
         StopSlowChatTest("stopped, disconnected");
         _sessionAliases.Clear();
         FlipChatMode(false);
@@ -2229,6 +2278,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         {
             OnPropertyChanged(nameof(EffCols));
             OnPropertyChanged(nameof(IsCompactStats));
+            OnPropertyChanged(nameof(MailGlyphVisible));
             OnPropertyChanged(nameof(IsNotCompactStats));
             OnPropertyChanged(nameof(IsCompactWeather));
             OnPropertyChanged(nameof(StatsValueFontSize));
@@ -2326,6 +2376,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private void SubscribeConnectionEvents()
     {
         _conn.LineReady        += OnLineReady;
+        _conn.MailReceived     += OnMailReceived;
         _conn.StatsUpdated     += OnStatsUpdated;
         _conn.PersonaWiped     += OnPersonaWiped;
         _conn.AutoResetInitiated += OnAutoResetInitiated;
@@ -2390,6 +2441,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private void UnsubscribeConnectionEvents()
     {
         _conn.LineReady        -= OnLineReady;
+        _conn.MailReceived     -= OnMailReceived;
         _conn.StatsUpdated     -= OnStatsUpdated;
         _conn.PersonaWiped     -= OnPersonaWiped;
         _conn.AutoResetInitiated -= OnAutoResetInitiated;

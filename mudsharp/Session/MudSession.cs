@@ -350,6 +350,9 @@ public sealed class MudSession : IDisposable
     public event Action<string>? ClientModeReceived;
     public event Action<string>? SoundRequested;
     public event Action<string>? TellReceived;
+    /// <summary>The server announced new mail ("+- You have new mail from X -+"); the payload is the
+    /// sender. Raised from the text alone, in any mode, once per finished line.</summary>
+    public event Action<string>? MailReceived;
     public event Action<string, AnsiColor>? FewPlayerReady;
     public event Action? FewListStarting;
     public event Action? FewListComplete;
@@ -579,6 +582,7 @@ public sealed class MudSession : IDisposable
     /// <summary>Reset parser state (call on disconnect).</summary>
     public void Reset()
     {
+        _mailHead = string.Empty;
         StopFesTimer();
         lock (_fesLock)
         {
@@ -665,7 +669,40 @@ public sealed class MudSession : IDisposable
         _combat.Observe(line, CombatClock());
         // After _combat.Observe, so InCombat already reflects any fight this very line opened.
         NoteInventoryChangeLine(line);
+        NoteMailLine(line);
         LineReady?.Invoke(line);
+    }
+
+    // Before the game starts the read loop emits whatever is buffered after every socket read, and a
+    // partial takes its text with it (the parser clears its spans), so the line that finally ends
+    // holds only the tail. A notice split by a read boundary therefore arrives as head + tail, and
+    // one that ends exactly at the boundary arrives whole as a partial with nothing after it. Heads
+    // that start with '+' are held and joined to what follows; a prompt never starts that way, so
+    // the held text stays empty in game mode, where partials are prompts.
+    private const int MailHeadCap = 256;
+    private string _mailHead = string.Empty;
+
+    private void NoteMailLine(StyledLine line)
+    {
+        var text = line.PlainText;
+        string joined;
+        if (line.IsPartial)
+        {
+            if (_mailHead.Length == 0 && !text.AsSpan().TrimStart().StartsWith("+"))
+                return;
+            _mailHead = _mailHead.Length + text.Length <= MailHeadCap ? _mailHead + text : string.Empty;
+            // A partial that is already the whole notice is the last of the line.
+            if (!MailNotice.TryParse(_mailHead, out var whole))
+                return;
+            _mailHead = string.Empty;
+            MailReceived?.Invoke(whole);
+            return;
+        }
+
+        joined = _mailHead.Length == 0 ? text : _mailHead + text;
+        _mailHead = string.Empty;
+        if (MailNotice.TryParse(joined, out var sender))
+            MailReceived?.Invoke(sender);
     }
 
     private void WireParserEvents()

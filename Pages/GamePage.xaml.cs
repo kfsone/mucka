@@ -778,11 +778,25 @@ public partial class GamePage : ContentPage
             _isFkeyEditorOpen = false;
         }
 
-        var controller = _vm.CreateGuidedLoginController(options);
-        var loginVm = new GuidedLoginViewModel(controller, drop);
+        // Before the controller exists, which is what starts counting notices: the flow owns the sound
+        // from that moment, so the view model must not also give it.
+        _vm.BeginLoginFlow();
+        Mucka.Core.GuidedLogin.GuidedLoginController controller;
+        GuidedLoginViewModel loginVm;
+        try
+        {
+            controller = _vm.CreateGuidedLoginController(options);
+            loginVm = new GuidedLoginViewModel(controller, drop);
+        }
+        catch
+        {
+            _vm.EndLoginFlow(0);   // the try below never runs, so its finally cannot
+            throw;
+        }
         GuidedLoginPage? page = null;
         var leftAtOptionMenu = false;
         var endConnection = false;
+        var mailItems = 0;
         try
         {
             _isGuidedLoginOverlayOpen = true;
@@ -790,6 +804,7 @@ public partial class GamePage : ContentPage
             await Navigation.PushModalAsync(page);
 
             var result = await controller.RunAsync(page.CancellationToken);
+            mailItems = result.MailItems;
             // Not worth an alert if the session went away underneath us (an account logout also
             // exits game mode) -- the disconnect handling already tells the player.
             if (result.Outcome == Mucka.Core.GuidedLogin.GuidedLoginOutcome.Failed
@@ -825,6 +840,7 @@ public partial class GamePage : ContentPage
         {
             loginVm.Detach();
             controller.Dispose();
+            _vm.EndLoginFlow(mailItems);
             if (page != null)
                 await Navigation.PopModalAsync();
             _isGuidedLoginOverlayOpen = false;
@@ -836,7 +852,7 @@ public partial class GamePage : ContentPage
         // Say so in the terminal: the overlay vanishing with no explanation is exactly the
         // "no obvious indication of what happened" problem the headline was added to solve.
         if (leftAtOptionMenu && _vm.IsConnected)
-            _vm.NoteLeftAtOptionMenu();
+            _vm.NoteLeftAtOptionMenu(mailItems);
 
         if (endConnection && _vm.IsConnected)
         {

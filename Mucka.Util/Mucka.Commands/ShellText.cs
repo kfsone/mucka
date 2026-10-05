@@ -95,25 +95,6 @@ public static class ShellText
         return m.Groups["n"].Success ? int.Parse(m.Groups["n"].Value, CultureInfo.InvariantCulture) : 1;
     }
 
-    private static readonly Regex NewMailLine = new(
-        @"^\+- You have new mail from (?<from>.+?) -\+$", RegexOptions.Compiled);
-
-    /// <summary>
-    /// The notice printed when mail arrives while connected: "+- You have new mail from Drizzle -+",
-    /// on a line of its own with no C1 code, so the text is the only signal. The same line is printed
-    /// inside the shell's MAIL program.
-    ///
-    /// <para>Whole-line, like the farewell: a player can say anything, and the notice repeated through
-    /// <c>say</c> arrives wrapped as 'Kayfez the pioneer says "+- You have new mail from Drizzle -+".'
-    /// (captured), which must not read as mail. <paramref name="normalized"/> is ONE line.</para>
-    /// </summary>
-    public static bool TryParseNewMailLine(string normalized, out string sender)
-    {
-        var m = NewMailLine.Match(normalized);
-        sender = m.Success ? m.Groups["from"].Value : string.Empty;
-        return m.Success;
-    }
-
     /// <summary>The MUD Shell's top-level "Option (H for help):" prompt.</summary>
     public static bool IsShellOptionPrompt(string normalized) => ContainsPhrase(normalized, "option (h for help)");
 

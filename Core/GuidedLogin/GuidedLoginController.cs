@@ -37,9 +37,9 @@ public sealed record GuidedLoginOptions(
 
 public enum GuidedLoginOutcome { Succeeded, Failed, Cancelled, ManualAtOptionMenu }
 
-/// <param name="MailItems">Items the login banner reported waiting and the player was told about; set
-/// only on <see cref="GuidedLoginOutcome.ManualAtOptionMenu"/>, so the caller can point at the mail
-/// option.</param>
+/// <param name="MailItems">Items the login banner and new-mail notices reported waiting; set on
+/// success and on <see cref="GuidedLoginOutcome.ManualAtOptionMenu"/>, so the caller can keep the
+/// player reminded and point at the mail option.</param>
 public sealed record GuidedLoginResult(
     GuidedLoginOutcome Outcome, string? FailureReason = null, int MailItems = 0);
 
@@ -74,7 +74,7 @@ public sealed class GuidedLoginController : IDisposable
     private bool _disconnected;
     private int _dropToMenuRequested;
     private int _mailItems;           // the banner's count plus every new-mail notice seen since connecting
-    private bool _mailAnnounced;      // the sound has played; later notices play it again
+    private bool _mailAnnounced;      // the decision point has passed; a notice after it sounds at once
 
     private TaskCompletionSource<bool?>? _mailDecision;  // resolved by ResolveMail
     private TaskCompletionSource<string?>? _personaDecision;   // resolved by SelectExistingPersona/RequestCreateNew
@@ -112,6 +112,7 @@ public sealed class GuidedLoginController : IDisposable
         _playRetryWindow = options.PlayRetryWindow ?? DbRetryWindow;
 
         _conn.LineReady += OnLineReady;
+        _conn.MailReceived += OnMailReceived;
         _conn.GameModeEntered += OnGameModeEntered;
         _conn.Disconnected += OnDisconnected;
     }
@@ -119,6 +120,7 @@ public sealed class GuidedLoginController : IDisposable
     public void Dispose()
     {
         _conn.LineReady -= OnLineReady;
+        _conn.MailReceived -= OnMailReceived;
         _conn.GameModeEntered -= OnGameModeEntered;
         _conn.Disconnected -= OnDisconnected;
     }
@@ -168,9 +170,11 @@ public sealed class GuidedLoginController : IDisposable
 
             // The banner said whether mail is waiting; the shell is idle at its Option menu now, so
             // this is the one point where stopping costs nothing: nothing has been sent.
-            if (_mailItems > 0)
+            // From here a notice sounds on its own, banner or no banner.
+            var hadMail = _mailItems > 0;
+            Volatile.Write(ref _mailAnnounced, true);
+            if (hadMail)
             {
-                Volatile.Write(ref _mailAnnounced, true);
                 Mucka.Audio.SoundService.PlayServerSound(MailSound);
                 if (_preferredPersonaName is not null && !_options.ForcePersonaChoice)
                 {
@@ -324,7 +328,7 @@ public sealed class GuidedLoginController : IDisposable
             {
                 // The verdict is printed once, before this prompt, and RunAsync clears the buffer as
                 // soon as we return - this is the only place it can be read.
-                // Added, not assigned: a new-mail notice may already have been counted (OnLineReady).
+                // Added, not assigned: a new-mail notice may already have been counted (OnMailReceived).
                 Interlocked.Add(ref _mailItems, ShellText.MailItemsWaiting(normalized));
                 var range = ShellText.ExtractSplashRange(snapshot.Select(l => l.PlainText).ToList());
                 if (range is { } r)
@@ -624,22 +628,22 @@ public sealed class GuidedLoginController : IDisposable
 
         SetPhase(GuidedLoginPhase.Succeeded);
         Completed?.Invoke();
-        return new GuidedLoginResult(GuidedLoginOutcome.Succeeded);
+        return new GuidedLoginResult(GuidedLoginOutcome.Succeeded, MailItems: _mailItems);
     }
 
     // -- Line buffering / landmark waiting ------------------------------------------------------
 
+    // A second way to learn of mail, for mail that arrives while we are at the shell and so is not in
+    // the banner. Counted from here on; the first decision point reads the total.
+    private void OnMailReceived(string sender)
+    {
+        Interlocked.Increment(ref _mailItems);
+        if (Volatile.Read(ref _mailAnnounced))
+            Mucka.Audio.SoundService.PlayServerSound(MailSound);
+    }
+
     private void OnLineReady(StyledLine line)
     {
-        // A second way to learn of mail, for mail that arrives while we are at the shell and so is
-        // not in the banner. Counted from here on; the first decision point reads the total.
-        if (ShellText.TryParseNewMailLine(ShellText.NormalizeWhitespace(line.PlainText), out _))
-        {
-            Interlocked.Increment(ref _mailItems);
-            if (Volatile.Read(ref _mailAnnounced))
-                Mucka.Audio.SoundService.PlayServerSound(MailSound);
-        }
-
         lock (_bufferLock)
         {
             _buffer.Add(line);

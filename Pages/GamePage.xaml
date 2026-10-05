@@ -180,6 +180,18 @@
                     <!-- Spacer -->
                     <BoxView Grid.Column="11" Color="Transparent"/>
 
+                    <!-- Mail: an envelope in the elastic column, right-aligned so it sits just left of
+                         the "rec" chip. Tap dismisses it. -->
+                    <Label Grid.Column="11" Text="&#x2709;" TextColor="#d29922" FontSize="16"
+                           IsVisible="{Binding MailGlyphVisible}"
+                           HorizontalOptions="End" VerticalOptions="Center" Margin="0,0,8,0"
+                           SemanticProperties.Description="You have mail. Tap to dismiss."
+                           ToolTipProperties.Text="You have mail (tap to dismiss)">
+                        <Label.GestureRecognizers>
+                            <TapGestureRecognizer Command="{Binding ClearMailCommand}"/>
+                        </Label.GestureRecognizers>
+                    </Label>
+
                     <!-- Session transcript indicator - Border+tap avoids WinUI's minimum button
                          height. Hollow chip when idle; red dot + lit text while recording. -->
                     <Border Grid.Column="12"
@@ -362,24 +374,35 @@
                          the elastic column, so it neither widens the bar nor moves anything when it
                          appears. The hamburger's "Log Recording" row does the same job with a name
                          on it. -->
-                    <Label Grid.Row="1" Grid.Column="8"
-                           Text="(R)"
-                           Style="{StaticResource StatLabelStyle}"
-                           HorizontalOptions="End" Margin="0,0,4,0"
-                           SemanticProperties.Description="Toggle session recording"
-                           ToolTipProperties.Text="Toggle session recording">
-                        <Label.Triggers>
-                            <DataTrigger TargetType="Label" Binding="{Binding IsRecording}" Value="True">
-                                <Setter Property="TextColor" Value="#E74856"/>
-                            </DataTrigger>
-                            <DataTrigger TargetType="Label" Binding="{Binding IsRecording}" Value="False">
-                                <Setter Property="TextColor" Value="#666666"/>
-                            </DataTrigger>
-                        </Label.Triggers>
-                        <Label.GestureRecognizers>
-                            <TapGestureRecognizer Command="{Binding ToggleRecordingCommand}"/>
-                        </Label.GestureRecognizers>
-                    </Label>
+                    <HorizontalStackLayout Grid.Row="1" Grid.Column="8" Spacing="6"
+                                           HorizontalOptions="End" Margin="0,0,4,0">
+                        <!-- Mail: the envelope, left of (R); tap dismisses it. -->
+                        <Label Text="&#x2709;"
+                               Style="{StaticResource StatLabelStyle}" TextColor="#d29922"
+                               IsVisible="{Binding MailGlyphVisible}"
+                               SemanticProperties.Description="You have mail. Tap to dismiss."
+                               ToolTipProperties.Text="You have mail (tap to dismiss)">
+                            <Label.GestureRecognizers>
+                                <TapGestureRecognizer Command="{Binding ClearMailCommand}"/>
+                            </Label.GestureRecognizers>
+                        </Label>
+                        <Label Text="(R)"
+                               Style="{StaticResource StatLabelStyle}"
+                               SemanticProperties.Description="Toggle session recording"
+                               ToolTipProperties.Text="Toggle session recording">
+                            <Label.Triggers>
+                                <DataTrigger TargetType="Label" Binding="{Binding IsRecording}" Value="True">
+                                    <Setter Property="TextColor" Value="#E74856"/>
+                                </DataTrigger>
+                                <DataTrigger TargetType="Label" Binding="{Binding IsRecording}" Value="False">
+                                    <Setter Property="TextColor" Value="#666666"/>
+                                </DataTrigger>
+                            </Label.Triggers>
+                            <Label.GestureRecognizers>
+                                <TapGestureRecognizer Command="{Binding ToggleRecordingCommand}"/>
+                            </Label.GestureRecognizers>
+                        </Label>
+                    </HorizontalStackLayout>
 
                     <Label Grid.Row="1" Grid.Column="9" Text="|"
                            Style="{StaticResource StatLabelStyle}" TextColor="#444444"
