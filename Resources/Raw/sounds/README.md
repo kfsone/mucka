@@ -11,6 +11,7 @@ anything WITHOUT it is not Clio's and is not covered by that licence - see "Muck
 | `Perc_Stick_hi.wav` | percussion sample | Combat metronome, pre-tick click |
 | `Perc_Stick_lo.wav` | percussion sample | Combat metronome, after-tick click |
 | `mucka.flee_failed.wav` | **owner-supplied** | Your flee failed |
+| `mucka.mail.wav` | **owner-supplied** | Mail waiting at login (mono, 32 kHz 16-bit, 2.99 s) |
 
 `mucka.flee_failed.wav` is the owner's own recording/production: 44.1 kHz 16-bit stereo, 470 ms.
 

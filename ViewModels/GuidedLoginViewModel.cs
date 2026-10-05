@@ -66,6 +66,21 @@ public sealed class GuidedLoginViewModel : BaseViewModel
     /// (Male/Female/Cancel). Must call ConfirmCreateSex/CancelCreate on the controller.</summary>
     public Func<string, Task>? CreateConfirmationRequested { get; set; }
 
+    // -- Mail notice ------------------------------------------------------------------------------
+    // A panel on the overlay rather than a modal sheet: it needs a checkbox, which no platform alert
+    // has, and it keeps the page's own Cancel reachable.
+
+    private bool _hasMailNotice;
+    private string _mailText = string.Empty;
+    private bool _ignoreMailToday;
+
+    public bool HasMailNotice { get => _hasMailNotice; private set => Set(ref _hasMailNotice, value); }
+    public string MailText { get => _mailText; private set => Set(ref _mailText, value); }
+    public bool IgnoreMailToday { get => _ignoreMailToday; set => Set(ref _ignoreMailToday, value); }
+
+    public ICommand MailDropCommand { get; }
+    public ICommand MailContinueCommand { get; }
+
     public ICommand CancelCommand { get; }
 
     public event Action? CancelRequested;
@@ -75,15 +90,32 @@ public sealed class GuidedLoginViewModel : BaseViewModel
         _controller = controller;
         _drop = drop;
         CancelCommand = new Command(() => CancelRequested?.Invoke());
+        MailDropCommand = new Command(() => AnswerMail(dropToMenu: true));
+        MailContinueCommand = new Command(() => AnswerMail(dropToMenu: false));
 
+        _controller.MailNoticeReady += OnMailNoticeReady;
         _controller.PhaseChanged += OnPhaseChanged;
         _controller.SplashTextReady += OnSplashLinesReady;
         _controller.PersonaChoiceReady += OnPersonaChoiceReady;
         _controller.CreateConfirmationReady += OnCreateConfirmationReady;
     }
 
+    private void OnMailNoticeReady(int items)
+        => MainThread.BeginInvokeOnMainThread(() =>
+        {
+            MailText = items == 1 ? "You have 1 item of mail." : $"You have {items} items of mail.";
+            HasMailNotice = true;
+        });
+
+    private void AnswerMail(bool dropToMenu)
+    {
+        HasMailNotice = false;
+        _controller.ResolveMail(dropToMenu, IgnoreMailToday);
+    }
+
     public void Detach()
     {
+        _controller.MailNoticeReady -= OnMailNoticeReady;
         _controller.PhaseChanged -= OnPhaseChanged;
         _controller.SplashTextReady -= OnSplashLinesReady;
         _controller.PersonaChoiceReady -= OnPersonaChoiceReady;
@@ -154,6 +186,7 @@ public sealed class GuidedLoginViewModel : BaseViewModel
         GuidedLoginPhase.Connecting => "Connecting...",
         GuidedLoginPhase.NegotiatingShell => "Negotiating terminal...",
         GuidedLoginPhase.QueryingPersonae => "Checking your personae...",
+        GuidedLoginPhase.AwaitingMailChoice => "Mail is waiting for you...",
         GuidedLoginPhase.AwaitingPersonaChoice => "Waiting for you to choose a persona...",
         GuidedLoginPhase.AwaitingCreateConfirmation => "Waiting for you to confirm persona creation...",
         GuidedLoginPhase.AwaitingSexChoice => "Waiting for you to choose a sex for the new persona...",

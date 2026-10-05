@@ -72,6 +72,29 @@ public static class ShellText
     /// <summary>"[Checking mail...]" - the splash/banner ends immediately before this.</summary>
     public static bool IsCheckingMailLine(string normalized) => ContainsPhrase(normalized, "checking mail");
 
+    private static readonly Regex MailWaitingLine = new(
+        @"\[You have mail(?:: (?<n>[0-9]{1,6}) items?)?\]",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    /// <summary>
+    /// The login banner's mail verdict, printed on every login straight after "[Checking mail...]":
+    /// "[You have mail: 1 item]" or "[You have no mail]". The shell never re-checks, so a login is the
+    /// only time it is said. Only the singular has been observed in the wire log; the plural is
+    /// matched on the same shape.
+    ///
+    /// <para>Returns the number of waiting items, 0 when the shell said "[You have no mail]" or said
+    /// nothing at all (a banner that has not finished arriving, or an old one with no verdict).
+    /// A "[You have mail]" with no count is reported as 1: something is waiting, and that is all it
+    /// claims.</para>
+    /// </summary>
+    public static int MailItemsWaiting(string normalized)
+    {
+        var m = MailWaitingLine.Match(normalized);
+        if (!m.Success)
+            return 0;
+        return m.Groups["n"].Success ? int.Parse(m.Groups["n"].Value, CultureInfo.InvariantCulture) : 1;
+    }
+
     /// <summary>The MUD Shell's top-level "Option (H for help):" prompt.</summary>
     public static bool IsShellOptionPrompt(string normalized) => ContainsPhrase(normalized, "option (h for help)");
 

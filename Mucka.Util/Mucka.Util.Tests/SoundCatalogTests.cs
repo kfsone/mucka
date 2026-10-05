@@ -94,4 +94,14 @@ public class SoundCatalogTests
         // fallback to stand in for (same shape as the tell alerts).
         Assert.False(hit.Value.Group.HasFallback);
     }
+
+    /// <summary>The login mail alert is catalogued for the same reason: a volume slider and an off switch.</summary>
+    [Fact]
+    public void MailAlert_IsCatalogued_SoItHasAVolumeControl()
+    {
+        var hit = SoundCatalog.FindByAsset("sounds/mucka.mail.wav");
+        Assert.NotNull(hit);
+        Assert.Equal("alert-mail", hit!.Value.Def.Code);
+        Assert.False(hit.Value.Group.HasFallback);
+    }
 }

@@ -1355,8 +1355,10 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     /// <summary>Tell the player, in the terminal, that guided login has bowed out and left them
     /// driving the shell by hand - otherwise the overlay just disappears and they are looking at a
     /// prompt with no idea why.</summary>
-    public void NoteLeftAtOptionMenu()
-        => AddSystemLine("[persona] Persona login stopped - you are at the MUD Shell's Option menu. Type P to choose a persona.", 14);
+    public void NoteLeftAtOptionMenu(int mailItems = 0)
+        => AddSystemLine(mailItems > 0
+            ? "[persona] Persona login stopped for your mail - you are at the MUD Shell's Option menu. Type M to read it, P to choose a persona."
+            : "[persona] Persona login stopped - you are at the MUD Shell's Option menu. Type P to choose a persona.", 14);
 
     /// <summary>Client-initiated clean disconnect. Unlike a server-side drop, this does NOT raise
     /// <see cref="Disconnected"/> (that event only fires from the read loop's own unexpected-EOF/

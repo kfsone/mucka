@@ -1,5 +1,6 @@
 using System.Globalization;
 using Microsoft.Maui.Storage;
+using Mucka.Commands;
 
 namespace Mucka.Core;
 
@@ -328,6 +329,19 @@ public static class SettingsStore
             s_gate.Release();
         }
     }
+
+    // Mail is the account's, and each profile is an account login, so the silence is per profile. It
+    // sits in [settings] under a key carrying the profile name rather than in [profile:Name], which
+    // SaveProfilesAsync rewrites wholesale.
+    // Escaped because IniFile splits a line at its first '=', which a profile name may contain.
+    private static string MailSilenceKey(string profileName) => "mailsilenced." + Uri.EscapeDataString(profileName);
+
+    /// <summary>The player's "ignore for today" for the login mail notice on this profile.</summary>
+    public static async Task<MailSilence?> GetMailSilenceAsync(string profileName)
+        => MailSilence.TryParse(await GetGlobalValueAsync(MailSilenceKey(profileName)).ConfigureAwait(false));
+
+    public static Task SetMailSilenceAsync(string profileName, MailSilence silence)
+        => SetGlobalValueAsync(MailSilenceKey(profileName), silence.Serialize());
 
     /// <summary>Reads one key of the global <c>[settings]</c> section; null when absent.</summary>
     public static async Task<string?> GetGlobalValueAsync(string key)

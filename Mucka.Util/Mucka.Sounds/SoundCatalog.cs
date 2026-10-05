@@ -51,6 +51,7 @@ public static class SoundCatalog
         new("alert", "Client alerts", new SoundDef[]
         {
             new("alert-flee-failed", "Your flee failed", "sounds/mucka.flee_failed.wav"),
+            new("alert-mail", "Mail waiting at login", "sounds/mucka.mail.wav"),
         }, HasFallback: false),
         new("07", "Combat hits", new SoundDef[]
         {

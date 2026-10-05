@@ -9,6 +9,7 @@ public enum GuidedLoginPhase
     Connecting,
     NegotiatingShell,
     QueryingPersonae,
+    AwaitingMailChoice,
     AwaitingPersonaChoice,
     AwaitingCreateConfirmation,
     AwaitingSexChoice,
@@ -20,22 +21,33 @@ public enum GuidedLoginPhase
 }
 
 /// <summary>Existing personae plus whether a free slot is available, offered to the UI when
-/// the profile has no configured persona name (or picking is otherwise required).</summary>
-public sealed record PersonaChoice(IReadOnlyList<PersonaSlot> Slots, bool CanCreateNew);
+/// the profile has no configured persona name (or picking is otherwise required).
+/// <paramref name="MailItems"/> is the number of items the login banner reported waiting, 0 when none
+/// or when the player has ignored the notice for today.</summary>
+public sealed record PersonaChoice(IReadOnlyList<PersonaSlot> Slots, bool CanCreateNew, int MailItems = 0);
 
 /// <summary>Options for a guided-login pass. The initial connect uses the default mode; relogging
 /// from the shell menu can start by re-prompting the menu and can either force a fresh picker or
-/// prefer one persona for fast relog.</summary>
+/// prefer one persona for fast relog. <paramref name="MailSilenced"/> is the player's stored
+/// "ignore for today" for the login mail notice.</summary>
 public sealed record GuidedLoginOptions(
     string? PreferredPersonaName = null,
     bool StartAtOptionMenu = false,
     bool ForcePersonaChoice = false,
     bool AllowCreatePreferredPersona = true,
-    TimeSpan? PlayRetryWindow = null);
+    TimeSpan? PlayRetryWindow = null,
+    MailSilence? MailSilenced = null);
 
 public enum GuidedLoginOutcome { Succeeded, Failed, Cancelled, ManualAtOptionMenu }
 
-public sealed record GuidedLoginResult(GuidedLoginOutcome Outcome, string? FailureReason = null);
+/// <param name="MailItems">Items the login banner reported waiting and the player was told about; set
+/// only on <see cref="GuidedLoginOutcome.ManualAtOptionMenu"/>, so the caller can point at the mail
+/// option.</param>
+public sealed record GuidedLoginResult(
+    GuidedLoginOutcome Outcome, string? FailureReason = null, int MailItems = 0);
+
+/// <summary>The player's answer to the mail notice.</summary>
+public sealed record MailChoice(bool DropToMenu, bool IgnoreToday);
 
 /// <summary>
 /// Drives the MUD Shell (Option menu -&gt; persona select/create -&gt; tearoom) on behalf
@@ -53,6 +65,7 @@ public sealed class GuidedLoginController : IDisposable
     /// genuinely will not take is refused just as firmly the second time, so there is no point
     /// spraying it. Guards against a rejection loop either way.</summary>
     private const int NamePromptAttempts = 2;
+    private const string MailSound = "sounds/mucka.mail.wav";
 
     private readonly MuckaConnection _conn;
     private readonly GuidedLoginOptions _options;
@@ -66,7 +79,10 @@ public sealed class GuidedLoginController : IDisposable
     private Exception? _disconnectError;
     private bool _disconnected;
     private int _dropToMenuRequested;
+    private int _mailItems;           // what the banner said, read when it arrived
+    private int _mailToReport;        // _mailItems unless the player ignored it today
 
+    private TaskCompletionSource<MailChoice?>? _mailDecision;  // resolved by ResolveMail
     private TaskCompletionSource<string?>? _personaDecision;   // resolved by SelectExistingPersona/RequestCreateNew
     private TaskCompletionSource<char?>? _sexDecision;         // resolved by ConfirmCreateSex/CancelCreate ('m'/'f'/null=cancel)
 
@@ -79,6 +95,12 @@ public sealed class GuidedLoginController : IDisposable
     /// free slot to offer a create-confirmation instead). The consumer must call
     /// <see cref="SelectExistingPersona"/> or <see cref="RequestCreateNew"/>.</summary>
     public event Action<PersonaChoice>? PersonaChoiceReady;
+    /// <summary>Raised, with the item count, when the login banner reported mail and the profile
+    /// names its persona, so no picker is going to show it. The consumer must call
+    /// <see cref="ResolveMail"/>.</summary>
+    public event Action<int>? MailNoticeReady;
+    /// <summary>Raised, with the item count, when the player ticked "ignore for today".</summary>
+    public event Action<int>? MailIgnored;
     /// <summary>Raised when the configured persona name wasn't found but a slot is free. The consumer
     /// must call <see cref="ConfirmCreateSex"/> or <see cref="CancelCreate"/>.</summary>
     public event Action<string>? CreateConfirmationReady;
@@ -152,6 +174,27 @@ public sealed class GuidedLoginController : IDisposable
                 ResetBuffer();
             }
 
+            // The banner said whether mail is waiting; the shell is idle at its Option menu now, so
+            // this is the one point where stopping costs nothing: nothing has been sent.
+            var silenced = _options.MailSilenced?.Silences(_mailItems, DateOnly.FromDateTime(DateTime.Now)) == true;
+            _mailToReport = silenced ? 0 : _mailItems;
+            if (_mailToReport > 0)
+            {
+                Mucka.Audio.SoundService.PlayServerSound(MailSound);
+                if (_preferredPersonaName is not null && !_options.ForcePersonaChoice)
+                {
+                    var choice = await AskMailAsync(_mailToReport, ct).ConfigureAwait(false);
+                    if (choice is null)
+                        return Cancel();
+                    if (choice.IgnoreToday)
+                        MailIgnored?.Invoke(_mailToReport);
+                    // Not DropToMenuAsync: its "q" is for the persona-name prompt, and "q" here, at the
+                    // Option menu, means QUIT.
+                    if (choice.DropToMenu)
+                        return ManualAtOptionMenu();
+                }
+            }
+
             // Query personae directly from the Play prompt. That list already includes the live
             // occupied names plus any "**Unused**" slots, so it is both the authoritative source
             // of selectable names and the free-slot check.
@@ -175,6 +218,23 @@ public sealed class GuidedLoginController : IDisposable
             CrashLog.Write("GuidedLoginRun", ex);
             return Cancel();
         }
+    }
+
+    /// <summary>Call from the mail notice: <paramref name="dropToMenu"/> leaves the connection at the
+    /// shell's Option menu, otherwise login carries on to the persona.</summary>
+    public void ResolveMail(bool dropToMenu, bool ignoreToday)
+        => _mailDecision?.TrySetResult(new MailChoice(dropToMenu, ignoreToday));
+
+    private async Task<MailChoice?> AskMailAsync(int items, CancellationToken ct)
+    {
+        SetPhase(GuidedLoginPhase.AwaitingMailChoice);
+        // Published before the event so an answer given the instant the notice shows has a target.
+        _mailDecision = new TaskCompletionSource<MailChoice?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        if (_disconnected)
+            return null;   // OnDisconnected only resolves a decision that already exists
+        MailNoticeReady?.Invoke(items);
+        // The notice is a panel on the overlay, not a modal sheet, so the page's Cancel stays reachable.
+        return await _mailDecision.Task.WaitAsync(ct).ConfigureAwait(false);
     }
 
     /// <summary>Call from the picker UI when the player chooses an existing persona.</summary>
@@ -209,7 +269,7 @@ public sealed class GuidedLoginController : IDisposable
     private GuidedLoginResult ManualAtOptionMenu()
     {
         SetPhase(GuidedLoginPhase.Cancelled);
-        return new GuidedLoginResult(GuidedLoginOutcome.ManualAtOptionMenu);
+        return new GuidedLoginResult(GuidedLoginOutcome.ManualAtOptionMenu, MailItems: _mailToReport);
     }
 
     private GuidedLoginResult Fail(string reason)
@@ -273,6 +333,9 @@ public sealed class GuidedLoginController : IDisposable
 
             if (ShellText.IsShellOptionPrompt(normalized))
             {
+                // The verdict is printed once, before this prompt, and RunAsync clears the buffer as
+                // soon as we return - this is the only place it can be read.
+                _mailItems = ShellText.MailItemsWaiting(normalized);
                 var range = ShellText.ExtractSplashRange(snapshot.Select(l => l.PlainText).ToList());
                 if (range is { } r)
                     SplashTextReady?.Invoke(snapshot.Skip(r.Start).Take(r.End - r.Start).ToList());
@@ -413,7 +476,7 @@ public sealed class GuidedLoginController : IDisposable
 
         SetPhase(GuidedLoginPhase.AwaitingPersonaChoice);
         _personaDecision = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
-        PersonaChoiceReady?.Invoke(new PersonaChoice(slots.Where(s => !s.IsUnused).ToList(), hasFreeSlot));
+        PersonaChoiceReady?.Invoke(new PersonaChoice(slots.Where(s => !s.IsUnused).ToList(), hasFreeSlot, _mailToReport));
         var choice = await _personaDecision.Task.ConfigureAwait(false);
         if (choice is null)
         {
@@ -606,6 +669,7 @@ public sealed class GuidedLoginController : IDisposable
         // Resolve both with null so the ResolvePersonaPromptAsync "choice/sex is null" branches run
         // and unwind through AbandonPersonaPrompt()/Cancel() -- AbandonPersonaPrompt() itself is a
         // no-op once _disconnected is set, so this is safe even though nothing is listening anymore.
+        _mailDecision?.TrySetResult(null);
         _personaDecision?.TrySetResult(null);
         _sexDecision?.TrySetResult(null);
         Interlocked.Exchange(ref _lineSignal, new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously))

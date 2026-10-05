@@ -36,6 +36,9 @@ public static class Glyph
     /// <summary>Skull and crossbones: a persona wiped, on the score graph.</summary>
     public const string Skull = "\u2620";
 
+    /// <summary>Envelope: mail waiting at login, on the persona-login overlay.</summary>
+    public const string Envelope = "\u2709";
+
     /// <summary>White square: a dock toggle's "float me" action, shown while the panel is docked.</summary>
     public const string SquareHollow = "\u25a1";
     /// <summary>Black square: a dock toggle's "dock me" action, shown while the panel floats.</summary>

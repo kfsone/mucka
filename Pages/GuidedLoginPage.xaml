@@ -50,6 +50,44 @@
                        FontSize="16"
                        HorizontalOptions="Center"/>
             </VerticalStackLayout>
+
+            <!-- Mail waiting at login, shown only when the profile names its persona (so no picker
+                 is going to say it). Drop is the highlighted answer: the shell is where mail is read. -->
+            <Border IsVisible="{Binding HasMailNotice}"
+                    VerticalOptions="End"
+                    HorizontalOptions="Center"
+                    BackgroundColor="#161b22"
+                    Stroke="#d29922"
+                    StrokeThickness="2"
+                    Padding="20"
+                    StrokeShape="RoundRectangle 8">
+                <VerticalStackLayout Spacing="12">
+                    <HorizontalStackLayout Spacing="10" HorizontalOptions="Center">
+                        <Label Text="&#x2709;" TextColor="#d29922" FontSize="28" VerticalOptions="Center"/>
+                        <Label Text="Mail!" TextColor="#d29922" FontSize="24" FontAttributes="Bold" VerticalOptions="Center"/>
+                    </HorizontalStackLayout>
+                    <Label Text="{Binding MailText}" TextColor="#cccccc" FontSize="16" HorizontalOptions="Center"/>
+                    <HorizontalStackLayout Spacing="8" HorizontalOptions="Center">
+                        <CheckBox IsChecked="{Binding IgnoreMailToday}" Color="#d29922" VerticalOptions="Center"/>
+                        <Label Text="Ignore for today" TextColor="#cccccc" VerticalOptions="Center"/>
+                    </HorizontalStackLayout>
+                    <HorizontalStackLayout Spacing="12" HorizontalOptions="Center">
+                        <Button Text="Drop to menu"
+                                Command="{Binding MailDropCommand}"
+                                BackgroundColor="#d29922"
+                                TextColor="#0C0C0C"
+                                FontAttributes="Bold"
+                                CornerRadius="6"
+                                HeightRequest="44"/>
+                        <Button Text="Continue"
+                                Command="{Binding MailContinueCommand}"
+                                BackgroundColor="#2d333b"
+                                TextColor="#cccccc"
+                                CornerRadius="6"
+                                HeightRequest="44"/>
+                    </HorizontalStackLayout>
+                </VerticalStackLayout>
+            </Border>
         </Grid>
 
         <Button Grid.Row="3"

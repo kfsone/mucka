@@ -168,7 +168,14 @@ public partial class ConnectPage : ContentPage
     /// </summary>
     private async Task<GuidedLoginResult> RunGuidedLoginOverlayAsync(MuckaConnection conn, Profile profile)
     {
-        var controller = new GuidedLoginController(conn, profile.GuidedLoginPersona);
+        // An unreadable settings file means "not silenced", never a failed login.
+        Mucka.Commands.MailSilence? silence = null;
+        try { silence = await SettingsStore.GetMailSilenceAsync(profile.Name); }
+        catch (Exception ex) { CrashLog.Write("MailSilenceRead", ex); }
+        var controller = new GuidedLoginController(conn,
+            new GuidedLoginOptions(PreferredPersonaName: profile.GuidedLoginPersona, MailSilenced: silence));
+        controller.MailIgnored += items =>
+            _ = SettingsStore.SetMailSilenceAsync(profile.Name, new Mucka.Commands.MailSilence(DateOnly.FromDateTime(DateTime.Now), items));
         var vm = new GuidedLoginViewModel(controller);
         GuidedLoginPage? page = null;
         try
@@ -251,6 +258,8 @@ public partial class ConnectPage : ContentPage
                         await gameVm.DisposeAsync();
                         return;
                     }
+                    if (result.Outcome == GuidedLoginOutcome.ManualAtOptionMenu)
+                        gameVm.NoteLeftAtOptionMenu(result.MailItems);
                 }
 
                 var gamePage = new GamePage(gameVm, _vm.IsDirectConnectMode);
