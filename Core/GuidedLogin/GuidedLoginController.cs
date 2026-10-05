@@ -73,7 +73,8 @@ public sealed class GuidedLoginController : IDisposable
     private Exception? _disconnectError;
     private bool _disconnected;
     private int _dropToMenuRequested;
-    private int _mailItems;           // what the banner said, read when it arrived
+    private int _mailItems;           // the banner's count plus every new-mail notice seen since connecting
+    private bool _mailAnnounced;      // the sound has played; later notices play it again
 
     private TaskCompletionSource<bool?>? _mailDecision;  // resolved by ResolveMail
     private TaskCompletionSource<string?>? _personaDecision;   // resolved by SelectExistingPersona/RequestCreateNew
@@ -169,6 +170,7 @@ public sealed class GuidedLoginController : IDisposable
             // this is the one point where stopping costs nothing: nothing has been sent.
             if (_mailItems > 0)
             {
+                Volatile.Write(ref _mailAnnounced, true);
                 Mucka.Audio.SoundService.PlayServerSound(MailSound);
                 if (_preferredPersonaName is not null && !_options.ForcePersonaChoice)
                 {
@@ -322,7 +324,8 @@ public sealed class GuidedLoginController : IDisposable
             {
                 // The verdict is printed once, before this prompt, and RunAsync clears the buffer as
                 // soon as we return - this is the only place it can be read.
-                _mailItems = ShellText.MailItemsWaiting(normalized);
+                // Added, not assigned: a new-mail notice may already have been counted (OnLineReady).
+                Interlocked.Add(ref _mailItems, ShellText.MailItemsWaiting(normalized));
                 var range = ShellText.ExtractSplashRange(snapshot.Select(l => l.PlainText).ToList());
                 if (range is { } r)
                     SplashTextReady?.Invoke(snapshot.Skip(r.Start).Take(r.End - r.Start).ToList());
@@ -628,6 +631,15 @@ public sealed class GuidedLoginController : IDisposable
 
     private void OnLineReady(StyledLine line)
     {
+        // A second way to learn of mail, for mail that arrives while we are at the shell and so is
+        // not in the banner. Counted from here on; the first decision point reads the total.
+        if (ShellText.TryParseNewMailLine(ShellText.NormalizeWhitespace(line.PlainText), out _))
+        {
+            Interlocked.Increment(ref _mailItems);
+            if (Volatile.Read(ref _mailAnnounced))
+                Mucka.Audio.SoundService.PlayServerSound(MailSound);
+        }
+
         lock (_bufferLock)
         {
             _buffer.Add(line);

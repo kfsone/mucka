@@ -36,6 +36,24 @@ public class MailNoticeTests
     public void AbsurdOrNonAsciiCounts_DoNotThrow(string text)
         => Assert.Equal(0, ShellText.MailItemsWaiting(text));
 
+    [Theory]
+    [InlineData("+- You have new mail from Drizzle -+", "Drizzle")]
+    [InlineData("+- You have new mail from Kram -+", "Kram")]
+    public void NewMailNotice_IsReadFromTheCapturedLine(string line, string from)
+    {
+        Assert.True(ShellText.TryParseNewMailLine(ShellText.NormalizeWhitespace(line), out var sender));
+        Assert.Equal(from, sender);
+    }
+
+    /// <summary>The notice repeated through say, as captured: a speaker wraps it, so it is not mail.</summary>
+    [Theory]
+    [InlineData("Kayfez the pioneer says \"+- You have new mail from Drizzle -+\".")]
+    [InlineData("\"+- You have new mail from Drizzle -+")]
+    [InlineData("[Message number 14201 sent to Ollie]")]
+    [InlineData("[You have mail: 1 item]")]
+    public void NewMailNotice_RejectsEverythingButTheBareLine(string line)
+        => Assert.False(ShellText.TryParseNewMailLine(ShellText.NormalizeWhitespace(line), out _));
+
     [Fact]
     public void AMailLineWithNoCount_StillMeansSomethingIsWaiting()
     {
