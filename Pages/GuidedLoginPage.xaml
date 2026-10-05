@@ -67,10 +67,6 @@
                         <Label Text="Mail!" TextColor="#d29922" FontSize="24" FontAttributes="Bold" VerticalOptions="Center"/>
                     </HorizontalStackLayout>
                     <Label Text="{Binding MailText}" TextColor="#cccccc" FontSize="16" HorizontalOptions="Center"/>
-                    <HorizontalStackLayout Spacing="8" HorizontalOptions="Center">
-                        <CheckBox IsChecked="{Binding IgnoreMailToday}" Color="#d29922" VerticalOptions="Center"/>
-                        <Label Text="Ignore for today" TextColor="#cccccc" VerticalOptions="Center"/>
-                    </HorizontalStackLayout>
                     <HorizontalStackLayout Spacing="12" HorizontalOptions="Center">
                         <Button Text="Drop to menu"
                                 Command="{Binding MailDropCommand}"

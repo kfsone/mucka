@@ -67,16 +67,13 @@ public sealed class GuidedLoginViewModel : BaseViewModel
     public Func<string, Task>? CreateConfirmationRequested { get; set; }
 
     // -- Mail notice ------------------------------------------------------------------------------
-    // A panel on the overlay rather than a modal sheet: it needs a checkbox, which no platform alert
-    // has, and it keeps the page's own Cancel reachable.
+    // A panel on the overlay rather than a modal sheet, so the page's own Cancel stays reachable.
 
     private bool _hasMailNotice;
     private string _mailText = string.Empty;
-    private bool _ignoreMailToday;
 
     public bool HasMailNotice { get => _hasMailNotice; private set => Set(ref _hasMailNotice, value); }
     public string MailText { get => _mailText; private set => Set(ref _mailText, value); }
-    public bool IgnoreMailToday { get => _ignoreMailToday; set => Set(ref _ignoreMailToday, value); }
 
     public ICommand MailDropCommand { get; }
     public ICommand MailContinueCommand { get; }
@@ -110,7 +107,7 @@ public sealed class GuidedLoginViewModel : BaseViewModel
     private void AnswerMail(bool dropToMenu)
     {
         HasMailNotice = false;
-        _controller.ResolveMail(dropToMenu, IgnoreMailToday);
+        _controller.ResolveMail(dropToMenu);
     }
 
     public void Detach()

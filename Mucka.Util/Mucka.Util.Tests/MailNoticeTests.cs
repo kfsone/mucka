@@ -58,34 +58,4 @@ public class MailNoticeTests
     [InlineData("\"Might be easier for him to message me there than trying to use mail here, lol")]
     public void MailProgramAndChatterAreNotAVerdict(string text)
         => Assert.Equal(0, ShellText.MailItemsWaiting(ShellText.NormalizeWhitespace(text)));
-
-    [Fact]
-    public void Silence_HoldsForTheDayAndForNoMoreItemsThanWereIgnored()
-    {
-        var day = new DateOnly(2026, 10, 4);
-        var silence = new MailSilence(day, 1);
-
-        Assert.True(silence.Silences(1, day));
-        Assert.False(silence.Silences(2, day));                 // new mail re-alerts
-        Assert.False(silence.Silences(1, day.AddDays(1)));      // tomorrow re-alerts
-    }
-
-    [Fact]
-    public void Silence_RoundTripsThroughItsIniForm()
-    {
-        var silence = new MailSilence(new DateOnly(2026, 10, 4), 2);
-        Assert.Equal("2026-10-04:2", silence.Serialize());
-        Assert.Equal(silence, MailSilence.TryParse(silence.Serialize()));
-    }
-
-    [Theory]
-    [InlineData(null)]
-    [InlineData("")]
-    [InlineData("yes")]
-    [InlineData("2026-10-04")]
-    [InlineData("2026-10-04:x")]
-    [InlineData("2026-13-40:1")]
-    [InlineData("2026-10-04:-1")]
-    public void Silence_ParseOfGarbageIsNotSilenced(string? text)
-        => Assert.Null(MailSilence.TryParse(text));
 }
