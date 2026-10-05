@@ -1517,7 +1517,7 @@ public sealed class CombatRailView : SKCanvasView
     /// <summary>
     /// Room for a creature's wound phrase, and where its value sits after it.
     ///
-    /// <para>Wider than the player tile's <see cref="ConditionWordWidth"/> because this line has no
+    /// <para>Fixed rather than shared out like the player tile's word column, because this line has no
     /// alt-weapon group on its right to make room for - only the diagnose band, which is right-aligned
     /// at the far edge. The longest phrase NpcHealthRungs can produce is "superficially injured", 21
     /// monospace characters, which is 151.2 units at the rung size; 156 clears it with room rather
@@ -2301,11 +2301,11 @@ public sealed class CombatRailView : SKCanvasView
     /// The player's condition in the slot a creature uses for its wound phrase: the rung word and,
     /// because this is the one creature whose maximum the game states, the figure itself.
     ///
-    /// <para><b>Two fixed columns, word then figure.</b> Drawn as one concatenated string it came out
-    /// as "superficially injured (7..." - the half that is a measurement lost to the half that is an
-    /// adjective, and the figure is the reason this line exists on the player's tile at all. The word
-    /// is ellipsized inside its own column and the figure has its own origin, so a long adjective can
-    /// never reach it and the figure never moves as the word changes length.</para>
+    /// <para><b>Two columns, word then figure.</b> The word is ellipsized inside its own column and the
+    /// figure has its own origin, so a long adjective can never reach it and the figure does not move
+    /// as the word changes length. The figure is the current stamina alone, a point below the rung size
+    /// - the maximum is on the status strip - so the word gets the room: printing three letters of it
+    /// was no help to anyone.</para>
     ///
     /// <para><b>The colour is MUD2's own</b> (<see cref="CombatLiveView.StaminaAnsiColor"/>), not a
     /// second opinion computed here. The player is already reading the game's coloured stamina in the
@@ -2327,67 +2327,78 @@ public sealed class CombatRailView : SKCanvasView
 
         var tone = StaminaTone(live, cur, max);
 
+        // The word's column: as wide as the longest label, if the line has that much room before the
+        // alt-weapon group (or the tile's edge) once the figure has its own; otherwise what there is.
+        var wordWidth = Math.Min(LongestConditionLabelWidth,
+            AltGroupLeft(live) - ConditionGap - TileTextLeft - ConditionFigureWidth - ConditionGap);
+
         // The word, a size down - it is the adjective, and it is what gives when the two cannot both
         // fit.
         if (NpcHealthRungs.LivingLabel(NpcHealthRungs.RungFor(cur, max)) is { } label)
         {
             _text.Color = Dim(tone, 0.82f);
             canvas.DrawText(
-                Ellipsize(label, ConditionWordWidth, _statSmallFont),
+                Ellipsize(label, wordWidth, _statSmallFont),
                 TileTextLeft, baseline, SKTextAlign.Left, _statSmallFont, _text);
         }
 
         _text.Color = tone;
         canvas.DrawText(
-            "(" + cur.ToString(culture) + "/" + max.ToString(culture) + ")",
-            TileTextLeft + ConditionWordWidth + 4f, baseline, SKTextAlign.Left, _rungFont, _text);
+            cur.ToString(culture),
+            TileTextLeft + wordWidth + ConditionGap, baseline, SKTextAlign.Left, _conditionFigureFont, _text);
     }
 
-    /// <summary>
-    /// Room for the rung word on the player's condition line, before the figure's own fixed origin.
-    ///
-    /// <para><b>Sized backwards from the figure, not forwards from the word.</b> The alt-weapon group
-    /// shares this line, right-aligned, and at its widest starts at about x=182; the figure needs
-    /// <see cref="ConditionFigureWidth"/> and must never be clipped, so the word gets whatever is left
-    /// - which is why 118 was wrong: an ordinary "(85/120)" then ran to 194 and straight into the
-    /// weapon name.</para>
-    ///
-    /// <para>The longest living-family label, "superficially injured", does not fit and is not meant
-    /// to. It ellipsizes; the figure stays put.</para>
-    ///
-    /// <para><b>Derived, not chosen.</b> Whatever is left of the line once the alt-weapon group and
-    /// the figure have taken theirs. Written down as a number, it would silently go wrong the moment
-    /// either of the other two changed.</para>
-    /// </summary>
-    private float ConditionWordWidth =>
-        AltGroupWorstCaseLeft - TileTextLeft - ConditionFigureWidth - 4f;
+    /// <summary>The player's stamina figure on the condition line: one point below
+    /// <see cref="_rungFont"/>, so the word beside it reads as the line and the number as its
+    /// figure.</summary>
+    private readonly SKFont _conditionFigureFont = new(
+        SKTypeface.FromFamilyName("Cascadia Mono") ?? SKTypeface.Default, 11f);
 
-    /// <summary>Reserved for the stamina figure, never ellipsized against. "(999/999)" is nine
-    /// characters of Cascadia Mono at <see cref="_rungFont"/>'s 12f. A persona whose maximum runs to
-    /// four digits would overflow it, and MUD2 has no such persona.</summary>
-    private const float ConditionFigureWidth = 66f;
+    /// <summary>The gap between the condition line's word and figure, and between the figure and the
+    /// alt-weapon group.</summary>
+    private const float ConditionGap = 4f;
+
+    private float? _longestConditionLabelWidth;
+
+    /// <summary>The widest living-family rung label at the word's size - the most the word's column
+    /// ever needs. Measured once, from the labels themselves.</summary>
+    private float LongestConditionLabelWidth => _longestConditionLabelWidth ??=
+        Enumerable.Range(1, NpcHealthRungs.Rungs)
+            .Select(rung => NpcHealthRungs.LivingLabel(rung))
+            .OfType<string>()
+            .Max(label => _statSmallFont.MeasureText(label));
+
+    /// <summary>Where the alt-weapon group starts on the condition line, as <see cref="DrawAltWeapon"/>
+    /// draws it - or the tile's right edge when there is no alternate weapon to offer.</summary>
+    private float AltGroupLeft(CombatLiveView live)
+    {
+        if (live.AltWeapon is not { Length: > 0 } alt)
+            return TileTextRight;
+        var name = Ellipsize(CombatComposition.DisplayName(alt), AltWeaponWidth, _rungFont);
+        var left = TileTextRight - _rungFont.MeasureText(AltHotkey) - _rungFont.MeasureText(name);
+        if (_swapFont is not null)
+            left -= AltMarkGap + _swapFont.MeasureText(SwapGlyph);
+        return left;
+    }
+
+    /// <summary>Reserved for the stamina figure, never ellipsized against: three digits of Cascadia
+    /// Mono at <see cref="_conditionFigureFont"/>'s 11f. Player stamina tops out at 120.</summary>
+    private const float ConditionFigureWidth = 22f;
 
     /// <summary>
     /// Room for the ALTERNATE weapon's name, narrower than <see cref="SlotWeaponWidth"/> on line 1.
     ///
-    /// <para>Line 2 is shared with the player's condition readout, which needs its word column plus an
-    /// unclipped stamina figure. At the line-1 width the alt group's worst case reached x=171 and the
-    /// figure ran to 174 - a 3dp collision that only appears with a long alt-weapon name, which is
-    /// exactly the case nobody tests by eye. The alt name is the half that can afford to ellipsize:
-    /// it is a hint about a key, not a measurement.</para>
+    /// <para>Line 2 is shared with the player's condition readout, whose word column gives way to the
+    /// group's actual width (<see cref="AltGroupLeft"/>). The alt name is the half that can afford to
+    /// ellipsize: it is a hint about a key, not a measurement.</para>
     /// </summary>
     private const float AltWeaponWidth = 120f;
 
-    /// <summary>What the alt-weapon group reserves besides the name: the <c>^W</c> hint and the swap
-    /// mark with its gap, both at the stat size. Approximate by design - they are measured text - and
-    /// generous, because this is the figure <see cref="ConditionWordWidth"/> keeps clear of.</summary>
-    private const float AltHotkeyReserve = 22f;
-    private const float AltMarkReserve = 15f;
+    /// <summary>The Ctrl+W hint after the alternate weapon's name.</summary>
+    private const string AltHotkey = " ^W";
 
-    /// <summary>The leftmost x the alt-weapon group can reach, with the longest name it will draw.
-    /// The condition line opposite it must end before here.</summary>
-    private float AltGroupWorstCaseLeft =>
-        TileTextRight - AltHotkeyReserve - AltWeaponWidth - AltMarkReserve;
+    /// <summary>The gap between the swap mark and the alternate weapon's name.</summary>
+    private const float AltMarkGap = 3f;
 
     /// <summary>MUD2's own colour for the stamina figure, or the client's ratio colour when the game
     /// has not said. The mapping matches GameViewModel.AnsiToColor, which colours the same number in
@@ -2417,11 +2428,10 @@ public sealed class CombatRailView : SKCanvasView
             return;
 
         var name = Ellipsize(CombatComposition.DisplayName(alt), AltWeaponWidth, _rungFont);
-        var hotkey = " ^W";
-        var hotkeyWidth = _rungFont.MeasureText(hotkey);
+        var hotkeyWidth = _rungFont.MeasureText(AltHotkey);
 
         _text.Color = InkDim;
-        canvas.DrawText(hotkey, TileTextRight, baseline, SKTextAlign.Right, _rungFont, _text);
+        canvas.DrawText(AltHotkey, TileTextRight, baseline, SKTextAlign.Right, _rungFont, _text);
 
         var nameRight = TileTextRight - hotkeyWidth;
         _text.Color = Ink;
@@ -2430,7 +2440,7 @@ public sealed class CombatRailView : SKCanvasView
         if (_swapFont is null)
             return;
 
-        var glyphRight = nameRight - _rungFont.MeasureText(name) - 3f;
+        var glyphRight = nameRight - _rungFont.MeasureText(name) - AltMarkGap;
         _text.Color = InkDim;
         canvas.DrawText(SwapGlyph, glyphRight, baseline, SKTextAlign.Right, _swapFont, _text);
     }
