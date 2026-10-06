@@ -145,7 +145,19 @@ public class CombatSessionFightEndTests : IDisposable
         Assert.Equal([true, false], _inCombat);
     }
 
-    /// <summary>The same sentence WITHOUT the code must close nothing - otherwise the test above
+    [Fact]
+    public void ADisconnect_ClosesTheEncounter()
+    {
+        FeedRoomShort("A dank cave");
+        StartFight();
+
+        _session.Reset();
+
+        Assert.False(_session.InCombat);
+        Assert.Equal([true, false], _inCombat);
+    }
+
+    /// <summary>The same sentence WITHOUT the code must close nothing - otherwise the coded test
     /// would be passing on some prose path and proving nothing about the tag.</summary>
     [Fact]
     public void TheSameWordingWithoutTheCode_ClosesNothing()

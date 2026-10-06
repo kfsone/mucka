@@ -78,7 +78,7 @@ public sealed record SessionCombatTotals(
 
 /// <summary>
 /// One resolved participant, permanently on record for the Combat Rail's dead strip: which
-/// creature, how the fight ended, and when. A coalesced kill row stands for several engagements
+/// creature, how the fight ended, and when. A coalesced row stands for several engagements
 /// (<see cref="Retries"/>, <see cref="CombatEndingCoalescer"/>).
 ///
 /// <para>Deliberately NOT a <c>RosterRow</c>. A roster row carries a whole live fight's worth of
@@ -125,9 +125,10 @@ public sealed record SessionCombatTotals(
 /// <param name="Duration">How long this engagement lasted - what <see cref="Dealt"/> and
 /// <see cref="Taken"/>'s rates were divided by, carried so a coalesced row can recompute them over
 /// the summed engagements (<see cref="CombatEndingCoalescer"/>).</param>
-/// <param name="Retries">How many times this creature fled from the player before the kill this row
-/// records - the engagements <see cref="CombatEndingCoalescer"/> folded into it. Zero for a row that
-/// stands for one engagement.</param>
+/// <param name="Retries">How many earlier engagements <see cref="CombatEndingCoalescer"/> folded into
+/// this row. Zero for a row that stands for one engagement.</param>
+/// <param name="PersonaSessionId">The login (persona session) this ending belongs to
+/// (<c>SidePanelViewModel.OnGameModeEntered</c>).</param>
 public readonly record struct CombatEnding(
     string Name, MudSharp.Combat.FightOutcome Outcome, DateTime? EndedUtc,
     int EncounterOrdinal = 0, int ResetOrdinal = 0,
@@ -135,76 +136,84 @@ public readonly record struct CombatEnding(
     MudSharp.Combat.ExchangeLine Taken = default,
     int? ScoreAwarded = null,
     TimeSpan Duration = default,
-    int Retries = 0);
+    int Retries = 0,
+    long? PersonaSessionId = null);
 
 /// <summary>
-/// Folds a creature's flights into the kill that finally ended it, for the dead strip.
-///
-/// <para>A creature that flees leaves combat whether or not it gets away, so each re-engagement is a
-/// fight of its own (see <c>CombatStatsAggregator.EngagedFightFor</c>) and each produces an ending.
-/// Against a creature that breaks off repeatedly the strip fills with "broke off" rows and the kill,
-/// when it comes, is one row among many - the player cannot tell which creatures are dead. So a
-/// <see cref="MudSharp.Combat.FightOutcome.Kill"/> row absorbs the run of flee rows directly above it
-/// for the same name: one row, the kill's outcome and timestamp, the engagements' figures combined,
-/// and <see cref="CombatEnding.Retries"/> counting the flights.</para>
+/// Folds a flight and what continues it against the same creature into one dead-strip row - see
+/// <see cref="ShouldCoalesce"/> for the rule. The merged row takes the later ending's outcome and
+/// timestamp, the engagements' figures combined, and <see cref="CombatEnding.Retries"/> counting the
+/// rows folded in.
 ///
 /// <para>A display fold only. The fight records, the history and the archive keep every engagement
-/// separate, which <c>ChaseLinker</c> depends on.</para>
-///
-/// <para>The run stops at any other row - another creature, a player flight - and at a reset: MUD2
-/// reuses instance names, and a reset is the one boundary where the client knows the name now stands
-/// for a different creature.</para>
+/// separate.</para>
 /// </summary>
 public static class CombatEndingCoalescer
 {
-    /// <summary><paramref name="endings"/> in the same order, each kill carrying the flights directly
-    /// before it. Returns the input itself when nothing folds.</summary>
+    /// <summary>Operator rule: the longest gap, in seconds, between the previous row's ending and the
+    /// new one that still merges them.</summary>
+    public const double WindowSeconds = 180.0;
+
+    /// <summary>
+    /// Whether <paramref name="next"/> merges into <paramref name="previous"/>, the row directly above
+    /// it. Operator rule: <paramref name="previous"/> ended in a flight - the creature's or the
+    /// player's, failed or not, since an attempt to flee disengages either way - and
+    /// <paramref name="next"/> is another flight or a kill; the same creature id, which is not an
+    /// anonymous word (Someone / Something); the same known persona session, with no reset line drawn
+    /// between them (<see cref="RailSlotGeometry.SeparatorBetween"/>); and at most
+    /// <see cref="WindowSeconds"/> between the two endings. A kill takes a fold but never gives one.
+    /// Nothing else is consulted.
+    /// </summary>
+    public static bool ShouldCoalesce(in CombatEnding previous, in CombatEnding next)
+        => IsFlight(previous.Outcome)
+            && (IsFlight(next.Outcome) || next.Outcome == MudSharp.Combat.FightOutcome.Kill)
+            && string.Equals(previous.Name, next.Name, StringComparison.Ordinal)
+            && !MudSharp.Combat.AnonymousOpponent.IsAnonymous(previous.Name)
+            && previous.PersonaSessionId is long session && next.PersonaSessionId == session
+            && RailSlotGeometry.SeparatorBetween(previous, next) != DeadStripSeparatorKind.Reset
+            && previous.EndedUtc is DateTime earlier && next.EndedUtc is DateTime later
+            && (later - earlier).TotalSeconds is >= 0 and <= WindowSeconds;
+
+    private static bool IsFlight(MudSharp.Combat.FightOutcome outcome)
+        => outcome is MudSharp.Combat.FightOutcome.CFled or MudSharp.Combat.FightOutcome.CFledFail
+            or MudSharp.Combat.FightOutcome.UFled or MudSharp.Combat.FightOutcome.UFledFail;
+
+    /// <summary>Folds each ending into the row above it wherever <see cref="ShouldCoalesce"/> says so,
+    /// in order, so a run chains: each new ending is checked against the row as merged so far. Returns
+    /// the input itself when nothing merges.</summary>
     public static IReadOnlyList<CombatEnding> Coalesce(IReadOnlyList<CombatEnding> endings)
     {
         List<CombatEnding>? result = null;
         for (var i = 0; i < endings.Count; i++)
         {
             var ending = endings[i];
-            if (ending.Outcome == MudSharp.Combat.FightOutcome.Kill)
+            var above = result is null ? i - 1 : result.Count - 1;
+            var previous = above < 0 ? (CombatEnding?)null : result is null ? endings[above] : result[above];
+            if (previous is { } prior && ShouldCoalesce(prior, ending))
             {
-                var output = (IReadOnlyList<CombatEnding>?)result ?? endings;
-                var outputCount = result?.Count ?? i;
-                var first = outputCount;
-                while (first > 0 && Absorbs(ending, output[first - 1]))
-                    first--;
-
-                if (first < outputCount)
-                {
-                    result ??= new List<CombatEnding>(endings.Take(i));
-                    for (var j = first; j < outputCount; j++)
-                        ending = Merge(result[j], ending);
-                    result.RemoveRange(first, outputCount - first);
-                }
+                result ??= new List<CombatEnding>(endings.Take(i));
+                result[^1] = Merge(prior, ending);
+                continue;
             }
             result?.Add(ending);
         }
         return result ?? endings;
     }
 
-    private static bool Absorbs(in CombatEnding kill, in CombatEnding earlier)
-        => earlier.Outcome is MudSharp.Combat.FightOutcome.CFledFail or MudSharp.Combat.FightOutcome.CFled
-            && earlier.ResetOrdinal == kill.ResetOrdinal
-            && string.Equals(earlier.Name, kill.Name, StringComparison.OrdinalIgnoreCase);
-
-    /// <summary>The kill keeps its identity - outcome, timestamp, ordinals - and takes on the flight's
-    /// figures and one more retry.</summary>
-    private static CombatEnding Merge(in CombatEnding flight, in CombatEnding kill)
+    /// <summary>The later ending keeps its identity - outcome, timestamp, ordinals - and takes on the
+    /// earlier row's figures and one more retry.</summary>
+    private static CombatEnding Merge(in CombatEnding earlier, in CombatEnding later)
     {
-        var duration = flight.Duration + kill.Duration;
-        return kill with
+        var duration = earlier.Duration + later.Duration;
+        return later with
         {
-            Dealt = ExchangeLines.Combine(flight.Dealt, kill.Dealt, duration),
-            Taken = ExchangeLines.Combine(flight.Taken, kill.Taken, duration),
-            ScoreAwarded = flight.ScoreAwarded is int a
-                ? kill.ScoreAwarded is int b ? a + b : a
-                : kill.ScoreAwarded,
+            Dealt = ExchangeLines.Combine(earlier.Dealt, later.Dealt, duration),
+            Taken = ExchangeLines.Combine(earlier.Taken, later.Taken, duration),
+            ScoreAwarded = earlier.ScoreAwarded is int a
+                ? later.ScoreAwarded is int b ? a + b : a
+                : later.ScoreAwarded,
             Duration = duration,
-            Retries = kill.Retries + flight.Retries + 1,
+            Retries = later.Retries + earlier.Retries + 1,
         };
     }
 }
@@ -222,9 +231,8 @@ public static class CombatEndingCoalescer
 /// that row would move the moment the first one died, breaking the strip's own "nothing moves"
 /// rule.</para>
 ///
-/// <para>The one deliberate exception is <see cref="CombatEndingCoalescer"/>: a kill takes that
-/// creature's flight rows into itself, so they leave the strip and the rows around them shift. A
-/// death has changed something, which is what the strip moving is allowed to say.</para>
+/// <para>The one exception is <see cref="CombatEndingCoalescer"/>: a later ending takes the row
+/// above it into itself, so the rows around it shift.</para>
 /// </summary>
 public static class CombatEndingOrder
 {

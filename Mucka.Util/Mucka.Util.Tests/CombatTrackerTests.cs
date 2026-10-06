@@ -602,7 +602,7 @@ public class CombatTrackerTests
     /// </summary>
     [Theory]
     [InlineData("world reset")]       // MudSession.OnWorldResetLanded
-    [InlineData("reset/disconnect")]  // the default: logout (OnGameModeExited) and app exit (Dispose)
+    [InlineData("reset/disconnect")]  // the default: logout or disconnect (OnGameModeExited) and app exit (Dispose)
     public void ForceEnd_EmitsItsOwnEventKindWithTheReasonInTheRawText(string reason)
     {
         var (t, _, events) = NewTracker();

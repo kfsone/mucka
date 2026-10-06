@@ -704,17 +704,6 @@ public sealed class CombatStatsAggregator
     /// second engagement's ending entirely - a creature that broke off and was then killed would stay
     /// labelled "broke off" with the kill's blows folded in and the kill never recorded.</para>
     ///
-    /// <para>The client cannot tell a creature you chased from a fresh <c>rat17</c> after a reset - MUD2
-    /// reuses instance names and says nothing about identity - but that ambiguity is about which
-    /// CREATURE this is, not about whether a new engagement started. The new engagement is certain;
-    /// only its subject is not, and <c>ChaseLinker</c> is what handles that.</para>
-    ///
-    /// <para><b>It also preserves a safeguard <c>ChaseLinker</c> depends on.</b> <c>ChaseLinker</c>
-    /// exists precisely for this ambiguity: it joins consecutive engagements against one name back
-    /// into a single observation against one pool, which is what makes the terminal kill usable as a
-    /// ceiling. It can only do that if the two engagements are two observations; merging them into one
-    /// bucket here would give it a single fight it could never take apart.</para>
-    ///
     /// <para>Consequence worth knowing: one creature can occupy more than one roster row in an
     /// encounter, the earlier ones resolved. That is the honest record of what happened, and
     /// <c>ParticipantRoster.Build</c> sorts the live one above them.</para>

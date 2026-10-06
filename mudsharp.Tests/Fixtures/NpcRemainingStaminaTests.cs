@@ -23,7 +23,7 @@ public sealed class NpcRemainingStaminaTests
         return new StaminaPoolEstimate(
             "water-snake", quantity,
             evidence ?? (atMost is null ? PoolEvidence.LowerBoundOnly : PoolEvidence.Band),
-            interval, fights, fights, 0, 0, 0, [interval]);
+            interval, fights, fights, 0, [interval]);
     }
 
     private static DamageBracket Dealt(double low, double high) => new(low, high);

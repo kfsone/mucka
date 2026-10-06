@@ -3,13 +3,9 @@ using MudSharp.Combat;
 namespace mudsharp.Tests.Fixtures;
 
 /// <summary>
-/// The censored-interval stamina-pool estimator: the constraint arithmetic, the re-engagement filter,
-/// and the max-depth intersection that keeps one contaminated fight from emptying the answer.
-///
-/// <para>These pin the ARITHMETIC. The evidence behind the model - equal-seventh rungs tested on 1,978
-/// readings, a 21% high bias in the median-kill-damage estimator this replaced, re-engagement at
-/// P=0.80 against a 0.05 baseline - is recorded on <see cref="StaminaPoolEstimator"/> itself. A failure
-/// here means the code changed, not that the game did.</para>
+/// The censored-interval stamina-pool estimator: the constraint arithmetic and the max-depth
+/// intersection that keeps one contaminated fight from emptying the answer. A failure here means the
+/// code changed, not that the game did.
 /// </summary>
 public sealed class StaminaPoolEstimatorTests
 {
@@ -21,26 +17,11 @@ public sealed class StaminaPoolEstimatorTests
         long endedAtMs = 10_000,
         bool kill = false,
         (double Low, double High)[]? blows = null,
-        (int Rung, int After)[]? rungs = null,
-        long? encounter = null,
-        int? staStart = null,
-        int? staEnd = null,
-        int? staMax = null,
-        string? weapon = null)
+        (int Rung, int After)[]? rungs = null)
         => new(
             name, startedAtMs, endedAtMs, kill,
             (blows ?? []).Select(b => new DamageBracket(b.Low, b.High)).ToArray(),
-            (rungs ?? []).Select(r => new RungReading(r.Rung, r.After)).ToArray(),
-            encounter,
-            new PlayerFightState(staStart, staEnd, staMax, weapon));
-
-    /// <summary>A fight that leaves the player exactly as it found them - the state a chase presents.
-    /// Depleted, same weapon, same maximum.</summary>
-    private static PoolFightObservation Chased(
-        long startedAtMs, long endedAtMs, bool kill = false,
-        (double Low, double High)[]? blows = null, long? encounter = null, string name = "rat0")
-        => Fight(name, startedAtMs, endedAtMs, kill, blows ?? [(4, 8)],
-            encounter: encounter, staStart: 40, staEnd: 38, staMax: 100, weapon: "axe0");
+            (rungs ?? []).Select(r => new RungReading(r.Rung, r.After)).ToArray());
 
     // -- Family 3: the multi-rung span ------------------------------------------
 
@@ -340,225 +321,6 @@ public sealed class StaminaPoolEstimatorTests
         Assert.Equal(60, bound.Value.AtMost!.Value, 6);
     }
 
-    // -- chase linking ------------------------------------------------------------
-
-    [Fact]
-    public void AChaseIsLinkedIntoOneObservation_NotDropped()
-    {
-        // Linking must preserve both fights: the finishing link is the only two-sided constraint
-        // a fight can produce, so it must not be the one dropped.
-        var (chains, linked, dropped) = ChaseLinker.Link(new[]
-        {
-            Chased(0, 10_000, blows: [(4, 8), (4, 8)]),
-            Chased(14_000, 20_000, kill: true, blows: [(5, 9)]),
-        });
-
-        Assert.Equal(1, linked);
-        Assert.Equal(0, dropped);
-        var chain = Assert.Single(chains);
-
-        // One observation against one pool: every blow, the last link's ending.
-        Assert.Equal(3, chain.Blows.Count);
-        Assert.True(chain.EndedInKill);
-        Assert.Equal(0, chain.StartedAtMs);
-        Assert.Equal(20_000, chain.EndedAtMs);
-    }
-
-    [Fact]
-    public void ALinkedChainYieldsACeilingWhereTheOldFilterYieldedNone()
-    {
-        // The measured gain, as an assertion. Alone, the opening fight is a survivor and floors the pool
-        // and nothing more; linked to the kill that ended it, the chain brackets it from both sides.
-        var opening = Chased(0, 10_000, blows: [(4, 8), (4, 8)]);
-        var finish = Chased(14_000, 20_000, kill: true, blows: [(5, 9)]);
-
-        var alone = StaminaPoolEstimator.Estimate("rat", [opening]);
-        Assert.Equal(PoolEvidence.LowerBoundOnly, alone.Evidence);
-        Assert.Null(alone.Interval.AtMost);
-
-        var chained = StaminaPoolEstimator.Estimate("rat", [opening, finish]);
-        Assert.Equal(PoolEvidence.Band, chained.Evidence);
-        // Alive after the first two blows' lows (8), dead by the sum of every blow's high (25).
-        Assert.Equal(8, chained.Interval.Above, 6);
-        Assert.Equal(25, chained.Interval.AtMost!.Value, 6);
-        Assert.Equal(1, chained.LinkedEngagements);
-    }
-
-    [Fact]
-    public void RungReadingsAreReIndexedOntoTheCombinedBlowSequence()
-    {
-        // A reading credited with "two blows before it" in the second link happened after everything the
-        // first link landed as well. Left un-offset it would understate the damage behind the reading
-        // and so understate the floor.
-        var (chains, _, _) = ChaseLinker.Link(new[]
-        {
-            Chased(0, 10_000, blows: [(4, 8), (4, 8)]),
-            Fight("rat0", 14_000, 20_000, blows: [(5, 9), (5, 9)], rungs: [(4, 2)],
-                staStart: 38, staEnd: 36, staMax: 100, weapon: "axe0"),
-        });
-
-        var chain = Assert.Single(chains);
-        var reading = Assert.Single(chain.Rungs);
-        Assert.Equal(4, reading.LandedBlowsBefore);
-    }
-
-    [Fact]
-    public void AKillEndsTheChainAbsolutely()
-    {
-        // Whatever answers to the name afterwards is a different creature - a respawn, or a packmate
-        // sharing an unnumbered name. Linking across it would add one creature's damage to another.
-        var (chains, linked, _) = ChaseLinker.Link(new[]
-        {
-            Chased(0, 10_000, kill: true),
-            Chased(14_000, 20_000, kill: true),
-        });
-
-        Assert.Equal(0, linked);
-        Assert.Equal(2, chains.Count);
-    }
-
-    [Fact]
-    public void RecoveringSubstantiallyBetweenFightsIsAFreshAttempt_NotAChase()
-    {
-        // Too low on stamina, leave, sleep, come back: the gap can be short and it is still not a
-        // chase, because the player's state reset.
-        var (chains, linked, _) = ChaseLinker.Link(new[]
-        {
-            Fight("banshee", 0, 10_000, staStart: 90, staEnd: 20, staMax: 100, weapon: "axe0"),
-            Fight("banshee", 15_000, 25_000, staStart: 100, staEnd: 80, staMax: 100, weapon: "axe0"),
-        });
-
-        Assert.Equal(0, linked);
-        Assert.Equal(2, chains.Count);
-    }
-
-    [Fact]
-    public void ChangingWeaponBetweenFightsIsAFreshAttempt()
-    {
-        var (chains, linked, _) = ChaseLinker.Link(new[]
-        {
-            Fight("banshee", 0, 10_000, staStart: 40, staEnd: 38, staMax: 100, weapon: "axe0"),
-            Fight("banshee", 12_000, 20_000, staStart: 38, staEnd: 30, staMax: 100, weapon: "pick1"),
-        });
-
-        Assert.Equal(0, linked);
-        Assert.Equal(2, chains.Count);
-    }
-
-    [Fact]
-    public void ADreamwordBetweenFightsIsAFreshAttempt()
-    {
-        // sta_max moved, so the player went and got stronger. That is a re-attempt by definition.
-        var (chains, linked, _) = ChaseLinker.Link(new[]
-        {
-            Fight("banshee", 0, 10_000, staStart: 40, staEnd: 38, staMax: 100, weapon: "axe0"),
-            Fight("banshee", 12_000, 20_000, staStart: 38, staEnd: 30, staMax: 115, weapon: "axe0"),
-        });
-
-        Assert.Equal(0, linked);
-        Assert.Equal(2, chains.Count);
-    }
-
-    [Fact]
-    public void TimeIsOnlyTheBackstop()
-    {
-        // Continuous player state links across a long gap up to the backstop, and stops beyond it. The
-        // clock is not the test - it is what stops an unbounded chain forming when no state signal
-        // fires at all.
-        var withinBackstop = ChaseLinker.Link(new[]
-        {
-            Chased(0, 10_000),
-            Chased(10_000 + ChaseLinkPolicy.BackstopMs, 110_000 + ChaseLinkPolicy.BackstopMs),
-        });
-        Assert.Equal(1, withinBackstop.Linked);
-
-        var past = ChaseLinker.Link(new[]
-        {
-            Chased(0, 10_000),
-            Chased(10_000 + ChaseLinkPolicy.BackstopMs + 1, 200_000),
-        });
-        Assert.Equal(0, past.Linked);
-    }
-
-    [Fact]
-    public void DifferentInstancesAreNeverLinked()
-    {
-        // rat0 and rat3 in one pack are two rats, and both met the player at full.
-        var (chains, linked, _) = ChaseLinker.Link(new[]
-        {
-            Chased(0, 10_000, name: "rat0"),
-            Chased(11_000, 20_000, name: "rat3"),
-        });
-
-        Assert.Equal(0, linked);
-        Assert.Equal(2, chains.Count);
-    }
-
-    [Fact]
-    public void UnsortedInputIsSortedBeforeLinking()
-    {
-        var (chains, linked, _) = ChaseLinker.Link(new[]
-        {
-            Chased(14_000, 20_000, kill: true),
-            Chased(0, 10_000),
-        });
-
-        Assert.Equal(1, linked);
-        Assert.Equal(0, Assert.Single(chains).StartedAtMs);
-    }
-
-    // -- folds --------------------------------------------------------------------
-
-    [Fact]
-    public void AFoldIsDroppedEntirely_NotResolvedToItsWorstRow()
-    {
-        // Several creatures printed under one name inside one encounter. The first row absorbed every
-        // blow landed on every one of them before the first died, which makes it the worst row in the
-        // group. No blow can be attributed, so none of them counts.
-        //
-        // The discriminator is that an EARLIER fight in the same encounter ended in a kill: the creature
-        // carrying the name is dead, so whatever answers to it next is a different one.
-        var (chains, _, dropped) = ChaseLinker.Link(new[]
-        {
-            Fight("rat", 0, 10_000, kill: true, blows: [(4, 8), (4, 8), (4, 8)], encounter: 1),
-            Fight("rat", 11_000, 20_000, kill: true, blows: [(4, 8)], encounter: 1),
-        });
-
-        Assert.Equal(2, dropped);
-        Assert.Empty(chains);
-    }
-
-    [Fact]
-    public void AnInEncounterChaseIsLinked_NotMistakenForAFold()
-    {
-        // The case that looks identical from outside: two same-name fights in ONE encounter. Here the
-        // first ended CFledFail rather than in a kill, so the creature is alive and it is the same one.
-        // No fold appears anywhere in the corpus; all five same-encounter same-name groups are this.
-        var (chains, linked, dropped) = ChaseLinker.Link(new[]
-        {
-            Chased(0, 10_000, encounter: 1),
-            Chased(12_000, 20_000, kill: true, encounter: 1),
-        });
-
-        Assert.Equal(0, dropped);
-        Assert.Equal(1, linked);
-        Assert.True(Assert.Single(chains).EndedInKill);
-    }
-
-    [Fact]
-    public void AFoldDoesNotPoisonTheSameNameInOtherEncounters()
-    {
-        var (chains, _, dropped) = ChaseLinker.Link(new[]
-        {
-            Fight("rat", 0, 10_000, kill: true, blows: [(4, 8)], encounter: 1),
-            Fight("rat", 11_000, 20_000, kill: true, blows: [(4, 8)], encounter: 1),
-            Fight("rat", 500_000, 510_000, kill: true, blows: [(4, 8)], encounter: 2),
-        });
-
-        Assert.Equal(2, dropped);
-        Assert.Equal(500_000, Assert.Single(chains).StartedAtMs);
-    }
-
     // -- Max-depth intersection ---------------------------------------------------
 
     [Fact]
@@ -781,52 +543,17 @@ public sealed class StaminaPoolEstimatorTests
     }
 
     [Fact]
-    public void TheEstimateReportsHowMuchEvidenceItLinkedAndWhatItDropped()
+    public void TheEstimateCountsContributingAndContradictoryFights()
     {
-        // rat0 breaks off and is chased down: two fights, one chain, one observation. rat1 is its own
-        // fight and contradicts itself (its rung reading demands more pool than its kill bracket
-        // allows), so it is counted as contradictory but still contributes its kill bracket.
+        // rat1 contradicts itself (its rung reading demands more pool than its kill bracket allows), so
+        // it is counted as contradictory but still contributes its kill bracket.
         var estimate = StaminaPoolEstimator.Estimate("rat", new[]
         {
-            Fight(name: "rat0", startedAtMs: 0, endedAtMs: 1_000, blows: [(10, 14), (10, 14)],
-                  staStart: 40, staEnd: 38, staMax: 100, weapon: "axe0"),
-            Fight(name: "rat0", startedAtMs: 2_000, endedAtMs: 3_000, kill: true, blows: [(6, 8)],
-                  staStart: 38, staEnd: 36, staMax: 100, weapon: "axe0"),
-            Fight(name: "rat1", startedAtMs: 0, endedAtMs: 1_000, kill: true,
-                  blows: [(20, 29), (20, 29), (0, 2)], rungs: [(7, 2)]),
+            Fight(name: "rat0", kill: true, blows: [(10, 14), (10, 14)]),
+            Fight(name: "rat1", kill: true, blows: [(20, 29), (20, 29), (0, 2)], rungs: [(7, 2)]),
         });
 
-        Assert.Equal(1, estimate.LinkedEngagements);
-        Assert.Equal(0, estimate.DroppedInFolds);
         Assert.Equal(1, estimate.ContradictoryFights);
-        Assert.Equal(2, estimate.ContributingFights);
-    }
-
-    /// <summary>
-    /// A kill followed by the same name is two creatures, and both are evidence.
-    ///
-    /// <para>A potion in the game summons creatures and can draw from the full pool including dead
-    /// ones, which is how the same name can be killed twice in one reset. A wizard can resummon too,
-    /// so this is repeatable - and capped, since no more than two of the same id'd creature can exist
-    /// at once.</para>
-    ///
-    /// <para>The second life is CLEAN data rather than contamination, which is why both observations
-    /// stand instead of the later one being dropped. Measured: successors of a same-reset kill reproduce
-    /// the isolated kill distribution (rats n=10, median damage-to-kill 37.5 against an isolated median
-    /// of 37 over n=445, IQR 33-42).</para>
-    /// </summary>
-    [Fact]
-    public void AKillFollowedByTheSameNameIsTwoObservations_NotAChain()
-    {
-        // The clock alone does not merge these two kills; a kill ends the chain absolutely, so
-        // each is its own observation.
-        var estimate = StaminaPoolEstimator.Estimate("rat", new[]
-        {
-            Fight(name: "rat0", startedAtMs: 0, endedAtMs: 1_000, kill: true, blows: [(10, 14), (10, 14)]),
-            Fight(name: "rat0", startedAtMs: 2_000, endedAtMs: 3_000, kill: true, blows: [(10, 14), (10, 14)]),
-        });
-
-        Assert.Equal(0, estimate.LinkedEngagements);
         Assert.Equal(2, estimate.ContributingFights);
     }
 

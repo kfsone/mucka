@@ -29,10 +29,8 @@ public sealed class FightHistoryRecorder : IDisposable
     private readonly Dictionary<string, FightAccumulator> _fights = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<FightAccumulator> _fightOrder = [];
 
-    // When the last engagement against each instance name ended, unix ms. Survives FlushLocked on
-    // purpose - the whole point is to link across encounters, and MUD2 opens a new encounter every
-    // time a creature tries to flee. Session-scoped, like _characterName. See
-    // FightRecord.PrevSameNameEndedMs.
+    // When the last engagement against each instance name ended, unix ms. Survives FlushLocked, so
+    // it spans encounters. Session-scoped, like _characterName. See FightRecord.PrevSameNameEndedMs.
     private readonly Dictionary<string, long> _lastEngagementEndedMs = new(StringComparer.OrdinalIgnoreCase);
     // Per-accumulator, because one name can hold several engagements inside one encounter and _fights
     // only ever keeps the newest. Reference-keyed; emptied with _fightOrder at every flush.
@@ -463,22 +461,8 @@ public sealed class FightHistoryRecorder : IDisposable
     /// the second engagement's ending: a creature that broke off and was then killed would be written
     /// to history as "broke off" with the kill's blows folded into it.</para>
     ///
-    /// <para><b>This side is the one that matters most.</b> The aggregator's copy of this drives the
-    /// live panel; these rows ARE the corpus, so a merged bucket here would corrupt every constraint
-    /// the stamina-pool estimator later derives. It would also defeat the estimator's own defence:
-    /// <c>ChaseLinker</c> joins consecutive engagements against one name into a single observation
-    /// against one pool - which is what lets a terminal kill bound that pool from above - and it can
-    /// only do that if the two engagements are two ROWS.</para>
-    ///
-    /// <para>What this buys, and does not: it does not add a clean kill observation, since the filter
-    /// correctly drops the second engagement (that creature was pre-damaged by the first). What it
-    /// does buy is that the FIRST row is not polluted with the second's blows, and the contaminated
-    /// one is visible as contaminated instead of hiding inside it.</para>
-    ///
-    /// <para>The client cannot tell a creature you chased from a fresh <c>rat17</c> after a reset - MUD2
-    /// reuses instance names and says nothing about identity. That ambiguity is about which CREATURE
-    /// the second engagement is against, not about whether there was one, and the exclusion filter
-    /// above is what answers it.</para>
+    /// <para>The aggregator's copy of this drives the live panel; these rows ARE the corpus, so a
+    /// merged bucket here would corrupt every constraint the stamina-pool estimator later derives.</para>
     /// </summary>
     private FightAccumulator? EngagedFightForLocked(CombatEvent combatEvent)
     {

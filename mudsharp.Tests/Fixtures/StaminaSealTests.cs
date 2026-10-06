@@ -27,7 +27,7 @@ public sealed class StaminaSealTests
         IReadOnlyList<StaminaInterval>? runs = null)
         => new(
             "rat", PoolQuantity.StaminaPool, evidence, new StaminaInterval(above, atMost),
-            SupportingFights: 3, ContributingFights: 3, LinkedEngagements: 0, DroppedInFolds: 0,
+            SupportingFights: 3, ContributingFights: 3,
             ContradictoryFights: 0, TiedRuns: runs ?? [new StaminaInterval(above, atMost)]);
 
     private const double Seventh = 1.0 / 7.0;

@@ -364,8 +364,6 @@ public sealed class FightHistoryRecorderTests : IDisposable
         Assert.Equal(nameof(FightOutcome.Kill), rows[1].Outcome);
         Assert.Equal(1, rows[1].YouHits);
 
-        // Two rows a few seconds apart is exactly what ChaseLinker is built to join back into one
-        // observation. Merged into one row here, they were a single fight it could never take apart.
         Assert.True(rows[1].StartedAtMs > rows[0].StartedAtMs);
     }
 

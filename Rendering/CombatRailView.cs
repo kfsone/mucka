@@ -862,7 +862,7 @@ public sealed class CombatRailView : SKCanvasView
     /// two regions grow toward the gap between them, and when they meet it is the DEAD that gives -
     /// which is the region where movement is acceptable.</para>
     ///
-    /// <para><b>One row per ending, session-scoped, not per-encounter</b> - except that a kill absorbs
+    /// <para><b>One row per ending, session-scoped, not per-encounter</b> - except that a row absorbs
     /// the flights of that creature directly before it, drawn as retry marks after the word
     /// (<see cref="CombatEndingCoalescer"/>). <paramref name="history"/> already IS that history,
     /// chronological oldest-first - <see cref="SidePanelViewModel.BuildDeadStripHistory"/> owns
@@ -1911,7 +1911,7 @@ public sealed class CombatRailView : SKCanvasView
     }
 
     /// <summary>
-    /// One retry mark per flight a kill row absorbed (<see cref="CombatEnding.Retries"/>), after the
+    /// One retry mark per flight a row absorbed (<see cref="CombatEnding.Retries"/>), after the
     /// outcome word. Kept inside <see cref="DeadNameWidth"/> so they never reach the exchange figures
     /// on the same baseline: when they will not all fit, one mark and the count are drawn instead.
     /// </summary>

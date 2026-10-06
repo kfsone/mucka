@@ -259,6 +259,10 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     // The reset ordinal is ResetCycle's: the corroborated landing and the login banner's reset
     // number, never a return to the menu.
     private readonly ResetCycle _resetCycle = new();
+    // The persona session (login) set on every entry to game mode (CombatEnding.PersonaSessionId). A
+    // quit or a disconnect closes the open encounter before the next entry, so its endings keep the
+    // old value.
+    private long? _personaSessionId;
     private readonly List<CombatEnding> _endingArchive = new();
     // The published, immutable form of _endingArchive - a fresh array taken only when the archive
     // actually grows (at an encounter close), so every frame published before that close keeps
@@ -1505,6 +1509,10 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             SetAllExitsPresent(false);
         });
 
+    /// <summary>Called when the player enters game mode, with the login it opened.</summary>
+    public void OnGameModeEntered(long? personaSessionId)
+        => MainThread.BeginInvokeOnMainThread(() => _personaSessionId = personaSessionId);
+
     /// <summary>
     /// One resolved fight as the dead strip records it: the outcome, the exchange summary its live
     /// tile carried, and the kill award if one has been paired to it.
@@ -1517,7 +1525,8 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         => new(
             fight.NpcName, fight.Outcome, fight.EndedUtc, encounterOrdinal, resetOrdinal,
             ExchangeLines.DealtLine(fight), ExchangeLines.TakenLine(fight),
-            AwardFor(encounterOrdinal, fight.NpcName, fight.EndedUtc), fight.Duration);
+            AwardFor(encounterOrdinal, fight.NpcName, fight.EndedUtc), fight.Duration,
+            PersonaSessionId: _personaSessionId);
 
     /// <summary>The award paired to one ending - see <see cref="KillAwardLedger"/>, which owns the
     /// pairing and the reason it is scoped to the frame that produced the ending.</summary>

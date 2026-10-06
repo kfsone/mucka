@@ -24,42 +24,22 @@ public readonly record struct RungReading(int Rung, int LandedBlowsBefore);
 /// <summary>
 /// One fight against one creature, reduced to exactly what constrains its stamina pool.
 /// </summary>
-/// <param name="NpcName">The instance name as the game gave it ("large rat0"), which is what the
-/// re-engagement filter keys on.</param>
-/// <param name="StartedAtMs">Unix ms, for the re-engagement filter.</param>
-/// <param name="EndedAtMs">Unix ms, for the re-engagement filter.</param>
+/// <param name="NpcName">The instance name as the game gave it ("large rat0").</param>
+/// <param name="StartedAtMs">Unix ms.</param>
+/// <param name="EndedAtMs">Unix ms.</param>
 /// <param name="EndedInKill">Whether the player's own blow finished it. Deaths from other causes
 /// (poison) do NOT count: the damage that finished those was never on the wire, so their totals
 /// bound nothing.</param>
 /// <param name="Blows">The player's LANDED blows, in order. Misses are not here - they constrain
 /// nothing.</param>
 /// <param name="Rungs">Health-descriptor readings observed during the fight.</param>
-/// <param name="EncounterStartedAtMs">The encounter this fight belonged to, or null when unknown.</param>
-/// <param name="PlayerState">What the player's own state looked like across this fight. The
-/// discriminator between chasing one creature and coming back later to re-attempt it - see
-/// <see cref="ChaseLinkPolicy"/>.</param>
 public sealed record PoolFightObservation(
     string NpcName,
     long StartedAtMs,
     long EndedAtMs,
     bool EndedInKill,
     IReadOnlyList<DamageBracket> Blows,
-    IReadOnlyList<RungReading> Rungs,
-    long? EncounterStartedAtMs = null,
-    PlayerFightState PlayerState = default);
-
-/// <summary>
-/// The player's own state across one fight, as the linkage test needs it.
-/// </summary>
-/// <param name="StaminaAtStart">Stamina on the fight's first swing.</param>
-/// <param name="StaminaAtEnd">Stamina on its last.</param>
-/// <param name="StaminaMaxAtEnd">Maximum on its last. A change between fights is a dreamword.</param>
-/// <param name="Weapon">What was in hand, from the last outgoing swing that named one.</param>
-public readonly record struct PlayerFightState(
-    int? StaminaAtStart = null,
-    int? StaminaAtEnd = null,
-    int? StaminaMaxAtEnd = null,
-    string? Weapon = null);
+    IReadOnlyList<RungReading> Rungs);
 
 /// <summary>What kind of number the estimate is a number for.</summary>
 public enum PoolQuantity
@@ -122,12 +102,7 @@ public enum PoolEvidence
 /// depth of the run this came from. This is the number to show beside the figure; it is NOT the same
 /// as <paramref name="ContributingFights"/> and is usually smaller, because contamination is real and
 /// the estimator does not pretend a fight that contradicts the band voted for it.</param>
-/// <param name="ContributingFights">Chains that produced a constraint at all, after linking.</param>
-/// <param name="LinkedEngagements">Fights joined onto a predecessor as one continuing chase rather
-/// than counted separately - see <see cref="ChaseLinker"/>. Not a loss: the whole chain becomes one
-/// observation, and that is what makes a terminal kill usable as a ceiling.</param>
-/// <param name="DroppedInFolds">Fights thrown away because several creatures shared one printed name
-/// inside a single encounter, so no blow could be attributed to any one of them.</param>
+/// <param name="ContributingFights">Fights that produced a constraint at all.</param>
 /// <param name="ContradictoryFights">Kills whose rung readings demanded a larger pool than their own
 /// kill bracket allows. The rung bounds were dropped for those and the kill bracket kept - see
 /// <see cref="StaminaPoolEstimator.BoundFor"/>.</param>
@@ -142,14 +117,12 @@ public sealed record StaminaPoolEstimate(
     StaminaInterval Interval,
     int SupportingFights,
     int ContributingFights,
-    int LinkedEngagements,
-    int DroppedInFolds,
     int ContradictoryFights,
     IReadOnlyList<StaminaInterval> TiedRuns)
 {
     public static readonly StaminaPoolEstimate None = new(
         string.Empty, PoolQuantity.StaminaPool, PoolEvidence.None, StaminaInterval.Unbounded,
-        0, 0, 0, 0, 0, []);
+        0, 0, 0, []);
 
     public bool HasEvidence => Evidence != PoolEvidence.None;
 
@@ -234,13 +207,6 @@ public sealed record StaminaPoolEstimate(
 /// Taking the interval covered by the most fights keeps the answer and reports how many fights agreed
 /// with it.</para>
 ///
-/// <para><b>Re-engagement is LINKED, not excluded.</b> Among kills that read as pre-damaged the
-/// probability of a prior fight against the same name inside two minutes is 0.80 against a 0.05
-/// baseline, so it is the mechanism rather than a subtle confound. <see cref="ChaseLinker"/> joins
-/// the chain into one observation against one pool, which is sound because the chain IS one
-/// creature - chain totals reproduce isolated kill totals within a few points across eight species,
-/// and the rung does not move across a disengagement under ten seconds.</para>
-///
 /// <para><b>Nothing is decayed.</b> The process is stationary across 2026-08-14 to 2026-08-30 on every
 /// well-sampled species, so old observations are worth exactly as much as new ones and weighting them
 /// down would just shrink the sample.</para>
@@ -276,19 +242,16 @@ internal static class StaminaPoolEstimator
     /// <summary>
     /// The whole estimate for one pool key, from every observation of it.
     ///
-    /// <para><paramref name="observations"/> need not be sorted; the re-engagement filter sorts its
-    /// own copy. Observations whose <see cref="PoolFightObservation.NpcName"/> maps to a different
+    /// <para>Observations whose <see cref="PoolFightObservation.NpcName"/> maps to a different
     /// pool key are NOT filtered out here - the caller owns bucketing, and silently dropping rows
     /// would hide a mis-keyed feed.</para>
     /// </summary>
     public static StaminaPoolEstimate Estimate(string poolKey, IEnumerable<PoolFightObservation> observations)
     {
         var quantity = QuantityFor(poolKey);
-        var (kept, linked, droppedInFolds) = ChaseLinker.Link(observations);
-
-        var bounds = new List<StaminaInterval>(kept.Count);
+        var bounds = new List<StaminaInterval>();
         var contradictions = 0;
-        foreach (var observation in kept)
+        foreach (var observation in observations)
         {
             var (bound, contradicted) = BoundFor(observation);
             if (contradicted)
@@ -304,8 +267,6 @@ internal static class StaminaPoolEstimator
                 PoolKey = poolKey,
                 Quantity = quantity,
                 ContributingFights = 0,
-                LinkedEngagements = linked,
-                DroppedInFolds = droppedInFolds,
                 ContradictoryFights = contradictions,
             };
         }
@@ -323,8 +284,6 @@ internal static class StaminaPoolEstimator
             interval,
             SupportingFights: depth,
             ContributingFights: bounds.Count,
-            LinkedEngagements: linked,
-            DroppedInFolds: droppedInFolds,
             ContradictoryFights: contradictions,
             TiedRuns: runs);
     }

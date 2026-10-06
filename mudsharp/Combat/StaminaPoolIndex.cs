@@ -5,7 +5,7 @@ namespace MudSharp.Combat;
 /// refresh.
 ///
 /// <para><b>Why the estimates are precomputed rather than derived on lookup.</b>
-/// <see cref="StaminaPoolEstimator.Estimate"/> sorts, filters and sweeps a species' whole observation
+/// <see cref="StaminaPoolEstimator.Estimate"/> bounds and sweeps a species' whole observation
 /// set - cheap in absolute terms, and completely unsuited to the UI thread on a refresh path
 /// (Invariant #1). The corpus only changes when an encounter closes, so the work belongs at load and
 /// at that boundary, exactly where <see cref="SwingDamageIndex"/> puts its own.</para>

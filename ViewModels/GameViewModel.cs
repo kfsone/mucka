@@ -1015,6 +1015,8 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             _autoRecordPending = false;
             StartRecording();   // arm, never toggle - he may already have armed it by hand
         }
+        // Read here, on the read-loop thread, where the connection has just opened this login's row.
+        SidePanel.OnGameModeEntered(_conn.PersonaSessionId);
         MainThread.BeginInvokeOnMainThread(() =>
         {
             _inGameMode = true;

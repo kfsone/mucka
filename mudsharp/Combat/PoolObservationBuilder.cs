@@ -10,11 +10,6 @@ namespace MudSharp.Combat;
 /// <param name="DamageHigh">Bracket high.</param>
 /// <param name="Rung">The creature's health rung as it stood BEFORE this swing - which is how the
 /// ledger stores it, because MUD2 prints the descriptor on the line after a landed blow.</param>
-/// <param name="PlayerStamina">The player's stamina at this swing. Carried so consecutive fights
-/// against one name can be tested for player-state continuity - see <see cref="ChaseLinkPolicy"/>.</param>
-/// <param name="PlayerStaminaMax">The player's maximum at this swing. A change in it is a dreamword
-/// boost, which is a deliberate re-attempt rather than a chase.</param>
-/// <param name="PlayerWeapon">What the player had in hand. Only stamped on outgoing rows.</param>
 public readonly record struct PoolSwingRow(
     string NpcName,
     long TimestampMs,
@@ -22,24 +17,16 @@ public readonly record struct PoolSwingRow(
     bool Hit,
     double? DamageLow,
     double? DamageHigh,
-    int? Rung,
-    int? PlayerStamina = null,
-    int? PlayerStaminaMax = null,
-    string? PlayerWeapon = null);
+    int? Rung);
 
 /// <summary>One row of the fight rollup, reduced to what a pool observation needs.</summary>
 /// <param name="EndedInKill">Only a kill by the player's own blow. A creature that dropped dead of
 /// poison bounds nothing - the damage that finished it was never on the wire.</param>
-/// <param name="EncounterStartedAtMs">The encounter this fight belonged to. Two same-name fights
-/// inside ONE encounter cannot be a re-engagement with a respawn; they are either a chase after the
-/// creature broke off, or a FOLD of several creatures sharing one printed name. See
-/// <see cref="ChaseLinker"/>.</param>
 public readonly record struct PoolFightRow(
     string NpcName,
     long StartedAtMs,
     long EndedAtMs,
-    bool EndedInKill,
-    long? EncounterStartedAtMs = null);
+    bool EndedInKill);
 
 /// <summary>
 /// Assembles <see cref="PoolFightObservation"/>s from the two stored streams: the per-fight rollup,
@@ -100,22 +87,8 @@ public static class PoolObservationBuilder
         if (blows.Count == 0)
             return null;
 
-        // Player state across the fight, for the chase-linkage test. Taken from the swing rows rather
-        // than the rollup because the rollup stores no weapon-at-end and no per-swing stamina.
-        int? staStart = null, staEnd = null, maxEnd = null;
-        string? weapon = null;
-        foreach (var swing in ordered)
-        {
-            staStart ??= swing.PlayerStamina;
-            if (swing.PlayerStamina is not null) staEnd = swing.PlayerStamina;
-            if (swing.PlayerStaminaMax is not null) maxEnd = swing.PlayerStaminaMax;
-            if (!string.IsNullOrWhiteSpace(swing.PlayerWeapon)) weapon = swing.PlayerWeapon;
-        }
-
         return new PoolFightObservation(
-            fight.NpcName, fight.StartedAtMs, fight.EndedAtMs, fight.EndedInKill, blows, rungs,
-            fight.EncounterStartedAtMs,
-            new PlayerFightState(staStart, staEnd, maxEnd, weapon));
+            fight.NpcName, fight.StartedAtMs, fight.EndedAtMs, fight.EndedInKill, blows, rungs);
     }
 
     /// <summary>

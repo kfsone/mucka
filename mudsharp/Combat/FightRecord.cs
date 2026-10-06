@@ -101,22 +101,8 @@ public sealed record FightRecord
 
     /// <summary>
     /// When the previous engagement against this exact instance name ended, if this recorder saw one
-    /// in this session. Unix ms, matching <see cref="EndedAtMs"/> on that earlier row.
-    ///
-    /// <para><b>Why the row needs this.</b> MUD2 ends combat with a creature every time it tries to
-    /// flee, succeeds or not, and a cornered creature tries every round; a creature that gets away is
-    /// chased into another room. Each of those is its own engagement with its own attack command, so
-    /// the recorder writes each as its own row - deliberately, because <c>ChaseLinker</c> can only
-    /// rejoin them into one observation against one stamina pool if they are separate rows in the
-    /// first place. The cost is that the LAST row of such a run holds only the killing blow, and read
-    /// on its own it says a banshee died to one hit. 128 of the 206 one-hit kills in the corpus at the
-    /// time of writing are that row; the rest are genuine (foxes, fireflies, goblins).</para>
-    ///
-    /// <para><b>Deliberately raw.</b> No time bound and no policy is applied here: this is the
-    /// observation, and whether the gap is short enough to be one creature is
-    /// <c>ChaseLinkPolicy</c>'s question, asked at read time where it can be changed without
-    /// rewriting history. The earlier row's outcome is recoverable by joining on
-    /// (npc_name, ended_at_ms).</para>
+    /// in this session. Unix ms, matching <see cref="EndedAtMs"/> on that earlier row. Raw: no time
+    /// bound and no policy applied.
     /// </summary>
     public long? PrevSameNameEndedMs { get; init; }
     public int? ObjectsCarried { get; init; }

@@ -211,7 +211,7 @@ public sealed class SwingLedger
         var result = new List<PoolFightRow>();
         using var command = connection.CreateCommand();
         command.CommandText =
-            "SELECT npc_name, started_at_ms, ended_at_ms, outcome, encounter_started_at_ms "
+            "SELECT npc_name, started_at_ms, ended_at_ms, outcome "
             + "FROM fights WHERE npc_name IS NOT NULL;";
         using var reader = command.ExecuteReader();
         while (reader.Read())
@@ -224,8 +224,7 @@ public sealed class SwingLedger
                 // that finished the creature without the player's blow - must NOT read as a kill: the
                 // damage that ended it never crossed the wire, so the row can floor the pool and must
                 // never ceiling it. Pinned by SwingLedgerOutcomeTests.
-                string.Equals(reader.GetString(3), nameof(FightOutcome.Kill), StringComparison.Ordinal),
-                reader.IsDBNull(4) ? null : reader.GetInt64(4)));
+                string.Equals(reader.GetString(3), nameof(FightOutcome.Kill), StringComparison.Ordinal)));
         }
         return result;
     }
@@ -238,7 +237,7 @@ public sealed class SwingLedger
         var result = new List<PoolSwingRow>();
         using var command = connection.CreateCommand();
         command.CommandText =
-            "SELECT npc, ts, dir, hit, dmg_low, dmg_high, rung, sta, sta_max, weapon "
+            "SELECT npc, ts, dir, hit, dmg_low, dmg_high, rung "
             + "FROM swings WHERE npc IS NOT NULL ORDER BY ts, id;";
         using var reader = command.ExecuteReader();
         while (reader.Read())
@@ -250,11 +249,7 @@ public sealed class SwingLedger
                 reader.GetInt64(3) != 0,
                 reader.IsDBNull(4) ? null : reader.GetDouble(4),
                 reader.IsDBNull(5) ? null : reader.GetDouble(5),
-                reader.IsDBNull(6) ? null : reader.GetInt32(6),
-                // Player state, for the chase-linkage test - see MudSharp.Combat.ChaseLinkPolicy.
-                reader.IsDBNull(7) ? null : reader.GetInt32(7),
-                reader.IsDBNull(8) ? null : reader.GetInt32(8),
-                reader.IsDBNull(9) ? null : reader.GetString(9)));
+                reader.IsDBNull(6) ? null : reader.GetInt32(6)));
         }
         return result;
     }
