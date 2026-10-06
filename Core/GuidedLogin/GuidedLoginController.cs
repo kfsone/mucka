@@ -1,5 +1,6 @@
 using MudSharp.Models;
 using Mucka.Commands;
+using Mucka.Store;
 
 namespace Mucka.Core.GuidedLogin;
 
@@ -468,9 +469,11 @@ public sealed class GuidedLoginController : IDisposable
             return await CreatePersonaAsync(_preferredPersonaName, sex.Value, ct).ConfigureAwait(false);
         }
 
+        var lastStarted = await Task.Run(() => PersonaRecency.LastStarted(_conn.DatabasePath, _conn.Host)).ConfigureAwait(false);
+        var ranked = PersonaRecency.OrderMostRecentFirst(slots.Where(s => !s.IsUnused), s => s.Name, lastStarted);
         SetPhase(GuidedLoginPhase.AwaitingPersonaChoice);
         _personaDecision = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
-        PersonaChoiceReady?.Invoke(new PersonaChoice(slots.Where(s => !s.IsUnused).ToList(), hasFreeSlot, _mailItems));
+        PersonaChoiceReady?.Invoke(new PersonaChoice(ranked, hasFreeSlot, _mailItems));
         var choice = await _personaDecision.Task.ConfigureAwait(false);
         if (choice is null)
         {
