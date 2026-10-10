@@ -310,7 +310,7 @@ The fact tables, and where each came from:
 | `fights` | the combat database | one row per per-NPC fight |
 | `npc_stamina_reads` | the combat database | every `diagnose` reading |
 | `score_events` | the combat database | every `(Persona saved on ...)` line |
-| `mucka_runs` | the wire log | one row per run of the client - every login, logout and world reset inside one process |
+| `mucka_runs` | the wire log | one row per run of the client - every login, logout and world reset inside one process - and one per run imported from MuckaII by `$import2` |
 | `persona_sessions` | added with the session key | one row per LOGIN, with its persona, host and how it ended; what every fact table above points at |
 | `wire` | the wire log | one row per record: `ts_ms`, `direction`, and the bytes |
 
@@ -393,6 +393,16 @@ thread; the wire capture stamps `DateTimeOffset.UtcNow` on the socket read and w
 thread. Same clock, different threads - so a
 wire record and the swing parsed out of it are comparable to within the parse, which is what any
 cross-stream question needs.
+
+### Imported runs
+
+`$import2` (`MuckaIIImport`) copies finished runs from MuckaII's `muckaii.db` into `mucka_runs` and
+`wire`. Each such run has `client_version` beginning `MuckaII `, which is also the dedupe key
+together with `started_ms` and `host`; a run taken without a recorded end (`$import2 unclosed ids`)
+ends `(unclosed)`. The run's received bytes are replayed through `MudSession` to write
+`persona_sessions` and `score_events`, so those rows carry the wire record's timestamp rather than
+the import's, and they are tied to their login directly. `PersonaSessionBackfill` leaves imported
+runs out of its time-window attribution. Swings, fights and encounters are not imported.
 
 ## Paths, and what the store is allowed to assume
 

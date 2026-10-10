@@ -1,5 +1,6 @@
 using System.Globalization;
 using Microsoft.Data.Sqlite;
+using MudSharp.Models;
 using MudSharp.Session;
 using Mucka.Commands;
 using Mucka.Store;
@@ -43,7 +44,12 @@ public static class PersonaSessionBackfill
 {
     /// <summary>One reconstructed login: when game mode was entered and left, who was playing, and
     /// how it finished.</summary>
-    private readonly record struct Login(long StartedMs, long? EndedMs, string? Persona, string? EndNote);
+    internal readonly record struct Login(long StartedMs, long? EndedMs, string? Persona, string? EndNote);
+
+    /// <summary>One score line seen while replaying, with the wire instant it arrived and the index
+    /// into the replay's login list of the login it happened in (the list's length at that moment, so
+    /// it indexes the login being built).</summary>
+    internal readonly record struct ReplayedScore(long Ms, ScoreSave Save, bool AfterTaskLine, int LoginIndex);
 
     /// <summary>
     /// Fills in every login the wire log can still account for, then attributes whatever fact rows
@@ -217,6 +223,7 @@ public static class PersonaSessionBackfill
             JOIN mucka_runs r ON r.id = p.mucka_run_id
             WHERE r.ended_ms IS NOT NULL
               AND p.mucka_run_id IS NOT $live
+              AND COALESCE(r.client_version, '') NOT LIKE 'MuckaII %'
             ORDER BY p.started_ms, p.id;
             """;
         command.Parameters.AddWithValue("$live", (object?)liveRunId ?? DBNull.Value);
@@ -234,8 +241,30 @@ public static class PersonaSessionBackfill
     /// than today's.
     /// </summary>
     private static List<Login> ReplayLogins(SqliteConnection connection, long runId)
+        => ReplayLogins(ReadReceived(connection, runId), scores: null);
+
+    private static IEnumerable<(long Ts, byte[] Data)> ReadReceived(SqliteConnection connection, long runId)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText =
+            "SELECT ts_ms, data FROM wire WHERE mucka_run_id = $run AND direction = 0 ORDER BY seq;";
+        command.Parameters.AddWithValue("$run", runId);
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+            yield return (reader.GetInt64(0), (byte[])reader[1]);
+    }
+
+    /// <summary>
+    /// The replay itself, over any source of received records: this client's own wire table, or
+    /// another client's log being imported. When <paramref name="scores"/> is given, every
+    /// <c>(Persona saved on ...)</c> line seen inside a login is added to it, stamped with the wire
+    /// record's instant.
+    /// </summary>
+    internal static List<Login> ReplayLogins(IEnumerable<(long Ts, byte[] Data)> received,
+        List<ReplayedScore>? scores)
     {
         var logins = new List<Login>();
+        var afterTask = false;
         long? openedAt = null;
         string? persona = null;
         var watcher = new SessionEndWatcher();
@@ -278,17 +307,21 @@ public static class PersonaSessionBackfill
             watcher.Begin();
         };
 
-        using (var command = connection.CreateCommand())
+        if (scores is not null)
         {
-            command.CommandText =
-                "SELECT ts_ms, data FROM wire WHERE mucka_run_id = $run AND direction = 0 ORDER BY seq;";
-            command.Parameters.AddWithValue("$run", runId);
-            using var reader = command.ExecuteReader();
-            while (reader.Read())
+            session.TaskCompleted += _ => afterTask = true;
+            session.ScoreSaved += save =>
             {
-                ts = reader.GetInt64(0);
-                session.Feed((byte[])reader[1]);
-            }
+                if (openedAt is not null)
+                    scores.Add(new ReplayedScore(ts, save, afterTask, logins.Count));
+                afterTask = false;
+            };
+        }
+
+        foreach (var (recordTs, data) in received)
+        {
+            ts = recordTs;
+            session.Feed(data);
         }
 
         // A run whose log ends mid-game - the client was killed, or the capture was truncated.
@@ -306,7 +339,7 @@ public static class PersonaSessionBackfill
         return command.ExecuteScalar() as string;
     }
 
-    private static long InsertSession(SqliteConnection connection, SqliteTransaction transaction,
+    internal static long InsertSession(SqliteConnection connection, SqliteTransaction transaction,
         long runId, string? host, Login login)
     {
         using var command = connection.CreateCommand();

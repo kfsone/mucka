@@ -1620,6 +1620,9 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             else if (string.Equals(name, "SCORE", StringComparison.OrdinalIgnoreCase)
                 || name.StartsWith("SCORE ", StringComparison.OrdinalIgnoreCase))
                 OpenScoreGraph(name.Length > 5 ? name[6..] : string.Empty);
+            else if (string.Equals(name, "IMPORT2", StringComparison.OrdinalIgnoreCase)
+                || name.StartsWith("IMPORT2 ", StringComparison.OrdinalIgnoreCase))
+                ImportMuckaII(name.Length > 7 ? name[8..] : string.Empty);
             else if (name == "fkeys" || name.StartsWith("fkeys ", StringComparison.OrdinalIgnoreCase))
                 PrintFkeys(name.Length > 5 ? name[6..].Trim() : string.Empty);
             // $f<n>: annotate with fkey n's macro (absolute 1-36). Checked after "fkeys" so it
@@ -1744,6 +1747,8 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         AddSystemLine("  $MARK [@id|\"note\"]    drop a landmark into the log", 14);
         AddSystemLine("  $MARK start|end ...   open/close a nested span (end takes no id)", 14);
         AddSystemLine($"  $SCORE [days] [name]  graph a character's score (default: {ScoreCommandArgs.DefaultDays} days, you)", 14);
+        AddSystemLine("  $import2 [path]       import finished MuckaII runs (default ~/.muckaii/muckaii.db)", 14);
+        AddSystemLine("  $import2 unclosed 2,4 also import those runs, which have no recorded end", 14);
         AddSystemLine("  $VER                  expands to the current Mucka version", 14);
         AddSystemLine("  $name=command         define a command until you exit the gameworld", 14);
         AddSystemLine("  $name                 run a command defined above", 14);
@@ -1875,6 +1880,67 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             return;
         }
         ScoreGraph.Open(args.Value);
+    }
+
+    private int _importing;
+
+    /// <summary>$import2 [path] - copies finished MuckaII runs into this database; see
+    /// <see cref="Mucka.Combat.MuckaIIImport"/>. Off the UI thread: the replay parses every byte.</summary>
+    private void ImportMuckaII(string argument)
+    {
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        var parsed = Mucka.Commands.ImportCommandArgs.Parse(argument, home,
+            OperatingSystem.IsWindows() ? Path.Combine(home, ".muckaii", "muckaii.db") : null, out var error);
+        if (parsed is null)
+        {
+            AddSystemLine($"[import2] {error}; usage: $import2 [path] [unclosed id,id]", 9);
+            return;
+        }
+        var source = parsed.Value.Path;
+        var unclosed = parsed.Value.Unclosed;
+
+        if (Interlocked.Exchange(ref _importing, 1) != 0)
+        {
+            AddSystemLine("[import2] already running", 9);
+            return;
+        }
+
+        var destination = _conn.DatabasePath;
+        AddSystemLine($"[import2] importing from {source} ...", 14);
+        _ = Task.Run(() =>
+        {
+            string message;
+            byte color = 14;
+            try
+            {
+                if (!File.Exists(source))
+                {
+                    message = $"[import2] no such file: {source}";
+                    color = 9;
+                }
+                else
+                {
+                    var r = Mucka.Combat.MuckaIIImport.Run(destination, source, unclosed);
+                    message = $"[import2] {r.RunsImported} runs imported ({r.RunsAlreadyImported} already here), "
+                        + $"{r.Sessions} logins, {r.ScoreEvents} score lines, {r.WireRows:N0} wire records";
+                    if (r.RunsSkippedUnclosed.Count > 0)
+                        message += $"; skipped unclosed runs {string.Join(",", r.RunsSkippedUnclosed)}";
+                    if (r.ScoreEventsWithoutPersona > 0)
+                        message += $"; {r.ScoreEventsWithoutPersona} score lines had no persona and will not graph";
+                }
+            }
+            catch (Exception ex)
+            {
+                CrashLog.Write("$import2", ex);
+                message = $"[import2] failed: {ex.Message}";
+                color = 9;
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _importing, 0);
+            }
+            MainThread.BeginInvokeOnMainThread(() => AddSystemLine(message, color));
+        });
     }
 
     /// <summary>The operator's landmarks in the log - see <see cref="SessionMarks"/> for the id
