@@ -280,7 +280,12 @@ public static class PersonaSessionBackfill
         // The combat clock is left alone - it is internal to mudsharp, and nothing here reads a combat
         // event. Game mode and character identity come off the C1 stream and the score sheet, neither
         // of which consults a clock. Every instant recorded below is the WIRE record's own ts.
-        session.GameModeEntered += () => { openedAt = ts; persona = null; watcher.Begin(); };
+        // A client that never asks for the score sheet (MuckaII) leaves CharacterIdentified silent, so
+        // the login is named from the persona menu and the slot number answered at it.
+        var menu = new System.Text.StringBuilder();
+        IReadOnlyList<PersonaSlot>? slots = null;
+        string? picked = null;
+        session.GameModeEntered += () => { openedAt = ts; persona = picked; picked = null; watcher.Begin(); };
         session.CharacterIdentified += name => persona = name;
 
         // The one classifier, driven from what a replay can actually observe.
@@ -295,7 +300,35 @@ public static class PersonaSessionBackfill
         session.LineReady += line =>
         {
             if (openedAt is not null)
+            {
                 watcher.NoteLine(line.PlainText);
+                return;
+            }
+
+            if (slots is null)
+            {
+                // The buffer restarts at the menu's own opening line, so a long splash before it can
+                // never push the marker out; with no marker in it, it is only ever pre-menu text.
+                const string marker = "personae available to you";
+                if (line.PlainText.Contains(marker, StringComparison.OrdinalIgnoreCase)
+                    || (menu.Length > 4096 && menu.ToString().IndexOf(marker, StringComparison.OrdinalIgnoreCase) < 0))
+                    menu.Clear();
+                menu.Append(line.PlainText).Append(' ');
+                slots = ShellText.TryParsePersonaSlots(ShellText.NormalizeWhitespace(menu.ToString()));
+                if (slots is not null)
+                    menu.Clear();
+            }
+            else if (line.PlainText.TrimStart('*').Trim() is { Length: > 0 } answer)
+            {
+                // The first non-empty line after the menu is the server's echo of the answer, and it
+                // arrives on the end of the unterminated "*" prompt: the wire carries "*2".
+                // A slot number, or the persona's name typed in full.
+                picked = int.TryParse(answer, out var number)
+                    ? slots.FirstOrDefault(s => s.Slot == number && !s.IsUnused)?.Name
+                    : slots.FirstOrDefault(s => !s.IsUnused
+                        && string.Equals(s.Name, answer, StringComparison.OrdinalIgnoreCase))?.Name;
+                slots = null;
+            }
         };
 
         session.GameModeExited += () =>
@@ -304,6 +337,8 @@ public static class PersonaSessionBackfill
                 logins.Add(new Login(started, ts, persona, PersonaSessionEndNote.For(watcher.Reason)));
             openedAt = null;
             persona = null;
+            slots = null;
+            menu.Clear();
             watcher.Begin();
         };
 

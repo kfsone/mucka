@@ -638,6 +638,53 @@ public sealed class ScoreGraphTests : IDisposable
     }
 
     [Fact]
+    public void Reader_reads_a_wiped_persona_as_zero_from_the_wipe_and_the_skull_keeps_the_lost_score()
+    {
+        using (var c = MuckaDb.Open(DbPath))
+        {
+            var run = Run(c, "h", 0, 900);
+            var wiped = Session(c, run, "h", "A", 100, 500);
+            Scalar(c, "UPDATE persona_sessions SET ended_note = 'permadeath' WHERE id = $id; SELECT 0;", ("$id", wiped));
+            Score(c, wiped, 200, 2161);
+            Score(c, wiped, 300, 2684);
+        }
+
+        var history = ScoreHistoryReader.Read(DbPath, 0, 1000, -1);
+        var key = new PersonaKey("h", "A");
+
+        Assert.Equal([new ScorePoint(200, 2161), new ScorePoint(300, 2684), new ScorePoint(500, 0)], history.Points[key]);
+
+        ScoreGraphSeries[] series = [new("A", history.Points[key], history.PersonaSessions[key], history.Permadeaths[key])];
+        var plot = ScoreGraphPlot.Build(new ScoreGraphScene(0, 1000, false, 0, series, [], [], Zero: true), 600, 300, TimeZoneInfo.Utc);
+
+        Assert.Equal(plot.Bottom, plot.Lines[0][^1].Y, 1);
+        Assert.Equal(plot.Lines[0].Min(p => p.Y), plot.Deaths[0].Y, 1);
+    }
+
+    [Fact]
+    public void Reader_zeroes_every_wipe_of_a_persona_and_orders_a_tie_after_the_reading()
+    {
+        using (var c = MuckaDb.Open(DbPath))
+        {
+            var run = Run(c, "h", 0, 900);
+            var first = Session(c, run, "h", "A", 100, 500);
+            Scalar(c, "UPDATE persona_sessions SET ended_note = 'permadeath' WHERE id = $id; SELECT 0;", ("$id", first));
+            Score(c, first, 200, 300);
+            Score(c, first, 500, 400);   // stamped at the wipe instant
+            var second = Session(c, run, "h", "A", 600, 800);
+            Scalar(c, "UPDATE persona_sessions SET ended_note = 'permadeath' WHERE id = $id; SELECT 0;", ("$id", second));
+            Score(c, second, 700, 250);
+        }
+
+        var history = ScoreHistoryReader.Read(DbPath, 0, 1000, -1);
+
+        Assert.Equal(
+            [new ScorePoint(200, 300), new ScorePoint(500, 400), new ScorePoint(500, 0),
+                new ScorePoint(700, 250), new ScorePoint(800, 0)],
+            history.Points[new PersonaKey("h", "A")]);
+    }
+
+    [Fact]
     public void Stats_count_gains_and_losses_separately()
     {
         ScorePoint[] points = [new(0, 1000), new(1, 1500), new(2, 900), new(3, 950)];

@@ -326,7 +326,9 @@ public sealed class ScoreGraphPlot
             foreach (var ms in scene.Series[s].Permadeaths ?? [])
             {
                 if (ms < scene.StartMs || ms > scene.EndMs || real.Length == 0) continue;
-                var held = real.LastOrDefault(p => p.Ms <= ms);
+                // The last score above zero: the wipe's own zero reading sits at ms, and the skull marks
+                // what was lost.
+                var held = real.LastOrDefault(p => p.Ms <= ms && p.Total > 0);
                 deaths.Add(new PlotDeath(axis.Map(ms), YReal(held == default ? real[0].Total : held.Total)));
             }
 

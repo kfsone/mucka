@@ -178,6 +178,22 @@ public static class ScoreHistoryReader
                 runs.Add((reader.GetString(0), new TimeSpanMs(reader.GetInt64(1), reader.GetInt64(2))));
         }
 
+        // A wipe prints no score line, so the last reading would otherwise stand until the next life's
+        // first one. The persona's score is zero from the wipe (the decoder's C13 zeroes it too), and
+        // the step down to it is the loss.
+        foreach (var (key, instants) in wipes)
+        {
+            if (!points.TryGetValue(key, out var series))
+                continue;
+            // Looked up in the readings as read, so one wipe's zero is never taken for a later wipe's
+            // last reading; the stable sort keeps a zero after a reading stamped at the same instant.
+            var read = series.ToArray();
+            foreach (var ms in instants)
+                if (read.LastOrDefault(p => p.Ms <= ms) is { Total: > 0 })
+                    series.Add(new ScorePoint(ms, 0));
+            points[key] = [.. series.OrderBy(p => p.Ms)];
+        }
+
         return new ScoreHistory(nowMs,
             points.ToDictionary(kv => kv.Key, kv => kv.Value.ToArray()),
             sessions.ToDictionary(kv => kv.Key, kv => kv.Value.ToArray()),

@@ -33,6 +33,12 @@ public sealed class MuckaIIImportTests : IDisposable
     private static byte[] LeavesGameMode => Encoding.Latin1.GetBytes("\r\nOption (H for help): ");
     private static byte[] Text(string s) => Encoding.Latin1.GetBytes(s);
 
+    /// <summary>C08+C13 around "Not updating persona.", as the server sends it on a wipe.</summary>
+    private static readonly byte[] WipeFrame =
+    [
+        .. "\r\n"u8, 0xA3, 0xA8, 0xFF, 0xFF, .. "Not updating persona."u8, 0xFF, 0xFF, .. "\r\n"u8,
+    ];
+
     private SqliteConnection CreateSource()
     {
         var connection = new SqliteConnection(new SqliteConnectionStringBuilder
@@ -125,6 +131,79 @@ public sealed class MuckaIIImportTests : IDisposable
         Assert.Equal(1_002_000, Count("SELECT MAX(ts) FROM score_events"));
         Assert.Equal(-102, Count("SELECT delta FROM score_events WHERE total = 19112"));
         Assert.Equal(0, Count("SELECT COUNT(*) FROM score_events WHERE persona_session_id IS NULL"));
+    }
+
+    [Fact]
+    public void ALoginNeverScored_IsNamedFromThePersonaMenuAndTheSlotAnswered_AndItsWipeShows()
+    {
+        using (var source = CreateSource())
+        {
+            AddRun(source, 7, "mud2.co.uk", 1_000_000, 1_010_000);
+            AddWire(source, 7, 0, 1_000_010, 0,
+                Text("The personae available to you are:\r\n(1)     Ollie,\r\n(2)     Derpster,\r\n(3)     Awlie.\r\n"
+                    + "By what name shall I call you (Q to quit)?\r\n*"));
+            AddWire(source, 7, 1, 1_000_020, 1, Text("2\r\n"));
+            AddWire(source, 7, 2, 1_000_030, 0, Text("2\r\n"));
+            AddWire(source, 7, 3, 1_000_040, 0, EntersGameMode);
+            AddWire(source, 7, 4, 1_001_000, 0, Text("(Persona saved on +38 = 2,161).\r\n"));
+            AddWire(source, 7, 5, 1_002_000, 0, WipeFrame);
+            AddWire(source, 7, 6, 1_003_000, 0, LeavesGameMode);
+        }
+
+        MuckaIIImport.Run(DestinationPath, SourcePath);
+
+        Assert.Equal(1, Count("SELECT COUNT(*) FROM persona_sessions WHERE persona = 'Derpster' AND ended_note = 'permadeath'"));
+    }
+
+    [Fact]
+    public void ThePickNamesOnlyTheLoginItOpened_ByNumberOrByName_PastALongSplash()
+    {
+        using (var source = CreateSource())
+        {
+            AddRun(source, 7, "mud2.co.uk", 1_000_000, 1_010_000);
+            AddWire(source, 7, 0, 1_000_005, 0, Text(string.Concat(Enumerable.Repeat("Splash text line.\r\n", 400))));
+            AddWire(source, 7, 1, 1_000_010, 0,
+                Text("The personae available to you are:\r\n(1)     Ollie,\r\n(2)     Derpster.\r\n"
+                    + "By what name shall I call you (Q to quit)?\r\n*"));
+            AddWire(source, 7, 2, 1_000_030, 0, Text("derpster\r\n"));
+            AddWire(source, 7, 3, 1_000_040, 0, EntersGameMode);
+            AddWire(source, 7, 4, 1_003_000, 0, LeavesGameMode);
+            // Back at the shell and into a game again with no menu in between: nothing was picked.
+            AddWire(source, 7, 5, 1_004_000, 0, EntersGameMode);
+            AddWire(source, 7, 6, 1_005_000, 0, LeavesGameMode);
+            // An out-of-range number picks nothing.
+            AddWire(source, 7, 7, 1_006_000, 0,
+                Text("The personae available to you are:\r\n(1)     Ollie,\r\n(2)     Derpster.\r\n"
+                    + "By what name shall I call you (Q to quit)?\r\n*9\r\n"));
+            AddWire(source, 7, 8, 1_007_000, 0, EntersGameMode);
+            AddWire(source, 7, 9, 1_008_000, 0, LeavesGameMode);
+        }
+
+        MuckaIIImport.Run(DestinationPath, SourcePath);
+
+        Assert.Equal(3, Count("SELECT COUNT(*) FROM persona_sessions"));
+        Assert.Equal(1, Count("SELECT COUNT(*) FROM persona_sessions WHERE persona = 'Derpster'"));
+        Assert.Equal(2, Count("SELECT COUNT(*) FROM persona_sessions WHERE persona IS NULL"));
+    }
+
+    [Fact]
+    public void ASlotAnsweredWithQ_NamesNoLogin()
+    {
+        using (var source = CreateSource())
+        {
+            AddRun(source, 7, "mud2.co.uk", 1_000_000, 1_010_000);
+            AddWire(source, 7, 0, 1_000_010, 0,
+                Text("The personae available to you are:\r\n(1)     Ollie,\r\n(2)     Derpster.\r\n"
+                    + "By what name shall I call you (Q to quit)?\r\n"));
+            AddWire(source, 7, 1, 1_000_030, 0, Text("q\r\n"));
+            AddWire(source, 7, 2, 1_000_035, 0, Text("2\r\n"));
+            AddWire(source, 7, 3, 1_000_040, 0, EntersGameMode);
+            AddWire(source, 7, 4, 1_003_000, 0, LeavesGameMode);
+        }
+
+        MuckaIIImport.Run(DestinationPath, SourcePath);
+
+        Assert.Equal(0, Count("SELECT COUNT(*) FROM persona_sessions WHERE persona IS NOT NULL"));
     }
 
     [Fact]
