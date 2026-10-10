@@ -60,17 +60,34 @@ public sealed class SomeKindKnowledge
     private readonly object _lock = new();
     private readonly Dictionary<string, SomeKind> _bySpecies = new(StringComparer.Ordinal);
 
+    /// <summary>
+    /// Species known to be "someone" before this install has been blinded by any. Goblin, dwarf and
+    /// giant are the operator's rule; the man (runs 12, 35, 36, 58, 59: "The man fades from view."
+    /// then "Someone hits you") and the thief (run 12, blind: "Someone hits you (115/120).") are
+    /// observed. Every player is "someone" too, by <see cref="PlayerOpponent"/>. Ghoul, zombie and
+    /// skeleton are not listed: untested. A later deduction replaces a seed, as it replaces any
+    /// learned kind.
+    /// </summary>
+    private static readonly HashSet<string> SeededSomeone =
+        new(new[] { "man", "thief", "goblin", "dwarf", "giant" }.Select(NpcGroups.Normalize), StringComparer.Ordinal);
+
     /// <summary>Raised once per species the first time its kind is learned, and again only if a
     /// later deduction changes it. Not raised by <see cref="Restore"/>.</summary>
     public event Action<string, SomeKind>? Revealed;
 
     public SomeKind? Known(string npcName)
     {
+        if (PlayerOpponent.IsPersona(npcName))
+            return SomeKind.Someone;
         // Normalised outside the lock: string work under a lock the Feed thread also takes is time
         // the UI thread's per-row lookups would spend blocking it.
         var species = NpcGroups.Normalize(npcName);
         lock (_lock)
-            return _bySpecies.TryGetValue(species, out var kind) ? kind : null;
+        {
+            if (_bySpecies.TryGetValue(species, out var kind))
+                return kind;
+        }
+        return SeededSomeone.Contains(species) ? SomeKind.Someone : null;
     }
 
     /// <summary>The kind to assume when writing about this Creature: what is known, else
@@ -80,7 +97,7 @@ public sealed class SomeKindKnowledge
     public void Learn(string npcName, SomeKind kind)
     {
         var species = NpcGroups.Normalize(npcName);
-        if (species.Length == 0 || AnonymousOpponent.IsAnonymous(species))
+        if (species.Length == 0 || AnonymousOpponent.IsAnonymous(species) || PlayerOpponent.IsPersona(npcName))
             return;
         lock (_lock)
         {

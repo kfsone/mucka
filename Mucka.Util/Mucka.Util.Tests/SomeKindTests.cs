@@ -29,6 +29,38 @@ public sealed class SomeKindTests
         Assert.Equal(SomeKind.Something, k.Assumed("podipooper3"));
     }
 
+    [Theory]
+    [InlineData("man")]
+    [InlineData("thief")]
+    [InlineData("goblin4")]
+    [InlineData("dwarf2")]
+    [InlineData("giant1")]
+    public void ThePersonShapedSpeciesTheOperatorNamed_AreSomeoneFromTheStart(string name)
+    {
+        Assert.Equal(SomeKind.Someone, Fresh().Known(name));
+    }
+
+    [Theory]
+    [InlineData("ghoul1")]
+    [InlineData("zombie5")]
+    [InlineData("skeleton3")]
+    public void SpeciesNotYetTested_AreUnknown(string name)
+    {
+        Assert.Null(Fresh().Known(name));
+    }
+
+    [Fact]
+    public void ASeed_IsNotPersisted_AndAnyLearnedKindReplacesIt()
+    {
+        var k = Fresh();
+        Assert.Empty(k.All);
+
+        k.Learn("goblin4", SomeKind.Something);
+
+        Assert.Equal(SomeKind.Something, k.Known("goblin1"));
+        Assert.Single(k.All);
+    }
+
     [Fact]
     public void KnowledgeIsPerSpecies_NotPerInstance()
     {

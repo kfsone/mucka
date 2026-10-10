@@ -1348,6 +1348,10 @@ public sealed class MudSession : IDisposable
         // times in one run - for nothing the client could use.
         if (AnonymousOpponent.IsAnonymous(npc))
             return;
+        // A player's reply to `value` is not a creature's and CreatureValueReply has never been
+        // shown one; no probe is spent on a persona.
+        if (PlayerOpponent.IsPersona(npc))
+            return;
         lock (_fesLock)
         {
             // A new encounter's first participant: forget every reading AND every pending/in-flight

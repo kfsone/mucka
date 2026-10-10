@@ -115,16 +115,20 @@ public sealed class CombatTracker
     /// <see cref="ResolveAnonymous"/> for what the name becomes.</para>
     /// </summary>
     private const string NpcObject  =
-        @"(?:the (?<npc>.+?)|(?<anon>" + AnonymousOpponent.Person + "|" + AnonymousOpponent.Thing + "))";
+        @"(?:the (?<npc>.+?)|(?<anon>" + AnonymousOpponent.Person + "|" + AnonymousOpponent.Thing + ")|" + PlayerOpponent.Persona + ")";
     private const string NpcSubject =
-        @"(?:The (?<npc>.+?)|(?<anon>" + AnonymousOpponent.PersonAsSubject + "|" + AnonymousOpponent.ThingAsSubject + "))";
+        @"(?:The (?<npc>.+?)|(?<anon>" + AnonymousOpponent.PersonAsSubject + "|" + AnonymousOpponent.ThingAsSubject + ")|" + PlayerOpponent.Persona + ")";
+
+    /// <summary>A subject that is always named: a creature, or a player by persona. For the wordings
+    /// that have no anonymous form.</summary>
+    private const string NamedSubject = @"(?:The (?<npc>.+?)|" + PlayerOpponent.Persona + ")";
 
     // NPC-initiated aggro lines never name a weapon and use one of a handful of verb phrases
     // observed in the research capture. Best-effort: MUD2 may use aggro phrasing not yet seen.
     // Deliberately NOT given an anonymous form: every wording here describes watching a creature
     // move, and an invisible one has never been seen announcing itself this way.
     private static readonly Regex NpcAggroStart = new(
-        @"^The (?<npc>.+?) is (?:looking at|glaring at|snarling at|moving towards|rushing at|advancing towards|approaching|staring at) you \w+\.*$",
+        $@"^{NamedSubject} is (?:looking at|glaring at|snarling at|moving towards|rushing at|advancing towards|approaching|staring at) you \w+\.*$",
         RegexOptions.Compiled);
 
     /// <summary>
@@ -148,7 +152,7 @@ public sealed class CombatTracker
     /// player moving first; any other sentence starting with a Creature is the Creature moving
     /// first. Loose on purpose: it reads the name out of a sentence nobody has seen yet.</summary>
     private static readonly Regex CodedStartSubject = new(
-        @"^(?:You attack (?<obj>.+?)|(?<subj>The .+?|Someone|Something) .*)\.$", RegexOptions.Compiled);
+        @"^(?:You attack (?<obj>.+?)|(?<subj>The .+?|Someone|Something|" + PlayerOpponent.Persona + @") .*)\.$", RegexOptions.Compiled);
 
     // Two forms, and the UNARMED one has no weapon clause at all:
     //   armed:   "You attack the thief, using the falchion as a weapon."
@@ -371,7 +375,7 @@ public sealed class CombatTracker
     /// its kill ("You have killed someone.") could only be attributed by luck.</para>
     /// </summary>
     private static readonly Regex NpcFadedFromView = new(
-        @"^The (?<npc>.+?) (?:fades from view\.|has become invisible!)$", RegexOptions.Compiled);
+        $@"^{NamedSubject} (?:fades from view\.|has become invisible!)$", RegexOptions.Compiled);
 
     /// <summary>
     /// "The man has regained his visibleness!" - verbatim, and the end of the anonymity. Observed
@@ -384,7 +388,7 @@ public sealed class CombatTracker
     /// sentence is.</para>
     /// </summary>
     private static readonly Regex NpcRegainedVisibility = new(
-        @"^The (?<npc>.+?) has regained \w+ visibleness!$", RegexOptions.Compiled);
+        $@"^{NamedSubject} (?:has regained \w+ visibleness|has suddenly become visible)!$", RegexOptions.Compiled);
     private static readonly Regex WeaponSwitch = new(
         @"^You drop your guard as you switch from using the (?<from>.+?) to the (?<to>.+?)\.$", RegexOptions.Compiled);
     private static readonly Regex WeaponBroke = new(@"^The (?<weapon>.+?) breaks to bits\.$", RegexOptions.Compiled);
@@ -1078,7 +1082,8 @@ public sealed class CombatTracker
                 actor = CombatActor.Npc;
                 var subj = m.Groups["subj"].Value;
                 // An anonymous SUBJECT opening a fight is a newcomer, exactly as in NpcAboutToAttack.
-                npc = subj.StartsWith("The ", StringComparison.Ordinal) ? subj[4..]
+                npc = m.Groups["npc"].Success ? m.Groups["npc"].Value
+                    : subj.StartsWith("The ", StringComparison.Ordinal) ? subj[4..]
                     : AnonymousOpponent.Canonical(subj) ?? subj;
             }
             BeginAtStart(npc);
@@ -1374,11 +1379,26 @@ public sealed class CombatTracker
     {
         if (_cannotSee)
             return;
-        if (UnseenKindOf(npc, _unseenBlind) is not SomeKind kind)
+        if (UnseenKindOf(npc, _unseenBlind) is SomeKind kind)
+        {
+            _unseenBlind[(int)kind]--;
+            _unseenOpen[(int)kind]--;
+            RetireUnseen(npc, kind);
             return;
-        _unseenBlind[(int)kind]--;
-        _unseenOpen[(int)kind]--;
-        RetireUnseen(npc, kind);
+        }
+
+        // A player named while exactly one "someone" is open is that someone, however it came to be
+        // unseen - invisible and attacking while the player could see is the case the blind-only
+        // count above does not reach. Limited to a persona because naming one teaches nothing: a
+        // creature named while an invisible attacker is open may be a different Creature (a zombie
+        // joining one), and its species would be taught the wrong word for good. With two open the
+        // name cannot say which, and nothing is claimed.
+        if (PlayerOpponent.IsPersona(npc) && _unseenOpen[(int)SomeKind.Someone] == 1)
+        {
+            _unseenOpen[(int)SomeKind.Someone] = 0;
+            _unseenBlind[(int)SomeKind.Someone] = 0;
+            RetireUnseen(npc, SomeKind.Someone);
+        }
     }
 
     /// <summary>
